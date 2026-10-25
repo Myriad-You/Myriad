@@ -14,6 +14,7 @@ pub(crate) use helpers::{
 };
 mod note_collab;
 mod note_docs;
+pub(crate) use note_docs::{NoteDocWriteRequest, load_note_doc, load_note_docs, save_note_doc};
 mod note_editor;
 mod notes;
 mod notes_rss;
@@ -24,6 +25,9 @@ mod routes;
 mod rsshub;
 
 pub use routes::create_phantasi_routes;
+
+#[cfg(test)]
+mod blog_agent_tests;
 
 #[cfg(test)]
 mod integration_tests {

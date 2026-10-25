@@ -3,6 +3,7 @@
 //! 按能力类别分发执行逻辑
 
 mod ai_process;
+mod blog;
 mod data_read;
 mod data_write;
 mod external;
@@ -96,6 +97,8 @@ mod coverage {
                 "phantasi.sources",
                 "phantasi.items",
                 "phantasi.article",
+                "blog.notes",
+                "blog.note",
                 "phantasi.stats",
                 "phantasi.discover",
                 "phantasi.page",
@@ -140,6 +143,7 @@ mod coverage {
                 "tapp.storage",
                 "phantasi.subscribe",
                 "phantasi.mark",
+                "blog.note.update",
                 "content.write",
                 "seo.apply",
             ]),
@@ -283,7 +287,7 @@ mod coverage {
         );
         assert_eq!(
             registry.get_all().len(),
-            120,
+            123,
             "update handler_ids_by_category when adding a capability"
         );
     }

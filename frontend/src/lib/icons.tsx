@@ -284,6 +284,7 @@ import {
   FaXbox,
 } from 'react-icons/fa'
 import { FaGrip } from 'react-icons/fa6'
+import { PiPaperPlaneTiltFill } from 'react-icons/pi'
 import {
   SiAnilist as SiAnilistRaw,
   SiApple as SiAppleRaw,
@@ -764,6 +765,7 @@ export {
   FaXbox,
 }
 export { FaGrip }
+export { PiPaperPlaneTiltFill }
 
 export {
   LuActivity,

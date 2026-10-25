@@ -703,6 +703,7 @@
       "translateSelection": "이 구절을 한국어로 번역해 줘: \"{text}\""
     },
     "inputPlaceholder": "무엇이든 물어보세요…",
+    "residentPlaceholder": "이 글을 어떻게 고칠지 말해 주세요…",
     "chatPlaceholder": "이야기해 보세요…",
     "mode": {
       "label": "모드",
@@ -741,6 +742,7 @@
       "fallback": "{names} 첨부함"
     },
     "expand": "대화 열기",
+    "collapse": "대화 접기",
     "accessDenied": "그럴 권한이 없습니다.",
     "answerFailed": "답변하지 못했습니다: {error}",
     "cancelFailed": "그 작업을 취소하지 못했습니다.",

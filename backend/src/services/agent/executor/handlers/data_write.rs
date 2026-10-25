@@ -61,6 +61,7 @@ pub async fn execute(
     ctx: &HandlerContext<'_>,
 ) -> Result<Value, String> {
     match capability_id {
+        "blog.note.update" => super::blog::execute(capability_id, params, ctx).await,
         "platform.write" => execute_platform_write(params).await,
         "platform.refresh" => execute_platform_refresh(params).await,
         "storage.set" => execute_storage_set(params, ctx).await,

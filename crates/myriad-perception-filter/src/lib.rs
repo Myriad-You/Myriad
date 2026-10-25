@@ -19,7 +19,7 @@
 //! 2. [`secrets::scan`] and [`identifiers::scan`] wipe text before any
 //!    model reads it;
 //! 3. an identifier, a sensitive [`sources`] entry, an account page or a
-//!    site no rule places ([`page`]), a private window or a [`text`] rule →
+//!    sensitive site ([`page`]), a private window or a [`text`] rule →
 //!    [`Disposition::PresentOnly`]; a sensitive source or page leaves nothing,
 //!    not even the marker;
 //! 4. model unavailable or language unsupported → [`Disposition::Blind`];

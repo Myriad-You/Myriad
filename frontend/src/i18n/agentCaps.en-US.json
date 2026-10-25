@@ -1,4 +1,7 @@
 {
+  "blog.notes": "Find blog notes",
+  "blog.note": "Read blog note",
+  "blog.note.update": "Edit blog note",
   "ai.analyze": "Analyze",
   "ai.chat": "Chat",
   "ai.groundingSearch": "Grounded search",

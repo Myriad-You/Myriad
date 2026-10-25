@@ -72,6 +72,8 @@ impl TierRouter {
             // `phantasi.discover` / `phantasi.generateReadingList` 必须排在 `phantasi.` 通配之前（后者才 requires_ai）。
             "phantasi.discover" | "phantasi.generateReadingList" => TaskComplexity::Medium,
             id if id.starts_with("phantasi.") => TaskComplexity::Simple,
+            // Blog editing calls the existing document store, without another model call.
+            "blog.notes" | "blog.note" | "blog.note.update" => TaskComplexity::Simple,
             // 所有 platform 数据读取与写入
             id if id.starts_with("platform.") => TaskComplexity::Simple,
             // 精确 ID 须排在其余 tapp 规则之前（仅 `tapp.understand` 跑 AI；ui/interact 不跑 LLM）。

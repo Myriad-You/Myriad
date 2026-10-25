@@ -105,7 +105,7 @@
    "urlHost": "blog.someone.example",
    "path": "/posts/1",
    "expect": {
-    "read": false,
+    "read": true,
     "page": "unknown",
     "basis": "unknown_site",
     "kind": null,
@@ -113,10 +113,9 @@
     "othersWords": false
    },
    "decide": {
-    "disposition": "present_only",
-    "kind": "unknown",
-    "reason": "page",
-    "leaves": "nothing"
+    "disposition": "carry",
+    "reason": "classify",
+    "leaves": "scrubbed_text"
    }
   },
   {
@@ -215,7 +214,7 @@
    "urlHost": "kusuri.example",
    "market": "sg",
    "expect": {
-    "read": false,
+    "read": true,
     "page": "unknown",
     "basis": "unknown_site",
     "kind": null,
@@ -223,10 +222,9 @@
     "othersWords": false
    },
    "decide": {
-    "disposition": "present_only",
-    "kind": "unknown",
-    "reason": "page",
-    "leaves": "nothing"
+    "disposition": "carry",
+    "reason": "classify",
+    "leaves": "scrubbed_text"
    }
   },
   {
@@ -432,6 +430,25 @@
     "disposition": "present_only",
     "kind": "finance",
     "reason": "source",
+    "leaves": "nothing"
+   }
+  },
+  {
+   "id": "p-sensitive-host",
+   "urlHost": "online-banking.someone.example",
+   "path": "/",
+   "expect": {
+    "read": false,
+    "page": "sensitive",
+    "basis": "sensitive_host",
+    "kind": null,
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "present_only",
+    "kind": "unknown",
+    "reason": "page",
     "leaves": "nothing"
    }
   }

@@ -73,6 +73,12 @@ export interface AgentPanelComposerProps {
   autoFocus?: boolean
   leading?: React.ReactNode
   trailing?: React.ReactNode
+  /**
+   * Lives inside the note editor: only what serves editing this note. No mode switch (always
+   * Work), no page summaries or translations, no saved site-wide shortcuts, and the page
+   * context is shown, not mutable, because it is how the Agent knows which note to edit.
+   */
+  resident?: boolean
 }
 
 const ComposerAttach = React.memo(({
@@ -427,6 +433,7 @@ function MoodTag({ band }: { band: MoodBand }) {
  */
 const ComposerTags = React.memo(({
   mode,
+  resident,
   leading,
   trailing,
   onSubmit,
@@ -435,6 +442,7 @@ const ComposerTags = React.memo(({
   attachErrorLabel,
 }: {
   mode: AgentPanelMode
+  resident: boolean
   leading?: React.ReactNode
   trailing?: React.ReactNode
   onSubmit: AgentPanelComposerProps['onSubmit']
@@ -460,7 +468,7 @@ const ComposerTags = React.memo(({
   const tagScrollRef = useTagStripScroll(favorites.length)
 
   useEffect(() => {
-    if (!isAuthenticated) return
+    if (!isAuthenticated || resident) return
     let cancelled = false
     const load = () => {
       void (async () => {
@@ -478,11 +486,12 @@ const ComposerTags = React.memo(({
       cancelled = true
       stop()
     }
-  }, [isAuthenticated])
+  }, [isAuthenticated, resident])
+  const shortcuts = !resident
 
   return (
-    <div className="agent-panel-composer-tags">
-      <ModeTag mode={mode} />
+    <div className="agent-panel-composer-tags" data-resident={resident ? 'true' : undefined}>
+      {resident ? null : <ModeTag mode={mode} />}
       <div className="agent-panel-tag-mid">
         <div
           className="agent-panel-work-chrome"
@@ -492,10 +501,10 @@ const ComposerTags = React.memo(({
           {leading}
           <span className="agent-panel-work-tags">
             <AgentSwap
-              id={`${canMute ? 'mute' : 'label'}:${context.kind}`}
+              id={`${canMute && !resident ? 'mute' : 'label'}:${context.kind}`}
               from="self"
             >
-              {canMute ? (
+              {canMute && !resident ? (
                 <button
                   type="button"
                   className="agent-panel-tag"
@@ -525,7 +534,7 @@ const ComposerTags = React.memo(({
               )}
             </AgentSwap>
             <AgentPresence
-              open={context.kind === 'selection'}
+              open={shortcuts && context.kind === 'selection'}
               kind="chip"
               from="context"
             >
@@ -546,7 +555,7 @@ const ComposerTags = React.memo(({
               </button>
             </AgentPresence>
             <AgentPresence
-              open={context.kind === 'selection'}
+              open={shortcuts && context.kind === 'selection'}
               kind="chip"
               from="context"
             >
@@ -567,7 +576,7 @@ const ComposerTags = React.memo(({
               </button>
             </AgentPresence>
             <AgentPresence
-              open={context.kind === 'content'}
+              open={shortcuts && context.kind === 'content'}
               kind="chip"
               from="context"
             >
@@ -590,7 +599,7 @@ const ComposerTags = React.memo(({
               </button>
             </AgentPresence>
             <AgentPresence
-              open={context.kind === 'content'}
+              open={shortcuts && context.kind === 'content'}
               kind="chip"
               from="context"
             >
@@ -613,7 +622,7 @@ const ComposerTags = React.memo(({
               </button>
             </AgentPresence>
             <AgentPresenceList
-              items={favorites}
+              items={shortcuts ? favorites : []}
               keyOf={(preset) => String(preset.id)}
               kind="chip"
               from="self"
@@ -733,6 +742,7 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
   autoFocus = true,
   leading,
   trailing,
+  resident = false,
 }) => {
   const { t, locale } = useI18n()
   const mode = useAgentPanelMode()
@@ -857,8 +867,9 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
     if ((hasText || hasAttachments) && conversation) stopConversation()
   }, [hasText, hasAttachments, conversation, stopConversation])
 
-  const placeholder =
-    mode === 'chat'
+  const placeholder = resident
+    ? t.agentPanel.residentPlaceholder
+    : mode === 'chat'
       ? t.agentPanel.chatPlaceholder
       : t.agentPanel.inputPlaceholder
 
@@ -866,6 +877,7 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
     <div className="agent-panel-composer" data-mode={mode}>
       <ComposerTags
         mode={mode}
+        resident={resident}
         leading={leading}
         trailing={trailing}
         onSubmit={onSubmit}

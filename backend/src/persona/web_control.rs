@@ -42,6 +42,9 @@ pub(crate) fn is_web_owned(capability: &str) -> bool {
     matches!(
         capability,
         "scheduler.create"
+            | "blog.notes"
+            | "blog.note"
+            | "blog.note.update"
             | "scheduler.trigger"
             | "scheduler.list"
             | "phantasi.schedule"

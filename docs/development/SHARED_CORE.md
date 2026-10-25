@@ -174,7 +174,7 @@ void myriad_core_buf_free(MyriadCoreBuf buf);
 
 - **形状有版本。** 每个输入可以带 `shape`（默认 1），每个输出都带 `shape`；核心不会说的形状直接拒绝，不猜。`filter.decide` 和 `filter.lists` 还带 `rules`：规则的修订号，词表、名单、判定一改就变，客户端记下是哪一版规则定的去向。
 - **新值按更严的读。** `filter.decide` 的枚举都按字符串收：新客户端发来旧核心不认识的值（新的来源类别、新的模型状态），按更严的那一个处理，不拒绝。缺了某步需要的输入是 `blind`（`reason: "missing"`，`missing` 说缺了哪项），也不拒绝。
-- **网页认不出就不读。** 只有表里的普通网站、文档主机和消息类网站读正文；敏感网站、普通网站上的账号页（路径里有 `settings`、`account`、`password`、`billing`、`payment`、`checkout`、`orders`、`login`……，或标题是账号设置、支付方式这类）、看得见密码框的页面、认不出的网站都不读。敏感的那几类永远压过普通（`pay.普通网站` 列在敏感里就是敏感）。
+- **网页按黑名单读。**（2026-10-25 起，原来是「认不出就不读」）看得见密码框的页面、敏感网站（表里的，以及表里没有、但域名本身说明了用途的：域名里有 bank、insurance、clinic、hospital、dating、tax、gov 这类词，或以 `.gov`、`.go.jp`、`.bank` 这类结尾，`page::sensitive_host`）、任何网站上的账号页（路径里有 `settings`、`account`、`password`、`billing`、`payment`、`checkout`、`orders`、`login`……，或标题是账号设置、支付方式这类）都不读；其余都读正文，包括表里没有的网站（`unknown`）。读出的正文照样经过文字规则、号码扫描和本机模型的分类再决定去向（`filter.decide`），认不出的网站不再单凭这一点什么都不交出。敏感的那几类永远压过普通（`pay.普通网站` 列在敏感里就是敏感）。
 - **敏感的什么都不交。** 来源是敏感类别、网页是账号页或认不出时，`decide` 给 `present_only`，但 `leaves` 是 `nothing`：连「主人在忙私事」的标记也不带，不论 `PRESENT_ONLY_LEAVES_KIND`。看得见密码框是 `exclude`。私密窗口、证件号、文字规则命中仍只交那个不带类别的标记。
 - **一致性对照**：`fixtures/host-filter/pages.json`（`filter.page` 加 `filter.decide`，自带 `.example` 来源表）和 `terminal.json`（终端里的密钥写法），crate 直接跑一遍、经 C 入口再跑一遍；别的客户端按钉住的提交复制这两份，经 C 入口逐条比对。
 - **拒绝不带原文。** 这些调用读的文字里可能有密钥，所以 `bad_input` 的消息只说缺了或多了哪个字段，或者输入不合形状，从不引用输入里的值。输出也不带被抹掉、被命中的原文和它的位置。

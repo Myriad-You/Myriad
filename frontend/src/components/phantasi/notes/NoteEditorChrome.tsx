@@ -229,7 +229,8 @@ export function NoteTopBar({
         </div>
         <div className="phantasi-note__top-right">
           {articleHref ? (
-            <a className="note-btn note-btn--outline note-btn--lg" href={articleHref} target="_blank" rel="noopener noreferrer">
+            <a className="note-btn note-btn--outline note-btn--lg phantasi-note__article-link" href={articleHref} target="_blank" rel="noopener noreferrer" aria-label={t.studio.viewArticle} title={t.studio.viewArticle}>
+              <span className="note-btn__icon"><ExternalLink /></span>
               <span className="note-btn__label">{t.studio.viewArticle}</span>
             </a>
           ) : null}
@@ -1155,14 +1156,13 @@ export function NoteGutter({
 /* ------------------------------------------------------------------ */
 
 interface NoteFootBarProps {
-  aiActions?: ReactNode
   chars: number
   pane: NoteEditorPane
   onPaneChange: (pane: NoteEditorPane) => void
 }
 
-/** 底栏：字数、AI 排版操作和编辑模式切换。 */
-export function NoteFootBar({ chars, pane, onPaneChange, aiActions }: NoteFootBarProps) {
+/** 底栏：字数和编辑模式切换。 */
+export function NoteFootBar({ chars, pane, onPaneChange }: NoteFootBarProps) {
   const { t, format } = useI18n()
   return (
     <footer className="phantasi-note__foot">
@@ -1170,7 +1170,6 @@ export function NoteFootBar({ chars, pane, onPaneChange, aiActions }: NoteFootBa
         <span className="phantasi-note__count">
           {format(t.phantasi.noteCharCount, { count: chars })}
         </span>
-        {aiActions ? <div className="phantasi-note__foot-actions">{aiActions}</div> : null}
       </div>
       <div className="phantasi-note__foot-right">
         <NoteSwitch<NoteEditorPane>

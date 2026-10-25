@@ -374,7 +374,6 @@ mod tests {
                 (Method::GET, "/api/phantasi/notes/docs"),
                 (Method::POST, "/api/phantasi/rsshub/health-check-all"),
                 // admin_middleware
-                (Method::POST, "/api/phantasiai/notes/edit"),
                 (
                     Method::POST,
                     "/api/phantasiai/items/1/annotations/regenerate",
@@ -396,7 +395,6 @@ mod tests {
                 (Method::GET, "/api/phantasi/items"),
                 (Method::GET, "/api/phantasi/stats"),
                 (Method::GET, "/api/phantasi/notes/docs"),
-                (Method::POST, "/api/phantasiai/notes/edit"),
                 (Method::POST, "/api/phantasiai/sources/1/style-tags"),
             ] {
                 let (_, body) = call(&app, method, path, Some("not-a-jwt")).await;

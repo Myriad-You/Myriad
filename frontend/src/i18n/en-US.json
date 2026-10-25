@@ -703,6 +703,7 @@
       "translateSelection": "Translate this passage into English: \"{text}\""
     },
     "inputPlaceholder": "Ask anything…",
+    "residentPlaceholder": "Tell it how to change this note…",
     "chatPlaceholder": "Talk with it…",
     "mode": {
       "label": "Mode",
@@ -741,6 +742,7 @@
       "fallback": "Attached {names}"
     },
     "expand": "Open conversation",
+    "collapse": "Collapse conversation",
     "accessDenied": "You do not have permission to do that.",
     "answerFailed": "Answer failed: {error}",
     "cancelFailed": "Could not cancel that task.",

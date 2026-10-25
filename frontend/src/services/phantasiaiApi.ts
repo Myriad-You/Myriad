@@ -1,5 +1,3 @@
-import type { NoteAiRequest } from '../components/phantasi/notes/noteAiEdit'
-import type { NoteAiResult } from '../components/phantasi/notes/useNoteAiEdit'
 import { currentCopy } from '../i18n/localeCopy'
 import { getDefaultLocale } from '../i18n/locales'
 import { getCSRFToken } from '../utils/csrf'
@@ -525,14 +523,5 @@ export async function generateStyleTags(
   return request<StyleTagsResponse>(`/sources/${sourceId}/style-tags`, {
     method: 'POST',
     signal,
-  })
-}
-
-/** Full current editor source, including unsaved text; never fetched from published HTML. */
-export async function editNoteWithAi(input: NoteAiRequest, signal: AbortSignal): Promise<NoteAiResult> {
-  return request<NoteAiResult>('/notes/edit', {
-    method: 'POST',
-    body: JSON.stringify(input),
-    signal: AbortSignal.any([signal, AbortSignal.timeout(5 * 60 * 1000)]),
   })
 }

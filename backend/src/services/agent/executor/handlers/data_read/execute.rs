@@ -29,6 +29,7 @@ pub async fn execute(
     ctx: &HandlerContext<'_>,
 ) -> Result<Value, String> {
     match capability_id {
+        "blog.notes" | "blog.note" => super::super::blog::execute(capability_id, params, ctx).await,
         "platform.read" => execute_platform_read(params).await,
         "platform.stats" => execute_platform_stats(params).await,
         "phantasi.read" => execute_phantasi_read(params, ctx).await,

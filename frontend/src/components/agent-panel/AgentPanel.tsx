@@ -1,7 +1,7 @@
 import type { AgentAttachment } from './agentAttachments'
 import type { AgentPanelFullView } from './AgentPanelFull'
 import type { AgentPanelMode } from './agentPanelMode'
-import type { AgentPanelPhase, AgentPanelStage } from './agentPanelStage'
+import type { AgentPanelPhase, AgentPanelStage, AgentPanelStageAction } from './agentPanelStage'
 import React, {
   useCallback,
   useEffect,
@@ -101,12 +101,38 @@ const AgentPanelAurora: React.FC<{
   )
 }
 
-export const AgentPanel: React.FC = () => {
+/**
+ * `resident`: the composer lives inside another surface (the note editor) and never goes
+ * away. Closing only folds the conversation back down to the composer; there is no aurora
+ * over the page and no long-press to summon it.
+ */
+export const AgentPanel: React.FC<{ resident?: boolean }> = ({ resident = false }) => {
   const { t } = useI18n()
   const location = useLocation()
-  const [stage, dispatch] = useReducer(
+  const [stage, rawDispatch] = useReducer(
     agentPanelStageReducer,
     INITIAL_AGENT_PANEL_STAGE,
+  )
+  /**
+   * Resident fold: the cards leave exactly as they do when the panel closes (the anchor
+   * reads as closing, so the pan staggers them bottom-up), but the composer stays put.
+   * Opening the conversation again mid-fold brings the cards straight back.
+   */
+  const [folding, setFolding] = useState(false)
+  const foldTimer = useRef(0)
+  const cancelFold = useCallback(() => {
+    if (!foldTimer.current) return
+    window.clearTimeout(foldTimer.current)
+    foldTimer.current = 0
+    setFolding(false)
+  }, [])
+  useEffect(() => () => window.clearTimeout(foldTimer.current), [])
+  const dispatch = useCallback(
+    (action: AgentPanelStageAction) => {
+      if (action.type === 'open' && action.stage === 'full') cancelFold()
+      rawDispatch(action)
+    },
+    [cancelFold],
   )
   const overlayRef = useRef<HTMLDivElement>(null)
   const open = agentPanelIsOpen(stage)
@@ -155,11 +181,42 @@ export const AgentPanel: React.FC = () => {
     }
   }, [])
 
+  const showsFullRef = useRef(showsFull)
+  showsFullRef.current = showsFull
+  const messageCountRef = useRef(messageCount)
+  messageCountRef.current = messageCount
+
+  /** Folds the panel away: shut on the site, back to the composer when resident. */
+  const collapse = useCallback(() => {
+    if (!resident) {
+      dispatch({ type: 'close' })
+      return
+    }
+    if (!showsFullRef.current || foldTimer.current) return
+    const still =
+      document.documentElement.dataset.perfMode === 'exlight' ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (still) {
+      dispatch({ type: 'open', stage: 'overlay' })
+      return
+    }
+    setFolding(true)
+    foldTimer.current = window.setTimeout(() => {
+      foldTimer.current = 0
+      setFolding(false)
+      rawDispatch({ type: 'open', stage: 'overlay' })
+    }, agentPanelSettleTimeoutMs('full', messageCountRef.current))
+  }, [dispatch, resident])
+
   useEffect(() => {
-    const onClose = () => dispatch({ type: 'close' })
+    if (resident) dispatch({ type: 'open', stage: 'overlay' })
+  }, [resident])
+
+  useEffect(() => {
+    const onClose = collapse
     window.addEventListener(AGENT_PANEL_CLOSE_EVENT, onClose)
     return () => window.removeEventListener(AGENT_PANEL_CLOSE_EVENT, onClose)
-  }, [])
+  }, [collapse])
 
   useImmersiveChrome('agent-panel-overlay', navLayout === 'mobile' && open)
 
@@ -174,7 +231,7 @@ export const AgentPanel: React.FC = () => {
         }),
       [hasConversation],
     ),
-    !open,
+    !open && !resident,
   )
 
   // do not depend on message count: streaming tokens would cancel the double rAF
@@ -213,25 +270,25 @@ export const AgentPanel: React.FC = () => {
   useEffect(() => {
     if (shownPathname.current === location.pathname) return
     shownPathname.current = location.pathname
-    dispatch({ type: 'close' })
+    collapse()
     clearAgentSelection()
-  }, [location.pathname])
+  }, [collapse, location.pathname])
 
   useEffect(() => {
     if (!open) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        dispatch({ type: 'close' })
+        if (!resident || showsFull) collapse()
         return
       }
-      if (!showsComposer) return
+      if (!showsComposer || resident) return
       if (!shouldCaptureModeTab(event, overlayRef.current)) return
       event.preventDefault()
       cycleAgentPanelMode(event.shiftKey ? -1 : 1)
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [open, showsComposer])
+  }, [collapse, open, resident, showsComposer, showsFull])
 
   useEffect(() => {
     if (!open) return
@@ -239,9 +296,7 @@ export const AgentPanel: React.FC = () => {
       const node = overlayRef.current
       const target = event.target
       if (target instanceof Element && target.closest('.tour-overlay')) return
-      if (node && !node.contains(target as Node)) {
-        dispatch({ type: 'close' })
-      }
+      if (node && !node.contains(target as Node)) collapse()
     }
     // same long-press mouseup would close the panel if this listener were immediate
     const timer = setTimeout(
@@ -252,7 +307,7 @@ export const AgentPanel: React.FC = () => {
       clearTimeout(timer)
       document.removeEventListener('mousedown', onPointerDown)
     }
-  }, [open])
+  }, [collapse, open])
 
   const submit = useCallback(
     (
@@ -278,25 +333,27 @@ export const AgentPanel: React.FC = () => {
   const undo = useCallback(() => {
     if (!undoOffer) return
     clearAgentUndoOffer(undoOffer.id)
-    dispatch({ type: 'close' })
+    collapse()
     void executeFrontendAction(undoOffer.inverse)
-  }, [undoOffer])
+  }, [collapse, undoOffer])
 
   return (
     <>
       {(showsOverlay || showsFull) && (
         <>
-          <AgentPanelAurora phase={stage.phase} stage={stage.stage} />
+          {resident ? null : <AgentPanelAurora phase={stage.phase} stage={stage.stage} />}
           <div
             ref={overlayRef}
             className="agent-panel-overlay-anchor"
-            data-tour="home-agent-panel"
-            data-phase={stage.phase}
+            data-tour={resident ? undefined : 'home-agent-panel'}
+            data-resident={resident ? 'true' : undefined}
+            data-phase={folding ? 'closing' : stage.phase}
             data-stage={stage.stage}
             data-mode={mode}
           >
             {showsFull ? (
               <AgentPanelFull
+                resident={resident}
                 view={fullView}
                 onView={setFullView}
                 onSubmit={submit}
@@ -317,12 +374,13 @@ export const AgentPanel: React.FC = () => {
             ) : null}
             {showsComposer && !awayFromChat && (
               <AgentPanelComposer
+                resident={resident}
                 onSubmit={submit}
                 autoFocus={fullView !== 'sessions' && stage.phase === 'settled'}
                 leading={
                   <>
                     <AgentPanelHerTime
-                      open={open && stage.phase === 'settled' && !undoOffer}
+                      open={!resident && open && stage.phase === 'settled' && !undoOffer}
                     />
                     <AgentPresence open={!!undoOffer} kind="chip" from="self">
                       {undoOffer ? (
@@ -349,7 +407,35 @@ export const AgentPanel: React.FC = () => {
                     </AgentPresence>
                   </>
                 }
-                trailing={
+                trailing={resident ? (
+                  <AgentPresence open={messageCount > 0} kind="chip" from="self">
+                    <button
+                      type="button"
+                      className="agent-panel-tag"
+                      data-icon="true"
+                      aria-expanded={showsFull && !folding}
+                      onClick={() =>
+                        showsFull && !folding
+                          ? collapse()
+                          : dispatch({ type: 'open', stage: 'full' })
+                      }
+                      title={showsFull && !folding ? t.agentPanel.collapse : t.agentPanel.expand}
+                      aria-label={showsFull && !folding ? t.agentPanel.collapse : t.agentPanel.expand}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d={showsFull && !folding ? 'm6 9 6 6 6-6' : 'm6 15 6-6 6 6'} />
+                      </svg>
+                    </button>
+                  </AgentPresence>
+                ) : (
                   <>
                     <AgentPanelSessionChrome
                       view={showsFull ? fullView : 'messages'}
@@ -389,24 +475,26 @@ export const AgentPanel: React.FC = () => {
                       </button>
                     </AgentPresence>
                   </>
-                }
+                )}
               />
             )}
           </div>
         </>
       )}
 
-      <div
-        className={`agent-panel-longpress${indicator.active ? ' active' : ''}`}
-        style={{ left: indicator.x, top: indicator.y }}
-      >
-        <div className="agent-panel-lp-dot" />
-        <div className="agent-panel-lp-pulse" />
-        <svg className="agent-panel-lp-svg" viewBox="0 0 40 40">
-          <circle className="agent-panel-lp-track" cx="20" cy="20" r="16" />
-          <circle className="agent-panel-lp-ring" cx="20" cy="20" r="16" />
-        </svg>
-      </div>
+      {resident ? null : (
+        <div
+          className={`agent-panel-longpress${indicator.active ? ' active' : ''}`}
+          style={{ left: indicator.x, top: indicator.y }}
+        >
+          <div className="agent-panel-lp-dot" />
+          <div className="agent-panel-lp-pulse" />
+          <svg className="agent-panel-lp-svg" viewBox="0 0 40 40">
+            <circle className="agent-panel-lp-track" cx="20" cy="20" r="16" />
+            <circle className="agent-panel-lp-ring" cx="20" cy="20" r="16" />
+          </svg>
+        </div>
+      )}
     </>
   )
 }

@@ -1,4 +1,7 @@
 {
+  "blog.notes": "Rechercher des notes de blog",
+  "blog.note": "Lire une note de blog",
+  "blog.note.update": "Modifier une note de blog",
   "ai.analyze": "Analyser",
   "ai.chat": "Discuter",
   "ai.groundingSearch": "Recherche ancrée",

@@ -1,4 +1,7 @@
 {
+  "blog.notes": "블로그 노트 찾기",
+  "blog.note": "블로그 노트 읽기",
+  "blog.note.update": "블로그 노트 편집",
   "ai.analyze": "분석",
   "ai.chat": "대화",
   "ai.groundingSearch": "근거 검색",

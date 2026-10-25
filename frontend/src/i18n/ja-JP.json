@@ -703,6 +703,7 @@
       "translateSelection": "この部分を日本語に翻訳して：「{text}」"
     },
     "inputPlaceholder": "何でも聞いてください…",
+    "residentPlaceholder": "この記事をどう直すか伝える…",
     "chatPlaceholder": "話しかけて…",
     "mode": {
       "label": "モード",
@@ -741,6 +742,7 @@
       "fallback": "{names} を添付しました"
     },
     "expand": "会話を開く",
+    "collapse": "会話をたたむ",
     "accessDenied": "この操作を行う権限がありません。",
     "answerFailed": "回答失敗：{error}",
     "cancelFailed": "そのタスクをキャンセルできませんでした。",

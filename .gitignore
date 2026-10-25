@@ -140,6 +140,10 @@ backend/data/.bootstrap-claimed
 !/frontend/tests/browser/fixture/poseCorrectionEditor.tsx
 !/frontend/tests/browser/fixture/touchHandoff.tsx
 
+# Studio Agent editing regressions
+!/frontend/tests/browser/noteAgent.spec.ts
+!/frontend/tests/browser/fixture/noteAgent.tsx
+
 # TAPP title gestures, tiling and iframe continuity regressions
 !/frontend/tests/browser/tappWindows.spec.ts
 !/frontend/tests/browser/fixture/tappWindows.tsx

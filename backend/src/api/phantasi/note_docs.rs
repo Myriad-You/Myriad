@@ -274,18 +274,25 @@ pub(crate) async fn list_note_docs(
     State(db): State<DatabaseConnection>,
     _admin: AdminClaims,
 ) -> Result<Json<serde_json::Value>, HttpError> {
+    load_note_docs(&db).await.map(Json)
+}
+
+/// Shared with Agent after checking the caller's current administrator status.
+pub(crate) async fn load_note_docs(
+    db: &DatabaseConnection,
+) -> Result<serde_json::Value, HttpError> {
     let docs = phantasi_note_docs::list_query()
         .order_by_desc(phantasi_note_docs::Column::UpdatedAt)
-        .all(&db)
+        .all(db)
         .await
         .map_err(|e| phantasi_store_http("list note docs", e))?;
     let ids: Vec<i32> = docs.iter().map(|doc| doc.id).collect();
-    let authors = load_authors_for_docs(&db, &ids).await?;
-    let slugs = slugs_for_items(&db, &docs).await?;
-    Ok(Json(json!({
+    let authors = load_authors_for_docs(db, &ids).await?;
+    let slugs = slugs_for_items(db, &docs).await?;
+    Ok(json!({
         "success": true,
         "docs": note_docs_with_authors(docs, authors, &slugs),
-    })))
+    }))
 }
 
 /// `POST /notes/docs` — 建一篇云端草稿。标题可空。
@@ -346,10 +353,15 @@ pub(crate) async fn get_note_doc(
     _admin: AdminClaims,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let doc = find_doc(&db, id).await?;
-    Ok(Json(
-        json!({ "success": true, "doc": respond_doc(&db, doc).await? }),
-    ))
+    load_note_doc(&db, id).await.map(Json)
+}
+
+pub(crate) async fn load_note_doc(
+    db: &DatabaseConnection,
+    id: i32,
+) -> Result<serde_json::Value, HttpError> {
+    let doc = find_doc(db, id).await?;
+    Ok(json!({ "success": true, "doc": respond_doc(db, doc).await? }))
 }
 
 /// `GET /notes/docs/for-item/{item_id}` — 已发布笔记对应的文档。
@@ -397,8 +409,18 @@ pub(crate) async fn update_note_doc(
     Json(req): Json<NoteDocWriteRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     let user_id = admin_user_id(&admin)?;
+    save_note_doc(&db, user_id, id, req).await.map(Json)
+}
+
+/// The HTTP editor and Agent share revision checks, history, media and broadcasts.
+pub(crate) async fn save_note_doc(
+    db: &DatabaseConnection,
+    user_id: i32,
+    id: i32,
+    req: NoteDocWriteRequest,
+) -> Result<serde_json::Value, HttpError> {
     let expected = expected_revision(req.revision)?;
-    let doc = find_doc(&db, id).await?;
+    let doc = find_doc(db, id).await?;
     if !revision_matches(expected, doc.revision) {
         return Err(phantasi_http_err(
             StatusCode::CONFLICT,
@@ -478,10 +500,10 @@ pub(crate) async fn update_note_doc(
         crate::services::blog::request_rebuild();
     }
     broadcast_saved_doc(&saved, user_id, req.client_request_id);
-    Ok(Json(json!({
+    Ok(json!({
         "success": true,
-        "doc": credit_and_respond(&db, saved, user_id).await?,
-    })))
+        "doc": credit_and_respond(db, saved, user_id).await?,
+    }))
 }
 
 fn saved_doc_event(
@@ -1120,9 +1142,10 @@ mod tests {
     #[test]
     fn draft_save_is_a_conditional_update() {
         let src = include_str!("note_docs.rs");
+        // The editor's HTTP handler and Agent's blog.note.update both save through here.
         let start = src
-            .find("pub(crate) async fn update_note_doc")
-            .expect("update_note_doc");
+            .find("pub(crate) async fn save_note_doc")
+            .expect("save_note_doc");
         let body = &src[start..];
         let end = body[1..]
             .find("\npub(crate) async fn ")

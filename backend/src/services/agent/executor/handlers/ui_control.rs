@@ -1122,6 +1122,17 @@ async fn execute_page_understand(
 ) -> Result<Value, String> {
     let page_context = page_understand_context(params);
     let query = page_understand_query(params);
+    // The editor's DOM is chrome around a blog document; analysing it says nothing about the note.
+    if let Some(meta) = params
+        .get("context")
+        .map(|context| &context["metadata"])
+        .filter(|meta| meta["surface"].as_str() == Some("note_editor"))
+    {
+        return Err(match meta["noteDocId"].as_i64().filter(|id| *id > 0) {
+            Some(id) => format!("This page is the blog note editor. Read the note with blog.note (docId {id}) and edit it with blog.note.update"),
+            None => "This blog note has not been saved to the cloud yet; wait for autosave and try again".into(),
+        });
+    }
 
     if let Some(analyzer) = ctx.ai_analyzer {
         let context_str = serde_json::to_string_pretty(&page_context).unwrap_or_default();
@@ -1339,6 +1350,19 @@ async fn execute_page_content(
         .and_then(|v| v.as_str())
         .unwrap_or_else(|| detect_page_type(current_path));
     let context = params.get("context").cloned().unwrap_or(json!({}));
+
+    // In the note editor the page is a blog document, and the editor's DOM is only chrome:
+    // read the document itself, with the revision a later blog.note.update needs.
+    if context["metadata"]["surface"].as_str() == Some("note_editor") {
+        let Some(doc_id) = context["metadata"]["noteDocId"]
+            .as_i64()
+            .filter(|id| *id > 0)
+        else {
+            return Err("This blog note has not been saved to the cloud yet; wait for autosave and try again".into());
+        };
+        let note = HashMap::from([("docId".to_string(), json!(doc_id))]);
+        return super::blog::execute("blog.note", &note, ctx).await;
+    }
 
     if let Some(snapshot) = context
         .get("content")

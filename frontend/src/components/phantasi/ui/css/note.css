@@ -24,6 +24,38 @@
   min-height: 0;
 }
 
+/* ---- 常驻的 Agent：输入框停在底栏上方，对话往上展开，盖在纸面上；设置抽屉仍在它上面 ---- */
+
+.phantasi-note__agent {
+  position: relative;
+  z-index: 30;
+  flex: none;
+  height: 0;
+}
+
+.phantasi-note__agent .agent-panel-overlay-anchor[data-resident='true'] {
+  --agent-shell-max: min(34rem, calc(100dvh - 9rem));
+
+  position: absolute;
+  inset: auto auto 0.75rem 50%;
+  z-index: auto;
+  width: min(calc(100% - 2 * var(--note-gutter)), 40rem);
+}
+
+/* 收起对话：卡片按关闭时的节奏逐张收回输入行，输入框本身不动、不淡、仍可点。 */
+.phantasi-note__agent .agent-panel-overlay-anchor[data-resident='true'][data-phase='closing'] {
+  opacity: 1;
+  translate: -50% 0;
+  scale: 1;
+  pointer-events: auto;
+}
+
+/* 正文最后几行要能滚到输入框上面来。 */
+.phantasi-note__frame:has(> .phantasi-note__agent:not(:empty)) .phantasi-note__scroll {
+  padding-bottom: 6.5rem;
+  scroll-padding-bottom: 6.5rem;
+}
+
 /* ---- 顶栏：薄、透明 ---- */
 
 .phantasi-note__top {
@@ -771,7 +803,6 @@ html.dark .phantasi-note.phantasi-skin .phantasi-note__bubble-btn:hover {
 }
 
 .phantasi-note__foot-left,
-.phantasi-note__foot-actions,
 .phantasi-note__foot-right {
   display: flex;
   align-items: center;
@@ -2296,12 +2327,12 @@ html[data-perf-mode='exlight'] .note-companion__value {
 
 @media (width < 640px) {
   .phantasi-note__top-right .note-btn--quiet .note-btn__label,
-  .phantasi-note__foot-actions .note-btn__label {
+  .phantasi-note__article-link .note-btn__label {
     display: none;
   }
 
   .phantasi-note__top-right .note-btn--quiet,
-  .phantasi-note__foot-actions .note-btn--quiet {
+  .phantasi-note__article-link {
     width: var(--note-ctl-h);
     padding: 0;
   }

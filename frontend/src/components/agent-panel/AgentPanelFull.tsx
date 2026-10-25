@@ -67,6 +67,8 @@ export interface AgentPanelFullProps {
   onSubmit: (text: string) => void
   onWorkOffer: (input: string) => void
   showChrome?: boolean
+  /** Inside the note editor: one fresh conversation per note, nothing earlier to page back to. */
+  resident?: boolean
 }
 
 export const AgentPanelSessionChrome: React.FC<{
@@ -171,6 +173,7 @@ export const AgentPanelFull: React.FC<AgentPanelFullProps> = ({
   onSubmit,
   onWorkOffer,
   showChrome = false,
+  resident = false,
 }) => {
   const { t } = useI18n()
   const messageIds = useAgentMessageIds()
@@ -365,7 +368,7 @@ export const AgentPanelFull: React.FC<AgentPanelFullProps> = ({
               </>
             ) : (
               <>
-                {mode === 'work' && sessionId ? (
+                {mode === 'work' && sessionId && !resident ? (
                   <button
                     type="button"
                     className="agent-panel-tag"

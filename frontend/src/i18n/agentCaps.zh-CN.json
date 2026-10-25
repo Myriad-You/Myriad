@@ -1,4 +1,7 @@
 {
+  "blog.notes": "查找博客笔记",
+  "blog.note": "读取博客笔记",
+  "blog.note.update": "编辑博客笔记",
   "ai.analyze": "分析",
   "ai.chat": "对话",
   "ai.groundingSearch": "Grounding 搜索",

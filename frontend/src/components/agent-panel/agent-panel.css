@@ -1118,6 +1118,11 @@ button.agent-panel-tag:disabled {
   contain: layout;
 }
 
+/* No mode switch in the note editor: tags take the left, actions stay at the right edge. */
+.agent-panel-composer-tags[data-resident='true'] {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .agent-panel-tag-mid {
   display: flex;
   flex-wrap: nowrap;

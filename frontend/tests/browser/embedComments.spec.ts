@@ -8,6 +8,8 @@ function row(id: number, userId: number, name: string, text: string, extra = {})
 }
 }
 
+const markdown = '**bold** and [evil](javascript:alert(1)) and [ok](https://example.com)'
+
 async function mock(page: import('@playwright/test').Page, authed: boolean, deleted: number[] = []) {
   await page.addInitScript(() => localStorage.setItem('locale', 'en-US'))
   await page.route('**/api/**', (route) => {
@@ -25,6 +27,7 @@ async function mock(page: import('@playwright/test').Page, authed: boolean, dele
       return route.fulfill({ json: { success: true, has_comments: true, can_write: authed, comments: [
         row(1, 2, 'Alice', 'Great post.', { reply_count: 1 }),
         row(2, 1, 'Owner', 'A note from me.'),
+        row(3, 3, 'Carol', markdown),
       ] } })
     }
     return route.fulfill({ json: url.includes('csrf') ? { csrf_token: null } : {} })
@@ -56,4 +59,14 @@ test('deleting your own comment asks first and then removes it', async ({ page }
   await frame.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click()
   await expect(frame.getByText('A note from me.')).toHaveCount(0)
   expect(deleted).toEqual([2])
+})
+
+test('comments render Markdown but only http(s) links', async ({ page }) => {
+  await mock(page, false)
+  await page.goto('/embedCommentsHost.html')
+  const frame = page.frameLocator('iframe')
+  await expect(frame.locator('strong', { hasText: 'bold' })).toBeVisible()
+  await expect(frame.getByRole('link', { name: 'ok' })).toHaveAttribute('rel', /nofollow ugc/)
+  await expect(frame.getByRole('link', { name: 'evil' })).toHaveCount(0)
+  await expect(frame.getByText('[evil](javascript:alert(1))', { exact: false })).toBeVisible()
 })

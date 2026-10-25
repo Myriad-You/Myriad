@@ -11,7 +11,6 @@ use std::collections::{HashMap, HashSet};
 
 use pulldown_cmark::{Event, Options, Parser, Tag, html};
 
-pub mod ai_edit;
 mod layout;
 #[cfg(test)]
 mod merge;

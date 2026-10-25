@@ -215,7 +215,8 @@ describe('agent panel motion contract', () => {
       full,
       /held === 'messages' && \(sessionId \|\| hasNewer\)/,
     )
-    assert.match(full, /mode === 'work' && sessionId \? \(/)
+    // The note editor's resident panel has no earlier pages to offer.
+    assert.match(full, /mode === 'work' && sessionId && !resident \? \(/)
   })
 
   it('switches work/chat on a fixed stage: ends stay, middle and face only fade', () => {

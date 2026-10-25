@@ -703,6 +703,7 @@
       "translateSelection": "Übersetze diesen Abschnitt ins Deutsche: \"{text}\""
     },
     "inputPlaceholder": "Fragen Sie etwas…",
+    "residentPlaceholder": "Sag, wie diese Notiz geändert werden soll …",
     "chatPlaceholder": "Mit ihm sprechen…",
     "mode": {
       "label": "Modus",
@@ -741,6 +742,7 @@
       "fallback": "{names} angehängt"
     },
     "expand": "Gespräch öffnen",
+    "collapse": "Unterhaltung einklappen",
     "accessDenied": "Dafür fehlen Ihnen die Rechte.",
     "answerFailed": "Antwort fehlgeschlagen: {error}",
     "cancelFailed": "Aufgabe ließ sich nicht abbrechen.",

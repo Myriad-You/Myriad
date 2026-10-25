@@ -484,21 +484,19 @@ impl Agent {
             state.prune_results();
             let definitions = tools::definitions(state, &granted).await;
             let system = tools::system_prompt(state, &granted).await;
+            // What the provider is sent, not the stored struct: each assistant turn keeps
+            // both a parsed copy and its native message, and only the native one goes out.
             let input_chars = system.chars().count()
-                + serde_json::to_string(&state.history)
-                    .unwrap()
-                    .chars()
-                    .count()
+                + crate::services::analyzer::tool_calling::history_wire_chars(&state.history)
                 + serde_json::to_string(&definitions).unwrap().chars().count();
             if state.input_chars.saturating_add(input_chars) > MAX_INPUT_CHARS {
                 return Err("The task reached its context budget".into());
             }
-            // UTF-8 bytes provide a conservative preflight estimate; provider usage
-            // settles the reservation. No tokenizer or dollar price is invented.
-            let input_estimate = (system.len()
-                + serde_json::to_vec(&state.history).unwrap().len()
-                + serde_json::to_vec(&definitions).unwrap().len())
-                as u64;
+            // Characters are a conservative preflight estimate (a token covers at least
+            // one character in practice); provider usage settles the reservation. UTF-8
+            // bytes tripled every CJK character and refused turns with budget to spare.
+            // No tokenizer or dollar price is invented.
+            let input_estimate = input_chars as u64;
             let max_output = state
                 .budget
                 .as_mut()

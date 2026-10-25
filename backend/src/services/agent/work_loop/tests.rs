@@ -255,6 +255,33 @@ fn work_prompt_receives_live_route_and_request_preferences() {
     assert_eq!(evidence["platforms"][0], "steam");
 }
 
+#[test]
+fn the_note_editor_names_its_document_where_tools_are_chosen() {
+    let mut state = checkpoint();
+    let page = |metadata: Value| {
+        Some(RequestContext {
+            custom_data: Some(json!({"pageContent": {"title": "测试 2", "metadata": metadata}})),
+            ..Default::default()
+        })
+    };
+    state.request.context = page(json!({"surface": "note_editor", "noteDocId": 3}));
+    let focus = tools::note_editor_focus(&state.request);
+    assert!(focus.contains("blog document 3 (title \"测试 2\")"));
+    assert!(focus.contains("blog.note (docId 3)"));
+    assert!(focus.contains("blog.note.update (docId 3"));
+    assert!(focus.contains("pass edits: find/replace pairs"));
+    assert!(focus.contains("page.content and page.understand cannot see"));
+
+    state.request.context = page(json!({"surface": "note_editor", "noteDocId": null}));
+    assert!(tools::note_editor_focus(&state.request).contains("not been saved to the cloud"));
+
+    // Any other page, or none, adds nothing.
+    state.request.context = page(json!({"noteDocId": 3}));
+    assert!(tools::note_editor_focus(&state.request).is_empty());
+    state.request.context = None;
+    assert!(tools::note_editor_focus(&state.request).is_empty());
+}
+
 #[tokio::test]
 async fn failed_discovery_does_not_partially_expand_the_tool_catalog() {
     let mut state = checkpoint();

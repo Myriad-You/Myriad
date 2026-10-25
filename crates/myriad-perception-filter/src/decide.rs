@@ -6,9 +6,10 @@
 //! unavailable model, an unsupported language, an error or an unsure answer
 //! never lets anything through and never falls back to a cloud model.
 //!
-//! A sensitive site or app, an account page and a page no rule places leave
-//! nothing at all, not even the "busy with something private" marker: that
-//! the owner was on such a page is itself what must not leave.
+//! A sensitive site or app and an account page leave nothing at all, not even
+//! the "busy with something private" marker: that the owner was on such a
+//! page is itself what must not leave. A page no rule places (`unknown`) is
+//! not held for that alone: its text goes on to the rules and the model.
 
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -43,7 +44,7 @@ pub enum Reason {
     PasswordField,
     Identifier,
     Source,
-    /// The page: an account page, or a site no rule places.
+    /// The page: an account page, or a sensitive site.
     Page,
     Private,
     Text,
@@ -255,7 +256,7 @@ pub fn decide_with(d: &Decision, policy: &Policy) -> Decided {
     let sensitive_source =
         matches!(source, Some(None)) || matches!(source, Some(Some(kind)) if kind.sensitive());
     let page = d.page.as_deref().map(|page| match page {
-        "ordinary" | "messaging" => None,
+        "ordinary" | "messaging" | "unknown" => None,
         "account" => Some(PrivateKind::Account),
         _ => Some(PrivateKind::Unknown),
     });

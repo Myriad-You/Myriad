@@ -71,6 +71,17 @@ function handleSelectionChange(): void {
   notify()
 }
 
+/**
+ * A selection made somewhere the document selection cannot see: a textarea, or another
+ * frame (Studio's editor window handing its selection to the Agent window).
+ */
+export function rememberAgentSelection(raw: string): void {
+  const text = normalizeSelection(raw)
+  if (!selectionCounts(text)) return
+  current = { text, capturedAtMs: Date.now() }
+  notify()
+}
+
 export function clearAgentSelection(): void {
   if (current === EMPTY) return
   current = EMPTY

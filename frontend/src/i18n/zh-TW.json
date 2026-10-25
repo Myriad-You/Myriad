@@ -703,6 +703,7 @@
       "translateSelection": "把這段翻譯成中文：“{text}”"
     },
     "inputPlaceholder": "問點什麼…",
+    "residentPlaceholder": "說說這篇要怎麼改…",
     "chatPlaceholder": "跟它說…",
     "mode": {
       "label": "模式",
@@ -741,6 +742,7 @@
       "fallback": "附上了 {names}"
     },
     "expand": "展開對話",
+    "collapse": "收起對話",
     "accessDenied": "沒有權限執行這次操作。",
     "answerFailed": "回答失敗：{error}",
     "cancelFailed": "沒能取消這個任務。",

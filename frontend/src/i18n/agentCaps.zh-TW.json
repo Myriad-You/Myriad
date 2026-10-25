@@ -1,4 +1,7 @@
 {
+  "blog.notes": "尋找部落格筆記",
+  "blog.note": "讀取部落格筆記",
+  "blog.note.update": "編輯部落格筆記",
   "ai.analyze": "分析",
   "ai.chat": "對話",
   "ai.groundingSearch": "Grounding 搜尋",

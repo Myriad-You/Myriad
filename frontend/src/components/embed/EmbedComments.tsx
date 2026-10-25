@@ -1,10 +1,15 @@
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
 import type { CommentItem } from '../../types/phantasi'
 import {
+  LuArrowRight as ArrowRight,
   LuChevronDown as ChevronDown,
+  LuLoader2 as Loader,
   LuMessageCircle as MessageCircle,
-  LuSend as Send,
+  LuReply as Reply,
+  PiPaperPlaneTiltFill as Send,
+  SiMarkdown,
   LuTrash2 as Trash2,
+  LuX as X,
 } from '@lib/icons'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
@@ -13,6 +18,7 @@ import { useI18n } from '../../contexts/I18nContext'
 import * as phantasiApi from '../../services/phantasiApi'
 import { formatUserFacingError } from '../../utils/formatUserFacingError'
 import { articleReturnPath, loginHref } from '../../utils/safeReturnPath'
+import { CommentBody } from './CommentBody'
 import { commentHue, commentWhen } from './commentTime'
 import { useFitFrameHeight } from './embedFrame'
 import { embedHost } from './embedHost'
@@ -78,6 +84,9 @@ function Avatar({ name, src, seed, small = false }: { name: string; src?: string
   )
 }
 
+/** 快捷键提示按系统写：苹果是 ⌘，其他是 Ctrl（两个都认）。 */
+const SEND_MOD = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘' : 'Ctrl'
+
 /** 输入框始终是展开的：几行高、底栏一直在。跟着字数长高；⌘/Ctrl+Enter 发，Esc 收起回复框。 */
 function Composer({
   value,
@@ -86,7 +95,6 @@ function Composer({
   onCancel,
   busy,
   placeholder,
-  label,
   copy,
   autoFocus = false,
   avatar,
@@ -97,7 +105,6 @@ function Composer({
   onCancel?: () => void
   busy: boolean
   placeholder: string
-  label?: string
   copy: Copy
   autoFocus?: boolean
   avatar?: ReactNode
@@ -128,7 +135,6 @@ function Composer({
     >
       {avatar}
       <div className="cm-composer__box">
-        {label ? <span className="cm-composer__label">{label}</span> : null}
         <textarea
           ref={ref}
           rows={3}
@@ -139,14 +145,23 @@ function Composer({
           onKeyDown={onKeyDown}
           onChange={(event) => onChange(event.target.value)}
         />
+        {/* 底栏：左边 Markdown 标记，右边取消（回复时）和发表；发表带着字和快捷键。 */}
         <div className="cm-composer__foot">
-          <span className="cm-composer__hint">{copy.sendShortcut}</span>
+          <span className="cm-composer__md" title={copy.markdownHint} aria-label={copy.markdownHint} role="img">
+            <SiMarkdown aria-hidden="true" />
+          </span>
           {onCancel ? (
-            <button type="button" className="cm-btn cm-btn--quiet" onClick={onCancel}>{copy.cancel}</button>
+            <button type="button" className="cm-icon-btn" aria-label={copy.cancel} title={copy.cancel} onClick={onCancel}>
+              <X aria-hidden="true" />
+            </button>
           ) : null}
-          <button type="submit" className="cm-btn cm-btn--accent" disabled={busy || !value.trim()}>
-            <Send aria-hidden="true" />
-            {busy ? copy.sending : copy.send}
+          <button type="submit" className="cm-send" disabled={busy || !value.trim()}>
+            {busy ? <Loader className="cm-spin" aria-hidden="true" /> : <Send aria-hidden="true" />}
+            <span>{busy ? copy.sending : copy.send}</span>
+            <span className="cm-send__keys" aria-hidden="true">
+              <kbd>{SEND_MOD}</kbd>
+              <kbd>↵</kbd>
+            </span>
           </button>
         </div>
       </div>
@@ -344,13 +359,15 @@ export function EmbedComments() {
               </button>
             ) : null}
           </header>
-          <p className="cm-entry__body">{comment.comment}</p>
+          <CommentBody text={comment.comment} />
           {confirming === comment.id ? (
             <div className="cm-confirm" role="alertdialog" aria-label={copy.deleteConfirm}>
               <span>{copy.deleteConfirm}</span>
-              <button type="button" className="cm-btn cm-btn--quiet" onClick={() => setConfirming(null)}>{copy.cancel}</button>
-              <button type="button" className="cm-btn cm-btn--danger" disabled={busy} onClick={() => { void remove(comment) }}>
-                {copy.delete}
+              <button type="button" className="cm-icon-btn" aria-label={copy.cancel} title={copy.cancel} onClick={() => setConfirming(null)}>
+                <X aria-hidden="true" />
+              </button>
+              <button type="button" className="cm-icon-btn cm-icon-btn--danger" aria-label={copy.delete} title={copy.delete} disabled={busy} onClick={() => { void remove(comment) }}>
+                <Trash2 aria-hidden="true" />
               </button>
             </div>
           ) : actions ? (
@@ -386,7 +403,7 @@ export function EmbedComments() {
         <a className="cm-login" href={loginHref(articlePath)} target="_top">
           <MessageCircle aria-hidden="true" />
           <span>{copy.loginPrompt}</span>
-          <span className="cm-btn cm-btn--accent">{copy.login}</span>
+          <ArrowRight className="cm-login__go" aria-hidden="true" />
         </a>
       ) : null}
       {hasChecked && isAuthenticated && !canWrite && !loading ? <p className="cm-note">{copy.cannotWrite}</p> : null}
@@ -421,12 +438,15 @@ export function EmbedComments() {
                     <button
                       type="button"
                       className={`cm-link${replyTo === comment.id ? ' is-on' : ''}`}
+                      aria-label={copy.reply}
+                      title={copy.reply}
+                      aria-pressed={replyTo === comment.id}
                       onClick={() => {
                         setReplyTo(replyTo === comment.id ? null : comment.id)
                         setReplyDraft('')
                       }}
                     >
-                      {copy.reply}
+                      <Reply aria-hidden="true" />
                     </button>
                   ) : null}
                   {count > 0 ? (
@@ -434,10 +454,13 @@ export function EmbedComments() {
                       type="button"
                       className={`cm-link${shown ? ' is-on' : ''}`}
                       aria-expanded={shown}
+                      aria-label={shown ? copy.hideReplies : format(copy.repliesCount, { count })}
+                      title={shown ? copy.hideReplies : format(copy.repliesCount, { count })}
                       onClick={() => { void toggleReplies(comment.id) }}
                     >
+                      <MessageCircle aria-hidden="true" />
+                      <span className="cm-link__count">{count}</span>
                       <ChevronDown className="cm-link__chev" aria-hidden="true" />
-                      {shown ? copy.hideReplies : format(copy.repliesCount, { count })}
                     </button>
                   ) : null}
                 </>
@@ -457,8 +480,7 @@ export function EmbedComments() {
                     onSubmit={() => { void sendReply(comment.id) }}
                     onCancel={() => setReplyTo(null)}
                     busy={busy}
-                    placeholder={copy.replyPlaceholder}
-                    label={format(copy.replyingTo, { name })}
+                    placeholder={format(copy.replyingTo, { name })}
                     copy={copy}
                     autoFocus
                   />

@@ -45,6 +45,18 @@ export function themeBootInlineScript(): string {
     apply(embed
       ? parentScheme() || (prefersDark ? 'dark' : 'light')
       : stored === 'light' || stored === 'dark' ? stored : prefersDark ? 'dark' : 'light');
+    // 嵌入页之后的明暗不止从这里改（伴读切换深浅色时直接改各个小窗 <html> 的类）：
+    // 框上的 data-embed-scheme 要一直跟着，否则框的 color-scheme 和里面不一致，
+    // 浏览器会在框里垫一层不透明的底，评论区就成了一块颜色不对的方块。
+    if (embed) {
+      new MutationObserver(function () {
+        try {
+          var theme = html.classList.contains('dark') ? 'dark' : 'light';
+          var frame = window.frameElement;
+          if (frame && frame.getAttribute('data-embed-scheme') !== theme) frame.setAttribute('data-embed-scheme', theme);
+        } catch (e) {}
+      }).observe(html, { attributes: true, attributeFilter: ['class'] });
+    }
     var updateThemeColor = function () {
       var primaryColor =
         getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#94a3b8';

@@ -1,10 +1,12 @@
 //! Whether the text of a web page may be read, and why.
 //!
-//! A page is read only when it is known to be ordinary (a listed site, or a
-//! documentation host) or to be other people's words (chat and mail). A
-//! sensitive site, an account page on an ordinary site, a page showing a
-//! password field, and any site these rules cannot place are not read: not
-//! knowing is treated as sensitive.
+//! A page is read unless something says it must not be (a block list, not an
+//! allow list): a page showing a password field, a sensitive site (the
+//! table's, or a host whose name says it: a bank, an insurer, a clinic, a
+//! government…), and an account page on any site are not read. A site no
+//! rule places is read like an ordinary one: its text still goes through the
+//! text rules, the identifier scan and the on-device model's classification
+//! before anything leaves, which hold what is private in it.
 //!
 //! The path and the title are read here on the device and never appear in
 //! an output; neither does the host.
@@ -26,7 +28,7 @@ pub enum PageKind {
     Sensitive,
     /// Settings, security, password, billing or payment pages of any site.
     Account,
-    /// Not placed by any rule.
+    /// Not placed by any rule: read, and its text left to the rules after this.
     Unknown,
     /// Other people's words.
     Messaging,
@@ -35,7 +37,7 @@ pub enum PageKind {
 
 impl PageKind {
     pub fn read(self) -> bool {
-        matches!(self, Self::Messaging | Self::Ordinary)
+        matches!(self, Self::Messaging | Self::Ordinary | Self::Unknown)
     }
 }
 
@@ -45,6 +47,8 @@ impl PageKind {
 pub enum Basis {
     PasswordField,
     SensitiveSite,
+    /// A host the table does not have whose name says it is sensitive.
+    SensitiveHost,
     AccountPath,
     AccountTitle,
     MessagingSite,
@@ -119,6 +123,77 @@ static ACCOUNT_TITLE: LazyLock<Regex> = LazyLock::new(|| {
     .expect("account title pattern")
 });
 
+/// Words in a host's labels (split at `.` and `-`) that make a site the
+/// table does not have sensitive: what it is for says something private.
+const SENSITIVE_HOST_WORDS: &[&str] = &[
+    "bank",
+    "banking",
+    "ebank",
+    "netbank",
+    "securities",
+    "brokerage",
+    "insurance",
+    "insure",
+    "loan",
+    "loans",
+    "credit",
+    "mortgage",
+    "tax",
+    "taxes",
+    "pension",
+    "clinic",
+    "hospital",
+    "health",
+    "medical",
+    "pharmacy",
+    "dental",
+    "therapy",
+    "counseling",
+    "dating",
+    "match",
+    "tinder",
+    "adult",
+    "porn",
+    "casino",
+    "bet",
+    "betting",
+    "lawyer",
+    "legal",
+    "law",
+    "court",
+    "gov",
+    "government",
+    "police",
+    "jobs",
+    "careers",
+    "recruit",
+    "hiring",
+];
+/// Host suffixes of sites that are sensitive by what they are.
+const SENSITIVE_HOST_SUFFIXES: &[&str] = &[
+    ".gov",
+    ".mil",
+    ".bank",
+    ".insurance",
+    ".gov.sg",
+    ".gov.cn",
+    ".go.jp",
+    ".gov.uk",
+    ".lg.jp",
+];
+
+/// A host the table does not have whose name says it is sensitive.
+pub fn sensitive_host(host: &str) -> bool {
+    let host = crate::sources::normalize(host);
+    let dotted = format!(".{host}");
+    SENSITIVE_HOST_SUFFIXES
+        .iter()
+        .any(|suffix| dotted.ends_with(suffix) || dotted.contains(&format!("{suffix}.")))
+        || host
+            .split(['.', '-'])
+            .any(|label| SENSITIVE_HOST_WORDS.contains(&label))
+}
+
 /// First labels of documentation hosts.
 const DOCS_LABELS: &[&str] = &["docs", "doc", "developer", "developers", "devdocs"];
 
@@ -142,6 +217,9 @@ pub fn page(
     }
     if let Some(kind) = source.filter(|kind| kind.sensitive()) {
         return placed(PageKind::Sensitive, Basis::SensitiveSite, Some(kind), None);
+    }
+    if source.is_none() && sources.ordinary(host).is_none() && sensitive_host(host) {
+        return placed(PageKind::Sensitive, Basis::SensitiveHost, None, None);
     }
     if path.is_some_and(account_path) {
         return placed(PageKind::Account, Basis::AccountPath, source, None);

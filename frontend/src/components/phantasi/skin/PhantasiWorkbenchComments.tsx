@@ -3,6 +3,7 @@ import type { CommentItem } from '../../../types/phantasi'
 import type { ManagedListItem } from '../../settings/ManagedList'
 import { useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
+import { commentPlainText } from '../../embed/commentMarkdown'
 import { ManagedList } from '../../settings'
 import { filterWorkbenchComments } from '../logic/workbench'
 import { noteScheduleLabel } from '../notes/noteBoard'
@@ -84,7 +85,7 @@ export function WorkbenchCommentsPane({
         const author =
           row.user_display_name || row.user_name || phantasi.anonymousUser
         const when = noteScheduleLabel(row.created_at, locale)
-        const title = row.comment.trim() || row.selected_text.trim() || author
+        const title = commentPlainText(row.comment) || row.selected_text.trim() || author
         const elsewhere = row.item_id !== hereItemId
         return {
           id: row.id,

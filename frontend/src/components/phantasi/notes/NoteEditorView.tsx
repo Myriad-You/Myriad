@@ -20,10 +20,8 @@ import {
   LuPuzzle as Puzzle,
   LuQuote as Quote,
   LuSigma as Sigma,
-  LuSparkles as Sparkles,
   LuSquareCode as SquareCode,
   LuStrikethrough as Strikethrough,
-  FaUndo as Undo,
 } from '@lib/icons'
 import { motionShim as motion } from '@lib/motionShim'
 import { useEffect, useState } from 'react'
@@ -32,9 +30,7 @@ import { getPhantasiTransition, phantasiAnimationPresets } from '../../../hooks/
 import { Spinner } from '../../Spinner'
 import { widgetDisplayLabel } from '../../widgetLibraryModel'
 import { WidgetInstanceSettings } from '../../widgets/shared/WidgetInstanceSettings'
-import { NoteAiPanel } from './NoteAiPanel'
 import { NoteCompanionSection } from './NoteCompanionSection'
-import { NoteButton } from './NoteControls'
 import {
   hardBreak,
   indentLines,
@@ -59,6 +55,7 @@ import {
   pastedClipboardToMarkdown,
   pastedClipboardToVisualHtml,
 } from './notePaste'
+import { NoteResidentAgent } from './NoteResidentAgent'
 import {
   lineIsBlank,
   visualEmptyLineRect,
@@ -103,8 +100,6 @@ import '../ui/phantasi.css'
 import './NoteEditor.css'
 
 export function NoteEditorView({
-  ai,
-  openAi,
   compositionStart,
   compositionEnd,
   t,
@@ -243,6 +238,8 @@ export function NoteEditorView({
   canDelete,
   framed = false,
 }: ReturnType<typeof useNoteEditorSession> & { framed?: boolean }) {
+  /** Where the global Agent's composer docks, just above the foot bar. */
+  const [agentDock, setAgentDock] = useState<HTMLDivElement | null>(null)
   const [serializeVisual] = useState(createVisualMarkdownSerializer)
   useEffect(() => () => serializeVisual.dispose(), [serializeVisual])
   const tools = [
@@ -436,6 +433,7 @@ export function NoteEditorView({
   ]
 
   return createPortal(
+    <>
     <motion.div
       data-phantasi-shortcuts="suspended"
       onInputCapture={markEditing}
@@ -465,7 +463,6 @@ export function NoteEditorView({
         />
 
         <div className="phantasi-note__scroll" ref={scrollRef}>
-          <NoteAiPanel ai={ai} previewClass={previewSurfaceClass} previewStyle={readerSurfaceStyle} />
           {loading ? (
             <div className="phantasi-note__center">
               <Spinner size="lg" />
@@ -873,23 +870,9 @@ export function NoteEditorView({
           />
         </div>
 
+        <div className="phantasi-note__agent" ref={setAgentDock} />
+
         <NoteFootBar
-          aiActions={<>
-            {ai.canUndo ? <NoteButton variant="quiet" icon={<Undo />} aria-label={t.phantasi.noteAiUndo} title={t.phantasi.noteAiUndo} onClick={ai.undo}>{t.phantasi.noteAiUndo}</NoteButton> : null}
-            <NoteButton
-              variant="quiet"
-              disabled={loading || saving || !contentMd.trim()}
-              icon={<Sparkles />}
-              aria-label={t.phantasi.noteAiTitle}
-              title={t.phantasi.noteAiTitle}
-              active={ai.isOpen}
-              aria-expanded={ai.isOpen}
-              onMouseDown={event => event.preventDefault()}
-              onClick={ai.isOpen ? ai.close : openAi}
-            >
-              {t.phantasi.noteAiTitle}
-            </NoteButton>
-          </>}
           chars={bodyChars}
           pane={pane}
           onPaneChange={setPane}
@@ -989,7 +972,9 @@ export function NoteEditorView({
       />
       {visualWidgets.portals}
       {previewWidgets.portals}
-    </motion.div>,
+    </motion.div>
+    <NoteResidentAgent dock={agentDock} />
+    </>,
     document.body,
   )
 }

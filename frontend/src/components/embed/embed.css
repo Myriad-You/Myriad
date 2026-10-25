@@ -137,7 +137,6 @@ html.embed-frame .embed-root.embed-widget {
 
 .cm button:disabled {
   cursor: default;
-  opacity: 0.5;
 }
 
 .cm :focus-visible {
@@ -166,52 +165,7 @@ html.embed-frame .embed-root.embed-widget {
   font-variant-numeric: tabular-nums;
 }
 
-/* 按钮：强调色实心只给「发表」「登录」，其余是字 */
-.cm .cm-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  height: 2rem;
-  padding: 0 0.85rem;
-  border-radius: 999px;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  white-space: nowrap;
-  transition: background 150ms ease, opacity 150ms ease, transform 150ms var(--cm-ease);
-}
-
-.cm .cm-btn:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
-.cm .cm-btn--accent {
-  background: var(--cm-accent);
-  color: var(--cm-on-accent);
-}
-
-.cm .cm-btn--accent:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--cm-accent) 88%, var(--cm-fg));
-}
-
-.cm .cm-btn--quiet {
-  color: var(--cm-soft);
-}
-
-.cm .cm-btn--quiet:hover {
-  background: var(--cm-hover);
-  color: var(--cm-fg);
-}
-
-.cm .cm-btn--danger {
-  background: color-mix(in srgb, var(--cm-danger) 14%, transparent);
-  color: var(--cm-danger);
-}
-
-.cm .cm-btn--danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--cm-danger) 22%, transparent);
-}
-
-/* 写评论：平时一行，点进去才长出底栏 */
+/* 写评论：输入框和底栏始终展开 */
 .cm-composer {
   display: flex;
   align-items: flex-start;
@@ -219,41 +173,46 @@ html.embed-frame .embed-root.embed-widget {
   margin-bottom: 1.25rem;
 }
 
+/* 输入框是一整块：字和底栏在同一个面上，聚焦只有外框变色，里面不再套框。 */
 .cm-composer__box {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
   border: 1px solid var(--cm-line);
-  border-radius: 1rem;
-  transition: border-color 180ms ease, box-shadow 180ms ease;
+  border-radius: 0.875rem;
+  background: color-mix(in srgb, var(--cm-fg) 2.5%, transparent);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.cm-composer__box:hover {
+  border-color: color-mix(in srgb, var(--cm-fg) 22%, transparent);
 }
 
 .cm-composer__box:focus-within {
-  border-color: color-mix(in srgb, var(--cm-accent) 55%, var(--cm-line));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cm-accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--cm-accent) 60%, transparent);
+  background: transparent;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cm-accent) 12%, transparent);
 }
 
-.cm-composer__label {
-  display: block;
-  padding: 0.55rem 0.9rem 0;
-  color: var(--cm-soft);
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-.cm .cm-composer textarea {
+/* 全局样式（overrides.css）给所有 textarea 上底色、聚焦描边和光晕，这里全部收回。 */
+.cm .cm-composer textarea,
+.cm .cm-composer textarea:focus {
   display: block;
   width: 100%;
-  min-height: 5.5rem;
+  min-height: 4.75rem;
   max-height: 16rem;
-  padding: 0.6rem 0.9rem;
+  margin: 0;
+  padding: 0.7rem 0.95rem 0.25rem;
   border: 0;
-  border-radius: 1rem;
+  border-radius: 0;
   background: transparent;
+  box-shadow: none;
   color: var(--cm-fg);
   font-size: 0.9375rem;
-  line-height: 1.55;
+  line-height: 1.6;
   resize: none;
   outline: none;
+  transition: none;
 }
 
 .cm .cm-composer textarea::placeholder {
@@ -263,19 +222,139 @@ html.embed-frame .embed-root.embed-widget {
 .cm-composer__foot {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0 0.45rem 0.45rem 0.9rem;
+  gap: 0.25rem;
+  padding: 0.2rem 0.45rem 0.45rem 0.95rem;
 }
 
-.cm-composer__hint {
+/* Markdown 标记：一个淡淡的小徽记，悬停才说明。 */
+.cm .cm-composer__md {
+  display: inline-flex;
   margin-inline-end: auto;
   color: var(--cm-soft);
-  font-size: 0.75rem;
-  opacity: 0.8;
+  opacity: 0.55;
+  cursor: help;
+  transition: opacity 160ms ease;
+}
+
+.cm .cm-composer__md svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.cm-composer__box:focus-within .cm-composer__md,
+.cm .cm-composer__md:hover {
+  opacity: 0.85;
+}
+
+/* 图标按钮：圆的，只有图标 */
+.cm .cm-icon-btn {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  color: var(--cm-soft);
+  transition: background 160ms ease, color 160ms ease, transform 160ms var(--cm-ease);
+}
+
+.cm .cm-icon-btn svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.cm .cm-icon-btn:hover:not(:disabled) {
+  background: var(--cm-hover);
+  color: var(--cm-fg);
+}
+
+.cm .cm-icon-btn:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+/* 发表：纸飞机 + 字 + 快捷键。没字时是中性的浅底，写了字整颗填上强调色。 */
+.cm .cm-send {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.45rem;
+  height: 2.25rem;
+  padding: 0 0.45rem 0 0.8rem;
+  border-radius: 0.6rem;
+  background: color-mix(in srgb, var(--cm-fg) 6%, transparent);
+  color: color-mix(in srgb, var(--cm-soft) 75%, transparent);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  transition: background 180ms ease, color 180ms ease, box-shadow 180ms ease, transform 160ms var(--cm-ease);
+}
+
+.cm .cm-send > svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  transition: transform 220ms var(--cm-ease);
+}
+
+.cm .cm-send:not(:disabled) {
+  background: var(--cm-accent);
+  box-shadow: 0 2px 10px -3px color-mix(in srgb, var(--cm-accent) 60%, transparent);
+  color: var(--cm-on-accent);
+}
+
+.cm .cm-send:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cm-accent) 88%, var(--cm-fg));
+}
+
+.cm .cm-send:hover:not(:disabled) > svg {
+  transform: translate(1px, -1px) rotate(-8deg);
+}
+
+.cm .cm-send:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* 快捷键：按钮里的两颗小键帽，颜色跟着按钮的字走。 */
+.cm-send__keys {
+  display: inline-flex;
+  gap: 0.15rem;
+  margin-inline-start: 0.1rem;
+}
+
+.cm .cm-send kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.3rem;
+  height: 1.3rem;
+  padding: 0 0.3rem;
+  border-radius: 0.35rem;
+  background: color-mix(in srgb, currentcolor 14%, transparent);
+  font: 600 0.6875rem/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0;
 }
 
 @media (hover: none) {
-  .cm-composer__hint { visibility: hidden; }
+  .cm-send__keys { display: none; }
+
+  .cm .cm-send { padding-inline-end: 0.9rem; }
+}
+
+.cm .cm-icon-btn--danger {
+  background: color-mix(in srgb, var(--cm-danger) 14%, transparent);
+  color: var(--cm-danger);
+}
+
+.cm .cm-icon-btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cm-danger) 24%, transparent);
+  color: var(--cm-danger);
+}
+
+.cm .cm-spin {
+  animation: cm-spin 0.8s linear infinite;
+}
+
+@keyframes cm-spin {
+  to { transform: rotate(360deg); }
 }
 
 /* 没登录：一整行可点 */
@@ -284,7 +363,7 @@ html.embed-frame .embed-root.embed-widget {
   align-items: center;
   gap: 0.6rem;
   margin-bottom: 1.25rem;
-  padding: 0.6rem 0.6rem 0.6rem 1rem;
+  padding: 0.75rem 0.75rem 0.75rem 1rem;
   border: 1px dashed var(--cm-line);
   border-radius: 1rem;
   color: var(--cm-soft);
@@ -300,6 +379,16 @@ html.embed-frame .embed-root.embed-widget {
 
 .cm .cm-login > span:first-of-type {
   flex: 1;
+}
+
+.cm .cm-login__go {
+  margin-inline-end: 0.4rem;
+  color: var(--cm-accent);
+  transition: transform 200ms var(--cm-ease);
+}
+
+.cm .cm-login:hover .cm-login__go {
+  transform: translateX(3px);
 }
 
 .cm-note,
@@ -400,8 +489,92 @@ html.embed-frame .embed-root.embed-widget {
 .cm .cm-entry__body {
   margin: 0.2rem 0 0;
   font-size: 0.9375rem;
+  line-height: 1.7;
   overflow-wrap: anywhere;
+}
+
+/* 评论里的 Markdown：间距收紧，一切按评论的字号来，不沿用文章正文那套大排版。 */
+.cm .cm-entry__body > * {
+  margin: 0.35em 0 0;
+}
+
+.cm .cm-entry__body > :first-child {
+  margin-top: 0;
+}
+
+.cm .cm-entry__body p {
   white-space: pre-wrap;
+}
+
+.cm .cm-entry__body strong {
+  font-weight: 600;
+}
+
+.cm .cm-md-link {
+  color: var(--cm-accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--cm-accent) 35%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  transition: text-decoration-color 160ms ease;
+}
+
+.cm .cm-md-link:hover {
+  text-decoration-color: currentcolor;
+}
+
+.cm .cm-md-code,
+.cm .cm-md-pre {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  background: var(--cm-hover);
+}
+
+.cm .cm-md-code {
+  padding: 0.1em 0.35em;
+  border-radius: 0.3rem;
+  font-size: 0.86em;
+}
+
+.cm .cm-md-pre {
+  max-height: 20rem;
+  margin-top: 0.5em;
+  padding: 0.65rem 0.85rem;
+  overflow: auto;
+  border: 1px solid var(--cm-line);
+  border-radius: 0.6rem;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.cm .cm-md-pre code {
+  font: inherit;
+  background: none;
+}
+
+.cm .cm-md-quote {
+  padding: 0.05em 0 0.05em 0.8rem;
+  border-inline-start: 2px solid var(--cm-line);
+  color: var(--cm-soft);
+}
+
+.cm .cm-md-quote p {
+  margin: 0;
+}
+
+.cm .cm-md-list {
+  padding-inline-start: 1.3em;
+}
+
+.cm ul.cm-md-list { list-style: disc; }
+.cm ol.cm-md-list { list-style: decimal; }
+
+.cm .cm-md-list li + li {
+  margin-top: 0.15em;
+}
+
+.cm .cm-md-list li::marker {
+  color: var(--cm-soft);
 }
 
 /* 访客看没有回复的评论：动作行是空的，不留高度。 */
@@ -423,7 +596,8 @@ html.embed-frame .embed-root.embed-widget {
 .cm .cm-link {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.3rem;
+  min-height: 1.75rem;
   color: var(--cm-soft);
   font-size: 0.8125rem;
   font-weight: 600;
@@ -435,7 +609,19 @@ html.embed-frame .embed-root.embed-widget {
   color: var(--cm-fg);
 }
 
+.cm .cm-link svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.cm-link__count {
+  font-variant-numeric: tabular-nums;
+}
+
 .cm-link__chev {
+  width: 0.8em !important;
+  height: 0.8em !important;
+  opacity: 0.7;
   transition: transform 200ms var(--cm-ease);
 }
 
@@ -475,6 +661,11 @@ html.embed-frame .embed-root.embed-widget {
   margin-inline-end: auto;
 }
 
+.cm-confirm .cm-icon-btn {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
 /* 回复：缩进，左边一根线把它们和楼主连起来 */
 .cm-replies {
   display: flex;
@@ -512,6 +703,11 @@ html.embed-frame .embed-root.embed-widget {
   font-size: 0.875rem;
   font-weight: 700;
   object-fit: cover;
+}
+
+img.cm-avatar {
+  background: var(--cm-hover);
+  box-shadow: 0 0 0 1px var(--cm-line);
 }
 
 .cm-avatar.is-small {

@@ -28,6 +28,22 @@ pub(crate) enum ToolMessage {
     Tool { call: ToolCall, content: String },
 }
 
+/// Characters of `history` as every provider receives it: an assistant turn goes out as its
+/// native message only, a tool result as its content plus the call's id and name, never the
+/// call's arguments again. Counting the stored struct instead sends each rewrite twice.
+pub(crate) fn history_wire_chars(history: &[ToolMessage]) -> usize {
+    history
+        .iter()
+        .map(|message| match message {
+            ToolMessage::User { content } => content.chars().count(),
+            ToolMessage::Assistant { turn } => turn.native.to_string().chars().count(),
+            ToolMessage::Tool { call, content } => {
+                content.chars().count() + call.id.chars().count() + call.name.chars().count()
+            }
+        })
+        .sum()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct TokenUsage {
     pub input_tokens: u64,
@@ -717,5 +733,46 @@ mod tests {
             "fc1"
         );
         assert!(request_body(AiProvider::OpenAI, "model", "system", &history, &[], 100).is_err());
+    }
+}
+
+#[cfg(test)]
+mod wire_chars_tests {
+    use super::*;
+
+    #[test]
+    fn a_rewrite_counts_once_as_sent_not_twice_as_stored() {
+        let body = "排版".repeat(500);
+        let arguments = serde_json::json!({ "content_md": body }).to_string();
+        let call = ToolCall {
+            id: "c1".into(),
+            name: "update".into(),
+            arguments: arguments.clone(),
+        };
+        let native = serde_json::json!({"role":"assistant","tool_calls":[{"function":{"arguments":arguments}}]});
+        let history = vec![
+            ToolMessage::Assistant {
+                turn: ToolTurn {
+                    text: String::new(),
+                    calls: vec![call.clone()],
+                    native: native.clone(),
+                    provider: "openai".into(),
+                    model: None,
+                    usage: None,
+                },
+            },
+            ToolMessage::Tool {
+                call,
+                content: "{\"success\":true}".into(),
+            },
+        ];
+        let sent = history_wire_chars(&history);
+        let stored = serde_json::to_string(&history).unwrap().chars().count();
+        assert!(sent >= native.to_string().chars().count());
+        assert!(sent < native.to_string().chars().count() + 40);
+        assert!(
+            stored > sent + 1000,
+            "the stored form repeats the arguments"
+        );
     }
 }

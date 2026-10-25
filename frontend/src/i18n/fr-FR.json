@@ -703,6 +703,7 @@
       "translateSelection": "Traduis ce passage en français : « {text} »"
     },
     "inputPlaceholder": "Demandez n'importe quoi…",
+    "residentPlaceholder": "Dites comment modifier cette note…",
     "chatPlaceholder": "Parlez-lui…",
     "mode": {
       "label": "Mode",
@@ -741,6 +742,7 @@
       "fallback": "Joint : {names}"
     },
     "expand": "Ouvrir la conversation",
+    "collapse": "Replier la conversation",
     "accessDenied": "Vous n'avez pas le droit de faire ça.",
     "answerFailed": "Réponse échouée : {error}",
     "cancelFailed": "Impossible d'annuler cette tâche.",

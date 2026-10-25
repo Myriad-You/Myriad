@@ -13,12 +13,10 @@ import { useAuth } from '../../../contexts/AuthContext'
 import { useI18n } from '../../../contexts/I18nContext'
 import { usePhantasiAnimationConfig } from '../../../hooks/animation/pages/phantasi'
 import { isExlight } from '../../../hooks/useAnimationLevel'
-import { editNoteWithAi } from '../../../services/phantasiaiApi'
 import * as phantasiApi from '../../../services/phantasiApi'
 import { showNoteNotice } from '../phantasiNotice'
 import { getArticleProseClass } from '../reading/articleProseClass'
 import { useReaderSettings } from '../reading/useReaderSettings'
-import { captureNoteAiSelection } from './noteAiSelection'
 import {
   noteRecoveryKey,
   prefixLines, toggleWrap,
@@ -37,7 +35,7 @@ import { noteSlugInvalid, noteSlugWire, publishedNoteHref } from './noteSlug'
 import { applyNoteSourceEdit } from './noteSourceEdit'
 import { expandJammedDefinitions, setVisualImageResolver } from './noteVisual'
 import { useNoteWidgetCatalog } from './noteWidgetCatalog'
-import { useNoteAiEdit } from './useNoteAiEdit'
+import { useNoteAgentPage } from './useNoteAgentPage'
 import { useNoteCloudSave } from './useNoteCloudSave'
 import { useNoteCollab } from './useNoteCollab'
 import { useNoteEditorAuthors } from './useNoteEditorAuthors'
@@ -48,7 +46,7 @@ import { useNoteEditorPreview } from './useNoteEditorPreview'
 import { useNoteEditorSidecar } from './useNoteEditorSidecar'
 import { useNotePublish } from './useNotePublish'
 import { useNoteSelection } from './useNoteSelection'
-import { useNoteVisual, VISUAL_UNDO_LIMIT } from './useNoteVisual'
+import { useNoteVisual } from './useNoteVisual'
 
 // 富文本层里的图片：Markdown 存原地址，浏览器看本站 origin 上的那份。
 setVisualImageResolver(displayImageUrl)
@@ -90,7 +88,7 @@ export function useNoteEditorSession({
   onDeleted,
   onCloudId,
 }: NoteEditorProps) {
-  const { t, format, locale } = useI18n()
+  const { t, format } = useI18n()
   const { user, isAdmin } = useAuth()
   const {
     isDark,
@@ -671,38 +669,12 @@ export function useNoteEditorSession({
     contentMd,
   })
 
-  const ai = useNoteAiEdit({
-    current: { identity: `${user?.id}:${user?.is_admin}:${docId}:${noteId}:${cloudId}`, title, topic, contentMd },
-    locale,
-    request: editNoteWithAi,
-    apply: (next) => {
-      if (paneRef.current === 'write' && textareaRef.current) {
-        applyNoteSourceEdit(textareaRef.current, { value: next, selectionStart: 0, selectionEnd: 0 }, setContentMd)
-      } else {
-        const history = historyRef.current
-        history.past.push(contentMdRef.current)
-        if (history.past.length > VISUAL_UNDO_LIMIT) history.past.shift()
-        history.future = []
-        history.restoring = true
-        history.lastPush = 0
-        syncVisualFromMarkdown(next)
-      }
-      contentMdRef.current = next
-    },
-  })
-  function openAi() {
-    if (loading || saving) return
-    const captured = captureNoteAiSelection(contentMdRef.current, paneRef.current, textareaRef.current, visualRef.current)
-    closeOverlays()
-    ai.open(captured.selection, captured.unavailable)
-  }
+  useNoteAgentPage({ docId: cloudId, title, topic, status: docStatus }, textareaRef)
 
   const canDelete =
     noteId !== undefined || (cloudId != null && docStatus !== 'published')
 
   return {
-    ai,
-    openAi,
     t,
     compositionStart: cloud.compositionStart,
     compositionEnd: cloud.compositionEnd,

@@ -1,4 +1,7 @@
 {
+  "blog.notes": "ブログのノートを検索",
+  "blog.note": "ブログのノートを読む",
+  "blog.note.update": "ブログのノートを編集",
   "ai.analyze": "分析",
   "ai.chat": "会話",
   "ai.groundingSearch": "Grounding 検索",

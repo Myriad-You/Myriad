@@ -457,6 +457,9 @@ export function useNoteEditorFormat(host: {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Keys typed into the resident Agent are the Agent's: Esc folds its conversation,
+      // and Cmd+B there must not bold the article.
+      if (e.target instanceof Element && e.target.closest('.phantasi-note__agent')) return
       if (e.key === 'Escape') {
         e.preventDefault()
         e.stopImmediatePropagation()

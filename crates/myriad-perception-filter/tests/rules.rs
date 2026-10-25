@@ -641,10 +641,6 @@ fn a_sensitive_source_or_page_leaves_nothing_whatever_the_policy() {
             ..open()
         },
         Decision {
-            page: Some("unknown".into()),
-            ..open()
-        },
-        Decision {
             page: Some("sensitive".into()),
             ..open()
         },
@@ -656,7 +652,7 @@ fn a_sensitive_source_or_page_leaves_nothing_whatever_the_policy() {
         // Even when an identifier is what put it there.
         Decision {
             identifiers: Some(vec!["card".into()]),
-            page: Some("unknown".into()),
+            page: Some("sensitive".into()),
             ..open()
         },
     ] {
@@ -682,6 +678,27 @@ fn a_sensitive_source_or_page_leaves_nothing_whatever_the_policy() {
         })
         .0,
         Disposition::Carry
+    );
+    // A page no rule places is not held for that alone (a block list): it goes on like an ordinary
+    // one, and what its text holds is still held by the rules after the page step.
+    assert_eq!(
+        disposition(&Decision {
+            page: Some("unknown".into()),
+            ..open()
+        })
+        .0,
+        Disposition::Carry
+    );
+    let card = decide(&Decision {
+        identifiers: Some(vec!["card".into()]),
+        page: Some("unknown".into()),
+        ..open()
+    });
+    assert_eq!(card.disposition, Disposition::PresentOnly);
+    assert_eq!(
+        card.leaves,
+        Leaves::PrivateMarker,
+        "only a sensitive page says nothing at all"
     );
     let private = decide(&Decision {
         private: Some(Private::Known(true)),
@@ -765,9 +782,26 @@ fn the_built_in_table_reads_everyday_sites_and_holds_the_rest() {
         ("www.dbs.com.sg", "/", PageKind::Sensitive),
         ("www.singpass.gov.sg", "/", PageKind::Sensitive),
         ("myna.go.jp", "/", PageKind::Sensitive),
-        ("some-blog.example", "/", PageKind::Unknown),
+        // Not in the table, but the host says what it is for: held.
+        ("www.examplebank.bank", "/", PageKind::Sensitive),
+        ("online-banking.example.com", "/", PageKind::Sensitive),
+        ("my.city-hospital.example", "/", PageKind::Sensitive),
+        ("tax.example.gov", "/", PageKind::Sensitive),
+        ("www.example.go.jp", "/", PageKind::Sensitive),
+        ("dating.example.net", "/", PageKind::Sensitive),
+        // An unknown site's account page is still an account page.
+        ("some-blog.example", "/settings", PageKind::Account),
     ] {
         assert_eq!(at(host, Some(path)), (kind, false), "{host}{path}");
+    }
+    // A site no rule places, and nothing in its name says it is sensitive: read (a block list).
+    for host in [
+        "some-blog.example",
+        "news.example.co.jp",
+        "matcha-recipes.example",
+        "lawn-care.example",
+    ] {
+        assert_eq!(at(host, Some("/")), (PageKind::Unknown, true), "{host}");
     }
     assert_eq!(at("mail.google.com", None), (PageKind::Messaging, true));
 }

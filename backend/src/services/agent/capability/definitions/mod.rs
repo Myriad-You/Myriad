@@ -3,6 +3,7 @@
 //! 按类别组织所有能力定义
 
 mod ai;
+mod blog;
 mod external;
 mod model3d;
 mod phantasi;
@@ -19,6 +20,7 @@ use super::CapabilityRegistry;
 pub fn register_all(registry: &mut CapabilityRegistry) {
     platform::register(registry);
     phantasi::register(registry);
+    blog::register(registry);
     ai::register(registry);
     model3d::register(registry);
     tapp::register(registry);
