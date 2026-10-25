@@ -789,6 +789,12 @@ fn the_built_in_table_reads_everyday_sites_and_holds_the_rest() {
         ("tax.example.gov", "/", PageKind::Sensitive),
         ("www.example.go.jp", "/", PageKind::Sensitive),
         ("dating.example.net", "/", PageKind::Sensitive),
+        // The stem inside a longer name counts too.
+        ("www.mybank.example", "/", PageKind::Sensitive),
+        ("www.bankofamerica.example", "/", PageKind::Sensitive),
+        ("www.healthline.example", "/", PageKind::Sensitive),
+        ("secure.someinsurer.example", "/", PageKind::Sensitive),
+        ("www.webmedical.example", "/", PageKind::Sensitive),
         // An unknown site's account page is still an account page.
         ("some-blog.example", "/settings", PageKind::Account),
     ] {
@@ -800,6 +806,10 @@ fn the_built_in_table_reads_everyday_sites_and_holds_the_rest() {
         "news.example.co.jp",
         "matcha-recipes.example",
         "lawn-care.example",
+        // Short words only count as a whole label, not inside other words.
+        "syntax-highlight.example",
+        "flawless.example",
+        "alphabet.example",
     ] {
         assert_eq!(at(host, Some("/")), (PageKind::Unknown, true), "{host}");
     }

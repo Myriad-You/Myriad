@@ -451,6 +451,25 @@
     "reason": "page",
     "leaves": "nothing"
    }
+  },
+  {
+   "id": "p-sensitive-host-stem",
+   "urlHost": "www.mybank.example",
+   "path": "/",
+   "expect": {
+    "read": false,
+    "page": "sensitive",
+    "basis": "sensitive_host",
+    "kind": null,
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "present_only",
+    "kind": "unknown",
+    "reason": "page",
+    "leaves": "nothing"
+   }
   }
  ]
 }

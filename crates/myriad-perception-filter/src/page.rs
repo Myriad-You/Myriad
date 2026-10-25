@@ -169,6 +169,30 @@ const SENSITIVE_HOST_WORDS: &[&str] = &[
     "recruit",
     "hiring",
 ];
+/// Stems that mark a label even inside a longer name (`mybank`, `bankofamerica`,
+/// `healthline`): unambiguous enough that a compound is still about them.
+/// Shorter or ambiguous words (`tax`, `law`, `bet`, `loan`…) stay whole-label
+/// only, so `syntax`, `flaw` or `sloan` are not caught by them.
+const SENSITIVE_HOST_STEMS: &[&str] = &[
+    "bank",
+    "insur",
+    "mortgage",
+    "brokerage",
+    "securities",
+    "pension",
+    "clinic",
+    "hospital",
+    "health",
+    "medic",
+    "pharma",
+    "dental",
+    "therap",
+    "casino",
+    "porn",
+    "dating",
+    "lawyer",
+    "attorney",
+];
 /// Host suffixes of sites that are sensitive by what they are.
 const SENSITIVE_HOST_SUFFIXES: &[&str] = &[
     ".gov",
@@ -189,9 +213,10 @@ pub fn sensitive_host(host: &str) -> bool {
     SENSITIVE_HOST_SUFFIXES
         .iter()
         .any(|suffix| dotted.ends_with(suffix) || dotted.contains(&format!("{suffix}.")))
-        || host
-            .split(['.', '-'])
-            .any(|label| SENSITIVE_HOST_WORDS.contains(&label))
+        || host.split(['.', '-']).any(|label| {
+            SENSITIVE_HOST_WORDS.contains(&label)
+                || SENSITIVE_HOST_STEMS.iter().any(|stem| label.contains(stem))
+        })
 }
 
 /// First labels of documentation hosts.
