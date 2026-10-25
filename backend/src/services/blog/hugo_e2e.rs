@@ -63,7 +63,6 @@ async fn papermod_zip_build_strips_scripts_and_keeps_notes_css() {
         category: None,
         authors: vec!["站长".to_string()],
         cover: None,
-        companion: true,
         locale: String::new(),
     }];
     let friends = [FriendLink {

@@ -20,10 +20,10 @@ import { formatUserFacingError } from '../../utils/formatUserFacingError'
 import { articleReturnPath, loginHref } from '../../utils/safeReturnPath'
 import { CommentBody } from './CommentBody'
 import { commentHue, commentWhen } from './commentTime'
-import { useFitFrameHeight } from './embedFrame'
+import { focusInFrame, useFitFrameHeight } from './embedFrame'
 import { embedHost } from './embedHost'
-import { watchPalette } from './pagePaletteDom'
 import { publicThread } from './publicComments'
+import { useHostPalette } from './useHostPalette'
 import './embed.css'
 
 type Copy = ReturnType<typeof useI18n>['t']['embed']
@@ -35,31 +35,6 @@ function authorName(comment: CommentItem, fallback: string): string {
 /** 同源父页才能读到文章地址。跨源或读不到时交给 referrer / `/blog/`。 */
 function parentArticleHref(): string | null {
   return embedHost()?.win.location.href ?? null
-}
-
-/**
- * 颜色从框背后那块文章页上取（和 AI 伴读同一套，pagePalette.ts）：底色、字色、线条、
- * 主站的强调色都写到自己的根上，评论区看起来是文章的一部分，而不是嵌进去的另一张页。
- */
-function useHostPalette(): void {
-  useEffect(() => {
-    const host = embedHost()
-    const frame = host?.frame
-    if (!host || !frame) return
-    return watchPalette(host.doc, [{
-      element: document.documentElement,
-      prefix: 'p-',
-      // 框不在窗口里时取不到它背后那块（会取到页头之类），滚进来再取。
-      followScroll: true,
-      textFrom: () => frame.parentElement,
-      at: () => {
-        const rect = frame.getBoundingClientRect()
-        const y = Math.max(rect.top + 12, 0)
-        if (rect.bottom <= 0 || y >= host.win.innerHeight) return null
-        return { x: rect.left + rect.width / 2, y }
-      },
-    }])
-  }, [])
 }
 
 function useNow(): number {
@@ -116,6 +91,12 @@ function Composer({
     node.style.height = 'auto'
     node.style.height = `${node.scrollHeight}px`
   }, [value])
+  // 打开回复框时聚焦它；浏览器自己的聚焦滚动会让文章页一下跳过去，交给 focusInFrame 平滑地滚。
+  useEffect(() => {
+    if (!autoFocus) return
+    const frame = requestAnimationFrame(() => focusInFrame(ref.current))
+    return () => cancelAnimationFrame(frame)
+  }, [autoFocus])
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault()
@@ -139,7 +120,6 @@ function Composer({
           ref={ref}
           rows={3}
           value={value}
-          autoFocus={autoFocus}
           aria-label={placeholder}
           placeholder={placeholder}
           onKeyDown={onKeyDown}

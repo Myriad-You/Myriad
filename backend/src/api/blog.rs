@@ -423,7 +423,6 @@ async fn page_response(
             .dark
             .and_then(|dark| myriad_blog::apply_page_scheme(&html, dark))
             .unwrap_or(html);
-        // 站长还能看到藏着的伴读岛，没有注释和播客的文章也能在面板里补生成。
         myriad_blog::decorate_page(&html, myriad_blog::nav_island_head(), &chrome.nav, studio)
     };
     let (body, etag, cache) = match &chrome.studio {

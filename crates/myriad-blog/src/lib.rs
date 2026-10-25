@@ -50,9 +50,7 @@ pub use postprocess::{
 pub use render::{
     export_site_files, render_friends_file, render_home_file, render_list_titles, render_post_file,
 };
-pub use rewrite::{
-    content_images, first_content_image, prepare_content_html, reveal_companion_island,
-};
+pub use rewrite::{content_images, first_content_image, prepare_content_html};
 pub use scheme::{
     SCHEME_MARK_ATTR, SchemeDetection, SchemeSwitch, SchemeTarget, apply_page_scheme,
     detect_scheme_switch, is_scheme_source, mark_page_scheme, scheme_is_styled,

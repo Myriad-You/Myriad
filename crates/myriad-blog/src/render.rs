@@ -25,11 +25,7 @@ pub fn render_post_file(site: &BlogSite, post: &BlogPost, theme_id: &str) -> (St
     };
     let mut body =
         prepare_content_html(&post.content_html, &site.origin, post.item_id, page_locale);
-    body.push_str(&companion_island_html(
-        post.item_id,
-        post.companion,
-        page_locale,
-    ));
+    body.push_str(&companion_island_html(post.item_id, page_locale));
     let summary_source = if post.summary_source.trim().is_empty() {
         post.content_html.as_str()
     } else {
@@ -171,25 +167,43 @@ fn friends_html(site: &BlogSite, links: &[FriendLink]) -> String {
     let mut out = String::from("<ul class=\"friend-links\">\n");
     for link in links {
         let href = friend_href(&link.url, &site.origin);
-        out.push_str("<li><a href=\"");
+        let name = link.name.trim();
+        out.push_str("<li><a class=\"friend-card\" href=\"");
         out.push_str(&escape_html(&href));
         out.push_str("\" rel=\"noopener\">");
-        out.push_str(&escape_html(link.name.trim()));
-        out.push_str("</a>");
+        let icon = link.icon.trim();
+        if icon.is_empty() {
+            // 没有头像时用名字首字占位，卡片不会缺一角。
+            let initial: String = name
+                .chars()
+                .next()
+                .into_iter()
+                .flat_map(char::to_uppercase)
+                .collect();
+            out.push_str("<span class=\"friend-avatar friend-initial\" aria-hidden=\"true\">");
+            out.push_str(&escape_html(&initial));
+            out.push_str("</span>");
+        } else {
+            let icon = absolutize_cover(&site.origin, icon);
+            out.push_str("<img class=\"friend-avatar\" src=\"");
+            out.push_str(&escape_html(&icon));
+            out.push_str("\" alt=\"\" loading=\"lazy\">");
+        }
+        out.push_str("<span class=\"friend-body\"><span class=\"friend-name\">");
+        out.push_str(&escape_html(name));
+        out.push_str("</span>");
         let description = link.description.trim();
         if !description.is_empty() {
-            out.push_str("<p>");
+            out.push_str("<span class=\"friend-desc\">");
             out.push_str(&escape_html(description));
-            out.push_str("</p>");
+            out.push_str("</span>");
         }
-        let icon = link.icon.trim();
-        if !icon.is_empty() {
-            let icon = absolutize_cover(&site.origin, icon);
-            out.push_str("<img src=\"");
-            out.push_str(&escape_html(&icon));
-            out.push_str("\" alt=\"\">");
+        if let Some(host) = friend_host(&href) {
+            out.push_str("<span class=\"friend-host\">");
+            out.push_str(&escape_html(host));
+            out.push_str("</span>");
         }
-        out.push_str("</li>\n");
+        out.push_str("</span></a></li>\n");
     }
     out.push_str("</ul>\n");
     out.push_str(
@@ -236,6 +250,17 @@ fn friend_href(url: &str, origin: &str) -> String {
         return "#".to_string();
     }
     absolutize_cover(origin, url)
+}
+
+/// 卡片底部显示的域名。只认 `http(s)://`，去掉 `www.`；其它写法不显示。
+fn friend_host(href: &str) -> Option<&str> {
+    let rest = href
+        .strip_prefix("https://")
+        .or_else(|| href.strip_prefix("http://"))?;
+    let host = rest.split(['/', '?', '#']).next()?;
+    let host = host.rsplit('@').next()?;
+    let host = host.strip_prefix("www.").unwrap_or(host);
+    (!host.is_empty()).then_some(host)
 }
 
 fn is_blocked_scheme(url: &str) -> bool {

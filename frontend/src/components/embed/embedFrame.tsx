@@ -34,6 +34,31 @@ export function EmbedFrameReady() {
   return null
 }
 
+/** 框里的元素离博客页窗口上下边至少留这么多，才算看得清，不用滚。 */
+const REVEAL_MARGIN = 96
+
+/**
+ * 程序把焦点挪到框里某处（第一处填错的栏、提交成功的标题）时用：浏览器自己的聚焦滚动是
+ * 一下跳过去，这里先不让它滚，元素不在博客页窗口里再平滑滚过去，停在窗口上三分之一。
+ * 偏好减少动态时直接到位。不在框里就照常聚焦。
+ */
+export function focusInFrame(element: HTMLElement | null | undefined): void {
+  if (!element) return
+  const host = embedHost()
+  const frame = host?.frame
+  if (!host || !frame) {
+    element.focus()
+    return
+  }
+  element.focus({ preventScroll: true })
+  const offset = frame.getBoundingClientRect().top
+  const rect = element.getBoundingClientRect()
+  const view = host.win.innerHeight
+  if (offset + rect.top >= REVEAL_MARGIN && offset + rect.bottom <= view - REVEAL_MARGIN) return
+  const quiet = host.win.matchMedia('(prefers-reduced-motion: reduce)').matches
+  host.win.scrollBy({ top: offset + rect.top - view / 3, behavior: quiet ? 'auto' : 'smooth' })
+}
+
 /** 嵌入页里不跳登录页或首页：不是站长就什么都不显示。 */
 export function EmbedAdminOnly({ children }: { children: ReactNode }) {
   const { isAdmin, hasChecked } = useAuth()

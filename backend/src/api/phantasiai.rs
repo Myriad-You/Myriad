@@ -330,7 +330,6 @@ async fn regenerate_annotations(
         .filter(phantasi_annotations::Column::ItemId.eq(item_id))
         .exec(&db)
         .await;
-    crate::services::blog::request_rebuild();
 
     // 获取文章内容
     use crate::models::entities::phantasi_items;
@@ -473,9 +472,6 @@ async fn generate_and_save_annotations(
                 saved_annotations.len(),
                 item_id
             );
-            if !saved_annotations.is_empty() {
-                crate::services::blog::request_rebuild();
-            }
 
             (
                 StatusCode::OK,
@@ -1102,7 +1098,6 @@ async fn podcast_script(
                 }
                 _ => {
                     tracing::info!("Saved podcast for item {} to database", item_id);
-                    crate::services::blog::request_rebuild();
                 }
             }
 
@@ -1184,7 +1179,6 @@ async fn regenerate_podcast_script(
         }
         _ => {
             tracing::info!("Deleted existing podcast cache for item {}", item_id);
-            crate::services::blog::request_rebuild();
         }
     }
 

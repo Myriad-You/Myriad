@@ -60,6 +60,30 @@ describe('两侧胶囊的显隐', () => {
     assert.equal(chrome.visible, false)
     chrome.scroll(60)
     assert.equal(chrome.visible, true)
+    tick(IDLE_MS * 3)
+    assert.equal(chrome.visible, true)
+  })
+
+  it('在顶端打开不按时收起，往下读开始后照常', () => {
+    const { chrome } = make(0)
+    tick(IDLE_MS * 3)
+    assert.equal(chrome.visible, true)
+    chrome.hold(true)
+    chrome.hold(false)
+    tick(AFTER_LEAVE_MS * 3)
+    assert.equal(chrome.visible, true)
+    glide(chrome, 0, 110)
+    assert.equal(chrome.visible, false)
+  })
+
+  it('离开顶端停下来没读够也会按时收起', () => {
+    const { chrome } = make(0)
+    glide(chrome, 0, 95)
+    glide(chrome, 95, 90)
+    glide(chrome, 90, 100)
+    assert.equal(chrome.visible, true)
+    tick(IDLE_MS)
+    assert.equal(chrome.visible, false)
   })
 
   it('伸手到胶囊那一带就出来，停在上面不收', () => {

@@ -9,7 +9,6 @@ use std::sync::LazyLock;
 
 use serde::Deserialize;
 
-use crate::rewrite::{DORMANT_FRAME_SRC, REVEALED_FRAME_SRC};
 use crate::studio::escape_attr;
 
 /// 导航岛的 id；样式里的 `<link rel="expect">` 等它解析出来才画第一帧。
@@ -234,14 +233,13 @@ pub fn inject_nav_island(html: &str, head: &str, island: &str) -> String {
     decorate_page(html, head, island, None)
 }
 
-/// 和 [`inject_nav_island`] 一样插导航岛；`studio` 有值时（站长）再给伴读控制器地址
-/// （同 [`crate::reveal_companion_island`]），并把创作台放在页尾留白之后。
+/// 和 [`inject_nav_island`] 一样插导航岛；`studio` 有值时（站长）再把创作台放在页尾留白之后。
 /// 插入点在原页上一次找齐、一次拼好：不整页转小写，也不每插一样就复制一遍。
 pub fn decorate_page(html: &str, head: &str, island: &str, studio: Option<&str>) -> String {
     let head_at = find_tag(html, "</head>");
     let body_at = find_tag(html, "<body")
         .and_then(|start| html[start..].find('>').map(|end| start + end + 1));
-    let mut edits: Vec<(usize, usize, &str)> = Vec::with_capacity(5);
+    let mut edits: Vec<(usize, usize, &str)> = Vec::with_capacity(4);
     match (head_at, body_at) {
         (Some(head_at), Some(body_at)) if head_at < body_at => {
             edits.push((head_at, 0, head));
@@ -259,9 +257,6 @@ pub fn decorate_page(html: &str, head: &str, island: &str, studio: Option<&str>)
     let body_end = rfind_tag(html, "</body>").unwrap_or(html.len());
     edits.push((body_end, 0, NAV_ISLAND_ROOM));
     if let Some(studio) = studio {
-        if let Some(at) = html.find(DORMANT_FRAME_SRC) {
-            edits.push((at, DORMANT_FRAME_SRC.len(), REVEALED_FRAME_SRC));
-        }
         edits.push((body_end, 0, studio));
     }
     splice(html, edits)
@@ -368,7 +363,7 @@ mod tests {
         let studio = "<S>";
         for html in [
             "<html><head><title>t</title></head><body class=\"x\"><main>m</main></body></html>",
-            "<HTML><HEAD></HEAD><BODY>x<iframe class=\"myriad-companion__frame\" data-myriad-src=\"/a\"></iframe></BODY></HTML>",
+            "<HTML><HEAD></HEAD><BODY>x<iframe class=\"myriad-companion__frame\" src=\"/a\"></iframe></BODY></HTML>",
             "<body></body>",
             "<p>x</p></body>",
             "</body><head></head><body>y",
@@ -376,7 +371,7 @@ mod tests {
             "",
         ] {
             let stepwise = crate::studio::inject_studio_island(
-                &crate::reveal_companion_island(&inject_nav_island_stepwise(html, "<H>", "<I>")),
+                &inject_nav_island_stepwise(html, "<H>", "<I>"),
                 studio,
             );
             assert_eq!(

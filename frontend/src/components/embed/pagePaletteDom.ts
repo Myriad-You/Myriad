@@ -96,6 +96,11 @@ export interface PaletteTarget {
   schemeAttr?: string
   /** 页面滚动时背后会换（固定在顶上的细条）。 */
   followScroll?: boolean
+  /**
+   * 背后不随滚动变，只是不在窗口里时取不到（坐在正文里的评论框、友链申请）：这个元素
+   * 进入窗口时取一次，滚动时不再每帧取样。
+   */
+  visibleWith?: () => Element | null
   /** 这一份也写给正文里的划线和提示框（伴读的那份）。 */
   pageStyle?: boolean
 }
@@ -123,6 +128,12 @@ function writePageStyle(doc: Document, palette: Palette): void {
  * 取一次色、写上，之后页面一变就重取：页面的深浅（`<html>` / `<body>` 上的类和属性）、系统深浅、
  * 窗口大小、样式表加载完；跟着滚动的只在滚动时多取那一个。返回停止的函数。
  */
+/**
+ * 露出来至少这么多才算进了窗口：取色点在框顶往下一点（useHostPalette 的 +12px），
+ * 刚露一条边时那一点还在窗口外，取不到。
+ */
+const VISIBLE_MARGIN = '-24px 0px'
+
 export function watchPalette(doc: Document, targets: PaletteTarget[]): () => void {
   const view = doc.defaultView
   if (!view || targets.length === 0) return () => {}
@@ -171,7 +182,21 @@ export function watchPalette(doc: Document, targets: PaletteTarget[]): () => voi
   view.addEventListener('resize', schedule)
   view.addEventListener('load', schedule)
   if (scrolling.length) view.addEventListener('scroll', onScroll, { passive: true })
+  // 进窗口时取一次。IntersectionObserver 要用博客页那边的构造器，类型上 Window 不带它。
+  const Observer = (view as Window & typeof globalThis).IntersectionObserver
+  const appearing = targets.filter((target) => target.visibleWith)
+  const visibility = appearing.length && Observer
+    ? new Observer((entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return
+        view.requestAnimationFrame(() => appearing.forEach(paint))
+      }, { rootMargin: VISIBLE_MARGIN })
+    : null
+  for (const target of appearing) {
+    const element = target.visibleWith?.()
+    if (element) visibility?.observe(element)
+  }
   return () => {
+    visibility?.disconnect()
     observer.disconnect()
     view.clearTimeout(settle)
     view.cancelAnimationFrame(frame)

@@ -7,6 +7,7 @@
   --line: light-dark(#e7e5e4, #44403c);
   --link: light-dark(#9a3412, #fdba74);
   --code: light-dark(#f0eeeb, #292524);
+  --card: light-dark(#fffefc, #231f1d);
 }
 /* 主站是深色还是浅色：后端写在 <html data-scheme> 上，伴读上的按钮也改它。 */
 :root[data-scheme='dark'] { color-scheme: dark; }
@@ -75,11 +76,91 @@ th, td {
   vertical-align: top;
 }
 .meta, .posts time { color: var(--muted); font-size: 0.92rem; }
-.posts, .terms, .friend-links { list-style: none; padding: 0; }
-.posts li, .terms li, .friend-links li {
+.posts, .terms { list-style: none; padding: 0; }
+.posts li, .terms li {
   padding: 0.75rem 0;
   border-bottom: 1px solid var(--line);
 }
-.cover img, .friend-links img { border-radius: 8px; }
-.friend-links img { width: 2.5rem; height: 2.5rem; object-fit: cover; }
+.cover img { border-radius: 8px; }
+/* 友链：整张卡片可点，窄屏一列，宽了自动排成两列。 */
+.friend-links {
+  list-style: none;
+  padding: 0;
+  margin: 1.5rem 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: 0.85rem;
+}
+.friend-card {
+  display: flex;
+  gap: 0.9rem;
+  align-items: flex-start;
+  height: 100%;
+  padding: 1rem 1.1rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: inherit;
+  text-decoration: none;
+  box-shadow: 0 1px 2px light-dark(rgb(28 25 23 / 0.04), rgb(0 0 0 / 0.2));
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.friend-card:hover, .friend-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--link) 45%, var(--line));
+  box-shadow: 0 8px 24px -12px light-dark(rgb(28 25 23 / 0.25), rgb(0 0 0 / 0.6));
+}
+.friend-card:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.friend-avatar {
+  flex: none;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--code);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.friend-initial {
+  display: grid;
+  place-items: center;
+  color: var(--link);
+  background: color-mix(in srgb, var(--link) 12%, var(--card));
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1;
+}
+.friend-body { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.friend-name {
+  font-weight: 600;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.18s ease;
+}
+.friend-card:hover .friend-name { color: var(--link); }
+.friend-desc {
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.friend-host {
+  margin-top: 0.15rem;
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 0.75rem;
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .friend-card, .friend-name { transition: none; }
+  .friend-card:hover, .friend-card:focus-visible { transform: none; }
+}
 .site-footer { color: var(--muted); font-size: 0.9rem; }

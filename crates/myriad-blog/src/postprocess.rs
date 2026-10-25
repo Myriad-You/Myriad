@@ -23,7 +23,8 @@ pub const NOTES_CSS_HREF: &str = "/blog/_myriad/notes.css";
 /// `:where` 里，优先级是零，主题自己写了的照主题的。
 /// 页面不跑脚本，嵌入页和它同源，由嵌入页来碰页面（frontend/src/components/embed/embedHost.ts）：
 /// 带 `data-embed-fit` 的框由里面按内容定高，这里写的高度只是加载完之前的占位，取最常见的那一屏
-/// （评论：还没有评论时的那一屏，登录后带输入框约 210px，访客更矮），免得加载完页尾大幅跳动；
+/// （评论：还没有评论时的那一屏，登录后带输入框约 210px，访客更矮；友链申请：联系方式收起时的
+/// 整张表，600px 宽的正文栏里约 660px），免得加载完页尾大幅跳动；
 /// 里面第一帧之前把自己的明暗写到框的 `data-embed-scheme` 上，框的颜色跟着它，
 /// 框和里面明暗一致，浏览器才不会在框里垫一层不透明的底。
 pub const NOTES_CSS: &str = "\
@@ -54,7 +55,7 @@ math[display=block]{margin:1em 0;font-size:1.15em;max-width:100%;overflow-x:auto
 :where(:has(>iframe.myriad-comments) :is(img,video)){max-width:100%;height:auto}\n\
 .myriad-comments,.myriad-friend-apply{display:block;width:100%;border:0;margin-top:2rem}\n\
 .myriad-comments{height:180px}\n\
-.myriad-friend-apply{height:760px}\n\
+.myriad-friend-apply{height:660px}\n\
 iframe[data-embed-scheme=light]{color-scheme:light}\n\
 iframe[data-embed-scheme=dark]{color-scheme:dark}\n\
 .myriad-companion__frame{display:none}\n\
@@ -87,7 +88,9 @@ pub fn postprocess_html(html: &str) -> String {
 /// 除了 [`postprocess_html`] 的清理，还按平台的规矩补 head，第三方主题也一样：
 /// - 站点不让收录时每页都写 `noindex, nofollow`；分类/标签/作者总览、标签和作者页、
 ///   文章列表和翻页写 `noindex, follow`，链接照样跟，页面本身不进索引。主题自己的 robots 换掉。
-/// - 主题没写 canonical、图标时补上。
+/// - 主题没写 canonical 时补上。
+/// - 图标只用站点设置里的：主题写的图标和 manifest（如 Congo 自带的那套）一律删掉，
+///   站点没配图标时宁可不挂，也不露主题的。
 /// - Hugo 不出订阅，主题指向它的订阅链接删掉；站长打开了笔记 RSS 就挂那一个。
 pub fn postprocess_page(html: &str, rel: &str, site: &BlogSite) -> String {
     let found = scan_head(html);
@@ -96,7 +99,8 @@ pub fn postprocess_page(html: &str, rel: &str, site: &BlogSite) -> String {
     let plan = HeadPlan {
         robots: robots_for(rel, site.noindex),
         canonical: canonical_for(rel, &site.origin).filter(|_| !found.canonical),
-        icon: Some(icon).filter(|icon| !icon.is_empty() && !found.icon),
+        site_icon_only: true,
+        icon: Some(icon).filter(|icon| !icon.is_empty()),
         feed: Some(feed).filter(|feed| !feed.is_empty()),
         feed_title: site.title.trim().to_string(),
     };
@@ -133,6 +137,8 @@ fn canonical_for(rel: &str, origin: &str) -> Option<String> {
 struct HeadPlan {
     robots: Option<&'static str>,
     canonical: Option<String>,
+    /// 删掉主题写的图标和 manifest，图标只认 `icon`。
+    site_icon_only: bool,
     icon: Option<String>,
     feed: Option<String>,
     feed_title: String,
@@ -141,13 +147,11 @@ struct HeadPlan {
 #[derive(Default)]
 struct HeadFound {
     canonical: bool,
-    icon: bool,
 }
 
 /// 先看一遍主题已经写了什么，补 head 时不重复。
 fn scan_head(html: &str) -> HeadFound {
     let canonical = Cell::new(false);
-    let icon = Cell::new(false);
     let _ = rewrite_str(
         html,
         with_handlers(vec![element!("link[rel]", |el| {
@@ -155,15 +159,11 @@ fn scan_head(html: &str) -> HeadFound {
             if has_token(&rel, "canonical") {
                 canonical.set(true);
             }
-            if has_token(&rel, "icon") {
-                icon.set(true);
-            }
             Ok(())
         })]),
     );
     HeadFound {
         canonical: canonical.get(),
-        icon: icon.get(),
     }
 }
 
@@ -213,6 +213,13 @@ fn rewrite_page(html: &str, plan: &HeadPlan) -> String {
             element!("meta[name]", |el| {
                 let name = el.get_attribute("name").unwrap_or_default();
                 if plan.robots.is_some() && name.trim().eq_ignore_ascii_case("robots") {
+                    el.remove();
+                }
+                Ok(())
+            }),
+            element!("link[rel]", |el| {
+                let rel = el.get_attribute("rel").unwrap_or_default();
+                if plan.site_icon_only && (is_icon_rel(&rel) || has_token(&rel, "manifest")) {
                     el.remove();
                 }
                 Ok(())
@@ -318,6 +325,18 @@ fn has_token(value: &str, token: &str) -> bool {
     value
         .split_ascii_whitespace()
         .any(|part| part.eq_ignore_ascii_case(token))
+}
+
+/// 浏览器和系统拿来当站点图标的 `rel`。`shortcut icon` 里也有 `icon`。
+fn is_icon_rel(rel: &str) -> bool {
+    [
+        "icon",
+        "apple-touch-icon",
+        "apple-touch-icon-precomposed",
+        "mask-icon",
+    ]
+    .iter()
+    .any(|token| has_token(rel, token))
 }
 
 fn is_feed_type(value: &str) -> bool {

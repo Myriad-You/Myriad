@@ -104,7 +104,6 @@ fn build_in(root: &Path, hugo: &str, theme_id: &str, theme_dir: Option<&Path>) {
         category: Some("技术".to_string()),
         authors: vec!["站长".to_string()],
         cover: Some("/media/assets/abc123/cover.jpg".to_string()),
-        companion: true,
         locale: "zh-CN".to_string(),
     };
     let links = [FriendLink {

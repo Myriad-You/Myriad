@@ -8,7 +8,7 @@ import { BARE_URL, safeCommentUrl } from './commentMarkdown'
  * 放在别人文章下面也安全的那几样：粗体、斜体、行内代码、代码块、引用、列表、链接。
  * - 链接只认 http(s)，新窗口打开，带 nofollow ugc：不给评论里的地址传权重。
  * - 图片不加载，留成原文：访客贴的图会在每个读者的浏览器里请求，对方能借此知道谁读过。
- * - 标题、表格、分隔线在评论里没用，还会抢正文的视觉，降成普通段落。
+ * - 标题、表格、分隔线在评论里没用，还会抢正文的视觉：标题降成加粗的一段，表格每行一段，分隔线不画。
  */
 
 function Link({ href, children }: { href: string; children: string }) {

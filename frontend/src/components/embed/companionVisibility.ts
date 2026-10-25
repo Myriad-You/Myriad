@@ -1,6 +1,6 @@
 /**
  * 两侧胶囊什么时候露出来。照旧阅读器的意思，但只认读者真想用它的信号：
- * - 往下读（累计 24px）就收起，往上翻（累计 24px）就出来；回到页面顶端一直在。
+ * - 往下读（累计 24px）就收起，往上翻（累计 24px）就出来；在页面顶端时一直在，不按时收起。
  *   按累计算：触控板和平滑滚动一次只挪一两像素。
  * - 鼠标或手指伸到正文两侧（胶囊在的地方）就出来；在页面别处动鼠标不算，
  *   不然读着读着胶囊老冒出来。
@@ -18,6 +18,8 @@ export const OWN_SCROLL_MS = 900
 export class ChromeVisibility {
   visible = true
   private held = false
+  /** 在页面顶端：刚打开、还没开始读，不按时收起。 */
+  private atTop: boolean
   /** 这一段同方向滚动是从哪开始的。 */
   private anchor: number
   private lastY: number
@@ -32,17 +34,22 @@ export class ChromeVisibility {
   ) {
     this.anchor = scrollY
     this.lastY = scrollY
+    this.atTop = scrollY <= TOP_ZONE
     this.arm(IDLE_MS)
   }
 
   scroll(y: number): void {
     const last = this.lastY
     this.lastY = y
+    const wasAtTop = this.atTop
+    this.atTop = y <= TOP_ZONE
+    // 离开顶端时补上收起的计时：之前在顶端没计时。
+    if (wasAtTop && !this.atTop) this.arm(IDLE_MS)
     if (this.now() < this.ownUntil) {
       this.anchor = y
       return
     }
-    if (y <= TOP_ZONE) {
+    if (this.atTop) {
       this.anchor = y
       this.show(IDLE_MS)
       return
@@ -101,7 +108,7 @@ export class ChromeVisibility {
 
   private arm(ms: number): void {
     clearTimeout(this.timer)
-    if (this.held) return
+    if (this.held || this.atTop) return
     this.timer = setTimeout(() => this.hide(), ms)
   }
 

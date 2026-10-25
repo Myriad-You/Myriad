@@ -10,9 +10,8 @@ use crate::{
     dedupe_slug, default_theme_files, fallback_slug, first_content_image, github_archive_root,
     inspect_theme_manifest, is_script_asset, page_images, post_path, postprocess_html,
     postprocess_page, prepare_content_html, render_friends_file, render_home_file,
-    render_hugo_config, render_post_file, reveal_companion_island, robots_for,
-    safe_archive_entries, safe_archive_path, sanitize_theme_id, slugify_title, summarize,
-    validate_slug,
+    render_hugo_config, render_post_file, robots_for, safe_archive_entries, safe_archive_path,
+    sanitize_theme_id, slugify_title, summarize, validate_slug,
 };
 
 fn site() -> BlogSite {
@@ -38,30 +37,13 @@ fn post() -> BlogPost {
         category: Some("随笔".to_string()),
         authors: vec!["站长".to_string(), "  ".to_string(), "乙".to_string()],
         cover: None,
-        companion: false,
         locale: String::new(),
     }
 }
 
 #[test]
-fn the_companion_loads_only_on_posts_that_have_one() {
-    let mut note = post();
-    let (_, file) = render_post_file(&site(), &note, DEFAULT_THEME_ID);
-    assert!(
-        file.contains("data-myriad-src=\"/embed/companion/42\""),
-        "{file}"
-    );
-    assert!(!file.contains(" src=\"/embed/companion/42\""), "{file}");
-    let revealed = reveal_companion_island(&file);
-    assert!(
-        revealed.contains("<iframe class=\"myriad-companion__frame\" src=\"/embed/companion/42\"")
-    );
-    assert_eq!(
-        reveal_companion_island("<p>&lt;iframe&gt;</p>"),
-        "<p>&lt;iframe&gt;</p>"
-    );
-
-    note.companion = true;
+fn every_post_loads_the_companion() {
+    let note = post();
     let (_, file) = render_post_file(&site(), &note, DEFAULT_THEME_ID);
     assert!(
         file.contains("<iframe class=\"myriad-companion__frame\" src=\"/embed/companion/42\""),
@@ -442,6 +424,14 @@ fn home_and_friends_files() {
     assert!(file.contains("甲 &amp; 乙"));
     assert!(file.contains("https://example.com/media/icon.png"));
     assert!(file.contains("href=\"#\""));
+    assert!(file.contains("<a class=\"friend-card\" href=\"https://friend.example/?a=1&amp;b=2\""));
+    assert!(file.contains("<img class=\"friend-avatar\" src=\"https://example.com/media/icon.png\" alt=\"\" loading=\"lazy\">"));
+    assert!(file.contains("<span class=\"friend-host\">friend.example</span>"));
+    assert!(
+        file.contains(
+            "<span class=\"friend-avatar friend-initial\" aria-hidden=\"true\">坏</span>"
+        )
+    );
     assert!(file.contains("class=\"myriad-friend-apply\" src=\"/embed/friend-apply\""));
     assert!(file.contains("title=\"友联申请\" data-embed-fit></iframe>"));
     assert!(!file.contains("javascript:"));
@@ -608,11 +598,39 @@ fn postprocess_strips_scripts_and_injects_css() {
 }
 
 #[test]
+fn theme_icons_never_reach_the_page() {
+    let theme = r#"<!DOCTYPE html><html><head><title>t</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/blog/favicon-32x32.png">
+<link rel="apple-touch-icon" href="/blog/apple-touch-icon.png">
+<link rel="mask-icon" href="/blog/safari.svg">
+<link rel="manifest" href="/blog/site.webmanifest">
+</head><body></body></html>"#;
+    let mut blog = site();
+    blog.icon = String::new();
+
+    let out = postprocess_page(theme, "index.html", &blog);
+    // 站点没配图标时也不露主题的。
+    assert!(!out.contains("icon"), "{out}");
+    assert!(!out.contains("manifest"), "{out}");
+
+    blog.icon = "/favicon.webp".to_string();
+    let out = postprocess_page(theme, "index.html", &blog);
+    assert!(!out.contains("/blog/favicon-32x32.png"), "{out}");
+    assert!(!out.contains("manifest"), "{out}");
+    assert_eq!(out.matches("rel=\"icon\"").count(), 1, "{out}");
+    assert!(
+        out.contains("href=\"https://example.com/favicon.webp\""),
+        "{out}"
+    );
+}
+
+#[test]
 fn page_head_follows_platform_rules() {
     let theme = r#"<!DOCTYPE html><html><head><title>t</title>
 <meta name="robots" content="index, follow">
 <link rel="alternate" type="application/rss+xml" href="https://example.com/blog/index.xml">
 <link rel="shortcut icon" href="/blog/favicon.ico">
+<link rel="apple-touch-icon" sizes="180x180" href="/blog/apple-touch-icon.png">
 </head><body><a href="/blog/index.xml">RSS</a><a href="https://other.example/index.xml">外站</a></body></html>"#;
     let mut blog = site();
     blog.icon = "/favicon.webp".to_string();
@@ -623,8 +641,15 @@ fn page_head_follows_platform_rules() {
         out.contains("<link rel=\"canonical\" href=\"https://example.com/blog/posts/hello/\">"),
         "{out}"
     );
-    // 主题自己有图标就不再补；它的 robots 在不需要改时留着。
-    assert_eq!(out.matches("icon\"").count(), 1, "{out}");
+    // 主题自带的图标换成站点图标；它的 robots 在不需要改时留着。
+    assert!(!out.contains("/blog/favicon.ico"), "{out}");
+    assert!(!out.contains("apple-touch-icon"), "{out}");
+    assert_eq!(
+        out.matches("<link rel=\"icon\" href=\"https://example.com/favicon.webp\">")
+            .count(),
+        1,
+        "{out}"
+    );
     assert!(out.contains("content=\"index, follow\""), "{out}");
     assert!(!out.contains("blog/index.xml"), "{out}");
     assert!(

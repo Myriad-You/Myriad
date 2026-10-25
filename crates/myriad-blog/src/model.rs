@@ -48,8 +48,6 @@ pub struct BlogPost {
     pub authors: Vec<String>,
     /// 封面地址。和正文第一张图相同时不写进 front matter。
     pub cover: Option<String>,
-    /// 库里已有这篇的 AI 注释或播客。只有这时页面才挂伴读岛。
-    pub companion: bool,
     /// 这篇的语言（BCP-47，如 `ja-JP`）。和站点一样或认不出时为空。
     pub locale: String,
 }

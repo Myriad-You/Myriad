@@ -54,18 +54,6 @@ html.embed-frame .embed-root--fit {
   background: color-mix(in srgb, canvas 88%, transparent);
 }
 
-.embed-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-}
-
-.embed-fields label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
 .embed-root:not(.cm) button {
   padding: 0.3rem 0.65rem;
   border-radius: 999px;
@@ -83,6 +71,12 @@ html.embed-frame .embed-root--fit {
 html.embed-frame .embed-root.embed-widget {
   padding: 0;
   overflow: hidden;
+}
+
+/* 小组件里能竖着滚的列表（主站网格里设了 overscroll-contain，免得带着整页走）：在文章里滚到头，
+   滚动接着交给文章页，不在一个小框上卡住。 */
+html.embed-frame .embed-widget * {
+  overscroll-behavior-y: auto;
 }
 
 .embed-widget__missing {
@@ -785,4 +779,467 @@ img.cm-avatar {
   }
 
   .cm-reply-box { margin-left: 0; }
+}
+
+/* ---- 友链申请 ----
+   和评论区一套底子（.cm 的 --cm-* 配色、按钮手感），坐在友链页上。表单旁边一张预览卡，
+   按填的内容实时画出在友链页上大致的样子；联系方式和留言收在下面，要写再展开。 */
+
+.fa {
+  container-type: inline-size;
+}
+
+/* 表单 */
+.fa-lede {
+  margin: -0.5rem 0 1.25rem;
+  color: var(--cm-soft);
+  font-size: 0.875rem;
+}
+
+.fa-layout {
+  display: grid;
+  gap: 1.25rem;
+}
+
+@container (width >= 600px) {
+  .fa-layout {
+    grid-template-columns: minmax(0, 1fr) 15rem;
+    align-items: start;
+    gap: 1.75rem;
+  }
+}
+
+.fa-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+  min-width: 0;
+}
+
+.fa-group__title,
+.fa-preview > figcaption {
+  margin-bottom: -0.2rem;
+  padding: 0;
+  color: var(--cm-soft);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fa-row {
+  display: grid;
+  gap: 0.95rem;
+}
+
+@container (width >= 480px) {
+  .fa-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.fa-field {
+  min-width: 0;
+}
+
+.fa-field__top {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+}
+
+.fa-field__top label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.fa-field__optional {
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--cm-hover);
+  color: var(--cm-soft);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.fa-field__count {
+  margin-inline-start: auto;
+  color: var(--cm-soft);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.fa-field__count.is-over {
+  color: var(--cm-danger);
+}
+
+.fa-control {
+  position: relative;
+}
+
+.fa-control__icon {
+  position: absolute;
+  top: 50%;
+  left: 0.8rem;
+  display: inline-flex;
+  color: var(--cm-soft);
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: color 160ms ease;
+}
+
+.fa-control__icon svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.fa-control:focus-within .fa-control__icon {
+  color: var(--cm-accent);
+}
+
+/* 全局样式（overrides.css）给所有输入框上底色、聚焦描边和光晕，这里按评论框的样子收回来。 */
+.cm.fa .fa-control input,
+.cm.fa .fa-control textarea {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--cm-line);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--cm-fg) 2.5%, transparent);
+  box-shadow: none;
+  color: var(--cm-fg);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.cm.fa .fa-control.has-icon input {
+  padding-inline-start: 2.25rem;
+}
+
+.cm.fa .fa-control textarea {
+  min-height: 4.25rem;
+  max-height: 12rem;
+  resize: none;
+  field-sizing: content;
+}
+
+.cm.fa .fa-control input::placeholder,
+.cm.fa .fa-control textarea::placeholder {
+  color: color-mix(in srgb, var(--cm-soft) 70%, transparent);
+}
+
+.cm.fa .fa-control input:hover,
+.cm.fa .fa-control textarea:hover {
+  border-color: color-mix(in srgb, var(--cm-fg) 22%, transparent);
+}
+
+/* 输入框聚焦时外框和光晕已经够清楚，不再叠 .cm 的焦点描边。 */
+.cm.fa .fa-control :focus-visible {
+  outline: none;
+}
+
+.cm.fa .fa-control input:focus,
+.cm.fa .fa-control textarea:focus {
+  border-color: color-mix(in srgb, var(--cm-accent) 60%, transparent);
+  background: transparent;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cm-accent) 12%, transparent);
+}
+
+.cm.fa .fa-field.is-invalid input,
+.cm.fa .fa-field.is-invalid textarea {
+  border-color: color-mix(in srgb, var(--cm-danger) 55%, transparent);
+}
+
+.cm.fa .fa-field.is-invalid input:focus,
+.cm.fa .fa-field.is-invalid textarea:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cm-danger) 14%, transparent);
+}
+
+.fa-field__problem,
+.fa-field__hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.fa-field__problem {
+  color: var(--cm-danger);
+  animation: cm-rise 180ms var(--cm-ease);
+}
+
+.fa-field__hint {
+  color: var(--cm-soft);
+}
+
+/* 预览卡：虚线框，表示还不是真的 */
+.fa-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  margin: 0;
+}
+
+.fa-preview__card {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  border: 1px dashed var(--cm-line);
+  border-radius: 0.9rem;
+}
+
+.fa-mark {
+  --fa-face: hsl(var(--fa-hue, 30) 55% 50%);
+
+  position: relative;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  overflow: hidden;
+  border-radius: 0.7rem;
+  background: color-mix(in oklab, var(--fa-face) 22%, transparent);
+  color: color-mix(in oklab, var(--fa-face) 55%, var(--cm-fg));
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.fa-mark svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+/* 图标加载出来以前是透明的，底下的首字照常显示。 */
+.fa-mark img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0.4rem;
+
+  /* 不透明的底（文章页取色里的实心面），透明的图标也不会透出底下的首字。 */
+  background: var(--p-solid, Canvas);
+  box-shadow: inset 0 0 0 1px var(--cm-line);
+  border-radius: inherit;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.fa-mark img.is-loaded {
+  opacity: 1;
+}
+
+.fa-preview__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.fa-preview__name {
+  overflow: hidden;
+  font-size: 0.9375rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fa-preview__name.is-empty {
+  color: var(--cm-soft);
+  font-weight: 600;
+}
+
+.fa-preview__url {
+  overflow: hidden;
+  color: var(--cm-soft);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fa-preview__desc {
+  display: -webkit-box;
+  margin-top: 0.3rem;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+/* 联系方式和留言：收在一根细线下面，要写再展开 */
+.fa-more {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--cm-line);
+}
+
+.cm .fa-more__toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.85rem 0 0.15rem;
+  color: var(--cm-fg);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: start;
+}
+
+.cm .fa-more__chev {
+  width: 0.95rem;
+  height: 0.95rem;
+  margin-inline-start: auto;
+  color: var(--cm-soft);
+  transition: transform 200ms var(--cm-ease);
+}
+
+.fa-more.is-open .fa-more__chev {
+  transform: rotate(180deg);
+}
+
+.fa-more__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+  padding-top: 0.85rem;
+  animation: cm-rise 220ms var(--cm-ease);
+}
+
+.fa .cm-error {
+  margin: 1rem 0 0;
+}
+
+/* 底栏 */
+.fa-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
+.cm .fa-text-btn {
+  min-height: 2.25rem;
+  padding: 0 0.8rem;
+  border-radius: 0.6rem;
+  color: var(--cm-soft);
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.cm .fa-text-btn:hover {
+  background: var(--cm-hover);
+  color: var(--cm-fg);
+}
+
+/* 提交：没填完是中性的浅底，必填都对了整颗填上强调色。 */
+.cm .fa-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2.4rem;
+  padding: 0 1.05rem 0 0.9rem;
+  border-radius: 0.7rem;
+  background: color-mix(in srgb, var(--cm-fg) 6%, transparent);
+  color: var(--cm-soft);
+  font-size: 0.875rem;
+  font-weight: 650;
+  white-space: nowrap;
+  transition: background 180ms ease, color 180ms ease, box-shadow 180ms ease, transform 160ms var(--cm-ease);
+}
+
+.cm .fa-submit svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  transition: transform 220ms var(--cm-ease);
+}
+
+.cm .fa-submit.is-ready {
+  background: var(--cm-accent);
+  box-shadow: 0 2px 10px -3px color-mix(in srgb, var(--cm-accent) 60%, transparent);
+  color: var(--cm-on-accent);
+}
+
+.cm .fa-submit.is-ready:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cm-accent) 88%, var(--cm-fg));
+}
+
+.cm .fa-submit.is-ready:hover:not(:disabled) > svg:not(.cm-spin) {
+  transform: translate(1px, -1px) rotate(-8deg);
+}
+
+.cm .fa-submit:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.cm .fa-submit:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+
+/* 提交成功 */
+.fa-done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1.25rem 0 0.25rem;
+  text-align: center;
+}
+
+.fa-done__badge {
+  display: inline-grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--cm-accent) 16%, transparent);
+  color: var(--cm-accent);
+  animation: fa-pop 420ms var(--cm-ease);
+}
+
+.fa-done__badge svg {
+  width: 1.3rem;
+  height: 1.3rem;
+  stroke-width: 2.5;
+}
+
+.cm .fa-done h1 {
+  margin: 0.85rem 0 0.25rem;
+  font-size: 1.125rem;
+  font-weight: 700;
+  outline: none;
+}
+
+.fa-done > p {
+  max-width: 28rem;
+  margin: 0;
+  color: var(--cm-soft);
+  font-size: 0.875rem;
+}
+
+.fa-done .fa-preview {
+  width: min(100%, 22rem);
+  margin: 1.25rem 0 0.75rem;
+  text-align: start;
+}
+
+@keyframes fa-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+
+  60% {
+    transform: scale(1.08);
+  }
 }

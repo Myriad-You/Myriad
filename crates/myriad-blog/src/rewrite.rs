@@ -121,30 +121,17 @@ fn widget_frame_src(widget: &str, size: Option<&str>, config: Option<&str>) -> O
     Some(src)
 }
 
-/// 还没有注释和播客的文章上，控制器还没有地址。
-pub(crate) const DORMANT_FRAME_SRC: &str =
-    "<iframe class=\"myriad-companion__frame\" data-myriad-src=";
-
 /// 伴读：正文末尾一个看不见的同源控制器 iframe。页面不跑脚本，两侧的胶囊、面板和正文里的
 /// 注释都由控制器画（frontend/src/components/embed/EmbedCompanion.tsx）；框所在的元素就是正文，
 /// 胶囊贴着它的两边。
-/// 有注释或播客（`ready`）时控制器照常加载。还没有的文章也放一份，但框没有地址，访客那边
-/// 什么也不加载；站长打开页面时后端用 [`reveal_companion_island`] 给它地址，在面板里就能补生成。
-pub fn companion_island_html(item_id: i32, ready: bool, locale: &str) -> String {
-    let src = if ready { "src" } else { "data-myriad-src" };
+/// 每篇都挂：进度、评论、字号行距和 AI 无关，谁都能用。AI 注释和播客由控制器按库里有没有、
+/// 看的人是不是站长来决定露不露（访客只读已有的，站长能补生成）。
+pub fn companion_island_html(item_id: i32, locale: &str) -> String {
     let title = escape_html(labels(locale).companion);
     format!(
-        "<iframe class=\"myriad-companion__frame\" {src}=\"/embed/companion/{item_id}\" title=\"{title}\" hidden aria-hidden=\"true\" tabindex=\"-1\"></iframe>\n"
+        "<iframe class=\"myriad-companion__frame\" src=\"/embed/companion/{item_id}\" title=\"{title}\" hidden aria-hidden=\"true\" tabindex=\"-1\"></iframe>\n"
     )
 }
-
-/// 站长看到的页面：给还没内容的伴读控制器地址。只认构建时写下的那个标签，正文里的字不会
-/// 被碰到（正文里的 `<` 早已转义）。
-pub fn reveal_companion_island(html: &str) -> String {
-    html.replacen(DORMANT_FRAME_SRC, REVEALED_FRAME_SRC, 1)
-}
-
-pub(crate) const REVEALED_FRAME_SRC: &str = "<iframe class=\"myriad-companion__frame\" src=";
 
 /// 正文里第一张 `<img>` 的 `src`。封面去重用它，不把 `<source>` 算进去。
 pub fn first_content_image(html: &str) -> Option<String> {

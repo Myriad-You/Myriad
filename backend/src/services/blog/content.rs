@@ -1,17 +1,13 @@
 //! 从库里取出要导出的笔记和友链。公开笔记不含 `admin_only` 源。
 
-use std::collections::HashSet;
-
 use chrono::Utc;
 use myriad_blog::{BlogPost, BlogSettings, BlogSite, FriendLink, blog_settings_from_value};
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, QueryFilter,
-    QuerySelect, Statement,
+    Statement,
 };
 
-use crate::models::entities::{
-    phantasi_annotations, phantasi_items, phantasi_podcasts, phantasi_sources,
-};
+use crate::models::entities::{phantasi_items, phantasi_sources};
 use crate::services::public_site::{self, listed_board_keeps};
 
 pub async fn load_settings(db: &impl ConnectionTrait) -> BlogSettings {
@@ -103,48 +99,7 @@ pub async fn load_posts(db: &DatabaseConnection) -> Result<Vec<BlogPost>, &'stat
         .await
         .map_err(|_| "Could not read published notes")?;
     items.sort_by_key(|item| item.published_at);
-    let item_ids: Vec<i32> = items.iter().map(|item| item.id).collect();
-    let companions = companion_item_ids(db, &item_ids)
-        .await
-        .map_err(|_| "Could not read AI annotations and podcasts")?;
-    Ok(items
-        .into_iter()
-        .map(|item| {
-            let companion = companions.contains(&item.id);
-            item_to_post(item, companion)
-        })
-        .collect())
-}
-
-/// Posts that already have AI annotations or a podcast script.
-async fn companion_item_ids(
-    db: &DatabaseConnection,
-    item_ids: &[i32],
-) -> Result<HashSet<i32>, sea_orm::DbErr> {
-    if item_ids.is_empty() {
-        return Ok(HashSet::new());
-    }
-    let mut found: HashSet<i32> = phantasi_annotations::Entity::find()
-        .select_only()
-        .column(phantasi_annotations::Column::ItemId)
-        .distinct()
-        .filter(phantasi_annotations::Column::ItemId.is_in(item_ids.iter().copied()))
-        .into_tuple::<i32>()
-        .all(db)
-        .await?
-        .into_iter()
-        .collect();
-    found.extend(
-        phantasi_podcasts::Entity::find()
-            .select_only()
-            .column(phantasi_podcasts::Column::ItemId)
-            .distinct()
-            .filter(phantasi_podcasts::Column::ItemId.is_in(item_ids.iter().copied()))
-            .into_tuple::<i32>()
-            .all(db)
-            .await?,
-    );
-    Ok(found)
+    Ok(items.into_iter().map(item_to_post).collect())
 }
 
 pub async fn load_friends(db: &DatabaseConnection) -> Result<Vec<FriendLink>, &'static str> {
@@ -178,7 +133,7 @@ pub async fn load_friends(db: &DatabaseConnection) -> Result<Vec<FriendLink>, &'
     Ok(friends)
 }
 
-fn item_to_post(item: phantasi_items::Model, companion: bool) -> BlogPost {
+fn item_to_post(item: phantasi_items::Model) -> BlogPost {
     let authors = item
         .author
         .unwrap_or_default()
@@ -199,7 +154,6 @@ fn item_to_post(item: phantasi_items::Model, companion: bool) -> BlogPost {
         category: item.topic.filter(|topic| !topic.trim().is_empty()),
         authors,
         cover: item.image.filter(|image| !image.trim().is_empty()),
-        companion,
         locale: String::new(),
     }
 }
@@ -220,7 +174,6 @@ mod tests {
             category: None,
             authors: Vec::new(),
             cover: None,
-            companion: false,
             locale: String::new(),
         }
     }
