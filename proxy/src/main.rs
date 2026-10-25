@@ -1848,7 +1848,8 @@ mod tests {
         assert!(is_backend_path("/", googlebot));
         assert!(is_backend_path("/tapp", googlebot));
         // Wayback: `archive.org_bot` is followed by a space, so the generic `bot/` rule misses it.
-        let wayback = "Mozilla/5.0 (compatible; archive.org_bot +http://archive.org/details/archive.org_bot)";
+        let wayback =
+            "Mozilla/5.0 (compatible; archive.org_bot +http://archive.org/details/archive.org_bot)";
         assert!(is_backend_path("/", wayback));
         assert!(is_backend_path("/library", wayback));
         assert!(!is_backend_path("/journal", "facebookexternalhit/1.1"));
