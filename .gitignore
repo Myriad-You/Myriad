@@ -220,6 +220,12 @@ backend/data/.bootstrap-claimed
 !/frontend/tests/browser/noteEditorSettings.spec.ts
 !/frontend/tests/browser/fixture/noteEditorSettings.html
 !/frontend/tests/browser/fixture/noteEditorSettings.tsx
+
+# Blog comments embed: guest view, replies and confirmed delete
+!/frontend/tests/browser/embedComments.spec.ts
+!/frontend/tests/browser/fixture/embedComments.html
+!/frontend/tests/browser/fixture/embedComments.tsx
+!/frontend/tests/browser/fixture/embedCommentsHost.html
 !/frontend/tests/browser/noteImageEditing.spec.ts
 !/frontend/tests/browser/fixture/noteImageEditing.html
 !/frontend/tests/browser/fixture/noteImageEditing.tsx
