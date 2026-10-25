@@ -1702,10 +1702,10 @@ mod tests {
             "lc3Npb24iLCJpc19hZG1pbiI6dHJ1ZSwiaXNfb3duZXIiOmZhbHNlLCJleHAiOjQxMDI0NDQ4MDAsIml",
             "hdCI6MTcwMDAwMDAwMCwidHYiOjd9.4ukAEW1qKx70z0DMNpfu5-oLj-R53WnifR7KVlCaOE8",
         );
-        let verified = decode::<Claims>(
+        let verified = jsonwebtoken::decode::<super::Claims>(
             legacy,
-            &DecodingKey::from_secret(TEST_JWT_SECRET.as_bytes()),
-            &Validation::default(),
+            &jsonwebtoken::DecodingKey::from_secret(TEST_JWT_SECRET.as_bytes()),
+            &jsonwebtoken::Validation::default(),
         )
         .expect("legacy session signature");
         assert_eq!(verified.claims.sub, "42");
