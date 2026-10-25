@@ -2,8 +2,7 @@
 //!
 //! Kept as a real submodule so feeds / reading / comments do not need `include!`.
 
-use axum::{Json, http::StatusCode};
-use myriad_error::AppError;
+use axum::http::StatusCode;
 use reqwest::Url;
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection};
 
@@ -13,20 +12,7 @@ use crate::middleware::auth::Claims;
 use crate::models::entities::phantasi_sources;
 use crate::services::icon_service::IconService;
 
-pub(crate) fn phantasi_http_err(status: StatusCode, error: impl Into<String>) -> HttpError {
-    HttpError::from((status, Json(AppError::fail_json(error))))
-}
-
-pub(crate) fn phantasi_store_http(
-    context: &'static str,
-    error: impl std::fmt::Display,
-) -> HttpError {
-    tracing::error!(%error, context, "phantasi store failed");
-    phantasi_http_err(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        format!("Failed to {context}"),
-    )
-}
+pub(crate) use crate::services::phantasi_error::{phantasi_http_err, phantasi_store_http};
 
 /// Subject parsed once at the auth boundary (never re-parsed from `sub`).
 fn parse_user_id(claims: &Claims) -> Result<i32, HttpError> {
@@ -86,10 +72,9 @@ pub(crate) async fn require_phantasi_module_access_cached(
     user_id: Option<i32>,
     is_admin: bool,
 ) -> Result<myriad_module_visibility::ModuleVisibilityPreferences, HttpError> {
-    let preferences =
-        crate::services::module_visibility::cached_module_visibility_preferences(db)
-            .await
-            .map_err(|error| phantasi_store_http("load module visibility", error))?;
+    let preferences = crate::services::module_visibility::cached_module_visibility_preferences(db)
+        .await
+        .map_err(|error| phantasi_store_http("load module visibility", error))?;
     if phantasi_access_allowed(preferences.module_visibility("phantasi"), user_id, is_admin) {
         return Ok(preferences);
     }

@@ -42,29 +42,29 @@ pub mod library_items; // Library item models, paging, Bangumi/MAL builders, pre
 pub mod local_music; // Local music library catalog → player playlist
 pub mod memory_profile; // default vs memory-saver process budgets
 pub mod merope_rig; // Anime2.5D rig store (live pointer is worn outfit)
-pub mod pose_estimation; // Whole-body keypoints on a master portrait (DWPose)
 pub mod metadata_service;
 pub mod minimax_speech; // MiniMax T2A speech synthesis
-pub mod omni_voice; // Her own voice from Lite's Omni model (DashScope direct)
 pub mod module_visibility; // Module visibility for Agent (no api::config import)
 pub mod music_player_view; // Player playlist projection (slim cache + Song fields)
 pub mod netease_service;
 pub mod oauth;
+pub mod omni_voice; // Her own voice from Lite's Omni model (DashScope direct)
 pub mod openai_compatible_speech; // OpenAI / OpenRouter file STT + TTS
 pub mod outbound_security; // Outbound URL validation, DNS pinning, redirect policy
 pub mod permission_service;
+pub mod persona_sync; // Syncing her with other platforms: devices, what the site has of her
 pub mod platform_auto_refresh; // Core platform auto-refresh via Tapp scheduler
 pub mod platform_cache; // Platform filtered-JSON cache
 pub mod platform_id; // PlatformId registry: ids, aliases, credentials/enabled rule
 pub mod platform_items; // Cache → uniform items[] projection
 pub mod platform_refresh; // Platform fetch/cache (profile HTTP + scheduler)
-pub mod persona_sync; // Syncing her with other platforms: devices, what the site has of her
+pub mod pose_estimation; // Whole-body keypoints on a master portrait (DWPose)
 pub mod principal; // 当前角色、站长、安装是否已认领：唯一来源
 pub mod process_db; // The process database connection (platform infrastructure)
 pub mod profile_text; // 名称/简介文案来源（与 avatar 独立）
 pub mod public_reports; // Whose reports the public sees
-pub mod report_styles; // Owner's report writing styles: presets, checks, stored shape
 pub mod public_site; // What the site shows guests: branding, open modules, public links
+pub mod report_styles; // Owner's report writing styles: presets, checks, stored shape
 pub mod retired_configuration; // Backup denylist for retired configuration keys
 pub mod runtime_registry; // Platform runtime registry/mailbox shared by replicas (workspace crate)
 pub mod see_through; // Remote See-through layered-PSD decomposition
@@ -142,12 +142,15 @@ pub mod image_cache; // e.g. Notion temporary URLs
 pub mod media;
 pub mod media_catalog;
 pub mod note_authors;
+pub mod note_collab;
+pub mod note_documents;
 pub mod note_publish;
 pub mod notion_service;
 pub(crate) mod onebot_bot; // OneBot forward-WebSocket worker
 pub(crate) mod onebot_pairing; // OneBot private-chat pairing
 pub(crate) mod onebot_send; // Live OneBot socket for private-chat actions
 pub(crate) mod onebot_work; // OneBot private-chat Work entry
+pub mod phantasi_error;
 pub mod phantasi_parser;
 pub(crate) mod phantasi_reading;
 pub mod phantasi_scheduler;

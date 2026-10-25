@@ -1,9 +1,9 @@
 //! Real PostgreSQL regression entering through the Agent capability dispatcher.
-use super::note_collab::note_collab_hub;
 use crate::services::agent::{
     capability::CapabilityRegistry,
     executor::handlers::{HandlerContext, execute_capability},
 };
+use crate::services::note_collab::note_collab_hub;
 use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement};
 use serde_json::{Value, json};
 use std::collections::HashMap;

@@ -12,9 +12,7 @@ mod helpers;
 pub(crate) use helpers::{
     get_phantasi_viewer, phantasi_access_allowed, require_phantasi_module_access_cached,
 };
-mod note_collab;
 mod note_docs;
-pub(crate) use note_docs::{NoteDocWriteRequest, load_note_doc, load_note_docs, save_note_doc};
 mod note_editor;
 mod notes;
 mod notes_rss;

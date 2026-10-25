@@ -1,6 +1,6 @@
 //! Uses the editor's save path, including revision checks and the web-owned collab hub.
 use super::HandlerContext;
-use crate::api::phantasi::{self, NoteDocWriteRequest};
+use crate::services::note_documents::{self as phantasi, NoteDocWriteRequest};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
