@@ -28,6 +28,8 @@ test('partial refresh reloads persisted views and keeps localized failure detail
     fetchPlatformData: async () => response,
     clearPlatformCache: async () => {},
     submitPlatformTask: async () => 'task',
+    // 页面一打开先问后台有没有在跑的任务；这里没有，走正常刷新。
+    getRunningPlatformTask: async () => null,
   }
   const bindGuide = () => ({})
   const Preview = forwardRef((_props, ref) => { useImperativeHandle(ref, () => ({ reload: async () => { previewLoads++ } })); return null })

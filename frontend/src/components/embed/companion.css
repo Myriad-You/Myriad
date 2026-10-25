@@ -27,6 +27,7 @@
   --accent: var(--p-accent, light-dark(#b8860b, #fbbf24));
   --on-accent: var(--p-on-accent, #fff);
   --ai: var(--p-ai, light-dark(#9333ea, #c084fc));
+
   /* 播客不另起一套颜色：播放键是正文色，念到哪用阅读进度的强调色。 */
   --cast: var(--accent);
   --guest: var(--p-guest, light-dark(#8a7360, #b5a08a));
@@ -78,7 +79,7 @@
   border-radius: 1rem;
   background: var(--chip);
   box-shadow: 0 1px 2px var(--shadow);
-  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  backdrop-filter: blur(12px) saturate(1.3);
   backdrop-filter: blur(12px) saturate(1.3);
 }
 
@@ -174,6 +175,7 @@
   padding: 0 4px;
   border-radius: 999px;
   background: var(--badge);
+
   /* 一圈胶囊底色，把数字和图标隔开。 */
   box-shadow: 0 0 0 2px var(--solid);
   color: var(--on-accent);
@@ -746,6 +748,7 @@
 .capsule--rail {
   gap: 6px;
   padding: 6px;
+
   /* 压在正文上面，透出来的字会和按钮打架：底色厚一些。 */
   background: color-mix(in srgb, var(--solid) 94%, transparent);
   box-shadow: 0 4px 16px var(--shadow);
@@ -761,6 +764,7 @@
 
 .sheet {
   position: fixed;
+
   /* 页面被撑宽时只占屏幕那么大，见 CompanionChrome.tsx 的 viewportRight。 */
   right: max(0px, calc(100% - 100vw));
   bottom: max(0px, calc(100% - 100dvh));

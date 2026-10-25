@@ -709,6 +709,7 @@ html.dark .blog-alert.is-warn {
 /* 主题行下面的「深浅色」：安装时认出来的切换办法，没确认过时整块淡淡地提一下。 */
 .blog-scheme {
   display: flex;
+
   /* 独占一行，左边和主题名对齐；宽度要扣掉这段缩进，不然会顶出窗口。 */
   flex: 0 0 calc(100% - 2.525rem);
   flex-direction: column;

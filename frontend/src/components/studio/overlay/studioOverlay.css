@@ -64,7 +64,7 @@ input:focus-visible {
 
 .glass {
   background: var(--so-glass);
-  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  backdrop-filter: blur(18px) saturate(1.3);
   backdrop-filter: blur(18px) saturate(1.3);
   box-shadow:
     0 8px 24px var(--so-shadow),
@@ -93,6 +93,7 @@ input:focus-visible {
   color: var(--so-ink);
   position: fixed;
   top: max(8px, env(safe-area-inset-top));
+
   /* 50vw 不用 50%：手机上页面被撑宽时 50% 是被撑宽那块的中间，会跑出屏幕。 */
   left: 50vw;
   z-index: 30;
@@ -163,7 +164,7 @@ input:focus-visible {
   z-index: 1;
   pointer-events: auto;
   background: light-dark(rgb(0 0 0 / 22%), rgb(0 0 0 / 46%));
-  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
   animation: so-fade 180ms var(--so-ease);
 }
