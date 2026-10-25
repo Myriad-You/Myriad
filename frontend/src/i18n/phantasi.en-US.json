@@ -152,6 +152,8 @@
   "noteSchedule": "Schedule",
   "noteUnschedule": "Cancel schedule",
   "noteTabVisual": "Rich text",
+  "noteViewLabel": "View: {current}. {next}",
+  "noteViewNext": "Switch to {view}",
   "noteToolStrike": "Strikethrough",
   "noteToolOl": "Numbered list",
   "noteToolTask": "Task list",

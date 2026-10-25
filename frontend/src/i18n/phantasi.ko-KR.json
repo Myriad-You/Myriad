@@ -152,6 +152,8 @@
   "noteSchedule": "예약 발행",
   "noteUnschedule": "예약 취소",
   "noteTabVisual": "리치 텍스트",
+  "noteViewLabel": "보기: {current}. {next}",
+  "noteViewNext": "{view}(으)로 전환",
   "noteToolStrike": "취소선",
   "noteToolOl": "번호 목록",
   "noteToolTask": "할 일",

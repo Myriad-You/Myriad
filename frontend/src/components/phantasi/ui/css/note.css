@@ -24,7 +24,7 @@
   min-height: 0;
 }
 
-/* ---- 常驻的 Agent：输入框停在底栏上方，对话往上展开，盖在纸面上；设置抽屉仍在它上面 ---- */
+/* ---- 常驻的 Agent：输入框停在写作器底边，对话往上展开，盖在纸面上；设置抽屉仍在它上面 ---- */
 
 .phantasi-note__agent {
   position: relative;
@@ -59,24 +59,43 @@
 /* ---- 顶栏：薄、透明 ---- */
 
 .phantasi-note__top {
+  /* 顶栏控件收到 2.25rem 一档，正文和抽屉里的控件不受影响。 */
+  --note-ctl-h: 2.25rem;
+  --note-ctl-h-lg: 2.25rem;
+
   display: flex;
   flex-shrink: 0;
   flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.5rem var(--note-gutter) 0.45rem;
+  gap: 0.3rem;
+  padding: 0.4rem var(--note-gutter);
 }
 
 .phantasi-note__top-row {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.65rem;
 }
 
 .phantasi-note__top-left,
 .phantasi-note__top-right {
   display: flex;
   align-items: center;
+  gap: 0.35rem;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__top .note-btn:not(.note-btn--icon) {
   gap: 0.4rem;
+  padding: 0 0.95rem;
+  font-size: 0.875rem;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__top .note-btn--quiet:not(.note-btn--icon) {
+  padding: 0 0.7rem;
+}
+
+.phantasi-note__top .note-btn__icon svg {
+  width: 1.1rem;
+  height: 1.1rem;
 }
 
 .phantasi-note__top-left {
@@ -130,6 +149,58 @@ html.dark .phantasi-note__peer {
 
 .phantasi-note__peer:first-child {
   margin-inline-start: 0.25rem;
+}
+
+.phantasi-note__count {
+  flex: none;
+  color: var(--note-ink-3);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---- 视图按钮：显示当前视图，点一下换到下一个 ---- */
+
+.phantasi-note__view {
+  gap: 0.35rem;
+}
+
+/* 常驻的切换标记：告诉人这个按钮点了会换视图。 */
+.phantasi-note__view-mark {
+  display: inline-flex;
+  color: var(--note-ink-3);
+}
+
+.phantasi-note__view-mark svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.phantasi-note__view:hover .phantasi-note__view-mark {
+  color: var(--note-ink-2);
+}
+
+/* 换视图时图标轻轻转进来，提示「点了会轮换」。 */
+.phantasi-note__view-icon {
+  animation: phantasi-note-view-in var(--sm-dur-base, 220ms)
+    var(--sm-ease-enter, cubic-bezier(0.16, 1, 0.3, 1)) backwards;
+}
+
+@keyframes phantasi-note-view-in {
+  from {
+    opacity: 0;
+    transform: rotate(-90deg) scale(0.7);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phantasi-note__view-icon {
+    animation: none;
+  }
+}
+
+html[data-perf-mode='exlight'] .phantasi-note__view-icon {
+  animation: none;
 }
 
 /* ---- 纸面 ---- */
@@ -783,36 +854,6 @@ html.dark .phantasi-note.phantasi-skin .phantasi-note__bubble-btn:hover {
   border-color: var(--note-ink);
 }
 
-/* ---- 底栏 ---- */
-
-.phantasi-note__foot {
-  display: flex;
-  flex-wrap: wrap;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.35rem var(--note-gutter) 0.45rem;
-  border-top: 1px solid var(--phantasi-line);
-}
-
-.phantasi-note__count {
-  color: var(--note-ink-3);
-  font-size: 0.8125rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.phantasi-note__foot-left,
-.phantasi-note__foot-right {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.phantasi-note__foot-right {
-  margin-inline-start: auto;
-}
-
 /* ---- 行槛「+」 ---- */
 
 .phantasi-note__gutter {
@@ -1231,7 +1272,11 @@ html.dark .phantasi-note__menu {
 /* ---- 发布抽屉 ---- */
 
 .phantasi-note__drawer {
-  --note-drawer-pad: 1.25rem;
+  /* 跟顶栏同一档：控件 2.25rem，字小一号，留白收一点。 */
+  --note-ctl-h: 2.25rem;
+  --note-ctl-h-lg: 2.25rem;
+  --note-ctl-font: 0.875rem;
+  --note-drawer-pad: 1rem;
   --note-stage-draft: var(--note-ink-3);
   --note-stage-scheduled: #b7791f;
   --note-stage-published: #2f855a;
@@ -1241,9 +1286,9 @@ html.dark .phantasi-note__menu {
   inset: 0 0 0 auto;
   z-index: 35;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.8rem;
   width: min(24rem, 100%);
-  padding: 0.75rem var(--note-drawer-pad) var(--note-drawer-pad);
+  padding: 0.6rem var(--note-drawer-pad) var(--note-drawer-pad);
   overflow: hidden auto;
   border-left: 1px solid var(--note-line);
   background:
@@ -1309,19 +1354,19 @@ html.dark .phantasi-note__drawer {
 .phantasi-note__drawer-head {
   display: flex;
   position: sticky;
-  top: -0.75rem;
+  top: -0.6rem;
   z-index: 2;
   align-items: center;
-  gap: 0.6rem;
-  margin: -0.75rem calc(var(--note-drawer-pad) * -1) 0;
-  padding: 0.75rem var(--note-drawer-pad) 0.5rem;
+  gap: 0.5rem;
+  margin: -0.6rem calc(var(--note-drawer-pad) * -1) 0;
+  padding: 0.6rem var(--note-drawer-pad) 0.4rem;
   background: var(--note-paper);
 }
 
 .phantasi-note__drawer-title {
   margin: 0;
   color: var(--note-ink);
-  font-size: 1.0625rem;
+  font-size: 1rem;
   font-weight: 700;
 }
 
@@ -1376,6 +1421,37 @@ html.dark .phantasi-note__drawer {
   50% {
     box-shadow: 0 0 0 0.3rem color-mix(in srgb, currentcolor 18%, transparent);
   }
+}
+
+/* 抽屉里的按钮、开关、分组跟着收紧，跟顶栏一个密度。
+   用 :where 把权重压到和控件底样式一样，后面各处单独调过的按钮（日期「修改」、封面「移除」等）照旧生效。 */
+.phantasi-note.phantasi-skin .phantasi-note__drawer :where(.note-btn:not(.note-btn--icon, .phantasi-note__drawer-update)) {
+  gap: 0.4rem;
+  padding: 0 0.95rem;
+  font-size: 0.875rem;
+}
+
+.phantasi-note__drawer .note-btn__icon svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__drawer :where(.note-switch__item) {
+  padding: 0 0.75rem;
+  font-size: 0.85rem;
+}
+
+.phantasi-note__drawer .note-section {
+  gap: 0.5rem;
+}
+
+.phantasi-note__drawer .note-section__body,
+.phantasi-note__drawer .note-field {
+  gap: 0.4rem;
+}
+
+.phantasi-note__drawer .note-chip {
+  min-height: 1.7rem;
 }
 
 /* ---- 列表里的那一项：缩成一行 ---- */
@@ -1515,7 +1591,7 @@ html.dark .phantasi-note__drawer {
   position: relative;
   z-index: 1;
   min-width: 0;
-  height: 2.1rem;
+  height: 1.85rem;
   padding: 0 0.4rem;
   overflow: hidden;
   border: 0;
@@ -1546,7 +1622,7 @@ html.dark .phantasi-note__drawer {
 .phantasi-note__drawer-panel {
   display: flex;
   flex-direction: column;
-  gap: 1.15rem;
+  gap: 0.9rem;
   min-width: 0;
   animation: phantasi-note-panel-forward var(--sm-dur-base, 220ms)
     var(--sm-ease-enter, cubic-bezier(0.16, 1, 0.3, 1)) backwards;
@@ -2331,10 +2407,24 @@ html[data-perf-mode='exlight'] .note-companion__value {
     display: none;
   }
 
+  .phantasi-note__count {
+    display: none;
+  }
+
   .phantasi-note__top-right .note-btn--quiet,
   .phantasi-note__article-link {
     width: var(--note-ctl-h);
     padding: 0;
+  }
+
+  /* 顶栏按钮的内边距选择器更具体，这里要同等具体才盖得住。 */
+  .phantasi-note.phantasi-skin .phantasi-note__top .note-btn.phantasi-note__article-link {
+    padding: 0;
+  }
+
+  /* 视图按钮留着图标和切换标记，不缩成方块。 */
+  .phantasi-note__top-right .phantasi-note__view {
+    width: auto;
   }
 
   .phantasi-note__drawer {

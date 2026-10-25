@@ -101,10 +101,13 @@ describe('note editor abort', () => {
     assert.match(chrome, /noteAuthors/)
     assert.match(chrome, /noteAuthorOwner/)
     assert.match(chrome, /authorLine/)
-    for (const part of ['NoteTopBar', 'NoteBubble', 'NoteGutter', 'NoteFootBar', 'NoteSettingsDrawer', 'NoteByline']) {
+    for (const part of ['NoteTopBar', 'NoteBubble', 'NoteGutter', 'NoteSettingsDrawer', 'NoteByline']) {
       assert.match(chrome, new RegExp(`export function ${part}\\(`))
       assert.match(editor, new RegExp(`<${part}\\b`))
     }
+    assert.match(chrome, /export function NoteViewToggle\(/)
+    assert.match(chrome, /<NoteViewToggle\b/)
+    assert.doesNotMatch(editor, /NoteFootBar/)
     assert.doesNotMatch(chrome, /InputItem/)
     assert.doesNotMatch(chrome, /from ['"].*phantasiApi['"]/)
     assert.match(editor, /phantasi-note__title/)

@@ -152,6 +152,8 @@
   "noteSchedule": "Programmer",
   "noteUnschedule": "Annuler la programmation",
   "noteTabVisual": "Texte enrichi",
+  "noteViewLabel": "Affichage : {current}. {next}",
+  "noteViewNext": "Passer à {view}",
   "noteToolStrike": "Barré",
   "noteToolOl": "Liste numérotée",
   "noteToolTask": "Tâche",

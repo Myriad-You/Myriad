@@ -12,12 +12,16 @@ function atLocal(base: number, dayOffset: number, hour: number): number {
   return date.getTime()
 }
 
+/** 凌晨这几个钟头里说「明早」，指的是天亮后的这个早上，不是再隔一天。 */
+const NIGHT_ENDS_AT = 5
+
 /**
  * 三个最常用的去处：一小时后（取整到 5 分钟）、晚上 8 点、明早 9 点。
  * 今晚 8 点离现在不到一小时就改成明晚，免得和「一小时后」挤在一起。按时间先后排。
  */
 export function noteSchedulePresets(now: number): Array<{ key: NoteSchedulePresetKey; at: number }> {
   const hour = Math.ceil((now + HOUR) / (5 * MINUTE)) * 5 * MINUTE
+  const morningOffset = new Date(now).getHours() < NIGHT_ENDS_AT ? 0 : 1
   const tonight = atLocal(now, 0, 20)
   const evening =
     tonight - now >= HOUR
@@ -26,7 +30,7 @@ export function noteSchedulePresets(now: number): Array<{ key: NoteSchedulePrese
   return [
     { key: 'hour' as const, at: hour },
     evening,
-    { key: 'tomorrowMorning' as const, at: atLocal(now, 1, 9) },
+    { key: 'tomorrowMorning' as const, at: atLocal(now, morningOffset, 9) },
   ].sort((a, b) => a.at - b.at)
 }
 

@@ -1,7 +1,7 @@
 import type { CSSProperties, FocusEvent, KeyboardEvent, ReactNode, RefObject } from 'react'
 import type { WidgetType } from '../../widgetGridTypes'
 /**
- * 写作器的外壳：薄顶栏、标题下的一行元信息、选区浮动条、底栏、发布抽屉。
+ * 写作器的外壳：薄顶栏（状态、字数、视图切换、发布）、标题下的一行元信息、选区浮动条、发布抽屉。
  * 控件全是 NoteControls 里自己的，不借设置页；这里不碰 phantasiApi。
  */
 
@@ -12,10 +12,13 @@ import type { NoteSchedulePresetKey } from './noteSchedulePresets'
 import type { SelectionAnchor, VisualBlockKind } from './noteSelection'
 
 import {
+  LuArrowLeftRight as ArrowLeftRight,
   LuCheck as Check,
   LuClock as Clock,
+  LuCode as Code,
   LuCopy as Copy,
   LuExternalLink as ExternalLink,
+  LuEye as Eye,
   LuImage as Image,
   LuPlus as Plus,
   LuReplace as Replace,
@@ -25,6 +28,7 @@ import {
   LuTextAlignEnd as TextAlignEnd,
   LuTextAlignStart as TextAlignStart,
   LuTrash2 as Trash2,
+  LuType as Type,
   LuUnlink as Unlink,
   LuX as X,
 } from '@lib/icons'
@@ -140,6 +144,9 @@ export function peerHue(peerId: string): number {
 /* ------------------------------------------------------------------ */
 
 interface NoteTopBarProps {
+  chars: number
+  pane: NoteEditorPane
+  onPaneChange: (pane: NoteEditorPane) => void
   docStatus: NoteEditorDocStatus
   lastError: string | null
   scheduledAt: number | null
@@ -157,6 +164,9 @@ interface NoteTopBarProps {
 }
 
 export function NoteTopBar({
+  chars,
+  pane,
+  onPaneChange,
   docStatus,
   lastError,
   scheduledAt,
@@ -213,6 +223,10 @@ export function NoteTopBar({
           >
             {statusLabel}
           </span>
+          <span className="phantasi-note__count" aria-hidden="true">·</span>
+          <span className="phantasi-note__count">
+            {format(t.phantasi.noteCharCount, { count: chars })}
+          </span>
           {collabConnection !== 'connected' ? <span className="phantasi-note__collab-state" role="status">
             {collabConnection === 'connecting' ? t.phantasi.noteCollabConnecting : t.phantasi.noteCollabReconnecting}
           </span> : null}
@@ -234,6 +248,7 @@ export function NoteTopBar({
               <span className="note-btn__label">{t.studio.viewArticle}</span>
             </a>
           ) : null}
+          <NoteViewToggle pane={pane} onPaneChange={onPaneChange} />
           <NoteButton
             variant="tint"
             size="lg"
@@ -1155,36 +1170,39 @@ export function NoteGutter({
 
 /* ------------------------------------------------------------------ */
 
-interface NoteFootBarProps {
-  chars: number
+const VIEW_OPTIONS: {
+  value: NoteEditorPane
+  icon: ReactNode
+  label: 'noteTabWrite' | 'noteTabVisual' | 'noteTabPreview'
+}[] = [
+  { value: 'write', icon: <Code />, label: 'noteTabWrite' },
+  { value: 'visual', icon: <Type />, label: 'noteTabVisual' },
+  { value: 'preview', icon: <Eye />, label: 'noteTabPreview' },
+]
+
+interface NoteViewToggleProps {
   pane: NoteEditorPane
   onPaneChange: (pane: NoteEditorPane) => void
 }
 
-/** 底栏：字数和编辑模式切换。 */
-export function NoteFootBar({ chars, pane, onPaneChange }: NoteFootBarProps) {
+/** 顶栏上的视图按钮：显示当前视图，带一个切换标记，点一下按 Markdown → 富文本 → 预览 轮着换。 */
+export function NoteViewToggle({ pane, onPaneChange }: NoteViewToggleProps) {
   const { t, format } = useI18n()
+  const index = Math.max(0, VIEW_OPTIONS.findIndex((option) => option.value === pane))
+  const current = VIEW_OPTIONS[index]!
+  const next = VIEW_OPTIONS[(index + 1) % VIEW_OPTIONS.length]!
+  const hint = format(t.phantasi.noteViewNext, { view: t.phantasi[next.label] })
   return (
-    <footer className="phantasi-note__foot">
-      <div className="phantasi-note__foot-left">
-        <span className="phantasi-note__count">
-          {format(t.phantasi.noteCharCount, { count: chars })}
-        </span>
-      </div>
-      <div className="phantasi-note__foot-right">
-        <NoteSwitch<NoteEditorPane>
-          className="phantasi-note__modes"
-          ariaLabel={t.phantasi.noteTabWrite}
-          value={pane}
-          onChange={onPaneChange}
-          options={[
-            { value: 'write', label: t.phantasi.noteTabWrite },
-            { value: 'visual', label: t.phantasi.noteTabVisual },
-            { value: 'preview', label: t.phantasi.noteTabPreview },
-          ]}
-        />
-      </div>
-    </footer>
+    <button
+      type="button"
+      className="note-btn note-btn--quiet note-btn--lg phantasi-note__view"
+      aria-label={format(t.phantasi.noteViewLabel, { current: t.phantasi[current.label], next: hint })}
+      onClick={() => onPaneChange(next.value)}
+    >
+      <span key={current.value} className="note-btn__icon phantasi-note__view-icon">{current.icon}</span>
+      <span className="note-btn__label">{t.phantasi[current.label]}</span>
+      <span className="phantasi-note__view-mark" aria-hidden="true"><ArrowLeftRight /></span>
+    </button>
   )
 }
 
@@ -1749,7 +1767,14 @@ function NoteSchedulePicker({
   onCancel?: () => void
 }) {
   const { t, locale, format } = useI18n()
-  const presets = noteSchedulePresets(now)
+  // 预设按一个起点算。时钟每半分钟走一次，「一小时后」跟着往后挪；选中的那个要是也挪了，
+  // 高亮就丢了，按钮上却还是原来的时间。所以选中一个还在将来的预设时，起点不动。
+  const [base, setBase] = useState(now)
+  const presets = noteSchedulePresets(base)
+  const holding = value != null && value > now && presets.some((preset) => preset.at === value)
+  useEffect(() => {
+    if (!holding) setBase(now)
+  }, [holding, now])
   const presetLabel: Record<NoteSchedulePresetKey, string> = {
     hour: t.phantasi.noteSettingsPresetHour,
     tonight: t.phantasi.noteSettingsPresetTonight,

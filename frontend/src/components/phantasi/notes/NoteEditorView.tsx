@@ -39,7 +39,6 @@ import {
   NoteBlockBar,
   NoteBubble,
   NoteByline,
-  NoteFootBar,
   NoteGutter,
   NoteSettingsDrawer,
   NoteTopBar,
@@ -445,6 +444,9 @@ export function NoteEditorView({
     >
       <div className="phantasi-note__frame">
         <NoteTopBar
+          chars={bodyChars}
+          pane={pane}
+          onPaneChange={setPane}
           docStatus={docStatus}
           lastError={lastError}
           scheduledAt={scheduledAt}
@@ -871,12 +873,6 @@ export function NoteEditorView({
         </div>
 
         <div className="phantasi-note__agent" ref={setAgentDock} />
-
-        <NoteFootBar
-          chars={bodyChars}
-          pane={pane}
-          onPaneChange={setPane}
-        />
 
         <NoteSettingsDrawer
           editorSettings={settingsOpen ? <NoteEditorSettings

@@ -152,6 +152,8 @@
   "noteSchedule": "Planen",
   "noteUnschedule": "Planung aufheben",
   "noteTabVisual": "Rich Text",
+  "noteViewLabel": "Ansicht: {current}. {next}",
+  "noteViewNext": "Zu {view} wechseln",
   "noteToolStrike": "Durchgestrichen",
   "noteToolOl": "Nummerierte Liste",
   "noteToolTask": "Aufgabe",

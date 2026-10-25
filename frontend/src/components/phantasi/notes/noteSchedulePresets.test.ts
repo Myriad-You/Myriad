@@ -20,6 +20,15 @@ describe('noteSchedulePresets', () => {
   })
 })
 
+describe('noteSchedulePresets 凌晨', () => {
+  it('凌晨一点的「明早」是天亮后的这个早上', () => {
+    const presets = noteSchedulePresets(at(1, 0, 25))
+    const morning = presets.find((p) => p.key === 'tomorrowMorning')!
+    assert.equal(morning.at, at(9, 0, 25))
+    assert.deepEqual(presets.map((p) => p.key), ['hour', 'tomorrowMorning', 'tonight'])
+  })
+})
+
 describe('noteRelativeUntil', () => {
   it('分钟、小时、天三档', () => {
     assert.equal(noteRelativeUntil(at(10, 20), at(10), 'en'), 'in 20 minutes')

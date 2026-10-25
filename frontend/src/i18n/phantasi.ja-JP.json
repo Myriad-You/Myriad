@@ -152,6 +152,8 @@
   "noteSchedule": "予約公開",
   "noteUnschedule": "予約を取消",
   "noteTabVisual": "リッチテキスト",
+  "noteViewLabel": "表示：{current}。{next}",
+  "noteViewNext": "{view}に切り替え",
   "noteToolStrike": "取り消し線",
   "noteToolOl": "番号付きリスト",
   "noteToolTask": "タスク",

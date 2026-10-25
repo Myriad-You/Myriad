@@ -152,6 +152,8 @@
   "noteSchedule": "定時發布",
   "noteUnschedule": "取消定時",
   "noteTabVisual": "富文字",
+  "noteViewLabel": "檢視：{current}。{next}",
+  "noteViewNext": "切換到{view}",
   "noteToolStrike": "刪除線",
   "noteToolOl": "有序清單",
   "noteToolTask": "工作清單",
