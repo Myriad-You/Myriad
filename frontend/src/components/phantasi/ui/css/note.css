@@ -790,6 +790,11 @@ html.dark .phantasi-note.phantasi-skin .phantasi-note__bubble-btn:hover {
   --note-widget-rows: 4;
 }
 
+/* 正文里的小组件：里面的列表滚到头，滚动交还给正文（同 embed.css 里博客那份）。 */
+.note-widget * {
+  overscroll-behavior-y: auto;
+}
+
 .note-widget__face {
   position: absolute;
   inset: 0;

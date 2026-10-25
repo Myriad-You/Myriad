@@ -119,7 +119,10 @@ export interface WidgetRotationOptions {
   autoplay: boolean
   /** 翻一页：1 下一页，-1 上一页。组件自己决定怎么过渡。 */
   onStep: (delta: 1 | -1) => void
-  /** 同时用竖向滚轮翻页（游戏角色卡）；默认竖向滚轮仍滚页面。 */
+  /**
+   * 同时用竖向滚轮翻页（游戏角色卡）；默认竖向滚轮仍滚页面。坐在正文里（笔记、博客）时
+   * 不生效：读文章的人滚过去，页面不该在这张卡上停住。
+   */
   verticalWheel?: boolean
   holdMs?: number
 }
@@ -157,6 +160,16 @@ export interface WidgetRotation {
   }
   /** 根节点要加的类：横向手势交给脚本，竖向仍是页面滚动。 */
   rootClassName: string
+}
+
+/**
+ * 小组件坐在一篇正文里：笔记的正文小组件（`.note-widget`），或者博客页上的嵌入框
+ * （`html.embed-frame`，见 utils/themeBootScript.ts）。这时竖向滚轮属于页面。
+ */
+export function inFlowingDocument(target: EventTarget | null): boolean {
+  const el = target as Element | null
+  if (!el || typeof el.closest !== 'function') return false
+  return Boolean(el.closest('.note-widget')) || el.ownerDocument.documentElement.classList.contains('embed-frame')
 }
 
 export function useWidgetRotation({
@@ -395,7 +408,7 @@ export function useWidgetRotation({
       if (!activeRef.current || event.ctrlKey) return
       if (claimedEvents.has(event)) return
       const dx = horizontalWheelDelta(event) ||
-        (verticalWheel ? event.deltaY * wheelDeltaUnit(event.deltaMode) : 0)
+        (verticalWheel && !inFlowingDocument(event.currentTarget) ? event.deltaY * wheelDeltaUnit(event.deltaMode) : 0)
       if (dx === 0) return
       claimedEvents.add(event)
       if (closestMatches(event.target, FORM_CONTROLS)) return

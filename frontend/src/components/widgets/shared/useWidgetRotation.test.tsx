@@ -208,6 +208,30 @@ describe('useWidgetRotation', () => {
     assert.deepEqual(steps, [1, -1])
   })
 
+  it('坐在正文里（笔记、博客嵌入框）时竖向滚轮还给页面，横扫照样翻页', async () => {
+    const el = await mount({ verticalWheel: true })
+    const host = document.getElementById('root')!
+    host.classList.add('note-widget')
+    try {
+      await act(async () => {
+        assert.equal(wheelAt(el, 1000, { deltaY: 80 }).defaultPrevented, false)
+        assert.equal(wheelAt(el, 1200, { deltaX: 30 }).defaultPrevented, true)
+        wheelAt(el, 1216, { deltaX: 30 })
+      })
+    } finally {
+      host.classList.remove('note-widget')
+    }
+    document.documentElement.classList.add('embed-frame')
+    try {
+      await act(async () => {
+        assert.equal(wheelAt(el, 2000, { deltaY: 80 }).defaultPrevented, false)
+      })
+    } finally {
+      document.documentElement.classList.remove('embed-frame')
+    }
+    assert.deepEqual(steps, [1])
+  })
+
   it('turns one trackpad sweep, inertia included, into exactly one page', async () => {
     const el = await mount()
     await act(async () => {

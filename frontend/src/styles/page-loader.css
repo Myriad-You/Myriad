@@ -142,6 +142,17 @@ html.embed-frame body {
   background: transparent !important;
 }
 
+/*
+ * 嵌入页自己不滚，滚动要能一路交给外面的博客页。theme.css 在窄屏（≤767px，按框自己的宽度算，
+ * 小组件、评论框在桌面上也算窄屏）给 html/body 设了 overscroll-behavior-y: contain，
+ * 视口一 contain，滚轮和手指落在框上整页就滚不动了；touch-action 也交回给外面那页定。
+ */
+html.embed-frame,
+html.embed-frame body {
+  overscroll-behavior: auto;
+  touch-action: auto;
+}
+
 html.embed-frame .page-loader {
   align-items: flex-start;
   justify-content: flex-start;
