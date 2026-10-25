@@ -83,7 +83,8 @@ urlencoding = "2.1"
 # Pin alpha exactly — caret would float across breaking 0.1.0-alpha.* releases.
 oauth2 = { version = "5", default-features = false }
 oauth2-reqwest = "=0.1.0-alpha.3"
-jsonwebtoken = { version = "11", features = ["rust_crypto"] }
+# Share AWS-LC with rustls; rust_crypto still pulls the vulnerable crypto-bigint 0.5.
+jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 # Digest generation group (must move together for trait compatibility):
 # rsa 0.10 → digest 0.11 + sha2 0.11 + rand_core 0.10; hmac 0.13 → digest 0.11.
 # Do not bump sha2 alone. rsa 0.10 is still rc until a stable release lands.

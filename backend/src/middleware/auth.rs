@@ -1695,8 +1695,29 @@ mod tests {
     }
 
     #[test]
+    fn fixed_hs256_session_token_stays_wire_compatible() {
+        // Signed independently with HMAC-SHA256, before choosing a JWT provider.
+        let legacy = concat!(
+            "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI0MiIsInVzZXJuYW1lIjoibGVnYWN5LXN",
+            "lc3Npb24iLCJpc19hZG1pbiI6dHJ1ZSwiaXNfb3duZXIiOmZhbHNlLCJleHAiOjQxMDI0NDQ4MDAsIml",
+            "hdCI6MTcwMDAwMDAwMCwidHYiOjd9.4ukAEW1qKx70z0DMNpfu5-oLj-R53WnifR7KVlCaOE8",
+        );
+        let verified = decode::<Claims>(
+            legacy,
+            &DecodingKey::from_secret(TEST_JWT_SECRET.as_bytes()),
+            &Validation::default(),
+        )
+        .expect("legacy session signature");
+        assert_eq!(verified.claims.sub, "42");
+        assert_eq!(verified.claims.username, "legacy-session");
+        assert!(verified.claims.is_admin);
+        assert!(!verified.claims.is_owner);
+        assert_eq!(verified.claims.tv, 7);
+    }
+
+    #[test]
     fn jwt_issue_and_verify_roundtrip() {
-        // jsonwebtoken 11: HS256 encode/decode via rust_crypto backend must stay
+        // jsonwebtoken 11: HS256 encode/decode via AWS-LC backend must stay
         // wire-compatible for login cookies and Authorization Bearer tokens.
         ensure_jwt_secret();
         let claims = mint_session_claims(42, "roundtrip-user", true, false, 7);
