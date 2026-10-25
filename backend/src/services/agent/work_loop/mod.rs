@@ -20,7 +20,7 @@ mod tools;
 
 use super::{Agent, capability, executor, types::*};
 use crate::services::agent::capability::CapabilityRef;
-use crate::services::analyzer::tool_calling::{ToolCall, ToolDefinition, ToolMessage};
+use crate::services::analyzer::tool_calling::{ToolCall, ToolDefinition, ToolMessage, ToolTurnFailure};
 use serde_json::{Value, json};
 pub(crate) use state::is_work_recipe;
 use state::*;
@@ -576,13 +576,19 @@ impl Agent {
                 .saturating_add(started.elapsed().as_millis() as u64);
             let charged =
                 crate::services::ai_cost_ledger::work_tokens().saturating_sub(before_tokens);
+            let reported_usage = match &turn {
+                Ok(turn) => turn.usage.is_some(),
+                Err(error) => error
+                    .downcast_ref::<ToolTurnFailure>()
+                    .is_some_and(|failure| failure.usage.is_some()),
+            };
             state
                 .budget
                 .as_mut()
                 .unwrap()
-                // The ledger holds what the provider billed, also for a turn that failed
-                // mid-stream; only an unbilled failure keeps the full reservation.
-                .settle((charged > 0).then_some(charged));
+                // An interrupted stream's length estimate cannot release unobserved output.
+                // A provider usage report can settle it even when the response failed.
+                .settle((charged > 0 && (turn.is_ok() || reported_usage)).then_some(charged));
             let turn = match turn {
                 Ok(turn) => turn,
                 // A reply cut at the output limit ran nothing; asking the user to retry

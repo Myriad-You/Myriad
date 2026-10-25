@@ -99,6 +99,25 @@ pub(crate) struct TokenUsage {
     pub output_tokens: u64,
 }
 
+/// Preserve a provider's usage report even when its response cannot be executed.
+#[derive(Debug)]
+pub(crate) struct ToolTurnFailure {
+    source: anyhow::Error,
+    pub usage: Option<TokenUsage>,
+}
+
+impl std::fmt::Display for ToolTurnFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.source, formatter)
+    }
+}
+
+impl std::error::Error for ToolTurnFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.source.as_ref())
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ToolTurn {
     pub text: String,
@@ -578,6 +597,7 @@ impl AiAnalyzer {
         let input_tokens = usage
             .map(|usage| usage.input_tokens)
             .unwrap_or(input_bytes.div_ceil(4) as u64);
+        let reported_usage = usage.cloned();
         // Without the provider's count, estimate from what the model produced. Raw stream
         // bytes wrap every token in an event and billed a failed 5 MB stream as 1.3M tokens.
         let output_tokens = usage.map(|usage| usage.output_tokens).unwrap_or_else(|| {
@@ -604,7 +624,13 @@ impl AiAnalyzer {
             },
         )
         .await;
-        result
+        result.map_err(|source| {
+            ToolTurnFailure {
+                source,
+                usage: reported_usage,
+            }
+            .into()
+        })
     }
 }
 
@@ -762,6 +788,19 @@ mod tests {
                 if body["model"] == "error" {
                     return (StatusCode::UNAUTHORIZED, "secret-from-provider-body").into_response();
                 }
+                if body["model"] == "incomplete" || body["model"] == "incomplete-usage" {
+                    let mut stream = format!(
+                        "data: {}\n\n",
+                        json!({"choices":[{"delta":{"content":"partial"}}]})
+                    );
+                    if body["model"] == "incomplete-usage" {
+                        stream.push_str(&format!(
+                            "data: {}\n\n",
+                            json!({"choices":[],"usage":{"prompt_tokens":123,"completion_tokens":45}})
+                        ));
+                    }
+                    return ([("content-type", "text/event-stream")], stream).into_response();
+                }
                 let sse = format!(
                     "data: {}\n\ndata: [DONE]\n\n",
                     json!({"choices":[{"delta":{"content":"東京"},"finish_reason":"stop"}]})
@@ -801,6 +840,20 @@ mod tests {
             .to_string();
         assert!(error.contains("401"));
         assert!(!error.contains("secret"));
+        for (model, reported) in [("incomplete", false), ("incomplete-usage", true)] {
+            analyzer.model = model.into();
+            let error = analyzer
+                .tool_turn("system", &[], &[], 100, |_| async {})
+                .await
+                .unwrap_err();
+            assert!(error.to_string().contains("incomplete"));
+            let failure = error.downcast_ref::<ToolTurnFailure>().unwrap();
+            assert_eq!(failure.usage.is_some(), reported);
+            if let Some(usage) = &failure.usage {
+                assert_eq!(usage.input_tokens, 123);
+                assert_eq!(usage.output_tokens, 45);
+            }
+        }
         server.abort();
     }
 
