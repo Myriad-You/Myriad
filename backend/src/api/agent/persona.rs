@@ -18,10 +18,12 @@ use myriad_error::AppError;
 
 mod addressee;
 mod onboarding;
+mod public;
 mod visual_profile;
 
 pub use addressee::*;
 pub use onboarding::*;
+pub use public::*;
 use visual_profile::*;
 
 fn persona_store_http(context: &'static str, error: impl std::fmt::Display) -> HttpError {

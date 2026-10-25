@@ -211,6 +211,8 @@
   "assetGroup": "Portrait and rig",
   "assetEmpty": "No master portrait yet. Generate one first.",
   "widgetFaceSlotTaken": "The live face only plays in one place at a time.",
+  "widgetOpenProfile": "About {name}",
+  "profileNoPersona": "No persona written yet. Once you add one, personality and likes show up here.",
   "assetNeedsPortrait": "Generate the master portrait before splitting or uploading a layered PSD.",
   "rigGroup": "Layered rig",
   "rigGroupDescription": "Upload a layered PSD, or split the master portrait with See-through. Activate only after preflight passes.",

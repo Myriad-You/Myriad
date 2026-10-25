@@ -211,6 +211,8 @@
   "assetGroup": "스탠딩과 리그",
   "assetEmpty": "아직 메인 스탠딩이 없어요. 먼저 하나 만드세요.",
   "widgetFaceSlotTaken": "라이브 얼굴은 한 곳에서만 재생돼요.",
+  "widgetOpenProfile": "{name} 프로필 보기",
+  "profileNoPersona": "아직 페르소나가 없어요. 작성하면 여기에 성격과 취향이 표시돼요.",
   "assetNeedsPortrait": "레이어를 나누거나 레이어 PSD를 올리기 전에 메인 스탠딩을 만드세요.",
   "rigGroup": "레이어 리그",
   "rigGroupDescription": "레이어 PSD를 올리거나, See-through로 메인 스탠딩을 나눕니다. 프리플라이트가 통과한 뒤에만 활성화하세요.",

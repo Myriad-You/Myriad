@@ -211,6 +211,8 @@
   "assetGroup": "Porträt und Rig",
   "assetEmpty": "Noch kein Hauptporträt. Zuerst eines erzeugen.",
   "widgetFaceSlotTaken": "Das Live-Gesicht spielt jeweils nur an einem Ort.",
+  "widgetOpenProfile": "Über {name}",
+  "profileNoPersona": "Noch keine Persona geschrieben. Sobald du eine anlegst, stehen Persönlichkeit und Vorlieben hier.",
   "assetNeedsPortrait": "Zuerst das Hauptporträt erzeugen, bevor Sie teilen oder eine PSD mit Ebenen hochladen.",
   "rigGroup": "Ebenen-Rig",
   "rigGroupDescription": "Eine PSD mit Ebenen hochladen oder das Hauptporträt mit See-through teilen. Erst nach bestandener Vorprüfung aktivieren.",

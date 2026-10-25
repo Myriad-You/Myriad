@@ -51,6 +51,10 @@ test('the live widget is the only one that mounts the rig player', () => {
     'utf8',
   )
   const slot = readFileSync(new URL('./widgetFaceSlot.ts', import.meta.url), 'utf8')
+  const persona = readFileSync(
+    new URL('../../../components/widgets/useMeropePersona.ts', import.meta.url),
+    'utf8',
+  )
   assert.match(widget, /useMeropeWidgetFaceSlot\(config\.id, !isPreview\)/)
   assert.match(widget, /if \(!holdsFace\) return/)
   assert.match(widget, /t\.merope\.widgetFaceSlotTaken/)
@@ -59,7 +63,8 @@ test('the live widget is the only one that mounts the rig player', () => {
   assert.match(widget, /<LiveMeropeWidget/)
   assert.match(widget, /playbackId=\{`widget:\$\{config\.id\}`\}/)
   assert.match(widget, /<RigCharacter/)
-  assert.match(widget, /loadPublicPersonaName\(\)\.then/)
+  assert.match(widget, /useMeropePersona\(\)/)
+  assert.match(persona, /loadPublicPersonaName\(\)\.then/)
   assert.match(slot, /return claimMeropeWidgetFaceSlot\(id\)/)
 })
 

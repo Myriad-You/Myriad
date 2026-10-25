@@ -460,6 +460,8 @@ export class Anime25DPlayer {
       devicePixelRatio,
     })
     const canvas = this.gl.canvas
+    const cleared = canvas instanceof HTMLCanvasElement
+      && (canvas.width !== surface.bufferWidth || canvas.height !== surface.bufferHeight)
     if (canvas instanceof HTMLCanvasElement) {
       if (canvas.width !== surface.bufferWidth)
         canvas.width = surface.bufferWidth
@@ -473,6 +475,8 @@ export class Anime25DPlayer {
     this.renderFrame.viewWidth = pixelWidth
     this.renderFrame.viewHeight = pixelHeight
     this.gl.viewport(0, 0, surface.bufferWidth, surface.bufferHeight)
+    // 改缓冲区会清空画布；ResizeObserver 跑在本帧 rAF 之后、绘制之前，不当场补画就空一帧。
+    if (cleared && !this.disposed && this.layers.length > 0) this.draw()
   }
 
   tick(deltaSeconds: number): void {

@@ -66,3 +66,14 @@ test('note catalog uses hosts, not a special-case blacklist', () => {
   assert.ok(!panelIds.includes('friend-links'))
   assert.ok(!panelIds.includes('phantasi-featured'))
 })
+
+test('agent persona card opens its own profile popup, not the report stage', () => {
+  const widgets = getBuiltinWidgets(widgetsI18n, 'home')
+  const byId = new Map(widgets.map((widget) => [widget.id, widget]))
+  const persona = byId.get('agent-persona')?.popup
+  assert.ok(persona)
+  assert.equal(persona.size, 'card')
+  assert.equal(persona.shareKey, undefined)
+  assert.notEqual(persona, byId.get('report-github')?.popup)
+  assert.equal(byId.get('weather')?.popup, undefined)
+})

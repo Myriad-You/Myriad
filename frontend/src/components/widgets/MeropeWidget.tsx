@@ -11,28 +11,15 @@ import {
   useRef,
   useState,
 } from 'react'
-import { useAuth } from '../../contexts/AuthContext'
+import { createPortal } from 'react-dom'
 import { useI18n, withI18nNamespace } from '../../contexts/I18nContext'
 import { isAnime25DPlayback } from '../../features/merope/anime25drig/types'
 import { getSiteFace } from '../../features/merope/api'
 import RigCharacter from '../../features/merope/character/RigCharacter'
-import {
-  MEROPE_STATE_EVENT,
-  meropeStateEventDetail,
-  resolveLoadedMeropeAffect,
-} from '../../features/merope/events/performanceEvents'
-import {
-  FACE_UPDATED_EVENT,
-  PERSONA_UPDATED_EVENT,
-} from '../../features/merope/events/updates'
+import { FACE_UPDATED_EVENT } from '../../features/merope/events/updates'
 import { useRigMotionLifecycle } from '../../features/merope/motion/useRigMotionLifecycle'
 import { agentStatusActivity } from '../../features/merope/persona/activity'
-import {
-  loadPublicPersonaName,
-  PERSONA_DEFAULT_NAME,
-  PERSONA_OFF_NAME,
-  publicPersonaName,
-} from '../../features/merope/persona/publicName'
+import { PERSONA_DEFAULT_NAME } from '../../features/merope/persona/publicName'
 import { FacePresence } from '../../features/merope/presence/FacePresence'
 import {
   LIVE_FACE_PLAYBACK_PRIORITY,
@@ -41,9 +28,9 @@ import {
 } from '../../features/merope/presence/liveFacePlayback'
 import { useMeropeWidgetFaceSlot } from '../../features/merope/presence/widgetFaceSlot'
 import { sameLiveFaceRuntime } from '../../features/merope/rig/manifestValidation'
-import { agentService } from '../../services/agent'
 import { useAgentStatusKind } from '../agent-panel/agentStatusStore'
-import { ADDRESSEE_UPDATED_EVENT, moodBand } from '../agent/meropeVitals'
+import { moodBand } from '../agent/meropeVitals'
+import { MeropeFigureBones } from './MeropeSkeleton'
 import {
   nameplateHidden,
   previewMoodBand,
@@ -53,10 +40,9 @@ import {
 } from './meropeWidgetPresence'
 import { WidgetShell } from './shared/WidgetShell'
 import { WidgetSkeletonCover } from './shared/WidgetSkeleton'
+import { useFigurePlacement } from './useFigurePlacement'
+import { useMeropePersona } from './useMeropePersona'
 import './MeropeWidget.css'
-
-const DEFAULT_MOOD = 70
-const DEFAULT_AROUSAL = 48
 
 const MOOD_LEVEL: Record<MoodBand, number> = {
   floor: 1,
@@ -177,38 +163,43 @@ function MeropeWidgetPreview({ compact }: { compact?: boolean }) {
 
 function LiveMeropeWidget({
   compact,
+  ownerId,
   playbackId,
   isEditMode,
+  openPopup,
 }: {
   compact: boolean
+  /** 卡片实例 id：弹窗按它把舞台借给这张卡。 */
+  ownerId: string
   playbackId: string
   isEditMode: boolean
+  openPopup?: () => void
 }) {
-  const { t } = useI18n()
-  const { hasChecked, isAuthenticated, user } = useAuth()
+  const { t, format } = useI18n()
   const [manifest, setManifest] =
     useState<Awaited<ReturnType<typeof getSiteFace>>['manifest']>(null)
   const [portraitUrl, setPortraitUrl] = useState<string | null>(null)
-  const [agentName, setAgentName] = useState<string | null>(null)
-  const [mood, setMood] = useState(DEFAULT_MOOD)
-  const [arousal, setArousal] = useState(DEFAULT_AROUSAL)
+  const { name: agentName, mood, arousal, vitalsReady } = useMeropePersona()
   const status = useAgentStatusKind()
   const activity = agentStatusActivity(status)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
   const [rigFailed, setRigFailed] = useState(false)
   const [readyKey, setReadyKey] = useState('')
-  const [vitalsReady, setVitalsReady] = useState(false)
   const faceRequestRef = useRef(0)
   const surfaceRef = useRef<HTMLDivElement>(null)
+  const figureHomeRef = useRef<HTMLDivElement>(null)
+  // 她只有一份播放器：开弹窗时整个挪到弹窗舞台上，收回时挪回来，不重建。
+  const { container: figureContainer, onStage } = useFigurePlacement(ownerId, figureHomeRef)
   const rigRef = useRef<RigCharacterHandle>(null)
   const manifestRef = useRef(manifest)
   manifestRef.current = manifest
   const [capabilities, setCapabilities] = useState<readonly string[]>([])
+  // 在弹窗里时按弹窗的优先级占着：这时打开 Agent 面板也不把她从弹窗里抢走。
   const playsLive = useLiveFacePlayback(
     playbackId,
     true,
-    LIVE_FACE_PLAYBACK_PRIORITY.widget,
+    onStage ? LIVE_FACE_PLAYBACK_PRIORITY.popup : LIVE_FACE_PLAYBACK_PRIORITY.widget,
   )
   const playableRig = hasPlayableRig(manifest)
   const motionReady = playsLive && playableRig && !rigFailed
@@ -284,76 +275,6 @@ function LiveMeropeWidget({
     }
   }, [loadFace])
 
-  useEffect(() => {
-    const onState = (event: Event) => {
-      const detail = meropeStateEventDetail(
-        (event as CustomEvent<unknown>).detail,
-      )
-      if (!detail) return
-      setMood(detail.mood.after)
-      setArousal((current) =>
-        typeof detail.mood.arousalAfter === 'number'
-          ? detail.mood.arousalAfter
-          : current,
-      )
-    }
-    window.addEventListener(MEROPE_STATE_EVENT, onState)
-    return () => window.removeEventListener(MEROPE_STATE_EVENT, onState)
-  }, [])
-
-  useEffect(() => {
-    if (!hasChecked) return undefined
-    let active = true
-    setMood(DEFAULT_MOOD)
-    setArousal(DEFAULT_AROUSAL)
-    const applyPublicName = () => {
-      void loadPublicPersonaName().then((name) => {
-        if (active) setAgentName(name)
-      })
-      setVitalsReady(false)
-    }
-    if (!isAuthenticated) {
-      applyPublicName()
-      window.addEventListener(PERSONA_UPDATED_EVENT, applyPublicName)
-      return () => {
-        active = false
-        window.removeEventListener(PERSONA_UPDATED_EVENT, applyPublicName)
-      }
-    }
-    const loadPersona = () => {
-      void agentService
-        .getPersona()
-        .then((persona) => {
-          if (!active) return
-          if (!persona) {
-            setAgentName(PERSONA_OFF_NAME)
-            setVitalsReady(false)
-            return
-          }
-          setAgentName(publicPersonaName(true, persona.name))
-          const affect = resolveLoadedMeropeAffect(persona)
-          setMood(affect.mood)
-          setArousal(affect.arousal)
-          setVitalsReady(true)
-        })
-        .catch(() => {
-          if (!active) return
-          setVitalsReady(false)
-          void loadPublicPersonaName().then((name) => {
-            if (active) setAgentName(name)
-          })
-        })
-    }
-    loadPersona()
-    window.addEventListener(PERSONA_UPDATED_EVENT, loadPersona)
-    window.addEventListener(ADDRESSEE_UPDATED_EVENT, loadPersona)
-    return () => {
-      active = false
-      window.removeEventListener(PERSONA_UPDATED_EVENT, loadPersona)
-      window.removeEventListener(ADDRESSEE_UPDATED_EVENT, loadPersona)
-    }
-  }, [hasChecked, isAuthenticated, user?.id])
-
   const stateClass = `merope-widget__rig merope-widget__rig--${activity}`
   const band = vitalsReady ? moodBand(mood, arousal) : null
   const surfaceStyle = useMemo(
@@ -364,53 +285,64 @@ function LiveMeropeWidget({
   return (
     <MeropeWidgetChrome
       compact={compact}
-      surfaceStyle={surfaceStyle}
       label={`${t.widgets.agentPersona}: ${agentName ?? t.merope.title}`}
       surfaceRef={surfaceRef}
     >
-      <div
-        className={stateClass}
-        data-rig-quality={playableRig && !rigFailed ? 'live' : 'static'}
-      >
-        <FacePresence
-          present={wantLive}
-          packageKey={packageKey}
-          ready={ready}
-          hostRef={surfaceRef}
-          onLiveUnmounted={() => notifyLiveFaceUnmounted(playbackId)}
-          vacant={
-            !loading && (failed || rigFailed || !playableRig) ? (
-              <div className="merope-widget__empty" role="status">
-                <span>
-                  {failed || rigFailed
-                    ? t.merope.loadFailed
-                    : t.merope.assetEmpty}
-                </span>
-                {failed || rigFailed ? (
-                  <button type="button" onClick={retryFace}>
-                    {t.common.retry}
-                  </button>
-                ) : null}
-              </div>
-            ) : null
-          }
-        >
-          {(mounted) =>
-            mounted ? (
-              <RigCharacter
-                ref={rigRef}
-                touchEnabled={motionReady && ready && !isEditMode}
-                activity={activity}
-                fallbackUrl={playableRig ? null : portraitUrl}
-                manifest={playsLive || mounted ? manifest : null}
-                mood={mood}
-                onPlaybackError={handleRigPlaybackError}
-                onPlaybackReady={handlePlaybackReady}
-              />
-            ) : null
-          }
-        </FacePresence>
-      </div>
+      <div ref={figureHomeRef} className="merope-widget__figure-home" />
+      {createPortal(
+        <div className="merope-widget__figure-frame" style={surfaceStyle}>
+          <div
+            className={stateClass}
+            data-rig-quality={playableRig && !rigFailed ? 'live' : 'static'}
+          >
+            <FacePresence
+              present={wantLive}
+              packageKey={packageKey}
+              ready={ready}
+              hostRef={surfaceRef}
+              onLiveUnmounted={() => notifyLiveFaceUnmounted(playbackId)}
+              vacant={
+                !loading && (failed || rigFailed || !playableRig) ? (
+                  <div className="merope-widget__empty" role="status">
+                    <span>
+                      {failed || rigFailed
+                        ? t.merope.loadFailed
+                        : t.merope.assetEmpty}
+                    </span>
+                    {failed || rigFailed ? (
+                      <button type="button" onClick={retryFace}>
+                        {t.common.retry}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null
+              }
+            >
+              {(mounted) =>
+                mounted ? (
+                  <RigCharacter
+                    ref={rigRef}
+                    touchEnabled={motionReady && ready && !isEditMode && (onStage || !openPopup)}
+                    activity={activity}
+                    fallbackUrl={playableRig ? null : portraitUrl}
+                    manifest={playsLive || mounted ? manifest : null}
+                    mood={mood}
+                    onPlaybackError={handleRigPlaybackError}
+                    onPlaybackReady={handlePlaybackReady}
+                  />
+                ) : null
+              }
+            </FacePresence>
+          </div>
+          <WidgetSkeletonCover
+            active={loading || (wantLive && !ready)}
+            label={t.common.loading}
+          >
+            <MeropeFigureBones nameplate={!onStage} compact={compact} />
+          </WidgetSkeletonCover>
+        </div>,
+        figureContainer,
+      )}
       {shouldShowNameplate(agentName) ? (
         <Nameplate
           name={agentName ?? ''}
@@ -419,13 +351,22 @@ function LiveMeropeWidget({
           hidden={nameplateHidden(wantLive)}
         />
       ) : null}
+      {openPopup && !isEditMode && !failed && !rigFailed ? (
+        // 整张卡都能点开人设弹窗；盖在角色上面，卡片上就不再接触摸。
+        <button
+          type="button"
+          className="merope-widget__open"
+          aria-haspopup="dialog"
+          aria-label={format(t.merope.widgetOpenProfile, {
+            name: agentName ?? t.merope.title,
+          })}
+          onClick={(event) => {
+            event.stopPropagation()
+            openPopup()
+          }}
+        />
+      ) : null}
 
-      <WidgetSkeletonCover
-        active={loading || (wantLive && !ready)}
-        preset="hero"
-        label={t.common.loading}
-        accent="var(--color-primary)"
-      />
     </MeropeWidgetChrome>
   )
 }
@@ -442,7 +383,7 @@ function MeropeWidgetDuplicate({ compact }: { compact: boolean }) {
 }
 
 const MeropeWidgetBody = memo(
-  ({ isPreview = false, config, isEditMode }: WidgetComponentProps) => {
+  ({ isPreview = false, config, isEditMode, openPopup }: WidgetComponentProps) => {
     const compact = config.size === '2x2'
     const holdsFace = useMeropeWidgetFaceSlot(config.id, !isPreview)
     if (isPreview) return <MeropeWidgetPreview compact={compact} />
@@ -450,8 +391,10 @@ const MeropeWidgetBody = memo(
     return (
       <LiveMeropeWidget
         compact={compact}
+        ownerId={config.id}
         isEditMode={isEditMode}
         playbackId={`widget:${config.id}`}
+        openPopup={openPopup}
       />
     )
   },

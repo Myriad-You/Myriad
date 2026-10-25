@@ -86,6 +86,8 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                     middleware::auth::auth_middleware,
                 )),
         )
+        // 访客看的人设：名字和人设正文里能给人看的那几项（公开）
+        .route("/persona/public", get(super::persona::get_public_persona))
         .route(
             "/persona/history",
             get(super::persona::get_persona_history).route_layer(from_fn_with_state(

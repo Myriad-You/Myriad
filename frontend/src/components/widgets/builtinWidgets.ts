@@ -169,6 +169,20 @@ const REPORT_STAGE_POPUP: WidgetPopupDef = {
   shareKey: 'report-stage',
 }
 
+/** 人设卡的弹窗：竖向名片，上面是会动的她，下面是她的人设。关闭键用宿主的。 */
+const MeropePersonaPopup = lazyWithPreload(() => import('./MeropePersonaPopup'))
+const PERSONA_POPUP: WidgetPopupDef = {
+  component: MeropePersonaPopup,
+  size: 'card',
+  preload: MeropePersonaPopup.preload,
+}
+
+function builtinPopup(id: BuiltinWidgetId): WidgetPopupDef | undefined {
+  if (id.startsWith('report-')) return REPORT_STAGE_POPUP
+  if (id === 'agent-persona') return PERSONA_POPUP
+  return undefined
+}
+
 export function getBuiltinWidgets(
   widgetsI18n: WidgetsI18n,
   host: BuiltinWidgetHost,
@@ -184,7 +198,7 @@ export function getBuiltinWidgets(
       supportedSizes: [...base.supportedSizes],
       componentLongPress:
         COMPONENT_LONG_PRESS_WIDGETS.has(base.component) || undefined,
-      popup: meta.id.startsWith('report-') ? REPORT_STAGE_POPUP : undefined,
+      popup: builtinPopup(meta.id),
       settings:
         meta.id === 'github-repos'
           ? [

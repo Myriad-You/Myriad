@@ -211,6 +211,8 @@
   "assetGroup": "立ち絵とリグ",
   "assetEmpty": "メイン立ち絵がまだありません。先に生成してください。",
   "widgetFaceSlotTaken": "ライブのビジュアルは、同時に1か所だけで再生されます。",
+  "widgetOpenProfile": "{name} のプロフィール",
+  "profileNoPersona": "まだ人物設定がありません。書き足すと、ここに性格や好みが表示されます。",
   "assetNeedsPortrait": "レイヤー PSD の分解や取り込みの前に、メイン立ち絵が必要です。",
   "rigGroup": "レイヤーリグ",
   "rigGroupDescription": "レイヤー PSD を取り込むか、See-through でメイン立ち絵を分解します。事前検証を通してから有効化できます。",

@@ -32,8 +32,8 @@ export interface WidgetComponentProps {
   openPopup?: (params?: unknown) => void
 }
 
-/** md / lg 桌面居中、手机底部面板；stage 桌面大幅、手机全屏。 */
-export type WidgetPopupSize = 'md' | 'lg' | 'stage'
+/** card / md / lg 桌面居中、手机底部面板（card 是竖向窄名片）；stage 桌面大幅、手机全屏。 */
+export type WidgetPopupSize = 'card' | 'md' | 'lg' | 'stage'
 
 export interface WidgetPopupProps {
   config: WidgetConfig

@@ -126,6 +126,21 @@ html[data-page-hidden] .merope-widget__rig--talking[data-rig-quality='static'] {
   transition-delay: 0s;
 }
 
+/* 整卡的打开按钮：看不见，只在键盘聚焦时描一圈。 */
+.merope-widget__open {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.merope-widget__open:focus-visible {
+  outline: 2px solid var(--cfg-accent, #6366f1);
+  outline-offset: -2px;
+}
+
 .merope-widget__identity strong {
   min-width: 0;
   overflow: hidden;
@@ -255,4 +270,36 @@ html[data-page-hidden] .merope-widget__rig--talking[data-rig-quality='static'] {
     opacity: 1;
     transition-delay: 0s;
   }
+}
+
+/*
+ * 活形象的容器在卡片和弹窗舞台之间挪（见 useFigurePlacement），在哪儿都铺满那一块；
+ * 比例变量挂在容器里面那一层，挪到舞台上也带着。
+ */
+.merope-widget__figure-home,
+.merope-widget__figure,
+.merope-widget__figure-frame {
+  position: absolute;
+  inset: 0;
+}
+
+.merope-widget__figure-frame {
+  --merope-widget-portrait: 3 / 4;
+  --merope-widget-fill: 1;
+}
+
+/*
+ * 弹窗里的大舞台：没有卡片外壳，铺满父级。按高度取景，整个人都在画面里，
+ * 舞台比她宽时左右留白，比她窄时两边裁掉一点。
+ */
+.merope-widget--stage {
+  position: absolute;
+  inset: 0;
+}
+
+.merope-widget--stage .merope-widget__rig {
+  left: 50%;
+  width: auto;
+  height: 100%;
+  translate: -50% 0;
 }

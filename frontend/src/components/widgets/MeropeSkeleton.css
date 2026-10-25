@@ -1,0 +1,73 @@
+/* 人设骨架：人物那块是光晕加扫光，名牌和名字区占住真内容的大小。 */
+
+/*
+ * 光晕落在她头肩会出现的位置（上半偏中），边缘化开；扫光也只在光晕里走，
+ * 不在整张卡上横扫。颜色取站点强调色：--ws-accent 是壁纸原色，浅壁纸上会接近白。
+ */
+.merope-skeleton__glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 62% 55% at 50% 42%,
+    color-mix(in srgb, var(--ws-accent-ink) 26%, transparent) 0%,
+    color-mix(in srgb, var(--ws-accent-ink) 11%, transparent) 50%,
+    transparent 78%
+  );
+  mask-image: radial-gradient(ellipse 70% 62% at 50% 42%, #000 40%, transparent 80%);
+}
+
+/* 与 .merope-widget__identity 同位同大。 */
+.merope-skeleton__nameplate {
+  position: absolute;
+  right: 9px;
+  bottom: 9px;
+  width: 7.5rem;
+  height: 1.5rem;
+  border-radius: 6px;
+}
+
+.merope-skeleton__nameplate--compact {
+  right: 6px;
+  bottom: 6px;
+  width: 4.5rem;
+  height: 1.25rem;
+}
+
+/* 弹窗名字区：和真的名字、状态一样居中排两行。 */
+.merope-skeleton-head {
+  height: auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* 与 .merope-profile__name、.merope-profile__pill 同高。 */
+.merope-skeleton__name {
+  width: 8rem;
+  height: 1.8rem;
+}
+
+.merope-skeleton__pills {
+  display: flex;
+  gap: 0.375rem;
+  justify-content: center;
+}
+
+.merope-skeleton__pill {
+  width: 3.75rem;
+  height: 1.5rem;
+}
+
+.merope-skeleton__pill + .merope-skeleton__pill {
+  width: 5.25rem;
+}
+
+/* 弹窗舞台自己已经垫了一层底光，这里再叠就成了一颗实心的蛋：放宽、放淡，只留一层流动的亮。 */
+.merope-widget--stage .merope-skeleton__glow {
+  background: radial-gradient(
+    ellipse 90% 70% at 50% 45%,
+    color-mix(in srgb, var(--ws-accent-ink) 12%, transparent) 0%,
+    color-mix(in srgb, var(--ws-accent-ink) 5%, transparent) 55%,
+    transparent 85%
+  );
+  mask-image: radial-gradient(ellipse 95% 75% at 50% 45%, #000 45%, transparent 90%);
+}

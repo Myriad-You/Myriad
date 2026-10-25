@@ -64,6 +64,8 @@ function reconcile(): void {
 export const LIVE_FACE_PLAYBACK_PRIORITY = {
   widget: 1,
   panel: 2,
+  /** 人设卡的弹窗：盖在一切上面，开着时她在这里。 */
+  popup: 3,
 } as const
 
 export function liveFacePlaybackHolder(): string | null {

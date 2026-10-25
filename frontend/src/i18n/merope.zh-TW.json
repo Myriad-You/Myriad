@@ -211,6 +211,8 @@
   "assetGroup": "立繪與骨骼",
   "assetEmpty": "還沒有主立繪。先生成一張。",
   "widgetFaceSlotTaken": "形象一次只在一處播放。",
+  "widgetOpenProfile": "查看 {name} 的資料",
+  "profileNoPersona": "還沒有寫人設，補上後這裡會顯示性格和喜好。",
   "assetNeedsPortrait": "先有主立繪，才能拆層或上傳分層 PSD。",
   "rigGroup": "分層骨骼",
   "rigGroupDescription": "上傳分層 PSD，或用 See-through 從主立繪拆層。預檢透過後才能啟用。",

@@ -1,0 +1,275 @@
+/*
+ * 人设弹窗：竖向名片。上面是会动的她，下面是名字、状态和人设，整张一起滚。
+ * 人设写得少（还没写）时她长满剩下的高度。
+ */
+.merope-profile {
+  --merope-profile-accent: var(--cfg-accent, #6366f1);
+  --merope-profile-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --merope-profile-pad: 1.25rem;
+
+  /*
+   * 舞台跨第一、二行，名字那一块在第二行压住她渐隐的下半截，名片底下不另留空带；
+   * 人设正文从第三行往下排，多了整张一起滚。第一行吃掉剩下的高度。
+   */
+  display: grid;
+  flex: 1;
+  grid-template-rows: minmax(15rem, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 0.875rem;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.merope-profile__stage {
+  position: relative;
+  grid-row: 1 / 3;
+  grid-column: 1;
+  min-height: 22rem;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      ellipse 75% 65% at 50% 55%,
+      color-mix(in srgb, var(--merope-profile-accent) 20%, transparent),
+      transparent 75%
+    );
+
+  /*
+   * 半身像在腰线截断，下缘要化进名片。线性渐变淡到 0 的那一点会折出一条线，
+   * 暗色底下看得见；按缓出曲线多取几个点，尾巴慢慢贴近透明，看不出在哪里结束。
+   */
+  mask-image: linear-gradient(
+    to bottom,
+    #000 66%,
+    rgb(0 0 0 / 82%) 74%,
+    rgb(0 0 0 / 58%) 81%,
+    rgb(0 0 0 / 34%) 88%,
+    rgb(0 0 0 / 15%) 94%,
+    rgb(0 0 0 / 4%) 98%,
+    transparent 100%
+  );
+}
+
+/* 子项直接排进上面的网格：头部进第二行，正文各占一行。 */
+.merope-profile__info {
+  display: contents;
+  text-shadow:
+    0 0 12px rgb(250 250 252 / 90%),
+    0 0 4px rgb(250 250 252 / 80%);
+}
+
+.merope-profile__info > * {
+  grid-column: 1;
+  margin-inline: var(--merope-profile-pad);
+}
+
+.merope-profile__info > :last-child {
+  margin-bottom: var(--merope-profile-pad);
+}
+
+.merope-profile__head {
+  position: relative;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: center;
+  text-align: center;
+}
+
+.merope-profile__name {
+  margin: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+html.dark .merope-profile__pill {
+  background: rgb(24 24 27 / 72%);
+}
+
+html.dark .merope-profile__info {
+  text-shadow:
+    0 0 14px rgb(24 24 27 / 90%),
+    0 0 4px rgb(24 24 27 / 80%);
+}
+
+.merope-profile__status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  justify-content: center;
+}
+
+.merope-profile__pill {
+  display: inline-flex;
+  gap: 0.375rem;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+
+  /* 叠在她身上：用名片底色垫底，不透出衣服的花纹。 */
+  background: rgb(250 250 252 / 78%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentcolor 8%, transparent);
+  color: color-mix(in srgb, currentcolor 72%, transparent);
+  text-shadow: none;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.merope-profile__dot {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentcolor 35%, transparent);
+}
+
+.merope-profile__pill:not([data-activity='idle']) .merope-profile__dot {
+  background: var(--merope-profile-accent);
+  animation: merope-profile-pulse 1.4s ease-in-out infinite;
+}
+
+.merope-profile__level {
+  display: inline-flex;
+  gap: 2px;
+  align-items: flex-end;
+}
+
+.merope-profile__level i {
+  width: 3px;
+  border-radius: 1px;
+  background: color-mix(in srgb, currentcolor 20%, transparent);
+}
+
+.merope-profile__level i[data-on] {
+  background: var(--merope-profile-accent);
+}
+
+.merope-profile__level i:nth-child(1) {
+  height: 4px;
+}
+
+.merope-profile__level i:nth-child(2) {
+  height: 6px;
+}
+
+.merope-profile__level i:nth-child(3) {
+  height: 8px;
+}
+
+.merope-profile__level i:nth-child(4) {
+  height: 10px;
+}
+
+.merope-profile__summary {
+  margin: 0;
+  color: color-mix(in srgb, currentcolor 82%, transparent);
+  font-size: 0.875rem;
+  line-height: 1.75;
+  text-wrap: pretty;
+}
+
+/* 名片背面那一栏：左边小标签，右边内容，一行一项。 */
+.merope-profile__facts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0;
+  padding-top: 1rem;
+  border-top: 1px solid color-mix(in srgb, currentcolor 8%, transparent);
+}
+
+.merope-profile__fact {
+  display: grid;
+  grid-template-columns: 3.75rem minmax(0, 1fr);
+  gap: 0.625rem;
+  align-items: baseline;
+}
+
+.merope-profile__fact dt {
+  color: color-mix(in srgb, currentcolor 48%, transparent);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.6;
+  letter-spacing: 0.04em;
+}
+
+.merope-profile__fact dd {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.65;
+}
+
+.merope-profile__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3125rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.merope-profile__tags li {
+  padding: 0.0625rem 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--merope-profile-accent) 10%, transparent);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.merope-profile__hint {
+  margin: 0;
+  text-align: center;
+  color: color-mix(in srgb, currentcolor 55%, transparent);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+/*
+ * 打开时文字一行行浮上来；她自己由形象的进场接管。
+ * 收回再打开时 data-active 重新出现，动画会再放一遍。
+ */
+.merope-profile[data-active] .merope-profile__info > * {
+  animation: merope-profile-rise 560ms var(--merope-profile-ease) both;
+}
+
+.merope-profile[data-active] .merope-profile__info > :nth-child(2) {
+  animation-delay: 70ms;
+}
+
+.merope-profile[data-active] .merope-profile__info > :nth-child(3) {
+  animation-delay: 140ms;
+}
+
+.merope-profile:not([data-active]) .merope-profile__dot {
+  animation-play-state: paused;
+}
+
+@keyframes merope-profile-rise {
+  from {
+    opacity: 0;
+    translate: 0 0.5rem;
+  }
+}
+
+@keyframes merope-profile-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .merope-profile__info *,
+  .merope-profile__info {
+    animation: none !important;
+  }
+}
+
+html[data-perf-mode='exlight'] .merope-profile__info * {
+  animation: none !important;
+}

@@ -211,6 +211,8 @@
   "assetGroup": "Portrait et rig",
   "assetEmpty": "Pas encore de portrait principal. Générez-en un d’abord.",
   "widgetFaceSlotTaken": "Le visage en direct ne se joue qu’à un seul endroit à la fois.",
+  "widgetOpenProfile": "À propos de {name}",
+  "profileNoPersona": "Aucun persona n’est encore écrit. Une fois ajouté, la personnalité et les goûts s’affichent ici.",
   "assetNeedsPortrait": "Générez le portrait principal avant de séparer ou d’envoyer un PSD en calques.",
   "rigGroup": "Rig en calques",
   "rigGroupDescription": "Envoyez un PSD en calques, ou séparez le portrait principal avec See-through. N’activez qu’après un prévol réussi.",

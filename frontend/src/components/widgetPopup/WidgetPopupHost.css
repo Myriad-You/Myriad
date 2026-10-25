@@ -103,6 +103,12 @@ html.dark .widget-popup-frame {
   pointer-events: none;
 }
 
+/* 竖向名片：窄而高。 */
+.widget-popup-frame--card {
+  width: min(380px, calc(100vw - 32px));
+  height: min(620px, calc(100dvh - 48px));
+}
+
 .widget-popup-frame--md {
   width: min(560px, calc(100vw - 32px));
   height: min(640px, calc(100dvh - 64px));

@@ -383,6 +383,20 @@ export interface PersonaFieldHistoryEntry {
   reason: string
 }
 
+export interface PublicPersonaProfile {
+  summary: string
+  temperament: string[]
+  likes: string[]
+  drives: string[]
+  socialStyle: string
+  speechStyle: string
+}
+
+export interface PublicPersona {
+  name: string
+  profile: PublicPersonaProfile | null
+}
+
 export interface AgentPersona {
   name: string
   portraitAssetId: string | null
@@ -1543,6 +1557,11 @@ class AgentService {
         timeout: PERSONA_GENERATION_TIMEOUT_MS,
       },
     )
+  }
+
+  /** 访客看得到的那份：名字和人设正文里能给人看的几项。人设关着时 profile 是 null。 */
+  async getPublicPersona(): Promise<PublicPersona> {
+    return apiService.get(`${this.baseUrl}/persona/public`)
   }
 
   async getPersona(): Promise<AgentPersona | null> {
