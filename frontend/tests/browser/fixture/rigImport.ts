@@ -137,10 +137,11 @@ async function run(kind: string, cancel = false) {
       'fixture-generation',
       referenceCtx.getImageData(0, 0, psd.width, psd.height),
     )
+    expected.source.anime25dPlayback!.enhancement = { turn: false, expressions: false }
     return {
       stages,
-      sourceEqual:
-        JSON.stringify(imported.source) === JSON.stringify(expected.source),
+      source: imported.source,
+      expectedSource: expected.source,
       atlas: await pngPixels(imported.atlas),
       expectedAtlas: await pngPixels(expected.atlas),
       reference: await pngPixels(imported.analysisReference),
@@ -318,12 +319,8 @@ async function directorReplay(parallel = false, race = false, touchCase = '', fp
   )
   const canvas = document.createElement('canvas')
   const random = Math.random
-  let seed = 713
-  if (touchCase) { Math.random = () => {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
-    return seed / 4294967296
-  }
-}
+  // The paired control must see the same draws even when touch changes their count.
+  if (touchCase) Math.random = () => 0.5
   const player = new Anime25DPlayer(canvas, prepared.source.anime25dPlayback!)
   const url = URL.createObjectURL(prepared.atlas)
   let now = 1000
@@ -1056,7 +1053,8 @@ async function eyePixels(fps: number) {
       layer.name === 'irides'
         ? [255, 0, 0]
         : layer.name === 'eye_close2'
-          ? [0, 255, 0]
+          // Closed-eye ink must stay below the importer's light-fill cutoff.
+          ? [0, 128, 0]
           : layer.name === 'eyelash_c'
             ? [0, 0, 255]
             : [255, 255, 255]

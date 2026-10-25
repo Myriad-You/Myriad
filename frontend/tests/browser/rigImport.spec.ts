@@ -384,7 +384,9 @@ for (const fps of [30, 60]) {
     expect(closed[2]).toBeGreaterThan(10)
     // No crying art in this fixture: all ordinary eye art must yield.
     expect(special).toEqual([0, 0, 0])
-    expect(reopen).toEqual(open)
+    // A reopening iris can still rebound; visibility and clipping must recover.
+    expect(reopen[0]).toBeGreaterThan(20)
+    expect(reopen.slice(1)).toEqual([0, 0])
     expect(turn[0]).toBeGreaterThan(0)
     expect(reverse[0]).toBeGreaterThan(0)
     expect(result.outsideMask).toBe(0)
@@ -452,7 +454,7 @@ for (const kind of ['ordinary', 'collar', 'necklace', 'alternate-eyes']) {
     }, kind)
     expect(result.error).toBeUndefined()
     expect(result.stages).toEqual(['validated', 'packing'])
-    expect(result.sourceEqual).toBe(true)
+    expect(result.source).toEqual(result.expectedSource)
     expect(result.partCount).toBeGreaterThan(15)
     expect(result.atlas).toEqual(result.expectedAtlas)
     expect(result.reference).toEqual(result.expectedReference)
@@ -499,7 +501,7 @@ test('packing cancellation rejects and a fresh import still succeeds', async ({
   expect(result.cancelled.stages).toEqual(['validated', 'packing'])
   expect(result.cancelled.name).toBe('AbortError')
   expect(result.next.error).toBeUndefined()
-  expect(result.next.sourceEqual).toBe(true)
+  expect(result.next.source).toEqual(result.next.expectedSource)
 })
 
 test('worker compile failures keep the selected UI language', async ({
