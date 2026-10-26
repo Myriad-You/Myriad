@@ -96,3 +96,40 @@ test('compose-override preflight failure can be confirmed and retried from the b
     allow_risk: false, allow_downgrade: false,
   })
 })
+
+test('legacy uncoded compose failure offers only an explicitly confirmed retry', async ({
+  page,
+}) => {
+  const app = await setup(page, {
+    current_version: 'v0.5.7',
+    updater_version: 'v0.6.0',
+    last_failed_update: {
+      from_version: 'v0.5.7',
+      to_version: 'v0.6.0',
+      at: new Date().toISOString(),
+      job_id: 'legacy-failed-job',
+      reason:
+        'preflight: precondition failed: the deployment compose will be overwritten; re-submit with allow_compose_override=true (or allow_risk=true)',
+    },
+  })
+  const retry = page
+    .locator('.updater-last-failed')
+    .getByRole('button', { name: 'Overwrite and retry' })
+  await expect(retry).toBeVisible()
+  expect(app.updates).toHaveLength(0)
+  page.removeAllListeners('dialog')
+  page.once('dialog', (dialog) => dialog.dismiss())
+  await retry.click()
+  expect(app.updates).toHaveLength(0)
+  page.once('dialog', (dialog) => dialog.accept())
+  await retry.click()
+  await expect.poll(() => app.updates.length).toBe(1)
+  expect(app.updates[0]).toMatchObject({
+    target_version: 'v0.6.0',
+    mode: 'release',
+    allow_compose_override: true,
+    confirm_risk: true,
+    allow_risk: false,
+    allow_downgrade: false,
+  })
+})

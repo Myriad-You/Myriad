@@ -1,5 +1,6 @@
 import type { useConfigI18n as useI18n } from '../../../contexts/I18nContext'
 import type {
+  LastFailedUpdate,
   SnapshotMeta,
   UpdateMode,
   UpdaterStatus,
@@ -48,6 +49,20 @@ export const CHANNEL_OPTIONS: ChannelOption[] = [
   { key: 'preview', mode: 'release', channel: 'preview', badge: null },
   { key: 'dev', mode: 'commit', channel: 'preview', badge: 'dev' },
 ]
+
+/** v0.5.7 persisted only this exact reason; its records survive updater upgrades. */
+export function isComposeOverrideFailure(
+  failure: Pick<LastFailedUpdate, 'code' | 'reason'> | null | undefined,
+): boolean {
+  if (!failure) return false
+  if (failure.code) return failure.code === 'compose_override_required'
+  const reason = failure.reason.trim().replace(/^preflight: /, '')
+  return (
+    reason ===
+    'precondition failed: the deployment compose will be overwritten; ' +
+      're-submit with allow_compose_override=true (or allow_risk=true)'
+  )
+}
 
 export function isReleaseTag(tag: string): boolean {
   return /^v\d+\.\d+\.\d+([.-][0-9A-Za-z.]+)?$/.test(tag.trim())
