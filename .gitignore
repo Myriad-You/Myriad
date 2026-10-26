@@ -382,7 +382,6 @@ backend/data/.bootstrap-claimed
 !/frontend/tests/browser/fixture/socialNetworkIcons.tsx
 !/frontend/tests/browser/fixture/socialNetworkIcons.css
 
-# G0 goldens and G1 trajectories: recorded on each machine with
-# MYRIAD_RECORD_G0=1 / MYRIAD_RECORD_G1=1, never committed
+# G0 goldens: recorded on each machine with MYRIAD_RECORD_G0=1, never committed.
+# (G1 trajectories are recorded inside the core/ submodule.)
 /backend/src/services/channel_group/g0/
-/crates/myriad-merope/fixtures/group/

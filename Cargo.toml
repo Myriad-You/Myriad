@@ -10,7 +10,6 @@ members = [
     "backend/migrations",
     "crates/myriad-data-key",
     "crates/myriad-mcp",
-    "crates/myriad-merope",
     "crates/myriad-phantasi",
     "crates/myriad-error",
     "crates/myriad-image-proxy",
@@ -25,19 +24,16 @@ members = [
     "crates/myriad-listening",
     "crates/myriad-phantasi-notes",
     "crates/myriad-blog",
-    "crates/myriad-agent-rules",
-    "crates/myriad-core-ffi",
-    "crates/myriad-her-link",
-    "crates/myriad-persona-log",
-    "crates/myriad-persona-sync",
-    "crates/myriad-perception-filter",
     "crates/myriad-tapp-rules",
     "crates/tapp-contract",
     "tools/tapp-contract-export",
 ]
 # Independent deploy trees: own Cargo.lock, not part of this graph.
 # Without exclude, `cd proxy && cargo build` fails with "believes it's in a workspace".
+# `core` is the shared-core submodule (Myriad-You/myriad-core): its own workspace,
+# used here only as path dependencies, so its crates must not become members.
 exclude = [
+    "core",
     "proxy",
     "updater",
 ]

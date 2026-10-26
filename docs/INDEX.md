@@ -53,7 +53,7 @@ docs/
 | --- | --- |
 | [ARCHITECTURE.md](development/ARCHITECTURE.md) | 组件与拓扑 |
 | [AGENT_CHANNELS.md](development/AGENT_CHANNELS.md) | 私聊通道授权、撤销、投递与恢复边界 |
-| [SHARED_CORE.md](development/SHARED_CORE.md) | 共用核心：纯规则静态库与 JSON C ABI，别的平台怎么链接 |
+| [SHARED_CORE.md](development/SHARED_CORE.md) | 共用核心：在子模块 `core/`（myriad-core），本仓库怎么用、改核心怎么落到这里 |
 | [BUILD.md](development/BUILD.md) | 工具链与构建 |
 | [README_MEDIA.md](development/README_MEDIA.md) | README 动图怎么录：隔离实例、样例数据、录制与编码 |
 | [API.md](API.md) | HTTP API 入口 |

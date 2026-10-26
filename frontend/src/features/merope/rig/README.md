@@ -58,7 +58,7 @@ a raised arm never drapes. Ribbons and tassels painted inside a sleeve cannot be
 from it and move with the sleeve.
 
 This boundary is shared by
-`shared/merope_rig_contract.json`, the Rust compiler, TypeScript
+`core/shared/merope_rig_contract.json`, the Rust compiler, TypeScript
 validation, the PSD importer, and diagnostics. Do not add a frontend-only
 semantic role.
 
@@ -320,7 +320,7 @@ network trace or second renderer is needed for this path.
 
 | Area                                               | Owner                                                                                                                                                                                                                                                                                           |
 | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Shared limits and semantic IR                      | `contract.ts`, `types.ts`, `semantics.ts`, `shared/merope_rig_contract.json`                                                                                                                                                                                                                    |
+| Shared limits and semantic IR                      | `contract.ts`, `types.ts`, `semantics.ts`, `core/shared/merope_rig_contract.json`                                                                                                                                                                                                               |
 | Import orchestration and normalization             | `psdImporter.ts`, `anime25dImporter.ts`, `anime25dImportTypes.ts`                                                                                                                                                                                                                               |
 | Expression, collar, atlas and skeleton compilation | `anime25dExpressionCompiler.ts`, `anime25dCollarCompiler.ts`, `anime25dAtlasCompiler.ts`, `anime25dSkeletonCompiler.ts`                                                                                                                                                                         |
 | Raster, capability and asset validation            | `anime25dRaster.ts`, `anime25dCapabilities.ts`, `anime25dAssetValidation.ts`, `diagnostics.ts`                                                                                                                                                                                                  |

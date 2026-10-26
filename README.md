@@ -339,6 +339,12 @@ macOS has been rehearsed; Windows (WSL 2) is uncertain. [Local deployment](docs/
 
 ## Local development
 
+The shared core is the `core/` git submodule ([myriad-core](https://github.com/Myriad-You/myriad-core)). After cloning, and after a pull that moves it:
+
+```bash
+git submodule update --init
+```
+
 ```bash
 ./scripts/dev.sh                   # TUI: menu, processes, database, logs
 ./scripts/dev.sh start             # local PostgreSQL; logs in this terminal
@@ -419,6 +425,7 @@ Myriad/
 ├── frontend/         Vite + React UI, Tapp runtime, i18n (7 host locales)
 ├── proxy/            production reverse proxy (own Cargo tree)
 ├── updater/          self-update daemon (own Cargo tree)
+├── core/             shared core (git submodule: myriad-core)
 ├── crates/           workspace libraries
 ├── shared/           cross-component static config
 ├── docker/           backend / frontend Dockerfiles

@@ -24,7 +24,7 @@ function run(label, command, args, cwd = root) {
 }
 try {
   run('Merope core: persona, wardrobe and rig contracts', 'cargo',
-    ['test', '-p', 'myriad-merope', '--', '--test-threads=1', '--quiet'])
+    ['test', '-p', 'myriad-merope', '--', '--test-threads=1', '--quiet'], join(root, 'core'))
   run('Rig API: provenance and activation contracts', 'cargo',
     ['test', '-p', 'myriad-backend', 'api::merope_rig::', '--', '--test-threads=1', '--quiet'])
   run('Agent services: director, memory, events, policy and semantic fixtures (no model)', 'cargo',

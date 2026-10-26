@@ -229,7 +229,7 @@ async fn she_comes_into_an_empty_site_from_a_file_or_a_device() {
 /// picture that is not sent is not taken), as one page from `dev`.
 fn mac_her(lineage: &str, dev: &str) -> Envelope {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../crates/myriad-persona-sync/fixtures/merge/other.json");
+        .join("../core/crates/myriad-persona-sync/fixtures/merge/other.json");
     let mut entities: Vec<EntityVersion> =
         serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     for entity in &mut entities {

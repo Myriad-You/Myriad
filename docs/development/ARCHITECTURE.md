@@ -144,8 +144,8 @@ converges when it is touched rather than in dedicated migrations.
 ## Her link and her devices
 
 Her link is the one connection between the site and the owner's other ends
-(today a Mac app). Its definition is `shared/her_link_contract.json`, with an
-example of every frame in `shared/her_link_fixtures.json`; the backend side is
+(today a Mac app). Its definition is `core/shared/her_link_contract.json`, with an
+example of every frame in `core/shared/her_link_fixtures.json`; the backend side is
 `backend/src/services/agent/link/`. The site speaks **protocol 1**: the Mac is
 a child that dials the site.
 

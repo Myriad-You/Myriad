@@ -341,6 +341,12 @@ macOS はリハーサル済み、Windows（WSL 2）は未検証。[ローカル�
 
 ## ローカル開発
 
+共有コアは git サブモジュール `core/`（[myriad-core](https://github.com/Myriad-You/myriad-core)）。クローン後と、プルでその参照が動いたとき：
+
+```bash
+git submodule update --init
+```
+
 ```bash
 ./scripts/dev.sh                   # TUI：メニュー、プロセス、データベース、ログ
 ./scripts/dev.sh start             # 本機 PostgreSQL。ログはこの端末
@@ -416,6 +422,7 @@ Myriad/
 ├── frontend/         Vite + React UI、Tapp ランタイム、i18n（宿主 locale 7 種）
 ├── proxy/            本番リバースプロキシ（独立 Cargo ツリー）
 ├── updater/          自己更新デーモン（独立 Cargo ツリー）
+├── core/             共有コア（git サブモジュール：myriad-core）
 ├── crates/           ワークスペースライブラリ
 ├── shared/           横断静的設定
 ├── docker/           backend / frontend Dockerfile

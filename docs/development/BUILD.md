@@ -31,7 +31,6 @@ dependencies (see [Cargo Workspaces](https://doc.rust-lang.org/book/ch14-03-carg
 | `crates/myriad-error/` | `myriad-error` (shared `AppError` + redact) |
 | `crates/myriad-data-key/` | `myriad-data-key` (config/federation AES-GCM key) |
 | `crates/myriad-mcp/` | `myriad-mcp` (bounded MCP client lifecycle and transports) |
-| `crates/myriad-merope/` | `myriad-merope` (Merope domain rules and contracts) |
 | `crates/myriad-phantasi/` | `myriad-phantasi` (Phantasi domain rules and Brew→Phantasi rename catalog) |
 | `crates/myriad-phantasi-notes/` | `myriad-phantasi-notes` (note Markdown render, sanitize, derived fields) |
 | `crates/myriad-outbound/` | `myriad-outbound` (SSRF-safe HTTP egress) |
@@ -44,9 +43,6 @@ dependencies (see [Cargo Workspaces](https://doc.rust-lang.org/book/ch14-03-carg
 | `crates/myriad-psn-auth/` | `myriad-psn-auth` (PSN NPSSO→token) |
 | `crates/myriad-runtime-registry/` | `myriad-runtime-registry` (runtime registry/mailbox) |
 | `crates/tapp-contract/` | `myriad-tapp-contract` |
-| `crates/myriad-agent-rules/` | `myriad-agent-rules` (pure Agent caps and projections) |
-| `crates/myriad-persona-sync/` | `myriad-persona-sync` (her data across sides: sync format, canonical bytes, clock, comparison; fixtures in `fixtures/`) |
-| `crates/myriad-core-ffi/` | `myriad-core-ffi` (shared core: the pure crates as one static library with a JSON C ABI for other platforms, see [SHARED_CORE.md](SHARED_CORE.md)) |
 | `crates/myriad-tapp-rules/` | `myriad-tapp-rules` (HMAC, transform, package plan, feed) |
 | `tools/tapp-contract-export/` | `myriad-tapp-contract-export` (prints `export_tapp_contract()`) |
 
@@ -54,6 +50,20 @@ Shared artifacts: root `Cargo.lock` and root `target/`.
 `proxy/` and `updater/` are listed in `workspace.exclude` — independent
 packages with their own lock + `target`. `tools/tapp-contract-export/` is a
 workspace member.
+
+The shared core (`myriad-merope`, `myriad-agent-rules`, `myriad-persona-sync`,
+`myriad-persona-log`, `myriad-her-link` and the contracts in `core/shared/`)
+is the `core/` git submodule, [myriad-core](https://github.com/Myriad-You/myriad-core).
+The backend uses its crates as path dependencies; `core` is in
+`workspace.exclude`, so `cargo test --workspace` here does not run the core's
+own tests (they run in myriad-core's CI). Check it out before building, and
+again after a pull that moves it:
+
+```bash
+git submodule update --init
+```
+
+See [SHARED_CORE.md](SHARED_CORE.md) for how a core change lands here.
 
 From any directory under the workspace, Cargo still finds the root. Preferred
 commands from the repo root:

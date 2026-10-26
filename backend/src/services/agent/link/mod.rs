@@ -1,6 +1,6 @@
 //! Her link: the one WebSocket a child end dials to her host,
 //! `GET /api/agent/link` with a device token. Its frames, codes and timings
-//! are `shared/her_link_contract.json`, which children build against.
+//! are `core/shared/her_link_contract.json`, which children build against.
 //!
 //! Here the site is her host and the child is a native app on the site
 //! owner's device. A child sends what the person says and whether they are
