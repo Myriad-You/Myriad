@@ -37,6 +37,7 @@ import { repairAnime25DPsd } from './psdRepair'
 import { flattenPsdForRigger, flattenVisibleLayers, genericCloseParts, rasterFromRiggerPart } from './riggerBridge'
 import { skeletonInFrame } from './skeleton'
 import { tuckGarmentOffLegsByReference, tuckGarmentOffNeckByReference, tuckLiningBehindLegs } from './skirtLining'
+import { dropTopSkinOverNeck } from './topSkinOverNeck'
 import { splitTrouserLegsIfNeeded } from './trouserLegs'
 
 export { ANIME25D_LAYER_DEPTH, type Anime25DLayerRole } from './anime25d'
@@ -178,9 +179,11 @@ export async function prepareAnime25DRigPsd(
   // Behind the legs goes what the skirt shows between them once repair has
   // cut it to the portrait, and behind the neck what the top draws under the
   // chin where repair has cut the top off the neck below it.
-  // The shadows the front hair casts on the skin go into the hair, and under
-  // each lock of it goes the hair of the locks above it.
-  const tucked = underlapHairLocks(liftHairShadowOffSkin(tuckTopUnderChinBehindNeck(tuckLiningBehindLegs(layers), visibleInAnalysisReference), visibleInAnalysisReference))
+  // Skin the top draws over the neck is the neck's. The shadows the front hair
+  // casts on the skin go into the hair, and under each lock of it goes the
+  // hair of the locks above it.
+  const necked = dropTopSkinOverNeck(tuckLiningBehindLegs(layers), visibleInAnalysisReference)
+  const tucked = underlapHairLocks(liftHairShadowOffSkin(tuckTopUnderChinBehindNeck(necked, visibleInAnalysisReference), visibleInAnalysisReference))
   if (tucked !== layers) {
     layers = tucked
     layers.forEach((layer, index) => {
