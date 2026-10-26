@@ -711,6 +711,11 @@ pub fn addressee_speaking_section(label: &str) -> String {
 /// whole, and only an overlong personality loses its tail.
 const PERSONALITY_CHARS: usize = 6000;
 
+/// Her whole soul as a judgment reads it: room for the name, the whole
+/// contract, the longest personality and the site line, so only a soul with
+/// no limit of its own (a custom SOUL.md) can lose its tail.
+pub const SOUL_CHARS: usize = 10_000;
+
 /// Her soul for speaking: who she is, the speaking contract, and her
 /// personality. None when she has neither a name nor a personality.
 pub fn format_persona(name: &str, personality: &str) -> Option<String> {
@@ -912,6 +917,10 @@ mod tests {
         // A personality longer than the contract reaches her whole.
         let long = format!("{}末尾", "说".repeat(3000));
         assert!(format_persona("瞳", &long).unwrap().ends_with("末尾"));
+        // The longest she can be, with the site line after it, fits a judgment.
+        let longest = format_persona(&"瞳".repeat(50), &"说".repeat(PERSONALITY_CHARS)).unwrap();
+        let soul = format!("{longest}\n\n{}", site_line(&"站".repeat(80)));
+        assert!(soul.chars().count() <= SOUL_CHARS);
         assert!(PERSONA_SPEAKING_CONTRACT.contains("Do not output AI-flavored"));
         assert!(PERSONA_SPEAKING_CONTRACT.contains("saved personality"));
         assert!(PERSONA_SPEAKING_CONTRACT.contains("asked for an expression"));
