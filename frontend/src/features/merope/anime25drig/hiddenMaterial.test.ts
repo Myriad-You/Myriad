@@ -31,6 +31,16 @@ test('the face under the fringe is plain skin, its painted shadow gone', () => {
   assert.deepEqual(at(out, 50, 70), [250, 220, 210, 255])
 })
 
+test('the shadow right at the edge of the fringe goes too, not only deep under it', () => {
+  const box = { x: 0, y: 0, w: 100, h: 100 }
+  // The shadow is darkest along the fringe's edge (y 38..40), inside what it hides.
+  const face = image(100, 100, (_, y) => (y >= 38 && y < 40 ? [120, 80, 80, 255] : [250, 220, 210, 255]))
+  const fringe = image(100, 100, (_, y) => [0, 0, 0, y < 40 ? 255 : 0])
+  const out = fillHiddenSkin(box, face, [{ layer: box, image: fringe }])!
+  const [r, g, b] = at(out, 50, 39)
+  assert.ok(r > 230 && g > 200 && b > 190, `at the edge ${[r, g, b]}`)
+})
+
 test('behind the head the back hair is the hair in its own shadow', () => {
   const box = { x: 0, y: 0, w: 100, h: 100 }
   // Hair with a lighter and a darker tone, painted pale behind the face.

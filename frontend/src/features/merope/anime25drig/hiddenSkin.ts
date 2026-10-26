@@ -24,7 +24,8 @@ const FEATHER = 6
  * from under the fringe as dark stains; a rigger paints that part plain.
  * The hidden skin takes a smooth colour field fitted on the skin that shows
  * near it, leaving its shadows out, and blends into what was there at the
- * edge. Nothing that shows at rest changes. Null when nothing is hidden or
+ * edge where that is lighter; the shadow there, darkest at the hair's edge,
+ * goes at once. Nothing that shows at rest changes. Null when nothing is hidden or
  * too little skin shows to read.
  */
 export function fillHiddenSkin(
@@ -87,11 +88,12 @@ export function fillHiddenSkin(
     if (!hidden[p]) continue
     const x = p % width
     const y = (p - x) / width
-    const weight = Math.min(1, distance[p] / feather)
+    const value = field.map((plane) => Math.max(plane.low, Math.min(plane.high, plane.a + plane.b * x + plane.c * y)))
+    // The edge of what is hidden is where the hair's shadow is darkest: that goes all at once.
+    const darker = pixels[p * 4] * 0.299 + pixels[p * 4 + 1] * 0.587 + pixels[p * 4 + 2] * 0.114 < value[0] * 0.299 + value[1] * 0.587 + value[2] * 0.114
+    const weight = darker ? 1 : Math.min(1, distance[p] / feather)
     for (let channel = 0; channel < 3; channel++) {
-      const plane = field[channel]
-      const value = Math.max(plane.low, Math.min(plane.high, plane.a + plane.b * x + plane.c * y))
-      out[p * 4 + channel] = Math.round(pixels[p * 4 + channel] * (1 - weight) + value * weight)
+      out[p * 4 + channel] = Math.round(pixels[p * 4 + channel] * (1 - weight) + value[channel] * weight)
     }
   }
   return { pixels: out, width, height }

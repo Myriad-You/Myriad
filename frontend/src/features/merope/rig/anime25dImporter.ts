@@ -27,6 +27,7 @@ import { raiseEarwearOverFrontHair } from './earwearOrder'
 import { synthesizeMissingExpressionAccents } from './expressionAccentLayers'
 import { formatTemplate } from './formatTemplate'
 import { underlapHairLocks } from './hairLockUnderlap'
+import { liftHairShadowOffSkin } from './hairShadow'
 import { contentFrame, deriveAnchors, semanticAnchors, standingStance } from './importerAnchors'
 import { assignCrossfadeSlots, hasStaticSeeThroughMouth, mirrorLostEyeWhite, preserveStaticMouthAsClosed, splitHandwearIfNeeded, splitLowerLimbsIfNeeded, splitVariantEyesIfNeeded, stackArmsByReference, stackEarwearByReference, stackHeadwearByReference, stackLowerLimbsByReference, stackNeckwearByReference, stackOpenEyesInOrder, tuckBackHairBehindFace, tuckBackHairBehindNeck, tuckTopUnderChinBehindNeck } from './importerLayerSplits'
 import { addHiddenArmFragments, anime25DShoulderSeeds } from './linkedHandwear'
@@ -177,8 +178,9 @@ export async function prepareAnime25DRigPsd(
   // Behind the legs goes what the skirt shows between them once repair has
   // cut it to the portrait, and behind the neck what the top draws under the
   // chin where repair has cut the top off the neck below it.
-  // And under each lock of the front hair the hair of the locks above it.
-  const tucked = underlapHairLocks(tuckTopUnderChinBehindNeck(tuckLiningBehindLegs(layers), visibleInAnalysisReference))
+  // The shadows the front hair casts on the skin go into the hair, and under
+  // each lock of it goes the hair of the locks above it.
+  const tucked = underlapHairLocks(liftHairShadowOffSkin(tuckTopUnderChinBehindNeck(tuckLiningBehindLegs(layers), visibleInAnalysisReference), visibleInAnalysisReference))
   if (tucked !== layers) {
     layers = tucked
     layers.forEach((layer, index) => {
