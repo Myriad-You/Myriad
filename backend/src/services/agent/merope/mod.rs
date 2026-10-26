@@ -36,6 +36,7 @@ pub(in crate::services::agent) mod memory_jobs;
 pub(in crate::services::agent) mod motion;
 mod motion_local;
 pub(in crate::services::agent) mod motion_preview;
+pub(in crate::services::agent) mod nodes;
 pub(in crate::services::agent) mod observe;
 pub(in crate::services::agent) mod onboarding_ai;
 pub(in crate::services::agent) mod onboarding_prompts;

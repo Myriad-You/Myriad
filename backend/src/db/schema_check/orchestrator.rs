@@ -66,7 +66,9 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// 2026.10.23.1：服务端上她的日志（多端同步 S6）：`agent_log_*` 与执笔权的签发历史
 /// `agent_lease_grants`、各端的位置 `agent_lease_ends`（`persona_log.sql`，随 004 与
 /// `ensure_persona_log_tables` 一起建）。默认不用。
-pub const SCHEMA_VERSION: &str = "2026.10.23.1";
+/// 2026.10.26.1：她在主机上的节点 `agent_nodes` 与节点日志 `agent_node_events`
+/// （`agent_nodes.sql`，随 004 与 `ensure_agent_nodes_tables` 一起建）。
+pub const SCHEMA_VERSION: &str = "2026.10.26.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -325,6 +327,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     ensure_persona_sync_tables(db).await?;
     ensure_persona_log_tables(db).await?;
     ensure_memory_cues_table(db).await?;
+    ensure_agent_nodes_tables(db).await?;
     unlink_note_docs_without_article(db).await?;
     drop_retired_columns(db).await?;
     ensure_user_lifecycle(db).await?;

@@ -327,6 +327,15 @@ async fn redeem_speak_intent(
         )
         .await?;
         let _ = touch_proactive(db, intent.user_id).await;
+        // What a child end saw: her line on its node is said now.
+        if super::super::gates::files_on_node(&intent.topic) {
+            if let Err(error) =
+                super::super::nodes::said(db, intent.user_id, &intent.source_event_id, &spoken)
+                    .await
+            {
+                tracing::warn!(%error, "[Merope] could not mark a node's line said");
+            }
+        }
     }
     Ok(())
 }

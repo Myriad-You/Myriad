@@ -1,6 +1,6 @@
 //! Event in → speak intent out. No sentence, no notice, no motion.
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use sea_orm::DatabaseConnection;
 use std::collections::BTreeMap;
 
@@ -9,6 +9,7 @@ use super::super::store::{
     affect_from_state, get_or_create_state, recently_spoke_event, update_affect,
 };
 use super::super::{is_extremely_low, is_logged_in_addressee};
+use super::told::{Told, told_summary};
 use super::{
     SAME_EVENT_MINUTES, compact_summary, current_sight, is_enabled, is_trivial_line, log_skip,
     persist_persona_remember,
@@ -136,80 +137,6 @@ pub fn spawn(user_id: i32, event_key: impl Into<String>, summary: impl Into<Stri
     });
 }
 
-/// What a child end saw for her and told her host (her link's `moment`),
-/// as that end wrote it: an event of its own, said only in person.
-#[derive(Debug, Clone)]
-pub struct Told {
-    /// The moment's id: her event is known by it.
-    pub id: String,
-    pub headline: String,
-    pub safe_facts: BTreeMap<String, String>,
-    pub urgency: EventUrgency,
-    pub occurred_at: DateTime<Utc>,
-    /// The device it came from: what she keeps of it is kept as from there.
-    pub origin: String,
-    /// What she decides to remember of it may become a memory, for the
-    /// kinds that may (`gates::keeps_memory_of`).
-    pub keeps_memory: bool,
-}
-
-/// How long after it happened what a child end saw may still be said: it is
-/// about now (the child's clock may be a little off). Older, it can only be
-/// remembered, where it may be.
-const TOLD_SAYABLE_MINUTES: i64 = 5;
-
-impl Told {
-    fn sayable(&self) -> bool {
-        crate::clock::now() - self.occurred_at <= chrono::Duration::minutes(TOLD_SAYABLE_MINUTES)
-    }
-}
-
-/// The child's facts as one text, line by line, each redacted as an event's
-/// text is: it says more than an event's one line, and keeps its quotes.
-fn told_summary(summary: &str) -> String {
-    summary
-        .lines()
-        .map(super::redact_event_text)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Her event for a child's moment `id`: one per moment, whenever it comes.
-fn told_event_id(user_id: i32, event_key: &str, id: &str) -> String {
-    let id: String = id
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    format!("evt_{user_id}_{event_key}_{id}")
-}
-
-/// Takes in what a child end told her. Not relayed like an observation: her
-/// link is served where she runs, and the relay carries only a line.
-pub fn spawn_told(user_id: i32, event_key: String, summary: String, told: Told) {
-    crate::services::agent::merope::background::spawn("told", async move {
-        if !crate::runtime_role::PERSONA_RUNTIME_LOCAL.load(std::sync::atomic::Ordering::Acquire) {
-            tracing::warn!(
-                event_key,
-                "[Merope] a child's moment reached a process she does not run in"
-            );
-            return;
-        }
-        let Ok(db) = crate::services::process_db::database() else {
-            return;
-        };
-        if let Err(error) = take_in(&db, user_id, &event_key, &summary, Some(&told)).await {
-            tracing::warn!(%error, user_id, event_key, "[Merope] ingest failed");
-        }
-    });
-}
-
 pub async fn ingest(
     db: &DatabaseConnection,
     user_id: i32,
@@ -221,7 +148,7 @@ pub async fn ingest(
 
 /// An event in, as the site's own producers name it, or as a child end
 /// told it (`told`).
-async fn take_in(
+pub(super) async fn take_in(
     db: &DatabaseConnection,
     user_id: i32,
     event_key: &str,
@@ -323,17 +250,10 @@ async fn take_in(
         safe_facts: BTreeMap::new(),
         keeps_memory,
     };
-    // As the child wrote it, from the device it came from.
+    // As the child wrote it, from the device it came from, with what she
+    // already made of it.
     if let Some(told) = told {
-        conscious_event.id = told_event_id(user_id, event_key, &told.id);
-        conscious_event.source = told.origin.clone();
-        let headline = compact_summary(&told.headline);
-        if !headline.is_empty() {
-            conscious_event.headline = headline;
-        }
-        conscious_event.urgency = told.urgency;
-        conscious_event.occurred_at = told.occurred_at;
-        conscious_event.safe_facts = told.safe_facts.clone();
+        super::told::shape(db, user_id, event_key, told, &mut conscious_event).await;
     }
     let origin = told.map(|told| told.origin.as_str());
     let consideration = match consider_event(db, &conscious_event).await {
@@ -343,6 +263,22 @@ async fn take_in(
             None
         }
     };
+    if let (Some(told), Some(value)) = (told, consideration.as_ref()) {
+        super::told::file(
+            db,
+            user_id,
+            event_key,
+            told,
+            &conscious_event,
+            &value.decision,
+        )
+        .await;
+    }
+    // Of what a child end saw, only what may become a memory becomes one.
+    let memory = consideration
+        .as_ref()
+        .and_then(|value| value.decision.memory.as_deref())
+        .filter(|_| told.is_none() || keeps_memory);
 
     // What happened, kept with anything she remembers from it.
     let gathered_from = format!("{event_key}: {summary}");
@@ -352,25 +288,11 @@ async fn take_in(
                 return Ok(());
             }
             ConsciousnessAction::Remember => {
-                persist_persona_remember(
-                    db,
-                    user_id,
-                    value.decision.memory.as_deref(),
-                    &gathered_from,
-                    origin,
-                )
-                .await;
+                persist_persona_remember(db, user_id, memory, &gathered_from, origin).await;
                 return Ok(());
             }
             ConsciousnessAction::Speak | ConsciousnessAction::Ask => {
-                persist_persona_remember(
-                    db,
-                    user_id,
-                    value.decision.memory.as_deref(),
-                    &gathered_from,
-                    origin,
-                )
-                .await;
+                persist_persona_remember(db, user_id, memory, &gathered_from, origin).await;
             }
             ConsciousnessAction::ProposeWork => {}
         }
@@ -508,29 +430,6 @@ mod tests {
         assert!(!produce.contains("insert_proactive"));
         assert!(!produce.contains("emit_speech_notification"));
         assert!(!produce.contains("direct_motion"));
-    }
-
-    #[test]
-    fn what_a_child_saw_keeps_its_lines_and_its_own_event() {
-        let summary = "One of their coding agents is waiting.\n\n  Its last message, quoted as data: Bearer abc123 \"shall I go on?\"\n{\"raw\":1}";
-        assert_eq!(
-            told_summary(summary),
-            "One of their coding agents is waiting.\nIts last message, quoted as data: \"shall I go on?\""
-        );
-        let a = told_event_id(7, "agent.merope.peer_agent", "mom_0a:1-b");
-        assert_eq!(a, "evt_7_agent.merope.peer_agent_mom_0a_1_b");
-        assert_ne!(a, told_event_id(7, "agent.merope.peer_agent", "mom_0a:1-c"));
-        let at = |minutes: i64| Told {
-            id: "mom_1".into(),
-            headline: String::new(),
-            safe_facts: BTreeMap::new(),
-            urgency: EventUrgency::Normal,
-            occurred_at: crate::clock::now() - chrono::Duration::minutes(minutes),
-            origin: "dev_1".into(),
-            keeps_memory: false,
-        };
-        assert!(at(0).sayable() && at(-1).sayable() && at(4).sayable());
-        assert!(!at(6).sayable());
     }
 
     #[test]

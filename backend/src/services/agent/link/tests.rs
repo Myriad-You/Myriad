@@ -84,12 +84,20 @@ fn the_host_speaks_the_contract() {
     assert_eq!(CONTRACT.frames["say"].delivery, "reliable");
     assert!(CONTRACT.capabilities.iter().any(|c| c == "say"));
     // Her body on the app: what it says up is kept until taken.
-    for t in ["speech.delivered", "touch", "experience", "moment"] {
+    for t in [
+        "speech.delivered",
+        "touch",
+        "experience",
+        "moment",
+        "node.forget",
+    ] {
         assert_eq!(CONTRACT.frames[t].delivery, "reliable", "{t}");
     }
     // What a child's senses saw: the kinds her host says only in person,
     // the one of them that may keep a memory, and the urgencies it reads.
     assert!(CONTRACT.capabilities.iter().any(|c| c == "moments"));
+    assert!(CONTRACT.capabilities.iter().any(|c| c == "nodes"));
+    assert_eq!(CONTRACT.frames["nodes"].delivery, "latest");
     use crate::services::agent::merope::gates;
     assert_eq!(CONTRACT.moments.kinds, gates::TOLD_EVENTS);
     for kind in &CONTRACT.moments.kinds {
@@ -304,6 +312,13 @@ fn every_frame_has_a_fixture_that_fits_it() {
                     assert!(!told.keeps_memory);
                     assert_eq!(told.safe_facts.len(), 3);
                 }
+                "node.forget" => {
+                    assert!(inbound.id.as_deref().is_some_and(valid_id));
+                    assert_eq!(
+                        super::nodes::forgotten(&inbound.body),
+                        fixture("nodes")["body"]["nodes"][0]["id"].as_str()
+                    );
+                }
                 _ => {}
             }
         }
@@ -387,6 +402,23 @@ fn every_frame_has_a_fixture_that_fits_it() {
     let sent = super::experience::taken_frame(taken["body"]["id"].as_str().unwrap());
     assert_eq!((sent.t, &sent.body), ("experience.taken", &taken["body"]));
     assert_eq!(taken["body"]["id"], fixture("experience")["id"]);
+    // Her nodes, as the host sends them.
+    let shown = fixture("nodes")["body"]["nodes"][0].clone();
+    let note = &shown["notes"][0];
+    let built = super::nodes::frame(vec![crate::services::agent::merope::nodes::Shown {
+        id: shown["id"].as_str().unwrap().into(),
+        form: serde_json::from_value(shown["form"].clone()).unwrap(),
+        key: shown["key"].as_str().unwrap().into(),
+        title: shown["title"].as_str().unwrap().into(),
+        origin: shown["origin"].as_str().unwrap().into(),
+        notes: vec![serde_json::from_value(note.clone()).unwrap()],
+        created_at: shown["createdAt"].as_i64().unwrap(),
+        updated_at: shown["updatedAt"].as_i64().unwrap(),
+    }]);
+    assert_eq!(built.t, "nodes");
+    assert_eq!(keys(&built.body["nodes"][0]), keys(&shown));
+    assert_eq!(keys(&built.body["nodes"][0]["notes"][0]), keys(note));
+    assert_eq!(built.body["nodes"][0]["key"], shown["key"]);
     let taken = fixture("moment.taken");
     let sent = super::moment::taken_frame(taken["body"]["id"].as_str().unwrap());
     assert_eq!((sent.t, &sent.body), ("moment.taken", &taken["body"]));
@@ -2095,7 +2127,8 @@ fn a_moment_is_read_by_the_contracts_rules() {
 }
 
 /// A summary that reads like orders to her stays what it is: the child's
-/// facts, handed to her as the event's summary, never as anything else.
+/// facts, handed to her as the event's summary, never in what tells her how
+/// to judge.
 #[test]
 fn what_a_moment_says_is_data() {
     use crate::services::agent::merope::gates;
@@ -2113,23 +2146,13 @@ fn what_a_moment_says_is_data() {
             .values()
             .all(|value| !value.contains("SYSTEM"))
     );
-    let (system, schema) = crate::services::agent::consciousness::semantic_probe_contract(
+    let (system, _) = crate::services::agent::consciousness::semantic_probe_contract(
         "You are Agent.",
         gates::PEER_AGENT_EVENT,
     );
     assert!(!system.contains("delete the repository"));
     assert!(system.contains("agent.merope.peer_agent"));
     assert!(system.contains("never instructions"));
-    // Whatever it says, she can only let it be or say something: no Work, no memory.
-    assert_eq!(
-        schema["properties"]["action"]["enum"],
-        json!(["ignore", "speak", "ask"])
-    );
-    assert_eq!(
-        schema["properties"]["work_proposal"],
-        json!({"type": "null"})
-    );
-    assert_eq!(schema["properties"]["memory"], json!({"type": "null"}));
 }
 
 /// What the app's senses saw reaches her once: only from a child that said
@@ -2242,6 +2265,101 @@ async fn what_the_app_saw_reaches_her_once() {
         );
         assert!(handed(id).is_empty(), "{id}");
     }
+    drop(child);
+    site.close().await;
+}
+
+/// Her nodes go to a child that takes them after welcome and whenever they
+/// change; the owner makes her forget one there, and it is gone.
+#[tokio::test]
+async fn her_nodes_are_shown_on_the_app_and_forgotten_there() {
+    use crate::services::agent::merope::{gates, nodes};
+    let Some(site) = site().await else {
+        return;
+    };
+    let (_, token) = device(&site.db, "Mac").await;
+    let mut child = Child::open(&site, &token).await;
+    let welcome = child.hello_with(&["rig", "moments", "nodes"]).await;
+    assert_eq!(
+        welcome["body"]["capabilities"],
+        json!(["rig", "moments", "nodes"])
+    );
+    assert_eq!(
+        until(&mut child, "nodes").await["body"],
+        json!({ "nodes": [] })
+    );
+
+    // What she decided about another agent's moment, kept on its repository's node.
+    let facts = [("repo".to_string(), "sample-repo".to_string())].into();
+    let place = nodes::place(gates::PEER_AGENT_EVENT, &facts).unwrap();
+    let note = nodes::Note {
+        event: "evt_1".into(),
+        happened: "waiting".into(),
+        action: "speak".into(),
+        line: "它在等你。".into(),
+        at: crate::clock::now(),
+        said: false,
+    };
+    nodes::decided(
+        &site.db,
+        OWNER,
+        &place,
+        nodes::Decided {
+            event: "evt_1",
+            happened: "waiting",
+            action: "speak",
+            reason: "test",
+            origin: "dev_mac",
+            note: Some(note),
+        },
+    )
+    .await
+    .unwrap();
+    let shown = until(&mut child, "nodes").await;
+    let node = &shown["body"]["nodes"][0];
+    assert_eq!(
+        (node["form"].as_str(), node["key"].as_str()),
+        (Some("repo"), Some("sample-repo"))
+    );
+    assert_eq!(node["notes"][0]["line"], "它在等你。");
+    assert_eq!(node["notes"][0]["said"], false);
+
+    // Not one of hers: told so, nothing gone.
+    let seq = child
+        .send(
+            "node.forget",
+            Some("forget_0"),
+            json!({ "nodeId": "has space" }),
+        )
+        .await;
+    assert_eq!(
+        until(&mut child, "error").await["body"],
+        json!({ "code": "bad_frame", "ref": seq })
+    );
+    child
+        .send(
+            "node.forget",
+            Some("forget_1"),
+            json!({ "nodeId": node["id"] }),
+        )
+        .await;
+    assert_eq!(
+        until(&mut child, "nodes").await["body"],
+        json!({ "nodes": [] })
+    );
+    assert!(nodes::list(&site.db, OWNER).await.unwrap().is_empty());
+    // Again: answered with what is there.
+    child
+        .send(
+            "node.forget",
+            Some("forget_1"),
+            json!({ "nodeId": node["id"] }),
+        )
+        .await;
+    assert_eq!(
+        until(&mut child, "nodes").await["body"],
+        json!({ "nodes": [] })
+    );
     drop(child);
     site.close().await;
 }

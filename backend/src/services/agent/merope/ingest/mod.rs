@@ -14,6 +14,7 @@ mod delivery_claim;
 mod in_person;
 mod produce;
 mod redeem;
+mod told;
 
 use sea_orm::DatabaseConnection;
 
@@ -25,7 +26,8 @@ use crate::models::entities::agent_addressee_state;
 use crate::services::agent::run_hub;
 
 pub use myriad_merope::diary::{compact_summary, redact_event_text};
-pub use produce::{Told, ingest, spawn, spawn_presence, spawn_told};
+pub use produce::{ingest, spawn, spawn_presence};
+pub use told::{Told, spawn_told};
 #[cfg(test)]
 pub(crate) use produce::apply_task_mood;
 pub use redeem::tick_speak_intents;
