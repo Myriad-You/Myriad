@@ -325,6 +325,16 @@ mkdir -p backups
 docker compose exec -T postgres pg_dump -U myriad -d myriad > "backups/backup_$(date +%Y%m%d_%H%M%S).sql"
 ```
 
+### 在自己电脑上（Docker Desktop）
+
+不需要域名和 TLS：步骤同上，`.env` 这样填。
+
+- `BASE_URL` / `FRONTEND_URL`：`http://localhost` 或留空，不要留模板里的 `https://yourdomain.com`
+- `CORS_ORIGINS`：`http://localhost`；要在局域网其他设备上打开，再加上本机局域网地址（如 `http://192.168.1.20`）；`HTTP_PORT` 不是 80 时带上端口
+- 局域网内用 http 打开也能登录。联邦和第三方登录需要公开的站点地址。
+
+macOS 已演练过；Windows（WSL 2）未验证。[本地部署](docs/deployment/DOCKER_DEPLOYMENT.md#local-docker-desktop)
+
 [快速开始](docs/QUICKSTART.md) · [Docker](docs/deployment/DOCKER_DEPLOYMENT.md) · [端口](docs/deployment/PORTS.md) · [无 Docker](docs/deployment/NATIVE_DEPLOYMENT.md)
 
 ---

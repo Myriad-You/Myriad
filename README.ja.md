@@ -325,6 +325,16 @@ mkdir -p backups
 docker compose exec -T postgres pg_dump -U myriad -d myriad > "backups/backup_$(date +%Y%m%d_%H%M%S).sql"
 ```
 
+### 自分のパソコンで（Docker Desktop）
+
+ドメインも TLS も不要。手順は上と同じで、`.env` は次のとおり。
+
+- `BASE_URL` / `FRONTEND_URL`：`http://localhost` または空欄。テンプレートの `https://yourdomain.com` は残さない
+- `CORS_ORIGINS`：`http://localhost`。LAN 内のほかの端末から開くなら、このパソコンの LAN アドレス（例 `http://192.168.1.20`）も加える。`HTTP_PORT` が 80 以外ならポートも付ける
+- LAN 内で http のまま開いてもログインできる。連合と外部サービスでのログインには公開サイトのアドレスが必要。
+
+macOS はリハーサル済み、Windows（WSL 2）は未検証。[ローカルデプロイ](docs/deployment/DOCKER_DEPLOYMENT.md#local-docker-desktop)
+
 [クイックスタート](docs/QUICKSTART.md) · [Docker](docs/deployment/DOCKER_DEPLOYMENT.md) · [ポート](docs/deployment/PORTS.md) · [Docker なし](docs/deployment/NATIVE_DEPLOYMENT.md)
 
 ---

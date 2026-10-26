@@ -323,6 +323,16 @@ mkdir -p backups
 docker compose exec -T postgres pg_dump -U myriad -d myriad > "backups/backup_$(date +%Y%m%d_%H%M%S).sql"
 ```
 
+### On your own computer (Docker Desktop)
+
+No domain or TLS needed: same steps as above, with these `.env` values.
+
+- `BASE_URL` / `FRONTEND_URL`: `http://localhost` or empty — not the template's `https://yourdomain.com`
+- `CORS_ORIGINS`: `http://localhost`, plus the LAN address (e.g. `http://192.168.1.20`) to open it from other devices; include the port when `HTTP_PORT` is not 80
+- Sign-in works over plain HTTP on the LAN. Federation and third-party sign-in need the public site address.
+
+macOS has been rehearsed; Windows (WSL 2) is uncertain. [Local deployment](docs/deployment/DOCKER_DEPLOYMENT.md#local-docker-desktop)
+
 [Quick start](docs/QUICKSTART.md) · [Docker](docs/deployment/DOCKER_DEPLOYMENT.md) · [Ports](docs/deployment/PORTS.md) · [Native](docs/deployment/NATIVE_DEPLOYMENT.md)
 
 ---

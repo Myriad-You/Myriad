@@ -94,6 +94,9 @@ pub async fn run() -> anyhow::Result<()> {
         .layer(axum::middleware::from_fn(
             crate::middleware::security::security_headers_middleware,
         ))
+        .layer(axum::middleware::from_fn(
+            crate::middleware::cookie_secure::cookie_secure_middleware,
+        ))
         .layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024))
         .layer(crate::router::http_cors_layer())
         .layer(axum::middleware::from_fn_with_state(

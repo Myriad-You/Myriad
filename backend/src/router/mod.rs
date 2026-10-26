@@ -211,6 +211,7 @@ pub(crate) async fn start_unified_server(
         .layer(from_fn(middleware::rate_limit::rate_limit_middleware)) // Rate limiting
         // Apply security headers after the complete route graph is assembled.
         .layer(from_fn(middleware::security::security_headers_middleware))
+        .layer(from_fn(middleware::cookie_secure::cookie_secure_middleware))
         // Global 50 MiB default for most routes. Nested federation uses from_fn
         // live_inbox_body_limit / live_authenticated_body_limit, not DefaultBodyLimit.
         .layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024))

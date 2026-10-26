@@ -119,6 +119,83 @@ paste that passphrase (or open the generator `#setup_secret=` link). The
 durable `.bootstrap-claimed` marker prevents reopening setup during a
 database outage.
 
+## Local (Docker Desktop)
+
+Running the stack on your own computer, with no domain and no TLS, uses the
+same compose file and `deploy.sh`. macOS Docker Desktop has been rehearsed
+(see [DATA_LAYOUT.md](./DATA_LAYOUT.md)); Windows (WSL 2 + Docker Desktop) is
+uncertain. Images are published for `linux/amd64` and `linux/arm64`, so Apple
+Silicon runs them natively.
+
+Requirements: Docker Desktop (Compose v2), `bash`, `jq`, and a checkout of
+this repository (the scripts and compose file live in it). On Windows, run the
+commands from a WSL 2 shell with the checkout inside the WSL filesystem.
+
+1. Create `.env`:
+
+   ```bash
+   cp .env.production.example .env
+   ```
+
+2. Edit `.env`. Every key below already exists in the template:
+
+   | Key | Local value |
+   | --- | --- |
+   | `POSTGRES_PASSWORD` | `openssl rand -base64 32` |
+   | `JWT_SECRET` | `openssl rand -base64 32` (at least 32 bytes) |
+   | `HTTP_PORT` | `80`, or e.g. `8080` if port 80 is taken |
+   | `CORS_ORIGINS` | `http://localhost` (with `:8080` if `HTTP_PORT` is not 80); add the LAN address, see below |
+   | `BASE_URL` / `FRONTEND_URL` | `http://localhost` (same port rule), or leave empty. Do **not** keep the template's `https://yourdomain.com` |
+   | `TAPP_STORE_STATS_ENABLED` | `false` (optional; a local instance does not need to be counted) |
+
+   Leave `MYRIAD_TAG` / `PROXY_TAG` / `UPDATER_TAG` at the template's
+   release unless you want another one.
+
+3. Start it:
+
+   ```bash
+   bash scripts/extra/deploy.sh up
+   ```
+
+4. Open `http://localhost` (or `http://localhost:8080`) and create the owner
+   in the wizard. The setup passphrase is the `MYRIAD_SETUP_SECRET` that
+   `deploy.sh` wrote into `.env`.
+
+Stop with `bash scripts/extra/deploy.sh down`. Data stays in `./data`,
+`./pgdata` and the other directories listed under [Data Layout](#data-layout);
+`down` never removes them.
+
+### Opening it from other devices on the LAN
+
+Use the computer's LAN address, e.g. `http://192.168.1.20` (find it in the
+system's network settings):
+
+- Add that origin to `CORS_ORIGINS`, comma separated:
+  `CORS_ORIGINS=http://localhost,http://192.168.1.20`. Real-time features
+  (WebSocket) refuse cookie sessions from origins not listed there. Run
+  `bash scripts/extra/deploy.sh up` again after editing `.env`.
+- Sign-in works over plain HTTP. Cookies carry `Secure` only when the site
+  address (`BASE_URL`, or the address saved in settings) is `https://`, and
+  even then the site leaves `Secure` off when the browser reached it over
+  HTTP at another host, such as a LAN IP. On the public `https://` host the
+  cookies always keep `Secure`.
+- If the address changes (DHCP), update `CORS_ORIGINS`. Giving the computer a
+  fixed address in the router avoids this; that is outside the site's control.
+- Browsers treat plain-HTTP pages other than `localhost` as insecure: the
+  microphone (listen/talk) and location (weather) are unavailable there. This
+  is browser behaviour the site does not control. On the computer itself,
+  `http://localhost` does not have this limit.
+
+### What a local instance cannot do
+
+- Federation needs a public `https://` `BASE_URL` that other instances can
+  reach; leave it off.
+- Third-party sign-in (OAuth) returns to the site address registered with the
+  provider. Sign in from that address; starting it from a LAN IP lands on
+  another host without the sign-in cookie and fails closed.
+- The site corrects only its own clock; if the computer's clock is wrong, fix
+  it in the system settings (see [Clock](#clock)).
+
 ## Environment
 
 | Variable | Required | Purpose |
