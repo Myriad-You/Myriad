@@ -216,6 +216,35 @@ export function figureFrontDepth(
 }
 
 /**
+ * Moves a point `share` of the way the torso's cylinder takes it, as a
+ * standing figure's (its front standing out by figureFrontDepth); returns
+ * the share. For a part turned by its key that gives way to the cylinder
+ * where it meets the torso.
+ */
+export function addTorsoShellShare(
+  point: Anime25DMutableTorsoPoint,
+  share: number,
+  frame: Readonly<{
+    torsoProfile: Readonly<Anime25DTorsoShellProfile>
+    torsoShellRotation: Readonly<Anime25DTorsoShellRotation>
+    torsoShellBlend: number
+    chestVolumeScale: number
+    neckBottom: number
+    chestRegionCenterY: number
+  }>,
+  restY: number,
+): number {
+  if (share <= 0) return 0
+  const x = point.x
+  const y = point.y
+  deformAnime25DTorsoShellPoint(point, frame.torsoProfile, frame.torsoShellRotation, frame.torsoShellBlend, null, 1,
+    frame.chestVolumeScale, figureFrontDepth(frame.torsoProfile, restY, frame.neckBottom, frame.chestRegionCenterY))
+  point.x = x + (point.x - x) * share
+  point.y = y + (point.y - y) * share
+  return share
+}
+
+/**
  * A standing figure's sleeve, horizontally: over the body it lies on the
  * cylinder like the garment under it, so their seam holds; clear of the body
  * it hangs at the side, near the turn's axis, with FIGURE_SLEEVE_HANG of a

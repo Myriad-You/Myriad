@@ -98,6 +98,8 @@ export interface BoundTurnKeyform {
   corners?: { plusUp: Float32Array; plusDown: Float32Array; minusUp: Float32Array; minusDown: Float32Array } | null
   /** The multiply colour at each full key (r, g, b), when the keys hold one. */
   multiply: { plus: Float32Array; minus: Float32Array; up: Float32Array | null; down: Float32Array | null } | null
+  /** A body key's share per vertex of the torso's cylinder in place of the key (legHipWeights). */
+  cylinder?: Float32Array | null
 }
 
 /** Each vertex's offset at the full turn either way: where in the turned drawing its rest point went. */

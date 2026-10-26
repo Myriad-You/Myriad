@@ -82,3 +82,17 @@ test('a leg measured as thigh and shin takes each above and below its knee', () 
   // The other leg has no keys of its own.
   assert.equal(bindBodyTurnKeyform(keys, { group: 'body', role: 'legwear', side: 'R' }, rest, 80), null)
 })
+
+test('a leg\'s top takes the torso\'s cylinder in place of its key, giving way down the thigh', () => {
+  const keys = { 'thigh:L': { plus: shifted(10, 0), minus: shifted(10, 0) }, 'shin:L': { plus: shifted(-4, 0), minus: shifted(-4, 0) } }
+  // A leg from y 0 to 200: the cylinder gives way over its top 50.
+  const rest = Float32Array.of(50, 0, 50, 25, 50, 50, 50, 200)
+  const cylinder = bindBodyTurnKeyform(keys, { group: 'body', role: 'legwear', side: 'L' }, rest, 80)!.cylinder!
+  assert.equal(cylinder[0], 1, 'the hip, all the cylinder')
+  assert.ok(Math.abs(cylinder[1] - 0.5) < 1e-6, 'half way')
+  assert.equal(cylinder[2], 0)
+  assert.equal(cylinder[3], 0, 'the ankle, all its key')
+  // A shoe is all its key.
+  const shoe = bindBodyTurnKeyform({ footwear: { plus: shifted(1, 0), minus: shifted(1, 0) } }, { group: 'body', role: 'footwear', side: null }, rest)!
+  assert.equal(shoe.cylinder, undefined)
+})

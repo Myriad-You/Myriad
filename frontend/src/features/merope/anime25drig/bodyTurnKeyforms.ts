@@ -49,14 +49,41 @@ export function bindBodyTurnKeyform(
 ): BoundTurnKeyform | null {
   const thigh = layer.role === 'legwear' && layer.side ? keyforms?.[`thigh:${layer.side}`] : undefined
   const shin = layer.role === 'legwear' && layer.side ? keyforms?.[`shin:${layer.side}`] : undefined
-  if (thigh && shin) return bentAtKnee(bindTurnKey(thigh, rest), bindTurnKey(shin, rest), rest, kneeY)
+  if (thigh && shin) return atHip(bentAtKnee(bindTurnKey(thigh, rest), bindTurnKey(shin, rest), rest, kneeY), rest)
   const family = bodyTurnKeyFamily(layer)
   // Each leg and shoe turns by its own key where one was measured, else with both.
   const key = family && (keyforms?.[family] ?? keyforms?.[family.split(':')[0]])
   if (!key) return null
   const bound = bindTurnKey(key, rest)
   const torso = family.startsWith('arm:') ? keyforms?.topwear : undefined
-  return torso ? sewnToTorso(bound, bindTurnKey(torso, rest), rest, family.slice(4)) : bound
+  if (torso) return sewnToTorso(bound, bindTurnKey(torso, rest), rest, family.slice(4))
+  return layer.role === 'legwear' ? atHip(bound, rest) : bound
+}
+
+/** A leg's key gives way to the torso's cylinder over this share of its height down from its top. */
+export const HIP_BLEND = 0.25
+
+/**
+ * A leg's top lies inside the skirt (or the trousers' seat), which turns on
+ * the torso's cylinder while the leg turns by its key, drawn where the turned
+ * pictures hide it: apart, the thigh's top slid out past the skirt's side.
+ * The leg's key, with the share per vertex of the cylinder's turn the leg
+ * takes in place of it (`cylinder`): all at its top, none from HIP_BLEND of
+ * its height down, as a sleeve takes the torso's key at its shoulder
+ * (sewnToTorso).
+ */
+function atHip(bound: BoundTurnKeyform, rest: Float32Array): BoundTurnKeyform {
+  let top = Infinity
+  let bottom = -Infinity
+  for (let i = 1; i < rest.length; i += 2) {
+    top = Math.min(top, rest[i])
+    bottom = Math.max(bottom, rest[i])
+  }
+  const span = Math.max(1, (bottom - top) * HIP_BLEND)
+  const weights = new Float32Array(rest.length / 2)
+  for (let v = 0; v < weights.length; v++) weights[v] = 1 - smooth((rest[v * 2 + 1] - top) / span)
+  bound.cylinder = weights
+  return bound
 }
 
 /** A thigh's key gives way to the shin's over this share of the leg's height, about the knee. */

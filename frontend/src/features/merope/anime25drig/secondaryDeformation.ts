@@ -42,6 +42,7 @@ import { applyPoseCorrections } from './poseCorrections'
 import { bodyLeanShare } from './poseScale'
 import { deformAnime25DShellPoint, shellTurnBlend } from './shellDeformation'
 import {
+  addTorsoShellShare,
   anime25DSleeveAnchorX,
   anime25DTorsoShellOffsetX,
   deformAnime25DTorsoShellPoint,
@@ -474,8 +475,9 @@ export function deformAnime25DSecondaryPoint(
   const torsoWeight = binding.torsoShellMode === 'collar' || binding.torsoShellMode === 'neck' ? collarBodyWeight : 1
   const frontDepth = binding.torsoShellMode ? figureFrontDepth(frame.torsoProfile, restY, frame.neckBottom, frame.chestRegionCenterY) : 1
   if (binding.bodyTurnKeyform) {
-    // Measured, not projected.
-    addBodyTurn(point, binding.bodyTurnKeyform, vertex, (frame.bodyTurn ?? 0) * torsoWeight)
+    // Measured, not projected; but a leg's top, inside the skirt, turns with it.
+    const cylinder = addTorsoShellShare(point, binding.bodyTurnKeyform.cylinder?.[vertex] ?? 0, frame, restY)
+    addBodyTurn(point, binding.bodyTurnKeyform, vertex, (frame.bodyTurn ?? 0) * torsoWeight * (1 - cylinder))
   } else if (binding.torsoShellMode === 'sleeve') {
     // A bust's sleeve is one rigid drawing hanging beside the cylinder, not a
     // patch of its surface; a figure's hangs at the side but lies on the body it covers.
