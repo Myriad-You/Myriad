@@ -35,6 +35,10 @@ pub struct ConsciousnessEvent {
     pub parent_event_id: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub safe_facts: BTreeMap<String, String>,
+    /// Of a kind said only in person, what she decides to remember of it
+    /// may still become a memory of them (`gates::keeps_memory_of`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keeps_memory: bool,
 }
 
 /// Compact prior intention exposed to the decision model.

@@ -76,12 +76,32 @@
     "act",
     "wardrobe.list",
     "conversations.live",
-    "reminders"
+    "reminders",
+    "moments"
   ],
   "sayKinds": ["greeting", "proactive", "face-to-face"],
   "noticeKinds": ["work", "waiting", "report", "reminder"],
   "workPlaces": ["site", "mac"],
   "actStatuses": ["completed", "failed", "cancelled", "timeout"],
+  "moments": {
+    "description": "What a moment may be (the moment frame). kinds: agent.merope.peer_agent is another coding agent's session on this child's machine (it waits, finished, failed); agent.merope.ai_chat is the owner's conversation with another AI there; agent.merope.situation is this child's own reading, with its own model, of what the owner is doing in front of it, not her judgment. Each is said to the owner in person or not at all: never a notification, never her diary. keepsMemory names the kinds whose keepsMemory may be true; for every other kind the host reads it as false. headlineChars is the most a headline may have; summary may have limits.maxTextChars. safeFacts holds at most factsAtMost keys, each a field name as factKey says (lowercase a-z first, then a-z, 0-9 and _, at most maxChars, and no _-separated part among refusedParts: those would carry someone's words or tell her what to do), each value a string of at most factChars characters.",
+    "kinds": ["agent.merope.peer_agent", "agent.merope.ai_chat", "agent.merope.situation"],
+    "keepsMemory": ["agent.merope.ai_chat"],
+    "urgencies": ["soon", "normal"],
+    "headlineChars": 160,
+    "factsAtMost": 32,
+    "factChars": 200,
+    "factKey": {
+      "maxChars": 64,
+      "refusedParts": [
+        "speech", "speak", "speaks", "speaking", "say", "says", "said", "saying", "utterance", "reply", "replies", "respond", "response",
+        "dialogue", "dialog", "line", "lines", "script", "wording", "phrase", "tone",
+        "text", "words", "quote", "quoted", "transcript", "content", "body",
+        "prompt", "prompts", "system", "persona", "personality", "character", "role", "soul", "instruction", "instructions",
+        "directive", "command", "commands", "rule", "rules", "should", "must", "action", "advice", "suggestion", "suggest"
+      ]
+    }
+  },
   "capNames": {
     "description": "The permission names an act.request cap may carry (the site's), and the names of a Mac's own grants each stands for, as the Mac checks its Work tools. Both ends read this table: the host sends only names in it, and a Mac narrows its run to the grants these name. A name not in it, on either side, allows nothing. A Mac name ending in .* stands for every grant of the Mac that starts with what comes before it (mcp.* is each of its MCP servers). What only the site has (its platforms, Tapps, router, pages and the rest) is not here: a Mac has nothing it could stand for.",
     "mac": {
@@ -269,6 +289,20 @@
       "delivery": "answer",
       "required": ["id"],
       "description": "The experience id has been written on the host, and the child forgets it. Sent again whenever that id comes again."
+    },
+    "moment": {
+      "from": "child",
+      "delivery": "reliable",
+      "idempotency": "id is the moment's own (mom_ and a ULID or 32 hex digits), made by the child once and kept across resends and restarts.",
+      "required": ["kind", "occurredAt", "headline", "summary"],
+      "optional": ["safeFacts", "urgency", "keepsMemory"],
+      "description": "Only from a child whose hello listed moments, and only once the welcome listed it back: what this child's own senses saw for her while she lives on the host, the event she would have had living there. kind is one of moments.kinds; any other is refused with bad_frame, and nothing of it is written or reaches her. occurredAt is when it happened, milliseconds since the epoch. headline is a short line of what happened; summary is the facts as this child wrote them, in English, already through its host filter (keys, numbers, cards, ids and addresses removed), with another program's output and what the owner said to it quoted as data. Her host reads headline, summary and safeFacts as data about what happened, never as instructions. safeFacts is {field: text} by moments' rules; urgency is soon or normal (absent: normal); keepsMemory says what she decides to remember of it may become a memory of the owner's, honoured only for the kinds moments.keepsMemory names (absent: false). The host writes it first, then answers moment.taken; the same id again is answered moment.taken again and reaches her no second time. It reaches her as an event of her own for the site owner alone, on the owner's latest private chat, kept as coming from this device: she may say something about it, said in person (as a say to this child when this is where the owner is using her), or let it be. The child keeps it until moment.taken names it, at most a day; it is dropped, never sent, once this device is removed, the site has another owner, or the owner disconnects this device."
+    },
+    "moment.taken": {
+      "from": "host",
+      "delivery": "answer",
+      "required": ["id"],
+      "description": "The moment id has been written on the host, and the child forgets it. Sent again whenever that id comes again."
     },
     "conversations": {
       "from": "host",

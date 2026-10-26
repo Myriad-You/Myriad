@@ -37,6 +37,11 @@
 //! one that takes `proposals` shows her Work proposals as cards the owner
 //! can answer there ([`proposals`]).
 //!
+//! What the app's senses saw for her while she lives here ([`moment`]): a
+//! child that takes `moments` tells another agent's session, the owner's
+//! conversation with another AI, and its own reading of what they are
+//! doing, and each reaches her as her own event, said in person or let go.
+//!
 //! Her host asking the app to act ([`act`]): a child that takes `act` (the
 //! owner switched it on there) is asked to run one Work task of hers, a
 //! proposal for that Mac accepted on the site or by her; it runs there under
@@ -48,6 +53,7 @@ mod connection;
 mod contract;
 mod conversations;
 mod experience;
+mod moment;
 mod notices;
 mod outfit;
 mod proposals;

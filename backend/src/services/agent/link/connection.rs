@@ -171,6 +171,7 @@ pub(super) async fn serve_with(
         said: HashSet::new(),
         senses: Default::default(),
         experience: false,
+        moments: false,
         proposals: None,
         acts: false,
         wardrobe: None,
@@ -235,6 +236,8 @@ struct Link {
     senses: super::senses::Senses,
     /// The child said it sends `experience` (and asks `work.recall`).
     experience: bool,
+    /// The child said it sends `moment`: what its senses saw for her.
+    moments: bool,
     /// Her open proposals as the child was last told them, once it said it
     /// takes `proposals`.
     proposals: Option<Vec<(String, &'static str, i64)>>,
@@ -418,6 +421,7 @@ impl Link {
             "outfit.wear" if self.worn.is_some() => self.wear(inbound).await,
             "work.recall" if self.experience => self.recall(inbound),
             "experience" if self.experience => self.experienced(inbound).await,
+            "moment" if self.moments => self.moment(inbound).await,
             "proposal.answer" if self.proposals.is_some() => self.answer_proposal(inbound).await,
             // Taken whatever this link said: a run's end may come after its
             // owner turned the switch off (the request must be this device's).
@@ -513,6 +517,10 @@ impl Link {
             self.experience = true;
             super::takes_experience(&self.device.id, self.registered, self.tx.clone());
         }
+        // What its senses see for her comes up.
+        self.moments = capabilities
+            .iter()
+            .any(|capability| capability == "moments");
         // Her lines for the app: what is still waiting goes again, after welcome.
         if capabilities.iter().any(|capability| capability == "say") {
             self.takes_say = true;
@@ -1061,6 +1069,45 @@ impl Link {
             id,
             experience,
         ));
+    }
+
+    /// `moment`: what the app saw for her, to reach her as her own event.
+    /// Taken once it is written; a resend of one already written is told so
+    /// again and reaches her no second time.
+    async fn moment(&mut self, inbound: Inbound) {
+        let seq = inbound.seq;
+        let Some(id) = inbound.id.filter(|id| valid_id(id)) else {
+            self.error("bad_id", Some(seq));
+            return;
+        };
+        let Ok(moment) = serde_json::from_value::<super::moment::Moment>(inbound.body) else {
+            self.error("bad_frame", Some(seq));
+            return;
+        };
+        if !moment.readable() {
+            self.error("bad_frame", Some(seq));
+            return;
+        }
+        if super::moment::was_taken(&self.db, &self.device.id, &id).await {
+            self.reply(super::moment::taken_frame(&id));
+            return;
+        }
+        if !super::moment::begin(&self.device.id, &id) {
+            return;
+        }
+        let written = super::moment::write(&self.db, self.owner, &self.device.id, &id).await;
+        super::moment::end(&self.device.id, &id);
+        match written {
+            Ok(()) => {
+                tracing::info!(device = %self.device.id, kind = %moment.kind, "[link] moment taken");
+                super::moment::hand_over(self.owner, &self.device.id, &id, moment);
+                self.reply(super::moment::taken_frame(&id));
+            }
+            // Not taken: the child keeps it and sends it again on its next link.
+            Err(error) => {
+                tracing::warn!(%error, device = %self.device.id, "[link] could not write a moment");
+            }
+        }
     }
 
     /// Her open proposals, sent when they changed since the child was told

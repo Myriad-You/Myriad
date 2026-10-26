@@ -861,6 +861,7 @@ fn event_context(case: &Case) -> (event::ConsciousnessEvent, event::SelfSnapshot
         occurred_at: now,
         parent_event_id: None,
         safe_facts: Default::default(),
+        keeps_memory: false,
     };
     let snapshot = event::SelfSnapshot {
         persona_name: default_name(),

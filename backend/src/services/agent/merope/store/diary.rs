@@ -140,6 +140,25 @@ pub(crate) async fn insert_remembered_if_new(
     candidate: &str,
     evidence: Option<&str>,
 ) -> Result<bool, anyhow::Error> {
+    insert_remembered_from(
+        db,
+        user_id,
+        candidate,
+        evidence,
+        crate::services::agent::memory::unified::ORIGIN_SITE,
+    )
+    .await
+}
+
+/// [`insert_remembered_if_new`], kept as coming from `origin`: the site, or
+/// the device that told her host.
+pub(crate) async fn insert_remembered_from(
+    db: &DatabaseConnection,
+    user_id: i32,
+    candidate: &str,
+    evidence: Option<&str>,
+    origin: &str,
+) -> Result<bool, anyhow::Error> {
     use crate::services::agent::memory::unified;
     let fact = super::super::ingest::compact_summary(candidate);
     if user_id <= 0 || fact.is_empty() {
@@ -153,7 +172,7 @@ pub(crate) async fn insert_remembered_if_new(
         transaction.commit().await?;
         return Ok(false);
     }
-    let inserted = unified::remember(
+    let inserted = unified::remember_from(
         &transaction,
         unified::NewMemory {
             user_id,
@@ -169,6 +188,7 @@ pub(crate) async fn insert_remembered_if_new(
             importance: 0.5,
             concepts: Vec::new(),
         },
+        origin,
     )
     .await?
     .is_some();
