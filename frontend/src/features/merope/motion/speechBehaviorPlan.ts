@@ -12,13 +12,14 @@ export function compileSpeechBehaviorPlan(
   const pegs: TimePeg[] = []
   const behaviors: ScheduledBehavior[] = []
   const presence = `${planId}:presence`
-  // Presence belongs to the speech lifecycle, not a provisional duration.
+  // Presence belongs to the speech lifecycle, not a provisional duration. It
+  // settles in over the first words: arriving in 80 ms read as a jolt.
   pegs.push(
     peg(`${presence}:start`, plan.startedAtMs),
-    peg(`${presence}:ready`, plan.startedAtMs + 35),
-    peg(`${presence}:stroke-start`, plan.startedAtMs + 55),
-    peg(`${presence}:stroke-peak`, plan.startedAtMs + 80),
-    peg(`${presence}:stroke-end`, plan.startedAtMs + 110),
+    peg(`${presence}:ready`, plan.startedAtMs + 120),
+    peg(`${presence}:stroke-start`, plan.startedAtMs + 190),
+    peg(`${presence}:stroke-peak`, plan.startedAtMs + 280),
+    peg(`${presence}:stroke-end`, plan.startedAtMs + 320),
   )
   behaviors.push({
     id: presence,
@@ -57,21 +58,23 @@ export function compileSpeechBehaviorPlan(
     const strokePeakAt = plan.startedAtMs + accent.offsetMs
     const holdMs =
       accent.gesture === 'laugh'
-        ? 580
+        ? 750
         : accent.gesture === 'question'
-          ? 260
+          ? 340
           : accent.gesture === 'contrast'
-            ? 180
-            : 58
-    const releaseMs = accent.gesture ? 360 : 128
+            ? 235
+            : 75
+    const releaseMs = accent.gesture ? 470 : 165
+    // The peak stays on its word; the rise starts earlier instead, so the
+    // stroke is a movement rather than a 44 ms flick.
     pegs.push(
-      peg(`${prefix}:start`, strokePeakAt - 140),
-      peg(`${prefix}:ready`, strokePeakAt - 82),
-      peg(`${prefix}:stroke-start`, strokePeakAt - 44),
+      peg(`${prefix}:start`, strokePeakAt - 280),
+      peg(`${prefix}:ready`, strokePeakAt - 165),
+      peg(`${prefix}:stroke-start`, strokePeakAt - 90),
       peg(`${prefix}:stroke-peak`, strokePeakAt),
       peg(`${prefix}:stroke-end`, strokePeakAt + holdMs),
-      peg(`${prefix}:relax`, strokePeakAt + holdMs + 84),
-      peg(`${prefix}:end`, strokePeakAt + holdMs + 84 + releaseMs),
+      peg(`${prefix}:relax`, strokePeakAt + holdMs + 110),
+      peg(`${prefix}:end`, strokePeakAt + holdMs + 110 + releaseMs),
     )
     behaviors.push({
       id: prefix,

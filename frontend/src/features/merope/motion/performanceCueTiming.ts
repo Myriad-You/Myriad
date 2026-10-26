@@ -1,6 +1,5 @@
 import type { PerformanceCue } from '../../../services/agent/types'
 import { performanceCuePriority } from '../events/performanceContract'
-import { cueIsSticker } from './performanceCues'
 
 /** When each cue plays: its envelope, its duration, and which body cue holds when. */
 export interface ScheduledBodyCue {
@@ -13,8 +12,12 @@ function cuePriority(cue: PerformanceCue): number {
   return performanceCuePriority(cue.intent)
 }
 
-const MIN_STICKER_FADE_IN = 0.18
 export const MIN_STICKER_FADE_OUT = 0.42
+// A head reaching a pose in about a tenth of a second reads as a jolt, not
+// acting; directors routinely ask for 100-135 ms. These floors are the rise
+// and settle a seen excursion needs to look carried by a body.
+const MIN_BODY_FADE_IN = 0.28
+const MIN_BODY_FADE_OUT = 0.56
 
 export function cueVisualEnvelope(cue: PerformanceCue): {
   fadeIn: number
@@ -32,26 +35,17 @@ export function authoredCueEnvelope(cue: PerformanceCue): {
   hold: number
   fadeOut: number
 } {
-  const sticker = cueIsSticker(cue.intent)
   const coordinated =
     cue.intent === 'greet' ||
     cue.intent === 'delight' ||
     cue.intent === 'emphasize'
   const strength = clamp((cue.intensity - 0.5) / 0.9, 0, 1)
   // Start immediately, but do not squeeze a larger body excursion into a snap.
-  const bodyTravel = coordinated ? Math.sqrt(1 + 0.5 * strength) : 0
+  const bodyTravel = coordinated ? Math.sqrt(1 + 0.5 * strength) : 1
   return {
-    fadeIn: Math.max(
-      cue.fadeInMs / 1_000,
-      sticker ? MIN_STICKER_FADE_IN : 0,
-      bodyTravel * 0.3,
-    ),
+    fadeIn: Math.max(cue.fadeInMs / 1_000, MIN_BODY_FADE_IN * bodyTravel),
     hold: Math.max(0.24, 0.72 / clamp(cue.tempo, 0.5, 1.6)),
-    fadeOut: Math.max(
-      cue.fadeOutMs / 1_000,
-      sticker ? MIN_STICKER_FADE_OUT : 0,
-      bodyTravel * 0.4,
-    ),
+    fadeOut: Math.max(cue.fadeOutMs / 1_000, MIN_BODY_FADE_OUT * bodyTravel),
   }
 }
 

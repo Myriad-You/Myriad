@@ -75,6 +75,7 @@ import {
 } from './playerPackage'
 
 import { bindPoseCorrections, isPoseCorrections } from './poseCorrections'
+import { Anime25DPoseInertia } from './poseInertia'
 
 import {
   createAnime25DRendererBindings,
@@ -146,6 +147,7 @@ export class Anime25DPlayer {
   )
 
   private readonly thinkingExpression = new ThinkingExpressionOwnership()
+  private readonly poseInertia = new Anime25DPoseInertia()
   private musicSignal: MusicMotionSignal | null = null
   private presentedTouch: PresentedTouchReaction | null = null
 
@@ -569,6 +571,7 @@ export class Anime25DPlayer {
     input.motionEnvelopeProfile = this.motionEnvelopeProfile
     this.motion.step(dt, input)
     this.body.stepPosture(dt, this.time)
+    this.poseInertia.step(this.current, dt)
   }
 
   /**

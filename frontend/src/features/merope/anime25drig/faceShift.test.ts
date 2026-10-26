@@ -94,7 +94,7 @@ test('a change may pass through looks on the way, bending through them without s
     // Two looks in turn, and a newer change on the way is the one that holds.
     pose.set(look('content'), 4, 'content', 'ease', ['plain', 'surprised'])
     pose.set(look('shy'), 4.1, 'shy', 'ease')
-    const after = play(pose, 4.1, 6.5)
+    const after = play(pose, 4.1, 7.2)
     assert.ok(after.at(-1)!.eyeX > 0.3, 'shy, not content, at the end')
   } finally {
     Math.random = random

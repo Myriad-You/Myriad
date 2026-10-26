@@ -35,9 +35,6 @@ function activityOf(status: string): ActivityKey {
   return 'idle'
 }
 
-const TAG_FIELDS = ['temperament', 'likes', 'drives'] as const
-const LINE_FIELDS = ['socialStyle', 'speechStyle'] as const
-
 /**
  * 弹窗在前台时把舞台借给打开它的那张卡，卡片把她（同一个播放器）挪过来；
  * 一收回就同步还回去，赶在宿主复制卡片画面之前，落地时卡片上已经是她。
@@ -60,6 +57,47 @@ function useFigureStage(ownerId: string) {
     }
   }, [ownerId])
   return stageRef
+}
+
+const SENTENCE = /[^。！？!?]+[。！？!?]*/g
+
+/**
+ * 简介只有两行：能放下几句整句就放几句，不在半句上截断。
+ * 用一个看不见的同款段落量，第一句都放不下才交给 line-clamp 的省略号。
+ */
+function useFittedSummary(summary: string) {
+  const ref = useRef<HTMLParagraphElement>(null)
+  const [count, setCount] = useState<number | null>(null)
+  const sentences = summary.match(SENTENCE) ?? []
+
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (!element || !summary) return undefined
+    const parts = summary.match(SENTENCE) ?? []
+    const fit = () => {
+      const probe = element.cloneNode(false) as HTMLParagraphElement
+      probe.removeAttribute('title')
+      probe.style.cssText = `position:absolute;visibility:hidden;pointer-events:none;width:${element.clientWidth}px`
+      element.parentElement?.append(probe)
+      let next = 1
+      for (let n = parts.length; n > 1; n -= 1) {
+        probe.textContent = parts.slice(0, n).join('')
+        if (probe.scrollHeight <= probe.clientHeight + 1) {
+          next = n
+          break
+        }
+      }
+      probe.remove()
+      setCount(next)
+    }
+    fit()
+    const observer = new ResizeObserver(fit)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [summary])
+
+  const text = count === null ? summary : sentences.slice(0, count).join('')
+  return { ref, text }
 }
 
 /**
@@ -103,16 +141,8 @@ function MeropePersonaPopupBody({ config, active }: WidgetPopupProps) {
   const activity = activityOf(useAgentStatusKind())
   const band = vitalsReady ? moodBand(mood, arousal) : null
 
-  const labels = {
-    temperament: o.fieldTemperament,
-    likes: o.fieldLikes,
-    drives: o.fieldDrives,
-    socialStyle: o.fieldSocial,
-    speechStyle: o.fieldVoice,
-  }
-  const tags = profile ? TAG_FIELDS.filter((key) => profile[key].length > 0) : []
-  const lines = profile ? LINE_FIELDS.filter((key) => profile[key].trim()) : []
   const summary = profile?.summary.trim() ?? ''
+  const fitted = useFittedSummary(summary)
 
   return (
     <div
@@ -155,31 +185,11 @@ function MeropePersonaPopupBody({ config, active }: WidgetPopupProps) {
           )}
         </header>
 
-        {summary ? <p className="merope-profile__summary">{summary}</p> : null}
-
-        {profile && (tags.length || lines.length) ? (
-          <dl className="merope-profile__facts">
-            {tags.map((key) => (
-              <div key={key} className="merope-profile__fact">
-                <dt>{labels[key]}</dt>
-                <dd>
-                  <ul className="merope-profile__tags">
-                    {profile[key].map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                </dd>
-              </div>
-            ))}
-            {lines.map((key) => (
-              <div key={key} className="merope-profile__fact">
-                <dt>{labels[key]}</dt>
-                <dd>{profile[key].trim()}</dd>
-              </div>
-            ))}
-          </dl>
+        {summary ? (
+          <p ref={fitted.ref} className="merope-profile__summary" title={summary}>
+            {fitted.text}
+          </p>
         ) : null}
-
       </div>
     </div>
   )

@@ -186,7 +186,7 @@ test('acting names only the cue that is currently playing', () => {
   assert.equal(duringFace.acting.function, 'prepareSpeech')
   assert.equal(duringFace.acting.lifecycle, 'preparing')
   assert.ok(duringFace.acting.remainingMs > 0)
-  const between = captureRigStateSummary(runtime, started + 1_200)
+  const between = captureRigStateSummary(runtime, started + 1_800)
   assert.equal(between.acting.intent, null)
   assert.ok(between.acting.remainingMs > 0)
   const duringBody = captureRigStateSummary(runtime, started + 2_040)

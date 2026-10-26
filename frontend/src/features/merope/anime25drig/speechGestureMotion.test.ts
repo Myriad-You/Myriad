@@ -189,7 +189,7 @@ test('a late director correction preserves the drawn body pose and original stro
   const first = runtime.frame([plan], 0)
   motion.replace(realizeAnime25DBehaviorPlan(first.plan!, 0).units, 0, 0)
   const peak = prosody.accents[0]!.offsetMs
-  const arrival = peak - 90
+  const arrival = peak - 220
   const sample = (atMs: number) => {
     const frame = motion.sample(atMs / 1_000)
     const pose = expression.sample(

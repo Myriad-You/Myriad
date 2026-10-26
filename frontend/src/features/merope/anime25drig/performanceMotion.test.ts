@@ -184,7 +184,7 @@ test('maps cue forms to bounded deterministic poses and durations', () => {
       fadeOutMs: 220,
       interrupt: 'replace',
     }),
-    1_577,
+    1_749,
   )
 
   // Face-only forms write no body channel at all.
@@ -234,9 +234,13 @@ test('larger coordinated cues get travel time without delaying their scheduled s
     scheduleBodyCues([{ ...base, intensity: 1.4 }], 1000)[0].startMs,
     1000,
   )
+  // Asked-for snaps still take the time a body needs.
   const listen = authoredCueEnvelope({ ...base, intent: 'listen' })
-  assert.equal(listen.fadeIn, 0.12)
-  assert.equal(listen.fadeOut, 0.2)
+  assert.equal(listen.fadeIn, 0.28)
+  assert.equal(listen.fadeOut, 0.56)
+  const unhurried = authoredCueEnvelope({ ...base, intent: 'listen', fadeInMs: 400, fadeOutMs: 700 })
+  assert.equal(unhurried.fadeIn, 0.4)
+  assert.equal(unhurried.fadeOut, 0.7)
 })
 
 test('a cue form never switches secondary physics off', () => {

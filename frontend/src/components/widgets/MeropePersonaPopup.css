@@ -1,6 +1,6 @@
 /*
- * 人设弹窗：竖向名片。上面是会动的她，下面是名字、状态和人设，整张一起滚。
- * 人设写得少（还没写）时她长满剩下的高度。
+ * 人设弹窗：竖向名片。会动的她铺满整张，名字、状态和两行简介压在她渐隐的下半截。
+ * 她的大小和位置只跟名片走，有没有简介、简介读没读到都不动。
  */
 .merope-profile {
   --merope-profile-accent: var(--cfg-accent, #6366f1);
@@ -8,12 +8,12 @@
   --merope-profile-pad: 1.25rem;
 
   /*
-   * 舞台跨第一、二行，名字那一块在第二行压住她渐隐的下半截，名片底下不另留空带；
-   * 人设正文从第三行往下排，多了整张一起滚。第一行吃掉剩下的高度。
+   * 舞台跨满三行，名字那一块在第二行、简介在第三行，都叠在她身上；
+   * 文字多少只改变它们往上压多少，不挤她。第一行吃掉剩下的高度。
    */
   display: grid;
   flex: 1;
-  grid-template-rows: minmax(15rem, 1fr) auto;
+  grid-template-rows: minmax(15rem, 1fr) auto auto;
   grid-template-columns: minmax(0, 1fr);
   row-gap: 0.875rem;
   min-height: 0;
@@ -24,7 +24,7 @@
 
 .merope-profile__stage {
   position: relative;
-  grid-row: 1 / 3;
+  grid-row: 1 / -1;
   grid-column: 1;
   min-height: 22rem;
   overflow: hidden;
@@ -38,20 +38,25 @@
   /*
    * 半身像在腰线截断，下缘要化进名片。线性渐变淡到 0 的那一点会折出一条线，
    * 暗色底下看得见；按缓出曲线多取几个点，尾巴慢慢贴近透明，看不出在哪里结束。
+   * 按离底边的距离算：名字压在渐隐那一段，到简介那两行时她已经淡没了，
+   * 简介落在干净的底色上，字的光晕不会在她衣服上糊出一块暗斑。
    */
+  --merope-profile-fade-end: 4.25rem;
+  --merope-profile-fade: 6rem;
+
   mask-image: linear-gradient(
     to bottom,
-    #000 66%,
-    rgb(0 0 0 / 82%) 74%,
-    rgb(0 0 0 / 58%) 81%,
-    rgb(0 0 0 / 34%) 88%,
-    rgb(0 0 0 / 15%) 94%,
-    rgb(0 0 0 / 4%) 98%,
-    transparent 100%
+    #000 calc(100% - var(--merope-profile-fade-end) - var(--merope-profile-fade)),
+    rgb(0 0 0 / 82%) calc(100% - var(--merope-profile-fade-end) - var(--merope-profile-fade) * 0.765),
+    rgb(0 0 0 / 58%) calc(100% - var(--merope-profile-fade-end) - var(--merope-profile-fade) * 0.56),
+    rgb(0 0 0 / 34%) calc(100% - var(--merope-profile-fade-end) - var(--merope-profile-fade) * 0.353),
+    rgb(0 0 0 / 15%) calc(100% - var(--merope-profile-fade-end) - var(--merope-profile-fade) * 0.176),
+    rgb(0 0 0 / 4%) calc(100% - var(--merope-profile-fade-end) - var(--merope-profile-fade) * 0.059),
+    transparent calc(100% - var(--merope-profile-fade-end))
   );
 }
 
-/* 子项直接排进上面的网格：头部进第二行，正文各占一行。 */
+/* 子项直接排进上面的网格：头部进第二行，简介进第三行，都压在舞台上。 */
 .merope-profile__info {
   display: contents;
   text-shadow:
@@ -167,59 +172,20 @@ html.dark .merope-profile__info {
 }
 
 .merope-profile__summary {
-  margin: 0;
-  color: color-mix(in srgb, currentcolor 82%, transparent);
-  font-size: 0.875rem;
-  line-height: 1.75;
-  text-wrap: pretty;
-}
-
-/* 名片背面那一栏：左边小标签，右边内容，一行一项。 */
-.merope-profile__facts {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  margin: 0;
-  padding-top: 1rem;
-  border-top: 1px solid color-mix(in srgb, currentcolor 8%, transparent);
-}
-
-.merope-profile__fact {
-  display: grid;
-  grid-template-columns: 3.75rem minmax(0, 1fr);
-  gap: 0.625rem;
-  align-items: baseline;
-}
-
-.merope-profile__fact dt {
-  color: color-mix(in srgb, currentcolor 48%, transparent);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  line-height: 1.6;
-  letter-spacing: 0.04em;
-}
-
-.merope-profile__fact dd {
-  margin: 0;
+  /* 只给一个印象：两行为止，跟名字一样居中。上下边距单写，左右留白来自上面的统一规则。 */
+  position: relative;
+  grid-row: 3;
+  display: -webkit-box;
+  margin-block: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  color: color-mix(in srgb, currentcolor 68%, transparent);
+  text-align: center;
   font-size: 0.8125rem;
-  line-height: 1.65;
-}
-
-.merope-profile__tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3125rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.merope-profile__tags li {
-  padding: 0.0625rem 0.5rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--merope-profile-accent) 10%, transparent);
-  font-size: 0.75rem;
-  line-height: 1.6;
+  line-height: 1.7;
+  text-wrap: pretty;
 }
 
 .merope-profile__hint {
@@ -240,10 +206,6 @@ html.dark .merope-profile__info {
 
 .merope-profile[data-active] .merope-profile__info > :nth-child(2) {
   animation-delay: 70ms;
-}
-
-.merope-profile[data-active] .merope-profile__info > :nth-child(3) {
-  animation-delay: 140ms;
 }
 
 .merope-profile:not([data-active]) .merope-profile__dot {

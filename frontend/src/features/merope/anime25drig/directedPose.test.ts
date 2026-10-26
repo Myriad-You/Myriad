@@ -454,13 +454,13 @@ test('a move goes and comes back over what is held; a new score drops what the o
     { id: '1:0', atMs: 0, move: { kind: 'nod', amount: 1, count: 1, tempo: 1 } },
     { id: '1:1', atMs: 2000, move: { kind: 'shake', amount: 1, count: 1, tempo: 1 } },
   ] }, 0, 0)
-  const nod = sampleAt(value, 0, 0.6)
+  const nod = sampleAt(value, 0, 0.8)
   assert.ok(Math.min(...nod.map((sample) => sample.target.angleY)) < -0.4, 'the head dips')
   assert.ok(Math.abs(nod.at(-1)!.target.angleY) < 0.02, 'and comes back')
   assert.ok(value.weight('headNod') === 0, 'a finished move no longer drives anything')
   // A new score before 2 s replaces the shake that had not started.
   value.setScore({ id: 2, beats: [{ id: '2:0', atMs: 2500, move: { kind: 'nod', amount: 1, count: 1, tempo: 1 } }] }, 1, 1000)
-  const later = sampleAt(value, 1, 3.2)
+  const later = sampleAt(value, 1, 3.4)
   assert.ok(later.every((sample) => Math.abs(sample.target.angleX) < 1e-6), 'the old shake never plays')
   assert.ok(Math.min(...later.map((sample) => sample.target.angleY)) < -0.4, 'the new nod does')
 })
@@ -468,7 +468,7 @@ test('a move goes and comes back over what is held; a new score drops what the o
 test('a hand beat drives its arm through the directed arm weight, then lets go', () => {
   const value = controller()
   value.setScore({ id: 1, beats: [{ id: '1:0', atMs: 0, move: { kind: 'beat', side: 'left', amount: 1, count: 1, tempo: 1 } }] }, 0, 0)
-  const samples = sampleAt(value, 0, 0.5)
+  const samples = sampleAt(value, 0, 0.7)
   const peak = samples.reduce((best, sample) => (sample.target.armRaiseL > best.target.armRaiseL ? sample : best))
   assert.ok(peak.target.armRaiseL > 0.3 && peak.target.armRaiseR === 0)
   assert.equal(value.weight('leftArmRaise'), 0)
