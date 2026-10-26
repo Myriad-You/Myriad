@@ -327,6 +327,11 @@ pub(super) async fn take_in(
             intent.expires_at = conscious_event.occurred_at + chrono::Duration::seconds(20);
             intent.observation = Some(summary.clone());
         }
+        // What a child end saw quotes others' words: her line is made
+        // knowing whose they were, not from her gist alone.
+        if told.is_some() {
+            intent.happened = Some(summary.clone());
+        }
         if thought {
             // What a child end saw: from when it came, not by that end's clock.
             let from = if told.is_some() {

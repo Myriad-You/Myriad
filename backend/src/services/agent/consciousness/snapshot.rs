@@ -3,7 +3,28 @@ use sea_orm::DatabaseConnection;
 
 use crate::services::agent::{AgentInteractionMode, get_user_permissions, merope, run_hub};
 
-use super::{IntentStore, SelfSnapshot};
+use super::{IntentStore, SaidUnasked, SelfSnapshot};
+
+/// Her lines said unasked that a decision sees: as many as her line itself
+/// is shown (`redeem::compose_line`).
+pub(crate) const SAID_LATELY: i64 = 6;
+
+/// What she said to them lately unasked, newest first, as she is shown it
+/// before deciding to say anything again (and before saying it).
+pub(crate) async fn said_unasked_lately(db: &DatabaseConnection, user_id: i32) -> Vec<SaidUnasked> {
+    let now = crate::clock::now();
+    merope::store::said_lately(db, user_id, SAID_LATELY)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(at, line, they_wrote_since)| SaidUnasked {
+            minutes_ago: (now - at).num_minutes().max(0),
+            line: myriad_merope::diary::compact_summary(&line),
+            they_wrote_since,
+        })
+        .filter(|said| !said.line.is_empty())
+        .collect()
+}
 
 /// Capture trusted state immediately before an autonomy decision.
 ///
@@ -59,6 +80,7 @@ pub async fn capture_self_snapshot(
                 .round()
                 / 10.0
         }),
+        said_unasked_lately: said_unasked_lately(db, user_id).await,
         addressee_name: Some(merope::resolve_addressee_label(db, user_id).await)
             .filter(|name| !name.trim().is_empty()),
         inner: merope::inner::current(

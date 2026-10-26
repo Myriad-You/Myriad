@@ -115,6 +115,7 @@ mod tests {
             myself: None,
             addressee_name: None,
             minutes_since_you_spoke_unasked: None,
+            said_unasked_lately: vec![],
             inner: None,
             macs_for_work: vec![],
         }

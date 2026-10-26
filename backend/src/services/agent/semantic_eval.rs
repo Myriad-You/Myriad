@@ -257,6 +257,20 @@ struct Case {
     /// The conversation is a group chat's (`bits`, `chime`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     in_group: bool,
+    /// What she said to them lately without being asked, newest first
+    /// (`event`, `speak`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    said_lately: Vec<SaidLately>,
+}
+
+/// A line she said to them unasked, as a case gives it.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SaidLately {
+    minutes_ago: i64,
+    line: String,
+    #[serde(default)]
+    they_wrote_since: bool,
 }
 
 /// A talk with someone else since she got up, as a case gives it: how many
@@ -774,6 +788,10 @@ fn cases() -> Vec<Case> {
         serde_json::from_str::<Vec<Case>>(include_str!("../../../../tests/merope/mind-cases.json"))
             .unwrap(),
     );
+    cases.extend(
+        serde_json::from_str::<Vec<Case>>(include_str!("../../../../tests/merope/told-cases.json"))
+            .unwrap(),
+    );
     // Cases kept out of the repository, such as ones that carry a real
     // persona: a JSON array at this path, run like any other.
     if let Ok(path) = std::env::var("MEROPE_SEMANTIC_EXTRA_CASES") {
@@ -789,6 +807,7 @@ fn cases() -> Vec<Case> {
             "chat"
                 | "memory"
                 | "event"
+                | "speak"
                 | "motion"
                 | "touch"
                 | "wonder"
@@ -895,6 +914,15 @@ fn event_context(case: &Case) -> (event::ConsciousnessEvent, event::SelfSnapshot
         myself: None,
         addressee_name: None,
         minutes_since_you_spoke_unasked: None,
+        said_unasked_lately: case
+            .said_lately
+            .iter()
+            .map(|said| event::SaidUnasked {
+                minutes_ago: said.minutes_ago,
+                line: said.line.clone(),
+                they_wrote_since: said.they_wrote_since,
+            })
+            .collect(),
         inner: None,
         macs_for_work: vec![],
     };
@@ -1323,6 +1351,32 @@ fn request(case: &Case) -> Value {
             );
             json!({"system":system,"schema":schema,"schemaName":"agent_consciousness_decision","input":json!({"event":event,"self":snapshot}).to_string()})
         }
+        // The line made from a decision's gist (`reply`) about what a child
+        // end told (`input`), as `redeem::compose_line` asks for it; without
+        // the speaking sections a chat turn wears (memory, mood, how she is).
+        "speak" => {
+            use myriad_merope::speaking::{
+                compose_proactive_system, compose_proactive_user, said_lately_line,
+            };
+            let soul = case.soul.clone().unwrap_or_else(default_soul);
+            let recent = if case.said_lately.is_empty() {
+                "(no prior lines to this person)".to_string()
+            } else {
+                case.said_lately
+                    .iter()
+                    .map(|said| {
+                        said_lately_line(said.minutes_ago, said.they_wrote_since, &said.line)
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            json!({"system":compose_proactive_system(&soul, "", &recent),
+                "schema":null,"schemaName":null,
+                // Production gives her what happened only for what a child told.
+                "input":compose_proactive_user(&case.reply, super::merope::gates::TOLD_EVENTS
+                    .contains(&case.event_kind.as_str())
+                    .then_some(case.input.as_str()))})
+        }
         _ => unreachable!(),
     }
 }
@@ -1470,7 +1524,7 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
                 "contract_failure"
             }
         }
-        "chat" => "needs_review",
+        "chat" | "speak" => "needs_review",
         "wonder" => match super::merope::curiosity::parse_wonder(output) {
             None => "output_invalid",
             Some(query) if query.is_some() != case.fact_present => "behavior_failure",
@@ -2149,6 +2203,9 @@ async fn run_semantic_suite() {
                         2
                     } else if case.kind == "motion" {
                         10
+                    } else if case.kind == "speak" {
+                        // As production gives her line (`compose_line`).
+                        30
                     } else {
                         5
                     },
@@ -2257,6 +2314,19 @@ async fn run_semantic_suite() {
                     case.rubric
                 );
                 pending.push_back(motion);
+            }
+        }
+        // Any other decision to speak: the line made from its gist, as
+        // production makes it, so where who-said-what got lost can be seen.
+        if case.kind == "event" && case.event_kind != "agent.merope.touch" && base == "needs_review"
+        {
+            let decision: event::ConsciousnessDecision = serde_json::from_str(&output).unwrap();
+            if let Some(gist) = decision.speech.or(decision.question) {
+                let mut line = case.clone();
+                line.id = format!("{}-line", case.id);
+                line.kind = "speak".into();
+                line.reply = gist;
+                pending.push_back(line);
             }
         }
         let grade = reviewed_grade(base, &output, review.as_ref());
@@ -2706,7 +2776,7 @@ fn cases_use_production_contracts_and_replay_hashes_include_rubrics() {
     let cases = cases();
     assert_eq!(
         cases.iter().filter(|c| c.kind != "touch").count(),
-        62 + MIND_CASES
+        73 + MIND_CASES
     );
     for mut case in cases {
         let request = request(&case);

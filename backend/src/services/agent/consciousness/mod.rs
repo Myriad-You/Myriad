@@ -50,12 +50,13 @@ pub use presence::{
     remember_native_presence, remember_turn_presence,
 };
 pub use snapshot::capture_self_snapshot;
+pub(crate) use snapshot::said_unasked_lately;
 pub use speak_intent::{SpeakIntent, drain_speak_intents, enqueue_speak_intent, new_speak_intent};
 pub use store::IntentStore;
 pub use types::{
     AcceptSource, ConsciousnessAction, ConsciousnessDecision, ConsciousnessEvent, EventUrgency,
-    IntentRecord, IntentStatus, LiveSurface, RecentIntent, SelfFacts, SelfLivePresence,
-    SelfSnapshot, WorkPlace, WorkProposal,
+    IntentRecord, IntentStatus, LiveSurface, RecentIntent, SaidUnasked, SelfFacts,
+    SelfLivePresence, SelfSnapshot, WorkPlace, WorkProposal,
 };
 
 #[cfg(test)]

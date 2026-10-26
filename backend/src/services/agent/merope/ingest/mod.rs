@@ -91,6 +91,28 @@ pub(crate) async fn current_sight(
     }
 }
 
+/// What she said to them lately unasked, newest first, as her line is shown
+/// it: when, whether they wrote back since, her words.
+pub(crate) async fn said_lately_block(db: &DatabaseConnection, user_id: i32) -> String {
+    let lines: Vec<String> =
+        crate::services::agent::consciousness::said_unasked_lately(db, user_id)
+            .await
+            .into_iter()
+            .map(|said| {
+                super::speaking_prompts::said_lately_line(
+                    said.minutes_ago,
+                    said.they_wrote_since,
+                    &said.line,
+                )
+            })
+            .collect();
+    if lines.is_empty() {
+        "(no prior lines to this person)".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
 pub(crate) fn log_skip(user_id: i32, event_key: &str, reason: &'static str) {
     tracing::info!(user_id, event_key, reason, "[Merope] ingest skipped");
 }

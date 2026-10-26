@@ -21,6 +21,10 @@ pub struct SpeakIntent {
     pub gist: String,
     /// Short-lived evidence behind the sentence, for its accompanying director.
     pub observation: Option<String>,
+    /// What happened, as the event was told (whose words are whose), when
+    /// her line is to keep that: her sentence is made from it and the gist.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub happened: Option<String>,
     pub priority: EventUrgency,
     pub created_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
@@ -85,6 +89,7 @@ pub fn new_speak_intent(
         topic,
         gist,
         observation: None,
+        happened: None,
         priority,
         created_at: now,
         expires_at: now + Duration::seconds(ttl),
@@ -140,6 +145,7 @@ mod tests {
             topic: "agent.merope.platform_activity".into(),
             gist: "想说一声刚才的事".into(),
             observation: None,
+            happened: None,
             priority: EventUrgency::Normal,
             created_at: now,
             expires_at: now + Duration::seconds(expires_in_secs),

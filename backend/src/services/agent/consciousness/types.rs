@@ -140,6 +140,10 @@ pub struct SelfSnapshot {
     /// Minutes since she last spoke up to them unasked, if she has.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub minutes_since_you_spoke_unasked: Option<f64>,
+    /// What she said to them lately unasked, newest first: what they have
+    /// already heard from her, and whether they wrote back.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub said_unasked_lately: Vec<SaidUnasked>,
     /// How she was after her last exchange with them, if a moment ago.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inner: Option<String>,
@@ -147,6 +151,16 @@ pub struct SelfSnapshot {
     /// proposal may name `mac` to run there.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub macs_for_work: Vec<String>,
+}
+
+/// A line she said to them unasked.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SaidUnasked {
+    pub minutes_ago: i64,
+    /// Her words, as she said them.
+    pub line: String,
+    /// They have written to her in private since.
+    pub they_wrote_since: bool,
 }
 
 /// The persona's own day, as plain facts.
