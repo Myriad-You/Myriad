@@ -907,16 +907,29 @@ interface HtmlBlock {
 const BLOCK_TAG = /<(\/?)(h[1-6]|p|pre|blockquote|ul|ol|table|hr|li|div)\b([^>]*)>/gi
 
 /** 把顶层块切出来。同名块可以嵌套（列表里的列表），靠深度计数，不靠非贪婪。 */
+/**
+ * 顶层块切分。不传 `only` 时，块外的行内内容（Chrome 在空的 contenteditable 里
+ * 第一行就是根下裸文本，回车后第二行才进 `<div>`）当作一段，不能丢。
+ */
 function splitBlocks(html: string, only?: string): HtmlBlock[] {
   const blocks: HtmlBlock[] = []
   let depth = 0
   let open: { tag: string; attrs: string; bodyStart: number } | null = null
+  let looseStart = 0
+  const pushLoose = (end: number) => {
+    // 紧挨着下一个块的 `<br>` 只是行尾，不是空行。
+    const body = html.slice(looseStart, end).replace(/(?:\s*<br\s*\/?>)+\s*$/i, '').trim()
+    if (!only && body) {
+      blocks.push({ tag: 'p', attrs: '', body })
+    }
+  }
   for (const match of html.matchAll(BLOCK_TAG)) {
     const closing = match[1] === '/'
     const tag = match[2]!.toLowerCase()
     if (only && tag !== only && depth === 0) continue
     if (!closing) {
       if (depth === 0) {
+        pushLoose(match.index)
         open = {
           tag,
           attrs: match[3] ?? '',
@@ -935,7 +948,10 @@ function splitBlocks(html: string, only?: string): HtmlBlock[] {
       })
       open = null
     }
+    if (depth === 0) looseStart = match.index + match[0].length
   }
+  // 整段都是行内内容时交给调用方按行内处理。
+  if (blocks.length) pushLoose(html.length)
   return blocks
 }
 

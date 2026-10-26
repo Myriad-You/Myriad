@@ -751,3 +751,31 @@ it('+ 列表和软换行原样往返，不被压成一行', async () => {
   serialize.dispose()
   dom.window.close()
 })
+
+it('空正文第一行是根下裸文本，回车后浏览器给第二行建块，两段都要写回', async () => {
+  const { createVisualMarkdownSerializer } = await import('./noteVisual')
+  const { createRequire } = await import('node:module')
+  const require = createRequire(import.meta.url)
+  const { JSDOM } = require(require.resolve('jsdom', { paths: [require.resolve('isomorphic-dompurify')] }))
+  const dom = new JSDOM('<main></main>')
+  const root = dom.window.document.querySelector('main')
+  const serialize = createVisualMarkdownSerializer()
+  // 前四条是 Chrome 真实按键后的 innerHTML：英文直敲、中文输入法组字、连按两次回车、
+  // 回到第一行行尾再回车。
+  for (const [html, md] of [
+    ['First AAA<div>Second BBB</div>', 'First AAA\n\nSecond BBB'],
+    ['第一段<div>第二段</div>', '第一段\n\n第二段'],
+    ['A<div><br></div><div>B</div>', 'A\n\nB'],
+    ['A<div>M<br><div>B</div></div>', 'A\n\nM\n\nB'],
+    ['First <strong>AAA</strong><div>Second BBB</div><div>Third</div>', 'First **AAA**\n\nSecond BBB\n\nThird'],
+    ['<p>甲</p>尾巴', '甲\n\n尾巴'],
+    ['<p>甲</p>\n<p>乙</p>', '甲\n\n乙'],
+  ] as const) {
+    assert.equal(visualHtmlToMarkdown(html), md, html)
+    root.innerHTML = html
+    assert.equal(serialize(root), md, html)
+  }
+  assert.equal(visualHtmlToMarkdown('<blockquote>引子<p>正文</p></blockquote>'), '> 引子\n>\n> 正文')
+  serialize.dispose()
+  dom.window.close()
+})
