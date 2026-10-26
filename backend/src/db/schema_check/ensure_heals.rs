@@ -78,6 +78,14 @@ pub(crate) async fn ensure_persona_log_tables(db: &DatabaseConnection) -> Result
     Ok(())
 }
 
+/// Her nodes on her host (`migrations/agent_nodes.sql`), for databases that
+/// ran 004 before it was in it. Same file as 004.
+pub(crate) async fn ensure_agent_nodes_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(include_str!("../../../migrations/agent_nodes.sql"))
+        .await?;
+    Ok(())
+}
+
 /// When each memory would come to mind (`migrations/memory_cues.sql`), for
 /// databases that ran 004 before it was in it. Same file as 004.
 pub(crate) async fn ensure_memory_cues_table(db: &DatabaseConnection) -> Result<(), DbErr> {

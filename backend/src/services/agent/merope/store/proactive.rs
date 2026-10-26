@@ -77,6 +77,42 @@ pub async fn recent_proactive(
         .await?)
 }
 
+/// Her last `limit` lines to `user_id` said unasked, newest first: when,
+/// what she said, and whether they have written to her in private since.
+pub async fn said_lately(
+    db: &DatabaseConnection,
+    user_id: i32,
+    limit: i64,
+) -> Result<Vec<(chrono::DateTime<Utc>, String, bool)>, sea_orm::DbErr> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT p.created_at, p.content, \
+               EXISTS (SELECT 1 FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+                 WHERE s.user_id = p.user_id AND s.context->>'mode' = 'chat' \
+                   AND s.context->>'venue' IS NULL AND m.role = 'user' \
+                   AND m.created_at > p.created_at) AS answered \
+             FROM agent_proactive_messages p \
+             WHERE p.user_id = $1 AND p.role = 'assistant' \
+             ORDER BY p.created_at DESC LIMIT $2",
+            [user_id.into(), limit.into()],
+        ))
+        .await?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| {
+            let at = row
+                .try_get::<chrono::DateTime<chrono::FixedOffset>>("", "created_at")
+                .ok()?
+                .with_timezone(&Utc);
+            let line = row.try_get::<String>("", "content").ok()?;
+            let answered = row.try_get::<bool>("", "answered").ok()?;
+            Some((at, line, answered))
+        })
+        .collect())
+}
+
 /// The times she wrote to someone first (`event_key`) since `since`, to one
 /// person or to anyone, newest first: who, when, and whether they said
 /// anything to her in private within `within_hours` after; `None` while
@@ -264,4 +300,53 @@ fn dated_lines(
             ))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use sea_orm::ConnectionTrait;
+
+    /// What she said unasked comes back newest first, with whether they
+    /// wrote to her in private after it; a group's talk or someone else's
+    /// does not count (an isolated schema; skipped without a test database).
+    #[tokio::test]
+    async fn what_she_said_lately_knows_whether_they_wrote_back() {
+        let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+            return;
+        };
+        let db = &fixture.db;
+        for statement in [
+            "INSERT INTO users (id, username) VALUES (51, 'owner51'), (52, 'guest52')",
+            "INSERT INTO agent_sessions (id, user_id, title, context, message_count, archived, \
+             created_at, last_active_at) VALUES \
+             ('s_own', 51, NULL, '{\"mode\":\"chat\"}', 1, false, '2026-10-26Z', '2026-10-26Z'), \
+             ('s_grp', 51, NULL, '{\"mode\":\"chat\",\"venue\":\"telegram:-1\"}', 1, false, \
+              '2026-10-26Z', '2026-10-26Z'), \
+             ('s_other', 52, NULL, '{\"mode\":\"chat\"}', 1, false, '2026-10-26Z', '2026-10-26Z')",
+            "INSERT INTO agent_proactive_messages (user_id, role, content, event_key, notified, \
+             created_at) VALUES \
+             (51, 'assistant', '报告好了，整份都在。', 'agent.merope.ai_chat', false, '2026-10-26T01:00:00Z'), \
+             (51, 'assistant', 'x 那份报告好了。', 'agent.merope.ai_chat', false, '2026-10-26T02:00:00Z'), \
+             (52, 'assistant', '给别人的', 'agent.merope.greeting', false, '2026-10-26T03:00:00Z')",
+            // They wrote back between the two in private; later only in a group,
+            // and someone else wrote after the second.
+            "INSERT INTO agent_messages (session_id, role, content, created_at) VALUES \
+             ('s_own', 'user', '看到了', '2026-10-26T01:30:00Z'), \
+             ('s_grp', 'user', '群里的话', '2026-10-26T02:30:00Z'), \
+             ('s_other', 'user', '别人的私聊', '2026-10-26T02:30:00Z')",
+        ] {
+            db.execute_unprepared(statement).await.unwrap();
+        }
+        let said = super::said_lately(db, 51, 6).await.unwrap();
+        let lines: Vec<(&str, bool)> = said
+            .iter()
+            .map(|(_, line, answered)| (line.as_str(), *answered))
+            .collect();
+        assert_eq!(
+            lines,
+            [("x 那份报告好了。", false), ("报告好了，整份都在。", true)]
+        );
+        assert!(said[0].0 > said[1].0, "newest first");
+        assert_eq!(super::said_lately(db, 51, 1).await.unwrap().len(), 1);
+    }
 }

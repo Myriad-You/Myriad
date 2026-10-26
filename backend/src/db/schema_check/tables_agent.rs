@@ -918,6 +918,38 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
+            name: "agent_nodes".to_string(),
+            columns: vec![
+                ColumnDef::new("id", "character varying").not_null(),
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("form", "character varying").not_null(),
+                ColumnDef::new("node_key", "text").not_null(),
+                ColumnDef::new("title", "text").not_null(),
+                ColumnDef::new("origin", "character varying").not_null(),
+                ColumnDef::new("notes", "jsonb")
+                    .not_null()
+                    .default_value("'[]'::jsonb"),
+                ColumnDef::new("refs", "jsonb")
+                    .not_null()
+                    .default_value("'[]'::jsonb"),
+                ColumnDef::new("logged", "bigint")
+                    .not_null()
+                    .default_value("0"),
+                ColumnDef::new("created_at", "timestamp with time zone").not_null(),
+                ColumnDef::new("updated_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_node_events".to_string(),
+            columns: vec![
+                ColumnDef::new("node_id", "character varying").not_null(),
+                ColumnDef::new("seq", "bigint").not_null(),
+                ColumnDef::new("change", "character varying").not_null(),
+                ColumnDef::new("fields", "jsonb").not_null(),
+                ColumnDef::new("at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
             name: "agent_memory_cues".to_string(),
             columns: vec![
                 ColumnDef::new("memory_id", "character varying").not_null(),

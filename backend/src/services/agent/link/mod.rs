@@ -41,6 +41,8 @@
 //! child that takes `moments` tells another agent's session, the owner's
 //! conversation with another AI, and its own reading of what they are
 //! doing, and each reaches her as her own event, said in person or let go.
+//! What she makes of them is kept on her nodes here; a child that takes
+//! `nodes` shows them, and the owner can make her forget one there ([`nodes`]).
 //!
 //! Her host asking the app to act ([`act`]): a child that takes `act` (the
 //! owner switched it on there) is asked to run one Work task of hers, a
@@ -54,6 +56,7 @@ mod contract;
 mod conversations;
 mod experience;
 mod moment;
+mod nodes;
 mod notices;
 mod outfit;
 mod proposals;

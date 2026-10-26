@@ -16,7 +16,7 @@ let compare
 let repeat = '1'
 const KINDS = [
   'chat', 'memory', 'event', 'motion', 'touch', 'touch-response',
-  'wonder', 'found_out', 'inner', 'own_day', 'doing_choice', 'doing_digest',
+  'speak', 'wonder', 'found_out', 'inner', 'own_day', 'doing_choice', 'doing_digest',
   'views', 'soup_start', 'soup_judge', 'bits', 'chime', 'stranger_note', 'threads', 'reach_judge',
   'self_story', 'serial_guess', 'wonder_own', 'explore_think', 'explore_step', 'explore_compare',
   'heard', 'joke_sticker', 'meme_sticker', 'sense', 'already', 'settle',

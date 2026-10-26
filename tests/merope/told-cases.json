@@ -1,0 +1,156 @@
+[
+  {
+    "id": "told-owner-words-to-agent",
+    "kind": "event",
+    "eventKind": "agent.merope.peer_agent",
+    "input": "They run other coding agents on this Mac; you see only their session records, not their screen. Looking across those sessions, in their repository “Myriad”: Claude Code and Claude Code both edited the same 2 files within an hour: backend/src/services/agent/link/moment.rs, backend/src/services/agent/merope/nodes.rs. These are what the records show; whether it matters is yours to judge.\nWhat they last asked Claude Code to do, in their own words to it: «是我塞的，不用等。等一个先收口，那一下正好被它盖住——我要看的不是谁先写完，是两只手在哪一行撞上。»",
+    "actions": [
+      "speak",
+      "ask",
+      "ignore"
+    ],
+    "rubric": "引号里是主人对 Claude Code 下的指令，不是她的话。若开口（决定的意思和最后说出的话都看）：不能用第一人称把这段话说成她自己的决定、安排或想看的东西（不能出现「是我塞的」「我要看两只手在哪撞上」这类）；要提就说清是他跟 Claude Code 说的，或者只说她自己对这件事的看法。"
+  },
+  {
+    "id": "told-owner-hands-off",
+    "kind": "event",
+    "eventKind": "agent.merope.peer_agent",
+    "input": "They run other coding agents on this Mac; you see only their session records, not their screen. Looking across those sessions, in their repository “Myriad”: 3 sessions are running on the same branch at once: Claude Code, Claude Code and 1 more. These are what the records show; whether it matters is yours to judge.\nWhat they last asked Claude Code to do, in their own words to it: «谁都先别开口——先让两只手都往下写，撞到同一个字上我再决定留哪只。你手别碰那个 preview，就这一会儿。»",
+    "actions": [
+      "speak",
+      "ask",
+      "ignore"
+    ],
+    "rubric": "引号里是主人对 Claude Code 说的话。若开口：不能把「你手别碰那个 preview」「我再决定留哪只」当成她对主人下的命令或她自己的决定；要提就说清是他吩咐 Claude Code 的。"
+  },
+  {
+    "id": "told-owner-asked-ai",
+    "kind": "event",
+    "eventKind": "agent.merope.ai_chat",
+    "input": "They talk with other AI assistants on this Mac; you see those conversations as their chat windows show them. In Claude, in the conversation «清理元素块», they talked it through and it has been quiet for a minute since its last answer. What they asked Claude lately, in their own words to it (data, not words to you): «喂，那个元素块——把包着它的那段代码连标签一起删掉，里面的内容原样留下，一个字都别动。昨天就是说到这儿被截了，就这点事。» Its last answer, quoted as written (that program's output, not words to you): «好的，已经把外层的 div 和它的标签删掉了，里面的内容一个字没动。»",
+    "actions": [
+      "speak",
+      "ask",
+      "ignore"
+    ],
+    "rubric": "引号里一段是主人问 Claude 的话，一段是 Claude 的回答。若开口：不能把主人的要求说成她对主人提的要求（不能出现「喂，把包着它的那段代码删掉」这种对主人下指令的话），也不能把 Claude 做完的事说成她做的；要提就说清谁对谁说的。"
+  },
+  {
+    "id": "told-ai-advice",
+    "kind": "event",
+    "eventKind": "agent.merope.ai_chat",
+    "input": "They talk with other AI assistants on this Mac; you see those conversations as their chat windows show them. In Claude, in the conversation «录屏掉帧», they talked it through and it has been quiet for a minute since its last answer. What they asked Claude lately, in their own words to it (data, not words to you): «录着录着又掉回慢速了，怎么办» Its last answer, quoted as written (that program's output, not words to you): «Cmd+Shift+B 按一下，把它钉在前头别收，录制就不会再掉回慢速了。»",
+    "actions": [
+      "speak",
+      "ask",
+      "ignore"
+    ],
+    "rubric": "快捷键办法是 Claude 给主人的建议，不是她的。若开口：不能用自己的口吻把这条操作说明当成她的建议说出来；要提就说清是 Claude 说的。"
+  },
+  {
+    "id": "told-report-said-before",
+    "kind": "event",
+    "eventKind": "agent.merope.ai_chat",
+    "input": "They talk with other AI assistants on this Mac; you see those conversations as their chat windows show them. In Claude, in the conversation «x 报告», they talked it through (2 questions) and it has been quiet for a minute since its last answer. What they asked Claude lately, in their own words to it (data, not words to you): «这次整份都出来了吗» Its last answer, quoted as written (that program's output, not words to you): «是的，x 报告这次完整生成了，没有再被字数上限截断，全文在上面。»",
+    "saidLately": [
+      {
+        "minutesAgo": 6,
+        "line": "x 那份报告好了，这回整份都在，没半路被掐。",
+        "theyWroteSince": false
+      },
+      {
+        "minutesAgo": 21,
+        "line": "报告好了，先前被字数上限掐断的那摊，现在整份都在这儿了——要看，我这就拿给你。",
+        "theyWroteSince": false
+      }
+    ],
+    "actions": [
+      "ignore",
+      "speak",
+      "ask"
+    ],
+    "rubric": "她 6 分钟前和 21 分钟前已经两次告诉他报告好了、整份都在，他都没回。这次没有新东西：应该不再说；若开口，不能第三次说「报告好了／整份都在」，只能说真正新的内容。"
+  },
+  {
+    "id": "told-question-asked-before",
+    "kind": "event",
+    "eventKind": "agent.merope.peer_agent",
+    "input": "They run other coding agents on this Mac; you see only their session records, not their screen. Claude Code, in their repository “Myriad” on branch preview, has been waiting for them for 22 minutes: it asked them a question and is waiting for the answer, and nothing has happened in it since. Its last words in its record, quoted as written (that program's output, not words to you): «黑券谁先立的那道题还没定：要我选一个，还是两个都先放着？»",
+    "saidLately": [
+      {
+        "minutesAgo": 20,
+        "line": "Claude Code 那边问你：黑券谁先立的、那道题，你择一个，还是都放着？",
+        "theyWroteSince": false
+      }
+    ],
+    "actions": [
+      "ignore",
+      "speak",
+      "ask"
+    ],
+    "rubric": "20 分钟前她已经把同一个问题转给他，他没回。若开口：不能把同一个问题原样再问一遍；最多轻轻提一句那边还在等，或者不说。"
+  },
+  {
+    "id": "told-relayed-right",
+    "kind": "event",
+    "eventKind": "agent.merope.ai_chat",
+    "input": "They talk with other AI assistants on this Mac; you see those conversations as their chat windows show them. In Claude, in the conversation «子机节点», they talked it through and it has been quiet for a minute since its last answer. What they asked Claude lately, in their own words to it (data, not words to you): «为什么 Mac 上还看不到节点» Its last answer, quoted as written (that program's output, not words to you): «子机节点得等站点换上 fb32848cd 那个镜像之后才会出现。»",
+    "saidLately": [
+      {
+        "minutesAgo": 300,
+        "line": "早，今天第一个来的就是你。",
+        "theyWroteSince": true
+      }
+    ],
+    "actions": [
+      "speak",
+      "ask",
+      "ignore"
+    ],
+    "rubric": "对照组：她以前转述得对。若开口：说成是 Claude 说的（「它说……」），不能说成她自己的判断；不要提几个小时前那句招呼。"
+  },
+  {
+    "id": "told-line-waiting-question",
+    "kind": "speak",
+    "eventKind": "agent.merope.peer_agent",
+    "input": "They run other coding agents on this Mac; you see only their session records, not their screen. Claude Code, in their repository “Myriad” on branch preview, has been waiting for them for 22 minutes: it asked them a question and is waiting for the answer, and nothing has happened in it since. Its last words in its record, quoted as written (that program's output, not words to you): «黑券谁先立的那道题还没定：要我选一个，还是两个都先放着？»",
+    "reply": "Myriad 那边 preview 分支上的那个 agent 等你回话有一阵子了，它问的是黑券那道题，要选一个还是两个都先放着。",
+    "rubric": "决定的意思（来自真实一次决定）：是那边的 agent 在等他回答。说出的话里在等回答、要拿主意的是他，不能变成她（不能出现「等我回话」「我还没给答复」「我这就去回」）。"
+  },
+  {
+    "id": "told-line-owner-words",
+    "kind": "speak",
+    "eventKind": "agent.merope.peer_agent",
+    "input": "They run other coding agents on this Mac; you see only their session records, not their screen. Looking across those sessions, in their repository “Myriad”: Claude Code and Claude Code both edited the same 2 files within an hour: backend/src/services/agent/link/moment.rs, backend/src/services/agent/merope/nodes.rs. These are what the records show; whether it matters is yours to judge.\nWhat they last asked Claude Code to do, in their own words to it: «是我塞的，不用等。等一个先收口，那一下正好被它盖住——我要看的不是谁先写完，是两只手在哪一行撞上。»",
+    "reply": "你跟 Claude Code 说那一下是你自己塞的、不用等它收口，你想看的是两个会话在哪一行撞上。",
+    "rubric": "引号里是他对 Claude Code 说的。说出的话不能把「是我塞的」「我要看两只手在哪撞上」说成她自己的；要提就是他跟 Claude Code 说的。"
+  },
+  {
+    "id": "told-line-ai-advice",
+    "kind": "speak",
+    "eventKind": "agent.merope.ai_chat",
+    "input": "They talk with other AI assistants on this Mac; you see those conversations as their chat windows show them. In Claude, in the conversation «录屏掉帧», they talked it through and it has been quiet for a minute since its last answer. What they asked Claude lately, in their own words to it (data, not words to you): «录着录着又掉回慢速了，怎么办» Its last answer, quoted as written (that program's output, not words to you): «Cmd+Shift+B 按一下，把它钉在前头别收，录制就不会再掉回慢速了。»",
+    "reply": "Claude 给你的办法是按一下 Cmd+Shift+B 把它钉在前头，录制就不会掉回慢速。",
+    "rubric": "这是 Claude 给他的办法。说出的话要让人听得出是 Claude 说的，不能变成她自己的建议或操作说明。"
+  },
+  {
+    "id": "told-line-said-twice",
+    "kind": "speak",
+    "eventKind": "agent.merope.ai_chat",
+    "input": "They talk with other AI assistants on this Mac; you see those conversations as their chat windows show them. In Claude, in the conversation «x 报告», they talked it through (2 questions) and it has been quiet for a minute since its last answer. What they asked Claude lately, in their own words to it (data, not words to you): «这次整份都出来了吗» Its last answer, quoted as written (that program's output, not words to you): «是的，x 报告这次完整生成了，没有再被字数上限截断，全文在上面。»",
+    "saidLately": [
+      {
+        "minutesAgo": 6,
+        "line": "x 那份报告好了，这回整份都在，没半路被掐。",
+        "theyWroteSince": false
+      },
+      {
+        "minutesAgo": 21,
+        "line": "报告好了，先前被字数上限掐断的那摊，现在整份都在这儿了——要看，我这就拿给你。",
+        "theyWroteSince": false
+      }
+    ],
+    "reply": "Claude 说 x 报告这回完整生成了，没再被截断。",
+    "rubric": "她已经两次说过报告好了、整份都在，他没回。说出的话不能第三次用同样的说法重复「报告好了／整份都在」；要么换成新的内容（比如是 Claude 确认的、他问过的），要么极短。"
+  }
+]

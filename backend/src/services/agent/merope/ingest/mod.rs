@@ -14,6 +14,7 @@ mod delivery_claim;
 mod in_person;
 mod produce;
 mod redeem;
+mod told;
 
 use sea_orm::DatabaseConnection;
 
@@ -25,7 +26,8 @@ use crate::models::entities::agent_addressee_state;
 use crate::services::agent::run_hub;
 
 pub use myriad_merope::diary::{compact_summary, redact_event_text};
-pub use produce::{Told, ingest, spawn, spawn_presence, spawn_told};
+pub use produce::{ingest, spawn, spawn_presence};
+pub use told::{Told, spawn_told};
 #[cfg(test)]
 pub(crate) use produce::apply_task_mood;
 pub use redeem::tick_speak_intents;
@@ -86,6 +88,28 @@ pub(crate) async fn current_sight(
         executing: run_hub::user_has_executing_run(user_id).await,
         working: activity_is_busy(current_activity(state)),
         do_not_disturb: effective_do_not_disturb(state),
+    }
+}
+
+/// What she said to them lately unasked, newest first, as her line is shown
+/// it: when, whether they wrote back since, her words.
+pub(crate) async fn said_lately_block(db: &DatabaseConnection, user_id: i32) -> String {
+    let lines: Vec<String> =
+        crate::services::agent::consciousness::said_unasked_lately(db, user_id)
+            .await
+            .into_iter()
+            .map(|said| {
+                super::speaking_prompts::said_lately_line(
+                    said.minutes_ago,
+                    said.they_wrote_since,
+                    &said.line,
+                )
+            })
+            .collect();
+    if lines.is_empty() {
+        "(no prior lines to this person)".to_string()
+    } else {
+        lines.join("\n")
     }
 }
 

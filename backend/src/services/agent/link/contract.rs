@@ -197,7 +197,7 @@ impl Close {
 
 /// Frame types the host sends.
 #[cfg(test)]
-pub(super) const HOST_FRAMES: [&str; 27] = [
+pub(super) const HOST_FRAMES: [&str; 28] = [
     "welcome",
     "host.freeze",
     "host.thaw",
@@ -225,11 +225,12 @@ pub(super) const HOST_FRAMES: [&str; 27] = [
     "wardrobe",
     "conversation",
     "moment.taken",
+    "nodes",
 ];
 
 /// Frame types the host takes from a child.
 #[cfg(test)]
-pub(super) const CHILD_FRAMES: [&str; 18] = [
+pub(super) const CHILD_FRAMES: [&str; 19] = [
     "hello",
     "input",
     "presence",
@@ -248,6 +249,7 @@ pub(super) const CHILD_FRAMES: [&str; 18] = [
     "proposal.answer",
     "act.result",
     "moment",
+    "node.forget",
 ];
 
 /// Error codes of the link: what the host sends (run.rejected may also carry

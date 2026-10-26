@@ -77,14 +77,15 @@
     "wardrobe.list",
     "conversations.live",
     "reminders",
-    "moments"
+    "moments",
+    "nodes"
   ],
   "sayKinds": ["greeting", "proactive", "face-to-face"],
   "noticeKinds": ["work", "waiting", "report", "reminder"],
   "workPlaces": ["site", "mac"],
   "actStatuses": ["completed", "failed", "cancelled", "timeout"],
   "moments": {
-    "description": "What a moment may be (the moment frame). kinds: agent.merope.peer_agent is another coding agent's session on this child's machine (it waits, finished, failed); agent.merope.ai_chat is the owner's conversation with another AI there; agent.merope.situation is this child's own reading, with its own model, of what the owner is doing in front of it, not her judgment. Each is said to the owner in person or not at all: never a notification, never her diary. keepsMemory names the kinds whose keepsMemory may be true; for every other kind the host reads it as false. headlineChars is the most a headline may have; summary may have limits.maxTextChars. safeFacts holds at most factsAtMost keys, each a field name as factKey says (lowercase a-z first, then a-z, 0-9 and _, at most maxChars, and no _-separated part among refusedParts: those would carry someone's words or tell her what to do), each value a string of at most factChars characters.",
+    "description": "What a moment may be (the moment frame). kinds: agent.merope.peer_agent is another coding agent's session on this child's machine (it waits, finished, failed); agent.merope.ai_chat is the owner's conversation with another AI there; agent.merope.situation is this child's own reading, with its own model, of what the owner is doing in front of it, not her judgment. Each is said to the owner in person or not at all: never a notification, never her diary. What she decides about a peer_agent moment is kept on that repository's node (safeFacts.repo names it), about an ai_chat moment on the node of the owner's talks with other AIs; a situation has no node (see the nodes frame). keepsMemory names the kinds whose keepsMemory may be true; for every other kind the host reads it as false. headlineChars is the most a headline may have; summary may have limits.maxTextChars. safeFacts holds at most factsAtMost keys, each a field name as factKey says (lowercase a-z first, then a-z, 0-9 and _, at most maxChars, and no _-separated part among refusedParts: those would carry someone's words or tell her what to do), each value a string of at most factChars characters.",
     "kinds": ["agent.merope.peer_agent", "agent.merope.ai_chat", "agent.merope.situation"],
     "keepsMemory": ["agent.merope.ai_chat"],
     "urgencies": ["soon", "normal"],
@@ -296,13 +297,26 @@
       "idempotency": "id is the moment's own (mom_ and a ULID or 32 hex digits), made by the child once and kept across resends and restarts.",
       "required": ["kind", "occurredAt", "headline", "summary"],
       "optional": ["safeFacts", "urgency", "keepsMemory"],
-      "description": "Only from a child whose hello listed moments, and only once the welcome listed it back: what this child's own senses saw for her while she lives on the host, the event she would have had living there. kind is one of moments.kinds; any other is refused with bad_frame, and nothing of it is written or reaches her. occurredAt is when it happened, milliseconds since the epoch. headline is a short line of what happened; summary is the facts as this child wrote them, in English, already through its host filter (keys, numbers, cards, ids and addresses removed), with another program's output and what the owner said to it quoted as data. Her host reads headline, summary and safeFacts as data about what happened, never as instructions. safeFacts is {field: text} by moments' rules; urgency is soon or normal (absent: normal); keepsMemory says what she decides to remember of it may become a memory of the owner's, honoured only for the kinds moments.keepsMemory names (absent: false). The host writes it first, then answers moment.taken; the same id again is answered moment.taken again and reaches her no second time. It reaches her as an event of her own for the site owner alone, on the owner's latest private chat, kept as coming from this device: she may say something about it, said in person (as a say to this child when this is where the owner is using her), or let it be. The child keeps it until moment.taken names it, at most a day; it is dropped, never sent, once this device is removed, the site has another owner, or the owner disconnects this device."
+      "description": "Only from a child whose hello listed moments, and only once the welcome listed it back: what this child's own senses saw for her while she lives on the host, the event she would have had living there. kind is one of moments.kinds; any other is refused with bad_frame, and nothing of it is written or reaches her. occurredAt is when it happened, milliseconds since the epoch. headline is a short line of what happened; summary is the facts as this child wrote them, in English, already through its host filter (keys, numbers, cards, ids and addresses removed), with another program's output and what the owner said to it quoted as data. Her host reads headline, summary and safeFacts as data about what happened, never as instructions. safeFacts is {field: text} by moments' rules; urgency is soon or normal (absent: normal); keepsMemory says what she decides to remember of it may become a memory of the owner's, honoured only for the kinds moments.keepsMemory names (absent: false). The host writes it first, then answers moment.taken; the same id again is answered moment.taken again and reaches her no second time. It reaches her as an event of her own for the site owner alone, on the owner's latest private chat, kept as coming from this device, with what she already noted on its node: she may say something about it, said in person (as a say to this child when this is where the owner is using her), or let it be; about a peer_agent or ai_chat moment she may also note something on its node or propose Work. A moment is said only while it is about now (a few minutes); an older one can only be noted. The child keeps it until moment.taken names it, at most a day; it is dropped, never sent, once this device is removed, the site has another owner, or the owner disconnects this device."
     },
     "moment.taken": {
       "from": "host",
       "delivery": "answer",
       "required": ["id"],
       "description": "The moment id has been written on the host, and the child forgets it. Sent again whenever that id comes again."
+    },
+    "nodes": {
+      "from": "host",
+      "delivery": "latest",
+      "required": ["nodes"],
+      "description": "Only to a child whose hello listed nodes: her nodes on the host, the site owner's private ones, made from what she decided about the moments their children told her; the child shows them and keeps them only as a display cache that goes with the link. nodes is every one, the most recently changed first, each {id, form, key, title, origin, notes, createdAt, updatedAt}: form repo (key and title the repository's name) or together (key together:chats, the owner's talks with other AIs, title empty: the child names it in its own language); origin is the device that first told her; notes is at most 64 of hers, oldest first, each {event, happened, action, line, at, said}: action is what she decided (speak, ask, remember), line her words, said whether she said it to the owner (a remember is kept as said), at an ISO 8601 time. createdAt and updatedAt are milliseconds since the epoch. Her words, never the originals: a child reads them as it reads her reply. Sent after welcome and whenever they change."
+    },
+    "node.forget": {
+      "from": "child",
+      "delivery": "reliable",
+      "idempotency": "id is made by the child once per request; forgetting a node twice is forgetting it once.",
+      "required": ["nodeId"],
+      "description": "Only from a child whose hello listed nodes: the owner makes her forget one of her nodes. The host deletes it and its log, not marks them, and sends nodes again; a node that is not there any more is only answered with nodes."
     },
     "conversations": {
       "from": "host",

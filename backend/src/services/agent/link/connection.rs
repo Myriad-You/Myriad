@@ -172,6 +172,7 @@ pub(super) async fn serve_with(
         senses: Default::default(),
         experience: false,
         moments: false,
+        nodes: false,
         proposals: None,
         acts: false,
         wardrobe: None,
@@ -238,6 +239,8 @@ struct Link {
     experience: bool,
     /// The child said it sends `moment`: what its senses saw for her.
     moments: bool,
+    /// The child said it takes `nodes`: it is kept current with her nodes.
+    nodes: bool,
     /// Her open proposals as the child was last told them, once it said it
     /// takes `proposals`.
     proposals: Option<Vec<(String, &'static str, i64)>>,
@@ -283,6 +286,7 @@ impl Link {
         let mut keep = tokio::time::interval_at(Instant::now() + every, every);
         keep.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut changed = super::conversations::subscribe_changes();
+        let mut nodes_changed = crate::services::agent::merope::nodes::subscribe();
         loop {
             let why = tokio::select! {
                 why = &mut closed => {
@@ -321,6 +325,12 @@ impl Link {
                 heard = changed.recv(), if self.live.is_some() => {
                     if self.changed_for_me(heard, &mut changed) {
                         self.keep_conversations().await;
+                    }
+                    None
+                }
+                heard = nodes_changed.recv(), if self.nodes => {
+                    if self.nodes_changed(heard, &mut nodes_changed) {
+                        self.tell_nodes().await;
                     }
                     None
                 }
@@ -422,6 +432,7 @@ impl Link {
             "work.recall" if self.experience => self.recall(inbound),
             "experience" if self.experience => self.experienced(inbound).await,
             "moment" if self.moments => self.moment(inbound).await,
+            "node.forget" if self.nodes => self.forget_node(inbound).await,
             "proposal.answer" if self.proposals.is_some() => self.answer_proposal(inbound).await,
             // Taken whatever this link said: a run's end may come after its
             // owner turned the switch off (the request must be this device's).
@@ -517,10 +528,14 @@ impl Link {
             self.experience = true;
             super::takes_experience(&self.device.id, self.registered, self.tx.clone());
         }
-        // What its senses see for her comes up.
+        // What its senses see for her comes up, and her nodes made of it go down.
         self.moments = capabilities
             .iter()
             .any(|capability| capability == "moments");
+        if capabilities.iter().any(|capability| capability == "nodes") {
+            self.nodes = true;
+            self.tell_nodes().await;
+        }
         // Her lines for the app: what is still waiting goes again, after welcome.
         if capabilities.iter().any(|capability| capability == "say") {
             self.takes_say = true;
@@ -1106,6 +1121,60 @@ impl Link {
             // Not taken: the child keeps it and sends it again on its next link.
             Err(error) => {
                 tracing::warn!(%error, device = %self.device.id, "[link] could not write a moment");
+            }
+        }
+    }
+
+    /// Her nodes as they are now, to a child that takes them.
+    async fn tell_nodes(&mut self) {
+        if let Some(frame) = super::nodes::current(&self.db, self.owner).await {
+            self.reply(frame);
+        }
+    }
+
+    /// Whether the owner's nodes changed, from what was heard and what is
+    /// queued behind it.
+    fn nodes_changed(
+        &self,
+        heard: Result<i32, tokio::sync::broadcast::error::RecvError>,
+        changed: &mut tokio::sync::broadcast::Receiver<i32>,
+    ) -> bool {
+        use tokio::sync::broadcast::error::{RecvError, TryRecvError};
+        let mut read = match heard {
+            Ok(owner) => owner == self.owner,
+            Err(RecvError::Lagged(_)) => true,
+            Err(RecvError::Closed) => false,
+        };
+        loop {
+            match changed.try_recv() {
+                Ok(owner) => read |= owner == self.owner,
+                Err(TryRecvError::Lagged(_)) => read = true,
+                Err(TryRecvError::Empty | TryRecvError::Closed) => return read,
+            }
+        }
+    }
+
+    /// `node.forget`: the owner makes her forget one of her nodes. Deleted,
+    /// then the nodes as they are now (also when it was gone already).
+    async fn forget_node(&mut self, inbound: Inbound) {
+        let seq = inbound.seq;
+        if !inbound.id.as_deref().is_some_and(valid_id) {
+            self.error("bad_id", Some(seq));
+            return;
+        }
+        let Some(node) = super::nodes::forgotten(&inbound.body) else {
+            self.error("bad_frame", Some(seq));
+            return;
+        };
+        match crate::services::agent::merope::nodes::forget(&self.db, self.owner, node).await {
+            // Gone: every link of the owner's hears the change, this one too.
+            Ok(true) => {
+                tracing::info!(device = %self.device.id, "[link] she forgot a node");
+            }
+            Ok(false) => self.tell_nodes().await,
+            Err(error) => {
+                tracing::warn!(%error, device = %self.device.id, "[link] could not forget a node");
+                self.error("internal_error", Some(seq));
             }
         }
     }

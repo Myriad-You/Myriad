@@ -18,9 +18,7 @@ use super::super::{
     local_directive, public_persona_name, refine_motion, resolve_round_motion_style,
 };
 use super::in_person::{InPerson, in_person, say_on_app};
-use super::{
-    SAME_EVENT_MINUTES, compact_summary, current_sight, is_enabled, is_trivial_line, log_skip,
-};
+use super::{SAME_EVENT_MINUTES, current_sight, is_enabled, is_trivial_line, log_skip};
 use crate::services::agent::consciousness::{SpeakIntent, drain_speak_intents, last_live_presence};
 use crate::services::agent::merope::gates::IngestSight;
 use crate::services::agent::notification_preferences::{ACTION_OPEN_AGENT, NotificationEventKey};
@@ -128,7 +126,7 @@ async fn redeem_speak_intent(
         // A touch's sentence is already decided; said in her own voice it is
         // what she means to say, and what she says is the line.
         let saying = voice.as_ref().map(|(omni, out, _)| (omni, out));
-        match compose_line(db, intent.user_id, &intent.gist, saying).await {
+        match compose_line(db, &intent, saying).await {
             Some(line) => line,
             None => {
                 log_skip(intent.user_id, &intent.topic, "not_composed");
@@ -327,6 +325,15 @@ async fn redeem_speak_intent(
         )
         .await?;
         let _ = touch_proactive(db, intent.user_id).await;
+        // What a child end saw: her line on its node is said now.
+        if super::super::gates::files_on_node(&intent.topic) {
+            if let Err(error) =
+                super::super::nodes::said(db, intent.user_id, &intent.source_event_id, &spoken)
+                    .await
+            {
+                tracing::warn!(%error, "[Merope] could not mark a node's line said");
+            }
+        }
     }
     Ok(())
 }
@@ -417,17 +424,18 @@ fn speech_is_shown(event_key: &str, notify: bool) -> bool {
     notify && merope_owns_notify(event_key)
 }
 
-/// The line she says about `summary`, as she would put it; with `voice`, in
-/// her own voice, its sound sent as it is made.
+/// The line she says for `intent` (what she means, about what happened), as
+/// she would put it; with `voice`, in her own voice, its sound sent as it is
+/// made.
 async fn compose_line(
     db: &DatabaseConnection,
-    user_id: i32,
-    summary: &str,
+    intent: &SpeakIntent,
     voice: Option<(
         &crate::config::OmniVoice,
         &crate::services::omni_voice::VoiceOut,
     )>,
 ) -> Option<String> {
+    let user_id = intent.user_id;
     let model = super::super::call::Ask::new(super::super::call::Voice::Hers, user_id, "speak")
         .within(std::time::Duration::from_secs(30))
         .model()
@@ -437,7 +445,7 @@ async fn compose_line(
         .await
         .unwrap_or_else(|| "You are Agent.".to_string());
     let mut sections =
-        crate::services::agent::merope::speaking_prompt_for_event(db, user_id, summary).await;
+        crate::services::agent::merope::speaking_prompt_for_event(db, user_id, &intent.gist).await;
     // How the last exchange left her, if it was a moment ago.
     sections.extend(
         super::super::inner::current(
@@ -448,21 +456,14 @@ async fn compose_line(
         .and_then(crate::services::agent::merope::format_inner_moment_ago_section),
     );
     let mind = crate::services::agent::merope::speaking_prompt_plain(&sections);
-    let recent = recent_proactive(db, user_id, 6)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .map(|row| format!("- {}", compact_summary(&row.content)))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let recent_block = if recent.is_empty() {
-        "(no prior lines to this person)".to_string()
-    } else {
-        recent
-    };
+    // What she already said unasked, as her decision saw it.
+    let recent_block = super::said_lately_block(db, user_id).await;
     let system =
         super::super::speaking_prompts::compose_proactive_system(&soul, &mind, &recent_block);
-    let prompt = super::super::speaking_prompts::compose_proactive_user(summary);
+    let prompt = super::super::speaking_prompts::compose_proactive_user(
+        &intent.gist,
+        intent.happened.as_deref(),
+    );
     let made = match voice {
         Some((omni, out)) => {
             let aloud = crate::services::omni_voice::said_aloud(&format!("{system}\n\n{prompt}"));

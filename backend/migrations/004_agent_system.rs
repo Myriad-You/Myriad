@@ -630,6 +630,13 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .execute_unprepared(include_str!("memory_cues.sql"))
             .await?;
 
+        // 她在主机上的节点：子机告诉她的事、她怎么看，按节点记下，带只追加的日志。
+        // schema_check::ensure_agent_nodes_tables 跑同一份文件。
+        manager
+            .get_connection()
+            .execute_unprepared(include_str!("agent_nodes.sql"))
+            .await?;
+
         Ok(())
     }
 
@@ -660,6 +667,8 @@ DROP TABLE IF EXISTS agent_affect_anchor;
 DROP TABLE IF EXISTS agent_affect_events;
 DROP TABLE IF EXISTS agent_sync_devices;
 DROP TABLE IF EXISTS merope_stickers;
+DROP TABLE IF EXISTS agent_node_events;
+DROP TABLE IF EXISTS agent_nodes;
 DROP TABLE IF EXISTS agent_memory_cues;
 DROP TABLE IF EXISTS agent_memory_embeddings;
 DROP TABLE IF EXISTS agent_memories;

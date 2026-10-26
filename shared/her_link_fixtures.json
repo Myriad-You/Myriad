@@ -244,6 +244,36 @@
       "body": { "id": "mom_0123456789abcdef0123456789abcdef" }
     },
     {
+      "t": "nodes", "seq": 17, "ack": 14, "at": 1760140890000,
+      "body": {
+        "nodes": [
+          {
+            "id": "node_0123456789abcdef0123456789abcdef01234567",
+            "form": "repo",
+            "key": "sample-repo",
+            "title": "sample-repo",
+            "origin": "dev_0123456789abcdef0123456789abcdef",
+            "notes": [
+              {
+                "event": "evt_41_agent.merope.peer_agent_mom_0123456789abcdef0123456789abcdef",
+                "happened": "waiting",
+                "action": "speak",
+                "line": "它在等你回答要不要顺手改测试。",
+                "at": "2025-10-11T00:01:21Z",
+                "said": false
+              }
+            ],
+            "createdAt": 1760140889000,
+            "updatedAt": 1760140889000
+          }
+        ]
+      }
+    },
+    {
+      "t": "node.forget", "seq": 15, "ack": 17, "id": "forget_01", "at": 1760140900000,
+      "body": { "nodeId": "node_0123456789abcdef0123456789abcdef01234567" }
+    },
+    {
       "t": "conversations", "seq": 16, "ack": 15, "at": 1760140900000,
       "body": {
         "sessions": [
