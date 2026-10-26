@@ -92,7 +92,7 @@ function seenCueOffset(offset: ReturnType<typeof intentExpressionOffset>): Retur
 
 // A cue cut short by the next one still lets go over a beat: at 60 ms the
 // hand-off showed as a jump of the head.
-const MIN_CUE_RELEASE = 0.28
+const MIN_CUE_RELEASE = 0.2
 
 export function releaseScheduledCue(cue: ScheduledExpressionCue, at: number): void {
   if (cue.unitKey === null) return

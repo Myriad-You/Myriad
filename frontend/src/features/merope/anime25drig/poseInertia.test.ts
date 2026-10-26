@@ -22,8 +22,8 @@ test('a jump in the composed pose becomes a carried movement that arrives', () =
   const frames = follow(inertia, { angleZ: 0.75, angleY: -0.5 }, 1)
   const roll = frames.map((pose) => pose.angleZ)
   const fastest = Math.max(...roll.slice(1).map((value, i) => Math.abs(value - roll[i]!) * FPS))
-  assert.ok(fastest <= 5 + 1e-9, `roll speed ${fastest} units/s stays under the cap`)
-  assert.ok(roll[0]! < 0.1, 'not there at once')
+  assert.ok(fastest <= 6 + 1e-9, `roll speed ${fastest} units/s stays under the cap`)
+  assert.ok(roll[0]! <= 0.1 + 1e-9, 'not there at once')
   assert.ok(Math.abs(roll.at(-1)! - 0.75) < 0.01 && Math.abs(frames.at(-1)!.angleY + 0.5) < 0.01, 'but it gets there')
 })
 

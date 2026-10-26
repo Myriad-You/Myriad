@@ -22,19 +22,20 @@ interface Pulse {
   gap: number
 }
 
-// At usual tempo; half again as long as the first cut, whose bounces and nods
-// swung the head at well over 100°/s and read as twitchy.
+// At usual tempo; about a quarter longer than the first cut, whose bounces
+// and nods swung the head at well over 100°/s and read as twitchy. Blinks,
+// winks and a startle stay quick: they are quick in life.
 const PULSES: Record<ScoreMove['kind'], Pulse> = {
-  nod: { attack: 0.3, hold: 0, release: 0.36, gap: 0.03 },
-  shake: { attack: 0.75, hold: 0, release: 0, gap: 0 },
-  glance: { attack: 0.18, hold: 0.75, release: 0.45, gap: 0.22 },
-  blink: { attack: 0.1, hold: 0.08, release: 0.21, gap: 0.15 },
-  wink: { attack: 0.15, hold: 0.42, release: 0.27, gap: 0.22 },
-  beat: { attack: 0.15, hold: 0.06, release: 0.42, gap: 0.12 },
-  shrug: { attack: 0.3, hold: 0.52, release: 0.6, gap: 0.15 },
-  sigh: { attack: 0.75, hold: 1.5, release: 1.2, gap: 0.3 },
-  bounce: { attack: 0.24, hold: 0, release: 0.24, gap: 0.03 },
-  startle: { attack: 0.1, hold: 0.38, release: 1.05, gap: 0.22 },
+  nod: { attack: 0.25, hold: 0, release: 0.3, gap: 0.025 },
+  shake: { attack: 0.62, hold: 0, release: 0, gap: 0 },
+  glance: { attack: 0.15, hold: 0.62, release: 0.38, gap: 0.18 },
+  blink: { attack: 0.08, hold: 0.06, release: 0.16, gap: 0.12 },
+  wink: { attack: 0.12, hold: 0.34, release: 0.22, gap: 0.18 },
+  beat: { attack: 0.12, hold: 0.05, release: 0.35, gap: 0.1 },
+  shrug: { attack: 0.25, hold: 0.44, release: 0.5, gap: 0.12 },
+  sigh: { attack: 0.62, hold: 1.25, release: 1, gap: 0.25 },
+  bounce: { attack: 0.2, hold: 0, release: 0.2, gap: 0.025 },
+  startle: { attack: 0.08, hold: 0.3, release: 0.85, gap: 0.18 },
 }
 
 function period(move: Readonly<ScoreMove>): number {

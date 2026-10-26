@@ -16,8 +16,8 @@ export const MIN_STICKER_FADE_OUT = 0.42
 // A head reaching a pose in about a tenth of a second reads as a jolt, not
 // acting; directors routinely ask for 100-135 ms. These floors are the rise
 // and settle a seen excursion needs to look carried by a body.
-const MIN_BODY_FADE_IN = 0.28
-const MIN_BODY_FADE_OUT = 0.56
+const MIN_BODY_FADE_IN = 0.22
+const MIN_BODY_FADE_OUT = 0.45
 
 export function cueVisualEnvelope(cue: PerformanceCue): {
   fadeIn: number

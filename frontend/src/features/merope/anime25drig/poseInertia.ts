@@ -8,17 +8,17 @@ import type { Anime25DDriver } from './driver'
  * moves. Without it a cue reached a 20° tilt in about 0.15 s (over 200°/s).
  */
 
-/** Natural frequency, rad/s: settles a step in about a quarter of a second. */
-const STIFFNESS = 20
+/** Natural frequency, rad/s: settles a step in about a fifth of a second. */
+const STIFFNESS = 24
 
 /** Speed caps in driver units per second (head angles: 1 unit is 30°). */
 const SPEED_CAPS = {
-  angleX: 7,
-  angleY: 6,
-  angleZ: 5,
-  body: 4,
-  torsoTurn: 4,
-  bodyLift: 4,
+  angleX: 8.5,
+  angleY: 7,
+  angleZ: 6,
+  body: 5,
+  torsoTurn: 5,
+  bodyLift: 5,
 } as const satisfies Partial<Record<keyof Anime25DDriver, number>>
 
 type CarriedKey = keyof typeof SPEED_CAPS
