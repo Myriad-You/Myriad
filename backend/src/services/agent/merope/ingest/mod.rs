@@ -19,13 +19,13 @@ use sea_orm::DatabaseConnection;
 
 use super::gates::IngestSight;
 use super::is_logged_in_addressee;
-use super::store::{insert_remembered_if_new, latest_open_session};
+use super::store::{insert_remembered_from, insert_remembered_if_new, latest_open_session};
 use super::{activity_is_busy, current_activity, effective_do_not_disturb};
 use crate::models::entities::agent_addressee_state;
 use crate::services::agent::run_hub;
 
 pub use myriad_merope::diary::{compact_summary, redact_event_text};
-pub use produce::{ingest, spawn, spawn_presence};
+pub use produce::{Told, ingest, spawn, spawn_presence, spawn_told};
 #[cfg(test)]
 pub(crate) use produce::apply_task_mood;
 pub use redeem::tick_speak_intents;
@@ -111,17 +111,23 @@ pub fn persona_remember_insert(candidate: &str, existing: &[String]) -> Option<S
     if duplicate { None } else { Some(compact) }
 }
 
-/// `event` is what happened, kept as where she gathered it from.
+/// `event` is what happened, kept as where she gathered it from; `origin`
+/// is the device that told her, when a child end did.
 pub(crate) async fn persist_persona_remember(
     db: &DatabaseConnection,
     user_id: i32,
     candidate: Option<&str>,
     event: &str,
+    origin: Option<&str>,
 ) {
     let Some(candidate) = candidate else {
         return;
     };
-    if let Err(error) = insert_remembered_if_new(db, user_id, candidate, Some(event)).await {
+    let written = match origin {
+        None => insert_remembered_if_new(db, user_id, candidate, Some(event)).await,
+        Some(origin) => insert_remembered_from(db, user_id, candidate, Some(event), origin).await,
+    };
+    if let Err(error) = written {
         tracing::debug!(%error, user_id, "[Merope] persona memory write skipped");
     }
 }

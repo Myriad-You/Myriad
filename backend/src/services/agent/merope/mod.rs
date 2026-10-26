@@ -81,7 +81,7 @@ pub use ingest::{
     allow_existing_notify, is_enabled, spawn as spawn_ingest, spawn_presence,
     tick_speak_intents,
 };
-pub(crate) use ingest::{InPerson, in_person};
+pub(crate) use ingest::{InPerson, Told, in_person, spawn_told};
 #[cfg(test)]
 pub(crate) use ingest::apply_task_mood;
 pub use motion::{

@@ -27,11 +27,33 @@ pub(super) struct Contract {
     pub notice_kinds: Vec<String>,
     pub work_places: Vec<String>,
     pub act_statuses: Vec<String>,
+    pub moments: MomentRules,
     pub cap_names: CapNames,
     pub envelope: FieldSpec,
     pub frames: BTreeMap<String, FrameSpec>,
     pub error_codes: BTreeMap<String, String>,
     pub close_codes: BTreeMap<String, CloseSpec>,
+}
+
+/// `moments`: what a child's `moment` may be.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(super) struct MomentRules {
+    pub kinds: Vec<String>,
+    pub keeps_memory: Vec<String>,
+    pub urgencies: Vec<String>,
+    pub headline_chars: usize,
+    pub facts_at_most: usize,
+    pub fact_chars: usize,
+    pub fact_key: FactKeyRules,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct FactKeyRules {
+    pub max_chars: usize,
+    pub refused_parts: Vec<String>,
 }
 
 /// `capNames`: the site's permission names a cap may carry, and the Mac's
@@ -175,7 +197,7 @@ impl Close {
 
 /// Frame types the host sends.
 #[cfg(test)]
-pub(super) const HOST_FRAMES: [&str; 26] = [
+pub(super) const HOST_FRAMES: [&str; 27] = [
     "welcome",
     "host.freeze",
     "host.thaw",
@@ -202,11 +224,12 @@ pub(super) const HOST_FRAMES: [&str; 26] = [
     "act.cancel",
     "wardrobe",
     "conversation",
+    "moment.taken",
 ];
 
 /// Frame types the host takes from a child.
 #[cfg(test)]
-pub(super) const CHILD_FRAMES: [&str; 17] = [
+pub(super) const CHILD_FRAMES: [&str; 18] = [
     "hello",
     "input",
     "presence",
@@ -224,6 +247,7 @@ pub(super) const CHILD_FRAMES: [&str; 17] = [
     "experience",
     "proposal.answer",
     "act.result",
+    "moment",
 ];
 
 /// Error codes of the link: what the host sends (run.rejected may also carry

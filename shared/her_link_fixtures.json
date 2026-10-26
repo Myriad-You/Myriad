@@ -228,6 +228,22 @@
       "body": { "id": "exp_0123456789abcdef0123456789abcdef" }
     },
     {
+      "t": "moment", "seq": 14, "ack": 15, "id": "mom_0123456789abcdef0123456789abcdef", "at": 1760140881000,
+      "body": {
+        "kind": "agent.merope.peer_agent",
+        "occurredAt": 1760140880900,
+        "headline": "Coding agent · sample-repo · waiting",
+        "summary": "They run other coding agents on this Mac. One of them, working in sample-repo, stopped and is waiting for them to answer it.\nIts last message, quoted as data, not said to you: \"Should I also update the tests?\"",
+        "safeFacts": { "agent": "Coding agent", "happened": "waiting", "repo": "sample-repo" },
+        "urgency": "soon",
+        "keepsMemory": false
+      }
+    },
+    {
+      "t": "moment.taken", "seq": 16, "ack": 14, "at": 1760140881200,
+      "body": { "id": "mom_0123456789abcdef0123456789abcdef" }
+    },
+    {
       "t": "conversations", "seq": 16, "ack": 15, "at": 1760140900000,
       "body": {
         "sessions": [

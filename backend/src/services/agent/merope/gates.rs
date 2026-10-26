@@ -39,14 +39,31 @@ pub fn is_task_outcome(event_key: &str) -> bool {
     NotificationEventKey::from_key(event_key).is_some_and(NotificationEventKey::is_task_outcome)
 }
 
+/// What a child end saw for her and told her host (her link's `moment`):
+/// another coding agent's session on the owner's machine, their
+/// conversation with another AI there, and that machine's own reading of
+/// what they are doing in front of it.
+pub const PEER_AGENT_EVENT: &str = "agent.merope.peer_agent";
+pub const AI_CHAT_EVENT: &str = "agent.merope.ai_chat";
+pub const SITUATION_EVENT: &str = "agent.merope.situation";
+pub const TOLD_EVENTS: [&str; 3] = [PEER_AGENT_EVENT, AI_CHAT_EVENT, SITUATION_EVENT];
+
 /// Said to someone here or not at all: a passing thought, something she
-/// found out, something she just did on her own. Never a notification, never
-/// a diary entry.
+/// found out, something she just did on her own, what a child end saw for
+/// her. Never a notification, never a diary entry.
 pub fn said_only_in_person(event_key: &str) -> bool {
     event_key == super::wander::THOUGHT_EVENT
         || event_key == super::curiosity::FOUND_OUT_EVENT
         || event_key == super::doing::DOING_EVENT
         || event_key == super::playing::PLAYING_EVENT
+        || TOLD_EVENTS.contains(&event_key)
+}
+
+/// Of what is said only in person, what she decides to remember may still
+/// become a memory of them: their conversation with another AI (the owner
+/// decided so on 2026-10-24). Everything else stays in the moment.
+pub fn keeps_memory_of(event_key: &str) -> bool {
+    event_key == AI_CHAT_EVENT
 }
 
 pub fn worth_notifying(event_key: &str) -> bool {
