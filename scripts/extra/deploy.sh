@@ -111,8 +111,9 @@ ensure_guard_policy_secret() {
         set_env_file_value "$GUARD_ENV_FILE" GUARD_SELF_UPDATE_TOKEN "$value"
         info "  + generated host-owned GUARD_SELF_UPDATE_TOKEN"
     fi
+    # Match ASCII bytes regardless of the host's locale and collation rules.
     if [ "${#value}" -lt 32 ] || [ "${#value}" -gt 256 ] \
-        || ! printf '%s' "$value" | grep -Eq '^[!-~]+$'; then
+        || ! printf '%s' "$value" | LC_ALL=C grep -Eq '^[[:graph:]]+$'; then
         err "✗ GUARD_SELF_UPDATE_TOKEN must be 32..256 printable non-whitespace ASCII characters"
         exit 2
     fi
