@@ -296,3 +296,153 @@ fn merope_background_work_uses_the_managed_runner() {
         );
     }
 }
+
+/// Her rules — what decides who she is and what she can do — are written
+/// once, as pure crates in the shared core (`Myriad-You/myriad-core`, here
+/// the `core/` submodule); the backend only orchestrates and stores. So a
+/// file of `services/agent/merope/` that touches nothing of the site (no
+/// storage, model, network, clock, other service or `.await`) is a rule
+/// written in the wrong place. The ones already here are listed with why
+/// they are: her rules still to be moved into the core, and logic of the
+/// site's own that is not hers. A new file is one or the other only by
+/// review; the list only shrinks.
+const MEROPE_RULES_STILL_HERE: &[(&str, &str)] = &[
+    ("services/agent/merope/joining.rs", "hers, to move"),
+    ("services/agent/merope/motion/control.rs", "hers, to move"),
+    ("services/agent/merope/motion/offered.rs", "hers, to move"),
+    ("services/agent/merope/motion/way.rs", "hers, to move"),
+    ("services/agent/merope/motion_local.rs", "hers, to move"),
+    ("services/agent/merope/motion_preview.rs", "hers, to move"),
+    (
+        "services/agent/merope/onboarding_prompts.rs",
+        "the site's: creating her persona on the site",
+    ),
+    (
+        "services/agent/merope/report_dna/evidence.rs",
+        "the site's: reading the site's platform reports",
+    ),
+];
+
+/// A path that reaches the site: anything of the crate outside her own
+/// module, storage, the async runtime, the network, files, the process or a
+/// clock.
+fn touches_the_site(path: &[String]) -> bool {
+    let first = path.first().map(String::as_str);
+    let reaches = |names: &[&str]| path.iter().any(|part| names.contains(&part.as_str()));
+    match first {
+        Some("crate") => !path[1..].starts_with(&[
+            "services".to_string(),
+            "agent".to_string(),
+            "merope".to_string(),
+        ]),
+        Some("sea_orm" | "sqlx" | "tokio" | "reqwest" | "axum" | "hyper" | "futures") => true,
+        Some("std") => reaches(&["fs", "net", "process", "env", "SystemTime", "Instant"]),
+        _ => {
+            reaches(&["SystemTime", "Instant"])
+                || (reaches(&["Utc", "Local"]) && path.last().is_some_and(|last| last == "now"))
+        }
+    }
+}
+
+/// Whether `source` has nothing but module declarations and re-exports.
+fn only_modules(source: &str) -> bool {
+    syn::parse_file(source).is_ok_and(|file| {
+        file.items
+            .iter()
+            .all(|item| matches!(item, syn::Item::Mod(_) | syn::Item::Use(_)))
+    })
+}
+
+/// The files of `services/agent/merope/` that are rules only.
+fn merope_rules_here() -> Vec<String> {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    rust_files(&src.join("services/agent/merope"), &mut files);
+    let mut rules = Vec::new();
+    for path in files {
+        if is_test_file(&path) {
+            continue;
+        }
+        let source = fs::read_to_string(&path).unwrap();
+        let relative = path
+            .strip_prefix(&src)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let pure = forbidden_paths_in(&relative, &source, touches_the_site).is_empty()
+            && !source.contains(".await")
+            && !source.contains("async fn");
+        if pure && !only_modules(&source) {
+            rules.push(relative);
+        }
+    }
+    rules.sort();
+    rules
+}
+
+#[test]
+fn her_rules_are_not_written_in_the_backend() {
+    let here = merope_rules_here();
+    let new: Vec<&String> = here
+        .iter()
+        .filter(|file| {
+            !MEROPE_RULES_STILL_HERE
+                .iter()
+                .any(|(listed, _)| listed == file)
+        })
+        .collect();
+    assert!(
+        new.is_empty(),
+        "her rules belong in the shared core (Myriad-You/myriad-core), not in the backend; \
+         write them there and call them from here (logic of the site's own that is not \
+         hers goes on MEROPE_RULES_STILL_HERE, saying so):\n{}",
+        new.iter()
+            .map(|file| file.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    let moved: Vec<&str> = MEROPE_RULES_STILL_HERE
+        .iter()
+        .map(|(file, _)| *file)
+        .filter(|file| !here.iter().any(|here| here == file))
+        .collect();
+    assert!(
+        moved.is_empty(),
+        "no longer rules only here (moved, or they touch the site now): take them off \
+         MEROPE_RULES_STILL_HERE:\n{moved:?}"
+    );
+}
+
+#[test]
+fn what_touches_the_site_is_seen() {
+    // Spelt in two, so the clock's own check does not take it for a read.
+    let reads_the_clock = ["fn f() -> i64 { chrono::Utc", "::now().timestamp() }"].concat();
+    for source in [
+        "use sea_orm::DatabaseConnection;",
+        "fn f() { tokio::spawn(async {}); }",
+        "use crate::db;",
+        "use crate::services::agent::memory;",
+        &reads_the_clock,
+        "fn f() { let _ = std::time::Instant::now(); }",
+        "use std::fs;",
+    ] {
+        assert!(
+            !forbidden_paths_in("x.rs", source, touches_the_site).is_empty(),
+            "missed {source}"
+        );
+    }
+    for source in [
+        "use crate::services::agent::merope::gates;",
+        "use super::store;",
+        "use serde_json::Value;",
+        "use std::collections::BTreeMap;",
+        "fn f(now: chrono::DateTime<chrono::Utc>) {}",
+    ] {
+        assert!(
+            forbidden_paths_in("x.rs", source, touches_the_site).is_empty(),
+            "false positive {source}"
+        );
+    }
+    assert!(only_modules("mod a;\npub use a::b;"));
+    assert!(!only_modules("mod a;\nfn f() {}"));
+}
