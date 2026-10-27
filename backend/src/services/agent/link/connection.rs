@@ -404,7 +404,8 @@ impl Link {
     /// What the shared core's rules say of a frame from the child. The host
     /// answers it as before either way (see `contract::core_check`); the
     /// first refusal of each kind on a link is logged, so it shows whether a
-    /// child sends one.
+    /// child sends one. Only the frame type and the code: the core's detail
+    /// quotes what the child sent (an unknown type, a field name).
     fn core_reads(&mut self, text: &str) {
         let Ok(frame) = serde_json::from_str::<Value>(text) else {
             return;
@@ -417,7 +418,7 @@ impl Link {
             .filter(|t| CONTRACT.frames.contains_key(*t))
             .unwrap_or("?");
         if self.core_refused.insert(format!("{t} {}", refusal.code)) {
-            tracing::info!(device = %self.device.id, t, code = %refusal.code, detail = %refusal.detail, "[link] the shared core refuses a frame from the child");
+            tracing::info!(device = %self.device.id, t, code = %refusal.code, "[link] the shared core refuses a frame from the child");
         }
     }
 
