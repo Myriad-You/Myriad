@@ -45,6 +45,16 @@ test('a lock reaches under the lock above it with that lock\'s pixels', () => {
   assert.deepEqual(at(over, 198, 40), [0, 0, 0, 0], 'the top lock is left as it was')
 })
 
+test('it fades out at its far end, so a wide parting shows no cut across the strands above', () => {
+  // The locks span 200 px: it reaches 10 px under the lock above, fading over the last 4.
+  const [under] = underlapHairLocks([left(), right()])
+  const alpha = (x: number) => at(under, x, 40)[3]
+  assert.equal(alpha(205), 255)
+  assert.ok(alpha(208) > 0 && alpha(208) < 255, `x 208: ${alpha(208)}`)
+  assert.ok(alpha(207) > alpha(208), 'fading')
+  assert.equal(alpha(211), 0)
+})
+
 test('nothing at rest changes, and the opened cut shows hair, not skin', () => {
   const before = [left(), right()]
   const after = underlapHairLocks([left(), right()])
@@ -52,6 +62,25 @@ test('nothing at rest changes, and the opened cut shows hair, not skin', () => {
   // The lock above swings 2 px right: without the underlap the skin shows at x 200..201.
   assert.deepEqual(shown(before, 200, 40, 2), [240, 210, 200])
   assert.deepEqual(shown(after, 200, 40, 2), [...DARKER])
+})
+
+test('under a translucent edge the two share its cover: the pair draws it as before, and it stays when they part', () => {
+  const soft = () => {
+    const layer = right()
+    // The lock above's first 4 columns are a soft edge.
+    for (let y = 0; y < layer.height; y++) {
+      for (let x = 0; x < 4; x++) layer.data[(y * layer.width + x) * 4 + 3] = 128
+    }
+    return layer
+  }
+  const before = [left(), soft()]
+  const after = underlapHairLocks([left(), soft()])
+  for (const x of [199, 200, 202, 203, 204, 206]) {
+    shown(after, x, 40).forEach((value, channel) => assert.ok(Math.abs(value - shown(before, x, 40)[channel]) <= 1, `x ${x}`))
+  }
+  assert.ok(at(after[0], 201, 40)[3] > 0, 'the lock under it takes a share')
+  // The lock above swings 4 px right: its soft edge's hair stays over the opened cut.
+  assert.deepEqual(shown(after, 201, 40, 4), shown(after, 201, 40))
 })
 
 test('a single lock, or front hair that was not cut, is left alone', () => {
