@@ -1,12 +1,18 @@
 //! `core/shared/her_link_contract.json`, read once: the protocol number, timings,
 //! limits and the codes the host closes and refuses with all come from it,
 //! so the host cannot drift from what children build against.
+//!
+//! What a frame must look like is the shared core's (`myriad_her_link`),
+//! which reads the same contract: [`core_check`].
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 use std::time::Duration;
 
 use serde::Deserialize;
+use serde_json::Value;
+
+pub(super) use myriad_her_link::valid_id;
 
 pub(super) const CONTRACT_JSON: &str =
     include_str!("../../../../../core/shared/her_link_contract.json");
@@ -30,10 +36,22 @@ pub(super) struct Contract {
     pub act_statuses: Vec<String>,
     pub moments: MomentRules,
     pub cap_names: CapNames,
-    pub envelope: FieldSpec,
     pub frames: BTreeMap<String, FrameSpec>,
     pub error_codes: BTreeMap<String, String>,
     pub close_codes: BTreeMap<String, CloseSpec>,
+    pub next: Next,
+}
+
+/// `next`: protocol 2, which the shared core's frame rules are written for.
+#[derive(Debug, Deserialize)]
+pub(super) struct Next {
+    pub encoding: Encoding,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Encoding {
+    pub frame_version: u64,
 }
 
 /// `moments`: what a child's `moment` may be.
@@ -86,22 +104,13 @@ pub(super) struct Limits {
     pub id_pattern: String,
 }
 
-#[derive(Debug, Deserialize)]
-#[cfg_attr(not(test), allow(dead_code))]
-pub(super) struct FieldSpec {
-    pub required: Vec<String>,
-    #[serde(default)]
-    pub optional: Vec<String>,
-}
-
+/// Who sends a frame type and how it is delivered; its fields are the
+/// shared core's to check.
 #[derive(Debug, Deserialize)]
 #[cfg_attr(not(test), allow(dead_code))]
 pub(super) struct FrameSpec {
     pub from: String,
     pub delivery: String,
-    pub required: Vec<String>,
-    #[serde(default)]
-    pub optional: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -296,10 +305,25 @@ pub(super) fn cap_for_mac(cap: Vec<String>) -> Vec<String> {
     kept
 }
 
-/// `limits.idPattern`, without a regex engine: 1 to 64 of `A-Za-z0-9_.:-`.
-pub(super) fn valid_id(id: &str) -> bool {
-    (1..=64).contains(&id.len())
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
+/// What the shared core's rules say of a frame of the link: its envelope,
+/// `seq`, `ack`, `at`, a reliable frame's `id`, its body's fields and its
+/// size (`myriad_her_link::check`).
+///
+/// The core reads protocol-1 frames inside the protocol-2 envelope, which is
+/// protocol 1's with `v`. A protocol-1 frame has no `v`, so it is read as the
+/// contract's frame version; one that carries its own is read as it says.
+/// Senders' roles are the core's for protocol 2 only, so none are given.
+///
+/// The host does not refuse a frame on this alone. The core is stricter than
+/// the host has been in a few places, and the host keeps its own answer
+/// there until those are settled in the core; each is in the tests
+/// (`where_the_core_and_the_host_differ`).
+pub(super) fn core_check(frame: &Value) -> Result<(), myriad_her_link::Refusal> {
+    let mut frame = frame.clone();
+    if let Some(envelope) = frame.as_object_mut() {
+        envelope
+            .entry("v")
+            .or_insert(CONTRACT.next.encoding.frame_version.into());
+    }
+    myriad_her_link::check(&frame, &[]).map(|_| ())
 }

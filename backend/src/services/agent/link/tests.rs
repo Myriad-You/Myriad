@@ -13,7 +13,8 @@ use tokio_tungstenite::tungstenite::{self, Message, client::IntoClientRequest};
 
 use super::connection::{Hello, Inbound, Input, Resume, accepted, acting, mood_frame};
 use super::contract::{
-    CHILD_FRAMES, CONTRACT, CONTRACT_JSON, Close, HOST_ERROR_CODES, HOST_FRAMES, Timing, valid_id,
+    CHILD_FRAMES, CONTRACT, CONTRACT_JSON, Close, HOST_ERROR_CODES, HOST_FRAMES, Timing,
+    core_check, valid_id,
 };
 use super::say::SayKind;
 use super::turns::{self, Turn};
@@ -76,9 +77,6 @@ fn the_host_speaks_the_contract() {
             "{t}: {}",
             spec.delivery
         );
-        for field in &spec.optional {
-            assert!(!spec.required.contains(field), "{t}.{field}");
-        }
     }
     assert_eq!(CONTRACT.frames["input"].delivery, "reliable");
     assert_eq!(CONTRACT.frames["say"].delivery, "reliable");
@@ -174,12 +172,6 @@ fn the_host_speaks_the_contract() {
 #[test]
 fn every_frame_has_a_fixture_that_fits_it() {
     let frames = fixtures();
-    let envelope_required: BTreeSet<String> = CONTRACT.envelope.required.iter().cloned().collect();
-    let envelope_all: BTreeSet<String> = envelope_required
-        .iter()
-        .chain(CONTRACT.envelope.optional.iter())
-        .cloned()
-        .collect();
     let mut seen = BTreeSet::new();
     for frame in &frames {
         let t = frame["t"].as_str().expect("t");
@@ -188,29 +180,10 @@ fn every_frame_has_a_fixture_that_fits_it() {
             .get(t)
             .unwrap_or_else(|| panic!("{t} is not in the contract"));
         seen.insert(t.to_string());
-        let envelope = keys(frame);
-        assert!(
-            envelope.is_superset(&envelope_required),
-            "{t}: {envelope:?}"
-        );
-        assert!(envelope.is_subset(&envelope_all), "{t}: {envelope:?}");
-        assert!(frame["seq"].as_u64().is_some_and(|seq| seq >= 1), "{t}");
-        assert!(frame["ack"].as_u64().is_some(), "{t}");
+        // Its envelope and body as the shared core checks them.
+        core_check(frame).unwrap_or_else(|refusal| panic!("{t}: {refusal:?}"));
+        assert!(frame.get("v").is_none(), "{t}: protocol 1 has no v");
         assert!(frame["at"].as_i64().is_some(), "{t}");
-        assert_eq!(
-            frame.get("id").is_some(),
-            spec.delivery == "reliable",
-            "{t}"
-        );
-        let body = keys(&frame["body"]);
-        let required: BTreeSet<String> = spec.required.iter().cloned().collect();
-        let all: BTreeSet<String> = required
-            .iter()
-            .chain(spec.optional.iter())
-            .cloned()
-            .collect();
-        assert!(body.is_superset(&required), "{t}: {body:?}");
-        assert!(body.is_subset(&all), "{t}: {body:?}");
         // What a child sends, the host reads.
         if spec.from != "host" {
             let inbound: Inbound = serde_json::from_value(frame.clone()).expect(t);
@@ -468,6 +441,160 @@ impl Site {
     }
 }
 
+/// A ping as a child sends it, to bend one way at a time.
+fn ping() -> Value {
+    json!({ "t": "ping", "seq": 3, "ack": 0, "at": 1_760_140_800_000_i64, "body": {} })
+}
+
+/// Where the shared core's rules and the host's own read of a child's frame
+/// part: (what, the frame, the core's refusal or `None` for taken, whether
+/// the host reads its envelope). The host keeps its own answer in each until
+/// it is settled in the core (`Myriad-You/myriad-core`), and
+/// `the_host_answers_as_before_where_the_core_is_stricter` shows what that
+/// answer is over the link.
+fn where_they_differ() -> Vec<(&'static str, String, Option<&'static str>, bool)> {
+    let bent = |bend: &dyn Fn(&mut Value)| {
+        let mut frame = ping();
+        bend(&mut frame);
+        frame.to_string()
+    };
+    let mut lease_ask = serde_json::from_str::<Value>(FIXTURES_JSON).unwrap()["next"]["frames"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|frame| frame["t"] == "lease.ask")
+        .unwrap()
+        .clone();
+    lease_ask.as_object_mut().unwrap().remove("v");
+    vec![
+        // The core is stricter: the host takes these.
+        (
+            "an envelope field the contract does not name",
+            bent(&|frame| frame["trace"] = json!("x")),
+            Some("bad_frame"),
+            true,
+        ),
+        (
+            "a v the core does not read",
+            bent(&|frame| frame["v"] = json!(2)),
+            Some("version_unsupported"),
+            true,
+        ),
+        (
+            "seq 0",
+            bent(&|frame| frame["seq"] = json!(0)),
+            Some("bad_frame"),
+            true,
+        ),
+        (
+            "at before 1970",
+            bent(&|frame| frame["at"] = json!(-1)),
+            Some("bad_frame"),
+            true,
+        ),
+        (
+            "an id on a frame that is not reliable",
+            bent(&|frame| frame["id"] = json!("p_1")),
+            Some("bad_frame"),
+            true,
+        ),
+        (
+            "a control frame's body with a field",
+            bent(&|frame| frame["body"] = json!({ "x": 1 })),
+            Some("bad_frame"),
+            true,
+        ),
+        (
+            "a control frame's body that is not an object",
+            bent(&|frame| frame["body"] = Value::Null),
+            Some("bad_frame"),
+            true,
+        ),
+        (
+            "a body field the contract does not name",
+            bent(&|frame| {
+                frame["t"] = json!("run.resume");
+                frame["body"] = json!({ "turnId": "t_1", "afterSeq": 0, "trace": "x" });
+            }),
+            Some("bad_frame"),
+            true,
+        ),
+        // Both refuse, with other codes.
+        (
+            "a reliable frame without an id (the host: bad_id)",
+            bent(&|frame| {
+                frame["t"] = json!("act.result");
+                frame["body"] = json!({ "actId": "act_1", "phase": "started" });
+            }),
+            Some("bad_frame"),
+            true,
+        ),
+        (
+            "input with a null id (the host: bad_frame)",
+            bent(&|frame| {
+                frame["t"] = json!("input");
+                frame["id"] = Value::Null;
+                frame["body"] = json!({ "surface": "app", "text": "hi" });
+            }),
+            Some("bad_id"),
+            true,
+        ),
+        (
+            "an id that is not text (the host: bad_frame, without ref)",
+            bent(&|frame| {
+                frame["t"] = json!("act.result");
+                frame["id"] = json!(7);
+                frame["body"] = json!({ "actId": "act_1", "phase": "started" });
+            }),
+            Some("bad_id"),
+            false,
+        ),
+        // The host is stricter, or answers what the core takes.
+        (
+            "at past what the host reads (i64)",
+            bent(&|frame| frame["at"] = json!(u64::MAX)),
+            None,
+            false,
+        ),
+        (
+            "an envelope field twice",
+            r#"{"t":"ping","seq":3,"seq":4,"ack":0,"at":1,"body":{}}"#.to_string(),
+            None,
+            false,
+        ),
+        (
+            "a protocol-2 frame (the host: unknown_frame)",
+            lease_ask.to_string(),
+            None,
+            true,
+        ),
+        (
+            "a frame only the host sends (the host: bad_frame)",
+            bent(&|frame| {
+                frame["t"] = json!("mood");
+                frame["body"] = json!({ "mood": {}, "activity": "idle" });
+            }),
+            None,
+            true,
+        ),
+    ]
+}
+
+#[test]
+fn where_the_core_and_the_host_differ() {
+    assert!(core_check(&ping()).is_ok());
+    for (what, text, core, host) in where_they_differ() {
+        let frame: Value = serde_json::from_str(&text).unwrap();
+        let refused = core_check(&frame).err().map(|refusal| refusal.code);
+        assert_eq!(refused.as_deref(), core, "{what}");
+        assert_eq!(
+            serde_json::from_str::<Inbound>(&text).is_ok(),
+            host,
+            "{what}"
+        );
+    }
+}
+
 /// The agent router on an isolated schema, with the site's owner.
 async fn site() -> Option<Site> {
     let fixture = crate::federation::test_db::SchemaDb::new_or_media().await?;
@@ -600,6 +727,8 @@ impl Child {
                 continue;
             };
             let frame: Value = serde_json::from_str(text.as_str()).unwrap();
+            // Everything the host sends, the shared core takes.
+            core_check(&frame).unwrap_or_else(|refusal| panic!("{refusal:?}: {frame}"));
             let seq = frame["seq"].as_u64().unwrap();
             assert_eq!(seq, self.heard + 1, "the host numbers its frames: {frame}");
             self.heard = seq;
@@ -832,6 +961,79 @@ async fn hello_welcome_and_what_the_link_will_not_take() {
         (status, body["code"].as_str()),
         (401, Some("device_revoked"))
     );
+    site.close().await;
+}
+
+/// What the host answers where the shared core would refuse, or where the
+/// two answer otherwise (`where_they_differ`): as before the core read
+/// frames, over a real link.
+#[tokio::test]
+async fn the_host_answers_as_before_where_the_core_is_stricter() {
+    let Some(site) = site().await else {
+        return;
+    };
+    let (_, token) = device(&site.db, "Mac").await;
+    let mut child = Child::open(&site, &token).await;
+    // Before hello it waits for hello, whatever the core says of the frame.
+    child.seq += 1;
+    let early = child.seq;
+    let mut frame = ping();
+    frame["seq"] = json!(early);
+    frame["trace"] = json!("x");
+    child.raw(Message::Text(frame.to_string().into())).await;
+    assert_eq!(
+        child.expect("error").await["body"],
+        json!({ "code": "not_ready", "ref": early })
+    );
+    // A hello with a field the contract does not name is welcomed.
+    child
+        .send(
+            "hello",
+            None,
+            json!({ "protocol": 1, "role": "child", "surface": "app", "trace": "x" }),
+        )
+        .await;
+    child.expect("welcome").await;
+    let answers: Vec<Value> = vec![
+        json!({ "t": "pong" }),
+        json!({ "t": "pong" }),
+        json!({ "t": "pong" }),
+        json!({ "t": "pong" }),
+        json!({ "t": "pong" }),
+        json!({ "t": "pong" }),
+        json!({ "t": "pong" }),
+        json!({ "t": "run.rejected", "body": { "turnId": "t_1", "code": "turn_unknown" } }),
+        json!({ "t": "error", "body": { "code": "bad_id" } }),
+        json!({ "t": "error", "body": { "code": "bad_frame" } }),
+        json!({ "t": "error", "body": { "code": "bad_frame" }, "unref": true }),
+        json!({ "t": "error", "body": { "code": "bad_frame" }, "unref": true }),
+        json!({ "t": "error", "body": { "code": "bad_frame" }, "unref": true }),
+        json!({ "t": "error", "body": { "code": "unknown_frame" } }),
+        json!({ "t": "error", "body": { "code": "bad_frame" } }),
+    ];
+    let cases = where_they_differ();
+    assert_eq!(cases.len(), answers.len());
+    for ((what, text, _, _), answer) in cases.into_iter().zip(answers) {
+        // Numbered in turn, unless the case is about its seq.
+        let mut frame: Value = serde_json::from_str(&text).unwrap();
+        child.seq += 1;
+        let text = if frame["seq"] == 3 {
+            frame["seq"] = json!(child.seq);
+            frame.to_string()
+        } else {
+            text
+        };
+        child.raw(Message::Text(text.into())).await;
+        let got = child.next().await;
+        assert_eq!(got["t"], answer["t"], "{what}: {got}");
+        if let Some(body) = answer["body"].as_object() {
+            let mut body = Value::Object(body.clone());
+            if answer["t"] == "error" && answer.get("unref").is_none() {
+                body["ref"] = frame["seq"].clone();
+            }
+            assert_eq!(got["body"], body, "{what}: {got}");
+        }
+    }
     site.close().await;
 }
 
@@ -1300,8 +1502,7 @@ async fn her_lines_go_to_the_app_they_are_using_her_on() {
     assert_eq!(greeting["body"]["kind"], "greeting");
     assert_eq!(greeting["body"]["eventKey"], "agent.merope.greeting");
     assert_eq!(greeting["body"]["perform"], directive);
-    let required: BTreeSet<String> = CONTRACT.frames["say"].required.iter().cloned().collect();
-    assert!(keys(&greeting["body"]).is_superset(&required));
+    // Its fields are the contract's: the child read it through the core.
     assert_eq!(keys(&greeting), keys(&fixture("say")));
     // Something she says in person is face-to-face.
     assert!(

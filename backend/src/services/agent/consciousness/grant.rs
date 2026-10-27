@@ -1,3 +1,8 @@
+//! The site's side of the grant rules in `myriad_agent_rules::grants`: who
+//! is a person here (an account id above the heartbeat's), what an empty
+//! request covers (`max_user_agent_permissions`), and the messages.
+
+use myriad_agent_rules::grants::{self, Actor, AutonomyGrant, Check, Verdict, WriteRefusal};
 use serde::Serialize;
 
 use crate::services::agent::SYSTEM_USER_ID;
@@ -38,31 +43,15 @@ pub fn evaluate_autonomy_grant(
     grant: Option<&AutonomyGrantView>,
     current_granted_permissions: &[String],
 ) -> AutonomyVerdict {
-    if !is_personal_addressee(actor_user_id) {
-        return AutonomyVerdict::RequireUserReview;
-    }
-    let Some(grant) = grant else {
-        return AutonomyVerdict::RequireUserReview;
-    };
-    if grant.revoked || grant.user_id != actor_user_id || !is_personal_addressee(grant.user_id) {
-        return AutonomyVerdict::RequireUserReview;
-    }
-
-    let granted_permissions: Vec<String> = grant
-        .allowed_permissions
-        .iter()
-        .filter(|permission| {
-            current_granted_permissions
-                .iter()
-                .any(|granted| granted == *permission)
-        })
-        .cloned()
-        .collect();
-    if granted_permissions.is_empty() {
-        return AutonomyVerdict::RequireUserReview;
-    }
-    AutonomyVerdict::AllowPersonalWork {
-        granted_permissions,
+    match grants::evaluate(
+        &actor(actor_user_id),
+        rule_grant(grant).as_ref(),
+        current_granted_permissions,
+    ) {
+        Verdict::RequireUserReview => AutonomyVerdict::RequireUserReview,
+        Verdict::AllowPersonalWork { granted } => AutonomyVerdict::AllowPersonalWork {
+            granted_permissions: granted,
+        },
     }
 }
 
@@ -81,34 +70,12 @@ pub fn intention_may_enter_work(
     current_granted_permissions: &[String],
     accept_source: super::AcceptSource,
 ) -> bool {
-    if !is_personal_addressee(actor_user_id) {
-        return false;
-    }
-    match accept_source {
-        super::AcceptSource::User => true,
-        super::AcceptSource::Autonomy => matches!(
-            evaluate_autonomy_grant(actor_user_id, grant, current_granted_permissions),
-            AutonomyVerdict::AllowPersonalWork { .. }
-        ),
-    }
-}
-
-/// Autonomy-capped execute: the grant row must still `AllowPersonalWork`
-/// after re-filtering current granted permissions, and the entry-time cap
-/// remains an extra ceiling.
-pub fn autonomy_cap_still_allows(
-    user_id: i32,
-    grant: Option<&AutonomyGrantView>,
-    current_granted_permissions: &[String],
-    autonomy_permission_cap: Option<&[String]>,
-) -> bool {
-    let Some(cap) = autonomy_permission_cap else {
-        return true;
-    };
-    matches!(
-        evaluate_autonomy_grant(user_id, grant, current_granted_permissions),
-        AutonomyVerdict::AllowPersonalWork { .. }
-    ) && !effective_granted_permissions(current_granted_permissions, Some(cap)).is_empty()
+    grants::may_enter_work(
+        &actor(actor_user_id),
+        rule_grant(grant).as_ref(),
+        current_granted_permissions,
+        source(accept_source),
+    )
 }
 
 /// Runtime granted names intersected with an optional autonomy cap.
@@ -116,14 +83,7 @@ pub fn effective_granted_permissions(
     current_granted_permissions: &[String],
     autonomy_permission_cap: Option<&[String]>,
 ) -> Vec<String> {
-    let Some(cap) = autonomy_permission_cap else {
-        return current_granted_permissions.to_vec();
-    };
-    current_granted_permissions
-        .iter()
-        .filter(|permission| cap.iter().any(|allowed| allowed == *permission))
-        .cloned()
-        .collect()
+    grants::effective(current_granted_permissions, autonomy_permission_cap)
 }
 
 /// Execute-time permission check. Autonomy-capped Work re-reads the live grant
@@ -138,30 +98,19 @@ pub fn autonomy_execute_permission_error(
     capability_id: &str,
     required_permissions: &[String],
 ) -> Option<String> {
-    if autonomy_permission_cap.is_some()
-        && !autonomy_cap_still_allows(
-            user_id,
-            grant,
-            current_granted_permissions,
-            autonomy_permission_cap,
-        )
-    {
-        return Some("Personal autonomy is no longer granted".into());
+    match grants::check(
+        &actor(user_id),
+        rule_grant(grant).as_ref(),
+        current_granted_permissions,
+        autonomy_permission_cap,
+        required_permissions,
+    ) {
+        Check::Allowed => None,
+        Check::AutonomyWithdrawn => Some("Personal autonomy is no longer granted".into()),
+        Check::Missing { missing } => missing
+            .first()
+            .map(|perm| format!("权限不足：执行 '{capability_id}' 需要 '{perm}' 权限")),
     }
-    if required_permissions.is_empty() {
-        return None;
-    }
-    let effective =
-        effective_granted_permissions(current_granted_permissions, autonomy_permission_cap);
-    required_permissions.iter().find_map(|perm| {
-        if effective.iter().any(|granted| granted == perm) {
-            None
-        } else {
-            Some(format!(
-                "权限不足：执行 '{capability_id}' 需要 '{perm}' 权限"
-            ))
-        }
-    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,6 +130,15 @@ impl AutonomyGrantWriteError {
     }
 }
 
+impl From<WriteRefusal> for AutonomyGrantWriteError {
+    fn from(refusal: WriteRefusal) -> Self {
+        match refusal {
+            WriteRefusal::HeartbeatIdentity => Self::HeartbeatIdentity,
+            WriteRefusal::EmptyAfterFilter => Self::EmptyAfterFilter,
+        }
+    }
+}
+
 /// Build a persistable grant for the addressee. Heartbeat identity cannot hold
 /// one. Requested names are intersected with current granted permissions.
 ///
@@ -192,53 +150,58 @@ pub fn prepare_personal_grant(
     requested_permissions: &[String],
     current_granted_permissions: &[String],
 ) -> Result<AutonomyGrantView, AutonomyGrantWriteError> {
-    if !is_personal_addressee(user_id) {
-        return Err(AutonomyGrantWriteError::HeartbeatIdentity);
-    }
-    let candidates = crate::services::agent::max_user_agent_permissions();
-    let narrowed = if requested_permissions.is_empty() {
-        Some(
-            current_granted_permissions
-                .iter()
-                .filter(|permission| candidates.contains(permission.as_str()))
-                .cloned()
-                .collect::<Vec<_>>(),
-        )
-    } else {
-        None
-    };
-    let requested: &[String] = narrowed.as_deref().unwrap_or(requested_permissions);
-    let allowed_permissions: Vec<String> = requested
-        .iter()
-        .filter(|permission| {
-            current_granted_permissions
-                .iter()
-                .any(|granted| granted == *permission)
-        })
-        .cloned()
+    let candidates: Vec<String> = crate::services::agent::max_user_agent_permissions()
+        .into_iter()
         .collect();
-    if allowed_permissions.is_empty() {
-        return Err(AutonomyGrantWriteError::EmptyAfterFilter);
-    }
-    Ok(AutonomyGrantView {
-        user_id,
-        allowed_permissions,
-        revoked: false,
-    })
+    let grant = grants::prepare(
+        &actor(user_id),
+        requested_permissions,
+        current_granted_permissions,
+        &candidates,
+    )?;
+    Ok(view(grant))
 }
 
 /// Mark a stored grant revoked. Heartbeat identity cannot hold the result.
 pub fn revoke_personal_grant(
     grant: &AutonomyGrantView,
 ) -> Result<AutonomyGrantView, AutonomyGrantWriteError> {
-    if !is_personal_addressee(grant.user_id) {
-        return Err(AutonomyGrantWriteError::HeartbeatIdentity);
+    let revoked = grants::revoke(&rule_grant_of(grant), is_personal_addressee(grant.user_id))?;
+    Ok(view(revoked))
+}
+
+pub(super) fn actor(user_id: i32) -> Actor<i32> {
+    Actor {
+        id: user_id,
+        personal: is_personal_addressee(user_id),
     }
-    Ok(AutonomyGrantView {
-        user_id: grant.user_id,
-        allowed_permissions: grant.allowed_permissions.clone(),
-        revoked: true,
-    })
+}
+
+pub(super) fn rule_grant(grant: Option<&AutonomyGrantView>) -> Option<AutonomyGrant<i32>> {
+    grant.map(rule_grant_of)
+}
+
+fn rule_grant_of(grant: &AutonomyGrantView) -> AutonomyGrant<i32> {
+    AutonomyGrant {
+        actor: grant.user_id,
+        allowed: grant.allowed_permissions.clone(),
+        revoked: grant.revoked,
+    }
+}
+
+fn view(grant: AutonomyGrant<i32>) -> AutonomyGrantView {
+    AutonomyGrantView {
+        user_id: grant.actor,
+        allowed_permissions: grant.allowed,
+        revoked: grant.revoked,
+    }
+}
+
+pub(super) fn source(accept_source: super::AcceptSource) -> grants::Source {
+    match accept_source {
+        super::AcceptSource::User => grants::Source::User,
+        super::AcceptSource::Autonomy => grants::Source::Autonomy,
+    }
 }
 
 fn is_personal_addressee(user_id: i32) -> bool {
@@ -247,7 +210,8 @@ fn is_personal_addressee(user_id: i32) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::super::AcceptSource;
+    // The rules themselves are tested in `myriad_agent_rules::grants`; these
+    // cover what the site adds: who is a person, the candidates, the words.
     use super::*;
 
     fn grant(user_id: i32, permissions: &[&str], revoked: bool) -> AutonomyGrantView {
@@ -262,111 +226,32 @@ mod tests {
     }
 
     #[test]
-    fn heartbeat_system_user_is_never_a_personal_grant() {
-        let heartbeat = grant(SYSTEM_USER_ID, &["calendar:read"], false);
+    fn the_heartbeat_and_non_positive_ids_are_not_people() {
+        let current = vec!["calendar:read".to_string()];
+        for id in [SYSTEM_USER_ID, -3] {
+            assert_eq!(
+                evaluate_autonomy_grant(id, Some(&grant(id, &["calendar:read"], false)), &current),
+                AutonomyVerdict::RequireUserReview
+            );
+            assert_eq!(
+                prepare_personal_grant(id, &current, &current),
+                Err(AutonomyGrantWriteError::HeartbeatIdentity)
+            );
+            assert_eq!(
+                revoke_personal_grant(&grant(id, &["calendar:read"], false)),
+                Err(AutonomyGrantWriteError::HeartbeatIdentity)
+            );
+        }
         assert_eq!(
-            evaluate_autonomy_grant(SYSTEM_USER_ID, Some(&heartbeat), &["calendar:read".into()]),
-            AutonomyVerdict::RequireUserReview
-        );
-        assert!(!skips_user_review(&evaluate_autonomy_grant(
-            SYSTEM_USER_ID,
-            Some(&heartbeat),
-            &["calendar:read".into()],
-        )));
-        assert_eq!(
-            evaluate_autonomy_grant(7, Some(&heartbeat), &["calendar:read".into()]),
-            AutonomyVerdict::RequireUserReview
-        );
-    }
-
-    #[test]
-    fn missing_or_revoked_grant_cannot_skip_user_review() {
-        assert_eq!(
-            evaluate_autonomy_grant(7, None, &["calendar:read".into()]),
-            AutonomyVerdict::RequireUserReview
-        );
-        let revoked = grant(7, &["calendar:read"], true);
-        assert_eq!(
-            evaluate_autonomy_grant(7, Some(&revoked), &["calendar:read".into()]),
-            AutonomyVerdict::RequireUserReview
-        );
-        assert!(!skips_user_review(&evaluate_autonomy_grant(
-            7,
-            Some(&revoked),
-            &["calendar:read".into()],
-        )));
-    }
-
-    #[test]
-    fn valid_grant_is_refiltered_by_current_granted_permissions() {
-        let stored = grant(7, &["calendar:read", "mcp:execute", "mail:send"], false);
-        // mcp:execute is on the grant row but not currently granted — drop it.
-        let verdict = evaluate_autonomy_grant(
-            7,
-            Some(&stored),
-            &["calendar:read".into(), "mail:send".into()],
-        );
-        assert_eq!(
-            verdict,
+            evaluate_autonomy_grant(7, Some(&grant(7, &["calendar:read"], false)), &current),
             AutonomyVerdict::AllowPersonalWork {
-                granted_permissions: vec!["calendar:read".into(), "mail:send".into()],
+                granted_permissions: current.clone(),
             }
         );
-        assert!(skips_user_review(&verdict));
-
-        let declared_only = evaluate_autonomy_grant(
-            7,
-            Some(&stored),
-            &[], // runtime grant filter produced nothing
-        );
-        assert_eq!(declared_only, AutonomyVerdict::RequireUserReview);
-        assert!(!skips_user_review(&declared_only));
     }
 
     #[test]
-    fn require_user_review_after_revoke_or_permission_drop_cannot_enter_work() {
-        let revoked = grant(7, &["calendar:read"], true);
-        assert!(!intention_may_enter_work(
-            7,
-            Some(&revoked),
-            &["calendar:read".into()],
-            AcceptSource::Autonomy,
-        ));
-        let live = grant(7, &["calendar:read", "mcp:execute"], false);
-        assert!(!intention_may_enter_work(
-            7,
-            Some(&live),
-            &[],
-            AcceptSource::Autonomy,
-        ));
-        assert!(!intention_may_enter_work(
-            SYSTEM_USER_ID,
-            Some(&grant(SYSTEM_USER_ID, &["calendar:read"], false)),
-            &["calendar:read".into()],
-            AcceptSource::User,
-        ));
-        assert!(intention_may_enter_work(
-            7,
-            None,
-            &["calendar:read".into()],
-            AcceptSource::User,
-        ));
-        assert!(intention_may_enter_work(
-            7,
-            Some(&live),
-            &["calendar:read".into()],
-            AcceptSource::Autonomy,
-        ));
-        assert!(intention_may_enter_work(
-            7,
-            Some(&revoked),
-            &["calendar:read".into()],
-            AcceptSource::User,
-        ));
-    }
-
-    #[test]
-    fn empty_request_keeps_user_grants_and_drops_admin_only() {
+    fn an_empty_request_drops_admin_only_permissions() {
         let admin_current = vec![
             "system:admin".to_string(),
             "phantasi:admin".to_string(),
@@ -374,173 +259,32 @@ mod tests {
             "scheduler:write".to_string(),
         ];
         let prepared = prepare_personal_grant(7, &[], &admin_current).unwrap();
-        assert!(
-            !prepared
-                .allowed_permissions
-                .iter()
-                .any(|permission| permission == "system:admin")
-        );
-        assert!(
-            !prepared
-                .allowed_permissions
-                .iter()
-                .any(|permission| permission == "phantasi:admin")
-        );
-        assert!(
-            prepared
-                .allowed_permissions
-                .iter()
-                .any(|permission| permission == "http:fetch")
-        );
-        assert!(
-            prepared
-                .allowed_permissions
-                .iter()
-                .any(|permission| permission == "scheduler:write")
-        );
-
-        let explicit = prepare_personal_grant(7, &["system:admin".into()], &admin_current).unwrap();
         assert_eq!(
-            explicit.allowed_permissions,
+            prepared.allowed_permissions,
+            vec!["http:fetch".to_string(), "scheduler:write".to_string()]
+        );
+        assert_eq!(
+            prepare_personal_grant(7, &["system:admin".into()], &admin_current)
+                .unwrap()
+                .allowed_permissions,
             vec!["system:admin".to_string()]
         );
-
-        let regular = vec!["http:fetch".to_string(), "scheduler:write".to_string()];
-        let from_empty = prepare_personal_grant(7, &[], &regular).unwrap();
-        let from_explicit = prepare_personal_grant(7, &regular, &regular).unwrap();
         assert_eq!(
-            from_empty.allowed_permissions,
-            from_explicit.allowed_permissions
-        );
-        assert_eq!(from_empty.allowed_permissions, regular);
-    }
-
-    #[test]
-    fn grant_then_revoke_and_permission_drop_go_through_work_entry_check() {
-        let current = vec!["calendar:read".to_string(), "mail:send".to_string()];
-        let live = prepare_personal_grant(7, &["calendar:read".into()], &current).unwrap();
-        assert!(!live.revoked);
-        assert_eq!(live.allowed_permissions, vec!["calendar:read".to_string()]);
-        assert!(intention_may_enter_work(
-            7,
-            Some(&live),
-            &current,
-            AcceptSource::Autonomy,
-        ));
-
-        let revoked = revoke_personal_grant(&live).unwrap();
-        assert!(revoked.revoked);
-        assert!(!intention_may_enter_work(
-            7,
-            Some(&revoked),
-            &current,
-            AcceptSource::Autonomy,
-        ));
-        assert!(!intention_may_enter_work(
-            7,
-            Some(&live),
-            &[],
-            AcceptSource::Autonomy,
-        ));
-
-        assert_eq!(
-            prepare_personal_grant(SYSTEM_USER_ID, &["calendar:read".into()], &current),
-            Err(AutonomyGrantWriteError::HeartbeatIdentity)
-        );
-        assert_eq!(
-            revoke_personal_grant(&grant(SYSTEM_USER_ID, &["calendar:read"], false)),
-            Err(AutonomyGrantWriteError::HeartbeatIdentity)
+            prepare_personal_grant(7, &["mail:send".into()], &admin_current),
+            Err(AutonomyGrantWriteError::EmptyAfterFilter)
         );
     }
 
     #[test]
-    fn effective_granted_permissions_intersect_the_autonomy_cap() {
-        let granted = vec!["calendar:read".into(), "mail:send".into()];
-        let cap = vec!["calendar:read".into()];
-        assert_eq!(
-            effective_granted_permissions(&granted, Some(&cap)),
-            vec!["calendar:read".to_string()]
-        );
-        assert!(
-            !effective_granted_permissions(&granted, Some(&cap))
-                .iter()
-                .any(|p| p == "mail:send")
-        );
-        assert_eq!(effective_granted_permissions(&granted, None), granted);
-    }
-
-    #[test]
-    fn autonomy_cap_still_allows_fails_after_revoke_or_permission_drop() {
-        let live = grant(7, &["calendar:read"], false);
-        let current = vec!["calendar:read".to_string(), "mail:send".to_string()];
-        let cap = vec!["calendar:read".to_string()];
-        assert!(autonomy_cap_still_allows(
-            7,
-            Some(&live),
-            &current,
-            Some(&cap)
-        ));
-        assert!(autonomy_cap_still_allows(7, Some(&live), &current, None));
-        let revoked = grant(7, &["calendar:read"], true);
-        assert!(!autonomy_cap_still_allows(
-            7,
-            Some(&revoked),
-            &current,
-            Some(&cap)
-        ));
-        assert!(!autonomy_cap_still_allows(7, Some(&live), &[], Some(&cap)));
-        assert!(!autonomy_cap_still_allows(
-            7,
-            Some(&live),
-            &["mail:send".into()],
-            Some(&cap)
-        ));
-    }
-
-    #[test]
-    fn verdict_never_means_consciousness_may_execute() {
-        let stored = grant(7, &["calendar:read"], false);
-        let verdict = evaluate_autonomy_grant(7, Some(&stored), &["calendar:read".into()]);
-        match verdict {
-            AutonomyVerdict::RequireUserReview | AutonomyVerdict::AllowPersonalWork { .. } => {}
-        }
-    }
-
-    #[test]
-    fn execute_time_revoke_or_permission_drop_fails_closed() {
+    fn execute_errors_keep_their_words() {
         let live = grant(7, &["calendar:read"], false);
         let cap = vec!["calendar:read".to_string()];
         let current = vec!["calendar:read".to_string(), "mail:send".to_string()];
         assert_eq!(
             autonomy_execute_permission_error(
                 7,
-                Some(&live),
+                Some(&grant(7, &["calendar:read"], true)),
                 &current,
-                Some(&cap),
-                "calendar.read",
-                &["calendar:read".into()],
-            ),
-            None
-        );
-
-        let revoked = grant(7, &["calendar:read"], true);
-        assert_eq!(
-            autonomy_execute_permission_error(
-                7,
-                Some(&revoked),
-                &current,
-                Some(&cap),
-                "calendar.read",
-                &["calendar:read".into()],
-            )
-            .as_deref(),
-            Some("Personal autonomy is no longer granted")
-        );
-        assert_eq!(
-            autonomy_execute_permission_error(
-                7,
-                Some(&live),
-                &["mail:send".into()],
                 Some(&cap),
                 "calendar.read",
                 &["calendar:read".into()],
@@ -555,34 +299,14 @@ mod tests {
                 &current,
                 Some(&cap),
                 "mail.send",
-                &["mail:send".into()],
+                &["mail:send".into(), "http:fetch".into()],
             )
             .as_deref(),
             Some("权限不足：执行 'mail.send' 需要 'mail:send' 权限")
         );
-
         assert_eq!(
-            autonomy_execute_permission_error(
-                7,
-                None,
-                &current,
-                None,
-                "mail.send",
-                &["mail:send".into()],
-            ),
+            autonomy_execute_permission_error(7, None, &current, None, "x", &[]),
             None
-        );
-        assert_eq!(
-            autonomy_execute_permission_error(
-                7,
-                None,
-                &["calendar:read".into()],
-                None,
-                "mail.send",
-                &["mail:send".into()],
-            )
-            .as_deref(),
-            Some("权限不足：执行 'mail.send' 需要 'mail:send' 权限")
         );
     }
 }
