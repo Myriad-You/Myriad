@@ -109,7 +109,59 @@ export function bindTurnKeyform(
   rest: Float32Array,
 ): BoundTurnKeyform | null {
   const key = turnKeyFor(keyforms, layer)
-  return key ? bindTurnKey(key, rest) : null
+  if (!key) return null
+  const bound = bindTurnKey(key, rest)
+  return turnKeyformFamily(layer) === 'mouth' ? unsheared(bound, rest) : bound
+}
+
+/** A mouth's key scales it by at most this much either way: turned 30°, it narrows by cos 30°. */
+const MOUTH_SCALE = 0.25
+
+/**
+ * A mouth's key, as a move and a stretch along each axis only. It is fitted
+ * on the mouth the turned drawings drew, often another shape than the one
+ * shown: an open mouth over the closed one's fit reaches lattice cells only
+ * the fit's smoothing set, and came out sheared into a hard parallelogram.
+ * Per key, the offsets are fitted over the layer's own points as
+ * t + s·(p − centre) per axis, which keeps the mouth's place and its
+ * narrowing and drops the shear.
+ */
+function unsheared(bound: BoundTurnKeyform, rest: Float32Array): BoundTurnKeyform {
+  const n = rest.length / 2
+  let cx = 0
+  let cy = 0
+  for (let v = 0; v < n; v++) {
+    cx += rest[v * 2] / n
+    cy += rest[v * 2 + 1] / n
+  }
+  const fit = (offsets: Float32Array) => {
+    const out = new Float32Array(offsets.length)
+    for (const axis of [0, 1]) {
+      const centre = axis === 0 ? cx : cy
+      let mean = 0
+      for (let v = 0; v < n; v++) mean += offsets[v * 2 + axis] / n
+      let covariance = 0
+      let variance = 0
+      for (let v = 0; v < n; v++) {
+        const d = rest[v * 2 + axis] - centre
+        covariance += d * (offsets[v * 2 + axis] - mean)
+        variance += d * d
+      }
+      // A mouth drawn as a line has no height to stretch.
+      const scale = variance / n < 1 ? 0 : Math.max(-MOUTH_SCALE, Math.min(MOUTH_SCALE, covariance / variance))
+      for (let v = 0; v < n; v++) out[v * 2 + axis] = mean + scale * (rest[v * 2 + axis] - centre)
+    }
+    return out
+  }
+  const corners = bound.corners
+  return {
+    ...bound,
+    plus: fit(bound.plus),
+    minus: fit(bound.minus),
+    up: bound.up && fit(bound.up),
+    down: bound.down && fit(bound.down),
+    corners: corners && { plusUp: fit(corners.plusUp), plusDown: fit(corners.plusDown), minusUp: fit(corners.minusUp), minusDown: fit(corners.minusDown) },
+  }
 }
 
 /** A key's offsets at each rest point (x, y per point). */

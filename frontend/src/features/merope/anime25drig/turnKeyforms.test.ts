@@ -229,3 +229,25 @@ test('a feature keyed across but not nodding nods with the face under it', () =>
 function shiftedLattice(dx: number) {
   return { box: [0, 0, 200, 200] as [number, number, number, number], grid: 2, back: [-dx, 0, -dx, 0, -dx, 0, -dx, 0] }
 }
+
+test('a mouth\'s key moves and narrows it but does not shear it', () => {
+  // Sheared: what the turned drawing shows came from further left the lower it lies.
+  const sheared = lattice(9, (_, y) => [-0.4 * y, 0])
+  const keyforms = { mouth: { plus: sheared, minus: sheared }, face: { plus: sheared, minus: sheared } }
+  // A mouth's corners, top and bottom.
+  const rest = new Float32Array([40, 40, 60, 40, 40, 60, 60, 60])
+  const offsets = (role: string) => {
+    const bound = bindTurnKeyform(keyforms, { group: 'head', role, side: null }, rest)!
+    return [0, 1, 2, 3].map((v) => {
+      const out = { x: 0, y: 0 }
+      turnKeyformOffset(bound, v, 1, out)
+      return out.x
+    })
+  }
+  const [topLeft, topRight, bottomLeft, bottomRight] = offsets('mouth-open')
+  assert.ok(Math.abs(topLeft - bottomLeft) < 1e-4 && Math.abs(topRight - bottomRight) < 1e-4, 'the top and bottom move alike')
+  assert.ok(Math.abs(topLeft - 20) < 0.5, `moved with the key's mean (${topLeft})`)
+  // The face under it keeps its key whole.
+  const face = offsets('face')
+  assert.ok(face[2] - face[0] > 5, 'the face is sheared as keyed')
+})
