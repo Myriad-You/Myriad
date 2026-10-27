@@ -37,15 +37,33 @@ function throat() {
 }
 
 const always = () => true
+const byId = (layers: RasterLayer[], id: string) => layers.find((layer) => layer.id === id)!
 
 test('the skin the top draws over the neck goes, and the line where it ends', () => {
-  const [, top] = dropTopSkinOverNeck(throat(), always)
+  const top = byId(dropTopSkinOverNeck(throat(), always), 'topwear')
   assert.equal(alpha(top, 50, 45), 0, 'the wash')
   assert.equal(alpha(top, 50, 40), 0, 'its line')
 })
 
+test('that skin goes behind the neck, where it shows once the neck moves off it', () => {
+  const out = dropTopSkinOverNeck(throat(), always)
+  assert.deepEqual(out.map((layer) => layer.id), ['topwear-lining', 'neck', 'topwear'])
+  const lining = out[0]
+  const at = (x: number, y: number) =>
+    y >= lining.top && y < lining.top + lining.height && x >= lining.left && x < lining.left + lining.width ? alpha(lining, x, y) : 0
+  const rgb = (x: number, y: number) => [...lining.data.subarray(((y - lining.top) * lining.width + x - lining.left) * 4, ((y - lining.top) * lining.width + x - lining.left) * 4 + 3)]
+  // Whole, so nothing shows through it: the wash made opaque, the line where it ended the neck's skin.
+  assert.equal(at(50, 45), 255, 'the wash, behind')
+  assert.deepEqual(rgb(50, 45), WASH.slice(0, 3))
+  assert.equal(at(50, 40), 255)
+  assert.deepEqual(rgb(50, 40), NECK.slice(0, 3), 'the line, as the neck')
+  // Under the edge of what stays, a little, so their seam does not open; no further.
+  assert.equal(at(50, 51), 255, 'under the collar\'s edge')
+  assert.equal(at(50, 55), 0, 'not the collar')
+})
+
 test('a collar over the neck and the top beside it stay', () => {
-  const [, top] = dropTopSkinOverNeck(throat(), always)
+  const top = byId(dropTopSkinOverNeck(throat(), always), 'topwear')
   assert.equal(alpha(top, 50, 55), 255, 'the collar over the neck')
   assert.equal(alpha(top, 50, 58), 255, 'a cream shirt over the neck')
   assert.equal(alpha(top, 20, 70), 255, 'the top off the neck')
@@ -54,7 +72,7 @@ test('a collar over the neck and the top beside it stay', () => {
 test('a speck of the collar the colour of the skin, apart from the skin, stays', () => {
   const [neck, top] = throat()
   paint(top, 42, 70, 44, 72, WASH.slice(0, 3).concat(255))
-  const [, after] = dropTopSkinOverNeck([neck, top], always)
+  const after = byId(dropTopSkinOverNeck([neck, top], always), 'topwear')
   assert.equal(alpha(after, 43, 71), 255)
 })
 
