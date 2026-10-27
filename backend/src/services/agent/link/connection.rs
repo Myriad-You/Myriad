@@ -178,6 +178,7 @@ pub(super) async fn serve_with(
         wardrobe: None,
         live: None,
         host: false,
+        core_refused: HashSet::new(),
     };
     tracing::info!(device = %link.device.id, "[link] opened");
     let why = link.run(sink, stream, rx, closed).await;
@@ -255,6 +256,9 @@ struct Link {
     /// The end dialled in as her host (the device she lives on, H3e-7): it
     /// only hears what becomes of her there.
     host: bool,
+    /// What the shared core refused of the child's frames on this link and
+    /// was logged: `t code`, a frame type outside the contract as `?`.
+    core_refused: HashSet<String>,
 }
 
 /// What a child kept current was last told of her conversations: the
@@ -368,6 +372,11 @@ impl Link {
             self.said.insert(id.clone());
             envelope["id"] = id.into();
         }
+        // What the host builds is the contract's; one the core refuses is the
+        // host's mistake, and goes out as it did before the core read frames.
+        if let Err(refusal) = super::contract::core_check(&envelope) {
+            tracing::warn!(t = outgoing.t, code = %refusal.code, detail = %refusal.detail, "[link] the shared core refuses a frame the host sends");
+        }
         sink.send(Message::Text(envelope.to_string().into()))
             .await
             .is_ok()
@@ -392,8 +401,30 @@ impl Link {
         ));
     }
 
+    /// What the shared core's rules say of a frame from the child. The host
+    /// answers it as before either way (see `contract::core_check`); the
+    /// first refusal of each kind on a link is logged, so it shows whether a
+    /// child sends one. Only the frame type and the code: the core's detail
+    /// quotes what the child sent (an unknown type, a field name).
+    fn core_reads(&mut self, text: &str) {
+        let Ok(frame) = serde_json::from_str::<Value>(text) else {
+            return;
+        };
+        let Err(refusal) = super::contract::core_check(&frame) else {
+            return;
+        };
+        let t = frame["t"]
+            .as_str()
+            .filter(|t| CONTRACT.frames.contains_key(*t))
+            .unwrap_or("?");
+        if self.core_refused.insert(format!("{t} {}", refusal.code)) {
+            tracing::info!(device = %self.device.id, t, code = %refusal.code, "[link] the shared core refuses a frame from the child");
+        }
+    }
+
     /// A text frame from the child; `Some` closes the link.
     async fn take(&mut self, text: &str) -> Option<Close> {
+        self.core_reads(text);
         let Ok(inbound) = serde_json::from_str::<Inbound>(text) else {
             if !self.hello {
                 return Some(Close::BadFrame);
