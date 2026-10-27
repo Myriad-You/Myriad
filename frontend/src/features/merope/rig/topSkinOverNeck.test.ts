@@ -82,3 +82,37 @@ test('a top under the neck, or no neck, is left', () => {
   assert.deepEqual(dropTopSkinOverNeck(below, always), below)
   assert.equal(dropTopSkinOverNeck([top], always)[0], top)
 })
+
+function pixel(target: RasterLayer, x: number, y: number) {
+  const at = ((y - target.top) * target.width + x - target.left) * 4
+  return [...target.data.subarray(at, at + 4)]
+}
+
+test('with the portrait, the top\'s skin over the neck and the neck under it take its colours', () => {
+  // The top draws the chest opaque over a neck that guessed it paler; hair falls over the left of it.
+  const CHEST = [205, 150, 145, 255]
+  const HAIR = [90, 60, 70, 255]
+  const neck = layer('neck', 'neck', { left: 40, top: 0, width: 20, height: 80 })
+  paint(neck, 40, 0, 60, 80, NECK)
+  const top = layer('topwear', 'topwear', { left: 0, top: 30, width: 100, height: 70 })
+  paint(top, 40, 50, 60, 80, CHEST)
+  const data = new Uint8ClampedArray(100 * 100 * 4)
+  for (let p = 0; p < 100 * 100; p += 1) data.set(p % 100 < 45 && p >= 100 * 60 ? HAIR : CHEST, p * 4)
+  const out = dropTopSkinOverNeck([neck, top], always, { width: 100, height: 100, data })
+  assert.deepEqual(out.map((layer) => layer.id), ['neck', 'topwear'], 'nothing behind the neck')
+  assert.deepEqual(pixel(byId(out, 'topwear'), 50, 60), CHEST, 'the skin stays over the neck\'s foot')
+  assert.deepEqual(pixel(byId(out, 'neck'), 50, 60), CHEST, 'the neck under it, as the portrait')
+  assert.deepEqual(pixel(byId(out, 'neck'), 50, 30), NECK, 'above where that skin reached')
+  assert.deepEqual(pixel(byId(out, 'neck'), 42, 65), NECK, 'not the portrait\'s hair')
+  assert.deepEqual(pixel(byId(out, 'topwear'), 42, 65), CHEST, 'nor the top under it: as drawn')
+})
+
+test('with the portrait, a wash with its line is painted out to the skin the portrait shows', () => {
+  const data = new Uint8ClampedArray(100 * 100 * 4)
+  for (let p = 0; p < 100 * 100; p += 1) data.set(NECK, p * 4)
+  const out = dropTopSkinOverNeck(throat(), always, { width: 100, height: 100, data })
+  const top = byId(out, 'topwear')
+  assert.deepEqual(pixel(top, 50, 45), [...NECK.slice(0, 3), WASH[3]], 'the wash, as soft as it was')
+  assert.deepEqual(pixel(top, 50, 40), [...NECK.slice(0, 3), LINE[3]], 'its line')
+  assert.deepEqual(pixel(top, 50, 55), COLLAR, 'the collar')
+})

@@ -184,7 +184,7 @@ export async function prepareAnime25DRigPsd(
   // draws over the neck is the neck's. The shadows the front hair casts on the
   // skin go into the hair, and under each lock of it goes the hair of the
   // locks above it.
-  const necked = dropTopSkinOverNeck(hangTopPiecesOnHeadwear(tuckLiningBehindLegs(layers), visibleInAnalysisReference), visibleInAnalysisReference)
+  const necked = dropTopSkinOverNeck(hangTopPiecesOnHeadwear(tuckLiningBehindLegs(layers), visibleInAnalysisReference), visibleInAnalysisReference, sourceReference)
   const tucked = underlapHairLocks(liftHairShadowOffSkin(tuckTopUnderChinBehindNeck(necked, visibleInAnalysisReference), visibleInAnalysisReference))
   if (tucked !== layers) {
     layers = tucked

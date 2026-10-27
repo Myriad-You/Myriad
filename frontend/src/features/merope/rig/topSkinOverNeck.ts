@@ -1,4 +1,4 @@
-import type { RasterLayer } from './anime25dImportTypes'
+import type { Anime25DSourceReference, RasterLayer } from './anime25dImportTypes'
 import { rasterBounds, trimRaster, uniquePartId } from './anime25dRaster'
 import { closeMask, components } from './psdRepairMasks'
 
@@ -30,15 +30,26 @@ const SHEET_SHARE = 0.2
  * line where it ends, and (once a cut by the picture has taken pieces out of
  * it) a stepped edge where the wash stops and the neck shows, all of it a
  * shade off the neck. At rest it shows as a grey stair across the throat, and
- * as the head turns the neck moves under a skin that stays. The neck is the
- * skin: where the top over it is skin, that goes behind the neck, and the
- * translucent rim around it goes. Behind, it is what shows where the neck
- * moves off it: the skin the top draws over a neck is often the chest's, the
- * neck layer cut square inside it, and without it the turning neck opens a
- * frame of nothing round its cut. A collar or any garment over the neck, not
- * the skin's colour, stays.
+ * as the head turns the neck moves under a skin that stays.
+ *
+ * With the portrait, that skin and the rim round it take the portrait's
+ * colours, and so does the neck from as high as that skin reached: at rest the throat is the portrait's, no stair, and the skin stays
+ * over the neck's foot, which a decomposition often cuts square inside the
+ * chest and guesses paler than it. Moving the skin behind the neck instead
+ * leaves that paler box to show as the neck turns.
+ *
+ * Without it the neck is the skin: where the top over it is skin, that goes
+ * behind the neck, and the translucent rim around it goes. Behind, it is what
+ * shows where the neck moves off it, or the turning neck opens a frame of
+ * nothing round its cut.
+ *
+ * A collar or any garment over the neck, not the skin's colour, stays.
  */
-export function dropTopSkinOverNeck(layers: RasterLayer[], visibleAtRest: (layer: RasterLayer) => boolean): RasterLayer[] {
+export function dropTopSkinOverNeck(
+  layers: RasterLayer[],
+  visibleAtRest: (layer: RasterLayer) => boolean,
+  reference?: Readonly<Anime25DSourceReference>,
+): RasterLayer[] {
   const necks = layers.flatMap((layer, index) => (layer.role === 'neck' && visibleAtRest(layer) ? [index] : []))
   if (necks.length === 0) return layers
   const out = layers.slice()
@@ -49,13 +60,65 @@ export function dropTopSkinOverNeck(layers: RasterLayer[], visibleAtRest: (layer
     if (under.length === 0) continue
     const split = dropOver(top, under)
     if (!split) continue
-    out[index] = split.front
+    out[index] = reference ? paintPortrait(top, split, reference) : split.front
     linings.push(split.skin)
   }
   if (linings.length === 0) return out
+  if (reference) {
+    for (const neck of necks) out[neck] = takePortraitSkin(layers[neck], linings, reference)
+    return out
+  }
   const ids = new Set(layers.map((layer) => layer.id))
   const named = linings.filter(rasterBounds).map((skin) => trimRaster({ ...skin, id: uniquePartId(`${skin.id}-lining`, ids) }))
   return out.toSpliced(necks[0], 0, ...named)
+}
+
+/**
+ * The top with its skin over the neck, and the rim round it, in the colours
+ * the portrait draws there and their own alpha (a rim that fades out stays
+ * soft, or the neck turning under it meets a hard edge); where the portrait
+ * shows something else there (the edge of a choker over the throat), as the
+ * top drew it.
+ */
+function paintPortrait(top: RasterLayer, split: { front: RasterLayer; skin: RasterLayer }, reference: Readonly<Anime25DSourceReference>): RasterLayer {
+  const data = new Uint8ClampedArray(top.data)
+  for (let p = 0; p < top.width * top.height; p += 1) {
+    const at = p * 4
+    if (split.front.data[at + 3] > 0 || top.data[at + 3] === 0 || split.skin.data[at + 3] === 0) continue
+    const x = top.left + (p % top.width)
+    const y = top.top + Math.floor(p / top.width)
+    if (x < 0 || y < 0 || x >= reference.width || y >= reference.height) continue
+    const r = (y * reference.width + x) * 4
+    if (!sameSkin(reference.data, r, split.skin.data, at)) continue
+    data.set(reference.data.subarray(r, r + 3), at)
+  }
+  return { ...top, data }
+}
+
+/** The neck's skin as the portrait draws it, from the top of `skins` down. */
+function takePortraitSkin(neck: RasterLayer, skins: RasterLayer[], reference: Readonly<Anime25DSourceReference>): RasterLayer {
+  const from = Math.min(...skins.map((skin) => skin.top + (rasterBounds(skin)?.y ?? skin.height)))
+  let data: Uint8ClampedArray | null = null
+  for (let y = Math.max(0, from - neck.top); y < neck.height; y += 1) {
+    const ry = neck.top + y
+    if (ry < 0 || ry >= reference.height) continue
+    for (let x = 0; x < neck.width; x += 1) {
+      const rx = neck.left + x
+      const at = (y * neck.width + x) * 4
+      if (rx < 0 || rx >= reference.width || neck.data[at + 3] < NECK_ALPHA) continue
+      const r = (ry * reference.width + rx) * 4
+      if (!sameSkin(reference.data, r, neck.data, at)) continue
+      data ??= new Uint8ClampedArray(neck.data)
+      data.set(reference.data.subarray(r, r + 3), at)
+    }
+  }
+  return data ? { ...neck, data } : neck
+}
+
+/** Whether the colour at `a[i]` is skin like that at `b[j]` (SKIN_NEAR, HUE_NEAR). */
+function sameSkin(a: Readonly<Uint8ClampedArray>, i: number, b: Readonly<Uint8ClampedArray>, j: number): boolean {
+  if (Math.hypot(a[i] - b[j], a[i + 1] - b[j + 1], a[i + 2] - b[j + 2]) >= SKIN_NEAR) return false
+  return Math.hypot(a[i] - a[i + 1] - (b[j] - b[j + 1]), a[i + 1] - a[i + 2] - (b[j + 1] - b[j + 2])) < HUE_NEAR
 }
 
 /** The top without its skin over the necks, and that skin; null when it draws none. */
@@ -83,9 +146,7 @@ function dropOver(top: RasterLayer, necks: RasterLayer[]): { front: RasterLayer;
     if (neckAt[p] < 0 || data[p * 4 + 3] === 0) continue
     const neck = necks[neckOf[p]].data
     const at = neckAt[p] * 4
-    const [r, g, b] = [data[p * 4], data[p * 4 + 1], data[p * 4 + 2]]
-    if (Math.hypot(r - neck[at], g - neck[at + 1], b - neck[at + 2]) >= SKIN_NEAR) continue
-    if (Math.hypot(r - g - (neck[at] - neck[at + 1]), g - b - (neck[at + 1] - neck[at + 2])) >= HUE_NEAR) continue
+    if (!sameSkin(data, p * 4, neck, at)) continue
     skin[p] = 1
   }
   const pieces = components(closeMask(skin, width, height, SHEET_CLOSING), width, height)
