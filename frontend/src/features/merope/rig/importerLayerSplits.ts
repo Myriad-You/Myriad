@@ -2,6 +2,7 @@ import type { Layer, Psd } from 'ag-psd'
 import type { Anime25DSourceReference, EyeSide, RasterLayer } from './anime25dImportTypes'
 import { canonicalAnime25DLayerName } from './anime25dLayerSemantics'
 import { rasterBounds, trimRaster, uniquePartId } from './anime25dRaster'
+import { splitRasterAlongSeam } from './limbSeam'
 import { anime25DShoulderSeeds, splitLinkedHandwear } from './linkedHandwear'
 import { flattenVisibleLayers } from './riggerBridge'
 
@@ -80,7 +81,8 @@ export function splitHandwearIfNeeded(
 /**
  * A full figure's legs and shoes each arrive as one layer, but each side
  * stands and swings on its own. Split them about the legs' own midline; legs
- * pressed together leave one piece, which is cut down that midline instead.
+ * pressed together, or shoes touching only at their soles, leave one piece,
+ * which is cut along the seam between them instead (splitRasterAlongSeam).
  */
 export function splitLowerLimbsIfNeeded(layers: RasterLayer[]): RasterLayer[] {
   const reference =
@@ -101,29 +103,11 @@ export function splitLowerLimbsIfNeeded(layers: RasterLayer[]): RasterLayer[] {
     }
     const separate = rasterBounds(bySide.left) && rasterBounds(bySide.right)
     for (const side of ['left', 'right'] as const) {
-      const split = separate ? bySide[side] : splitRasterAtColumn(layer, midline, side)
+      const split = separate ? bySide[side] : splitRasterAlongSeam(layer, midline, side)
       if (!rasterBounds(split)) continue
       split.id = uniquePartId(`${layer.role}-${side}`, usedIds)
       split.side = side
       output.push(trimRaster(split))
-    }
-  }
-  return output
-}
-
-/** Keeps the part of a layer on one side of a canvas column. */
-function splitRasterAtColumn(
-  source: RasterLayer,
-  canvasX: number,
-  side: EyeSide,
-): RasterLayer {
-  const output = { ...source, data: new Uint8ClampedArray(source.data) }
-  for (let y = 0; y < source.height; y += 1) {
-    for (let x = 0; x < source.width; x += 1) {
-      const onLeft = source.left + x + 0.5 < canvasX
-      if (onLeft !== (side === 'left')) {
-        output.data[(y * source.width + x) * 4 + 3] = 0
-      }
     }
   }
   return output

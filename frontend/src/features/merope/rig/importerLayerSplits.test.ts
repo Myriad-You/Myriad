@@ -1,7 +1,7 @@
 import type { RasterLayer } from './anime25dImportTypes'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { stackArmsByReference, stackEarwearByReference, stackHeadwearByReference, stackLowerLimbsByReference, stackNeckwearByReference, tuckBackHairBehindFace, tuckBackHairBehindNeck, tuckTopUnderChinBehindNeck } from './importerLayerSplits'
+import { splitLowerLimbsIfNeeded, stackArmsByReference, stackEarwearByReference, stackHeadwearByReference, stackLowerLimbsByReference, stackNeckwearByReference, tuckBackHairBehindFace, tuckBackHairBehindNeck, tuckTopUnderChinBehindNeck } from './importerLayerSplits'
 
 const SIZE = 20
 
@@ -230,4 +230,26 @@ test('what a top draws under the chin, in front of a neck that shows below the j
   const closed = solid('topwear', 'topwear', [40, 30, 30], { left: 0, top: 6, width: SIZE, height: 14 })
   const kept = [neck, closed, face]
   assert.equal(tuckTopUnderChinBehindNeck(kept, () => true), kept)
+})
+
+test('shoes touching only at their soles are split along the gap between them, not a straight line', () => {
+  // A narrow left shoe (x 0–19) and a wide right one (x 24–59), apart down to y 32, their soles joined below.
+  const shoes = solid('footwear', 'footwear', [240, 240, 250], { left: 100, top: 0, width: 60, height: 40 })
+  shoes.side = undefined
+  for (let y = 0; y < 32; y += 1) {
+    for (let x = 20; x < 24; x += 1) shoes.data[(y * 60 + x) * 4 + 3] = 0
+  }
+  const [left, right] = (['left', 'right'] as const).map((side) =>
+    splitLowerLimbsIfNeeded([shoes]).find((layer) => layer.side === side)!)
+  // The middle (the pieces' centre, x 130) lies inside the right shoe; a straight cut there gave the left its edge.
+  const opaque = (layer: RasterLayer, x: number, y: number) =>
+    x >= layer.left && x < layer.left + layer.width && y >= layer.top && y < layer.top + layer.height &&
+    layer.data[((y - layer.top) * layer.width + x - layer.left) * 4 + 3] > 0
+  for (let y = 0; y < 32; y += 1) {
+    for (let x = 124; x < 160; x += 1) {
+      assert.ok(!opaque(left, x, y), `the left shoe took the right one's pixel at ${x},${y}`)
+      assert.ok(opaque(right, x, y), `the right shoe lost its pixel at ${x},${y}`)
+    }
+    for (let x = 100; x < 120; x += 1) assert.ok(opaque(left, x, y) && !opaque(right, x, y), `${x},${y}`)
+  }
 })
