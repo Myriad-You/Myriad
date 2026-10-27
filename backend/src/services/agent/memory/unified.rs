@@ -13,6 +13,7 @@
 //!   never left to the caller.
 //! - Recalled text is data. Callers inject it through an untrusted block.
 
+use myriad_agent_rules::memory::audience as rules;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait,
     ExprTrait, QueryFilter, QueryOrder, QuerySelect,
@@ -159,6 +160,16 @@ impl Audience {
         }
     }
 
+    fn rules(&self) -> rules::Audience<i32> {
+        rules::Audience {
+            members: self.members.clone(),
+            venue: match &self.venue {
+                Venue::Private => rules::Venue::Private,
+                Venue::Group(id) => rules::Venue::Group(id.clone()),
+            },
+        }
+    }
+
     /// The stored form: `private`, or `group:<id>`.
     pub fn venue(&self) -> String {
         match &self.venue {
@@ -168,20 +179,27 @@ impl Audience {
     }
 }
 
-/// Whether a stored memory may be said in front of `present`. In a group:
-/// only what was learned in that same group. In private: never what was
-/// learned in a group, and only if everyone present was there.
+/// Whether a stored memory may be said in front of `present`, by
+/// `myriad_agent_rules::memory::audience`. A stored venue other than
+/// `group:<id>` (`private`, and her own `own`) is read as private with the
+/// row's [`audience_of`], as it always was here: the shared rule has no
+/// venue of her own.
 fn admits(row: &agent_memories::Model, present: &Audience) -> bool {
-    if present.is_group() {
-        return row.venue == present.venue();
-    }
-    !row.venue.starts_with("group:") && audience_admits(&audience_of(row), present)
+    let learned = rules::Audience {
+        members: audience_of(row),
+        venue: match row.venue.strip_prefix("group:") {
+            Some(id) => rules::Venue::Group(id.into()),
+            None => rules::Venue::Private,
+        },
+    };
+    rules::admits(&learned, &present.rules())
 }
 
 /// Whether a memory learned before `original` may be said in front of
 /// `present`: everyone present must have been there.
+#[cfg(test)]
 pub fn audience_admits(original: &[i32], present: &Audience) -> bool {
-    !present.members.is_empty() && present.members.iter().all(|id| original.contains(id))
+    rules::members_admit(original, present.members())
 }
 
 pub use myriad_agent_rules::Concept;
