@@ -46,6 +46,7 @@ host HTTP_PORT
 | Proxy | `proxy/` | Host-facing reverse proxy + maintenance page (own Cargo tree) |
 | Updater | `updater/` | Self-update, snapshots, docker-guard / gateway binaries (own Cargo tree) |
 | Crates | `crates/` | Shared libs (error, outbound, image-proxy, tapp-*, …) |
+| Shared core | `core/` (git submodule) | Her rules as pure crates, in their own repository [Myriad-You/myriad-core](https://github.com/Myriad-You/myriad-core); the backend links them, the frontend reads its contracts ([SHARED_CORE.md](SHARED_CORE.md)) |
 | Shared | `shared/` | Cross-component static assets (e.g. image proxy host list) |
 
 ## Frontend startup
@@ -184,7 +185,10 @@ XR ────wss───┘                      └──wss── other PC
 
 The pure rules both runtimes share — frame checks (`myriad-her-link`), her
 log, the fold, the lease and the clock (`myriad-persona-log`) — are in the
-shared core: [SHARED_CORE.md](SHARED_CORE.md).
+shared core, its own repository
+[Myriad-You/myriad-core](https://github.com/Myriad-You/myriad-core), here as
+the `core/` submodule; a change to them is made there first
+([SHARED_CORE.md](SHARED_CORE.md)).
 
 ### Her log on the server (SYNC S6)
 
@@ -255,5 +259,5 @@ consent for turning it on, and writing the site's own changes as log rows.
 - [BUILD.md](BUILD.md) — 从源码构建
 - [API.md](../API.md) — HTTP API 入口说明
 - [AGENT_CHANNELS.md](AGENT_CHANNELS.md) — 私聊通道
-- [SHARED_CORE.md](SHARED_CORE.md) — 共用核心：她的日志、执笔权、连接帧的纯规则
+- [SHARED_CORE.md](SHARED_CORE.md) — 共用核心（单独的仓库 Myriad-You/myriad-core，这里是子模块 `core/`）：本仓库怎么用、改核心怎么落到这里
 - [FEDERATION.md](FEDERATION.md) — 联邦行为与闸门
