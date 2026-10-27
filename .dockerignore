@@ -1,5 +1,6 @@
-# Git
+# Git (core/ is a submodule: its .git is a pointer file)
 .git
+core/.git
 .gitignore
 .gitattributes
 
@@ -34,6 +35,7 @@ desktop.ini
 
 # Rust build artifacts (never needed in image context)
 /target/
+core/target/
 backend/target/
 proxy/target/
 updater/target/

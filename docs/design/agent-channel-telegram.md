@@ -13,7 +13,7 @@
 
 - 请求统一走 `https://api.telegram.org/bot<token>/METHOD_NAME`，GET/POST 均可；响应恒有 `ok`，失败给 `description` / `error_code`，限频错误附带 `parameters`（bots/api「Making requests」节）。
 - **bot token 不是 MTProto `api_id`/`api_hash`。** 后者是用户账号客户端（TDLib 等）的凭证，bot 完全用不上。仓库已吃过把 Discord 数据平台 OAuth 当 bot 凭证的亏（`agent-channel.md`「不要做」第一条），这条别再犯。BotFather 页面给的 token 就是要落库的全部。
-- 落库模式照抄 QQ：`telegram_bot_enabled: bool` + `telegram_bot_token` 只写（`backend/src/config.rs:381-384`）。`worker_intent(enabled, token 非空)` 可直接复用 `crates/myriad-agent-rules/src/channel.rs:336-342` 的形状，比 QQ 少一个「secret 是否存在」位。
+- 落库模式照抄 QQ：`telegram_bot_enabled: bool` + `telegram_bot_token` 只写（`backend/src/config.rs:381-384`）。`worker_intent(enabled, token 非空)` 可直接复用 `core/crates/myriad-agent-rules/src/channel.rs:336-342` 的形状，比 QQ 少一个「secret 是否存在」位。
 
 ## 入站传输：getUpdates 长轮询，不用 webhook
 

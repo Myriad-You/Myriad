@@ -1,4 +1,4 @@
-//! `shared/her_link_contract.json`, read once: the protocol number, timings,
+//! `core/shared/her_link_contract.json`, read once: the protocol number, timings,
 //! limits and the codes the host closes and refuses with all come from it,
 //! so the host cannot drift from what children build against.
 
@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-pub(super) const CONTRACT_JSON: &str = include_str!("../../../../../shared/her_link_contract.json");
+pub(super) const CONTRACT_JSON: &str =
+    include_str!("../../../../../core/shared/her_link_contract.json");
 
 /// The host reads some of these at run time; the rest are checked against
 /// the code by the contract tests.
@@ -112,8 +113,9 @@ pub(super) struct CloseSpec {
     pub reconnect: bool,
 }
 
-pub(super) static CONTRACT: LazyLock<Contract> =
-    LazyLock::new(|| serde_json::from_str(CONTRACT_JSON).expect("shared/her_link_contract.json"));
+pub(super) static CONTRACT: LazyLock<Contract> = LazyLock::new(|| {
+    serde_json::from_str(CONTRACT_JSON).expect("core/shared/her_link_contract.json")
+});
 
 /// How often the link is checked, and how long it may stay quiet.
 #[derive(Debug, Clone, Copy)]

@@ -38,6 +38,9 @@ COPY frontend/ ./
 # Shared static contracts imported by frontend source
 # (relative ../../../shared/... from /app/src/... → /shared/...)
 COPY shared /shared
+# Rig and performance contracts from the shared-core submodule
+# (../../../core/shared/... → /core/shared/...)
+COPY core/shared /core/shared
 
 # Built-in TAPP sources bundled as examples
 # (relative ../../../../../tapps/... from /app/src/tapp/examples/tapps/... → /tapps/...)

@@ -341,6 +341,12 @@ macOS 已演练过；Windows（WSL 2）未验证。[本地部署](docs/deploymen
 
 ## 本地开发
 
+共用核心是 git 子模块 `core/`（[myriad-core](https://github.com/Myriad-You/myriad-core)）。克隆之后、以及拉取后子模块指针变了时：
+
+```bash
+git submodule update --init
+```
+
 ```bash
 ./scripts/dev.sh                   # TUI：菜单、进程、数据库、日志
 ./scripts/dev.sh start             # 本机 PostgreSQL；日志在当前终端
@@ -416,6 +422,7 @@ Myriad/
 ├── frontend/         Vite + React UI、Tapp 运行时、i18n（7 种宿主 locale）
 ├── proxy/            生产反向代理（独立 Cargo 树）
 ├── updater/          自更新守护进程（独立 Cargo 树）
+├── core/             共用核心（git 子模块：myriad-core）
 ├── crates/           工作区库
 ├── shared/           跨组件静态配置
 ├── docker/           backend / frontend Dockerfile

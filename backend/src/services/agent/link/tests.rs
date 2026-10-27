@@ -21,7 +21,7 @@ use crate::services::agent::AgentProgressEvent;
 use crate::services::agent::merope::{MoodTransition, PerformanceDirective};
 use crate::services::persona_sync::devices::{self, Device, RevokeReason};
 
-const FIXTURES_JSON: &str = include_str!("../../../../../shared/her_link_fixtures.json");
+const FIXTURES_JSON: &str = include_str!("../../../../../core/shared/her_link_fixtures.json");
 
 fn fixtures() -> Vec<Value> {
     let fixtures: Value = serde_json::from_str(FIXTURES_JSON).expect("her_link_fixtures.json");

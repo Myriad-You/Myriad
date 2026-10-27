@@ -844,7 +844,7 @@ async fn the_server_takes_over_only_when_the_holder_has_stopped() {
     schema.drop().await;
 }
 
-/// The shared lease cases (`crates/conformance/v1/lease/move.json`) run
+/// The shared lease cases (`core/crates/conformance/v1/lease/move.json`) run
 /// through the server's wiring: the lease, the holder and the owner's
 /// sighting put where the server keeps them, the move asked as the server
 /// asks it. Every case answers as recorded.
@@ -855,7 +855,7 @@ async fn the_lease_conformance_cases_pass_through_the_servers_wiring() {
     };
     let db = &schema.db;
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../crates/conformance/v1/lease/move.json");
+        .join("../core/crates/conformance/v1/lease/move.json");
     let file: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     assert_eq!(file["call"], "lease.move");
     let silence = 30 * 1_000_000;

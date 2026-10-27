@@ -50,7 +50,7 @@ myriad-tapp-contract = { path = "../crates/tapp-contract" }
 myriad-error = { path = "../crates/myriad-error" }
 myriad-data-key = { path = "../crates/myriad-data-key" }
 myriad-mcp = { path = "../crates/myriad-mcp" }
-myriad-merope = { path = "../crates/myriad-merope" }
+myriad-merope = { path = "../core/crates/myriad-merope" }
 myriad-phantasi = { path = "../crates/myriad-phantasi" }
 myriad-image-proxy = { path = "../crates/myriad-image-proxy" }
 myriad-json-schema = { path = "../crates/myriad-json-schema" }
@@ -59,10 +59,10 @@ myriad-platform-utils = { path = "../crates/myriad-platform-utils" }
 myriad-runtime-registry = { path = "../crates/myriad-runtime-registry" }
 myriad-listening = { path = "../crates/myriad-listening" }
 myriad-prompt-security = { path = "../crates/myriad-prompt-security" }
-myriad-agent-rules = { path = "../crates/myriad-agent-rules" }
-myriad-persona-sync = { path = "../crates/myriad-persona-sync" }
-myriad-persona-log = { path = "../crates/myriad-persona-log" }
-myriad-her-link = { path = "../crates/myriad-her-link" }
+myriad-agent-rules = { path = "../core/crates/myriad-agent-rules" }
+myriad-persona-sync = { path = "../core/crates/myriad-persona-sync" }
+myriad-persona-log = { path = "../core/crates/myriad-persona-log" }
+myriad-her-link = { path = "../core/crates/myriad-her-link" }
 myriad-phantasi-notes = { path = "../crates/myriad-phantasi-notes" }
 myriad-blog = { path = "../crates/myriad-blog" }
 myriad-tapp-rules = { path = "../crates/myriad-tapp-rules" }
@@ -157,7 +157,7 @@ tokio = { version = "1", features = ["test-util"] }
 # The recordings' databases answer through a proxy (channel_group::g0).
 sea-orm = { version = "2.0", default-features = false, features = ["proxy"] }
 # The recordings play a seat game with private seats (channel_group::g0).
-myriad-merope = { path = "../crates/myriad-merope", features = ["test-games"] }
+myriad-merope = { path = "../core/crates/myriad-merope", features = ["test-games"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 syn = { version = "3", features = ["full", "visit"] }
 

@@ -270,7 +270,7 @@ test('the behavior vocabulary is exactly what a producer can emit', () => {
   )
 
   const contract = source(
-    '../../../../../crates/myriad-merope/src/rig_state.rs',
+    '../../../../../core/crates/myriad-merope/src/rig_state.rs',
   )
   assert.deepEqual(
     rustList(contract, 'RIG_STATE_BEHAVIOR_FUNCTIONS').toSorted(),

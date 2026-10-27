@@ -101,7 +101,7 @@ function source(relative: string): string {
 test('the resource vocabulary matches the director contract and the rig boundary', () => {
   const local = source('./behaviorResources.ts')
   const summary = source('./rigStateSummary.ts')
-  const contract = source('../../../../../crates/myriad-merope/src/rig_state.rs')
+  const contract = source('../../../../../core/crates/myriad-merope/src/rig_state.rs')
   const boundary = source('../rig/README.md')
 
   const block = /RIG_STATE_BEHAVIOR_RESOURCES: &\[&str\] = &\[([^\]]*)\]/.exec(

@@ -87,9 +87,12 @@ corepack enable
 ```bash
 sudo mkdir -p /opt/src && sudo chown "$USER" /opt/src
 cd /opt/src
-git clone https://github.com/Myriad-You/Myriad.git
+git clone --recurse-submodules https://github.com/Myriad-You/Myriad.git
 cd Myriad
 ```
+
+The shared core is the `core/` git submodule; the backend and frontend do not
+build without it.
 
 ---
 
@@ -481,6 +484,7 @@ of which is touched by a rebuild. Migrations run automatically on the next start
 ```bash
 cd /opt/src/Myriad
 git pull
+git submodule update --init
 
 # Rebuild artifacts
 (cd backend  && cargo build --release)
