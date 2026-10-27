@@ -10,7 +10,7 @@ import type { Anime25DPlayback, Anime25DPlaybackLayer, Anime25DShellProfile } fr
 import type { AtlasPixelPatch, CroppedLayerPixels } from './webglRuntime'
 import { isAnime25DRigidAttachment } from '../rig/anime25dLayerSemantics'
 import { removeDuplicatedNeckComponents } from './accessoryComponents'
-import { bindBodyTurnKeyform, playbackBodyKeys } from './bodyTurnKeyforms'
+import { bindBodyTurnKeyform, playbackBodyKeys, standingLegOf } from './bodyTurnKeyforms'
 import { sampleChestWeight } from './chestPhysics'
 import { frontCollarNeckWeights } from './collarRuntime'
 import { bindCropBoundary } from './cropBoundary'
@@ -180,8 +180,7 @@ export function buildGpuLayer(source: PlaybackLayer, context: GpuLayerBuildConte
       : null
   // A skirt cut in pieces (its lining behind the legs) swings as the one skirt.
   const standing = bindStanding(baseRole, baseRole === 'bottomwear' ? skirtSpan(playback.layers, source) : source, playback.anchors)
-  const kneeY = standing?.kind === 'leg' ? standing.hipY + standing.kneeAt * (standing.groundY - standing.hipY) : undefined
-  const bodyTurnKeyform = bindBodyTurnKeyform(playbackBodyKeys(playback), source, rest, kneeY)
+  const bodyTurnKeyform = bindBodyTurnKeyform(playbackBodyKeys(playback), source, rest, standingLegOf(playback))
   // A standing figure's bones carry every layer and shift its weight themselves.
   const { figureSkin, partSways } = bindFigureLayer(baseRole, source, playback)
   const deformationPolicy = resolveAnime25DLayerDeformationPolicy({
@@ -490,7 +489,7 @@ export function bindLayerAttachments(
       // Its host's body key, per vertex of the host, is taken at the anchor and a pixel across (vertices 0, 1).
       if (attachment?.hostSource) {
         attachment.binding.bodyTurnKeyform = bindBodyTurnKeyform(playbackBodyKeys(playback), attachment.hostSource,
-          Float32Array.of(attachment.x, attachment.y, attachment.x + 1, attachment.y))
+          Float32Array.of(attachment.x, attachment.y, attachment.x + 1, attachment.y), standingLegOf(playback))
       }
     }
   }

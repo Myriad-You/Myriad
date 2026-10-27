@@ -1,5 +1,5 @@
 import type { BodyControl, BodyPose } from '../../../services/agent/types'
-import type { FaceShift } from '../events/performanceContract'
+import type { FaceLife, FaceShift } from '../events/performanceContract'
 import type { MotionChannelPolicy } from '../motion/policy'
 import type { ResolvedScore } from '../motion/scoreTimeline'
 import type { Anime25DDriver } from './driver'
@@ -7,6 +7,7 @@ import type { PerformanceExpressionOffset } from './performanceExpressionShared'
 import { BODY_CONTROLS, faceLife, facePose, faceShift, sanitizeBodyPose } from '../events/performanceContract'
 import { ActingField, mappedControlValue } from './actingField'
 import { ARCS, carriesMomentum, shiftTiming } from './faceShift'
+import { STANDING_IDLE_ROLL_SHARE } from './standing'
 
 // Semantic goals are mapped only here, never interpreted as arbitrary drivers.
 export const BODY_CONTROL_DRIVERS = {
@@ -71,6 +72,16 @@ export class DirectedPoseController {
     this.acting = new ActingField(random)
   }
 
+  /** A standing figure: the head tilts its looks sway with take their idle share (STANDING_IDLE_ROLL_SHARE). */
+  private standing = false
+
+  setStanding(standing: boolean): void { this.standing = standing }
+
+  private lifeOf(face: string | null | undefined): FaceLife | null {
+    const life = faceLife(face)
+    return life && this.standing ? standingLife(life) : life
+  }
+
   /** A change passing through looks on the way: the ones still ahead, where it ends, and when to turn next. */
   private route: { stops: string[]; pose: BodyPose | null; face: string | null; shift: string | null; at: number } | null = null
   /** A change of face to carry on from where she is, applied on the next step. */
@@ -130,7 +141,7 @@ export class DirectedPoseController {
       this.route = { stops: rest, pose: pose ?? null, face: face ?? null, shift: shift ?? null, at: time + ((onTheWay ? 0 : way.pauseMs) + way.passMs) / 1000 }
       return
     }
-    const dropped = face !== undefined ? this.acting.setFace(face, faceLife(face), time) : []
+    const dropped = face !== undefined ? this.acting.setFace(face, this.lifeOf(face), time) : []
     const next = sanitizeBodyPose(pose)
     const same = Boolean(next && this.pose && time < this.expiresAt && poseKey(next) === poseKey(this.pose))
     if (shift !== undefined && (!same || dropped.length)) {
@@ -170,7 +181,7 @@ export class DirectedPoseController {
 
   /** The look her face holds, whose life plays over it while it holds; what it was doing settles from where it is. */
   setFace(face: string | null | undefined, time: number): void {
-    const dropped = this.acting.setFace(face ?? null, faceLife(face), time)
+    const dropped = this.acting.setFace(face ?? null, this.lifeOf(face), time)
     if (dropped.length) this.shiftFrom(dropped, null)
   }
 
@@ -405,3 +416,20 @@ function spring(axis: Axis, position: 'value' | 'weight', velocity: 'velocity' |
 
 /** Lids opening or closing faster than this (eyeOpen per second) are on their way somewhere. */
 const LIDS_MOVING = 0.8
+
+/**
+ * A look's life on a standing figure: the head tilt it sways with, from side
+ * to side, takes the idle roll share. A bust's gentle tilt tips a whole
+ * figure off its upright, and swung to and fro it reads as slouching about.
+ */
+function standingLife(life: FaceLife): FaceLife {
+  return {
+    ...life,
+    beats: life.beats.map((beat) => {
+      const tilt = beat.pose?.targets.headTilt
+      return beat.pose && tilt !== undefined
+        ? { ...beat, pose: { ...beat.pose, targets: { ...beat.pose.targets, headTilt: tilt * STANDING_IDLE_ROLL_SHARE } } }
+        : beat
+    }),
+  }
+}

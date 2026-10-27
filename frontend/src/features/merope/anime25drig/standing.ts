@@ -84,6 +84,13 @@ export function isStandingFigure(anchors: Pick<Anime25DPlaybackAnchors, 'groundY
  */
 export const STANDING_IDLE_SHARE = 0.25
 
+/**
+ * ...and the head roll its looks and random actions bring takes this share:
+ * a bust's idle tilt, seen on a whole standing figure, tips the figure off
+ * its upright and reads as slouching from side to side.
+ */
+export const STANDING_IDLE_ROLL_SHARE = 0.35
+
 /** The idle lean of a standing figure at `time`, which shifts its weight. */
 export function standingWeightShift(time: number): number {
   const t = Number.isFinite(time) ? ((time % WEIGHT_CYCLE) + WEIGHT_CYCLE) % WEIGHT_CYCLE : 0

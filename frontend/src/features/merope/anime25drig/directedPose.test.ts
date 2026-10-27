@@ -3,7 +3,7 @@ import type { Anime25DRenderFrame } from './renderer'
 import type { Anime25DPlayback, Anime25DPlaybackLayer } from './types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { BODY_CONTROLS, sanitizeBodyPose } from '../events/performanceContract'
+import { BODY_CONTROLS, faceLife, sanitizeBodyPose } from '../events/performanceContract'
 import { TouchGestureTracker } from '../interaction/touchGesture'
 import { RigMotionCoordinator } from '../motion/coordinator'
 import { compilePerformanceBehaviorPlan } from '../motion/performanceBehaviorPlan'
@@ -25,6 +25,7 @@ import { intentExpressionOffset } from './performanceExpression'
 import { ZERO_OFFSET } from './performanceExpressionShared'
 import { PoseResponseController } from './poseResponse'
 import { deriveAnime25DShellProfile } from './shellProfile'
+import { STANDING_IDLE_ROLL_SHARE } from './standing'
 import { anime25DPlaybackSource } from './types'
 
 const capabilities = [...new Set(Object.values(BODY_CONTROLS).map(c => c.capability))]
@@ -439,6 +440,21 @@ test('score beats take over held controls on their moment, hold, and give back t
   assert.ok(at(1.4).eyeX > 0.7, 'a later beat on another control joins it')
   assert.ok(Math.abs(at(2.9).angleZ - standing) < 0.05, 'after its hold the standing pose comes back')
   assert.ok(at(2.9).eyeX > 0.7, 'a beat with no hold keeps going')
+})
+
+test('a standing figure sways its head less with a look\'s life', () => {
+  // 'content' tilts the head one way and the other as it holds.
+  const swing = (standing: boolean) => {
+    // The life varies each time round; hold its variation still to compare the two.
+    const value = new DirectedPoseController(() => 0.5)
+    value.setCapabilities(capabilities)
+    value.setStanding(standing)
+    value.setFace('content', 0)
+    return Math.max(...sampleAt(value, 0, 6.5).map((sample) => Math.abs(sample.target.angleZ)))
+  }
+  const tilt = faceLife('content')!.beats[0].pose!.targets.headTilt!
+  assert.ok(Math.abs(swing(false) - mappedControlValue('headTilt', tilt)) < 0.02, 'a bust tilts as the look says')
+  assert.ok(Math.abs(swing(true) - mappedControlValue('headTilt', tilt * STANDING_IDLE_ROLL_SHARE)) < 0.02, 'a figure, its idle share')
 })
 
 test('a hair sway beat stirs the hair as a held one does', () => {

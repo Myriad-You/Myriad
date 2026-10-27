@@ -55,7 +55,7 @@ import {
 } from './randomAction'
 import { CoSpeechExpressionController } from './speechExpression'
 import { AutoSpeechController } from './speechMotion'
-import { isStandingFigure, STANDING_HEAD_ROLL, STANDING_IDLE_SHARE, standingWeightShift } from './standing'
+import { isStandingFigure, STANDING_HEAD_ROLL, STANDING_IDLE_ROLL_SHARE, STANDING_IDLE_SHARE, standingWeightShift } from './standing'
 import { StylizedExpressionMotionController } from './stylizedExpressionMotion'
 import { ThinkingMotionController } from './thinkingMotion'
 
@@ -167,17 +167,19 @@ export class Anime25DMotionComposer {
     private readonly irisRebound: Anime25DIrisRebound,
   ) {}
 
-  /** A standing figure's ambient pose: the torso a look recruits takes its idle share of the range. */
+  /** A standing figure's ambient pose: the torso a look recruits, and its head roll, take their idle shares. */
   private standingAmbient(ambient: Readonly<AmbientPose>): Readonly<AmbientPose> {
     Object.assign(this.idleAmbient, ambient)
     this.idleAmbient.body = ambient.body * STANDING_IDLE_SHARE
+    this.idleAmbient.angleZ = ambient.angleZ * STANDING_IDLE_ROLL_SHARE
     return this.idleAmbient
   }
 
-  /** ...and a standing figure's random actions: the lean they bring, too, is idle. */
+  /** ...and a standing figure's random actions: the lean and the roll they bring, too, are idle. */
   private standingRandom(action: Readonly<RandomActionFrame>): Readonly<RandomActionFrame> {
     Object.assign(this.idleRandom, action)
     this.idleRandom.body = action.body * STANDING_IDLE_SHARE
+    this.idleRandom.angleZ = action.angleZ * STANDING_IDLE_ROLL_SHARE
     return this.idleRandom
   }
 
@@ -188,6 +190,7 @@ export class Anime25DMotionComposer {
    */
   setFigure(playback: Pick<Anime25DPlayback, 'anchors' | 'bodyTurnKeyforms' | 'turnKeyforms'>): void {
     this.standing = isStandingFigure(playback.anchors)
+    this.directedPose.setStanding(this.standing)
     this.headRidesBody = headRidesBody(bodyKeyShare(playback), Boolean(playback.turnKeyforms))
   }
 

@@ -109,21 +109,17 @@ export const FIGURE_HIP_SHIFT = 0.2
  * contrapposto has it; much more and the shoe leaves the ground.
  */
 const HEEL_LIFT = 0.1
-/** The most a bent leg's thigh and shin are drawn longer, its knee crossing in. */
+/** The most a bent leg's thigh and shin are drawn longer, its knee drifting in. */
 const LEG_STRETCH = 1.05
 /** The most a free foot is drawn taller, rising onto its toes. */
 const FOOT_STRETCH = 1.2
 /**
  * A knee bent towards the viewer drifts inwards by this share of the thigh
- * for each unit of `sqrt(1 − (reach / drawn reach)²)`. The knee of the leg
- * clearly freer than the other goes up to KNEE_CROSS further, over the other
- * leg's (legOrder draws it in front); with both bent alike neither crosses,
- * so the two trade places in the stack where they do not overlap.
+ * for each unit of `sqrt(1 − (reach / drawn reach)²)`. It stays clear of the
+ * other leg: a free knee carried in over it reads as legs twisted round each
+ * other, not as the weight on one foot.
  */
-const KNEE_DRIFT = 0.45
-const KNEE_CROSS = 0.45
-/** How much freer a leg is than the other, its bend over the other's, when its knee crosses all the way. */
-const CROSS_LEAD = 0.4
+const KNEE_DRIFT = 0.25
 /** Of the lean, the abdomen takes this much; the chest the rest. */
 const ABDOMEN_SHARE = 0.45
 /** The usual knee and ankle, as shares of the way from the hips to the ground. */
@@ -277,7 +273,7 @@ function drawnReach(leg: Readonly<LegRest>): number {
  * to fit, the knee where it was along the way and drifting inwards as the
  * leg bends towards the viewer. Whether it bent.
  */
-function solveKnee(leg: Readonly<LegRest>, hip: Point, ankle: Point, out: Point, lead: number): boolean {
+function solveKnee(leg: Readonly<LegRest>, hip: Point, ankle: Point, out: Point): boolean {
   const restX = leg.ankle.x - leg.hip.x
   const restY = leg.ankle.y - leg.hip.y
   const restReach = Math.max(1e-6, Math.hypot(restX, restY))
@@ -295,7 +291,7 @@ function solveKnee(leg: Readonly<LegRest>, hip: Point, ankle: Point, out: Point,
   const bent = Math.sqrt(Math.max(0, 1 - scale * scale))
   if (bent > 0) {
     const thigh = Math.hypot(leg.knee.x - leg.hip.x, leg.knee.y - leg.hip.y)
-    out.x += leg.inward * (KNEE_DRIFT + KNEE_CROSS * smoothstep(lead / CROSS_LEAD)) * thigh * bent
+    out.x += leg.inward * KNEE_DRIFT * thigh * bent
   }
   return bent > 0
 }
@@ -388,7 +384,7 @@ export function solveFigurePose(rest: Readonly<FigureRest>, input: Readonly<Figu
     const ankle = apply(foot, leg.ankle.x, leg.ankle.y, scratch.ankle)
     scratch.lifted.x = ankle.x
     scratch.lifted.y = ankle.y - (lift - footLift)
-    if (solveKnee(leg, hip, scratch.lifted, scratch.knee, left ? input.bendL - input.bendR : input.bendR - input.bendL)) {
+    if (solveKnee(leg, hip, scratch.lifted, scratch.knee)) {
       balanceKnee(leg, hip, ankle, scratch.knee)
     }
     setSegment(left ? out.thighL : out.thighR, leg.hip, leg.knee, hip, scratch.knee)

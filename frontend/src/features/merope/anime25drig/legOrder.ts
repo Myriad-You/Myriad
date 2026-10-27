@@ -3,7 +3,7 @@
  * one leg's layers over the other's once and for all; a rigger keys the draw
  * order to the stance (Cubism's parameter-keyed draw order), so the free leg,
  * its knee bent towards the viewer, comes over the leg bearing the weight
- * when the two cross. The legs' layers trade places only among the places
+ * where the two meet. The legs' layers trade places only among the places
  * they hold in the stack; everything drawn between them keeps its place.
  */
 
@@ -14,8 +14,7 @@ interface LegLayer {
 
 /**
  * The freer leg comes over the other once it bends this much more: about as
- * soon as the two pass, while neither knee is across (figureSkeleton crosses
- * a knee only as its leg gets clearly freer), and not back and forth.
+ * soon as the two pass, while the knees are still apart, and not back and forth.
  */
 const LEAD = 0.02
 

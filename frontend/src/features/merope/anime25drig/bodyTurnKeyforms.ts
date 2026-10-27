@@ -1,6 +1,6 @@
 import type { Anime25DTorsoShellRotation } from './torsoDeformation'
 import type { Anime25DTurnKeyforms, BoundTurnKeyform } from './turnKeyforms'
-import type { Anime25DPlaybackLayer } from './types'
+import type { Anime25DPlaybackAnchors, Anime25DPlaybackLayer } from './types'
 import { HEAD_TURN_RADIANS } from './headTurn'
 import { isStandingFigure } from './standing'
 import { HEAD_YAW_SHARE } from './torsoDeformation'
@@ -11,8 +11,9 @@ import { bindTurnKey, turnKeyformOffset } from './turnKeyforms'
  * shape it takes with the whole figure turned BODY_KEY_YAW either way, its
  * feet where they stood, as a lattice like the head's turn keys ('plus'
  * toward +x). A turn in between mixes rest and key linearly by the torso's
- * yaw. Only the legs and shoes keep their keys (playbackBodyKeys); the rest
- * turns on the torso's cylinder, and the head keeps its own turn keys.
+ * yaw. Only the shoes keep their keys (playbackBodyKeys): the legs lean from
+ * their soles (fromSole), the rest turns on the torso's cylinder, and the
+ * head keeps its own turn keys.
  */
 export const BODY_KEY_YAW = (20 * Math.PI) / 180
 /**
@@ -36,78 +37,55 @@ export function bodyTurnKeyFamily(layer: KeyedLayer): string | null {
 }
 
 /**
- * A layer's body key per rest point. A leg measured as thigh and shin
- * ('thigh:L', 'shin:L') takes the thigh's above its knee and the shin's below,
- * blended across it; `kneeY` is the knee found on the portrait, else the
- * middle of the leg's drawing.
+ * A layer's body key per rest point. On a standing figure (`leg`: its hips
+ * and the ground) a leg turns as one from its sole (fromSole); a sleeve is
+ * sewn to the torso's key.
  */
 export function bindBodyTurnKeyform(
   keyforms: Readonly<Anime25DTurnKeyforms> | undefined,
   layer: KeyedLayer,
   rest: Float32Array,
-  kneeY?: number,
+  leg?: Readonly<StandingLeg>,
 ): BoundTurnKeyform | null {
-  const thigh = layer.role === 'legwear' && layer.side ? keyforms?.[`thigh:${layer.side}`] : undefined
-  const shin = layer.role === 'legwear' && layer.side ? keyforms?.[`shin:${layer.side}`] : undefined
-  if (thigh && shin) return atHip(bentAtKnee(bindTurnKey(thigh, rest), bindTurnKey(shin, rest), rest, kneeY), rest)
   const family = bodyTurnKeyFamily(layer)
   // Each leg and shoe turns by its own key where one was measured, else with both.
   const key = family && (keyforms?.[family] ?? keyforms?.[family.split(':')[0]])
+  const legKey = layer.role === 'legwear' ? (layer.side && keyforms?.[`thigh:${layer.side}`]) || key : null
+  if (legKey && leg) return fromSole(bindTurnKey(legKey, rest), rest, leg)
   if (!key) return null
   const bound = bindTurnKey(key, rest)
   const torso = family.startsWith('arm:') ? keyforms?.topwear : undefined
   if (torso) return sewnToTorso(bound, bindTurnKey(torso, rest), rest, family.slice(4))
-  return layer.role === 'legwear' ? atHip(bound, rest) : bound
-}
-
-/** A leg's key gives way to the torso's cylinder over this share of its height down from its top. */
-export const HIP_BLEND = 0.25
-
-/**
- * A leg's top lies inside the skirt (or the trousers' seat), which turns on
- * the torso's cylinder while the leg turns by its key, drawn where the turned
- * pictures hide it: apart, the thigh's top slid out past the skirt's side.
- * The leg's key, with the share per vertex of the cylinder's turn the leg
- * takes in place of it (`cylinder`): all at its top, none from HIP_BLEND of
- * its height down, as a sleeve takes the torso's key at its shoulder
- * (sewnToTorso).
- */
-function atHip(bound: BoundTurnKeyform, rest: Float32Array): BoundTurnKeyform {
-  let top = Infinity
-  let bottom = -Infinity
-  for (let i = 1; i < rest.length; i += 2) {
-    top = Math.min(top, rest[i])
-    bottom = Math.max(bottom, rest[i])
-  }
-  const span = Math.max(1, (bottom - top) * HIP_BLEND)
-  const weights = new Float32Array(rest.length / 2)
-  for (let v = 0; v < weights.length; v++) weights[v] = 1 - smooth((rest[v * 2 + 1] - top) / span)
-  bound.cylinder = weights
   return bound
 }
 
-/** A thigh's key gives way to the shin's over this share of the leg's height, about the knee. */
-const KNEE_BLEND = 0.12
+/** Where a standing figure's legs hang from and stand on. */
+export interface StandingLeg {
+  hipY: number
+  groundY: number
+}
 
-function bentAtKnee(thigh: BoundTurnKeyform, shin: BoundTurnKeyform, rest: Float32Array, kneeY?: number): BoundTurnKeyform {
-  let top = Infinity
-  let bottom = -Infinity
-  for (let i = 1; i < rest.length; i += 2) {
-    top = Math.min(top, rest[i])
-    bottom = Math.max(bottom, rest[i])
-  }
-  const knee = kneeY !== undefined && Number.isFinite(kneeY) ? kneeY : (top + bottom) / 2
-  const band = Math.max(1, (bottom - top) * KNEE_BLEND)
-  for (const turn of ['plus', 'minus'] as const) {
-    const own = thigh[turn]
-    const below = shin[turn]
-    for (let i = 0; i < own.length; i += 2) {
-      const w = smooth((rest[i + 1] - knee + band / 2) / band)
-      own[i] += (below[i] - own[i]) * w
-      own[i + 1] += (below[i + 1] - own[i + 1]) * w
-    }
-  }
-  return thigh
+/** A standing figure's hips and ground, as bindStanding takes them; none for a bust. */
+export function standingLegOf(playback: { anchors: Pick<Anime25DPlaybackAnchors, 'bodyPivot' | 'groundY'> }): StandingLeg | undefined {
+  const { bodyPivot, groundY } = playback.anchors
+  return groundY === undefined ? undefined : { hipY: bodyPivot.y, groundY }
+}
+
+/**
+ * A standing leg turns as one from its sole: its top goes with the torso's
+ * cylinder (it lies inside the skirt), and the share falls straight down the
+ * leg to nothing at the ground, the leg leaning over its planted foot. Its
+ * keys are not used: fitted to turned pictures that redraw the stance, they
+ * send the hip one way and the shin the other, and the knee buckles in.
+ */
+function fromSole(bound: BoundTurnKeyform, rest: Float32Array, leg: Readonly<StandingLeg>): BoundTurnKeyform {
+  bound.plus.fill(0)
+  bound.minus.fill(0)
+  const span = Math.max(1, leg.groundY - leg.hipY)
+  const weights = new Float32Array(rest.length / 2)
+  for (let v = 0; v < weights.length; v++) weights[v] = Math.max(0, Math.min(1, (leg.groundY - rest[v * 2 + 1]) / span))
+  bound.cylinder = weights
+  return bound
 }
 
 /**
