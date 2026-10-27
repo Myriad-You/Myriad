@@ -251,3 +251,12 @@ test('a mouth\'s key moves and narrows it but does not shear it', () => {
   const face = offsets('face')
   assert.ok(face[2] - face[0] > 5, 'the face is sheared as keyed')
 })
+
+test('an accessory lying outside its key\'s box is another piece: it is not moved by that key', () => {
+  const key = { plus: shiftedLattice(10), minus: shiftedLattice(-10) }
+  const earwear = { group: 'head' as const, role: 'earwear', side: null }
+  assert.ok(bindTurnKeyform({ earwear: key }, earwear, new Float32Array([50, 50, 60, 60])), 'inside, keyed')
+  assert.equal(bindTurnKeyform({ earwear: key }, earwear, new Float32Array([250, 50, 260, 60])), null, 'outside, left to its host')
+  // Other parts keep their key wherever they lie.
+  assert.ok(bindTurnKeyform({ face: key }, { group: 'head', role: 'face', side: null }, new Float32Array([250, 50, 260, 60])))
+})

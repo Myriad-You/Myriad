@@ -396,10 +396,11 @@ function bindLayerUniforms(
 }
 
 /**
- * What is seen from behind the face, drawn whole just before it: the face and
+ * What is seen from behind the face, drawn just before it: the face and
  * everything over it hide what of it they cover, and its own place draws the
- * rest of its share (behindFace). The two are the same drawing, so where
- * nothing covers it the change of place does not show.
+ * rest of its share (behindFace). Here too it fades with that share, gone
+ * once its ear is behind the cheek: past the head's outline nothing covers
+ * it, and an earring left there floats off the head (h00).
  */
 function drawBehindFace(
   gl: WebGL2RenderingContext,
@@ -410,9 +411,11 @@ function drawBehindFace(
   work?: Anime25DFrameWork,
 ): void {
   for (const layer of layers) {
-    if ((layer.behindFace ?? 0) < 0.004 || layer.frameOpacity < 0.004 || !layer.vao) continue
+    const behind = layer.behindFace ?? 0
+    const opacity = layer.frameOpacity * (1 - behind)
+    if (behind < 0.004 || opacity < 0.004 || !layer.vao) continue
     bindLayerUniforms(gl, bindings, layer, frame)
-    gl.uniform1f(bindings.opacity, layer.frameOpacity)
+    gl.uniform1f(bindings.opacity, opacity)
     gl.uniform1f(bindings.cut, 0)
     const own = layer.ownTexture
     if (own) {

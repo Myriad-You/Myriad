@@ -110,8 +110,33 @@ export function bindTurnKeyform(
 ): BoundTurnKeyform | null {
   const key = turnKeyFor(keyforms, layer)
   if (!key) return null
+  const family = turnKeyformFamily(layer)
+  if (family && ACCESSORY_KEYS.has(family) && !holds(key, rest)) return null
   const bound = bindTurnKey(key, rest)
-  return turnKeyformFamily(layer) === 'mouth' ? unsheared(bound, rest) : bound
+  return family === 'mouth' ? unsheared(bound, rest) : bound
+}
+
+/**
+ * An accessory's key is fitted on the pieces of that kind the decomposition
+ * had. A piece lying outside its box is another one (h00: an earring recovered
+ * by the import beside the right ear, under the left ear's tassel key): the
+ * lattice, clamped at its edge, would fling it off the head. It rides its
+ * host instead.
+ */
+const ACCESSORY_KEYS = new Set(['earwear', 'headwear'])
+const HELD_SHARE = 0.5
+
+function holds(key: Readonly<Anime25DTurnKey>, rest: Float32Array): boolean {
+  const n = rest.length / 2
+  if (n === 0) return true
+  let inside = 0
+  for (let v = 0; v < n; v++) {
+    const x = rest[v * 2]
+    const y = rest[v * 2 + 1]
+    const within = (box: readonly number[]) => x >= box[0] && x <= box[2] && y >= box[1] && y <= box[3]
+    if (within(key.plus.box) || within(key.minus.box)) inside++
+  }
+  return inside >= n * HELD_SHARE
 }
 
 /** A mouth's key scales it by at most this much either way: turned 30°, it narrows by cos 30°. */

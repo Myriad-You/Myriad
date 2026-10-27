@@ -426,9 +426,9 @@ export function deformLayers(
 
 /**
  * An earring goes behind the face as the head turns its side away, from
- * about EAR_HIDES_FROM of turn to EAR_HIDDEN_AT: the far ear it hangs from is
- * behind the cheek by then. A computed turn (11 degrees) barely starts it; a
- * keyed one (30) hides it.
+ * about EAR_HIDES_FROM of turn to EAR_HIDDEN_AT, and is gone by then with
+ * the far ear it hangs from, behind the cheek. A computed turn (11 degrees)
+ * barely starts it; a keyed one (30) hides it.
  */
 const EAR_HIDES_FROM = Math.sin((6 * Math.PI) / 180)
 const EAR_HIDDEN_AT = Math.sin((20 * Math.PI) / 180)
