@@ -279,7 +279,9 @@ jobs:
       # The updater holds the highest-privilege paths in the system (Docker
       # socket, pgdata snapshots, image tags) and had no CI coverage at all.
       - name: Deployment compatibility
-        run: python3 ../scripts/extra/test-deployment-compatibility.py
+        run: |
+          sudo locale-gen zh_CN.UTF-8
+          python3 ../scripts/extra/test-deployment-compatibility.py
       - name: Backend volume migration and restore (Docker)
         run: python3 ../scripts/extra/test-backend-volumes.py
       - name: Storage template and Guard integration

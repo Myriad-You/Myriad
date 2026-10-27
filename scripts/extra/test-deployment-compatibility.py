@@ -3,6 +3,7 @@
 Run: python3 scripts/extra/test-deployment-compatibility.py
 Requires bash and jq (available on the release runner). Compose selection tests
 also use the Docker Compose CLI, but never connect to a daemon or pull images.
+The Chinese locale regression requires zh_CN.UTF-8 (generated in CI).
 """
 import json
 import os
@@ -156,6 +157,96 @@ if guard_image_matches_selection 'docker.io/somekawahitomi/myriad-updater:latest
 '''
             script_path.write_text(library + checks)
             subprocess.run(["bash", str(script_path)], check=True, capture_output=True, text=True)
+
+
+class GuardPolicyTokens(unittest.TestCase):
+    def deploy(self, token, locale):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            scripts = root / "scripts/extra"
+            scripts.mkdir(parents=True)
+            for name in ("deploy.sh", "backend-storage.sh"):
+                (scripts / name).write_text((ROOT / "scripts/extra" / name).read_text())
+            (root / ".env.production.example").write_text((ROOT / ".env.production.example").read_text())
+            (root / ".env").write_text("".join(
+                f"{key}=test-only-bootstrap-token-00000000\n" for key in (
+                    "UPDATE_TOKEN", "UPDATER_GATEWAY_SECRET", "PERSONA_DB_PASSWORD",
+                    "FEDERATION_DB_PASSWORD", "MYRIAD_SETUP_SECRET", "GUARD_SELF_UPDATE_TOKEN")))
+            policy = root / "guard-policy/docker-guard.env"
+            policy.parent.mkdir()
+            values = {
+                "DOCKER_GUARD_IMAGE": "docker.io/somekawahitomi/myriad-updater@sha256:" + "a" * 64,
+                "GUARD_COMPOSE_PROJECT_NAME": "myriad",
+                "GUARD_MYRIAD_DOCKER_NETWORK": "myriad-net",
+                "GUARD_MYRIAD_ADMIN_NETWORK": "myriad-admin-net",
+                "GUARD_MYRIAD_DOCKER_GUARD_NETWORK": "myriad-docker-guard-net",
+                "MYRIAD_GUARD_ENV_FILE": "guard-policy/docker-guard.env",
+            }
+            if token is not None:
+                values["GUARD_SELF_UPDATE_TOKEN"] = token
+            policy.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
+            mock = root / "docker"
+            mock.write_text('''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+root = Path(os.environ["DEPLOY_TOKEN_TEST_ROOT"])
+args = sys.argv[1:]
+if args == ["compose", "version"]: pass
+elif args[0] == "compose" and args[-4:] == ["config", "--no-env-resolution", "--format", "json"]:
+    print(json.dumps({"services": {"backend": {"volumes": [
+        {"type": "bind", "source": str(root / kind), "target": "/app/" + kind}
+        for kind in ("data", "cache")]}}}))
+elif args[0] == "compose" and args[-2:] == ["up", "-d"]:
+    (root / "started").touch()
+elif args[:2] == ["volume", "ls"] or args[0] == "run": pass
+else: sys.exit(1)
+''')
+            mock.chmod(0o755)
+            # Run the unmodified CLI and dispatch; only Docker is replaced.
+            result = subprocess.run(["bash", str(scripts / "deploy.sh"), "up"],
+                capture_output=True, text=True, env={**os.environ,
+                    "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                    "LC_ALL": locale, "LANG": locale, "COMPOSE_PROJECT_NAME": "",
+                    "DEPLOY_TOKEN_TEST_ROOT": str(root)})
+            stored = next((line.split(b"=", 1)[1].decode() for line in policy.read_bytes().split(b"\n")
+                           if line.startswith(b"GUARD_SELF_UPDATE_TOKEN=")), None)
+            return result, (root / "started").exists(), stored
+
+    def check_tokens(self, locale):
+        cases = [
+            ("minimum", "a" * 32, True),
+            ("generated-format", "aB3_" * 12, True),
+            ("maximum", "z" * 256, True),
+            ("all-ASCII-graphic", "".join(chr(code) for code in range(33, 127)), True),
+            ("too-short", "a" * 31, False),
+            ("too-long", "a" * 257, False),
+            *[(name, "a" * 32 + char, False) for name, char in (
+                ("space", " "), ("tab", "\t"), ("carriage-return", "\r"),
+                ("control", "\x01"), ("DEL", "\x7f"), ("accented", "é"), ("Chinese", "中"))],
+        ]
+        for name, token, valid in cases:
+            with self.subTest(locale=locale, token=name):
+                result, started, stored = self.deploy(token, locale)
+                self.assertEqual(result.returncode, 0 if valid else 2, result.stdout + result.stderr)
+                self.assertEqual(started, valid)
+                self.assertEqual(stored, token)
+                if not valid:
+                    self.assertIn("GUARD_SELF_UPDATE_TOKEN must be 32..256", result.stdout)
+        with self.subTest(locale=locale, token="missing"):
+            result, started, stored = self.deploy(None, locale)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(started)
+            self.assertRegex(stored, r"\A[!-~]{48}\Z")
+
+    def test_guard_tokens_in_c_locale(self):
+        self.check_tokens("C")
+
+    def test_guard_tokens_in_chinese_utf8_locale(self):
+        available = subprocess.run(["locale", "-a"], check=True, capture_output=True, text=True).stdout.splitlines()
+        locale = next((name for name in available if name.lower().replace("-", "") == "zh_cn.utf8"), None)
+        if locale is None:
+            self.skipTest("zh_CN.UTF-8 unavailable; generate it with locale-gen zh_CN.UTF-8")
+        self.check_tokens(locale)
 
 
 class ComposeTagSelection(unittest.TestCase):
