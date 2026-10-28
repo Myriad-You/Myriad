@@ -28,8 +28,8 @@ use crate::{
 };
 
 const PROFILE_VERSION: u8 = 1;
-const PROMPT_VERSION: &str = "anime25d-part-inventory-v1";
-const MAX_PARTS: usize = 10;
+const PROMPT_VERSION: &str = "anime25d-part-inventory-v2";
+const MAX_PARTS: usize = 12;
 const MAX_NAME: usize = 40;
 const MAX_MATERIAL: usize = 20;
 /// A vision model gets this long to answer.
