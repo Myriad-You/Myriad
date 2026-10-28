@@ -15,7 +15,7 @@ test('every look the director can pick is a named button in the workbench', () =
 test('a look plays on the drivers at its tiers, as a directive would', () => {
   const content = facePresetDriver('content')
   assert.equal(content.eyeOpenL, 0)
-  assert.equal(content.eyeSmile, 1)
+  assert.equal(content.eyeSmile, 0.65)
   assert.equal(content.mouthForm, 0.65)
   assert.equal(facePresetDriver('humming').accentNotes, 1)
   assert.equal(facePresetDriver('blushing').accentBlush, 0.65)

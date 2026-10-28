@@ -180,7 +180,7 @@ const SMILE_LOWER_LIFT = 0.36
 const SMILE_UPPER_DROP = 0.08
 const SMILE_IRIS_LIFT = 0.06
 /** A fully smiling closed lid bows up by this share of the eye's height at its middle. */
-const CLOSED_SMILE_BOW = 0.42
+const CLOSED_SMILE_BOW = 0.22
 
 function smileAmount(value: number): number {
   return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0

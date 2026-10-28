@@ -384,7 +384,9 @@ test('a smiling closed eye bows up into ^, most at its middle', () => {
   const middle = (eye.x0 + eye.x1) / 2
   const lift = at(middle, 0) - at(middle, 1)
   const cornerLift = at(eye.x0, 0) - at(eye.x0, 1)
-  assert.ok(lift > (eye.y1 - eye.y0) * 0.3, `${lift}`)
+  assert.ok(lift > (eye.y1 - eye.y0) * 0.2 && lift < (eye.y1 - eye.y0) * 0.25, `${lift}`)
+  // A smaller smile bows less, in proportion.
+  assert.ok(Math.abs(at(middle, 0) - at(middle, 0.5) - lift / 2) < 1e-9)
   assert.ok(Math.abs(cornerLift) < 1e-9, 'the corners stay where the lid meets them')
   assert.equal(at(middle, 0), at(middle, 0))
 })
