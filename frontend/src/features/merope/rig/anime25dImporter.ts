@@ -30,7 +30,7 @@ import { underlapHairLocks } from './hairLockUnderlap'
 import { liftHairShadowOffSkin } from './hairShadow'
 import { hangTopPiecesOnHeadwear } from './headOrnaments'
 import { contentFrame, deriveAnchors, semanticAnchors, standingStance } from './importerAnchors'
-import { assignCrossfadeSlots, hasStaticSeeThroughMouth, mirrorLostEyeWhite, preserveStaticMouthAsClosed, splitHandwearIfNeeded, splitLowerLimbsIfNeeded, splitVariantEyesIfNeeded, stackArmsByReference, stackEarwearByReference, stackHeadwearByReference, stackLowerLimbsByReference, stackNeckwearByReference, stackOpenEyesInOrder, tuckBackHairBehindFace, tuckBackHairBehindNeck, tuckTopUnderChinBehindNeck } from './importerLayerSplits'
+import { assignCrossfadeSlots, hasStaticSeeThroughMouth, mirrorLostEyeWhite, preserveStaticMouthAsClosed, splitHandwearIfNeeded, splitLowerLimbsIfNeeded, splitVariantEyesIfNeeded, stackArmsByReference, stackEarwearByReference, stackHeadwearByReference, stackLowerLimbsByReference, stackNeckwearByReference, stackOpenEyesInOrder, tuckBehindFace, tuckBackHairBehindNeck, tuckTopUnderChinBehindNeck } from './importerLayerSplits'
 import { addHiddenArmFragments, anime25DShoulderSeeds } from './linkedHandwear'
 import { findMotionExposure } from './motionExposure'
 import { inferOutfitProfileFromPartIds } from './outfit'
@@ -142,7 +142,7 @@ export async function prepareAnime25DRigPsd(
     ? { ...layer, data: keepClosedEyeLines(layer.data) }
     : layer)
   layers = splitHighCollarOcclusion(layers, rig.anchors, sourceReference)
-  layers = tuckBackHairBehindNeck(tuckBackHairBehindFace(layers))
+  layers = tuckBackHairBehindNeck(tuckBehindFace(layers))
   // A coat drawn over a leg or the neck the portrait shows goes behind it
   // before repair, which would cut it out and leave a hole once it moves.
   if (sourceReference) {

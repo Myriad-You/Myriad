@@ -1,7 +1,7 @@
 import type { RasterLayer } from './anime25dImportTypes'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { splitLowerLimbsIfNeeded, stackArmsByReference, stackEarwearByReference, stackHeadwearByReference, stackLowerLimbsByReference, stackNeckwearByReference, tuckBackHairBehindFace, tuckBackHairBehindNeck, tuckTopUnderChinBehindNeck } from './importerLayerSplits'
+import { splitLowerLimbsIfNeeded, stackArmsByReference, stackEarwearByReference, stackHeadwearByReference, stackLowerLimbsByReference, stackNeckwearByReference, tuckBehindFace, tuckBackHairBehindNeck, tuckTopUnderChinBehindNeck } from './importerLayerSplits'
 
 const SIZE = 20
 
@@ -195,20 +195,23 @@ test('back hair between a neck and the stand collar drawn over it goes behind th
   assert.deepEqual(out.map((l) => l.id), ['back-hair', 'neck', 'topwear', 'face'])
 })
 
-test('back hair stacked over the face goes just behind it', () => {
+test('back hair or an ear stacked over the face goes just behind it', () => {
   const box = { left: 0, top: 0, width: 4, height: 4 }
   const ears = solid('ears', 'ears', [240, 210, 200], box)
   const face = solid('face', 'face', [250, 225, 215], box)
   const hair = solid('back-hair', 'back-hair', [200, 150, 150], box)
   const nose = solid('nose', 'nose', [240, 200, 190], box)
   const bangs = solid('front-hair', 'front-hair', [250, 170, 190], box)
-  const out = tuckBackHairBehindFace([ears, face, hair, nose, bangs])
+  const out = tuckBehindFace([ears, face, hair, nose, bangs])
   assert.deepEqual(out.map((l) => l.id), ['ears', 'back-hair', 'face', 'nose', 'front-hair'])
+  // An ear over the face goes behind it too, in its order with the hair.
+  const ear = solid('ears-2', 'ears', [240, 210, 200], box)
+  assert.deepEqual(tuckBehindFace([hair, face, ear, nose]).map((l) => l.id), ['back-hair', 'ears-2', 'face', 'nose'])
   // Already behind the face, or no face: as it was.
   const behind = [hair, ears, face, nose]
-  assert.equal(tuckBackHairBehindFace(behind), behind)
+  assert.equal(tuckBehindFace(behind), behind)
   const faceless = [ears, hair]
-  assert.equal(tuckBackHairBehindFace(faceless), faceless)
+  assert.equal(tuckBehindFace(faceless), faceless)
 })
 
 test('what a top draws under the chin, in front of a neck that shows below the jaw, goes behind the neck', () => {

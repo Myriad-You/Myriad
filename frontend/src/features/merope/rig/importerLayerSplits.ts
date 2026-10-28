@@ -138,15 +138,18 @@ export function stackLowerLimbsByReference(
 }
 
 /**
- * The back hair is behind the head. A decomposition of a picture it reads
- * poorly (watercolour washes) can stack it over the face, with what it
- * filled in behind the face then covering it. It goes just behind the face;
- * what of it the portrait shows over the face the import's repair reveals.
+ * The back hair and the ears are behind the face. A decomposition of a
+ * picture it reads poorly (watercolour washes) can stack the back hair over
+ * the face, with what it filled in behind the face then covering it; one can
+ * stack an ear over it (h01), which a turn then slides across the cheek,
+ * since the far ear cannot go behind what is under it. They go just behind
+ * the face; what of them the portrait shows over the face the import's
+ * repair reveals.
  */
-export function tuckBackHairBehindFace(layers: RasterLayer[]): RasterLayer[] {
+export function tuckBehindFace(layers: RasterLayer[]): RasterLayer[] {
   const face = layers.findIndex((layer) => layer.role === 'face')
   if (face < 0) return layers
-  const over = layers.filter((layer, index) => index > face && layer.role === 'back-hair')
+  const over = layers.filter((layer, index) => index > face && (layer.role === 'back-hair' || layer.role === 'ears'))
   if (over.length === 0) return layers
   const output = layers.filter((layer) => !over.includes(layer))
   return output.toSpliced(output.indexOf(layers[face]), 0, ...over)
