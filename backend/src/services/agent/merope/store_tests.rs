@@ -325,6 +325,46 @@ fn changing_spoken_persona_keeps_confirmed_visual_assets() {
     ));
 }
 
+/// 导入流程：上传立绘时建出 Arael、没有外观的行；收尾一次写入新名字和按图读出的
+/// 外观。生成输入变了，Keep 会把刚上传的主立绘一起作废，所以收尾必须点名这张图。
+#[test]
+fn finishing_import_keeps_the_uploaded_portrait_only_when_it_is_named() {
+    let uploaded = || agent_persona::Model {
+        id: PERSONA_ROW_ID.to_string(),
+        name: "Arael".to_string(),
+        personality: String::new(),
+        persona_json: None,
+        visual_profile: None,
+        portrait_asset_id: Some("/uploaded.png".to_string()),
+        portrait_generation: None,
+        avatar_asset_id: None,
+        avatar_generation: None,
+        updated_by: Some(1),
+        updated_at: crate::clock::now().into(),
+        zone: String::new(),
+        field_revs: serde_json::json!({}),
+    };
+    let finish = |portrait: &PortraitUpdate| {
+        apply_persona_update(
+            uploaded(),
+            "Mio".to_string(),
+            "quiet".to_string(),
+            portrait,
+            &PersonaContractUpdate {
+                persona: JsonDocumentUpdate::Set(json!({ "summary": "quiet" })),
+                visual_profile: JsonDocumentUpdate::Set(complete_visual_profile()),
+                ..PersonaContractUpdate::default()
+            },
+            1,
+        )
+    };
+    assert_eq!(finish(&PortraitUpdate::Keep).portrait_asset_id, Set(None));
+    assert_eq!(
+        finish(&PortraitUpdate::Set("/uploaded.png".to_string())).portrait_asset_id,
+        Set(Some("/uploaded.png".to_string()))
+    );
+}
+
 /// 一份完整到能通过 `appearance_visual_profile` 归一化的外观。
 /// 字段不全时归一化会整块丢掉 `visualIdentity`，改它就等于没改，
 /// 「改外观」这条断言会假绿。

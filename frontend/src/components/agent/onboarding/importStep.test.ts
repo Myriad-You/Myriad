@@ -75,11 +75,11 @@ test('the fork owns the choice, and no later step re-offers it', () => {
   assert.doesNotMatch(tags, /onImport|importEnter/)
 })
 
-test('import saves the persona without touching the uploaded portrait', () => {
+test('import saves the persona with the uploaded portrait named', () => {
   const wizard = read('./OnboardingWizard.tsx')
   const importPane = wizard.slice(
     wizard.indexOf('step === IMPORT_STEP'),
-    wizard.indexOf('{step === 1 &&'),
+    wizard.indexOf('step === GUIDED_FIRST_STEP'),
   )
   assert.ok(importPane.length > 0, 'import pane not found')
   assert.match(importPane, /agentService\.putPersona\(/)
@@ -88,8 +88,10 @@ test('import saves the persona without touching the uploaded portrait', () => {
     .split('\n')
     .filter((line) => !line.trim().startsWith('//'))
     .join('\n')
-  // upload_portrait 选文件时就落库。再带 portraitAssetId 会把 Keep 变成 Set/Clear。
-  assert.doesNotMatch(code, /portraitAssetId/)
+  // upload_portrait 建的行名字是 Arael、没有外观；收尾改名并写外观，后端会把
+  // Keep 当成生成输入变了、清掉主立绘。必须把刚上传的那张原样写回（Set）。
+  assert.match(code, /portraitAssetId: importedPortraitUrl/)
+  assert.doesNotMatch(code, /portraitAssetId: null/)
   assert.match(importPane, /visualProfile: \{/)
   assert.match(importPane, /onFinished\(\)/)
 })

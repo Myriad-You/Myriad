@@ -264,7 +264,8 @@ export default function OnboardingWizard({
                 onPortrait={setImportedPortraitUrl}
                 onSubmit={() =>
                   run(async () => {
-                    // omit portraitAssetId (Keep); observe visual so merge cannot refill generate-chain values
+                    // name the uploaded portrait: new name + visual clear it on Keep.
+                    // observe visual so merge cannot refill generate-chain values
                     const observed = importedPortraitUrl
                       ? await agentService.observeVisualFromPortrait({
                           gender: gender ?? 'unspecified',
@@ -297,6 +298,9 @@ export default function OnboardingWizard({
                         displayName: displayName.trim(),
                         ...persona,
                       },
+                      ...(importedPortraitUrl
+                        ? { portraitAssetId: importedPortraitUrl }
+                        : {}),
                       visualProfile: {
                         gender: gender ?? 'unspecified',
                         language: locale,
