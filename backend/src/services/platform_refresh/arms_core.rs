@@ -181,6 +181,10 @@ pub(super) async fn fetch_steam(ctx: &mut FetchCtx<'_>) {
                     .collect();
 
                 let total_count = filtered_games.len();
+                // 商店美术资源按 appid 解析（锁区游戏需要换区兜底），失败不影响抓取
+                let appids: Vec<i64> = filtered_games.iter().map(|game| game.appid).collect();
+                crate::services::steam_assets::refresh_steam_assets(&ctx.fetcher.client, &appids)
+                    .await;
                 ctx.all_data["steam"]["games"] = json!(filtered_games);
                 tracing::info!(
                     "✓ Steam games fetched: {} games (filtered >=3h)",

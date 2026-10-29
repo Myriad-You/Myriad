@@ -24,6 +24,8 @@ pub struct SteamPresenceResponse {
     pub is_in_game: bool,
     pub gameid: Option<String>,
     pub gameextrainfo: Option<String>,
+    /// 正在玩的游戏封面（已按商店资源解析，锁区游戏也能出图）
+    pub game_cover: Option<String>,
     pub lastlogoff: Option<i64>,
     /// 近两周游玩总时长（分钟）；受频率限制，可能为 None
     pub recent_2weeks_minutes: Option<i32>,
@@ -33,6 +35,11 @@ pub struct SteamPresenceResponse {
 impl From<SteamUserInfo> for SteamPresenceResponse {
     fn from(info: SteamUserInfo) -> Self {
         let is_in_game = info.gameid.is_some() || info.gameextrainfo.is_some();
+        let game_cover = info
+            .gameid
+            .as_deref()
+            .and_then(|id| id.trim().parse::<i64>().ok())
+            .map(crate::services::steam_assets::cover_url);
         Self {
             steamid: info.steamid,
             personaname: info.personaname,
@@ -52,6 +59,7 @@ impl From<SteamUserInfo> for SteamPresenceResponse {
             is_in_game,
             gameid: info.gameid,
             gameextrainfo: info.gameextrainfo,
+            game_cover,
             lastlogoff: info.lastlogoff,
             // 由 handler 按频率限制单独填充
             recent_2weeks_minutes: None,
@@ -147,6 +155,15 @@ pub(crate) async fn fetch_and_store_presence(
 ) -> anyhow::Result<SteamPresenceResponse> {
     let fetcher = PlatformFetcher::new().await;
     let info = fetcher.fetch_steam_user(api_key, steam_id).await?;
+    // 正在玩的游戏若不在已解析的库里（新买、时长不足 3 小时），补一次封面解析
+    if let Some(appid) = info
+        .gameid
+        .as_deref()
+        .and_then(|id| id.trim().parse::<i64>().ok())
+        && crate::services::steam_assets::art(appid).is_none()
+    {
+        crate::services::steam_assets::refresh_steam_assets(&fetcher.client, &[appid]).await;
+    }
     let mut presence: SteamPresenceResponse = info.into();
 
     // 近两周时长：命中缓存直接用，否则受 6h TTL 限流后再打一次 Steam

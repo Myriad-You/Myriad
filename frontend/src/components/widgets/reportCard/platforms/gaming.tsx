@@ -423,7 +423,8 @@ export const SteamStatsWidget = memo(({ data, isPreview }: any) => {
   const gameIconUrl =
     nowPlaying && presence?.gameid
       ? proxyImageUrl(
-          `https://cdn.cloudflare.steamstatic.com/steam/apps/${presence.gameid}/header.jpg`,
+          presence.game_cover ||
+            `https://cdn.cloudflare.steamstatic.com/steam/apps/${presence.gameid}/header.jpg`,
         )
       : null
   const recent2wHours = useMemo(() => {
