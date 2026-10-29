@@ -293,6 +293,7 @@ const ModernConfigForm: React.FC = () => {
         return (
           <UiConfigSection
             configFields={config.ui_config.config_fields}
+            envBaseUrl={config.ui_config.env_base_url}
             updateValue={updateUiFieldValue}
             {...props}
           />
@@ -301,6 +302,7 @@ const ModernConfigForm: React.FC = () => {
         return (
           <OAuthConfigSection
             configFields={config.ui_config.config_fields}
+            envBaseUrl={config.ui_config.env_base_url}
             providers={drafts.oauth.draft.providers}
             loading={drafts.oauth.loading}
             onProvidersChange={(providers) =>

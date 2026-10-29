@@ -70,4 +70,7 @@ pub struct TripoConfig {
 #[serde(default)]
 pub struct UiConfig {
     pub config_fields: Vec<ConfigField>,
+    /// 只读：库里没存网站地址时，部署环境里站点实际在用的地址；保存时忽略。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env_base_url: Option<String>,
 }

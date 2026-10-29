@@ -28,6 +28,8 @@ export interface TripoConfig {
 
 export interface UiConfig {
   config_fields: ConfigField[]
+  /** 只读：库里没存网站地址时，部署环境（.env BASE_URL）里实际在用的地址 */
+  env_base_url?: string
 }
 
 export interface Config {

@@ -922,6 +922,12 @@ pub(crate) async fn build_config(
                     required: false,
                 },
             ],
+            // 与 OAuth 拼回调同一顺序：BASE_URL，再 FRONTEND_URL。
+            env_base_url: ["BASE_URL", "FRONTEND_URL"].into_iter().find_map(|key| {
+                let raw = std::env::var(key).ok()?;
+                let origin = raw.trim().trim_end_matches('/');
+                (!origin.is_empty()).then(|| origin.to_string())
+            }),
         },
     };
 

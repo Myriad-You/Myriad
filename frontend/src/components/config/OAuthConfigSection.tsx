@@ -52,6 +52,8 @@ interface ConfigField {
 
 interface OAuthConfigSectionProps {
   configFields: ConfigField[]
+  /** 库里没存网站地址时，部署环境里实际在用的地址 */
+  envBaseUrl?: string
   title: string
   icon: React.ReactNode
   description: string
@@ -125,6 +127,7 @@ export function OAuthAddTrigger({
 
 export const OAuthConfigSection: React.FC<OAuthConfigSectionProps> = ({
   configFields,
+  envBaseUrl,
   title,
   icon,
   description,
@@ -138,7 +141,7 @@ export const OAuthConfigSection: React.FC<OAuthConfigSectionProps> = ({
   const addedSlug = useAddedSlug(providers.map((provider) => provider.slug))
 
   const baseUrl = (
-    configFields.find((field) => field.key === 'base_url')?.value || ''
+    configFields.find((field) => field.key === 'base_url')?.value.trim() || envBaseUrl || ''
   ).replaceAll(/\/$/g, '')
 
   const updateProvider = (idx: number, patch: Partial<OAuthProviderEntry>) => {
