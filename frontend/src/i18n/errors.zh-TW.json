@@ -522,7 +522,7 @@
     "gender_required": "請先選擇性別呈現。",
     "import_source_required": "請選擇匯入來源。",
     "music_listening_too_short": "聽歌紀錄還不夠。多聽一會兒再試。",
-    "persona_reports_required": "至少需要 3 份平台報告。請先產生更多報告再試。",
+    "persona_reports_required": "至少需要 3 份平台報告。在「配置 → 資料及統計」裡選一個平台，點「產生報告」。",
     "persona_required": "請先儲存人設，再設計形象。",
     "structured_persona_required": "請先完善人設資訊，再設計形象。",
     "visual_gender_required": "產生立繪前請先選擇性別呈現。",

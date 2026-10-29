@@ -1512,6 +1512,8 @@
     "clearCache": "Vider le cache",
     "dataManagementTitle": "Gestion des données",
     "dataManagementDesc": "Gérez les données plateforme et le cache de filtre intelligent",
+    "platformReport": "Rapport de plateforme",
+    "platformReportDesc": "Générer le rapport de cette plateforme à partir des données actuelles",
     "rawData": "Données brutes",
     "noData": "Pas de données",
     "smartFilter": "Filtre intelligent",

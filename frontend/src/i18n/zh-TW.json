@@ -1512,6 +1512,8 @@
     "clearCache": "清除快取",
     "dataManagementTitle": "資料管理",
     "dataManagementDesc": "管理平臺資料和智慧過濾快取",
+    "platformReport": "平台報告",
+    "platformReportDesc": "用現有資料產生這個平台的報告",
     "rawData": "原始資料",
     "noData": "暫無資料",
     "smartFilter": "智慧過濾",

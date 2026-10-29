@@ -1512,6 +1512,8 @@
     "clearCache": "Cache leeren",
     "dataManagementTitle": "Datenverwaltung",
     "dataManagementDesc": "Plattformdaten und Smart-Filter-Cache verwalten",
+    "platformReport": "Plattformbericht",
+    "platformReportDesc": "Bericht für diese Plattform aus den vorhandenen Daten erstellen",
     "rawData": "Rohdaten",
     "noData": "Keine Daten",
     "smartFilter": "Smart-Filter",

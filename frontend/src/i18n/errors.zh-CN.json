@@ -522,7 +522,7 @@
     "gender_required": "请先选择性别呈现。",
     "import_source_required": "请选择导入来源。",
     "music_listening_too_short": "听歌记录还不够。多听一会儿再试。",
-    "persona_reports_required": "至少需要 3 份平台报告。请先生成更多报告再试。",
+    "persona_reports_required": "至少需要 3 份平台报告。在「配置 → 数据及统计」里选一个平台，点「生成报告」。",
     "persona_required": "请先保存人设，再设计形象。",
     "structured_persona_required": "请先完善人设信息，再设计形象。",
     "visual_gender_required": "生成立绘前请先选择性别呈现。",

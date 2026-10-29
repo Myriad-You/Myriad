@@ -522,7 +522,7 @@
     "gender_required": "Choose a gender presentation first.",
     "import_source_required": "Choose what to import from.",
     "music_listening_too_short": "Not enough listening history yet. Listen a little longer and try again.",
-    "persona_reports_required": "At least 3 platform reports are needed first. Generate more reports and try again.",
+    "persona_reports_required": "At least 3 platform reports are needed first. In Settings → Data & stats, pick a platform and click “Generate report”.",
     "persona_required": "Save the persona before designing its appearance.",
     "structured_persona_required": "Finish the persona details before designing its appearance.",
     "visual_gender_required": "Choose a gender presentation before generating the portrait.",

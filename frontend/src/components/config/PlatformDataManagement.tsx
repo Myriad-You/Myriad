@@ -2,20 +2,24 @@ import type { CacheInfo } from '../../services/platformTasksApi'
 import type { ToastType } from '../Toast'
 
 import type { PlatformDataPreviewHandle } from './PlatformDataPreview'
-import { FaSyncAlt, FaTrash } from '@lib/icons'
+import { FaFileAlt, FaSyncAlt, FaTrash } from '@lib/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import {
   clearPlatformCache,
   fetchPlatformData,
+  generatePlatformReports,
   getPlatformCacheStatus,
   getPlatformMetadataStatus,
   getRunningPlatformTask,
   submitPlatformTask,
 } from '../../services/platformTasksApi'
+import { emitAppEvent } from '../../utils/appEvents'
 import { resolvePlatformId } from '../../utils/platformId'
 import { platformFetchDetails, refreshPlatformViews } from '../../utils/platformRefresh'
 import { notifyRecentActivityUpdated } from '../../utils/recentActivity'
+import { reportUserFacingError } from '../../utils/reportError'
+import { invalidateLatestReportCache } from '../../utils/requestDedup'
 import { userFacingError } from '../../utils/userFacingError'
 import { ButtonItem, SettingGroup, useSettingGuide } from '../settings'
 import { TaskStatus } from '../TaskStatus'
@@ -57,6 +61,7 @@ export default function PlatformDataManagement({
   const [refreshing, setRefreshing] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [clearing, setClearing] = useState(false)
+  const [generating, setGenerating] = useState(false)
   const [activeTask, setActiveTask] = useState<string | null>(null)
   const loadRequestRef = useRef(0)
   const previewRef = useRef<PlatformDataPreviewHandle>(null)
@@ -209,6 +214,24 @@ export default function PlatformDataManagement({
     setProcessing(true)
   }
 
+  // 首页报告卡可能没摆出来；这里是生成第一份报告的固定入口。
+  const generateReport = async () => {
+    if (!platformId) return
+    setGenerating(true)
+    try {
+      const body = await generatePlatformReports<{ platform?: string }>([platformId])
+      const produced = Array.isArray(body?.reports) && body.reports.some((r) => r?.platform === platformId)
+      if (!produced) throw new Error(body?.message || 'not generated')
+      invalidateLatestReportCache()
+      emitAppEvent('reports-updated')
+      showMessage(format(t.reportStage.generated, { platform: platformName }), 'success')
+    } catch (error) {
+      showMessage(reportUserFacingError(error, t.reportStage.generateFailed, t.reportCard), 'error', 5000)
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   const clearCache = async () => {
     if (!platformId) return
     if (
@@ -341,6 +364,22 @@ export default function PlatformDataManagement({
           loading={processing}
           disabled={processing || !status?.hasRawData || statusLoading}
           onClick={() => void processPlatform()}
+        />
+
+        <ButtonItem
+          itemKey="platform-report-generate"
+          label={t.dataManagement.platformReport}
+          description={t.dataManagement.platformReportDesc}
+          buttonText={
+            generating ? t.reportStage.generating : t.reportStage.generate
+          }
+          buttonIcon={<FaFileAlt />}
+          variant="secondary"
+          layout="horizontal"
+          size="sm"
+          loading={generating}
+          disabled={generating || !status?.hasRawData || statusLoading}
+          onClick={() => void generateReport()}
         />
 
         <ButtonItem
