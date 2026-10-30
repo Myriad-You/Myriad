@@ -34,7 +34,7 @@ it('recovers only unsaved changes and preserves independent newer remote changes
   drafts.writeNoteRecovery({ userId: 1, docId: 7 }, { ...base, contentMd: 'LOCAL\nsecond', topic: null }, base, 2)
   const remote = { ...base, contentMd: 'first\nREMOTE', cover: '/remote.png' }
   assert.deepEqual(drafts.recoverNoteFields(drafts.readNoteRecovery({ userId: 1, docId: 7 }), remote), {
-    ...base, contentMd: 'LOCAL\nREMOTE', topic: null, cover: '/remote.png', slug: null,
+    ...base, contentMd: 'LOCAL\nREMOTE', topic: null, cover: '/remote.png', slug: null, oldPaths: null,
   })
 })
 
@@ -93,7 +93,7 @@ it('recovery retains both authors when the same paragraph conflicts', () => {
 it('an unchanged server preserves all local fields through account-scoped recovery', () => {
   const local = { ...base, title: 'Edited', contentMd: 'Unsent', topic: 'local category', cover: '/local.png', publishedAt: 500 }
   drafts.writeNoteRecovery({ userId: 1, docId: 7 }, local, base, 1)
-  assert.deepEqual(drafts.recoverNoteFields(drafts.readNoteRecovery({ userId: 1, docId: 7 }), base), { ...local, slug: null })
+  assert.deepEqual(drafts.recoverNoteFields(drafts.readNoteRecovery({ userId: 1, docId: 7 }), base), { ...local, slug: null, oldPaths: null })
 })
 
 it('opening legacy records never assigns them to an account or destroys them', () => {
@@ -112,5 +112,5 @@ it('reopening after a lost restore acknowledgement recognizes the restored versi
   drafts.writeNoteRecovery({ userId: 1, docId: 7 }, current, base, 1, Date.now(), {
     requestId: 'restore', fields: current, expectedFields: target,
   })
-  assert.deepEqual(drafts.recoverNoteFields(drafts.readNoteRecovery({ userId: 1, docId: 7 }), target), { ...target, slug: null })
+  assert.deepEqual(drafts.recoverNoteFields(drafts.readNoteRecovery({ userId: 1, docId: 7 }), target), { ...target, slug: null, oldPaths: null })
 })

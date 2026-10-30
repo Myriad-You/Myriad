@@ -17,6 +17,7 @@ import {
   noteScheduleError,
   toNoteWritePayload,
 } from './noteFields'
+import { isOldPathTakenError, oldPathsFromField } from './noteOldPaths'
 import { isSlugTakenError, noteSlugWire } from './noteSlug'
 
 export function useNotePublish({
@@ -83,6 +84,7 @@ export function useNotePublish({
     discardConfirm: string
     slugInvalid?: string
     slugTaken?: string
+    oldPathTaken?: string
   }
 }): {
   fieldMessage: (kind: ReturnType<typeof noteFieldError>) => string | null
@@ -143,14 +145,18 @@ export function useNotePublish({
             showNoteNotice(labels.slugInvalid ?? labels.saveFailed)
             return
           }
+          // 旧地址只有已发布的笔记才有：更新到博客时整组带上，没改的后端不动。
+          const oldPaths = typeof current.oldPaths === 'string' ? current.oldPaths : undefined
           const receipt = track({
             title: latest.title, contentMd: latest.content_md, topic: latest.topic,
             cover: latest.image ?? null, publishedAt: latest.published_at ?? null,
             slug: currentSlug,
+            ...(oldPaths !== undefined ? { oldPaths } : {}),
           })
           const result = await phantasiApi.publishNoteDoc(cloudId, {
             ...latest,
             slug: currentSlug,
+            ...(oldPaths !== undefined ? { old_paths: oldPathsFromField(oldPaths) } : {}),
             client_request_id: receipt.requestId,
             image: latest.image ?? null,
             revision: revisionRef.current,
@@ -168,7 +174,13 @@ export function useNotePublish({
       clearLocalRecovery()
       onSaved(result.id)
     } catch (err) {
-      showNoteNotice(isSlugTakenError(err) ? (labels.slugTaken ?? labels.saveFailed) : userFacingError(err, labels.saveFailed))
+      showNoteNotice(
+        isSlugTakenError(err)
+          ? (labels.slugTaken ?? labels.saveFailed)
+          : isOldPathTakenError(err)
+            ? (labels.oldPathTaken ?? labels.saveFailed)
+            : userFacingError(err, labels.saveFailed),
+      )
     } finally {
       setSaving(false)
     }
@@ -183,6 +195,7 @@ export function useNotePublish({
     labels.saveFailed,
     labels.slugInvalid,
     labels.slugTaken,
+    labels.oldPathTaken,
     noteId,
     onPublished,
     onSaved,

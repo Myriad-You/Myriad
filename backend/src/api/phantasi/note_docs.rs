@@ -290,6 +290,9 @@ pub(crate) async fn publish_note_doc(
     ensure_note_author(&txn, doc.id, user_id, doc.user_id).await?;
     let (item, saved) =
         publish_doc_on(&txn, doc, published_at, expected, req.slug.as_deref()).await?;
+    if let Some(paths) = req.old_paths.as_deref() {
+        crate::services::note_old_paths::set_note_old_paths(&txn, item.id, paths).await?;
+    }
     txn.commit()
         .await
         .map_err(|e| phantasi_store_http("commit note publish", e))?;

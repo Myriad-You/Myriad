@@ -301,6 +301,9 @@ impl MigrationTrait for Migration {
                     )
                     // 笔记公开地址。可空；抓来的文章保持 NULL。唯一性见下面的部分索引。
                     .col(ColumnDef::new(PhantasiItems::Slug).text())
+                    // 搬家来的文章原来的地址（JSON 字符串数组），访问时 301 到这篇。
+                    // 跨文章不重复由写入时查；已有库由 schema_check 补列。
+                    .col(ColumnDef::new(PhantasiItems::OldPaths).json_binary())
                     .to_owned(),
             )
             .await?;
@@ -1229,6 +1232,7 @@ enum PhantasiItems {
     Topic,
     ContentMd,
     ContentRevision,
+    OldPaths,
 }
 
 #[derive(DeriveIden)]

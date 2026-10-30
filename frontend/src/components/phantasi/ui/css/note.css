@@ -2198,6 +2198,23 @@ html.dark .phantasi-note__drawer {
   font-size: 0.8125rem;
 }
 
+/* 旧地址：一行一条的等宽文本框。 */
+.phantasi-note.phantasi-skin .phantasi-note__old-paths {
+  height: auto;
+  min-height: 5.5rem;
+  padding-block: 0.55rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  white-space: pre;
+  resize: vertical;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__old-paths[aria-invalid='true'] {
+  border-color: var(--note-danger);
+  box-shadow: 0 0 0 1px var(--note-danger);
+}
+
 /* 地址和文章日期同一种行：标签、值、行尾的小动作。 */
 .phantasi-note__address-path {
   display: inline-flex;

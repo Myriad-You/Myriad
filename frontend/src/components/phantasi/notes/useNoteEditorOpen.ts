@@ -10,6 +10,7 @@ import {
   recoverNoteFields,
 } from './noteDraft'
 import { normalizeNoteCover, normalizeNoteTopic } from './noteFields'
+import { oldPathsField } from './noteOldPaths'
 import { expandJammedDefinitions } from './noteVisual'
 import { openNoteCloudDoc } from './useNoteCloud'
 
@@ -66,6 +67,7 @@ export function useNoteEditorOpen({
           cover: normalizeNoteCover(doc.image),
           publishedAt: doc.published_at ?? null,
           slug: doc.slug?.trim() || null,
+          oldPaths: oldPathsField(doc.old_paths),
         }
         const recovery = (loadRecovery ?? readNoteRecovery)({ userId, docId: doc.id })
         const recovered = recoverNoteFields(recovery, server)

@@ -40,6 +40,7 @@ pub fn router(app_state: crate::state::AppState) -> Router<crate::state::AppStat
             myriad_blog::NAV_SPECULATION_RULES_PATH,
             get(speculation_rules),
         )
+        .route(OLD_PATH_REDIRECT_PATH, get(old_path_redirect))
         .route("/blog", get(serve_blog).head(serve_blog))
         .route("/blog/", get(serve_blog).head(serve_blog))
         .route("/blog/{*path}", get(serve_blog).head(serve_blog))
@@ -191,6 +192,44 @@ async fn post_rebuild(_admin: AdminClaims) -> Json<Value> {
     Json(json!({ "build": build }))
 }
 
+/// 代理问的旧地址查询。和 `proxy/src/main.rs` 的 `OLD_PATH_REDIRECT_PATH` 同一条。
+const OLD_PATH_REDIRECT_PATH: &str = "/api/blog/redirect";
+
+#[derive(Deserialize)]
+struct OldPathQuery {
+    path: String,
+}
+
+/// `GET /api/blog/redirect?path=/2024/05/hello/` — 搬家来的文章的旧地址。命中回
+/// `{ "location": "/blog/posts/{slug}/" }`，没命中 404。博客对这位访客不可见时也是 404。
+async fn old_path_redirect(
+    State(db): State<DatabaseConnection>,
+    viewer: OptionalViewer,
+    axum::extract::Query(query): axum::extract::Query<OldPathQuery>,
+) -> Result<Response, HttpError> {
+    let user_id = viewer
+        .claims
+        .as_ref()
+        .and_then(|claims| claims.subject().map(|subject| subject.id()));
+    crate::api::phantasi::require_phantasi_module_access_cached(&db, user_id, viewer.is_admin)
+        .await?;
+    let target = crate::services::note_old_paths::redirect_target(&db, &query.path)
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "old address lookup failed");
+            blog_error(500, "Lookup failed")
+        })?;
+    let mut response = match target {
+        Some(location) => Json(json!({ "location": location })).into_response(),
+        None => blog_error(404, "Not found").into_response(),
+    };
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    Ok(response)
+}
+
 async fn serve_blog(
     State(db): State<DatabaseConnection>,
     viewer: OptionalViewer,
@@ -207,6 +246,17 @@ async fn serve_blog(
     let query = request.uri().query().map(str::to_string);
     let current = blog::output_dir();
     let target = resolve_blog_target(&current, &path);
+    // 老博客本来就在 /blog/ 下：这里没有的地址先看是不是哪篇的旧地址。
+    if matches!(target, BlogTarget::Missing)
+        && let Some(location) = crate::services::note_old_paths::redirect_target(&db, &path)
+            .await
+            .ok()
+            .flatten()
+    {
+        let mut response = old_path_moved(&location);
+        finish_blog_response(&mut response, request.method());
+        return Ok(response);
+    }
     let anonymous = user_id.is_none();
     let if_none_match = request.headers().get(header::IF_NONE_MATCH);
     // 样式、图片、字体照常返回：导航岛和创作台只有 HTML 才用得上，不为它们拼。
@@ -266,6 +316,19 @@ async fn serve_blog(
     let mut response = response;
     finish_blog_response(&mut response, request.method());
     Ok(response)
+}
+
+/// 旧地址的 301。不带原来的查询串：那是旧站自己的参数。缓存一天，旧地址改了不至于一直跳错。
+fn old_path_moved(location: &str) -> Response {
+    let mut response = StatusCode::MOVED_PERMANENTLY.into_response();
+    if let Ok(value) = HeaderValue::from_str(location) {
+        response.headers_mut().insert(header::LOCATION, value);
+    }
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400"),
+    );
+    response
 }
 
 fn finish_blog_response(response: &mut Response, method: &axum::http::Method) {

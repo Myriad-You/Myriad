@@ -82,6 +82,9 @@ export function useNoteCollab({
             topic: incoming.topic === undefined ? base.topic : incoming.topic,
             cover: incoming.image === undefined ? base.cover : incoming.image,
             publishedAt: incoming.published_at === undefined ? base.publishedAt : incoming.published_at,
+            // 协作通知不带地址：沿用已确认的值，不能当成被清空。
+            slug: base.slug,
+            oldPaths: base.oldPaths,
           }, incoming.revision, incoming.client_request_id)
         } catch { /* Malformed frames are ignored. */ }
       }

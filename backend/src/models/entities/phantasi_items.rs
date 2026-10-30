@@ -68,6 +68,10 @@ pub struct Model {
     /// 笔记公开地址的 slug。只有笔记有值，同一笔记源内唯一；抓来的文章保持 NULL。
     #[sea_orm(column_type = "Text", nullable)]
     pub slug: Option<String>,
+    /// 从别的博客搬来时原来的文章地址（规范化后的路径数组），访问会 301 到这篇。
+    /// 只有已发布的笔记有值；NULL 和空数组都表示没有。
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub old_paths: Option<Json>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -474,6 +478,7 @@ mod preview_tests {
             topic: None,
             content_revision: 1,
             slug: None,
+            old_paths: None,
         };
         let (page, next) = split_list_page(vec![row(1), row(2), row(3)], 2);
         assert_eq!(
@@ -510,6 +515,7 @@ mod preview_tests {
             topic: None,
             content_revision: 3,
             slug: None,
+            old_paths: None,
         };
         let mut item =
             ItemResponse::from_model_with_ai(model, None, None, true, true, false, false);

@@ -10,6 +10,7 @@ use serde_json::json;
 
 use super::note_authors::{NoteAuthorFace, ensure_note_author, load_authors_for_docs};
 use super::note_collab::{NoteCollabEvent, note_collab_hub};
+use super::note_old_paths::{invalidate_old_path_cache, old_paths_of_item, set_note_old_paths};
 use super::note_publish::{datetime_to_millis, millis_to_datetime, set_published_note_slug};
 use super::phantasi_error::{phantasi_http_err, phantasi_store_http};
 use crate::error::HttpError;
@@ -30,6 +31,9 @@ pub(crate) struct NoteDocWriteRequest {
     /// 已发布笔记的公开 slug。省略表示不改；未发布时不能设置。
     #[serde(default)]
     pub slug: Option<String>,
+    /// 已发布笔记的旧地址（搬家前的文章地址），整组替换。省略表示不改；未发布时不能设置。
+    #[serde(default)]
+    pub old_paths: Option<Vec<String>>,
 }
 
 // Omitted preserves the value; explicit null clears it.
@@ -72,6 +76,9 @@ pub(crate) struct NoteDocResponse {
     pub last_error: Option<String>,
     pub updated_at: i64,
     pub slug: Option<String>,
+    /// 已发布笔记的旧地址。列表接口不带；单篇读取时已发布的才有。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_paths: Option<Vec<String>>,
 }
 
 pub(crate) fn note_excerpt(md: &str) -> String {
@@ -104,6 +111,7 @@ pub(crate) fn to_response(doc: phantasi_note_docs::Model, slug: Option<String>) 
         last_error: doc.last_error,
         updated_at: datetime_to_millis(doc.updated_at),
         slug,
+        old_paths: None,
     }
 }
 
@@ -198,7 +206,13 @@ pub(crate) async fn respond_doc(
     let mut authors = load_authors_for_docs(db, &[doc.id]).await?;
     let list = authors.remove(&doc.id).unwrap_or_default();
     let slug = slug_of_item(db, doc.item_id).await?;
-    Ok(attach_authors(to_response(doc, slug), list))
+    let old_paths = match doc.item_id {
+        Some(item_id) => Some(old_paths_of_item(db, Some(item_id)).await?),
+        None => None,
+    };
+    let mut row = to_response(doc, slug);
+    row.old_paths = old_paths;
+    Ok(attach_authors(row, list))
 }
 
 pub(crate) async fn credit_and_respond(
@@ -288,6 +302,12 @@ pub(crate) async fn save_note_doc(
             "Publish the note before setting a slug",
         ));
     }
+    if req.old_paths.is_some() && doc.item_id.is_none() {
+        return Err(phantasi_http_err(
+            StatusCode::BAD_REQUEST,
+            "Publish the note before setting old addresses",
+        ));
+    }
     // 只放 Set 过的列进 UPDATE；条件带 revision，两个并发写只有一个能落地。
     let mut active = <phantasi_note_docs::ActiveModel as std::default::Default>::default();
     if let Some(title) = req.title {
@@ -338,6 +358,11 @@ pub(crate) async fn save_note_doc(
     let saved = saved_rows.pop().ok_or_else(|| {
         phantasi_http_err(StatusCode::CONFLICT, "Note draft was updated elsewhere")
     })?;
+    // 在文档行之后才拿旧地址的锁，和发布同一个顺序，两边不会互相等。
+    let mut old_paths_changed = false;
+    if let (Some(paths), Some(item_id)) = (req.old_paths.as_deref(), doc.item_id) {
+        old_paths_changed = set_note_old_paths(&txn, item_id, paths).await?.1;
+    }
     crate::services::media::bind_note_draft(
         &txn,
         saved.id,
@@ -353,6 +378,9 @@ pub(crate) async fn save_note_doc(
         .map_err(|e| phantasi_store_http("commit note doc save", e))?;
     if req.slug.is_some() {
         crate::services::blog::request_rebuild();
+    }
+    if old_paths_changed {
+        invalidate_old_path_cache();
     }
     broadcast_saved_doc(&saved, user_id, req.client_request_id);
     Ok(json!({

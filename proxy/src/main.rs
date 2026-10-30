@@ -46,6 +46,22 @@ const MAINT_CACHE_TTL: Duration = Duration::from_millis(250);
 /// Applied on proxy responses when upstream omitted it (static frontend often does).
 const PERMISSIONS_POLICY: &str = "geolocation=(self), microphone=(self), camera=()";
 
+/// Backend lookup for addresses of articles moved here from another blog. Must
+/// match backend `OLD_PATH_REDIRECT_PATH` in `api/blog.rs`.
+const OLD_PATH_REDIRECT_PATH: &str = "/api/blog/redirect";
+/// The lookup sits in front of every SPA document load, so it gets a short
+/// leash: a slow or down backend just means the SPA answers as before.
+const OLD_PATH_LOOKUP_TIMEOUT: Duration = Duration::from_millis(300);
+/// SPA routes and build assets. Never an old address (the backend refuses to
+/// store these), so skip the round trip. Keep in sync with
+/// `RESERVED_FIRST_SEGMENTS` in `crates/myriad-phantasi-notes/src/old_paths.rs`.
+const OLD_PATH_SKIP_FIRST_SEGMENTS: &[&str] = &[
+    "assets", "embed", "library", "studio", "config", "agent", "login", "register", "setup", "tapp",
+];
+/// Old blogs often end post addresses in one of these; anything else with an
+/// extension is a static file and goes straight to the frontend.
+const OLD_PATH_PAGE_EXTENSIONS: &[&str] = &["html", "htm", "shtml", "php", "asp", "aspx", "jsp"];
+
 #[derive(Clone)]
 struct AppState {
     state_path: PathBuf,
@@ -303,6 +319,17 @@ async fn handle(
     } else {
         &state.frontend_upstream
     };
+    // Articles moved here from another blog: their old root-level addresses
+    // would otherwise land in the SPA. Ask the backend first; on a hit answer
+    // 301 to the article, on a miss or any error serve the SPA as before.
+    if !persona
+        && !is_federation_path(&path)
+        && !is_backend_path_for(&path, ua, query)
+        && wants_old_path_lookup(req.method(), &path, req.headers(), ua)
+        && let Some(location) = lookup_old_path(&state, &path, req.headers()).await
+    {
+        return Ok(old_path_moved(&location));
+    }
     if persona && is_websocket_upgrade(req.headers()) {
         // Only her link upgrades; every other persona path stays HTTP.
         if path != PERSONA_LINK_PATH {
@@ -789,6 +816,149 @@ fn is_backend_path_for(path: &str, user_agent: &str, query: &str) -> bool {
         // Site media is served by the web process. Must not hit SPA or the
         // federation worker.
         || path.starts_with("/media/assets/")
+}
+
+/// A page request for a path that could be an old article address: GET/HEAD,
+/// not `/`, not an SPA route, no file extension (or an old page extension such
+/// as `.html`), and a document load. Browsers say so with `Sec-Fetch-Dest`;
+/// crawlers often send neither that nor `Accept: text/html`, so without the
+/// header a missing or wildcard Accept, or a crawler UA, also counts.
+fn wants_old_path_lookup(
+    method: &hyper::Method,
+    path: &str,
+    headers: &HeaderMap,
+    user_agent: &str,
+) -> bool {
+    if method != hyper::Method::GET && method != hyper::Method::HEAD {
+        return false;
+    }
+    if path == "/" || path.len() > 2048 || is_websocket_upgrade(headers) {
+        return false;
+    }
+    let first = path
+        .trim_start_matches('/')
+        .split('/')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if first.starts_with('@') || OLD_PATH_SKIP_FIRST_SEGMENTS.contains(&first.as_str()) {
+        return false;
+    }
+    let last = path
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or_default();
+    if let Some((_, extension)) = last.rsplit_once('.')
+        && !extension.is_empty()
+        && extension.len() <= 5
+        && extension.chars().all(|c| c.is_ascii_alphanumeric())
+        && !OLD_PATH_PAGE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
+    {
+        return false;
+    }
+    let header = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_ascii_lowercase)
+    };
+    match header("sec-fetch-dest") {
+        Some(dest) => dest == "document",
+        None => match header("accept") {
+            None => true,
+            Some(accept) => {
+                accept.contains("text/html")
+                    || accept.contains("application/xhtml+xml")
+                    || accept.contains("*/*")
+                    || is_seo_crawler_ua(user_agent)
+            }
+        },
+    }
+}
+
+/// Ask the backend whether `path` is an old article address. Only the cookie
+/// travels along, so the backend applies the same blog visibility as `/blog`.
+async fn lookup_old_path(state: &AppState, path: &str, headers: &HeaderMap) -> Option<String> {
+    use http_body_util::BodyExt;
+    let url = format!(
+        "{}{}?path={}",
+        state.backend_upstream,
+        OLD_PATH_REDIRECT_PATH,
+        encode_query_value(path)
+    );
+    let mut builder = hyper::Request::builder()
+        .method(hyper::Method::GET)
+        .uri(&url)
+        .header(header::ACCEPT, "application/json");
+    if let Some(cookie) = headers.get(header::COOKIE) {
+        builder = builder.header(header::COOKIE, cookie);
+    }
+    let request = builder.body(Body::empty()).ok()?;
+    let lookup = async {
+        let response = state.client.request(request).await.ok()?;
+        if response.status() != StatusCode::OK {
+            return None;
+        }
+        let body = http_body_util::Limited::new(response.into_body(), 4096)
+            .collect()
+            .await
+            .ok()?
+            .to_bytes();
+        let value: serde_json::Value = serde_json::from_slice(&body).ok()?;
+        value
+            .get("location")
+            .and_then(serde_json::Value::as_str)
+            .filter(|location| is_blog_post_location(location))
+            .map(str::to_string)
+    };
+    match tokio::time::timeout(OLD_PATH_LOOKUP_TIMEOUT, lookup).await {
+        Ok(found) => found,
+        Err(_) => {
+            warn!(path, "old address lookup timed out; serving the SPA");
+            None
+        }
+    }
+}
+
+/// The backend only ever answers `/blog/posts/{slug}/`; anything else is not
+/// followed, so a bad answer can never turn the proxy into an open redirect.
+fn is_blog_post_location(location: &str) -> bool {
+    location.starts_with("/blog/posts/")
+        && location.len() <= 512
+        && !location.contains("//")
+        && location
+            .bytes()
+            .all(|byte| byte.is_ascii_graphic() && byte != b'\\')
+}
+
+fn old_path_moved(location: &str) -> Response {
+    let mut response = StatusCode::MOVED_PERMANENTLY.into_response();
+    if let Ok(value) = HeaderValue::from_str(location) {
+        response.headers_mut().insert(header::LOCATION, value);
+    }
+    // A day, not forever: an old address the owner later removes or moves to
+    // another article stops redirecting in browsers soon after.
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400"),
+    );
+    response
+}
+
+/// Percent-encode a request path as one query value. The path keeps its own
+/// escapes (`%E4…` becomes `%25E4…`); the backend decodes the query once and
+/// normalises the path itself.
+fn encode_query_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() * 3);
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~' | b'/') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 fn bad_gateway(err: anyhow::Error) -> Response {
@@ -2489,6 +2659,220 @@ mod tests {
         );
         value["persona_http_isolated"] = json!("false");
         assert_eq!(backend_isolated(&value, "persona_http_isolated"), None);
+    }
+
+    fn old_path_test_state(backend: SocketAddr, frontend: SocketAddr) -> Arc<AppState> {
+        Arc::new(AppState {
+            state_path: PathBuf::from("/__myriad_proxy_test_no_maintenance"),
+            backend_upstream: format!("http://{backend}"),
+            frontend_upstream: format!("http://{frontend}"),
+            updater_upstream: format!("http://{frontend}"),
+            persona_upstream: None,
+            persona_isolated: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            persona_requests: Arc::new(tokio::sync::Semaphore::new(32)),
+            persona_streams: Arc::new(tokio::sync::Semaphore::new(64)),
+            persona_controls: Arc::new(tokio::sync::Semaphore::new(16)),
+            persona_links: Arc::new(tokio::sync::Semaphore::new(16)),
+            federation_upstream: None,
+            federation_isolated: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            federation_requests: Arc::new(tokio::sync::Semaphore::new(32)),
+            federation_websockets: Arc::new(tokio::sync::Semaphore::new(1)),
+            allow_direct_updater: false,
+            trusted_upstreams: vec![],
+            client: Client::builder(TokioExecutor::new()).build_http(),
+            maint_cache: Arc::new(RwLock::new(MaintCache::default())),
+        })
+    }
+
+    #[test]
+    fn old_path_lookup_only_for_page_loads_that_could_be_old_addresses() {
+        let get = hyper::Method::GET;
+        let browser = "Mozilla/5.0 (Macintosh) Safari/605.1.15";
+        let document = |dest: &str| {
+            let mut headers = HeaderMap::new();
+            headers.insert("sec-fetch-dest", HeaderValue::from_str(dest).unwrap());
+            headers
+        };
+        let accept = |value: &str| {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::ACCEPT, HeaderValue::from_str(value).unwrap());
+            headers
+        };
+        let page = document("document");
+        let page_load = |path: &str| wants_old_path_lookup(&get, path, &page, browser);
+        let anonymous =
+            |headers: &HeaderMap, ua: &str| wants_old_path_lookup(&get, "/a/", headers, ua);
+        assert!(page_load("/2024/05/hello/"));
+        assert!(page_load("/category/post"));
+        assert!(page_load("/2024/05/hello.html"));
+        assert!(page_load("/%E4%BD%A0%E5%A5%BD/"));
+        let head = hyper::Method::HEAD;
+        assert!(wants_old_path_lookup(&head, "/a/", &page, browser));
+        // Crawlers: no Sec-Fetch-Dest, and Accept may be missing or a wildcard.
+        assert!(anonymous(&HeaderMap::new(), "Googlebot/2.1"));
+        assert!(anonymous(&accept("*/*"), "curl/8"));
+        assert!(anonymous(
+            &accept("text/html,application/xhtml+xml"),
+            browser
+        ));
+        assert!(anonymous(&accept("application/json"), "Googlebot/2.1"));
+        assert!(!anonymous(&accept("application/json"), browser));
+        // Subresources, other methods, the homepage, SPA routes and static files.
+        assert!(!anonymous(&document("script"), browser));
+        assert!(!anonymous(&document("empty"), browser));
+        let post = hyper::Method::POST;
+        assert!(!wants_old_path_lookup(&post, "/a/", &page, browser));
+        assert!(!page_load("/"));
+        assert!(!page_load("/library"));
+        assert!(!page_load("/tapp/store"));
+        assert!(!page_load("/assets/index-abc.js"));
+        assert!(!page_load("/favicon.ico"));
+        assert!(!page_load("/@vite/client"));
+    }
+
+    #[test]
+    fn old_path_lookup_follows_only_blog_post_locations() {
+        assert!(is_blog_post_location("/blog/posts/hello/"));
+        assert!(is_blog_post_location("/blog/posts/n12/"));
+        assert!(!is_blog_post_location("https://evil.example/"));
+        assert!(!is_blog_post_location("//evil.example/blog/posts/x/"));
+        assert!(!is_blog_post_location("/blog/posts//evil.example/"));
+        assert!(!is_blog_post_location("/blog/posts/a\\b/"));
+        assert!(!is_blog_post_location("/library"));
+        assert_eq!(
+            encode_query_value("/a b/%E4?x&y#z"),
+            "/a%20b/%25E4%3Fx%26y%23z"
+        );
+    }
+
+    #[tokio::test]
+    async fn old_addresses_redirect_and_everything_else_reaches_the_spa() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let lookups = Arc::new(AtomicUsize::new(0));
+        let backend_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let backend_address = backend_listener.local_addr().unwrap();
+        let seen = lookups.clone();
+        let backend = tokio::spawn(async move {
+            let app = Router::new().route(
+                OLD_PATH_REDIRECT_PATH,
+                axum::routing::get(
+                    move |axum::extract::Query(query): axum::extract::Query<
+                        std::collections::HashMap<String, String>,
+                    >,
+                          headers: HeaderMap| {
+                        let seen = seen.clone();
+                        async move {
+                            seen.fetch_add(1, Ordering::SeqCst);
+                            let path = query.get("path").cloned().unwrap_or_default();
+                            match path.as_str() {
+                                "/2024/05/hello/" | "/%E4%BD%A0%E5%A5%BD/" => {
+                                    Json(json!({"location": "/blog/posts/hello/"})).into_response()
+                                }
+                                // Hidden blog: only the signed-in visitor gets the answer.
+                                "/members/post/"
+                                    if headers
+                                        .get(header::COOKIE)
+                                        .is_some_and(|value| value == "session=1") =>
+                                {
+                                    Json(json!({"location": "/blog/posts/members/"}))
+                                        .into_response()
+                                }
+                                "/evil/" => Json(json!({"location": "https://evil.example/"}))
+                                    .into_response(),
+                                "/slow/" => {
+                                    tokio::time::sleep(Duration::from_secs(3)).await;
+                                    Json(json!({"location": "/blog/posts/slow/"})).into_response()
+                                }
+                                _ => StatusCode::NOT_FOUND.into_response(),
+                            }
+                        }
+                    },
+                ),
+            );
+            axum::serve(backend_listener, app).await.unwrap();
+        });
+        let frontend_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let frontend_address = frontend_listener.local_addr().unwrap();
+        let frontend = tokio::spawn(async move {
+            axum::serve(
+                frontend_listener,
+                Router::new().fallback(|| async { "spa" }),
+            )
+            .await
+            .unwrap();
+        });
+        let state = old_path_test_state(backend_address, frontend_address);
+        let peer = "127.0.0.1:4444".parse::<SocketAddr>().unwrap();
+        let send = |method: &str, path: &str, headers: &[(&str, &str)]| {
+            let mut builder = Request::builder().method(method).uri(path);
+            for (name, value) in headers {
+                builder = builder.header(*name, *value);
+            }
+            let request = builder.body(Body::empty()).unwrap();
+            handle(State(state.clone()), ConnectInfo(peer), request)
+        };
+        let document = [("sec-fetch-dest", "document")];
+        let spa = |response: Response| async move {
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                axum::body::to_bytes(response.into_body(), 1024)
+                    .await
+                    .unwrap(),
+                "spa"
+            );
+        };
+
+        let moved = send("GET", "/2024/05/hello/", &document).await.unwrap();
+        assert_eq!(moved.status(), StatusCode::MOVED_PERMANENTLY);
+        assert_eq!(moved.headers()[header::LOCATION], "/blog/posts/hello/");
+        // Crawler with no fetch metadata, and a non-ASCII path in its encoded form.
+        let crawler = send(
+            "HEAD",
+            "/%E4%BD%A0%E5%A5%BD/",
+            &[("user-agent", "Googlebot/2.1")],
+        )
+        .await
+        .unwrap();
+        assert_eq!(crawler.status(), StatusCode::MOVED_PERMANENTLY);
+        let signed_in = send(
+            "GET",
+            "/members/post/",
+            &[("sec-fetch-dest", "document"), ("cookie", "session=1")],
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            signed_in.headers()[header::LOCATION],
+            "/blog/posts/members/"
+        );
+        spa(send("GET", "/members/post/", &document).await.unwrap()).await;
+
+        // Misses, bad answers and a stalled backend all fall back to the SPA.
+        spa(send("GET", "/2024/05/missing/", &document).await.unwrap()).await;
+        spa(send("GET", "/evil/", &document).await.unwrap()).await;
+        let started = Instant::now();
+        spa(send("GET", "/slow/", &document).await.unwrap()).await;
+        assert!(started.elapsed() < Duration::from_secs(2));
+
+        // Requests that are never old addresses do not ask the backend at all.
+        let before = lookups.load(Ordering::SeqCst);
+        spa(
+            send("GET", "/2024/05/hello/", &[("sec-fetch-dest", "script")])
+                .await
+                .unwrap(),
+        )
+        .await;
+        spa(send("POST", "/2024/05/hello/", &document).await.unwrap()).await;
+        spa(send("GET", "/", &document).await.unwrap()).await;
+        spa(send("GET", "/assets/app.js", &document).await.unwrap()).await;
+        spa(send("GET", "/library", &document).await.unwrap()).await;
+        assert_eq!(lookups.load(Ordering::SeqCst), before);
+
+        // A backend that is down entirely: the SPA still answers.
+        backend.abort();
+        let _ = backend.await;
+        spa(send("GET", "/2024/05/hello/", &document).await.unwrap()).await;
+        frontend.abort();
     }
 
     #[tokio::test]
