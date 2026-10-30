@@ -425,6 +425,7 @@ export function useNoteEditorSession({
       linkOpen ||
       blockFocus ||
       widgetSettingsOpen,
+    blockBarRef,
   )
   selectionRef.current = selectionAnchor
 
