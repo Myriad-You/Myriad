@@ -1,4 +1,4 @@
-import type { Anime25DPlaybackLayer } from './types'
+import type { Anime25DEyeAnchor, Anime25DPlaybackLayer } from './types'
 import type { CroppedLayerPixels } from './webglRuntime'
 import { dilate, erode, insideDistance } from './pixelMasks'
 
@@ -17,6 +17,8 @@ const NEAR = 0.2
 const SHADOW_SHARE = 0.1
 /** The new skin blends into the old over this many canvas pixels inside the hidden part. */
 const FEATHER = 6
+/** Skin that shows at rest keeps the temple this many canvas pixels to either side of it. */
+const SEEN_REACH = 8
 
 /**
  * The face under the hair is skin and only skin. A decomposition paints it
@@ -36,23 +38,7 @@ export function fillHiddenSkin(
   const { width, height, pixels } = image
   if (width < 4 || height < 4 || pixels.length !== width * height * 4) return null
   const pixelX = face.w / width
-  const pixelY = face.h / height
-  const covered = new Uint8Array(width * height)
-  for (const cover of covers) {
-    const { layer, image: art } = cover
-    if (art.pixels.length !== art.width * art.height * 4) continue
-    for (let y = 0; y < height; y++) {
-      const canvasY = face.y + (y + 0.5) * pixelY
-      const ay = Math.floor(((canvasY - layer.y) / layer.h) * art.height)
-      if (ay < 0 || ay >= art.height) continue
-      for (let x = 0; x < width; x++) {
-        const canvasX = face.x + (x + 0.5) * pixelX
-        const ax = Math.floor(((canvasX - layer.x) / layer.w) * art.width)
-        if (ax < 0 || ax >= art.width) continue
-        if (art.pixels[(ay * art.width + ax) * 4 + 3] >= COVERED) covered[y * width + x] = 1
-      }
-    }
-  }
+  const covered = coveredBy(face, image, covers)
   const hidden = new Uint8Array(width * height)
   let hiddenCount = 0
   for (let p = 0; p < width * height; p++) {
@@ -97,6 +83,92 @@ export function fillHiddenSkin(
     }
   }
   return { pixels: out, width, height }
+}
+
+/**
+ * Beside the eyes and above them the head is hair, down to the eyes' height.
+ * A decomposition carries the face out under the side locks to the skull's
+ * outline, and the plain skin painted there shows as a bare strip when a lock
+ * swings off the temple. What the hair covers there is cleared, outline and
+ * all, so the back hair behind the face shows instead; a column where skin
+ * shows at rest keeps its skin from that height down. Nothing that shows at
+ * rest changes. Null when nothing is cleared.
+ */
+export function clearHiddenTemples(
+  face: Box,
+  image: CroppedLayerPixels,
+  covers: readonly SkinCover[],
+  eyeL: Pick<Anime25DEyeAnchor, 'x0' | 'y0'>,
+  eyeR: Pick<Anime25DEyeAnchor, 'x1' | 'y0'>,
+): CroppedLayerPixels | null {
+  const { width, height, pixels } = image
+  if (width < 4 || height < 4 || pixels.length !== width * height * 4) return null
+  const pixelX = face.w / width
+  const pixelY = face.h / height
+  const covered = coveredBy(face, image, covers)
+  // The highest skin that shows in each column.
+  const seen = new Int32Array(width).fill(height)
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      const p = y * width + x
+      if (!covered[p] && pixels[p * 4 + 3] > 192) {
+        seen[x] = y
+        break
+      }
+    }
+  }
+  const reach = Math.round(SEEN_REACH / pixelX)
+  const temple = new Uint8Array(width * height)
+  let templeCount = 0
+  for (let x = 0; x < width; x++) {
+    const canvasX = face.x + (x + 0.5) * pixelX
+    const eye = canvasX < eyeL.x0 ? eyeL : canvasX > eyeR.x1 ? eyeR : null
+    if (!eye) continue
+    let limit = Math.min(height, Math.floor((eye.y0 - face.y) / pixelY))
+    for (let k = Math.max(0, x - reach); k <= Math.min(width - 1, x + reach); k++) limit = Math.min(limit, seen[k])
+    for (let y = 0; y < limit; y++) {
+      const p = y * width + x
+      if (covered[p] && pixels[p * 4 + 3] > 0) {
+        temple[p] = 1
+        templeCount++
+      }
+    }
+  }
+  if (templeCount === 0) return null
+  // It fades in from the skin that stays, and goes all at once out to the drawing's edge.
+  const cleared = new Uint8Array(width * height)
+  for (let p = 0; p < width * height; p++) cleared[p] = temple[p] || pixels[p * 4 + 3] === 0 ? 1 : 0
+  const distance = insideDistance(cleared, width, height)
+  const feather = Math.max(1, FEATHER / pixelX)
+  const out = new Uint8ClampedArray(pixels)
+  for (let p = 0; p < width * height; p++) {
+    if (temple[p]) out[p * 4 + 3] = Math.round(pixels[p * 4 + 3] * (1 - Math.min(1, distance[p] / feather)))
+  }
+  return { pixels: out, width, height }
+}
+
+/** The face's pixels that what is drawn over it hides all but completely. */
+function coveredBy(face: Box, image: CroppedLayerPixels, covers: readonly SkinCover[]): Uint8Array {
+  const { width, height } = image
+  const pixelX = face.w / width
+  const pixelY = face.h / height
+  const covered = new Uint8Array(width * height)
+  for (const cover of covers) {
+    const { layer, image: art } = cover
+    if (art.pixels.length !== art.width * art.height * 4) continue
+    for (let y = 0; y < height; y++) {
+      const canvasY = face.y + (y + 0.5) * pixelY
+      const ay = Math.floor(((canvasY - layer.y) / layer.h) * art.height)
+      if (ay < 0 || ay >= art.height) continue
+      for (let x = 0; x < width; x++) {
+        const canvasX = face.x + (x + 0.5) * pixelX
+        const ax = Math.floor(((canvasX - layer.x) / layer.w) * art.width)
+        if (ax < 0 || ax >= art.width) continue
+        if (art.pixels[(ay * art.width + ax) * 4 + 3] >= COVERED) covered[y * width + x] = 1
+      }
+    }
+  }
+  return covered
 }
 
 function fitPlane(

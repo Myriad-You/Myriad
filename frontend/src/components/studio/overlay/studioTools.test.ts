@@ -97,6 +97,19 @@ describe('layout', () => {
     assert.equal(rememberTool(DEFAULT_LAYOUT, { tool: 'editor', arg: '1' }), DEFAULT_LAYOUT)
   })
 
+  it('新笔记拿到 id 后再写一篇新笔记：地址还是 new，也要换一份页面', () => {
+    const editor = (layout: ReturnType<typeof openTool>) => layout.open.find((item) => item.tool === 'editor')!
+    let layout = openTool(DEFAULT_LAYOUT, { tool: 'editor', arg: 'new' })
+    const first = editor(layout).load ?? 0
+    layout = rememberTool(layout, { tool: 'editor', arg: '7' })
+    // 只是提到最上面：同一份页面。
+    assert.equal(editor(openTool(layout, { tool: 'editor', arg: '7' })).load ?? 0, first)
+    layout = openTool(layout, { tool: 'editor', arg: 'new' })
+    assert.equal(editor(layout).loaded, 'new')
+    assert.notEqual(editor(layout).load ?? 0, first)
+    assert.equal(JSON.stringify(layoutToValue(layout)).includes('load'), false)
+  })
+
   it('画好没有跟着窗口加载的内容走：换内容重新等，自己换内容、提到最上面不用等，不存进浏览器', () => {
     const editor = (layout: ReturnType<typeof openTool>) => layout.open.find((item) => item.tool === 'editor')
     let layout = markWindowReady(openTool(DEFAULT_LAYOUT, { tool: 'editor', arg: '1' }), 'editor')

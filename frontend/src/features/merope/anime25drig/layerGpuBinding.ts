@@ -33,7 +33,7 @@ import { headSilhouetteFromFace, headTurnFeatures } from './headTurn'
 import { plainHiddenCollars } from './hiddenCollar'
 import { shadeHiddenBackHair } from './hiddenHair'
 import { trimHiddenNeck } from './hiddenNeck'
-import { fillHiddenSkin } from './hiddenSkin'
+import { clearHiddenTemples, fillHiddenSkin } from './hiddenSkin'
 import { buildAnime25DLayerBinding } from './layerBinding'
 import {
   bindCropBoundaries,
@@ -195,7 +195,11 @@ export function compileAnime25DGpuLayers(
         y: Math.round(backHair.atlas.y * atlasImage.height),
       })
     }
-    const plainSkin = face && facePixels ? fillHiddenSkin(face, facePixels, hairCovers) : null
+    const filledSkin = face && facePixels ? fillHiddenSkin(face, facePixels, hairCovers) : null
+    // Above the eyes beside them it is hair: what the side locks cover there goes, and the back hair shows.
+    const skin = filledSkin ?? facePixels
+    const { eyeL, eyeR } = playback.anchors
+    const plainSkin = (face && skin && eyeL && eyeR ? clearHiddenTemples(face, skin, hairCovers, eyeL, eyeR) : null) ?? filledSkin
     if (face && plainSkin) {
       bindingPixels.set(face, plainSkin)
       atlasPatches.push({

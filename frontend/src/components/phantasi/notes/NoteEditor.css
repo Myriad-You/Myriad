@@ -131,6 +131,13 @@
   font-weight: 600;
 }
 
+/* 写作时的格子留足点击面积：刚插入的空表格只有字高那么大，光标点不进去。只管编辑，发出去的样子不变。 */
+.phantasi-note__visual th,
+.phantasi-note__visual td {
+  min-width: 6em;
+  height: 2.4em;
+}
+
 /* 列对齐：后端和可视层都落在 align 属性上；CSS 会盖过属性，这里补回来。 */
 .phantasi-note-preview th[align='center'],
 .phantasi-note-preview td[align='center'] {

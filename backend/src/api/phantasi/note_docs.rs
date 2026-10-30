@@ -26,7 +26,7 @@ use crate::services::note_authors::{
     list_note_author_candidates as load_note_author_candidates, load_authors_for_docs,
     remove_note_author, sync_published_author_line,
 };
-use crate::services::note_collab::{NoteCollabEvent, note_collab_hub};
+use crate::services::note_collab::{NOTE_DOC_DELETED, NoteCollabEvent, note_collab_hub};
 pub(super) use crate::services::note_documents::*;
 use crate::services::note_publish::{datetime_to_millis, millis_to_datetime, publish_doc_on};
 
@@ -226,6 +226,8 @@ pub(crate) async fn delete_note_doc(
     txn.commit()
         .await
         .map_err(|e| phantasi_store_http("commit note doc delete", e))?;
+    // 还开着这篇的编辑器（别的窗口、别的标签页、别的管理员）要马上知道，不然会一直重连一篇不存在的文档。
+    note_collab_hub().publish_doc_deleted(id);
     Ok(Json(json!({ "success": true })))
 }
 
@@ -617,6 +619,11 @@ async fn handle_note_doc_socket(
                 if socket.send(Message::Text(msg.into())).await.is_err() {
                     break;
                 }
+                // 文档删了：通知送到就收线，房间不再为它开着。
+                if event.kind == NOTE_DOC_DELETED {
+                    let _ = socket.send(Message::Close(None)).await;
+                    break;
+                }
             }
             Some(msg) = socket.recv() => {
                 match msg {
@@ -800,6 +807,28 @@ mod tests {
         assert!(!ws_client_kind_allowed("doc"));
         assert!(!ws_client_kind_allowed("join"));
         assert!(!ws_client_kind_allowed("leave"));
+        // 只有服务端能宣布文档删了：客户端发一个就能把别人的编辑器全踢掉。
+        assert!(!ws_client_kind_allowed(NOTE_DOC_DELETED));
+    }
+
+    #[test]
+    fn deleting_a_doc_tells_open_editors_after_commit() {
+        let src = include_str!("note_docs.rs");
+        let start = src
+            .find("pub(crate) async fn delete_note_doc")
+            .expect("delete_note_doc");
+        let body = &src[start..];
+        let end = body[1..]
+            .find("\npub(crate) async fn ")
+            .map(|index| index + 1)
+            .unwrap_or(body.len());
+        let delete = &body[..end];
+        let commit = delete.find("txn.commit()").expect("commit");
+        let notify = delete.find("publish_doc_deleted(id)").expect("notify");
+        assert!(
+            notify > commit,
+            "a rolled-back delete must not evict editors"
+        );
     }
 
     #[test]

@@ -410,6 +410,7 @@
   "noteCollabTyping": "{name} 편집 중",
   "noteCollabConnecting": "공동 편집 연결 중…",
   "noteCollabReconnecting": "공동 편집 연결이 끊어졌습니다. 다시 연결 중…",
+  "noteGone": "이 노트는 삭제되었습니다",
   "mediaEditPrevious": "이전 미디어",
   "mediaEditNext": "다음 미디어",
   "mediaEditOriginal": "원본",

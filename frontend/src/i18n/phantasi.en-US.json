@@ -410,6 +410,7 @@
   "noteCollabTyping": "{name} is editing",
   "noteCollabConnecting": "Connecting to collaborators…",
   "noteCollabReconnecting": "Collaboration disconnected. Reconnecting…",
+  "noteGone": "This note has been deleted.",
   "mediaEditPrevious": "Previous media",
   "mediaEditNext": "Next media",
   "mediaEditOriginal": "Original",

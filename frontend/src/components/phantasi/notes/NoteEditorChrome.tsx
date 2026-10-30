@@ -152,7 +152,7 @@ interface NoteTopBarProps {
   scheduledAt: number | null
   cloudHint: boolean
   peers: NoteCollabPeer[]
-  collabConnection: 'connecting' | 'connected' | 'reconnecting'
+  collabConnection: 'connecting' | 'connected' | 'reconnecting' | 'gone'
   saving: boolean
   loading: boolean
   onPublish: () => void
@@ -228,7 +228,9 @@ export function NoteTopBar({
             {format(t.phantasi.noteCharCount, { count: chars })}
           </span>
           {collabConnection !== 'connected' ? <span className="phantasi-note__collab-state" role="status">
-            {collabConnection === 'connecting' ? t.phantasi.noteCollabConnecting : t.phantasi.noteCollabReconnecting}
+            {collabConnection === 'gone'
+              ? t.phantasi.noteGone
+              : collabConnection === 'connecting' ? t.phantasi.noteCollabConnecting : t.phantasi.noteCollabReconnecting}
           </span> : null}
           {peers.length ? (
             <div className="phantasi-note__peers" aria-live="polite">

@@ -59,6 +59,8 @@ export function useNoteSelection(
   visualRef: RefObject<HTMLElement | null>,
   active: boolean,
   hold: boolean,
+  /** 焦点从正文移进这里（块工具条的输入框）不算离开：条子要留着，不然按下鼠标它就没了，输入框点不中。 */
+  keepRef?: RefObject<HTMLElement | null>,
 ): NoteSelectionState {
   const [state, setState] = useState<NoteSelectionState>(EMPTY)
 
@@ -77,6 +79,8 @@ export function useNoteSelection(
       setState((current) => (sameState(current, next) ? current : next))
     }
     const measure = () => {
+      // 焦点在块工具条里：正文的选区没变，条子照旧。
+      if (keepRef?.current?.contains(document.activeElement)) return
       let selection: DOMRect | null = null
       let caretLine: DOMRect | null = null
       let block: { kind: VisualBlockKind; rect: DOMRect } | null = null
@@ -112,6 +116,11 @@ export function useNoteSelection(
       cancelAnimationFrame(frame)
       setState(EMPTY)
     }
+    const leaveEditor = (event: FocusEvent) => {
+      const next = event.relatedTarget
+      if (next instanceof Node && keepRef?.current?.contains(next)) return
+      hide()
+    }
     const editor: HTMLElement | null = pane === 'visual' ? visual : textarea
     document.addEventListener('selectionchange', schedule)
     window.addEventListener('resize', schedule)
@@ -120,7 +129,7 @@ export function useNoteSelection(
     editor?.addEventListener('keyup', schedule)
     editor?.addEventListener('mouseup', schedule)
     editor?.addEventListener('focus', schedule)
-    editor?.addEventListener('blur', hide)
+    editor?.addEventListener('blur', leaveEditor)
     schedule()
     return () => {
       cancelAnimationFrame(frame)
@@ -131,10 +140,10 @@ export function useNoteSelection(
       editor?.removeEventListener('keyup', schedule)
       editor?.removeEventListener('mouseup', schedule)
       editor?.removeEventListener('focus', schedule)
-      editor?.removeEventListener('blur', hide)
+      editor?.removeEventListener('blur', leaveEditor)
       releaseTextareaMirror()
     }
-  }, [pane, active, hold, scrollRef, textareaRef, visualRef])
+  }, [pane, active, hold, scrollRef, textareaRef, visualRef, keepRef])
 
   return state
 }

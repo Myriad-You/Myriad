@@ -98,6 +98,11 @@ function StudioEditor({ target, pageDocId }: { target: number | 'new'; pageDocId
         onUnsaved={port?.unsaved}
         onSaved={() => {}}
         onDeleted={close}
+        onGone={() => {
+          // 这篇已经删了：关掉窗口，布局里记着的 id 跟着清掉，下次进来不会再打开它。
+          // 不过离开检查——它会去删空草稿、问未保存，对一篇不存在的文档只会卡住。
+          studioOverlayApi()?.close('editor')
+        }}
         onCloudId={(id) => {
           if (pin !== 'new') return
           // 新笔记拿到 id：记进布局，窗口不重新加载，编辑器也不重建。

@@ -410,6 +410,7 @@
   "noteCollabTyping": "{name} が編集中",
   "noteCollabConnecting": "共同編集に接続中…",
   "noteCollabReconnecting": "共同編集が切断されました。再接続中…",
+  "noteGone": "このノートは削除されました",
   "mediaEditPrevious": "前のメディア",
   "mediaEditNext": "次のメディア",
   "mediaEditOriginal": "元の画像",

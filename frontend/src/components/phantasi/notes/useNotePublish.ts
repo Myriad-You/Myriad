@@ -5,6 +5,7 @@ import { useCallback } from 'react'
 import * as phantasiApi from '../../../services/phantasiApi'
 import { userFacingError } from '../../../utils/userFacingError'
 import { showNoteNotice } from '../phantasiNotice'
+import { isNoteDocGone } from './noteCollab'
 import {
   clearNoteDraft,
 } from './noteDraft'
@@ -28,6 +29,7 @@ export function useNotePublish({
   scheduledAt,
   noteId,
   cloudId,
+  gone = false,
   draftKey,
   clearRecovery,
   docStatus,
@@ -53,6 +55,8 @@ export function useNotePublish({
   scheduledAt: number | null
   noteId?: number
   cloudId: number | null
+  /** 这篇已经被删了：不再往它写，离开时也不用再问、不用再删。 */
+  gone?: boolean
   draftKey: NoteDraftKey | null
   clearRecovery?: () => void
   docStatus: 'draft' | 'scheduled' | 'published'
@@ -116,6 +120,7 @@ export function useNotePublish({
   )
 
   const handleSave = useCallback(async () => {
+    if (gone) return
     if (saving) return
     const invalid = noteFieldError(title, contentMd)
     if (invalid) {
@@ -174,6 +179,7 @@ export function useNotePublish({
     cover,
     clearLocalRecovery,
     fieldMessage,
+    gone,
     labels.saveFailed,
     labels.slugInvalid,
     labels.slugTaken,
@@ -279,7 +285,7 @@ export function useNotePublish({
         return
       }
       if (cloudId != null && docStatus !== 'published') {
-        await runWrite(() => phantasiApi.deleteNoteDoc(cloudId))
+        await runWrite(() => deleteDocIfPresent(cloudId))
         clearLocalRecovery()
         onClose()
       }
@@ -303,6 +309,7 @@ export function useNotePublish({
 
   const prepareClose = useCallback(
     async (dirty: boolean): Promise<boolean> => {
+      if (gone) return true
       if (dirty) {
         if (!window.confirm(labels.discardConfirm)) return false
         clearLocalRecovery()
@@ -315,7 +322,7 @@ export function useNotePublish({
         !contentMd.trim()
       ) {
         try {
-          await runWrite(() => phantasiApi.deleteNoteDoc(cloudId))
+          await runWrite(() => deleteDocIfPresent(cloudId))
         } catch (err) {
           showNoteNotice(userFacingError(err, labels.deleteFailed))
           return false
@@ -332,6 +339,7 @@ export function useNotePublish({
       clearLocalRecovery,
       labels.deleteFailed,
       labels.discardConfirm,
+      gone,
       noteId,
       title,
     ],
@@ -352,5 +360,14 @@ export function useNotePublish({
     handleDelete,
     requestClose,
     prepareClose,
+  }
+}
+
+/** 删一篇云端文档；已经不在了（别的窗口、别人先删了）也算删掉，不能因此卡住关窗口、换篇。 */
+async function deleteDocIfPresent(cloudId: number): Promise<void> {
+  try {
+    await phantasiApi.deleteNoteDoc(cloudId)
+  } catch (error) {
+    if (!isNoteDocGone(error)) throw error
   }
 }
