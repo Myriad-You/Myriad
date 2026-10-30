@@ -111,6 +111,9 @@ pub(super) struct Limits {
 pub(super) struct FrameSpec {
     pub from: String,
     pub delivery: String,
+    /// The most each of its arrays may hold.
+    #[serde(default, rename = "maxItems")]
+    pub max_items: BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Deserialize)]
