@@ -1,5 +1,6 @@
 import type { ToastEvent } from '../utils/toastManager'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
@@ -117,7 +118,10 @@ export function ToastContainer() {
     return null
   }
 
-  return (
+  // 挂到 body 上：#app-root 带着 view-transition-name（site-transition.css），自成一层，
+  // 提示关在里面时 z-index 再高也只在层内比，会被挂在 body 上的弹层（创作台写作器 z-index 9999）
+  // 盖住，透过它半透明的底只剩一层淡影。毛玻璃也只能取到 #app-root 里的内容。
+  return createPortal(
     <div className="toast-container-wrapper">
       {layoutToastStack(toasts).map((toast, stackIndex) => (
         <ToastStackItem
@@ -132,7 +136,8 @@ export function ToastContainer() {
           }}
         />
       ))}
-    </div>
+    </div>,
+    document.body,
   )
 }
 
