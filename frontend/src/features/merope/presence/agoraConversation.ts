@@ -1,4 +1,5 @@
 import type { VoiceRunIdentity } from '../speech/realtimeChat'
+import { dispatchMeropeSpeech } from '@myriad/figure/speech/speechEvents'
 import {
   interruptConvoSession,
   startConvoSession,
@@ -8,7 +9,6 @@ import {
 import { markTurnTraceOnce } from '../events/turnTrace'
 import { adoptRealtimeChatRun, realtimeChatSessionId } from '../speech/realtimeChat'
 import { RtcSpeechAlignment } from '../speech/rtcSpeechAlignment'
-import { dispatchMeropeSpeech } from '../speech/speechEvents'
 import { getSpeechPipeline } from '../speech/speechPipelineHost'
 import { getVoicePresence, patchVoicePresence } from '../speech/voicePresence'
 import { faceSpeechGate } from './faceSpeechArbitration'

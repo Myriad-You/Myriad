@@ -22,6 +22,8 @@ WORKDIR /app
 # be in the layer before `pnpm install`, not only with the later source COPY.
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 COPY frontend/patches ./patches
+# The 2.5D figure (figure/ submodule) is a workspace package at ../figure.
+COPY figure/package.json /figure/package.json
 
 # Disable husky in Docker (no .git directory)
 ENV HUSKY=0
@@ -39,8 +41,10 @@ COPY frontend/ ./
 # (relative ../../../shared/... from /app/src/... → /shared/...)
 COPY shared /shared
 # Rig and performance contracts from the shared-core submodule
-# (../../../core/shared/... → /core/shared/...)
+# (@myriad/core/shared/... → /core/shared/...)
 COPY core/shared /core/shared
+# The 2.5D figure's source (@myriad/figure → /figure/src)
+COPY figure/src /figure/src
 
 # Built-in TAPP sources bundled as examples
 # (relative ../../../../../tapps/... from /app/src/tapp/examples/tapps/... → /tapps/...)

@@ -1,10 +1,10 @@
+import type { PoseCorrection } from '@myriad/figure/anime25drig/poseCorrections'
+import type { PoseCorrectionStagePick } from '@myriad/figure/anime25drig/workbenchPort'
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
-import type { PoseCorrection } from '../anime25drig/poseCorrections'
-import type { PoseCorrectionStagePick } from '../anime25drig/workbenchPort'
 import type { RigCharacterHandle } from '../character/RigCharacter'
+import { clampPoseCorrectionPatch } from '@myriad/figure/anime25drig/poseAuthoring'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { clampPoseCorrectionPatch } from '../anime25drig/poseAuthoring'
 
 type Patch = PoseCorrection['patches'][number]
 type Grip = 'push' | 'origin' | 'reachX' | 'reachY'

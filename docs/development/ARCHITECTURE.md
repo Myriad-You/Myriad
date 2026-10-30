@@ -47,6 +47,7 @@ host HTTP_PORT
 | Updater | `updater/` | Self-update, snapshots, docker-guard / gateway binaries (own Cargo tree) |
 | Crates | `crates/` | Shared libs (error, outbound, image-proxy, tapp-*, …) |
 | Shared core | `core/` (git submodule) | Her rules as pure crates, in their own repository [Myriad-You/myriad-core](https://github.com/Myriad-You/myriad-core); the backend links them, the frontend reads its contracts ([SHARED_CORE.md](SHARED_CORE.md)) |
+| Figure | `figure/` (git submodule) | Her 2.5D figure: the rig runtime and the rig import tools, in their own repository [Myriad-You/myriad-figure](https://github.com/Myriad-You/myriad-figure); the frontend imports it as `@myriad/figure` ([BUILD.md](BUILD.md)) |
 | Shared | `shared/` | Cross-component static assets (e.g. image proxy host list) |
 
 ## Frontend startup

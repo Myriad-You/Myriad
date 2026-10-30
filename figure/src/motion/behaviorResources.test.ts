@@ -11,6 +11,7 @@ import {
   resourcesForRigChannels,
   rigChannelsForResources,
 } from './behaviorResources'
+import { coreFile } from '../testing/coreFile.test-support'
 
 test('resource hierarchy permits independent limbs but conflicts with parents', () => {
   assert.equal(resourcesConflict('body.arm.left', 'body.arm.right'), false)
@@ -101,7 +102,7 @@ function source(relative: string): string {
 test('the resource vocabulary matches the director contract and the rig boundary', () => {
   const local = source('./behaviorResources.ts')
   const summary = source('./rigStateSummary.ts')
-  const contract = source('../../../../../core/crates/myriad-merope/src/rig_state.rs')
+  const contract = readFileSync(coreFile('crates/myriad-merope/src/rig_state.rs'), 'utf8')
   const boundary = source('../rig/README.md')
 
   const block = /RIG_STATE_BEHAVIOR_RESOURCES: &\[&str\] = &\[([^\]]*)\]/.exec(

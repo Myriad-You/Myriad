@@ -1,16 +1,16 @@
-import type { MotionRuntime } from '../motion/runtime'
+import type { MotionRuntime } from '@myriad/figure/motion/runtime'
 import type {
   BodyAdapter,
   BodyCapabilities,
   BodyIntent,
   BodyState,
 } from './types'
-import { liveFaceVisible } from '../events/faceVisible'
 import {
   liveMotionGeneration,
   newMotionIntentId,
-} from '../motion/liveGeneration'
-import { captureRigStateSummary } from '../motion/rigStateSummary'
+} from '@myriad/figure/motion/liveGeneration'
+import { captureRigStateSummary } from '@myriad/figure/motion/rigStateSummary'
+import { liveFaceVisible } from '../events/faceVisible'
 import { getSpeechPipeline } from '../speech/speechPipelineHost'
 
 /** The only body adapter Myriad ships */

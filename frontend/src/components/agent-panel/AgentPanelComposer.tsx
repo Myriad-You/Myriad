@@ -3,6 +3,7 @@ import type { MoodBand } from '../agent/meropeVitals'
 import type { AgentAttachment, AttachError } from './agentAttachments'
 import type { AgentPanelMode } from './agentPanelMode'
 import type { ComposerFavorite } from './composerFavorites'
+import { dispatchMeropeListening } from '@myriad/figure/events/performanceEvents'
 import React, {
   useCallback,
   useEffect,
@@ -13,7 +14,6 @@ import React, {
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
-import { dispatchMeropeListening } from '../../features/merope/events/performanceEvents'
 import {
   getVoicePresence,
   subscribeVoicePresence,

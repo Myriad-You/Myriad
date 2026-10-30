@@ -1,35 +1,37 @@
-import type { CollarClipMesh } from '../../../src/features/merope/anime25drig/collarRuntime'
-import type { Anime25DGpuLayer } from '../../../src/features/merope/anime25drig/layerGpuBinding'
-import { writePsd } from 'ag-psd'
-import { realizeAnime25DBehaviorPlan } from '../../../src/features/merope/anime25drig/behaviorRealizer'
-import { Anime25DPlayer } from '../../../src/features/merope/anime25drig/player'
+import type { CollarClipMesh } from '@myriad/figure/anime25drig/collarRuntime'
+import type { Anime25DGpuLayer } from '@myriad/figure/anime25drig/layerGpuBinding'
+import { realizeAnime25DBehaviorPlan } from '@myriad/figure/anime25drig/behaviorRealizer'
+import { Anime25DPlayer } from '@myriad/figure/anime25drig/player'
 import {
   speechArticulationDriverPatch,
   speechEnergyDriverPatch,
-} from '../../../src/features/merope/anime25drig/speechDriver'
-import { dispatchMeropePerformance } from '../../../src/features/merope/events/performanceEvents'
-import { bindCharacterTouch } from '../../../src/features/merope/interaction/bindTouch'
-import { TouchAppraisal } from '../../../src/features/merope/interaction/touchAppraisal'
-import { TouchGestureTracker } from '../../../src/features/merope/interaction/touchGesture'
+} from '@myriad/figure/anime25drig/speechDriver'
+import { dispatchMeropePerformance } from '@myriad/figure/events/performanceEvents'
+import { bindCharacterTouch } from '@myriad/figure/interaction/bindTouch'
+import { TouchAppraisal } from '@myriad/figure/interaction/touchAppraisal'
+import { TouchGestureTracker } from '@myriad/figure/interaction/touchGesture'
 import {
   applyMotionFrame,
   createMotionApplyState,
-} from '../../../src/features/merope/motion/applyFrame'
-import { RigMotionCoordinator } from '../../../src/features/merope/motion/coordinator'
+} from '@myriad/figure/motion/applyFrame'
+import { RigMotionCoordinator } from '@myriad/figure/motion/coordinator'
 import {
   liveMotionGeneration,
   setLiveMotionGeneration,
-} from '../../../src/features/merope/motion/liveGeneration'
-import { MusicMotionSource } from '../../../src/features/merope/motion/musicSource'
-import { MotionRuntime } from '../../../src/features/merope/motion/runtime'
-import { anime25DImportCopy } from '../../../src/features/merope/rig/anime25dImportCopy'
-import { prepareAnime25DRigPsd } from '../../../src/features/merope/rig/anime25dImporter'
-import { syntheticSeeThroughPsd } from '../../../src/features/merope/rig/anime25dImporter.fixture'
-import { decodeRigPsd } from '../../../src/features/merope/rig/psdDecode'
-import { prepareRigPsdImport } from '../../../src/features/merope/rig/psdImporter'
-import { dispatchMeropeSpeech } from '../../../src/features/merope/speech/speechEvents'
+} from '@myriad/figure/motion/liveGeneration'
+import { MusicMotionSource } from '@myriad/figure/motion/musicSource'
+import { MotionRuntime } from '@myriad/figure/motion/runtime'
+import { anime25DImportCopy } from '@myriad/figure/rig/anime25dImportCopy'
+import { prepareAnime25DRigPsd } from '@myriad/figure/rig/anime25dImporter'
+import { syntheticSeeThroughPsd } from '@myriad/figure/rig/anime25dImporter.fixture'
+import { decodeRigPsd } from '@myriad/figure/rig/psdDecode'
+import { prepareRigPsdImport } from '@myriad/figure/rig/psdImporter'
+import { dispatchMeropeSpeech } from '@myriad/figure/speech/speechEvents'
+import { writePsd } from 'ag-psd'
 import { loadLocale } from '../../../src/i18n/loadLocale'
 import { currentCopy } from '../../../src/i18n/localeCopy'
+// The site's entry installs this; the figure otherwise speaks English.
+import '../../../src/features/merope/character/installFigureHost'
 
 function fixture(kind: string) {
   const psd = syntheticSeeThroughPsd()

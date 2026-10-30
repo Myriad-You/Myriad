@@ -27,6 +27,9 @@ importers:
 
   .:
     dependencies:
+      '@myriad/figure':
+        specifier: workspace:*
+        version: link:../figure
       ag-psd:
         specifier: ^31.0.3
         version: 31.0.3
@@ -142,6 +145,28 @@ importers:
       vite:
         specifier: ^8.3.5
         version: 8.3.5(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
+
+  ../figure:
+    dependencies:
+      ag-psd:
+        specifier: ^31.0.3
+        version: 31.0.3
+      pinyin-pro:
+        specifier: 3.29.5
+        version: 3.29.5
+    devDependencies:
+      '@types/node':
+        specifier: 26.5.1
+        version: 26.5.1
+      sharp:
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@26.5.1)
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
 
 packages:
 
@@ -3036,10 +3061,6 @@ packages:
   postcss-value-parser@4.2.0:
     resolution: {integrity: sha512-1NNCs6uurfkVbeXG4S8JFT9t19m45ICnif8zWLd5oPSZ50QnwMfK+H3jv408d4jw/7Bttv5axS5IiHoLaVNHeQ==}
 
-  postcss@8.5.28:
-    resolution: {integrity: sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==}
-    engines: {node: ^10 || ^12 || >=14}
-
   postcss@8.5.31:
     resolution: {integrity: sha512-YUbWYCgErwnMAVkjUnYa+KlMBzGpHwiIt/DE7f0G33AuX2LH9UcTk6KgWxd3zRU+pN3u/C+Xl3EnMLM4Hea7Sg==}
     engines: {node: ^10 || ^12 || >=14}
@@ -3054,11 +3075,6 @@ packages:
 
   prettier@3.9.10:
     resolution: {integrity: sha512-skGHTH1Yb9QvaTC4hWnRTzEYtCpApF0UMBPz+t/0ZPzP8ihefo/btKd+QA7pUE0fEwA1SbS/NmhyEcstdXOIdA==}
-    engines: {node: '>=14'}
-    hasBin: true
-
-  prettier@3.9.6:
-    resolution: {integrity: sha512-OpN0zzVdiaiAhxpuuj5efpIS4sY9j7bY6uR5mnj5yPzGkdkjNKSJeUThPb60Jw29QuAZgA4o+/iB49kFiaBX6g==}
     engines: {node: '>=14'}
     hasBin: true
 
@@ -4599,7 +4615,6 @@ snapshots:
   '@types/node@26.5.1':
     dependencies:
       undici-types: 8.9.0
-    optional: true
 
   '@types/pako@2.0.4': {}
 
@@ -4749,7 +4764,7 @@ snapshots:
       '@vue/shared': 3.5.30
       estree-walker: 2.0.2
       magic-string: 0.30.21
-      postcss: 8.5.28
+      postcss: 8.5.31
       source-map-js: 1.2.2
 
   '@vue/compiler-ssr@3.5.30':
@@ -5182,7 +5197,7 @@ snapshots:
       eslint-parser-plain: 0.1.1
       ohash: 2.0.11
       oxfmt: 0.35.0
-      prettier: 3.9.6
+      prettier: 3.9.10
       synckit: 0.11.13
     optional: true
 
@@ -6538,12 +6553,6 @@ snapshots:
 
   postcss-value-parser@4.2.0: {}
 
-  postcss@8.5.28:
-    dependencies:
-      nanoid: 3.3.18
-      picocolors: 1.1.1
-      source-map-js: 1.2.2
-
   postcss@8.5.31:
     dependencies:
       nanoid: 3.3.18
@@ -6558,9 +6567,6 @@ snapshots:
     optional: true
 
   prettier@3.9.10: {}
-
-  prettier@3.9.6:
-    optional: true
 
   prismjs@1.30.0: {}
 
@@ -7015,8 +7021,7 @@ snapshots:
       quansync: 1.0.0
       unconfig-core: 7.5.0
 
-  undici-types@8.9.0:
-    optional: true
+  undici-types@8.9.0: {}
 
   undici@8.12.3: {}
 

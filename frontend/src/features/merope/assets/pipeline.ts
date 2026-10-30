@@ -3,6 +3,7 @@ import type {
   RigAssetCompileEvent,
   RigAssetPreflight,
 } from './compiler'
+import { prepareRigPsdImport } from '@myriad/figure/rig/psdImporter'
 import {
   fullBodyRigImport,
   getFullBodyFigurePicture,
@@ -11,7 +12,6 @@ import {
   importMeropeRig,
   previewMeropeRigImport,
 } from '../api'
-import { prepareRigPsdImport } from '../rig/psdImporter'
 import { persistRigAsset, preflightRigAsset } from './compiler'
 
 export type {

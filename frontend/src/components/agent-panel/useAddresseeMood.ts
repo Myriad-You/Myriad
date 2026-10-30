@@ -1,11 +1,11 @@
 import type { MoodBand } from '../agent/meropeVitals'
-import { useEffect, useState } from 'react'
-import { useAuth } from '../../contexts/AuthContext'
 import {
   MEROPE_STATE_EVENT,
   meropeStateEventDetail,
   resolveLoadedMeropeAffect,
-} from '../../features/merope/events/performanceEvents'
+} from '@myriad/figure/events/performanceEvents'
+import { useEffect, useState } from 'react'
+import { useAuth } from '../../contexts/AuthContext'
 import { PERSONA_UPDATED_EVENT } from '../../features/merope/events/updates'
 import { agentService } from '../../services/agent'
 import { ADDRESSEE_UPDATED_EVENT, moodBand } from '../agent/meropeVitals'

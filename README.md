@@ -339,7 +339,7 @@ macOS has been rehearsed; Windows (WSL 2) is uncertain. [Local deployment](docs/
 
 ## Local development
 
-The shared core is the `core/` git submodule ([myriad-core](https://github.com/Myriad-You/myriad-core)). After cloning, and after a pull that moves it:
+The shared core is the `core/` git submodule ([myriad-core](https://github.com/Myriad-You/myriad-core)), and her 2.5D figure is the `figure/` git submodule ([myriad-figure](https://github.com/Myriad-You/myriad-figure)). After cloning, and after a pull that moves either:
 
 ```bash
 git submodule update --init
@@ -426,6 +426,7 @@ Myriad/
 ├── proxy/            production reverse proxy (own Cargo tree)
 ├── updater/          self-update daemon (own Cargo tree)
 ├── core/             shared core (git submodule: myriad-core)
+├── figure/           2.5D figure runtime and rig tools (git submodule: myriad-figure)
 ├── crates/           workspace libraries
 ├── shared/           cross-component static config
 ├── docker/           backend / frontend Dockerfiles

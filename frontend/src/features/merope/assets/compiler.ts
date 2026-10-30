@@ -1,11 +1,11 @@
-import type { importMeropeRig, previewMeropeRigImport } from '../api'
 import type {
   PreparedRigPsdImport,
   prepareRigPsdImport,
-} from '../rig/psdImporter'
-import type { MeropeRigManifest } from '../rig/types'
+} from '@myriad/figure/rig/psdImporter'
+import type { MeropeRigManifest } from '@myriad/figure/rig/types'
+import type { importMeropeRig, previewMeropeRigImport } from '../api'
+import { diagnoseRig } from '@myriad/figure/rig/diagnostics'
 import { userFacingError } from '../../../utils/userFacingError'
-import { diagnoseRig } from '../rig/diagnostics'
 
 export type RigAssetCompileStage =
   | 'validate-source'

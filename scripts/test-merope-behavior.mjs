@@ -32,12 +32,12 @@ try {
   run('Agent API: touch validation, presence, ownership and request contracts', 'cargo',
     ['test', '-p', 'myriad-backend', 'api::agent::', '--', '--test-threads=1', '--quiet'])
   run('Merope production behavior: perception, speech, director, scheduler and rig', process.execPath,
-    ['node_modules/tsx/dist/cli.mjs', '--test', 'src/features/merope/**/*.test.ts', 'src/features/merope/*.test.ts', 'src/components/agent/meropeVitals.test.ts'], join(root, 'frontend'))
+    ['node_modules/tsx/dist/cli.mjs', '--test', 'src/features/merope/**/*.test.ts', 'src/features/merope/*.test.ts', 'src/components/agent/meropeVitals.test.ts', '../figure/src/**/*.test.ts'], join(root, 'frontend'))
   run('Frontend wire → backend Chat and event readers', 'cargo',
     ['test', '-p', 'myriad-backend', 'behavior_contract', '--', '--include-ignored', '--test-threads=1', '--nocapture'])
   env.MEROPE_DELIVERY_WIRE_PATH = join(temporary, 'delivery.json')
   run('Backend parallel director → frontend scheduler → body output', process.execPath,
-    ['node_modules/tsx/dist/cli.mjs', '--test', 'src/features/merope/motion/speechDelivery.contract.test.ts'], join(root, 'frontend'))
+    ['node_modules/tsx/dist/cli.mjs', '--test', '../figure/src/motion/speechDelivery.contract.test.ts'], join(root, 'frontend'))
   if (database) {
     run('Dedicated database: corrections, stale writes, isolation and concurrent dedup', 'cargo',
       ['test', '-p', 'myriad-backend', 'store::memory_tests', '--', '--ignored', '--test-threads=1', '--quiet'])

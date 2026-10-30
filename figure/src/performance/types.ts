@@ -1,4 +1,4 @@
-import type performanceContract from '../../../../../core/shared/merope_performance_contract.json'
+import type performanceContract from '@myriad/core/shared/merope_performance_contract.json'
 
 export type BodyControl = keyof typeof performanceContract.bodyControls
 export interface BodyPose {

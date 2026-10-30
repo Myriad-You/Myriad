@@ -1,6 +1,10 @@
-# Git (core/ is a submodule: its .git is a pointer file)
+# Git (core/ and figure/ are submodules: their .git is a pointer file)
 .git
 core/.git
+figure/.git
+# figure/'s own core/ submodule and install; the build uses the site's core/ and frontend's install.
+figure/core
+figure/node_modules
 .gitignore
 .gitattributes
 

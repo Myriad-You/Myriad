@@ -1,5 +1,5 @@
-import type { SpeechProsodyTimeline } from './prosody'
-import type { TextVisemeCue } from './textVisemes'
+import type { SpeechProsodyTimeline } from '@myriad/figure/speech/prosody'
+import type { TextVisemeCue } from '@myriad/figure/speech/textVisemes'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { TtsPipeline } from './ttsPipeline'

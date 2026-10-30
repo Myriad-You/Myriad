@@ -28,7 +28,7 @@ test('old Chat generation cannot keep applying after a newer Chat send', () => {
     facade,
     /setTurnGeneration[^}]*setLiveMotionGeneration\(generation\)[^}]*agentFace\.setGeneration\(generation\)/,
   )
-  const lifecycle = source('../../features/merope/motion/performanceLifecycle.ts')
+  const lifecycle = source('../../../../figure/src/motion/performanceLifecycle.ts')
   assert.match(lifecycle, /acceptLiveMotionGeneration\(event\.generation\)/)
 })
 
@@ -39,7 +39,7 @@ test('duplicate run sequences are dropped so speech and motion are not replayed'
   const transport = source('./sseTransport.ts')
   assert.match(transport, /seenSequences/)
   assert.match(transport, /acceptRunSequence/)
-  const performance = source('../../features/merope/motion/performanceLifecycle.ts')
+  const performance = source('../../../../figure/src/motion/performanceLifecycle.ts')
   assert.match(performance, /activePlanKey/)
 })
 
@@ -97,7 +97,7 @@ test('replace and cancel stay idempotent and do not look like faults', () => {
   )
   const speech = source('../../features/merope/presence/agentFaceChannel.ts')
   assert.match(speech, /close\('cancel'\)/)
-  const lease = source('../../features/merope/motion/speechLease.ts')
+  const lease = source('../../../../figure/src/motion/speechLease.ts')
   assert.match(lease, /release/)
 })
 

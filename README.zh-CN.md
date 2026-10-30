@@ -341,7 +341,7 @@ macOS 已演练过；Windows（WSL 2）未验证。[本地部署](docs/deploymen
 
 ## 本地开发
 
-共用核心是 git 子模块 `core/`（[myriad-core](https://github.com/Myriad-You/myriad-core)）。克隆之后、以及拉取后子模块指针变了时：
+共用核心是 git 子模块 `core/`（[myriad-core](https://github.com/Myriad-You/myriad-core)），她的 2.5D 形象是 git 子模块 `figure/`（[myriad-figure](https://github.com/Myriad-You/myriad-figure)）。克隆之后、以及拉取后子模块指针变了时：
 
 ```bash
 git submodule update --init

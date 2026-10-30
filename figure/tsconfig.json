@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2025",
+    "lib": ["ES2025", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
+    "types": ["node"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "paths": {
+      // core/ is this repository's submodule; inside Myriad the site's own core/ sits one level up.
+      "@myriad/core/*": ["./core/*", "../core/*"]
+    },
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "strict": true,
+    "noEmit": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*", "core/shared/**/*.json"],
+  "exclude": ["node_modules", "**/*.test.ts", "**/*.test-support.ts"]
+}

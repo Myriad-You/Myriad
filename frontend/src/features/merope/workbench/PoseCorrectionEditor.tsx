@@ -1,14 +1,10 @@
+import type { Anime25DDriver } from '@myriad/figure/anime25drig/driver'
+import type { PoseCorrectionRegion } from '@myriad/figure/anime25drig/poseAuthoring'
+import type { PoseCorrection } from '@myriad/figure/anime25drig/poseCorrections'
+import type { Anime25DPlayback } from '@myriad/figure/anime25drig/types'
+import type { PoseCorrectionStagePick } from '@myriad/figure/anime25drig/workbenchPort'
 import type { RefObject } from 'react'
-import type { Anime25DDriver } from '../anime25drig/driver'
-import type { PoseCorrectionRegion } from '../anime25drig/poseAuthoring'
-import type { PoseCorrection } from '../anime25drig/poseCorrections'
-import type { Anime25DPlayback } from '../anime25drig/types'
-import type { PoseCorrectionStagePick } from '../anime25drig/workbenchPort'
 import type { RigCharacterHandle } from '../character/RigCharacter'
-import { useEffect, useRef, useState } from 'react'
-import { SettingGroup, SettingsButton, SettingTitleTag, SliderItem } from '../../../components/settings'
-import { useI18n } from '../../../contexts/I18nContext'
-import { showStickyToast } from '../../../utils/toastManager'
 import {
   appendPoseCorrectionPatch,
   clampPoseCorrectionPatch,
@@ -20,8 +16,12 @@ import {
   poseCorrectionPreviewDriver,
   poseCorrectionRegionPoint,
   poseCorrectionTransitionDriver,
-} from '../anime25drig/poseAuthoring'
-import { isPoseCorrections } from '../anime25drig/poseCorrections'
+} from '@myriad/figure/anime25drig/poseAuthoring'
+import { isPoseCorrections } from '@myriad/figure/anime25drig/poseCorrections'
+import { useEffect, useRef, useState } from 'react'
+import { SettingGroup, SettingsButton, SettingTitleTag, SliderItem } from '../../../components/settings'
+import { useI18n } from '../../../contexts/I18nContext'
+import { showStickyToast } from '../../../utils/toastManager'
 import { PoseCorrectionOverlay } from './PoseCorrectionOverlay'
 
 type Patch = PoseCorrection['patches'][number]

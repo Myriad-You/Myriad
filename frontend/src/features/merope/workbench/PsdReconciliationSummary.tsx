@@ -1,13 +1,13 @@
 import type {
   Anime25DPsdDefectKind,
   Anime25DPsdReconciliation,
-} from '../rig/psdReconciliation'
-import { useEffect, useRef } from 'react'
-import { useI18n } from '../../../contexts/I18nContext'
+} from '@myriad/figure/rig/psdReconciliation'
 import {
   ANIME25D_PSD_DEFECT_COLORS,
   ANIME25D_PSD_REPAIRED_COLOR,
-} from '../rig/psdReconciliation'
+} from '@myriad/figure/rig/psdReconciliation'
+import { useEffect, useRef } from 'react'
+import { useI18n } from '../../../contexts/I18nContext'
 
 const KINDS: readonly Anime25DPsdDefectKind[] = [
   'buried',

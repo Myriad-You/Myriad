@@ -1,8 +1,8 @@
-import type { TouchObservation } from '../interaction/touchGesture'
+import type { TouchObservation } from '@myriad/figure/interaction/touchGesture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { RigMotionCoordinator } from '../motion/coordinator'
-import { TouchMotionSource } from '../motion/touchSource'
+import { RigMotionCoordinator } from '@myriad/figure/motion/coordinator'
+import { TouchMotionSource } from '@myriad/figure/motion/touchSource'
 import { resetPresenceInboundForTest, setPresenceArmedForTest,
   setPresenceCaptureForTest, setPresenceFactsForTest, setPresencePostForTest } from '../perception/inbound'
 import { perceptionRegistry } from '../perception/registry'

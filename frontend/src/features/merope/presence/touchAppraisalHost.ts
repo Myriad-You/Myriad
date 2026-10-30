@@ -1,9 +1,9 @@
-import type { TouchMotionSource } from '../motion/touchSource'
+import type { TouchMotionSource } from '@myriad/figure/motion/touchSource'
+import { TouchAppraisal } from '@myriad/figure/interaction/touchAppraisal'
+import { TouchEncounter } from '@myriad/figure/interaction/touchEncounter'
+import { liveMotionGeneration } from '@myriad/figure/motion/liveGeneration'
 import { apiService } from '../../../services/api'
 import { getCSRFToken } from '../../../utils/csrf'
-import { TouchAppraisal } from '../interaction/touchAppraisal'
-import { TouchEncounter } from '../interaction/touchEncounter'
-import { liveMotionGeneration } from '../motion/liveGeneration'
 import { reportPresence } from '../perception/inbound'
 import { perceptionRegistry } from '../perception/registry'
 

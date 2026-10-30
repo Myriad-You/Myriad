@@ -1,15 +1,20 @@
-import type { Anime25DWorkbenchPort } from '../anime25drig/workbenchPort'
-import type { RigBearing } from '../motion/bearing'
-import type { BehaviorPlan } from '../motion/behavior'
-import type { MotionChannelPolicy } from '../motion/policy'
-import type { ResolvedScore } from '../motion/scoreTimeline'
-import type { SpeechArticulation } from '../rig/articulation'
-import type { RigMotionPort } from '../rig/motionPort'
-import type { MeropeRigManifest } from '../rig/types'
-import type { MusicMotionSignal } from '../singing/musicSignal'
-import type { SpeechProsodyPlan } from '../speech/prosody'
-import type { MeropeActivity } from '../types'
+import type { Anime25DWorkbenchPort } from '@myriad/figure/anime25drig/workbenchPort'
+import type { RigBearing } from '@myriad/figure/motion/bearing'
+import type { BehaviorPlan } from '@myriad/figure/motion/behavior'
+import type { MotionChannelPolicy } from '@myriad/figure/motion/policy'
+import type { ResolvedScore } from '@myriad/figure/motion/scoreTimeline'
+import type { SpeechArticulation } from '@myriad/figure/rig/articulation'
+import type { RigMotionPort } from '@myriad/figure/rig/motionPort'
+import type { MeropeRigManifest } from '@myriad/figure/rig/types'
+import type { MusicMotionSignal } from '@myriad/figure/singing/musicSignal'
+import type { SpeechProsodyPlan } from '@myriad/figure/speech/prosody'
+import type { MeropeActivity } from '@myriad/figure/types'
 import type { Anime25DCharacterHandle } from './Anime25DCharacter'
+import {
+  anime25DRuntimeKey,
+  shouldUseAnime25DRuntime,
+} from '@myriad/figure/anime25drig/runtimePolicy'
+import { isAnime25DPlayback } from '@myriad/figure/anime25drig/types'
 import {
   forwardRef,
   useCallback,
@@ -20,11 +25,6 @@ import {
   useState,
 } from 'react'
 import { siteMediaUrl } from '../../../utils/siteMediaUrl'
-import {
-  anime25DRuntimeKey,
-  shouldUseAnime25DRuntime,
-} from '../anime25drig/runtimePolicy'
-import { isAnime25DPlayback } from '../anime25drig/types'
 import Anime25DCharacter from './Anime25DCharacter'
 
 const MAX_PENDING_SPEECH_CHUNKS = 32

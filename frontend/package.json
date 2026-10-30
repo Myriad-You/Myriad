@@ -20,13 +20,13 @@
     "lint": "eslint . --ignore-pattern '**/*.md'",
     "stylelint": "stylelint \"src/**/*.css\"",
     "test": "pnpm test:unit && pnpm lint && pnpm stylelint && pnpm typecheck",
-    "test:unit": "tsx --test \"src/**/*.test.ts\" \"src/**/*.test.tsx\"",
+    "test:unit": "tsx --test \"src/**/*.test.ts\" \"src/**/*.test.tsx\" \"../figure/src/**/*.test.ts\"",
     "test:browser": "playwright test",
     "test:smoke": "playwright test --config playwright.smoke.config.ts",
     "test:live-performance": "playwright test --config playwright.live-performance.config.ts",
     "test:production-budget": "playwright test --config playwright.production.config.ts",
     "test:home-budget": "node scripts/home-budget.mjs --check",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p ../figure",
     "eslint:debug": "eslint --debug .",
     "eslint:inspect": "npx @eslint/config-inspector",
     "prepare": "husky"
@@ -37,6 +37,7 @@
     ]
   },
   "dependencies": {
+    "@myriad/figure": "workspace:*",
     "ag-psd": "^31.0.3",
     "agora-rtc-sdk-ng": "^4.24.9",
     "agora-rtm": "^2.3.0",

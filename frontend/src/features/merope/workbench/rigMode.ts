@@ -1,4 +1,4 @@
-import type { MeropeRigManifest } from '../rig/types'
+import type { MeropeRigManifest } from '@myriad/figure/rig/types'
 import type { RigMode } from './useRigImport'
 
 /**

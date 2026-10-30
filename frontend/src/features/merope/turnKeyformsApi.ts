@@ -1,8 +1,8 @@
 import type { SeeThroughDecomposeInput } from './api'
+import { attachTurnKeyforms, isDocumentTurnKeyforms } from '@myriad/figure/rig/turnKeyformImport'
 import { currentCopy } from '../../i18n/localeCopy'
 import { ApiError, apiService } from '../../services/api'
 import { fullBodyPath, MeropeApiError, meropeError, PREFIX, SEE_THROUGH_TIMEOUT_MS, seeThroughError } from './api'
-import { attachTurnKeyforms, isDocumentTurnKeyforms } from './rig/turnKeyformImport'
 
 /**
  * Where a turn-keys job stands: generating the four turned drawings,

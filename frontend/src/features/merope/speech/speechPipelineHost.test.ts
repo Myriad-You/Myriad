@@ -1,17 +1,17 @@
-import type { MeropeSpeechEventDetail } from './speechEvents'
+import type { MeropeSpeechEventDetail } from '@myriad/figure/speech/speechEvents'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import {
+  liveMotionGeneration,
+  setLiveMotionGeneration,
+} from '@myriad/figure/motion/liveGeneration'
+import { MEROPE_SPEECH_EVENT } from '@myriad/figure/speech/speechEvents'
 import {
   createConfigDomain,
   executeConfigOperations,
 } from '../../../components/config/form/configDomain'
 import { invalidateSpeechStatusCache } from '../../../services/speechApi'
 import { setKnownAuthState } from '../../../utils/authState'
-import {
-  liveMotionGeneration,
-  setLiveMotionGeneration,
-} from '../motion/liveGeneration'
-import { MEROPE_SPEECH_EVENT } from './speechEvents'
 import { personaSpeechFlags, SpeechPipelineHost } from './speechPipelineHost'
 import { SpeechSegmenter } from './speechSegmenter'
 import { getVoicePresence, patchVoicePresence } from './voicePresence'

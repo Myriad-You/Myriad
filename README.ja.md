@@ -341,7 +341,7 @@ macOS はリハーサル済み、Windows（WSL 2）は未検証。[ローカル�
 
 ## ローカル開発
 
-共有コアは git サブモジュール `core/`（[myriad-core](https://github.com/Myriad-You/myriad-core)）。クローン後と、プルでその参照が動いたとき：
+共有コアは git サブモジュール `core/`（[myriad-core](https://github.com/Myriad-You/myriad-core)）、彼女の 2.5D フィギュアは git サブモジュール `figure/`（[myriad-figure](https://github.com/Myriad-You/myriad-figure)）。クローン後と、プルでその参照が動いたとき：
 
 ```bash
 git submodule update --init

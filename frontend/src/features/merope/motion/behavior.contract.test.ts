@@ -1,19 +1,19 @@
-import type { ScheduledBehavior } from './behavior'
-import type { MotionFrame } from './intents'
+import type { ScheduledBehavior } from '@myriad/figure/motion/behavior'
+import type { MotionFrame } from '@myriad/figure/motion/intents'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { PERFORMANCE_CUE_INTENTS } from '../events/performanceContract'
+import { PERFORMANCE_CUE_INTENTS } from '@myriad/figure/events/performanceContract'
+import { applyMotionFrame, createMotionApplyState } from '@myriad/figure/motion/applyFrame'
+import { applySingingWrite } from '@myriad/figure/motion/applySnapshot'
+import { RigMotionCoordinator } from '@myriad/figure/motion/coordinator'
+import { compilePerformanceBehaviorPlan } from '@myriad/figure/motion/performanceBehaviorPlan'
+import { BEHAVIOR_FUNCTIONS, BEHAVIOR_SOURCES } from '@myriad/figure/motion/rigStateSummary'
+import { resolveSingingApply } from '@myriad/figure/motion/singingApply'
+import { compileSpeechBehaviorPlan } from '@myriad/figure/motion/speechBehaviorPlan'
+import { musicSignalAt } from '@myriad/figure/singing/musicSignal.test-support'
 import { arbitrateFaceSpeech } from '../presence/faceSpeechArbitration'
-import { musicSignalAt } from '../singing/musicSignal.test-support'
 import { workbenchSources } from '../workbench/sources.test-support'
-import { applyMotionFrame, createMotionApplyState } from './applyFrame'
-import { applySingingWrite } from './applySnapshot'
-import { RigMotionCoordinator } from './coordinator'
-import { compilePerformanceBehaviorPlan } from './performanceBehaviorPlan'
-import { BEHAVIOR_FUNCTIONS, BEHAVIOR_SOURCES } from './rigStateSummary'
-import { resolveSingingApply } from './singingApply'
-import { compileSpeechBehaviorPlan } from './speechBehaviorPlan'
 
 function source(relative: string): string {
   return readFileSync(new URL(relative, import.meta.url), 'utf8')
@@ -160,8 +160,8 @@ test('applyFrame writes speech text only while speech owns the mouth', () => {
 })
 
 test('production faces consume the snapshot; sources do not take a rig', () => {
-  assert.doesNotMatch(source('./speechSource.ts'), /rigRef/)
-  assert.doesNotMatch(source('./performanceSource.ts'), /rigRef/)
+  assert.doesNotMatch(source('../../../../../figure/src/motion/speechSource.ts'), /rigRef/)
+  assert.doesNotMatch(source('../../../../../figure/src/motion/performanceSource.ts'), /rigRef/)
   assert.doesNotMatch(
     source('./useRigSingingLifecycle.ts'),
     /applySingingWrite/,
@@ -170,15 +170,15 @@ test('production faces consume the snapshot; sources do not take a rig', () => {
 })
 
 test('the production rig port stays renderer-neutral', () => {
-  const port = source('../rig/motionPort.ts')
+  const port = source('../../../../../figure/src/rig/motionPort.ts')
   assert.doesNotMatch(port, /Anime25D|setDriver|debugSnapshot/)
   assert.doesNotMatch(port, /PerformanceDirective|playMotionPlan/)
-  assert.doesNotMatch(source('./applyFrame.ts'), /RigCharacter/)
+  assert.doesNotMatch(source('../../../../../figure/src/motion/applyFrame.ts'), /RigCharacter/)
   assert.doesNotMatch(source('./useRigMotionLifecycle.ts'), /RigCharacter/)
 })
 
 test('dead motion channels stay removed', () => {
-  assert.doesNotMatch(source('./channels.ts'), /['"]physics['"]/)
+  assert.doesNotMatch(source('../../../../../figure/src/motion/channels.ts'), /['"]physics['"]/)
 })
 
 test('workbench preview stays off the production coordinator', () => {
@@ -192,17 +192,17 @@ test('workbench preview stays off the production coordinator', () => {
 })
 
 test('agent turns send a semantic rig summary instead of per-frame drivers', () => {
-  assert.doesNotMatch(source('./rigStateSummary.ts'), /mouthOpen/)
-  assert.doesNotMatch(source('./rigStateSummary.ts'), /angleX/)
+  assert.doesNotMatch(source('../../../../../figure/src/motion/rigStateSummary.ts'), /mouthOpen/)
+  assert.doesNotMatch(source('../../../../../figure/src/motion/rigStateSummary.ts'), /angleX/)
   assert.doesNotMatch(
-    source('../anime25drig/player.ts'),
+    source('../../../../../figure/src/anime25drig/player.ts'),
     /captureRigStateSummary/,
   )
 })
 
 test('idle self-motion does not masquerade as a semantic directed plan', () => {
-  assert.doesNotMatch(source('./runtime.ts'), /AutonomyMotionSource/)
-  assert.doesNotMatch(source('./applyFrame.ts'), /autonomy/)
+  assert.doesNotMatch(source('../../../../../figure/src/motion/runtime.ts'), /AutonomyMotionSource/)
+  assert.doesNotMatch(source('../../../../../figure/src/motion/applyFrame.ts'), /autonomy/)
   assert.doesNotMatch(source('./runtimeHost.ts'), /new MotionRuntime/)
 })
 
@@ -249,12 +249,12 @@ test('the behavior vocabulary is exactly what a producer can emit', () => {
       accents: [{ offsetMs: 300, intensity: 0.8 }],
     }),
   )
-  for (const [, name] of source('./musicSource.ts').matchAll(
+  for (const [, name] of source('../../../../../figure/src/motion/musicSource.ts').matchAll(
     /\bfunction: '([A-Za-z]+)'/g,
   )) {
     functions.add(name!)
   }
-  for (const [, name] of source('./musicSource.ts').matchAll(
+  for (const [, name] of source('../../../../../figure/src/motion/musicSource.ts').matchAll(
     /\bsource: '([A-Za-z]+)'/g,
   )) {
     sources.add(name!)

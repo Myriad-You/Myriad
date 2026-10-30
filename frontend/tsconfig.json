@@ -26,6 +26,9 @@
       ],
       "@config": [
         "./src/config.ts"
+      ],
+      "@myriad/core/*": [
+        "../core/*"
       ]
     },
     "resolveJsonModule": true,

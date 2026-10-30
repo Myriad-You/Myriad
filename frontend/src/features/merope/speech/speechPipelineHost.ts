@@ -1,7 +1,9 @@
+import type { MeropeSpeechSource } from '@myriad/figure/speech/speechEvents'
 import type { SpeechStatus } from '../../../services/speechApi'
-import type { MeropeSpeechSource } from './speechEvents'
 import type { SpeechInterruptMode, SpeechSegment } from './speechSegmenter'
 import type { SpeechCutOff } from './ttsPipeline'
+import { dispatchMeropeSpeech } from '@myriad/figure/speech/speechEvents'
+import { estimateAutoSpeechDurationMs } from '@myriad/figure/speech/textTiming'
 import {
   getSpeechStatus,
   openVoiceStream,
@@ -10,9 +12,7 @@ import {
 import { authSubject } from '../../../utils/authSubject'
 import { markTurnTraceOnce, noteTurnTraceCancelToSilence } from '../events/turnTrace'
 import { speakableText } from './speakableText'
-import { dispatchMeropeSpeech } from './speechEvents'
 import { SpeechSegmenter } from './speechSegmenter'
-import { estimateAutoSpeechDurationMs } from './textTiming'
 import { TtsPipeline } from './ttsPipeline'
 import {
   holdSpeechAudio,

@@ -67,6 +67,7 @@ jobs:
               - frontend/**
               - shared/**
               - core
+              - figure
             frontend_browser:
               - *frontend_build
               # Fixtures read by the browser round-trip spec.
@@ -122,6 +123,7 @@ jobs:
               - backend/**
               - crates/**
               - core
+              - figure
               - frontend/**
               - shared/**
               - scripts/extra/smoke.sh

@@ -2,7 +2,7 @@ import type {
   MoodTransition,
   PerformanceDirective,
   RigStateSummary,
-} from '../../features/merope/performance/types'
+} from '@myriad/figure/performance/types'
 
 export type {
   BodyControl,
@@ -25,7 +25,7 @@ export type {
   ScoreMoveKind,
   ScoreSide,
   SpeechPhrase,
-} from '../../features/merope/performance/types'
+} from '@myriad/figure/performance/types'
 
 export interface ProcessContext {
   mode?: 'work' | 'chat'

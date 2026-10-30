@@ -1,7 +1,7 @@
 import type { HerDoing, HerLazing } from './herTime'
+import { dispatchMeropePerformance } from '@myriad/figure/events/performanceEvents'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
-import { dispatchMeropePerformance } from '../../features/merope/events/performanceEvents'
 import { captureProductionRigStateSummary } from '../../features/merope/motion/runtimeHost'
 import { listenTogether } from '../../features/merope/music/listenTogether'
 import { getGlobalState } from '../../hooks/musicPlayer/globalState'

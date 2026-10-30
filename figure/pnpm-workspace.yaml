@@ -1,0 +1,5 @@
+# Used only when figure is installed on its own. Inside Myriad, figure is a
+# member of frontend/'s workspace and frontend/pnpm-workspace.yaml applies.
+onlyBuiltDependencies:
+  - esbuild
+  - sharp

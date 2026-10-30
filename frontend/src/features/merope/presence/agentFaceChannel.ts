@@ -2,17 +2,17 @@ import type {
   MeropeSpeechEventDetail,
   MeropeSpeechSource,
   SpeechUtteranceInput,
-} from '../speech/speechEvents'
-import { authSubject } from '../../../utils/authSubject'
+} from '@myriad/figure/speech/speechEvents'
 import {
   dispatchMeropePerformance,
   dispatchMeropeState,
-} from '../events/performanceEvents'
-import { newMotionIntentId } from '../motion/liveGeneration'
+} from '@myriad/figure/events/performanceEvents'
+import { newMotionIntentId } from '@myriad/figure/motion/liveGeneration'
 import {
   dispatchMeropeSpeech,
   dispatchMeropeSpeechUtterance,
-} from '../speech/speechEvents'
+} from '@myriad/figure/speech/speechEvents'
+import { authSubject } from '../../../utils/authSubject'
 
 /** 超出按最早丢。 */
 const MAX_REMEMBERED_MESSAGES = 200

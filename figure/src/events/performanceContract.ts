@@ -7,7 +7,7 @@ import type {
   ScoreMove,
   SpeechPhrase,
 } from '../performance/types'
-import contract from '../../../../../core/shared/merope_performance_contract.json' with { type: 'json' }
+import contract from '@myriad/core/shared/merope_performance_contract.json' with { type: 'json' }
 
 export const PERFORMANCE_BASELINE_EXPRESSIONS =
   contract.baselineExpressions as PerformanceBaseline['expression'][]

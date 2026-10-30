@@ -1,10 +1,11 @@
+import type { PoseCorrection } from '@myriad/figure/anime25drig/poseCorrections'
+import type { Anime25DPlayback } from '@myriad/figure/anime25drig/types'
 import type { RefObject } from 'react'
-import type { PoseCorrection } from '../anime25drig/poseCorrections'
-import type { Anime25DPlayback } from '../anime25drig/types'
 import type { RigCharacterHandle } from '../character/RigCharacter'
 import type { DriverSliderKey } from './motionControls'
 import type { MovingPartsSearch } from './MovingPartsPanel'
 import type { WorkbenchDriver } from './useWorkbenchDriver'
+import { ANIME25D_MOTION_ENVELOPE_PROBES } from '@myriad/figure/anime25drig/motionEnvelope'
 import { useState } from 'react'
 import {
   InfoActionCard,
@@ -14,7 +15,6 @@ import {
   SwitchItem,
 } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'
-import { ANIME25D_MOTION_ENVELOPE_PROBES } from '../anime25drig/motionEnvelope'
 import {
   DRIVER_SLIDERS,
   envelopeProbeLabel,

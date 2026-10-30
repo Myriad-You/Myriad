@@ -1,19 +1,19 @@
+import type { CharacterAssetProfile } from '@myriad/figure/rig/contract'
 import type { Layer, Psd } from 'ag-psd'
-import type { CharacterAssetProfile } from './contract'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { getDefaultLocale } from '../../../i18n'
-import { loadShellNamespace } from '../../../i18n/loadLocale'
-import { anime25DImportCopy } from './anime25dImportCopy'
+import { anime25DImportCopy } from '@myriad/figure/rig/anime25dImportCopy'
 import {
   anime25DBaseRole,
   isAnime25DDocument,
   normalizeAnime25DLayerName,
   prepareAnime25DRigPsd,
-} from './anime25dImporter'
-import { syntheticSeeThroughPsd } from './anime25dImporter.fixture'
-import { gridMesh } from './anime25dSkeletonCompiler'
-import { CHARACTER_ASSET_PROFILES } from './contract'
+} from '@myriad/figure/rig/anime25dImporter'
+import { syntheticSeeThroughPsd } from '@myriad/figure/rig/anime25dImporter.fixture'
+import { gridMesh } from '@myriad/figure/rig/anime25dSkeletonCompiler'
+import { CHARACTER_ASSET_PROFILES } from '@myriad/figure/rig/contract'
+import { getDefaultLocale } from '../../../i18n'
+import { loadShellNamespace } from '../../../i18n/loadLocale'
 
 await loadShellNamespace('merope', getDefaultLocale())
 

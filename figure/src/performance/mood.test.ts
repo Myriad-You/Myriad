@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { coreFile } from '../testing/coreFile.test-support'
 import { moodBand } from './mood'
 
 test('moodBand matches Merope circumplex thresholds', () => {
@@ -16,7 +17,7 @@ test('moodBand matches Merope circumplex thresholds', () => {
 
 test('moodBand thresholds stay aligned with backend mood_band source', () => {
   const backend = readFileSync(
-    new URL('../../../../../core/crates/myriad-merope/src/affect.rs', import.meta.url),
+    coreFile('crates/myriad-merope/src/affect.rs'),
     'utf8',
   )
   const frontend = readFileSync(new URL('./mood.ts', import.meta.url), 'utf8')

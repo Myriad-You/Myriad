@@ -1,13 +1,14 @@
 import type { AgentPanelMode } from '../../../components/agent-panel/agentPanelMode'
 import type { PlaybackDirectionScope } from '../motion/playbackDirection'
+import { sanitizePerformanceDirective } from '@myriad/figure/events/performanceEvents'
+import { isLiveMotionGeneration } from '@myriad/figure/motion/liveGeneration'
+import { MEROPE_SPEECH_EVENT, meropeSpeechEventDetail } from '@myriad/figure/speech/speechEvents'
 import { getAgentPanelMode } from '../../../components/agent-panel/agentPanelMode'
 import { API_URL } from '../../../config'
 import apiService from '../../../services/api'
 import { clearCSRFToken, getCSRFToken } from '../../../utils/csrf'
 import { liveFaceVisible } from '../events/faceVisible'
-import { sanitizePerformanceDirective } from '../events/performanceEvents'
 import { markTurnTrace } from '../events/turnTrace'
-import { isLiveMotionGeneration } from '../motion/liveGeneration'
 import {
   PlaybackDirectionClient,
   sendPlaybackObservation,
@@ -16,7 +17,6 @@ import {
   captureProductionRigStateSummary,
   getProductionMotionRuntime,
 } from '../motion/runtimeHost'
-import { MEROPE_SPEECH_EVENT, meropeSpeechEventDetail } from '../speech/speechEvents'
 import { getSpeechPipeline } from '../speech/speechPipelineHost'
 import { deliverTurnLine } from './engineFace'
 

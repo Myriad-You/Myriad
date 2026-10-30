@@ -1,3 +1,8 @@
+# figure/ (Myriad-You/myriad-figure, a submodule like core/) is the 2.5D figure package.
+packages:
+  - .
+  - ../figure
+
 minimumReleaseAgeExcludePrune: true
 trustPolicy: no-downgrade
 

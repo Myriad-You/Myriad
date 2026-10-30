@@ -1,6 +1,13 @@
+import type { MeropeRigManifest } from '@myriad/figure/rig/types'
 import type { CSSProperties } from 'react'
 import type { RigCharacterHandle } from '../../features/merope/character/RigCharacter'
-import type { MeropeRigManifest } from '../../features/merope/rig/types'
+import { isAnime25DPlayback } from '@myriad/figure/anime25drig/types'
+import {
+  MEROPE_STATE_EVENT,
+  meropeStateEventDetail,
+  resolveLoadedMeropeAffect,
+} from '@myriad/figure/events/performanceEvents'
+import { sameLiveFaceRuntime } from '@myriad/figure/rig/manifestValidation'
 import {
   useCallback,
   useEffect,
@@ -11,14 +18,8 @@ import {
 } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
-import { isAnime25DPlayback } from '../../features/merope/anime25drig/types'
 import { getSiteFace, getWardrobeFace } from '../../features/merope/api'
 import RigCharacter from '../../features/merope/character/RigCharacter'
-import {
-  MEROPE_STATE_EVENT,
-  meropeStateEventDetail,
-  resolveLoadedMeropeAffect,
-} from '../../features/merope/events/performanceEvents'
 import {
   FACE_UPDATED_EVENT,
   PERSONA_UPDATED_EVENT,
@@ -38,7 +39,6 @@ import {
   notifyLiveFaceUnmounted,
   useLiveFacePlayback,
 } from '../../features/merope/presence/liveFacePlayback'
-import { sameLiveFaceRuntime } from '../../features/merope/rig/manifestValidation'
 import { agentService } from '../../services/agent'
 import { ADDRESSEE_UPDATED_EVENT } from '../agent/meropeVitals'
 import { useAgentPanelMode } from './agentPanelMode'

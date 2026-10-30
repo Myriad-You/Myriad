@@ -1,10 +1,10 @@
+import type { Anime25DDriver } from '@myriad/figure/anime25drig/driver'
+import type { Anime25DDebugSnapshot } from '@myriad/figure/anime25drig/player'
 import type { RefObject } from 'react'
-import type { Anime25DDriver } from '../anime25drig/driver'
-import type { Anime25DDebugSnapshot } from '../anime25drig/player'
 import type { RigCharacterHandle } from '../character/RigCharacter'
+import { WORKBENCH_DRIVER } from '@myriad/figure/anime25drig/driver'
+import { PreviewMotionScope } from '@myriad/figure/motion/previewScope'
 import { useEffect, useRef, useState } from 'react'
-import { WORKBENCH_DRIVER } from '../anime25drig/driver'
-import { PreviewMotionScope } from '../motion/previewScope'
 
 /**
  * The hand-set driver behind the motion tab. Writes go straight to the

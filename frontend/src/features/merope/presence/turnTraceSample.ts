@@ -1,5 +1,5 @@
+import { getRigMotionCoordinator } from '@myriad/figure/motion/coordinator'
 import { noteTurnTraceLeaks } from '../events/turnTrace'
-import { getRigMotionCoordinator } from '../motion/coordinator'
 import { speechAudioContextOpen } from '../speech/ttsPlayer'
 import { voicePresenceListenerCount } from '../speech/voicePresence'
 

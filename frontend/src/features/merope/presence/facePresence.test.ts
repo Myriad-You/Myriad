@@ -183,7 +183,7 @@ test('outfit changes stay on the live player instead of exiting the stage', () =
     'utf8',
   )
   const player = readFileSync(
-    new URL('../anime25drig/player.ts', import.meta.url),
+    new URL('../../../../../figure/src/anime25drig/player.ts', import.meta.url),
     'utf8',
   )
   assert.match(panel, /\? 'live'/)

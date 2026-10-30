@@ -1,10 +1,10 @@
-import type { MeropeRigManifest } from '../rig/types'
+import type { MeropeRigManifest } from '@myriad/figure/rig/types'
 import type { RigAssetCompileEvent } from './compiler'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { analyzeAnime25DMouthProfile } from '../anime25drig/mouthProfile'
-import { buildAnime25DPlayback } from '../anime25drig/playback'
-import { anime25DImportCopy } from '../rig/anime25dImportCopy'
+import { analyzeAnime25DMouthProfile } from '@myriad/figure/anime25drig/mouthProfile'
+import { buildAnime25DPlayback } from '@myriad/figure/anime25drig/playback'
+import { anime25DImportCopy } from '@myriad/figure/rig/anime25dImportCopy'
 import { persistRigAsset, preflightRigAsset } from './compiler'
 
 const file = new File([new Uint8Array([1])], 'character.psd')

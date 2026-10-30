@@ -1,12 +1,12 @@
-import type { MeropeRigManifest } from '../../../src/features/merope/rig/types'
+import type { MeropeRigManifest } from '@myriad/figure/rig/types'
+import { Anime25DPlayer } from '@myriad/figure/anime25drig/player'
+import { anime25DImportCopy } from '@myriad/figure/rig/anime25dImportCopy'
+import { prepareAnime25DRigPsd } from '@myriad/figure/rig/anime25dImporter'
+import { syntheticSeeThroughPsd } from '@myriad/figure/rig/anime25dImporter.fixture'
 import { createElement } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
-import Anime25DCharacter from '../../../src/features/merope/anime25drig/Anime25DCharacter'
-import { Anime25DPlayer } from '../../../src/features/merope/anime25drig/player'
-import { anime25DImportCopy } from '../../../src/features/merope/rig/anime25dImportCopy'
-import { prepareAnime25DRigPsd } from '../../../src/features/merope/rig/anime25dImporter'
-import { syntheticSeeThroughPsd } from '../../../src/features/merope/rig/anime25dImporter.fixture'
+import Anime25DCharacter from '../../../src/features/merope/character/Anime25DCharacter'
 import { createHyalite } from '../../../src/utils/liquidGlass/vendor/hyalite'
 
 const psd = syntheticSeeThroughPsd()

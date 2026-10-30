@@ -24,6 +24,7 @@ export default defineConfig({
     dedupe: ['react', 'react-dom'],
     alias: {
       '@lib': fileURLToPath(new URL('../../src/lib', import.meta.url)),
+      '@myriad/core': fileURLToPath(new URL('../../../core', import.meta.url)),
       'agora-rtc-sdk-ng': fileURLToPath(
         new URL('./fixture/fakeAgora.ts', import.meta.url),
       ),
@@ -39,6 +40,12 @@ export default defineConfig({
     host: '127.0.0.1',
     port,
     strictPort: true,
-    fs: { allow: [fileURLToPath(new URL('../..', import.meta.url))] },
+    fs: {
+      allow: [
+        fileURLToPath(new URL('../..', import.meta.url)),
+        fileURLToPath(new URL('../../../figure', import.meta.url)),
+        fileURLToPath(new URL('../../../core/shared', import.meta.url)),
+      ],
+    },
   },
 })

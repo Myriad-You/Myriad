@@ -1,14 +1,14 @@
-import { StrictMode, useEffect, useState } from 'react'
-import { createRoot } from 'react-dom/client'
-import { useVoiceRecording } from '../../../src/components/agent-panel/useVoiceRecording'
-import { RigMotionCoordinator } from '../../../src/features/merope/motion/coordinator'
-import { setLiveMotionGeneration } from '../../../src/features/merope/motion/liveGeneration'
-import { SpeechMotionSource } from '../../../src/features/merope/motion/speechSource'
-import { bindRealtimeChat } from '../../../src/features/merope/speech/realtimeChat'
+import { RigMotionCoordinator } from '@myriad/figure/motion/coordinator'
+import { setLiveMotionGeneration } from '@myriad/figure/motion/liveGeneration'
+import { SpeechMotionSource } from '@myriad/figure/motion/speechSource'
 import {
   MEROPE_SPEECH_EVENT,
   meropeSpeechEventDetail,
-} from '../../../src/features/merope/speech/speechEvents'
+} from '@myriad/figure/speech/speechEvents'
+import { StrictMode, useEffect, useState } from 'react'
+import { createRoot } from 'react-dom/client'
+import { useVoiceRecording } from '../../../src/components/agent-panel/useVoiceRecording'
+import { bindRealtimeChat } from '../../../src/features/merope/speech/realtimeChat'
 import { getSpeechPipeline } from '../../../src/features/merope/speech/speechPipelineHost'
 import {
   getVoicePresence,

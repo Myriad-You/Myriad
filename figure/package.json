@@ -1,0 +1,26 @@
+{
+  "name": "@myriad/figure",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Myriad's 2.5D figure: the runtime that plays her rig and the tools that build one from a layered picture.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ag-psd": "^31.0.3",
+    "pinyin-pro": "3.29.5"
+  },
+  "devDependencies": {
+    "@types/node": "26.5.1",
+    "sharp": "0.35.5",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3"
+  }
+}

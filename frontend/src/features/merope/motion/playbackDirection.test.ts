@@ -1,14 +1,14 @@
 import type { PlaybackDirectionSnapshot } from './playbackDirection'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { sanitizePerformanceDirective } from '../events/performanceEvents'
+import { sanitizePerformanceDirective } from '@myriad/figure/events/performanceEvents'
+import { RigMotionCoordinator } from '@myriad/figure/motion/coordinator'
+import { MotionRuntime } from '@myriad/figure/motion/runtime'
 import { TtsPipeline } from '../speech/ttsPipeline'
-import { RigMotionCoordinator } from './coordinator'
 import {
   PlaybackDirectionClient,
   sendPlaybackObservation,
 } from './playbackDirection'
-import { MotionRuntime } from './runtime'
 
 const scope = { runId: 'run', messageId: 'message', generation: 1 }
 const performance = {

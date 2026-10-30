@@ -1,5 +1,10 @@
-import type { AuthoredExpressionKind } from '../rig/authoredExpression'
+import type { AuthoredExpressionKind } from '@myriad/figure/rig/authoredExpression'
 import type { RigImport, RigMode } from './useRigImport'
+import {
+  ANIME25D_PROJECT_NAME,
+  ANIME25D_PROJECT_URL,
+  PERSONA_UPSTREAM_THANKS,
+} from '@myriad/figure/anime25drig/credit'
 import { useEffect, useRef } from 'react'
 import {
   CheckboxItem,
@@ -9,11 +14,6 @@ import {
   SettingTitleTag,
 } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'
-import {
-  ANIME25D_PROJECT_NAME,
-  ANIME25D_PROJECT_URL,
-  PERSONA_UPSTREAM_THANKS,
-} from '../anime25drig/credit'
 import { enhancePlanOf } from './enhanceEstimate'
 import { EnhanceProgress } from './EnhanceProgress'
 import { FaceTabs } from './FaceTabs'

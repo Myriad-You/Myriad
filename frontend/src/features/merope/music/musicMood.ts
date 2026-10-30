@@ -138,7 +138,7 @@ export function bindMusicMoodListening(): () => void {
             serverQuietUntilMs =
               Date.now() + Math.max(0, result.nextCreditInSeconds) * 1000
             if (active && result.credited) {
-              void import('../events/performanceEvents').then(({ dispatchMeropeState }) => {
+              void import('@myriad/figure/events/performanceEvents').then(({ dispatchMeropeState }) => {
                 dispatchMeropeState({
                   mood: result.mood,
                   activity: result.activity,

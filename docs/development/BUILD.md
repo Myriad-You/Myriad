@@ -65,6 +65,17 @@ git submodule update --init
 
 See [SHARED_CORE.md](SHARED_CORE.md) for how a core change lands here.
 
+The 2.5D figure (the rig runtime under `anime25drig/`, motion, and the rig
+import tools) is the `figure/` git submodule,
+[myriad-figure](https://github.com/Myriad-You/myriad-figure). It is a member of
+`frontend/`'s pnpm workspace, imported as `@myriad/figure/<path>`, so
+`pnpm install` in `frontend/` installs its dependencies, and `pnpm test:unit`
+and `pnpm typecheck` there also run its tests and its own type check. It reads
+the core's contracts as `@myriad/core/...`, which here is this repository's
+`core/`. The site lends it its locale copy, API origin and turn trace once, at
+start-up (`frontend/src/features/merope/character/installFigureHost.ts`).
+`git submodule update --init` above checks out both.
+
 From any directory under the workspace, Cargo still finds the root. Preferred
 commands from the repo root:
 

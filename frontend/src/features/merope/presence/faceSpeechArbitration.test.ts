@@ -1,8 +1,8 @@
-import type { BodyAdapter, BodyIntent } from '../body/types'
 import type {
   MeropeSpeechEventDetail,
   SpeechUtteranceInput,
-} from '../speech/speechEvents'
+} from '@myriad/figure/speech/speechEvents'
+import type { BodyAdapter, BodyIntent } from '../body/types'
 import type { AgentFaceSink } from './agentFaceChannel'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'

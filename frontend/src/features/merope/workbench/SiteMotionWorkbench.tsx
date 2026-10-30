@@ -1,7 +1,8 @@
+import type { PoseCorrection } from '@myriad/figure/anime25drig/poseCorrections'
 import type { UpperBodyVisualIdentityKey } from '../../../components/agent/onboarding/onboardingTypes'
-import type { PoseCorrection } from '../anime25drig/poseCorrections'
 import type { RigCharacterHandle } from '../character/RigCharacter'
 import type { TurnArchiveUse, TurnKeyformsStatus } from '../turnKeyformsApi'
+import { isAnime25DPlayback } from '@myriad/figure/anime25drig/types'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { activityKey, moodBand } from '../../../components/agent/meropeVitals'
@@ -18,7 +19,6 @@ import {
 import { useI18n } from '../../../contexts/I18nContext'
 import { agentService } from '../../../services/agent'
 import { siteMediaUrl } from '../../../utils/siteMediaUrl'
-import { isAnime25DPlayback } from '../anime25drig/types'
 import {
   saveFullBodyPoseCorrections,
   saveRigPoseCorrections,
