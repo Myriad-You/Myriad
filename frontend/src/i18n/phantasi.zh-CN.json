@@ -410,6 +410,7 @@
   "noteCollabTyping": "{name} 正在编辑",
   "noteCollabConnecting": "正在连接协作…",
   "noteCollabReconnecting": "协作连接已断开，正在重连…",
+  "noteGone": "这篇已经被删除了",
   "mediaEditPrevious": "上一项媒体",
   "mediaEditNext": "下一项媒体",
   "mediaEditOriginal": "原图",

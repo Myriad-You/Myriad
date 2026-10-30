@@ -410,6 +410,7 @@
   "noteCollabTyping": "{name} bearbeitet gerade",
   "noteCollabConnecting": "Verbindung zur Zusammenarbeit…",
   "noteCollabReconnecting": "Zusammenarbeit getrennt. Verbindung wird wiederhergestellt…",
+  "noteGone": "Diese Notiz wurde gelöscht.",
   "mediaEditPrevious": "Vorheriges Medium",
   "mediaEditNext": "Nächstes Medium",
   "mediaEditOriginal": "Original",

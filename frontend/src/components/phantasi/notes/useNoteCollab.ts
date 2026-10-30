@@ -3,7 +3,7 @@ import type { NoteCollabEvent, NoteCollabPeer } from './noteCollab'
 import type { NoteCloudFields, NoteCloudSaveHandle } from './useNoteCloudSave'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as phantasiApi from '../../../services/phantasiApi'
-import { applyCollabPeers } from './noteCollab'
+import { applyCollabPeers, isNoteDocGone, NOTE_DOC_DELETED_EVENT } from './noteCollab'
 
 export function useNoteCollab({
   cloudId,
@@ -11,6 +11,7 @@ export function useNoteCollab({
   userName,
   textareaRef,
   cloud,
+  onGone,
   io = phantasiApi,
 }: {
   cloudId: number | null
@@ -19,14 +20,16 @@ export function useNoteCollab({
   textareaRef: MutableRefObject<HTMLTextAreaElement | null>
   fields: NoteCloudFields
   cloud: Pick<NoteCloudSaveHandle, 'baseRef' | 'receiveRemote' | 'receiveDoc'>
+  /** 这篇已经被删了（服务端通知，或断线后查到 404）。之后不再重连。 */
+  onGone?: () => void
   io?: Pick<typeof phantasiApi, 'getNoteDoc' | 'noteDocWsUrl'>
 }) {
   const [peers, setPeers] = useState<NoteCollabPeer[]>([])
   const [connection, setConnection] = useState<'connecting' | 'connected' | 'reconnecting'>('connecting')
   const lastEditSent = useRef(0)
   const wsRef = useRef<WebSocket | null>(null)
-  const liveRef = useRef({ cloud, io })
-  liveRef.current = { cloud, io }
+  const liveRef = useRef({ cloud, io, onGone })
+  liveRef.current = { cloud, io, onGone }
 
   useEffect(() => {
     if (loading || cloudId == null) return
@@ -34,6 +37,15 @@ export function useNoteCollab({
     let stopped = false
     let retry: ReturnType<typeof setTimeout> | undefined
     let retryDelay = 1000
+    const gone = () => {
+      stopped = true
+      clearTimeout(retry)
+      const ws = wsRef.current
+      wsRef.current = null
+      ws?.close()
+      setPeers([])
+      liveRef.current.onGone?.()
+    }
     const connect = () => {
       if (stopped) return
       const ws = new WebSocket(liveRef.current.io.noteDocWsUrl(cloudId))
@@ -53,6 +65,10 @@ export function useNoteCollab({
         if (stopped || wsRef.current !== ws) return
         try {
           const incoming = JSON.parse(String(event.data)) as NoteCollabEvent
+          if (incoming.type === NOTE_DOC_DELETED_EVENT) {
+            gone()
+            return
+          }
           if (incoming.type === 'join') ws.send(JSON.stringify({ type: 'presence' }))
           setPeers((current) => applyCollabPeers(current, incoming))
           // Unversioned edit snapshots have no common ancestor and replay typing.
@@ -75,8 +91,17 @@ export function useNoteCollab({
         wsRef.current = null
         setConnection('reconnecting')
         setPeers([])
-        retry = setTimeout(connect, retryDelay)
+        // 连接断了先问这篇还在不在：删掉的文档握手永远是 404，不能一直重连下去。
+        const delay = retryDelay
         retryDelay = Math.min(retryDelay * 2, 10_000)
+        void liveRef.current.io.getNoteDoc(cloudId).then(
+          () => false,
+          (error: unknown) => isNoteDocGone(error),
+        ).then((missing) => {
+          if (stopped) return
+          if (missing) gone()
+          else retry = setTimeout(connect, delay)
+        })
       }
     }
     connect()

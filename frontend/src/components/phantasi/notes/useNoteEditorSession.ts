@@ -78,6 +78,11 @@ export interface NoteEditorProps {
   onSaved: (id: number) => void
   onDeleted?: (id: number) => void
   onCloudId?: (id: number) => void
+  /**
+   * 正在编辑的这篇已经不在了（在别的窗口、别的标签页或被别人删掉，或者记着的是早就删掉的 id）。
+   * 编辑器自己已经停下协作和自动保存；外面据此退出这篇。
+   */
+  onGone?: (id: number) => void
 }
 
 export function useNoteEditorSession({
@@ -87,6 +92,7 @@ export function useNoteEditorSession({
   onSaved,
   onDeleted,
   onCloudId,
+  onGone,
 }: NoteEditorProps) {
   const { t, format } = useI18n()
   const { user, isAdmin } = useAuth()
@@ -179,6 +185,8 @@ export function useNoteEditorSession({
   })
   const [scheduledAt, setScheduledAt] = useState<number | null>(null)
   const [cloudHint, setCloudHint] = useState(false)
+  /** 这篇被删了：协作、自动保存、发布都停下，离开时不再问。 */
+  const [gone, setGone] = useState(false)
   const onCloudIdRef = useRef(onCloudId)
   onCloudIdRef.current = onCloudId
   useEffect(() => {
@@ -366,6 +374,23 @@ export function useNoteEditorSession({
       throw error
     } finally { setSaving(false) }
   }
+  // 退出这篇只做一次：协作通知、断线查到 404、打开时就 404 可能接连到来。
+  const goneRef = useRef<{ done: boolean; cloudId: number | null; onGone?: (id: number) => void; discard: () => void; message: string }>({
+    done: false, cloudId, onGone, discard: cloud.discardRecovery, message: t.phantasi.noteGone,
+  })
+  goneRef.current = { ...goneRef.current, cloudId, onGone, discard: cloud.discardRecovery, message: t.phantasi.noteGone }
+  const markGone = useCallback(() => {
+    const live = goneRef.current
+    if (live.done) return
+    live.done = true
+    const id = live.cloudId ?? docId ?? null
+    // 文档没了，本地留着的恢复副本也没处可存：一起丢掉，免得下次打开又灌回来。
+    live.discard()
+    setGone(true)
+    setCloudId(null)
+    showNoteNotice(live.message, 'warning')
+    if (id != null) live.onGone?.(id)
+  }, [docId])
   const { peers, connection: collabConnection, markEditing } = useNoteCollab({
     cloudId,
     loading,
@@ -376,6 +401,7 @@ export function useNoteEditorSession({
       ...(docStatus === 'published' ? { slug } : {}),
     },
     cloud,
+    onGone: markGone,
   })
   widgetSettingsOpenRef.current = widgetSettingsOpen
   overlayOpenRef.current =
@@ -447,6 +473,7 @@ export function useNoteEditorSession({
     setCloudId,
     setSaved,
     setLoading,
+    onGone: markGone,
     loadFailed: t.phantasi.errorLoadFailed,
     scheduleFailed: t.phantasi.noteScheduleFailed,
   })
@@ -558,6 +585,7 @@ export function useNoteEditorSession({
     scheduledAt,
     noteId,
     cloudId,
+    gone,
     draftKey,
     docStatus,
     saving,
@@ -763,7 +791,7 @@ export function useNoteEditorSession({
     canConfigureWidget,
     bodyChars,
     peers,
-    collabConnection,
+    collabConnection: gone ? 'gone' as const : collabConnection,
     markEditing,
     selectionAnchor,
     activeMarks,
@@ -785,7 +813,8 @@ export function useNoteEditorSession({
     handleDelete,
     requestClose,
     prepareLeave,
-    dirty,
+    // 删掉的文档没有可保存的地方，外面别再因为它不敢关、不敢刷新。
+    dirty: dirty && !gone,
     placeImage,
     handleUpload,
     heading,

@@ -30,6 +30,29 @@ pub struct NoteCollabEvent {
     pub image: Option<String>,
 }
 
+/// 文档被删掉时发给房间里每个人的事件种类。只由服务端发：客户端发来的会被丢掉。
+pub const NOTE_DOC_DELETED: &str = "deleted";
+
+impl NoteCollabEvent {
+    /// 这篇已经删了。编辑器收到就停止重连、退出这篇。
+    pub fn doc_deleted() -> Self {
+        Self {
+            kind: NOTE_DOC_DELETED.into(),
+            peer_id: String::new(),
+            user_id: 0,
+            name: None,
+            revision: None,
+            client_request_id: None,
+            published_at: None,
+            cursor: None,
+            title: None,
+            content_md: None,
+            topic: None,
+            image: None,
+        }
+    }
+}
+
 pub struct NoteCollabHub {
     rooms: Arc<Mutex<HashMap<i32, broadcast::Sender<NoteCollabEvent>>>>,
 }
@@ -101,6 +124,11 @@ impl NoteCollabHub {
         }
     }
 
+    /// 告诉还开着这篇的编辑器：文档已经删了。删除事务提交之后再调。
+    pub fn publish_doc_deleted(&self, doc_id: i32) {
+        self.publish(doc_id, NoteCollabEvent::doc_deleted());
+    }
+
     #[cfg(test)]
     fn room_count(&self) -> usize {
         self.rooms
@@ -160,6 +188,19 @@ mod tests {
         assert_eq!(event.kind, "join");
         assert_eq!(event.peer_id, "a");
         assert_eq!(event.cursor, Some(4));
+    }
+
+    #[tokio::test]
+    async fn deleted_doc_reaches_only_its_room() {
+        let hub = NoteCollabHub::new();
+        let mut deleted = hub.subscribe(7);
+        let mut other = hub.subscribe(8);
+        hub.publish_doc_deleted(7);
+        assert_eq!(deleted.recv().await.expect("event").kind, NOTE_DOC_DELETED);
+        hub.publish(8, event("presence"));
+        assert_eq!(other.recv().await.expect("event").kind, "presence");
+        let wire = serde_json::to_value(NoteCollabEvent::doc_deleted()).unwrap();
+        assert_eq!(wire["type"], NOTE_DOC_DELETED);
     }
 
     #[test]

@@ -373,6 +373,8 @@ export function StudioOverlay({
               {spec.ready ? null : <FramePlaceholder />}
               {mounted ? (
                 <iframe
+                  // 按同一个地址重新打开（又写一篇新笔记）也要换一份页面。
+                  key={spec.load ?? 0}
                   ref={(node) => {
                     if (node) frameRefs.current.set(spec.tool, node)
                     else frameRefs.current.delete(spec.tool)
