@@ -874,7 +874,10 @@ mod tests {
             targets["headTurn"], "slight",
             "what the look leaves is hers"
         );
-        assert_eq!(targets["eyeSmile"], "strong");
+        assert_eq!(
+            targets["eyeSmile"], "clear",
+            "a content smile arches midway (core 7d3da64)"
+        );
         assert_eq!(targets["mouthSmile"], "clear", "the look holds whole");
         assert!(semantic_valid(&value.to_string(), "好好听。"));
 
