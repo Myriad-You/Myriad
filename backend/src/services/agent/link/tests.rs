@@ -3988,7 +3988,7 @@ fn what_the_owner_shows_her_on_a_child_comes_as_the_chats_attached_images() {
     use crate::services::agent::chat_attachments;
     assert!(CONTRACT.capabilities.iter().any(|c| c == "images"));
     let most = CONTRACT.frames["input"].max_items["images"];
-    assert!(most >= 1 && most <= chat_attachments::MAX_IMAGES);
+    assert!((1..=chat_attachments::MAX_IMAGES).contains(&most));
     // The contract's example of an input with a picture reads as one.
     let shown = fixtures()
         .into_iter()
