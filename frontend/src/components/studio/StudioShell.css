@@ -29,6 +29,13 @@ html.dark .studio-embed {
   color-scheme: dark;
 }
 
+/* 下拉选项由系统画：选项继承了浅色字、底却可能按浅色画，Windows 上白底白字。
+   用跟着配色方案走的系统色，底和字总是一对。 */
+.studio-embed select option {
+  background-color: Canvas;
+  color: CanvasText;
+}
+
 .studio-tool-page {
   min-height: 100%;
   container-type: inline-size;
