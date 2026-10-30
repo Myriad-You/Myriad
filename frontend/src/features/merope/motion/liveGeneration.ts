@@ -1,4 +1,4 @@
-import { noteTurnTraceDrop } from '../events/turnTrace'
+import { figureHost } from '../figureHost'
 
 let liveGeneration = 0
 
@@ -19,7 +19,7 @@ export function acceptLiveMotionGeneration(
   generation: number | undefined,
 ): boolean {
   if (isLiveMotionGeneration(generation)) return true
-  noteTurnTraceDrop('stale_generation')
+  figureHost().trace.drop('stale_generation')
   return false
 }
 

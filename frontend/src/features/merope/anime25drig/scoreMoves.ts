@@ -1,4 +1,4 @@
-import type { BodyControl, ScoreMove } from '../../../services/agent/types'
+import type { BodyControl, ScoreMove } from '../performance/types'
 
 /**
  * How each of the score's there-and-back moves unfolds, in the body

@@ -1,6 +1,6 @@
-import type { BodyControl, ScoreMove } from '../../../services/agent/types'
 import type { FaceLife } from '../events/performanceContract'
 import type { ResolvedScore } from '../motion/scoreTimeline'
+import type { BodyControl, ScoreMove } from '../performance/types'
 import { BODY_CONTROLS, SCORE_MOVES } from '../events/performanceContract'
 import { angleZForHeadRoll, HEAD_TILT_RADIANS } from './poseScale'
 import { scoreMoveOffsets, scoreMoveSeconds } from './scoreMoves'

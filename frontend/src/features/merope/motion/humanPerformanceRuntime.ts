@@ -1,4 +1,4 @@
-import type { RigMotionStyle } from '../../../services/agent/types'
+import type { RigMotionStyle } from '../performance/types'
 import type {
   BehaviorPlan,
   BehaviorRealizerReport,

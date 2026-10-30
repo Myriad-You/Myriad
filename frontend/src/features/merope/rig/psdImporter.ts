@@ -2,8 +2,7 @@ import type { PreparedAnime25DRigImport } from './anime25dImporter'
 import type { AuthoredExpressionKind } from './authoredExpression'
 import type { CharacterAssetProfile } from './contract'
 import type { DetectedSkeleton } from './skeleton'
-import { API_URL } from '../../../config'
-import { currentCopy } from '../../../i18n/localeCopy'
+import { figureHost } from '../figureHost'
 import { anime25DImportCopy } from './anime25dImportCopy'
 import { importRigPsdInWorker } from './psdImportClient'
 import { placeBodyTurnKeyforms, placeTurnKeyforms, turnKeyformsFor } from './turnKeyformImport'
@@ -13,7 +12,7 @@ const MAX_PSD_BYTES = 96 * 1024 * 1024
 
 export type PreparedRigPsdImport = PreparedAnime25DRigImport
 
-export function sourceMasterFetchUrl(source: string, pageUrl: string, apiUrl = API_URL): string {
+export function sourceMasterFetchUrl(source: string, pageUrl: string, apiUrl = figureHost().apiUrl()): string {
   return new URL(source, apiUrl ? new URL(apiUrl, pageUrl).href : pageUrl).href
 }
 
@@ -30,9 +29,9 @@ export async function prepareRigPsdImport(
   referenceUrl?: string,
 ): Promise<PreparedRigPsdImport> {
   signal?.throwIfAborted()
-  if (!sourceMasterAssetId) throw new Error(currentCopy().merope.psdNeedAsset)
+  if (!sourceMasterAssetId) throw new Error(figureHost().copy().psdNeedAsset)
   if (file.size <= 0 || file.size > MAX_PSD_BYTES) {
-    throw new Error(currentCopy().merope.psdTooLarge)
+    throw new Error(figureHost().copy().psdTooLarge)
   }
   const buffer = await file.arrayBuffer()
   signal?.throwIfAborted()

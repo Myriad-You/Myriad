@@ -1,4 +1,4 @@
-import type { PerformanceDirective } from '../../../services/agent/types'
+import type { PerformanceDirective } from '../performance/types'
 import type { BehaviorSnapshot } from './behavior'
 import assert from 'node:assert/strict'
 import test from 'node:test'

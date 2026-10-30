@@ -1,4 +1,4 @@
-import type { BodyControl } from '../../../services/agent/types'
+import type { BodyControl } from '../performance/types'
 import type { Anime25DDriver } from './driver'
 import assert from 'node:assert/strict'
 import test from 'node:test'

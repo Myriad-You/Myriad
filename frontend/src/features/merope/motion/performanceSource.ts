@@ -1,5 +1,5 @@
-import type { PerformanceDirective } from '../../../services/agent/types'
 import type { MeropePerformanceEventDetail } from '../events/performanceEvents'
+import type { PerformanceDirective } from '../performance/types'
 import type { MeropeSpeechEventDetail } from '../speech/speechEvents'
 import type { RigBearing } from './bearing'
 import type { BehaviorPlan, BehaviorSnapshot } from './behavior'
@@ -13,7 +13,7 @@ import {
   meropePerformanceEventDetail,
   meropeStateEventDetail,
 } from '../events/performanceEvents'
-import { markTurnTrace } from '../events/turnTrace'
+import { figureHost } from '../figureHost'
 import { MEROPE_SPEECH_EVENT, meropeSpeechEventDetail } from '../speech/speechEvents'
 import { bearingFromDirective } from './bearing'
 import { newMotionIntentId } from './liveGeneration'
@@ -176,7 +176,7 @@ export class PerformanceMotionSource {
     const selected = selection.directive
     if (!this.preview) {
       for (const decision of selection.decisions) {
-        markTurnTrace('performance_decision', {
+        figureHost().trace.mark('performance_decision', {
           intent: decision.intent,
           reason: decision.reason,
           atMs: decision.atMs,

@@ -1,3 +1,4 @@
+import type { Anime25DPlayback } from '../anime25drig/types'
 import type {
   PerformanceBaseline,
   PerformanceCue,
@@ -6,8 +7,7 @@ import type {
   RigBeatPhase,
   RigMusicEnergy,
   RigStateSummary,
-} from '../../../services/agent/types'
-import type { Anime25DPlayback } from '../anime25drig/types'
+} from '../performance/types'
 import type { MeropeRigManifest } from '../rig/types'
 import type { MusicMotionSignal } from '../singing/musicSignal'
 import type { BehaviorSnapshot } from './behavior'

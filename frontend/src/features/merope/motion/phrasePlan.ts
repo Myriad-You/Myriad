@@ -1,7 +1,7 @@
 import type {
   PerformanceCue,
   SpeechPhrase,
-} from '../../../services/agent/types'
+} from '../performance/types'
 import type { SpeechProsodyPlan } from '../speech/prosody'
 import type { BehaviorPlan, BehaviorSnapshot } from './behavior'
 import { sanitizeSpeechPhrases } from '../events/performanceContract'

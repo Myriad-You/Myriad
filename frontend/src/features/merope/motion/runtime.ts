@@ -1,7 +1,7 @@
 import type {
   PerformanceCue,
   RigMotionStyle,
-} from '../../../services/agent/types'
+} from '../performance/types'
 import type { MeropeActivity } from '../types'
 import type { BehaviorRealizerReport } from './behavior'
 import type { MoodIntent, MotionFrame } from './intents'

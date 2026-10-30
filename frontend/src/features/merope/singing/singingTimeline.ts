@@ -1,6 +1,6 @@
-import type { LyricLine, WordLyricLine } from '../../../utils/musicPlayer'
 import type { SpeechViseme } from '../rig/articulation'
 import type { TextVisemeCue } from '../speech/textVisemes'
+import type { LyricLine, WordLyricLine } from './lyrics'
 import { compileTextVisemes } from '../speech/textVisemes'
 
 export interface SingingCue {

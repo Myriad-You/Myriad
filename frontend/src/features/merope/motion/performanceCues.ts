@@ -1,4 +1,4 @@
-import type { PerformanceCue } from '../../../services/agent/types'
+import type { PerformanceCue } from '../performance/types'
 import type { BehaviorResource } from './behaviorResources'
 import type { MotionChannel } from './channels'
 import { rigChannelsForResources } from './behaviorResources'

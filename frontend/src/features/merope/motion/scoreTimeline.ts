@@ -1,4 +1,4 @@
-import type { BodyPose, ScoreBeat, ScoreMove } from '../../../services/agent/types'
+import type { BodyPose, ScoreBeat, ScoreMove } from '../performance/types'
 import type { SpeechAccentAnchor } from '../speech/prosody'
 
 /** A beat placed on the clock (`performance.now()` milliseconds). */

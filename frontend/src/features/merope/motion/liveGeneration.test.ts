@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { resetTurnTraceForTest, snapshotTurnTrace } from '../events/turnTrace'
+import { installFigureHost } from '../figureHost'
 import {
   acceptLiveMotionGeneration,
   isLiveMotionGeneration,
@@ -23,11 +23,15 @@ test('live generation is in-memory and missing values stay compatible', () => {
   assert.equal(liveMotionGeneration(), 0)
 })
 
-test('stale generations are counted on the local trace, not the run hub', () => {
-  resetTurnTraceForTest()
+test('stale generations are reported to the host trace, not the run hub', () => {
+  const drops: string[] = []
+  installFigureHost({
+    trace: { mark() {}, drop: reason => drops.push(reason), leaseExpiry() {}, frame() {} },
+  })
   setLiveMotionGeneration(4)
   assert.equal(acceptLiveMotionGeneration(4), true)
   assert.equal(acceptLiveMotionGeneration(3), false)
-  assert.equal(snapshotTurnTrace().counters.staleGenerationDrops, 1)
+  assert.deepEqual(drops, ['stale_generation'])
   setLiveMotionGeneration(0)
+  installFigureHost({})
 })

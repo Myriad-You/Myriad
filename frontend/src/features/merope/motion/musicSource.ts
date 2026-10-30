@@ -1,5 +1,5 @@
-import type { MotionAudioFeatures } from '../../../utils/audioMotionAnalysis'
 import type { SpeechArticulation } from '../rig/articulation'
+import type { MotionAudioFeatures } from '../singing/audioMotionAnalysis'
 import type { BeatFrame } from '../singing/beatClock'
 import type {
   MusicMode,

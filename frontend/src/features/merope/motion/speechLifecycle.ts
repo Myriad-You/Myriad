@@ -1,7 +1,7 @@
 import type { SpeechArticulation } from '../rig/articulation'
 import type { SpeechProsodyPlan } from '../speech/prosody'
 import type { MeropeSpeechEventDetail } from '../speech/speechEvents'
-import { noteTurnTraceDrop } from '../events/turnTrace'
+import { figureHost } from '../figureHost'
 import {
   estimateAutoSpeechDurationMs,
   MAX_VISUAL_SPEECH_TEXT_UNITS,
@@ -81,7 +81,7 @@ export class SpeechLifecycleController {
     }
 
     if (!isLiveMotionGeneration(event.generation)) {
-      if (event.phase === 'start') noteTurnTraceDrop('stale_generation')
+      if (event.phase === 'start') figureHost().trace.drop('stale_generation')
       return 'ignored'
     }
 
@@ -105,7 +105,7 @@ export class SpeechLifecycleController {
       if (event.phase === 'end') return 'ignored'
       // A sampled frame may open an idle mouth but must not evict a live utterance.
       if (this.speechActive && event.phase !== 'chunk') {
-        noteTurnTraceDrop('foreign_speech_frame')
+        figureHost().trace.drop('foreign_speech_frame')
         return 'ignored'
       }
       this.start(event.messageId, event.utteranceId, event.locale)

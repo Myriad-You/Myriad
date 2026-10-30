@@ -1,4 +1,3 @@
-import type { Anime25DCharacterHandle } from '../anime25drig/Anime25DCharacter'
 import type { Anime25DWorkbenchPort } from '../anime25drig/workbenchPort'
 import type { RigBearing } from '../motion/bearing'
 import type { BehaviorPlan } from '../motion/behavior'
@@ -10,6 +9,7 @@ import type { MeropeRigManifest } from '../rig/types'
 import type { MusicMotionSignal } from '../singing/musicSignal'
 import type { SpeechProsodyPlan } from '../speech/prosody'
 import type { MeropeActivity } from '../types'
+import type { Anime25DCharacterHandle } from './Anime25DCharacter'
 import {
   forwardRef,
   useCallback,
@@ -20,12 +20,12 @@ import {
   useState,
 } from 'react'
 import { siteMediaUrl } from '../../../utils/siteMediaUrl'
-import Anime25DCharacter from '../anime25drig/Anime25DCharacter'
 import {
   anime25DRuntimeKey,
   shouldUseAnime25DRuntime,
 } from '../anime25drig/runtimePolicy'
 import { isAnime25DPlayback } from '../anime25drig/types'
+import Anime25DCharacter from './Anime25DCharacter'
 
 const MAX_PENDING_SPEECH_CHUNKS = 32
 

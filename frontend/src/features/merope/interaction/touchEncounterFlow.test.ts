@@ -1,4 +1,4 @@
-import type { PerformanceDirective } from '../../../services/agent/types'
+import type { PerformanceDirective } from '../performance/types'
 import type { TouchCompletion } from './touchEncounter'
 import type { TouchObservation } from './touchGesture'
 import assert from 'node:assert/strict'

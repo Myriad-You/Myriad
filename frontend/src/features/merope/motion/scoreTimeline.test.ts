@@ -1,4 +1,4 @@
-import type { ScoreBeat } from '../../../services/agent/types'
+import type { ScoreBeat } from '../performance/types'
 import type { SpokenUtterance } from './scoreTimeline'
 import assert from 'node:assert/strict'
 import test from 'node:test'

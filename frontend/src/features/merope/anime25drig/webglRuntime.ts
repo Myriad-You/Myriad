@@ -1,5 +1,5 @@
 import type { Anime25DPlaybackLayer } from './types'
-import { currentCopy } from '../../../i18n/localeCopy'
+import { figureHost } from '../figureHost'
 import { BODY_LIFT_GLSL } from './bodyLift'
 import { NECK_SURFACE_COLUMNS } from './neckSurfaceContour'
 
@@ -203,7 +203,7 @@ export function createIndexedDeformableMesh(
   indices: Uint16Array,
 ): IndexedDeformableMesh {
   if (positions.length !== uvs.length) {
-    throw new Error(currentCopy().merope.anime25dPlaybackFailed)
+    throw new Error(figureHost().copy().anime25dPlaybackFailed)
   }
   const vao = gl.createVertexArray()
   const positionBuffer = gl.createBuffer()
@@ -214,7 +214,7 @@ export function createIndexedDeformableMesh(
     if (uvBuffer) gl.deleteBuffer(uvBuffer)
     if (indexBuffer) gl.deleteBuffer(indexBuffer)
     if (vao) gl.deleteVertexArray(vao)
-    throw new Error(currentCopy().merope.anime25dPlaybackFailed)
+    throw new Error(figureHost().copy().anime25dPlaybackFailed)
   }
   const mesh = { vao, positionBuffer, uvBuffer, indexBuffer }
   try {
@@ -267,7 +267,7 @@ export function readLayerPixels(
   crop.width = sw
   crop.height = sh
   const context = crop.getContext('2d')
-  if (!context) throw new Error(currentCopy().merope.anime25dPlaybackFailed)
+  if (!context) throw new Error(figureHost().copy().anime25dPlaybackFailed)
   context.drawImage(atlas, sx, sy, sw, sh, 0, 0, sw, sh)
   try {
     return {
@@ -311,7 +311,7 @@ export function createAtlasTexture(
   patches: readonly AtlasPixelPatch[] = [],
 ): WebGLTexture {
   const texture = gl.createTexture()
-  if (!texture) throw new Error(currentCopy().merope.anime25dPlaybackFailed)
+  if (!texture) throw new Error(figureHost().copy().anime25dPlaybackFailed)
   try {
     gl.bindTexture(gl.TEXTURE_2D, texture)
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 1)
@@ -378,14 +378,14 @@ export function compileProgram(gl: WebGL2RenderingContext): WebGLProgram {
   if (!program) {
     gl.deleteShader(vertex)
     gl.deleteShader(fragment)
-    throw new Error(currentCopy().merope.anime25dPlaybackFailed)
+    throw new Error(figureHost().copy().anime25dPlaybackFailed)
   }
   try {
     gl.attachShader(program, vertex)
     gl.attachShader(program, fragment)
     gl.linkProgram(program)
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      throw new Error(currentCopy().merope.anime25dPlaybackFailed)
+      throw new Error(figureHost().copy().anime25dPlaybackFailed)
     }
     return program
   } catch (error) {
@@ -403,12 +403,12 @@ function compileShader(
   source: string,
 ): WebGLShader {
   const shader = gl.createShader(type)
-  if (!shader) throw new Error(currentCopy().merope.anime25dPlaybackFailed)
+  if (!shader) throw new Error(figureHost().copy().anime25dPlaybackFailed)
   gl.shaderSource(shader, source)
   gl.compileShader(shader)
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
     gl.deleteShader(shader)
-    throw new Error(currentCopy().merope.anime25dPlaybackFailed)
+    throw new Error(figureHost().copy().anime25dPlaybackFailed)
   }
   return shader
 }
@@ -419,7 +419,7 @@ export function requiredUniform(
   name: string,
 ): WebGLUniformLocation {
   const location = gl.getUniformLocation(program, name)
-  if (!location) throw new Error(currentCopy().merope.anime25dPlaybackFailed)
+  if (!location) throw new Error(figureHost().copy().anime25dPlaybackFailed)
   return location
 }
 

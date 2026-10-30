@@ -1,4 +1,4 @@
-import type { BodyControl, BodyPose } from '../../../services/agent/types'
+import type { BodyControl, BodyPose } from '../performance/types'
 import type { Anime25DRenderFrame } from './renderer'
 import type { Anime25DPlayback, Anime25DPlaybackLayer } from './types'
 import assert from 'node:assert/strict'

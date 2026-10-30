@@ -1,9 +1,9 @@
-import type { MoodBand } from '../../../components/agent/meropeVitals'
+import type { MoodBand } from '../performance/mood'
 import type {
   PerformanceBaseline,
   PerformanceDirective,
-} from '../../../services/agent/types'
-import { moodBand } from '../../../components/agent/meropeVitals'
+} from '../performance/types'
+import { moodBand } from '../performance/mood'
 
 export interface RigBearing extends PerformanceBaseline {
   revision: number

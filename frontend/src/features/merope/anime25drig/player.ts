@@ -1,6 +1,6 @@
-import type { PerformanceBaseline } from '../../../services/agent/types'
 import type { PresentedTouchReaction } from '../interaction/touchReaction'
 import type { MotionChannelPolicy } from '../motion/policy'
+import type { PerformanceBaseline } from '../performance/types'
 import type { MeropeRigManifest } from '../rig/types'
 import type { MusicMotionSignal } from '../singing/musicSignal'
 import type { SpeechProsodyPlan } from '../speech/prosody'
@@ -29,8 +29,7 @@ import type {
   VisibleTouchHit,
 } from './touchVisibility'
 import type { Anime25DPlayback } from './types'
-import { currentCopy } from '../../../i18n/localeCopy'
-import { noteTurnTraceFrame } from '../events/turnTrace'
+import { figureHost } from '../figureHost'
 import { IDLE_MOTION_POLICY } from '../motion/policy'
 import { boundRigCapabilities } from '../motion/rigStateSummary'
 import { resolveAnime25DLayerSemantics } from '../rig/anime25dLayerSemantics'
@@ -207,7 +206,7 @@ export class Anime25DPlayer {
       preserveDrawingBuffer: true,
       powerPreference: 'low-power',
     })
-    if (!gl) throw new Error(currentCopy().merope.anime25dWebglFailed)
+    if (!gl) throw new Error(figureHost().copy().anime25dWebglFailed)
     this.gl = gl
     this.program = compileProgram(gl)
     try {
@@ -498,7 +497,7 @@ export class Anime25DPlayer {
       this.deform()
       this.uploadGeometry()
       this.draw()
-      if (dropped) noteTurnTraceFrame({ dropped: true })
+      if (dropped) figureHost().trace.frame({ dropped: true })
       return
     }
     const work = createAnime25DFrameWork()
@@ -529,7 +528,7 @@ export class Anime25DPlayer {
       deformMs: deformFinished - springsFinished,
       drawSubmitMs: drawFinished - deformFinished,
     })
-    noteTurnTraceFrame({
+    figureHost().trace.frame({
       dropped,
       cpuMs: drawFinished - frameStarted,
     })

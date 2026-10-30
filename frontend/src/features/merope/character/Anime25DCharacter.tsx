@@ -1,3 +1,6 @@
+import type { PoseCorrection } from '../anime25drig/poseCorrections'
+import type { Anime25DPlayback } from '../anime25drig/types'
+import type { Anime25DWorkbenchPort } from '../anime25drig/workbenchPort'
 import type { RigBearing } from '../motion/bearing'
 import type { BehaviorPlan } from '../motion/behavior'
 import type { MotionChannelPolicy } from '../motion/policy'
@@ -7,9 +10,6 @@ import type { MeropeRigManifest } from '../rig/types'
 import type { MusicMotionSignal } from '../singing/musicSignal'
 import type { SpeechProsodyPlan } from '../speech/prosody'
 import type { MeropeActivity } from '../types'
-import type { PoseCorrection } from './poseCorrections'
-import type { Anime25DPlayback } from './types'
-import type { Anime25DWorkbenchPort } from './workbenchPort'
 import {
   forwardRef,
   useEffect,
@@ -17,22 +17,22 @@ import {
   useRef,
   useState,
 } from 'react'
-import { bindCharacterTouch } from '../interaction/bindTouch'
-import { getProductionMotionRuntime } from '../motion/runtimeHost'
-import { createTouchAppraisal } from '../presence/touchAppraisalHost'
-import { realizeAnime25DBehaviorPlan } from './behaviorRealizer'
-import { activityExpressionDriverPatch } from './expressionPresets'
-import { idleSpeechDriverPatch } from './performanceMotion'
-import { Anime25DPlayer } from './player'
-import { clientDeltaToPoseCorrection, pickPoseCorrectionAtClient, poseCorrectionStageRect, projectPoseCorrectionToClient } from './poseCorrectionStage'
+import { realizeAnime25DBehaviorPlan } from '../anime25drig/behaviorRealizer'
+import { activityExpressionDriverPatch } from '../anime25drig/expressionPresets'
+import { idleSpeechDriverPatch } from '../anime25drig/performanceMotion'
+import { Anime25DPlayer } from '../anime25drig/player'
+import { clientDeltaToPoseCorrection, pickPoseCorrectionAtClient, poseCorrectionStageRect, projectPoseCorrectionToClient } from '../anime25drig/poseCorrectionStage'
 import {
   intersectionKeepsAnime25DVisible,
   shouldAnimateAnime25D,
-} from './runtimePolicy'
+} from '../anime25drig/runtimePolicy'
 import {
   speechArticulationDriverPatch,
   speechEnergyDriverPatch,
-} from './speechDriver'
+} from '../anime25drig/speechDriver'
+import { bindCharacterTouch } from '../interaction/bindTouch'
+import { getProductionMotionRuntime } from '../motion/runtimeHost'
+import { createTouchAppraisal } from '../presence/touchAppraisalHost'
 
 interface Props {
   activity: MeropeActivity

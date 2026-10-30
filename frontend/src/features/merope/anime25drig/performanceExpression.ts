@@ -1,6 +1,6 @@
-import type { PerformanceBaseline } from '../../../services/agent/types'
 import type { TouchReaction } from '../interaction/touchReaction'
 import type { BehaviorQuality } from '../motion/behavior'
+import type { PerformanceBaseline } from '../performance/types'
 import type { Anime25DMotionUnit } from './behaviorMotion'
 import type { Anime25DDriver } from './driver'
 import type { PerformanceExpressionOffset, ScheduledExpressionCue } from './performanceExpressionShared'

@@ -4,9 +4,9 @@ import type {
   PerformanceCue,
   PerformanceDirective,
   RigMotionStyle,
-} from '../../../services/agent/types'
+} from '../performance/types'
 import type { MeropeStateEventDetail } from './meropeAffectState'
-import { moodBand } from '../../../components/agent/meropeVitals'
+import { moodBand } from '../performance/mood'
 import {
   currentMeropeState,
   writeMeropeState,

@@ -1,5 +1,5 @@
 import type { TouchObservation } from './touchGesture'
-import { moodBand } from '../../../components/agent/meropeVitals'
+import { moodBand } from '../performance/mood'
 
 export const TOUCH_REACTIONS = ['notice', 'accept', 'hesitate', 'withdraw'] as const
 export type TouchReaction = (typeof TOUCH_REACTIONS)[number]

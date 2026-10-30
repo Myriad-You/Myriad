@@ -1,8 +1,8 @@
+import type { BehaviorPlan } from '../motion/behavior'
 import type {
   PerformanceCue,
   PerformanceDirective,
-} from '../../../services/agent/types'
-import type { BehaviorPlan } from '../motion/behavior'
+} from '../performance/types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { BehaviorScheduler } from '../motion/behaviorScheduler'

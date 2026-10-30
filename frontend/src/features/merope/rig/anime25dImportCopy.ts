@@ -1,7 +1,7 @@
-import { currentCopy } from '../../../i18n/localeCopy'
+import { figureHost } from '../figureHost'
 
 export function anime25DImportCopy() {
-  const copy = currentCopy().merope
+  const copy = figureHost().copy()
   return {
     anime25dMissingFace: copy.anime25dMissingFace,
     anime25dMissingLayer: copy.anime25dMissingLayer,

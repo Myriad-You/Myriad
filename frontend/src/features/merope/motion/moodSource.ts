@@ -1,9 +1,9 @@
-import type { MoodBand } from '../../../components/agent/meropeVitals'
+import type { MoodBand } from '../performance/mood'
 import type { MeropeActivity } from '../types'
 import type { RigBearing } from './bearing'
 import type { MotionLeaseHandle, RigMotionCoordinator } from './coordinator'
 import type { MoodIntent } from './intents'
-import { moodBand } from '../../../components/agent/meropeVitals'
+import { moodBand } from '../performance/mood'
 import { standingBearingFromAffect } from './bearing'
 
 const DEFAULT_MOOD = 70

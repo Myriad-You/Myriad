@@ -1,4 +1,4 @@
-import type { SpeechPhrase } from '../../../services/agent/types'
+import type { SpeechPhrase } from '../performance/types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { HumanPerformanceRuntime } from '../motion/humanPerformanceRuntime'

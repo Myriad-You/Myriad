@@ -179,7 +179,7 @@ test('outfit changes stay on the live player instead of exiting the stage', () =
     'utf8',
   )
   const character = readFileSync(
-    new URL('../anime25drig/Anime25DCharacter.tsx', import.meta.url),
+    new URL('../character/Anime25DCharacter.tsx', import.meta.url),
     'utf8',
   )
   const player = readFileSync(

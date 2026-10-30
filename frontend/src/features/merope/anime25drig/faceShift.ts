@@ -1,5 +1,5 @@
-import type { BodyControl } from '../../../services/agent/types'
 import type { FaceShift } from '../events/performanceContract'
+import type { BodyControl } from '../performance/types'
 import { BODY_CONTROLS } from '../events/performanceContract'
 import { mappedControlValue } from './actingField'
 

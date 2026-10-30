@@ -1,4 +1,4 @@
-import type { MotionAudioFeatures } from '../../../utils/audioMotionAnalysis'
+import type { MotionAudioFeatures } from './audioMotionAnalysis'
 import type { MusicMotionSignal, MusicPhrase } from './musicSignal'
 
 export function musicSignalAt(

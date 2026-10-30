@@ -1,5 +1,5 @@
 import type { MotionChannel, MotionSourceId } from './channels'
-import { noteTurnTraceLeaseExpiry } from '../events/turnTrace'
+import { figureHost } from '../figureHost'
 import { channelPriority } from './channels'
 
 export interface MotionLeaseHandle {
@@ -132,7 +132,7 @@ export class RigMotionCoordinator {
     }
     if (expired > 0) {
       this.generation += 1
-      noteTurnTraceLeaseExpiry(expired)
+      figureHost().trace.leaseExpiry(expired)
     }
   }
 

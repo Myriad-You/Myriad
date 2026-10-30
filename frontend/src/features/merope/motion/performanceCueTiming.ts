@@ -1,4 +1,4 @@
-import type { PerformanceCue } from '../../../services/agent/types'
+import type { PerformanceCue } from '../performance/types'
 import { performanceCuePriority } from '../events/performanceContract'
 
 /** When each cue plays: its envelope, its duration, and which body cue holds when. */

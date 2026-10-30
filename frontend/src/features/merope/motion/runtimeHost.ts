@@ -1,4 +1,4 @@
-import type { RigStateSummary } from '../../../services/agent/types'
+import type { RigStateSummary } from '../performance/types'
 import type { MotionRuntime } from './runtime'
 import { getRigMotionCoordinator } from './coordinator'
 import { getMusicMotionSource } from './musicSourceRuntime'

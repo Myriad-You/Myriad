@@ -1,4 +1,4 @@
-import type { MotionAudioFeatures } from '../../../utils/audioMotionAnalysis'
+import type { MotionAudioFeatures } from './audioMotionAnalysis'
 import type { BeatFrame } from './beatClock'
 
 export const MUSIC_MODES = ['listen', 'hum', 'sing', 'settle'] as const

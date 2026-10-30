@@ -6,7 +6,7 @@ import type {
   ScoreBeat,
   ScoreMove,
   SpeechPhrase,
-} from '../../../services/agent/types'
+} from '../performance/types'
 import contract from '../../../../../core/shared/merope_performance_contract.json' with { type: 'json' }
 
 export const PERFORMANCE_BASELINE_EXPRESSIONS =

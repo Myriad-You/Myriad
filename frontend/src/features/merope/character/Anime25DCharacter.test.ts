@@ -59,7 +59,7 @@ test('outfit and callback changes keep the React player; stale loads cannot repo
     plugins: [{
       name: 'character-test-boundaries',
       setup(builder) {
-        builder.onResolve({ filter: /^\.\/player$/ }, () => ({ path: 'player', namespace: 'test' }))
+        builder.onResolve({ filter: /^\.\.\/anime25drig\/player$/ }, () => ({ path: 'player', namespace: 'test' }))
         builder.onResolve({ filter: /^\.\.\/(interaction\/bindTouch|presence\/touchAppraisalHost|motion\/runtimeHost)$/ }, () => ({ path: 'interaction', namespace: 'test' }))
         builder.onLoad({ filter: /.*/, namespace: 'test' }, ({ path }) => ({
           contents: path === 'player'

@@ -1,4 +1,4 @@
-import type { PerformanceDirective } from '../../../services/agent/types'
+import type { PerformanceDirective } from '../performance/types'
 import type { SpeechProsodyPlan } from '../speech/prosody'
 import type { RigBearing } from './bearing'
 import type { MotionFrame } from './intents'

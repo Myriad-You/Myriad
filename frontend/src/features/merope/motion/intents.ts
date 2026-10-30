@@ -1,4 +1,4 @@
-import type { PerformanceDirective } from '../../../services/agent/types'
+import type { PerformanceDirective } from '../performance/types'
 import type { SpeechArticulation } from '../rig/articulation'
 import type { SpeechProsodyPlan } from '../speech/prosody'
 import type { MeropeActivity } from '../types'

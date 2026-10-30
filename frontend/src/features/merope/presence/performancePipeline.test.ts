@@ -11,6 +11,7 @@ import { RigMotionCoordinator } from '../motion/coordinator'
 import { setLiveMotionGeneration } from '../motion/liveGeneration'
 import { MotionRuntime } from '../motion/runtime'
 import { AgentFaceChannel } from './agentFaceChannel'
+import '../character/installFigureHost'
 
 const delivery: PerformanceDirective = {
   phase: 'delivery',

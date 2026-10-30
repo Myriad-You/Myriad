@@ -1,4 +1,4 @@
-import type { BodyControl, ScoreMove } from '../../../services/agent/types'
+import type { BodyControl, ScoreMove } from '../performance/types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { SCORE_MOVES } from '../events/performanceContract'

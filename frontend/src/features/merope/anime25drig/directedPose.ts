@@ -1,7 +1,7 @@
-import type { BodyControl, BodyPose } from '../../../services/agent/types'
 import type { FaceLife, FaceShift } from '../events/performanceContract'
 import type { MotionChannelPolicy } from '../motion/policy'
 import type { ResolvedScore } from '../motion/scoreTimeline'
+import type { BodyControl, BodyPose } from '../performance/types'
 import type { Anime25DDriver } from './driver'
 import type { PerformanceExpressionOffset } from './performanceExpressionShared'
 import { BODY_CONTROLS, faceLife, facePose, faceShift, sanitizeBodyPose } from '../events/performanceContract'

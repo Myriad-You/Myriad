@@ -1,7 +1,7 @@
 import type {
   RigBehaviorFunction,
   RigBehaviorPhase,
-} from '../../../services/agent/types'
+} from '../performance/types'
 import type { BehaviorResource } from './behaviorResources'
 import type { MotionChannel, MotionSourceId } from './channels'
 

@@ -1,4 +1,4 @@
-import type { PerformanceDirective } from '../../../services/agent/types'
+import type { PerformanceDirective } from '../performance/types'
 import type { BehaviorPlan } from './behavior'
 import type { MotionLeaseHandle, RigMotionCoordinator } from './coordinator'
 import { resourceInGroup } from './behaviorResources'

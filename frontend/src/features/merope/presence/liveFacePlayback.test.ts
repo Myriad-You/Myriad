@@ -125,7 +125,7 @@ test('a playable rig never uses the master portrait as a stand-in', () => {
     'utf8',
   )
   const character = readFileSync(
-    new URL('../anime25drig/Anime25DCharacter.tsx', import.meta.url),
+    new URL('../character/Anime25DCharacter.tsx', import.meta.url),
     'utf8',
   )
   const player = readFileSync(

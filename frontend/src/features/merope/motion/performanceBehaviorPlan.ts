@@ -1,7 +1,7 @@
 import type {
   PerformanceCue,
   PerformanceDirective,
-} from '../../../services/agent/types'
+} from '../performance/types'
 import type {
   BehaviorFunction,
   BehaviorPlan,

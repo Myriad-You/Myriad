@@ -1,6 +1,6 @@
 import type {
   PerformanceBaseline,
-} from '../../../services/agent/types'
+} from '../performance/types'
 import type { Anime25DDriver } from './driver'
 import { DEFAULT_FRONT_HAIR_SWAY, DEFAULT_REAR_HAIR_SWAY } from './driver'
 

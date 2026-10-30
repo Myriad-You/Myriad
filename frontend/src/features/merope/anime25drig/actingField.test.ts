@@ -1,5 +1,5 @@
-import type { BodyControl } from '../../../services/agent/types'
 import type { ResolvedScore } from '../motion/scoreTimeline'
+import type { BodyControl } from '../performance/types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ActingField, mappedControlValue } from './actingField'

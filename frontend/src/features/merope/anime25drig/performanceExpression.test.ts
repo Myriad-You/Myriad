@@ -1,7 +1,7 @@
 import type {
   PerformanceCue,
   PerformanceDirective,
-} from '../../../services/agent/types'
+} from '../performance/types'
 import type { Anime25DMotionUnit } from './behaviorMotion'
 import assert from 'node:assert/strict'
 import test from 'node:test'

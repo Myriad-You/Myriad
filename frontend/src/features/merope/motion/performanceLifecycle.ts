@@ -1,7 +1,7 @@
-import type { PerformanceDirective } from '../../../services/agent/types'
 import type { MeropePerformanceEventDetail } from '../events/performanceEvents'
+import type { PerformanceDirective } from '../performance/types'
 import type { MeropeSpeechEventDetail } from '../speech/speechEvents'
-import { markTurnTrace } from '../events/turnTrace'
+import { figureHost } from '../figureHost'
 import { acceptLiveMotionGeneration } from './liveGeneration'
 
 export interface PerformanceLifecycleTarget {
@@ -100,7 +100,7 @@ export class PerformanceLifecycleController {
 
   private noteDrop(event: MeropePerformanceEventDetail, reason: string): void {
     if (event.source === 'preview') return
-    markTurnTrace('performance_dropped', {
+    figureHost().trace.mark('performance_dropped', {
       reason,
       generation: event.generation ?? 0,
       ...(event.runId ? { runId: event.runId } : {}),

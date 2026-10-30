@@ -1,7 +1,8 @@
-import type { MotionAudioFeatures } from './audioMotionAnalysis'
+import type { MotionAudioFeatures } from '../features/merope/singing/audioMotionAnalysis'
+import type { LyricLine, WordLyricLine, WordLyricToken } from '../features/merope/singing/lyrics'
 import { API_URL } from '../config'
+import { analyzeMotionAudio } from '../features/merope/singing/audioMotionAnalysis'
 import { currentCopy, formatCurrent } from '../i18n/localeCopy'
-import { analyzeMotionAudio } from './audioMotionAnalysis'
 import { getCachedIsChinaMainland, isUserInChinaMainland } from './geoLocation'
 import { shouldPreserveNativeAudioOutput } from './platformDetect'
 import { proxyImageUrlOr } from './proxyImageUrl'
@@ -226,25 +227,7 @@ export interface Song {
   trialDuration?: number
 }
 
-export interface LyricLine {
-  time: number
-  text: string
-  translation?: string
-}
-
-export interface WordLyricToken {
-  time: number
-  duration: number
-  text: string
-}
-
-export interface WordLyricLine {
-  time: number
-  duration: number
-  text: string
-  words: WordLyricToken[]
-  translation?: string
-}
+export type { LyricLine, WordLyricLine, WordLyricToken } from '../features/merope/singing/lyrics'
 
 export interface VerbatimLyricsResult {
   lines: LyricLine[]
