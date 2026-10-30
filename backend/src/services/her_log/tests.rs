@@ -2,16 +2,18 @@
 //! (`MYRIAD_MEDIA_TEST_DATABASE_URL`; skipped without one).
 //!
 //! Two host cores are simulated in memory with the same log rules the
-//! native app links (`myriad_persona_log`): they write, swap vectors with
-//! the server over protocol-2 frames (each one checked against the contract
-//! on the way in and out), and must fold to the same her. The lease cases
-//! of the shared conformance files run through the server's wiring.
+//! native app links (`myriad_persona_log`, and `myriad_nodes::wire` for
+//! what they send): they write, swap vectors with the server over
+//! protocol-2 frames (each one checked against the contract on the way in
+//! and out), and must fold to the same her. The lease cases of the shared
+//! conformance files run through the server's wiring.
 
 use std::collections::BTreeMap;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use myriad_nodes::wire::{self, SendInput};
 use myriad_persona_log::{
-    AdmitInput, Entry, FoldInput, Grant, MergeInput, Row, Vector, admit, fold, merge,
+    AdmitInput, Core, Entry, FoldInput, Grant, Holder, MergeInput, Row, Vector, admit, fold, merge,
     row::{Author, LOG_VERSION, Payload, Replicate},
     vector,
 };
@@ -28,7 +30,10 @@ use super::{
 };
 
 const OWNER: i32 = 41;
-const PERSONAL: &str = "personal:o41";
+/// The partner's private talk: `personal:<partner>` ([`super::partner`]).
+const PERSONAL: &str = "personal:41";
+/// Someone else's private talk with her: kept on the server only.
+const OTHER: &str = "personal:99";
 const OWN: &str = "own:";
 const GROUP: &str = "group:telegram:-100";
 /// A fixed time, microseconds.
@@ -37,6 +42,40 @@ const MINUTE: i64 = 60_000_000;
 
 fn root() -> TestRoot {
     TestRoot([9; 32])
+}
+
+/// What a side writes as a row's body: the shape its kind has in the core
+/// (a node's created row and span, a memory, a mood), or, for a kind with
+/// none, the text as it is.
+fn body_of(kind: &str, audience: &str, object: &str, text: &str, at: i64) -> Value {
+    let at = at / 1000;
+    match kind {
+        "node.created" => json!({
+            "key": format!("minted:{}", object.trim_start_matches("node:")),
+            "kind": "task",
+            "name": text,
+            "saidBy": ["her"],
+            "sync": "shared",
+            "version": 1,
+        }),
+        "node.span" => json!({
+            "audience": audience,
+            "saidBy": ["her"],
+            "sync": "shared",
+            "text": text,
+            "version": 1,
+        }),
+        "memory.write" => json!({ "at": at, "kind": "fact", "text": text }),
+        "affect.change" => json!({
+            "at": at, "valence": 60, "arousal": 40, "band": "calm", "cause": text,
+        }),
+        _ => json!(text),
+    }
+}
+
+/// Whether `data`, a body's bytes, says `text`.
+fn says(data: &[u8], text: &str) -> bool {
+    String::from_utf8_lossy(data).contains(text)
 }
 
 fn on() -> Settings {
@@ -74,6 +113,8 @@ struct Side {
     epoch: Option<u64>,
     /// This side's clock, microseconds.
     now: i64,
+    /// Its link session with the server, as the server keeps it.
+    link: relay::Session,
 }
 
 impl Side {
@@ -89,6 +130,7 @@ impl Side {
             seq: 0,
             epoch: None,
             now: T0,
+            link: relay::Session::default(),
         }
     }
 
@@ -115,8 +157,9 @@ impl Side {
         let id = format!("{}_{}", self.id, self.written);
         let payload = payload.map(|text| {
             let reference = format!("blob:{id}");
+            let body = body_of(kind, audience, object, text, now);
             self.payloads
-                .insert(reference.clone(), text.as_bytes().to_vec());
+                .insert(reference.clone(), canonical_bytes(&body));
             Payload {
                 reference,
                 key: None,
@@ -152,6 +195,7 @@ impl Side {
             members: BTreeMap::new(),
             ledger: self.ledger.clone(),
             epochs: BTreeMap::new(),
+            holder: None,
         });
         assert!(admitted.clock_ahead.is_none());
         assert!(admitted.refused.is_empty(), "{:?}", admitted.refused);
@@ -202,26 +246,68 @@ impl Side {
         )
     }
 
-    fn rows_frame(&mut self, audience: &str, rows: Vec<Row>) -> Value {
-        let payloads: Vec<Value> = rows
-            .iter()
-            .filter(|row| !row.forgotten)
-            .filter_map(|row| row.payload.as_ref())
-            .filter_map(|payload| {
-                self.payloads
-                    .get(&payload.reference)
-                    .map(|data| json!({ "ref": payload.reference, "data": BASE64.encode(data) }))
+    /// This side's bodies of `rows`, by row id, as read.
+    fn bodies(&self, rows: &[Row]) -> BTreeMap<String, Value> {
+        rows.iter()
+            .filter_map(|row| {
+                let data = self.payloads.get(&row.payload.as_ref()?.reference)?;
+                Some((row.id.clone(), serde_json::from_slice(data).ok()?))
             })
-            .collect();
-        let mut body = json!({
-            "audience": audience,
-            "rows": rows.iter().map(Row::to_value).collect::<Vec<_>>(),
-        });
-        if !payloads.is_empty() {
-            body["payloads"] = json!(payloads);
+            .collect()
+    }
+
+    /// `log.rows` frames for the server, as a PC sends them
+    /// (`nodes.wire_send` with the server as the other side): what of
+    /// `audience` it lacks past `theirs`, then the rows it asks again for.
+    fn send(&mut self, audience: &str, theirs: &Vector, ask: Vec<String>) -> Vec<Value> {
+        let rows = self.log(audience);
+        let sent = wire::send(SendInput {
+            audience: audience.to_string(),
+            bodies: self.bodies(&rows),
+            rows,
+            theirs: theirs.clone(),
+            ask,
+            holder: Holder {
+                core: Core::Server,
+                owner: super::partner(OWNER),
+            },
+        })
+        .unwrap();
+        sent.batches
+            .into_iter()
+            .map(|batch| {
+                let id = format!("batch_{}", self.seq + 1);
+                self.frame("log.rows", Some(&id), serde_json::to_value(batch).unwrap())
+            })
+            .collect()
+    }
+
+    /// `rows`, and no others, in one `log.rows` frame.
+    fn rows_frame(&mut self, audience: &str, rows: Vec<Row>) -> Value {
+        let mut batch = wire::Batch {
+            audience: audience.to_string(),
+            rows: Vec::new(),
+            payloads: Vec::new(),
+            withheld: Vec::new(),
+        };
+        for row in rows {
+            let carried = row
+                .payload
+                .as_ref()
+                .filter(|_| !row.forgotten)
+                .and_then(|payload| {
+                    self.payloads
+                        .get(&payload.reference)
+                        .map(|data| wire::Carried {
+                            reference: payload.reference.clone(),
+                            data: BASE64.encode(data),
+                        })
+                });
+            batch.payloads.extend(carried);
+            batch.rows.push(row);
         }
         let id = format!("batch_{}", self.seq + 1);
-        self.frame("log.rows", Some(&id), body)
+        self.frame("log.rows", Some(&id), serde_json::to_value(batch).unwrap())
     }
 
     /// Takes one frame from the server; the frames it sends back.
@@ -243,12 +329,9 @@ impl Side {
             "log.vector" => {
                 let audience = body["audience"].as_str().unwrap().to_string();
                 let theirs: Vector = serde_json::from_value(body["vector"].clone()).unwrap();
-                let lacking = vector::answer(&self.log(&audience), &theirs).unwrap();
-                if lacking.is_empty() {
-                    Vec::new()
-                } else {
-                    vec![self.rows_frame(&audience, lacking)]
-                }
+                let ask: Vec<String> =
+                    serde_json::from_value(body.get("ask").cloned().unwrap_or(json!([]))).unwrap();
+                self.send(&audience, &theirs, ask)
             }
             "lease.grant" => {
                 let grant: Grant = serde_json::from_value(body["grant"].clone()).unwrap();
@@ -299,9 +382,19 @@ async fn exchange(
         }
         let mut next = Vec::new();
         for frame in inbox.drain(..) {
-            let outs = relay::take(db, &root, &on(), OWNER, &side.id, &frame, now)
-                .await
-                .unwrap();
+            let device = side.id.clone();
+            let outs = relay::take(
+                db,
+                &root,
+                &on(),
+                OWNER,
+                &device,
+                &mut side.link,
+                &frame,
+                now,
+            )
+            .await
+            .unwrap();
             for out in outs {
                 let for_it = match &out.to {
                     To::Sender | To::Everyone => true,
@@ -381,7 +474,7 @@ async fn two_devices_fold_the_same_after_pushing_and_pulling_through_the_server(
     mac.write(
         PERSONAL,
         "node:lamp",
-        "node.view_changed",
+        "node.span",
         Author::Her,
         Some("too bright"),
         T0 + 1,
@@ -432,7 +525,7 @@ async fn two_devices_fold_the_same_after_pushing_and_pulling_through_the_server(
     mac.write(
         PERSONAL,
         "node:lamp",
-        "node.view_changed",
+        "node.span",
         Author::Her,
         Some("dimmer now"),
         T0 + 2 * MINUTE,
@@ -475,16 +568,8 @@ async fn two_devices_fold_the_same_after_pushing_and_pulling_through_the_server(
                 .filter(|row| row.object == "node:lamp" && row.id != forget.id)
                 .all(|row| row.forgotten && row.payload.is_none())
         );
-        assert!(
-            side.payloads
-                .values()
-                .all(|data| !data.starts_with(b"too bright"))
-        );
-        assert!(
-            side.payloads
-                .values()
-                .all(|data| !data.starts_with(b"dimmer"))
-        );
+        assert!(side.payloads.values().all(|data| !says(data, "too bright")));
+        assert!(side.payloads.values().all(|data| !says(data, "dimmer")));
     }
     assert_eq!(
         count(db, "SELECT COUNT(*) FROM agent_log_payloads p JOIN agent_log_rows r ON r.id = p.row_id WHERE r.object = 'node:lamp'").await,
@@ -499,14 +584,24 @@ async fn two_devices_fold_the_same_after_pushing_and_pulling_through_the_server(
         0,
         "the lamp's key is gone"
     );
-    // What was not forgotten still reads back on the other side.
-    assert_eq!(
-        win.payloads
+    // What was not forgotten still reads back on the other side, byte for
+    // byte as the Mac wrote it.
+    let cats = |side: &Side| {
+        side.payloads
             .values()
-            .filter(|data| data.as_slice() == b"likes cats")
-            .count(),
-        1
+            .filter(|data| says(data, "likes cats"))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(cats(&win).len(), 1);
+    assert_eq!(cats(&win), cats(&mac));
+    // A kind the core has no shape for travels as a row only: its body
+    // stays with the side that wrote it.
+    assert_eq!(
+        count(db, "SELECT COUNT(*) FROM agent_log_payloads p JOIN agent_log_rows r ON r.id = p.row_id WHERE r.object = 'persona:name'").await,
+        0
     );
+    assert!(mac.payloads.values().all(|data| !says(data, "Merope")));
     // Nothing is in the clear at rest.
     assert_eq!(
         count(
@@ -545,9 +640,18 @@ async fn a_clock_too_far_ahead_is_refused_whole_with_the_servers_time() {
         T0 + 10 * MINUTE,
     );
     let frame = win.rows_frame(PERSONAL, vec![fine, ahead]);
-    let outs = relay::take(db, &root(), &on(), OWNER, "dev_win", &frame, T0)
-        .await
-        .unwrap();
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        OWNER,
+        "dev_win",
+        &mut relay::Session::default(),
+        &frame,
+        T0,
+    )
+    .await
+    .unwrap();
     assert_eq!(outs.len(), 1);
     let error = delivered(&outs[0]);
     assert_eq!(error["t"], "error");
@@ -572,10 +676,10 @@ async fn a_forget_on_the_server_deletes_the_key_and_is_answered_first() {
     mac.now = t0;
     mac.write(
         PERSONAL,
-        "persona:likes",
-        "persona.field",
+        "memory:tea",
+        "memory.write",
         Author::Owner,
-        Some("tea"),
+        Some("likes tea"),
         t0,
     );
     mac.write(
@@ -592,7 +696,7 @@ async fn a_forget_on_the_server_deletes_the_key_and_is_answered_first() {
         2
     );
 
-    let forget = store::forget(db, &root(), PERSONAL, "memory:trip")
+    let forget = store::forget(db, &root(), &super::server(OWNER), PERSONAL, "memory:trip")
         .await
         .unwrap();
     assert_eq!(forget.origin, NODE);
@@ -610,28 +714,41 @@ async fn a_forget_on_the_server_deletes_the_key_and_is_answered_first() {
     );
     assert_eq!(count(db, "SELECT COUNT(*) FROM agent_log_ledger").await, 1);
 
-    let answered = store::answer(db, &root(), PERSONAL, &Vector::new())
-        .await
-        .unwrap();
-    assert_eq!(answered[0].row.kind, "forget");
-    let trip = answered
+    let answered = store::send(
+        db,
+        &root(),
+        PERSONAL,
+        &Vector::new(),
+        Vec::new(),
+        &super::pc(OWNER),
+    )
+    .await
+    .unwrap();
+    assert_eq!(answered.batches.len(), 1);
+    let batch = &answered.batches[0];
+    assert_eq!(batch.rows[0].kind, "forget");
+    let trip = batch
+        .rows
         .iter()
-        .find(|sent| sent.row.object == "memory:trip" && sent.row.kind != "forget")
+        .find(|row| row.object == "memory:trip" && row.kind != "forget")
         .unwrap();
-    assert!(trip.row.forgotten && trip.payload.is_none());
-    let tea = answered
+    assert!(trip.forgotten && trip.payload.is_none());
+    let tea = batch
+        .rows
         .iter()
-        .find(|sent| sent.row.object == "persona:likes")
+        .find(|row| row.object == "memory:tea")
         .unwrap();
-    assert_eq!(tea.payload.as_deref(), Some(b"tea".as_slice()));
+    let carried = batch
+        .payloads
+        .iter()
+        .find(|one| one.reference == tea.payload.as_ref().unwrap().reference)
+        .unwrap();
+    assert!(says(&BASE64.decode(&carried.data).unwrap(), "likes tea"));
+    assert!(batch.withheld.is_empty(), "{:?}", batch.withheld);
 
     // The Mac gets the forget and loses the trip too.
     sync(db, &mut mac, PERSONAL, t0 + 2 * MINUTE).await;
-    assert!(
-        mac.payloads
-            .values()
-            .all(|data| data.as_slice() != b"Kyoto")
-    );
+    assert!(mac.payloads.values().all(|data| !says(data, "Kyoto")));
     let leases = lease::history(db).await.unwrap();
     assert_eq!(
         mac.fold(PERSONAL, &leases),
@@ -640,10 +757,11 @@ async fn a_forget_on_the_server_deletes_the_key_and_is_answered_first() {
     schema.drop().await;
 }
 
-/// A group's log is the server's: only the core her mind is on gets its
-/// rows or may add to it.
+/// A group's log is the server's: no computer gets its rows, not even the
+/// one her mind is on (what a group says reaches her mind as `group.lend`),
+/// and only her mind may add to it.
 #[tokio::test]
-async fn a_groups_rows_go_only_to_her_mind_and_come_back_only_from_it() {
+async fn a_groups_rows_go_to_no_computer_and_come_back_only_from_her_mind() {
     let Some(schema) = schema("her_log_group").await else {
         return;
     };
@@ -663,14 +781,38 @@ async fn a_groups_rows_go_only_to_her_mind_and_come_back_only_from_it() {
         Some("too loud"),
         T0,
     );
-    sync(db, &mut mac, GROUP, T0 + MINUTE).await;
+    let vector = mac.vector(GROUP);
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        OWNER,
+        "dev_mac",
+        &mut relay::Session::default(),
+        &vector,
+        T0,
+    )
+    .await
+    .unwrap();
+    assert_eq!(delivered(&outs[0])["body"]["code"], "not_holder");
+    let frame = mac.rows_frame(GROUP, mac.log(GROUP));
+    exchange(db, &mut mac, vec![frame], T0 + MINUTE).await;
     assert_eq!(store::rows(db, GROUP).await.unwrap().len(), 1);
 
     // Windows is not her mind: neither its vector nor its rows are taken.
     let vector = win.vector(GROUP);
-    let outs = relay::take(db, &root(), &on(), OWNER, "dev_win", &vector, T0)
-        .await
-        .unwrap();
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        OWNER,
+        "dev_win",
+        &mut relay::Session::default(),
+        &vector,
+        T0,
+    )
+    .await
+    .unwrap();
     assert_eq!(delivered(&outs[0])["body"]["code"], "not_holder");
     let row = win.write(
         GROUP,
@@ -681,9 +823,18 @@ async fn a_groups_rows_go_only_to_her_mind_and_come_back_only_from_it() {
         T0,
     );
     let frame = win.rows_frame(GROUP, vec![row]);
-    let outs = relay::take(db, &root(), &on(), OWNER, "dev_win", &frame, T0)
-        .await
-        .unwrap();
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        OWNER,
+        "dev_win",
+        &mut relay::Session::default(),
+        &frame,
+        T0,
+    )
+    .await
+    .unwrap();
     assert_eq!(delivered(&outs[0])["body"]["code"], "not_holder");
     assert_eq!(store::rows(db, GROUP).await.unwrap().len(), 1);
     // A change in a group is not announced to the other host cores.
@@ -696,9 +847,18 @@ async fn a_groups_rows_go_only_to_her_mind_and_come_back_only_from_it() {
         T0 + 2,
     );
     let frame = mac.rows_frame(GROUP, mac.log(GROUP));
-    let outs = relay::take(db, &root(), &on(), OWNER, "dev_mac", &frame, T0 + MINUTE)
-        .await
-        .unwrap();
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        OWNER,
+        "dev_mac",
+        &mut relay::Session::default(),
+        &frame,
+        T0 + MINUTE,
+    )
+    .await
+    .unwrap();
     assert!(outs.iter().all(|out| out.to == To::Sender));
 
     // Counts are per audience: the Mac's group rows take no place in its
@@ -740,9 +900,18 @@ async fn a_groups_rows_go_only_to_her_mind_and_come_back_only_from_it() {
         Some("yield_2"),
         json!({ "epoch": mac.epoch, "through": 3 }),
     );
-    let outs = relay::take(db, &root(), &on(), OWNER, "dev_mac", &old, T0 + 3 * MINUTE)
-        .await
-        .unwrap();
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        OWNER,
+        "dev_mac",
+        &mut relay::Session::default(),
+        &old,
+        T0 + 3 * MINUTE,
+    )
+    .await
+    .unwrap();
     assert_eq!(delivered(&outs[0])["body"]["code"], "bad_frame");
     schema.drop().await;
 }
@@ -758,12 +927,32 @@ async fn while_off_no_frame_is_taken() {
     let vector = win.vector(PERSONAL);
     let off = Settings::default();
     assert!(matches!(
-        relay::take(db, &root(), &off, OWNER, "dev_win", &vector, T0).await,
+        relay::take(
+            db,
+            &root(),
+            &off,
+            OWNER,
+            "dev_win",
+            &mut relay::Session::default(),
+            &vector,
+            T0
+        )
+        .await,
         Err(super::Error::Off)
     ));
     store::stop(db, OWNER).await.unwrap();
     assert!(matches!(
-        relay::take(db, &root(), &on(), OWNER, "dev_win", &vector, T0).await,
+        relay::take(
+            db,
+            &root(),
+            &on(),
+            OWNER,
+            "dev_win",
+            &mut relay::Session::default(),
+            &vector,
+            T0
+        )
+        .await,
         Err(super::Error::Off)
     ));
     assert_eq!(
@@ -996,30 +1185,27 @@ fn settings_are_off_unless_switched_on() {
     assert_eq!(wrong.stop_after_micros, 180_000_000);
 }
 
-/// `log.rows` batches stay within the contract's limits, forgets first.
+/// What a computer sends stays within the contract's limits.
 #[test]
 fn batches_fit_the_frame_limits() {
     let mut side = Side::new("dev_mac");
-    let mut sent = Vec::new();
+    let text = "她记得的一件事。".repeat(500);
     for n in 0..300 {
-        let row = side.write(
+        side.write(
             PERSONAL,
             &format!("memory:m{n}"),
             "memory.write",
             Author::Owner,
-            Some("x"),
+            Some(&text),
             T0 + n,
         );
-        sent.push(store::Sent {
-            payload: Some(vec![b'x'; 4096]),
-            row,
-        });
     }
-    let bodies = relay::batches(PERSONAL, sent);
-    assert!(bodies.len() >= 5, "{}", bodies.len());
-    for body in &bodies {
-        assert!(body["rows"].as_array().unwrap().len() <= relay::MAX_ROWS);
-        assert!(body["payloads"].as_array().unwrap().len() <= relay::MAX_PAYLOADS);
+    let frames = side.send(PERSONAL, &Vector::new(), Vec::new());
+    assert!(frames.len() >= 5, "{}", frames.len());
+    for frame in &frames {
+        let body = &frame["body"];
+        assert!(body["rows"].as_array().unwrap().len() <= wire::BATCH_ROWS);
+        assert!(body["payloads"].as_array().unwrap().len() <= wire::BATCH_PAYLOADS);
         let out = Outgoing {
             to: To::Sender,
             t: "log.rows",
@@ -1028,9 +1214,219 @@ fn batches_fit_the_frame_limits() {
         };
         relay::encode(&out, 1, 0, 1).unwrap();
     }
-    let total: usize = bodies
+    let total: usize = frames
         .iter()
-        .map(|body| body["rows"].as_array().unwrap().len())
+        .map(|frame| frame["body"]["rows"].as_array().unwrap().len())
         .sum();
     assert_eq!(total, 300);
+}
+
+/// A body that did not come with its row is asked for again in the
+/// `log.vector` that answers the batch, once in a link session, and taken
+/// when it comes: both sides then hold the same bytes.
+#[tokio::test]
+async fn a_body_that_did_not_come_is_asked_for_once_and_taken_when_it_comes() {
+    let Some(schema) = schema("her_log_ask").await else {
+        return;
+    };
+    let db = &schema.db;
+    let mut mac = Side::new("dev_mac");
+    let row = mac.write(
+        PERSONAL,
+        "memory:tea",
+        "memory.write",
+        Author::Owner,
+        Some("likes tea"),
+        T0,
+    );
+    let reference = row.payload.clone().unwrap().reference;
+    let data = mac.payloads.remove(&reference).unwrap();
+    let frames = mac.send(PERSONAL, &Vector::new(), Vec::new());
+    assert_eq!(
+        frames[0]["body"]["withheld"],
+        json!([{ "id": row.id, "why": "no_body" }])
+    );
+    let mut link = relay::Session::default();
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        OWNER,
+        "dev_mac",
+        &mut link,
+        &frames[0],
+        T0,
+    )
+    .await
+    .unwrap();
+    let answer = delivered(&outs[0]);
+    assert_eq!(answer["t"], "log.vector");
+    assert_eq!(answer["body"]["ask"], json!([row.id]));
+    assert_eq!(
+        count(db, "SELECT COUNT(*) FROM agent_log_payloads").await,
+        0
+    );
+
+    // Still without it: sent again as a row alone, and not asked for twice.
+    let again = mac.take(&answer);
+    assert_eq!(again.len(), 1);
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        OWNER,
+        "dev_mac",
+        &mut link,
+        &again[0],
+        T0,
+    )
+    .await
+    .unwrap();
+    assert!(delivered(&outs[0])["body"].get("ask").is_none());
+
+    // It comes back: the server takes the body of the row it holds.
+    mac.payloads.insert(reference, data.clone());
+    let again = mac.take(&answer);
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        OWNER,
+        "dev_mac",
+        &mut link,
+        &again[0],
+        T0,
+    )
+    .await
+    .unwrap();
+    assert!(delivered(&outs[0])["body"].get("ask").is_none());
+    assert_eq!(
+        count(db, "SELECT COUNT(*) FROM agent_log_payloads").await,
+        1
+    );
+    let mut win = Side::new("dev_win");
+    sync(db, &mut win, PERSONAL, T0 + MINUTE).await;
+    assert_eq!(win.payloads.values().collect::<Vec<_>>(), vec![&data]);
+    schema.drop().await;
+}
+
+/// The partner's computers hold only the partner's private talk and hers:
+/// anyone else's private talk with her, kept here, is never sent to one,
+/// over the link or in the first full download, and only her mind adds to
+/// it.
+#[tokio::test]
+async fn a_partners_computer_never_gets_anyone_elses_talk() {
+    let Some(schema) = schema("her_log_holder").await else {
+        return;
+    };
+    let db = &schema.db;
+    let mut mac = Side::new("dev_mac");
+    let mut win = Side::new("dev_win");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], T0).await;
+    mac.write(
+        OTHER,
+        "memory:theirs",
+        "memory.write",
+        Author::Her,
+        Some("their cat is called Mochi"),
+        T0,
+    );
+    let frame = mac.rows_frame(OTHER, mac.log(OTHER));
+    exchange(db, &mut mac, vec![frame], T0 + MINUTE).await;
+    assert_eq!(store::rows(db, OTHER).await.unwrap().len(), 1);
+
+    let vector = win.vector(OTHER);
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        OWNER,
+        "dev_win",
+        &mut win.link,
+        &vector,
+        T0,
+    )
+    .await
+    .unwrap();
+    assert_eq!(outs.len(), 1);
+    assert_eq!(delivered(&outs[0])["body"]["code"], "not_holder");
+    let row = win.write(
+        OTHER,
+        "memory:x",
+        "memory.write",
+        Author::Owner,
+        Some("x"),
+        T0,
+    );
+    let frame = win.rows_frame(OTHER, vec![row]);
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        OWNER,
+        "dev_win",
+        &mut win.link,
+        &frame,
+        T0,
+    )
+    .await
+    .unwrap();
+    assert_eq!(delivered(&outs[0])["body"]["code"], "not_holder");
+    assert_eq!(store::rows(db, OTHER).await.unwrap().len(), 1);
+
+    let sent = store::send(
+        db,
+        &root(),
+        OTHER,
+        &Vector::new(),
+        Vec::new(),
+        &super::pc(OWNER),
+    )
+    .await
+    .unwrap();
+    assert!(sent.not_held && sent.batches.is_empty());
+    let link = super::full::issue(db, "dev_win", OTHER, T0).await.unwrap();
+    let secret = link.path.trim_start_matches(super::full::PATH);
+    let download = super::full::redeem(db, &root(), OWNER, "dev_win", secret, T0)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(download["rows"], json!([]));
+    assert_eq!(download["payloads"], json!([]));
+    schema.drop().await;
+}
+
+/// A body with a key in it is not kept, even when the sender carried it:
+/// the row is, and the body stays where it was written.
+#[tokio::test]
+async fn a_body_holding_a_key_is_not_taken() {
+    let Some(schema) = schema("her_log_secret").await else {
+        return;
+    };
+    let db = &schema.db;
+    let mut mac = Side::new("dev_mac");
+    let row = mac.write(
+        PERSONAL,
+        "memory:deploy",
+        "memory.write",
+        Author::Owner,
+        Some("伙伴的 token: example-only-not-real"),
+        T0,
+    );
+    // Carried anyway, past the sender's own check.
+    let frame = mac.rows_frame(PERSONAL, vec![row.clone()]);
+    exchange(db, &mut mac, vec![frame], T0 + MINUTE).await;
+    assert_eq!(store::rows(db, PERSONAL).await.unwrap().len(), 1);
+    assert_eq!(
+        count(db, "SELECT COUNT(*) FROM agent_log_payloads").await,
+        0
+    );
+    // The sender's own check withholds it for good: nothing to ask for.
+    let frames = mac.send(PERSONAL, &Vector::new(), Vec::new());
+    assert_eq!(
+        frames[0]["body"]["withheld"],
+        json!([{ "id": row.id, "why": "secret" }])
+    );
+    schema.drop().await;
 }

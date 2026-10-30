@@ -6,7 +6,7 @@
 
 它是 git 子模块 `core/`。后端和前端读的是同一个提交，所以只有这一个 pin：
 
-- 后端的 path 依赖：`core/crates/` 下的 `myriad-merope`、`myriad-agent-rules`、`myriad-persona-sync`、`myriad-persona-log`、`myriad-her-link`。根 `Cargo.toml` 把 `core` 列在 `workspace.exclude` 里：核心有自己的 workspace，这几个 crate 在这里只当依赖，不是成员，版本由本仓库的 `Cargo.lock` 定。
+- 后端的 path 依赖：`core/crates/` 下的 `myriad-merope`、`myriad-agent-rules`、`myriad-persona-sync`、`myriad-persona-log`、`myriad-her-link`、`myriad-nodes`。根 `Cargo.toml` 把 `core` 列在 `workspace.exclude` 里：核心有自己的 workspace，这几个 crate 在这里只当依赖，不是成员，版本由本仓库的 `Cargo.lock` 定。
 - 契约在 `core/shared/`：后端编译时读 `her_link_contract.json`，测试读 `her_link_fixtures.json`；前端读 `merope_rig_contract.json` 和 `merope_performance_contract.json`。
 - 后端测试还直接读 `core/crates/conformance/` 和 `core/crates/myriad-persona-sync/fixtures/`。
 - 本仓库的 `cargo test --workspace` 和 clippy 不包含核心自己的测试，它们在 myriad-core 的持续集成里跑。

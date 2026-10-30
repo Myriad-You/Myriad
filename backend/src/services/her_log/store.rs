@@ -2,38 +2,41 @@
 //! `agent_log_rows`, with payloads sealed beside it and the ledger of what
 //! was forgotten.
 //!
-//! The rules are `myriad_persona_log`'s and only theirs: a batch from
-//! another side goes through `admit` (a clock too far ahead refuses it
-//! whole), then `merge` with the part of this log it touches; what the
-//! merge adds is written, what it turns into stubs loses its payload, and
-//! each new ledger entry deletes the keys it reaches. What a side lacks is
-//! `vector::answer`, which sends every forget first. Nothing here decides a
-//! row's shape or how two logs meet.
+//! The rules are the core's and only theirs: a batch from another side goes
+//! through `myriad_nodes::wire::take` (the log's `admit` with the server as
+//! the side that holds it, then each body's checks; a clock too far ahead
+//! refuses it whole), then `merge` with the part of this log it touches;
+//! what the merge adds is written, what it turns into stubs loses its
+//! payload, and each new ledger entry deletes the keys it reaches. What a
+//! side lacks, and which bodies go with those rows, is
+//! `myriad_nodes::wire::send` for that side (`myriad_persona_log::holder`:
+//! a partner's computer never gets a group's rows or anyone else's private
+//! talk), which sends every forget first. Nothing here decides a row's
+//! shape, how two logs meet, or which body may travel.
 //!
 //! The server keeps shared rows only (a local row never leaves its side),
 //! so every row has its place in its audience: `(audience, origin, dseq)`.
+//! A body it keeps is the canonical bytes the wire checked, so every side
+//! that holds it holds the same bytes.
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use myriad_nodes::wire::{self, Batch, SendInput, TakeInput, Withheld};
 use myriad_persona_log::{
-    AdmitInput, Entry, Holdings, MergeInput, Row, Vector, admit,
+    Entry, Holder, Holdings, MergeInput, Row, Vector,
     kinds::Rule,
     merge,
     row::{Audience, Author, LOG_VERSION, Replicate},
     vector,
 };
-use myriad_persona_sync::Rev;
+use myriad_persona_sync::{Rev, canonical::canonical_bytes};
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, QueryResult, Statement, TransactionTrait,
 };
 use serde::Serialize;
+use serde_json::Value;
 
 use super::{Error, NODE, keys};
-
-/// Whether `audience` is a group's: kept on the server only.
-pub fn is_group(audience: &str) -> bool {
-    matches!(Audience::parse(audience), Ok(Audience::Group(_)))
-}
 
 fn rows_of(results: Vec<QueryResult>) -> Result<Vec<Row>, Error> {
     results
@@ -193,17 +196,10 @@ async fn lock<C: ConnectionTrait>(db: &C, audience: &str) -> Result<(), Error> {
     Ok(())
 }
 
-/// A batch of one audience's rows from another side, with the payloads its
-/// rows point at (by `payload.ref`), in the clear as they arrived.
-#[derive(Debug, Clone, Default)]
-pub struct Batch {
-    pub rows: Vec<Row>,
-    pub payloads: BTreeMap<String, Vec<u8>>,
-}
-
 /// One row not taken, and why: an admit reason (`envelope`, `local`,
-/// `audience_changed`, `not_a_member`), `another_audience` when it is not
-/// in the batch's audience, or a clash (`same_id_differs`, `same_place`).
+/// `audience_changed`, `not_a_member`, `not_held`), `another_audience`
+/// when it is not in the batch's audience, or a clash (`same_id_differs`,
+/// `same_place`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NotTaken {
@@ -221,6 +217,12 @@ pub struct Taken {
     pub stubbed: Vec<String>,
     pub duplicates: u64,
     pub not_taken: Vec<NotTaken>,
+    /// Rows taken (or asked for again) without their body, and why
+    /// (`myriad_nodes::wire::Why`).
+    pub withheld: Vec<Withheld>,
+    /// Of those, the rows whose body may yet come: to ask the sender for
+    /// again, at most once per link session (`log.vector` `ask`).
+    pub ask: Vec<String>,
 }
 
 fn reason_name(value: impl Serialize) -> String {
@@ -230,20 +232,74 @@ fn reason_name(value: impl Serialize) -> String {
         .unwrap_or_default()
 }
 
-/// Takes `batch` of `audience` from `from` (a device id, or [`NODE`] for
-/// the server's own rows), at the server's time `now`.
+/// Takes `batch` from `from` (a device id, a file's origin, or [`NODE`] for
+/// the server's own rows) as `here` (the server, [`super::server`]), at
+/// the server's time `now`. `asked` is what the server asked `from` for
+/// again this link session: those rows, when they come back, give only
+/// their body.
 pub async fn take(
     db: &DatabaseConnection,
     root: &dyn keys::Root,
     from: &str,
-    audience: &str,
+    here: &Holder,
     batch: Batch,
+    asked: &BTreeSet<String>,
     now: i64,
 ) -> Result<Taken, Error> {
     let txn = db.begin().await?;
-    let taken = take_in(&txn, root, from, audience, batch, now).await?;
+    let taken = take_in(&txn, root, from, here, batch, asked, now).await?;
     txn.commit().await?;
     Ok(taken)
+}
+
+/// The rows of `audience` among `ids` the server holds, as it holds them.
+async fn held<C: ConnectionTrait>(
+    db: &C,
+    audience: &str,
+    ids: Vec<String>,
+) -> Result<Vec<Row>, Error> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    rows_of(
+        db.query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT envelope FROM agent_log_rows WHERE audience = $1 AND id = ANY($2)",
+            [audience.into(), ids.into()],
+        ))
+        .await?,
+    )
+}
+
+/// Seals `data` as the payload of `row`, unless it has one already.
+async fn keep_payload<C: ConnectionTrait>(
+    txn: &C,
+    root: &dyn keys::Root,
+    row: &Row,
+    data: &[u8],
+) -> Result<(), Error> {
+    let sealed = keys::seal_payload(
+        txn,
+        root,
+        &row.audience,
+        &row.object,
+        row.subject.as_deref(),
+        &row.id,
+        data,
+    )
+    .await?;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO agent_log_payloads (row_id, sealed, created_at) VALUES ($1, $2, $3) \
+         ON CONFLICT (row_id) DO NOTHING",
+        [
+            row.id.clone().into(),
+            sealed.into(),
+            crate::clock::now().into(),
+        ],
+    ))
+    .await?;
+    Ok(())
 }
 
 /// [`take`] inside the caller's transaction.
@@ -251,23 +307,36 @@ async fn take_in<C: ConnectionTrait>(
     txn: &C,
     root: &dyn keys::Root,
     from: &str,
-    audience: &str,
+    here: &Holder,
     batch: Batch,
+    asked: &BTreeSet<String>,
     now: i64,
 ) -> Result<Taken, Error> {
+    let Batch {
+        audience,
+        rows,
+        payloads,
+        mut withheld,
+    } = batch;
+    let audience = audience.as_str();
     Audience::parse(audience)?;
     lock(txn, audience).await?;
     let mut taken = Taken::default();
-    let (rows, elsewhere): (Vec<Row>, Vec<Row>) = batch
-        .rows
-        .into_iter()
-        .partition(|row| row.audience == audience);
+    let (rows, elsewhere): (Vec<Row>, Vec<Row>) =
+        rows.into_iter().partition(|row| row.audience == audience);
     taken
         .not_taken
         .extend(elsewhere.into_iter().map(|row| NotTaken {
             id: row.id,
             reason: "another_audience".into(),
         }));
+    let ids: BTreeSet<&str> = rows.iter().map(|row| row.id.as_str()).collect();
+    withheld.retain(|one| ids.contains(one.id.as_str()));
+    let again: Vec<String> = ids
+        .iter()
+        .filter(|id| asked.contains(**id))
+        .map(|id| id.to_string())
+        .collect();
     let objects: Vec<String> = rows.iter().map(|row| row.object.clone()).collect();
     let origins: Vec<String> = rows
         .iter()
@@ -276,15 +345,24 @@ async fn take_in<C: ConnectionTrait>(
         .into_iter()
         .collect();
     let before = ledger(txn, audience).await?;
-    let admitted = admit(AdmitInput {
-        rows,
+    let again = held(txn, audience, again).await?;
+    let wired = wire::take(TakeInput {
+        batch: Batch {
+            audience: audience.to_string(),
+            rows,
+            payloads,
+            withheld,
+        },
+        holder: here.clone(),
         now,
         known: known(txn, &objects).await?,
         // Who is in a group is not known here yet: not checked.
         members: BTreeMap::new(),
         ledger: before.clone(),
         epochs: BTreeMap::from([(audience.to_string(), epochs(txn, audience, &origins).await?)]),
-    });
+        held: again.clone(),
+    })?;
+    let admitted = wired.admitted;
     if let Some(ahead) = admitted.clock_ahead {
         return Err(Error::ClockAhead {
             ahead_ms: ahead.ahead_ms,
@@ -297,9 +375,10 @@ async fn take_in<C: ConnectionTrait>(
             id: refusal.id.clone(),
             reason: reason_name(refusal.reason),
         }));
-    let held = related(txn, audience, &admitted.accepted).await?;
+    let accepted: BTreeSet<String> = admitted.accepted.iter().map(|row| row.id.clone()).collect();
+    let related_rows = related(txn, audience, &admitted.accepted).await?;
     let merged = merge(MergeInput {
-        log: held,
+        log: related_rows,
         incoming: admitted.accepted,
     });
     taken
@@ -313,37 +392,27 @@ async fn take_in<C: ConnectionTrait>(
         .iter()
         .map(|row| (row.id.as_str(), row))
         .collect();
+    let body = |row: &Row| {
+        wired
+            .bodies
+            .get(&row.id)
+            .filter(|_| row.payload.is_some() && !row.forgotten)
+            .map(canonical_bytes)
+    };
     let mut newest: Option<&Rev> = None;
     for id in &merged.added {
         let row = by_id[id.as_str()];
         insert(txn, row, from).await?;
         newest = newest.max(Some(&row.hlc));
-        let data = row
-            .payload
-            .as_ref()
-            .filter(|_| !row.forgotten)
-            .and_then(|payload| batch.payloads.get(&payload.reference));
-        if let Some(data) = data {
-            let sealed = keys::seal_payload(
-                txn,
-                root,
-                audience,
-                &row.object,
-                row.subject.as_deref(),
-                &row.id,
-                data,
-            )
-            .await?;
-            txn.execute_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "INSERT INTO agent_log_payloads (row_id, sealed, created_at) VALUES ($1, $2, $3)",
-                [
-                    row.id.clone().into(),
-                    sealed.into(),
-                    crate::clock::now().into(),
-                ],
-            ))
-            .await?;
+        if let Some(data) = body(row) {
+            keep_payload(txn, root, row, &data).await?;
+        }
+    }
+    // A row asked for again comes back as the server holds it: only its
+    // body is new.
+    for row in again.iter().filter(|row| !accepted.contains(&row.id)) {
+        if let Some(data) = body(row) {
+            keep_payload(txn, root, row, &data).await?;
         }
     }
     for id in &merged.stubbed {
@@ -397,6 +466,8 @@ async fn take_in<C: ConnectionTrait>(
     taken.added = merged.added;
     taken.stubbed = merged.stubbed;
     taken.duplicates = merged.duplicates;
+    taken.withheld = wired.withheld;
+    taken.ask = wired.ask;
     Ok(taken)
 }
 
@@ -429,51 +500,87 @@ async fn insert<C: ConnectionTrait>(db: &C, row: &Row, from: &str) -> Result<(),
     Ok(())
 }
 
-/// One row the server sends, with its payload opened (None when it has
-/// none, is a stub, or its key is gone).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Sent {
-    pub row: Row,
-    pub payload: Option<Vec<u8>>,
-}
-
-/// What a side holding `theirs` of `audience` lacks, forgets first.
-pub async fn answer<C: ConnectionTrait>(
+/// What a side that is `to`, holding `theirs` of `audience`, lacks, forgets
+/// first, in `log.rows` batches (`myriad_nodes::wire::send`): nothing when
+/// it may not hold the audience (`not_held`); then the rows it asks again
+/// for (`ask`) with their bodies. A body goes only when the wire's checks
+/// pass; the others go as rows, each batch saying why.
+pub async fn send<C: ConnectionTrait>(
     db: &C,
     root: &dyn keys::Root,
     audience: &str,
     theirs: &Vector,
-) -> Result<Vec<Sent>, Error> {
-    let lacking = vector::answer(&rows(db, audience).await?, theirs)?;
-    let ids: Vec<String> = lacking
+    ask: Vec<String>,
+    to: &Holder,
+) -> Result<wire::Sent, Error> {
+    let rows = if to.holds(audience) {
+        rows(db, audience).await?
+    } else {
+        Vec::new()
+    };
+    // The bodies the batches may carry: what it lacks, what it asks for
+    // again, and every node's created row (it says whose the node is, so a
+    // node that is someone else's in hers stays off the wire).
+    let lacking: BTreeSet<String> = vector::answer(&rows, theirs)?
+        .into_iter()
+        .map(|row| row.id)
+        .collect();
+    let asked: BTreeSet<&str> = ask.iter().map(String::as_str).collect();
+    let wanted: Vec<&Row> = rows
         .iter()
         .filter(|row| row.payload.is_some() && !row.forgotten)
-        .map(|row| row.id.clone())
+        .filter(|row| {
+            lacking.contains(&row.id)
+                || asked.contains(row.id.as_str())
+                || row.kind == "node.created"
+        })
         .collect();
+    let bodies = bodies(db, root, audience, &wanted).await?;
+    Ok(wire::send(SendInput {
+        audience: audience.to_string(),
+        rows,
+        bodies,
+        theirs: theirs.clone(),
+        ask,
+        holder: to.clone(),
+    })?)
+}
+
+/// The payloads of `rows`, opened and read as JSON, by row id. One whose key
+/// is gone, or that does not read, is left out: its row goes without it
+/// (`no_body`).
+async fn bodies<C: ConnectionTrait>(
+    db: &C,
+    root: &dyn keys::Root,
+    audience: &str,
+    rows: &[&Row],
+) -> Result<BTreeMap<String, Value>, Error> {
+    let mut out = BTreeMap::new();
+    if rows.is_empty() {
+        return Ok(out);
+    }
+    let ids: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
     let mut sealed: BTreeMap<String, Vec<u8>> = BTreeMap::new();
-    if !ids.is_empty() {
-        for result in db
-            .query_all_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT row_id, sealed FROM agent_log_payloads WHERE row_id = ANY($1)",
-                [ids.into()],
-            ))
-            .await?
-        {
-            sealed.insert(result.try_get("", "row_id")?, result.try_get("", "sealed")?);
+    for result in db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT row_id, sealed FROM agent_log_payloads WHERE row_id = ANY($1)",
+            [ids.into()],
+        ))
+        .await?
+    {
+        sealed.insert(result.try_get("", "row_id")?, result.try_get("", "sealed")?);
+    }
+    for row in rows {
+        let Some(sealed) = sealed.get(&row.id) else {
+            continue;
+        };
+        let opened = keys::open_payload(db, root, audience, &row.object, &row.id, sealed).await?;
+        if let Some(body) = opened.and_then(|data| serde_json::from_slice::<Value>(&data).ok()) {
+            out.insert(row.id.clone(), body);
         }
     }
-    let mut sent = Vec::with_capacity(lacking.len());
-    for row in lacking {
-        let payload = match sealed.get(&row.id) {
-            Some(sealed) => {
-                keys::open_payload(db, root, audience, &row.object, &row.id, sealed).await?
-            }
-            None => None,
-        };
-        sent.push(Sent { row, payload });
-    }
-    Ok(sent)
+    Ok(out)
 }
 
 /// The server's clock after seeing `seen` (so its own rows sort after
@@ -543,6 +650,7 @@ async fn next_dseq<C: ConnectionTrait>(db: &C, audience: &str) -> Result<u64, Er
 pub async fn forget(
     db: &DatabaseConnection,
     root: &dyn keys::Root,
+    here: &Holder,
     audience: &str,
     target: &str,
 ) -> Result<Row, Error> {
@@ -574,11 +682,14 @@ pub async fn forget(
         &txn,
         root,
         NODE,
-        audience,
+        here,
         Batch {
+            audience: audience.to_string(),
             rows: vec![row.clone()],
-            payloads: BTreeMap::new(),
+            payloads: Vec::new(),
+            withheld: Vec::new(),
         },
+        &BTreeSet::new(),
         now,
     )
     .await?;

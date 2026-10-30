@@ -5,10 +5,11 @@
 //!
 //! A link is single use, for the device it was given to, and expires after
 //! [`VALID_FOR`]; only the sha256 of its secret part is kept. The download
-//! is what `log.answer` gives a side that holds nothing: every forget
-//! first.
+//! is what `nodes.wire_send` gives the partner's computer that holds
+//! nothing: every forget first, a body only when it may travel (`withheld`
+//! says why the others do not), and nothing of an audience a computer may
+//! not hold.
 
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use myriad_persona_log::Vector;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::{Value, json};
@@ -62,12 +63,14 @@ pub async fn issue<C: ConnectionTrait>(
     })
 }
 
-/// The download behind `secret` for `device`: `{audience, vector, rows,
-/// payloads}`, the link used up. None when there is no such link for this
-/// device, or it was used or has expired.
+/// The download behind `secret` for `device`, one of `owner`'s computers:
+/// `{audience, vector, rows, payloads, withheld}`, the link used up. None
+/// when there is no such link for this device, or it was used or has
+/// expired.
 pub async fn redeem(
     db: &DatabaseConnection,
     root: &dyn keys::Root,
+    owner: i32,
     device: &str,
     secret: &str,
     now: i64,
@@ -90,20 +93,27 @@ pub async fn redeem(
     };
     let audience: String = link.try_get("", "audience")?;
     let holdings = store::holdings(&txn, &audience).await?;
-    let sent = store::answer(&txn, root, &audience, &Vector::new()).await?;
+    let sent = store::send(
+        &txn,
+        root,
+        &audience,
+        &Vector::new(),
+        Vec::new(),
+        &super::pc(owner),
+    )
+    .await?;
     txn.commit().await?;
-    let mut rows = Vec::with_capacity(sent.len());
-    let mut payloads = Vec::new();
-    for item in sent {
-        if let (Some(reference), Some(data)) = (&item.row.payload, &item.payload) {
-            payloads.push(json!({ "ref": reference.reference, "data": BASE64.encode(data) }));
-        }
-        rows.push(item.row.to_value());
+    let (mut rows, mut payloads, mut withheld) = (Vec::new(), Vec::new(), Vec::new());
+    for batch in sent.batches {
+        rows.extend(batch.rows.iter().map(|row| row.to_value()));
+        payloads.extend(batch.payloads);
+        withheld.extend(batch.withheld);
     }
     Ok(Some(json!({
         "audience": audience,
         "vector": holdings.vector,
         "rows": rows,
         "payloads": payloads,
+        "withheld": withheld,
     })))
 }

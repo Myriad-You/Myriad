@@ -6,10 +6,13 @@
 //! time. The server's part:
 //!
 //! - it keeps the logs it should ([`store`]): the owner's private talk and
-//!   her own, which every host core keeps too, and each group's, which only
-//!   the server keeps. What a row looks like, how a batch is checked and
-//!   merged, what a side lacks and what forgetting does are all
-//!   `myriad_persona_log`'s; nothing here decides them again;
+//!   her own, which every host core keeps too, and each group's and
+//!   anyone else's private talk, which only the server keeps
+//!   (`myriad_persona_log::holder`). What a row looks like, how a batch is
+//!   checked and merged, what a side lacks and what forgetting does are all
+//!   `myriad_persona_log`'s; which bodies travel with their rows, and why
+//!   the others do not, is `myriad_nodes::wire`'s; nothing here decides them
+//!   again;
 //! - payloads are kept sealed, a key per object ([`keys`]); the server holds
 //!   the keys (problem 5 of the sync plan), so forgetting an object deletes
 //!   its key and its payload;
@@ -50,11 +53,37 @@ mod tests;
 use std::fmt;
 use std::sync::OnceLock;
 
+use myriad_persona_log::{Core, Holder};
 use sea_orm::DbErr;
 
 /// The server's node in her log and in the lease: the same as the site's
 /// node in revisions.
 pub const NODE: &str = myriad_persona_sync::hlc::SITE;
+
+/// The partner's id in their private audience (`personal:<id>`), the one
+/// `holder.owner` names: today the site's user id. The Mac says
+/// `local-owner`; the core is to settle one id for every side, and this is
+/// the one place the site changes when it does.
+pub fn partner(owner: i32) -> String {
+    owner.to_string()
+}
+
+/// The partner's computers as a side of her log: they hold only the
+/// partner's private talk and hers.
+pub fn pc(owner: i32) -> Holder {
+    Holder {
+        core: Core::Pc,
+        owner: partner(owner),
+    }
+}
+
+/// The server as a side of her log: it holds every audience.
+pub fn server(owner: i32) -> Holder {
+    Holder {
+        core: Core::Server,
+        owner: partner(owner),
+    }
+}
 
 /// How her log on the server runs. Environment, read once at start: it is
 /// deployment policy, not a site setting the admin changes from a page.
@@ -173,6 +202,12 @@ impl std::error::Error for Error {}
 impl From<DbErr> for Error {
     fn from(error: DbErr) -> Self {
         Self::Db(error)
+    }
+}
+
+impl From<myriad_nodes::NodeError> for Error {
+    fn from(error: myriad_nodes::NodeError) -> Self {
+        Self::Refused(error.to_string())
     }
 }
 

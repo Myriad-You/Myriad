@@ -63,6 +63,7 @@ myriad-agent-rules = { path = "../core/crates/myriad-agent-rules" }
 myriad-persona-sync = { path = "../core/crates/myriad-persona-sync" }
 myriad-persona-log = { path = "../core/crates/myriad-persona-log" }
 myriad-her-link = { path = "../core/crates/myriad-her-link" }
+myriad-nodes = { path = "../core/crates/myriad-nodes" }
 myriad-phantasi-notes = { path = "../crates/myriad-phantasi-notes" }
 myriad-blog = { path = "../crates/myriad-blog" }
 myriad-tapp-rules = { path = "../crates/myriad-tapp-rules" }

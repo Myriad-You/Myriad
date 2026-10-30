@@ -396,6 +396,7 @@ async fn merge_in(
         counts,
         vectors,
         her_on: her_on().await,
+        log: None,
     })
 }
 
