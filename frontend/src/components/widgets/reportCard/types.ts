@@ -16,6 +16,7 @@ export interface SteamPresence {
   is_in_game?: boolean
   gameextrainfo?: string | null
   gameid?: string | null
+  game_cover?: string | null
   avatar?: string | null
   personaname?: string | null
   recent_2weeks_minutes?: number | null

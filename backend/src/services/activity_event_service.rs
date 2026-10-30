@@ -828,9 +828,8 @@ fn steam_app_image(appid: &str) -> Option<String> {
         return None;
     }
     // Portrait library art crops cleanly in a square/rounded tile.
-    Some(format!(
-        "https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/library_600x900.jpg"
-    ))
+    let appid: i64 = appid.parse().ok()?;
+    Some(crate::services::steam_assets::library_cover_url(appid))
 }
 
 fn account_image(platform: &str, data: &Value) -> Option<String> {

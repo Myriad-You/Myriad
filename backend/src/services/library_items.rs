@@ -1000,10 +1000,7 @@ fn append_steam_library_items(library_items: &mut Vec<LibraryItem>, mut steam: V
             id: format!("steam_game_{}", appid),
             item_type: "game".to_string(),
             title: name,
-            cover: Some(format!(
-                "https://cdn.cloudflare.steamstatic.com/steam/apps/{}/header.jpg",
-                appid
-            )),
+            cover: Some(crate::services::steam_assets::cover_url(appid)),
             platform: "Steam".to_string(),
             metadata: game,
         });
