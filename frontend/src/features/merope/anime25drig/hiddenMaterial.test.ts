@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { plainHiddenCollars } from './hiddenCollar'
 import { shadeHiddenBackHair } from './hiddenHair'
-import { fillHiddenSkin } from './hiddenSkin'
+import { clearHiddenTemples, fillHiddenSkin } from './hiddenSkin'
 
 type Paint = (x: number, y: number) => [number, number, number, number]
 
@@ -39,6 +39,29 @@ test('the shadow right at the edge of the fringe goes too, not only deep under i
   const out = fillHiddenSkin(box, face, [{ layer: box, image: fringe }])!
   const [r, g, b] = at(out, 50, 39)
   assert.ok(r > 230 && g > 200 && b > 190, `at the edge ${[r, g, b]}`)
+})
+
+test('beside and above the eyes the face the side locks cover goes, so the hair behind shows', () => {
+  const box = { x: 0, y: 0, w: 100, h: 100 }
+  const face = image(100, 100, () => [250, 220, 210, 255])
+  // The fringe covers the top down to y 30; side locks cover the outer columns down to y 60,
+  // except for a gap at x 90..95 where the temple shows from y 40.
+  const fringe = image(100, 100, (x, y) => [0, 0, 0, y < 30 || ((x < 20 || x >= 80) && y < 60 && !(x >= 90 && x < 95 && y >= 40)) ? 255 : 0])
+  const eyeL = { x0: 25, y0: 50 }
+  const eyeR = { x1: 75, y0: 50 }
+  const out = clearHiddenTemples(box, face, [{ layer: box, image: fringe }], eyeL, eyeR)!
+  assert.ok(out)
+  // The temple above the eye's height is cleared, out to the drawing's edge.
+  assert.equal(at(out, 10, 20)[3], 0)
+  assert.equal(at(out, 0, 10)[3], 0)
+  // The forehead between the eyes stays skin; so does what the locks cover below the eyes.
+  assert.deepEqual(at(out, 50, 10), [250, 220, 210, 255])
+  assert.deepEqual(at(out, 10, 55), [250, 220, 210, 255])
+  // Where the temple shows at rest, that column keeps its skin from there down.
+  assert.deepEqual(at(out, 92, 45), [250, 220, 210, 255])
+  assert.equal(at(out, 92, 20)[3], 0)
+  // What shows is untouched.
+  assert.deepEqual(at(out, 10, 70), [250, 220, 210, 255])
 })
 
 test('behind the head the back hair is the hair in its own shadow', () => {
