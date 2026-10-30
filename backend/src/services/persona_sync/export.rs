@@ -594,6 +594,13 @@ mod tests {
             .unwrap();
             assert_eq!(taken.added.len(), 1, "{audience}: {:?}", taken.not_taken);
         }
+        // One body that no longer opens: its row still goes, without it.
+        from.db
+            .execute_unprepared(
+                "UPDATE agent_log_payloads SET sealed = '\\x00' WHERE row_id = 'r1'",
+            )
+            .await
+            .unwrap();
 
         let reader = her_log::pc(41);
         let logs = pages_for(&from.db, &root, &reader).await.unwrap();
@@ -602,6 +609,8 @@ mod tests {
             .map(|page| page["audience"].as_str().unwrap())
             .collect();
         assert_eq!(audiences, ["personal:41", "own:"]);
+        assert_eq!(logs[1]["rows"].as_array().unwrap().len(), 1);
+        assert!(logs[1].get("payloads").is_none());
         let pages = pages(None, None, Vec::new(), Vec::new());
         let manifest = Manifest::of_envelopes(&pages).unwrap();
         let elsewhere = serde_json::json!({ "audience": "personal:99", "rows": [] });
@@ -630,16 +639,46 @@ mod tests {
         assert_eq!(opened.header.version, archive::ARCHIVE_LOG_VERSION);
         assert_eq!(opened.logs, logs);
 
+        // A file edited to carry what the partner's computer may not hold:
+        // those pages are not taken, a group's forget least of all.
+        let mut pages = opened.logs;
+        pages.push(serde_json::json!({ "audience": "personal:99", "rows": [] }));
+        pages.push(serde_json::json!({ "audience": "group:g1", "rows": [{
+            "version": 1, "id": "g1", "origin": "dev_mac", "author": "owner", "dseq": 1,
+            "hlc": "001761200000009-000000-dev_mac", "audience": "group:g1",
+            "object": "memory:m9", "kind": "forget", "replicate": "shared",
+        }] }));
         let landed = super::super::import::take_pages(
             &to.db,
             &root,
             41,
-            &opened.header.origin,
-            opened.logs,
+            pages,
             super::super::import::LogLanded::default(),
         )
         .await;
-        assert_eq!((landed.added, landed.not_taken, landed.withheld), (2, 0, 0));
+        assert_eq!(
+            (
+                landed.added,
+                landed.not_taken,
+                landed.withheld,
+                landed.pages_refused
+            ),
+            (2, 0, 1, 2)
+        );
+        assert!(store::rows(&to.db, "group:g1").await.unwrap().is_empty());
+        assert_eq!(
+            to.db
+                .query_one_raw(sea_orm::Statement::from_string(
+                    sea_orm::DatabaseBackend::Postgres,
+                    "SELECT COUNT(*) AS n FROM agent_log_rows WHERE received_from = 'file'",
+                ))
+                .await
+                .unwrap()
+                .unwrap()
+                .try_get::<i64>("", "n")
+                .unwrap(),
+            2
+        );
         for audience in ["personal:41", "own:"] {
             assert_eq!(
                 store::rows(&to.db, audience).await.unwrap(),

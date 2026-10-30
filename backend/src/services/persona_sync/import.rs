@@ -28,11 +28,14 @@
 //! each end's own, and her switch is not touched (H3c-15).
 //!
 //! A file with her log's pages (version 2) brings her nodes and their logs
-//! too: each page is taken as a batch from the file's origin, through
-//! `nodes.wire_take` with the site as the side that holds it, and merged
-//! into her log on the site, as a batch over the link would be. While the
-//! site does not keep her log, the pages are not kept, and what landed
-//! says so.
+//! too: each page is taken as a batch through `nodes.wire_take` with the
+//! site as the side that holds it, and merged into her log on the site, as
+//! a batch over the link would be. The file is the partner's computer's, so
+//! only pages of what that computer may hold (the partner's private talk
+//! and hers) are taken: a group's log and anyone else's talk are never
+//! written from a file. Its header is the file's own word, so it is not
+//! where the rows are recorded to have come from. While the site does not
+//! keep her log, the pages are not kept, and what landed says so.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -1416,11 +1419,10 @@ pub async fn open_file(
                 .collect(),
         );
     }
-    let origin = opened.header.origin.clone();
     let logs = opened.logs;
     let mut landed = land(db, owner, Some(id), whole, replace).await?;
     if !logs.is_empty() {
-        landed.log = Some(take_logs(db, owner, &origin, logs).await);
+        landed.log = Some(take_logs(db, owner, logs).await);
     }
     forget_files(id).await;
     Ok(landed)
@@ -1439,19 +1441,18 @@ pub struct LogLanded {
     pub not_taken: u64,
     /// Rows taken without their body.
     pub withheld: u64,
-    /// Pages not taken at all: not a batch, refused whole (a clock too far
-    /// ahead), or not written.
+    /// Pages not taken at all: of an audience the partner's computer may
+    /// not hold, not a batch, refused whole (a clock too far ahead), or not
+    /// written.
     pub pages_refused: u64,
 }
 
+/// Where a file's rows are recorded to have come from.
+pub const FROM_FILE: &str = "file";
+
 /// Takes each of a file's log pages as a batch from `origin`, after she
 /// landed: a page that is not taken is counted, not a reason to undo her.
-async fn take_logs(
-    db: &DatabaseConnection,
-    owner: i32,
-    origin: &str,
-    pages: Vec<Value>,
-) -> LogLanded {
+async fn take_logs(db: &DatabaseConnection, owner: i32, pages: Vec<Value>) -> LogLanded {
     use crate::services::her_log;
     let mut landed = LogLanded {
         pages: pages.len() as u64,
@@ -1468,29 +1469,33 @@ async fn take_logs(
         );
         return landed;
     }
-    take_pages(db, her_log::keys::root(), owner, origin, pages, landed).await
+    take_pages(db, her_log::keys::root(), owner, pages, landed).await
 }
 
-/// Takes `pages` into her log on the site, as the server.
+/// Takes `pages` into her log on the site, as the server: only those of
+/// an audience the partner's computer may hold.
 pub(super) async fn take_pages(
     db: &DatabaseConnection,
     root: &dyn crate::services::her_log::keys::Root,
     owner: i32,
-    origin: &str,
     pages: Vec<Value>,
     mut landed: LogLanded,
 ) -> LogLanded {
     use crate::services::her_log;
     let here = her_log::server(owner);
+    let file = her_log::pc(owner);
     for page in pages {
-        let Ok(batch) = serde_json::from_value::<myriad_nodes::wire::Batch>(page) else {
+        let batch = serde_json::from_value::<myriad_nodes::wire::Batch>(page)
+            .ok()
+            .filter(|batch| file.holds(&batch.audience));
+        let Some(batch) = batch else {
             landed.pages_refused += 1;
             continue;
         };
         match her_log::store::take(
             db,
             root,
-            origin,
+            FROM_FILE,
             &here,
             batch,
             &std::collections::BTreeSet::new(),

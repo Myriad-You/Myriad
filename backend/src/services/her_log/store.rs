@@ -547,8 +547,8 @@ pub async fn send<C: ConnectionTrait>(
 }
 
 /// The payloads of `rows`, opened and read as JSON, by row id. One whose key
-/// is gone, or that does not read, is left out: its row goes without it
-/// (`no_body`).
+/// is gone, that does not open or that does not read, is left out: its row
+/// goes without it (`no_body`).
 async fn bodies<C: ConnectionTrait>(
     db: &C,
     root: &dyn keys::Root,
@@ -575,7 +575,18 @@ async fn bodies<C: ConnectionTrait>(
         let Some(sealed) = sealed.get(&row.id) else {
             continue;
         };
-        let opened = keys::open_payload(db, root, audience, &row.object, &row.id, sealed).await?;
+        let opened = match keys::open_payload(db, root, audience, &row.object, &row.id, sealed)
+            .await
+        {
+            Ok(opened) => opened,
+            // One body that does not open goes without it (`no_body`); the
+            // rest still go.
+            Err(Error::Key) => {
+                tracing::warn!(row = %row.id, "[her-log] a kept body does not open; its row goes without it");
+                None
+            }
+            Err(error) => return Err(error),
+        };
         if let Some(body) = opened.and_then(|data| serde_json::from_slice::<Value>(&data).ok()) {
             out.insert(row.id.clone(), body);
         }

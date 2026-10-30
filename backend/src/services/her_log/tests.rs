@@ -389,6 +389,7 @@ async fn exchange(
                 &on(),
                 OWNER,
                 &device,
+                Core::Pc,
                 &mut side.link,
                 &frame,
                 now,
@@ -646,6 +647,7 @@ async fn a_clock_too_far_ahead_is_refused_whole_with_the_servers_time() {
         &on(),
         OWNER,
         "dev_win",
+        Core::Pc,
         &mut relay::Session::default(),
         &frame,
         T0,
@@ -788,6 +790,7 @@ async fn a_groups_rows_go_to_no_computer_and_come_back_only_from_her_mind() {
         &on(),
         OWNER,
         "dev_mac",
+        Core::Pc,
         &mut relay::Session::default(),
         &vector,
         T0,
@@ -807,6 +810,7 @@ async fn a_groups_rows_go_to_no_computer_and_come_back_only_from_her_mind() {
         &on(),
         OWNER,
         "dev_win",
+        Core::Pc,
         &mut relay::Session::default(),
         &vector,
         T0,
@@ -829,6 +833,7 @@ async fn a_groups_rows_go_to_no_computer_and_come_back_only_from_her_mind() {
         &on(),
         OWNER,
         "dev_win",
+        Core::Pc,
         &mut relay::Session::default(),
         &frame,
         T0,
@@ -853,6 +858,7 @@ async fn a_groups_rows_go_to_no_computer_and_come_back_only_from_her_mind() {
         &on(),
         OWNER,
         "dev_mac",
+        Core::Pc,
         &mut relay::Session::default(),
         &frame,
         T0 + MINUTE,
@@ -906,6 +912,7 @@ async fn a_groups_rows_go_to_no_computer_and_come_back_only_from_her_mind() {
         &on(),
         OWNER,
         "dev_mac",
+        Core::Pc,
         &mut relay::Session::default(),
         &old,
         T0 + 3 * MINUTE,
@@ -933,6 +940,7 @@ async fn while_off_no_frame_is_taken() {
             &off,
             OWNER,
             "dev_win",
+            Core::Pc,
             &mut relay::Session::default(),
             &vector,
             T0
@@ -948,6 +956,7 @@ async fn while_off_no_frame_is_taken() {
             &on(),
             OWNER,
             "dev_win",
+            Core::Pc,
             &mut relay::Session::default(),
             &vector,
             T0
@@ -1253,6 +1262,7 @@ async fn a_body_that_did_not_come_is_asked_for_once_and_taken_when_it_comes() {
         &on(),
         OWNER,
         "dev_mac",
+        Core::Pc,
         &mut link,
         &frames[0],
         T0,
@@ -1276,6 +1286,7 @@ async fn a_body_that_did_not_come_is_asked_for_once_and_taken_when_it_comes() {
         &on(),
         OWNER,
         "dev_mac",
+        Core::Pc,
         &mut link,
         &again[0],
         T0,
@@ -1293,6 +1304,7 @@ async fn a_body_that_did_not_come_is_asked_for_once_and_taken_when_it_comes() {
         &on(),
         OWNER,
         "dev_mac",
+        Core::Pc,
         &mut link,
         &again[0],
         T0,
@@ -1343,6 +1355,7 @@ async fn a_partners_computer_never_gets_anyone_elses_talk() {
         &on(),
         OWNER,
         "dev_win",
+        Core::Pc,
         &mut win.link,
         &vector,
         T0,
@@ -1366,6 +1379,7 @@ async fn a_partners_computer_never_gets_anyone_elses_talk() {
         &on(),
         OWNER,
         "dev_win",
+        Core::Pc,
         &mut win.link,
         &frame,
         T0,
@@ -1428,5 +1442,69 @@ async fn a_body_holding_a_key_is_not_taken() {
         frames[0]["body"]["withheld"],
         json!([{ "id": row.id, "why": "secret" }])
     );
+    schema.drop().await;
+}
+
+/// A phone or XR holds no log: its link is no host's, so it gets no rows,
+/// sends none, and is never her mind.
+#[tokio::test]
+async fn a_phone_gets_no_log() {
+    let Some(schema) = schema("her_log_child").await else {
+        return;
+    };
+    let db = &schema.db;
+    let mut mac = Side::new("dev_mac");
+    mac.write(
+        PERSONAL,
+        "memory:tea",
+        "memory.write",
+        Author::Owner,
+        Some("likes tea"),
+        T0,
+    );
+    sync(db, &mut mac, PERSONAL, T0 + MINUTE).await;
+    assert_eq!(store::rows(db, PERSONAL).await.unwrap().len(), 1);
+
+    let mut phone = Side::new("dev_phone");
+    let vector = phone.vector(PERSONAL);
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        OWNER,
+        "dev_phone",
+        Core::Child,
+        &mut phone.link,
+        &vector,
+        T0 + MINUTE,
+    )
+    .await
+    .unwrap();
+    assert_eq!(outs.len(), 1);
+    assert_eq!(delivered(&outs[0])["t"], "error");
+    let row = phone.write(
+        PERSONAL,
+        "memory:x",
+        "memory.write",
+        Author::Owner,
+        Some("x"),
+        T0,
+    );
+    let frame = phone.rows_frame(PERSONAL, vec![row]);
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        OWNER,
+        "dev_phone",
+        Core::Child,
+        &mut phone.link,
+        &frame,
+        T0 + MINUTE,
+    )
+    .await
+    .unwrap();
+    assert_eq!(delivered(&outs[0])["t"], "error");
+    assert_eq!(store::rows(db, PERSONAL).await.unwrap().len(), 1);
     schema.drop().await;
 }

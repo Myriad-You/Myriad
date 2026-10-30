@@ -43,7 +43,7 @@ use std::collections::BTreeSet;
 
 use myriad_nodes::wire::{ASK_ROWS, Batch};
 use myriad_persona_log::{
-    Vector,
+    Core, Holder, Vector,
     lease::{Refusal as MoveRefusal, Request, Through},
 };
 use sea_orm::DatabaseConnection;
@@ -51,7 +51,7 @@ use serde_json::{Value, json};
 
 use super::{
     Error, NODE, Settings, full, keys,
-    lease::{self, Core, Outcome},
+    lease::{self, Core as Seen, Outcome},
     store,
 };
 
@@ -210,8 +210,11 @@ fn audience_of(body: &Value) -> Result<String, Error> {
         .ok_or_else(|| Error::Refused("no audience".into()))
 }
 
-/// Takes one frame from `device`, one of `owner`'s computers, at the
-/// server's time `now` (microseconds), in that device's link `session`.
+/// Takes one frame from `device`, one of `owner`'s ends, at the server's
+/// time `now` (microseconds), in that device's link `session`. `core` is
+/// what the device is as a side of her log, as its hello says: a computer
+/// (`Pc`) is a host core and holds the partner's private talk and hers; a
+/// phone or XR (`Child`) holds no log, so it is no host and gets none.
 /// `Err(Error::Off)` when her log on the server is off or the owner has
 /// not turned it on: the connection then treats the frame as one it does
 /// not know.
@@ -222,6 +225,7 @@ pub async fn take(
     settings: &Settings,
     owner: i32,
     device: &str,
+    core: Core,
     session: &mut Session,
     frame: &Value,
     now: i64,
@@ -235,8 +239,12 @@ pub async fn take(
     }
     let seq = frame.get("seq").and_then(Value::as_u64);
     let holder = holder(db).await?;
-    let mut as_roles = vec!["device", "host"];
-    if holder == device {
+    let host = core == Core::Pc;
+    let mut as_roles = vec!["device"];
+    if host {
+        as_roles.push("host");
+    }
+    if host && holder == device {
         as_roles.push("mind");
     }
     let checked = match myriad_her_link::check(frame, &roles(&as_roles)) {
@@ -244,12 +252,15 @@ pub async fn take(
         Err(refusal) => return Ok(vec![Outgoing::error(&refusal.code, seq)]),
     };
     let body = &frame["body"];
-    let mine = holder == device;
-    let pc = super::pc(owner);
+    let mine = host && holder == device;
+    let side = Holder {
+        core,
+        owner: super::partner(owner),
+    };
     match checked.t.as_str() {
         "log.vector" => {
             let audience = audience_of(body)?;
-            if !pc.holds(&audience) {
+            if !side.holds(&audience) {
                 return Ok(vec![Outgoing::error("not_holder", seq)]);
             }
             let theirs: Vector = serde_json::from_value(body["vector"].clone())
@@ -260,8 +271,8 @@ pub async fn take(
                 }
                 None => Vec::new(),
             };
-            lease::heard(db, device, Some(Core::Host), now).await?;
-            vector(db, root, device, &pc, &audience, &theirs, ask, now).await
+            lease::heard(db, device, Some(Seen::Host), now).await?;
+            vector(db, root, device, &side, &audience, &theirs, ask, now).await
         }
         "log.rows" => {
             let audience = audience_of(body)?;
@@ -276,17 +287,17 @@ pub async fn take(
                 }]);
             }
             // What a computer may not hold, only her mind writes, for here.
-            if !pc.holds(&audience) && !mine {
+            if !side.holds(&audience) && !mine {
                 return Ok(vec![Outgoing::error("not_holder", seq)]);
             }
             let Ok(batch) = serde_json::from_value::<Batch>(body.clone()) else {
                 return Ok(vec![Outgoing::error("bad_frame", seq)]);
             };
-            lease::heard(db, device, Some(Core::Host), now).await?;
+            lease::heard(db, device, Some(Seen::Host), now).await?;
             rows(db, root, owner, device, session, batch, seq, now).await
         }
         "lease.ask" => {
-            lease::heard(db, device, Some(Core::Host), now).await?;
+            lease::heard(db, device, Some(Seen::Host), now).await?;
             let request = match body["why"].as_str() {
                 Some("force") => Request::Force {
                     to: device.to_string(),
@@ -308,7 +319,7 @@ pub async fn take(
             moved(db, settings, request, seq, now).await
         }
         "lease.yield" => {
-            lease::heard(db, device, Some(Core::Host), now).await?;
+            lease::heard(db, device, Some(Seen::Host), now).await?;
             let to = body["to"].as_str().unwrap_or(NODE).to_string();
             // `through` is {audience: last dseq}, one count per audience.
             let Ok(through) = serde_json::from_value::<Through>(body["through"].clone()) else {
@@ -323,7 +334,7 @@ pub async fn take(
             moved(db, settings, request, seq, now).await
         }
         "lease.stopped" => {
-            lease::heard(db, device, Some(Core::Host), now).await?;
+            lease::heard(db, device, Some(Seen::Host), now).await?;
             let stopped_ms = body["stoppedAt"].as_i64().unwrap_or(0);
             lease::stopped(
                 db,
