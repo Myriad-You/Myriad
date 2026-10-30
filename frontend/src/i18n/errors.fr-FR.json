@@ -522,7 +522,7 @@
     "gender_required": "Choisissez d’abord une présentation de genre.",
     "import_source_required": "Choisissez la source à importer.",
     "music_listening_too_short": "L’historique d’écoute est encore trop court. Écoutez un peu plus puis réessayez.",
-    "persona_reports_required": "Il faut au moins 3 rapports de plateforme. Générez-en d’autres puis réessayez.",
+    "persona_reports_required": "Il faut au moins 3 rapports de plateforme. Dans Réglages → Données et stats, choisissez une plateforme et cliquez sur « Générer le rapport ».",
     "persona_required": "Enregistrez le persona avant de concevoir son apparence.",
     "structured_persona_required": "Complétez les détails du persona avant de concevoir son apparence.",
     "visual_gender_required": "Choisissez une présentation de genre avant de générer le portrait.",

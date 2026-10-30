@@ -1512,6 +1512,8 @@
     "clearCache": "キャッシュクリア",
     "dataManagementTitle": "データ管理",
     "dataManagementDesc": "プラットフォームデータとスマートフィルターキャッシュを管理",
+    "platformReport": "プラットフォームのレポート",
+    "platformReportDesc": "今あるデータからこのプラットフォームのレポートを作成します",
     "rawData": "生データ",
     "noData": "データなし",
     "smartFilter": "スマートフィルター",

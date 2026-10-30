@@ -1512,6 +1512,8 @@
     "clearCache": "캐시 비우기",
     "dataManagementTitle": "데이터 관리",
     "dataManagementDesc": "플랫폼 데이터와 스마트 필터 캐시를 관리합니다",
+    "platformReport": "플랫폼 리포트",
+    "platformReportDesc": "지금 있는 데이터로 이 플랫폼의 리포트를 만들어요",
     "rawData": "원본 데이터",
     "noData": "데이터 없음",
     "smartFilter": "스마트 필터",

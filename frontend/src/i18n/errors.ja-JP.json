@@ -522,7 +522,7 @@
     "gender_required": "先に性別の見た目を選んでください。",
     "import_source_required": "インポート元を選んでください。",
     "music_listening_too_short": "再生履歴がまだ足りません。もう少し聴いてから再試行してください。",
-    "persona_reports_required": "プラットフォームのレポートが 3 件以上必要です。レポートを増やしてから再試行してください。",
+    "persona_reports_required": "プラットフォームのレポートが 3 件以上必要です。設定の「データと統計」でプラットフォームを選び、「レポートを生成」を押してください。",
     "persona_required": "外見をデザインする前にペルソナを保存してください。",
     "structured_persona_required": "外見をデザインする前にペルソナの詳細を仕上げてください。",
     "visual_gender_required": "立ち絵を生成する前に性別の見た目を選んでください。",

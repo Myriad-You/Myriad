@@ -11,6 +11,7 @@ import {
 } from '@lib/icons'
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useConfigI18n as useI18n } from '../../../contexts/I18nContext'
+import { canShrinkImage, shrinkImageToFit } from '../../../utils/shrinkImage'
 import { showError } from '../../../utils/toastManager'
 import { guideDomProps } from '../guides/guideAnchor'
 import { SettingDefaultChangeTag } from '../SettingDefaultChangeTag'
@@ -205,8 +206,21 @@ export const InputItem = React.memo<InputItemProps>(
         }
         if (file.size > maxImageBytes) {
           const kb = Math.round(maxImageBytes / 1024)
-          setUploadError(
-            imageSizeError || format(t.config.imageUploadSizeError, { kb }),
+          const sizeError = format(imageSizeError || t.config.imageUploadSizeError, { kb })
+          if (!canShrinkImage(file.type)) {
+            setUploadError(sizeError)
+            return
+          }
+          void shrinkImageToFit(file, maxImageBytes).then(
+            (url) => {
+              if (url) {
+                setUploadError(undefined)
+                onChange(url)
+              } else {
+                setUploadError(sizeError)
+              }
+            },
+            () => setUploadError(imageReadError || t.config.imageUploadReadError),
           )
           return
         }
@@ -229,6 +243,7 @@ export const InputItem = React.memo<InputItemProps>(
       [
         busy,
         disabled,
+        format,
         imageReadError,
         imageSizeError,
         imageTypeError,

@@ -89,6 +89,8 @@ interface ConfigField {
 
 interface UiConfigSectionProps {
   configFields: ConfigField[]
+  /** 库里没存网站地址时，部署环境里实际在用的地址 */
+  envBaseUrl?: string
   /** silent after domain apply so save dirty is not set */
   updateValue: (
     key: string,
@@ -103,6 +105,7 @@ interface UiConfigSectionProps {
 
 export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
   configFields,
+  envBaseUrl,
   updateValue,
   title,
   icon,
@@ -419,7 +422,8 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
     ],
   )
 
-  const baseUrlValue = getFieldValue('base_url')
+  // .env 里填过 BASE_URL 就是在用的地址，不该再让站长填一遍。
+  const baseUrlValue = getFieldValue('base_url').trim() || envBaseUrl || ''
 
   const rippleQualityPercent = useMemo(() => {
     const raw = Number.parseFloat(
@@ -620,7 +624,7 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
           <p className="setting-hint" style={{ marginTop: '0.5rem' }}>
             {visibilityPolicyHint}
           </p>
-          {visibilityPolicy !== 'private' && !baseUrlValue.trim() ? (
+          {visibilityPolicy !== 'private' && !baseUrlValue ? (
             <p
               className="setting-error"
               style={{ marginTop: '0.5rem' }}

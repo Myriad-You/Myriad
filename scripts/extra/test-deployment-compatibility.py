@@ -232,6 +232,10 @@ else: sys.exit(1)
                 self.assertEqual(stored, token)
                 if not valid:
                     self.assertIn("GUARD_SELF_UPDATE_TOKEN must be 32..256", result.stdout)
+                    # Bash counts by the host locale, so only ASCII has one expected length.
+                    if token.isascii():
+                        self.assertIn(f"got {len(token)} characters", result.stdout)
+                    self.assertEqual("carriage return" in result.stdout, "\r" in token)
         with self.subTest(locale=locale, token="missing"):
             result, started, stored = self.deploy(None, locale)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

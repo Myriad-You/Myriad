@@ -1512,6 +1512,8 @@
     "clearCache": "清除缓存",
     "dataManagementTitle": "数据管理",
     "dataManagementDesc": "管理平台数据和智能过滤缓存",
+    "platformReport": "平台报告",
+    "platformReportDesc": "用已有数据生成这个平台的报告",
     "rawData": "原始数据",
     "noData": "暂无数据",
     "smartFilter": "智能过滤",

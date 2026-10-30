@@ -1,6 +1,7 @@
 import type { CardContent } from './CardLogoPill'
 import type { ReportCardClickAction, ReportCardWidgetProps } from './types'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useAuth } from '../../../contexts/AuthContext'
 import { useI18n } from '../../../contexts/I18nContext'
 import { useAnimationLevel } from '../../../hooks/useAnimationLevel'
 import {
@@ -40,6 +41,7 @@ export const ReportCardWidget = memo(
   }: ReportCardWidgetProps) => {
     const animLevel = useAnimationLevel()
     const { t } = useI18n()
+    const { isAdmin } = useAuth()
     const localRef = useRef<HTMLDivElement | null>(null)
     const platformId = resolveReportPlatformId(config)
     const [reportData, setReportData] = useState<any>(null)
@@ -307,13 +309,27 @@ export const ReportCardWidget = memo(
       PLATFORM_CONFIG[platformId] || PLATFORM_CONFIG.bilibili
 
     if (!loading && !reportData) {
+      const message = failed
+        ? t.reportCardWidget.fetchReportFailed
+        : t.reportCard.noReportData
+      // 还没有报告时，舞台弹窗里的「生成报告」是站长唯一的入口。
+      if (interactive && !isEditMode && openPopup && isAdmin && !failed) {
+        return (
+          <button
+            type="button"
+            className="h-full w-full flex flex-col items-center justify-center gap-1 text-gray-400 text-sm cursor-pointer rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--cfg-accent)]"
+            onClick={() => openPopup({ platform: platformId })}
+          >
+            <span>{message}</span>
+            <span className="text-xs text-[var(--cfg-accent)]">
+              {t.reportStage.generate}
+            </span>
+          </button>
+        )
+      }
       return (
         <div className="h-full w-full flex items-center justify-center text-gray-400 text-sm">
-          <span>
-            {failed
-              ? t.reportCardWidget.fetchReportFailed
-              : t.reportCard.noReportData}
-          </span>
+          <span>{message}</span>
         </div>
       )
     }

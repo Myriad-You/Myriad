@@ -30,31 +30,38 @@ test('partial refresh reloads persisted views and keeps localized failure detail
     submitPlatformTask: async () => 'task',
     // 页面一打开先问后台有没有在跑的任务；这里没有，走正常刷新。
     getRunningPlatformTask: async () => null,
+    generatePlatformReports: async (platforms: string[]) => { generated.push(...platforms); return { reports: platforms.map(platform => ({ platform })) } },
   }
+  const generated: string[] = []
+  const events: string[] = []
+  const messages: string[] = []
   const bindGuide = () => ({})
   const Preview = forwardRef((_props, ref) => { useImperativeHandle(ref, () => ({ reload: async () => { previewLoads++ } })); return null })
   const bundle = await build({
     entryPoints: [new URL('./PlatformDataManagement.tsx', import.meta.url).pathname], bundle: true, write: false,
     platform: 'node', format: 'cjs', packages: 'external', define: { 'import.meta.env': '{}' },
     plugins: [{ name: 'boundaries', setup(builder) {
-      builder.onResolve({ filter: /(@lib\/icons|contexts\/I18nContext|services\/platformTasksApi|utils\/(recentActivity|userFacingError)|\/settings|\/TaskStatus|\/PlatformDataPreview)$/ }, ({ path }) => ({ path, external: true }))
+      builder.onResolve({ filter: /(@lib\/icons|contexts\/I18nContext|services\/platformTasksApi|utils\/(appEvents|recentActivity|reportError|requestDedup|userFacingError)|\/settings|\/TaskStatus|\/PlatformDataPreview)$/ }, ({ path }) => ({ path, external: true }))
     } }],
   })
   const mockRequire = (path: string) => {
     if (path.includes('platformTasksApi')) return platformTasks
     if (path.includes('I18nContext')) return { useI18n: () => ({ t: locale === 'zh-CN' ? zh : en, locale, format: (text: string) => text }) }
     if (path.includes('recentActivity')) return { notifyRecentActivityUpdated: () => {} }
+    if (path.includes('appEvents')) return { emitAppEvent: (name: string) => events.push(name) }
+    if (path.includes('reportError')) return { reportUserFacingError: (_error: unknown, fallback: string) => fallback }
+    if (path.includes('requestDedup')) return { invalidateLatestReportCache: () => events.push('invalidate') }
     if (path.includes('userFacingError')) return { userFacingError: (message: unknown, fallback: string) => typeof message === 'string' ? message : fallback }
     if (path.endsWith('/settings')) return { useSettingGuide: () => ({ catalog: { platforms: {} }, bindGuide }), SettingGroup: ({ children }: { children: React.ReactNode }) => createElement('div', null, children), ButtonItem: (props: { itemKey: string; onClick: () => void }) => createElement('button', { onClick: props.onClick, 'data-key': props.itemKey }) }
     if (path.endsWith('/PlatformDataPreview')) return Preview
     if (path.endsWith('/TaskStatus')) return { TaskStatus: () => null }
-    if (path === '@lib/icons') return { FaSyncAlt: () => null, FaTrash: () => null }
+    if (path === '@lib/icons') return { FaFileAlt: () => null, FaSyncAlt: () => null, FaTrash: () => null }
     return require(path)
   }
   const module = { exports: {} as typeof import('./PlatformDataManagement') }
   compileFunction(bundle.outputFiles[0].text, ['require', 'module', 'exports'])(mockRequire, module, module.exports)
   const root = createRoot(dom.window.document.getElementById('root'))
-  const showMessage = () => {}
+  const showMessage = (message: string) => { messages.push(message) }
   const render = () => act(async () => root.render(createElement(module.exports.default, { platformName: 'Bilibili', showMessage })))
   try {
     await render()
@@ -69,6 +76,11 @@ test('partial refresh reloads persisted views and keeps localized failure detail
     response = { success: false, partial: false, issues: [], message: 'X API credits are depleted (HTTP 402).' }
     await act(async () => dom.window.document.querySelector('[data-key="platform-raw-refresh"]').click())
     assert.match(dom.window.document.querySelector('[role="status"]').textContent, /Fetch failed:.*\nX API credits are depleted/)
+    // 没摆报告卡的首页也要能生成第一份报告。
+    await act(async () => dom.window.document.querySelector('[data-key="platform-report-generate"]').click())
+    assert.deepEqual(generated, ['bilibili'])
+    assert.deepEqual(events, ['invalidate', 'reports-updated'])
+    assert.equal(messages.at(-1), en.reportStage.generated)
   } finally {
     await act(async () => root.unmount())
     dom.window.close()

@@ -114,7 +114,11 @@ ensure_guard_policy_secret() {
     # Match ASCII bytes regardless of the host's locale and collation rules.
     if [ "${#value}" -lt 32 ] || [ "${#value}" -gt 256 ] \
         || ! printf '%s' "$value" | LC_ALL=C grep -Eq '^[[:graph:]]+$'; then
-        err "✗ GUARD_SELF_UPDATE_TOKEN must be 32..256 printable non-whitespace ASCII characters"
+        err "✗ GUARD_SELF_UPDATE_TOKEN must be 32..256 printable non-whitespace ASCII characters (got ${#value} characters in $GUARD_ENV_FILE)"
+        case "$value" in
+            *$'\r'*) err "  The value contains a carriage return (Windows line endings): convert $GUARD_ENV_FILE and .env to LF line endings." ;;
+        esac
+        err "  To regenerate it, empty GUARD_SELF_UPDATE_TOKEN in both $GUARD_ENV_FILE and .env, then rerun."
         exit 2
     fi
 }

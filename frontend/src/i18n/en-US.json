@@ -1512,6 +1512,8 @@
     "clearCache": "Clear Cache",
     "dataManagementTitle": "Data Management",
     "dataManagementDesc": "Manage platform data and smart filter cache",
+    "platformReport": "Platform report",
+    "platformReportDesc": "Generate this platform's report from its current data",
     "rawData": "Raw Data",
     "noData": "No data",
     "smartFilter": "Smart Filter",

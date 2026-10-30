@@ -16,7 +16,9 @@ impl Default for Budget {
         Self {
             spent_tokens: 0,
             reserved_tokens: 0,
-            limit_tokens: 128_000,
+            // Every turn re-sends the ~30k system prompt and tool index, so 128k ended a task
+            // after three turns. Sized to let the turn and input caps bind first.
+            limit_tokens: 1_000_000,
         }
     }
 }
