@@ -37,6 +37,8 @@ overrides:
   chokidar: '>=5.0.0'
   colord: ^2.10.0
   fast-uri: '>=4.1.5'
+  # GHSA-mrwp-f3q8-3g9p: keep custom credentials from following cross-origin redirects (axios under the Agora SDK).
+  follow-redirects: '>=1.16.2'
   js-yaml: ^4.3.2
   # GHSA-238p-pmpm-9mq7: patch KaTeX inherited renderer options in Markdown tools.
   katex: ^0.18.7
