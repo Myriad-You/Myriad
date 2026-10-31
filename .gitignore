@@ -133,6 +133,7 @@ backend/data/.bootstrap-claimed
 !/frontend/tests/browser/torsoResponse.spec.ts
 !/frontend/tests/browser/poseCorrectionEditor.spec.ts
 !/frontend/tests/browser/touchHandoff.spec.ts
+!/frontend/tests/browser/figureModules.ts
 !/frontend/tests/browser/fixture/
 /frontend/tests/browser/fixture/*
 !/frontend/tests/browser/fixture/rigImport.html
