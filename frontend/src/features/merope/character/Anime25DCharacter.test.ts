@@ -11,7 +11,8 @@ const { JSDOM } = require(require.resolve('jsdom', {
 }))
 const { build } = createRequire(import.meta.resolve('tsx/package.json'))('esbuild')
 
-test('outfit and callback changes keep the React player; stale loads cannot report ready or failure', async () => {
+/** A visual DOM installed as the globals React and the component read. */
+function installDom() {
   const dom = new JSDOM('<div id="root"></div>', { pretendToBeVisual: true })
   const globals = {
     window: dom.window,
@@ -23,6 +24,53 @@ test('outfit and callback changes keep the React player; stale loads cannot repo
   for (const [key, value] of Object.entries(globals)) {
     Object.defineProperty(globalThis, key, { configurable: true, value })
   }
+  return {
+    dom,
+    restore() {
+      dom.window.close()
+      for (const [key, descriptor] of previous) {
+        if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+        else Reflect.deleteProperty(globalThis, key)
+      }
+    },
+  }
+}
+
+/**
+ * Runs the real React effects, replacing only the GPU/interaction boundaries:
+ * the player class, the touch binding and the production hosts are the test's.
+ */
+async function loadCharacter(stubs: { touch: string, hosts: string }, injected: Record<string, unknown>) {
+  const bundle = await build({
+    entryPoints: [new URL('./Anime25DCharacter.tsx', import.meta.url).pathname],
+    bundle: true, write: false, platform: 'node', format: 'cjs', packages: 'external',
+    plugins: [{
+      name: 'character-test-boundaries',
+      setup(builder) {
+        // The real figure entries, with only the player and touch binding swapped out.
+        const real = (entry: string) => JSON.stringify(require.resolve(`@myriad/figure/${entry}`))
+        builder.onResolve({ filter: /^@myriad\/figure\/(anime25drig|interaction)$/ }, ({ path }) => ({ path: path.split('/').pop()!, namespace: 'test' }))
+        builder.onResolve({ filter: /^\.\.\/(presence\/touchAppraisalHost|motion\/runtimeHost)$/ }, () => ({ path: 'host', namespace: 'test' }))
+        builder.onLoad({ filter: /.*/, namespace: 'test' }, ({ path }) => ({
+          contents: path === 'anime25drig'
+            ? `export * from ${real('anime25drig')}\nexport const Anime25DPlayer = TestPlayer`
+            : path === 'interaction'
+              ? `export * from ${real('interaction')}\n${stubs.touch}`
+              : stubs.hosts,
+          loader: 'js',
+          resolveDir: new URL('.', import.meta.url).pathname,
+        }))
+      },
+    }],
+  })
+  const names = Object.keys(injected)
+  const module = { exports: {} as { default: React.ComponentType<any> } }
+  compileFunction(bundle.outputFiles[0].text, ['require', 'module', 'exports', ...names])(require, module, module.exports, ...Object.values(injected))
+  return module.exports.default
+}
+
+test('outfit and callback changes keep the React player; stale loads cannot report ready or failure', async () => {
+  const { dom, restore } = installDom()
   const packages: { atlas: string; resolve: () => void; reject: (error: Error) => void }[] = []
   let created = 0
   let disposed = 0
@@ -52,32 +100,10 @@ test('outfit and callback changes keep the React player; stale loads cannot repo
     tick() {}
     dispose() { disposed += 1 }
   }
-  // Run the real React effects, replacing only the GPU/interaction boundaries.
-  const bundle = await build({
-    entryPoints: [new URL('./Anime25DCharacter.tsx', import.meta.url).pathname],
-    bundle: true, write: false, platform: 'node', format: 'cjs', packages: 'external',
-    plugins: [{
-      name: 'character-test-boundaries',
-      setup(builder) {
-        // The real figure entries, with only the player and touch binding swapped out.
-        const real = (entry: string) => JSON.stringify(require.resolve(`@myriad/figure/${entry}`))
-        builder.onResolve({ filter: /^@myriad\/figure\/(anime25drig|interaction)$/ }, ({ path }) => ({ path: path.split('/').pop()!, namespace: 'test' }))
-        builder.onResolve({ filter: /^\.\.\/(presence\/touchAppraisalHost|motion\/runtimeHost)$/ }, () => ({ path: 'host', namespace: 'test' }))
-        builder.onLoad({ filter: /.*/, namespace: 'test' }, ({ path }) => ({
-          contents: path === 'anime25drig'
-            ? `export * from ${real('anime25drig')}\nexport const Anime25DPlayer = TestPlayer`
-            : path === 'interaction'
-              ? `export * from ${real('interaction')}\nexport function bindCharacterTouch() { return { cancel() {}, unbind() {} } }`
-              : 'export function createTouchAppraisal() {} export function getProductionMotionRuntime() {}',
-          loader: 'js',
-          resolveDir: new URL('.', import.meta.url).pathname,
-        }))
-      },
-    }],
-  })
-  const module = { exports: {} as { default: React.ComponentType<any> } }
-  compileFunction(bundle.outputFiles[0].text, ['require', 'module', 'exports', 'TestPlayer'])(require, module, module.exports, Player)
-  const Character = module.exports.default
+  const Character = await loadCharacter({
+    touch: 'export function bindCharacterTouch() { return { cancel() {}, unbind() {} } }',
+    hosts: 'export function createTouchAppraisal() {} export function getProductionMotionRuntime() {}',
+  }, { TestPlayer: Player })
   const root = createRoot(dom.window.document.getElementById('root'))
   const manifest = {}
   const playback = {}
@@ -130,11 +156,69 @@ test('outfit and callback changes keep the React player; stale loads cannot repo
     assert.deepEqual(errors, ['fourth'], 'terminal GPU errors call the latest owner')
   } finally {
     await act(async () => root.unmount())
-    dom.window.close()
-    for (const [key, descriptor] of previous) {
-      if (descriptor) Object.defineProperty(globalThis, key, descriptor)
-      else Reflect.deleteProperty(globalThis, key)
-    }
+    restore()
   }
   assert.equal(disposed, created)
+})
+
+test('signing in or out cancels a held touch; a released binding no longer hears it', async () => {
+  const { dom, restore } = installDom()
+  const log = { binds: 0, cancels: 0, unbinds: 0, released: 0 }
+  // The binding's cancel ends the touch the way a pointercancel would: through the reaction cancel.
+  const touch = {
+    bind(cancelReaction: () => void) {
+      log.binds += 1
+      return { cancel() { log.cancels += 1; cancelReaction() }, unbind() { log.unbinds += 1 } }
+    },
+  }
+  const hosts = {
+    runtime: { touch: { release() { log.released += 1 }, notePresented() {}, update() {}, current() { return null }, version() { return 0 } } },
+    appraisal: { cancel() {}, dispose() {}, observe() {} },
+  }
+  const loads: (() => void)[] = []
+  class Player {
+    replaceLivePackage() { return new Promise<void>(resolve => loads.push(resolve)) }
+    getMotionCapabilities() { return [] }
+    getMotionPolicy() { return { expression: 'idle', mouth: 'idle' } }
+    getPresentedTouch() { return null }
+    hitTestTouch() { return null }
+    setTarget() {}
+    setSpeechActive() {}
+    setSpeechProsody() {}
+    setSinging() {}
+    setSingingTrack() {}
+    setMusicSignal() {}
+    setBearing() {}
+    setScore() {}
+    resize() {}
+    tick() {}
+    dispose() {}
+  }
+  const Character = await loadCharacter({
+    touch: 'export function bindCharacterTouch(_canvas, _hit, _onTouch, cancelReaction) { return TouchLog.bind(cancelReaction) }',
+    hosts: 'export function createTouchAppraisal() { return Hosts.appraisal } export function getProductionMotionRuntime() { return Hosts.runtime }',
+  }, { TestPlayer: Player, TouchLog: touch, Hosts: hosts })
+  const root = createRoot(dom.window.document.getElementById('root'))
+  const render = (touchEnabled: boolean) => root.render(createElement(Character, {
+    activity: 'idle', mood: 0, manifest: {}, playback: {}, atlasUrl: 'atlas', touchEnabled,
+  }))
+  const signIn = () => dom.window.dispatchEvent(new dom.window.CustomEvent('auth-state-changed', {
+    detail: { isAuthenticated: true, isAdmin: false },
+  }))
+  try {
+    await act(async () => render(true))
+    assert.equal(log.binds, 0, 'touch binds only once the outfit is live')
+    await act(async () => loads[0]!())
+    assert.equal(log.binds, 1)
+    await act(async () => signIn())
+    assert.equal(log.cancels, 1)
+    assert.equal(log.released, 1, 'the cancelled touch releases her touch reaction')
+    await act(async () => render(false))
+    assert.equal(log.unbinds, 1)
+    await act(async () => signIn())
+    assert.equal(log.cancels, 1, 'an unbound surface no longer listens for sign-in changes')
+  } finally {
+    await act(async () => root.unmount())
+    restore()
+  }
 })
