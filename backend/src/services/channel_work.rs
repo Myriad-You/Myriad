@@ -56,6 +56,7 @@ mod first_word;
 mod inbound;
 mod session;
 mod work_run;
+pub(crate) mod works;
 
 use commands::*;
 pub(crate) use first_word::*;

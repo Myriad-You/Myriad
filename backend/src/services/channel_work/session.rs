@@ -2,7 +2,7 @@
 
 use super::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(super) struct StoredSession {
     pub(super) session_id: String,
     #[serde(default)]
@@ -18,6 +18,15 @@ pub(super) struct StoredSession {
     /// Her chat with them, apart from the Work she hands off.
     #[serde(default)]
     pub(super) chat_session_id: Option<String>,
+    /// A piece she handed off (see `works`): what it is to do, as she put it.
+    #[serde(default)]
+    pub(super) asked: String,
+    /// When the piece was handed off, unix seconds.
+    #[serde(default)]
+    pub(super) started_at: Option<i64>,
+    /// The piece was stopped on its own.
+    #[serde(default)]
+    pub(super) stopped: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,12 +61,7 @@ pub(super) async fn bind_session(
     .map_err(DbErr::Custom)?;
     let stored = StoredSession {
         session_id,
-        last_run_id: None,
-        last_event_seq: 0,
-        original_input: String::new(),
-        binding: None,
-        address: None,
-        chat_session_id: None,
+        ..Default::default()
     };
     put_session(db, platform, user_id, session_key, stored.clone()).await?;
     Ok(stored)

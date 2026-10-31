@@ -721,8 +721,17 @@ fn mind_chat_prompt(case: &Case) -> String {
             .map(super::merope::reach::writing_first_section),
         case.channel.as_ref().map(|channel| {
             super::delegate::section(&super::types::ChannelChat {
-                handed_off: channel["handedOff"].as_str().map(str::to_string),
-                busy: channel["busy"].as_bool().unwrap_or(false),
+                works: channel["works"]
+                    .as_array()
+                    .map(|works| {
+                        works
+                            .iter()
+                            .filter_map(|line| line.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .or_else(|| channel["handedOff"].as_str().map(|line| vec![line.to_string()]))
+                    .unwrap_or_default(),
+                waiting: channel["waiting"].as_u64().unwrap_or(0) as usize,
                 ..Default::default()
             })
         }),

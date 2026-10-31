@@ -111,12 +111,28 @@ pub async fn handle_callback(
         {
             return;
         }
-        let Some(pending) = load_pending(&db, platform, &session_key).await else {
+        // A piece's button answers that piece's question.
+        let key = myriad_agent_rules::channel::parse_telegram_callback(&data)
+            .and_then(|bound| works::number_of_prompt(&bound.prompt_id))
+            .map_or_else(|| session_key.clone(), |number| works::lane_key(&session_key, number));
+        let Some(pending) = load_pending(&db, platform, &key).await else {
             return;
         };
         match telegram_callback_action(&pending.prompt, &data) {
             TelegramCallbackAction::RequestInput => {
                 let _ = sink.send_force_reply(&pending.prompt.question).await;
+            }
+            TelegramCallbackAction::Resume(answer) if key != session_key => {
+                let work_session = load_session(&db, platform, &key)
+                    .await
+                    .map(|stored| stored.session_id)
+                    .unwrap_or_default();
+                super::held::INBOUND
+                    .scope(
+                        claimed,
+                        works::answer_pending(&db, user_id, &key, work_session, pending, &answer, sink),
+                    )
+                    .await;
             }
             TelegramCallbackAction::Resume(answer) => {
                 super::held::INBOUND
@@ -213,45 +229,21 @@ pub(super) async fn continue_text(
         let _ = sink.send_text("正在恢复上一件事的回复，请稍后再试。").await;
         return;
     }
+    // A question from before pieces, kept on the chat itself.
     if let Some(pending) = load_pending(db, platform, session_key).await {
-        if pending
-            .expected_user_id
-            .is_some_and(|expected| expected != user_id)
-        {
-            let _ = sink.send_text(PENDING_STALE_REPLY).await;
-            return;
-        }
-        match decide_pending_reply(&pending.prompt, input, crate::clock::now().timestamp()) {
-            PendingDecision::Reask { reply } => {
-                let _ = sink.send_prompt(&reply, &pending.prompt).await;
-                return;
-            }
-            PendingDecision::Expired { reply } => {
-                clear_pending(db, platform, session_key).await;
-                let _ = sink.send_text(&reply).await;
-                return;
-            }
-            PendingDecision::Resume { kind, answer, .. } => {
-                let taken = take_pending_if_id(db, platform, session_key, &pending.prompt.id).await;
-                if taken.is_none() {
-                    let _ = sink.send_text(PENDING_STALE_REPLY).await;
-                    return;
-                }
-                resume_pending(
-                    db.clone(),
-                    session_id,
-                    session_key,
-                    user_id,
-                    kind,
-                    answer,
-                    sink,
-                    input,
-                    pending,
-                )
-                .await;
-                return;
-            }
-        }
+        works::answer_pending(db, user_id, session_key, session_id, pending, input, sink).await;
+        return;
+    }
+    // The one piece waiting for an answer takes it; more, and she places it.
+    let pieces = works::pieces(db, platform, user_id, session_key).await;
+    let plain: Vec<works::Piece> = pieces.iter().map(|(_, piece)| piece.clone()).collect();
+    if let works::Route::Answer(number) = works::route(&plain)
+        && let Some((lane, _)) = pieces.iter().find(|(lane, _)| lane.number == number)
+        && let Some(pending) = load_pending(db, platform, &lane.key).await
+    {
+        let work_session = lane.stored.session_id.clone();
+        works::answer_pending(db, user_id, &lane.key, work_session, pending, input, sink).await;
+        return;
     }
 
     // She answers as herself; Work is what she hands off.

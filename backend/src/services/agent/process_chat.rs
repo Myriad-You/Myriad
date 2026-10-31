@@ -63,7 +63,7 @@ impl Agent {
                         &self.db,
                         &request,
                         &reply,
-                        handed_off.as_deref(),
+                        &handed_off,
                         sticker,
                     )
                     .await,
@@ -251,7 +251,7 @@ impl Agent {
             response_type: AgentResponseType::Answer,
             message: reply.clone(),
             data: Some(
-                chat_reply_with_overlay(&self.db, &request, &reply, handed_off.as_deref(), sticker)
+                chat_reply_with_overlay(&self.db, &request, &reply, &handed_off, sticker)
                     .await,
             ),
             data_display: None,
@@ -334,7 +334,7 @@ async fn chat_reply_with_overlay(
     db: &sea_orm::DatabaseConnection,
     request: &UserRequest,
     reply: &str,
-    handed_off: Option<&str>,
+    handed_off: &[crate::services::agent::delegate::HandOff],
     sticker: Option<myriad_merope::stickers::Choice>,
 ) -> Value {
     let mut data = crate::services::agent::chat_prompt::chat_reply_data(reply, &request.raw_input);
@@ -351,16 +351,15 @@ async fn chat_reply_with_overlay(
         object.insert("sticker".into(), value);
     }
     // Work she handed off, for the channel to start; only where she may.
-    if let (Some(instruction), Some(object)) = (
-        handed_off.filter(|_| {
-            request
-                .context
-                .as_ref()
-                .is_some_and(|context| context.channel_chat.is_some())
-        }),
-        data.as_object_mut(),
-    ) {
-        object.insert("handOff".into(), json!({ "instruction": instruction }));
+    let may_hand_off = request
+        .context
+        .as_ref()
+        .is_some_and(|context| context.channel_chat.is_some());
+    if may_hand_off
+        && !handed_off.is_empty()
+        && let Some(object) = data.as_object_mut()
+    {
+        object.insert("handOffs".into(), json!(handed_off));
     }
     let session_id = request
         .context
