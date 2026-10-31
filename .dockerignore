@@ -6,6 +6,8 @@ figure/.git
 figure/core
 figure/node_modules
 tapp/runtime/node_modules
+tapp/tools/tapp-cli/node_modules
+tapp/target
 .gitignore
 .gitattributes
 
@@ -17,9 +19,6 @@ tapp/runtime/node_modules
 docs/**
 !docs/development/
 !docs/development/**
-!docs/features/
-docs/features/**
-!docs/features/TAPP_FILE_FORMAT.md
 LICENSE
 
 # Environment files

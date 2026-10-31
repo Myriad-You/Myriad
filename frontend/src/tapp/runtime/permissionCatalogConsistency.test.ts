@@ -6,7 +6,7 @@ import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { PERMISSION_LEVELS, PERMISSION_MAP } from '@myriad/tapp-runtime'
-import sandboxContract from '../../../../shared/tapp_sandbox_contract.json' with { type: 'json' }
+import sandboxContract from '../../../../tapp/shared/tapp_sandbox_contract.json' with { type: 'json' }
 import { PERMISSION_COPY } from '../constants/permissionCopy.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -18,7 +18,7 @@ interface ContractExport {
 
 function loadContractExport(): ContractExport {
   const raw = readFileSync(
-    join(repoRoot, 'tools/tapp-cli/src/generated/contract.json'),
+    join(repoRoot, 'tapp/tools/tapp-cli/src/generated/contract.json'),
     'utf8',
   )
   return JSON.parse(raw) as ContractExport

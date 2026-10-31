@@ -1,7 +1,7 @@
 # Tapp REST API
 
 本文记录当前宿主调用的 Tapp 后端路由。第三方 Tapp 代码通常应使用
-[Tapp SDK](API_REFERENCE.md)，不要直接拼接这些 URL；SDK 会处理身份、CSRF、字段转换、
+[Tapp SDK](../../../tapp/docs/API_REFERENCE.md)，不要直接拼接这些 URL；SDK 会处理身份、CSRF、字段转换、
 权限预检和错误解包。
 
 架构与安全边界见 [Tapp 架构](ARCHITECTURE.md)。路由权威来源是
@@ -377,7 +377,7 @@ storage entity 也不会序列化密文；数据库约束只允许 `_credentials
 | DELETE | `/api/tapps/{tappId}/storage/{key}`      | 删除值                                      |
 
 storage 路由要求 optional_auth + Runtime Grant。读取需要 `storage:read`；写入、删除和清空
-需要 `storage:write`。`storage:read` 与 `platform:read` 均为 **guest-safe basic**（见 [MANIFEST · 权限](MANIFEST.md) 与
+需要 `storage:write`。`storage:read` 与 `platform:read` 均为 **guest-safe basic**（见 [MANIFEST · 权限](../../../tapp/docs/MANIFEST.md) 与
 `permission_service::requires_authenticated_subject`）：签名游客 session 可作为 subject，
 私有 storage 落在负 id 命名空间下，平台 **读** 走 optional_auth 的公开站点缓存。
 通用 storage 使用当前 subject 命名空间，并拒绝访问 `_settings.`、`_shared.`、`_private.`、`_component:`、
@@ -409,7 +409,7 @@ Widget 注册 body 除 `id`、`name`、`default_size`、`sizes` 等元数据外�
 
 不存在 `/api/tapp-store/...` 路由。
 
-**商店安装语义**（完整协议见 [Tapp 商店](STORE.md)）：
+**商店安装语义**（完整协议见 [Tapp 商店](../../../tapp/docs/STORE.md)）：
 
 - `source: "store"` 时 `storeSource` 必须是已配置源的 **数字 id**、完整 `index.json` URL，或可规范化匹配到已配置源的 base URL；禁止传字面量 `"store"` / `"direct"`。
 - 后端从该源拉 `index.json` 与 `download` / `manifest.assets` 文件，校验索引与 Manifest 的 `category` 一致后进入与 direct 相同的 staging 安装。
@@ -466,7 +466,7 @@ Widget 注册 body 除 `id`、`name`、`default_size`、`sizes` 等元数据外�
 `{ "success": true, "enabled": false, "source": "site_analytics" }`，不查表、无 `scope`。
 开启时响应含 `enabled: true`、`source: "site_analytics"` 与上表 `scope`。
 
-SDK 与示例见 [API_REFERENCE · 访问统计](API_REFERENCE.md#访问统计-api)。
+SDK 与示例见 [API_REFERENCE · 访问统计](../../../tapp/docs/API_REFERENCE.md#访问统计-api)。
 
 AI 权限、每分钟速率、每日 calls/tokens 与 cooldown 全由后端执行。配额在模型调用前事务预留、
 完成后按实际估算结算、失败/取消释放未消耗 token；calls 仍记录一次尝试。AI Task 还校验
@@ -490,7 +490,7 @@ Manifest operation/model tier/context/output 声明，并将任务绑定 subject
 | `AI_TASK_INPUT_LIMIT` | 413 | 缩小请求；`input` 除 `referenceImages` 外仍受 256 KiB 限制，含参考图时另有 base64 序列化总上限 |
 
 供应商调用失败体现在任务的 `failed` 状态和 `AI_PROVIDER_ERROR` 中，错误详情不会原样返回应用。
-完整参数、上传转换和复用生成图片示例见 [AI API](API_REFERENCE.md#ai-api)。
+完整参数、上传转换和复用生成图片示例见 [AI API](../../../tapp/docs/API_REFERENCE.md#ai-api)。
 
 除按日聚合的配额计数外，每次受治理的 AI 调用（完成/失败/取消）都会追加一条
 `ai_cost_ledger` 流水：subject、安装 owner、Tapp、任务、来源（runtime 或
@@ -522,7 +522,7 @@ Tapp 发起的，没有 `tapp_id`，靠来源区分。文字走 `AiAnalyzer` 钩
 卸载也会清理 requester 状态；提供方 Tapp 停止或卸载会清理指向它的请求与 Grant。consume
 必须携带匹配 Tapp ID、subject 与安装 owner 的 provider Runtime Grant，服务端先删除一次性 token，再验证响应 schema、
 `maxBytes` 和 `maxRecords`，因此失败
-也不能重放。详细 SDK 契约见 [Data Exchange API](API_REFERENCE.md#跨-tapp-data-exchange-api)。
+也不能重放。详细 SDK 契约见 [Data Exchange API](../../../tapp/docs/API_REFERENCE.md#跨-tapp-data-exchange-api)。
 
 ### Event Broker 与 Agent Interaction
 
@@ -556,10 +556,10 @@ Interaction 的动作截止时间独立于终态保留时间；所有副本都�
 
 联邦写操作、消息、私有 Room 与文件等仍走各自 SDK/宿主路径，且对游客不可用；见
 [ARCHITECTURE 所有权与可见性](ARCHITECTURE.md#所有权与可见性) 与
-[API_REFERENCE Channel/Room](API_REFERENCE.md#channel--room--ring--trust--传输摘要)。
+[API_REFERENCE Channel/Room](../../../tapp/docs/API_REFERENCE.md#channel--room--ring--trust--传输摘要)。
 Phantasi / 语音 / 联邦 REST 宿主代理路径已统一按 Grant 归因：带 `X-Tapp-Runtime-Grant` 的请求在服务端按路由强制 Tapp
 权限并记录归因日志（共享 `host_attribution` 中间件；路由→权限表见
-`docs/development/tapp/fixtures/host_route_permissions.json`，**先改 fixture 再改映射**）。
+`tapp/docs/fixtures/host_route_permissions.json`，**先改 fixture 再改映射**）。
 `GET /api/federation/public/rooms/*` 与 `GET /api/federation/public/limits` **不**列入该表。联邦 E2E 密钥交换与 Channel/Room
 WebSocket 升级不能携带 Grant 头，因此 Tapp Bridge 先调用
 `POST /api/federation/channels/{channelId}/ws-ticket` 或
@@ -712,7 +712,7 @@ owner 可在 Tapp 详情里停用**该安装**的 `/tapi`（响应 403 `ROUTE_PA
 `/tapi` 验签替代 CSRF；带站点 Cookie 的 POST 也不要求 `X-CSRF-Token`。
 请求体超过 1 MiB 返回 413 `ROUTE_BODY_TOO_LARGE`。入站密钥泄露后应立刻在详情页轮换。
 
-签名规则见 [Manifest · 入站路由](MANIFEST.md#入站路由-apisroute)。
+签名规则见 [Manifest · 入站路由](../../../tapp/docs/MANIFEST.md#入站路由-apisroute)。
 
 ## 修改路由时的同步项
 
@@ -720,7 +720,7 @@ owner 可在 Tapp 详情里停用**该安装**的 `/tapi`（响应 403 `ROUTE_PA
 
 1. 后端路由注册、中间件和 handler 内授权；
 2. `frontend/src/tapp/services/TappApiService.ts` 的 Cookie、CSRF 和字段转换；
-3. sandbox handler 与 `shared/tapp_sandbox_contract.json`（动作权限表）；
+3. sandbox handler 与 `tapp/shared/tapp_sandbox_contract.json`（动作权限表）；
 4. `sdkGenerator.ts` 的公开方法；
-5. 本文和 [SDK API](API_REFERENCE.md)；
+5. 本文和 [SDK API](../../../tapp/docs/API_REFERENCE.md)；
 6. Page、Widget、headless 三种宿主是否都应暴露该能力。

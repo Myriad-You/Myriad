@@ -34,9 +34,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/myriad-you/Myriad.git",
-    "directory": "tools/tapp-cli"
+    "directory": "tapp/tools/tapp-cli"
   },
-  "homepage": "https://github.com/myriad-you/Myriad/tree/main/tools/tapp-cli",
+  "homepage": "https://github.com/myriad-you/Myriad/tree/preview/tapp/tools/tapp-cli",
   "bugs": {
     "url": "https://github.com/myriad-you/Myriad/issues"
   }

@@ -24,7 +24,7 @@ Closes #
 - [ ] `frontend`
 - [ ] `backend` / `crates/*`
 - [ ] `backend/migrations` (database schema · 数据库结构)
-- [ ] Tapp contract / `tools/tapp-cli`
+- [ ] Tapp contract / `tapp/`
 - [ ] `proxy` / `updater`
 - [ ] Docker / CI / docs
 

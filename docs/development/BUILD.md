@@ -42,14 +42,18 @@ dependencies (see [Cargo Workspaces](https://doc.rust-lang.org/book/ch14-03-carg
 | `crates/myriad-prompt-security/` | `myriad-prompt-security` (prompt injection heuristics) |
 | `crates/myriad-psn-auth/` | `myriad-psn-auth` (PSN NPSSO→token) |
 | `crates/myriad-runtime-registry/` | `myriad-runtime-registry` (runtime registry/mailbox) |
-| `crates/tapp-contract/` | `myriad-tapp-contract` |
-| `crates/myriad-tapp-rules/` | `myriad-tapp-rules` (HMAC, transform, package plan, feed) |
-| `tools/tapp-contract-export/` | `myriad-tapp-contract-export` (prints `export_tapp_contract()`) |
 
 Shared artifacts: root `Cargo.lock` and root `target/`.  
 `proxy/` and `updater/` are listed in `workspace.exclude` — independent
-packages with their own lock + `target`. `tools/tapp-contract-export/` is a
-workspace member.
+packages with their own lock + `target`.
+
+`tapp/` is excluded the same way: its own workspace (`tapp/Cargo.toml`, own
+lock and `target`) holding `myriad-tapp-contract` (`crates/tapp-contract/`),
+`myriad-tapp-rules` (`crates/myriad-tapp-rules/`: HMAC, transform, package
+plan, feed) and `myriad-tapp-contract-export` (`tools/tapp-contract-export/`,
+prints `export_tapp_contract()`). The backend uses the two crates as path
+dependencies, as it does core's. Their tests run from `tapp/`:
+`cargo test --workspace`.
 
 The shared core (`myriad-merope`, `myriad-agent-rules`, `myriad-persona-sync`,
 `myriad-persona-log`, `myriad-her-link` and the contracts in `core/shared/`)

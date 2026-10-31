@@ -4,9 +4,9 @@
 （`source=direct` 或 `source=store`），以及本文件描述的文件安装 `POST /api/tapps/install-file`
 （multipart 字段名 `file`）。不存在 `/api/tapp-store` 路由。
 
-开发模型与运行时边界见 [Tapp 架构](../development/tapp/ARCHITECTURE.md)，完整字段见
-[Manifest 配置](../development/tapp/MANIFEST.md)。远程目录安装（非 ZIP）见
-[Tapp 商店](../development/tapp/STORE.md)。
+开发模型与运行时边界见 [Tapp 架构](https://github.com/Myriad-You/Myriad/blob/preview/docs/development/tapp/ARCHITECTURE.md)，完整字段见
+[Manifest 配置](MANIFEST.md)。远程目录安装（非 ZIP）见
+[Tapp 商店](STORE.md)。
 
 ## 最小包
 
@@ -30,7 +30,7 @@ com.example.app.tapp
 }
 ```
 
-`category` 在安装时必填，取值见 [Manifest · 应用分类](../development/tapp/MANIFEST.md#应用分类)。
+`category` 在安装时必填，取值见 [Manifest · 应用分类](MANIFEST.md#应用分类)。
 
 包按**层**组织：`core` 是三层共享层，`page` 是页面层，`widgets[]` 各自一层。每层用
 `entry` 声明自己的 `.js` 入口（相对包根目录），层内其余文件由入口用相对路径 `require`
@@ -150,9 +150,9 @@ Tapp ID 和 Manifest 资源路径用于构造安装目录，必须遵守严格�
 `Tapp.assets` 读取，后端入口为 `GET /api/tapps/{tappId}/asset?path=...`（返回 base64，
 SDK 在 iframe 内转为 `blob:` / `data:`）。
 
-- 字段、数量与体积上限见 [Manifest 配置](../development/tapp/MANIFEST.md)（默认单文件 ≤ 16 MiB，
+- 字段、数量与体积上限见 [Manifest 配置](MANIFEST.md)（默认单文件 ≤ 16 MiB，
   合计 ≤ 64 MiB，最多 128 项；禁止 `.js` / `.html` 作为 asset）。
-- 使用方式与 Canvas/音频示例见 [图形与轻量游戏](../development/tapp/GRAPHICS.md)。
+- 使用方式与 Canvas/音频示例见 [图形与轻量游戏](GRAPHICS.md)。
 - 任意放入 `assets/` 但未写入 `manifest.assets` 的文件不会暴露给运行时。
 - 不要假设 `<img src="assets/a.png">` 会直接读后端安装目录；应使用
   `Tapp.assets.getUrl(...)` 得到的 URL，或允许的远程 / `data:` / `blob:` 源。

@@ -17,7 +17,9 @@ RUN apt-get update && apt-get install -y \
 # /build/backend/src/... with docs at /build/docs/...
 #
 # Cargo workspace root is /build (virtual workspace); members:
-#   backend, backend/migrations, crates/*, tools/tapp-contract-export
+#   backend, backend/migrations, crates/*
+# The Tapp contract and rules are path dependencies under tapp/crates (their
+# own workspace, excluded here like core/).
 # Cargo loads every member manifest even for `cargo build -p myriad-backend`.
 # The shared core is the `core/` git submodule (path deps under core/crates,
 # contracts under core/shared); the build context needs it checked out.
@@ -40,8 +42,9 @@ COPY backend/Cargo.toml ./backend/
 COPY backend/migrations ./backend/migrations
 COPY crates ./crates
 COPY core ./core
-# Workspace member (export CLI); not linked into backend, but manifest must exist.
-COPY tools/tapp-contract-export ./tools/tapp-contract-export
+COPY tapp/crates ./tapp/crates
+# The sandbox contract via include_str! in tapp-contract (../../../shared/... → /build/tapp/shared/)
+COPY tapp/shared ./tapp/shared
 
 # Copy actual source code early to avoid dummy build issues
 COPY backend/src ./backend/src
@@ -52,9 +55,11 @@ COPY backend/assets ./backend/assets
 # Shared host list via include_str! in profile.rs (../../../shared/... → /build/shared/)
 COPY shared ./shared
 
-# Docs embedded at compile time via include_str! in tapp_playground*.rs
+# Docs embedded at compile time via include_str! in tapp_playground*.rs and
+# tapp_host_attribution.rs: the site's own under docs/, the app author docs
+# and permission fixtures under tapp/docs/
 COPY docs/development ./docs/development
-COPY docs/features/TAPP_FILE_FORMAT.md ./docs/features/TAPP_FILE_FORMAT.md
+COPY tapp/docs ./tapp/docs
 
 # Cache mounts keep registry/git/target across builds. Binary must be copied
 # out of the target mount — mount contents are not part of the image layer.

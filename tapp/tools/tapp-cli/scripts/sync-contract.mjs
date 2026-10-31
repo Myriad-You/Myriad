@@ -3,16 +3,16 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
-import { findMyriadRepoRoot } from './myriad-source.mjs'
+import { findTappRoot } from './myriad-source.mjs'
 import { generateTappSdkDts } from './sdk-dts.mjs'
 
 const execFileAsync = promisify(execFile)
 const here = dirname(fileURLToPath(import.meta.url))
 const packageRoot = resolve(here, '..')
-const repoRoot = findMyriadRepoRoot(packageRoot)
+const repoRoot = findTappRoot(packageRoot)
 if (!repoRoot) {
   throw new Error(
-    'Unable to locate the Myriad source tree; set MYRIAD_REPO_ROOT before syncing the generated contract',
+    'Unable to locate the Tapp source tree; set MYRIAD_REPO_ROOT before syncing the generated contract',
   )
 }
 const exporterManifestPath = resolve(

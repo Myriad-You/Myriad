@@ -9,9 +9,9 @@ version 3 text follows.
 These components are licensed under the Apache License, Version 2.0
 (LICENSES/Apache-2.0.txt):
 
-  - crates/tapp-contract
-  - tools/tapp-cli
-  - tools/tapp-contract-export
+  - tapp/crates/tapp-contract
+  - tapp/tools/tapp-cli
+  - tapp/tools/tapp-contract-export
 
 proxy/ and updater/ are separate programs, also under GNU AGPL version 3 only.
 

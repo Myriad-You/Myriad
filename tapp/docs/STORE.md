@@ -4,10 +4,10 @@
 
 | 相关文档 | 用途 |
 | -------- | ---- |
-| [架构总览](ARCHITECTURE.md) | 安装态、staging、所有权与可见性 |
+| [架构总览](https://github.com/Myriad-You/Myriad/blob/preview/docs/development/tapp/ARCHITECTURE.md) | 安装态、staging、所有权与可见性 |
 | [Manifest 配置](MANIFEST.md) | 包内字段、分类、assets、权限 |
-| [`.tapp` 文件格式](../../features/TAPP_FILE_FORMAT.md) | ZIP 安装包布局（文件安装） |
-| [REST API](REST_API.md) | 宿主 `/api/tapps/*` 端点 |
+| [`.tapp` 文件格式](TAPP_FILE_FORMAT.md) | ZIP 安装包布局（文件安装） |
+| [REST API](https://github.com/Myriad-You/Myriad/blob/preview/docs/development/tapp/REST_API.md) | 宿主 `/api/tapps/*` 端点 |
 | [快速入门](QUICKSTART.md) | 本地开发与 CLI 打包 |
 | 官方仓库 | [Myriad-You/tapp-store](https://github.com/Myriad-You/tapp-store)（仓库 README 与 `development/tapp/` 镜像本协议） |
 
@@ -447,7 +447,7 @@ REST 商店安装仍是 body `source: "store"` + `storeSource: catalogRef`（源
 | 直接 | `install` + `source=direct` | 请求体内联 manifest/code/资源 |
 | 文件 | `install-file` multipart `file` | ZIP `.tapp` |
 
-三种路径最终校验与落盘规则一致。商店发布可以只维护文件树 + 索引；本地分发可用 CLI `myriad-tapp pack` 产出 `.tapp`。格式见 [TAPP_FILE_FORMAT](../../features/TAPP_FILE_FORMAT.md)。
+三种路径最终校验与落盘规则一致。商店发布可以只维护文件树 + 索引；本地分发可用 CLI `myriad-tapp pack` 产出 `.tapp`。格式见 [TAPP_FILE_FORMAT](TAPP_FILE_FORMAT.md)。
 
 ---
 
@@ -501,7 +501,7 @@ REST 商店安装仍是 body `source: "store"` + `storeSource: catalogRef`（源
 
 ## 后端模块地图（`tapp_store`）
 
-商店相关只是 `backend/src/api/tapp_store/` 的一部分；完整安装/运行见 [ARCHITECTURE](ARCHITECTURE.md)。
+商店相关只是 `backend/src/api/tapp_store/` 的一部分；完整安装/运行见 [ARCHITECTURE](https://github.com/Myriad-You/Myriad/blob/preview/docs/development/tapp/ARCHITECTURE.md)。
 
 | 模块 | 职责 |
 | ---- | ---- |
@@ -590,6 +590,6 @@ REST 商店安装仍是 body `source: "store"` + `storeSource: catalogRef`（源
 2. `RemoteStoreService` 类型与下载字段；
 3. `store_package.rs` 与客户端 `downloadAppPackage` 对必填资源/assets 行为一致；
 4. `TappInstallationApi.installFromStore` 回退条件与大包阈值；
-5. 本文、[REST_API](REST_API.md)、[MANIFEST](MANIFEST.md) 分类与路径规则；
+5. 本文、[REST_API](https://github.com/Myriad-You/Myriad/blob/preview/docs/development/tapp/REST_API.md)、[MANIFEST](MANIFEST.md) 分类与路径规则；
 6. 后端商店/安装定向测试与前端相关单测（`storePackagePaths`、`tappInstallProgress` 等）；
 7. 边缘统计 `edge/` 契约（若改 hit/stats 协议）。

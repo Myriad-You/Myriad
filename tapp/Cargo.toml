@@ -1,0 +1,10 @@
+# The Tapp contract, its pure rules and the contract exporter. Its own
+# workspace and lock: the site's backend uses the two crates as path
+# dependencies, the same way it uses core/.
+[workspace]
+resolver = "2"
+members = [
+    "crates/myriad-tapp-rules",
+    "crates/tapp-contract",
+    "tools/tapp-contract-export",
+]

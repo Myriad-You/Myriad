@@ -71,7 +71,7 @@ IIFE under `page/` and `require` it from the page entry. Put textures and `.glb`
 in `manifest.assets` and load them through `Tapp.assets`. The sandbox cannot fetch
 a CDN copy of the engine; `check` warns when page HTML or JS points at `unpkg` /
 `jsdelivr` / `cdnjs` / `esm.sh`. See
-[GRAPHICS.md](../../docs/development/tapp/GRAPHICS.md).
+[GRAPHICS.md](../../docs/GRAPHICS.md).
 
 Online games use `Tapp.game` plus `game:session` and federation permissions.
 `create()` is private by default; preview cannot exercise these APIs.
@@ -163,7 +163,7 @@ Image tasks accept ordered references in `input.referenceImages`: up to four
 PNG/JPEG/WebP base64 data URLs or local `/api/phantasi/image-cache/...` paths, with
 at most 10 MiB of decoded image data in total. Runtime validation enforces these
 limits; editor types do not verify file contents or provider capabilities. See
-the [AI Task examples](../../docs/development/tapp/API_REFERENCE.md#ai-api).
+the [AI Task examples](../../docs/API_REFERENCE.md#ai-api).
 
 ## Generated contract
 

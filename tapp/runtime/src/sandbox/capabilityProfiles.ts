@@ -1,5 +1,5 @@
 import type { TappBridge } from '../TappBridge'
-import sandboxContract from '../../../../shared/tapp_sandbox_contract.json' with { type: 'json' }
+import sandboxContract from '../../../shared/tapp_sandbox_contract.json' with { type: 'json' }
 
 export type SandboxCapabilityProfile = 'page' | 'widget' | 'headless'
 

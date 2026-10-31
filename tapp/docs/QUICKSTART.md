@@ -3,7 +3,7 @@
 Tapp (Third-party App) 是 Myriad 的扩展应用系统，允许开发者创建自定义小组件、工具和功能扩展。
 当前推荐使用 `@myriad-you/tapp-cli` 创建、校验和打包项目；Manifest 字段与 SDK 能力分别见
 [Manifest 配置](MANIFEST.md)和 [API 参考](API_REFERENCE.md)。CLI 的完整命令契约见
-[Myriad Tapp CLI](../../../tools/tapp-cli/README.md)。
+[Myriad Tapp CLI](../tools/tapp-cli/README.md)。
 
 ## For agents
 
@@ -41,11 +41,11 @@ myriad-tapp pack .
 成功后，在 Myriad 的 Tapp 管理页或商店选择安装，上传
 `dist/{manifest.id}.tapp`（或从商店安装）。宿主会弹出 **安装确认**（`InstallTappDialog`）
 展示申请权限；服务器经 `POST /api/tapps/install-file` / `install` 写入安装态。浏览器
-处理登录 Cookie 和 CSRF。接口见 [Tapp REST API](REST_API.md#需要登录的变更路由)，
-包格式见 [`.tapp` 文件格式](../../features/TAPP_FILE_FORMAT.md)。
+处理登录 Cookie 和 CSRF。接口见 [Tapp REST API](https://github.com/Myriad-You/Myriad/blob/preview/docs/development/tapp/REST_API.md#需要登录的变更路由)，
+包格式见 [`.tapp` 文件格式](TAPP_FILE_FORMAT.md)。
 
 列表页支持 **我的 / 站点** 范围、卡片 `1x1`·`2x1` 与登录用户拖拽排序；布局 API 见
-[列表布局](REST_API.md#列表布局-apitappslist-card-sizes)。若声明 `analytics:read`，
+[列表布局](https://github.com/Myriad-You/Myriad/blob/preview/docs/development/tapp/REST_API.md#列表布局-apitappslist-card-sizes)。若声明 `analytics:read`，
 可用 [访问统计 SDK](API_REFERENCE.md#访问统计-api)（admin 完整 summary；user/guest 仅
 访客卡片聚合；关闭采集时 `enabled: false` 短路）。站点 Agent 人设用
 [人设名片](API_REFERENCE.md#人设名片-api)（无需权限；只读名字、心情带、同源立绘路径）。

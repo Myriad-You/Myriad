@@ -68,7 +68,7 @@ docs/
 | 文档 | 说明 |
 | --- | --- |
 | [LIBRARY.md](features/LIBRARY.md) | 资料库 |
-| [TAPP_FILE_FORMAT.md](features/TAPP_FILE_FORMAT.md) | `.tapp` 包格式 |
+| [TAPP_FILE_FORMAT.md](../tapp/docs/TAPP_FILE_FORMAT.md) | `.tapp` 包格式 |
 | [theme-system.md](design/theme-system.md) | Surface / Glow |
 | [icon-inventory.md](design/icon-inventory.md) | 图标规范 |
 | [notification-catalog.md](design/notification-catalog.md) | 通知目录 |

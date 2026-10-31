@@ -46,7 +46,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 # Native tool schemas validate locally; no network/file reference resolution.
 jsonschema = { version = "0.60", default-features = false }
-myriad-tapp-contract = { path = "../crates/tapp-contract" }
+myriad-tapp-contract = { path = "../tapp/crates/tapp-contract" }
 myriad-error = { path = "../crates/myriad-error" }
 myriad-data-key = { path = "../crates/myriad-data-key" }
 myriad-mcp = { path = "../crates/myriad-mcp" }
@@ -65,7 +65,7 @@ myriad-persona-log = { path = "../core/crates/myriad-persona-log" }
 myriad-her-link = { path = "../core/crates/myriad-her-link" }
 myriad-phantasi-notes = { path = "../crates/myriad-phantasi-notes" }
 myriad-blog = { path = "../crates/myriad-blog" }
-myriad-tapp-rules = { path = "../crates/myriad-tapp-rules" }
+myriad-tapp-rules = { path = "../tapp/crates/myriad-tapp-rules" }
 myriad-module-visibility = { path = "../crates/myriad-module-visibility" }
 myriad-process-info = { path = "../crates/myriad-process-info" }
 myriad-psn-auth = { path = "../crates/myriad-psn-auth" }

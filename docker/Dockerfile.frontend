@@ -47,9 +47,10 @@ COPY shared /shared
 COPY core/shared /core/shared
 # The 2.5D figure's source (@myriad/figure → /figure/src)
 COPY figure/src /figure/src
-# The Tapp runtime's source (@myriad/tapp-runtime → /tapp/runtime/src; its
-# ../../../shared/... contract import lands on /shared above)
+# The Tapp runtime's source (@myriad/tapp-runtime → /tapp/runtime/src) and the
+# sandbox contract it imports (../../shared/... → /tapp/shared)
 COPY tapp/runtime/src /tapp/runtime/src
+COPY tapp/shared /tapp/shared
 
 # Built-in TAPP sources bundled as examples
 # (relative ../../../../../tapps/... from /app/src/tapp/examples/tapps/... → /tapps/...)

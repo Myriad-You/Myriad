@@ -1208,7 +1208,7 @@ Runtime Grant 中。
 
 Playground **临时预览不注册** federation handlers、也不签发 Runtime Grant；下列 API 仅在
 正式安装运行后可用。权限映射与 REST 对照见
-`docs/development/tapp/fixtures/action_permissions.json` 与
+`docs/fixtures/action_permissions.json` 与
 `host_route_permissions.json`。
 
 ### Feed / Timeline / 身份 / 关注
@@ -1480,7 +1480,7 @@ await Tapp.tappList.export("com.example.app");
   `installDirect`，包体会经过 sandbox Bridge（与商店元数据-only 路径不同）。`modules`
   的键是包内相对路径（`core.js`、`page/index.js`、`widget/index.js`）。
 - **上传 `.tapp` 文件**仍走宿主 UI / `POST /api/tapps/install-file`，不经
-  `tappList.install`（见 [REST API](REST_API.md)、[文件格式](../../features/TAPP_FILE_FORMAT.md)）。
+  `tappList.install`（见 [REST API](https://github.com/Myriad-You/Myriad/blob/preview/docs/development/tapp/REST_API.md)、[文件格式](TAPP_FILE_FORMAT.md)）。
 - 分享卡片安装必须带真实 catalog（`storeSource` 或 HTTP `source`），见 [STORE](STORE.md)。
 
 ---
@@ -1717,7 +1717,7 @@ await Tapp.dynamicContent.remove();
 「本次跳过（无在线前端）」，该状态不表示任务正在排队等待上线。
 需要刷新后继续接收任务的应用，应在 `backgroundRequirements` 中声明 `scheduler`，并在 core
 中注册回调；这仍需要至少一个站点标签页运行。详见
-[架构文档的调度器说明](ARCHITECTURE.md#调度器)。
+[架构文档的调度器说明](https://github.com/Myriad-You/Myriad/blob/preview/docs/development/tapp/ARCHITECTURE.md#调度器)。
 
 ```javascript
 // 注册定时任务
@@ -1847,9 +1847,9 @@ const declaredApis = await Tapp.api.list();
   HTTPS origin 和重新授权规则见
   [Manifest · 安装级 API 凭据](MANIFEST.md#安装级-api-凭据-credentials)。
 - 详细 Manifest 字段和 REST 链路见 [Manifest](MANIFEST.md#api-声明-apis) 与
-  [REST API](REST_API.md#manifest-声明-api)。
+  [REST API](https://github.com/Myriad-You/Myriad/blob/preview/docs/development/tapp/REST_API.md#manifest-声明-api)。
 - 给其他程序挂稳定 URL 时使用 `apis.*.route`（必须 HMAC）。沙箱不要自己拼 `/tapi`；
-  见 [入站路由](MANIFEST.md#入站路由-apisroute) 与 [REST API · 入站声明路由](REST_API.md#入站声明路由)。
+  见 [入站路由](MANIFEST.md#入站路由-apisroute) 与 [REST API · 入站声明路由](https://github.com/Myriad-You/Myriad/blob/preview/docs/development/tapp/REST_API.md#入站声明路由)。
 
 ## 文件与语音 API
 

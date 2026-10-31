@@ -89,7 +89,7 @@ dark:bg-black/90      /* 纯黑色 90% 不透明度 */
 
 ### 系统定义
 
-来自 [theme.css](../../../frontend/src/styles/theme.css)：
+来自 [theme.css](https://github.com/Myriad-You/Myriad/blob/preview/frontend/src/styles/theme.css)：
 
 ```css
 .glass {

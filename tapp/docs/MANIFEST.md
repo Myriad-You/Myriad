@@ -233,7 +233,7 @@ Page、Widget 和 headless core 是运行形态，由 `page`、`widgets` 和
 
 ### 所有权、可见性与同 ID 并存
 
-完整模型以 [ARCHITECTURE.md · 所有权与可见性](./ARCHITECTURE.md#所有权与可见性) 为准；
+完整模型以 [ARCHITECTURE.md · 所有权与可见性](https://github.com/Myriad-You/Myriad/blob/preview/docs/development/tapp/ARCHITECTURE.md#所有权与可见性) 为准；
 本处只固定与 Manifest / 安装相关的要点：
 
 - **公开与私有可并存**：站点管理员在规范公开 owner 命名空间安装的公开 Tapp，与普通用户
@@ -1060,7 +1060,7 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 
 ## 权限列表
 
-权限等级与运行时边界见 [架构文档的权限模型](./ARCHITECTURE.md#权限模型)。Manifest
+权限等级与运行时边界见 [架构文档的权限模型](https://github.com/Myriad-You/Myriad/blob/preview/docs/development/tapp/ARCHITECTURE.md#权限模型)。Manifest
 中的权限仍需经过安装授权；“基础”不表示 Tapp 可以省略申请。
 
 ### 基础权限

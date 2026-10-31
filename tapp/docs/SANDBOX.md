@@ -1,7 +1,7 @@
 # Tapp 安全沙箱
 
 本文说明当前 Tapp Page、Widget 与 headless core 的浏览器隔离边界。整体运行链路见
-[Tapp 架构](ARCHITECTURE.md)，可调用能力见 [SDK API](API_REFERENCE.md)。
+[Tapp 架构](https://github.com/Myriad-You/Myriad/blob/preview/docs/development/tapp/ARCHITECTURE.md)，可调用能力见 [SDK API](API_REFERENCE.md)。
 
 ## 安全边界
 
@@ -259,9 +259,9 @@ Manifest **安装级 settings** 由 owner / 管理员写入 installation owner �
 - 新增 SDK action 时同步更新权限映射、宿主 handler、后端校验和文档。
 - 若涉及 speech / phantasi / federation 宿主代理：动作权限在
   `shared/tapp_sandbox_contract.json` 修改，同步一致性 fixture
-  `docs/development/tapp/fixtures/action_permissions.json`（路由变化改
+  `docs/fixtures/action_permissions.json`（路由变化改
   `host_route_permissions.json`）与后端 `host_attribution`；跑
-  `tapp/runtime/` 下的 `node --experimental-strip-types --test src/permissionMapConsistency.test.ts`
+  `runtime/` 下的 `node --experimental-strip-types --test src/permissionMapConsistency.test.ts`
   与 `cargo test -p myriad-backend host_attribution`（或对应模块过滤）。
 
 ## 已知控制台信息

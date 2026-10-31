@@ -27,7 +27,7 @@ permissions are owned by `shared/tapp_sandbox_contract.json`. Tests fail on drif
    # from backend/
    cargo test host_attribution
 
-   # from tapp/runtime/
+   # from runtime/ (in Myriad: tapp/runtime/)
    node --experimental-strip-types --test src/permissionMapConsistency.test.ts
    ```
 

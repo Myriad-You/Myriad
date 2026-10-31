@@ -12,9 +12,9 @@ Tapp Playground 是 Myriad 内置的临时 Tapp 开发环境。它把 Pro AI、�
 7. **仅 Page 沙箱**运行错误会回传 Agent 自动修复（最多两轮）；Widget-only 不挂载 Page 沙箱、不触发 Page 自动修复。
 8. 导出 `.tapp` 或安装前走客户端 preflight；安装成功后 `syncFromBackend` + `startTapp`。
 
-相关契约：[`MANIFEST.md`](./MANIFEST.md)、[`WIDGET.md`](./WIDGET.md)、
-[`SANDBOX.md`](./SANDBOX.md)、[`STORE.md`](./STORE.md)、
-[`API_REFERENCE.md`](./API_REFERENCE.md)、
+相关契约：[`MANIFEST.md`](../../../tapp/docs/MANIFEST.md)、[`WIDGET.md`](../../../tapp/docs/WIDGET.md)、
+[`SANDBOX.md`](../../../tapp/docs/SANDBOX.md)、[`STORE.md`](../../../tapp/docs/STORE.md)、
+[`API_REFERENCE.md`](../../../tapp/docs/API_REFERENCE.md)、
 [`PLAYGROUND_GENERATION_CONTEXT.md`](./PLAYGROUND_GENERATION_CONTEXT.md)。
 
 注入模型的文档目录由 `backend/src/services/tapp_playground_knowledge.rs` 的
@@ -64,7 +64,7 @@ Playground 打包到固定三文件布局：`core.js`、`page/index.js`、`widge
 不要写 `Tapp.widget.register`。交接：导出 `.tapp` → 解压 → `myriad-tapp check`。完整项目
 仍可包含：`manifest.json`、三个层入口、`styles.css`、`i18n`、package assets、
 background / APIs / AI / events / agent / dataExchange 等 Manifest 扩展（见
-[MANIFEST](./MANIFEST.md)、[WIDGET](./WIDGET.md)、[CLI](../../../tools/tapp-cli/README.md)）。
+[MANIFEST](../../../tapp/docs/MANIFEST.md)、[WIDGET](../../../tapp/docs/WIDGET.md)、[CLI](../../../tapp/tools/tapp-cli/README.md)）。
 Playground 生成/打包始终落 `core.js` 与 `styles.css`。安装契约本身：没有
 `backgroundRequirements` 时不强制 core；声明**常驻**才必须有 core。
 
@@ -75,8 +75,8 @@ Playground 生成/打包始终落 `core.js` 与 `styles.css`。安装契约本�
 `name` / `description` 作为语言未命中时的兜底。商店详情长介绍与静态预览的多语言
 属于 `catalog.json` 的 `locales`（`long_description` / `preview`），不要写进
 Manifest。这与 **应用内 UI** 的 `code.i18n` / `Tapp.i18n` 也不是同一套机制。详见
-[MANIFEST · 多语言名称与描述](./MANIFEST.md#多语言名称与描述locales)、
-[STORE](./STORE.md) 与
+[MANIFEST · 多语言名称与描述](../../../tapp/docs/MANIFEST.md#多语言名称与描述locales)、
+[STORE](../../../tapp/docs/STORE.md) 与
 [PLAYGROUND_GENERATION_CONTEXT](./PLAYGROUND_GENERATION_CONTEXT.md)。
 
 每次生成或修改都返回**完整项目 JSON**，而不是未经验证的文本 diff。
@@ -209,7 +209,7 @@ Playground 自己的「安装到本机」与生成代码里调用的 `Tapp.tappL
 - **生成代码若写商店安装**：必须用 SDK 合法形状
   `{ source: "store", storeSource: "<源 id 或 index.json URL>", tappId }`，或
   `{ source: "https://…/index.json", tappId }`；**不要**写裸 `{ source: "1", tappId }`。
-  完整协议见 [STORE.md](./STORE.md) 与 [API_REFERENCE · Tapp 列表](./API_REFERENCE.md#tapp-列表-api)。
+  完整协议见 [STORE.md](../../../tapp/docs/STORE.md) 与 [API_REFERENCE · Tapp 列表](../../../tapp/docs/API_REFERENCE.md#tapp-列表-api)。
 
 ## 后续阶段
 

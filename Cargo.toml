@@ -1,7 +1,7 @@
 # Virtual workspace for packages that share path deps and a single lockfile.
 # See: https://doc.rust-lang.org/book/ch14-03-cargo-workspaces.html
 #
-# Members = the connected graph only (backend ↔ migrations ↔ tapp-contract).
+# Members = the connected graph only (backend ↔ migrations ↔ site crates).
 # proxy / updater stay independent trees (own lock + deploy lifecycle).
 [workspace]
 resolver = "2"
@@ -24,17 +24,16 @@ members = [
     "crates/myriad-listening",
     "crates/myriad-phantasi-notes",
     "crates/myriad-blog",
-    "crates/myriad-tapp-rules",
-    "crates/tapp-contract",
-    "tools/tapp-contract-export",
 ]
 # Independent deploy trees: own Cargo.lock, not part of this graph.
 # Without exclude, `cd proxy && cargo build` fails with "believes it's in a workspace".
 # `core` is the shared-core submodule (Myriad-You/myriad-core): its own workspace,
 # used here only as path dependencies, so its crates must not become members.
+# `tapp` is the Tapp contract, rules and tools: its own workspace the same way.
 exclude = [
     "core",
     "proxy",
+    "tapp",
     "updater",
 ]
 default-members = ["backend"]

@@ -4,7 +4,7 @@
  */
 
 import type { PermissionLevel, TappPermission } from './types'
-import sandboxContract from '../../../shared/tapp_sandbox_contract.json' with { type: 'json' }
+import sandboxContract from '../../shared/tapp_sandbox_contract.json' with { type: 'json' }
 
 type TappPermissionLevel = Exclude<PermissionLevel, 'public'>
 

@@ -529,7 +529,7 @@ Manifest 必须同时声明 `ai:image` **和** `manifest.ai`（`protocolVersion:
 **原因**：临时预览不签发 Runtime Grant，也不注册 `FederationBridge`。
 
 **解决方案**：预览只测 UI/storage；联邦能力在安装后正式运行验证。见
-[PLAYGROUND_GENERATION_CONTEXT](./PLAYGROUND_GENERATION_CONTEXT.md)。
+[PLAYGROUND_GENERATION_CONTEXT](https://github.com/Myriad-You/Myriad/blob/preview/docs/development/tapp/PLAYGROUND_GENERATION_CONTEXT.md)。
 
 ---
 
@@ -555,7 +555,7 @@ Manifest 必须同时声明 `ai:image` **和** `manifest.ai`（`protocolVersion:
 
 1. 使用 `{ source: "store", storeSource: "1", tappId }` 或
    `{ source: "https://…/index.json", tappId }`（见 [STORE](./STORE.md) /
-   [REST API](./REST_API.md)）。
+   [REST API](https://github.com/Myriad-You/Myriad/blob/preview/docs/development/tapp/REST_API.md)）。
 2. 确认商店源已启用且 `tappId` 存在于该源 `index.json`。
 3. 离线/内网包使用 `install-file` 或 SDK/REST direct 安装。
 

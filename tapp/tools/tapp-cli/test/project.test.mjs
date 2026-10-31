@@ -15,12 +15,12 @@ import {
 } from '../src/project.mjs'
 import { usesGamePackageLimits } from '../src/resource-validator.mjs'
 import { listZipEntries } from '../src/zip.mjs'
-import { findMyriadRepoRoot } from '../scripts/myriad-source.mjs'
+import { findTappRoot } from '../scripts/myriad-source.mjs'
 
 const directories = []
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const myriadRoot = findMyriadRepoRoot(packageRoot)
-const upstreamIt = myriadRoot ? it : it.skip
+const tappRoot = findTappRoot(packageRoot)
+const upstreamIt = tappRoot ? it : it.skip
 const execFileAsync = promisify(execFile)
 
 async function temporaryDirectory(name) {
@@ -41,7 +41,7 @@ describe('Tapp project core', () => {
   })
 
   upstreamIt('keeps the generated contract aligned with the backend exporter', async () => {
-    const manifestPath = resolve(myriadRoot, 'tools/tapp-contract-export/Cargo.toml')
+    const manifestPath = resolve(tappRoot, 'tools/tapp-contract-export/Cargo.toml')
     const { stdout } = await execFileAsync(
       'cargo',
       ['run', '--quiet', '--locked', '--manifest-path', manifestPath],

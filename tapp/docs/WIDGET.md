@@ -894,7 +894,7 @@ Tapp.settings.onChanged(({ key }) => {
 - **平台数据**：`Tapp.platform.*` 是只读平台统计等，与你在 `apis` 里声明的业务 API 无关。
 
 更多字段见 [Manifest `refreshPolicy`](MANIFEST.md)、[Storage / Widget / 声明 API](API_REFERENCE.md)、
-[后台 core](ARCHITECTURE.md#后台-core)。快速入门中的浓缩版见
+[后台 core](https://github.com/Myriad-You/Myriad/blob/preview/docs/development/tapp/ARCHITECTURE.md#后台-core)。快速入门中的浓缩版见
 [QUICKSTART — 数据加载与更新](QUICKSTART.md#数据加载与更新)。
 
 ---

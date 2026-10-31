@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url'
 import { PERMISSION_LEVELS, PERMISSION_MAP } from './permissionConfig.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const repoRoot = join(__dirname, '../../..')
-const fixturesDir = join(repoRoot, 'docs/development/tapp/fixtures')
+const tappRoot = join(__dirname, '../..')
+const fixturesDir = join(tappRoot, 'docs/fixtures')
 
 interface ActionEntry {
   domain: string
