@@ -203,6 +203,37 @@ pub(crate) fn labelled(number: u32, asked: &str, others_unfinished: bool, conten
     }
 }
 
+/// Her answer to a piece's choice question, as the choice: she may write
+/// `2（19:00）` or `订 19:00 的`; a leading choice number, or the one choice
+/// named in it, is what she means. Anything else stays as she wrote it.
+pub(crate) fn her_choice(prompt: &PendingPrompt, text: &str) -> String {
+    let text = text.trim();
+    if prompt.options.is_empty() {
+        return text.to_string();
+    }
+    let digits: String = text.chars().take_while(char::is_ascii_digit).collect();
+    if let Ok(number) = digits.parse::<usize>()
+        && (1..=prompt.options.len()).contains(&number)
+        && !text[digits.len()..].starts_with([':', '：', '.', '点'])
+    {
+        return number.to_string();
+    }
+    let named: Vec<usize> = prompt
+        .options
+        .iter()
+        .enumerate()
+        .filter(|(_, option)| {
+            text.contains(option.value.as_str())
+                || (!option.label.trim().is_empty() && text.contains(option.label.as_str()))
+        })
+        .map(|(index, _)| index + 1)
+        .collect();
+    match named.as_slice() {
+        [number] => number.to_string(),
+        _ => text.to_string(),
+    }
+}
+
 /// A piece's question carries its number in its id, and so in its buttons.
 pub(crate) fn stamp(number: u32, mut prompt: PendingPrompt) -> PendingPrompt {
     ensure_pending_id(&mut prompt);
@@ -448,6 +479,7 @@ pub(super) async fn carry_out(
                 let Some(pending) = load_pending(db, platform, &lane.key).await else {
                     continue;
                 };
+                let answer = her_choice(&pending.prompt, &answer);
                 answer_pending(
                     db,
                     user_id,
@@ -743,6 +775,37 @@ mod tests {
         );
         // A chat's own question (from before pieces) has no number.
         assert_eq!(number_of_prompt("a1b2c3d4"), None);
+    }
+
+    #[test]
+    fn her_answer_to_a_choice_is_the_choice_she_means() {
+        let prompt = PendingPrompt {
+            id: String::new(),
+            kind: PendingKind::Answer {
+                task_id: "t".into(),
+                question_id: "q".into(),
+                question_type: "single_choice".into(),
+            },
+            question: "要几点？".into(),
+            options: ["18:00", "19:00"]
+                .map(|time| PendingOption {
+                    value: time.into(),
+                    label: time.into(),
+                })
+                .to_vec(),
+            expires_at_unix: None,
+        };
+        assert_eq!(her_choice(&prompt, "2（19:00）"), "2");
+        assert_eq!(her_choice(&prompt, "订 19:00 的"), "2");
+        assert_eq!(her_choice(&prompt, "19:00，选项2"), "2");
+        assert_eq!(her_choice(&prompt, "1"), "1");
+        // A time is not a choice number; two choices named is not one.
+        assert_eq!(her_choice(&prompt, "19点"), "19点");
+        assert_eq!(her_choice(&prompt, "18:00 或 19:00"), "18:00 或 19:00");
+        assert!(matches!(
+            decide_pending_reply(&prompt, &her_choice(&prompt, "2（19:00）"), 0),
+            PendingDecision::Resume { answer, .. } if answer == "19:00"
+        ));
     }
 
     #[test]

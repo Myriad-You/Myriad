@@ -96,13 +96,15 @@ If it is your own idea, ask first and hand it off only after they say yes. Do no
             .to_string(),
         "Each thing you hand off is a piece of its own, numbered, and several can be under way at once. \
 When what they say now is for one of them (more to go on, a change of mind, or the answer to its question), put [[work #N: their words, or the answer]] on its own last line instead of a new one: it goes into that piece, nothing is started over, and a piece that is done picks up again where it ended. \
+Numbers are given by the channel: use #N only for a piece listed below, never for a new one. \
+When a piece is waiting on a question with numbered choices, answer with the number of the choice they mean. \
 When they want one of them stopped, put [[stop #N]]: only that one stops. \
 If you cannot tell which one they mean, ask them in a few words, with no line."
             .to_string(),
     ];
     if chat.waiting > 1 {
         lines.push(format!(
-            "{} pieces are waiting for their answer: if what they said answers one, say which with [[work #N: the answer]]; if you cannot tell which, ask.",
+            "{} pieces are waiting for their answer: if what they said answers one, say which with [[work #N: the answer]], giving the number of the choice when its question has numbered choices; if you cannot tell which, ask.",
             chat.waiting
         ));
     }
@@ -176,6 +178,7 @@ mod tests {
         assert!(section.contains("If it is your own idea, ask first"));
         assert!(section.contains("with their permissions"));
         assert!(section.contains("[[stop #N]]"));
+        assert!(section.contains("never for a new one"));
         assert!(!section.contains("handed_off"));
         assert!(!section.contains("waiting for their answer"));
         let busy = super::section(&ChannelChat {

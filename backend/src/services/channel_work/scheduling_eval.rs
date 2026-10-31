@@ -118,6 +118,8 @@ struct SimPiece {
     finished: bool,
     /// What reached it after it began: more to go on, and answers.
     inputs: Vec<String>,
+    /// The messages that reached it after it began.
+    heard: Vec<usize>,
     /// What it produced (questions, its result), by sequence.
     produced: Vec<(String, bool)>,
     /// How far delivery got (sent or refused for good).
@@ -422,7 +424,7 @@ impl<'a> Run<'a> {
         if let Route::Answer(number) = works::route(&plain) {
             self.handled(index);
             let text = self.scene.said[index].text;
-            self.answer_piece(number, text);
+            self.answer_piece(number, text, &[index]);
             return;
         }
         self.take_in(index);
@@ -469,10 +471,17 @@ impl<'a> Run<'a> {
                         .unwrap_or(read[0]);
                     self.start(asked, from);
                 }
-                Act::Answer(number, text) => self.answer_piece(number, &text),
+                Act::Answer(number, text) => {
+                    let text = match self.piece_mut(number).and_then(|piece| piece.waiting.clone()) {
+                        Some(prompt) => works::her_choice(&prompt, &text),
+                        None => text,
+                    };
+                    self.answer_piece(number, &text, &read);
+                }
                 Act::Continue(number, text) => {
                     if let Some(piece) = self.piece_mut(number) {
                         piece.inputs.push(text);
+                        piece.heard.extend(&read);
                         piece.finished = false;
                         piece.continued += 1;
                         piece.job.secs += 20.0;
@@ -482,6 +491,7 @@ impl<'a> Run<'a> {
                 Act::Steer(number, text) => {
                     if let Some(piece) = self.piece_mut(number) {
                         piece.inputs.push(text);
+                        piece.heard.extend(&read);
                     }
                 }
                 Act::Stop(number) => {
@@ -548,6 +558,7 @@ impl<'a> Run<'a> {
             stopped: false,
             finished: false,
             inputs: Vec::new(),
+            heard: Vec::new(),
             produced: Vec::new(),
             cursor: 0,
             results_sent: 0,
@@ -668,7 +679,7 @@ impl<'a> Run<'a> {
     }
 
     /// The answer, or more, for a piece waiting on its question.
-    fn answer_piece(&mut self, number: u32, text: &str) {
+    fn answer_piece(&mut self, number: u32, text: &str, from: &[usize]) {
         let Some(prompt) = self.piece_mut(number).and_then(|piece| piece.waiting.clone()) else {
             return;
         };
@@ -676,6 +687,7 @@ impl<'a> Run<'a> {
             PendingDecision::Resume { answer, .. } => {
                 if let Some(piece) = self.piece_mut(number) {
                     piece.waiting = None;
+                    piece.heard.extend(from);
                     piece.inputs.push(text.to_string());
                     piece.inputs.push(format!("answer:{answer}"));
                 }
@@ -684,6 +696,7 @@ impl<'a> Run<'a> {
             PendingDecision::Reask { .. } => {
                 // Not an answer: kept for the piece, and asked again.
                 if let Some(piece) = self.piece_mut(number) {
+                    piece.heard.extend(from);
                     piece.inputs.push(text.to_string());
                 }
                 self.note("askedAgain", json!(number));
@@ -721,10 +734,10 @@ impl<'a> Run<'a> {
                 _ => tally.results_duplicated += 1,
             }
         }
-        for said in &self.scene.said {
+        for (index, said) in self.scene.said.iter().enumerate() {
             match &said.meant {
-                Meant::To(work, text) => {
-                    let into = |piece: &SimPiece| piece.inputs.iter().any(|input| input.contains(text));
+                Meant::To(work, _) => {
+                    let into = |piece: &SimPiece| piece.heard.contains(&index);
                     let right = self
                         .pieces
                         .iter()
