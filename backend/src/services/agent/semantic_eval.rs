@@ -65,6 +65,18 @@ pub(super) async fn load_configured_lite() -> sea_orm::DatabaseConnection {
     db
 }
 
+/// Her soul as the site has it, read-only, with the configured Lite loaded:
+/// for other live evaluations of her judgment.
+pub(crate) async fn configured_soul() -> String {
+    let db = load_configured_lite().await;
+    let soul = match super::merope::store::get_persona_on(&db).await {
+        Ok(Some(persona)) => super::merope::format_persona(&persona).unwrap_or_default(),
+        _ => String::new(),
+    };
+    let _ = db.close().await;
+    soul
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Case {

@@ -68,11 +68,20 @@ pub async fn handle_text_with_images(
     let images = images.to_vec();
     let db = db.clone();
     let lock_key = session_key.clone();
+    // It may wait on the chat while she writes a reply: kept meanwhile where
+    // she can answer later, so a restart then does not lose it.
+    let arriving = if super::chat_waiting::can_answer_later(platform) {
+        super::chat_waiting::arriving(&db, &session_key, user_id, &input, &images).await
+    } else {
+        None
+    };
     with_chat_lock(&lock_key, async move {
-        if !sink.authorized().await {
-            return;
+        if sink.authorized().await {
+            continue_text(&db, user_id, &chat_id, &input, &images, &session_key, sink).await;
         }
-        continue_text(&db, user_id, &chat_id, &input, &images, &session_key, sink).await;
+        if let Some(record) = arriving {
+            super::chat_waiting::arrived(&db, &record).await;
+        }
     })
     .await;
 }
