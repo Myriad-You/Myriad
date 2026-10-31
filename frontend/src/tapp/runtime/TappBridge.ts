@@ -1,4 +1,3 @@
-import type { RuntimeGrantKind } from '../services/TappApiService'
 import type {
   TappAPIRequest,
   TappAPIResponse,
@@ -6,20 +5,14 @@ import type {
   TappMessage,
   TappPermission,
 } from '../types'
-import { getQuotaManager } from '../services/QuotaManager'
+import type { RuntimeGrantKind, TappGrantRegistry, TappRuntimeGrant } from './TappRuntimeGrant'
 import {
   PREVIEW_UNAVAILABLE_CODE,
   previewUnavailableMessage,
 } from '../utils/previewGrants'
 import { TAPP_PACKAGE_PAYLOAD_BYTES } from '../utils/tappPackageLimits'
-import {
-  federationLiveLimits,
-  federationMessageEnvelopeBytes,
-  refreshFederationLimits,
-} from './federationLimits'
 import { PERMISSION_MAP } from './permissionConfig'
 import { validateFileDownloadOptions } from './sandbox/fileDownload'
-import { TappRuntimeGrant } from './TappRuntimeGrant'
 
 type MessageHandler = (message: TappMessage) => Promise<TappAPIResponse>
 
@@ -121,12 +114,109 @@ const SERVER_AUTHORITATIVE_HOST_PERMISSIONS = new Set<TappPermission>([
   'media:control',
 ])
 
+/** Per-Tapp soft limits on bridge calls. Security limits live in the backend. */
+export interface TappBridgeQuota {
+  checkQuota: (
+    tappId: string,
+    action: string,
+  ) => { allowed: boolean, remaining: number, reason?: string, retryAfter?: number }
+  recordUsage: (tappId: string, action: string) => void
+}
+
+export interface TappFederationLimits {
+  messagePayloadBytes: number
+  noteImageBytes: number
+  noteVideoBytes: number
+}
+
+/** The host's current federation limits; the bridge refuses oversized payloads before sending. */
+export interface TappFederationLimitsSource {
+  limits: () => TappFederationLimits
+  /** Largest serialized message envelope: the payload limit plus headroom. */
+  envelopeBytes: () => number
+  /** Ask the host to re-read its limits; called as each bridge is made. */
+  refresh: () => void
+}
+
+/** Where window `message` events come from (the page's window in a browser). */
+export interface TappMessageTarget {
+  addEventListener: (type: 'message', listener: (event: MessageEvent) => void) => void
+  removeEventListener: (type: 'message', listener: (event: MessageEvent) => void) => void
+}
+
 export interface TappBridgeOptions {
+  router: TappBridgeRouter
+  grants: TappGrantRegistry
+  quota: TappBridgeQuota
+  federation: TappFederationLimitsSource
   /**
    * Text for an error a handler threw, sent to the sandbox. Required: the
    * error can carry host detail, and only the host knows what is safe to show.
    */
   describeError: (error: unknown) => string
+}
+
+/**
+ * 窗口级单路由，一页一份。路由键是 event.source === iframe.contentWindow。没有消息源
+ * （Node 测试）时不挂监听。
+ */
+export class TappBridgeRouter {
+  private readonly bridgesBySource = new Map<MessageEventSource, TappBridge>()
+  private readonly activeBridges = new Set<TappBridge>()
+  private listenerAttached = false
+
+  constructor(private readonly target: TappMessageTarget | null) {
+    this.onMessage = this.onMessage.bind(this)
+  }
+
+  activate(bridge: TappBridge): void {
+    if (!this.listenerAttached && this.target) {
+      this.target.addEventListener('message', this.onMessage)
+      this.listenerAttached = true
+    }
+    this.activeBridges.add(bridge)
+  }
+
+  /** iframe 入 DOM 后再登记；srcdoc 解析可能重建 window。 */
+  attachSource(
+    bridge: TappBridge,
+    previous: MessageEventSource | null,
+    next: MessageEventSource,
+  ): void {
+    if (previous && previous !== next) this.bridgesBySource.delete(previous)
+    this.bridgesBySource.set(next, bridge)
+  }
+
+  deactivate(bridge: TappBridge, source: MessageEventSource | null): void {
+    this.activeBridges.delete(bridge)
+    if (source && this.bridgesBySource.get(source) === bridge) {
+      this.bridgesBySource.delete(source)
+    }
+    if (this.activeBridges.size > 0 || !this.listenerAttached || !this.target) return
+    this.target.removeEventListener('message', this.onMessage)
+    this.listenerAttached = false
+  }
+
+  /** 先走 source 映射；srcdoc 竞态 attachSource 时回退扫描 contentWindow，以免丢掉早期 tapp.ready。 */
+  private resolve(source: MessageEventSource): TappBridge | null {
+    const mapped = this.bridgesBySource.get(source)
+    if (mapped) return mapped
+    for (const bridge of this.activeBridges) {
+      if (bridge.ownsWindow(source)) {
+        bridge.attachSource()
+        return bridge
+      }
+    }
+    return null
+  }
+
+  private onMessage(event: MessageEvent): void {
+    const source = event.source
+    if (!source) return
+    const bridge = this.resolve(source)
+    if (!bridge) return
+    void bridge.handleMessage(event)
+  }
 }
 
 export interface TappBridgeInitOptions {
@@ -191,61 +281,21 @@ export class TappBridge {
 
   private registeredSource: MessageEventSource | null = null
 
-  /** 窗口级单路由。路由键仍是 event.source === iframe.contentWindow。 */
-  private static readonly bridgesBySource = new Map<
-    MessageEventSource,
-    TappBridge
-  >()
-
-  private static readonly activeBridges = new Set<TappBridge>()
-  private static sharedListenerAttached = false
-
-  private static ensureSharedListener(): void {
-    if (TappBridge.sharedListenerAttached) return
-    if (typeof window === 'undefined') return
-    window.addEventListener('message', TappBridge.onSharedWindowMessage)
-    TappBridge.sharedListenerAttached = true
-  }
-
-  private static maybeDetachSharedListener(): void {
-    if (TappBridge.activeBridges.size > 0) return
-    if (!TappBridge.sharedListenerAttached) return
-    if (typeof window === 'undefined') return
-    window.removeEventListener('message', TappBridge.onSharedWindowMessage)
-    TappBridge.sharedListenerAttached = false
-  }
-
-  /** 先走 source 映射；srcdoc 竞态 attachSource 时回退扫描 contentWindow，以免丢掉早期 tapp.ready。 */
-  private static resolveBridgeForSource(
-    source: MessageEventSource,
-  ): TappBridge | null {
-    const mapped = TappBridge.bridgesBySource.get(source)
-    if (mapped) return mapped
-    for (const bridge of TappBridge.activeBridges) {
-      const win = bridge.iframe?.contentWindow
-      if (win && win === source) {
-        bridge.attachSource()
-        return bridge
-      }
-    }
-    return null
-  }
-
-  private static onSharedWindowMessage(event: MessageEvent): void {
-    const source = event.source
-    if (!source) return
-    const bridge = TappBridge.resolveBridgeForSource(source)
-    if (!bridge) return
-    void bridge.handleMessage(event)
-  }
-
+  private readonly router: TappBridgeRouter
+  private readonly grants: TappGrantRegistry
+  private readonly quota: TappBridgeQuota
+  private readonly federation: TappFederationLimitsSource
   /** How a thrown handler error reaches the sandbox; the host words and redacts it. */
   private readonly describeError: (error: unknown) => string
 
   constructor(options: TappBridgeOptions) {
+    this.router = options.router
+    this.grants = options.grants
+    this.quota = options.quota
+    this.federation = options.federation
     this.describeError = options.describeError
     this.handleMessage = this.handleMessage.bind(this)
-    void refreshFederationLimits()
+    this.federation.refresh()
   }
 
   initialize(
@@ -281,8 +331,7 @@ export class TappBridge {
         .join('')
     }
 
-    TappBridge.ensureSharedListener()
-    TappBridge.activeBridges.add(this)
+    this.router.activate(this)
     this.attachSource()
   }
 
@@ -290,11 +339,14 @@ export class TappBridge {
   attachSource(): void {
     const win = this.iframe?.contentWindow
     if (!win) return
-    if (this.registeredSource && this.registeredSource !== win) {
-      TappBridge.bridgesBySource.delete(this.registeredSource)
-    }
+    this.router.attachSource(this, this.registeredSource, win)
     this.registeredSource = win
-    TappBridge.bridgesBySource.set(win, this)
+  }
+
+  /** 这个消息源是不是本桥 iframe 的 window（路由器在 attachSource 竞态时用）。 */
+  ownsWindow(source: MessageEventSource): boolean {
+    const win = this.iframe?.contentWindow
+    return !!win && win === source
   }
 
   /** destroy 后为空；宿主快捷键视桥为死。 */
@@ -355,7 +407,7 @@ export class TappBridge {
     if (!this.grantSeed) {
       throw new Error('Tapp runtime grant is not initialized')
     }
-    this.runtimeGrant = new TappRuntimeGrant(
+    this.runtimeGrant = this.grants.create(
       this.grantSeed.tappId,
       this.grantSeed.instanceId,
       this.grantSeed.kind,
@@ -388,15 +440,8 @@ export class TappBridge {
     this.surfaceActive = false
     this.sessionToken = ''
 
-    TappBridge.activeBridges.delete(this)
-    if (this.registeredSource) {
-      const mapped = TappBridge.bridgesBySource.get(this.registeredSource)
-      if (mapped === this) {
-        TappBridge.bridgesBySource.delete(this.registeredSource)
-      }
-      this.registeredSource = null
-    }
-    TappBridge.maybeDetachSharedListener()
+    this.router.deactivate(this, this.registeredSource)
+    this.registeredSource = null
 
     this.messageHandlers.clear()
     this.eventListeners.clear()
@@ -525,7 +570,7 @@ export class TappBridge {
           }
         }
       } else if (msg.action === 'federation.uploadMedia') {
-        const limits = federationLiveLimits()
+        const limits = this.federation.limits()
         const MAX_IMAGE_RAW_BYTES = limits.noteImageBytes
         const MAX_VIDEO_RAW_BYTES = limits.noteVideoBytes
         const args = (msg.payload as { args?: unknown[] }).args
@@ -600,12 +645,12 @@ export class TappBridge {
         msg.action === 'federation.sendMessage' ||
         msg.action === 'federation.sendRoomMessage'
       ) {
-        const limits = federationLiveLimits()
+        const limits = this.federation.limits()
         const envelopeBytes = serializedUtf8Bytes(msg.payload)
         if (envelopeBytes === null) {
           return { valid: false, error: 'Payload must be JSON-serializable' }
         }
-        if (envelopeBytes > federationMessageEnvelopeBytes()) {
+        if (envelopeBytes > this.federation.envelopeBytes()) {
           return {
             valid: false,
             error: `Payload too large for ${msg.action} (message payload max ${limits.messagePayloadBytes} bytes; got ${envelopeBytes} UTF-8 bytes). Use federation chunked transfer for larger data.`,
@@ -696,7 +741,8 @@ export class TappBridge {
     }
   }
 
-  private async handleMessage(event: MessageEvent): Promise<void> {
+  /** 路由器把属于本桥的窗口消息交到这里。 */
+  async handleMessage(event: MessageEvent): Promise<void> {
     // srcdoc origin 为 null；边界是具体 iframe WindowProxy。
     if (event.source !== this.iframe?.contentWindow) {
       return
@@ -828,8 +874,7 @@ export class TappBridge {
     }
 
     if (this.tappInstance) {
-      const quotaManager = getQuotaManager()
-      const quotaCheck = quotaManager.checkQuota(this.tappInstance.id, action)
+      const quotaCheck = this.quota.checkQuota(this.tappInstance.id, action)
       if (!quotaCheck.allowed) {
         this.sendResponse(id, {
           success: false,
@@ -875,14 +920,13 @@ export class TappBridge {
 
       // 成功与失败都计入配额，避免刷失败绕过。
       if (this.tappInstance) {
-        const quotaManager = getQuotaManager()
-        quotaManager.recordUsage(this.tappInstance.id, action)
+        this.quota.recordUsage(this.tappInstance.id, action)
       }
 
       this.sendResponse(id, response)
     } catch (error) {
       if (this.tappInstance) {
-        getQuotaManager().recordUsage(this.tappInstance.id, action)
+        this.quota.recordUsage(this.tappInstance.id, action)
       }
       console.error(`[TappBridge] Handler error for ${action}:`, error)
       this.sendResponse(id, {
@@ -998,8 +1042,4 @@ export class TappBridge {
       if (listeners?.size === 0) this.eventListeners.delete(event)
     }
   }
-}
-
-export function createTappBridge(options: TappBridgeOptions): TappBridge {
-  return new TappBridge(options)
 }

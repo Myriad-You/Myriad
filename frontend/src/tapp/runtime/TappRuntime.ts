@@ -13,8 +13,8 @@ import { getDynamicContentProvider } from '../../services/DynamicContentProvider
 import { installFromCode, uninstallTapp } from '../services/TappInstallationApi'
 import { getTapp, listTappDetails, startTapp, stopTapp } from '../services/TappLifecycleApi'
 import { getAllWidgets, registerTappWidget, unregisterTappWidget } from '../services/TappWidgetApi'
+import { tappKernel } from '../tappKernel'
 import { kernelIssueText } from '../utils/kernelIssueText'
-import { getResourceLoader } from './sandbox/resourceLoader'
 import { TappPermissionController } from './TappPermission'
 
 type RuntimeEvent =
@@ -137,7 +137,7 @@ export class TappRuntime {
   static reset(): void {
     TappRuntime.instance?.dispose()
     TappRuntime.instance = null
-    getResourceLoader().clearCache()
+    tappKernel.resources.clearCache()
   }
 
   private dispose(): void {
@@ -372,7 +372,7 @@ export class TappRuntime {
 
     this.installedTapps.set(manifest.id, instance)
 
-    getResourceLoader().clearCache(manifest.id)
+    tappKernel.resources.clearCache(manifest.id)
 
     await this.syncFromBackend(true)
     this.assertActive()
@@ -414,7 +414,7 @@ export class TappRuntime {
         }
       }
 
-      getResourceLoader().clearCache(tappId)
+      tappKernel.resources.clearCache(tappId)
       this.dropStoppedTappHostState(tappId)
 
       this.installedTapps.delete(tappId)
@@ -576,7 +576,7 @@ export class TappRuntime {
   }
 
   clearCodeCache(tappId?: string): void {
-    getResourceLoader().clearCache(tappId)
+    tappKernel.resources.clearCache(tappId)
   }
 
   async refreshTapp(tappId: string): Promise<void> {

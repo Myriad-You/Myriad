@@ -68,9 +68,9 @@ export async function tappRequest<T>(
       runtimeGrant &&
       error.code === 'INVALID_RUNTIME_GRANT'
     ) {
-      const { TappRuntimeGrant } = await import('../runtime/TappRuntimeGrant')
+      const { tappKernel } = await import('../tappKernel')
       const replacement =
-        await TappRuntimeGrant.recoverRejectedToken(runtimeGrant)
+        await tappKernel.grants.recoverRejectedToken(runtimeGrant)
       if (replacement) {
         return tappRequest(endpoint, { ...options, runtimeGrant: replacement }, false)
       }
@@ -127,9 +127,9 @@ export async function streamRuntimeEvents(
       retryOnRuntimeGrant &&
       error.code === 'INVALID_RUNTIME_GRANT'
     ) {
-      const { TappRuntimeGrant } = await import('../runtime/TappRuntimeGrant')
+      const { tappKernel } = await import('../tappKernel')
       const replacement =
-        await TappRuntimeGrant.recoverRejectedToken(runtimeGrant)
+        await tappKernel.grants.recoverRejectedToken(runtimeGrant)
       if (replacement) {
         return streamRuntimeEvents(
           endpoint,

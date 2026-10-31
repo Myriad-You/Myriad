@@ -1,5 +1,6 @@
 import type { TappCodeStructure, TappInstance } from '../types'
 import type { AnimationConfigRef, WidgetRenderProps } from './sandbox'
+import type { TappBridge } from './TappBridge'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   TAPP_WIDGET_SKELETON,
@@ -13,8 +14,8 @@ import {
   mergeMusicPlayerEventDetail,
 } from '../../utils/musicPlayerState'
 import { useTappSubject } from '../../utils/tappSubject'
-import { userFacingError } from '../../utils/userFacingError'
 
+import { tappKernel } from '../tappKernel'
 import {
   calculateWidgetDimensions,
   sendResizeMessage,
@@ -35,7 +36,6 @@ import {
   generateThemeCSS,
   generateWidgetSDK,
   IFRAME_SANDBOX_ATTRS,
-  sandboxScriptNonce,
   serializeSandboxScriptValue,
   WIDGET_STATIC_CSS,
 } from './sandbox'
@@ -63,8 +63,6 @@ import {
   registerWidgetInvalidateTargetHandler,
 } from './sandbox/handlers'
 import { registerPlaygroundPreviewHandlers } from './sandbox/handlers/playgroundPreviewHandlers'
-import { TappBridge } from './TappBridge'
-import { TappRuntimeGrant } from './TappRuntimeGrant'
 import { useSandboxSubscriptions } from './useSandboxSubscriptions'
 import { widgetPerfMark } from './WidgetLoadPerf'
 import { bindAllTappKvChanges } from './WidgetRuntimeSignals'
@@ -145,14 +143,18 @@ function generateWidgetHTML(
   const isDark = widgetProps.theme === 'dark'
   const primaryColor = widgetProps.primaryColor || '#8b5cf6'
 
-  const nonce = sandboxScriptNonce()
-  const cspOptions = cspOptionsFromPermissions(
-    tappInstance.grantedPermissions,
-    tappInstance.grantedRemoteMedia,
-  )
+  const nonce = tappKernel.scriptNonce()
+  const hostOrigin = tappKernel.assetOrigin()
+  const cspOptions = {
+    ...cspOptionsFromPermissions(
+      tappInstance.grantedPermissions,
+      tappInstance.grantedRemoteMedia,
+    ),
+    hostOrigin,
+  }
   const csp = generateCSP(nonce, cspOptions)
   const securityWrapper = escapeSandboxScriptSource(
-    generateSecurityWrapper(sessionToken, cspOptions.remoteMediaHosts),
+    generateSecurityWrapper(sessionToken, cspOptions.remoteMediaHosts, hostOrigin),
   )
   const sdkCode = escapeSandboxScriptSource(
     generateWidgetSDK(tappInstance, sessionToken),
@@ -560,7 +562,7 @@ export const TappWidgetSandbox = memo(
       iframe.allowFullscreen = true
       iframeRef.current = iframe
 
-      const bridge = new TappBridge({ describeError: userFacingError })
+      const bridge = tappKernel.createBridge()
       // 预览无 Runtime Grant。已安装 widget 按 tappId 共享宿主 grant。
       if (previewMode) {
         bridge.initialize(
@@ -570,7 +572,7 @@ export const TappWidgetSandbox = memo(
           undefined,
         )
       } else {
-        const shared = TappRuntimeGrant.acquireSharedWidget(
+        const shared = tappKernel.grants.acquireSharedWidget(
           currentTappInstance.id,
         )
         const runtimeGrant = shared.grant
@@ -582,7 +584,7 @@ export const TappWidgetSandbox = memo(
           {
             releaseSharedGrant: shared.release,
             reacquireSharedGrant: () =>
-              TappRuntimeGrant.acquireSharedWidget(currentTappInstance.id),
+              tappKernel.grants.acquireSharedWidget(currentTappInstance.id),
           },
         )
         // 与 iframe 解析并行预热 Runtime Grant；仍仅宿主持有，不进 srcdoc。

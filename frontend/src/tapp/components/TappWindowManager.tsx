@@ -34,9 +34,9 @@ import {
 } from '../constants/hostPanels'
 import { TAPP_ICON_TOKENS } from '../constants/icons'
 import { useWindowAgentHandler } from '../hooks/useWindowAgentHandler'
-import { loadPageResources } from '../runtime/sandbox/resourceLoader'
 import { TappPageSandbox } from '../runtime/TappPageSandbox'
 import { getTappRuntime } from '../runtime/TappRuntime'
+import { tappKernel } from '../tappKernel'
 import { tappHasPage } from '../utils/manifestLayers'
 import { resolveManifestText } from '../utils/manifestLocale'
 import {
@@ -862,7 +862,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
         try {
           const instance = runtime.getTapp(tappId)
           if (!instance) throw new Error(t.tapp.appNotExist)
-          const loaded = await loadGenerations.settle(tappId, generation, loadPageResources(instance))
+          const loaded = await loadGenerations.settle(tappId, generation, tappKernel.resources.loadPageResources(instance))
           if (cancelled || loaded.stale) return
           const resources = loaded.value
           const code: TappCodeStructure = {
@@ -1033,7 +1033,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
           return
         }
 
-        const loaded = await loadGenerations.settle(tappId, generation, loadPageResources(instance))
+        const loaded = await loadGenerations.settle(tappId, generation, tappKernel.resources.loadPageResources(instance))
         if (loaded.stale) {
           if (!runtime.isRunning(tappId)) await runtime.startTapp(tappId)
           return
@@ -1293,7 +1293,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
             continue
           }
 
-          const resources = await loadPageResources(instance)
+          const resources = await tappKernel.resources.loadPageResources(instance)
           const tappCode: TappCodeStructure = {
             modules: resources.modules,
             moduleResolutions: resources.moduleResolutions,

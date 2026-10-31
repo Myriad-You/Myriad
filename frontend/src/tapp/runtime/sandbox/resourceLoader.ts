@@ -1,8 +1,34 @@
-import type { TappResourceMode, TappResources } from '../../services/TappPackageResourceApi'
 import type { TappInstance } from '../../types'
-import { getTappResources } from '../../services/TappPackageResourceApi'
 import { BoundedResourceCache } from '../resourceBounds'
 import { generateOnDemandTailwindCSS } from './styles'
+
+/** One Tapp's package resources as the host serves them. */
+export interface TappResources {
+  modules: Record<string, string>
+  moduleResolutions?: Record<string, Record<string, string>>
+  coreEntry?: string
+  pageEntry?: string
+  widgetEntries?: Record<string, string>
+  /** widget id → 弹窗层入口。 */
+  popupEntries?: Record<string, string>
+  coreStyles?: string
+  pageStyles?: string
+  widgetStyles?: Record<string, string>
+  /** 宿主预编译 Tailwind，与作者样式是两条通道。 */
+  widgetCSS?: string
+  pageCSS?: string
+  widgetTemplates?: Record<string, Record<string, string>>
+  pageTemplate?: string
+  i18n?: Record<string, unknown>
+}
+
+export type TappResourceMode = 'full' | 'core' | 'widget' | 'page' | 'popup'
+
+/** How the host fetches a package's resources (on the site: `/api/tapps/:id/resources`). */
+export type TappResourceSource = (
+  tappId: string,
+  options?: { mode?: TappResourceMode, widgetId?: string },
+) => Promise<TappResources>
 
 export interface CoreResources {
   modules: Record<string, string>
@@ -88,9 +114,8 @@ class CssSeparator {
   }
 }
 
+/** 一页一份，由 TappKernel 持有。 */
 export class TappResourceLoader {
-  private static instance: TappResourceLoader | null = null
-
   private widgetCache = new BoundedResourceCache<WidgetResources>(60, 8 * 1024 * 1024)
 
   private pageCache = new BoundedResourceCache<PageResources>(30, 8 * 1024 * 1024)
@@ -108,7 +133,7 @@ export class TappResourceLoader {
   /** 每个 Tapp 的缓存代际；清缓存后旧请求不得回填新代际。 */
   private cacheGenerations = new Map<string, number>()
 
-  private constructor() {}
+  constructor(private readonly fetchResources: TappResourceSource) {}
 
   private generationFor(tappId: string): number {
     const current = this.cacheGenerations.get(tappId)
@@ -119,13 +144,6 @@ export class TappResourceLoader {
 
   private generationIsCurrent(tappId: string, generation: number): boolean {
     return this.generationFor(tappId) === generation
-  }
-
-  static getInstance(): TappResourceLoader {
-    if (!TappResourceLoader.instance) {
-      TappResourceLoader.instance = new TappResourceLoader()
-    }
-    return TappResourceLoader.instance
   }
 
   /** 后台只加载 core，不生成 Page CSS/HTML。 */
@@ -440,7 +458,7 @@ export class TappResourceLoader {
       `raw:${cacheKey}:${generation}`,
       async () => {
         // 契约不符时让 409 抛出，不换路把不受支持的包送进沙箱。
-        const resources = await getTappResources(tappId, {
+        const resources = await this.fetchResources(tappId, {
           mode,
           widgetId,
         })
@@ -498,37 +516,6 @@ export class TappResourceLoader {
       this.pageCssCache.clear()
     }
   }
-}
-
-export function getResourceLoader(): TappResourceLoader {
-  return TappResourceLoader.getInstance()
-}
-
-export async function loadWidgetResources(
-  tappInstance: TappInstance,
-  size: string,
-  widgetId: string,
-): Promise<WidgetResources> {
-  return getResourceLoader().loadWidgetResources(tappInstance, size, widgetId)
-}
-
-export async function loadPopupResources(
-  tappInstance: TappInstance,
-  widgetId: string,
-): Promise<PopupResources> {
-  return getResourceLoader().loadPopupResources(tappInstance, widgetId)
-}
-
-export async function loadCoreResources(
-  tappInstance: TappInstance,
-): Promise<CoreResources> {
-  return getResourceLoader().loadCoreResources(tappInstance)
-}
-
-export async function loadPageResources(
-  tappInstance: TappInstance,
-): Promise<PageResources> {
-  return getResourceLoader().loadPageResources(tappInstance)
 }
 
 export default TappResourceLoader

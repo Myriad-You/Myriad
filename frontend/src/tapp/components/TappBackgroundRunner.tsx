@@ -5,8 +5,8 @@ import {
   publishBackgroundResidents,
   registerBackgroundResidentStopHandler,
 } from '../runtime/backgroundResidentStore'
-import { loadCoreResources } from '../runtime/sandbox/resourceLoader'
 import { getTappRuntime } from '../runtime/TappRuntime'
+import { tappKernel } from '../tappKernel'
 
 const TappPageSandbox = lazy(() => import('../runtime/TappPageSandbox').then(module => ({ default: module.TappPageSandbox })))
 
@@ -55,7 +55,7 @@ export const TappBackgroundRunner: React.FC = () => {
         if (!mountedRef.current || reloadPendingRef.current) return
         try {
           // 后台只加载 core，不生成 Page HTML/CSS。
-          const resources = await loadCoreResources(tapp)
+          const resources = await tappKernel.resources.loadCoreResources(tapp)
 
           const code: TappCodeStructure = {
             modules: resources.modules,

@@ -1,7 +1,9 @@
 import type { TappInstance, TappPermission } from '../types'
+import type { TestTappKernel } from './kernel.test-support.ts'
+import type { TappBridge } from './TappBridge.ts'
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it } from 'node:test'
-import { TappBridge } from './TappBridge.ts'
+import { createTestTappKernel } from './kernel.test-support.ts'
 
 const SESSION = 'kv-perm-session-token'
 const READS = [
@@ -37,6 +39,7 @@ function makeInstance(permissions: TappPermission[] = []): TappInstance {
 
 describe('TappBridge KV permission gates', () => {
   let bridge: TappBridge
+  let test: TestTappKernel
   let iframe: HTMLIFrameElement
   let reached: string[]
   let instance: TappInstance
@@ -46,7 +49,8 @@ describe('TappBridge KV permission gates', () => {
     reached = []
     seq = 0
     instance = makeInstance()
-    bridge = new TappBridge({ describeError: String })
+    test = createTestTappKernel()
+    bridge = test.kernel.createBridge()
     const contentWindow = {} as Window
     iframe = { contentWindow } as HTMLIFrameElement
     bridge.initialize(iframe, instance, SESSION)
@@ -87,12 +91,7 @@ describe('TappBridge KV permission gates', () => {
         _sessionToken: SESSION,
       },
     } as MessageEvent
-    const router = (
-      TappBridge as unknown as {
-        onSharedWindowMessage: (e: MessageEvent) => void
-      }
-    ).onSharedWindowMessage
-    router(event)
+    test.dispatch(event)
   }
 
   async function lastPayload(responses: Array<Record<string, unknown>>) {

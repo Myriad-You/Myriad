@@ -1,12 +1,10 @@
 import type { TappInstance } from '../types'
+import type { TestTappKernel } from './kernel.test-support.ts'
+import type { TappBridge } from './TappBridge.ts'
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it } from 'node:test'
 import { TAPP_PACKAGE_PAYLOAD_BYTES } from '../utils/tappPackageLimits.ts'
-import {
-  applyFederationLimitsPayload,
-  resetFederationLimitsForTests,
-} from './federationLimits.ts'
-import { TappBridge } from './TappBridge.ts'
+import { createTestTappKernel } from './kernel.test-support.ts'
 
 const instance: TappInstance = {
   id: 'com.example.sec',
@@ -26,13 +24,15 @@ const instance: TappInstance = {
 
 describe('TappBridge session token + inbound event allowlist', () => {
   let bridge: TappBridge
+  let test: TestTappKernel
   let iframe: HTMLIFrameElement
   let readyFired: number
   const SESSION = 'session-token-abc-xyz'
 
   beforeEach(() => {
     readyFired = 0
-    bridge = new TappBridge({ describeError: String })
+    test = createTestTappKernel()
+    bridge = test.kernel.createBridge()
     const contentWindow = {} as Window
     iframe = {
       contentWindow,
@@ -51,7 +51,6 @@ describe('TappBridge session token + inbound event allowlist', () => {
 
   afterEach(() => {
     bridge.destroy()
-    resetFederationLimitsForTests()
   })
 
   function dispatchFromIframe(data: Record<string, unknown>): void {
@@ -59,18 +58,7 @@ describe('TappBridge session token + inbound event allowlist', () => {
       source: iframe.contentWindow,
       data,
     } as MessageEvent
-    const router = (
-      TappBridge as unknown as {
-        onSharedWindowMessage: (e: MessageEvent) => void
-      }
-    ).onSharedWindowMessage
-    if (typeof router === 'function') {
-      router(event)
-      return
-    }
-    void (
-      bridge as unknown as { handleMessage: (e: MessageEvent) => void }
-    ).handleMessage(event)
+    test.dispatch(event)
   }
 
   function validateRequest(
@@ -163,12 +151,7 @@ describe('TappBridge session token + inbound event allowlist', () => {
         _sessionToken: SESSION,
       },
     } as MessageEvent
-    const router = (
-      TappBridge as unknown as {
-        onSharedWindowMessage: (e: MessageEvent) => void
-      }
-    ).onSharedWindowMessage
-    router(foreign)
+    test.dispatch(foreign)
     await new Promise((r) => setTimeout(r, 0))
     assert.equal(readyFired, 0)
   })
@@ -224,11 +207,10 @@ describe('TappBridge session token + inbound event allowlist', () => {
   })
 
   it('tightens the federation message cap when saver limits are live', () => {
-    applyFederationLimitsPayload({
-      profile: 'saver',
-      message_payload_bytes: 2 * 1024 * 1024,
-      note_image_bytes: 8 * 1024 * 1024,
-      note_video_bytes: 32 * 1024 * 1024,
+    Object.assign(test.federationLimits, {
+      messagePayloadBytes: 2 * 1024 * 1024,
+      noteImageBytes: 8 * 1024 * 1024,
+      noteVideoBytes: 32 * 1024 * 1024,
     })
     const result = validateRequest('federation.sendMessage', {
       args: ['channel-1', { payload: 'x'.repeat(2 * 1024 * 1024 + 1) }],
@@ -263,10 +245,10 @@ describe('TappBridge session token + inbound event allowlist', () => {
 
   it('resolves bridge via contentWindow scan when source map is cold', async () => {
     const bridgesBySource = (
-      TappBridge as unknown as {
-        bridgesBySource: Map<MessageEventSource, TappBridge>
+      test.kernel as unknown as {
+        router: { bridgesBySource: Map<MessageEventSource, TappBridge> }
       }
-    ).bridgesBySource
+    ).router.bridgesBySource
     bridgesBySource.clear()
     dispatchFromIframe({
       type: 'event',

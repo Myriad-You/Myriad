@@ -1,12 +1,28 @@
-import type {
-  RuntimeGrantKind,
-  TappRuntimeGrantResponse,
-} from '../services/TappApiService'
-import {
-  authorizeTappRuntimePermission,
-  issueTappRuntimeGrant,
-  revokeTappRuntimeGrant,
-} from '../services/TappApiService'
+export type RuntimeGrantKind = 'page' | 'widget' | 'headless'
+
+export interface TappRuntimeGrantResponse {
+  version: 2
+  token: string
+  runtimeId: string
+  tappId: string
+  ownerId: number
+  subjectId: number
+  instanceId: string
+  kind: RuntimeGrantKind
+  permissions: string[]
+  expiresAt: string
+}
+
+/** How the host issues, revokes and checks grants (on the site: its `/api/tapps` routes). */
+export interface TappGrantTransport {
+  issue: (
+    tappId: string,
+    instanceId: string,
+    kind: RuntimeGrantKind,
+  ) => Promise<TappRuntimeGrantResponse>
+  revoke: (tappId: string, runtimeId: string) => Promise<void>
+  authorize: (tappId: string, permission: string, token: string) => Promise<void>
+}
 
 const REFRESH_SKEW_MS = 30_000
 
@@ -24,40 +40,34 @@ export function newSharedWidgetInstanceId(): string {
   return `ws.${hex}`
 }
 
-/**
- * 宿主持有；永不写入 iframe HTML 或 postMessage。多 widget 用 acquireSharedWidget：共享 BE
- * grant，各持自己的 session token。
- */
-export class TappRuntimeGrant {
-  private static readonly tokenOwners = new Map<string, TappRuntimeGrant>()
-  private static readonly instances = new Set<TappRuntimeGrant>()
-  private static readonly sharedWidgetEntries = new Map<string, SharedWidgetEntry>()
-  private current: TappRuntimeGrantResponse | null = null
-  private refreshPromise: Promise<TappRuntimeGrantResponse> | null = null
-  private destroyed = false
+/** 一页一份：持有这页全部 grant、它们的 token 归属和共享 widget 池。 */
+export class TappGrantRegistry {
+  /** 内部：只给 TappRuntimeGrant 用。 */
+  readonly tokenOwners = new Map<string, TappRuntimeGrant>()
+  /** 内部：只给 TappRuntimeGrant 用。 */
+  readonly instances = new Set<TappRuntimeGrant>()
+  private readonly sharedWidgetEntries = new Map<string, SharedWidgetEntry>()
 
-  constructor(
-    private readonly tappId: string,
-    private readonly instanceId: string,
-    private readonly kind: RuntimeGrantKind,
-  ) {
-    TappRuntimeGrant.instances.add(this)
+  constructor(readonly transport: TappGrantTransport) {}
+
+  create(
+    tappId: string,
+    instanceId: string,
+    kind: RuntimeGrantKind,
+  ): TappRuntimeGrant {
+    return new TappRuntimeGrant(this, tappId, instanceId, kind)
   }
 
   /** 同 tappId 的 Widget 共享宿主 grant；各 iframe 仍有独立 session token。 */
-  static acquireSharedWidget(tappId: string): {
+  acquireSharedWidget(tappId: string): {
     grant: TappRuntimeGrant
     release: () => void
   } {
-    let entry = TappRuntimeGrant.sharedWidgetEntries.get(tappId)
+    let entry = this.sharedWidgetEntries.get(tappId)
     if (!entry || entry.grant.isDestroyed()) {
-      const grant = new TappRuntimeGrant(
-        tappId,
-        newSharedWidgetInstanceId(),
-        'widget',
-      )
+      const grant = this.create(tappId, newSharedWidgetInstanceId(), 'widget')
       entry = { grant, refs: 0 }
-      TappRuntimeGrant.sharedWidgetEntries.set(tappId, entry)
+      this.sharedWidgetEntries.set(tappId, entry)
     }
     entry.refs += 1
     let released = false
@@ -67,27 +77,59 @@ export class TappRuntimeGrant {
       release: () => {
         if (released) return
         released = true
-        const current = TappRuntimeGrant.sharedWidgetEntries.get(tappId)
+        const current = this.sharedWidgetEntries.get(tappId)
         if (!current || current.grant !== grant) return
         current.refs -= 1
         if (current.refs <= 0) {
-          TappRuntimeGrant.sharedWidgetEntries.delete(tappId)
+          this.sharedWidgetEntries.delete(tappId)
           current.grant.destroy()
         }
       },
     }
   }
 
-  static sharedWidgetRefCount(tappId: string): number {
-    return TappRuntimeGrant.sharedWidgetEntries.get(tappId)?.refs ?? 0
+  sharedWidgetRefCount(tappId: string): number {
+    return this.sharedWidgetEntries.get(tappId)?.refs ?? 0
   }
 
   /** 清共享 widget 池。登录/登出走 destroyAll。 */
-  static clearSharedWidgetGrants(): void {
-    for (const entry of TappRuntimeGrant.sharedWidgetEntries.values()) {
+  clearSharedWidgetGrants(): void {
+    for (const entry of this.sharedWidgetEntries.values()) {
       entry.grant.destroy()
     }
-    TappRuntimeGrant.sharedWidgetEntries.clear()
+    this.sharedWidgetEntries.clear()
+  }
+
+  destroyAll(): void {
+    for (const grant of Iterator.from(this.instances).toArray()) grant.destroy()
+    this.tokenOwners.clear()
+    this.sharedWidgetEntries.clear()
+  }
+
+  async recoverRejectedToken(token: string): Promise<string | null> {
+    const owner = this.tokenOwners.get(token)
+    if (!owner || owner.isDestroyed()) return null
+    owner.dropRejected(token)
+    return owner.getToken()
+  }
+}
+
+/**
+ * 宿主持有；永不写入 iframe HTML 或 postMessage。多 widget 用 acquireSharedWidget：共享 BE
+ * grant，各持自己的 session token。由 TappGrantRegistry.create 创建。
+ */
+export class TappRuntimeGrant {
+  private current: TappRuntimeGrantResponse | null = null
+  private refreshPromise: Promise<TappRuntimeGrantResponse> | null = null
+  private destroyed = false
+
+  constructor(
+    private readonly registry: TappGrantRegistry,
+    private readonly tappId: string,
+    private readonly instanceId: string,
+    private readonly kind: RuntimeGrantKind,
+  ) {
+    registry.instances.add(this)
   }
 
   async getToken(): Promise<string> {
@@ -107,7 +149,7 @@ export class TappRuntimeGrant {
     }
 
     if (!this.refreshPromise) {
-      this.refreshPromise = issueTappRuntimeGrant(
+      this.refreshPromise = this.registry.transport.issue(
         this.tappId,
         this.instanceId,
         this.kind,
@@ -118,15 +160,15 @@ export class TappRuntimeGrant {
 
     const grant = await this.refreshPromise
     if (this.destroyed) {
-      void revokeTappRuntimeGrant(this.tappId, grant.runtimeId)
+      void this.registry.transport.revoke(this.tappId, grant.runtimeId)
       throw new Error('Tapp runtime stopped while its grant was being issued')
     }
 
     const previous = this.current
     this.current = grant
-    TappRuntimeGrant.tokenOwners.set(grant.token, this)
+    this.registry.tokenOwners.set(grant.token, this)
     if (previous && previous.token !== grant.token) {
-      TappRuntimeGrant.tokenOwners.delete(previous.token)
+      this.registry.tokenOwners.delete(previous.token)
     }
     return grant.token
   }
@@ -149,7 +191,7 @@ export class TappRuntimeGrant {
 
   async authorize(permission: string): Promise<void> {
     const token = await this.getToken()
-    await authorizeTappRuntimePermission(this.tappId, permission, token)
+    await this.registry.transport.authorize(this.tappId, permission, token)
   }
 
   isDestroyed(): boolean {
@@ -168,33 +210,23 @@ export class TappRuntimeGrant {
     return this.kind
   }
 
+  /** 后端拒收了这个 token：丢掉并撤销它，下一次 getToken 重新签发。 */
+  dropRejected(token: string): void {
+    if (this.current?.token !== token) return
+    const rejected = this.current
+    this.current = null
+    this.registry.tokenOwners.delete(token)
+    void this.registry.transport.revoke(this.tappId, rejected.runtimeId)
+  }
+
   destroy(): void {
     if (this.destroyed) return
     this.destroyed = true
-    TappRuntimeGrant.instances.delete(this)
+    this.registry.instances.delete(this)
     if (this.current) {
-      TappRuntimeGrant.tokenOwners.delete(this.current.token)
-      void revokeTappRuntimeGrant(this.tappId, this.current.runtimeId)
+      this.registry.tokenOwners.delete(this.current.token)
+      void this.registry.transport.revoke(this.tappId, this.current.runtimeId)
       this.current = null
     }
-  }
-
-  static destroyAll(): void {
-    for (const grant of Iterator.from(TappRuntimeGrant.instances).toArray())
-      grant.destroy()
-    TappRuntimeGrant.tokenOwners.clear()
-    TappRuntimeGrant.sharedWidgetEntries.clear()
-  }
-
-  static async recoverRejectedToken(token: string): Promise<string | null> {
-    const owner = TappRuntimeGrant.tokenOwners.get(token)
-    if (!owner || owner.destroyed) return null
-    if (owner.current?.token === token) {
-      const rejected = owner.current
-      owner.current = null
-      TappRuntimeGrant.tokenOwners.delete(token)
-      void revokeTappRuntimeGrant(owner.tappId, rejected.runtimeId)
-    }
-    return owner.getToken()
   }
 }

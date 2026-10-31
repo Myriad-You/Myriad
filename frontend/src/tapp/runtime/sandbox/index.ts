@@ -5,11 +5,10 @@ export {
 } from './capabilityProfiles'
 
 export {
-  getResourceLoader,
-  loadPageResources,
-  loadWidgetResources,
   type PageResources,
   TappResourceLoader,
+  type TappResources,
+  type TappResourceSource,
   type WidgetResources,
 } from './resourceLoader'
 export {

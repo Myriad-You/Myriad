@@ -1,8 +1,8 @@
 import type { TappInstance } from '../../types'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { createTestTappKernel } from '../kernel.test-support.ts'
 import { PERMISSION_MAP } from '../permissionConfig.ts'
-import { TappBridge } from '../TappBridge.ts'
 import {
   applySandboxCapabilityProfile,
   HEADLESS_DENIED_ACTIONS,
@@ -180,7 +180,7 @@ describe('sandbox capability profiles', () => {
   })
 
   it('unregisters only HEADLESS_DENIED_ACTIONS and keeps KV handlers', () => {
-    const bridge = new TappBridge({ describeError: String })
+    const bridge = createTestTappKernel().kernel.createBridge()
     const handlers = (
       bridge as unknown as { messageHandlers: Map<string, unknown> }
     ).messageHandlers

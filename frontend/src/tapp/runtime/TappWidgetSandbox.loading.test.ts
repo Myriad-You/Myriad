@@ -6,6 +6,7 @@ import test from 'node:test'
 import { compileFunction } from 'node:vm'
 import ts from 'typescript'
 import { buildLayerScript } from './codeStructure'
+import { createTestTappKernel } from './kernel.test-support'
 import { generateWidgetSDK } from './sandbox/sdkGenerator'
 import * as security from './sandbox/security'
 import { generateThemeCSS, WIDGET_STATIC_CSS } from './sandbox/styles'
@@ -16,7 +17,7 @@ const { JSDOM, VirtualConsole } = require(require.resolve('jsdom', { paths: [req
 const source = ts.createSourceFile('TappWidgetSandbox.tsx', readFileSync(new URL('./TappWidgetSandbox.tsx', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
 const generator = source.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'generateWidgetHTML')!
 const script = ts.transpile(generator.getText(source), { target: ts.ScriptTarget.ES2022 })
-const dependencies = { ...security, buildLayerScript, generateWidgetSDK, generateThemeCSS, WIDGET_STATIC_CSS }
+const dependencies = { ...security, buildLayerScript, generateWidgetSDK, generateThemeCSS, WIDGET_STATIC_CSS, tappKernel: createTestTappKernel().kernel }
 const generateHTML = compileFunction(`${script}; return generateWidgetHTML;`, Object.keys(dependencies))(...Object.values(dependencies))
 const instance = {
   id: 'test.widget', manifest: { id: 'test.widget', name: 'Test', version: '1.0.0', category: 'utility', permissions: [] },

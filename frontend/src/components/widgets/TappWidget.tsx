@@ -23,10 +23,10 @@ import { isPageVisible, onVisibility } from '../../hooks/animation'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { TappIconBadge } from '../../tapp/components/TappIconBadge'
 import { hiddenWidgetPool } from '../../tapp/runtime/resourceBounds'
-import { loadWidgetResources } from '../../tapp/runtime/sandbox/resourceLoader'
 import { getTappRuntime } from '../../tapp/runtime/TappRuntime'
 import { widgetPerfMark } from '../../tapp/runtime/WidgetLoadPerf'
 import { onTappWidgetInvalidate } from '../../tapp/runtime/WidgetRuntimeSignals'
+import { tappKernel } from '../../tapp/tappKernel'
 import { resolveManifestText } from '../../tapp/utils/manifestLocale'
 import { getTappIconStyle } from '../../tapp/utils/tappColors'
 import { tappDetailPath, tappRunPath } from '../../tapp/utils/tappPaths'
@@ -197,7 +197,7 @@ const TappWidgetPreview = memo(
           const widgetSize = config?.size || widget.config.defaultSize || '4x2'
 
           try {
-            const resources = await loadWidgetResources(
+            const resources = await tappKernel.resources.loadWidgetResources(
               tapp,
               widgetSize,
               widget.config.id,
@@ -573,7 +573,7 @@ function TappWidgetRuntime({
           return
         }
 
-        const resources = await loadWidgetResources(
+        const resources = await tappKernel.resources.loadWidgetResources(
           tapp,
           widgetSize,
           found.config.id,
@@ -666,7 +666,7 @@ function TappWidgetRuntime({
           'host-load-start',
           widgetSize,
         )
-        const resources = await loadWidgetResources(
+        const resources = await tappKernel.resources.loadWidgetResources(
           tappInstance,
           widgetSize,
           widget.config.id,

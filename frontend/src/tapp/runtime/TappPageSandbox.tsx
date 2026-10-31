@@ -12,7 +12,7 @@ import {
 } from '../../utils/musicPlayerState'
 import { useTappSubject } from '../../utils/tappSubject'
 import { getIsDarkMode } from '../../utils/themeSubscriber'
-import { userFacingError } from '../../utils/userFacingError'
+import { tappKernel } from '../tappKernel'
 import { sendResizeMessage, useIframeResize } from '../utils/iframeResize'
 import {
   buildLayerScript,
@@ -31,7 +31,6 @@ import {
   generateThemeCSS,
   IFRAME_SANDBOX_ATTRS,
   PAGE_STATIC_CSS,
-  sandboxScriptNonce,
   serializeSandboxScriptValue,
 } from './sandbox'
 import {
@@ -66,13 +65,8 @@ import {
   registerWidgetInvalidateTargetHandler,
 } from './sandbox/handlers'
 import { registerPlaygroundPreviewHandlers } from './sandbox/handlers/playgroundPreviewHandlers'
-import {
-  loadHostRuntimeModule,
-  manifestRequestsRuntimeModule,
-} from './sandbox/hostRuntimeModules'
+import { manifestRequestsRuntimeModule } from './sandbox/hostRuntimeModules'
 import { onSpaNavigation } from './spaNavigation'
-import { createTappBridge } from './TappBridge'
-import { TappRuntimeGrant } from './TappRuntimeGrant'
 import { useSandboxSubscriptions } from './useSandboxSubscriptions'
 import { bindAllTappKvChanges } from './WidgetRuntimeSignals'
 
@@ -109,15 +103,19 @@ function generateHeadlessCoreHTML(
   locale: string,
 ): string {
   const { manifest } = tappInstance
-  const nonce = sandboxScriptNonce()
-  const cspOptions = cspOptionsFromPermissions(
-    tappInstance.grantedPermissions,
-    tappInstance.grantedRemoteMedia,
-  )
+  const nonce = tappKernel.scriptNonce()
+  const hostOrigin = tappKernel.assetOrigin()
+  const cspOptions = {
+    ...cspOptionsFromPermissions(
+      tappInstance.grantedPermissions,
+      tappInstance.grantedRemoteMedia,
+    ),
+    hostOrigin,
+  }
   const csp = generateCSP(nonce, cspOptions)
   const securityWrapper = escapeSandboxScriptSource(
     // 包装层图片 URL 判断必须与 CSP 同一份选项。
-    generateSecurityWrapper(sessionToken, cspOptions.remoteMediaHosts),
+    generateSecurityWrapper(sessionToken, cspOptions.remoteMediaHosts, hostOrigin),
   )
   const sdkCode = escapeSandboxScriptSource(
     generateFullSDK(tappInstance, sessionToken, 'headless'),
@@ -181,15 +179,19 @@ function generatePageHTML(
       .getPropertyValue('--color-primary')
       .trim() || '#94a3b8'
 
-  const nonce = sandboxScriptNonce()
-  const cspOptions = cspOptionsFromPermissions(
-    tappInstance.grantedPermissions,
-    tappInstance.grantedRemoteMedia,
-  )
+  const nonce = tappKernel.scriptNonce()
+  const hostOrigin = tappKernel.assetOrigin()
+  const cspOptions = {
+    ...cspOptionsFromPermissions(
+      tappInstance.grantedPermissions,
+      tappInstance.grantedRemoteMedia,
+    ),
+    hostOrigin,
+  }
   const csp = generateCSP(nonce, cspOptions)
   const securityWrapper = escapeSandboxScriptSource(
     // 包装层图片 URL 判断必须与 CSP 同一份选项。
-    generateSecurityWrapper(sessionToken, cspOptions.remoteMediaHosts),
+    generateSecurityWrapper(sessionToken, cspOptions.remoteMediaHosts, hostOrigin),
   )
   const sdkCode = escapeSandboxScriptSource(
     generateFullSDK(tappInstance, sessionToken),
@@ -552,12 +554,12 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     iframeRef.current = iframe
 
     // DOM 插入前挂消息监听
-    const bridge = createTappBridge({ describeError: userFacingError })
+    const bridge = tappKernel.createBridge()
     bridgeRef.current = bridge
 
     const runtimeGrant = previewMode
       ? undefined
-      : new TappRuntimeGrant(
+      : tappKernel.grants.create(
           currentTappInstance.id,
           `${headless ? 'headless' : 'page'}_${sessionToken.slice(0, 32)}`,
           headless ? 'headless' : 'page',
@@ -758,7 +760,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
         )
       ) {
         try {
-          runtimeScripts = await loadHostRuntimeModule('three')
+          runtimeScripts = await tappKernel.runtimeModules.load('three')
         } catch (error) {
           console.error('[Tapp] host Three runtime failed', error)
         }

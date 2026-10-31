@@ -4,9 +4,9 @@ import { useEffect, useState } from 'react'
 import { useI18n, withI18nNamespace } from '../../contexts/I18nContext'
 import { dropWidgetPopups } from '../../lib/widgetPopup'
 import { hiddenWidgetPool } from '../../tapp/runtime/resourceBounds'
-import { loadPopupResources } from '../../tapp/runtime/sandbox/resourceLoader'
 import { getTappRuntime } from '../../tapp/runtime/TappRuntime'
 import { TappWidgetSandbox } from '../../tapp/runtime/TappWidgetSandbox'
+import { tappKernel } from '../../tapp/tappKernel'
 import { userFacingError } from '../../utils/userFacingError'
 import { TAPP_WIDGET_SKELETON, WidgetSkeletonCover } from './shared/WidgetSkeleton'
 import { useTappInstanceSettingsPatch, useTappWidgetProps } from './useTappWidgetProps'
@@ -51,7 +51,7 @@ function TappWidgetPopupComponent({
           if (!cancelled) setError(t.tapp.widgetNotFound)
           return
         }
-        const resources = await loadPopupResources(tapp, found.config.id)
+        const resources = await tappKernel.resources.loadPopupResources(tapp, found.config.id)
         if (cancelled) return
         // 拉代码期间被停用：前提已经没了，不挂。
         if (!runtime.isRunning(found.tappId)) {

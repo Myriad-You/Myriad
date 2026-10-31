@@ -9,14 +9,12 @@ export function generateNonce(): string {
 
 /**
  * srcdoc 沙箱继承宿主文档的 CSP，脚本得同时过宿主和沙箱自己的两份策略，所以用宿主文档的
- * nonce（spa-server 每次请求一个，写在 `meta[property=csp-nonce]`）。沙箱没有 allow-same-origin，
- * 拿到它也碰不到宿主。没有 CSP 的场合（开发服务器、未替换的构建占位）退回随机值。
+ * nonce（站点上是 spa-server 每次请求一个，写在 `meta[property=csp-nonce]`）。沙箱没有
+ * allow-same-origin，拿到它也碰不到宿主。宿主没有 nonce 或形状不对（开发服务器、未替换的
+ * 构建占位）时退回随机值。
  */
-export function sandboxScriptNonce(): string {
-  const meta = typeof document === 'undefined'
-    ? null
-    : document.querySelector<HTMLMetaElement>('meta[property=csp-nonce]')
-  const nonce = meta?.nonce || ''
+export function sandboxScriptNonce(hostNonce: string | undefined): string {
+  const nonce = hostNonce || ''
   return /^[A-Z0-9+/]{16,}={0,2}$/i.test(nonce) ? nonce : generateNonce()
 }
 
@@ -53,11 +51,11 @@ export interface GenerateCSPOptions {
   allowWasm?: boolean
   /** media:remote 授予的域名；只追加这些 `https://<host>`。connect-src 仍只有 blob:/data:。 */
   remoteMediaHosts?: readonly string[]
-}
-
-/** srcdoc 继承宿主 base URL；相对路径解析到宿主源。 */
-function hostOrigin(): string {
-  return typeof window !== 'undefined' ? window.location.origin : ''
+  /**
+   * 宿主的资源源站，图片与媒体放行它。srcdoc 继承宿主 base URL，相对路径解析到这里；站点上
+   * 就是页面自己的 origin。
+   */
+  hostOrigin?: string
 }
 
 export function generateCSP(
@@ -75,7 +73,7 @@ export function generateCSP(
     : `script-src 'unsafe-inline'${wasmPart}`
 
   // 默认只放行 data:/blob:/同源。远端只放安装时批准的域名，从不放整个 https:。
-  const origin = hostOrigin()
+  const origin = options.hostOrigin || ''
   const originPart = origin ? ` ${origin}` : ''
   const remotePart = remoteMediaHosts.map((host) => ` https://${host}`).join('')
 
@@ -122,8 +120,9 @@ export function cspOptionsFromPermissions(
 export function generateSecurityWrapper(
   sessionToken: string,
   remoteMediaHosts: readonly string[] = [],
+  hostOrigin = '',
 ): string {
-  const origin = hostOrigin()
+  const origin = hostOrigin
   const remoteHosts = JSON.stringify(sanitizeRemoteMediaHosts(remoteMediaHosts))
   return `
 (() => {
