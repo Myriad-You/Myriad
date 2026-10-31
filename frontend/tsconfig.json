@@ -26,9 +26,6 @@
       ],
       "@config": [
         "./src/config.ts"
-      ],
-      "@myriad/core/*": [
-        "../core/*"
       ]
     },
     "resolveJsonModule": true,
@@ -42,8 +39,7 @@
   },
   "include": [
     "src/**/*",
-    "../shared/**/*.json",
-    "../core/shared/**/*.json"
+    "../shared/**/*.json"
   ],
   "exclude": [
     "node_modules",

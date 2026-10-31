@@ -117,7 +117,7 @@ export default defineConfig(({ command }) => ({
   server: {
     port: 1102,
     host: true,
-    // figure/ and core/ are submodules beside frontend/; tests load figure modules by /@fs path.
+    // figure/ is a submodule beside frontend/; tests load figure modules by /@fs path.
     // tapp/runtime/ is a workspace package beside frontend/ too; it imports tapp/shared/.
     fs: {
       allow: [
@@ -125,7 +125,6 @@ export default defineConfig(({ command }) => ({
         path.resolve(__dirname, '../figure'),
         path.resolve(__dirname, '../tapp/runtime'),
         path.resolve(__dirname, '../tapp/shared'),
-        path.resolve(__dirname, '../core/shared'),
       ],
     },
   },
@@ -222,8 +221,6 @@ export default defineConfig(({ command }) => ({
       '@lib': path.resolve(__dirname, './src/lib'),
       '@config': path.resolve(__dirname, './src/config.ts'),
       '@shared': path.resolve(__dirname, '../shared'),
-      // figure/ imports the shared core's contracts by this name.
-      '@myriad/core': path.resolve(__dirname, '../core'),
     },
   },
   environments: {
