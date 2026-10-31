@@ -1,4 +1,4 @@
-import type { MeropeSpeechSource } from '@myriad/figure/speech/speechEvents'
+import type { MeropeSpeechSource } from '@myriad/figure/speech'
 import { getDefaultLocale } from '../../../i18n'
 import { speakableText } from './speakableText'
 

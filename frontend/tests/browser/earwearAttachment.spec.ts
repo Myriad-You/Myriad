@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { readFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 import { expect, test } from '@playwright/test'
+import { FIGURE_RUNTIME_MODULES } from './figureModules'
 
 test('real pendant attachments move independently while roots remain on the host', async ({ page }, testInfo) => {
   test.setTimeout(120_000)
@@ -9,7 +9,7 @@ test('real pendant attachments move independently while roots remain on the host
   test.skip(!root, 'Set MEROPE_EARWEAR_ASSET to a rig with hanging earrings')
   const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
   const atlas = await readFile(`${root}/atlas.png`)
-  const modules = `/@fs${fileURLToPath(new URL('../../../figure/src/anime25drig/', import.meta.url))}`
+  const modules = FIGURE_RUNTIME_MODULES
   await page.route('**/earwear-probe', route => route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }))
   await page.route('**/earwear-atlas.png', route => route.fulfill({ contentType: 'image/png', body: atlas }))
   await page.goto('/earwear-probe')
@@ -62,7 +62,7 @@ test('real paired earrings attach independently without repacking their atlas', 
   test.skip(!root, 'Set MEROPE_COLLAR_ASSET to the paired-earring portrait')
   const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
   const atlas = await readFile(`${root}/atlas.png`)
-  const modules = `/@fs${fileURLToPath(new URL('../../../figure/src/anime25drig/', import.meta.url))}`
+  const modules = FIGURE_RUNTIME_MODULES
   await page.route('**/earwear-probe', route => route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }))
   await page.route('**/earwear-atlas.png', route => route.fulfill({ contentType: 'image/png', body: atlas }))
   await page.goto('/earwear-probe')

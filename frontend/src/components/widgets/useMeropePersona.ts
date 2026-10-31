@@ -2,7 +2,7 @@ import {
   MEROPE_STATE_EVENT,
   meropeStateEventDetail,
   resolveLoadedMeropeAffect,
-} from '@myriad/figure/events/performanceEvents'
+} from '@myriad/figure/events'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { PERSONA_UPDATED_EVENT } from '../../features/merope/events/updates'

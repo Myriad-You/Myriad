@@ -1,10 +1,8 @@
-import { RigMotionCoordinator } from '@myriad/figure/motion/coordinator'
-import { setLiveMotionGeneration } from '@myriad/figure/motion/liveGeneration'
-import { SpeechMotionSource } from '@myriad/figure/motion/speechSource'
+import { RigMotionCoordinator, setLiveMotionGeneration, SpeechMotionSource } from '@myriad/figure/motion'
 import {
   MEROPE_SPEECH_EVENT,
   meropeSpeechEventDetail,
-} from '@myriad/figure/speech/speechEvents'
+} from '@myriad/figure/speech'
 import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { useVoiceRecording } from '../../../src/components/agent-panel/useVoiceRecording'

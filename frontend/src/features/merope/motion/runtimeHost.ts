@@ -1,8 +1,6 @@
-import type { MotionRuntime } from '@myriad/figure/motion/runtime'
-import type { RigStateSummary } from '@myriad/figure/performance/types'
-import { getRigMotionCoordinator } from '@myriad/figure/motion/coordinator'
-import { captureRigStateSummary } from '@myriad/figure/motion/rigStateSummary'
-import { createLiveMotionRuntime } from '@myriad/figure/motion/runtime'
+import type { MotionRuntime } from '@myriad/figure/motion'
+import type { RigStateSummary } from '@myriad/figure/performance'
+import { captureRigStateSummary, createLiveMotionRuntime, getRigMotionCoordinator } from '@myriad/figure/motion'
 import { getMusicMotionSource } from './musicSourceRuntime'
 
 const production: { current: MotionRuntime | null } = { current: null }

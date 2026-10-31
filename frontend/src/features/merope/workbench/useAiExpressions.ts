@@ -1,6 +1,6 @@
-import type { AuthoredExpressionKind } from '@myriad/figure/rig/authoredExpression'
+import type { AuthoredExpressionKind } from '@myriad/figure/rig'
 import type { SiteExpressionUrls } from '../api'
-import { AUTHORED_EXPRESSION_KINDS } from '@myriad/figure/rig/authoredExpression'
+import { AUTHORED_EXPRESSION_KINDS } from '@myriad/figure/rig'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { generateSiteExpression, listSiteExpressions } from '../api'
 import { useServerGeneration } from './useServerGeneration'

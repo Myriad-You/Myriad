@@ -1,6 +1,5 @@
-import type { PoseCorrection } from '@myriad/figure/anime25drig/poseCorrections'
-import type { Anime25DPlayback } from '@myriad/figure/anime25drig/types'
-import type { AuthoredExpressionKind } from '@myriad/figure/rig/authoredExpression'
+import type { Anime25DPlayback, PoseCorrection } from '@myriad/figure/anime25drig'
+import type { AuthoredExpressionKind } from '@myriad/figure/rig'
 import type { ReactNode, RefObject } from 'react'
 import type { RigCharacterHandle } from '../character/RigCharacter'
 import type { MovingPartsSearch } from './MovingPartsPanel'

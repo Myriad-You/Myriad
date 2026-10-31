@@ -1,7 +1,7 @@
 import type { DynamicContentType } from '../services/DynamicContentProvider'
 import type { DynamicContent } from './ControlPanel/islandContentTypes'
 import type { PanelTab } from './ControlPanel/panelTransition'
-import { resetMeropeState } from '@myriad/figure/events/meropeAffectState'
+import { resetMeropeState } from '@myriad/figure/events'
 import React, {
   Suspense,
   useCallback,

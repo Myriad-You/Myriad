@@ -2,8 +2,8 @@ import type { CSSProperties, ReactNode, Ref } from 'react'
 import type { RigCharacterHandle } from '../../features/merope/character/RigCharacter'
 import type { MoodBand } from '../agent/meropeVitals'
 import type { WidgetComponentProps } from '../widgetGridTypes'
-import { isAnime25DPlayback } from '@myriad/figure/anime25drig/types'
-import { sameLiveFaceRuntime } from '@myriad/figure/rig/manifestValidation'
+import { isAnime25DPlayback } from '@myriad/figure/anime25drig'
+import { sameLiveFaceRuntime } from '@myriad/figure/rig'
 import {
   memo,
   useCallback,

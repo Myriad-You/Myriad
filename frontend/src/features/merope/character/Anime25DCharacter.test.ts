@@ -59,13 +59,18 @@ test('outfit and callback changes keep the React player; stale loads cannot repo
     plugins: [{
       name: 'character-test-boundaries',
       setup(builder) {
-        builder.onResolve({ filter: /^@myriad\/figure\/anime25drig\/player$/ }, () => ({ path: 'player', namespace: 'test' }))
-        builder.onResolve({ filter: /^(@myriad\/figure\/interaction\/bindTouch|\.\.\/presence\/touchAppraisalHost|\.\.\/motion\/runtimeHost)$/ }, () => ({ path: 'interaction', namespace: 'test' }))
+        // The real figure entries, with only the player and touch binding swapped out.
+        const real = (entry: string) => JSON.stringify(require.resolve(`@myriad/figure/${entry}`))
+        builder.onResolve({ filter: /^@myriad\/figure\/(anime25drig|interaction)$/ }, ({ path }) => ({ path: path.split('/').pop()!, namespace: 'test' }))
+        builder.onResolve({ filter: /^\.\.\/(presence\/touchAppraisalHost|motion\/runtimeHost)$/ }, () => ({ path: 'host', namespace: 'test' }))
         builder.onLoad({ filter: /.*/, namespace: 'test' }, ({ path }) => ({
-          contents: path === 'player'
-            ? 'export const Anime25DPlayer = TestPlayer'
-            : 'export function bindCharacterTouch() {} export function createTouchAppraisal() {} export function getProductionMotionRuntime() {}',
+          contents: path === 'anime25drig'
+            ? `export * from ${real('anime25drig')}\nexport const Anime25DPlayer = TestPlayer`
+            : path === 'interaction'
+              ? `export * from ${real('interaction')}\nexport function bindCharacterTouch() {}`
+              : 'export function createTouchAppraisal() {} export function getProductionMotionRuntime() {}',
           loader: 'js',
+          resolveDir: new URL('.', import.meta.url).pathname,
         }))
       },
     }],

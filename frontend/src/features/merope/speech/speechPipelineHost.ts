@@ -1,9 +1,8 @@
-import type { MeropeSpeechSource } from '@myriad/figure/speech/speechEvents'
+import type { MeropeSpeechSource } from '@myriad/figure/speech'
 import type { SpeechStatus } from '../../../services/speechApi'
 import type { SpeechInterruptMode, SpeechSegment } from './speechSegmenter'
 import type { SpeechCutOff } from './ttsPipeline'
-import { dispatchMeropeSpeech } from '@myriad/figure/speech/speechEvents'
-import { estimateAutoSpeechDurationMs } from '@myriad/figure/speech/textTiming'
+import { dispatchMeropeSpeech, estimateAutoSpeechDurationMs } from '@myriad/figure/speech'
 import {
   getSpeechStatus,
   openVoiceStream,

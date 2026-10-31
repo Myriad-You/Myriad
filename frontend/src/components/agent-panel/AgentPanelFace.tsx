@@ -1,13 +1,13 @@
-import type { MeropeRigManifest } from '@myriad/figure/rig/types'
+import type { MeropeRigManifest } from '@myriad/figure/rig'
 import type { CSSProperties } from 'react'
 import type { RigCharacterHandle } from '../../features/merope/character/RigCharacter'
-import { isAnime25DPlayback } from '@myriad/figure/anime25drig/types'
+import { isAnime25DPlayback } from '@myriad/figure/anime25drig'
 import {
   MEROPE_STATE_EVENT,
   meropeStateEventDetail,
   resolveLoadedMeropeAffect,
-} from '@myriad/figure/events/performanceEvents'
-import { sameLiveFaceRuntime } from '@myriad/figure/rig/manifestValidation'
+} from '@myriad/figure/events'
+import { sameLiveFaceRuntime } from '@myriad/figure/rig'
 import {
   useCallback,
   useEffect,

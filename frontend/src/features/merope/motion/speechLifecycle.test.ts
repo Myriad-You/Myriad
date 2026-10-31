@@ -1,14 +1,14 @@
 import type {
   SpeechLifecycleScheduler,
   SpeechLifecycleTarget,
-} from '@myriad/figure/motion/speechLifecycle'
-import type { SpeechArticulation } from '@myriad/figure/rig/articulation'
-import type { SpeechProsodyPlan } from '@myriad/figure/speech/prosody'
+} from '@myriad/figure/motion'
+import type { SpeechArticulation } from '@myriad/figure/rig'
+import type { SpeechProsodyPlan } from '@myriad/figure/speech'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { SpeechLifecycleController } from '@myriad/figure/motion/speechLifecycle'
-import { estimateAutoSpeechDurationMs } from '@myriad/figure/speech/textTiming'
+import { SpeechLifecycleController } from '@myriad/figure/motion'
+import { estimateAutoSpeechDurationMs } from '@myriad/figure/speech'
 
 class FakeScheduler implements SpeechLifecycleScheduler {
   time = 0
@@ -367,7 +367,7 @@ test('uses punctuation and locale to estimate natural visual speech phrasing', (
 })
 
 test('ignores speech from an older generation without cancelling the live one', async () => {
-  const { setLiveMotionGeneration } = await import('@myriad/figure/motion/liveGeneration')
+  const { setLiveMotionGeneration } = await import('@myriad/figure/motion')
   setLiveMotionGeneration(3)
   const scheduler = new FakeScheduler()
   const rig = fakeTarget()

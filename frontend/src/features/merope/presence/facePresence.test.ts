@@ -182,10 +182,6 @@ test('outfit changes stay on the live player instead of exiting the stage', () =
     new URL('../character/Anime25DCharacter.tsx', import.meta.url),
     'utf8',
   )
-  const player = readFileSync(
-    new URL('../../../../../figure/src/anime25drig/player.ts', import.meta.url),
-    'utf8',
-  )
   assert.match(panel, /\? 'live'/)
   assert.match(widget, /\? 'live'/)
   assert.doesNotMatch(panel, /\? atlasUrl/)
@@ -194,7 +190,4 @@ test('outfit changes stay on the live player instead of exiting the stage', () =
   // Instance lifetime is exercised by Anime25DCharacter.test.ts. Callback
   // identity must not be a player-recreation dependency.
   assert.doesNotMatch(character, /\[gpuEpoch, onPlaybackError\]/)
-  assert.match(player, /async replaceLivePackage/)
-  assert.match(player, /await loadImage\(atlasUrl/)
-  assert.match(player, /this\.atlasTexture = prepared\.texture/)
 })

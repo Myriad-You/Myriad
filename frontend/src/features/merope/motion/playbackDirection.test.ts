@@ -1,9 +1,8 @@
 import type { PlaybackDirectionSnapshot } from './playbackDirection'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { sanitizePerformanceDirective } from '@myriad/figure/events/performanceEvents'
-import { RigMotionCoordinator } from '@myriad/figure/motion/coordinator'
-import { MotionRuntime } from '@myriad/figure/motion/runtime'
+import { sanitizePerformanceDirective } from '@myriad/figure/events'
+import { MotionRuntime, RigMotionCoordinator } from '@myriad/figure/motion'
 import { TtsPipeline } from '../speech/ttsPipeline'
 import {
   PlaybackDirectionClient,

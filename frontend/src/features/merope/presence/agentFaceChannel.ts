@@ -2,16 +2,16 @@ import type {
   MeropeSpeechEventDetail,
   MeropeSpeechSource,
   SpeechUtteranceInput,
-} from '@myriad/figure/speech/speechEvents'
+} from '@myriad/figure/speech'
 import {
   dispatchMeropePerformance,
   dispatchMeropeState,
-} from '@myriad/figure/events/performanceEvents'
-import { newMotionIntentId } from '@myriad/figure/motion/liveGeneration'
+} from '@myriad/figure/events'
+import { newMotionIntentId } from '@myriad/figure/motion'
 import {
   dispatchMeropeSpeech,
   dispatchMeropeSpeechUtterance,
-} from '@myriad/figure/speech/speechEvents'
+} from '@myriad/figure/speech'
 import { authSubject } from '../../../utils/authSubject'
 
 /** 超出按最早丢。 */

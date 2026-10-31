@@ -1,9 +1,8 @@
-import type { Anime25DDriver } from '@myriad/figure/anime25drig/driver'
-import type { Anime25DDebugSnapshot } from '@myriad/figure/anime25drig/player'
+import type { Anime25DDebugSnapshot, Anime25DDriver } from '@myriad/figure/anime25drig'
 import type { RefObject } from 'react'
 import type { RigCharacterHandle } from '../character/RigCharacter'
-import { WORKBENCH_DRIVER } from '@myriad/figure/anime25drig/driver'
-import { PreviewMotionScope } from '@myriad/figure/motion/previewScope'
+import { WORKBENCH_DRIVER } from '@myriad/figure/anime25drig'
+import { PreviewMotionScope } from '@myriad/figure/motion'
 import { useEffect, useRef, useState } from 'react'
 
 /**

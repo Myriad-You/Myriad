@@ -1,11 +1,9 @@
-import type { SpeechArticulation } from '@myriad/figure/rig/articulation'
-import type { TextVisemeCue } from '@myriad/figure/speech/textVisemes'
-import { compileTextVisemes } from '@myriad/figure/speech/textVisemes'
-import {
-  alignVisemeTimeline,
+import type { SpeechArticulation } from '@myriad/figure/rig'
+import type { TextVisemeCue } from '@myriad/figure/speech'
+import { alignVisemeTimeline,
+  compileTextVisemes,
   VISEME_SILENCE_ENERGY,
-  visemeAmount,
-} from '@myriad/figure/speech/visemeTimeline'
+  visemeAmount } from '@myriad/figure/speech'
 
 const MAX_WORDS = 512
 const MAX_MESSAGE_BYTES = 64_000

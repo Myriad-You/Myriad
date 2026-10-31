@@ -1,4 +1,4 @@
-import type { MeropeStateEventDetail } from '@myriad/figure/events/performanceEvents'
+import type { MeropeStateEventDetail } from '@myriad/figure/events'
 import type {
   AppNotification,
   LiveSpeechEvent,

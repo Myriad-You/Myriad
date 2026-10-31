@@ -1,32 +1,18 @@
-import type { CollarClipMesh } from '@myriad/figure/anime25drig/collarRuntime'
-import type { Anime25DGpuLayer } from '@myriad/figure/anime25drig/layerGpuBinding'
-import { realizeAnime25DBehaviorPlan } from '@myriad/figure/anime25drig/behaviorRealizer'
-import { Anime25DPlayer } from '@myriad/figure/anime25drig/player'
-import {
+import type { Anime25DGpuLayer, CollarClipMesh } from '@myriad/figure/anime25drig'
+import { Anime25DPlayer, realizeAnime25DBehaviorPlan,
   speechArticulationDriverPatch,
-  speechEnergyDriverPatch,
-} from '@myriad/figure/anime25drig/speechDriver'
-import { dispatchMeropePerformance } from '@myriad/figure/events/performanceEvents'
-import { bindCharacterTouch } from '@myriad/figure/interaction/bindTouch'
-import { TouchAppraisal } from '@myriad/figure/interaction/touchAppraisal'
-import { TouchGestureTracker } from '@myriad/figure/interaction/touchGesture'
+  speechEnergyDriverPatch } from '@myriad/figure/anime25drig'
+import { dispatchMeropePerformance } from '@myriad/figure/events'
+import { bindCharacterTouch, TouchAppraisal, TouchGestureTracker } from '@myriad/figure/interaction'
 import {
   applyMotionFrame,
-  createMotionApplyState,
-} from '@myriad/figure/motion/applyFrame'
-import { RigMotionCoordinator } from '@myriad/figure/motion/coordinator'
-import {
-  liveMotionGeneration,
-  setLiveMotionGeneration,
-} from '@myriad/figure/motion/liveGeneration'
-import { MusicMotionSource } from '@myriad/figure/motion/musicSource'
-import { MotionRuntime } from '@myriad/figure/motion/runtime'
-import { anime25DImportCopy } from '@myriad/figure/rig/anime25dImportCopy'
-import { prepareAnime25DRigPsd } from '@myriad/figure/rig/anime25dImporter'
-import { syntheticSeeThroughPsd } from '@myriad/figure/rig/anime25dImporter.fixture'
-import { decodeRigPsd } from '@myriad/figure/rig/psdDecode'
-import { prepareRigPsdImport } from '@myriad/figure/rig/psdImporter'
-import { dispatchMeropeSpeech } from '@myriad/figure/speech/speechEvents'
+  createMotionApplyState, liveMotionGeneration,
+  MotionRuntime,
+  MusicMotionSource, RigMotionCoordinator, setLiveMotionGeneration,
+} from '@myriad/figure/motion'
+import { anime25DImportCopy, decodeRigPsd, prepareAnime25DRigPsd, prepareRigPsdImport } from '@myriad/figure/rig'
+import { dispatchMeropeSpeech } from '@myriad/figure/speech'
+import { syntheticSeeThroughPsd } from '@myriad/figure/testing'
 import { writePsd } from 'ag-psd'
 import { loadLocale } from '../../../src/i18n/loadLocale'
 import { currentCopy } from '../../../src/i18n/localeCopy'

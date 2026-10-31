@@ -1,7 +1,7 @@
 import type {
   MeropeSpeechEventDetail,
   SpeechUtteranceInput,
-} from '@myriad/figure/speech/speechEvents'
+} from '@myriad/figure/speech'
 import type { AgentFaceSink } from './agentFaceChannel'
 import assert from 'node:assert/strict'
 import test from 'node:test'

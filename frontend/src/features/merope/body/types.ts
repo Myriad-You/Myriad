@@ -1,4 +1,4 @@
-import type { MeropePerformanceEventDetail } from '@myriad/figure/events/performanceEvents'
+import type { MeropePerformanceEventDetail } from '@myriad/figure/events'
 import type { PageContent } from '../../../contexts/PageContentContext'
 import type { PerformanceDirective } from '../../../services/agent/types'
 import type { PerceptionSnapshot } from '../perception/registry'

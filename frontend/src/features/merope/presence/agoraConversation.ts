@@ -1,5 +1,5 @@
 import type { VoiceRunIdentity } from '../speech/realtimeChat'
-import { dispatchMeropeSpeech } from '@myriad/figure/speech/speechEvents'
+import { dispatchMeropeSpeech } from '@myriad/figure/speech'
 import {
   interruptConvoSession,
   startConvoSession,

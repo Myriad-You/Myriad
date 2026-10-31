@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { afterEach, it, mock } from 'node:test'
-import { turnKeyformsFor } from '@myriad/figure/rig/turnKeyformImport'
+import { turnKeyformsFor } from '@myriad/figure/rig'
 import { ApiError, apiService } from '../../services/api'
 import { decomposeWithTurnKeyforms, resumeTurnKeyforms, uploadTurnArchive } from './turnKeyformsApi'
 

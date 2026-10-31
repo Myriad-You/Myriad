@@ -3,7 +3,7 @@ import type { MoodBand } from '../agent/meropeVitals'
 import type { AgentAttachment, AttachError } from './agentAttachments'
 import type { AgentPanelMode } from './agentPanelMode'
 import type { ComposerFavorite } from './composerFavorites'
-import { dispatchMeropeListening } from '@myriad/figure/events/performanceEvents'
+import { dispatchMeropeListening } from '@myriad/figure/events'
 import React, {
   useCallback,
   useEffect,

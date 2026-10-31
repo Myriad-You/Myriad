@@ -1,10 +1,9 @@
 import type {
-  PreparedRigPsdImport,
-  prepareRigPsdImport,
-} from '@myriad/figure/rig/psdImporter'
-import type { MeropeRigManifest } from '@myriad/figure/rig/types'
+  MeropeRigManifest,
+  PreparedRigPsdImport, prepareRigPsdImport,
+} from '@myriad/figure/rig'
 import type { importMeropeRig, previewMeropeRigImport } from '../api'
-import { diagnoseRig } from '@myriad/figure/rig/diagnostics'
+import { diagnoseRig } from '@myriad/figure/rig'
 import { userFacingError } from '../../../utils/userFacingError'
 
 export type RigAssetCompileStage =

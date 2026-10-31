@@ -2,9 +2,8 @@ import type {
   MusicMotionAudio,
   MusicMotionClock,
   MusicMotionVisibility,
-} from '@myriad/figure/motion/musicSource'
-import { getRigMotionCoordinator } from '@myriad/figure/motion/coordinator'
-import { MusicMotionSource } from '@myriad/figure/motion/musicSource'
+} from '@myriad/figure/motion'
+import { getRigMotionCoordinator, MusicMotionSource } from '@myriad/figure/motion'
 import { isPageVisible, onVisibility } from '../../../hooks/animation'
 import { audioManager } from '../../../utils/musicPlayer'
 

@@ -1,6 +1,6 @@
-import type { MeropeRigManifest } from '@myriad/figure/rig/types'
+import type { MeropeRigManifest } from '@myriad/figure/rig'
 import type { MovingPartsSearch } from './MovingPartsPanel'
-import { isAnime25DPlayback } from '@myriad/figure/anime25drig/types'
+import { isAnime25DPlayback } from '@myriad/figure/anime25drig'
 import { currentCopy } from '../../../i18n/localeCopy'
 import { apiService } from '../../../services/api'
 import { fullBodyPath, meropeError, PREFIX, RIG_MUTATION_TIMEOUT_MS } from '../api'

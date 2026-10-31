@@ -1,4 +1,4 @@
-import { installFigureHost } from '@myriad/figure/figureHost'
+import { installFigureHost } from '@myriad/figure/host'
 import { API_URL } from '../../../config'
 import { currentCopy } from '../../../i18n/localeCopy'
 import {

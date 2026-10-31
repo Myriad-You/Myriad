@@ -1,10 +1,8 @@
 import type { PerformanceDirective } from '../../../services/agent/types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { meropePerformanceEventDetail } from '@myriad/figure/events/performanceEvents'
-import { RigMotionCoordinator } from '@myriad/figure/motion/coordinator'
-import { setLiveMotionGeneration } from '@myriad/figure/motion/liveGeneration'
-import { MotionRuntime } from '@myriad/figure/motion/runtime'
+import { meropePerformanceEventDetail } from '@myriad/figure/events'
+import { MotionRuntime, RigMotionCoordinator, setLiveMotionGeneration } from '@myriad/figure/motion'
 import {
   beginTurnTrace,
   resetTurnTraceForTest,

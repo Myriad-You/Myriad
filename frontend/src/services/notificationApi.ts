@@ -1,4 +1,4 @@
-import type { MeropeStateEventDetail } from '@myriad/figure/events/performanceEvents'
+import type { MeropeStateEventDetail } from '@myriad/figure/events'
 import { API_URL } from '../config'
 import apiService from './api'
 

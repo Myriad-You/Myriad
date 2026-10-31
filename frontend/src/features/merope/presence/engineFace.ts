@@ -7,7 +7,7 @@ import type {
 import type { PerceptionAdapter } from '../body/types'
 import type { SpeechSegment } from '../speech/speechSegmenter'
 import type { FaceDelivery, FaceSpeechLine } from './faceSpeechArbitration'
-import { setLiveMotionGeneration } from '@myriad/figure/motion/liveGeneration'
+import { setLiveMotionGeneration } from '@myriad/figure/motion'
 import { openVoiceStream } from '../../../services/speechApi'
 import { authSubject } from '../../../utils/authSubject'
 import { getLocalPerception, getProductionBody } from '../body/host'

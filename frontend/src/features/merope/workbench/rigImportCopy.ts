@@ -1,4 +1,4 @@
-import type { AuthoredExpressionKind } from '@myriad/figure/rig/authoredExpression'
+import type { AuthoredExpressionKind } from '@myriad/figure/rig'
 import type { TranslationKeys } from '../../../i18n'
 import type { RigAssetCompileEvent } from '../assets/pipeline'
 import type { TurnKeyformsStatus } from '../turnKeyformsApi'

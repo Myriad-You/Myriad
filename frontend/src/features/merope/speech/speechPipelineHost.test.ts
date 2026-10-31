@@ -1,11 +1,11 @@
-import type { MeropeSpeechEventDetail } from '@myriad/figure/speech/speechEvents'
+import type { MeropeSpeechEventDetail } from '@myriad/figure/speech'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   liveMotionGeneration,
   setLiveMotionGeneration,
-} from '@myriad/figure/motion/liveGeneration'
-import { MEROPE_SPEECH_EVENT } from '@myriad/figure/speech/speechEvents'
+} from '@myriad/figure/motion'
+import { MEROPE_SPEECH_EVENT } from '@myriad/figure/speech'
 import {
   createConfigDomain,
   executeConfigOperations,

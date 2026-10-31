@@ -1,8 +1,8 @@
 import { Buffer } from 'node:buffer'
 import { readFile } from 'node:fs/promises'
 import { delimiter } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { expect, test } from '@playwright/test'
+import { FIGURE_RUNTIME_MODULES } from './figureModules'
 
 const assets = [
   ['off-shoulder', process.env.MEROPE_SHOULDER_ASSET],
@@ -16,7 +16,7 @@ test('real high-collar crown replay changes scalp pixels without repainting the 
   test.skip(!root, 'Set MEROPE_COLLAR_ASSET to the high-collar split portrait')
   const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
   const atlas = await readFile(`${root}/atlas.png`)
-  const modules = `/@fs${fileURLToPath(new URL('../../../figure/src/anime25drig/', import.meta.url))}`
+  const modules = FIGURE_RUNTIME_MODULES
   await page.route('**/crown-probe', route => route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }))
   await page.route('**/crown-atlas.png', route => route.fulfill({ contentType: 'image/png', body: atlas }))
   await page.goto('/crown-probe')
@@ -90,7 +90,7 @@ test('real music-to-idle transition keeps the whole player moving without resett
   test.skip(!root, 'Set MEROPE_COLLAR_ASSET to a real rig')
   const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
   const atlas = await readFile(`${root}/atlas.png`)
-  const modules = `/@fs${fileURLToPath(new URL('../../../figure/src/anime25drig/', import.meta.url))}`
+  const modules = FIGURE_RUNTIME_MODULES
   await page.route('**/music-transition-probe', route => route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }))
   await page.route('**/music-transition-atlas.png', route => route.fulfill({ contentType: 'image/png', body: atlas }))
   await page.goto('/music-transition-probe')
@@ -173,7 +173,7 @@ test('real thinking-to-speech handoff preserves a newer face and releases the ol
   test.skip(!root, 'Set MEROPE_COLLAR_ASSET to a real rig')
   const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
   const atlas = await readFile(`${root}/atlas.png`)
-  const modules = `/@fs${fileURLToPath(new URL('../../../figure/src/anime25drig/', import.meta.url))}`
+  const modules = FIGURE_RUNTIME_MODULES
   await page.route('**/thought-transition-probe', route => route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }))
   await page.route('**/thought-transition-atlas.png', route => route.fulfill({ contentType: 'image/png', body: atlas }))
   await page.goto('/thought-transition-probe')
@@ -240,7 +240,7 @@ for (const [name, root] of assets) {
     test.skip(!root, 'Set MEROPE_HAIR_ASSETS to include cropped portraits')
     const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
     const atlas = await readFile(`${root}/atlas.png`)
-    const modules = `/@fs${fileURLToPath(new URL('../../../figure/src/anime25drig/', import.meta.url))}`
+    const modules = FIGURE_RUNTIME_MODULES
     await page.route('**/cut-probe', route => route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }))
     await page.route('**/cut-atlas.png', route => route.fulfill({ contentType: 'image/png', body: atlas }))
     await page.goto('/cut-probe')
@@ -310,7 +310,7 @@ for (const [name, root] of assets) {
     test.skip(!root, 'Provide a real split portrait')
     const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
     const atlas = await readFile(`${root}/atlas.png`)
-    const modules = `/@fs${fileURLToPath(new URL('../../../figure/src/anime25drig/', import.meta.url))}`
+    const modules = FIGURE_RUNTIME_MODULES
     await page.route('**/pose-corners-probe', route => route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }))
     await page.route('**/pose-corners-atlas.png', route => route.fulfill({ contentType: 'image/png', body: atlas }))
     await page.goto('/pose-corners-probe')
@@ -402,7 +402,7 @@ for (const [name, root] of assets) {
     test.skip(!root, 'Set MEROPE_SHOULDER_ASSET / MEROPE_COLLAR_ASSET or MEROPE_HAIR_ASSETS to real split portraits')
     const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
     const atlas = await readFile(`${root}/atlas.png`)
-    const modules = `/@fs${fileURLToPath(new URL('../../../figure/src/anime25drig/', import.meta.url))}`
+    const modules = FIGURE_RUNTIME_MODULES
     await page.route('**/hair-nod-probe', route => route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }))
     await page.route('**/hair-nod-atlas.png', route => route.fulfill({ contentType: 'image/png', body: atlas }))
     await page.goto('/hair-nod-probe')
@@ -481,7 +481,7 @@ for (const [name, root] of assets) {
     test.skip(!root, 'Set MEROPE_SHOULDER_ASSET / MEROPE_COLLAR_ASSET or MEROPE_HAIR_ASSETS to real split portraits')
     const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
     const atlas = await readFile(`${root}/atlas.png`)
-    const modules = `/@fs${fileURLToPath(new URL('../../../figure/src/anime25drig/', import.meta.url))}`
+    const modules = FIGURE_RUNTIME_MODULES
     await page.route('**/hair-roots-probe', route => route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }))
     await page.route('**/hair-roots-atlas.png', route => route.fulfill({ contentType: 'image/png', body: atlas }))
     await page.goto('/hair-roots-probe')
@@ -657,7 +657,7 @@ for (const [name, root] of assets) {
     test.skip(!root, 'Set MEROPE_SHOULDER_ASSET / MEROPE_COLLAR_ASSET or MEROPE_HAIR_ASSETS to real split portraits')
     const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
     const atlas = await readFile(`${root}/atlas.png`)
-    const modules = `/@fs${fileURLToPath(new URL('../../../figure/src/anime25drig/', import.meta.url))}`
+    const modules = FIGURE_RUNTIME_MODULES
     await page.route('**/hair-follow-probe', route => route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }))
     await page.route('**/hair-follow-atlas.png', route => route.fulfill({ contentType: 'image/png', body: atlas }))
     await page.goto('/hair-follow-probe')

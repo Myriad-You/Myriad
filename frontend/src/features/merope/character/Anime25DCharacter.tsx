@@ -1,29 +1,15 @@
-import type { PoseCorrection } from '@myriad/figure/anime25drig/poseCorrections'
-import type { Anime25DPlayback } from '@myriad/figure/anime25drig/types'
-import type { Anime25DWorkbenchPort } from '@myriad/figure/anime25drig/workbenchPort'
-import type { RigBearing } from '@myriad/figure/motion/bearing'
-import type { BehaviorPlan } from '@myriad/figure/motion/behavior'
-import type { MotionChannelPolicy } from '@myriad/figure/motion/policy'
-import type { ResolvedScore } from '@myriad/figure/motion/scoreTimeline'
-import type { RigMotionPort } from '@myriad/figure/rig/motionPort'
-import type { MeropeRigManifest } from '@myriad/figure/rig/types'
-import type { MusicMotionSignal } from '@myriad/figure/singing/musicSignal'
-import type { SpeechProsodyPlan } from '@myriad/figure/speech/prosody'
-import type { MeropeActivity } from '@myriad/figure/types'
-import { realizeAnime25DBehaviorPlan } from '@myriad/figure/anime25drig/behaviorRealizer'
-import { activityExpressionDriverPatch } from '@myriad/figure/anime25drig/expressionPresets'
-import { idleSpeechDriverPatch } from '@myriad/figure/anime25drig/performanceMotion'
-import { Anime25DPlayer } from '@myriad/figure/anime25drig/player'
-import { clientDeltaToPoseCorrection, pickPoseCorrectionAtClient, poseCorrectionStageRect, projectPoseCorrectionToClient } from '@myriad/figure/anime25drig/poseCorrectionStage'
-import {
-  intersectionKeepsAnime25DVisible,
+import type { Anime25DPlayback, Anime25DWorkbenchPort, PoseCorrection } from '@myriad/figure/anime25drig'
+import type { BehaviorPlan, MotionChannelPolicy, ResolvedScore, RigBearing } from '@myriad/figure/motion'
+import type { MeropeActivity } from '@myriad/figure/performance'
+import type { MeropeRigManifest, RigMotionPort } from '@myriad/figure/rig'
+import type { MusicMotionSignal } from '@myriad/figure/singing'
+import type { SpeechProsodyPlan } from '@myriad/figure/speech'
+import { activityExpressionDriverPatch, Anime25DPlayer, clientDeltaToPoseCorrection, idleSpeechDriverPatch, intersectionKeepsAnime25DVisible, pickPoseCorrectionAtClient, poseCorrectionStageRect, projectPoseCorrectionToClient,
+  realizeAnime25DBehaviorPlan,
   shouldAnimateAnime25D,
-} from '@myriad/figure/anime25drig/runtimePolicy'
-import {
   speechArticulationDriverPatch,
-  speechEnergyDriverPatch,
-} from '@myriad/figure/anime25drig/speechDriver'
-import { bindCharacterTouch } from '@myriad/figure/interaction/bindTouch'
+  speechEnergyDriverPatch } from '@myriad/figure/anime25drig'
+import { bindCharacterTouch } from '@myriad/figure/interaction'
 import {
   forwardRef,
   useEffect,

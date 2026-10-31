@@ -1,10 +1,10 @@
-import type { AuthoredExpressionKind } from '@myriad/figure/rig/authoredExpression'
+import type { AuthoredExpressionKind } from '@myriad/figure/rig'
 import type { RigImport, RigMode } from './useRigImport'
 import {
   ANIME25D_PROJECT_NAME,
   ANIME25D_PROJECT_URL,
   PERSONA_UPSTREAM_THANKS,
-} from '@myriad/figure/anime25drig/credit'
+} from '@myriad/figure/anime25drig'
 import { useEffect, useRef } from 'react'
 import {
   CheckboxItem,

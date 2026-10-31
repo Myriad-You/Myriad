@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { FACE_PRESETS, PLAIN_FACE, SCORE_MOVES } from '@myriad/figure/events/performanceContract'
+import { FACE_PRESETS, PLAIN_FACE, SCORE_MOVES } from '@myriad/figure/events'
 import zh from '../../../i18n/merope.zh-CN.json' with { type: 'json' }
 import { EXPRESSION_GROUPS, FACE_PRESET_BUTTONS, FACE_VIA_CHOICES, facePresetDriver, facePresetLabel, faceViaLabel, PRESETS, SCORE_MOVE_BUTTONS, scoreMoveNow } from './motionControls'
 

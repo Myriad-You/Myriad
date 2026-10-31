@@ -3,7 +3,7 @@ import type {
   RigAssetCompileEvent,
   RigAssetPreflight,
 } from './compiler'
-import { prepareRigPsdImport } from '@myriad/figure/rig/psdImporter'
+import { prepareRigPsdImport } from '@myriad/figure/rig'
 import {
   fullBodyRigImport,
   getFullBodyFigurePicture,

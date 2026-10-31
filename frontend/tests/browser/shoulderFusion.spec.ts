@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { readFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 import { expect, test } from '@playwright/test'
+import { FIGURE_RUNTIME_MODULES } from './figureModules'
 
 for (const [name, assetVariable] of [['off-shoulder', 'MEROPE_SHOULDER_ASSET'], ['high-collar', 'MEROPE_COLLAR_ASSET']] as const) {
   test(`real ${name} torso carries head, hair and accessories through continuous turns`, async ({ page }, testInfo) => {
@@ -10,7 +10,7 @@ for (const [name, assetVariable] of [['off-shoulder', 'MEROPE_SHOULDER_ASSET'], 
     test.skip(!root, `Set ${assetVariable} to a real split portrait`)
     const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
     const atlas = await readFile(`${root}/atlas.png`)
-    const modules = `/@fs${fileURLToPath(new URL('../../../figure/src/anime25drig/', import.meta.url))}`
+    const modules = FIGURE_RUNTIME_MODULES
     await page.route('**/torso-carry-probe', route => route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }))
     await page.route('**/torso-carry-atlas.png', route => route.fulfill({ contentType: 'image/png', body: atlas }))
     await page.goto('/torso-carry-probe')
@@ -93,7 +93,7 @@ for (const [name, assetVariable] of [['off-shoulder', 'MEROPE_SHOULDER_ASSET'], 
     test.skip(!root, `Set ${assetVariable} to a real split portrait`)
     const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
     const atlas = await readFile(`${root}/atlas.png`)
-    const modules = `/@fs${fileURLToPath(new URL('../../../figure/src/anime25drig/', import.meta.url))}`
+    const modules = FIGURE_RUNTIME_MODULES
     await page.route('**/face-surface-probe', route => route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }))
     await page.route('**/face-surface-atlas.png', route => route.fulfill({ contentType: 'image/png', body: atlas }))
     await page.goto('/face-surface-probe')
@@ -190,7 +190,7 @@ test('real asset combination corrections reach pixels, release exactly and prese
   test.skip(!root, 'Set MEROPE_SHOULDER_ASSET to a real split portrait')
   const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
   const atlas = await readFile(`${root}/atlas.png`)
-  const modules = `/@fs${fileURLToPath(new URL('../../../figure/src/anime25drig/', import.meta.url))}`
+  const modules = FIGURE_RUNTIME_MODULES
   await page.route('**/correction-probe', route => route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }))
   await page.route('**/correction-atlas.png', route => route.fulfill({ contentType: 'image/png', body: atlas }))
   await page.goto('/correction-probe')
@@ -294,7 +294,7 @@ test('real high collar retains its aperture and does not become a skin contact',
   test.skip(!root, 'Set MEROPE_COLLAR_ASSET to a genuine high-collar package')
   const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
   const atlas = await readFile(`${root}/atlas.png`)
-  const modules = `/@fs${fileURLToPath(new URL('../../../figure/src/anime25drig/', import.meta.url))}`
+  const modules = FIGURE_RUNTIME_MODULES
   await page.route('**/collar-probe', route => route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }))
   await page.route('**/collar-atlas.png', route => route.fulfill({ contentType: 'image/png', body: atlas }))
   await page.goto('/collar-probe')
@@ -369,9 +369,7 @@ test('real shoulder fusion keeps GPU coverage through body and arm motion', asyn
   )
   const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
   const atlas = await readFile(`${root}/atlas.png`)
-  const modules = `/@fs${fileURLToPath(
-    new URL('../../../figure/src/anime25drig/', import.meta.url),
-  )}`
+  const modules = FIGURE_RUNTIME_MODULES
   await page.route('**/shoulder-probe', (route) =>
     route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }),
   )

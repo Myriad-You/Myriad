@@ -1,10 +1,10 @@
 import { Buffer } from 'node:buffer'
 import { readFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 import { expect, test } from '@playwright/test'
+import { FIGURE_RUNTIME_MODULES } from './figureModules'
 
 test('body posture GPU projection agrees with CPU picking and support sampling', async ({ page }) => {
-  const modules = `/@fs${fileURLToPath(new URL('../../../figure/src/anime25drig/', import.meta.url))}`
+  const modules = FIGURE_RUNTIME_MODULES
   await page.goto('/tests/browser/fixture/rigImport.html')
   const error = await page.evaluate(async (modules) => {
     const { BODY_LIFT_GLSL, applyBodyLift, bodyPitchUniform } = await import(`${modules}bodyLift.ts`)
@@ -59,7 +59,7 @@ for (const [name, variable] of [['off-shoulder', 'MEROPE_SHOULDER_ASSET'], ['hig
     test.skip(!root, `Set ${variable}`)
     const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
     const atlas = await readFile(`${root}/atlas.png`)
-    const modules = `/@fs${fileURLToPath(new URL('../../../figure/src/anime25drig/', import.meta.url))}`
+    const modules = FIGURE_RUNTIME_MODULES
     await page.route('**/lift-probe', route => route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }))
     await page.route('**/lift-atlas.png', route => route.fulfill({ contentType: 'image/png', body: atlas }))
     await page.goto('/lift-probe')
@@ -153,7 +153,7 @@ for (const [name, variable] of [['off-shoulder', 'MEROPE_SHOULDER_ASSET'], ['hig
     test.skip(!root, `Set ${variable} to a real split portrait`)
     const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
     const atlas = await readFile(`${root}/atlas.png`)
-    const modules = `/@fs${fileURLToPath(new URL('../../../figure/src/anime25drig/', import.meta.url))}`
+    const modules = FIGURE_RUNTIME_MODULES
     await page.route('**/torso-response-probe', route => route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }))
     await page.route('**/torso-response-atlas.png', route => route.fulfill({ contentType: 'image/png', body: atlas }))
     await page.goto('/torso-response-probe')

@@ -1,4 +1,4 @@
-import type { Anime25DPlayback } from '@myriad/figure/anime25drig/types'
+import type { Anime25DPlayback } from '@myriad/figure/anime25drig'
 import { useEffect, useState } from 'react'
 import { SettingGroup, SettingsButton } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'

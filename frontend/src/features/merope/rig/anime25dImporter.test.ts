@@ -1,17 +1,13 @@
-import type { CharacterAssetProfile } from '@myriad/figure/rig/contract'
+import type { CharacterAssetProfile } from '@myriad/figure/rig'
 import type { Layer, Psd } from 'ag-psd'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { anime25DImportCopy } from '@myriad/figure/rig/anime25dImportCopy'
-import {
-  anime25DBaseRole,
-  isAnime25DDocument,
-  normalizeAnime25DLayerName,
-  prepareAnime25DRigPsd,
-} from '@myriad/figure/rig/anime25dImporter'
-import { syntheticSeeThroughPsd } from '@myriad/figure/rig/anime25dImporter.fixture'
-import { gridMesh } from '@myriad/figure/rig/anime25dSkeletonCompiler'
-import { CHARACTER_ASSET_PROFILES } from '@myriad/figure/rig/contract'
+import { anime25DBaseRole,
+  anime25DImportCopy,
+  CHARACTER_ASSET_PROFILES,
+  gridMesh,
+  isAnime25DDocument, normalizeAnime25DLayerName, prepareAnime25DRigPsd } from '@myriad/figure/rig'
+import { syntheticSeeThroughPsd } from '@myriad/figure/testing'
 import { getDefaultLocale } from '../../../i18n'
 import { loadShellNamespace } from '../../../i18n/loadLocale'
 

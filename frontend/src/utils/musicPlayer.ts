@@ -1,6 +1,5 @@
-import type { MotionAudioFeatures } from '@myriad/figure/singing/audioMotionAnalysis'
-import type { LyricLine, WordLyricLine, WordLyricToken } from '@myriad/figure/singing/lyrics'
-import { analyzeMotionAudio } from '@myriad/figure/singing/audioMotionAnalysis'
+import type { LyricLine, MotionAudioFeatures, WordLyricLine, WordLyricToken } from '@myriad/figure/singing'
+import { analyzeMotionAudio } from '@myriad/figure/singing'
 import { API_URL } from '../config'
 import { currentCopy, formatCurrent } from '../i18n/localeCopy'
 import { getCachedIsChinaMainland, isUserInChinaMainland } from './geoLocation'
@@ -227,7 +226,7 @@ export interface Song {
   trialDuration?: number
 }
 
-export type { LyricLine, WordLyricLine, WordLyricToken } from '@myriad/figure/singing/lyrics'
+export type { LyricLine, WordLyricLine, WordLyricToken } from '@myriad/figure/singing'
 
 export interface VerbatimLyricsResult {
   lines: LyricLine[]

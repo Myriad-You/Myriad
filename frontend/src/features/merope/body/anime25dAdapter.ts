@@ -1,4 +1,4 @@
-import type { MotionRuntime } from '@myriad/figure/motion/runtime'
+import type { MotionRuntime } from '@myriad/figure/motion'
 import type {
   BodyAdapter,
   BodyCapabilities,
@@ -6,10 +6,9 @@ import type {
   BodyState,
 } from './types'
 import {
-  liveMotionGeneration,
-  newMotionIntentId,
-} from '@myriad/figure/motion/liveGeneration'
-import { captureRigStateSummary } from '@myriad/figure/motion/rigStateSummary'
+  captureRigStateSummary,
+  liveMotionGeneration, newMotionIntentId,
+} from '@myriad/figure/motion'
 import { liveFaceVisible } from '../events/faceVisible'
 import { getSpeechPipeline } from '../speech/speechPipelineHost'
 

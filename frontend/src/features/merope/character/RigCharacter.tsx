@@ -1,20 +1,14 @@
-import type { Anime25DWorkbenchPort } from '@myriad/figure/anime25drig/workbenchPort'
-import type { RigBearing } from '@myriad/figure/motion/bearing'
-import type { BehaviorPlan } from '@myriad/figure/motion/behavior'
-import type { MotionChannelPolicy } from '@myriad/figure/motion/policy'
-import type { ResolvedScore } from '@myriad/figure/motion/scoreTimeline'
-import type { SpeechArticulation } from '@myriad/figure/rig/articulation'
-import type { RigMotionPort } from '@myriad/figure/rig/motionPort'
-import type { MeropeRigManifest } from '@myriad/figure/rig/types'
-import type { MusicMotionSignal } from '@myriad/figure/singing/musicSignal'
-import type { SpeechProsodyPlan } from '@myriad/figure/speech/prosody'
-import type { MeropeActivity } from '@myriad/figure/types'
+import type { Anime25DWorkbenchPort } from '@myriad/figure/anime25drig'
+import type { BehaviorPlan, MotionChannelPolicy, ResolvedScore, RigBearing } from '@myriad/figure/motion'
+import type { MeropeActivity } from '@myriad/figure/performance'
+import type { MeropeRigManifest, RigMotionPort, SpeechArticulation } from '@myriad/figure/rig'
+import type { MusicMotionSignal } from '@myriad/figure/singing'
+import type { SpeechProsodyPlan } from '@myriad/figure/speech'
 import type { Anime25DCharacterHandle } from './Anime25DCharacter'
 import {
   anime25DRuntimeKey,
-  shouldUseAnime25DRuntime,
-} from '@myriad/figure/anime25drig/runtimePolicy'
-import { isAnime25DPlayback } from '@myriad/figure/anime25drig/types'
+  isAnime25DPlayback, shouldUseAnime25DRuntime,
+} from '@myriad/figure/anime25drig'
 import {
   forwardRef,
   useCallback,

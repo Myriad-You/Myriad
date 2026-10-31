@@ -1,8 +1,8 @@
 import type { AgentPanelMode } from '../../../components/agent-panel/agentPanelMode'
 import type { BodyAdapter } from '../body/types'
 import type { AgentFaceChannel, ReplyUtterance } from './agentFaceChannel'
-import { sanitizePerformanceDirective } from '@myriad/figure/events/performanceEvents'
-import { liveMotionGeneration } from '@myriad/figure/motion/liveGeneration'
+import { sanitizePerformanceDirective } from '@myriad/figure/events'
+import { liveMotionGeneration } from '@myriad/figure/motion'
 import { getAgentPanelMode } from '../../../components/agent-panel/agentPanelMode'
 import {
   MEROPE_EVENT_PREFIX,

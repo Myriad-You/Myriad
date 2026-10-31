@@ -1,4 +1,4 @@
-import type { MeropeRigManifest } from '@myriad/figure/rig/types'
+import type { MeropeRigManifest } from '@myriad/figure/rig'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { userFacingError } from '../../../utils/userFacingError'
 import { getSiteFace } from '../api'

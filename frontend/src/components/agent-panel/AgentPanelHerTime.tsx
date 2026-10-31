@@ -1,5 +1,5 @@
 import type { HerDoing, HerLazing } from './herTime'
-import { dispatchMeropePerformance } from '@myriad/figure/events/performanceEvents'
+import { dispatchMeropePerformance } from '@myriad/figure/events'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { captureProductionRigStateSummary } from '../../features/merope/motion/runtimeHost'
