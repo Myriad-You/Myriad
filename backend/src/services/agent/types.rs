@@ -87,6 +87,10 @@ pub struct RequestContext {
     /// only by the server for channel turns; never serialized.
     #[serde(skip)]
     pub channel_chat: Option<ChannelChat>,
+    /// The web panel's one conversation, where she hands work off too (see
+    /// `panel_work`): what she sees of its pieces. Server-set only.
+    #[serde(skip)]
+    pub panel_work: Option<ChannelChat>,
     /// In a group, nobody addressed her: she chose to chime in, and why.
     /// Server-set only; never serialized.
     #[serde(skip)]

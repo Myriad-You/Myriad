@@ -579,6 +579,14 @@ impl Agent {
                 None => crate::services::agent::merope::soup::offer(request).await,
             };
             blocks.extend(game);
+            // The panel's one conversation: she can hand work off there too.
+            if let Some(chat) = request
+                .context
+                .as_ref()
+                .and_then(|context| context.panel_work.as_ref())
+            {
+                blocks.push(crate::services::agent::delegate::section(chat));
+            }
             // A private IM chat: she can hand work off.
             if let Some(chat) = request
                 .context

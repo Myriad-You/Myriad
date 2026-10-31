@@ -354,12 +354,35 @@ async fn chat_reply_with_overlay(
     let may_hand_off = request
         .context
         .as_ref()
-        .is_some_and(|context| context.channel_chat.is_some());
+        .is_some_and(|context| context.channel_chat.is_some() || context.panel_work.is_some());
     if may_hand_off
         && !handed_off.is_empty()
         && let Some(object) = data.as_object_mut()
     {
         object.insert("handOffs".into(), json!(handed_off));
+    }
+    // In the panel her lines are carried out here, and it is told the pieces
+    // as they now stand, to follow each.
+    if let Some(chat) = request
+        .context
+        .as_ref()
+        .filter(|context| context.panel_work.is_some() && !handed_off.is_empty())
+        .and_then(|context| context.session_id.as_deref())
+    {
+        crate::services::agent::panel_work::carry_out(
+            db,
+            request.user_id,
+            chat,
+            handed_off,
+            &request.raw_input,
+        )
+        .await;
+        if let Some(object) = data.as_object_mut() {
+            object.insert(
+                "pieces".into(),
+                json!(crate::services::agent::panel_work::listed(db, request.user_id, chat).await),
+            );
+        }
     }
     let session_id = request
         .context

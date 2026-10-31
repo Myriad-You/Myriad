@@ -385,6 +385,21 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 middleware::auth::auth_middleware,
             )),
         )
+        // 她在这段对话里交出去的各件
+        .route(
+            "/sessions/{session_id}/pieces",
+            get(session_pieces).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
+        .route(
+            "/sessions/{session_id}/pieces/{number}/stop",
+            post(stop_session_piece).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
         // 归档会话
         .route(
             "/sessions/{session_id}",

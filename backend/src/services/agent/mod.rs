@@ -7,6 +7,7 @@ pub mod consciousness;
 pub mod data_read_pure;
 pub mod data_write_pure;
 pub mod delegate;
+pub mod panel_work;
 pub mod group_turn;
 pub mod error_analyzer_pure;
 pub mod executor;

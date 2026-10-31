@@ -91,6 +91,31 @@ pub async fn live_session_run(
     Ok(Json(json!({ "runId": run_id })))
 }
 
+/// The pieces she handed off in this conversation, for the panel to show
+/// and follow: GET /api/agent/sessions/{session_id}/pieces
+pub async fn session_pieces(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, HttpError> {
+    let user_id = parse_user_id(&claims)?;
+    let pieces = crate::services::agent::panel_work::listed(&db, user_id, &session_id).await;
+    Ok(Json(json!({ "pieces": pieces })))
+}
+
+/// Stop one piece, and only it:
+/// POST /api/agent/sessions/{session_id}/pieces/{number}/stop
+pub async fn stop_session_piece(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path((session_id, number)): Path<(String, u32)>,
+) -> Result<Json<Value>, HttpError> {
+    let user_id = parse_user_id(&claims)?;
+    let stopped =
+        crate::services::agent::panel_work::stop(&db, user_id, &session_id, number).await;
+    Ok(Json(json!({ "stopped": stopped })))
+}
+
 /// 获取任务状态
 /// GET /api/agent/tasks/{task_id}
 pub async fn get_task(

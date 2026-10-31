@@ -1,6 +1,6 @@
-//! Handing work off from chat, over IM.
+//! Handing work off from chat: an IM private chat, and the web panel.
 //!
-//! In a private IM conversation she talks as herself (Chat). When they ask
+//! In her conversation she talks as herself (Chat). When they ask
 //! her to get something done, she hands it off: she says so, and puts one
 //! `[[work: …]]` line at the end with what to do. The channel then starts an
 //! ordinary Work run for them with that instruction, as if they had asked for
@@ -15,9 +15,10 @@
 //! session). `[[stop #N]]` stops that one alone; a stopped one stays stopped.
 //!
 //! The next time they talk she sees every piece: what it is, how far it got,
-//! whether it waits for them. Only a channel sets this up
-//! (`RequestContext::channel_chat`, never from a web request); the web panel
-//! keeps its own two modes.
+//! whether it waits for them. A channel sets this up
+//! (`RequestContext::channel_chat`) and the web panel its own
+//! (`RequestContext::panel_work`, see `panel_work`); both read the same
+//! `section`.
 
 use serde::{Deserialize, Serialize};
 

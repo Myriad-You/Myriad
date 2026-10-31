@@ -47,6 +47,8 @@ pub(crate) fn build_request_context(mut ctx: ProcessContext) -> RequestContext {
         images,
         // Only a channel private chat sets this, after building the context.
         channel_chat: None,
+        // Only the panel's own chat sets this, once its session is known.
+        panel_work: None,
         chime: None,
         speaker: None,
         nobody_said: false,

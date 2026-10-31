@@ -409,6 +409,18 @@ pub(crate) async fn start(
         }
         user_request.context = Some(new_ctx);
     }
+    // The panel's one conversation: she sees the pieces she handed off here
+    // and may hand off more (see `panel_work`). A chat app, a device or a
+    // group answers elsewhere and keeps its own.
+    if is_chat
+        && has_session
+        && !answered_elsewhere
+        && let Some(ctx) = user_request.context.as_mut()
+        && ctx.venue.is_none()
+    {
+        ctx.panel_work =
+            Some(crate::services::agent::panel_work::view(&db, user_id, &session_id).await);
+    }
     let autonomy_cap =
         autonomy_cap_for_intention(&db, source_intent_id.as_deref(), user_id).await?;
     if let Some(ref mut ctx) = user_request.context {
