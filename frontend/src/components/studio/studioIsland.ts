@@ -95,6 +95,28 @@ export function withoutStudioParam(href: string): string {
   return url.toString()
 }
 
+/**
+ * 博客页整页换走、浏览器给旧页拍换页画面之前（`pageswap`），把覆盖层整个收掉：
+ * 几个工具窗口各是一块 iframe 加毛玻璃，Windows 上拍旧页时会整张拍成白的。
+ * 覆盖层反正跟着旧页一起走，换页画面里没有它也看不出来。按返回键从往返缓存里
+ * 拿回这一页时（`pageshow` 且 persisted）再放出来。返回取消监听的函数。
+ */
+export function hideOverlayOnPageSwap(top: Window, host: HTMLElement): () => void {
+  const onSwap = (event: Event) => {
+    if (!(event as Event & { viewTransition?: unknown }).viewTransition) return
+    host.style.display = 'none'
+  }
+  const onShow = (event: Event) => {
+    if ((event as PageTransitionEvent).persisted) host.style.removeProperty('display')
+  }
+  top.addEventListener('pageswap', onSwap)
+  top.addEventListener('pageshow', onShow)
+  return () => {
+    top.removeEventListener('pageswap', onSwap)
+    top.removeEventListener('pageshow', onShow)
+  }
+}
+
 /** 博客构建的快照：上次生成时间和状态。 */
 export interface BlogBuildMark {
   status: string
