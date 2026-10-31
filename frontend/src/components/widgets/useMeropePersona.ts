@@ -1,11 +1,8 @@
-import {
-  MEROPE_STATE_EVENT,
-  meropeStateEventDetail,
-  resolveLoadedMeropeAffect,
-} from '@myriad/figure/events'
+import { MEROPE_STATE_EVENT, meropeStateEventDetail, resolveLoadedMeropeAffect } from '@myriad/figure/events'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { PERSONA_UPDATED_EVENT } from '../../features/merope/events/updates'
+import { figureChannel } from '../../features/merope/figureChannel'
 import {
   loadPublicPersonaName,
   PERSONA_OFF_NAME,
@@ -50,8 +47,8 @@ export function useMeropePersona(): MeropePersonaView {
           : current,
       )
     }
-    window.addEventListener(MEROPE_STATE_EVENT, onState)
-    return () => window.removeEventListener(MEROPE_STATE_EVENT, onState)
+    figureChannel.addEventListener(MEROPE_STATE_EVENT, onState)
+    return () => figureChannel.removeEventListener(MEROPE_STATE_EVENT, onState)
   }, [])
 
   useEffect(() => {
@@ -84,7 +81,7 @@ export function useMeropePersona(): MeropePersonaView {
             return
           }
           setName(publicPersonaName(true, loaded.name))
-          const affect = resolveLoadedMeropeAffect(loaded)
+          const affect = resolveLoadedMeropeAffect(figureChannel, loaded)
           setMood(affect.mood)
           setArousal(affect.arousal)
           setVitalsReady(true)

@@ -1,7 +1,6 @@
 import type { MeropeRigManifest } from '@myriad/figure/rig'
 import { Anime25DPlayer } from '@myriad/figure/anime25drig'
-import { anime25DImportCopy, prepareAnime25DRigPsd } from '@myriad/figure/rig'
-import { syntheticSeeThroughPsd } from '@myriad/figure/testing'
+import { prepareAnime25DRigPsd, syntheticSeeThroughPsd } from '@myriad/figure/testing'
 import { createElement } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
@@ -10,7 +9,7 @@ import { createHyalite } from '../../../src/utils/liquidGlass/vendor/hyalite'
 
 const psd = syntheticSeeThroughPsd()
 psd.height = 300
-const assets = prepareAnime25DRigPsd(psd, '/unused.png', anime25DImportCopy()).then(prepared => {
+const assets = prepareAnime25DRigPsd(psd, { sourceMasterAssetId: '/unused.png' }).then(prepared => {
   const manifest: MeropeRigManifest = {
     ...prepared.source, schemaVersion: 1, quality: 'layered-2d', textures: [], parts: [],
   }

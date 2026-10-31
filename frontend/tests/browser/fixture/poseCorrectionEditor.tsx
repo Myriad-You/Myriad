@@ -1,6 +1,6 @@
 import type { Anime25DPlayback, PoseCorrection } from '@myriad/figure/anime25drig'
 import type { RigCharacterHandle } from '../../../src/features/merope/character/RigCharacter'
-import { WORKBENCH_DRIVER } from '@myriad/figure/anime25drig'
+import { WORKBENCH_DRIVER } from '@myriad/figure/workbench'
 import { createRoot } from 'react-dom/client'
 import { I18nNamespace, I18nProvider } from '../../../src/contexts/I18nContext'
 import { PoseCorrectionEditor } from '../../../src/features/merope/workbench/PoseCorrectionEditor'

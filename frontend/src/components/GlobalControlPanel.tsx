@@ -1,7 +1,6 @@
 import type { DynamicContentType } from '../services/DynamicContentProvider'
 import type { DynamicContent } from './ControlPanel/islandContentTypes'
 import type { PanelTab } from './ControlPanel/panelTransition'
-import { resetMeropeState } from '@myriad/figure/events'
 import React, {
   Suspense,
   useCallback,
@@ -17,15 +16,16 @@ import { useNavigate } from 'react-router-dom'
 import { useAnimationPreference } from '../contexts/AnimationPreferenceContext'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
+import { figureChannel } from '../features/merope/figureChannel'
 import { setForegroundSurface } from '../features/merope/perception/surface'
 import { useIdleEffect } from '../hooks/animation'
-import { useAnimationLevel } from '../hooks/useAnimationLevel'
 
+import { useAnimationLevel } from '../hooks/useAnimationLevel'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { usePerformanceProfile } from '../hooks/usePerformanceProfile'
 import { usePublicUiConfig } from '../hooks/usePublicUiConfig'
-import { useThemePreference } from '../hooks/useThemePreference'
 
+import { useThemePreference } from '../hooks/useThemePreference'
 import { useVisibleState } from '../hooks/useVisibleState'
 import { useWallpaper } from '../hooks/useWallpaper'
 import { isFullPageSitePath } from '../services/agent/navigateTarget'
@@ -98,7 +98,7 @@ const GlobalControlPanel: React.FC = () => {
   }, [], { priority: 'low' })
   const { user } = useAuth()
   useLayoutEffect(() => {
-    resetMeropeState()
+    figureChannel.resetState()
   }, [user?.id])
   const { locale, setLocale, t, format } = useI18n()
   const backgroundResidents = useBackgroundResidents()

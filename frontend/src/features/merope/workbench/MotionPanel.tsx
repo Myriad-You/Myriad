@@ -4,7 +4,7 @@ import type { RigCharacterHandle } from '../character/RigCharacter'
 import type { DriverSliderKey } from './motionControls'
 import type { MovingPartsSearch } from './MovingPartsPanel'
 import type { WorkbenchDriver } from './useWorkbenchDriver'
-import { ANIME25D_MOTION_ENVELOPE_PROBES } from '@myriad/figure/anime25drig'
+import { ANIME25D_MOTION_ENVELOPE_PROBES } from '@myriad/figure/workbench'
 import { useState } from 'react'
 import {
   InfoActionCard,

@@ -67,7 +67,7 @@ test('outfit and callback changes keep the React player; stale loads cannot repo
           contents: path === 'anime25drig'
             ? `export * from ${real('anime25drig')}\nexport const Anime25DPlayer = TestPlayer`
             : path === 'interaction'
-              ? `export * from ${real('interaction')}\nexport function bindCharacterTouch() {}`
+              ? `export * from ${real('interaction')}\nexport function bindCharacterTouch() { return { cancel() {}, unbind() {} } }`
               : 'export function createTouchAppraisal() {} export function getProductionMotionRuntime() {}',
           loader: 'js',
           resolveDir: new URL('.', import.meta.url).pathname,

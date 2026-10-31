@@ -10,7 +10,6 @@ import { RenderErrorBoundary } from './components/RenderErrorBoundary'
 import { announceStudioWindow } from './components/studio/studioIsland'
 import { EmbedApp } from './EmbedApp'
 import { initPageLoader } from './utils/pageLoader'
-import './features/merope/character/installFigureHost'
 import './styles/tailwind.css'
 
 initPageLoader()

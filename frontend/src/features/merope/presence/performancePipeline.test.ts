@@ -2,14 +2,14 @@ import type { PerformanceDirective } from '../../../services/agent/types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { meropePerformanceEventDetail } from '@myriad/figure/events'
-import { MotionRuntime, RigMotionCoordinator, setLiveMotionGeneration } from '@myriad/figure/motion'
+import { MotionRuntime, RigMotionCoordinator } from '@myriad/figure/motion'
 import {
   beginTurnTrace,
   resetTurnTraceForTest,
   snapshotTurnTrace,
 } from '../events/turnTrace'
+import { figureChannel } from '../figureChannel'
 import { AgentFaceChannel } from './agentFaceChannel'
-import '../character/installFigureHost'
 
 const delivery: PerformanceDirective = {
   phase: 'delivery',
@@ -49,7 +49,7 @@ function pipeline(runtime: MotionRuntime) {
 }
 
 test('channel → event validation → lifecycle → scheduler preserves a delivery beat at landing', () => {
-  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const runtime = new MotionRuntime(new RigMotionCoordinator(), null, figureChannel)
   const release = runtime.retain()
   const channel = pipeline(runtime)
   try {
@@ -75,7 +75,7 @@ test('channel → event validation → lifecycle → scheduler preserves a deliv
 })
 
 test('same-size model refinement reaches the scheduler; replay after speech end cannot roll it back', () => {
-  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const runtime = new MotionRuntime(new RigMotionCoordinator(), null, figureChannel)
   const release = runtime.retain()
   const channel = pipeline(runtime)
   try {
@@ -125,7 +125,7 @@ test('same-size model refinement reaches the scheduler; replay after speech end 
 })
 
 test('interrupting a text-complete reply releases its body plan and standing bearing', () => {
-  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const runtime = new MotionRuntime(new RigMotionCoordinator(), null, figureChannel)
   const release = runtime.retain()
   const channel = pipeline(runtime)
   try {
@@ -146,11 +146,11 @@ test('interrupting a text-complete reply releases its body plan and standing bea
 })
 
 test('same-run strengthening keeps the beat identity; next generation starts a fresh beat with recovery', () => {
-  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const runtime = new MotionRuntime(new RigMotionCoordinator(), null, figureChannel)
   const release = runtime.retain()
   const channel = pipeline(runtime)
   try {
-    setLiveMotionGeneration(1)
+    figureChannel.setGeneration(1)
     channel.setGeneration(1)
     channel.deliver({
       messageId: 'reply-1',
@@ -173,7 +173,7 @@ test('same-run strengthening keeps the beat identity; next generation starts a f
     const refined = runtime.frame().performance!.behaviorPlan!.behaviors[0]!
     assert.equal(refined.id, original.id)
     assert.equal(refined.intensity, 1.3)
-    setLiveMotionGeneration(2)
+    figureChannel.setGeneration(2)
     channel.setGeneration(2)
     channel.deliver({
       messageId: 'reply-2',
@@ -195,14 +195,14 @@ test('same-run strengthening keeps the beat identity; next generation starts a f
     )
   } finally {
     release()
-    setLiveMotionGeneration(0)
+    figureChannel.setGeneration(0)
   }
 })
 
 test('decision trace distinguishes selected, habituated and resource-busy without recording reply text', () => {
   resetTurnTraceForTest()
   beginTurnTrace('trace-reply')
-  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const runtime = new MotionRuntime(new RigMotionCoordinator(), null, figureChannel)
   const release = runtime.retain()
   const channel = pipeline(runtime)
   try {

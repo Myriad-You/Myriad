@@ -1,18 +1,8 @@
-import type { Anime25DDebugSnapshot, Anime25DDriver, Anime25DMotionEnvelopeProbeId } from '@myriad/figure/anime25drig'
 import type { ResolvedScore } from '@myriad/figure/motion'
+import type { Anime25DDebugSnapshot, Anime25DDriver, Anime25DMotionEnvelopeProbeId } from '@myriad/figure/workbench'
 import type { TranslationKeys } from '../../../i18n'
 import type { BodyControl, ScoreMoveKind } from '../../../services/agent/types'
-import { ANGRY_EXPRESSION_PRESET, BODY_CONTROL_DRIVERS,
-  CRY_EXPRESSION_PRESET,
-  DIZZY_EXPRESSION_PRESET,
-  LOVESTRUCK_EXPRESSION_PRESET,
-  MANIAC_EXPRESSION_PRESET,
-  mappedControlValue,
-  SILLY_EXPRESSION_PRESET,
-  SPEECHLESS_EXPRESSION_PRESET,
-  SQUEEZE_EXPRESSION_PRESET,
-  THINKING_EXPRESSION_PRESET } from '@myriad/figure/anime25drig'
-import { FACE_PRESETS, tierExtent } from '@myriad/figure/events'
+import { ANGRY_EXPRESSION_PRESET, BODY_CONTROL_DRIVERS, CRY_EXPRESSION_PRESET, DIZZY_EXPRESSION_PRESET, FACE_PRESETS, LOVESTRUCK_EXPRESSION_PRESET, MANIAC_EXPRESSION_PRESET, mappedControlValue, SILLY_EXPRESSION_PRESET, SPEECHLESS_EXPRESSION_PRESET, SQUEEZE_EXPRESSION_PRESET, THINKING_EXPRESSION_PRESET, tierExtent } from '@myriad/figure/workbench'
 import { formatMessage, getDefaultLocale } from '../../../i18n'
 
 type Labels = TranslationKeys['merope']

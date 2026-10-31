@@ -2,11 +2,7 @@ import type { MeropeRigManifest } from '@myriad/figure/rig'
 import type { CSSProperties } from 'react'
 import type { RigCharacterHandle } from '../../features/merope/character/RigCharacter'
 import { isAnime25DPlayback } from '@myriad/figure/anime25drig'
-import {
-  MEROPE_STATE_EVENT,
-  meropeStateEventDetail,
-  resolveLoadedMeropeAffect,
-} from '@myriad/figure/events'
+import { MEROPE_STATE_EVENT, meropeStateEventDetail, resolveLoadedMeropeAffect } from '@myriad/figure/events'
 import { sameLiveFaceRuntime } from '@myriad/figure/rig'
 import {
   useCallback,
@@ -24,6 +20,7 @@ import {
   FACE_UPDATED_EVENT,
   PERSONA_UPDATED_EVENT,
 } from '../../features/merope/events/updates'
+import { figureChannel } from '../../features/merope/figureChannel'
 import { useRigMotionLifecycle } from '../../features/merope/motion/useRigMotionLifecycle'
 import { agentStatusActivity } from '../../features/merope/persona/activity'
 import {
@@ -182,8 +179,8 @@ export function AgentPanelFace({
           : current,
       )
     }
-    window.addEventListener(MEROPE_STATE_EVENT, onState)
-    return () => window.removeEventListener(MEROPE_STATE_EVENT, onState)
+    figureChannel.addEventListener(MEROPE_STATE_EVENT, onState)
+    return () => figureChannel.removeEventListener(MEROPE_STATE_EVENT, onState)
   }, [])
 
   useEffect(() => {
@@ -217,7 +214,7 @@ export function AgentPanelFace({
           }
           setPersonaOn(true)
           setAgentName(publicPersonaName(true, persona.name))
-          const affect = resolveLoadedMeropeAffect(persona)
+          const affect = resolveLoadedMeropeAffect(figureChannel, persona)
           setMood(affect.mood)
           setArousal(affect.arousal)
         })

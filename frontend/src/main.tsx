@@ -7,7 +7,6 @@ import { preloadLandingRoute } from './utils/codeSplitting'
 import { initPageLoader } from './utils/pageLoader'
 import { getUIConfigDeduped } from './utils/requestDedup'
 import { initSiteMetadata } from './utils/siteMetadata'
-import './features/merope/character/installFigureHost'
 import './styles/tailwind.css'
 
 preloadLandingRoute(window.location.pathname)

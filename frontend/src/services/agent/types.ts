@@ -1,8 +1,4 @@
-import type {
-  MoodTransition,
-  PerformanceDirective,
-  RigStateSummary,
-} from '@myriad/figure/performance'
+import type { MoodTransition, PerformanceDirective, RigStateSummary } from '@myriad/figure/performance'
 
 export type {
   BodyControl,

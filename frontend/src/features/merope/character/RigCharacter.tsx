@@ -5,10 +5,7 @@ import type { MeropeRigManifest, RigMotionPort, SpeechArticulation } from '@myri
 import type { MusicMotionSignal } from '@myriad/figure/singing'
 import type { SpeechProsodyPlan } from '@myriad/figure/speech'
 import type { Anime25DCharacterHandle } from './Anime25DCharacter'
-import {
-  anime25DRuntimeKey,
-  isAnime25DPlayback, shouldUseAnime25DRuntime,
-} from '@myriad/figure/anime25drig'
+import { anime25DRuntimeKey, isAnime25DPlayback, shouldUseAnime25DRuntime } from '@myriad/figure/anime25drig'
 import {
   forwardRef,
   useCallback,

@@ -14,6 +14,7 @@ import React, {
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
+import { figureChannel } from '../../features/merope/figureChannel'
 import {
   getVoicePresence,
   subscribeVoicePresence,
@@ -922,7 +923,7 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
               onChange={(event) => {
                 setValue(event.target.value)
                 // She attends while they type to her (nothing is sent).
-                dispatchMeropeListening()
+                dispatchMeropeListening(figureChannel)
               }}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}

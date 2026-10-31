@@ -7,10 +7,10 @@ import type {
 import type { PerceptionAdapter } from '../body/types'
 import type { SpeechSegment } from '../speech/speechSegmenter'
 import type { FaceDelivery, FaceSpeechLine } from './faceSpeechArbitration'
-import { setLiveMotionGeneration } from '@myriad/figure/motion'
 import { openVoiceStream } from '../../../services/speechApi'
 import { authSubject } from '../../../utils/authSubject'
 import { getLocalPerception, getProductionBody } from '../body/host'
+import { figureChannel } from '../figureChannel'
 import { captureProductionRigStateSummary } from '../motion/runtimeHost'
 import { notePresenceRoute, startPresenceInbound } from '../perception/inbound'
 import { getSpeechPipeline } from '../speech/speechPipelineHost'
@@ -83,7 +83,7 @@ export function attachLiveBody(): () => void {
 
 /** One turn replaces the last: motion and face must agree on which. */
 export function setTurnGeneration(generation: number): void {
-  setLiveMotionGeneration(generation)
+  figureChannel.setGeneration(generation)
   agentFace.setGeneration(generation)
 }
 

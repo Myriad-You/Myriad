@@ -1,15 +1,18 @@
 import type { MotionRuntime } from '@myriad/figure/motion'
 import type { RigStateSummary } from '@myriad/figure/performance'
-import { captureRigStateSummary, createLiveMotionRuntime, getRigMotionCoordinator } from '@myriad/figure/motion'
+import { captureRigStateSummary, createLiveMotionRuntime } from '@myriad/figure/motion'
+import { figureChannel } from '../figureChannel'
 import { getMusicMotionSource } from './musicSourceRuntime'
+import { getProductionCoordinator } from './productionCoordinator'
 
 const production: { current: MotionRuntime | null } = { current: null }
 
 export function getProductionMotionRuntime(): MotionRuntime {
   if (!production.current) {
     production.current = createLiveMotionRuntime(
-      getRigMotionCoordinator(),
+      getProductionCoordinator(),
       getMusicMotionSource(),
+      figureChannel,
     )
   }
   return production.current

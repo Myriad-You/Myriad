@@ -1,7 +1,8 @@
-import type { PoseCorrection, PoseCorrectionStagePick } from '@myriad/figure/anime25drig'
+import type { PoseCorrection } from '@myriad/figure/anime25drig'
+import type { PoseCorrectionStagePick } from '@myriad/figure/workbench'
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import type { RigCharacterHandle } from '../character/RigCharacter'
-import { clampPoseCorrectionPatch } from '@myriad/figure/anime25drig'
+import { clampPoseCorrectionPatch } from '@myriad/figure/workbench'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 

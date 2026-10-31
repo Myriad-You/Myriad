@@ -26,7 +26,7 @@ test('old Chat generation cannot keep applying after a newer Chat send', () => {
   const facade = source('../../features/merope/presence/engineFace.ts')
   assert.match(
     facade,
-    /setTurnGeneration[^}]*setLiveMotionGeneration\(generation\)[^}]*agentFace\.setGeneration\(generation\)/,
+    /setTurnGeneration[^}]*figureChannel\.setGeneration\(generation\)[^}]*agentFace\.setGeneration\(generation\)/,
   )
 })
 

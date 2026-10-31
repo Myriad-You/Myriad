@@ -4,12 +4,9 @@ import type { MeropeActivity } from '@myriad/figure/performance'
 import type { MeropeRigManifest, RigMotionPort } from '@myriad/figure/rig'
 import type { MusicMotionSignal } from '@myriad/figure/singing'
 import type { SpeechProsodyPlan } from '@myriad/figure/speech'
-import { activityExpressionDriverPatch, Anime25DPlayer, clientDeltaToPoseCorrection, idleSpeechDriverPatch, intersectionKeepsAnime25DVisible, pickPoseCorrectionAtClient, poseCorrectionStageRect, projectPoseCorrectionToClient,
-  realizeAnime25DBehaviorPlan,
-  shouldAnimateAnime25D,
-  speechArticulationDriverPatch,
-  speechEnergyDriverPatch } from '@myriad/figure/anime25drig'
+import { activityExpressionDriverPatch, Anime25DPlayer, idleSpeechDriverPatch, intersectionKeepsAnime25DVisible, realizeAnime25DBehaviorPlan, shouldAnimateAnime25D, speechArticulationDriverPatch, speechEnergyDriverPatch } from '@myriad/figure/anime25drig'
 import { bindCharacterTouch } from '@myriad/figure/interaction'
+import { clientDeltaToPoseCorrection, pickPoseCorrectionAtClient, poseCorrectionStageRect, projectPoseCorrectionToClient } from '@myriad/figure/workbench'
 import {
   forwardRef,
   useEffect,
@@ -17,6 +14,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { figureChannel } from '../figureChannel'
 import { getProductionMotionRuntime } from '../motion/runtimeHost'
 import { createTouchAppraisal } from '../presence/touchAppraisalHost'
 
@@ -78,7 +76,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       const source = getProductionMotionRuntime().touch
       const appraisal = createTouchAppraisal(owner, source)
       const cancelReaction = () => { appraisal.cancel(); source.release(owner) }
-      const unbind = bindCharacterTouch(canvas,
+      const touch = bindCharacterTouch(canvas,
         (x, y) => player.hitTestTouch(x, y),
         (touch, now) => {
           source.notePresented(owner, player.getPresentedTouch(), now)
@@ -87,8 +85,11 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
             appraisal.observe(touch, source.version())
           }
         }, cancelReaction)
+      // Signing in or out takes away who was touching her.
+      window.addEventListener('auth-state-changed', touch.cancel)
       return () => {
-        appraisal.dispose(); unbind(); source.release(owner)
+        window.removeEventListener('auth-state-changed', touch.cancel)
+        appraisal.dispose(); touch.unbind(); source.release(owner)
       }
     }, [touchEnabled, manualControl, ready, atlasUrl, playback, gpuEpoch])
     const activityRef = useRef(activity)
@@ -317,6 +318,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
           canvas,
           playbackRef.current,
           manifestRef.current,
+          figureChannel.trace,
         )
       } catch (error) {
         readyRef.current = false

@@ -1,11 +1,10 @@
-import { RigMotionCoordinator, setLiveMotionGeneration, SpeechMotionSource } from '@myriad/figure/motion'
-import {
-  MEROPE_SPEECH_EVENT,
-  meropeSpeechEventDetail,
-} from '@myriad/figure/speech'
+import { RigMotionCoordinator } from '@myriad/figure/motion'
+import { MEROPE_SPEECH_EVENT, meropeSpeechEventDetail } from '@myriad/figure/speech'
+import { SpeechMotionSource } from '@myriad/figure/testing'
 import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { useVoiceRecording } from '../../../src/components/agent-panel/useVoiceRecording'
+import { figureChannel } from '../../../src/features/merope/figureChannel'
 import { bindRealtimeChat } from '../../../src/features/merope/speech/realtimeChat'
 import { getSpeechPipeline } from '../../../src/features/merope/speech/speechPipelineHost'
 import {
@@ -143,7 +142,7 @@ function Fixture() {
     const unbind = bindRealtimeChat({
       sessionId: () => 'fixture-chat',
       adopt: (notice) => {
-        setLiveMotionGeneration(notice.sequence)
+        figureChannel.setGeneration(notice.sequence)
         return {
           messageId: `msg_rtc_${notice.runId}`,
           generation: notice.sequence,
@@ -161,6 +160,9 @@ function Fixture() {
         setMouth(intent.active)
         setBehaviors(intent.behaviorPlan?.behaviors.length ?? 0)
       },
+      undefined,
+      undefined,
+      figureChannel,
     )
     source.start()
     const listener = (event: Event) => {
@@ -172,7 +174,7 @@ function Fixture() {
         setEvents((rows) => [...rows, `${detail.messageId}:${detail.phase}`])
       }
     }
-    window.addEventListener(MEROPE_SPEECH_EVENT, listener)
+    figureChannel.addEventListener(MEROPE_SPEECH_EVENT, listener)
     const timer = setInterval(
       () => setTrackStates(tracks.map((track) => track.readyState).join(',')),
       50,
@@ -182,7 +184,7 @@ function Fixture() {
       unsubscribe()
       source.stop()
       clearInterval(timer)
-      window.removeEventListener(MEROPE_SPEECH_EVENT, listener)
+      figureChannel.removeEventListener(MEROPE_SPEECH_EVENT, listener)
     }
   }, [])
   const reply = (id: string) =>

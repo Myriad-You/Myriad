@@ -1,4 +1,5 @@
 import { isKnownGuest } from '../../../utils/authState'
+import { figureChannel } from '../figureChannel'
 
 export const MUSIC_MOOD_REPORT_SECONDS = 10 * 60
 const MUSIC_MOOD_MAX_REPORT_SECONDS = 30 * 60
@@ -139,7 +140,7 @@ export function bindMusicMoodListening(): () => void {
               Date.now() + Math.max(0, result.nextCreditInSeconds) * 1000
             if (active && result.credited) {
               void import('@myriad/figure/events').then(({ dispatchMeropeState }) => {
-                dispatchMeropeState({
+                dispatchMeropeState(figureChannel, {
                   mood: result.mood,
                   activity: result.activity,
                 })

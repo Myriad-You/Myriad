@@ -1,7 +1,4 @@
-import type {
-  MeropeRigManifest,
-  PreparedRigPsdImport, prepareRigPsdImport,
-} from '@myriad/figure/rig'
+import type { MeropeRigManifest, PreparedRigPsdImport, RigPsdImportOptions } from '@myriad/figure/rig'
 import type { importMeropeRig, previewMeropeRigImport } from '../api'
 import { diagnoseRig } from '@myriad/figure/rig'
 import { userFacingError } from '../../../utils/userFacingError'
@@ -29,8 +26,14 @@ export interface RigAssetPreflight extends ImportedRigAsset {
   prepared: PreparedRigPsdImport
 }
 
+/** What preflight decides about a PSD import; the caller adds where and for which figure. */
+export type RigPsdPrepareOptions = Pick<
+  RigPsdImportOptions,
+  'sourceMasterAssetId' | 'onStage' | 'sourceGenerationFingerprint' | 'signal' | 'expressions'
+>
+
 interface RigAssetPreflightDependencies {
-  prepare: typeof prepareRigPsdImport
+  prepare: (file: File, options: RigPsdPrepareOptions) => Promise<PreparedRigPsdImport>
   preview: typeof previewMeropeRigImport
 }
 
@@ -42,17 +45,16 @@ export async function preflightRigAsset(
   onStage?: (event: RigAssetCompileEvent) => void,
   sourceGenerationFingerprint?: string,
   signal?: AbortSignal,
-  expressions?: Parameters<typeof prepareRigPsdImport>[5],
+  expressions?: RigPsdImportOptions['expressions'],
 ): Promise<RigAssetPreflight> {
   signal?.throwIfAborted()
   emit(onStage, 'validate-source', 'started')
-  let prepared: Awaited<ReturnType<typeof prepareRigPsdImport>>
+  let prepared: PreparedRigPsdImport
   let activeStage: RigAssetCompileStage = 'validate-source'
   try {
-    prepared = await dependencies.prepare(
-      file,
+    prepared = await dependencies.prepare(file, {
       sourceMasterAssetId,
-      (stage) => {
+      onStage: (stage) => {
         if (stage === 'validated') {
           emit(onStage, 'validate-source', 'completed')
         } else if (stage === 'packing') {
@@ -63,7 +65,7 @@ export async function preflightRigAsset(
       sourceGenerationFingerprint,
       signal,
       expressions,
-    )
+    })
     signal?.throwIfAborted()
     if (activeStage === 'validate-source') {
       emit(onStage, 'validate-source', 'completed')

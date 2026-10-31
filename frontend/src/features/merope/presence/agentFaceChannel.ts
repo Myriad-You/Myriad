@@ -1,18 +1,8 @@
-import type {
-  MeropeSpeechEventDetail,
-  MeropeSpeechSource,
-  SpeechUtteranceInput,
-} from '@myriad/figure/speech'
-import {
-  dispatchMeropePerformance,
-  dispatchMeropeState,
-} from '@myriad/figure/events'
-import { newMotionIntentId } from '@myriad/figure/motion'
-import {
-  dispatchMeropeSpeech,
-  dispatchMeropeSpeechUtterance,
-} from '@myriad/figure/speech'
+import type { MeropeSpeechEventDetail, MeropeSpeechSource, SpeechUtteranceInput } from '@myriad/figure/speech'
+import { dispatchMeropePerformance, dispatchMeropeState } from '@myriad/figure/events'
+import { dispatchMeropeSpeech, dispatchMeropeSpeechUtterance } from '@myriad/figure/speech'
 import { authSubject } from '../../../utils/authSubject'
+import { figureChannel } from '../figureChannel'
 
 /** 超出按最早丢。 */
 const MAX_REMEMBERED_MESSAGES = 200
@@ -24,11 +14,11 @@ export interface AgentFaceSink {
   state: (detail: unknown) => void
 }
 
-const windowSink: AgentFaceSink = {
-  speech: dispatchMeropeSpeech,
-  utterance: dispatchMeropeSpeechUtterance,
-  performance: dispatchMeropePerformance,
-  state: dispatchMeropeState,
+const channelSink: AgentFaceSink = {
+  speech: (detail) => dispatchMeropeSpeech(figureChannel, detail),
+  utterance: (input) => dispatchMeropeSpeechUtterance(figureChannel, input),
+  performance: (detail) => dispatchMeropePerformance(figureChannel, detail),
+  state: (detail) => dispatchMeropeState(figureChannel, detail),
 }
 
 /** 比对前规范化空白。 */
@@ -118,7 +108,7 @@ export class AgentFaceChannel {
   private generation = 0
   private readonly spoken = new Map<string, string>()
 
-  constructor(private readonly sink: AgentFaceSink = windowSink) {}
+  constructor(private readonly sink: AgentFaceSink = channelSink) {}
 
   setGeneration(generation: number): void {
     this.generation = Math.max(0, Math.trunc(generation))
@@ -173,7 +163,7 @@ export class AgentFaceChannel {
             ...(line.performance
               ? {
                   performance: line.performance,
-                  motionIntentId: newMotionIntentId(),
+                  motionIntentId: figureChannel.newIntentId(),
                 }
               : {}),
           },

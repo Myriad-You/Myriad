@@ -52,7 +52,7 @@ test('workbench preview stays off the production coordinator', () => {
   const workbench = workbenchSources(['SiteMotionWorkbench.tsx'])
   const studio = workbenchSources()
   assert.doesNotMatch(workbench, /useRigMotionLifecycle/)
-  assert.doesNotMatch(workbench, /getRigMotionCoordinator/)
+  assert.doesNotMatch(workbench, /getProductionCoordinator/)
   assert.doesNotMatch(workbench, /getProductionMotionRuntime/)
   assert.doesNotMatch(studio, /useRigSingingLifecycle/)
   assert.doesNotMatch(studio, /getProductionMotionRuntime/)

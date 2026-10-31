@@ -1,11 +1,5 @@
-import type {
-  Anime25DPsdDefectKind,
-  Anime25DPsdReconciliation,
-} from '@myriad/figure/rig'
-import {
-  ANIME25D_PSD_DEFECT_COLORS,
-  ANIME25D_PSD_REPAIRED_COLOR,
-} from '@myriad/figure/rig'
+import type { Anime25DPsdDefectKind, Anime25DPsdReconciliation } from '@myriad/figure/workbench'
+import { ANIME25D_PSD_DEFECT_COLORS, ANIME25D_PSD_REPAIRED_COLOR } from '@myriad/figure/workbench'
 import { useEffect, useRef } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
 

@@ -1,13 +1,14 @@
-import type { MotionLeaseHandle } from '@myriad/figure/motion'
 import type { MeropeRigManifest } from '@myriad/figure/rig'
+import type { MotionLeaseHandle } from '@myriad/figure/testing'
 import type { Anime25DCharacterHandle } from '../../../src/features/merope/character/Anime25DCharacter'
 import { Anime25DPlayer } from '@myriad/figure/anime25drig'
-import { TouchGestureTracker } from '@myriad/figure/interaction'
-import { applyMotionFrame, createMotionApplyState, HumanPerformanceRuntime, MotionRuntime, MusicMotionSource, RigMotionCoordinator, TouchMotionSource } from '@myriad/figure/motion'
+import { applyMotionFrame, createMotionApplyState, MotionRuntime, MusicMotionSource, RigMotionCoordinator, TouchMotionSource } from '@myriad/figure/motion'
 import { dispatchMeropeSpeech, dispatchMeropeSpeechUtterance } from '@myriad/figure/speech'
+import { HumanPerformanceRuntime, TouchGestureTracker } from '@myriad/figure/testing'
 import { createRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import Anime25DCharacter from '../../../src/features/merope/character/Anime25DCharacter'
+import { figureChannel } from '../../../src/features/merope/figureChannel'
 
 /** Exercise the real component port and renderer; only input/time are synthetic. */
 export async function replayCharacterScene(manifest: MeropeRigManifest, scene: 'touch-speech' | 'touch-thinking' | 'default') {
@@ -159,7 +160,7 @@ function replayDefaultPerformance(
       pulse: Math.exp(-((audio.currentTime * 100 / 60) % 1) * 18) * 0.9, presence: 0.5 }),
     connectAudioToAnalyser: () => true,
   }, { isPageVisible: () => true, onVisibility: () => () => {} })
-  const runtime = new MotionRuntime(coordinator, music)
+  const runtime = new MotionRuntime(coordinator, music, figureChannel)
   const release = runtime.retain()
   const tracker = new TouchGestureTracker()
   const state = createMotionApplyState()
@@ -194,7 +195,7 @@ function replayDefaultPerformance(
       if (frame === 330) runtime.mood.set(70, 'thinking', 48)
       if (frame === 420) {
         runtime.mood.set(70, 'idle', 48)
-        dispatchMeropeSpeechUtterance({ ...speech, text: '这首歌真好听。我们慢慢聊吧。' })
+        dispatchMeropeSpeechUtterance(figureChannel, { ...speech, text: '这首歌真好听。我们慢慢聊吧。' })
       }
       const point = { pointerId: 1, atMs: now, x: 0.16 * Math.sin(seconds * 1.5), y: 0, region: 'hair' as const }
       if (frame === 450) runtime.touch.update('panel', tracker.begin(point)!, now)
@@ -233,7 +234,7 @@ function replayDefaultPerformance(
       finalTouch: player.getPresentedTouch(), finalOwners: player.getMotionPolicy(),
       error: canvas.getContext('webgl2')!.getError(), screenshots }
   } finally {
-    dispatchMeropeSpeech({ ...speech, phase: 'cancel' })
+    dispatchMeropeSpeech(figureChannel, { ...speech, phase: 'cancel' })
     release()
     window.setTimeout = originalTimeout
     window.clearTimeout = originalClearTimeout

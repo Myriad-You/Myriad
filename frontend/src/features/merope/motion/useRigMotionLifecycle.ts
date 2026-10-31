@@ -6,6 +6,7 @@ import { applyMotionFrame, createMotionApplyState, createPreviewMotionRuntime } 
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { setLiveFaceVisible } from '../events/faceVisible'
 import { markTurnTrace, noteTurnTraceDrop } from '../events/turnTrace'
+import { figureChannel } from '../figureChannel'
 import { getProductionMotionRuntime } from './runtimeHost'
 import { useRigSingingLifecycle } from './useRigSingingLifecycle'
 
@@ -130,7 +131,8 @@ export function useRigPreviewMotionLifecycle(
 ): void {
   const runtimeRef = useRef<MotionRuntime | null>(null)
   if (runtimeRef.current === null) {
-    runtimeRef.current = createPreviewMotionRuntime()
+    // Its own coordinator; it hears the live channel as before.
+    runtimeRef.current = createPreviewMotionRuntime(figureChannel)
   }
   useMotionRuntimeConsumer(runtimeRef.current, rigRef, options)
 }

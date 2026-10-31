@@ -1,18 +1,8 @@
-import type { Anime25DDriver, Anime25DPlayback, PoseCorrection, PoseCorrectionRegion, PoseCorrectionStagePick } from '@myriad/figure/anime25drig'
+import type { Anime25DPlayback, PoseCorrection } from '@myriad/figure/anime25drig'
+import type { Anime25DDriver, PoseCorrectionRegion, PoseCorrectionStagePick } from '@myriad/figure/workbench'
 import type { RefObject } from 'react'
 import type { RigCharacterHandle } from '../character/RigCharacter'
-import {
-  appendPoseCorrectionPatch,
-  clampPoseCorrectionPatch,
-  countPoseCorrectionChanges,
-  isPoseCorrections,
-  nearestPoseCorrectionRegion,
-  newPoseCorrectionPatch,
-  POSE_CORRECTION_REGIONS,
-  poseCorrectionCorner,
-  poseCorrectionPreviewDriver,
-  poseCorrectionRegionPoint, poseCorrectionTransitionDriver,
-} from '@myriad/figure/anime25drig'
+import { appendPoseCorrectionPatch, clampPoseCorrectionPatch, countPoseCorrectionChanges, isPoseCorrections, nearestPoseCorrectionRegion, newPoseCorrectionPatch, POSE_CORRECTION_REGIONS, poseCorrectionCorner, poseCorrectionPreviewDriver, poseCorrectionRegionPoint, poseCorrectionTransitionDriver } from '@myriad/figure/workbench'
 import { useEffect, useRef, useState } from 'react'
 import { SettingGroup, SettingsButton, SettingTitleTag, SliderItem } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'

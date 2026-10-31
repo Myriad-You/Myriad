@@ -69,17 +69,23 @@ The 2.5D figure (the rig runtime under `anime25drig/`, motion, and the rig
 import tools) is the `figure/` git submodule,
 [myriad-figure](https://github.com/Myriad-You/myriad-figure). It is a member of
 `frontend/`'s pnpm workspace, imported only through the entries its
-`package.json` exports (`@myriad/figure/anime25drig`, `@myriad/figure/motion`
-and so on; a name the site needs that no entry lists is added to the entry in
-figure first), so `pnpm install` in `frontend/` installs its dependencies, and
-`pnpm test:unit` and `pnpm typecheck` there also run its tests and its own
-type check. It reads the core's contracts as `@myriad/core/...`, which here is
-this repository's `core/`; figure pins a core of its own for its standalone
-CI, and CI here fails if that pin is newer than `core/` (bump `core/` first).
-The site lends it its locale copy, API origin and turn trace once, at start-up
-(`frontend/src/features/merope/character/installFigureHost.ts`), and loads one
-copy of it per page: its host, motion coordinator and affect state are module
-singletons. `git submodule update --init` above checks out both.
+`package.json` exports, split by use: `@myriad/figure` (the channel, errors and
+trace), the live entries (`@myriad/figure/anime25drig`, `motion`, `events` and
+so on), `@myriad/figure/workbench` for the rig workbench and
+`@myriad/figure/testing` for tests. A name the site needs that no entry lists
+is added to the right entry in figure first. `pnpm install` in `frontend/`
+installs its dependencies, and `pnpm test:unit` and `pnpm typecheck` there also
+run its tests and its own type check; its browser tests run in figure itself
+(`pnpm test:browser` there). It reads the core's contracts as
+`@myriad/core/...`, which here is this repository's `core/`; figure pins a core
+of its own for its standalone CI, and CI here fails if that pin is newer than
+`core/` (bump `core/` first). The figure keeps no page-wide state: the site
+owns the one live figure's channel and motion coordinator
+(`frontend/src/features/merope/figureChannel.ts`,
+`frontend/src/features/merope/motion/productionCoordinator.ts`), dispatches
+replies, speech and her state on that channel, passes it the API origin when
+importing, and turns the figure's error codes into its own words.
+`git submodule update --init` above checks out both.
 
 From any directory under the workspace, Cargo still finds the root. Preferred
 commands from the repo root:

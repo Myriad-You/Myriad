@@ -126,18 +126,10 @@ backend/data/.bootstrap-claimed
 /frontend/tests/*
 !/frontend/tests/browser/
 /frontend/tests/browser/*
-!/frontend/tests/browser/rigImport.spec.ts
-!/frontend/tests/browser/shoulderFusion.spec.ts
-!/frontend/tests/browser/hairFollow.spec.ts
-!/frontend/tests/browser/earwearAttachment.spec.ts
-!/frontend/tests/browser/torsoResponse.spec.ts
 !/frontend/tests/browser/poseCorrectionEditor.spec.ts
 !/frontend/tests/browser/touchHandoff.spec.ts
-!/frontend/tests/browser/figureModules.ts
 !/frontend/tests/browser/fixture/
 /frontend/tests/browser/fixture/*
-!/frontend/tests/browser/fixture/rigImport.html
-!/frontend/tests/browser/fixture/rigImport.ts
 !/frontend/tests/browser/fixture/poseCorrectionEditor.tsx
 !/frontend/tests/browser/fixture/touchHandoff.tsx
 

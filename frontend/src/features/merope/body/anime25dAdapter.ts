@@ -5,11 +5,9 @@ import type {
   BodyIntent,
   BodyState,
 } from './types'
-import {
-  captureRigStateSummary,
-  liveMotionGeneration, newMotionIntentId,
-} from '@myriad/figure/motion'
+import { captureRigStateSummary } from '@myriad/figure/motion'
 import { liveFaceVisible } from '../events/faceVisible'
+import { figureChannel } from '../figureChannel'
 import { getSpeechPipeline } from '../speech/speechPipelineHost'
 
 /** The only body adapter Myriad ships */
@@ -35,7 +33,7 @@ export class Anime25DBodyAdapter implements BodyAdapter {
   intend(intent: BodyIntent): void {
     if (!liveFaceVisible()) return
     const source = intent.source ?? 'reply'
-    const generation = source === 'reply' ? liveMotionGeneration() : 0
+    const generation = source === 'reply' ? figureChannel.generation() : 0
     if (intent.touchContinuation && !intent.speechRefinement && source === 'proactive'
       && intent.messageId && intent.speechText) {
       this.runtime.touch.accompanySpeech(intent.messageId, performance.now())
@@ -77,7 +75,7 @@ export class Anime25DBodyAdapter implements BodyAdapter {
         ...(intent.runId ? { runId: intent.runId } : {}),
         ...(intent.messageId ? { messageId: intent.messageId } : {}),
         ...(generation ? { generation } : {}),
-        motionIntentId: newMotionIntentId(),
+        motionIntentId: figureChannel.newIntentId(),
         performance: intent.performance,
       })
     }
