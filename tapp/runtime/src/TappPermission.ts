@@ -1,7 +1,7 @@
 /** 只做 Manifest 权限校验。运行时授权在 TappBridge 与后端 Runtime Grant。 */
 
-import type { TappManifest } from '../types'
 import type { TappKernelIssue } from './kernelErrors'
+import type { TappManifest } from './types'
 import { PERMISSION_LEVELS } from './permissionConfig'
 
 export class TappPermissionController {

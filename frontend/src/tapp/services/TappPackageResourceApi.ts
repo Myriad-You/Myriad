@@ -1,4 +1,4 @@
-import type { TappResourceMode, TappResources } from '../runtime/sandbox/resourceLoader'
+import type { TappResourceMode, TappResources } from '@myriad/tapp-runtime'
 import { API_URL } from '../../config'
 import { hostLocaleHeaders } from '../../i18n/hostLocaleHeaders'
 import { currentCopy } from '../../i18n/localeCopy'

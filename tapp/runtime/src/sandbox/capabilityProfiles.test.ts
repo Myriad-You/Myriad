@@ -1,8 +1,8 @@
-import type { TappInstance } from '../../types'
+import type { TappInstance } from '../types'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { createTestTappKernel } from '../kernel.test-support.ts'
 import { PERMISSION_MAP } from '../permissionConfig.ts'
+import { createTestTappKernel } from '../testing.ts'
 import {
   applySandboxCapabilityProfile,
   HEADLESS_DENIED_ACTIONS,

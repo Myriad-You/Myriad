@@ -1,4 +1,4 @@
-import type { TappManifest } from '../types'
+import type { TappManifest } from '@myriad/tapp-runtime'
 import { API_URL } from '../../config'
 import { hostLocaleHeaders } from '../../i18n/hostLocaleHeaders'
 import { currentCopy } from '../../i18n/localeCopy'

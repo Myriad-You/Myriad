@@ -1,3 +1,4 @@
+import type { RegisteredWidget } from '@myriad/tapp-runtime'
 import type {
   WidgetComponentProps,
   WidgetPopupDef,
@@ -5,7 +6,6 @@ import type {
   WidgetSize,
   WidgetType,
 } from '../components/widgetGridTypes'
-import type { RegisteredWidget } from '../tapp/types'
 import {
   createElement,
   lazy,

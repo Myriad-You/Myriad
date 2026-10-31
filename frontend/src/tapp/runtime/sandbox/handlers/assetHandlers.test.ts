@@ -1,5 +1,4 @@
-import type { TappInstance, TappMessage } from '../../../types'
-import type { TappBridge } from '../../TappBridge'
+import type { TappBridge, TappInstance, TappMessage } from '@myriad/tapp-runtime'
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 import { registerAssetHandlers } from './baseHandlers.ts'

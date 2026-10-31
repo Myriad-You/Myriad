@@ -44,6 +44,7 @@ export default defineConfig({
       allow: [
         fileURLToPath(new URL('../..', import.meta.url)),
         fileURLToPath(new URL('../../../figure', import.meta.url)),
+        fileURLToPath(new URL('../../../tapp/runtime', import.meta.url)),
         fileURLToPath(new URL('../../../core/shared', import.meta.url)),
       ],
     },

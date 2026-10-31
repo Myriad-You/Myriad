@@ -1,4 +1,4 @@
-import type { TappInstance } from '../../types'
+import type { TappInstance } from '../types'
 
 export interface TappNotificationOptions {
   title: string

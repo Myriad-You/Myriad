@@ -1,6 +1,6 @@
 /** 序列化授予权限，不是声明或批准。 */
 
-import type { TappInstance } from '../../types'
+import type { TappInstance } from '../types'
 import type { SandboxCapabilityProfile } from './capabilityProfiles'
 import { generateSdkBody } from './sdkBody'
 import { serializeSandboxScriptValue } from './security'

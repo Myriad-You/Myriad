@@ -60,11 +60,11 @@ flowchart LR
 | 运行壳     | `frontend/src/tapp/components/TappAppShell.tsx`、`frontend/src/tapp/components/TappWindowManager.tsx`、`frontend/src/tapp/hooks/useTappMultiWindowSession.ts` | 多窗口会话、全屏 chrome、关闭/presence             |
 | 安装/卸载 UI | `frontend/src/tapp/components/InstallTappDialog.tsx`、`frontend/src/tapp/components/UninstallConfirmDialog.tsx` | 权限同意安装、卸载确认与清理预设文案               |
 | 宿主状态   | `frontend/src/tapp/runtime/TappRuntime.ts`                 | 已安装/运行状态缓存、Widget 注册、后台需求         |
-| 资源加载   | `frontend/src/tapp/runtime/sandbox/resourceLoader.ts`      | 获取、拆分、缓存代码/CSS/HTML/i18n/Page 模块       |
+| 资源加载   | `tapp/runtime/src/sandbox/resourceLoader.ts`               | 获取、拆分、缓存代码/CSS/HTML/i18n/Page 模块       |
 | 沙箱宿主   | `frontend/src/tapp/runtime/TappPageSandbox.tsx`、`frontend/src/tapp/runtime/TappWidgetSandbox.tsx` | 创建 iframe、生成 HTML、注册对应 handler、清理实例 |
 | Widget 加载面 | `frontend/src/components/widgets/shared/WidgetSkeleton.tsx`、`frontend/src/hooks/useTappWidgets.ts` | Dashboard 第三方 Widget 默认骨架（defer / 屏外静态 / themeColor） |
 | 后台宿主   | `frontend/src/tapp/components/TappBackgroundRunner.tsx`    | 为需要常驻的运行中 Tapp 拉起 headless core         |
-| SDK/Bridge | `frontend/src/tapp/runtime/sandbox/sdkGenerator.ts`、`frontend/src/tapp/runtime/TappBridge.ts` | 生成沙箱 SDK、验证消息、权限预检、分发 handler     |
+| SDK/Bridge | `tapp/runtime/src/sandbox/sdkGenerator.ts`、`tapp/runtime/src/TappBridge.ts` | 生成沙箱 SDK、验证消息、权限预检、分发 handler     |
 | 前端 API facade | `frontend/src/tapp/services/TappApiService.ts`        | 领域 API 聚合导出与默认对象装配                    |
 | Tapp 路由装配 | `backend/src/api/tapp_store.rs`                         | 路由组合、子模块声明与公共重导出                    |
 | 访问上下文 | `backend/src/api/tapp_store/access.rs`                    | 可见安装选择、所有权、权限过滤与存储访问身份        |
@@ -99,7 +99,7 @@ flowchart LR
 | 前端生命周期 API | `frontend/src/tapp/services/TappLifecycleApi.ts`      | 列表、详情、最近使用、启动与停止                    |
 | 声明 API   | `backend/src/services/tapp_api_service.rs`                 | 模板注入、出站请求、builtin、上下文隔离缓存        |
 
-`frontend/src/tapp/types/index.ts` 是前端运行时类型入口。运行时类型不得依赖
+`tapp/runtime/src/types.ts`（经 `@myriad/tapp-runtime` 引用）是运行时类型入口。运行时类型不得依赖
 `examples/`；示例目录只是内置开发/演示应用的源代码。
 
 内部模块、类型和职责名称不使用 `v2`、`v3` 等代际后缀；应按稳定职责命名。只有已经发布的

@@ -1,4 +1,4 @@
-import type { TappAPIResponse } from '../types'
+import type { TappAPIResponse } from '@myriad/tapp-runtime'
 import { currentCopy } from '../../i18n/localeCopy'
 import { httpStatusMessage, userFacingError } from '../../utils/userFacingError'
 import { TappHttpError, tappRequest } from '../services/TappHttpClient'

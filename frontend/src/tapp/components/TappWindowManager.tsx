@@ -1,4 +1,4 @@
-import type { TappCategory, TappCodeStructure, TappInstance } from '../types'
+import type { TappCategory, TappCodeStructure, TappInstance } from '@myriad/tapp-runtime'
 import {
   FaExclamationTriangle,
   FaGripVertical,

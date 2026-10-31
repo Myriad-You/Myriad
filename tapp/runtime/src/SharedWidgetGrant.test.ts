@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { createTestTappKernel } from './kernel.test-support.ts'
 import { newSharedWidgetInstanceId } from './TappRuntimeGrant.ts'
+import { createTestTappKernel } from './testing.ts'
 
 describe('newSharedWidgetInstanceId', () => {
   it('stays within backend MAX_INSTANCE_ID_LENGTH (100)', () => {

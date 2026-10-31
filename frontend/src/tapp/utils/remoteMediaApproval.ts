@@ -1,6 +1,6 @@
 /** remoteMedia 批准状态：声明了 media:remote 的域名里，还有哪些没被批准。 */
 
-import type { TappInstance } from '../types'
+import type { TappInstance } from '@myriad/tapp-runtime'
 
 export function declaredRemoteMedia(instance: Pick<TappInstance, 'manifest'>): string[] {
   const { manifest } = instance

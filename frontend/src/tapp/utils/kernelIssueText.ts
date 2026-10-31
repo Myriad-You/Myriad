@@ -1,6 +1,6 @@
-import type { TappKernelIssue } from '../runtime/kernelErrors'
+import type { TappKernelIssue } from '@myriad/tapp-runtime'
+import { formatKernelText, TAPP_KERNEL_ERROR_TEXT } from '@myriad/tapp-runtime'
 import { currentCopy, formatCurrent } from '../../i18n/localeCopy'
-import { formatKernelText, TAPP_KERNEL_ERROR_TEXT } from '../runtime/kernelErrors'
 
 /** A kernel refusal in the site's language. */
 export function kernelIssueText(issue: TappKernelIssue): string {

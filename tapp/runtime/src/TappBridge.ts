@@ -1,18 +1,18 @@
+import type { RuntimeGrantKind, TappGrantRegistry, TappRuntimeGrant } from './TappRuntimeGrant'
 import type {
   TappAPIRequest,
   TappAPIResponse,
   TappInstance,
   TappMessage,
   TappPermission,
-} from '../types'
-import type { RuntimeGrantKind, TappGrantRegistry, TappRuntimeGrant } from './TappRuntimeGrant'
+} from './types'
+import { PERMISSION_MAP } from './permissionConfig'
 import {
   PREVIEW_UNAVAILABLE_CODE,
   previewUnavailableMessage,
-} from '../utils/previewGrants'
-import { TAPP_PACKAGE_PAYLOAD_BYTES } from '../utils/tappPackageLimits'
-import { PERMISSION_MAP } from './permissionConfig'
+} from './previewGrants'
 import { validateFileDownloadOptions } from './sandbox/fileDownload'
+import { TAPP_PACKAGE_PAYLOAD_BYTES } from './tappPackageLimits'
 
 type MessageHandler = (message: TappMessage) => Promise<TappAPIResponse>
 

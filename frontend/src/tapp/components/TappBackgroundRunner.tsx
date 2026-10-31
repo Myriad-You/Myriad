@@ -1,4 +1,4 @@
-import type { TappCodeStructure, TappInstance } from '../types'
+import type { TappCodeStructure, TappInstance } from '@myriad/tapp-runtime'
 import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import {
   clearBackgroundResidents,

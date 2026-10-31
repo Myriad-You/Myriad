@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { createTestTappKernel } from './kernel.test-support.ts'
+import { createTestTappKernel } from './testing.ts'
 
 describe('TappRuntimeGrant destroy / re-mint seed', () => {
   it('marks destroyed and exposes seed fields for bridge re-mint', () => {

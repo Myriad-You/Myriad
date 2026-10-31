@@ -4,11 +4,11 @@ import { resolve } from 'node:path'
 function isMyriadRoot(root) {
   return (
     existsSync(resolve(root, 'tools/tapp-contract-export/Cargo.toml')) &&
-    existsSync(resolve(root, 'frontend/src/tapp/runtime/permissionConfig.ts')) &&
+    existsSync(resolve(root, 'tapp/runtime/src/permissionConfig.ts')) &&
     existsSync(
       resolve(
         root,
-        'frontend/src/tapp/runtime/sandbox/capabilityProfiles.ts',
+        'tapp/runtime/src/sandbox/capabilityProfiles.ts',
       ),
     )
   )

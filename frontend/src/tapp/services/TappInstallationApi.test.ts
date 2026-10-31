@@ -1,4 +1,4 @@
-import type { TappManifest } from '../types'
+import type { TappManifest } from '@myriad/tapp-runtime'
 import type { RemoteApp, RemoteStoreIndex } from './RemoteStoreService'
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it } from 'node:test'

@@ -6,9 +6,16 @@ import type {
   TappMessageTarget,
 } from './TappBridge'
 import type { TappGrantTransport } from './TappRuntimeGrant'
+import type { TappInstance } from './types'
 import { HostRuntimeModules } from './sandbox/hostRuntimeModules'
 import { TappResourceLoader } from './sandbox/resourceLoader'
-import { sandboxScriptNonce } from './sandbox/security'
+import {
+  cspOptionsFromPermissions,
+  escapeSandboxScriptSource,
+  generateCSP,
+  generateSecurityWrapper,
+  sandboxScriptNonce,
+} from './sandbox/security'
 import { TappBridge, TappBridgeRouter } from './TappBridge'
 import { TappGrantRegistry } from './TappRuntimeGrant'
 
@@ -30,6 +37,14 @@ export interface TappKernelHost {
   cspNonce: () => string | undefined
   /** Where sandbox messages arrive; null where there is no window (tests). */
   messageTarget: TappMessageTarget | null
+}
+
+/** What a sandbox document's scripts and CSP are built from; one set per document. */
+export interface TappDocumentSecurity {
+  nonce: string
+  csp: string
+  /** The security wrapper script, already escaped for an inline <script>. */
+  securityWrapper: string
 }
 
 /**
@@ -67,5 +82,25 @@ export class TappKernel {
   /** The nonce sandbox scripts carry: the host's, or a random one where it has none. */
   scriptNonce(): string {
     return sandboxScriptNonce(this.host.cspNonce())
+  }
+
+  /** Nonce, CSP and security wrapper for one sandbox document. The wrapper's image checks and the CSP read the same options. */
+  documentSecurity(
+    instance: Pick<TappInstance, 'grantedPermissions' | 'grantedRemoteMedia'>,
+    sessionToken: string,
+  ): TappDocumentSecurity {
+    const nonce = this.scriptNonce()
+    const hostOrigin = this.assetOrigin()
+    const options = {
+      ...cspOptionsFromPermissions(instance.grantedPermissions, instance.grantedRemoteMedia),
+      hostOrigin,
+    }
+    return {
+      nonce,
+      csp: generateCSP(nonce, options),
+      securityWrapper: escapeSandboxScriptSource(
+        generateSecurityWrapper(sessionToken, options.remoteMediaHosts, hostOrigin),
+      ),
+    }
   }
 }

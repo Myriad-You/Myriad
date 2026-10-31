@@ -1,4 +1,4 @@
-import type { TappInstance } from '../../types'
+import type { TappInstance } from '../types'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { generateWidgetSDK } from './sdkGenerator.ts'

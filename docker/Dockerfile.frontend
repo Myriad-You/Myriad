@@ -24,6 +24,8 @@ COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml 
 COPY frontend/patches ./patches
 # The 2.5D figure (figure/ submodule) is a workspace package at ../figure.
 COPY figure/package.json /figure/package.json
+# The Tapp runtime is a workspace package at ../tapp/runtime.
+COPY tapp/runtime/package.json /tapp/runtime/package.json
 
 # Disable husky in Docker (no .git directory)
 ENV HUSKY=0
@@ -45,6 +47,9 @@ COPY shared /shared
 COPY core/shared /core/shared
 # The 2.5D figure's source (@myriad/figure → /figure/src)
 COPY figure/src /figure/src
+# The Tapp runtime's source (@myriad/tapp-runtime → /tapp/runtime/src; its
+# ../../../shared/... contract import lands on /shared above)
+COPY tapp/runtime/src /tapp/runtime/src
 
 # Built-in TAPP sources bundled as examples
 # (relative ../../../../../tapps/... from /app/src/tapp/examples/tapps/... → /tapps/...)

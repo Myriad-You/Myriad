@@ -3,8 +3,8 @@
  * `shared/tapp_sandbox_contract.json`；宿主代理域同步 fixtures 一致性测试。
  */
 
-import type { PermissionLevel, TappPermission } from '../types'
-import sandboxContract from '../../../../shared/tapp_sandbox_contract.json' with { type: 'json' }
+import type { PermissionLevel, TappPermission } from './types'
+import sandboxContract from '../../../shared/tapp_sandbox_contract.json' with { type: 'json' }
 
 type TappPermissionLevel = Exclude<PermissionLevel, 'public'>
 

@@ -1,4 +1,4 @@
-import type { TappManifest, TappManifestLocales } from '../types'
+import type { TappManifest, TappManifestLocales } from '@myriad/tapp-runtime'
 import { apiRequest } from './TappHttpClient'
 
 export interface TappListItem {

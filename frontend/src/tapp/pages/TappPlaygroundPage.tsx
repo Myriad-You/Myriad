@@ -1,8 +1,8 @@
 /** 自然语言生成/预览/安装；跑在无授权的临时沙箱。 */
 
+import type { TappInstance, WidgetSize } from '@myriad/tapp-runtime'
 import type { PlaygroundLastFailedAttempt } from '../components/PlaygroundComposer'
 import type { TappPlaygroundProject } from '../services/TappPlaygroundService'
-import type { TappInstance, WidgetSize } from '../types'
 import type {
   PlaygroundSessionsStore,
   PruneStoreMeta,
@@ -19,6 +19,11 @@ import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
 } from '@lib/motionShim'
+import {
+  isPlaygroundPreviewExpectedError,
+  selectPreviewGrantedPermissions,
+  selectPreviewGrantedRemoteMedia,
+} from '@myriad/tapp-runtime'
 import Prism from 'prismjs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
@@ -67,11 +72,6 @@ import {
   switchSession,
   updateActiveSessionWithMeta,
 } from '../utils/playgroundSession'
-import {
-  isPlaygroundPreviewExpectedError,
-  selectPreviewGrantedPermissions,
-  selectPreviewGrantedRemoteMedia,
-} from '../utils/previewGrants'
 import { TAPP_LIST_PATH, tappDetailPath } from '../utils/tappPaths'
 import {
   formatPlaygroundPackageErrors,

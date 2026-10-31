@@ -1,5 +1,4 @@
-import type { AITaskRequest, TappInstance } from '../../../types'
-import type { TappBridge } from '../../TappBridge'
+import type { AITaskRequest, TappBridge, TappInstance } from '@myriad/tapp-runtime'
 import { userFacingError } from '../../../../utils/userFacingError'
 import * as TappApiService from '../../../services/TappApiService'
 import { TappHttpError } from '../../../services/TappHttpClient'

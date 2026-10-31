@@ -1,6 +1,5 @@
+import type { PermissionLevel, RuntimeGrantKind, TappRuntimeGrantResponse } from '@myriad/tapp-runtime'
 import type { TimelineResponse } from '../../types/federation'
-import type { RuntimeGrantKind, TappRuntimeGrantResponse } from '../runtime/TappRuntimeGrant'
-import type { PermissionLevel } from '../types'
 import { apiRequest } from './TappHttpClient'
 
 export type { RuntimeGrantKind, TappRuntimeGrantResponse }

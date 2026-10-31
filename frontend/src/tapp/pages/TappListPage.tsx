@@ -1,7 +1,7 @@
+import type { TappInstance, TappPermission } from '@myriad/tapp-runtime'
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from 'react'
 import type { ToastType } from '../../components/Toast'
 import type { TappAppCardSize } from '../components/TappAppCard'
-import type { TappInstance, TappPermission } from '../types'
 import {
   FaFolder,
   FaGlobe,

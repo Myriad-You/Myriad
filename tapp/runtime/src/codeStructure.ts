@@ -1,5 +1,5 @@
-import type { TappCodeStructure, TappInstance } from '../types'
 import type { LayerExecutionPlan } from './moduleRuntime'
+import type { TappCodeStructure, TappInstance } from './types'
 import { buildLayerRuntime } from './moduleRuntime'
 
 /** background 是 headless core，只跑共享层。popup 是某个 widget 的弹窗层。 */

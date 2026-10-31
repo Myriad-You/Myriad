@@ -1,10 +1,10 @@
+import { TappKernel } from '@myriad/tapp-runtime'
 import { userFacingError } from '../utils/userFacingError'
 import {
   federationLiveLimits,
   federationMessageEnvelopeBytes,
   refreshFederationLimits,
 } from './runtime/federationLimits'
-import { TappKernel } from './runtime/kernel'
 import { getQuotaManager } from './services/QuotaManager'
 import { getTappResources } from './services/TappPackageResourceApi'
 import {

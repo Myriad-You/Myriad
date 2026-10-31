@@ -1,5 +1,6 @@
+import type { TappInstance } from '@myriad/tapp-runtime'
 import type { WidgetConfig, WidgetPopupProps, WidgetType } from '../../../src/components/widgetGridTypes'
-import type { TappInstance } from '../../../src/tapp/types'
+import { TappBridge } from '@myriad/tapp-runtime'
 import React, { useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, useNavigate } from 'react-router-dom'
@@ -9,10 +10,8 @@ import TappWidgetComponent from '../../../src/components/widgets/TappWidget'
 import TappWidgetPopup from '../../../src/components/widgets/TappWidgetPopup'
 import { I18nProvider } from '../../../src/contexts/I18nContext'
 import { getWidgetPopupState } from '../../../src/lib/widgetPopup'
-import { getResourceLoader } from '../../../src/tapp/runtime/sandbox/resourceLoader'
-import { TappBridge } from '../../../src/tapp/runtime/TappBridge'
 import { getTappRuntime, TappRuntime } from '../../../src/tapp/runtime/TappRuntime'
-import { TappRuntimeGrant } from '../../../src/tapp/runtime/TappRuntimeGrant'
+import { tappKernel } from '../../../src/tapp/tappKernel'
 
 // Only installation discovery and package download are synthetic. The real card,
 // popup host, both sandboxes, generated SDK, bridges and runtime grants run in Chromium.
@@ -33,7 +32,7 @@ TappRuntime.prototype.getRegisteredWidgets = () => [{ id: WIDGET_ID, tappId: TAP
 TappRuntime.prototype.getTapp = () => instance
 TappRuntime.prototype.isRunning = () => true
 TappRuntime.prototype.canControlLifecycle = () => false
-const loader = getResourceLoader()
+const loader = tappKernel.resources
 loader.loadWidgetResources = async () => ({
   modules: { 'card.js': `
     Tapp.widget.openPopup({ from: 'boot' }).then(
@@ -140,7 +139,7 @@ export function snapshot() {
     popup: summary(of('popup')),
     entries: state.entries.length,
     activeKey: state.activeKey,
-    grantRefs: TappRuntimeGrant.sharedWidgetRefCount(TAPP_ID),
+    grantRefs: tappKernel.grants.sharedWidgetRefCount(TAPP_ID),
   }
 }
 

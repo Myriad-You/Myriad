@@ -1,6 +1,5 @@
+import type { TappBridge, TappInstance, TappMessage } from '@myriad/tapp-runtime'
 import type { ComposeXShareRequest } from '../../services/xShareApi'
-import type { TappInstance, TappMessage } from '../types'
-import type { TappBridge } from './TappBridge'
 import { currentCopy } from '../../i18n/localeCopy'
 import { ApiError } from '../../services/api'
 import { federationApi, newPublishIdempotencyKey } from '../../services/federationApi'

@@ -1,6 +1,6 @@
 /** 预览不得把声明权限当作授予。仅此 allowlist 可在会话内行使；其余 deny-by-default。与 backend PREVIEW_PERMISSIONS 同步。 */
 
-import type { TappPermission } from '../types'
+import type { TappPermission } from './types'
 
 export const PREVIEW_PERMISSIONS = [
   'storage:read',

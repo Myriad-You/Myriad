@@ -1,5 +1,4 @@
-import type { AgentInteractionV2, TappInstance } from '../types'
-import type { TappBridge } from './TappBridge'
+import type { AgentInteractionV2, TappBridge, TappInstance } from '@myriad/tapp-runtime'
 import { currentCopy, formatCurrent } from '../../i18n/localeCopy'
 import { executeFrontendAction } from '../../services/agent'
 import { userFacingError } from '../../utils/userFacingError'

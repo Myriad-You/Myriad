@@ -118,10 +118,12 @@ export default defineConfig(({ command }) => ({
     port: 1102,
     host: true,
     // figure/ and core/ are submodules beside frontend/; tests load figure modules by /@fs path.
+    // tapp/runtime/ is a workspace package beside frontend/ too.
     fs: {
       allow: [
         searchForWorkspaceRoot(__dirname),
         path.resolve(__dirname, '../figure'),
+        path.resolve(__dirname, '../tapp/runtime'),
         path.resolve(__dirname, '../core/shared'),
       ],
     },

@@ -28,9 +28,11 @@ trustPolicyExclude:
 shellEmulator: true
 
 # figure/ (Myriad-You/myriad-figure, a submodule like core/) is the 2.5D figure package.
+# tapp/runtime/ is the Tapp runtime every host shares.
 packages:
   - .
   - ../figure
+  - ../tapp/runtime
 
 overrides:
   brace-expansion: '>=5.0.12'

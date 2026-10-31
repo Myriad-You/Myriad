@@ -1,10 +1,10 @@
-import type { TappInstance } from '../types'
-import type { TestTappKernel } from './kernel.test-support.ts'
 import type { TappBridge } from './TappBridge.ts'
+import type { TestTappKernel } from './testing.ts'
+import type { TappInstance } from './types'
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it } from 'node:test'
-import { TAPP_PACKAGE_PAYLOAD_BYTES } from '../utils/tappPackageLimits.ts'
-import { createTestTappKernel } from './kernel.test-support.ts'
+import { TAPP_PACKAGE_PAYLOAD_BYTES } from './tappPackageLimits.ts'
+import { createTestTappKernel } from './testing.ts'
 
 const instance: TappInstance = {
   id: 'com.example.sec',

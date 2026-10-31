@@ -132,7 +132,7 @@ Tapp SDK 把调用转换为请求消息。宿主只接受同时满足以下条�
 ### Payload 大小
 
 `TappBridge` 在校验阶段限制 request payload，防止内存攻击（实现见
-`frontend/src/tapp/runtime/TappBridge.ts`）：
+`tapp/runtime/src/TappBridge.ts`）：
 
 | action | 上限 | 说明 |
 | ------ | ---- | ---- |
@@ -261,7 +261,7 @@ Manifest **安装级 settings** 由 owner / 管理员写入 installation owner �
   `shared/tapp_sandbox_contract.json` 修改，同步一致性 fixture
   `docs/development/tapp/fixtures/action_permissions.json`（路由变化改
   `host_route_permissions.json`）与后端 `host_attribution`；跑
-  `node --experimental-strip-types --test src/tapp/runtime/permissionMapConsistency.test.ts`
+  `tapp/runtime/` 下的 `node --experimental-strip-types --test src/permissionMapConsistency.test.ts`
   与 `cargo test -p myriad-backend host_attribution`（或对应模块过滤）。
 
 ## 已知控制台信息

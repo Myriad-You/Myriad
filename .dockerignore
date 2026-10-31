@@ -5,6 +5,7 @@ figure/.git
 # figure/'s own core/ submodule and install; the build uses the site's core/ and frontend's install.
 figure/core
 figure/node_modules
+tapp/runtime/node_modules
 .gitignore
 .gitattributes
 

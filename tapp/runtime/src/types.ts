@@ -480,26 +480,6 @@ export interface RegisteredWidget {
   registeredAt: string
 }
 
-export interface WidgetRenderProps {
-  size: WidgetSize
-
-  config: Record<string, unknown>
-
-  isEditMode: boolean
-
-  isPreview: boolean
-
-  scale: number
-
-  fontScale: number
-
-  theme: 'light' | 'dark'
-
-  primaryColor?: string
-
-  locale?: string
-}
-
 export interface PlatformInfo {
   /** 稳定 slug，给 cache / getData。 */
   id: string

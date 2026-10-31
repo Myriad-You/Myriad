@@ -1,4 +1,3 @@
-import type { TappPlaygroundCode } from '../services/TappPlaygroundService'
 import type {
   BackgroundRequirement,
   CustomPlatformConfig,
@@ -8,14 +7,15 @@ import type {
   TappPermission,
   TappStatus,
   WidgetRegistration,
-} from '../types'
+} from '@myriad/tapp-runtime'
+import type { TappPlaygroundCode } from '../services/TappPlaygroundService'
+import { TappPermissionController } from '@myriad/tapp-runtime'
 import { getDynamicContentProvider } from '../../services/DynamicContentProvider'
 import { installFromCode, uninstallTapp } from '../services/TappInstallationApi'
 import { getTapp, listTappDetails, startTapp, stopTapp } from '../services/TappLifecycleApi'
 import { getAllWidgets, registerTappWidget, unregisterTappWidget } from '../services/TappWidgetApi'
 import { tappKernel } from '../tappKernel'
 import { kernelIssueText } from '../utils/kernelIssueText'
-import { TappPermissionController } from './TappPermission'
 
 type RuntimeEvent =
   | 'tapp:installed'

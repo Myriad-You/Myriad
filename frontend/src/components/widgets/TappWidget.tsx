@@ -1,11 +1,12 @@
-import type { ReactNode } from 'react'
-import type { TappWidgetSandboxProps } from '../../tapp/runtime/TappWidgetSandbox'
 import type {
   RegisteredWidget,
   TappCodeStructure,
   TappInstance,
-} from '../../tapp/types'
+} from '@myriad/tapp-runtime'
+import type { ReactNode } from 'react'
+import type { TappWidgetSandboxProps } from '../../tapp/runtime/TappWidgetSandbox'
 import type { WidgetComponentProps } from '../widgetGridTypes'
+import { hiddenWidgetPool } from '@myriad/tapp-runtime'
 import {
   lazy,
   memo,
@@ -16,13 +17,12 @@ import {
   useRef,
   useState,
 } from 'react'
-import { useNavigate } from 'react-router-dom'
 
+import { useNavigate } from 'react-router-dom'
 import { useI18n, withI18nNamespace } from '../../contexts/I18nContext'
 import { isPageVisible, onVisibility } from '../../hooks/animation'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { TappIconBadge } from '../../tapp/components/TappIconBadge'
-import { hiddenWidgetPool } from '../../tapp/runtime/resourceBounds'
 import { getTappRuntime } from '../../tapp/runtime/TappRuntime'
 import { widgetPerfMark } from '../../tapp/runtime/WidgetLoadPerf'
 import { onTappWidgetInvalidate } from '../../tapp/runtime/WidgetRuntimeSignals'

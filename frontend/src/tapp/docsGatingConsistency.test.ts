@@ -1,4 +1,4 @@
-import type { TappInstance } from './types'
+import type { TappInstance } from '@myriad/tapp-runtime'
 import assert from 'node:assert/strict'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -6,12 +6,10 @@ import { describe, it } from 'node:test'
 
 import { fileURLToPath } from 'node:url'
 import { compileFunction } from 'node:vm'
-import { classifyWidgetLibraryKind } from '../components/widgetLibrarySearch.ts'
-import { PERMISSION_LEVELS } from './runtime/permissionConfig.ts'
-import {
-  generateFullSDK,
+import { generateFullSDK,
   generateWidgetSDK,
-} from './runtime/sandbox/sdkGenerator.ts'
+  PERMISSION_LEVELS } from '@myriad/tapp-runtime'
+import { classifyWidgetLibraryKind } from '../components/widgetLibrarySearch.ts'
 import {
   storeAssetStorePath,
   storePackageRoot,
@@ -354,7 +352,7 @@ describe('tapp docs gating consistency', () => {
     ) as {
       actions: Array<{ domain: string; action: string; permission: string }>
     }
-    const { PERMISSION_MAP } = await import('./runtime/permissionConfig.ts')
+    const { PERMISSION_MAP } = await import('@myriad/tapp-runtime')
     const phantasi = fixture.actions.filter((a) => a.domain === 'phantasi')
     assert.ok(phantasi.length > 10)
     for (const row of phantasi) {
@@ -520,10 +518,10 @@ describe('tapp docs gating consistency', () => {
 
   it('API_REFERENCE capability table includes every frozen full-SDK namespace', () => {
     const gen = read(
-      join(REPO, 'frontend/src/tapp/runtime/sandbox/sdkBody.ts'),
+      join(REPO, 'tapp/runtime/src/sandbox/sdkBody.ts'),
     )
     const shared = read(
-      join(REPO, 'frontend/src/tapp/runtime/sandbox/sdkShared.ts'),
+      join(REPO, 'tapp/runtime/src/sandbox/sdkShared.ts'),
     )
     assert.match(shared, /skip = \{ widgets: 1, popups: 1, pages: 1 \}/)
     assert.match(gen, /SDK_FREEZE_TAPP_CODE/)

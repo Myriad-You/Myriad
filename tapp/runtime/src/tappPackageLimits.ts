@@ -1,4 +1,4 @@
-import type { TappManifest } from '../types'
+import type { TappManifest } from './types'
 
 export const MAX_TAPP_ASSETS = 128
 export const MAX_TAPP_GAME_ASSETS = 256

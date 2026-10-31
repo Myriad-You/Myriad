@@ -1,4 +1,4 @@
-import type { TappManifest } from '../../types'
+import type { TappManifest } from '@myriad/tapp-runtime'
 import type { ExampleTapp } from './types'
 import enUS from '../../../../../tapps/rss-reader/i18n/en-US.json'
 import jaJP from '../../../../../tapps/rss-reader/i18n/ja-JP.json'

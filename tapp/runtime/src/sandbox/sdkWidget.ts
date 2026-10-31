@@ -1,6 +1,6 @@
 /** 缺授予时可选命名空间仍以拒绝桩存在。session token 每实例一份，不进模板缓存键。 */
 
-import type { TappInstance } from '../../types'
+import type { TappInstance } from '../types'
 import type { WidgetSdkCaps } from './sdkBody'
 import {
   generateSdkBody,

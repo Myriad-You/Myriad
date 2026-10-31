@@ -1,6 +1,6 @@
 /** 按 bridge 实例（session token）绑定，同 tappId 多窗互不覆盖。 */
 
-import type { TappBridge } from './TappBridge'
+import type { TappBridge } from '@myriad/tapp-runtime'
 import { isImeComposing } from '../../utils/ime'
 
 export interface HostShortcutBinding {

@@ -1,9 +1,9 @@
-import type { TappInstance, TappPermission } from '../types'
-import type { TestTappKernel } from './kernel.test-support.ts'
 import type { TappBridge } from './TappBridge.ts'
+import type { TestTappKernel } from './testing.ts'
+import type { TappInstance, TappPermission } from './types'
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it } from 'node:test'
-import { createTestTappKernel } from './kernel.test-support.ts'
+import { createTestTappKernel } from './testing.ts'
 
 const SESSION = 'kv-perm-session-token'
 const READS = [

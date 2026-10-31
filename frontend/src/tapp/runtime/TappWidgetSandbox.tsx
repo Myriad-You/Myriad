@@ -1,6 +1,17 @@
-import type { TappCodeStructure, TappInstance } from '../types'
-import type { AnimationConfigRef, WidgetRenderProps } from './sandbox'
-import type { TappBridge } from './TappBridge'
+import type { AnimationConfigRef, TappBridge, TappCodeStructure, TappDocumentSecurity, TappInstance, WidgetRenderProps } from '@myriad/tapp-runtime'
+import {
+  buildLayerScript,
+  escapeSandboxHtmlText,
+  escapeSandboxScriptSource,
+  generateSessionToken,
+  generateThemeCSS,
+  generateWidgetSDK,
+  getCodeStructureFingerprint,
+  getTappRuntimeFingerprint,
+  IFRAME_SANDBOX_ATTRS,
+  serializeSandboxScriptValue,
+  WIDGET_STATIC_CSS,
+} from '@myriad/tapp-runtime'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   TAPP_WIDGET_SKELETON,
@@ -13,32 +24,14 @@ import {
   buildTappMediaState,
   mergeMusicPlayerEventDetail,
 } from '../../utils/musicPlayerState'
-import { useTappSubject } from '../../utils/tappSubject'
 
+import { useTappSubject } from '../../utils/tappSubject'
 import { tappKernel } from '../tappKernel'
 import {
   calculateWidgetDimensions,
   sendResizeMessage,
   useIframeResize,
 } from '../utils/iframeResize'
-import {
-  buildLayerScript,
-  getCodeStructureFingerprint,
-  getTappRuntimeFingerprint,
-} from './codeStructure'
-import {
-  cspOptionsFromPermissions,
-  escapeSandboxHtmlText,
-  escapeSandboxScriptSource,
-  generateCSP,
-  generateSecurityWrapper,
-  generateSessionToken,
-  generateThemeCSS,
-  generateWidgetSDK,
-  IFRAME_SANDBOX_ATTRS,
-  serializeSandboxScriptValue,
-  WIDGET_STATIC_CSS,
-} from './sandbox'
 import {
   registerAgentInteractionHandlers,
   registerAIHandlers,
@@ -135,6 +128,7 @@ function generateWidgetHTML(
   widgetId: string,
   widgetProps: WidgetRenderProps,
   sessionToken: string,
+  security: TappDocumentSecurity,
   labels: { missing: string; renderFailed: string },
   surface: WidgetSandboxSurface = 'widget',
   popupParams: unknown = null,
@@ -143,19 +137,7 @@ function generateWidgetHTML(
   const isDark = widgetProps.theme === 'dark'
   const primaryColor = widgetProps.primaryColor || '#8b5cf6'
 
-  const nonce = tappKernel.scriptNonce()
-  const hostOrigin = tappKernel.assetOrigin()
-  const cspOptions = {
-    ...cspOptionsFromPermissions(
-      tappInstance.grantedPermissions,
-      tappInstance.grantedRemoteMedia,
-    ),
-    hostOrigin,
-  }
-  const csp = generateCSP(nonce, cspOptions)
-  const securityWrapper = escapeSandboxScriptSource(
-    generateSecurityWrapper(sessionToken, cspOptions.remoteMediaHosts, hostOrigin),
-  )
+  const { nonce, csp, securityWrapper } = security
   const sdkCode = escapeSandboxScriptSource(
     generateWidgetSDK(tappInstance, sessionToken),
   )
@@ -813,6 +795,7 @@ export const TappWidgetSandbox = memo(
         widgetId,
         propsForHtml,
         sessionToken,
+        tappKernel.documentSecurity(currentTappInstance, sessionToken),
         {
           missing: t.tapp.widgetNotFound,
           renderFailed: t.tapp.appCodeLoadFailed,

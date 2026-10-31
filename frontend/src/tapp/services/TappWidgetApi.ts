@@ -1,4 +1,4 @@
-import type { RegisteredWidget, WidgetRegistration } from '../types'
+import type { RegisteredWidget, WidgetRegistration } from '@myriad/tapp-runtime'
 import { apiRequest } from './TappHttpClient'
 
 export async function getAllWidgets(signal?: AbortSignal): Promise<RegisteredWidget[]> {

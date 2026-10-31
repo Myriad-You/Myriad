@@ -1,5 +1,5 @@
+import type { TappManifest } from '@myriad/tapp-runtime'
 import type { TappPlaygroundCode } from '../services/TappPlaygroundService'
-import type { TappManifest } from '../types'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {

@@ -1,5 +1,5 @@
+import type { TappInstance, TappPermission } from '@myriad/tapp-runtime'
 import type { CSSProperties, DragEvent, KeyboardEvent, MouseEvent } from 'react'
-import type { TappInstance, TappPermission } from '../types'
 import type { IconStyle } from '../utils/tappColors'
 import {
   FaCog,
@@ -16,6 +16,7 @@ import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
 } from '@lib/motionShim'
+import { PERMISSION_LEVELS } from '@myriad/tapp-runtime'
 import {
 
   forwardRef,
@@ -33,7 +34,6 @@ import {
   useAnimationLevel,
 } from '../../hooks/useAnimationLevel'
 import { PERMISSION_CONFIG } from '../constants/permissions'
-import { PERMISSION_LEVELS } from '../runtime/permissionConfig'
 import { tappHasPage } from '../utils/manifestLayers'
 import { resolveManifestText } from '../utils/manifestLocale'
 import {

@@ -1,5 +1,4 @@
-import type { TappMessage } from '../../../types'
-import type { TappBridge } from '../../TappBridge'
+import type { TappBridge, TappMessage } from '@myriad/tapp-runtime'
 import type { TappStorageChange } from '../../WidgetRuntimeSignals'
 import type { FullKvOps } from './kvHandlers.ts'
 import assert from 'node:assert/strict'

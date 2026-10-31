@@ -1,7 +1,7 @@
-import type { CSSProperties } from 'react'
+import type { TappCodeStructure, TappInstance } from '@myriad/tapp-runtime'
 /** 内容挂在槽内；全屏只切 fixed，iframe 不卸载。 */
 
-import type { TappCodeStructure, TappInstance } from '../types'
+import type { CSSProperties } from 'react'
 
 import {
   FaCog,
