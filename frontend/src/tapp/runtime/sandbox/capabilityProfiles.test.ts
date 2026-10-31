@@ -180,7 +180,7 @@ describe('sandbox capability profiles', () => {
   })
 
   it('unregisters only HEADLESS_DENIED_ACTIONS and keeps KV handlers', () => {
-    const bridge = new TappBridge()
+    const bridge = new TappBridge({ describeError: String })
     const handlers = (
       bridge as unknown as { messageHandlers: Map<string, unknown> }
     ).messageHandlers

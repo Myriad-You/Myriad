@@ -12,6 +12,7 @@ import {
 } from '../../utils/musicPlayerState'
 import { useTappSubject } from '../../utils/tappSubject'
 import { getIsDarkMode } from '../../utils/themeSubscriber'
+import { userFacingError } from '../../utils/userFacingError'
 import { sendResizeMessage, useIframeResize } from '../utils/iframeResize'
 import {
   buildLayerScript,
@@ -551,7 +552,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     iframeRef.current = iframe
 
     // DOM 插入前挂消息监听
-    const bridge = createTappBridge()
+    const bridge = createTappBridge({ describeError: userFacingError })
     bridgeRef.current = bridge
 
     const runtimeGrant = previewMode

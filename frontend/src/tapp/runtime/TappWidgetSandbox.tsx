@@ -13,6 +13,7 @@ import {
   mergeMusicPlayerEventDetail,
 } from '../../utils/musicPlayerState'
 import { useTappSubject } from '../../utils/tappSubject'
+import { userFacingError } from '../../utils/userFacingError'
 
 import {
   calculateWidgetDimensions,
@@ -559,7 +560,7 @@ export const TappWidgetSandbox = memo(
       iframe.allowFullscreen = true
       iframeRef.current = iframe
 
-      const bridge = new TappBridge()
+      const bridge = new TappBridge({ describeError: userFacingError })
       // 预览无 Runtime Grant。已安装 widget 按 tappId 共享宿主 grant。
       if (previewMode) {
         bridge.initialize(

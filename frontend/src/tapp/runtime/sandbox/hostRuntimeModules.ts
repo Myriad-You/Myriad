@@ -1,4 +1,4 @@
-import { currentCopy, formatCurrent } from '../../../i18n/localeCopy'
+import { TappKernelError } from '../kernelErrors'
 
 export const THREE_RUNTIME_ID = 'three'
 export const THREE_RUNTIME_PATH = '/tapp-runtime/three.0.170.iife.js'
@@ -14,18 +14,17 @@ export function manifestRequestsRuntimeModule(
 
 export function loadHostRuntimeModule(id: string): Promise<string> {
   if (id !== THREE_RUNTIME_ID) {
-    return Promise.reject(new Error(`Unknown runtime module: ${id}`))
+    return Promise.reject(new TappKernelError('runtimeModuleUnknown', { id }))
   }
   const cached = cache.get(id)
   if (cached) return cached
   const pending = fetch(THREE_RUNTIME_PATH, { credentials: 'same-origin' })
     .then((response) => {
       if (!response.ok) {
-        throw new Error(
-          `${formatCurrent(currentCopy().errors.httpStatus, {
-            status: response.status,
-          })} (${id})`,
-        )
+        throw new TappKernelError('runtimeModuleHttp', {
+          status: response.status,
+          id,
+        })
       }
       return response.text()
     })

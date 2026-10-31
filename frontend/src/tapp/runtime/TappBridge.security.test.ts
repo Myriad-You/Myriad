@@ -32,7 +32,7 @@ describe('TappBridge session token + inbound event allowlist', () => {
 
   beforeEach(() => {
     readyFired = 0
-    bridge = new TappBridge()
+    bridge = new TappBridge({ describeError: String })
     const contentWindow = {} as Window
     iframe = {
       contentWindow,

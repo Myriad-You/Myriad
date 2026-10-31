@@ -46,7 +46,7 @@ describe('TappBridge KV permission gates', () => {
     reached = []
     seq = 0
     instance = makeInstance()
-    bridge = new TappBridge()
+    bridge = new TappBridge({ describeError: String })
     const contentWindow = {} as Window
     iframe = { contentWindow } as HTMLIFrameElement
     bridge.initialize(iframe, instance, SESSION)

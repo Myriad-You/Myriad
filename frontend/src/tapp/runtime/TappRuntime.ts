@@ -13,6 +13,7 @@ import { getDynamicContentProvider } from '../../services/DynamicContentProvider
 import { installFromCode, uninstallTapp } from '../services/TappInstallationApi'
 import { getTapp, listTappDetails, startTapp, stopTapp } from '../services/TappLifecycleApi'
 import { getAllWidgets, registerTappWidget, unregisterTappWidget } from '../services/TappWidgetApi'
+import { kernelIssueText } from '../utils/kernelIssueText'
 import { getResourceLoader } from './sandbox/resourceLoader'
 import { TappPermissionController } from './TappPermission'
 
@@ -333,7 +334,9 @@ export class TappRuntime {
     const validation =
       TappPermissionController.validateManifestPermissions(manifest)
     if (!validation.valid) {
-      throw new Error(`Invalid manifest: ${validation.errors.join(', ')}`)
+      throw new Error(
+        `Invalid manifest: ${validation.errors.map(kernelIssueText).join(', ')}`,
+      )
     }
 
     if (this.installedTapps.has(manifest.id)) {

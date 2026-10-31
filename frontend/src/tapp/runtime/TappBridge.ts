@@ -6,7 +6,6 @@ import type {
   TappMessage,
   TappPermission,
 } from '../types'
-import { userFacingError } from '../../utils/userFacingError'
 import { getQuotaManager } from '../services/QuotaManager'
 import {
   PREVIEW_UNAVAILABLE_CODE,
@@ -122,6 +121,14 @@ const SERVER_AUTHORITATIVE_HOST_PERMISSIONS = new Set<TappPermission>([
   'media:control',
 ])
 
+export interface TappBridgeOptions {
+  /**
+   * Text for an error a handler threw, sent to the sandbox. Required: the
+   * error can carry host detail, and only the host knows what is safe to show.
+   */
+  describeError: (error: unknown) => string
+}
+
 export interface TappBridgeInitOptions {
   /** destroy() 释放共享 grant 引用，不销毁 grant 本身。 */
   releaseSharedGrant?: () => void
@@ -232,7 +239,11 @@ export class TappBridge {
     void bridge.handleMessage(event)
   }
 
-  constructor() {
+  /** How a thrown handler error reaches the sandbox; the host words and redacts it. */
+  private readonly describeError: (error: unknown) => string
+
+  constructor(options: TappBridgeOptions) {
+    this.describeError = options.describeError
     this.handleMessage = this.handleMessage.bind(this)
     void refreshFederationLimits()
   }
@@ -876,7 +887,7 @@ export class TappBridge {
       console.error(`[TappBridge] Handler error for ${action}:`, error)
       this.sendResponse(id, {
         success: false,
-        error: userFacingError(error),
+        error: this.describeError(error),
         code: 'HANDLER_ERROR',
       })
     } finally {
@@ -989,6 +1000,6 @@ export class TappBridge {
   }
 }
 
-export function createTappBridge(): TappBridge {
-  return new TappBridge()
+export function createTappBridge(options: TappBridgeOptions): TappBridge {
+  return new TappBridge(options)
 }
