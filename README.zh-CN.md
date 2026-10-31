@@ -553,7 +553,7 @@ Myriad 有大量代码是和编程 agent 一起写的。它们的提交带有 `C
 
 主应用（`backend` / `frontend` 及工作区 crate）与 `proxy` / `updater` 均为 [AGPL-3.0](LICENSE)。只通过文档化 Bridge 通信的 Tapp 是独立作品，许可由作者自选（见 `LICENSE` 中 AGPL 第 7 条附加许可）。
 
-Tapp 契约与工具（`tapp/crates/tapp-contract`、`tapp/tools/tapp-cli`、`tapp/tools/tapp-contract-export`）为 [Apache-2.0](LICENSES/Apache-2.0.txt)。
+Tapp 契约与工具（`tapp/crates/tapp-contract`、`tapp/shared/tapp_sandbox_contract.json`、`tapp/tools/tapp-cli`、`tapp/tools/tapp-contract-export`）为 [Apache-2.0](LICENSES/Apache-2.0.txt)。
 
 2.5D 播放：[Anime2.5DRig](https://github.com/852wa/Anime2.5DRig)（MIT）。
 

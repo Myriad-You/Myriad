@@ -557,7 +557,7 @@ Much of Myriad is written together with coding agents. Their commits carry a `Co
 
 The host (`backend`, `frontend`, and workspace crates) and `proxy` / `updater` are [AGPL-3.0](LICENSE). A Tapp that talks to the host only through the documented Bridge is an independent work; its license is the author's (see the AGPL section 7 additional permission in `LICENSE`).
 
-The Tapp contract and tooling (`tapp/crates/tapp-contract`, `tapp/tools/tapp-cli`, `tapp/tools/tapp-contract-export`) are [Apache-2.0](LICENSES/Apache-2.0.txt).
+The Tapp contract and tooling (`tapp/crates/tapp-contract`, `tapp/shared/tapp_sandbox_contract.json`, `tapp/tools/tapp-cli`, `tapp/tools/tapp-contract-export`) are [Apache-2.0](LICENSES/Apache-2.0.txt).
 
 2.5D playback: [Anime2.5DRig](https://github.com/852wa/Anime2.5DRig) (MIT).
 

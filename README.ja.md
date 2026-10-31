@@ -553,7 +553,7 @@ Myriad のコードの多くはコーディングエージェントと一緒に�
 
 ホスト（`backend` / `frontend` およびワークスペース crate）と `proxy` / `updater` は [AGPL-3.0](LICENSE) です。文書化された Bridge だけを通してホストと話す Tapp は独立した著作物であり、そのライセンスは作者が決めます（`LICENSE` の AGPL 第 7 条追加許可を参照）。
 
-Tapp の契約とツール（`tapp/crates/tapp-contract`、`tapp/tools/tapp-cli`、`tapp/tools/tapp-contract-export`）は [Apache-2.0](LICENSES/Apache-2.0.txt) です。
+Tapp の契約とツール（`tapp/crates/tapp-contract`、`tapp/shared/tapp_sandbox_contract.json`、`tapp/tools/tapp-cli`、`tapp/tools/tapp-contract-export`）は [Apache-2.0](LICENSES/Apache-2.0.txt) です。
 
 2.5D 再生：[Anime2.5DRig](https://github.com/852wa/Anime2.5DRig)（MIT）。
 
