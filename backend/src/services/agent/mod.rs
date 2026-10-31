@@ -53,7 +53,7 @@ mod persona_spread;
 #[cfg(test)]
 mod self_audit;
 #[cfg(test)]
-mod semantic_eval;
+pub(crate) mod semantic_eval;
 
 // 重新导出核心类型
 pub use types::*;

@@ -1,6 +1,7 @@
 import type { AgentPanelMode } from '../../../components/agent-panel/agentPanelMode'
 import type { BodyAdapter } from '../body/types'
 import type { AgentFaceChannel, ReplyUtterance } from './agentFaceChannel'
+import { sanitizePerformanceDirective } from '@myriad/figure/events'
 import { getAgentPanelMode } from '../../../components/agent-panel/agentPanelMode'
 import {
   MEROPE_EVENT_PREFIX,
@@ -8,9 +9,8 @@ import {
 } from '../../../services/notificationEvents'
 import { authSubject } from '../../../utils/authSubject'
 import { liveFaceVisible } from '../events/faceVisible'
-import { sanitizePerformanceDirective } from '../events/performanceEvents'
 import { noteTurnTraceDrop } from '../events/turnTrace'
-import { liveMotionGeneration } from '../motion/liveGeneration'
+import { figureChannel } from '../figureChannel'
 import { getSpeechPipeline } from '../speech/speechPipelineHost'
 
 export type FaceSpeechVerdict = 'speak' | 'record-without-speech'
@@ -324,7 +324,7 @@ function speakUnmountedLine(
   return getSpeechPipeline().speakLine({
     messageId,
     text,
-    generation: source === 'reply' ? liveMotionGeneration() : 0,
+    generation: source === 'reply' ? figureChannel.generation() : 0,
     source,
     interrupt: 'queue',
     ...(voice ? { voice } : {}),

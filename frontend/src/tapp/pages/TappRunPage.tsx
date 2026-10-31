@@ -1,7 +1,7 @@
-import type { CSSProperties } from 'react'
+import type { TappCodeStructure, TappInstance } from '@myriad/tapp-runtime'
 /** 内容挂在槽内；全屏只切 fixed，iframe 不卸载。 */
 
-import type { TappCodeStructure, TappInstance } from '../types'
+import type { CSSProperties } from 'react'
 
 import {
   FaCog,
@@ -38,9 +38,9 @@ import { useTappMultiWindowSession } from '../hooks/useTappMultiWindowSession'
 import { useTappShellClose } from '../hooks/useTappShellClose'
 import { useTappShellPresence } from '../hooks/useTappShellPresence'
 import { useWindowAgentHandler } from '../hooks/useWindowAgentHandler'
-import { loadPageResources } from '../runtime/sandbox/resourceLoader'
 import { isWebKit, TappPageSandbox } from '../runtime/TappPageSandbox'
 import { getTappRuntime } from '../runtime/TappRuntime'
+import { tappKernel } from '../tappKernel'
 import { resolveManifestText } from '../utils/manifestLocale'
 import { getTappIconStyle } from '../utils/tappColors'
 import { buildTappRunPageSeo } from '../utils/tappPageSeo'
@@ -181,7 +181,7 @@ function TappRunPageStandard({
           return
         }
 
-        const resources = await loadPageResources(instance)
+        const resources = await tappKernel.resources.loadPageResources(instance)
         if (cancelled) return
 
         const tappCode: TappCodeStructure = {

@@ -1,5 +1,4 @@
-import type { TappInstance } from '../../../types'
-import type { TappBridge } from '../../TappBridge'
+import type { TappBridge, TappInstance } from '@myriad/tapp-runtime'
 import { getTappRuntime } from '../../TappRuntime'
 import {
   isLocalWidgetIdOfTapp,

@@ -1,8 +1,8 @@
 /** ZIP 导出与 direct 安装共用同一份包文件图。 */
 
+import type { TappCodeStructure, TappManifest } from '@myriad/tapp-runtime'
 import type { TappPlaygroundCode } from '../services/TappPlaygroundService'
-import type { TappCodeStructure, TappManifest } from '../types'
-import { generateOnDemandTailwindCSS } from '../runtime/sandbox/styles'
+import { generateOnDemandTailwindCSS } from '@myriad/tapp-runtime'
 
 export type PackageFileContent = string | Uint8Array
 

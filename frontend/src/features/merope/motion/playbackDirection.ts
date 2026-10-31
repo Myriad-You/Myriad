@@ -1,4 +1,4 @@
-import type { PerformanceDirective } from '../../../services/agent/types'
+import type { PerformanceDirective } from '@myriad/figure/performance'
 
 export interface PlaybackDirectionSnapshot {
   version: number

@@ -1,5 +1,5 @@
+import type { TappSettingItem } from '@myriad/tapp-runtime'
 import type { ComponentType } from 'react'
-import type { TappSettingItem } from '../tapp/types'
 import type {
   StickerExtraSizeKey,
   WidgetSizeKey,

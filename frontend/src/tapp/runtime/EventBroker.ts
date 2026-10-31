@@ -1,5 +1,4 @@
-import type { PublishEventRequest, TappEvent, TappInstance } from '../types'
-import type { TappBridge } from './TappBridge'
+import type { PublishEventRequest, TappBridge, TappEvent, TappInstance } from '@myriad/tapp-runtime'
 import { getDefaultLocale } from '../../i18n'
 import { subscribeToTheme } from '../../utils/themeSubscriber'
 import { userFacingError } from '../../utils/userFacingError'

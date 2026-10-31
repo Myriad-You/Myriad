@@ -1,4 +1,4 @@
-import type { TappBridge } from './TappBridge'
+import type { TappBridge } from '@myriad/tapp-runtime'
 import { useEffect, useRef } from 'react'
 import { isPageVisible, onVisibility } from '../../hooks/animation'
 

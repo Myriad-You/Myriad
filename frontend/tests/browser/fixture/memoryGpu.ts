@@ -1,17 +1,15 @@
-import type { MeropeRigManifest } from '../../../src/features/merope/rig/types'
+import type { MeropeRigManifest } from '@myriad/figure/rig'
+import { Anime25DPlayer } from '@myriad/figure/anime25drig'
+import { prepareAnime25DRigPsd, syntheticSeeThroughPsd } from '@myriad/figure/testing'
 import { createElement } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
-import Anime25DCharacter from '../../../src/features/merope/anime25drig/Anime25DCharacter'
-import { Anime25DPlayer } from '../../../src/features/merope/anime25drig/player'
-import { anime25DImportCopy } from '../../../src/features/merope/rig/anime25dImportCopy'
-import { prepareAnime25DRigPsd } from '../../../src/features/merope/rig/anime25dImporter'
-import { syntheticSeeThroughPsd } from '../../../src/features/merope/rig/anime25dImporter.fixture'
+import Anime25DCharacter from '../../../src/features/merope/character/Anime25DCharacter'
 import { createHyalite } from '../../../src/utils/liquidGlass/vendor/hyalite'
 
 const psd = syntheticSeeThroughPsd()
 psd.height = 300
-const assets = prepareAnime25DRigPsd(psd, '/unused.png', anime25DImportCopy()).then(prepared => {
+const assets = prepareAnime25DRigPsd(psd, { sourceMasterAssetId: '/unused.png' }).then(prepared => {
   const manifest: MeropeRigManifest = {
     ...prepared.source, schemaVersion: 1, quality: 'layered-2d', textures: [], parts: [],
   }

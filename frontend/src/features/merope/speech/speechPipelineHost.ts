@@ -1,7 +1,8 @@
+import type { MeropeSpeechSource } from '@myriad/figure/speech'
 import type { SpeechStatus } from '../../../services/speechApi'
-import type { MeropeSpeechSource } from './speechEvents'
 import type { SpeechInterruptMode, SpeechSegment } from './speechSegmenter'
 import type { SpeechCutOff } from './ttsPipeline'
+import { dispatchMeropeSpeech, estimateAutoSpeechDurationMs } from '@myriad/figure/speech'
 import {
   getSpeechStatus,
   openVoiceStream,
@@ -9,10 +10,9 @@ import {
 } from '../../../services/speechApi'
 import { authSubject } from '../../../utils/authSubject'
 import { markTurnTraceOnce, noteTurnTraceCancelToSilence } from '../events/turnTrace'
+import { figureChannel } from '../figureChannel'
 import { speakableText } from './speakableText'
-import { dispatchMeropeSpeech } from './speechEvents'
 import { SpeechSegmenter } from './speechSegmenter'
-import { estimateAutoSpeechDurationMs } from './textTiming'
 import { TtsPipeline } from './ttsPipeline'
 import {
   holdSpeechAudio,
@@ -182,13 +182,13 @@ export class SpeechPipelineHost {
         markTurnTraceOnce('first_audio')
       },
       onEnergy: (energy, articulation) => {
-        dispatchMeropeSpeech({ ...base, phase: 'energy', energy })
-        dispatchMeropeSpeech({ ...base, phase: 'articulation', articulation })
+        dispatchMeropeSpeech(figureChannel, { ...base, phase: 'energy', energy })
+        dispatchMeropeSpeech(figureChannel, { ...base, phase: 'articulation', articulation })
       },
       onEnded: () => {
         if (this.stream?.messageId === messageId) this.stream = null
         if (begun) {
-          dispatchMeropeSpeech({ ...base, phase: 'end' })
+          dispatchMeropeSpeech(figureChannel, { ...base, phase: 'end' })
           patchVoicePresence({ ttsPlaying: false })
         }
         if (!this.pipeline.playing && this.pipeline.queueLength === 0)
@@ -199,7 +199,7 @@ export class SpeechPipelineHost {
       handle.stop()
       if (this.stream?.messageId === messageId) this.stream = null
       if (!begun) return
-      dispatchMeropeSpeech({ ...base, phase: 'cancel', generation })
+      dispatchMeropeSpeech(figureChannel, { ...base, phase: 'cancel', generation })
       patchVoicePresence({ ttsPlaying: false })
       this.noteSilence()
     }
@@ -212,7 +212,7 @@ export class SpeechPipelineHost {
         if (this.stream?.messageId !== messageId) return
         if (!begun) {
           begun = true
-          dispatchMeropeSpeech({ ...base, phase: 'start' })
+          dispatchMeropeSpeech(figureChannel, { ...base, phase: 'start' })
           patchVoicePresence({ ttsPlaying: true })
         }
         handle.push(bytes)
@@ -395,7 +395,7 @@ export class SpeechPipelineHost {
       // and her speaking are not ahead of the voice.
       onBegin: () => {
         begun = true
-        dispatchMeropeSpeech({
+        dispatchMeropeSpeech(figureChannel, {
           phase: 'start',
           messageId: segment.messageId,
           source,
@@ -406,7 +406,7 @@ export class SpeechPipelineHost {
       },
       onStarted: () => markTurnTraceOnce('first_audio'),
       onProsody: (timeline, timing) => {
-        dispatchMeropeSpeech({
+        dispatchMeropeSpeech(figureChannel, {
           phase: 'prosody',
           text: segment.text,
           messageId: segment.messageId,
@@ -421,7 +421,7 @@ export class SpeechPipelineHost {
         })
       },
       onEnergy: (energy, articulation) => {
-        dispatchMeropeSpeech({
+        dispatchMeropeSpeech(figureChannel, {
           phase: 'energy',
           messageId: segment.messageId,
           source,
@@ -429,7 +429,7 @@ export class SpeechPipelineHost {
           energy,
           ...(generation ? { generation } : {}),
         })
-        dispatchMeropeSpeech({
+        dispatchMeropeSpeech(figureChannel, {
           phase: 'articulation',
           messageId: segment.messageId,
           source,
@@ -440,7 +440,7 @@ export class SpeechPipelineHost {
       },
       onEnded: () => {
         if (begun) {
-          dispatchMeropeSpeech({
+          dispatchMeropeSpeech(figureChannel, {
             phase: 'end',
             messageId: segment.messageId,
             source,
@@ -458,7 +458,7 @@ export class SpeechPipelineHost {
       progress: handle.progress,
       stop: () => {
         handle.stop()
-        dispatchMeropeSpeech({
+        dispatchMeropeSpeech(figureChannel, {
           phase: 'cancel',
           messageId: segment.messageId,
           source,
@@ -481,9 +481,9 @@ export class SpeechPipelineHost {
       generation: segment.generation,
       utteranceId: `text-${segment.segmentId}`,
     }
-    dispatchMeropeSpeech({ ...base, phase: 'start' })
-    dispatchMeropeSpeech({ ...base, phase: 'chunk', text: segment.text })
-    dispatchMeropeSpeech({ ...base, phase: 'end' })
+    dispatchMeropeSpeech(figureChannel, { ...base, phase: 'start' })
+    dispatchMeropeSpeech(figureChannel, { ...base, phase: 'chunk', text: segment.text })
+    dispatchMeropeSpeech(figureChannel, { ...base, phase: 'end' })
     const timer = setTimeout(
       onEnded,
       Math.max(180, estimateAutoSpeechDurationMs(segment.text, segment.locale)),
@@ -491,7 +491,7 @@ export class SpeechPipelineHost {
     return {
       stop: () => {
         clearTimeout(timer)
-        dispatchMeropeSpeech({ ...base, phase: 'cancel' })
+        dispatchMeropeSpeech(figureChannel, { ...base, phase: 'cancel' })
       },
     }
   }

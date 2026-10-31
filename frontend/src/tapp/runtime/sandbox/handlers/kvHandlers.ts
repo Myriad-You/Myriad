@@ -1,8 +1,7 @@
-import type { TappMessage } from '../../../types'
-import type { TappBridge } from '../../TappBridge'
+import type { TappBridge, TappMessage } from '@myriad/tapp-runtime'
 import type { TappStorageChange } from '../../WidgetRuntimeSignals'
+import { sanitizeStorageValue, validateStorageKey } from '@myriad/tapp-runtime'
 import { userFacingError } from '../../../../utils/userFacingError'
-import { sanitizeStorageValue, validateStorageKey } from '../security'
 
 interface KvResult {
   success: boolean

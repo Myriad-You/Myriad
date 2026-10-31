@@ -145,6 +145,7 @@ pub mod media_catalog;
 pub mod note_authors;
 pub mod note_collab;
 pub mod note_documents;
+pub mod note_old_paths;
 pub mod note_publish;
 pub mod notion_service;
 pub(crate) mod onebot_bot; // OneBot forward-WebSocket worker

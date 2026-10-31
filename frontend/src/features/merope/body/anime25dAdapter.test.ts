@@ -1,16 +1,15 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test, { mock } from 'node:test'
-import { realizeAnime25DBehaviorPlan } from '../anime25drig/behaviorRealizer'
+import { realizeAnime25DBehaviorPlan } from '@myriad/figure/anime25drig'
+import { MotionRuntime, RigMotionCoordinator } from '@myriad/figure/motion'
 import { setLiveFaceVisible } from '../events/faceVisible'
-import { RigMotionCoordinator } from '../motion/coordinator'
-import { setLiveMotionGeneration } from '../motion/liveGeneration'
-import { MotionRuntime } from '../motion/runtime'
+import { figureChannel } from '../figureChannel'
 import { SpeechPipelineHost } from '../speech/speechPipelineHost'
 import { Anime25DBodyAdapter } from './anime25dAdapter'
 
 test('only explicit touch speech arms continuity before the speech outlet', () => {
-  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const runtime = new MotionRuntime(new RigMotionCoordinator(), null, figureChannel)
   const release = runtime.retain()
   const body = new Anime25DBodyAdapter(runtime)
   const order: string[] = []
@@ -29,7 +28,7 @@ test('only explicit touch speech arms continuity before the speech outlet', () =
 })
 
 test('late proactive direction requires matching live text playback and never starts speech', () => {
-  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const runtime = new MotionRuntime(new RigMotionCoordinator(), null, figureChannel)
   const release = runtime.retain()
   const body = new Anime25DBodyAdapter(runtime)
   const speak = mock.method(SpeechPipelineHost.prototype, 'speakLine', () => true)
@@ -104,11 +103,11 @@ test('late proactive direction requires matching live text playback and never st
 })
 
 test('production adapter keeps run identity and does not label proactive performance as Chat', () => {
-  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const runtime = new MotionRuntime(new RigMotionCoordinator(), null, figureChannel)
   const release = runtime.retain()
   const body = new Anime25DBodyAdapter(runtime)
   setLiveFaceVisible(true)
-  setLiveMotionGeneration(12)
+  figureChannel.setGeneration(12)
   try {
     body.intend({
       messageId: 'notice',
@@ -143,12 +142,12 @@ test('production adapter keeps run identity and does not label proactive perform
     assert.equal(performance.generation, undefined)
   } finally {
     release()
-    setLiveMotionGeneration(0)
+    figureChannel.setGeneration(0)
   }
 })
 
 test('Anime2.5D adapter exposes semantic capabilities and state, not drivers', () => {
-  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const runtime = new MotionRuntime(new RigMotionCoordinator(), null, figureChannel)
   const release = runtime.retain()
   runtime.setCapabilities(['blink', 'head-body'])
   const body = new Anime25DBodyAdapter(runtime)
@@ -251,7 +250,7 @@ test('production chat and perception go through the body adapters', () => {
 })
 
 test('hidden face does not pretend a body intent was played', () => {
-  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const runtime = new MotionRuntime(new RigMotionCoordinator(), null, figureChannel)
   const release = runtime.retain()
   const body = new Anime25DBodyAdapter(runtime)
   setLiveFaceVisible(false)
@@ -296,7 +295,7 @@ test('hidden face does not pretend a body intent was played', () => {
 })
 
 test('a production body intent reaches the Anime2.5D realizer and reports acceptance', () => {
-  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const runtime = new MotionRuntime(new RigMotionCoordinator(), null, figureChannel)
   const release = runtime.retain()
   const body = new Anime25DBodyAdapter(runtime)
   setLiveFaceVisible(true)
@@ -354,7 +353,7 @@ test('a production body intent reaches the Anime2.5D realizer and reports accept
 })
 
 test('a cancelled reply clears its transient performance and bearing', () => {
-  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const runtime = new MotionRuntime(new RigMotionCoordinator(), null, figureChannel)
   const release = runtime.retain()
   const body = new Anime25DBodyAdapter(runtime)
   setLiveFaceVisible(true)

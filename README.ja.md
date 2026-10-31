@@ -135,7 +135,7 @@
 
 - **サイトの小さなアプリ**：ページ、ホームのウィジェット、またはその両方。サンドボックスで動き、インストール時に権限を承認します。ホストの秘密情報とアプリの認証情報はサンドボックスに入らず、エラーにも出ません。
 - **プレイグラウンド**（デスクトップ、オーナー）：一文でプロジェクトを生成し、本番と同じサンドボックスでプレビューして、気に入ればインストールするか `.tapp` に書き出します。
-- **ストアと CLI**：[tapp-store](https://github.com/Myriad-You/tapp-store) と [`tapp-cli`](tools/tapp-cli/README.md)（`myriad-tapp init / check / pack`）。開発は [Tapp 開発](docs/development/TAPP_DEVELOPMENT.md)。
+- **ストアと CLI**：[tapp-store](https://github.com/Myriad-You/tapp-store) と [`tapp-cli`](tapp/tools/tapp-cli/README.md)（`myriad-tapp init / check / pack`）。開発は [Tapp 開発](docs/development/TAPP_DEVELOPMENT.md)。
 
 ## ブログ
 
@@ -341,7 +341,7 @@ macOS はリハーサル済み、Windows（WSL 2）は未検証。[ローカル�
 
 ## ローカル開発
 
-共有コアは git サブモジュール `core/`（[myriad-core](https://github.com/Myriad-You/myriad-core)）。クローン後と、プルでその参照が動いたとき：
+共有コアは git サブモジュール `core/`（[myriad-core](https://github.com/Myriad-You/myriad-core)）、彼女の 2.5D フィギュアは git サブモジュール `figure/`（[myriad-figure](https://github.com/Myriad-You/myriad-figure)）。クローン後と、プルでその参照が動いたとき：
 
 ```bash
 git submodule update --init
@@ -423,17 +423,17 @@ Myriad/
 ├── proxy/            本番リバースプロキシ（独立 Cargo ツリー）
 ├── updater/          自己更新デーモン（独立 Cargo ツリー）
 ├── core/             共有コア（git サブモジュール：myriad-core）
+├── tapp/             Tapp 契約、ルール、共有ランタイム、CLI、作者向けドキュメント（独立 Cargo ツリー）
 ├── crates/           ワークスペースライブラリ
 ├── shared/           横断静的設定
 ├── docker/           backend / frontend Dockerfile
 ├── docs/             開発、デプロイ、機能（中国語）
 ├── scripts/          dev.sh / dev.ps1；extra/ デプロイ
 ├── release/          release.json 契約
-├── tools/            tapp-cli、契約エクスポート
 └── docker-compose*.yml
 ```
 
-`proxy` と `updater` は独立 Cargo ツリー。
+`proxy`、`updater` と `tapp` は独立 Cargo ツリー。
 
 ---
 
@@ -553,7 +553,7 @@ Myriad のコードの多くはコーディングエージェントと一緒に�
 
 ホスト（`backend` / `frontend` およびワークスペース crate）と `proxy` / `updater` は [AGPL-3.0](LICENSE) です。文書化された Bridge だけを通してホストと話す Tapp は独立した著作物であり、そのライセンスは作者が決めます（`LICENSE` の AGPL 第 7 条追加許可を参照）。
 
-Tapp の契約とツール（`crates/tapp-contract`、`tools/tapp-cli`、`tools/tapp-contract-export`）は [Apache-2.0](LICENSES/Apache-2.0.txt) です。
+Tapp の契約とツール（`tapp/crates/tapp-contract`、`tapp/shared/tapp_sandbox_contract.json`、`tapp/tools/tapp-cli`、`tapp/tools/tapp-contract-export`）は [Apache-2.0](LICENSES/Apache-2.0.txt) です。
 
 2.5D 再生：[Anime2.5DRig](https://github.com/852wa/Anime2.5DRig)（MIT）。
 

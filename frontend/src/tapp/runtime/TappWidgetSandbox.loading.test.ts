@@ -1,14 +1,13 @@
-import type { TappCodeStructure, TappInstance } from '../types'
+import type { TappCodeStructure, TappInstance } from '@myriad/tapp-runtime'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import test from 'node:test'
 import { compileFunction } from 'node:vm'
+import { buildLayerScript, generateThemeCSS, generateWidgetSDK, WIDGET_STATIC_CSS } from '@myriad/tapp-runtime'
+import * as security from '@myriad/tapp-runtime'
+import { createTestTappKernel } from '@myriad/tapp-runtime/testing'
 import ts from 'typescript'
-import { buildLayerScript } from './codeStructure'
-import { generateWidgetSDK } from './sandbox/sdkGenerator'
-import * as security from './sandbox/security'
-import { generateThemeCSS, WIDGET_STATIC_CSS } from './sandbox/styles'
 
 const require = createRequire(import.meta.url)
 const { JSDOM, VirtualConsole } = require(require.resolve('jsdom', { paths: [require.resolve('isomorphic-dompurify')] }))
@@ -22,6 +21,7 @@ const instance = {
   id: 'test.widget', manifest: { id: 'test.widget', name: 'Test', version: '1.0.0', category: 'utility', permissions: [] },
   status: 'running', grantedPermissions: [], userRole: 'guest', installedAt: '',
 } as unknown as TappInstance
+const documentSecurity = createTestTappKernel().kernel.documentSecurity(instance, 'session')
 
 for (const outcome of ['resolve', 'reject', 'throw'] as const) {
   test(`widget readiness waits for first render (${outcome})`, async () => {
@@ -33,7 +33,7 @@ for (const outcome of ['resolve', 'reject', 'throw'] as const) {
       } };` },
       widgetEntries: { card: 'widget.js' },
     }
-    const html = generateHTML(instance, code, 'card', { theme: 'light', locale: 'en-US' }, 'session', { missing: 'Missing', renderFailed: 'Render failed' })
+    const html = generateHTML(instance, code, 'card', { theme: 'light', locale: 'en-US' }, 'session', documentSecurity, { missing: 'Missing', renderFailed: 'Render failed' })
     const events: Array<{ action: string; content: string }> = []
     const dom = new JSDOM(html, {
       url: 'https://myriad.test/widget', runScripts: 'dangerously', virtualConsole: new VirtualConsole(),
@@ -68,7 +68,7 @@ test('popup surface renders the popup layer with its params, not the card', asyn
     popupEntries: { card: 'popup.js' },
     widgetHtml: '<p>card template</p>',
   }
-  const html = generateHTML(instance, code, 'card', { theme: 'light', locale: 'en-US' }, 'session', { missing: 'Missing', renderFailed: 'Render failed' }, 'popup', { view: 'stats' })
+  const html = generateHTML(instance, code, 'card', { theme: 'light', locale: 'en-US' }, 'session', documentSecurity, { missing: 'Missing', renderFailed: 'Render failed' }, 'popup', { view: 'stats' })
   assert.doesNotMatch(html, /card template/, 'size templates belong to the card only')
   const events: Array<{ action: string; content: string }> = []
   const dom = new JSDOM(html, {

@@ -2,7 +2,7 @@ import type {
   NewPlatformItem,
   PlatformInfo,
   PlatformItemResult,
-} from '../types'
+} from '@myriad/tapp-runtime'
 import { apiRequest } from './TappHttpClient'
 
 interface ApiPlatformRow {

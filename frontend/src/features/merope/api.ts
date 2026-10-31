@@ -1,11 +1,8 @@
-import type { PoseCorrection } from './anime25drig/poseCorrections'
-import type { AuthoredExpressionKind } from './rig/authoredExpression'
-import type { DetectedSkeleton } from './rig/skeleton'
-import type { MeropeRigImportSource, MeropeRigManifest } from './rig/types'
+import type { PoseCorrection } from '@myriad/figure/anime25drig'
+import type { AuthoredExpressionKind, DetectedSkeleton, MeropeRigImportSource, MeropeRigManifest } from '@myriad/figure/rig'
+import { AUTHORED_EXPRESSION_KINDS, isLiveMeropeManifest, isRigManifest } from '@myriad/figure/rig'
 import { currentCopy } from '../../i18n/localeCopy'
 import { ApiError, apiService } from '../../services/api'
-import { AUTHORED_EXPRESSION_KINDS } from './rig/authoredExpression'
-import { isLiveMeropeManifest, isRigManifest } from './rig/manifestValidation'
 
 export const PREFIX = '/merope/rig'
 export const RIG_MUTATION_TIMEOUT_MS = 6 * 60 * 1000

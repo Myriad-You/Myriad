@@ -107,10 +107,11 @@ pub struct RequestContext {
 /// A private IM chat turn: she talks as herself and may hand work off.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChannelChat {
-    /// What she handed off last in this conversation and how it came back.
-    pub handed_off: Option<String>,
-    /// Work she handed off is still being done.
-    pub busy: bool,
+    /// What she handed off in this conversation lately, a line a piece
+    /// (`#N「…」` and how it stands), in the order she handed them off.
+    pub works: Vec<String>,
+    /// How many of those wait for their answer now.
+    pub waiting: usize,
     /// What they wrote came while she was not on the site (D3): when, as a
     /// fact she reads with it.
     pub came_while_away: Option<String>,

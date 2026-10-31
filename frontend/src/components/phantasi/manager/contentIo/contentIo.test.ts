@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { parseTransferFile } from './contentIo.ts'
+import { ApiError } from '../../../../services/api'
+import { parseTransferFile, publishImported } from './contentIo.ts'
 import { parseHaloJson, serializeHaloJson } from './halo.ts'
 import { parseMarkdownFile, serializeMarkdownFile } from './markdown.ts'
 import { fileSlug, htmlToMarkdown, markdownToHtml } from './text.ts'
@@ -216,5 +217,142 @@ describe('parseTransferFile', () => {
       new File([serializeMarkdownFile(sample)], 'a.md'),
     )
     assert.equal(md[0]!.title, sample.title)
+  })
+})
+
+describe('旧地址和 slug', () => {
+  it('WordPress：<link> 的路径当旧地址，wp:post_name 解码后能用才当 slug', () => {
+    const notes = parseWordpressXml(`<?xml version="1.0"?>
+<rss xmlns:content="http://purl.org/rss/1.0/modules/content/"
+     xmlns:wp="http://wordpress.org/export/1.2/">
+<channel>
+  <item>
+    <title>Hello</title>
+    <link>https://old.example/2024/05/hello-world/</link>
+    <content:encoded><![CDATA[<p>Hi</p>]]></content:encoded>
+    <wp:post_name><![CDATA[hello-world]]></wp:post_name>
+    <wp:post_type>post</wp:post_type>
+    <wp:status>publish</wp:status>
+  </item>
+  <item>
+    <title>你好</title>
+    <link>https://old.example/category/%e4%bd%a0%e5%a5%bd/</link>
+    <content:encoded><![CDATA[<p>中文</p>]]></content:encoded>
+    <wp:post_name><![CDATA[%e4%bd%a0%e5%a5%bd]]></wp:post_name>
+    <wp:post_type>post</wp:post_type>
+    <wp:status>publish</wp:status>
+  </item>
+  <item>
+    <title>草稿</title>
+    <link>https://old.example/?p=12</link>
+    <content:encoded><![CDATA[<p>x</p>]]></content:encoded>
+    <wp:post_name><![CDATA[]]></wp:post_name>
+    <wp:post_type>post</wp:post_type>
+    <wp:status>draft</wp:status>
+  </item>
+</channel>
+</rss>`)
+    assert.equal(notes[0]!.slug, 'hello-world')
+    assert.deepEqual(notes[0]!.old_paths, ['/2024/05/hello-world'])
+    assert.equal(notes[0]!.topic, null)
+    assert.equal(notes[1]!.slug, undefined)
+    assert.deepEqual(notes[1]!.old_paths, ['/category/你好'])
+    assert.equal(notes[2]!.slug, undefined)
+    assert.equal(notes[2]!.old_paths, undefined)
+  })
+
+  const moved = { ...sample, slug: 'first-post', old_paths: ['/2024/05/first', '/archives/12'] }
+
+  it('WordPress、Halo、Markdown 往返带着 slug 和旧地址，Typecho 带着 slug', () => {
+    for (const parsed of [
+      parseWordpressXml(serializeWordpressXml([moved], 'Phantasi'))[0]!,
+      parseHaloJson(serializeHaloJson([moved]))[0]!,
+      parseMarkdownFile('out.md', serializeMarkdownFile(moved)),
+    ]) {
+      assert.equal(parsed.slug, 'first-post')
+      assert.deepEqual(parsed.old_paths, moved.old_paths)
+    }
+    assert.equal(parseTypechoXml(serializeTypechoXml([moved]))[0]!.slug, 'first-post')
+    // 没有地址的照旧导出，不多出空字段。
+    assert.doesNotMatch(serializeWordpressXml([sample], 'P'), /post_name|postmeta/)
+    assert.doesNotMatch(serializeMarkdownFile(sample), /aliases|slug/)
+  })
+
+  it('Halo 2 原生备份认 spec.slug 和 status.permalink', () => {
+    const [note] = parseHaloJson(JSON.stringify({
+      posts: [{
+        spec: { title: 'Halo', slug: 'halo-post', publish: true },
+        status: { phase: 'PUBLISHED', permalink: '/archives/halo-post' },
+        content: { raw: 'x' },
+      }],
+    }))
+    assert.equal(note!.slug, 'halo-post')
+    assert.deepEqual(note!.old_paths, ['/archives/halo-post'])
+  })
+
+  it('Typecho 备份里的 slug 和地址', () => {
+    const [note] = parseTypechoXml(`<typecho><contents><item>
+    <title>茶</title><text>x</text><type>post</type><status>publish</status>
+    <slug>tea</slug><permalink>https://old.example/archives/tea.html</permalink>
+  </item></contents></typecho>`)
+    assert.equal(note!.slug, 'tea')
+    assert.deepEqual(note!.old_paths, ['/archives/tea.html'])
+  })
+
+  it('Markdown 头里的 permalink、url、aliases、slug（YAML 和 TOML）', () => {
+    const yaml = parseMarkdownFile('a.md', [
+      '---',
+      'title: Hexo',
+      'slug: Hello-World',
+      'permalink: 2024/05/hello/',
+      'url: /old/url/',
+      'aliases:',
+      '  - /a/',
+      "  - '/b/'",
+      '---',
+      '正文',
+    ].join('\n'))
+    assert.equal(yaml.slug, 'hello-world')
+    assert.deepEqual(yaml.old_paths, ['/2024/05/hello', '/old/url', '/a', '/b'])
+    const toml = parseMarkdownFile('b.md', [
+      '+++',
+      'title = "Hugo"',
+      'slug = "hugo-post"',
+      'aliases = ["/posts/old/", "/api/nope/"]',
+      '+++',
+      '正文',
+    ].join('\n'))
+    assert.equal(toml.title, 'Hugo')
+    assert.equal(toml.slug, 'hugo-post')
+    // 站内地址丢掉，不让一条坏地址拖垮整篇导入。
+    assert.deepEqual(toml.old_paths, ['/posts/old'])
+    const inline = parseMarkdownFile('c.md', '---\ntitle: x\naliases: [/x/, "/y/"]\n---\n正文')
+    assert.deepEqual(inline.old_paths, ['/x', '/y'])
+  })
+
+  it('导入发布：slug 被占用退回自动分配，旧地址被占用就不带旧地址', async () => {
+    const calls: Array<Record<string, unknown>> = []
+    const dropped: unknown[] = []
+    const publish = (async (_id: number, req: Record<string, unknown> = {}) => {
+      calls.push(req)
+      if (req.slug) throw new ApiError('That slug is already used', 409)
+      if (req.old_paths) throw new ApiError('The old address "/a" already points to another note', 409)
+      return { id: 1, link: '/blog/posts/x/', doc: {} }
+    }) as unknown as Parameters<typeof publishImported>[0]
+    await publishImported(publish, 7, 3, { title: 't', content_md: 'b', topic: null, published_at: null }, {
+      ...sample, slug: 'taken', old_paths: ['/a'],
+    }, (err) => dropped.push(err))
+    assert.equal(calls.length, 3)
+    assert.equal(calls[0]!.slug, 'taken')
+    assert.equal(calls[1]!.slug, undefined)
+    assert.deepEqual(calls[1]!.old_paths, ['/a'])
+    assert.equal(calls[2]!.old_paths, undefined)
+    assert.equal(calls[2]!.revision, 3)
+    assert.equal(dropped.length, 1)
+
+    const other = (async () => {
+      throw new ApiError('Note draft was updated elsewhere', 409)
+    }) as unknown as Parameters<typeof publishImported>[0]
+    await assert.rejects(publishImported(other, 7, 3, { title: 't', content_md: 'b', topic: null, published_at: null }, sample, () => {}))
   })
 })

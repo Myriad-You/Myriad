@@ -39,8 +39,7 @@
   },
   "include": [
     "src/**/*",
-    "../shared/**/*.json",
-    "../core/shared/**/*.json"
+    "../shared/**/*.json"
   ],
   "exclude": [
     "node_modules",

@@ -133,7 +133,7 @@ Single-tenant. Public or private. PostgreSQL. UI: `zh-CN` · `zh-TW` · `en-US` 
 
 - **Small apps for the site**: a page, a homepage widget, or both. They run in a sandbox with permissions approved at install; host secrets and app credentials never enter the sandbox, not even in error messages.
 - **Playground** (desktop, owner): describe an app in a sentence, preview it in the production sandbox, then install it or export a `.tapp`.
-- **Store and CLI**: [tapp-store](https://github.com/Myriad-You/tapp-store) and [`tapp-cli`](tools/tapp-cli/README.md) (`myriad-tapp init / check / pack`). See [Tapp development](docs/development/TAPP_DEVELOPMENT.md).
+- **Store and CLI**: [tapp-store](https://github.com/Myriad-You/tapp-store) and [`tapp-cli`](tapp/tools/tapp-cli/README.md) (`myriad-tapp init / check / pack`). See [Tapp development](docs/development/TAPP_DEVELOPMENT.md).
 
 ## Blog
 
@@ -339,7 +339,7 @@ macOS has been rehearsed; Windows (WSL 2) is uncertain. [Local deployment](docs/
 
 ## Local development
 
-The shared core is the `core/` git submodule ([myriad-core](https://github.com/Myriad-You/myriad-core)). After cloning, and after a pull that moves it:
+The shared core is the `core/` git submodule ([myriad-core](https://github.com/Myriad-You/myriad-core)), and her 2.5D figure is the `figure/` git submodule ([myriad-figure](https://github.com/Myriad-You/myriad-figure)). After cloning, and after a pull that moves either:
 
 ```bash
 git submodule update --init
@@ -426,17 +426,18 @@ Myriad/
 ├── proxy/            production reverse proxy (own Cargo tree)
 ├── updater/          self-update daemon (own Cargo tree)
 ├── core/             shared core (git submodule: myriad-core)
+├── figure/           2.5D figure runtime and rig tools (git submodule: myriad-figure)
+├── tapp/             Tapp contract, rules, shared runtime, CLI, author docs (own Cargo tree)
 ├── crates/           workspace libraries
 ├── shared/           cross-component static config
 ├── docker/           backend / frontend Dockerfiles
 ├── docs/             development, deploy, features (Chinese)
 ├── scripts/          dev.sh / dev.ps1; extra/ deploy
 ├── release/          release.json contract
-├── tools/            tapp-cli, contract export
 └── docker-compose*.yml
 ```
 
-`proxy` and `updater` are independent Cargo trees.
+`proxy`, `updater` and `tapp` are independent Cargo trees.
 
 ---
 
@@ -556,7 +557,7 @@ Much of Myriad is written together with coding agents. Their commits carry a `Co
 
 The host (`backend`, `frontend`, and workspace crates) and `proxy` / `updater` are [AGPL-3.0](LICENSE). A Tapp that talks to the host only through the documented Bridge is an independent work; its license is the author's (see the AGPL section 7 additional permission in `LICENSE`).
 
-The Tapp contract and tooling (`crates/tapp-contract`, `tools/tapp-cli`, `tools/tapp-contract-export`) are [Apache-2.0](LICENSES/Apache-2.0.txt).
+The Tapp contract and tooling (`tapp/crates/tapp-contract`, `tapp/shared/tapp_sandbox_contract.json`, `tapp/tools/tapp-cli`, `tapp/tools/tapp-contract-export`) are [Apache-2.0](LICENSES/Apache-2.0.txt).
 
 2.5D playback: [Anime2.5DRig](https://github.com/852wa/Anime2.5DRig) (MIT).
 

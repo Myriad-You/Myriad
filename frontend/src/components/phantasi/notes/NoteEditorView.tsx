@@ -121,6 +121,9 @@ export function NoteEditorView({
   slugInput,
   slugInvalid,
   onSlugInput,
+  oldPathsInput,
+  oldPathsInvalid,
+  onOldPathsInput,
   articleHref,
   companionItemId,
   loading,
@@ -901,6 +904,9 @@ export function NoteEditorView({
           slugInput={slugInput}
           slugInvalid={slugInvalid}
           onSlugInput={onSlugInput}
+          oldPathsInput={oldPathsInput}
+          oldPathsInvalid={oldPathsInvalid}
+          onOldPathsInput={onOldPathsInput}
           articleHref={articleHref}
           scheduledAt={scheduledAt}
           onScheduledAtChange={setScheduledAt}

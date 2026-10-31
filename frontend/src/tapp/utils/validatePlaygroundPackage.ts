@@ -1,11 +1,11 @@
+import type { TappManifest, WidgetSize } from '@myriad/tapp-runtime'
 import type { TappPlaygroundCode } from '../services/TappPlaygroundService'
-import type { TappManifest, WidgetSize } from '../types'
 import type { PackageFileContent, PlaygroundPackageFiles } from './playgroundPackageFiles.ts'
+import { maxDeclaredAssets } from '@myriad/tapp-runtime'
 import {
   buildPlaygroundPackageFiles,
 
 } from './playgroundPackageFiles.ts'
-import { maxDeclaredAssets } from './tappPackageLimits.ts'
 
 const MAX_TAPP_ID_LEN = 128
 const MAX_RESOURCE_PATH_LEN = 256

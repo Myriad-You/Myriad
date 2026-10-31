@@ -31,6 +31,7 @@ import {
 } from './noteFields'
 import { displayImageUrl } from './noteImageUrl'
 import { NOTE_WIDGET_SIZES, noteWidgetCanConfigure } from './noteLayout'
+import { noteOldPathsInvalid, noteOldPathsWire } from './noteOldPaths'
 import { noteSlugInvalid, noteSlugWire, publishedNoteHref } from './noteSlug'
 import { applyNoteSourceEdit } from './noteSourceEdit'
 import { expandJammedDefinitions, setVisualImageResolver } from './noteVisual'
@@ -60,6 +61,7 @@ interface NoteSnapshot {
   cover: string | null
   publishedAt: number | null
   slug?: string | null
+  oldPaths?: string | null
 }
 
 const EMPTY_SNAPSHOT: NoteSnapshot = {
@@ -69,6 +71,13 @@ const EMPTY_SNAPSHOT: NoteSnapshot = {
   cover: null,
   publishedAt: null,
   slug: null,
+  oldPaths: null,
+}
+
+/** 输入框里写的和规范化后的旧地址是不是同一组：是就留着站长自己写的样子。 */
+function sameOldPaths(input: string, field: string | null | undefined): boolean {
+  const wire = noteOldPathsWire(input)
+  return wire !== undefined && wire.join('\n') === (field ?? '')
 }
 
 export interface NoteEditorProps {
@@ -130,6 +139,8 @@ export function useNoteEditorSession({
   const [publishedAt, setPublishedAt] = useState<number | null>(null)
   const [slug, setSlug] = useState<string | null>(null)
   const [slugInput, setSlugInput] = useState('')
+  const [oldPaths, setOldPaths] = useState<string | null>(null)
+  const [oldPathsInput, setOldPathsInput] = useState('')
   const [itemId, setItemId] = useState<number | null>(null)
   const [articleHref, setArticleHref] = useState<string | null>(null)
   const defaultPublishedAt = useRef(Date.now())
@@ -325,6 +336,8 @@ export function useNoteEditorSession({
     setPublishedAt(fields.publishedAt)
     setSlug(fields.slug ?? null)
     setSlugInput(fields.slug ?? '')
+    setOldPaths(fields.oldPaths ?? null)
+    setOldPathsInput((input) => (sameOldPaths(input, fields.oldPaths) ? input : fields.oldPaths ?? ''))
   }, [])
 
   const cloud = useNoteCloudSave({
@@ -333,7 +346,7 @@ export function useNoteEditorSession({
     loading,
     fields: {
       title, contentMd, topic, cover, publishedAt,
-      ...(docStatus === 'published' ? { slug } : {}),
+      ...(docStatus === 'published' ? { slug, oldPaths } : {}),
     },
     revisionRef,
     onServerDoc: applyServerDoc,
@@ -353,6 +366,7 @@ export function useNoteEditorSession({
       conflict: t.phantasi.noteRevisionConflict,
       uncertain: t.phantasi.noteSaveUnconfirmed,
       slugTaken: t.studio.slugTaken,
+      oldPathTaken: t.phantasi.noteSettingsOldPathTaken,
     },
   })
   const restoreHistory = async (entry: phantasiApi.NoteHistoryEntry) => {
@@ -398,7 +412,7 @@ export function useNoteEditorSession({
     textareaRef,
     fields: {
       title, contentMd, topic, cover, publishedAt,
-      ...(docStatus === 'published' ? { slug } : {}),
+      ...(docStatus === 'published' ? { slug, oldPaths } : {}),
     },
     cloud,
     onGone: markGone,
@@ -519,8 +533,9 @@ export function useNoteEditorSession({
       normalizeNoteTopic(topic) !== normalizeNoteTopic(saved.topic) ||
       normalizeNoteCover(cover) !== normalizeNoteCover(saved.cover) ||
       !sameNoteMinute(publishedAt, saved.publishedAt) ||
-      (slug ?? null) !== (saved.slug ?? null),
-    [title, contentMd, topic, cover, publishedAt, slug, saved],
+      (slug ?? null) !== (saved.slug ?? null) ||
+      (docStatus === 'published' && (oldPaths ?? '') !== (saved.oldPaths ?? '')),
+    [title, contentMd, topic, cover, publishedAt, slug, oldPaths, docStatus, saved],
   )
 
   const applyEdit = useCallback(
@@ -616,6 +631,7 @@ export function useNoteEditorSession({
       discardConfirm: t.phantasi.noteDiscardConfirm,
       slugInvalid: t.studio.slugInvalid,
       slugTaken: t.studio.slugTaken,
+      oldPathTaken: t.phantasi.noteSettingsOldPathTaken,
     },
   })
   const requestClose = useCallback(() => {
@@ -731,6 +747,13 @@ export function useNoteEditorSession({
       if (wire === undefined) return
       if (wire !== slug) setArticleHref(null)
       setSlug(wire)
+    },
+    oldPathsInput,
+    oldPathsInvalid: noteOldPathsInvalid(oldPathsInput),
+    onOldPathsInput: (next: string) => {
+      setOldPathsInput(next)
+      const wire = noteOldPathsWire(next)
+      if (wire !== undefined) setOldPaths(wire.join('\n'))
     },
     articleHref: articleHref ?? (docStatus === 'published' ? publishedNoteHref({ slug }) : null),
     /** 只有管理员能生成 AI 注释和播客，且只对已发布的文章。 */

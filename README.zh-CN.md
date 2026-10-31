@@ -135,7 +135,7 @@
 
 - **站里的小应用**：页面、首页小组件，或两者都有。跑在沙箱里，安装时批准权限；宿主密钥和应用凭据不进沙箱，报错里也不出现。
 - **游乐场**（桌面端，站长）：说一句话生成项目，在生产沙箱里预览，满意了安装或导出 `.tapp`。
-- **商店和 CLI**：[tapp-store](https://github.com/Myriad-You/tapp-store)，以及 [`tapp-cli`](tools/tapp-cli/README.md)（`myriad-tapp init / check / pack`）。开发见 [Tapp 开发](docs/development/TAPP_DEVELOPMENT.md)。
+- **商店和 CLI**：[tapp-store](https://github.com/Myriad-You/tapp-store)，以及 [`tapp-cli`](tapp/tools/tapp-cli/README.md)（`myriad-tapp init / check / pack`）。开发见 [Tapp 开发](docs/development/TAPP_DEVELOPMENT.md)。
 
 ## 博客
 
@@ -341,7 +341,7 @@ macOS 已演练过；Windows（WSL 2）未验证。[本地部署](docs/deploymen
 
 ## 本地开发
 
-共用核心是 git 子模块 `core/`（[myriad-core](https://github.com/Myriad-You/myriad-core)）。克隆之后、以及拉取后子模块指针变了时：
+共用核心是 git 子模块 `core/`（[myriad-core](https://github.com/Myriad-You/myriad-core)），她的 2.5D 形象是 git 子模块 `figure/`（[myriad-figure](https://github.com/Myriad-You/myriad-figure)）。克隆之后、以及拉取后子模块指针变了时：
 
 ```bash
 git submodule update --init
@@ -423,17 +423,17 @@ Myriad/
 ├── proxy/            生产反向代理（独立 Cargo 树）
 ├── updater/          自更新守护进程（独立 Cargo 树）
 ├── core/             共用核心（git 子模块：myriad-core）
+├── tapp/             Tapp 契约、规则、共用运行时、CLI、作者文档（独立 Cargo 树）
 ├── crates/           工作区库
 ├── shared/           跨组件静态配置
 ├── docker/           backend / frontend Dockerfile
 ├── docs/             开发、部署、功能（中文）
 ├── scripts/          dev.sh / dev.ps1；extra/ 部署
 ├── release/          release.json 契约
-├── tools/            tapp-cli、契约导出
 └── docker-compose*.yml
 ```
 
-`proxy` 与 `updater` 为独立 Cargo 树。
+`proxy`、`updater` 与 `tapp` 为独立 Cargo 树。
 
 ---
 
@@ -553,7 +553,7 @@ Myriad 有大量代码是和编程 agent 一起写的。它们的提交带有 `C
 
 主应用（`backend` / `frontend` 及工作区 crate）与 `proxy` / `updater` 均为 [AGPL-3.0](LICENSE)。只通过文档化 Bridge 通信的 Tapp 是独立作品，许可由作者自选（见 `LICENSE` 中 AGPL 第 7 条附加许可）。
 
-Tapp 契约与工具（`crates/tapp-contract`、`tools/tapp-cli`、`tools/tapp-contract-export`）为 [Apache-2.0](LICENSES/Apache-2.0.txt)。
+Tapp 契约与工具（`tapp/crates/tapp-contract`、`tapp/shared/tapp_sandbox_contract.json`、`tapp/tools/tapp-cli`、`tapp/tools/tapp-contract-export`）为 [Apache-2.0](LICENSES/Apache-2.0.txt)。
 
 2.5D 播放：[Anime2.5DRig](https://github.com/852wa/Anime2.5DRig)（MIT）。
 

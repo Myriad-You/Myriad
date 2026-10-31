@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig, searchForWorkspaceRoot } from 'vite'
 import { backendDevProxyPlugin } from './scripts/vite/backendDevProxy.mjs'
 import { BACKEND_TARGET, CSP_NONCE_PLACEHOLDER } from './scripts/vite/constants.mjs'
 import { documentPlugin } from './scripts/vite/documentPlugin.ts'
@@ -114,7 +114,20 @@ export default defineConfig(({ command }) => ({
   appType: 'spa',
   envPrefix: 'PUBLIC_',
   cacheDir: path.resolve(__dirname, 'node_modules/.vite', command),
-  server: { port: 1102, host: true },
+  server: {
+    port: 1102,
+    host: true,
+    // figure/ is a submodule beside frontend/; tests load figure modules by /@fs path.
+    // tapp/runtime/ is a workspace package beside frontend/ too; it imports tapp/shared/.
+    fs: {
+      allow: [
+        searchForWorkspaceRoot(__dirname),
+        path.resolve(__dirname, '../figure'),
+        path.resolve(__dirname, '../tapp/runtime'),
+        path.resolve(__dirname, '../tapp/shared'),
+      ],
+    },
+  },
   preview: { port: 1102, host: true },
   // 产物文档的脚本带 nonce 占位，spa-server 每次请求换成真 nonce 并发 CSP。开发服务器不发 CSP。
   ...(command === 'build' ? { html: { cspNonce: CSP_NONCE_PLACEHOLDER } } : {}),

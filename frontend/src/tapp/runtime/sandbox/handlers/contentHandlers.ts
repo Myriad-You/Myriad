@@ -1,6 +1,5 @@
-import type { TappInstance } from '../../../types'
+import type { TappBridge, TappInstance } from '@myriad/tapp-runtime'
 import type { TappListInstallRequestInput } from '../../../utils/tappListInstallRequest'
-import type { TappBridge } from '../../TappBridge'
 import { getDefaultLocale } from '../../../../i18n'
 import { userFacingError } from '../../../../utils/userFacingError'
 import * as TappApiService from '../../../services/TappApiService'

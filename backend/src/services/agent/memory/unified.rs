@@ -180,17 +180,21 @@ impl Audience {
 }
 
 /// Whether a stored memory may be said in front of `present`, by
-/// `myriad_agent_rules::memory::audience`. A stored venue other than
-/// `group:<id>` (`private`, and her own `own`) is read as private with the
-/// row's [`audience_of`], as it always was here: the shared rule has no
-/// venue of her own.
+/// `myriad_agent_rules::memory::audience`. Her own (`own`) may be said
+/// anywhere, as on every other side; any other venue but `group:<id>` is read
+/// as private with the row's [`audience_of`].
 fn admits(row: &agent_memories::Model, present: &Audience) -> bool {
-    let learned = rules::Audience {
-        members: audience_of(row),
-        venue: match row.venue.strip_prefix("group:") {
+    let venue = if row.venue == OWN_VENUE {
+        rules::Venue::Own
+    } else {
+        match row.venue.strip_prefix("group:") {
             Some(id) => rules::Venue::Group(id.into()),
             None => rules::Venue::Private,
-        },
+        }
+    };
+    let learned = rules::Audience {
+        members: audience_of(row),
+        venue,
     };
     rules::admits(&learned, &present.rules())
 }

@@ -1,4 +1,4 @@
-import type { Anime25DPlayback } from '../anime25drig/types'
+import type { Anime25DPlayback } from '@myriad/figure/anime25drig'
 
 /** Layers the import leaves out of its analysis reference: expression effects. */
 const EFFECT_ROLES = new Set([

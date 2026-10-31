@@ -37,7 +37,7 @@ test('Work interrupt cannot abort Chat SSE, and session ids stay per mode', () =
     new URL('../../features/merope/presence/engineFace.ts', import.meta.url),
     'utf8',
   )
-  assert.match(face, /setLiveMotionGeneration/)
+  assert.match(face, /figureChannel\.setGeneration/)
   assert.match(face, /agentFace\.setGeneration/)
   assert.match(face, /function openTurnSpeech/)
   assert.match(engine, /cancelChatTurn/)

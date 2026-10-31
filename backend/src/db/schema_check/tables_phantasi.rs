@@ -337,6 +337,8 @@ pub(crate) fn tables() -> Vec<TableDef> {
                 // 笔记公开 slug。可空；旧库由通用 ADD COLUMN 补上。
                 // 部分唯一索引不在这里，见 `note_slugs::ensure_note_slugs`。
                 ColumnDef::new("slug", "text"),
+                // 搬家来的文章原来的地址（JSON 字符串数组）。可空；旧库由通用 ADD COLUMN 补上。
+                ColumnDef::new("old_paths", "jsonb"),
             ],
         },
         TableDef {

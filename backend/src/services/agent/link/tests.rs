@@ -11,7 +11,7 @@ use sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::{self, Message, client::IntoClientRequest};
 
-use super::connection::{Hello, Inbound, Input, Resume, accepted, acting, mood_frame};
+use super::connection::{Hello, Inbound, Input, Resume, accepted, acting, mood_frame, with_images};
 use super::contract::{
     CHILD_FRAMES, CONTRACT, CONTRACT_JSON, Close, HOST_ERROR_CODES, HOST_FRAMES, Timing,
     core_check, valid_id,
@@ -4029,4 +4029,32 @@ async fn her_conversations_announce_their_own_changes() {
     assert_eq!(triggers, 6);
     drop(listener);
     fixture.close().await;
+}
+
+#[test]
+fn what_the_owner_shows_her_on_a_child_comes_as_the_chats_attached_images() {
+    use crate::services::agent::chat_attachments;
+    assert!(CONTRACT.capabilities.iter().any(|c| c == "images"));
+    let most = CONTRACT.frames["input"].max_items["images"];
+    assert!((1..=chat_attachments::MAX_IMAGES).contains(&most));
+    // The contract's example of an input with a picture reads as one.
+    let shown = fixtures()
+        .into_iter()
+        .find(|frame| frame["t"] == "input" && frame["body"].get("images").is_some())
+        .expect("an input fixture with images");
+    let input: Input = serde_json::from_value(shown["body"].clone()).unwrap();
+    assert_eq!(input.images.len(), 1);
+    // Beside what she senses there, at most the contract's few, where the
+    // chat's attachments go; from there she sees them for this turn only.
+    let senses = json!({ "musicStatus": { "isPlaying": false } });
+    let mut data = with_images(Some(senses.clone()), vec![input.images[0].clone(); most + 1]).unwrap();
+    assert_eq!(data["musicStatus"], senses["musicStatus"]);
+    assert_eq!(data["attachments"].as_array().unwrap().len(), most);
+    let images = chat_attachments::take_images(Some(&mut data));
+    assert_eq!(images.len(), most);
+    assert!(images.iter().all(|image| image.mime == "image/jpeg"));
+    assert!(data["attachments"][0].get("image").is_none());
+    // Nothing shown leaves what she senses as it was.
+    assert_eq!(with_images(None, Vec::new()), None);
+    assert_eq!(with_images(Some(senses.clone()), Vec::new()), Some(senses));
 }

@@ -2,10 +2,11 @@
 //!
 //! She answers as herself (Chat): with her memory of them, her own time and
 //! views, and the photos they send. When they ask her to get something done
-//! she hands it off, and the channel starts it as their Work in the Work
-//! session it has always used, so questions, confirmations, delivery and
-//! recovery work as before. She can keep talking while it runs, and the next
-//! time they talk she knows what she handed off and how it came back.
+//! she hands it off, and the channel starts it as their Work, a piece of its
+//! own (see `works`), so questions, confirmations, delivery and recovery work
+//! for each as they did for one. She can keep talking while pieces run, hand
+//! off another, pass on more for one or stop it, and each time they talk she
+//! sees every piece: what it is, how far it got, what it waits for.
 //!
 //! Her replies are best effort, like a group reply: a restart mid-turn loses
 //! that one reply. Work keeps its own ledger. What came while she was asleep
@@ -23,12 +24,13 @@ use tracing::warn;
 
 use crate::services::agent::chat_prompt::{CUT_OFF_PART_SENT, CUT_OFF_UNSENT};
 use crate::services::agent::run::{ProcessContext, ProcessRequest};
+use crate::services::agent::delegate::HandOff;
 use crate::services::agent::types::ChannelChat;
 use crate::services::agent::{AgentInteractionMode, AgentProgressEvent};
 
 use super::chat_images::with_model_images;
 use super::chat_waiting::{can_answer_later, forget_waiting, keep_waiting};
-use super::{ChannelSink, cache_inbound_images, is_active, load_session, put_session};
+use super::{ChannelSink, cache_inbound_images, load_session, put_session};
 
 /// Longest she takes over one reply before giving up on it.
 /// How long she shows typing while she thinks.
@@ -36,8 +38,6 @@ const TURN_DEADLINE: Duration = Duration::from_secs(90);
 /// How long a slow reply is still worth sending: late, as anyone answers late.
 const LATE_REPLY: Duration = Duration::from_secs(600);
 const TYPING_EVERY: Duration = Duration::from_secs(4);
-/// What she handed off still counts as recent this long.
-const HANDED_OFF_FOR: chrono::Duration = chrono::Duration::hours(24);
 /// She is in talk with someone this long after they last wrote to her, or
 /// she to them, anywhere (the site, a group, any app they paired): she sees
 /// what they send at once.
@@ -78,7 +78,7 @@ impl Drop for Seeing<'_> {
 
 /// Keep a message she has not seen: true when it is the first unseen one
 /// in the chat, and so the one to wait on; the rest she reads with it.
-fn take_in(session_key: &str, input: &str, images: &[ChannelImageRef]) -> bool {
+pub(super) fn take_in(session_key: &str, input: &str, images: &[ChannelImageRef]) -> bool {
     if let Ok(mut came) = CAME.lock()
         && (came.len() < CHATS_KEPT || came.contains_key(session_key))
     {
@@ -184,7 +184,6 @@ pub(super) async fn start_chat_turn(
             answer(
                 db.clone(),
                 user_id,
-                work_session_id,
                 &input,
                 &seen.images,
                 sink,
@@ -258,7 +257,6 @@ async fn wrote_lately(db: &DatabaseConnection, user_id: i32) -> bool {
 async fn answer(
     db: DatabaseConnection,
     user_id: i32,
-    work_session_id: String,
     input: &str,
     images: &[ChannelImageRef],
     sink: ChannelSink,
@@ -286,7 +284,15 @@ async fn answer(
             return;
         }
     };
-    let busy = is_active(session_key).await;
+    let now = crate::clock::now().timestamp();
+    let pieces = super::works::shown(
+        super::works::pieces(&db, platform, user_id, session_key)
+            .await
+            .into_iter()
+            .map(|(_, piece)| piece)
+            .collect(),
+        now,
+    );
     let room = their_typing(&db, &chat_session_id).await;
     let input_text = if input.trim().is_empty() && cached.is_some() {
         "（发来了图片）".to_string()
@@ -303,8 +309,14 @@ async fn answer(
                 session_id: Some(chat_session_id),
                 custom_data: with_model_images(cached.as_ref()).await,
                 channel_chat: Some(ChannelChat {
-                    handed_off: handed_off(&db, &work_session_id, busy).await,
-                    busy,
+                    works: pieces
+                        .iter()
+                        .map(|piece| super::works::line(piece, now))
+                        .collect(),
+                    waiting: pieces
+                        .iter()
+                        .filter(|piece| matches!(piece.standing, super::works::Standing::Waiting { .. }))
+                        .count(),
                     came_while_away: super::held::note_for(session_key),
                 }),
                 ..Default::default()
@@ -410,24 +422,15 @@ async fn answer(
             send_sticker(&db, &sink, &chosen).await;
         });
     }
-    // What she handed off starts as their own Work, unless one is running.
-    let instruction = response
-        .pointer("/data/handOff/instruction")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|instruction| !instruction.is_empty());
-    if let Some(instruction) = instruction.filter(|_| !busy) {
-        let work_input = work_input(instruction, input);
-        super::start_work_run(
-            db,
-            user_id,
-            work_session_id,
-            &work_input,
-            cached,
-            sink,
-            session_key,
-        )
-        .await;
+    // What she handed off starts as a piece of its own; what she passed on
+    // for a piece goes to it.
+    let hand_offs: Vec<HandOff> = response
+        .pointer("/data/handOffs")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default();
+    if !hand_offs.is_empty() {
+        super::works::carry_out(&db, user_id, &hand_offs, input, cached, &sink, session_key).await;
     }
 }
 
@@ -446,16 +449,6 @@ async fn send_sticker(db: &DatabaseConnection, sink: &ChannelSink, chosen: &Valu
     match sink.transport.send_sticker(png).await {
         Ok(()) => stickers::sent(db, &sticker).await,
         Err(_) => warn!("channel sticker not sent"),
-    }
-}
-
-/// What the helper is asked: her instruction, with their own words.
-fn work_input(instruction: &str, their_words: &str) -> String {
-    let their_words = their_words.trim();
-    if their_words.is_empty() || instruction.contains(their_words) {
-        instruction.to_string()
-    } else {
-        format!("{instruction}\n\n（对方原话：{their_words}）")
     }
 }
 
@@ -483,39 +476,6 @@ pub(super) async fn chat_session(
         .await
         .ok()?;
     Some(id)
-}
-
-/// What she handed off last and how it came back, if lately.
-async fn handed_off(db: &DatabaseConnection, work_session_id: &str, busy: bool) -> Option<String> {
-    if work_session_id.is_empty() {
-        return None;
-    }
-    let history =
-        crate::services::agent::sessions::load_session_history(db, work_session_id, 2, false)
-            .await
-            .ok()?;
-    let recent = |at: Option<&str>| {
-        at.and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
-            .is_some_and(|at| crate::clock::now().signed_duration_since(at) < HANDED_OFF_FOR)
-    };
-    let asked = history
-        .iter()
-        .rev()
-        .find(|message| message.role == "user")?;
-    if !recent(asked.created_at.as_deref()) {
-        return None;
-    }
-    let asked: String = asked.content.chars().take(300).collect();
-    let answered = history
-        .last()
-        .filter(|message| message.role == "assistant")
-        .map(|message| message.content.chars().take(800).collect::<String>());
-    Some(match (busy, answered) {
-        (true, _) | (false, None) => {
-            format!("You handed off: {asked}\nIt is still being done.")
-        }
-        (false, Some(answered)) => format!("You handed off: {asked}\nIt came back: {answered}"),
-    })
 }
 
 /// Their lines in this chat lately, as many as are looked at for how they
@@ -600,20 +560,6 @@ async fn await_reply(
                 _ => {}
             },
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_helper_hears_their_own_words_too() {
-        assert_eq!(
-            work_input("查一下明天东京的天气", "明天东京会下雨吗？帮我看看"),
-            "查一下明天东京的天气\n\n（对方原话：明天东京会下雨吗？帮我看看）"
-        );
-        assert_eq!(work_input("帮我看看", "帮我看看"), "帮我看看");
     }
 }
 

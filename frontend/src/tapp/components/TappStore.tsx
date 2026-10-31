@@ -1,9 +1,9 @@
+import type { TappCategory } from '@myriad/tapp-runtime'
 import type { CSSProperties } from 'react'
 import type {
   RemoteApp,
   RemoteStoreSource,
 } from '../services/RemoteStoreService'
-import type { TappCategory } from '../types'
 import type {
   CategorySortOrder,
   InstalledSortOrder,

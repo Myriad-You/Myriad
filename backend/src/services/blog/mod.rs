@@ -117,6 +117,8 @@ fn engine() -> Arc<Engine> {
 
 /// 发布、友链、设置或主题变了之后调用。没启动构建器时先记着，启动时补跑。
 pub fn request_rebuild() {
+    // 发布、删除、改 slug 都走到这里：旧地址的跳转表跟着失效。
+    crate::services::note_old_paths::invalidate_old_path_cache();
     let Some(engine) = ENGINE.get() else {
         PENDING.store(true, Ordering::Release);
         return;

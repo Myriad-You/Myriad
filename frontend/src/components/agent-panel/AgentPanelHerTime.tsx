@@ -1,7 +1,8 @@
 import type { HerDoing, HerLazing } from './herTime'
+import { dispatchMeropePerformance } from '@myriad/figure/events'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
-import { dispatchMeropePerformance } from '../../features/merope/events/performanceEvents'
+import { figureChannel } from '../../features/merope/figureChannel'
 import { captureProductionRigStateSummary } from '../../features/merope/motion/runtimeHost'
 import { listenTogether } from '../../features/merope/music/listenTogether'
 import { getGlobalState } from '../../hooks/musicPlayer/globalState'
@@ -67,7 +68,7 @@ function useHerActing(doing: HerDoing | null, lazing: HerLazing | null, along: b
     void agentService
       .getDoingActing({ rigState: captureProductionRigStateSummary(), together: along })
       .then(({ performance }) => {
-        if (alive && performance) dispatchMeropePerformance({ text: '', source: 'interaction', performance })
+        if (alive && performance) dispatchMeropePerformance(figureChannel, { text: '', source: 'interaction', performance })
       })
       .catch(() => {})
     return () => {

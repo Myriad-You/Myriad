@@ -5,7 +5,7 @@ import type {
   AITaskRequest,
   AITaskSnapshot,
   AIUsageSnapshot,
-} from '../types'
+} from '@myriad/tapp-runtime'
 import { apiRequest, streamRuntimeEvents } from './TappHttpClient'
 
 export async function createAITask(

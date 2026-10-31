@@ -1,0 +1,521 @@
+import type { TappInstance } from '../types'
+import { BoundedResourceCache } from '../resourceBounds'
+import { generateOnDemandTailwindCSS } from './styles'
+
+/** One Tapp's package resources as the host serves them. */
+export interface TappResources {
+  modules: Record<string, string>
+  moduleResolutions?: Record<string, Record<string, string>>
+  coreEntry?: string
+  pageEntry?: string
+  widgetEntries?: Record<string, string>
+  /** widget id → 弹窗层入口。 */
+  popupEntries?: Record<string, string>
+  coreStyles?: string
+  pageStyles?: string
+  widgetStyles?: Record<string, string>
+  /** 宿主预编译 Tailwind，与作者样式是两条通道。 */
+  widgetCSS?: string
+  pageCSS?: string
+  widgetTemplates?: Record<string, Record<string, string>>
+  pageTemplate?: string
+  i18n?: Record<string, unknown>
+}
+
+export type TappResourceMode = 'full' | 'core' | 'widget' | 'page' | 'popup'
+
+/** How the host fetches a package's resources (on the site: `/api/tapps/:id/resources`). */
+export type TappResourceSource = (
+  tappId: string,
+  options?: { mode?: TappResourceMode, widgetId?: string },
+) => Promise<TappResources>
+
+export interface CoreResources {
+  modules: Record<string, string>
+  moduleResolutions?: Record<string, Record<string, string>>
+  coreEntry?: string
+  i18n?: Record<string, unknown>
+}
+
+export interface WidgetResources {
+  modules: Record<string, string>
+  moduleResolutions?: Record<string, Record<string, string>>
+  coreEntry?: string
+  widgetEntries?: Record<string, string>
+  html: string
+  /** 作者样式（core + 该 widget 层） */
+  styles?: string
+  /** 宿主预编译 Tailwind */
+  css: string
+  size: string
+  i18n?: Record<string, unknown>
+}
+
+export interface PopupResources {
+  modules: Record<string, string>
+  moduleResolutions?: Record<string, Record<string, string>>
+  coreEntry?: string
+  popupEntries?: Record<string, string>
+  /** 作者样式（core + 该 widget 层；弹窗沿用 widget 的样式） */
+  styles?: string
+  /** 按弹窗层依赖闭包现编的 Tailwind */
+  css: string
+  i18n?: Record<string, unknown>
+}
+
+export interface PageResources {
+  modules: Record<string, string>
+  moduleResolutions?: Record<string, Record<string, string>>
+  coreEntry?: string
+  pageEntry?: string
+  html?: string
+  /** 作者样式（core + page 层） */
+  styles?: string
+  /** 宿主预编译 Tailwind */
+  css: string
+  i18n?: Record<string, unknown>
+}
+
+interface ResourceCacheEntry<T> { data: T; timestamp: number; ttl: number }
+const CACHE_TTL = { widget: 5 * 60 * 1000, page: 10 * 60 * 1000, separatedCss: 60 * 60 * 1000 }
+const CACHE_LIMIT = { widget: 60, page: 30, raw: 30, widgetCss: 60, pageCss: 30 }
+function getCachedEntry<T>(cache: BoundedResourceCache<T>, key: string): { data: T } | undefined {
+  const data = cache.get(key)
+  return data === undefined ? undefined : { data }
+}
+function setCachedEntry<T>(cache: BoundedResourceCache<T>, key: string, entry: ResourceCacheEntry<T>, _maxEntries: number): void {
+  cache.set(key, entry.data, entry.ttl)
+}
+
+class RequestDeduplicator {
+  private pending = new Map<string, Promise<unknown>>()
+
+  async dedupe<T>(key: string, factory: () => Promise<T>): Promise<T> {
+    const existing = this.pending.get(key)
+    if (existing) return existing as Promise<T>
+
+    const promise = factory().finally(() => this.pending.delete(key))
+    this.pending.set(key, promise)
+    return promise
+  }
+}
+
+class CssSeparator {
+  static generateLayerCSS(
+    modules: Record<string, string>,
+    html: string | undefined,
+    styles: string | undefined,
+  ): string {
+    const sources = [...Object.values(modules), html || '', styles || ''].join(
+      '\n',
+    )
+
+    return generateOnDemandTailwindCSS(sources)
+  }
+}
+
+/** 一页一份，由 TappKernel 持有。 */
+export class TappResourceLoader {
+  private widgetCache = new BoundedResourceCache<WidgetResources>(60, 8 * 1024 * 1024)
+
+  private pageCache = new BoundedResourceCache<PageResources>(30, 8 * 1024 * 1024)
+
+  private coreCache = new BoundedResourceCache<CoreResources>(30, 4 * 1024 * 1024)
+
+  private rawResourceCache = new BoundedResourceCache<TappResources>(30, 8 * 1024 * 1024)
+
+  private widgetCssCache = new BoundedResourceCache<string>(60, 2 * 1024 * 1024)
+
+  private pageCssCache = new BoundedResourceCache<string>(30, 2 * 1024 * 1024)
+
+  private deduplicator = new RequestDeduplicator()
+
+  /** 每个 Tapp 的缓存代际；清缓存后旧请求不得回填新代际。 */
+  private cacheGenerations = new Map<string, number>()
+
+  constructor(private readonly fetchResources: TappResourceSource) {}
+
+  private generationFor(tappId: string): number {
+    const current = this.cacheGenerations.get(tappId)
+    if (current !== undefined) return current
+    this.cacheGenerations.set(tappId, 0)
+    return 0
+  }
+
+  private generationIsCurrent(tappId: string, generation: number): boolean {
+    return this.generationFor(tappId) === generation
+  }
+
+  /** 后台只加载 core，不生成 Page CSS/HTML。 */
+  async loadCoreResources(tappInstance: TappInstance): Promise<CoreResources> {
+    const cacheKey = tappInstance.id
+    const generation = this.generationFor(tappInstance.id)
+    const cached = getCachedEntry(this.coreCache, cacheKey)
+    if (cached) return cached.data
+
+    return this.deduplicator.dedupe(
+      `core:${cacheKey}:${generation}`,
+      async () => {
+        const raw = await this.fetchRawResources(tappInstance.id, 'core')
+        if (!this.generationIsCurrent(tappInstance.id, generation)) {
+          return this.loadCoreResources(tappInstance)
+        }
+        const resources: CoreResources = {
+          modules: raw.modules,
+          moduleResolutions: raw.moduleResolutions,
+          coreEntry: raw.coreEntry,
+          i18n: raw.i18n,
+        }
+
+        setCachedEntry(
+          this.coreCache,
+          cacheKey,
+          {
+            data: resources,
+            timestamp: Date.now(),
+            ttl: CACHE_TTL.page,
+          },
+          CACHE_LIMIT.page,
+        )
+
+        return resources
+      },
+    )
+  }
+
+  async loadWidgetResources(
+    tappInstance: TappInstance,
+    size: string,
+    widgetId: string,
+  ): Promise<WidgetResources> {
+    const cacheKey = `${tappInstance.id}:${widgetId}:${size}`
+    const generation = this.generationFor(tappInstance.id)
+
+    const cached = getCachedEntry(this.widgetCache, cacheKey)
+    if (cached) return cached.data
+
+    return this.deduplicator.dedupe(
+      `widget:${cacheKey}:${generation}`,
+      async () => {
+        const raw = await this.fetchRawResources(
+          tappInstance.id,
+          'widget',
+          widgetId,
+        )
+        if (!this.generationIsCurrent(tappInstance.id, generation)) {
+          return this.loadWidgetResources(tappInstance, size, widgetId)
+        }
+
+        let html = ''
+        const templates = raw.widgetTemplates?.[widgetId]
+        if (templates) {
+          html = templates[size] || ''
+          if (!html) {
+            const defaultKey = Object.keys(templates)[0]
+            if (defaultKey) html = templates[defaultKey]
+          }
+        }
+
+        const styleParts = [
+          raw.coreStyles,
+          raw.widgetStyles?.[widgetId],
+        ].filter((part): part is string => !!part)
+        const effectiveStyles =
+          styleParts.length > 0 ? styleParts.join('\n') : undefined
+
+        const css = await this.ensureWidgetCSS(
+          tappInstance.id,
+          widgetId,
+          size,
+          raw.modules,
+          html,
+          effectiveStyles,
+          raw.widgetCSS,
+        )
+
+        const resources: WidgetResources = {
+          modules: raw.modules,
+          moduleResolutions: raw.moduleResolutions,
+          coreEntry: raw.coreEntry,
+          widgetEntries: raw.widgetEntries,
+          html,
+          styles: effectiveStyles,
+          css,
+          size,
+          i18n: raw.i18n,
+        }
+
+        if (!this.generationIsCurrent(tappInstance.id, generation)) {
+          return this.loadWidgetResources(tappInstance, size, widgetId)
+        }
+
+        setCachedEntry(
+          this.widgetCache,
+          cacheKey,
+          {
+            data: resources,
+            timestamp: Date.now(),
+            ttl: CACHE_TTL.widget,
+          },
+          CACHE_LIMIT.widget,
+        )
+
+        return resources
+      },
+    )
+  }
+
+  /** 弹窗层：core + 该 widget 的弹窗入口。宿主预编译只覆盖卡片层，这里按闭包现编。 */
+  async loadPopupResources(
+    tappInstance: TappInstance,
+    widgetId: string,
+  ): Promise<PopupResources> {
+    const cacheKey = `${tappInstance.id}:popup:${widgetId}`
+    const generation = this.generationFor(tappInstance.id)
+
+    return this.deduplicator.dedupe(
+      `popup:${cacheKey}:${generation}`,
+      async () => {
+        const raw = await this.fetchRawResources(
+          tappInstance.id,
+          'popup',
+          widgetId,
+        )
+        if (!this.generationIsCurrent(tappInstance.id, generation)) {
+          return this.loadPopupResources(tappInstance, widgetId)
+        }
+        const styleParts = [
+          raw.coreStyles,
+          raw.widgetStyles?.[widgetId],
+        ].filter((part): part is string => !!part)
+        const styles = styleParts.length > 0 ? styleParts.join('\n') : undefined
+
+        let css = getCachedEntry(this.widgetCssCache, cacheKey)?.data
+        if (css === undefined) {
+          css = CssSeparator.generateLayerCSS(raw.modules, undefined, styles)
+          setCachedEntry(
+            this.widgetCssCache,
+            cacheKey,
+            { data: css, timestamp: Date.now(), ttl: CACHE_TTL.separatedCss },
+            CACHE_LIMIT.widgetCss,
+          )
+        }
+
+        return {
+          modules: raw.modules,
+          moduleResolutions: raw.moduleResolutions,
+          coreEntry: raw.coreEntry,
+          popupEntries: raw.popupEntries,
+          styles,
+          css,
+          i18n: raw.i18n,
+        }
+      },
+    )
+  }
+
+  async loadPageResources(tappInstance: TappInstance): Promise<PageResources> {
+    const cacheKey = tappInstance.id
+    const generation = this.generationFor(tappInstance.id)
+
+    const cached = getCachedEntry(this.pageCache, cacheKey)
+    if (cached) return cached.data
+
+    return this.deduplicator.dedupe(
+      `page:${cacheKey}:${generation}`,
+      async () => {
+        const raw = await this.fetchRawResources(tappInstance.id, 'page')
+        if (!this.generationIsCurrent(tappInstance.id, generation)) {
+          return this.loadPageResources(tappInstance)
+        }
+
+        const styleParts = [raw.coreStyles, raw.pageStyles].filter(
+          (part): part is string => !!part,
+        )
+        const effectiveStyles =
+          styleParts.length > 0 ? styleParts.join('\n') : undefined
+
+        const css = await this.ensurePageCSS(
+          tappInstance.id,
+          raw.modules,
+          raw.pageTemplate,
+          effectiveStyles,
+          raw.pageCSS,
+        )
+
+        const resources: PageResources = {
+          modules: raw.modules,
+          moduleResolutions: raw.moduleResolutions,
+          coreEntry: raw.coreEntry,
+          pageEntry: raw.pageEntry,
+          html: raw.pageTemplate,
+          styles: effectiveStyles,
+          css,
+          i18n: raw.i18n,
+        }
+
+        if (!this.generationIsCurrent(tappInstance.id, generation)) {
+          return this.loadPageResources(tappInstance)
+        }
+
+        setCachedEntry(
+          this.pageCache,
+          cacheKey,
+          {
+            data: resources,
+            timestamp: Date.now(),
+            ttl: CACHE_TTL.page,
+          },
+          CACHE_LIMIT.page,
+        )
+
+        return resources
+      },
+    )
+  }
+
+  private async ensureWidgetCSS(
+    tappId: string,
+    widgetId: string,
+    size: string,
+    modules: Record<string, string>,
+    widgetHtml: string,
+    styles: string | undefined,
+    precompiledWidgetCSS: string | undefined,
+  ): Promise<string> {
+    const cacheKey = `${tappId}:${widgetId}:${size}`
+
+    const cached = getCachedEntry(this.widgetCssCache, cacheKey)
+    if (cached) return cached.data
+
+    let css: string
+
+    if (precompiledWidgetCSS !== undefined) {
+      css = precompiledWidgetCSS
+    } else {
+      css = CssSeparator.generateLayerCSS(modules, widgetHtml, styles)
+    }
+
+    setCachedEntry(
+      this.widgetCssCache,
+      cacheKey,
+      {
+        data: css,
+        timestamp: Date.now(),
+        ttl: CACHE_TTL.separatedCss,
+      },
+      CACHE_LIMIT.widgetCss,
+    )
+
+    return css
+  }
+
+  private async ensurePageCSS(
+    tappId: string,
+    modules: Record<string, string>,
+    pageHtml: string | undefined,
+    styles: string | undefined,
+    precompiledPageCSS: string | undefined,
+  ): Promise<string> {
+    const cacheKey = tappId
+
+    const cached = getCachedEntry(this.pageCssCache, cacheKey)
+    if (cached) return cached.data
+
+    let css: string
+
+    if (precompiledPageCSS !== undefined) {
+      css = precompiledPageCSS
+    } else {
+      css = CssSeparator.generateLayerCSS(modules, pageHtml, styles)
+    }
+
+    setCachedEntry(
+      this.pageCssCache,
+      cacheKey,
+      {
+        data: css,
+        timestamp: Date.now(),
+        ttl: CACHE_TTL.separatedCss,
+      },
+      CACHE_LIMIT.pageCss,
+    )
+
+    return css
+  }
+
+  private async fetchRawResources(
+    tappId: string,
+    mode: TappResourceMode = 'full',
+    widgetId?: string,
+  ): Promise<TappResources> {
+    const generation = this.generationFor(tappId)
+    const cacheKey = `${tappId}:${mode}:${widgetId || ''}`
+    const cached = getCachedEntry(this.rawResourceCache, cacheKey)
+    if (cached) return cached.data
+
+    return this.deduplicator.dedupe(
+      `raw:${cacheKey}:${generation}`,
+      async () => {
+        // 契约不符时让 409 抛出，不换路把不受支持的包送进沙箱。
+        const resources = await this.fetchResources(tappId, {
+          mode,
+          widgetId,
+        })
+
+        if (!this.generationIsCurrent(tappId, generation)) {
+          return this.fetchRawResources(tappId, mode, widgetId)
+        }
+
+        setCachedEntry(
+          this.rawResourceCache,
+          cacheKey,
+          {
+            data: resources,
+            timestamp: Date.now(),
+            ttl: CACHE_TTL.widget,
+          },
+          CACHE_LIMIT.raw,
+        )
+
+        return resources
+      },
+    )
+  }
+
+  clearCache(tappId?: string): void {
+    if (tappId) {
+      this.cacheGenerations.set(tappId, this.generationFor(tappId) + 1)
+      for (const key of this.widgetCache.keys()) {
+        if (key.startsWith(`${tappId}:`)) {
+          this.widgetCache.delete(key)
+        }
+      }
+      for (const key of this.widgetCssCache.keys()) {
+        if (key.startsWith(`${tappId}:`)) {
+          this.widgetCssCache.delete(key)
+        }
+      }
+      for (const key of this.rawResourceCache.keys()) {
+        if (key === tappId || key.startsWith(`${tappId}:`)) {
+          this.rawResourceCache.delete(key)
+        }
+      }
+      this.coreCache.delete(tappId)
+      this.pageCache.delete(tappId)
+      this.pageCssCache.delete(tappId)
+    } else {
+      for (const tappId of this.cacheGenerations.keys()) {
+        this.cacheGenerations.set(tappId, this.generationFor(tappId) + 1)
+      }
+      this.coreCache.clear()
+      this.widgetCache.clear()
+      this.pageCache.clear()
+      this.rawResourceCache.clear()
+      this.widgetCssCache.clear()
+      this.pageCssCache.clear()
+    }
+  }
+}
+
+export default TappResourceLoader

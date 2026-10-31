@@ -1,4 +1,4 @@
-import type { TappManifestLocales } from '../types'
+import type { TappManifestLocales } from '@myriad/tapp-runtime'
 
 export interface LocalizedManifestText {
   name: string

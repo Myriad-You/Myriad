@@ -1,5 +1,6 @@
 import type { TransferNote } from './types'
-import { htmlToMarkdown, parseUnixOrDate, xmlBlocks, xmlInner } from './text'
+import { addressFields, importOldPaths, importSlug } from './addresses'
+import { escapeXml, htmlToMarkdown, parseUnixOrDate, xmlBlocks, xmlInner } from './text'
 import { parseWordpressXml } from './wordpress'
 
 export function parseTypechoXml(xml: string): TransferNote[] {
@@ -25,6 +26,11 @@ export function parseTypechoXml(xml: string): TransferNote[] {
           xmlInner(item, 'status').toLowerCase() === 'publish'
             ? 'published'
             : 'draft',
+        // 备份里带了文章地址就当旧地址；只有 slug 时拼不出地址（路由规则在旧站配置里）。
+        ...addressFields(
+          importSlug(xmlInner(item, 'slug')),
+          importOldPaths([xmlInner(item, 'permalink'), xmlInner(item, 'link')]),
+        ),
       }
       return note
     })
@@ -42,13 +48,14 @@ export function serializeTypechoXml(notes: readonly TransferNote[]): string {
       const topic = note.topic
         ? `\n    <categories><![CDATA[${note.topic}]]></categories>`
         : ''
+      const slug = note.slug ? `\n    <slug>${escapeXml(note.slug)}</slug>` : ''
       return `  <item>
     <cid>${index + 1}</cid>
     <title><![CDATA[${note.title || `note-${index + 1}`}]]></title>
     <created>${created}</created>
     <text><![CDATA[${note.content_md}]]></text>
     <type>post</type>
-    <status>${note.status === 'published' ? 'publish' : 'draft'}</status>${topic}
+    <status>${note.status === 'published' ? 'publish' : 'draft'}</status>${topic}${slug}
   </item>`
     })
     .join('\n')

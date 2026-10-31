@@ -1,9 +1,13 @@
 import type { PhantasiNoteDoc } from '../../../../types/phantasi'
 import type { ImportProgress, NoteTransferKind, TransferNote } from './types'
 import { formatCurrent } from '../../../../i18n/localeCopy'
+import { ApiError } from '../../../../services/api'
 import * as phantasiApi from '../../../../services/phantasiApi'
 import { userFacingError } from '../../../../utils/userFacingError'
+import { isOldPathTakenError } from '../../notes/noteOldPaths'
+import { isSlugTakenError } from '../../notes/noteSlug'
 import { showPhantasiError } from '../../phantasiNotice'
+import { addressFields } from './addresses'
 import { parseHaloJson, serializeHaloJson } from './halo'
 import { parseMarkdownFile, serializeMarkdownFile } from './markdown'
 import { fileSlug } from './text'
@@ -69,7 +73,55 @@ function fromDocs(docs: readonly PhantasiNoteDoc[]): TransferNote[] {
     topic: doc.topic,
     published_at: doc.published_at,
     status: doc.status === 'published' ? 'published' : 'draft',
+    ...(doc.status === 'published'
+      ? addressFields(doc.slug?.trim() || null, doc.old_paths ?? [])
+      : {}),
   }))
+}
+
+/** 旧地址被别的文章占着，或这里不收（400 里同样带 old address）。 */
+function isOldPathRejected(error: unknown): boolean {
+  if (isOldPathTakenError(error)) return true
+  return error instanceof ApiError && error.status === 400 &&
+    error.message.toLowerCase().includes('old address')
+}
+
+/**
+ * 发布导入的一篇。slug 被占用就退回自动分配；旧地址被别的文章占着就不带旧地址，
+ * 文章照样发出去，旧地址的问题另外提示。
+ */
+export async function publishImported(
+  publish: typeof phantasiApi.publishNoteDoc,
+  docId: number,
+  revision: number,
+  body: { title: string; content_md: string; topic: string | null; published_at: number | null },
+  note: TransferNote,
+  onAddressDropped: (error: unknown) => void,
+): Promise<void> {
+  let slug = note.slug
+  let oldPaths = note.old_paths
+  for (;;) {
+    try {
+      await publish(docId, {
+        ...body,
+        ...(slug ? { slug } : {}),
+        ...(oldPaths?.length ? { old_paths: oldPaths } : {}),
+        revision,
+      })
+      return
+    } catch (err) {
+      if (slug && isSlugTakenError(err)) {
+        slug = undefined
+        continue
+      }
+      if (oldPaths?.length && isOldPathRejected(err)) {
+        oldPaths = undefined
+        onAddressDropped(err)
+        continue
+      }
+      throw err
+    }
+  }
 }
 
 function zipEntries(
@@ -208,13 +260,19 @@ export async function importTransferFile(
         })
         if (note.status === 'published') {
           try {
-            await phantasiApi.publishNoteDoc(doc.id, {
-              title,
-              content_md: note.content_md,
-              topic: note.topic ?? null,
-              published_at: note.published_at,
-              revision: doc.revision,
-            })
+            await publishImported(
+              phantasiApi.publishNoteDoc,
+              doc.id,
+              doc.revision,
+              {
+                title,
+                content_md: note.content_md,
+                topic: note.topic ?? null,
+                published_at: note.published_at,
+              },
+              note,
+              (err) => void showPhantasiError(err, copy.errorImportFailed),
+            )
           } catch (err) {
             void showPhantasiError(err, copy.errorImportFailed)
           }

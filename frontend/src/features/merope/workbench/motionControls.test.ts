@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { FACE_PRESETS, PLAIN_FACE, SCORE_MOVES } from '@myriad/figure/workbench'
 import zh from '../../../i18n/merope.zh-CN.json' with { type: 'json' }
-import { FACE_PRESETS, PLAIN_FACE, SCORE_MOVES } from '../events/performanceContract'
 import { EXPRESSION_GROUPS, FACE_PRESET_BUTTONS, FACE_VIA_CHOICES, facePresetDriver, facePresetLabel, faceViaLabel, PRESETS, SCORE_MOVE_BUTTONS, scoreMoveNow } from './motionControls'
 
 test('every look the director can pick is a named button in the workbench', () => {

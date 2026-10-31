@@ -3,7 +3,7 @@
 状态：**当前主路径已实现，多副本与编排闭环已完成**。Runtime Grant、One-shot Data
 Exchange、Server-governed AI Task、Scoped Event Broker 和 Agent Interaction 均已有代码与
 SDK；共享 registry/mailbox、Agent 任务中断后恢复和 intent 执行 adapter 已接入。当前行为以
-[架构文档](ARCHITECTURE.md) 和 [SDK API](API_REFERENCE.md) 为准。
+[架构文档](ARCHITECTURE.md) 和 [SDK API](../../../tapp/docs/API_REFERENCE.md) 为准。
 
 ## 设计目标
 
@@ -327,7 +327,7 @@ sequenceDiagram
 文本生成、分析、对话、图片生成和联网搜索统一成为服务端任务。Tapp 选择“操作与输入”，服务端选择
 供应商、模型、实际参数上限和预算；任何未实现字段都返回校验错误，不再接受后忽略。
 
-当前实现（以 [API_REFERENCE · AI API](API_REFERENCE.md#ai-api) 为准）：`operation` 为
+当前实现（以 [API_REFERENCE · AI API](../../../tapp/docs/API_REFERENCE.md#ai-api) 为准）：`operation` 为
 `generate` \| `analyze` \| `chat` \| `image` \| `search`；`search` 需要授予权限
 `ai:search`。`chat` 的 `input` 是 `{ messages: [{ role, content }] }`。`image` 可带
 `referenceImages`。完成态输出是 `{ format, value, contextProvenance }` 信封。

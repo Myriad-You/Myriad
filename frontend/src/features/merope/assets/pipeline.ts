@@ -1,8 +1,13 @@
+import type { PreparedRigPsdImport, RigPsdImportOptions } from '@myriad/figure/rig'
 import type {
   ImportedRigAsset,
   RigAssetCompileEvent,
   RigAssetPreflight,
 } from './compiler'
+import { FigureError } from '@myriad/figure'
+import { prepareRigPsdImport } from '@myriad/figure/rig'
+import { API_URL } from '../../../config'
+import { currentCopy, formatCurrent } from '../../../i18n/localeCopy'
 import {
   fullBodyRigImport,
   getFullBodyFigurePicture,
@@ -11,7 +16,6 @@ import {
   importMeropeRig,
   previewMeropeRigImport,
 } from '../api'
-import { prepareRigPsdImport } from '../rig/psdImporter'
 import { persistRigAsset, preflightRigAsset } from './compiler'
 
 export type {
@@ -20,13 +24,31 @@ export type {
   RigAssetPreflight,
 } from './compiler'
 
+/** A figure error in the site's language; any other error passes through. */
+function localizeFigureError(error: unknown): unknown {
+  if (!(error instanceof FigureError)) return error
+  return new Error(formatCurrent(currentCopy().merope[error.code], error.params), { cause: error })
+}
+
+/** The figure's import, against this site's API and in its language. */
+async function prepareSitePsd(
+  file: File,
+  options: Omit<RigPsdImportOptions, 'apiUrl'>,
+): Promise<PreparedRigPsdImport> {
+  try {
+    return await prepareRigPsdImport(file, { ...options, apiUrl: API_URL })
+  } catch (error) {
+    throw localizeFigureError(error)
+  }
+}
+
 export async function preflightRigPsdAsset(
   file: File,
   sourceMasterAssetId: string,
   onStage?: (event: RigAssetCompileEvent) => void,
   sourceGenerationFingerprint?: string,
   signal?: AbortSignal,
-  expressions?: Parameters<typeof prepareRigPsdImport>[5],
+  expressions?: RigPsdImportOptions['expressions'],
 ): Promise<RigAssetPreflight> {
   // Bound to the joints found on the worn bust, when that is this portrait.
   const skeleton = await getSiteSkeleton()
@@ -34,17 +56,8 @@ export async function preflightRigPsdAsset(
     file,
     sourceMasterAssetId,
     {
-      prepare: (psd, master, onPrepareStage, fingerprint, prepareSignal, references) =>
-        prepareRigPsdImport(
-          psd,
-          master,
-          onPrepareStage,
-          fingerprint,
-          prepareSignal,
-          references,
-          'bust',
-          skeleton ?? undefined,
-        ),
+      prepare: (psd, options) =>
+        prepareSitePsd(psd, { ...options, profile: 'bust', skeleton: skeleton ?? undefined }),
       preview: previewMeropeRigImport,
     },
     onStage,
@@ -81,18 +94,14 @@ export async function preflightFullBodyPsdAsset(
       file,
       sourceMasterAssetId,
       {
-        prepare: (psd, master, onStage, fingerprint, signal) =>
-          prepareRigPsdImport(
-            psd,
-            master,
-            onStage,
-            fingerprint,
-            signal,
-            [],
-            'fullBody',
-            skeleton ?? undefined,
+        prepare: (psd, options) =>
+          prepareSitePsd(psd, {
+            ...options,
+            expressions: [],
+            profile: 'fullBody',
+            skeleton: skeleton ?? undefined,
             referenceUrl,
-          ),
+          }),
         preview: fullBodyRigImport(outfitId).preview,
       },
       onStage,

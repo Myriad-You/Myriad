@@ -1,17 +1,14 @@
-import type { MeropeSpeechEventDetail } from './speechEvents'
+import type { MeropeSpeechEventDetail } from '@myriad/figure/speech'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { MEROPE_SPEECH_EVENT } from '@myriad/figure/speech'
 import {
   createConfigDomain,
   executeConfigOperations,
 } from '../../../components/config/form/configDomain'
 import { invalidateSpeechStatusCache } from '../../../services/speechApi'
 import { setKnownAuthState } from '../../../utils/authState'
-import {
-  liveMotionGeneration,
-  setLiveMotionGeneration,
-} from '../motion/liveGeneration'
-import { MEROPE_SPEECH_EVENT } from './speechEvents'
+import { figureChannel } from '../figureChannel'
 import { personaSpeechFlags, SpeechPipelineHost } from './speechPipelineHost'
 import { SpeechSegmenter } from './speechSegmenter'
 import { getVoicePresence, patchVoicePresence } from './voicePresence'
@@ -105,28 +102,23 @@ function capturedSpeech(): {
   events: MeropeSpeechEventDetail[]
   restore: () => void
 } {
-  const savedWindow = globalThis.window
   const events: MeropeSpeechEventDetail[] = []
-  const target = new EventTarget()
-  target.addEventListener(MEROPE_SPEECH_EVENT, (event) =>
-    events.push((event as CustomEvent<MeropeSpeechEventDetail>).detail),
-  )
-  globalThis.window = target as unknown as Window & typeof globalThis
+  const listener = (event: Event) =>
+    events.push((event as CustomEvent<MeropeSpeechEventDetail>).detail)
+  figureChannel.addEventListener(MEROPE_SPEECH_EVENT, listener)
   return {
     events,
-    restore: () => {
-      globalThis.window = savedWindow
-    },
+    restore: () => figureChannel.removeEventListener(MEROPE_SPEECH_EVENT, listener),
   }
 }
 
 test('queued speech keeps its original source and generation through playback and cancellation', async () => {
-  const savedGeneration = liveMotionGeneration()
+  const savedGeneration = figureChannel.generation()
   const { events, restore } = capturedSpeech()
   const restoreAudio = withAudio()
   try {
     const host = new SpeechPipelineHost()
-    setLiveMotionGeneration(9)
+    figureChannel.setGeneration(9)
     for (const [source, generation] of [
       ['reply', 7],
       ['proactive', 0],
@@ -156,7 +148,7 @@ test('queued speech keeps its original source and generation through playback an
   } finally {
     restore()
     restoreAudio()
-    setLiveMotionGeneration(savedGeneration)
+    figureChannel.setGeneration(savedGeneration)
     patchVoicePresence({ ttsPlaying: false })
   }
 })

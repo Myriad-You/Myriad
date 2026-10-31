@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { PERMISSION_LEVELS, PERMISSION_MAP } from '../runtime/permissionConfig.ts'
+import { PERMISSION_LEVELS, PERMISSION_MAP } from '@myriad/tapp-runtime'
 import { PERMISSION_COPY } from './permissionCopy.ts'
 
 describe('permission copy keys', () => {

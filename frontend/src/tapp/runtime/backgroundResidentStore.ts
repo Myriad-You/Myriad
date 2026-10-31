@@ -1,4 +1,4 @@
-import type { BackgroundRequirement, TappInstance } from '../types'
+import type { BackgroundRequirement, TappInstance } from '@myriad/tapp-runtime'
 import { useSyncExternalStore } from 'react'
 import { createStore } from '../../utils/store'
 

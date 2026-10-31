@@ -26,6 +26,17 @@ it('Vite serves deep links while backend routing precedes stamping and history f
       res.end(req.method === 'HEAD' || res.statusCode === 404 ? undefined : png)
       return
     }
+    if (req.url?.startsWith('/api/blog/redirect?')) {
+      const path = new URL(req.url, 'http://fixture.invalid').searchParams.get('path')
+      if (path === '/2024/05/hello/' || path === '/%E4%BD%A0%E5%A5%BD/') {
+        res.setHeader('Content-Type', 'application/json')
+        res.end(JSON.stringify({ location: '/blog/posts/hello/' }))
+      } else {
+        res.statusCode = 404
+        res.end()
+      }
+      return
+    }
     if (req.url === '/api/config/metadata') {
       res.setHeader('Content-Type', 'application/json')
       res.end(JSON.stringify({ site_title: 'Fixture Brand', site_description: 'Fixture description' }))
@@ -68,6 +79,18 @@ it('Vite serves deep links while backend routing precedes stamping and history f
       assert.match(html, /@font-face/)
       assert.match(html, /src="\/src\/main.tsx"/)
     }
+    // 搬家来的文章的旧地址：页面请求先问后端，命中 301，没命中照旧是 SPA。
+    for (const path of ['/2024/05/hello/', '/%E4%BD%A0%E5%A5%BD/']) {
+      const moved = await fetch(origin + path, { headers: { accept: 'text/html' }, redirect: 'manual' })
+      assert.equal(moved.status, 301, path)
+      assert.equal(moved.headers.get('location'), '/blog/posts/hello/')
+    }
+    const notMoved = await fetch(`${origin}/2024/05/missing/`, { headers: { accept: 'text/html' } })
+    assert.equal(notMoved.status, 200)
+    assert.match(await notMoved.text(), /src="\/src\/main.tsx"/)
+    const script = await fetch(`${origin}/2024/05/hello/`, { headers: { 'sec-fetch-dest': 'script' }, redirect: 'manual' })
+    assert.notEqual(script.status, 301)
+    await script.arrayBuffer()
     const manifest = await fetch(`${origin}/manifest.webmanifest`)
     assert.equal((await manifest.json()).name, 'Fixture Brand')
     for (const path of ['/api/example', '/robots.txt', '/sitemap.xml', '/blog', '/blog/posts/hello/', '/.well-known/webfinger']) {

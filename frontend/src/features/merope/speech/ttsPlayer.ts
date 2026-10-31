@@ -1,18 +1,7 @@
-import type { SpeechArticulation, SpeechViseme } from '../rig/articulation'
-import type { SpeechProsodyTimeline } from './prosody'
+import type { SpeechArticulation, SpeechViseme } from '@myriad/figure/rig'
+import type { SpeechProsodyTimeline, VisemeSpan } from '@myriad/figure/speech'
 import type { SpeechSegment } from './speechSegmenter'
-import type { VisemeSpan } from './visemeTimeline'
-import { speechProsodyTimeline } from './prosody'
-import { alignTextProsody } from './textProsody'
-import { compileTextVisemes } from './textVisemes'
-import {
-  alignVisemeTimelineToAudio,
-  audioVoicing,
-  textTimeOnAudio,
-  VISEME_SILENCE_ENERGY,
-  visemeAmount,
-  visemeAt,
-} from './visemeTimeline'
+import { alignTextProsody, alignVisemeTimelineToAudio, audioVoicing, compileTextVisemes, speechProsodyTimeline, textTimeOnAudio, VISEME_SILENCE_ENERGY, visemeAmount, visemeAt } from '@myriad/figure/speech'
 
 export interface TtsPlayHooks {
   onEnergy: (energy: number, articulation: SpeechArticulation) => void

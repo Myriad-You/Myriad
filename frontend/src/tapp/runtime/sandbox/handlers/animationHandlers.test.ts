@@ -1,5 +1,4 @@
-import type { TappMessage } from '../../../types'
-import type { TappBridge } from '../../TappBridge'
+import type { TappBridge, TappMessage } from '@myriad/tapp-runtime'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { registerAnimationHandlers } from './advancedHandlers.ts'

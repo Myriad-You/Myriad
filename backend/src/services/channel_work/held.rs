@@ -93,6 +93,8 @@ pub(super) async fn hold(
     images: &[ChannelImageRef],
 ) {
     let platform = sink.platform();
+    // What a piece of hers had to say is held for the chat it came in.
+    let session_key = super::works::chat_of(session_key);
     // Answered from the session once she is back: where, and paired with whom.
     super::remember_sink(db, user_id, session_key, sink).await;
     let inbound = INBOUND
@@ -385,13 +387,8 @@ mod tests {
             .unwrap();
         let platform = ChannelPlatform::OneBot;
         let stored = super::super::StoredSession {
-            session_id: String::new(),
-            last_run_id: None,
-            last_event_seq: 0,
-            original_input: String::new(),
-            binding: None,
-            address: None,
             chat_session_id: Some("ses_x".into()),
+            ..Default::default()
         };
         super::super::put_session(db, platform, 41, "ob:1", stored)
             .await

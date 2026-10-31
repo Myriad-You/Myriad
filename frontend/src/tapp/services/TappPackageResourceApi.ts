@@ -1,26 +1,10 @@
+import type { TappResourceMode, TappResources } from '@myriad/tapp-runtime'
 import { API_URL } from '../../config'
 import { hostLocaleHeaders } from '../../i18n/hostLocaleHeaders'
 import { currentCopy } from '../../i18n/localeCopy'
 import { apiRequest } from './TappHttpClient'
 
-export interface TappResources {
-  modules: Record<string, string>
-  moduleResolutions?: Record<string, Record<string, string>>
-  coreEntry?: string
-  pageEntry?: string
-  widgetEntries?: Record<string, string>
-  /** widget id → 弹窗层入口。 */
-  popupEntries?: Record<string, string>
-  coreStyles?: string
-  pageStyles?: string
-  widgetStyles?: Record<string, string>
-  /** 宿主预编译 Tailwind，与作者样式是两条通道。 */
-  widgetCSS?: string
-  pageCSS?: string
-  widgetTemplates?: Record<string, Record<string, string>>
-  pageTemplate?: string
-  i18n?: Record<string, unknown>
-}
+export type { TappResourceMode, TappResources }
 
 interface TappResourcesRaw {
   modules: Record<string, string>
@@ -38,8 +22,6 @@ interface TappResourcesRaw {
   page_template?: string
   i18n?: Record<string, unknown>
 }
-
-export type TappResourceMode = 'full' | 'core' | 'widget' | 'page' | 'popup'
 
 export async function getTappResources(
   tappId: string,

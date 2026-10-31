@@ -1,6 +1,6 @@
 /** 内置 greeting/weather/quote/theme/music/notification；Tapp 为 `tapp-{id}`。 */
 
-import type { TappInstance } from '../tapp/types'
+import type { TappInstance } from '@myriad/tapp-runtime'
 import { getDefaultLocale } from '../i18n/locales'
 
 export type BuiltinContentType =

@@ -1,4 +1,3 @@
-import type { TappPlaygroundCode } from '../services/TappPlaygroundService'
 import type {
   BackgroundRequirement,
   CustomPlatformConfig,
@@ -8,13 +7,15 @@ import type {
   TappPermission,
   TappStatus,
   WidgetRegistration,
-} from '../types'
+} from '@myriad/tapp-runtime'
+import type { TappPlaygroundCode } from '../services/TappPlaygroundService'
+import { TappPermissionController } from '@myriad/tapp-runtime'
 import { getDynamicContentProvider } from '../../services/DynamicContentProvider'
 import { installFromCode, uninstallTapp } from '../services/TappInstallationApi'
 import { getTapp, listTappDetails, startTapp, stopTapp } from '../services/TappLifecycleApi'
 import { getAllWidgets, registerTappWidget, unregisterTappWidget } from '../services/TappWidgetApi'
-import { getResourceLoader } from './sandbox/resourceLoader'
-import { TappPermissionController } from './TappPermission'
+import { tappKernel } from '../tappKernel'
+import { kernelIssueText } from '../utils/kernelIssueText'
 
 type RuntimeEvent =
   | 'tapp:installed'
@@ -136,7 +137,7 @@ export class TappRuntime {
   static reset(): void {
     TappRuntime.instance?.dispose()
     TappRuntime.instance = null
-    getResourceLoader().clearCache()
+    tappKernel.resources.clearCache()
   }
 
   private dispose(): void {
@@ -333,7 +334,9 @@ export class TappRuntime {
     const validation =
       TappPermissionController.validateManifestPermissions(manifest)
     if (!validation.valid) {
-      throw new Error(`Invalid manifest: ${validation.errors.join(', ')}`)
+      throw new Error(
+        `Invalid manifest: ${validation.errors.map(kernelIssueText).join(', ')}`,
+      )
     }
 
     if (this.installedTapps.has(manifest.id)) {
@@ -369,7 +372,7 @@ export class TappRuntime {
 
     this.installedTapps.set(manifest.id, instance)
 
-    getResourceLoader().clearCache(manifest.id)
+    tappKernel.resources.clearCache(manifest.id)
 
     await this.syncFromBackend(true)
     this.assertActive()
@@ -411,7 +414,7 @@ export class TappRuntime {
         }
       }
 
-      getResourceLoader().clearCache(tappId)
+      tappKernel.resources.clearCache(tappId)
       this.dropStoppedTappHostState(tappId)
 
       this.installedTapps.delete(tappId)
@@ -573,7 +576,7 @@ export class TappRuntime {
   }
 
   clearCodeCache(tappId?: string): void {
-    getResourceLoader().clearCache(tappId)
+    tappKernel.resources.clearCache(tappId)
   }
 
   async refreshTapp(tappId: string): Promise<void> {

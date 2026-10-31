@@ -1,3 +1,6 @@
 [submodule "core"]
 	path = core
 	url = https://github.com/Myriad-You/myriad-core.git
+[submodule "figure"]
+	path = figure
+	url = https://github.com/Myriad-You/myriad-figure.git

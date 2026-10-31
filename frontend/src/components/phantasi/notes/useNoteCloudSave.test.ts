@@ -36,6 +36,7 @@ describe('mergeCloudFields', () => {
       cover: null,
       publishedAt: 9,
       slug: null,
+      oldPaths: null,
     })
   })
 })
@@ -63,6 +64,7 @@ describe('cloudFieldsOf', () => {
       cover: null,
       publishedAt: null,
       slug: null,
+      oldPaths: null,
     })
   })
 })

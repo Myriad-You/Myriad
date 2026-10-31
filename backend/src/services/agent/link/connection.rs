@@ -89,6 +89,27 @@ pub(super) struct Inbound {
     pub(super) body: Value,
 }
 
+/// `custom_data` with `images` as the site's chat attaches them
+/// (`customData.attachments[].image`), for `chat_attachments::take_images` to
+/// take out, check and hand her for this turn only; at most the contract's
+/// `input.maxItems.images`, the rest left out.
+pub(super) fn with_images(custom_data: Option<Value>, images: Vec<String>) -> Option<Value> {
+    if images.is_empty() {
+        return custom_data;
+    }
+    let mut data = match custom_data {
+        Some(Value::Object(data)) => data,
+        _ => serde_json::Map::new(),
+    };
+    let attachments = images
+        .into_iter()
+        .take(CONTRACT.frames["input"].max_items.get("images").copied().unwrap_or(0))
+        .map(|image| json!({ "image": image }))
+        .collect();
+    data.insert("attachments".into(), Value::Array(attachments));
+    Some(Value::Object(data))
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Hello {
@@ -122,6 +143,9 @@ pub(super) struct Input {
     pub(super) session_id: Option<String>,
     #[serde(default)]
     pub(super) rig_state: Option<Value>,
+    /// What the owner showed her with it (`images` capability): data URLs.
+    #[serde(default)]
+    pub(super) images: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -172,6 +196,7 @@ pub(super) async fn serve_with(
         senses: Default::default(),
         experience: false,
         moments: false,
+        images: false,
         nodes: false,
         proposals: None,
         acts: false,
@@ -240,6 +265,8 @@ struct Link {
     experience: bool,
     /// The child said it sends `moment`: what its senses saw for her.
     moments: bool,
+    /// The child said it sends `images`: what the owner shows her, with their input.
+    images: bool,
     /// The child said it takes `nodes`: it is kept current with her nodes.
     nodes: bool,
     /// Her open proposals as the child was last told them, once it said it
@@ -578,6 +605,9 @@ impl Link {
         self.moments = capabilities
             .iter()
             .any(|capability| capability == "moments");
+        self.images = capabilities
+            .iter()
+            .any(|capability| capability == "images");
         if capabilities.iter().any(|capability| capability == "nodes") {
             self.nodes = true;
             self.tell_nodes().await;
@@ -806,10 +836,14 @@ impl Link {
                 mode: Some(AgentInteractionMode::Chat),
                 session_id: input.session_id,
                 rig_state: input.rig_state,
-                // Answered with what she senses there: the app's own.
-                custom_data: crate::services::agent::consciousness::native_senses(
-                    self.owner,
-                    &self.device.id,
+                // Answered with what she senses there: the app's own, and
+                // what the owner showed her, as the site's chat attaches it.
+                custom_data: with_images(
+                    crate::services::agent::consciousness::native_senses(
+                        self.owner,
+                        &self.device.id,
+                    ),
+                    if self.images { input.images } else { Vec::new() },
                 ),
                 on_device: Some(self.device.id.clone()),
                 ..Default::default()

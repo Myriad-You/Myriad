@@ -1,14 +1,13 @@
-import type { TouchMotionSource } from '../motion/touchSource'
+import type { TouchMotionSource } from '@myriad/figure/motion'
+import { TouchAppraisal, TouchEncounter } from '@myriad/figure/interaction'
 import { apiService } from '../../../services/api'
 import { getCSRFToken } from '../../../utils/csrf'
-import { TouchAppraisal } from '../interaction/touchAppraisal'
-import { TouchEncounter } from '../interaction/touchEncounter'
-import { liveMotionGeneration } from '../motion/liveGeneration'
+import { figureChannel } from '../figureChannel'
 import { reportPresence } from '../perception/inbound'
 import { perceptionRegistry } from '../perception/registry'
 
 export function createTouchAppraisal(owner: string, source: TouchMotionSource) {
-  let generation = liveMotionGeneration()
+  let generation = figureChannel.generation()
   let completion: AbortController | null = null
   const encounter = new TouchEncounter(summary => {
     if (document.visibilityState !== 'visible') return
@@ -37,7 +36,7 @@ export function createTouchAppraisal(owner: string, source: TouchMotionSource) {
   const appraisal = new TouchAppraisal({
     now: () => performance.now(),
     request: async (summary, signal) => {
-      generation = liveMotionGeneration()
+      generation = figureChannel.generation()
       const displayedReaction = source.displayedReaction(owner, contactId)
       const token = await getCSRFToken()
       if (signal.aborted || !token) return null
@@ -45,7 +44,7 @@ export function createTouchAppraisal(owner: string, source: TouchMotionSource) {
         .catch(() => null)
     },
     apply: (revision, reaction) => {
-      if (document.visibilityState !== 'visible' || liveMotionGeneration() !== generation) return
+      if (document.visibilityState !== 'visible' || figureChannel.generation() !== generation) return
       source.refine(owner, revision, reaction, performance.now())
     },
   })

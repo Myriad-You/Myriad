@@ -1,4 +1,5 @@
 import type { TransferNote } from './types'
+import { addressFields, importOldPaths, importSlug, OLD_PATH_META_KEY } from './addresses'
 import {
   escapeXml,
   htmlToMarkdown,
@@ -19,19 +20,26 @@ export function parseWordpressXml(xml: string): TransferNote[] {
       const title = xmlInner(item, 'title')
       const html =
         xmlInner(item, 'content:encoded') || xmlInner(item, 'description')
-      const topic =
-        xmlInner(item, 'category') || xmlInner(item, 'wp:post_name') || null
+      const topic = xmlInner(item, 'category') || null
       const published = parseUnixOrDate(
         xmlInner(item, 'wp:post_date_gmt') ||
           xmlInner(item, 'wp:post_date') ||
           xmlInner(item, 'pubDate'),
       )
+      // <link> 是旧站上的文章地址；wp:post_name 是 URL 编码过的 slug。
+      const oldPaths = importOldPaths([
+        xmlInner(item, 'link'),
+        ...xmlBlocks(item, 'wp:postmeta')
+          .filter((meta) => xmlInner(meta, 'wp:meta_key') === OLD_PATH_META_KEY)
+          .map((meta) => xmlInner(meta, 'wp:meta_value')),
+      ])
       const note: TransferNote = {
         title,
         content_md: htmlToMarkdown(html),
         topic: topic?.trim() || null,
         published_at: published,
         status: statusRaw === 'publish' ? 'published' : 'draft',
+        ...addressFields(importSlug(xmlInner(item, 'wp:post_name')), oldPaths),
       }
       return note
     })
@@ -57,12 +65,22 @@ export function serializeWordpressXml(
       const topic = note.topic
         ? `\n    <category><![CDATA[${note.topic}]]></category>`
         : ''
+      const slug = note.slug
+        ? `\n    <wp:post_name>${escapeXml(note.slug)}</wp:post_name>`
+        : ''
+      const oldPaths = (note.old_paths ?? [])
+        .map((path) => `
+    <wp:postmeta>
+      <wp:meta_key>${OLD_PATH_META_KEY}</wp:meta_key>
+      <wp:meta_value>${escapeXml(path)}</wp:meta_value>
+    </wp:postmeta>`)
+        .join('')
       return `  <item>
     <title><![CDATA[${note.title || `note-${index + 1}`}]]></title>
     <content:encoded><![CDATA[${markdownToHtml(note.content_md)}]]></content:encoded>
     <wp:post_type>post</wp:post_type>
     <wp:status>${note.status === 'published' ? 'publish' : 'draft'}</wp:status>
-    <wp:post_date_gmt>${escapeXml(date)}</wp:post_date_gmt>${topic}
+    <wp:post_date_gmt>${escapeXml(date)}</wp:post_date_gmt>${topic}${slug}${oldPaths}
   </item>`
     })
     .join('\n')

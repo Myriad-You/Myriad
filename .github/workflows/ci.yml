@@ -67,6 +67,9 @@ jobs:
               - frontend/**
               - shared/**
               - core
+              - figure
+              - tapp/runtime/**
+              - tapp/shared/**
             frontend_browser:
               - *frontend_build
               # Fixtures read by the browser round-trip spec.
@@ -74,11 +77,13 @@ jobs:
             frontend_contracts:
               - *frontend_build
               - tests/merope/**
+              - scripts/extra/figure-contracts.sh
               # Unit contract tests read these sources directly.
               - backend/src/**
               - crates/**
               - core
               - docs/development/**
+              - tapp/**
               - proxy/src/main.rs
             backend:
               - *workflow
@@ -89,12 +94,15 @@ jobs:
               - backend/**
               - crates/**
               - core
-              - tools/tapp-contract-export/**
+              - tapp/Cargo.toml
+              - tapp/crates/**
+              - tapp/shared/**
               - shared/**
               - tests/merope/**
               # include_str! targets
               - docs/development/**
               - docs/features/**
+              - tapp/docs/**
             proxy:
               - *workflow
               - *rust_toolchain
@@ -122,7 +130,9 @@ jobs:
               - backend/**
               - crates/**
               - core
+              - figure
               - frontend/**
+              - tapp/**
               - shared/**
               - scripts/extra/smoke.sh
             audit:
@@ -136,12 +146,12 @@ jobs:
               - frontend/pnpm-workspace.yaml
             tapp_cli:
               - *workflow
-              - *rust_toolchain
-              - Cargo.toml
-              - Cargo.lock
-              - tools/tapp-cli/**
-              - tools/tapp-contract-export/**
-              - crates/**
+              - tapp/rust-toolchain.toml
+              - tapp/Cargo.toml
+              - tapp/Cargo.lock
+              - tapp/tools/**
+              - tapp/crates/**
+              - tapp/shared/**
 
   # Split so backend-only changes rerun just the contract tests that read
   # backend/crate sources, not the build, budget and browser suites.
@@ -158,6 +168,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: true
+      # figure/ carries copies of the core contracts instead of depending on
+      # core/. A copy core/ never had was tested on a contract the site does
+      # not have; one core/ has moved past is only noted.
+      - name: Figure's contract copies are versions core/ has had
+        working-directory: .
+        run: scripts/extra/figure-contracts.sh check
       - uses: ./.github/actions/setup-frontend
       - name: Unit and static checks
         run: pnpm test
@@ -225,7 +241,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          # Virtual workspace at repo root (backend + migrations + tapp-contract)
+          # Virtual workspace at repo root (backend + migrations + site crates)
           workspaces: .
           shared-key: workspace
           save-if: ${{ github.event_name != 'pull_request' }}
@@ -448,6 +464,7 @@ jobs:
           workspaces: |
             .
             proxy
+            tapp
             updater
           # Only `cargo metadata` runs here; keep the registry, skip targets.
           cache-targets: false
@@ -465,6 +482,9 @@ jobs:
         run: cargo metadata --locked --no-deps --format-version 1
       - name: Verify updater lockfile
         working-directory: updater
+        run: cargo metadata --locked --no-deps --format-version 1
+      - name: Verify tapp lockfile
+        working-directory: tapp
         run: cargo metadata --locked --no-deps --format-version 1
       - name: Prove rkyv stays out of the resolved graph
         run: |
@@ -490,6 +510,9 @@ jobs:
       - name: Audit updater crates (hard — vulnerabilities)
         working-directory: updater
         run: cargo audit --file Cargo.lock
+      - name: Audit tapp crates (hard — vulnerabilities)
+        working-directory: tapp
+        run: cargo audit --file Cargo.lock
       - name: Audit backend workspace (soft — warnings)
         run: cargo audit --file Cargo.lock --deny warnings
         continue-on-error: true
@@ -499,6 +522,10 @@ jobs:
         continue-on-error: true
       - name: Audit updater crates (soft — warnings)
         working-directory: updater
+        run: cargo audit --file Cargo.lock --deny warnings
+        continue-on-error: true
+      - name: Audit tapp crates (soft — warnings)
+        working-directory: tapp
         run: cargo audit --file Cargo.lock --deny warnings
         continue-on-error: true
       - uses: actions/setup-node@v5
@@ -517,14 +544,14 @@ jobs:
         continue-on-error: true
 
   tapp-cli:
-    name: Tapp CLI contract and tests
+    name: Tapp contract, rules and CLI
     needs: changes
     if: needs.changes.outputs.tapp_cli == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: tools/tapp-cli
+        working-directory: tapp/tools/tapp-cli
     steps:
       - uses: actions/checkout@v5
         with:
@@ -533,6 +560,16 @@ jobs:
         with:
           node-version: 20
       - uses: dtolnay/rust-toolchain@1.99
+        with:
+          components: clippy
+      # tapp/ is its own Cargo workspace, excluded from the root one, so the
+      # backend job's --workspace runs no longer reach these crates.
+      - name: Clippy (tapp workspace)
+        working-directory: tapp
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Rust tests (tapp workspace)
+        working-directory: tapp
+        run: cargo test --workspace --all-targets --locked
       - name: Install dependencies
         run: npm ci
       - name: Regenerate contract

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { it } from 'node:test'
 import { runInNewContext } from 'node:vm'
-import { buildLayerRuntime } from '../../runtime/moduleRuntime.ts'
+import { buildLayerRuntime } from '@myriad/tapp-runtime'
 import { buildPlaygroundModules } from '../../utils/playgroundPackageFiles.ts'
 import { helloWorldTapp } from './helloWorld.ts'
 

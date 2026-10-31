@@ -8,9 +8,9 @@
 //! # Keeping maps consistent
 //!
 //! Route → permission facts live in the machine-readable fixture:
-//! `docs/development/tapp/fixtures/host_route_permissions.json`.
+//! `tapp/docs/fixtures/host_route_permissions.json`.
 //!
-//! **Edit the fixture first**, then update `shared/tapp_sandbox_contract.json`
+//! **Edit the fixture first**, then update `tapp/shared/tapp_sandbox_contract.json`
 //! (sandbox `PERMISSION_MAP`) / `action_permissions.json` as needed. Unit tests (and the frontend
 //! consistency test) enforce that:
 //! - every fixture route is served by the domain mappers below;
@@ -27,14 +27,14 @@ use crate::services::permission_service::TappPermission;
 use crate::services::tapp_rate_limit::host_write_rate_limit_operation;
 
 /// Compiled fixture path relative to this source file (repo
-/// `docs/development/tapp/fixtures/host_route_permissions.json`).
+/// `tapp/docs/fixtures/host_route_permissions.json`).
 const HOST_ROUTE_PERMISSIONS_JSON: &str =
-    include_str!("../../../docs/development/tapp/fixtures/host_route_permissions.json");
+    include_str!("../../../tapp/docs/fixtures/host_route_permissions.json");
 
 /// Action → permission fixture (sandbox `PERMISSION_MAP` domains).
 #[cfg(test)]
 const ACTION_PERMISSIONS_JSON: &str =
-    include_str!("../../../docs/development/tapp/fixtures/action_permissions.json");
+    include_str!("../../../tapp/docs/fixtures/action_permissions.json");
 
 /// Attribution error codes preserved at the HTTP edge.
 pub mod error_codes {

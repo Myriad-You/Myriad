@@ -1,24 +1,9 @@
+import type { ResolvedScore } from '@myriad/figure/motion'
+import type { Anime25DDebugSnapshot, Anime25DDriver, Anime25DMotionEnvelopeProbeId } from '@myriad/figure/workbench'
 import type { TranslationKeys } from '../../../i18n'
 import type { BodyControl, ScoreMoveKind } from '../../../services/agent/types'
-import type { Anime25DDriver } from '../anime25drig/driver'
-import type { Anime25DMotionEnvelopeProbeId } from '../anime25drig/motionEnvelope'
-import type { Anime25DDebugSnapshot } from '../anime25drig/player'
-import type { ResolvedScore } from '../motion/scoreTimeline'
+import { ANGRY_EXPRESSION_PRESET, BODY_CONTROL_DRIVERS, CRY_EXPRESSION_PRESET, DIZZY_EXPRESSION_PRESET, FACE_PRESETS, LOVESTRUCK_EXPRESSION_PRESET, MANIAC_EXPRESSION_PRESET, mappedControlValue, SILLY_EXPRESSION_PRESET, SPEECHLESS_EXPRESSION_PRESET, SQUEEZE_EXPRESSION_PRESET, THINKING_EXPRESSION_PRESET, tierExtent } from '@myriad/figure/workbench'
 import { formatMessage, getDefaultLocale } from '../../../i18n'
-import { mappedControlValue } from '../anime25drig/actingField'
-import { BODY_CONTROL_DRIVERS } from '../anime25drig/directedPose'
-import {
-  ANGRY_EXPRESSION_PRESET,
-  CRY_EXPRESSION_PRESET,
-  DIZZY_EXPRESSION_PRESET,
-  LOVESTRUCK_EXPRESSION_PRESET,
-  MANIAC_EXPRESSION_PRESET,
-  SILLY_EXPRESSION_PRESET,
-  SPEECHLESS_EXPRESSION_PRESET,
-  SQUEEZE_EXPRESSION_PRESET,
-  THINKING_EXPRESSION_PRESET,
-} from '../anime25drig/expressionPresets'
-import { FACE_PRESETS, tierExtent } from '../events/performanceContract'
 
 type Labels = TranslationKeys['merope']
 type StringLabel = {

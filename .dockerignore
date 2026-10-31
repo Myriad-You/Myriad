@@ -1,6 +1,13 @@
-# Git (core/ is a submodule: its .git is a pointer file)
+# Git (core/ and figure/ are submodules: their .git is a pointer file)
 .git
 core/.git
+figure/.git
+# figure/'s own core/ submodule and install; the build uses the site's core/ and frontend's install.
+figure/core
+figure/node_modules
+tapp/runtime/node_modules
+tapp/tools/tapp-cli/node_modules
+tapp/target
 .gitignore
 .gitattributes
 
@@ -12,9 +19,6 @@ core/.git
 docs/**
 !docs/development/
 !docs/development/**
-!docs/features/
-docs/features/**
-!docs/features/TAPP_FILE_FORMAT.md
 LICENSE
 
 # Environment files

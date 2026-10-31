@@ -78,14 +78,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // reset (typeof: unit tests run without Vite's define).
   const resetTappSubjectState = useCallback(async () => {
     if (typeof __EMBED_ENTRY__ !== 'undefined' && __EMBED_ENTRY__) return
-    const [{ TappScheduler }, { TappRuntimeGrant }, { TappRuntime }] =
+    const [{ TappScheduler }, { tappKernel }, { TappRuntime }] =
       await Promise.all([
         import('../tapp/runtime/TappScheduler'),
-        import('../tapp/runtime/TappRuntimeGrant'),
+        import('../tapp/tappKernel'),
         import('../tapp/runtime/TappRuntime'),
       ])
     TappScheduler.reset()
-    TappRuntimeGrant.destroyAll()
+    tappKernel.grants.destroyAll()
     TappRuntime.reset()
   }, [])
 

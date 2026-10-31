@@ -1,17 +1,17 @@
-import type { TappInstance } from './types'
+import type { TappInstance } from '@myriad/tapp-runtime'
 import assert from 'node:assert/strict'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { describe, it } from 'node:test'
 
 import { fileURLToPath } from 'node:url'
 import { compileFunction } from 'node:vm'
-import { classifyWidgetLibraryKind } from '../components/widgetLibrarySearch.ts'
-import { PERMISSION_LEVELS } from './runtime/permissionConfig.ts'
 import {
   generateFullSDK,
   generateWidgetSDK,
-} from './runtime/sandbox/sdkGenerator.ts'
+  PERMISSION_LEVELS,
+} from '@myriad/tapp-runtime'
+import { classifyWidgetLibraryKind } from '../components/widgetLibrarySearch.ts'
 import {
   storeAssetStorePath,
   storePackageRoot,
@@ -29,12 +29,15 @@ import { resolveTappListInstallRequest } from './utils/tappListInstallRequest.ts
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = resolve(HERE, '../../..')
+// The site's own Tapp docs stay here; the app author docs and the permission
+// fixtures moved to tapp/docs with the contract.
 const DOCS_TAPP = join(REPO, 'docs/development/tapp')
+const AUTHOR_DOCS = join(REPO, 'tapp/docs')
 const DOCS_INDEX = join(REPO, 'docs/development/TAPP_DEVELOPMENT.md')
-const FIXTURES = join(DOCS_TAPP, 'fixtures')
+const FIXTURES = join(AUTHOR_DOCS, 'fixtures')
 const TAPP_STORE_RS = join(REPO, 'backend/src/api/tapp_store.rs')
 const ROUTER_DIR = join(REPO, 'backend/src/router')
-const CONTRACT_RULES = join(REPO, 'crates/tapp-contract/src/contract_rules.rs')
+const CONTRACT_RULES = join(REPO, 'tapp/crates/tapp-contract/src/contract_rules.rs')
 
 function collectRustRoutePathLiterals(dir: string): Set<string> {
   const paths = new Set<string>()
@@ -63,30 +66,42 @@ function read(path: string): string {
   return readFileSync(path, 'utf8')
 }
 
+function markdownIn(dir: string): string[] {
+  return readdirSync(dir).filter((n) => n.endsWith('.md')).map((n) => join(dir, n))
+}
+
+/** Every Tapp doc: the site's and the author docs. */
+const ALL_TAPP_DOCS = [...markdownIn(DOCS_TAPP), ...markdownIn(AUTHOR_DOCS)]
+
+/** A Tapp doc by name, wherever it lives. */
+function doc(name: string): string {
+  const author = join(AUTHOR_DOCS, name)
+  return existsSync(author) ? author : join(DOCS_TAPP, name)
+}
+
 describe('tapp docs gating consistency', () => {
-  it('tAPP_DEVELOPMENT lists every markdown file under docs/development/tapp', () => {
+  it('tAPP_DEVELOPMENT lists every Tapp markdown file', () => {
     const index = read(DOCS_INDEX)
-    const mdFiles = readdirSync(DOCS_TAPP).filter((n) => n.endsWith('.md'))
-    for (const name of mdFiles) {
-      assert.ok(
-        index.includes(`tapp/${name}`),
-        `TAPP_DEVELOPMENT.md must list tapp/${name}`,
-      )
+    for (const file of ALL_TAPP_DOCS) {
+      const listed = file.startsWith(AUTHOR_DOCS)
+        ? `tapp/docs/${basename(file)}`
+        : `tapp/${basename(file)}`
+      assert.ok(index.includes(listed), `TAPP_DEVELOPMENT.md must list ${listed}`)
     }
-    assert.ok(existsSync(join(DOCS_TAPP, 'STORE.md')))
-    assert.ok(index.includes('tapp/STORE.md'))
+    assert.ok(existsSync(join(AUTHOR_DOCS, 'STORE.md')))
+    assert.ok(index.includes('tapp/docs/STORE.md'))
     assert.ok(existsSync(join(FIXTURES, 'README.md')))
-    assert.ok(index.includes('tapp/fixtures/README.md'))
+    assert.ok(index.includes('tapp/docs/fixtures/README.md'))
   })
 
   it('core relative links among index docs resolve on disk', () => {
     const cores = [
       DOCS_INDEX,
-      join(DOCS_TAPP, 'STORE.md'),
-      join(DOCS_TAPP, 'QUICKSTART.md'),
-      join(DOCS_TAPP, 'REST_API.md'),
-      join(DOCS_TAPP, 'MANIFEST.md'),
-      join(DOCS_TAPP, 'ARCHITECTURE.md'),
+      doc('STORE.md'),
+      doc('QUICKSTART.md'),
+      doc('REST_API.md'),
+      doc('MANIFEST.md'),
+      doc('ARCHITECTURE.md'),
     ]
     const missing: string[] = []
     for (const file of cores) {
@@ -107,7 +122,7 @@ describe('tapp docs gating consistency', () => {
   })
 
   it('category stable IDs in MANIFEST match TAPP_CATEGORIES and normalize aliases', () => {
-    const manifest = read(join(DOCS_TAPP, 'MANIFEST.md'))
+    const manifest = read(doc('MANIFEST.md'))
     const section = manifest.split('### 应用分类')[1] ?? ''
     const tableChunk = section.split('###')[0] ?? ''
     const ids = Iterator.from(
@@ -132,7 +147,7 @@ describe('tapp docs gating consistency', () => {
       Iterator.from(TAPP_CATEGORIES).toArray(),
       'Widget categories must be the same stable IDs as app categories',
     )
-    const manifest = read(join(DOCS_TAPP, 'MANIFEST.md'))
+    const manifest = read(doc('MANIFEST.md'))
     const section =
       manifest.split('### Widget 分类')[1]?.split('### templates')[0] ?? ''
     const ids = Iterator.from(section.matchAll(/^\|\s*`([a-z-]+)`\s*\|/gm))
@@ -165,13 +180,13 @@ describe('tapp docs gating consistency', () => {
       'tapp:utility',
     )
 
-    const widgetDoc = read(join(DOCS_TAPP, 'WIDGET.md'))
+    const widgetDoc = read(doc('WIDGET.md'))
     assert.match(widgetDoc, /同一套/)
     assert.match(widgetDoc, /MANIFEST\.md#widget-分类/)
     assert.match(widgetDoc, /\*\*限制\*\*/)
 
     const apiSection =
-      read(join(DOCS_TAPP, 'API_REFERENCE.md'))
+      read(doc('API_REFERENCE.md'))
         .split('## 小组件 API')[1]
         ?.split('## ')[0] ?? ''
     assert.match(apiSection, /Widget 分类/)
@@ -182,7 +197,7 @@ describe('tapp docs gating consistency', () => {
     )
     assert.match(apiSection, /只能写这八个规范 ID/)
 
-    const playground = read(join(DOCS_TAPP, 'PLAYGROUND_GENERATION_CONTEXT.md'))
+    const playground = read(doc('PLAYGROUND_GENERATION_CONTEXT.md'))
     assert.match(playground, /同一套稳定 ID/)
     assert.match(playground, /只能写这些规范值/)
 
@@ -211,7 +226,7 @@ describe('tapp docs gating consistency', () => {
       ),
       'apps/com.myriad.doudizhu/assets/felt/table_felt.png',
     )
-    const storeDoc = read(join(DOCS_TAPP, 'STORE.md'))
+    const storeDoc = read(doc('STORE.md'))
     assert.match(
       storeDoc,
       /apps\/com\.myriad\.doudizhu\/assets\/felt\/table_felt\.png/,
@@ -228,7 +243,7 @@ describe('tapp docs gating consistency', () => {
   })
 
   it('rEST_API documented /api/tapps method+path pairs exist in create_tapp_routes', () => {
-    const rest = read(join(DOCS_TAPP, 'REST_API.md'))
+    const rest = read(doc('REST_API.md'))
     const storeRs = read(TAPP_STORE_RS)
     const codePaths = new Set<string>()
     for (const m of storeRs.matchAll(
@@ -284,7 +299,7 @@ describe('tapp docs gating consistency', () => {
   })
 
   it('rEST_API documented /api/tapp method+path pairs exist in backend router modules', () => {
-    const rest = read(join(DOCS_TAPP, 'REST_API.md'))
+    const rest = read(doc('REST_API.md'))
     // Routes live under backend/src/router/* (not main.rs).
     const registeredPaths = collectRustRoutePathLiterals(ROUTER_DIR)
 
@@ -339,7 +354,7 @@ describe('tapp docs gating consistency', () => {
     assert.equal(gameTotal?.[1], '128')
     assert.equal(archiveBytes?.[1], '64')
     assert.equal(gameArchiveBytes?.[1], '128')
-    const manifest = read(join(DOCS_TAPP, 'MANIFEST.md'))
+    const manifest = read(doc('MANIFEST.md'))
     assert.match(manifest, /单文件 ≤ 16 MiB/)
     assert.match(manifest, /合计 ≤ 64 MiB/)
     assert.match(manifest, /最多 128 项/)
@@ -354,7 +369,7 @@ describe('tapp docs gating consistency', () => {
     ) as {
       actions: Array<{ domain: string; action: string; permission: string }>
     }
-    const { PERMISSION_MAP } = await import('./runtime/permissionConfig.ts')
+    const { PERMISSION_MAP } = await import('@myriad/tapp-runtime')
     const phantasi = fixture.actions.filter((a) => a.domain === 'phantasi')
     assert.ok(phantasi.length > 10)
     for (const row of phantasi) {
@@ -365,7 +380,7 @@ describe('tapp docs gating consistency', () => {
         `PERMISSION_MAP[${row.action}] must equal fixture ${row.permission}`,
       )
     }
-    const apiRef = read(join(DOCS_TAPP, 'API_REFERENCE.md'))
+    const apiRef = read(doc('API_REFERENCE.md'))
     // Doc must not claim discover is phantasi:read
     const phantasiSection =
       apiRef.split('## Phantasi 列表 API')[1]?.split('## ')[0] ?? ''
@@ -379,13 +394,9 @@ describe('tapp docs gating consistency', () => {
   })
 
   it('docs do not prescribe obsolete /api/tapp-store routes as live API', () => {
-    const names = [
-      ...readdirSync(DOCS_TAPP).filter((n) => n.endsWith('.md')),
-      join('..', 'TAPP_DEVELOPMENT.md'),
-      join('..', '..', 'features', 'TAPP_FILE_FORMAT.md'),
-    ]
-    for (const name of names) {
-      const text = read(join(DOCS_TAPP, name))
+    for (const file of [...ALL_TAPP_DOCS, DOCS_INDEX]) {
+      const name = file.replaceAll(`${REPO}/`, '')
+      const text = read(file)
       // Allowed only as explicit negation
       const positives = Iterator.from(
         text.matchAll(/\/api\/tapp-store[^\s`]*/g),
@@ -445,7 +456,7 @@ describe('tapp docs gating consistency', () => {
       'error',
     )
 
-    const apiRef = read(join(DOCS_TAPP, 'API_REFERENCE.md'))
+    const apiRef = read(doc('API_REFERENCE.md'))
     const listSection =
       apiRef.split('## Tapp 列表 API')[1]?.split('## ')[0] ?? ''
     // 必须用 storeSource 写规范商店形态。
@@ -458,7 +469,7 @@ describe('tapp docs gating consistency', () => {
     )
     assert.match(listSection, /裸数字|无效|Invalid|不会当作 catalog/)
 
-    const storeDoc = read(join(DOCS_TAPP, 'STORE.md'))
+    const storeDoc = read(doc('STORE.md'))
     assert.match(
       storeDoc,
       /\{\s*source:\s*"1"[^}]*\}\s*[|｜].*失败|失败.*source:\s*"1"/s,
@@ -470,7 +481,7 @@ describe('tapp docs gating consistency', () => {
       'STORE.md must not claim SDK source equals storeSource',
     )
 
-    const troubleshoot = read(join(DOCS_TAPP, 'TROUBLESHOOTING.md'))
+    const troubleshoot = read(doc('TROUBLESHOOTING.md'))
     assert.match(
       troubleshoot,
       /source:\s*"store"[\s\S]*storeSource:\s*"1"|storeSource:\s*"1"[\s\S]*source:\s*"store"/,
@@ -492,7 +503,7 @@ describe('tapp docs gating consistency', () => {
   it('MANIFEST permission-table tokens equal the shipped catalog', () => {
     const catalog = Object.keys(PERMISSION_LEVELS).toSorted()
     const contract = JSON.parse(
-      read(join(REPO, 'tools/tapp-cli/src/generated/contract.json')),
+      read(join(REPO, 'tapp/tools/tapp-cli/src/generated/contract.json')),
     ) as { permissionLevels: Record<string, string> }
     const contractTokens = Object.keys(contract.permissionLevels).toSorted()
     assert.deepEqual(
@@ -501,7 +512,7 @@ describe('tapp docs gating consistency', () => {
       'contract.json permissionLevels must equal PERMISSION_LEVELS',
     )
 
-    const manifest = read(join(DOCS_TAPP, 'MANIFEST.md'))
+    const manifest = read(doc('MANIFEST.md'))
     const section = manifest.split('## 权限列表')[1] ?? ''
     const tokens = Iterator.from(
       section.matchAll(/^\|\s*`([a-z0-9:]+)`\s*\|/gim),
@@ -520,10 +531,10 @@ describe('tapp docs gating consistency', () => {
 
   it('API_REFERENCE capability table includes every frozen full-SDK namespace', () => {
     const gen = read(
-      join(REPO, 'frontend/src/tapp/runtime/sandbox/sdkBody.ts'),
+      join(REPO, 'tapp/runtime/src/sandbox/sdkBody.ts'),
     )
     const shared = read(
-      join(REPO, 'frontend/src/tapp/runtime/sandbox/sdkShared.ts'),
+      join(REPO, 'tapp/runtime/src/sandbox/sdkShared.ts'),
     )
     assert.match(shared, /skip = \{ widgets: 1, popups: 1, pages: 1 \}/)
     assert.match(gen, /SDK_FREEZE_TAPP_CODE/)
@@ -602,7 +613,7 @@ describe('tapp docs gating consistency', () => {
     })
     assert.ok(frozenNs.includes('game'), 'generateFullSDK must freeze Tapp.game')
 
-    const apiRef = read(join(DOCS_TAPP, 'API_REFERENCE.md'))
+    const apiRef = read(doc('API_REFERENCE.md'))
     const cap = apiRef.split('## 能力边界与完整命名空间')[1] ?? ''
     const capUntilNext = cap.split(/^## /m)[0] ?? cap
     const missing = frozenNs.filter(
@@ -625,13 +636,7 @@ describe('tapp docs gating consistency', () => {
 
   it('examples do not present retired permission names as installable', () => {
     const retired = ['storage', 'federation:write', 'brew:comment']
-    const files = [
-      ...readdirSync(DOCS_TAPP)
-        .filter((n) => n.endsWith('.md'))
-        .map((n) => join(DOCS_TAPP, n)),
-      DOCS_INDEX,
-      join(REPO, 'docs/features/TAPP_FILE_FORMAT.md'),
-    ]
+    const files = [...ALL_TAPP_DOCS, DOCS_INDEX]
     const live: string[] = []
     for (const file of files) {
       const text = read(file)
@@ -673,12 +678,12 @@ describe('tapp docs gating consistency', () => {
       'HEADLESS_DENIED_ACTIONS',
       'PERMISSION_MAP',
     ]
-    const quickstart = read(join(DOCS_TAPP, 'QUICKSTART.md'))
+    const quickstart = read(doc('QUICKSTART.md'))
     const index = read(DOCS_INDEX)
     const playgroundCtx = read(
-      join(DOCS_TAPP, 'PLAYGROUND_GENERATION_CONTEXT.md'),
+      doc('PLAYGROUND_GENERATION_CONTEXT.md'),
     )
-    const widget = read(join(DOCS_TAPP, 'WIDGET.md'))
+    const widget = read(doc('WIDGET.md'))
     const widgetLimit =
       widget.split('## Widget SDK 限制')[1]?.split(/^## /m)[0] ?? ''
     assert.ok(widgetLimit.length > 80, 'WIDGET SDK-limit section must exist')
@@ -735,9 +740,9 @@ describe('tapp docs gating consistency', () => {
 
   it('PLAYGROUND_GENERATION_CONTEXT teaches the current AI task envelope', () => {
     const playgroundCtx = read(
-      join(DOCS_TAPP, 'PLAYGROUND_GENERATION_CONTEXT.md'),
+      doc('PLAYGROUND_GENERATION_CONTEXT.md'),
     )
-    const playground = read(join(DOCS_TAPP, 'PLAYGROUND.md'))
+    const playground = read(doc('PLAYGROUND.md'))
 
     assert.match(playgroundCtx, /Tapp\.ai\.tasks\.create/)
     assert.match(playgroundCtx, /ai:search/)
@@ -771,7 +776,7 @@ describe('tapp docs gating consistency', () => {
     assert.match(playground, /无条件注入/)
     assert.match(playground, /contextProvenance/)
 
-    const apiReference = read(join(DOCS_TAPP, 'API_REFERENCE.md'))
+    const apiReference = read(doc('API_REFERENCE.md'))
     assert.match(
       apiReference,
       /version, locale, theme, features/,

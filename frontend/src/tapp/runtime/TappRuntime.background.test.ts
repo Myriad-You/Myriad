@@ -7,7 +7,7 @@ import ts from 'typescript'
 const source = ts.createSourceFile('runtime.ts', readFileSync(new URL('./TappRuntime.ts', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true)
 const body = source.statements.filter(node => !ts.isImportDeclaration(node)).map(node => node.getText(source).replace(/^export /, '')).join('\n')
 function runtimeFor(details: unknown[]): typeof import('./TappRuntime').TappRuntime {
-  const deps = { getResourceLoader: () => ({ clearCache() {} }), listTappDetails: async () => details, getAllWidgets: async () => [] }
+  const deps = { tappKernel: { resources: { clearCache() {} } }, listTappDetails: async () => details, getAllWidgets: async () => [] }
   return compileFunction(`${ts.transpile(body, { target: ts.ScriptTarget.ESNext })}; return TappRuntime`, Object.keys(deps))(...Object.values(deps))
 }
 // 站主公开且在运行的 Tapp：每个访客都会拉起它的后台 core。

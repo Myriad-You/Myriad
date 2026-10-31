@@ -1,4 +1,4 @@
-import type { TappCategory } from '../tapp/types'
+import type { TappCategory } from '@myriad/tapp-runtime'
 import type { HomeLayoutMode } from '../utils/homeLayout'
 import type { HomeEditTourDockPose } from './tour/tourLogic'
 import type { WidgetType } from './widgetGridTypes'

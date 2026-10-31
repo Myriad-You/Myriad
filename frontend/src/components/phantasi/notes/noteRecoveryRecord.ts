@@ -27,7 +27,8 @@ export function isCloudFields(value: unknown): value is NoteCloudFields {
     (fields.topic === null || typeof fields.topic === 'string') &&
     (fields.cover === null || typeof fields.cover === 'string') &&
     (fields.publishedAt === null || (typeof fields.publishedAt === 'number' && Number.isFinite(fields.publishedAt))) &&
-    (fields.slug === undefined || fields.slug === null || typeof fields.slug === 'string')
+    (fields.slug === undefined || fields.slug === null || typeof fields.slug === 'string') &&
+    (fields.oldPaths === undefined || fields.oldPaths === null || typeof fields.oldPaths === 'string')
 }
 
 export const NOTE_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000

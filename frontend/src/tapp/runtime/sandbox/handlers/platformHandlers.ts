@@ -1,10 +1,10 @@
 import type {
   CustomPlatformConfig,
   NewPlatformItem,
+  TappBridge,
   TappInstance,
   WidgetRegistration,
-} from '../../../types'
-import type { TappBridge } from '../../TappBridge'
+} from '@myriad/tapp-runtime'
 import { userFacingError } from '../../../../utils/userFacingError'
 import * as TappApiService from '../../../services/TappApiService'
 import { getTappRuntime } from '../../TappRuntime'
