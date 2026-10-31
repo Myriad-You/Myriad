@@ -706,10 +706,22 @@
     "residentPlaceholder": "Sag, wie diese Notiz geändert werden soll …",
     "chatPlaceholder": "Mit ihm sprechen…",
     "mode": {
-      "label": "Modus",
-      "work": "Hilfe",
-      "chat": "Chat",
-      "shortcut": "Tab"
+      "work": "Hilfe"
+    },
+    "pieces": {
+      "title": "Abgegeben",
+      "label": "#{number}: {asked}",
+      "kicker": "Aufgabe",
+      "doing": "Läuft",
+      "confirming": "Wartet auf dein OK",
+      "waiting": "Wartet auf deine Antwort",
+      "done": "Erledigt",
+      "stopped": "Gestoppt",
+      "failed": "Hat nicht geklappt",
+      "stop": "Nur das stoppen",
+      "answer": "Antworten",
+      "answerPlaceholder": "Hierauf antworten",
+      "backToHer": "Zurück zum Gespräch"
     },
     "intention": {
       "kicker": "Mir ist etwas aufgefallen",

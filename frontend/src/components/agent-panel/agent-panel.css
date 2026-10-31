@@ -1138,27 +1138,6 @@ button.agent-panel-tag:disabled {
   interpolate-size: numeric-only;
 }
 
-/* 办事 / 聊天叠在同一格。只改透明度；visibility 会让隐藏层退出占位，胶囊跟着收。 */
-.agent-panel-mode-labels {
-  display: grid;
-  flex: 0 0 auto;
-  width: max-content;
-  justify-items: start;
-}
-
-.agent-panel-mode-labels > span {
-  grid-area: 1 / 1;
-  color: var(--text-primary, #111827);
-  font-weight: 600;
-  white-space: nowrap;
-  opacity: 0;
-  transition: opacity var(--agent-move) linear;
-}
-
-.agent-panel-mode-labels > span[data-on='true'] {
-  opacity: 1;
-}
-
 .agent-panel-field-stage {
   flex: 1 1 auto;
   min-width: 0;
@@ -2010,7 +1989,6 @@ button.agent-panel-tag:disabled {
   .agent-panel-face-slot,
   .agent-panel-work-chrome,
   .agent-panel-tag-mid,
-  .agent-panel-mode-labels > span,
   .agent-panel-end-layer,
   .agent-panel-end-slot,
   .agent-panel-attach-bar,
@@ -3923,4 +3901,90 @@ html.dark .agent-panel-aurora[data-status='error']::after {
 .agent-panel-away p {
   margin: 0;
   flex: 1 1 220px;
+}
+
+/* Pieces she handed off: one card each, after her line that handed it off. */
+.agent-panel-pieces {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-panel-piece {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+}
+
+.agent-panel-piece-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  min-width: 0;
+}
+
+.agent-panel-piece-kicker,
+.agent-panel-piece-number {
+  font-weight: 600;
+}
+
+.agent-panel-piece-number,
+.agent-panel-piece-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-panel-piece-time {
+  margin-inline-end: auto;
+  font-size: 0.85em;
+  opacity: 0.6;
+}
+
+.agent-panel-piece-asked {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.agent-panel-piece-state {
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
+.agent-panel-piece[data-state='waiting'] .agent-panel-piece-state {
+  opacity: 1;
+  font-weight: 600;
+}
+
+.agent-panel-piece[data-state='stopped'],
+.agent-panel-piece[data-state='failed'] {
+  opacity: 0.7;
+}
+
+.agent-panel-piece-result {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.agent-panel-piece-answer {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.agent-panel-piece-answer input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--surface-border, rgb(0 0 0 / 12%));
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
 }

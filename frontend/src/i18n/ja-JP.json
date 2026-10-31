@@ -706,10 +706,22 @@
     "residentPlaceholder": "この記事をどう直すか伝える…",
     "chatPlaceholder": "話しかけて…",
     "mode": {
-      "label": "モード",
-      "work": "仕事",
-      "chat": "会話",
-      "shortcut": "Tab"
+      "work": "仕事"
+    },
+    "pieces": {
+      "title": "任せたこと",
+      "label": "#{number}：{asked}",
+      "kicker": "用事",
+      "doing": "進行中",
+      "confirming": "確認待ち",
+      "waiting": "回答待ち",
+      "done": "完了",
+      "stopped": "止めた",
+      "failed": "うまくいかなかった",
+      "stop": "これを止める",
+      "answer": "答える",
+      "answerPlaceholder": "これに答える",
+      "backToHer": "会話に戻る"
     },
     "intention": {
       "kicker": "気づいたことがあります",

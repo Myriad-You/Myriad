@@ -24,11 +24,7 @@ import { isImeComposing } from '../../utils/ime'
 import { AGENT_ATTACH_ACCEPT, collectAttachments } from './agentAttachments'
 import { dispatchAgentPanelCommand } from './agentPanelEvents'
 import { AgentPanelFace } from './AgentPanelFace'
-import {
-  AGENT_PANEL_MODES,
-  cycleAgentPanelMode,
-  useAgentPanelMode,
-} from './agentPanelMode'
+import { setAgentPanelMode, useAgentPanelMode } from './agentPanelMode'
 import { AGENT_SWAP_MS } from './agentPresenceState'
 import { agentStatusForLane } from './agentStatus'
 import {
@@ -387,27 +383,16 @@ function ComposerAction({
   )
 }
 
-function ModeTag({ mode }: { mode: AgentPanelMode }) {
+/** Work entered on its own (an accepted proposal, her being away): back to her. */
+function BackToHer() {
   const { t } = useI18n()
-  const label = t.agentPanel.mode[mode]
-  const shortcut = t.agentPanel.mode.shortcut
   return (
     <button
       type="button"
       className="agent-panel-tag agent-panel-mode"
-      aria-label={`${t.agentPanel.mode.label}: ${label}`}
-      aria-keyshortcuts={shortcut}
-      title={`${label} · ${shortcut}`}
-      onClick={() => cycleAgentPanelMode(1)}
+      onClick={() => setAgentPanelMode('chat')}
     >
-      <span className="agent-panel-tag-kicker">{shortcut}</span>
-      <span className="agent-panel-mode-labels" aria-hidden="true">
-        {AGENT_PANEL_MODES.map((id) => (
-          <span key={id} data-on={mode === id ? 'true' : 'false'}>
-            {t.agentPanel.mode[id]}
-          </span>
-        ))}
-      </span>
+      <span className="agent-panel-tag-text">{t.agentPanel.pieces.backToHer}</span>
     </button>
   )
 }
@@ -492,7 +477,7 @@ const ComposerTags = React.memo(({
 
   return (
     <div className="agent-panel-composer-tags" data-resident={resident ? 'true' : undefined}>
-      {resident ? null : <ModeTag mode={mode} />}
+      {resident || mode !== 'work' ? null : <BackToHer />}
       <div className="agent-panel-tag-mid">
         <div
           className="agent-panel-work-chrome"

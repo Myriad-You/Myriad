@@ -113,6 +113,7 @@ import {
   takeQueuedAgentSubmit,
 } from './agentPanelEvents'
 import { getAgentPanelMode, useAgentPanelMode } from './agentPanelMode'
+import { showPieces } from './agentPieces'
 import { turnSelectionText } from './agentSelection'
 import {
   pushAgentStatusEvent,
@@ -1722,6 +1723,12 @@ export const AgentEngine: React.FC = () => {
           response.responseType === 'task_completed')
 
       const responseData = response.data as Record<string, unknown> | undefined
+      // The pieces she handed off on this turn, as they now stand: followed
+      // each on its own run, after the talk.
+      const chatSessionId = sessionIdsByModeRef.current.chat
+      if (mode === 'chat' && chatSessionId && Array.isArray(responseData?.pieces)) {
+        showPieces(chatSessionId, responseData.pieces as unknown[])
+      }
       if (mode === 'chat' && responseData && Object.hasOwn(responseData, 'outfitId')) {
         const overlayId = responseData.outfitId
         setChatOutfitOverlay(

@@ -706,10 +706,22 @@
     "residentPlaceholder": "说说这篇要怎么改…",
     "chatPlaceholder": "跟它说…",
     "mode": {
-      "label": "模式",
-      "work": "做事",
-      "chat": "聊天",
-      "shortcut": "Tab"
+      "work": "做事"
+    },
+    "pieces": {
+      "title": "交出去的事",
+      "label": "第 {number} 件：{asked}",
+      "kicker": "做",
+      "doing": "在办",
+      "confirming": "等你确认",
+      "waiting": "等你回答",
+      "done": "办完了",
+      "stopped": "已停下",
+      "failed": "没办成",
+      "stop": "停下这件",
+      "answer": "回答",
+      "answerPlaceholder": "回答这一件",
+      "backToHer": "回到对话"
     },
     "intention": {
       "kicker": "我注意到一件事",

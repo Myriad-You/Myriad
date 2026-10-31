@@ -33,9 +33,7 @@ import { AgentPanelHerAway, useHerAway } from './AgentPanelHerAway'
 import { AgentPanelHerTime } from './AgentPanelHerTime'
 import { AgentPanelIntention } from './AgentPanelIntention'
 import {
-  cycleAgentPanelMode,
   setAgentPanelMode,
-  shouldCaptureModeTab,
   useAgentPanelMode,
 } from './agentPanelMode'
 import {
@@ -277,18 +275,11 @@ export const AgentPanel: React.FC<{ resident?: boolean }> = ({ resident = false 
   useEffect(() => {
     if (!open) return
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        if (!resident || showsFull) collapse()
-        return
-      }
-      if (!showsComposer || resident) return
-      if (!shouldCaptureModeTab(event, overlayRef.current)) return
-      event.preventDefault()
-      cycleAgentPanelMode(event.shiftKey ? -1 : 1)
+      if (event.key === 'Escape' && (!resident || showsFull)) collapse()
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [collapse, open, resident, showsComposer, showsFull])
+  }, [collapse, open, resident, showsFull])
 
   useEffect(() => {
     if (!open) return

@@ -706,10 +706,22 @@
     "residentPlaceholder": "Dites comment modifier cette note…",
     "chatPlaceholder": "Parlez-lui…",
     "mode": {
-      "label": "Mode",
-      "work": "Aide",
-      "chat": "Discussion",
-      "shortcut": "Tab"
+      "work": "Aide"
+    },
+    "pieces": {
+      "title": "Confié",
+      "label": "n° {number} : {asked}",
+      "kicker": "Tâche",
+      "doing": "En cours",
+      "confirming": "Attend ton accord",
+      "waiting": "Attend ta réponse",
+      "done": "Fait",
+      "stopped": "Arrêtée",
+      "failed": "N'a pas abouti",
+      "stop": "Arrêter celui-ci",
+      "answer": "Répondre",
+      "answerPlaceholder": "Répondre à celui-ci",
+      "backToHer": "Retour à la conversation"
     },
     "intention": {
       "kicker": "J'ai remarqué quelque chose",

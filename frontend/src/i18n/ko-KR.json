@@ -706,10 +706,22 @@
     "residentPlaceholder": "이 글을 어떻게 고칠지 말해 주세요…",
     "chatPlaceholder": "이야기해 보세요…",
     "mode": {
-      "label": "모드",
-      "work": "도움",
-      "chat": "대화",
-      "shortcut": "Tab"
+      "work": "도움"
+    },
+    "pieces": {
+      "title": "맡긴 일",
+      "label": "#{number}: {asked}",
+      "kicker": "할 일",
+      "doing": "진행 중",
+      "confirming": "확인 대기",
+      "waiting": "답변 대기",
+      "done": "완료",
+      "stopped": "멈춤",
+      "failed": "잘 안 됐어요",
+      "stop": "이것만 중단",
+      "answer": "답하기",
+      "answerPlaceholder": "이 일에 답하기",
+      "backToHer": "대화로 돌아가기"
     },
     "intention": {
       "kicker": "눈에 띈 게 있어요",

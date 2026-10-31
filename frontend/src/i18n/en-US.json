@@ -706,10 +706,22 @@
     "residentPlaceholder": "Tell it how to change this note…",
     "chatPlaceholder": "Talk with it…",
     "mode": {
-      "label": "Mode",
-      "work": "Help",
-      "chat": "Chat",
-      "shortcut": "Tab"
+      "work": "Help"
+    },
+    "pieces": {
+      "title": "Handed off",
+      "label": "#{number}: {asked}",
+      "kicker": "Task",
+      "doing": "Doing",
+      "confirming": "Needs your OK",
+      "waiting": "Waiting for your answer",
+      "done": "Done",
+      "stopped": "Stopped",
+      "failed": "Didn't work out",
+      "stop": "Stop this one",
+      "answer": "Answer",
+      "answerPlaceholder": "Answer this one",
+      "backToHer": "Back to the conversation"
     },
     "intention": {
       "kicker": "I noticed something",

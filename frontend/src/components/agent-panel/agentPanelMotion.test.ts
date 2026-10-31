@@ -280,11 +280,6 @@ describe('agent panel motion contract', () => {
       css,
       /\.agent-panel-composer\[data-mode='chat'\] \{[\s\S]*?padding-top var\(--agent-move\) var\(--agent-ease\)/,
     )
-    const modeLabel = block(
-      css,
-      '.agent-panel-mode-labels > span {',
-      ".agent-panel-mode-labels > span[data-on='true'] {",
-    )
     const endLayer = block(
       css,
       '.agent-panel-end-layer {',
@@ -295,16 +290,11 @@ describe('agent panel motion contract', () => {
       '.agent-panel-work-chrome {',
       ".agent-panel-composer[data-mode='chat'] .agent-panel-work-chrome {",
     )
-    assert.match(
-      css,
-      /\.agent-panel-mode-labels > span \{[\s\S]*?grid-area:\s*1 \/ 1/,
-    )
     assert.match(css, /\.agent-panel-end-layer \{[\s\S]*?grid-area:\s*1 \/ 1/)
     assert.match(
       css,
       /\.agent-panel-end-slot \{[\s\S]*?place-items:\s*center end/,
     )
-    assert.doesNotMatch(modeLabel, /visibility/)
     assert.doesNotMatch(endLayer, /visibility/)
     assert.doesNotMatch(workChrome, /visibility/)
     assert.match(
@@ -340,7 +330,7 @@ describe('agent panel motion contract', () => {
       css,
       /\[data-mode='chat'\] \.agent-panel-work-chrome \{[^}]*width:\s*0/,
     )
-    assert.match(composer, /agent-panel-mode-labels/)
+    assert.match(composer, /<BackToHer \/>/)
     assert.match(composer, /agent-panel-tag-mid/)
     assert.match(composer, /agent-panel-end-layer/)
     assert.doesNotMatch(composer, /AgentSwap\s+id=\{mode\}/)

@@ -1080,6 +1080,23 @@ class AgentService {
     )
   }
 
+  /** The pieces she handed off in this conversation, as they stand. */
+  async listPieces(sessionId: string, signal = authSubject.signal): Promise<unknown[]> {
+    const response = await apiService.get<{ pieces?: unknown[] }>(
+      `${this.baseUrl}/sessions/${encodeURIComponent(sessionId)}/pieces`,
+      { signal },
+    )
+    return Array.isArray(response.pieces) ? response.pieces : []
+  }
+
+  /** Stop one piece, and only it. */
+  async stopPiece(sessionId: string, number: number): Promise<boolean> {
+    const response = await apiService.post<{ stopped?: boolean }>(
+      `${this.baseUrl}/sessions/${encodeURIComponent(sessionId)}/pieces/${number}/stop`,
+    )
+    return response.stopped === true
+  }
+
   async getCapabilities(): Promise<Capability[]> {
     const response = await apiService.get<{
       success: boolean
