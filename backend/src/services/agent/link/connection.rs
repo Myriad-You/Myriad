@@ -559,7 +559,7 @@ impl Link {
             }
             told.push(told_turn);
         }
-        let welcome = json!({
+        let mut welcome = json!({
             "protocol": CONTRACT.protocol,
             "role": "host",
             "host": "site",
@@ -572,6 +572,21 @@ impl Link {
             "turns": told,
             "serverTime": crate::clock::now().timestamp_millis(),
         });
+        // The account's one partner id, minted here the first time: only to
+        // an end that knows the field. Every side of her log for this
+        // account goes by it; a device still on another id moves to it in
+        // its own core before it syncs.
+        if capabilities
+            .iter()
+            .any(|capability| capability == "partner")
+        {
+            match crate::services::her_log::partner_id(&self.db, self.owner).await {
+                Ok(partner) => welcome["partner"] = json!(partner),
+                Err(error) => {
+                    tracing::warn!(%error, device = %self.device.id, "[link] the account's partner id could not be read; welcomed without it");
+                }
+            }
+        }
         self.reply(frame("welcome", welcome));
         self.playback = capabilities
             .iter()
@@ -768,7 +783,9 @@ impl Link {
                 "lineage": lease.lineage,
                 "hostEpoch": lease.epoch,
                 "heartbeatMs": self.timing.heartbeat.as_millis() as u64,
-                "capabilities": [],
+                // What the site itself can do: its core reads her log's
+                // merge, split and retract rows (ABI 2).
+                "capabilities": ["log2"],
                 "turns": [],
                 "serverTime": crate::clock::now().timestamp_millis(),
             }),

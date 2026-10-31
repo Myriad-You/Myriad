@@ -6,6 +6,53 @@
 -- Created by migration 004 and, for databases already past it, by the
 -- startup heal `ensure_persona_log_tables`; both run this same file.
 
+-- Her log is one per account (2026-11-01): node ids are unique only per
+-- account and audience (myriad-core docs/SHARED_CORE.md), so every table of
+-- it is keyed by the account (`user_id`). Before that it was one log for the
+-- whole site, keyed by row id. That log was never on anywhere
+-- (HER_LOG_ENABLED, no client spoke it), and the partner's private talk kept
+-- under an account id cannot be moved to a partner id (the core refuses that
+-- move), so a log of the old shape is made again below, but only while it
+-- is empty: nothing kept is deleted quietly. One that holds anything stays
+-- as it is (the startup heal says so in its log, `ensure_persona_log_tables`)
+-- until someone decides what becomes of it, before her log is turned on.
+-- The schema check may have given the old tables a nullable
+-- `user_id` first; it is the primary key that tells the shapes apart.
+DO $$
+DECLARE
+    old_tables TEXT[] := ARRAY['agent_log_payloads', 'agent_log_rows', 'agent_log_object_keys',
+        'agent_log_audience_keys', 'agent_log_counters', 'agent_log_full_links'];
+    t TEXT;
+    held BOOLEAN := false;
+    one BOOLEAN;
+BEGIN
+    IF to_regclass('agent_log_rows') IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM pg_index i
+        JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
+        WHERE i.indrelid = to_regclass('agent_log_rows') AND i.indisprimary
+          AND a.attname = 'user_id'
+    ) THEN
+        FOREACH t IN ARRAY old_tables LOOP
+            IF to_regclass(t) IS NOT NULL THEN
+                EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I)', t) INTO one;
+                held := held OR one;
+            END IF;
+        END LOOP;
+        IF NOT held THEN
+            DROP TABLE IF EXISTS agent_log_payloads, agent_log_rows, agent_log_object_keys,
+                agent_log_audience_keys, agent_log_counters, agent_log_full_links;
+        END IF;
+    END IF;
+    -- The ledger was one line per forgotten target; it is a list per
+    -- audience now (`agent_log_ledgers`). The old table goes only empty.
+    IF to_regclass('agent_log_ledger') IS NOT NULL THEN
+        EXECUTE 'SELECT EXISTS (SELECT 1 FROM agent_log_ledger)' INTO one;
+        IF NOT one THEN
+            DROP TABLE agent_log_ledger;
+        END IF;
+    END IF;
+END $$;
+
 -- The owner's account for her log. `region` is where it is kept, one per
 -- account (problem 13 of the sync plan: not decided yet, so it is empty
 -- until it is); `stopped_at` is when the owner turned syncing off, from
@@ -17,13 +64,27 @@ CREATE TABLE IF NOT EXISTS agent_log_accounts (
     stopped_at TIMESTAMPTZ
 );
 
--- One row of her log, per audience (`personal:…`, `own:`, `group:…`), as
--- the log rules write it: `envelope` is the row itself, the other columns
--- are copies of its fields to look it up by. The server keeps shared rows
--- only, so every row has its place (`origin`, `dseq`) in its audience. A row
--- is never changed, except into a stub (`forgotten`, no payload).
+-- The partner's one id for each account (`partner_` and 32 hex digits,
+-- `partner.mint`): minted here once, the first time a device of the account
+-- asks for it, and never changed or reused. Her log's private talk with the
+-- partner is `personal:<this id>` on every side, and the server's side of
+-- the account goes by it. An id, not a credential. Not deleted by the
+-- retention sweep: a new id would cut every device of the account off.
+CREATE TABLE IF NOT EXISTS agent_log_partners (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    partner_id VARCHAR(64) NOT NULL UNIQUE,
+    minted_at TIMESTAMPTZ NOT NULL
+);
+
+-- One row of an account's log, per audience (`personal:…`, `own:`,
+-- `group:…`), as the log rules write it: `envelope` is the row itself, the
+-- other columns are copies of its fields to look it up by. The server keeps
+-- shared rows only, so every row has its place (`origin`, `dseq`) in its
+-- audience. A row is never changed, except into a stub (`forgotten`, no
+-- payload).
 CREATE TABLE IF NOT EXISTS agent_log_rows (
-    id VARCHAR(512) PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id VARCHAR(512) NOT NULL,
     audience VARCHAR(512) NOT NULL,
     origin VARCHAR(64) NOT NULL,
     dseq BIGINT NOT NULL,
@@ -34,58 +95,80 @@ CREATE TABLE IF NOT EXISTS agent_log_rows (
     forgotten BOOLEAN NOT NULL DEFAULT false,
     envelope JSONB NOT NULL,
     received_from VARCHAR(64) NOT NULL,
-    received_at TIMESTAMPTZ NOT NULL
+    received_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (user_id, id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_log_rows_place
-    ON agent_log_rows (audience, origin, dseq);
+    ON agent_log_rows (user_id, audience, origin, dseq);
 CREATE INDEX IF NOT EXISTS idx_agent_log_rows_object
-    ON agent_log_rows (audience, object);
+    ON agent_log_rows (user_id, audience, object);
 CREATE INDEX IF NOT EXISTS idx_agent_log_rows_subject
-    ON agent_log_rows (audience, subject);
+    ON agent_log_rows (user_id, audience, subject);
 
 -- What a row's payload said, sealed with its object's key (AES-256-GCM,
 -- nonce first). Deleted when the row becomes a stub.
 CREATE TABLE IF NOT EXISTS agent_log_payloads (
-    row_id VARCHAR(512) PRIMARY KEY REFERENCES agent_log_rows(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL,
+    row_id VARCHAR(512) NOT NULL,
     sealed BYTEA NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL
+    created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (user_id, row_id),
+    FOREIGN KEY (user_id, row_id) REFERENCES agent_log_rows (user_id, id) ON DELETE CASCADE
 );
 
 -- The server's key ring (problem 5: the server can read, so it holds the
--- keys). One key per audience, sealed by the installation's data key
--- (myriad-data-key, kept outside the database); one key per object, sealed
--- by its audience's key. Forgetting an object deletes its key, so its
--- payload cannot be read back from any copy of the database.
+-- keys). One key per audience of an account, sealed by the installation's
+-- data key (myriad-data-key, kept outside the database); one key per
+-- object, sealed by its audience's key. Forgetting an object deletes its
+-- key, so its payload cannot be read back from any copy of the database.
 CREATE TABLE IF NOT EXISTS agent_log_audience_keys (
-    audience VARCHAR(512) PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    audience VARCHAR(512) NOT NULL,
     sealed TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL
+    created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (user_id, audience)
 );
 CREATE TABLE IF NOT EXISTS agent_log_object_keys (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     audience VARCHAR(512) NOT NULL,
     object VARCHAR(512) NOT NULL,
     subject VARCHAR(512),
     sealed BYTEA NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (audience, object)
+    PRIMARY KEY (user_id, audience, object)
 );
 
--- What was forgotten, where and when (the forget's clock): never a word of
--- what it said. Kept after the rows are stubs, so a side that comes back
--- with old rows is answered with the forget first.
-CREATE TABLE IF NOT EXISTS agent_log_ledger (
+-- An audience's ledger, as the core gives it (`[{audience, target, at,
+-- kind?, homes?, to?, takes?}]`): what was forgotten or taken back from
+-- sync, where and when, and the other names of its nodes. Never a word of
+-- what anything said. Kept after the rows are stubs, so a side that comes
+-- back with old rows is answered with the forget first.
+CREATE TABLE IF NOT EXISTS agent_log_ledgers (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     audience VARCHAR(512) NOT NULL,
-    target VARCHAR(512) NOT NULL,
-    at VARCHAR(96) NOT NULL,
-    recorded_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (audience, target)
+    entries JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (user_id, audience)
 );
 
--- The server's own count of the rows it writes (`site`), per audience, and
--- its clock: the last revision it stamped.
+-- Nodes (`node:<id>`) the server learnt are a person's or a group's in her
+-- own audience (`nodes.wire_take` `elsewhere`): no body of theirs is taken
+-- or sent again, in whatever batch it comes.
+CREATE TABLE IF NOT EXISTS agent_log_elsewhere (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    audience VARCHAR(512) NOT NULL,
+    node VARCHAR(512) NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (user_id, audience, node)
+);
+
+-- The server's own count of the rows it writes (`site`), per account and
+-- audience, and its clock: the last revision it stamped.
 CREATE TABLE IF NOT EXISTS agent_log_counters (
-    audience VARCHAR(512) PRIMARY KEY,
-    dseq BIGINT NOT NULL CHECK (dseq >= 1)
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    audience VARCHAR(512) NOT NULL,
+    dseq BIGINT NOT NULL CHECK (dseq >= 1),
+    PRIMARY KEY (user_id, audience)
 );
 CREATE TABLE IF NOT EXISTS agent_log_clock (
     node VARCHAR(64) PRIMARY KEY,
@@ -94,10 +177,13 @@ CREATE TABLE IF NOT EXISTS agent_log_clock (
 
 -- Single-use links for a new host core's first full sync over HTTPS
 -- (`log.full`). Only the sha256 of the link's secret part is kept.
+-- `peer_abi` is the device's core ABI as its link said (2 when its hello
+-- listed `log2`): what may go to it.
 CREATE TABLE IF NOT EXISTS agent_log_full_links (
     token_hash VARCHAR(64) PRIMARY KEY,
     device_id VARCHAR(64) NOT NULL,
     audience VARCHAR(512) NOT NULL,
+    peer_abi SMALLINT NOT NULL DEFAULT 1 CHECK (peer_abi >= 1),
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ
 );

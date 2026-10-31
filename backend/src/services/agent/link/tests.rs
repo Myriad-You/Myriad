@@ -846,6 +846,52 @@ async fn the_link_takes_only_a_live_device_token() {
     site.close().await;
 }
 
+/// The account's one partner id comes in the welcome only to an end that
+/// lists `partner`, minted once: the same on every link of the account,
+/// another account's another.
+#[tokio::test]
+async fn the_welcome_gives_the_partner_id_only_to_an_end_that_knows_it() {
+    let Some(site) = site().await else {
+        return;
+    };
+    let (_, token) = device(&site.db, "MacBook").await;
+    let mut old = Child::open(&site, &token).await;
+    let welcome = old.hello().await;
+    assert!(welcome["body"].get("partner").is_none());
+    drop(old);
+    let mut mac = Child::open(&site, &token).await;
+    let welcome = mac.hello_with(&["rig", "partner", "log2"]).await;
+    assert_eq!(
+        welcome["body"]["capabilities"],
+        json!(["rig", "partner", "log2"])
+    );
+    let partner = welcome["body"]["partner"].as_str().unwrap().to_string();
+    assert!(
+        myriad_persona_log::partner::check(&partner).is_ok(),
+        "{partner}"
+    );
+    drop(mac);
+    let (_, phone) = device(&site.db, "iPhone").await;
+    let mut phone = Child::open(&site, &phone).await;
+    let welcome = phone.hello_with(&["partner"]).await;
+    assert_eq!(welcome["body"]["partner"], partner.as_str());
+    drop(phone);
+    site.db
+        .execute_unprepared(&format!(
+            "INSERT INTO users (id, username) VALUES ({0}, 'user{0}')",
+            OWNER + 1
+        ))
+        .await
+        .unwrap();
+    assert_ne!(
+        crate::services::her_log::partner_id(&site.db, OWNER + 1)
+            .await
+            .unwrap(),
+        partner
+    );
+    site.close().await;
+}
+
 #[tokio::test]
 async fn hello_welcome_and_what_the_link_will_not_take() {
     let Some(site) = site().await else {
@@ -1082,7 +1128,9 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
         ),
         (Some("site"), Some("app"))
     );
-    assert_eq!(welcome["body"]["capabilities"], json!([]));
+    // The site's own list: its core reads log2 rows.
+    assert_eq!(welcome["body"]["capabilities"], json!(["log2"]));
+    assert!(welcome["body"].get("partner").is_none());
     assert_eq!(welcome["body"]["hostEpoch"], 2);
     assert_eq!(welcome["body"]["lineage"], born.lineage.as_str());
     // Her host's link carries nothing but the heartbeat.

@@ -9,9 +9,20 @@
 //! The passphrase is used once, for the key, and is in no log, error or
 //! row; nothing secret of the site (keys, tokens, grants, settings) is in
 //! the entities the file is made of.
+//!
+//! The file is for the partner's computer, so when the site keeps her log
+//! (`services::her_log`) it carries only the audiences that computer may
+//! hold, the partner's private talk and hers, as log pages (a version 2
+//! file): the same batches `nodes.wire_send` gives that computer over the
+//! link, so a body goes only when it may travel. A group's log and anyone
+//! else's private talk with her stay on the site. Such a file names the
+//! account's partner id in its header (`partner`), whose private talk its
+//! pages are; the site is never a home of a node taken back from sync, so
+//! it writes no home pages (`home: false`).
 
 use std::collections::BTreeMap;
 
+use myriad_persona_log::Vector;
 use myriad_persona_sync::{
     AssetRef, AssetType, EntityVersion, Envelope, FORMAT, FORMAT_VERSION, Kind,
     archive::{
@@ -22,9 +33,11 @@ use myriad_persona_sync::{
     hlc,
 };
 use rand::Rng as _;
-use sea_orm::{AccessMode, DatabaseConnection, IsolationLevel, TransactionTrait};
+use sea_orm::{AccessMode, ConnectionTrait, DatabaseConnection, IsolationLevel, TransactionTrait};
+use serde_json::Value;
 
 use super::{assets, lease, snapshot};
+use crate::services::her_log;
 
 /// Most entities, and most canonical bytes, on one page of the file.
 const PAGE_ENTITIES: usize = 2000;
@@ -69,6 +82,7 @@ pub async fn export(
     tracing::info!(
         bytes = bytes.len(),
         pages = her.pages.len(),
+        logs = her.logs.len(),
         files = her.files.len(),
         "[sync] she was exported"
     );
@@ -82,6 +96,10 @@ pub async fn export(
 /// more than one key, as a move to a device does).
 pub struct Her {
     pub(super) pages: Vec<Envelope>,
+    /// Her log's pages, `{audience, rows, payloads?}` in canonical JSON.
+    pub(super) logs: Vec<Vec<u8>>,
+    /// The partner id the log pages are under (none without pages).
+    pub(super) partner: Option<String>,
     pub(super) files: Vec<(Part, Vec<u8>)>,
     pub(super) manifest: Manifest,
     pub(super) lineage: Option<String>,
@@ -114,6 +132,8 @@ pub async fn read(db: &DatabaseConnection, owner: i32) -> Result<Her, ExportErro
         return Err(ExportError::Empty);
     }
 
+    // Minted (if need be) before the read-only snapshot.
+    let log_owner = log_owner(db, owner).await?;
     let pictures = assets::Pictures::new(db, owner);
     let model = super::embedding_model(db)
         .await
@@ -128,14 +148,34 @@ pub async fn read(db: &DatabaseConnection, owner: i32) -> Result<Her, ExportErro
     let (entities, embeddings) = snapshot::whole(&snapshot, &pictures, owner, model.as_ref())
         .await
         .map_err(ExportError::failed)?;
+    let logs = match &log_owner {
+        Some(log_owner) => pages_for(&snapshot, her_log::keys::root(), log_owner).await?,
+        None => Vec::new(),
+    };
     snapshot.commit().await.map_err(ExportError::failed)?;
+    let reader = log_owner.as_ref().map(her_log::Owner::pc);
 
     let lineage = lease.as_ref().map(|lease| lease.lineage.clone());
     let pages = pages(lineage.clone(), model.clone(), entities, embeddings);
     let files = files(&pictures, &pages).await?;
-    let manifest = Manifest::of_envelopes(&pages).map_err(ExportError::failed)?;
+    let manifest = Manifest::of_envelopes(&pages)
+        .and_then(|manifest| {
+            manifest.with_logs(&logs, |audience| {
+                reader.as_ref().is_some_and(|reader| reader.holds(audience))
+            })
+        })
+        .map_err(ExportError::failed)?;
+    let partner = log_owner
+        .filter(|_| !logs.is_empty())
+        .map(|log_owner| log_owner.partner);
+    let logs = logs
+        .iter()
+        .map(myriad_persona_sync::canonical::canonical_bytes)
+        .collect();
     Ok(Her {
         pages,
+        logs,
+        partner,
         files,
         manifest,
         lineage,
@@ -166,6 +206,9 @@ pub async fn seal(her: &Her, passphrase: String) -> Result<Vec<u8>, ExportError>
             origin: hlc::SITE.to_string(),
             created_at: her.at.timestamp_micros(),
             digest: her.manifest.digest.clone(),
+            logs: !her.logs.is_empty(),
+            home: false,
+            partner: her.partner.clone(),
         },
     )
     .map_err(ExportError::failed)?;
@@ -186,6 +229,12 @@ pub async fn seal(her: &Her, passphrase: String) -> Result<Vec<u8>, ExportError>
         };
         out.extend(sealer.part(&part, &bytes).map_err(ExportError::failed)?);
     }
+    for page in &her.logs {
+        let part = Part::Log {
+            bytes: page.len() as u64,
+        };
+        out.extend(sealer.part(&part, page).map_err(ExportError::failed)?);
+    }
     for (part, payload) in &her.files {
         out.extend(sealer.part(part, payload).map_err(ExportError::failed)?);
     }
@@ -201,6 +250,63 @@ pub async fn seal(her: &Her, passphrase: String) -> Result<Vec<u8>, ExportError>
     );
     out.extend(sealer.finish().map_err(ExportError::failed)?);
     Ok(out)
+}
+
+/// `owner`'s account as a side of her log, while the site keeps it for
+/// them; none when it does not.
+async fn log_owner(
+    db: &DatabaseConnection,
+    owner: i32,
+) -> Result<Option<her_log::Owner>, ExportError> {
+    if !her_log::enabled()
+        || !her_log::store::account(db, owner)
+            .await
+            .map_err(ExportError::failed)?
+            .is_some_and(|account| account.on())
+    {
+        return Ok(None);
+    }
+    her_log::owner(db, owner)
+        .await
+        .map(Some)
+        .map_err(ExportError::failed)
+}
+
+/// The core ABI a reader of a file with log pages has: such a file names
+/// the partner in its header, which no older core reads.
+const FILE_READER_ABI: u32 = 2;
+
+/// Her log's pages for `owner`'s computers: every row of each audience they
+/// may hold, in the batches `nodes.wire_send` gives one, each as
+/// `{audience, rows, payloads?}`.
+pub(super) async fn pages_for<C: ConnectionTrait>(
+    db: &C,
+    root: &dyn her_log::keys::Root,
+    owner: &her_log::Owner,
+) -> Result<Vec<Value>, ExportError> {
+    let reader = owner.pc();
+    let mut pages = Vec::new();
+    for audience in [owner.personal(), "own:".to_string()] {
+        let sent = her_log::store::send(
+            db,
+            root,
+            owner,
+            &audience,
+            &Vector::new(),
+            Vec::new(),
+            &reader,
+            FILE_READER_ABI,
+        )
+        .await
+        .map_err(ExportError::failed)?;
+        for mut batch in sent.batches {
+            // A page says no more than its rows and payloads: a body that
+            // did not come along is simply not there.
+            batch.withheld.clear();
+            pages.push(serde_json::to_value(batch).map_err(ExportError::failed)?);
+        }
+    }
+    Ok(pages)
 }
 
 /// The entities in pages of at most [`PAGE_ENTITIES`] and about
@@ -416,8 +522,8 @@ mod tests {
         assert!(file.name.ends_with(".her-archive"));
         let text = String::from_utf8_lossy(&file.bytes);
         assert!(!text.contains("她喜欢雨天"), "the file is sealed");
-        assert!(archive::open("晴天的伞", &file.bytes).is_err());
-        let opened = archive::open("雨天的伞", &file.bytes).unwrap();
+        assert!(archive::open("晴天的伞", &file.bytes, false).is_err());
+        let opened = archive::open("雨天的伞", &file.bytes, false).unwrap();
         let count = |kind: &str| {
             opened
                 .manifest
@@ -460,5 +566,222 @@ mod tests {
             Err(ExportError::Elsewhere(Some(_)))
         ));
         fixture.close().await;
+    }
+
+    /// Her log goes into the file only as far as the partner's computer may
+    /// hold it, in the batches the link would send it (a version 2 file),
+    /// and lands on another site as it left: the partner's private talk and
+    /// hers, never anyone else's.
+    #[tokio::test]
+    async fn the_files_log_pages_are_only_what_the_partners_computer_may_hold() {
+        use crate::services::her_log::{
+            self,
+            keys::test_root::TestRoot,
+            store,
+            test_partner::{OTHER_PARTNER, PARTNER},
+        };
+        use myriad_persona_log::Row;
+        use sea_orm::ConnectionTrait;
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let from = crate::db::IsolatedSchema::migrated(&url, "export_logs_from").await;
+        let to = crate::db::IsolatedSchema::migrated(&url, "export_logs_to").await;
+        for schema in [&from, &to] {
+            schema
+                .db
+                .execute_unprepared("INSERT INTO users (id, username) VALUES (41, 'owner')")
+                .await
+                .unwrap();
+            store::start(&schema.db, 41).await.unwrap();
+            // The same account: the same partner id on both.
+            her_log::test_partner::give(&schema.db, 41, PARTNER).await;
+        }
+        let owner = her_log::owner(&from.db, 41).await.unwrap();
+        let personal = owner.personal();
+        let root = TestRoot([9; 32]);
+        let base64 = base64::engine::general_purpose::STANDARD;
+        let now = 1_761_200_000_000_000;
+        for (n, audience) in [personal.as_str(), "own:", "personal:99"]
+            .into_iter()
+            .enumerate()
+        {
+            let body = serde_json::json!({ "at": 1_761_200_000_000i64, "kind": "fact", "text": format!("第 {n} 件事") });
+            let row: Row = serde_json::from_value(serde_json::json!({
+                "version": 1, "id": format!("r{n}"), "origin": "dev_mac", "author": "owner",
+                "dseq": 1, "hlc": format!("00176120000000{n}-000000-dev_mac"),
+                "audience": audience, "object": format!("memory:m{n}"), "kind": "memory.write",
+                "payload": { "ref": format!("doc:r{n}") }, "replicate": "shared",
+            }))
+            .unwrap();
+            let batch: myriad_nodes::wire::Batch = serde_json::from_value(serde_json::json!({
+                "audience": audience,
+                "rows": [row],
+                "payloads": [{
+                    "ref": format!("doc:r{n}"),
+                    "data": base64::Engine::encode(
+                        &base64,
+                        myriad_persona_sync::canonical::canonical_bytes(&body),
+                    ),
+                }],
+            }))
+            .unwrap();
+            let taken = store::take(
+                &from.db,
+                &root,
+                &owner,
+                "dev_mac",
+                batch,
+                &Default::default(),
+                now,
+            )
+            .await
+            .unwrap();
+            assert_eq!(taken.added.len(), 1, "{audience}: {:?}", taken.not_taken);
+        }
+        // One body that no longer opens: its row still goes, without it.
+        from.db
+            .execute_unprepared(
+                "UPDATE agent_log_payloads SET sealed = '\\x00' WHERE user_id = 41 AND row_id = 'r1'",
+            )
+            .await
+            .unwrap();
+
+        let reader = owner.pc();
+        let logs = pages_for(&from.db, &root, &owner).await.unwrap();
+        let audiences: Vec<&str> = logs
+            .iter()
+            .map(|page| page["audience"].as_str().unwrap())
+            .collect();
+        assert_eq!(audiences, [personal.as_str(), "own:"]);
+        assert_eq!(logs[1]["rows"].as_array().unwrap().len(), 1);
+        assert!(logs[1].get("payloads").is_none());
+        let pages = pages(None, None, Vec::new(), Vec::new());
+        let manifest = Manifest::of_envelopes(&pages).unwrap();
+        let elsewhere = serde_json::json!({ "audience": "personal:99", "rows": [] });
+        assert!(
+            manifest
+                .clone()
+                .with_logs(&[elsewhere], |audience| reader.holds(audience))
+                .is_err()
+        );
+        let her = Her {
+            manifest: manifest
+                .with_logs(&logs, |audience| reader.holds(audience))
+                .unwrap(),
+            pages,
+            logs: logs
+                .iter()
+                .map(myriad_persona_sync::canonical::canonical_bytes)
+                .collect(),
+            partner: Some(PARTNER.to_string()),
+            files: Vec::new(),
+            lineage: None,
+            epoch: None,
+            at: crate::clock::now(),
+        };
+        let sealed = seal(&her, "雨天的伞".into()).await.unwrap();
+        let opened = archive::open("雨天的伞", &sealed, false).unwrap();
+        assert_eq!(opened.header.version, archive::ARCHIVE_LOG_VERSION);
+        assert_eq!(opened.header.partner.as_deref(), Some(PARTNER));
+        assert!(!opened.header.home);
+        assert_eq!(opened.logs, logs);
+
+        // A file under another partner id, or from before (none: its pages
+        // under local-owner), is not this account's: none of it is taken.
+        for header in [Some(OTHER_PARTNER), None] {
+            let landed = super::super::import::take_pages(
+                &to.db,
+                &root,
+                41,
+                header,
+                opened.logs.clone(),
+                super::super::import::LogLanded::default(),
+            )
+            .await;
+            assert_eq!(
+                (landed.added, landed.pages_refused),
+                (0, opened.logs.len() as u64),
+                "{header:?}"
+            );
+        }
+
+        // A file edited to carry what the partner's computer may not hold:
+        // those pages are not taken, a group's forget least of all.
+        let mut pages = opened.logs;
+        pages.push(serde_json::json!({ "audience": "personal:99", "rows": [] }));
+        pages.push(serde_json::json!({ "audience": "group:g1", "rows": [{
+            "version": 1, "id": "g1", "origin": "dev_mac", "author": "owner", "dseq": 1,
+            "hlc": "001761200000009-000000-dev_mac", "audience": "group:g1",
+            "object": "memory:m9", "kind": "forget", "replicate": "shared",
+        }] }));
+        let landed = super::super::import::take_pages(
+            &to.db,
+            &root,
+            41,
+            Some(PARTNER),
+            pages,
+            super::super::import::LogLanded::default(),
+        )
+        .await;
+        assert_eq!(
+            (
+                landed.added,
+                landed.not_taken,
+                landed.withheld,
+                landed.pages_refused
+            ),
+            (2, 0, 1, 2)
+        );
+        assert!(
+            store::rows(&to.db, 41, "group:g1")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            to.db
+                .query_one_raw(sea_orm::Statement::from_string(
+                    sea_orm::DatabaseBackend::Postgres,
+                    "SELECT COUNT(*) AS n FROM agent_log_rows WHERE received_from = 'file'",
+                ))
+                .await
+                .unwrap()
+                .unwrap()
+                .try_get::<i64>("", "n")
+                .unwrap(),
+            2
+        );
+        for audience in [personal.as_str(), "own:"] {
+            assert_eq!(
+                store::rows(&to.db, 41, audience).await.unwrap(),
+                store::rows(&from.db, 41, audience).await.unwrap()
+            );
+        }
+        assert!(
+            store::rows(&to.db, 41, "personal:99")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        async fn sent(db: &sea_orm::DatabaseConnection) -> myriad_nodes::wire::Sent {
+            let owner = crate::services::her_log::owner(db, 41).await.unwrap();
+            let root = crate::services::her_log::keys::test_root::TestRoot([9; 32]);
+            crate::services::her_log::store::send(
+                db,
+                &root,
+                &owner,
+                &owner.personal(),
+                &Default::default(),
+                Vec::new(),
+                &owner.pc(),
+                2,
+            )
+            .await
+            .unwrap()
+        }
+        assert_eq!(sent(&to.db).await, sent(&from.db).await);
+        from.drop().await;
+        to.drop().await;
     }
 }
