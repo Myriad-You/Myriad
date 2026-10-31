@@ -54,35 +54,110 @@ use std::fmt;
 use std::sync::OnceLock;
 
 use myriad_persona_log::{Core, Holder};
-use sea_orm::DbErr;
+use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, Statement};
 
 /// The server's node in her log and in the lease: the same as the site's
 /// node in revisions.
 pub const NODE: &str = myriad_persona_sync::hlc::SITE;
 
-/// The partner's id in their private audience (`personal:<id>`), the one
-/// `holder.owner` names: today the site's user id. The Mac says
-/// `local-owner`; the core is to settle one id for every side, and this is
-/// the one place the site changes when it does.
-pub fn partner(owner: i32) -> String {
-    owner.to_string()
+/// One account's side of her log: the account (`user`, the site's user id,
+/// which keys every table of it) and the partner id it goes by. Node ids
+/// are unique only per account and audience, so nothing of one account's
+/// log is ever read for another's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Owner {
+    pub user: i32,
+    /// The partner's one id (`partner_…`, [`partner_id`]): their private
+    /// talk is `personal:<id>` on every side, and it is the `holder.owner`
+    /// of the server and of the partner's computers.
+    pub partner: String,
 }
 
-/// The partner's computers as a side of her log: they hold only the
-/// partner's private talk and hers.
-pub fn pc(owner: i32) -> Holder {
-    Holder {
-        core: Core::Pc,
-        owner: partner(owner),
+impl Owner {
+    /// The partner's computers as a side of her log: they hold only the
+    /// partner's private talk and hers.
+    pub fn pc(&self) -> Holder {
+        Holder {
+            core: Core::Pc,
+            owner: self.partner.clone(),
+        }
+    }
+
+    /// The server as a side of this account's log: it holds every audience
+    /// but another partner's private talk.
+    pub fn server(&self) -> Holder {
+        Holder {
+            core: Core::Server,
+            owner: self.partner.clone(),
+        }
+    }
+
+    /// `personal:<partner id>`.
+    pub fn personal(&self) -> String {
+        format!("personal:{}", self.partner)
     }
 }
 
-/// The server as a side of her log: it holds every audience.
-pub fn server(owner: i32) -> Holder {
-    Holder {
-        core: Core::Server,
-        owner: partner(owner),
+/// The partner id of `user`'s account, minted the first time it is asked
+/// for (`partner.mint`: the time and ten random bytes) and the same ever
+/// after. The site is where every side of the account gets it (the link's
+/// `welcome` `partner`); it is an id, not a credential.
+pub async fn partner_id<C: ConnectionTrait>(db: &C, user: i32) -> Result<String, Error> {
+    let read = || {
+        Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT partner_id FROM agent_log_partners WHERE user_id = $1",
+            [user.into()],
+        )
+    };
+    if let Some(row) = db.query_one_raw(read()).await? {
+        return Ok(row.try_get("", "partner_id")?);
     }
+    let minted_at = crate::clock::now();
+    let random: [u8; myriad_persona_log::partner::RANDOM_BYTES] = rand::random();
+    let id = myriad_persona_log::partner::mint(minted_at.timestamp_millis(), &random)?;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO agent_log_partners (user_id, partner_id, minted_at) VALUES ($1, $2, $3) \
+         ON CONFLICT (user_id) DO NOTHING",
+        [user.into(), id.into(), minted_at.into()],
+    ))
+    .await?;
+    // Read back: if another connection minted first, its id is the one.
+    let row = db
+        .query_one_raw(read())
+        .await?
+        .ok_or_else(|| Error::Refused("no partner id".into()))?;
+    Ok(row.try_get("", "partner_id")?)
+}
+
+/// A fixed partner id for an account in tests, as if the site had minted it.
+#[cfg(test)]
+pub(crate) mod test_partner {
+    use sea_orm::ConnectionTrait;
+
+    /// One partner, minted on 2026-01-01.
+    pub(crate) const PARTNER: &str = "partner_019b76daa80000112233445566778899";
+    /// Another account's partner.
+    pub(crate) const OTHER_PARTNER: &str = "partner_019b76daa80099887766554433221100";
+
+    /// Gives `user`'s account the partner id `id`.
+    pub(crate) async fn give<C: ConnectionTrait>(db: &C, user: i32, id: &str) {
+        db.execute_unprepared(&format!(
+            "INSERT INTO agent_log_partners (user_id, partner_id, minted_at) \
+             VALUES ({user}, '{id}', NOW())"
+        ))
+        .await
+        .unwrap();
+    }
+}
+
+/// `user`'s account as a side of her log, its partner id minted if need be.
+pub async fn owner<C: ConnectionTrait>(db: &C, user: i32) -> Result<Owner, Error> {
+    Ok(Owner {
+        user,
+        partner: partner_id(db, user).await?,
+    })
 }
 
 /// How her log on the server runs. Environment, read once at start: it is

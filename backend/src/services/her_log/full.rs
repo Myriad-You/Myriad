@@ -35,10 +35,12 @@ pub struct Link {
 }
 
 /// A link for `device` to download `audience`, from the server's time `now`.
+/// `peer_abi` is its core's ABI as its link said: what may go to it.
 pub async fn issue<C: ConnectionTrait>(
     db: &C,
     device: &str,
     audience: &str,
+    peer_abi: u32,
     now: i64,
 ) -> Result<Link, Error> {
     let secret = format!("full_{}", hex::encode(rand::random::<[u8; 24]>()));
@@ -47,12 +49,13 @@ pub async fn issue<C: ConnectionTrait>(
         .ok_or_else(|| Error::Refused("time".into()))?;
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "INSERT INTO agent_log_full_links (token_hash, device_id, audience, expires_at) \
-         VALUES ($1, $2, $3, $4)",
+        "INSERT INTO agent_log_full_links (token_hash, device_id, audience, peer_abi, expires_at) \
+         VALUES ($1, $2, $3, $4, $5)",
         [
             hash(&secret).into(),
             device.into(),
             audience.into(),
+            (peer_abi.min(i16::MAX as u32) as i16).into(),
             expires_at.into(),
         ],
     ))
@@ -63,14 +66,15 @@ pub async fn issue<C: ConnectionTrait>(
     })
 }
 
-/// The download behind `secret` for `device`, one of `owner`'s computers:
-/// `{audience, vector, rows, payloads, withheld}`, the link used up. None
-/// when there is no such link for this device, or it was used or has
-/// expired.
+/// The download behind `secret` for `device`, one of the computers of
+/// `user`'s account: `{audience, vector, rows, payloads, withheld}`, the
+/// link used up, and `tooOld: true` with no rows when its core is older
+/// than ABI 2 and a row it would refuse is to go. None when there is no
+/// such link for this device, or it was used or has expired.
 pub async fn redeem(
     db: &DatabaseConnection,
     root: &dyn keys::Root,
-    owner: i32,
+    user: i32,
     device: &str,
     secret: &str,
     now: i64,
@@ -83,7 +87,7 @@ pub async fn redeem(
             DatabaseBackend::Postgres,
             "UPDATE agent_log_full_links SET used_at = $3 \
              WHERE token_hash = $1 AND device_id = $2 AND used_at IS NULL AND expires_at > $3 \
-             RETURNING audience",
+             RETURNING audience, peer_abi",
             [hash(secret).into(), device.into(), now_at.into()],
         ))
         .await?
@@ -92,14 +96,18 @@ pub async fn redeem(
         return Ok(None);
     };
     let audience: String = link.try_get("", "audience")?;
-    let holdings = store::holdings(&txn, &audience).await?;
+    let peer_abi: i16 = link.try_get("", "peer_abi")?;
+    let owner = super::owner(&txn, user).await?;
+    let holdings = store::holdings(&txn, user, &audience).await?;
     let sent = store::send(
         &txn,
         root,
+        &owner,
         &audience,
         &Vector::new(),
         Vec::new(),
-        &super::pc(owner),
+        &owner.pc(),
+        peer_abi.max(1) as u32,
     )
     .await?;
     txn.commit().await?;
@@ -109,11 +117,15 @@ pub async fn redeem(
         payloads.extend(batch.payloads);
         withheld.extend(batch.withheld);
     }
-    Ok(Some(json!({
+    let mut download = json!({
         "audience": audience,
         "vector": holdings.vector,
         "rows": rows,
         "payloads": payloads,
         "withheld": withheld,
-    })))
+    });
+    if sent.too_old {
+        download["tooOld"] = json!(true);
+    }
+    Ok(Some(download))
 }

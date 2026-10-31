@@ -22,16 +22,17 @@ use sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde_json::{Value, json};
 
 use super::{
-    NODE, Settings,
+    NODE, Owner, Settings,
     keys::test_root::TestRoot,
     lease, relay,
     relay::{Outgoing, To},
     store,
+    test_partner::PARTNER,
 };
 
 const OWNER: i32 = 41;
-/// The partner's private talk: `personal:<partner>` ([`super::partner`]).
-const PERSONAL: &str = "personal:41";
+/// The partner's private talk: `personal:<partner id>` ([`PARTNER`]).
+const PERSONAL: &str = "personal:partner_019b76daa80000112233445566778899";
 /// Someone else's private talk with her: kept on the server only.
 const OTHER: &str = "personal:99";
 const OWN: &str = "own:";
@@ -96,13 +97,30 @@ async fn schema(prefix: &str) -> Option<crate::db::IsolatedSchema> {
         .await
         .unwrap();
     store::start(&schema.db, OWNER).await.unwrap();
+    super::test_partner::give(&schema.db, OWNER, PARTNER).await;
+    assert_eq!(owner(&schema.db).await.personal(), PERSONAL);
     Some(schema)
+}
+
+async fn owner(db: &DatabaseConnection) -> Owner {
+    super::owner(db, OWNER).await.unwrap()
+}
+
+/// The partner's computers, as the server sees one.
+fn pc() -> Holder {
+    Holder {
+        core: Core::Pc,
+        owner: PARTNER.to_string(),
+    }
 }
 
 /// One host core in memory: a log per audience, its ledger, its payloads,
 /// its clock and counts.
 struct Side {
     id: String,
+    /// The account it is of, and the partner id it goes by.
+    user: i32,
+    partner: String,
     logs: BTreeMap<String, Vec<Row>>,
     ledger: Vec<Entry>,
     payloads: BTreeMap<String, Vec<u8>>,
@@ -119,8 +137,15 @@ struct Side {
 
 impl Side {
     fn new(id: &str) -> Self {
+        Self::of(id, OWNER, PARTNER)
+    }
+
+    /// A computer of another account.
+    fn of(id: &str, user: i32, partner: &str) -> Self {
         Self {
             id: id.to_string(),
+            user,
+            partner: partner.to_string(),
             logs: BTreeMap::new(),
             ledger: Vec::new(),
             payloads: BTreeMap::new(),
@@ -130,12 +155,21 @@ impl Side {
             seq: 0,
             epoch: None,
             now: T0,
-            link: relay::Session::default(),
+            // A computer whose core reads every row (its hello lists log2).
+            link: relay::Session::new(relay::peer_abi(&["log2".to_string()])),
         }
     }
 
     fn log(&self, audience: &str) -> Vec<Row> {
         self.logs.get(audience).cloned().unwrap_or_default()
+    }
+
+    /// This computer as a side of her log.
+    fn pc(&self) -> Holder {
+        Holder {
+            core: Core::Pc,
+            owner: self.partner.clone(),
+        }
     }
 
     /// Writes one shared row: hers (with the epoch it holds) or the owner's.
@@ -148,6 +182,20 @@ impl Side {
         payload: Option<&str>,
         now: i64,
     ) -> Row {
+        let body = payload.map(|text| body_of(kind, audience, object, text, now));
+        self.write_body(audience, object, kind, author, body, now)
+    }
+
+    /// [`Side::write`] with the body as given.
+    fn write_body(
+        &mut self,
+        audience: &str,
+        object: &str,
+        kind: &str,
+        author: Author,
+        body: Option<Value>,
+        now: i64,
+    ) -> Row {
         self.now = self.now.max(now);
         let hlc = myriad_persona_log::clock::next(self.clock.as_ref(), now, 0, &self.id).unwrap();
         self.clock = Some(hlc.clone());
@@ -155,9 +203,8 @@ impl Side {
         let count = self.counts.entry(audience.to_string()).or_default();
         *count += 1;
         let id = format!("{}_{}", self.id, self.written);
-        let payload = payload.map(|text| {
+        let payload = body.map(|body| {
             let reference = format!("blob:{id}");
-            let body = body_of(kind, audience, object, text, now);
             self.payloads
                 .insert(reference.clone(), canonical_bytes(&body));
             Payload {
@@ -180,6 +227,8 @@ impl Side {
             payload,
             replicate: Replicate::Shared,
             forgotten: false,
+            to: None,
+            takes: Vec::new(),
         };
         row.check().unwrap();
         // Its own rows go through the same merge as anyone's.
@@ -188,15 +237,28 @@ impl Side {
     }
 
     fn merge(&mut self, audience: &str, incoming: Vec<Row>) {
+        // Her mind writes rows of audiences no computer keeps (a group's,
+        // someone else's talk) only to send them back to the server; this
+        // stand-in keeps them in memory to send, as the server would.
+        let holder = if self.pc().holds(audience) {
+            self.pc()
+        } else {
+            Holder {
+                core: Core::Server,
+                owner: self.partner.clone(),
+            }
+        };
         let admitted = admit(AdmitInput {
             rows: incoming,
             now: self.now,
             known: BTreeMap::new(),
             members: BTreeMap::new(),
-            ledger: self.ledger.clone(),
+            ledger: Some(self.ledger.clone()),
             epochs: BTreeMap::new(),
-            holder: None,
-        });
+            holder: holder.clone(),
+            peer: self.partner.clone(),
+        })
+        .unwrap();
         assert!(admitted.clock_ahead.is_none());
         assert!(admitted.refused.is_empty(), "{:?}", admitted.refused);
         self.ledger = admitted.ledger;
@@ -215,7 +277,10 @@ impl Side {
         let merged = merge(MergeInput {
             log: self.log(audience),
             incoming: admitted.accepted,
-        });
+            ledger: self.ledger.clone(),
+            holder: Some(holder),
+        })
+        .unwrap();
         assert!(merged.conflicts.is_empty(), "{:?}", merged.conflicts);
         for row in merged.log.iter().filter(|row| row.forgotten) {
             if let Some(payload) = &row.payload {
@@ -269,8 +334,12 @@ impl Side {
             ask,
             holder: Holder {
                 core: Core::Server,
-                owner: super::partner(OWNER),
+                owner: self.partner.clone(),
             },
+            here: self.partner.clone(),
+            peer_abi: 2,
+            ledger: self.ledger.clone(),
+            elsewhere: Vec::new(),
         })
         .unwrap();
         sent.batches
@@ -354,6 +423,7 @@ impl Side {
         let folded = fold(FoldInput {
             rows: self.log(audience),
             leases: leases.to_vec(),
+            ledger: self.ledger.clone(),
         })
         .unwrap();
         canonical_bytes(&serde_json::to_value(folded).unwrap())
@@ -387,7 +457,7 @@ async fn exchange(
                 db,
                 &root,
                 &on(),
-                OWNER,
+                side.user,
                 &device,
                 Core::Pc,
                 &mut side.link,
@@ -422,8 +492,9 @@ async fn sync(db: &DatabaseConnection, side: &mut Side, audience: &str, now: i64
 
 async fn server_fold(db: &DatabaseConnection, audience: &str, leases: &[Grant]) -> Vec<u8> {
     let folded = fold(FoldInput {
-        rows: store::rows(db, audience).await.unwrap(),
+        rows: store::rows(db, OWNER, audience).await.unwrap(),
         leases: leases.to_vec(),
+        ledger: store::ledger(db, OWNER, audience).await.unwrap(),
     })
     .unwrap();
     canonical_bytes(&serde_json::to_value(folded).unwrap())
@@ -698,7 +769,7 @@ async fn a_forget_on_the_server_deletes_the_key_and_is_answered_first() {
         2
     );
 
-    let forget = store::forget(db, &root(), &super::server(OWNER), PERSONAL, "memory:trip")
+    let forget = store::forget(db, &root(), &owner(db).await, PERSONAL, "memory:trip")
         .await
         .unwrap();
     assert_eq!(forget.origin, NODE);
@@ -714,15 +785,17 @@ async fn a_forget_on_the_server_deletes_the_key_and_is_answered_first() {
         .await,
         0
     );
-    assert_eq!(count(db, "SELECT COUNT(*) FROM agent_log_ledger").await, 1);
+    assert_eq!(store::ledger(db, OWNER, PERSONAL).await.unwrap().len(), 1);
 
     let answered = store::send(
         db,
         &root(),
+        &owner(db).await,
         PERSONAL,
         &Vector::new(),
         Vec::new(),
-        &super::pc(OWNER),
+        &pc(),
+        2,
     )
     .await
     .unwrap();
@@ -800,7 +873,7 @@ async fn a_groups_rows_go_to_no_computer_and_come_back_only_from_her_mind() {
     assert_eq!(delivered(&outs[0])["body"]["code"], "not_holder");
     let frame = mac.rows_frame(GROUP, mac.log(GROUP));
     exchange(db, &mut mac, vec![frame], T0 + MINUTE).await;
-    assert_eq!(store::rows(db, GROUP).await.unwrap().len(), 1);
+    assert_eq!(store::rows(db, OWNER, GROUP).await.unwrap().len(), 1);
 
     // Windows is not her mind: neither its vector nor its rows are taken.
     let vector = win.vector(GROUP);
@@ -841,7 +914,7 @@ async fn a_groups_rows_go_to_no_computer_and_come_back_only_from_her_mind() {
     .await
     .unwrap();
     assert_eq!(delivered(&outs[0])["body"]["code"], "not_holder");
-    assert_eq!(store::rows(db, GROUP).await.unwrap().len(), 1);
+    assert_eq!(store::rows(db, OWNER, GROUP).await.unwrap().len(), 1);
     // A change in a group is not announced to the other host cores.
     mac.write(
         GROUP,
@@ -1346,7 +1419,7 @@ async fn a_partners_computer_never_gets_anyone_elses_talk() {
     );
     let frame = mac.rows_frame(OTHER, mac.log(OTHER));
     exchange(db, &mut mac, vec![frame], T0 + MINUTE).await;
-    assert_eq!(store::rows(db, OTHER).await.unwrap().len(), 1);
+    assert_eq!(store::rows(db, OWNER, OTHER).await.unwrap().len(), 1);
 
     let vector = win.vector(OTHER);
     let outs = relay::take(
@@ -1387,20 +1460,24 @@ async fn a_partners_computer_never_gets_anyone_elses_talk() {
     .await
     .unwrap();
     assert_eq!(delivered(&outs[0])["body"]["code"], "not_holder");
-    assert_eq!(store::rows(db, OTHER).await.unwrap().len(), 1);
+    assert_eq!(store::rows(db, OWNER, OTHER).await.unwrap().len(), 1);
 
     let sent = store::send(
         db,
         &root(),
+        &owner(db).await,
         OTHER,
         &Vector::new(),
         Vec::new(),
-        &super::pc(OWNER),
+        &pc(),
+        2,
     )
     .await
     .unwrap();
     assert!(sent.not_held && sent.batches.is_empty());
-    let link = super::full::issue(db, "dev_win", OTHER, T0).await.unwrap();
+    let link = super::full::issue(db, "dev_win", OTHER, 2, T0)
+        .await
+        .unwrap();
     let secret = link.path.trim_start_matches(super::full::PATH);
     let download = super::full::redeem(db, &root(), OWNER, "dev_win", secret, T0)
         .await
@@ -1431,7 +1508,7 @@ async fn a_body_holding_a_key_is_not_taken() {
     // Carried anyway, past the sender's own check.
     let frame = mac.rows_frame(PERSONAL, vec![row.clone()]);
     exchange(db, &mut mac, vec![frame], T0 + MINUTE).await;
-    assert_eq!(store::rows(db, PERSONAL).await.unwrap().len(), 1);
+    assert_eq!(store::rows(db, OWNER, PERSONAL).await.unwrap().len(), 1);
     assert_eq!(
         count(db, "SELECT COUNT(*) FROM agent_log_payloads").await,
         0
@@ -1463,7 +1540,7 @@ async fn a_phone_gets_no_log() {
         T0,
     );
     sync(db, &mut mac, PERSONAL, T0 + MINUTE).await;
-    assert_eq!(store::rows(db, PERSONAL).await.unwrap().len(), 1);
+    assert_eq!(store::rows(db, OWNER, PERSONAL).await.unwrap().len(), 1);
 
     let mut phone = Side::new("dev_phone");
     let vector = phone.vector(PERSONAL);
@@ -1505,6 +1582,285 @@ async fn a_phone_gets_no_log() {
     .await
     .unwrap();
     assert_eq!(delivered(&outs[0])["t"], "error");
-    assert_eq!(store::rows(db, PERSONAL).await.unwrap().len(), 1);
+    assert_eq!(store::rows(db, OWNER, PERSONAL).await.unwrap().len(), 1);
+    schema.drop().await;
+}
+
+/// Two accounts keep two logs: the same row and node ids under each are
+/// each account's own, a computer of one never gets the other's rows or
+/// bodies, and its partner's private talk is not the other's to ask for.
+#[tokio::test]
+async fn two_accounts_keep_two_logs() {
+    use super::test_partner::OTHER_PARTNER;
+    let Some(schema) = schema("her_log_accounts").await else {
+        return;
+    };
+    let db = &schema.db;
+    let other = OWNER + 1;
+    db.execute_unprepared(&format!(
+        "INSERT INTO users (id, username) VALUES ({other}, 'other')"
+    ))
+    .await
+    .unwrap();
+    store::start(db, other).await.unwrap();
+    super::test_partner::give(db, other, OTHER_PARTNER).await;
+    let theirs = format!("personal:{OTHER_PARTNER}");
+
+    // The same device id, so the same row ids, in both accounts.
+    let mut mine = Side::new("dev_mac");
+    let mut yours = Side::of("dev_mac", other, OTHER_PARTNER);
+    mine.write(
+        OWN,
+        "memory:tea",
+        "memory.write",
+        Author::Owner,
+        Some("likes tea"),
+        T0,
+    );
+    yours.write(
+        OWN,
+        "memory:tea",
+        "memory.write",
+        Author::Owner,
+        Some("likes coffee"),
+        T0,
+    );
+    yours.write(
+        &theirs,
+        "memory:walk",
+        "memory.write",
+        Author::Owner,
+        Some("walks at night"),
+        T0,
+    );
+    sync(db, &mut mine, OWN, T0 + MINUTE).await;
+    sync(db, &mut yours, OWN, T0 + MINUTE).await;
+    sync(db, &mut yours, &theirs, T0 + MINUTE).await;
+    assert_eq!(store::rows(db, OWNER, OWN).await.unwrap().len(), 1);
+    assert_eq!(store::rows(db, other, OWN).await.unwrap().len(), 1);
+    assert!(store::rows(db, OWNER, &theirs).await.unwrap().is_empty());
+
+    let mut win = Side::new("dev_win");
+    sync(db, &mut win, OWN, T0 + 2 * MINUTE).await;
+    assert!(win.payloads.values().any(|data| says(data, "likes tea")));
+    assert!(win.payloads.values().all(|data| !says(data, "coffee")));
+    let mut their_win = Side::of("dev_win", other, OTHER_PARTNER);
+    sync(db, &mut their_win, OWN, T0 + 2 * MINUTE).await;
+    sync(db, &mut their_win, &theirs, T0 + 2 * MINUTE).await;
+    assert!(their_win.payloads.values().any(|data| says(data, "coffee")));
+    assert!(
+        their_win
+            .payloads
+            .values()
+            .any(|data| says(data, "at night"))
+    );
+    assert!(
+        their_win
+            .payloads
+            .values()
+            .all(|data| !says(data, "likes tea"))
+    );
+
+    // The other partner's private talk is not this account's computer's.
+    let vector = win.vector(&theirs);
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        OWNER,
+        "dev_win",
+        Core::Pc,
+        &mut win.link,
+        &vector,
+        T0 + 3 * MINUTE,
+    )
+    .await
+    .unwrap();
+    assert_eq!(delivered(&outs[0])["body"]["code"], "not_holder");
+    schema.drop().await;
+}
+
+/// A node taken back from sync on a computer is a forget on the server
+/// (it is never a home): its bodies go there and its key with them. A
+/// computer whose core reads retracts gets it before anything else; one
+/// older than ABI 2 gets no rows at all while it is to go (`tooOld`),
+/// only the server's vector, and so does its first full download.
+#[tokio::test]
+async fn a_retract_is_a_forget_here_and_no_row_goes_to_an_older_core() {
+    let Some(schema) = schema("her_log_retract").await else {
+        return;
+    };
+    let db = &schema.db;
+    let mut mac = Side::new("dev_mac");
+    mac.write(
+        PERSONAL,
+        "node:lamp",
+        "node.created",
+        Author::Owner,
+        Some("the lamp"),
+        T0,
+    );
+    mac.write(
+        PERSONAL,
+        "memory:tea",
+        "memory.write",
+        Author::Owner,
+        Some("likes tea"),
+        T0,
+    );
+    sync(db, &mut mac, PERSONAL, T0 + MINUTE).await;
+    assert_eq!(
+        count(db, "SELECT COUNT(*) FROM agent_log_payloads").await,
+        2
+    );
+    let retract = mac.write(
+        PERSONAL,
+        "node:lamp",
+        "retract",
+        Author::Owner,
+        None,
+        T0 + MINUTE,
+    );
+    sync(db, &mut mac, PERSONAL, T0 + 2 * MINUTE).await;
+    let ledger = store::ledger(db, OWNER, PERSONAL).await.unwrap();
+    assert!(
+        ledger
+            .iter()
+            .any(|entry| entry.is_retract() && entry.target == "node:lamp")
+    );
+    assert_eq!(
+        count(db, "SELECT COUNT(*) FROM agent_log_payloads").await,
+        1,
+        "the lamp's body is gone, the tea's stays"
+    );
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*) FROM agent_log_object_keys WHERE object = 'node:lamp'"
+        )
+        .await,
+        0
+    );
+
+    // A computer whose core reads retracts gets it first, and the lamp
+    // only as a stub.
+    let mut win = Side::new("dev_win");
+    sync(db, &mut win, PERSONAL, T0 + 3 * MINUTE).await;
+    let log = win.log(PERSONAL);
+    assert!(log.iter().any(|row| row.id == retract.id));
+    assert!(
+        log.iter()
+            .filter(|row| row.object == "node:lamp" && row.kind != "retract")
+            .all(|row| row.forgotten)
+    );
+    assert!(win.payloads.values().any(|data| says(data, "likes tea")));
+    assert!(win.payloads.values().all(|data| !says(data, "the lamp")));
+
+    // One older than ABI 2: nothing, though it lacks the tea too.
+    let mut old = Side::new("dev_old");
+    old.link = relay::Session::new(relay::peer_abi(&[]));
+    let vector = old.vector(PERSONAL);
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        OWNER,
+        "dev_old",
+        Core::Pc,
+        &mut old.link,
+        &vector,
+        T0 + 3 * MINUTE,
+    )
+    .await
+    .unwrap();
+    let ts: Vec<&str> = outs.iter().map(|out| out.t).collect();
+    assert_eq!(ts, ["log.vector"]);
+    let sent = store::send(
+        db,
+        &root(),
+        &owner(db).await,
+        PERSONAL,
+        &Vector::new(),
+        Vec::new(),
+        &pc(),
+        1,
+    )
+    .await
+    .unwrap();
+    assert!(sent.too_old && sent.batches.is_empty());
+    let link = super::full::issue(db, "dev_old", PERSONAL, 1, T0)
+        .await
+        .unwrap();
+    let secret = link.path.trim_start_matches(super::full::PATH);
+    let download = super::full::redeem(db, &root(), OWNER, "dev_old", secret, T0)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(download["tooOld"], true);
+    assert_eq!(download["rows"], json!([]));
+    schema.drop().await;
+}
+
+/// A node someone else's in her own audience, learnt from its created row
+/// in one batch, keeps every later body of it off the server, in whatever
+/// batch it comes: the server keeps the node and gives it to the wire.
+#[tokio::test]
+async fn a_node_of_someone_else_in_hers_stays_bodiless_across_batches() {
+    let Some(schema) = schema("her_log_elsewhere").await else {
+        return;
+    };
+    let db = &schema.db;
+    let mut mac = Side::new("dev_mac");
+    // A computer that does not go by the core's ids writes a person's node
+    // into her own audience, and sends its bodies as they are.
+    let created = mac.write_body(
+        OWN,
+        "node:alice",
+        "node.created",
+        Author::Owner,
+        Some(json!({
+            "key": "person:alice",
+            "kind": "person",
+            "name": "Alice",
+            "saidBy": ["her"],
+            "sync": "shared",
+            "version": 1,
+        })),
+        T0,
+    );
+    let frame = mac.rows_frame(OWN, vec![created]);
+    exchange(db, &mut mac, vec![frame], T0).await;
+    assert_eq!(
+        store::elsewhere(db, OWNER, OWN).await.unwrap(),
+        ["node:alice"]
+    );
+    let span = mac.write(
+        OWN,
+        "node:alice",
+        "node.span",
+        Author::Owner,
+        Some("Alice said she moved"),
+        T0 + MINUTE,
+    );
+    let frame = mac.rows_frame(OWN, vec![span.clone()]);
+    exchange(db, &mut mac, vec![frame], T0 + MINUTE).await;
+    assert_eq!(store::rows(db, OWNER, OWN).await.unwrap().len(), 2);
+    assert_eq!(
+        count(db, "SELECT COUNT(*) FROM agent_log_payloads").await,
+        0
+    );
+    let sent = store::send(
+        db,
+        &root(),
+        &owner(db).await,
+        OWN,
+        &Vector::new(),
+        Vec::new(),
+        &pc(),
+        2,
+    )
+    .await
+    .unwrap();
+    assert!(sent.batches.iter().all(|batch| batch.payloads.is_empty()));
     schema.drop().await;
 }

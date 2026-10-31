@@ -72,7 +72,7 @@ async fn she_comes_into_an_empty_site_from_a_file_or_a_device() {
     let file = super::super::export::export(&source.db, 41, "雨天的伞".into())
         .await
         .unwrap();
-    let opened = archive::open("雨天的伞", &file.bytes).unwrap();
+    let opened = archive::open("雨天的伞", &file.bytes, false).unwrap();
     source.close().await;
 
     // From the file.

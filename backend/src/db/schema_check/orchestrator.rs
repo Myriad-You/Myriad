@@ -68,7 +68,10 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// `ensure_persona_log_tables` 一起建）。默认不用。
 /// 2026.10.26.1：她在主机上的节点 `agent_nodes` 与节点日志 `agent_node_events`
 /// （`agent_nodes.sql`，随 004 与 `ensure_agent_nodes_tables` 一起建）。
-pub const SCHEMA_VERSION: &str = "2026.10.26.1";
+/// 2026.11.01.1：她的日志按账号分开（`agent_log_*` 的键带 `user_id`），账改成每个受众一份
+/// `agent_log_ledgers`，加伙伴 id `agent_log_partners`、别人的节点 `agent_log_elsewhere`、
+/// 整份下载的 `peer_abi`。旧形状的日志从没开过，`persona_log.sql` 删掉重建。
+pub const SCHEMA_VERSION: &str = "2026.11.01.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);

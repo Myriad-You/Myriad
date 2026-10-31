@@ -15,11 +15,14 @@
 //! hold, the partner's private talk and hers, as log pages (a version 2
 //! file): the same batches `nodes.wire_send` gives that computer over the
 //! link, so a body goes only when it may travel. A group's log and anyone
-//! else's private talk with her stay on the site.
+//! else's private talk with her stay on the site. Such a file names the
+//! account's partner id in its header (`partner`), whose private talk its
+//! pages are; the site is never a home of a node taken back from sync, so
+//! it writes no home pages (`home: false`).
 
 use std::collections::BTreeMap;
 
-use myriad_persona_log::{Holder, Vector};
+use myriad_persona_log::Vector;
 use myriad_persona_sync::{
     AssetRef, AssetType, EntityVersion, Envelope, FORMAT, FORMAT_VERSION, Kind,
     archive::{
@@ -95,6 +98,8 @@ pub struct Her {
     pub(super) pages: Vec<Envelope>,
     /// Her log's pages, `{audience, rows, payloads?}` in canonical JSON.
     pub(super) logs: Vec<Vec<u8>>,
+    /// The partner id the log pages are under (none without pages).
+    pub(super) partner: Option<String>,
     pub(super) files: Vec<(Part, Vec<u8>)>,
     pub(super) manifest: Manifest,
     pub(super) lineage: Option<String>,
@@ -127,6 +132,8 @@ pub async fn read(db: &DatabaseConnection, owner: i32) -> Result<Her, ExportErro
         return Err(ExportError::Empty);
     }
 
+    // Minted (if need be) before the read-only snapshot.
+    let log_owner = log_owner(db, owner).await?;
     let pictures = assets::Pictures::new(db, owner);
     let model = super::embedding_model(db)
         .await
@@ -141,16 +148,26 @@ pub async fn read(db: &DatabaseConnection, owner: i32) -> Result<Her, ExportErro
     let (entities, embeddings) = snapshot::whole(&snapshot, &pictures, owner, model.as_ref())
         .await
         .map_err(ExportError::failed)?;
-    let reader = her_log::pc(owner);
-    let logs = log_pages(&snapshot, owner, &reader).await?;
+    let logs = match &log_owner {
+        Some(log_owner) => pages_for(&snapshot, her_log::keys::root(), log_owner).await?,
+        None => Vec::new(),
+    };
     snapshot.commit().await.map_err(ExportError::failed)?;
+    let reader = log_owner.as_ref().map(her_log::Owner::pc);
 
     let lineage = lease.as_ref().map(|lease| lease.lineage.clone());
     let pages = pages(lineage.clone(), model.clone(), entities, embeddings);
     let files = files(&pictures, &pages).await?;
     let manifest = Manifest::of_envelopes(&pages)
-        .and_then(|manifest| manifest.with_logs(&logs, |audience| reader.holds(audience)))
+        .and_then(|manifest| {
+            manifest.with_logs(&logs, |audience| {
+                reader.as_ref().is_some_and(|reader| reader.holds(audience))
+            })
+        })
         .map_err(ExportError::failed)?;
+    let partner = log_owner
+        .filter(|_| !logs.is_empty())
+        .map(|log_owner| log_owner.partner);
     let logs = logs
         .iter()
         .map(myriad_persona_sync::canonical::canonical_bytes)
@@ -158,6 +175,7 @@ pub async fn read(db: &DatabaseConnection, owner: i32) -> Result<Her, ExportErro
     Ok(Her {
         pages,
         logs,
+        partner,
         files,
         manifest,
         lineage,
@@ -189,6 +207,8 @@ pub async fn seal(her: &Her, passphrase: String) -> Result<Vec<u8>, ExportError>
             created_at: her.at.timestamp_micros(),
             digest: her.manifest.digest.clone(),
             logs: !her.logs.is_empty(),
+            home: false,
+            partner: her.partner.clone(),
         },
     )
     .map_err(ExportError::failed)?;
@@ -232,37 +252,53 @@ pub async fn seal(her: &Her, passphrase: String) -> Result<Vec<u8>, ExportError>
     Ok(out)
 }
 
-/// Her log's pages for `reader`, the partner's computer: every row of each
-/// audience it may hold, in the batches `nodes.wire_send` gives it, each
-/// as `{audience, rows, payloads?}`. None while the site does not keep her
-/// log for `owner`.
-async fn log_pages<C: ConnectionTrait>(
-    db: &C,
+/// `owner`'s account as a side of her log, while the site keeps it for
+/// them; none when it does not.
+async fn log_owner(
+    db: &DatabaseConnection,
     owner: i32,
-    reader: &Holder,
-) -> Result<Vec<Value>, ExportError> {
+) -> Result<Option<her_log::Owner>, ExportError> {
     if !her_log::enabled()
         || !her_log::store::account(db, owner)
             .await
             .map_err(ExportError::failed)?
             .is_some_and(|account| account.on())
     {
-        return Ok(Vec::new());
+        return Ok(None);
     }
-    pages_for(db, her_log::keys::root(), reader).await
+    her_log::owner(db, owner)
+        .await
+        .map(Some)
+        .map_err(ExportError::failed)
 }
 
-/// Her log's pages for `reader`, from what the site keeps of her log.
+/// The core ABI a reader of a file with log pages has: such a file names
+/// the partner in its header, which no older core reads.
+const FILE_READER_ABI: u32 = 2;
+
+/// Her log's pages for `owner`'s computers: every row of each audience they
+/// may hold, in the batches `nodes.wire_send` gives one, each as
+/// `{audience, rows, payloads?}`.
 pub(super) async fn pages_for<C: ConnectionTrait>(
     db: &C,
     root: &dyn her_log::keys::Root,
-    reader: &Holder,
+    owner: &her_log::Owner,
 ) -> Result<Vec<Value>, ExportError> {
+    let reader = owner.pc();
     let mut pages = Vec::new();
-    for audience in [format!("personal:{}", reader.owner), "own:".to_string()] {
-        let sent = her_log::store::send(db, root, &audience, &Vector::new(), Vec::new(), reader)
-            .await
-            .map_err(ExportError::failed)?;
+    for audience in [owner.personal(), "own:".to_string()] {
+        let sent = her_log::store::send(
+            db,
+            root,
+            owner,
+            &audience,
+            &Vector::new(),
+            Vec::new(),
+            &reader,
+            FILE_READER_ABI,
+        )
+        .await
+        .map_err(ExportError::failed)?;
         for mut batch in sent.batches {
             // A page says no more than its rows and payloads: a body that
             // did not come along is simply not there.
@@ -486,8 +522,8 @@ mod tests {
         assert!(file.name.ends_with(".her-archive"));
         let text = String::from_utf8_lossy(&file.bytes);
         assert!(!text.contains("她喜欢雨天"), "the file is sealed");
-        assert!(archive::open("晴天的伞", &file.bytes).is_err());
-        let opened = archive::open("雨天的伞", &file.bytes).unwrap();
+        assert!(archive::open("晴天的伞", &file.bytes, false).is_err());
+        let opened = archive::open("雨天的伞", &file.bytes, false).unwrap();
         let count = |kind: &str| {
             opened
                 .manifest
@@ -538,7 +574,12 @@ mod tests {
     /// hers, never anyone else's.
     #[tokio::test]
     async fn the_files_log_pages_are_only_what_the_partners_computer_may_hold() {
-        use crate::services::her_log::{self, keys::test_root::TestRoot, store};
+        use crate::services::her_log::{
+            self,
+            keys::test_root::TestRoot,
+            store,
+            test_partner::{OTHER_PARTNER, PARTNER},
+        };
         use myriad_persona_log::Row;
         use sea_orm::ConnectionTrait;
         let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
@@ -553,11 +594,15 @@ mod tests {
                 .await
                 .unwrap();
             store::start(&schema.db, 41).await.unwrap();
+            // The same account: the same partner id on both.
+            her_log::test_partner::give(&schema.db, 41, PARTNER).await;
         }
+        let owner = her_log::owner(&from.db, 41).await.unwrap();
+        let personal = owner.personal();
         let root = TestRoot([9; 32]);
         let base64 = base64::engine::general_purpose::STANDARD;
         let now = 1_761_200_000_000_000;
-        for (n, audience) in ["personal:41", "own:", "personal:99"]
+        for (n, audience) in [personal.as_str(), "own:", "personal:99"]
             .into_iter()
             .enumerate()
         {
@@ -584,8 +629,8 @@ mod tests {
             let taken = store::take(
                 &from.db,
                 &root,
+                &owner,
                 "dev_mac",
-                &her_log::server(41),
                 batch,
                 &Default::default(),
                 now,
@@ -597,18 +642,18 @@ mod tests {
         // One body that no longer opens: its row still goes, without it.
         from.db
             .execute_unprepared(
-                "UPDATE agent_log_payloads SET sealed = '\\x00' WHERE row_id = 'r1'",
+                "UPDATE agent_log_payloads SET sealed = '\\x00' WHERE user_id = 41 AND row_id = 'r1'",
             )
             .await
             .unwrap();
 
-        let reader = her_log::pc(41);
-        let logs = pages_for(&from.db, &root, &reader).await.unwrap();
+        let reader = owner.pc();
+        let logs = pages_for(&from.db, &root, &owner).await.unwrap();
         let audiences: Vec<&str> = logs
             .iter()
             .map(|page| page["audience"].as_str().unwrap())
             .collect();
-        assert_eq!(audiences, ["personal:41", "own:"]);
+        assert_eq!(audiences, [personal.as_str(), "own:"]);
         assert_eq!(logs[1]["rows"].as_array().unwrap().len(), 1);
         assert!(logs[1].get("payloads").is_none());
         let pages = pages(None, None, Vec::new(), Vec::new());
@@ -629,15 +674,37 @@ mod tests {
                 .iter()
                 .map(myriad_persona_sync::canonical::canonical_bytes)
                 .collect(),
+            partner: Some(PARTNER.to_string()),
             files: Vec::new(),
             lineage: None,
             epoch: None,
             at: crate::clock::now(),
         };
         let sealed = seal(&her, "雨天的伞".into()).await.unwrap();
-        let opened = archive::open("雨天的伞", &sealed).unwrap();
+        let opened = archive::open("雨天的伞", &sealed, false).unwrap();
         assert_eq!(opened.header.version, archive::ARCHIVE_LOG_VERSION);
+        assert_eq!(opened.header.partner.as_deref(), Some(PARTNER));
+        assert!(!opened.header.home);
         assert_eq!(opened.logs, logs);
+
+        // A file under another partner id, or from before (none: its pages
+        // under local-owner), is not this account's: none of it is taken.
+        for header in [Some(OTHER_PARTNER), None] {
+            let landed = super::super::import::take_pages(
+                &to.db,
+                &root,
+                41,
+                header,
+                opened.logs.clone(),
+                super::super::import::LogLanded::default(),
+            )
+            .await;
+            assert_eq!(
+                (landed.added, landed.pages_refused),
+                (0, opened.logs.len() as u64),
+                "{header:?}"
+            );
+        }
 
         // A file edited to carry what the partner's computer may not hold:
         // those pages are not taken, a group's forget least of all.
@@ -652,6 +719,7 @@ mod tests {
             &to.db,
             &root,
             41,
+            Some(PARTNER),
             pages,
             super::super::import::LogLanded::default(),
         )
@@ -665,7 +733,12 @@ mod tests {
             ),
             (2, 0, 1, 2)
         );
-        assert!(store::rows(&to.db, "group:g1").await.unwrap().is_empty());
+        assert!(
+            store::rows(&to.db, 41, "group:g1")
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert_eq!(
             to.db
                 .query_one_raw(sea_orm::Statement::from_string(
@@ -679,23 +752,30 @@ mod tests {
                 .unwrap(),
             2
         );
-        for audience in ["personal:41", "own:"] {
+        for audience in [personal.as_str(), "own:"] {
             assert_eq!(
-                store::rows(&to.db, audience).await.unwrap(),
-                store::rows(&from.db, audience).await.unwrap()
+                store::rows(&to.db, 41, audience).await.unwrap(),
+                store::rows(&from.db, 41, audience).await.unwrap()
             );
         }
-        assert!(store::rows(&to.db, "personal:99").await.unwrap().is_empty());
+        assert!(
+            store::rows(&to.db, 41, "personal:99")
+                .await
+                .unwrap()
+                .is_empty()
+        );
         async fn sent(db: &sea_orm::DatabaseConnection) -> myriad_nodes::wire::Sent {
-            let pc = crate::services::her_log::pc(41);
+            let owner = crate::services::her_log::owner(db, 41).await.unwrap();
             let root = crate::services::her_log::keys::test_root::TestRoot([9; 32]);
             crate::services::her_log::store::send(
                 db,
                 &root,
-                "personal:41",
+                &owner,
+                &owner.personal(),
                 &Default::default(),
                 Vec::new(),
-                &pc,
+                &owner.pc(),
+                2,
             )
             .await
             .unwrap()

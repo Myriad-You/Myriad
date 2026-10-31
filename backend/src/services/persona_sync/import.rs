@@ -1378,7 +1378,9 @@ pub async fn open_file(
         .await
         .map_err(ImportError::failed)?;
     // argon2id and the cipher take a moment: off the async threads.
-    let opened = tokio::task::spawn_blocking(move || archive::open(&passphrase, &bytes))
+    // The site is never a computer of the partner's: a file with a home's
+    // pages is not for it.
+    let opened = tokio::task::spawn_blocking(move || archive::open(&passphrase, &bytes, false))
         .await
         .map_err(ImportError::failed)?
         .map_err(|_| ImportError::Unreadable)?;
@@ -1420,9 +1422,10 @@ pub async fn open_file(
         );
     }
     let logs = opened.logs;
+    let partner = opened.header.partner;
     let mut landed = land(db, owner, Some(id), whole, replace).await?;
     if !logs.is_empty() {
-        landed.log = Some(take_logs(db, owner, logs).await);
+        landed.log = Some(take_logs(db, owner, partner.as_deref(), logs).await);
     }
     forget_files(id).await;
     Ok(landed)
@@ -1441,18 +1444,25 @@ pub struct LogLanded {
     pub not_taken: u64,
     /// Rows taken without their body.
     pub withheld: u64,
-    /// Pages not taken at all: of an audience the partner's computer may
-    /// not hold, not a batch, refused whole (a clock too far ahead), or not
-    /// written.
+    /// Pages not taken at all: the file is under another partner id than
+    /// the account's, of an audience the partner's computer may not hold,
+    /// not a batch, refused whole (a clock too far ahead), or not written.
     pub pages_refused: u64,
 }
 
 /// Where a file's rows are recorded to have come from.
 pub const FROM_FILE: &str = "file";
 
-/// Takes each of a file's log pages as a batch from `origin`, after she
+/// Takes each of a file's log pages as a batch from the file, after she
 /// landed: a page that is not taken is counted, not a reason to undo her.
-async fn take_logs(db: &DatabaseConnection, owner: i32, pages: Vec<Value>) -> LogLanded {
+/// `partner` is the partner id the file's header names (none: a file from
+/// before, its pages under `local-owner`).
+async fn take_logs(
+    db: &DatabaseConnection,
+    owner: i32,
+    partner: Option<&str>,
+    pages: Vec<Value>,
+) -> LogLanded {
     use crate::services::her_log;
     let mut landed = LogLanded {
         pages: pages.len() as u64,
@@ -1469,21 +1479,51 @@ async fn take_logs(db: &DatabaseConnection, owner: i32, pages: Vec<Value>) -> Lo
         );
         return landed;
     }
-    take_pages(db, her_log::keys::root(), owner, pages, landed).await
+    take_pages(db, her_log::keys::root(), owner, partner, pages, landed).await
 }
 
-/// Takes `pages` into her log on the site, as the server: only those of
-/// an audience the partner's computer may hold.
+/// Takes `pages` into her log on the site, as the server: only when the
+/// file is under the account's partner id (`partner.file`: the site goes by
+/// that id, linked, so it takes no other id's file and none from before),
+/// and only pages of an audience the partner's computer may hold.
 pub(super) async fn take_pages(
     db: &DatabaseConnection,
     root: &dyn crate::services::her_log::keys::Root,
     owner: i32,
+    partner: Option<&str>,
     pages: Vec<Value>,
     mut landed: LogLanded,
 ) -> LogLanded {
     use crate::services::her_log;
-    let here = her_log::server(owner);
-    let file = her_log::pc(owner);
+    let owner = match her_log::owner(db, owner).await {
+        Ok(owner) => owner,
+        Err(error) => {
+            tracing::warn!(%error, "[import] the account's partner id could not be read");
+            landed.pages_refused += pages.len() as u64;
+            return landed;
+        }
+    };
+    let audiences = match her_log::store::audiences(db, owner.user).await {
+        Ok(audiences) => audiences,
+        Err(error) => {
+            tracing::warn!(%error, "[import] the account's log could not be read");
+            landed.pages_refused += pages.len() as u64;
+            return landed;
+        }
+    };
+    let here = myriad_persona_log::partner::Here {
+        id: Some(owner.partner.clone()),
+        linked: true,
+        audiences,
+        filed: false,
+        moving: None,
+    };
+    if let Err(error) = myriad_persona_log::partner::file(&here, partner) {
+        tracing::info!(%error, pages = pages.len(), "[import] the file's log pages are not this account's partner's");
+        landed.pages_refused += pages.len() as u64;
+        return landed;
+    }
+    let file = owner.pc();
     for page in pages {
         let batch = serde_json::from_value::<myriad_nodes::wire::Batch>(page)
             .ok()
@@ -1495,8 +1535,8 @@ pub(super) async fn take_pages(
         match her_log::store::take(
             db,
             root,
+            &owner,
             FROM_FILE,
-            &here,
             batch,
             &std::collections::BTreeSet::new(),
             her_log::now(),

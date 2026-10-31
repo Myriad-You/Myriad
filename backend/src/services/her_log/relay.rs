@@ -8,13 +8,17 @@
 //! take are answered with `error` and a contract code, never a message.
 //!
 //! - `log.vector` (what a host core holds of one audience): answered with
-//!   the rows it lacks, every forget first, in `log.rows` batches that fit
+//!   the rows it lacks, every forget and retract first, in `log.rows`
+//!   batches that fit
 //!   the frame limits (`myriad_nodes::wire::send` for the partner's
 //!   computer: a body goes only when it may, the batch's `withheld` says
 //!   why the others do not), then the rows it asks again for (`ask`), and
 //!   with the server's own vector so it sends what the server lacks. A core
 //!   that holds nothing of a large audience gets a single-use HTTPS link
-//!   instead (`log.full`).
+//!   instead (`log.full`). A core older than ABI 2 (its `hello` did not list
+//!   `log2`) gets no rows while one it would refuse (a merge's or a split's
+//!   names, a retract) is to go (`tooOld`): only the server's vector, so it
+//!   still sends what the server lacks.
 //! - `log.rows`: checked and merged by the log rules ([`store::take`], the
 //!   wire's `take` as the server); a clock too far ahead refuses the batch
 //!   whole (`error` `clock_ahead` with the server's time, as the HTTPS
@@ -22,6 +26,11 @@
 //!   are asked for again in the `log.vector` that answers the batch, each
 //!   at most once per link session ([`Session`]). Rows sealed to another PC
 //!   are relayed unread.
+//! - Every side of an account goes by its partner id (`personal:<id>`),
+//!   which the site mints ([`super::partner_id`]) and gives in `welcome`:
+//!   the server's side is that id, and so is every device's as the server
+//!   names it (`peer`). A device still on another id refuses to sync in its
+//!   own core until it has moved.
 //! - The partner's computers hold only the partner's private talk and hers
 //!   (`myriad_persona_log::holder`): a group's log and anyone else's
 //!   private talk are kept only here and never sent to one (`not_holder`).
@@ -50,7 +59,7 @@ use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 
 use super::{
-    Error, NODE, Settings, full, keys,
+    Error, NODE, Owner, Settings, full, keys,
     lease::{self, Core as Seen, Outcome},
     store,
 };
@@ -101,13 +110,41 @@ impl Outgoing {
 /// the HTTPS download instead of rows over the link.
 pub const FULL_AFTER_ROWS: usize = 2 * myriad_nodes::wire::BATCH_ROWS;
 
-/// What the server remembers of one link session with one device: the rows
-/// it asked that device for again, so it asks for each at most once
-/// (`log.vector` `ask`). The connection keeps one per link and drops it
-/// when the link closes.
-#[derive(Debug, Clone, Default)]
+/// What the server remembers of one link session with one device: its
+/// core's ABI as its `hello` said ([`peer_abi`]), and the rows it asked
+/// that device for again, so it asks for each at most once (`log.vector`
+/// `ask`). The connection keeps one per link and drops it when the link
+/// closes.
+#[derive(Debug, Clone)]
 pub struct Session {
+    peer_abi: u32,
     asked: BTreeSet<String>,
+}
+
+impl Session {
+    pub fn new(peer_abi: u32) -> Self {
+        Self {
+            peer_abi,
+            asked: BTreeSet::new(),
+        }
+    }
+}
+
+impl Default for Session {
+    /// A device that said nothing of its core: ABI 1.
+    fn default() -> Self {
+        Self::new(1)
+    }
+}
+
+/// The core ABI of the other side of a link: 2 when its `hello` (or
+/// `welcome`) listed `log2`, 1 when not (`nodes.wire_send` `peerAbi`).
+pub fn peer_abi(capabilities: &[String]) -> u32 {
+    if capabilities.iter().any(|capability| capability == "log2") {
+        2
+    } else {
+        1
+    }
 }
 
 /// The roles the server speaks in.
@@ -210,8 +247,8 @@ fn audience_of(body: &Value) -> Result<String, Error> {
         .ok_or_else(|| Error::Refused("no audience".into()))
 }
 
-/// Takes one frame from `device`, one of `owner`'s ends, at the server's
-/// time `now` (microseconds), in that device's link `session`. `core` is
+/// Takes one frame from `device`, one of the ends of `user`'s account, at
+/// the server's time `now` (microseconds), in that device's link `session`. `core` is
 /// what the device is as a side of her log, as its hello says: a computer
 /// (`Pc`) is a host core and holds the partner's private talk and hers; a
 /// phone or XR (`Child`) holds no log, so it is no host and gets none.
@@ -223,7 +260,7 @@ pub async fn take(
     db: &DatabaseConnection,
     root: &dyn keys::Root,
     settings: &Settings,
-    owner: i32,
+    user: i32,
     device: &str,
     core: Core,
     session: &mut Session,
@@ -231,12 +268,13 @@ pub async fn take(
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
     if !settings.enabled
-        || !store::account(db, owner)
+        || !store::account(db, user)
             .await?
             .is_some_and(|account| account.on())
     {
         return Err(Error::Off);
     }
+    let owner = super::owner(db, user).await?;
     let seq = frame.get("seq").and_then(Value::as_u64);
     let holder = holder(db).await?;
     let host = core == Core::Pc;
@@ -255,7 +293,7 @@ pub async fn take(
     let mine = host && holder == device;
     let side = Holder {
         core,
-        owner: super::partner(owner),
+        owner: owner.partner.clone(),
     };
     match checked.t.as_str() {
         "log.vector" => {
@@ -272,7 +310,10 @@ pub async fn take(
                 None => Vec::new(),
             };
             lease::heard(db, device, Some(Seen::Host), now).await?;
-            vector(db, root, device, &side, &audience, &theirs, ask, now).await
+            vector(
+                db, root, &owner, device, &side, session, &audience, &theirs, ask, now,
+            )
+            .await
         }
         "log.rows" => {
             let audience = audience_of(body)?;
@@ -294,7 +335,7 @@ pub async fn take(
                 return Ok(vec![Outgoing::error("bad_frame", seq)]);
             };
             lease::heard(db, device, Some(Seen::Host), now).await?;
-            rows(db, root, owner, device, session, batch, seq, now).await
+            rows(db, root, &owner, device, session, batch, seq, now).await
         }
         "lease.ask" => {
             lease::heard(db, device, Some(Seen::Host), now).await?;
@@ -353,18 +394,20 @@ pub async fn take(
 async fn vector(
     db: &DatabaseConnection,
     root: &dyn keys::Root,
+    owner: &Owner,
     device: &str,
     to: &myriad_persona_log::Holder,
+    session: &Session,
     audience: &str,
     theirs: &Vector,
     ask: Vec<String>,
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
-    let ours = store::holdings(db, audience).await?;
+    let ours = store::holdings(db, owner.user, audience).await?;
     let mut out = Vec::new();
     let held: u64 = ours.vector.values().sum();
     if theirs.is_empty() && held as usize > FULL_AFTER_ROWS {
-        let link = full::issue(db, device, audience, now).await?;
+        let link = full::issue(db, device, audience, session.peer_abi, now).await?;
         out.push(Outgoing::back(
             "log.full",
             json!({
@@ -375,7 +418,21 @@ async fn vector(
             }),
         ));
     } else {
-        let sent = store::send(db, root, audience, theirs, ask, to).await?;
+        let sent =
+            store::send(db, root, owner, audience, theirs, ask, to, session.peer_abi).await?;
+        if sent.too_old {
+            tracing::info!(
+                device,
+                "[her-log] a device's core is older than ABI 2: no rows go to it until it repins"
+            );
+        }
+        if !sent.held_back.is_empty() {
+            tracing::warn!(
+                device,
+                held_back = sent.held_back.len(),
+                "[her-log] rows about the partner under another id went as stubs: a fault in the log"
+            );
+        }
         for batch in sent.batches {
             out.push(Outgoing {
                 to: To::Sender,
@@ -397,7 +454,7 @@ async fn vector(
 async fn rows(
     db: &DatabaseConnection,
     root: &dyn keys::Root,
-    owner: i32,
+    owner: &Owner,
     device: &str,
     session: &mut Session,
     batch: Batch,
@@ -405,8 +462,7 @@ async fn rows(
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
     let audience = batch.audience.clone();
-    let here = super::server(owner);
-    let taken = match store::take(db, root, device, &here, batch, &session.asked, now).await {
+    let taken = match store::take(db, root, owner, device, batch, &session.asked, now).await {
         Ok(taken) => taken,
         Err(Error::ClockAhead { server_time, .. }) => {
             let mut error = Outgoing::error("clock_ahead", seq);
@@ -434,14 +490,14 @@ async fn rows(
         .take(ASK_ROWS)
         .collect();
     session.asked.extend(ask.iter().cloned());
-    let ours = store::holdings(db, &audience).await?;
+    let ours = store::holdings(db, owner.user, &audience).await?;
     let mut out = vec![Outgoing::back(
         "log.vector",
         vector_body(&audience, &ours, &ask),
     )];
     // The other host cores hear there is more; what they may not hold
     // stays here.
-    if !taken.added.is_empty() && super::pc(owner).holds(&audience) {
+    if !taken.added.is_empty() && owner.pc().holds(&audience) {
         out.push(Outgoing {
             to: To::Hosts,
             t: "log.vector",
