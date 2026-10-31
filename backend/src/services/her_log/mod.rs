@@ -25,10 +25,27 @@
 //!   account carries the region its data is kept in from the first day
 //!   (problem 13), empty until the region is decided.
 //!
+//! Her log is one per account ([`Owner`]): every table of rows, payloads,
+//! keys, ledgers and counts is keyed by the account. What is still one for
+//! the whole site: her lease (`agent_lease_grants`, `agent_lease_ends`: one
+//! her, one mind), the server's clock (`agent_log_clock`, the server's one
+//! node in every log), and the first-sync links (`agent_log_full_links`,
+//! each for one device, and a device is one account's).
+//!
 //! All of it is off unless `HER_LOG_ENABLED` is on ([`Settings`]): no client
 //! speaks it yet, and the compliance questions of the sync plan (§6) are to
 //! be settled before it serves anyone. While off, nothing here reads or
-//! writes a table and the site behaves as it did.
+//! writes a table and the site behaves as it did, with one exception: an
+//! account's partner id ([`partner_id`]) is minted the first time a device
+//! of it asks in its link's `hello` (`partner`), whether or not the site
+//! keeps her log for it. That is the id alone; nothing of her is kept with
+//! it.
+//!
+//! Not wired up yet: her link still speaks protocol 1, so nothing outside
+//! the tests calls [`relay::take`], and no `log.*` frame reaches it from a
+//! connection (nor is a first full download ever issued: only the relay
+//! gives its link). Until it does, the log moves only in files: the export,
+//! a move to a device, and taking such a file in.
 //!
 //! No key, token or secret is in a row, a frame, an answer or an error:
 //! errors say what was refused, never with what.

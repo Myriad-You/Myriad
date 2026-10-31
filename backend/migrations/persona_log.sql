@@ -12,10 +12,19 @@
 -- whole site, keyed by row id. That log was never on anywhere
 -- (HER_LOG_ENABLED, no client spoke it), and the partner's private talk kept
 -- under an account id cannot be moved to a partner id (the core refuses that
--- move), so a log of the old shape goes whole here and is made again below.
--- The schema check may have given the old tables a nullable `user_id`
--- first; it is the primary key that tells the shapes apart.
+-- move), so a log of the old shape is made again below, but only while it
+-- is empty: nothing kept is deleted quietly. One that holds anything stays
+-- as it is (the startup heal says so in its log, `ensure_persona_log_tables`)
+-- until someone decides what becomes of it, before her log is turned on.
+-- The schema check may have given the old tables a nullable
+-- `user_id` first; it is the primary key that tells the shapes apart.
 DO $$
+DECLARE
+    old_tables TEXT[] := ARRAY['agent_log_payloads', 'agent_log_rows', 'agent_log_object_keys',
+        'agent_log_audience_keys', 'agent_log_counters', 'agent_log_full_links'];
+    t TEXT;
+    held BOOLEAN := false;
+    one BOOLEAN;
 BEGIN
     IF to_regclass('agent_log_rows') IS NOT NULL AND NOT EXISTS (
         SELECT 1 FROM pg_index i
@@ -23,12 +32,26 @@ BEGIN
         WHERE i.indrelid = to_regclass('agent_log_rows') AND i.indisprimary
           AND a.attname = 'user_id'
     ) THEN
-        DROP TABLE IF EXISTS agent_log_payloads, agent_log_rows, agent_log_object_keys,
-            agent_log_audience_keys, agent_log_counters, agent_log_full_links;
+        FOREACH t IN ARRAY old_tables LOOP
+            IF to_regclass(t) IS NOT NULL THEN
+                EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I)', t) INTO one;
+                held := held OR one;
+            END IF;
+        END LOOP;
+        IF NOT held THEN
+            DROP TABLE IF EXISTS agent_log_payloads, agent_log_rows, agent_log_object_keys,
+                agent_log_audience_keys, agent_log_counters, agent_log_full_links;
+        END IF;
+    END IF;
+    -- The ledger was one line per forgotten target; it is a list per
+    -- audience now (`agent_log_ledgers`). The old table goes only empty.
+    IF to_regclass('agent_log_ledger') IS NOT NULL THEN
+        EXECUTE 'SELECT EXISTS (SELECT 1 FROM agent_log_ledger)' INTO one;
+        IF NOT one THEN
+            DROP TABLE agent_log_ledger;
+        END IF;
     END IF;
 END $$;
--- The ledger was one line per forgotten target; it is a list per audience now.
-DROP TABLE IF EXISTS agent_log_ledger;
 
 -- The owner's account for her log. `region` is where it is kept, one per
 -- account (problem 13 of the sync plan: not decided yet, so it is empty

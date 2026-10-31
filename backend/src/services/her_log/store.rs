@@ -404,16 +404,24 @@ async fn keep_payload<C: ConnectionTrait>(
 }
 
 /// Makes `row` (as it stands now: a stub, or whole again) what `user`'s
-/// log holds of it. A stub loses its payload.
+/// log holds of it, its lookup columns too: a stub filled by a row moved to
+/// the partner's id names that id where it named `local-owner`. A stub
+/// loses its payload.
 async fn restate<C: ConnectionTrait>(txn: &C, user: i32, row: &Row) -> Result<(), Error> {
     txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE agent_log_rows SET envelope = $3, forgotten = $4 WHERE user_id = $1 AND id = $2",
+        "UPDATE agent_log_rows \
+         SET envelope = $3, forgotten = $4, audience = $5, object = $6, subject = $7, kind = $8 \
+         WHERE user_id = $1 AND id = $2",
         [
             user.into(),
             row.id.clone().into(),
             row.to_value().into(),
             row.forgotten.into(),
+            row.audience.clone().into(),
+            row.object.clone().into(),
+            row.subject.clone().into(),
+            row.kind.clone().into(),
         ],
     ))
     .await?;
@@ -567,37 +575,7 @@ async fn take_in<C: ConnectionTrait>(
         restate(txn, user, by_id[id.as_str()]).await?;
         stubbed.insert(id.clone());
     }
-    let grew: Vec<&Entry> = admitted
-        .ledger
-        .iter()
-        .filter(|entry| !before.contains(entry))
-        .collect();
-    if !grew.is_empty() || admitted.ledger.len() != before.len() {
-        store_ledger(txn, user, audience, &admitted.ledger).await?;
-        // What the ledger takes away now beyond the rows the merge saw.
-        let whole: Vec<Row> = rows(txn, user, audience)
-            .await?
-            .into_iter()
-            .filter(|row| !row.forgotten)
-            .collect();
-        let reached = forget::reach(ReachInput {
-            rows: whole.clone(),
-            ledger: admitted.ledger.clone(),
-        })?;
-        let reached: BTreeSet<String> = reached.stubbed.into_iter().collect();
-        for row in whole.iter().filter(|row| reached.contains(&row.id)) {
-            restate(txn, user, &row.stub()).await?;
-            stubbed.insert(row.id.clone());
-        }
-        // A forgotten object's key goes, and so does a node's taken back
-        // from sync: the server is never its home.
-        for entry in grew
-            .iter()
-            .filter(|entry| matches!(entry.kind, Kind::Forget | Kind::Retract))
-        {
-            keys::forget(txn, user, &entry.audience, &entry.target).await?;
-        }
-    }
+    stubbed.extend(apply_ledger(txn, user, audience, &before, &admitted.ledger).await?);
     let mut learnt = wired.elsewhere.clone();
     learnt.sort();
     learnt.dedup();
@@ -637,6 +615,52 @@ async fn take_in<C: ConnectionTrait>(
     taken.ask = wired.ask;
     taken.elsewhere = learnt;
     Ok(taken)
+}
+
+/// Keeps `after`, `user`'s ledger of `audience` once it grew from `before`,
+/// and does what it takes away now: `log.reach` over the audience's whole
+/// rows (beyond what a merge saw: a retract's list, a node's other names)
+/// makes those stubs, and a forgotten object's key goes, and so does a
+/// node's taken back from sync (the server is never its home). The rows it
+/// made stubs, sorted.
+async fn apply_ledger<C: ConnectionTrait>(
+    txn: &C,
+    user: i32,
+    audience: &str,
+    before: &[Entry],
+    after: &[Entry],
+) -> Result<Vec<String>, Error> {
+    let grew: Vec<&Entry> = after
+        .iter()
+        .filter(|entry| !before.contains(entry))
+        .collect();
+    if grew.is_empty() && after.len() == before.len() {
+        return Ok(Vec::new());
+    }
+    store_ledger(txn, user, audience, after).await?;
+    let whole: Vec<Row> = rows(txn, user, audience)
+        .await?
+        .into_iter()
+        .filter(|row| !row.forgotten)
+        .collect();
+    let reached = forget::reach(ReachInput {
+        rows: whole.clone(),
+        ledger: after.to_vec(),
+    })?;
+    let reached: BTreeSet<String> = reached.stubbed.into_iter().collect();
+    let mut stubbed = Vec::new();
+    for row in whole.iter().filter(|row| reached.contains(&row.id)) {
+        restate(txn, user, &row.stub()).await?;
+        stubbed.push(row.id.clone());
+    }
+    for entry in grew
+        .iter()
+        .filter(|entry| matches!(entry.kind, Kind::Forget | Kind::Retract))
+    {
+        keys::forget(txn, user, &entry.audience, &entry.target).await?;
+    }
+    stubbed.sort();
+    Ok(stubbed)
 }
 
 async fn insert<C: ConnectionTrait>(db: &C, user: i32, row: &Row, from: &str) -> Result<(), Error> {
@@ -847,22 +871,25 @@ async fn next_dseq<C: ConnectionTrait>(db: &C, user: i32, audience: &str) -> Res
 
 /// The owner, on the server, has her forget `target` (an object, or
 /// `subject:<id>`) in `audience` of `owner`'s log: an owner's `forget` row
-/// of the server's, taken like any other (the wire's admit records it on the
-/// ledger, as `log.ledger` would). Every side gets it before anything else
-/// it lacks.
+/// of the server's own. Like every row a side writes, it goes on the ledger
+/// by `log.ledger` (with the server as the side, so a forget about the
+/// partner under another id is refused), not through the check of rows
+/// another side sends; then what the ledger takes away now goes. Every side
+/// gets it before anything else it lacks.
 pub async fn forget(
     db: &DatabaseConnection,
-    root: &dyn keys::Root,
     owner: &Owner,
     audience: &str,
     target: &str,
 ) -> Result<Row, Error> {
-    // The count, the clock and the row in one transaction: a forget that is
-    // not kept leaves no hole in the server's count.
+    Audience::parse(audience)?;
+    let user = owner.user;
+    // The count, the clock, the row and the ledger in one transaction: a
+    // forget that is not kept leaves no hole in the server's count.
     let txn = db.begin().await?;
-    lock(&txn, owner.user, audience).await?;
+    lock(&txn, user, audience).await?;
     let hlc = next_rev(&txn).await?;
-    let dseq = next_dseq(&txn, owner.user, audience).await?;
+    let dseq = next_dseq(&txn, user, audience).await?;
     let row = Row {
         version: LOG_VERSION,
         id: format!("site_{}", uuid::Uuid::new_v4().simple()),
@@ -882,32 +909,14 @@ pub async fn forget(
         takes: Vec::new(),
     };
     row.check()?;
-    // A side never writes what it may not hold (`log.ledger` with its
-    // holder): a forget about the partner under another id is refused here.
-    forget::record(forget::RecordInput {
+    let before = ledger(&txn, user, audience).await?;
+    let recorded = forget::record(forget::RecordInput {
         rows: vec![row.clone()],
-        ledger: Vec::new(),
+        ledger: before.clone(),
         holder: Some(owner.server()),
     })?;
-    let now = super::now();
-    let taken = take_in(
-        &txn,
-        root,
-        owner,
-        NODE,
-        Batch {
-            audience: audience.to_string(),
-            rows: vec![row.clone()],
-            payloads: Vec::new(),
-            withheld: Vec::new(),
-        },
-        &BTreeSet::new(),
-        now,
-    )
-    .await?;
-    if !taken.added.contains(&row.id) {
-        return Err(Error::Refused("the forget was not taken".into()));
-    }
+    insert(&txn, user, &row, NODE).await?;
+    apply_ledger(&txn, user, audience, &before, &recorded.ledger).await?;
     txn.commit().await?;
     Ok(row)
 }

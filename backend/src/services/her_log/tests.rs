@@ -769,7 +769,7 @@ async fn a_forget_on_the_server_deletes_the_key_and_is_answered_first() {
         2
     );
 
-    let forget = store::forget(db, &root(), &owner(db).await, PERSONAL, "memory:trip")
+    let forget = store::forget(db, &owner(db).await, PERSONAL, "memory:trip")
         .await
         .unwrap();
     assert_eq!(forget.origin, NODE);
@@ -1862,5 +1862,112 @@ async fn a_node_of_someone_else_in_hers_stays_bodiless_across_batches() {
     .await
     .unwrap();
     assert!(sent.batches.iter().all(|batch| batch.payloads.is_empty()));
+    schema.drop().await;
+}
+
+/// A stub kept for its place of her mood about the partner under
+/// `local-owner` (a host's fault: held back whole) is filled when the same row comes moved
+/// to the partner's id: the server then holds it whole, its body too, and
+/// looks it up by the id it names now.
+#[tokio::test]
+async fn a_stub_held_back_under_the_old_id_is_filled_by_the_row_moved() {
+    use myriad_persona_log::partner::{LEGACY, Move};
+    let Some(schema) = schema("her_log_filled").await else {
+        return;
+    };
+    let db = &schema.db;
+    let mut mac = Side::new("dev_mac");
+    let row = Row {
+        version: LOG_VERSION,
+        id: "dev_mac_walk".to_string(),
+        origin: "dev_mac".to_string(),
+        author: Author::Her,
+        epoch: Some(0),
+        dseq: Some(1),
+        hlc: myriad_persona_log::clock::next(None, T0, 0, "dev_mac").unwrap(),
+        audience: OWN.to_string(),
+        subject: None,
+        object: format!("affect:{LEGACY}"),
+        kind: "affect.change".to_string(),
+        payload: Some(Payload {
+            reference: "blob:dev_mac_walk".to_string(),
+            key: None,
+        }),
+        replicate: Replicate::Shared,
+        forgotten: false,
+        to: None,
+        takes: Vec::new(),
+    };
+    let stub = wire::Batch {
+        audience: OWN.to_string(),
+        rows: vec![row.stub()],
+        payloads: Vec::new(),
+        withheld: Vec::new(),
+    };
+    let said = store::take(
+        db,
+        &root(),
+        &owner(db).await,
+        "dev_mac",
+        stub,
+        &Default::default(),
+        T0,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*) FROM agent_log_rows WHERE object = 'affect:local-owner' AND forgotten"
+        )
+        .await,
+        1,
+        "{said:?}"
+    );
+
+    let moved = myriad_persona_log::partner::row(
+        &row,
+        &Move {
+            from: LEGACY.to_string(),
+            to: PARTNER.to_string(),
+        },
+    );
+    assert_eq!(moved.object, format!("affect:{PARTNER}"));
+    mac.payloads.insert(
+        "blob:dev_mac_walk".to_string(),
+        canonical_bytes(&body_of(
+            "affect.change",
+            OWN,
+            &moved.object,
+            "a quiet evening",
+            T0,
+        )),
+    );
+    let frame = mac.rows_frame(OWN, vec![moved.clone()]);
+    exchange(db, &mut mac, vec![frame], T0 + MINUTE).await;
+    assert_eq!(store::rows(db, OWNER, OWN).await.unwrap(), [moved]);
+    assert_eq!(
+        count(
+            db,
+            &format!(
+                "SELECT COUNT(*) FROM agent_log_rows \
+                 WHERE object = 'affect:{PARTNER}' AND NOT forgotten"
+            )
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*) FROM agent_log_rows WHERE object = 'affect:local-owner'"
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        count(db, "SELECT COUNT(*) FROM agent_log_payloads").await,
+        1
+    );
     schema.drop().await;
 }

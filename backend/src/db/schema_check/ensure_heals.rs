@@ -5,7 +5,7 @@
 //! `get_expected_schema` + generic DDL. Heals here are ongoing: the user
 //! lifecycle, opt-in federation FKs, the agent task status CHECK (not in 004),
 //! and note docs whose article was deleted.
-use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr};
+use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, DbErr, Statement};
 
 /// The unified memory tables as 004 creates them, for database tests.
 #[cfg(test)]
@@ -71,10 +71,36 @@ pub(crate) async fn ensure_persona_sync_tables(db: &DatabaseConnection) -> Resul
 
 /// Her log on the server (`migrations/persona_log.sql`), for databases that
 /// ran 004 before it was in it. Same file as 004; every statement is
-/// idempotent.
+/// idempotent. A log of the shape from before it was one per account is
+/// made again only while empty; one that holds rows stays, and is named in
+/// the log here, never deleted quietly.
 pub(crate) async fn ensure_persona_log_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
     db.execute_unprepared(include_str!("../../../migrations/persona_log.sql"))
         .await?;
+    let kept = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Postgres,
+            "SELECT (to_regclass('agent_log_rows') IS NOT NULL AND NOT EXISTS ( \
+                 SELECT 1 FROM pg_index i \
+                 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey) \
+                 WHERE i.indrelid = to_regclass('agent_log_rows') AND i.indisprimary \
+                   AND a.attname = 'user_id')) AS old_log, \
+                    to_regclass('agent_log_ledger') IS NOT NULL AS old_ledger",
+        ))
+        .await?;
+    if let Some(row) = kept {
+        let old_log: bool = row.try_get("", "old_log")?;
+        let old_ledger: bool = row.try_get("", "old_ledger")?;
+        if old_log || old_ledger {
+            tracing::warn!(
+                old_log,
+                old_ledger,
+                "[her-log] tables of her log from before it was one per account still hold rows: \
+                 kept as they are, not made again; decide what becomes of them before turning \
+                 her log on (HER_LOG_ENABLED)"
+            );
+        }
+    }
     Ok(())
 }
 
