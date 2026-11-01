@@ -71,14 +71,15 @@ flowchart LR
 | API 响应类型 | `backend/src/api/tapp_store/types.rs`                   | 通用响应 envelope、列表项与详情 DTO                 |
 | 运行生命周期 | `backend/src/api/tapp_store/lifecycle.rs`               | 启停状态、Runtime Grant 吊销与最近使用记录          |
 | 安装与更新 | `backend/src/api/tapp_store/installation.rs`               | 直接/文件安装、staging 事务与更新回滚               |
-| 预处理安装包 | `backend/src/api/tapp_store/prepared_package.rs`          | 统一结构化/归档包校验、资源落盘与安装代际写入       |
+| 预处理安装包 | `backend/src/services/tapp_packages/prepared_package.rs`  | 统一结构化/归档包校验、资源落盘与安装代际写入       |
 | 商店包获取 | `backend/src/api/tapp_store/store_package.rs`               | 可信出站访问、索引匹配、分类校验与远程资源下载      |
 | 卸载事务   | `backend/src/api/tapp_store/uninstall.rs`                  | private-first 鉴权、事务清理、目录隔离与失败恢复；`cleanup-temporary` 按站点策略 |
 | 列表卡片尺寸 | `backend/src/api/tapp_store/list_card_sizes.rs`、`backend/src/services/tapp_list_card_sizes.rs` | GET 双布局 / PUT 纯个人；游客只读站点布局 |
 | 运行时 API | `backend/src/api/tapp_runtime/`                            | AI、数据、上下文、媒体、事件、报告、访问统计、声明 API 等 |
 | 调度入口   | `backend/src/api/tapp_scheduler.rs`                        | HTTP/WS 协议、身份/所有权/权限检查                 |
-| 调度引擎   | `backend/src/services/tapp_scheduler.rs`                   | 任务持久化、触发、重试、前端回执、后端动作         |
+| 调度引擎   | `backend/src/services/tapp_scheduler/`                     | 任务持久化、触发、重试、前端回执、后端动作         |
 | Manifest 契约 | `tapp/crates/tapp-contract/src/manifest.rs`             | 可安装 `TappManifest`（`deny_unknown_fields`）、声明能力、Widget/设置/API 数据结构 |
+| 契约版本   | `tapp/crates/tapp-contract/src/contract_version.rs`     | 宿主实现的契约版本；安装与商店拉包在严格解析前先读 `minContractVersion`，太新回 `tapp_contract_too_new` |
 | 权限/路径契约 | `tapp/crates/tapp-contract/`                            | 权限目录、存储键与路径校验、Manifest 校验、宿主 CSS 固定路径；不含授予、HMAC、transform 求值 |
 | Tapp 纯规则 | `tapp/crates/myriad-tapp-rules/`                        | HMAC、transform pipeline、已安装资源计划、federation feed、package fs/prepared；backend 对应模块 `pub use` |
 | Agent 纯规则 | `core/crates/myriad-agent-rules/`                       | 文本上限、phantasi/MCP/scrape 策略、retry/task 投影；backend `*_pure.rs` `pub use` |
@@ -491,7 +492,7 @@ sequenceDiagram
   `waitForSync` 直接等待首次同步并明确抛出失败/超时，不得把失败标记成成功空状态。
 - 前端权限等级锁到 `export_tapp_contract()` 的 `permissionLevels`；`permissionConfig.ts` 的
   `PERMISSION_LEVELS` 是这份目录的前端副本，不是另一份注册表。`PERMISSION_MAP` 与 headless
-  禁用动作直接读取 `tapp/shared/tapp_sandbox_contract.json`，同一文件经 `export_tapp_contract()`
+  禁用动作（`capabilities.deniedActions.headless`）直接读取 `tapp/shared/tapp_sandbox_contract.json`，同一文件经 `export_tapp_contract()`
   输出给 Tapp CLI/SDK；宿主代理域仍对 fixture。
 - `QuotaManager` 只保存平台读写与声明 API 的短期滑动窗口，未跟踪 action 不创建记录，
   失败调用不计数。AI calls、tokens 与 cooldown 由 PostgreSQL 服务端账本统一执行，前端只展示

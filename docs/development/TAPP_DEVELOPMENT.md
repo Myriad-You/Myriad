@@ -29,9 +29,9 @@
 
 官方远程目录仓库：[Myriad-You/tapp-store](https://github.com/Myriad-You/tapp-store)（目录与发布说明以 [Tapp 商店](https://github.com/Myriad-You/myriad-tapp/blob/main/docs/STORE.md) 为准）。
 
-新手从 [快速入门](https://github.com/Myriad-You/myriad-tapp/blob/main/docs/QUICKSTART.md) 开始；Widget 看 [WIDGET.md](https://github.com/Myriad-You/myriad-tapp/blob/main/docs/WIDGET.md)；契约与宿主边界看 [架构](tapp/ARCHITECTURE.md) 和 [运行时契约](tapp/RUNTIME_CONTRACT_DESIGN.md)。CLI 见 `tapp/tools/tapp-cli/README.md`。
+新手从 [快速入门](https://github.com/Myriad-You/myriad-tapp/blob/main/docs/QUICKSTART.md) 开始；Widget 看 [WIDGET.md](https://github.com/Myriad-You/myriad-tapp/blob/main/docs/WIDGET.md)；契约与宿主边界看 [架构](tapp/ARCHITECTURE.md) 和 [运行时契约](tapp/RUNTIME_CONTRACT_DESIGN.md)。CLI 是 npm 包 `@myriad-you/tapp-cli`，见 [tapp-cli README](https://github.com/Myriad-You/myriad-tapp/blob/main/tools/tapp-cli/README.md)。
 
-宿主是 AGPL-3.0。只通过文档化 Bridge 与宿主通信、且不复制宿主源码（Apache-2.0 的契约 / CLI 除外）的 Tapp 是独立作品，许可由作者自选。契约 crate 与 `tapp-cli` 是 Apache-2.0。见仓库根目录 `LICENSE` 中 AGPL 第 7 条附加许可。
+宿主是 AGPL-3.0。只通过文档化 Bridge 与宿主通信、且不复制宿主源码（Apache-2.0 的契约 / CLI 除外）的 Tapp 是独立作品，许可由作者自选。契约 crate、契约 JSON（`tapp/shared/tapp_sandbox_contract.json`）、`tapp-cli` 与契约导出工具是 Apache-2.0。见仓库根目录 `LICENSE` 中 AGPL 第 7 条附加许可。
 
 ## 文档维护原则
 
@@ -40,4 +40,4 @@
 - SDK 方法必须同时存在权限映射和目标沙箱 handler。
 - REST 端点以后端路由注册为准；Tapp 代码优先使用 SDK 而不是直接调用 REST。
 - 商店目录字段以官方 `index.json` + 安装器实际读取的键为准；见 [STORE.md](https://github.com/Myriad-You/myriad-tapp/blob/main/docs/STORE.md)。
-- 权限字符串与 host 归因以 `tapp/fixtures/*.json` 为 source of truth（先改 fixture 再改代码）。
+- 权限字符串与 host 归因以 [`tapp/docs/fixtures/*.json`](https://github.com/Myriad-You/myriad-tapp/tree/main/docs/fixtures) 为 source of truth（先改 fixture 再改代码）。

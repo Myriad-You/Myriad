@@ -307,6 +307,7 @@ Bridge 默认 payload 约 **1 MiB**；正式运行特例：`file.download` 文�
 - **`locales`**：见上文；默认 `en-US` + `ja-JP`。
 - **`iconSvg`**：生产包优先内联 SVG（优先于 emoji `icon`）；简单 demo 可用 emoji。
 - **`minSystemVersion`**：可选语义版本；声明后安装/更新会与宿主 Myriad 版本比较并拒绝过旧实例。新能力依赖新 runtime 时建议填写。
+- **`minContractVersion`**：只在用到第 1 版契约之后才有的功能（如 `Tapp.context.getCapabilities()`，第 2 版）时写对应版本；没用到就不写，更早的宿主会把带这个字段的 Manifest 整个拒收。
 - **`backgroundRequirements`**：仅当 `code.core` 真正依赖常驻（如 scheduler/sync）时填写；勿为「好看」空挂。
 
 ## 安全与兼容性
