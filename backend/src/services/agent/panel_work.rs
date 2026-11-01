@@ -128,6 +128,8 @@ struct Now {
     piece: Piece,
     task: Option<TaskState>,
     run_id: Option<String>,
+    /// Ended without getting it done: its last turn failed.
+    failed: bool,
 }
 
 async fn now(db: &DatabaseConnection, user_id: i32, chat: &str) -> Vec<Now> {
@@ -142,6 +144,7 @@ async fn now(db: &DatabaseConnection, user_id: i32, chat: &str) -> Vec<Now> {
         let running =
             crate::services::agent::run_hub::executing_run_for_session(user_id, &kept.session_id)
                 .await;
+        let mut failed = false;
         let standing = if kept.stopped {
             Standing::Stopped
         } else if let Some(prompt) = task
@@ -157,8 +160,10 @@ async fn now(db: &DatabaseConnection, user_id: i32, chat: &str) -> Vec<Now> {
                 progress: task.as_ref().map(|task| task.progress),
             }
         } else {
+            let ended = came_back(db, &kept.session_id).await;
+            failed = ended.as_ref().is_some_and(|ended| ended.failed);
             Standing::Done {
-                result: came_back(db, &kept.session_id).await,
+                result: ended.map(|ended| ended.text),
             }
         };
         let piece = Piece {
@@ -175,19 +180,42 @@ async fn now(db: &DatabaseConnection, user_id: i32, chat: &str) -> Vec<Now> {
             piece,
             task,
             run_id,
+            failed,
         });
     }
     pieces
 }
 
-async fn came_back(db: &DatabaseConnection, session_id: &str) -> Option<String> {
-    let history = crate::services::agent::sessions::load_session_history(db, session_id, 2, false)
+struct Ended {
+    text: String,
+    failed: bool,
+}
+
+/// How its session ended: the last reply, or the turn that failed (kept as
+/// a system line marked as an error).
+async fn came_back(db: &DatabaseConnection, session_id: &str) -> Option<Ended> {
+    use crate::models::entities::agent_messages;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+    let last = agent_messages::Entity::find()
+        .filter(agent_messages::Column::SessionId.eq(session_id))
+        .filter(agent_messages::Column::Role.is_in(["assistant", "system"]))
+        .order_by_desc(agent_messages::Column::CreatedAt)
+        .one(db)
         .await
-        .ok()?;
-    history
-        .last()
-        .filter(|message| message.role == "assistant")
-        .map(|message| message.content.chars().take(RESULT_CHARS).collect())
+        .ok()??;
+    let failed = last
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("error"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if last.role != "assistant" && !failed {
+        return None;
+    }
+    Some(Ended {
+        text: last.content.chars().take(RESULT_CHARS).collect(),
+        failed,
+    })
 }
 
 /// What she sees of the pieces of this conversation, as in a private chat.
@@ -226,7 +254,10 @@ pub(crate) async fn listed(db: &DatabaseConnection, user_id: i32, chat: &str) ->
                         "question": now.task.as_ref().and_then(|task| task.pending_question.as_ref()),
                     }),
                 ),
-                Standing::Done { result } => ("done", json!({ "result": result })),
+                Standing::Done { result } => (
+                    if now.failed { "failed" } else { "done" },
+                    json!({ "result": result }),
+                ),
                 Standing::Stopped => ("stopped", json!({})),
             };
             json!({
@@ -257,6 +288,7 @@ async fn start(
             context: Some(crate::services::agent::run::ProcessContext {
                 mode: Some(AgentInteractionMode::Work),
                 session_id: Some(session_id.to_string()),
+                handed_off: true,
                 ..Default::default()
             }),
         },

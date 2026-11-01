@@ -55,6 +55,11 @@ pub struct ProcessContext {
     /// there, and its senses are that device's. Set only by the server.
     #[serde(skip)]
     pub on_device: Option<String>,
+    /// A piece she handed off: the tail of the turn they asked it in, not
+    /// new demand, so the cooldown between turns does not apply. Set only by
+    /// the server.
+    #[serde(skip)]
+    pub handed_off: bool,
 }
 
 /// 对话消息（API 格式）

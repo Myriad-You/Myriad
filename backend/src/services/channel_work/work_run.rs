@@ -36,6 +36,7 @@ pub(super) async fn start_work_run(
                 channel_chat: None,
                 from_channel: true,
                 on_device: None,
+                handed_off: true,
             }),
         },
     )
@@ -107,6 +108,7 @@ pub(super) async fn resume_pending(
                         channel_chat: None,
                         from_channel: true,
                         on_device: None,
+                        handed_off: true,
                     }),
                 },
             )

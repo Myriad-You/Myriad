@@ -608,7 +608,9 @@ pub(crate) fn work_input(instruction: &str, their_words: &str) -> String {
     if their_words.is_empty() || instruction.contains(their_words) {
         instruction.to_string()
     } else {
-        format!("{instruction}\n\n（对方原话：{their_words}）")
+        // Their words may ask for more than this piece (several handed off
+        // at once): they only say how, this piece does the line above.
+        format!("{instruction}\n\n（对方原话，只作参考，这一件只办上面这一条：{their_words}）")
     }
 }
 
@@ -812,7 +814,7 @@ mod tests {
     fn the_helper_hears_their_own_words_too() {
         assert_eq!(
             work_input("查一下明天东京的天气", "明天东京会下雨吗？帮我看看"),
-            "查一下明天东京的天气\n\n（对方原话：明天东京会下雨吗？帮我看看）"
+            "查一下明天东京的天气\n\n（对方原话，只作参考，这一件只办上面这一条：明天东京会下雨吗？帮我看看）"
         );
         assert_eq!(work_input("帮我看看", "帮我看看"), "帮我看看");
     }

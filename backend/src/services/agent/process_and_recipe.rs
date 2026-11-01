@@ -80,14 +80,30 @@ impl Agent {
     ) -> Result<AgentResponse, String> {
         let user_id = request.user_id;
         let task_id = turn_task_id(&request);
-        AgentTurnBudget::run(
-            &self.db,
-            user_id,
-            "agent.process_with_progress",
-            task_id,
-            Box::pin(self.process_with_progress_inner(request, progress_tx)),
-        )
-        .await
+        let handed_off = request
+            .context
+            .as_ref()
+            .is_some_and(|context| context.handed_off);
+        let turn = Box::pin(self.process_with_progress_inner(request, progress_tx));
+        if handed_off {
+            AgentTurnBudget::run_continuation(
+                &self.db,
+                user_id,
+                "agent.process_with_progress",
+                task_id,
+                turn,
+            )
+            .await
+        } else {
+            AgentTurnBudget::run(
+                &self.db,
+                user_id,
+                "agent.process_with_progress",
+                task_id,
+                turn,
+            )
+            .await
+        }
     }
 
     async fn process_with_progress_inner(

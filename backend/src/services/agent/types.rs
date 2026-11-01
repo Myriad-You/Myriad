@@ -106,6 +106,10 @@ pub struct RequestContext {
     /// link reports the device's presence itself. Server-set only.
     #[serde(skip)]
     pub on_device: Option<String>,
+    /// A piece she handed off (see `run::ProcessContext::handed_off`).
+    /// Server-set only.
+    #[serde(skip)]
+    pub handed_off: bool,
 }
 
 /// A private IM chat turn: she talks as herself and may hand work off.
