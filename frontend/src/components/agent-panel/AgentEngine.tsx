@@ -113,7 +113,7 @@ import {
   takeQueuedAgentSubmit,
 } from './agentPanelEvents'
 import { getAgentPanelMode, useAgentPanelMode } from './agentPanelMode'
-import { showPieces } from './agentPieces'
+import { setPieceActionRunner, showPieces } from './agentPieces'
 import { turnSelectionText } from './agentSelection'
 import {
   pushAgentStatusEvent,
@@ -285,6 +285,11 @@ export const AgentEngine: React.FC = () => {
     ) => frontendActionQueue.enqueue(messageId, actions, subject),
     [frontendActionQueue],
   )
+  // Pieces she handed off run their page actions through the same queue.
+  useEffect(() => {
+    setPieceActionRunner((key, actions) => void enqueueFrontendActions(key, [...actions]))
+    return () => setPieceActionRunner(null)
+  }, [enqueueFrontendActions])
   const answerQuestionRef =
     useRef<(messageId: string, answer: string, history?: HistoryAnswerSource) => void>(null)
   const sessionTitleSetByModeRef = useRef<Record<AgentPanelMode, boolean>>({

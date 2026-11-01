@@ -1,4 +1,4 @@
-import type { ProgressEvent, WorkPlanItem } from '../../services/agent/types'
+import type { FrontendAction, ProgressEvent, WorkPlanItem } from '../../services/agent/types'
 import type { AgentMessageQuestion } from './agentMessages'
 import { agentService } from '../../services/agent'
 import { createStore, useStore } from '../../utils/store'
@@ -36,6 +36,25 @@ interface Pieces {
 
 const store = createStore<Pieces>({ chat: null, pieces: [] })
 const followed = new Set<string>()
+
+/** Runs a run's page actions: the engine's own queue, set while it is mounted. */
+type ActionRunner = (key: string, actions: readonly FrontendAction[]) => void
+let runActions: ActionRunner | null = null
+
+export function setPieceActionRunner(runner: ActionRunner | null): void {
+  runActions = runner
+}
+
+/** One event of a piece's run: what it says about the piece, and its page actions run. */
+function heard(chat: string, number: number, run: string, event: ProgressEvent): void {
+  if (store.get().chat !== chat) return
+  if (event.type === 'step_completed' && event.frontendActions?.length) {
+    // Keyed by the run: the queue skips an action it already ran under a key.
+    runActions?.(`piece-${run}`, event.frontendActions)
+  }
+  const change = pieceChange(event)
+  if (change) patch(number, change)
+}
 
 export function usePieces(): Pieces {
   return useStore(store)
@@ -125,7 +144,7 @@ export function readListed(raw: Listed): PieceView | null {
     sessionId: text(raw.sessionId),
     runId: text(raw.runId) || undefined,
     state:
-      state === 'waiting' || state === 'done' || state === 'stopped'
+      state === 'waiting' || state === 'done' || state === 'stopped' || state === 'failed'
         ? state
         : 'doing',
     progress: typeof detail.progress === 'number' ? detail.progress : undefined,
@@ -213,11 +232,7 @@ export function pieceChange(event: ProgressEvent): Partial<PieceView> | null {
 function follow(chat: string, number: number, runId: string): void {
   if (followed.has(runId)) return
   followed.add(runId)
-  const onEvent = (event: ProgressEvent) => {
-    if (store.get().chat !== chat) return
-    const change = pieceChange(event)
-    if (change) patch(number, change)
-  }
+  const onEvent = (event: ProgressEvent) => heard(chat, number, runId, event)
   void agentService
     .subscribeRun(runId, onEvent, 'work')
     .catch(() => {})
@@ -240,11 +255,7 @@ export async function answerPiece(number: number, value: string): Promise<boolea
       question.taskId,
       question.id,
       value,
-      (event) => {
-        if (store.get().chat !== chat) return
-        const change = pieceChange(event)
-        if (change) patch(number, change)
-      },
+      (event) => heard(chat, number, `${question.taskId}:${question.id}`, event),
     )
     return true
   } catch {

@@ -55,6 +55,7 @@ test('a waiting piece reads its question, a confirmation kept as one', () => {
   assert.equal(read?.question?.questionType, 'confirmation')
   assert.equal(read?.question?.options?.[0]?.label, '订')
   assert.equal(readListed({ number: 0 }), null)
+  assert.equal(readListed({ number: 3, state: 'failed', detail: { result: 'x' } })?.state, 'failed')
 })
 
 test('a run ending tells the piece how it ended', () => {
