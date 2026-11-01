@@ -74,8 +74,9 @@ jobs:
           echo "Commit title: $TITLE"
           HAS_P=false
           HAS_FULL=false
-          printf '%s\n' "$TITLE" | grep -qF -- '-p' && HAS_P=true
-          printf '%s\n' "$TITLE" | grep -qF -- '-full' && HAS_FULL=true
+          # Whole-word match: `agent-panel` / `x-fullscreen` must not trigger.
+          printf '%s\n' "$TITLE" | grep -qE -- '(^|[[:space:]])-p([[:space:]]|$)' && HAS_P=true
+          printf '%s\n' "$TITLE" | grep -qE -- '(^|[[:space:]])-full([[:space:]]|$)' && HAS_FULL=true
 
           if [ "$HAS_P" = "true" ] || [ "$HAS_FULL" = "true" ]; then
             echo "should_build=true" >>"$GITHUB_OUTPUT"
