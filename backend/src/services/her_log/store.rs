@@ -411,7 +411,11 @@ async fn keep_payload<C: ConnectionTrait>(
 /// log holds of it, its lookup columns too: a stub filled by a row moved to
 /// the partner's id names that id where it named `local-owner`. A stub
 /// loses its payload.
-async fn restate<C: ConnectionTrait>(txn: &C, user: i32, row: &Row) -> Result<(), Error> {
+pub(super) async fn restate<C: ConnectionTrait>(
+    txn: &C,
+    user: i32,
+    row: &Row,
+) -> Result<(), Error> {
     txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE agent_log_rows \

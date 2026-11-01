@@ -2042,5 +2042,211 @@ async fn a_stub_held_back_under_the_old_id_is_filled_or_relabelled_by_the_row_mo
         count(db, "SELECT COUNT(*) FROM agent_log_payloads").await,
         1
     );
+
+    // The site never writes a forget about the partner under an id it does
+    // not go by: it would forget under it later, once moved.
+    let refused = store::forget(db, &owner(db).await, OWN, &format!("affect:{LEGACY}")).await;
+    assert!(
+        matches!(refused, Err(super::Error::Refused(_))),
+        "{refused:?}"
+    );
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*) FROM agent_log_rows WHERE kind = 'forget'"
+        )
+        .await,
+        0
+    );
+
+    // Whole this time, but the ledger here takes it away: the site forgot
+    // her mood towards the partner. The held stub takes the moved envelope
+    // and stays a stub: relabelled, not filled, and no payload is kept.
+    let rain = Row {
+        id: "dev_mac_rain".to_string(),
+        dseq: Some(3),
+        hlc: myriad_persona_log::clock::next(Some(&earlier.hlc), T0, 0, "dev_mac").unwrap(),
+        payload: Some(Payload {
+            reference: "blob:dev_mac_rain".to_string(),
+            key: None,
+        }),
+        ..row.clone()
+    };
+    store::take(
+        db,
+        &root(),
+        &owner(db).await,
+        "dev_mac",
+        wire::Batch {
+            audience: OWN.to_string(),
+            rows: vec![rain.stub()],
+            payloads: Vec::new(),
+            withheld: Vec::new(),
+        },
+        &Default::default(),
+        T0 + 2 * MINUTE,
+    )
+    .await
+    .unwrap();
+    store::forget(db, &owner(db).await, OWN, &format!("affect:{PARTNER}"))
+        .await
+        .unwrap();
+    let moved_rain = myriad_persona_log::partner::row(
+        &rain,
+        &Move {
+            from: LEGACY.to_string(),
+            to: PARTNER.to_string(),
+        },
+    );
+    mac.payloads.insert(
+        "blob:dev_mac_rain".to_string(),
+        canonical_bytes(&body_of(
+            "affect.change",
+            OWN,
+            &moved_rain.object,
+            "rain on the window",
+            T0,
+        )),
+    );
+    let frame = mac.rows_frame(OWN, vec![moved_rain]);
+    let taken = store::take(
+        db,
+        &root(),
+        &owner(db).await,
+        "dev_mac",
+        serde_json::from_value(frame["body"].clone()).unwrap(),
+        &Default::default(),
+        T0 + 2 * MINUTE,
+    )
+    .await
+    .unwrap();
+    assert_eq!(taken.relabelled, [rain.id.clone()], "{taken:?}");
+    assert!(taken.filled.is_empty(), "{taken:?}");
+    assert_eq!(
+        count(
+            db,
+            &format!(
+                "SELECT COUNT(*) FROM agent_log_rows \
+                 WHERE id = 'dev_mac_rain' AND object = 'affect:{PARTNER}' AND forgotten"
+            )
+        )
+        .await,
+        1
+    );
+    // The forget took the walk's payload too; none is left.
+    assert_eq!(
+        count(db, "SELECT COUNT(*) FROM agent_log_payloads").await,
+        0
+    );
+
+    // On the server a move never changes a subject (`own:` has none, and no
+    // side holds `personal:local-owner`), so restate's subject column is
+    // checked on its own: a group's stub about one member, restated about
+    // another.
+    let about = Row {
+        id: "dev_mac_group".to_string(),
+        audience: GROUP.to_string(),
+        subject: Some("tg_1".to_string()),
+        object: "memory:dev_mac_group".to_string(),
+        kind: "memory.write".to_string(),
+        dseq: Some(1),
+        payload: Some(Payload {
+            reference: "blob:dev_mac_group".to_string(),
+            key: None,
+        }),
+        ..row.clone()
+    }
+    .stub();
+    store::take(
+        db,
+        &root(),
+        &owner(db).await,
+        "dev_mac",
+        wire::Batch {
+            audience: GROUP.to_string(),
+            rows: vec![about.clone()],
+            payloads: Vec::new(),
+            withheld: Vec::new(),
+        },
+        &Default::default(),
+        T0 + 2 * MINUTE,
+    )
+    .await
+    .unwrap();
+    store::restate(
+        db,
+        OWNER,
+        &Row {
+            subject: Some("tg_2".to_string()),
+            ..about
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*) FROM agent_log_rows WHERE id = 'dev_mac_group' AND subject = 'tg_2'"
+        )
+        .await,
+        1
+    );
+    schema.drop().await;
+}
+
+/// A log of the shape from before it was one per account that holds rows is
+/// kept as it is by the startup heal, and her log stays off while it is
+/// there, switched on or not; emptied, the heal makes it again and her log
+/// may run.
+#[tokio::test]
+async fn her_log_stays_off_while_a_log_of_the_old_shape_holds_rows() {
+    let Some(schema) = schema("her_log_old_shape").await else {
+        return;
+    };
+    let db = &schema.db;
+    let heal = include_str!("../../../migrations/persona_log.sql");
+    // As the schema check leaves one: keyed by row id, `user_id` added and
+    // nullable, the unique place without it.
+    db.execute_unprepared(
+        "DROP TABLE agent_log_payloads, agent_log_rows CASCADE;
+         CREATE TABLE agent_log_rows (
+             id VARCHAR(512) PRIMARY KEY, audience VARCHAR(512) NOT NULL,
+             origin VARCHAR(64) NOT NULL, dseq BIGINT NOT NULL, hlc VARCHAR(96) NOT NULL,
+             object VARCHAR(512) NOT NULL, subject VARCHAR(512), kind VARCHAR(64) NOT NULL,
+             forgotten BOOLEAN NOT NULL DEFAULT false, envelope JSONB NOT NULL,
+             received_from VARCHAR(64) NOT NULL, received_at TIMESTAMPTZ NOT NULL,
+             user_id INTEGER);
+         CREATE UNIQUE INDEX idx_agent_log_rows_place ON agent_log_rows (audience, origin, dseq);
+         CREATE INDEX idx_agent_log_rows_object ON agent_log_rows (audience, object);
+         CREATE INDEX idx_agent_log_rows_subject ON agent_log_rows (audience, subject);
+         CREATE TABLE agent_log_payloads (
+             row_id VARCHAR(512) PRIMARY KEY REFERENCES agent_log_rows(id) ON DELETE CASCADE,
+             sealed BYTEA NOT NULL, created_at TIMESTAMPTZ NOT NULL, user_id INTEGER);
+         CREATE TABLE agent_log_ledger (target VARCHAR(512) PRIMARY KEY);
+         INSERT INTO agent_log_rows (id, audience, origin, dseq, hlc, object, kind, envelope,
+                                     received_from, received_at)
+             VALUES ('dev_old_1', 'own:', 'dev_old', 1, 'h', 'affect:x', 'affect.change', '{}',
+                     'dev_old', now());
+         INSERT INTO agent_log_ledger VALUES ('memory:m1');",
+    )
+    .await
+    .unwrap();
+    db.execute_unprepared(heal).await.unwrap();
+    let left = super::old_shape(db).await.unwrap();
+    assert_eq!(
+        left.as_deref(),
+        Some("agent_log_* keyed by row id, agent_log_ledger")
+    );
+    assert_eq!(count(db, "SELECT COUNT(*) FROM agent_log_rows").await, 1);
+    assert!(!super::admit(db, &on()).await);
+    assert!(!super::admit(db, &Settings::default()).await);
+
+    db.execute_unprepared("DELETE FROM agent_log_rows; DELETE FROM agent_log_ledger")
+        .await
+        .unwrap();
+    db.execute_unprepared(heal).await.unwrap();
+    assert_eq!(super::old_shape(db).await.unwrap(), None);
+    assert!(super::admit(db, &on()).await);
+    assert!(!super::admit(db, &Settings::default()).await);
     schema.drop().await;
 }

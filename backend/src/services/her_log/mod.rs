@@ -69,6 +69,7 @@ mod tests;
 
 use std::fmt;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use myriad_persona_log::{Core, Holder};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, Statement};
@@ -251,9 +252,80 @@ pub fn settings() -> &'static Settings {
     SETTINGS.get_or_init(Settings::from_env)
 }
 
-/// Whether her log on the server is on.
+/// Set at start when `HER_LOG_ENABLED` is on but her log may not run on
+/// this database ([`admit`]).
+static REFUSED: AtomicBool = AtomicBool::new(false);
+
+/// Whether her log on the server is on: switched on, and not refused at
+/// start ([`check`]).
 pub fn enabled() -> bool {
-    settings().enabled
+    settings().enabled && !REFUSED.load(Ordering::Relaxed)
+}
+
+/// What is left of her log from before it was one per account: its tables
+/// are made again only while empty (`migrations/persona_log.sql`), so one
+/// still there holds rows. Their keys and unique indexes have no `user_id`,
+/// and nothing here may write to them. `None` when none is left.
+pub async fn old_shape<C: ConnectionTrait>(db: &C) -> Result<Option<String>, DbErr> {
+    let row = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT (to_regclass('agent_log_rows') IS NOT NULL AND NOT EXISTS ( \
+                 SELECT 1 FROM pg_index i \
+                 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey) \
+                 WHERE i.indrelid = to_regclass('agent_log_rows') AND i.indisprimary \
+                   AND a.attname = 'user_id')) AS old_log, \
+                    to_regclass('agent_log_ledger') IS NOT NULL AS old_ledger",
+        ))
+        .await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let mut left = Vec::new();
+    if row.try_get::<bool>("", "old_log")? {
+        left.push("agent_log_* keyed by row id");
+    }
+    if row.try_get::<bool>("", "old_ledger")? {
+        left.push("agent_log_ledger");
+    }
+    Ok((!left.is_empty()).then(|| left.join(", ")))
+}
+
+/// Whether her log may run on `db` with `settings`: switched on, and no
+/// table of the old shape left ([`old_shape`]), which would take this
+/// code's rows by row id alone across accounts. Refused, it says why.
+pub async fn admit<C: ConnectionTrait>(db: &C, settings: &Settings) -> bool {
+    if !settings.enabled {
+        return false;
+    }
+    match old_shape(db).await {
+        Ok(None) => true,
+        Ok(Some(left)) => {
+            tracing::error!(
+                %left,
+                "[her-log] HER_LOG_ENABLED is on but her log stays off: tables from before it was \
+                 one per account still hold rows; decide what becomes of them (the startup heal \
+                 makes them again once they are empty)"
+            );
+            false
+        }
+        Err(error) => {
+            tracing::error!(
+                %error,
+                "[her-log] HER_LOG_ENABLED is on but her log stays off: could not tell whether \
+                 tables of the old shape are left"
+            );
+            false
+        }
+    }
+}
+
+/// At start, after the schema check and before anything of her log runs:
+/// switched on but refused ([`admit`]), it stays off in this process.
+pub async fn check<C: ConnectionTrait>(db: &C) {
+    if settings().enabled && !admit(db, settings()).await {
+        REFUSED.store(true, Ordering::Relaxed);
+    }
 }
 
 /// Why something was not done. The message says what, never with what: no

@@ -138,7 +138,7 @@ pub const EVERY: std::time::Duration = std::time::Duration::from_secs(15);
 /// while her log on the server is on. Nothing starts when it is off.
 pub fn start(db: DatabaseConnection) {
     let settings = super::settings();
-    if !settings.enabled {
+    if !super::enabled() {
         return;
     }
     tracing::info!("[her-log] her log on the server is on");

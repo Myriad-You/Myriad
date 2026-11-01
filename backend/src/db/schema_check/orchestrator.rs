@@ -71,7 +71,8 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// 2026.10.30.1：搬家来的笔记的旧地址 `phantasi_items.old_paths`（旧库走通用 ADD）。
 /// 2026.11.01.1：她的日志按账号分开（`agent_log_*` 的键带 `user_id`），账改成每个受众一份
 /// `agent_log_ledgers`，加伙伴 id `agent_log_partners`、别人的节点 `agent_log_elsewhere`、
-/// 整份下载的 `peer_abi`。旧形状的日志从没开过，`persona_log.sql` 删掉重建。
+/// 整份下载的 `peer_abi`。旧形状的日志从没开过，`persona_log.sql` 只在表空时重建；
+/// 有行的旧表原样留着，她的日志拒绝打开（`her_log::admit`）。
 pub const SCHEMA_VERSION: &str = "2026.11.01.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
