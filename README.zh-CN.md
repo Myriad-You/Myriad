@@ -135,7 +135,7 @@
 
 - **站里的小应用**：页面、首页小组件，或两者都有。跑在沙箱里，安装时批准权限；宿主密钥和应用凭据不进沙箱，报错里也不出现。
 - **游乐场**（桌面端，站长）：说一句话生成项目，在生产沙箱里预览，满意了安装或导出 `.tapp`。
-- **商店和 CLI**：[tapp-store](https://github.com/Myriad-You/tapp-store)，以及 [`tapp-cli`](tapp/tools/tapp-cli/README.md)（`myriad-tapp init / check / pack`）。开发见 [Tapp 开发](docs/development/TAPP_DEVELOPMENT.md)。
+- **商店和 CLI**：[tapp-store](https://github.com/Myriad-You/tapp-store)，以及 [`tapp-cli`](https://github.com/Myriad-You/myriad-tapp/blob/main/tools/tapp-cli/README.md)（`myriad-tapp init / check / pack`）。开发见 [Tapp 开发](docs/development/TAPP_DEVELOPMENT.md)。
 
 ## 博客
 
@@ -341,7 +341,7 @@ macOS 已演练过；Windows（WSL 2）未验证。[本地部署](docs/deploymen
 
 ## 本地开发
 
-共用核心是 git 子模块 `core/`（[myriad-core](https://github.com/Myriad-You/myriad-core)），她的 2.5D 形象是 git 子模块 `figure/`（[myriad-figure](https://github.com/Myriad-You/myriad-figure)）。克隆之后、以及拉取后子模块指针变了时：
+共用核心是 git 子模块 `core/`（[myriad-core](https://github.com/Myriad-You/myriad-core)），她的 2.5D 形象是 git 子模块 `figure/`（[myriad-figure](https://github.com/Myriad-You/myriad-figure)），Tapp 契约与运行时是 git 子模块 `tapp/`（[myriad-tapp](https://github.com/Myriad-You/myriad-tapp)）。克隆之后、以及拉取后子模块指针变了时：
 
 ```bash
 git submodule update --init
@@ -423,7 +423,7 @@ Myriad/
 ├── proxy/            生产反向代理（独立 Cargo 树）
 ├── updater/          自更新守护进程（独立 Cargo 树）
 ├── core/             共用核心（git 子模块：myriad-core）
-├── tapp/             Tapp 契约、规则、共用运行时、CLI、作者文档（独立 Cargo 树）
+├── tapp/             Tapp 契约、规则、共用运行时、CLI、作者文档（git 子模块：myriad-tapp；独立 Cargo 树）
 ├── crates/           工作区库
 ├── shared/           跨组件静态配置
 ├── docker/           backend / frontend Dockerfile

@@ -135,7 +135,7 @@
 
 - **サイトの小さなアプリ**：ページ、ホームのウィジェット、またはその両方。サンドボックスで動き、インストール時に権限を承認します。ホストの秘密情報とアプリの認証情報はサンドボックスに入らず、エラーにも出ません。
 - **プレイグラウンド**（デスクトップ、オーナー）：一文でプロジェクトを生成し、本番と同じサンドボックスでプレビューして、気に入ればインストールするか `.tapp` に書き出します。
-- **ストアと CLI**：[tapp-store](https://github.com/Myriad-You/tapp-store) と [`tapp-cli`](tapp/tools/tapp-cli/README.md)（`myriad-tapp init / check / pack`）。開発は [Tapp 開発](docs/development/TAPP_DEVELOPMENT.md)。
+- **ストアと CLI**：[tapp-store](https://github.com/Myriad-You/tapp-store) と [`tapp-cli`](https://github.com/Myriad-You/myriad-tapp/blob/main/tools/tapp-cli/README.md)（`myriad-tapp init / check / pack`）。開発は [Tapp 開発](docs/development/TAPP_DEVELOPMENT.md)。
 
 ## ブログ
 
@@ -341,7 +341,7 @@ macOS はリハーサル済み、Windows（WSL 2）は未検証。[ローカル�
 
 ## ローカル開発
 
-共有コアは git サブモジュール `core/`（[myriad-core](https://github.com/Myriad-You/myriad-core)）、彼女の 2.5D フィギュアは git サブモジュール `figure/`（[myriad-figure](https://github.com/Myriad-You/myriad-figure)）。クローン後と、プルでその参照が動いたとき：
+共有コアは git サブモジュール `core/`（[myriad-core](https://github.com/Myriad-You/myriad-core)）、彼女の 2.5D フィギュアは git サブモジュール `figure/`（[myriad-figure](https://github.com/Myriad-You/myriad-figure)）、Tapp の契約とランタイムは git サブモジュール `tapp/`（[myriad-tapp](https://github.com/Myriad-You/myriad-tapp)）。クローン後と、プルでその参照が動いたとき：
 
 ```bash
 git submodule update --init
@@ -423,7 +423,7 @@ Myriad/
 ├── proxy/            本番リバースプロキシ（独立 Cargo ツリー）
 ├── updater/          自己更新デーモン（独立 Cargo ツリー）
 ├── core/             共有コア（git サブモジュール：myriad-core）
-├── tapp/             Tapp 契約、ルール、共有ランタイム、CLI、作者向けドキュメント（独立 Cargo ツリー）
+├── tapp/             Tapp 契約、ルール、共有ランタイム、CLI、作者向けドキュメント（git サブモジュール：myriad-tapp；独立 Cargo ツリー）
 ├── crates/           ワークスペースライブラリ
 ├── shared/           横断静的設定
 ├── docker/           backend / frontend Dockerfile

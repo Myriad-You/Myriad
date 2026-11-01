@@ -47,13 +47,21 @@ Shared artifacts: root `Cargo.lock` and root `target/`.
 `proxy/` and `updater/` are listed in `workspace.exclude` — independent
 packages with their own lock + `target`.
 
-`tapp/` is excluded the same way: its own workspace (`tapp/Cargo.toml`, own
-lock and `target`) holding `myriad-tapp-contract` (`crates/tapp-contract/`),
-`myriad-tapp-rules` (`crates/myriad-tapp-rules/`: HMAC, transform, package
-plan, feed) and `myriad-tapp-contract-export` (`tools/tapp-contract-export/`,
-prints `export_tapp_contract()`). The backend uses the two crates as path
-dependencies, as it does core's. Their tests run from `tapp/`:
-`cargo test --workspace`.
+`tapp/` is excluded the same way. It is the git submodule
+[myriad-tapp](https://github.com/Myriad-You/myriad-tapp): its own workspace
+(`tapp/Cargo.toml`, own lock and `target`) holding `myriad-tapp-contract`
+(`crates/tapp-contract/`), `myriad-tapp-rules` (`crates/myriad-tapp-rules/`:
+HMAC, transform, package plan, feed) and `myriad-tapp-contract-export`
+(`tools/tapp-contract-export/`, prints `export_tapp_contract()`), plus the CLI,
+the app author docs and the TypeScript runtime. The backend uses the two crates
+as path dependencies, as it does core's, and compiles in author docs and
+fixtures from `tapp/docs/`. The runtime (`tapp/runtime/`) is a member of
+`frontend/`'s pnpm workspace, imported as `@myriad/tapp-runtime` and
+`@myriad/tapp-runtime/testing`; `pnpm install`, `pnpm test:unit`,
+`pnpm typecheck` and `pnpm lint` in `frontend/` cover it. Their tests run from
+`tapp/` (`cargo test --workspace`) and in myriad-tapp's own CI. A change to
+`tapp/` is made in myriad-tapp and merged to its `main` first, then the
+submodule is moved here; the commit it points to must already be there.
 
 The shared core (`myriad-merope`, `myriad-agent-rules`, `myriad-persona-sync`,
 `myriad-persona-log`, `myriad-her-link` and the contracts in `core/shared/`)

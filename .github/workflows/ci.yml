@@ -68,8 +68,7 @@ jobs:
               - shared/**
               - core
               - figure
-              - tapp/runtime/**
-              - tapp/shared/**
+              - tapp
             frontend_browser:
               - *frontend_build
               # Fixtures read by the browser round-trip spec.
@@ -83,7 +82,7 @@ jobs:
               - crates/**
               - core
               - docs/development/**
-              - tapp/**
+              - tapp
               - proxy/src/main.rs
             backend:
               - *workflow
@@ -94,15 +93,13 @@ jobs:
               - backend/**
               - crates/**
               - core
-              - tapp/Cargo.toml
-              - tapp/crates/**
-              - tapp/shared/**
+              # Path dependencies, and include_str! of its author docs.
+              - tapp
               - shared/**
               - tests/merope/**
               # include_str! targets
               - docs/development/**
               - docs/features/**
-              - tapp/docs/**
             proxy:
               - *workflow
               - *rust_toolchain
@@ -132,7 +129,7 @@ jobs:
               - core
               - figure
               - frontend/**
-              - tapp/**
+              - tapp
               - shared/**
               - scripts/extra/smoke.sh
             audit:
@@ -144,14 +141,10 @@ jobs:
               - frontend/package.json
               - frontend/pnpm-lock.yaml
               - frontend/pnpm-workspace.yaml
+              - tapp
             tapp_cli:
               - *workflow
-              - tapp/rust-toolchain.toml
-              - tapp/Cargo.toml
-              - tapp/Cargo.lock
-              - tapp/tools/**
-              - tapp/crates/**
-              - tapp/shared/**
+              - tapp
 
   # Split so backend-only changes rerun just the contract tests that read
   # backend/crate sources, not the build, budget and browser suites.
@@ -543,8 +536,11 @@ jobs:
         run: pnpm audit
         continue-on-error: true
 
+  # tapp/ is the myriad-tapp submodule, whose own CI runs these on every commit;
+  # rerunning them here checks the pinned commit as this repository sees it.
+  # The name is a required check on preview: keep it.
   tapp-cli:
-    name: Tapp contract, rules and CLI
+    name: Tapp CLI contract and tests
     needs: changes
     if: needs.changes.outputs.tapp_cli == 'true'
     runs-on: ubuntu-latest

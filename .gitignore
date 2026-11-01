@@ -39,7 +39,6 @@ nul
 # --- Dependencies (never commit accidental root installs) ---
 /node_modules/
 /.pnpm-store
-/tapp/tools/tapp-cli/node_modules/
 
 # --- Logs / temp ---
 *.log
@@ -59,7 +58,6 @@ logs/
 out/
 *.build
 /.astro
-/tapp/tools/tapp-cli/dist/
 /.verify-tapp-audit
 
 # --- Docker local overrides / volumes ---
@@ -85,12 +83,9 @@ docker/volumes/
 # Independent crates (not workspace members)
 /proxy/target/
 /updater/target/
-/tapp/target/
 # Nested lockfiles must not reappear under workspace members / tools
 /backend/Cargo.lock
 /backend/migrations/Cargo.lock
-/tapp/crates/*/Cargo.lock
-/tapp/tools/tapp-contract-export/Cargo.lock
 
 # --- Backend runtime data (seeded skills/*.md remain tracked) ---
 /backend/data/phantasi

@@ -91,8 +91,9 @@ git clone --recurse-submodules https://github.com/Myriad-You/Myriad.git
 cd Myriad
 ```
 
-The shared core is the `core/` git submodule and her 2.5D figure the `figure/`
-git submodule; the backend and frontend do not build without them.
+The shared core is the `core/` git submodule, her 2.5D figure the `figure/`
+git submodule and the Tapp contract and runtime the `tapp/` git submodule; the
+backend and frontend do not build without them.
 
 ---
 

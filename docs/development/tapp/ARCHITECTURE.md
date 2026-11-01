@@ -2,7 +2,7 @@
 
 本文描述当前代码中的 Tapp（Third-party App）实现。它是维护者理解安装、运行、
 沙箱、后台任务和后端服务边界的总入口；字段与 API 的细节分别以
-[Manifest](../../../tapp/docs/MANIFEST.md)、[SDK API](../../../tapp/docs/API_REFERENCE.md) 和
+[Manifest](https://github.com/Myriad-You/myriad-tapp/blob/main/docs/MANIFEST.md)、[SDK API](https://github.com/Myriad-You/myriad-tapp/blob/main/docs/API_REFERENCE.md) 和
 [REST API](REST_API.md) 为准。
 
 Runtime Grant、One-shot Data Exchange、AI Task、Scoped Event Broker 和 Agent Interaction
@@ -31,7 +31,7 @@ Tapp 不是把第三方脚本直接加载到 Myriad 页面中，而是：
 `<script>` 会让合法名称、设置值或代码静默截断整个沙箱。
 
 Dashboard Widget 在懒加载、runtime 同步与 iframe ready 前由宿主绘制统一骨架（见
-[WIDGET.md · 宿主加载骨架](../../../tapp/docs/WIDGET.md#宿主加载骨架widget-skeleton)）；Tapp 应尽快
+[WIDGET.md · 宿主加载骨架](https://github.com/Myriad-You/myriad-tapp/blob/main/docs/WIDGET.md#宿主加载骨架widget-skeleton)）；Tapp 应尽快
 `onReady`，不要再实现整卡 Spinner。
 
 ```mermaid
@@ -118,7 +118,7 @@ HTTP 路径、Bridge method、持久化 key/channel 或 Manifest `protocolVersio
 | 商店安装 | `POST /api/tapps/install`, `source=store`  | 后端从已配置商店下载；网络失败或大包时前端可下载后回退到 direct |
 | 文件安装 | `POST /api/tapps/install-file`             | 上传 ZIP 格式 `.tapp`，安全解包后安装                     |
 
-远程目录格式、源 CRUD、`storeSource` 语义与发布清单见 **[Tapp 商店](../../../tapp/docs/STORE.md)**。
+远程目录格式、源 CRUD、`storeSource` 语义与发布清单见 **[Tapp 商店](https://github.com/Myriad-You/myriad-tapp/blob/main/docs/STORE.md)**。
 
 安装和更新时必须先校验 Tapp ID、Manifest 资源路径、资源类型和命名资源键。安全的嵌套
 相对路径会原样保留；绝对路径、隐藏路径、反斜杠和 `..` 会被拒绝。入口、CSS、HTML 模板
@@ -441,7 +441,7 @@ sequenceDiagram
   `no_audience`，计入 total/missed 而非 failed；不重试、不发失败通知。`both` 保留
   已成功执行的后端结果并标明前端 skipped，整体记 skipped。跳过会推进到下一周期，
   once 任务禁用；前端重新上线不会自动补跑这次执行。结果字段见
-  [定时任务 API](../../../tapp/docs/API_REFERENCE.md#定时任务-api)。
+  [定时任务 API](https://github.com/Myriad-You/myriad-tapp/blob/main/docs/API_REFERENCE.md#定时任务-api)。
 - `executionTarget=backend|both` 必须声明并通过后端校验 `backendActions`。
 - global scope 仅管理员可注册；所有注册仍检查 Tapp 所有权和
   `scheduler:register`。
@@ -470,7 +470,7 @@ sequenceDiagram
 
 需要给其他程序调用时，在同一条 `apis` 上声明 `route` + HMAC `verify`。宿主挂
 `/tapi/{tappId}/{path}`，不签发 Runtime Grant，不种游客 Cookie，也不提供未签名目录。
-验签、时间窗、nonce 账本和凭据小时封顶见 [Manifest · 入站路由](../../../tapp/docs/MANIFEST.md#入站路由-apisroute)。
+验签、时间窗、nonce 账本和凭据小时封顶见 [Manifest · 入站路由](https://github.com/Myriad-You/myriad-tapp/blob/main/docs/MANIFEST.md#入站路由-apisroute)。
 
 ## 性能策略
 
@@ -578,7 +578,7 @@ calls、tokens 与 cooldown 以 `(subject, owner, tapp, UTC day)` 持久化，�
 `backend/src/services/ai_task_image.rs` 在预留额度前校验并解析为图片字节；只接受有界 data URL
 和本平台图片缓存路径。原始来源参与幂等哈希，执行期间保留解析后的字节，交给
 `image_generation.rs` / `gemini_media.rs` 映射到供应商的多图输入。参考图不进入文本 prompt，
-供应商错误详情也不进入任务快照或事件。字段与限制见 [AI API](../../../tapp/docs/API_REFERENCE.md#ai-api)。
+供应商错误详情也不进入任务快照或事件。字段与限制见 [AI API](https://github.com/Myriad-You/myriad-tapp/blob/main/docs/API_REFERENCE.md#ai-api)。
 
 通用 Tapp 请求限流同样写入 PostgreSQL TTL registry。计数键包含 subject、Tapp 与 operation，
 每次递增由 advisory transaction lock 串行化，因此增加后端副本不会放大可用额度；指标与状态

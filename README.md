@@ -133,7 +133,7 @@ Single-tenant. Public or private. PostgreSQL. UI: `zh-CN` · `zh-TW` · `en-US` 
 
 - **Small apps for the site**: a page, a homepage widget, or both. They run in a sandbox with permissions approved at install; host secrets and app credentials never enter the sandbox, not even in error messages.
 - **Playground** (desktop, owner): describe an app in a sentence, preview it in the production sandbox, then install it or export a `.tapp`.
-- **Store and CLI**: [tapp-store](https://github.com/Myriad-You/tapp-store) and [`tapp-cli`](tapp/tools/tapp-cli/README.md) (`myriad-tapp init / check / pack`). See [Tapp development](docs/development/TAPP_DEVELOPMENT.md).
+- **Store and CLI**: [tapp-store](https://github.com/Myriad-You/tapp-store) and [`tapp-cli`](https://github.com/Myriad-You/myriad-tapp/blob/main/tools/tapp-cli/README.md) (`myriad-tapp init / check / pack`). See [Tapp development](docs/development/TAPP_DEVELOPMENT.md).
 
 ## Blog
 
@@ -339,7 +339,7 @@ macOS has been rehearsed; Windows (WSL 2) is uncertain. [Local deployment](docs/
 
 ## Local development
 
-The shared core is the `core/` git submodule ([myriad-core](https://github.com/Myriad-You/myriad-core)), and her 2.5D figure is the `figure/` git submodule ([myriad-figure](https://github.com/Myriad-You/myriad-figure)). After cloning, and after a pull that moves either:
+The shared core is the `core/` git submodule ([myriad-core](https://github.com/Myriad-You/myriad-core)), her 2.5D figure is the `figure/` git submodule ([myriad-figure](https://github.com/Myriad-You/myriad-figure)), and the Tapp contract and runtime are the `tapp/` git submodule ([myriad-tapp](https://github.com/Myriad-You/myriad-tapp)). After cloning, and after a pull that moves any of them:
 
 ```bash
 git submodule update --init
@@ -427,7 +427,7 @@ Myriad/
 ├── updater/          self-update daemon (own Cargo tree)
 ├── core/             shared core (git submodule: myriad-core)
 ├── figure/           2.5D figure runtime and rig tools (git submodule: myriad-figure)
-├── tapp/             Tapp contract, rules, shared runtime, CLI, author docs (own Cargo tree)
+├── tapp/             Tapp contract, rules, shared runtime, CLI, author docs (git submodule: myriad-tapp; own Cargo tree)
 ├── crates/           workspace libraries
 ├── shared/           cross-component static config
 ├── docker/           backend / frontend Dockerfiles

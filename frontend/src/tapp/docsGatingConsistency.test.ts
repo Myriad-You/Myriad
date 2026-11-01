@@ -30,11 +30,13 @@ import { resolveTappListInstallRequest } from './utils/tappListInstallRequest.ts
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = resolve(HERE, '../../..')
 // The site's own Tapp docs stay here; the app author docs and the permission
-// fixtures moved to tapp/docs with the contract.
+// fixtures are in the myriad-tapp submodule's docs/, linked by GitHub URL
+// because relative links into a submodule do not resolve on GitHub.
 const DOCS_TAPP = join(REPO, 'docs/development/tapp')
 const AUTHOR_DOCS = join(REPO, 'tapp/docs')
 const DOCS_INDEX = join(REPO, 'docs/development/TAPP_DEVELOPMENT.md')
 const FIXTURES = join(AUTHOR_DOCS, 'fixtures')
+const AUTHOR_DOCS_URL = 'https://github.com/Myriad-You/myriad-tapp/blob/main/docs/'
 const TAPP_STORE_RS = join(REPO, 'backend/src/api/tapp_store.rs')
 const ROUTER_DIR = join(REPO, 'backend/src/router')
 const CONTRACT_RULES = join(REPO, 'tapp/crates/tapp-contract/src/contract_rules.rs')
@@ -84,14 +86,14 @@ describe('tapp docs gating consistency', () => {
     const index = read(DOCS_INDEX)
     for (const file of ALL_TAPP_DOCS) {
       const listed = file.startsWith(AUTHOR_DOCS)
-        ? `tapp/docs/${basename(file)}`
+        ? `${AUTHOR_DOCS_URL}${basename(file)}`
         : `tapp/${basename(file)}`
       assert.ok(index.includes(listed), `TAPP_DEVELOPMENT.md must list ${listed}`)
     }
     assert.ok(existsSync(join(AUTHOR_DOCS, 'STORE.md')))
-    assert.ok(index.includes('tapp/docs/STORE.md'))
+    assert.ok(index.includes(`${AUTHOR_DOCS_URL}STORE.md`))
     assert.ok(existsSync(join(FIXTURES, 'README.md')))
-    assert.ok(index.includes('tapp/docs/fixtures/README.md'))
+    assert.ok(index.includes(`${AUTHOR_DOCS_URL}fixtures/README.md`))
   })
 
   it('core relative links among index docs resolve on disk', () => {
