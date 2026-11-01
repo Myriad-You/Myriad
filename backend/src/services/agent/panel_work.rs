@@ -243,16 +243,19 @@ async fn came_back(db: &DatabaseConnection, session_id: &str) -> Option<Ended> {
     })
 }
 
-/// Her line when a run of a piece ends: what came of it, in one line.
+/// Her line when a run of a piece ends: what came of it, in one line. The
+/// lines run together, so a result that opens with "here they are:" still
+/// carries what follows.
 fn ended_line(ended: &Ended) -> String {
-    let first = ended
+    let all = ended
         .text
         .lines()
         .map(|line| line.trim().trim_start_matches(['#', '>', '-', '*']).trim())
-        .find(|line| !line.is_empty())
-        .unwrap_or("");
-    let mut short: String = first.chars().take(LINE_CHARS).collect();
-    if first.chars().count() > LINE_CHARS {
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut short: String = all.chars().take(LINE_CHARS).collect();
+    if all.chars().count() > LINE_CHARS {
         short.push('…');
     }
     match (ended.failed, short.is_empty()) {
@@ -696,7 +699,12 @@ mod tests {
     fn how_it_ended_is_one_line() {
         assert_eq!(
             ended_line(&ended("\n## 明天晴\n\n最高 21 度", false)),
-            "明天晴"
+            "明天晴 最高 21 度"
+        );
+        // What it leads into comes along.
+        assert_eq!(
+            ended_line(&ended("助手列的是：\n\n1. 整理桌面\n2. 散步", false)),
+            "助手列的是： 1. 整理桌面 2. 散步"
         );
         assert_eq!(ended_line(&ended("", false)), "办完了。");
         assert_eq!(ended_line(&ended("没有权限", true)), "没办成：没有权限");
