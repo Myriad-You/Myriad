@@ -1028,8 +1028,19 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
+            name: "agent_log_partners".to_string(),
+            columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("partner_id", "character varying").not_null(),
+                ColumnDef::new("minted_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
             name: "agent_log_rows".to_string(),
             columns: vec![
+                // Not declared NOT NULL: on a log of the old shape the generic
+                // ADD would fail; `persona_log.sql` makes that log again.
+                ColumnDef::new("user_id", "integer"),
                 ColumnDef::new("id", "character varying").not_null(),
                 ColumnDef::new("audience", "character varying").not_null(),
                 ColumnDef::new("origin", "character varying").not_null(),
@@ -1049,6 +1060,9 @@ pub(crate) fn tables() -> Vec<TableDef> {
         TableDef {
             name: "agent_log_payloads".to_string(),
             columns: vec![
+                // Not declared NOT NULL: on a log of the old shape the generic
+                // ADD would fail; `persona_log.sql` makes that log again.
+                ColumnDef::new("user_id", "integer"),
                 ColumnDef::new("row_id", "character varying").not_null(),
                 ColumnDef::new("sealed", "bytea").not_null(),
                 ColumnDef::new("created_at", "timestamp with time zone").not_null(),
@@ -1057,6 +1071,9 @@ pub(crate) fn tables() -> Vec<TableDef> {
         TableDef {
             name: "agent_log_audience_keys".to_string(),
             columns: vec![
+                // Not declared NOT NULL: on a log of the old shape the generic
+                // ADD would fail; `persona_log.sql` makes that log again.
+                ColumnDef::new("user_id", "integer"),
                 ColumnDef::new("audience", "character varying").not_null(),
                 ColumnDef::new("sealed", "text").not_null(),
                 ColumnDef::new("created_at", "timestamp with time zone").not_null(),
@@ -1065,6 +1082,9 @@ pub(crate) fn tables() -> Vec<TableDef> {
         TableDef {
             name: "agent_log_object_keys".to_string(),
             columns: vec![
+                // Not declared NOT NULL: on a log of the old shape the generic
+                // ADD would fail; `persona_log.sql` makes that log again.
+                ColumnDef::new("user_id", "integer"),
                 ColumnDef::new("audience", "character varying").not_null(),
                 ColumnDef::new("object", "character varying").not_null(),
                 ColumnDef::new("subject", "character varying"),
@@ -1073,17 +1093,29 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
-            name: "agent_log_ledger".to_string(),
+            name: "agent_log_ledgers".to_string(),
             columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
                 ColumnDef::new("audience", "character varying").not_null(),
-                ColumnDef::new("target", "character varying").not_null(),
-                ColumnDef::new("at", "character varying").not_null(),
+                ColumnDef::new("entries", "jsonb").not_null(),
+                ColumnDef::new("updated_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_log_elsewhere".to_string(),
+            columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("audience", "character varying").not_null(),
+                ColumnDef::new("node", "character varying").not_null(),
                 ColumnDef::new("recorded_at", "timestamp with time zone").not_null(),
             ],
         },
         TableDef {
             name: "agent_log_counters".to_string(),
             columns: vec![
+                // Not declared NOT NULL: on a log of the old shape the generic
+                // ADD would fail; `persona_log.sql` makes that log again.
+                ColumnDef::new("user_id", "integer"),
                 ColumnDef::new("audience", "character varying").not_null(),
                 ColumnDef::new("dseq", "bigint").not_null(),
             ],
@@ -1101,6 +1133,9 @@ pub(crate) fn tables() -> Vec<TableDef> {
                 ColumnDef::new("token_hash", "character varying").not_null(),
                 ColumnDef::new("device_id", "character varying").not_null(),
                 ColumnDef::new("audience", "character varying").not_null(),
+                ColumnDef::new("peer_abi", "smallint")
+                    .not_null()
+                    .default_value("1"),
                 ColumnDef::new("expires_at", "timestamp with time zone").not_null(),
                 ColumnDef::new("used_at", "timestamp with time zone"),
             ],

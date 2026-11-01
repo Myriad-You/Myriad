@@ -5,10 +5,11 @@
 //!
 //! A link is single use, for the device it was given to, and expires after
 //! [`VALID_FOR`]; only the sha256 of its secret part is kept. The download
-//! is what `log.answer` gives a side that holds nothing: every forget
-//! first.
+//! is what `nodes.wire_send` gives the partner's computer that holds
+//! nothing: every forget first, a body only when it may travel (`withheld`
+//! says why the others do not), and nothing of an audience a computer may
+//! not hold.
 
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use myriad_persona_log::Vector;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::{Value, json};
@@ -34,10 +35,12 @@ pub struct Link {
 }
 
 /// A link for `device` to download `audience`, from the server's time `now`.
+/// `peer_abi` is its core's ABI as its link said: what may go to it.
 pub async fn issue<C: ConnectionTrait>(
     db: &C,
     device: &str,
     audience: &str,
+    peer_abi: u32,
     now: i64,
 ) -> Result<Link, Error> {
     let secret = format!("full_{}", hex::encode(rand::random::<[u8; 24]>()));
@@ -46,12 +49,13 @@ pub async fn issue<C: ConnectionTrait>(
         .ok_or_else(|| Error::Refused("time".into()))?;
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "INSERT INTO agent_log_full_links (token_hash, device_id, audience, expires_at) \
-         VALUES ($1, $2, $3, $4)",
+        "INSERT INTO agent_log_full_links (token_hash, device_id, audience, peer_abi, expires_at) \
+         VALUES ($1, $2, $3, $4, $5)",
         [
             hash(&secret).into(),
             device.into(),
             audience.into(),
+            (peer_abi.min(i16::MAX as u32) as i16).into(),
             expires_at.into(),
         ],
     ))
@@ -62,12 +66,15 @@ pub async fn issue<C: ConnectionTrait>(
     })
 }
 
-/// The download behind `secret` for `device`: `{audience, vector, rows,
-/// payloads}`, the link used up. None when there is no such link for this
-/// device, or it was used or has expired.
+/// The download behind `secret` for `device`, one of the computers of
+/// `user`'s account: `{audience, vector, rows, payloads, withheld}`, the
+/// link used up, and `tooOld: true` with no rows when its core is older
+/// than ABI 2 and a row it would refuse is to go. None when there is no
+/// such link for this device, or it was used or has expired.
 pub async fn redeem(
     db: &DatabaseConnection,
     root: &dyn keys::Root,
+    user: i32,
     device: &str,
     secret: &str,
     now: i64,
@@ -80,7 +87,7 @@ pub async fn redeem(
             DatabaseBackend::Postgres,
             "UPDATE agent_log_full_links SET used_at = $3 \
              WHERE token_hash = $1 AND device_id = $2 AND used_at IS NULL AND expires_at > $3 \
-             RETURNING audience",
+             RETURNING audience, peer_abi",
             [hash(secret).into(), device.into(), now_at.into()],
         ))
         .await?
@@ -89,21 +96,36 @@ pub async fn redeem(
         return Ok(None);
     };
     let audience: String = link.try_get("", "audience")?;
-    let holdings = store::holdings(&txn, &audience).await?;
-    let sent = store::answer(&txn, root, &audience, &Vector::new()).await?;
+    let peer_abi: i16 = link.try_get("", "peer_abi")?;
+    let owner = super::owner(&txn, user).await?;
+    let holdings = store::holdings(&txn, user, &audience).await?;
+    let sent = store::send(
+        &txn,
+        root,
+        &owner,
+        &audience,
+        &Vector::new(),
+        Vec::new(),
+        &owner.pc(),
+        peer_abi.max(1) as u32,
+    )
+    .await?;
     txn.commit().await?;
-    let mut rows = Vec::with_capacity(sent.len());
-    let mut payloads = Vec::new();
-    for item in sent {
-        if let (Some(reference), Some(data)) = (&item.row.payload, &item.payload) {
-            payloads.push(json!({ "ref": reference.reference, "data": BASE64.encode(data) }));
-        }
-        rows.push(item.row.to_value());
+    let (mut rows, mut payloads, mut withheld) = (Vec::new(), Vec::new(), Vec::new());
+    for batch in sent.batches {
+        rows.extend(batch.rows.iter().map(|row| row.to_value()));
+        payloads.extend(batch.payloads);
+        withheld.extend(batch.withheld);
     }
-    Ok(Some(json!({
+    let mut download = json!({
         "audience": audience,
         "vector": holdings.vector,
         "rows": rows,
         "payloads": payloads,
-    })))
+        "withheld": withheld,
+    });
+    if sent.too_old {
+        download["tooOld"] = json!(true);
+    }
+    Ok(Some(download))
 }

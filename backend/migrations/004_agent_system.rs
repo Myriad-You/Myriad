@@ -616,8 +616,8 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .execute_unprepared(include_str!("persona_sync.sql"))
             .await?;
 
-        // 服务端上她的日志（多端同步 S6）：按受众的日志行、封好的载荷、钥匙环、忘掉的账、
-        // 执笔权的签发历史、账号的地区。默认不用（HER_LOG_ENABLED）。
+        // 服务端上她的日志（多端同步 S6）：每个账号按受众的日志行、封好的载荷、钥匙环、账、
+        // 伙伴 id、执笔权的签发历史、账号的地区。默认不用（HER_LOG_ENABLED）。
         // schema_check::ensure_persona_log_tables 跑同一份文件。
         manager
             .get_connection()
@@ -650,11 +650,13 @@ DROP TABLE IF EXISTS agent_log_payloads;
 DROP TABLE IF EXISTS agent_log_rows;
 DROP TABLE IF EXISTS agent_log_object_keys;
 DROP TABLE IF EXISTS agent_log_audience_keys;
-DROP TABLE IF EXISTS agent_log_ledger;
+DROP TABLE IF EXISTS agent_log_ledgers;
+DROP TABLE IF EXISTS agent_log_elsewhere;
 DROP TABLE IF EXISTS agent_log_counters;
 DROP TABLE IF EXISTS agent_log_clock;
 DROP TABLE IF EXISTS agent_log_full_links;
 DROP TABLE IF EXISTS agent_log_accounts;
+DROP TABLE IF EXISTS agent_log_partners;
 DROP TABLE IF EXISTS agent_lease_grants;
 DROP FUNCTION IF EXISTS agent_lease_grants_guard();
 DROP TABLE IF EXISTS agent_lease_ends;

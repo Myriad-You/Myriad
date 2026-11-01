@@ -190,7 +190,14 @@ fn every_frame_has_a_fixture_that_fits_it() {
             match t {
                 "hello" => {
                     let hello: Hello = serde_json::from_value(inbound.body).unwrap();
-                    assert_eq!((hello.protocol, hello.role.as_str()), (1, "child"));
+                    // A child's, or the device she lives on saying the
+                    // epoch it holds her lease at.
+                    assert_eq!(hello.protocol, 1);
+                    match hello.role.as_str() {
+                        "child" => {}
+                        "host" => assert!(hello.host_epoch.is_some()),
+                        role => panic!("hello from {role}"),
+                    }
                     assert!(CONTRACT.surfaces.contains(&hello.surface));
                     assert!(
                         hello
@@ -846,6 +853,52 @@ async fn the_link_takes_only_a_live_device_token() {
     site.close().await;
 }
 
+/// The account's one partner id comes in the welcome only to an end that
+/// lists `partner`, minted once: the same on every link of the account,
+/// another account's another.
+#[tokio::test]
+async fn the_welcome_gives_the_partner_id_only_to_an_end_that_knows_it() {
+    let Some(site) = site().await else {
+        return;
+    };
+    let (_, token) = device(&site.db, "MacBook").await;
+    let mut old = Child::open(&site, &token).await;
+    let welcome = old.hello().await;
+    assert!(welcome["body"].get("partner").is_none());
+    drop(old);
+    let mut mac = Child::open(&site, &token).await;
+    let welcome = mac.hello_with(&["rig", "partner", "log2"]).await;
+    assert_eq!(
+        welcome["body"]["capabilities"],
+        json!(["rig", "partner", "log2"])
+    );
+    let partner = welcome["body"]["partner"].as_str().unwrap().to_string();
+    assert!(
+        myriad_persona_log::partner::check(&partner).is_ok(),
+        "{partner}"
+    );
+    drop(mac);
+    let (_, phone) = device(&site.db, "iPhone").await;
+    let mut phone = Child::open(&site, &phone).await;
+    let welcome = phone.hello_with(&["partner"]).await;
+    assert_eq!(welcome["body"]["partner"], partner.as_str());
+    drop(phone);
+    site.db
+        .execute_unprepared(&format!(
+            "INSERT INTO users (id, username) VALUES ({0}, 'user{0}')",
+            OWNER + 1
+        ))
+        .await
+        .unwrap();
+    assert_ne!(
+        crate::services::her_log::partner_id(&site.db, OWNER + 1)
+            .await
+            .unwrap(),
+        partner
+    );
+    site.close().await;
+}
+
 #[tokio::test]
 async fn hello_welcome_and_what_the_link_will_not_take() {
     let Some(site) = site().await else {
@@ -1082,7 +1135,9 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
         ),
         (Some("site"), Some("app"))
     );
-    assert_eq!(welcome["body"]["capabilities"], json!([]));
+    // The site's own list: its core reads log2 rows.
+    assert_eq!(welcome["body"]["capabilities"], json!(["log2"]));
+    assert!(welcome["body"].get("partner").is_none());
     assert_eq!(welcome["body"]["hostEpoch"], 2);
     assert_eq!(welcome["body"]["lineage"], born.lineage.as_str());
     // Her host's link carries nothing but the heartbeat.
@@ -1103,6 +1158,33 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
     let (status, body) = refused(&site, Some(&other)).await;
     assert_eq!((status, body["code"].as_str()), (403, Some("host_moved")));
     assert_eq!(body["host"]["name"], "Studio");
+    drop(host);
+    // Listing `partner`, her host gets the account's partner id too: the
+    // same one every link of the account gets.
+    let mut host = Child::open(&site, &token).await;
+    host.send(
+        "hello",
+        None,
+        json!({ "protocol": 1, "role": "host", "surface": "app",
+                "capabilities": ["rig", "partner", "log2"],
+                "lineage": born.lineage, "hostEpoch": 2 }),
+    )
+    .await;
+    let welcome = host.expect("welcome").await;
+    assert_eq!(
+        welcome["body"]["partner"],
+        crate::services::her_log::partner_id(&site.db, OWNER)
+            .await
+            .unwrap()
+            .as_str()
+    );
+    assert_eq!(welcome["body"]["capabilities"], json!(["log2"]));
+    // Everything the shared core's welcome to a host carries.
+    let shaped = fixtures()
+        .into_iter()
+        .find(|frame| frame["t"] == "welcome" && frame["body"]["host"] == "app")
+        .unwrap();
+    assert!(keys(&shaped["body"]).is_subset(&keys(&welcome["body"])));
     drop(host);
     // The device she lived on, at an old epoch: she moved since.
     site.db
@@ -3999,7 +4081,11 @@ fn what_the_owner_shows_her_on_a_child_comes_as_the_chats_attached_images() {
     // Beside what she senses there, at most the contract's few, where the
     // chat's attachments go; from there she sees them for this turn only.
     let senses = json!({ "musicStatus": { "isPlaying": false } });
-    let mut data = with_images(Some(senses.clone()), vec![input.images[0].clone(); most + 1]).unwrap();
+    let mut data = with_images(
+        Some(senses.clone()),
+        vec![input.images[0].clone(); most + 1],
+    )
+    .unwrap();
     assert_eq!(data["musicStatus"], senses["musicStatus"]);
     assert_eq!(data["attachments"].as_array().unwrap().len(), most);
     let images = chat_attachments::take_images(Some(&mut data));

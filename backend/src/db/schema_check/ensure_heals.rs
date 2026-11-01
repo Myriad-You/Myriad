@@ -71,10 +71,21 @@ pub(crate) async fn ensure_persona_sync_tables(db: &DatabaseConnection) -> Resul
 
 /// Her log on the server (`migrations/persona_log.sql`), for databases that
 /// ran 004 before it was in it. Same file as 004; every statement is
-/// idempotent.
+/// idempotent. A log of the shape from before it was one per account is
+/// made again only while empty; one that holds rows stays, and is named in
+/// the log here, never deleted quietly, and her log is refused while it does
+/// (`her_log::admit`).
 pub(crate) async fn ensure_persona_log_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
     db.execute_unprepared(include_str!("../../../migrations/persona_log.sql"))
         .await?;
+    if let Some(left) = crate::services::her_log::old_shape(db).await? {
+        tracing::warn!(
+            %left,
+            "[her-log] tables of her log from before it was one per account still hold rows: \
+             kept as they are, not made again; her log stays off (HER_LOG_ENABLED) until \
+             someone decides what becomes of them"
+        );
+    }
     Ok(())
 }
 
