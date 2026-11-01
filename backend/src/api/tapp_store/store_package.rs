@@ -7,7 +7,7 @@
 use super::{TappManifest, WidgetTemplateContents, api_http_error};
 use crate::error::HttpError;
 use crate::services::tapp_packages::prepared_package::{
-    PreparedTappPackage, PreparedTappResources,
+    PreparedTappPackage, PreparedTappResources, contract_too_new_error,
 };
 use axum::http::StatusCode;
 use base64::{Engine, engine::general_purpose::STANDARD as B64};
@@ -216,6 +216,14 @@ pub(super) async fn fetch_from_store(
     })?;
 
     let manifest_bytes = read_store_body(manifest_resp, MAX_TAPP_MANIFEST_BYTES).await?;
+    // Before the strict parse, as uploads do: a package for a newer contract
+    // asks for a newer Myriad instead of failing as an unreadable manifest.
+    if let Ok(raw) = serde_json::from_slice::<serde_json::Value>(&manifest_bytes)
+        && let Err(too_new) =
+            myriad_tapp_contract::contract_version::check_min_contract_version(&raw)
+    {
+        return Err(contract_too_new_error(too_new).into());
+    }
     let manifest: TappManifest = serde_json::from_slice(&manifest_bytes).map_err(|e| {
         tracing::error!(error = %e, "upstream fetch failed");
         api_http_error(StatusCode::BAD_GATEWAY, "Upstream fetch failed")

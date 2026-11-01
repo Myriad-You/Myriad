@@ -677,7 +677,7 @@ describe('tapp docs gating consistency', () => {
     const forbidden = [
       'generateFullSDK',
       'generateWidgetSDK',
-      'HEADLESS_DENIED_ACTIONS',
+      'deniedActionsFor',
       'PERMISSION_MAP',
     ]
     const quickstart = read(doc('QUICKSTART.md'))

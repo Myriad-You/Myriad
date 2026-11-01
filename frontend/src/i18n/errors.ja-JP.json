@@ -607,6 +607,7 @@
     "tapp_media_volume_invalid": "音量は 0〜100 で指定してください。",
     "tapp_metrics_unavailable": "Tapp の実行状況を取得できませんでした。しばらくしてから再試行してください。",
     "tapp_package_unusable": "この Tapp のパッケージは互換性がありません。更新するか再インストールしてください。",
+    "tapp_contract_too_new": "この Tapp には新しいバージョンの Myriad が必要です。Myriad を更新してからインストールしてください。",
     "tapp_reauthorization_required": "この Tapp は権限を承認し直さないと起動できません。",
     "tapp_runtime_grant_mismatch": "この Tapp のセッションは別のアカウントのものです。Tapp を開き直してください。",
     "tapp_settings_load_failed": "Tapp の設定を読み込めませんでした。再試行してください。",

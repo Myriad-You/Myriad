@@ -607,6 +607,7 @@
     "tapp_media_volume_invalid": "음량은 0에서 100 사이여야 해요.",
     "tapp_metrics_unavailable": "Tapp 실행 통계를 지금 가져오지 못했어요. 잠시 후 다시 시도하세요.",
     "tapp_package_unusable": "이 Tapp 패키지는 호환되지 않아요. 업데이트하거나 다시 설치하세요.",
+    "tapp_contract_too_new": "이 Tapp은 더 새로운 버전의 Myriad가 필요해요. Myriad를 업데이트한 뒤 설치하세요.",
     "tapp_reauthorization_required": "이 Tapp은 권한을 다시 승인해야 시작할 수 있어요.",
     "tapp_runtime_grant_mismatch": "이 Tapp 세션은 다른 계정의 것이에요. Tapp을 다시 여세요.",
     "tapp_settings_load_failed": "Tapp 설정을 불러오지 못했어요. 다시 시도하세요.",

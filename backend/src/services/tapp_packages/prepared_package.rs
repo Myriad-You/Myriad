@@ -39,7 +39,25 @@ fn map_validate_error(err: PackageValidateError) -> PackageError {
 }
 
 fn map_load_error(err: PackageLoadError) -> PackageError {
-    AppError::from_status_u16(err.status_hint(), err.message())
+    match err {
+        PackageLoadError::ContractTooNew(too_new) => contract_too_new_error(too_new),
+        err => AppError::from_status_u16(err.status_hint(), err.message()),
+    }
+}
+
+/// The package's `minContractVersion` is newer than the Tapp contract this
+/// Myriad implements: updating Myriad, not fixing the package, is the answer.
+pub(crate) fn contract_too_new_error(
+    too_new: myriad_tapp_contract::contract_version::ContractTooNew,
+) -> AppError {
+    AppError::from_status_u16(
+        400,
+        format!(
+            "This Tapp needs a newer Myriad: it requires Tapp contract version {}, this Myriad supports {}",
+            too_new.required, too_new.supported
+        ),
+    )
+    .with_code("tapp_contract_too_new")
 }
 
 /// Load adapter: load a .tapp archive into a validated prepared package.
@@ -781,6 +799,36 @@ mod tests {
         let written = std::fs::metadata(root.join("data.txt")).unwrap().len();
         assert!(written <= 5, "wrote {written} bytes past the declared size");
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn archive_for_a_newer_contract_asks_for_a_newer_myriad() {
+        let supported = myriad_tapp_contract::contract_version::TAPP_CONTRACT_VERSION;
+        let manifest = json!({
+            "id": "com.example.future",
+            "name": "Future package",
+            "version": "1.0.0",
+            "core": { "entry": "main.js" },
+            "category": "utility",
+            "permissions": [],
+            "minContractVersion": supported + 1,
+            "fieldFromTheFuture": true
+        });
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default();
+        writer.start_file("manifest.json", options).unwrap();
+        writer
+            .write_all(serde_json::to_string(&manifest).unwrap().as_bytes())
+            .unwrap();
+        writer.start_file("main.js", options).unwrap();
+        writer.write_all(b"export {};").unwrap();
+        let bytes = writer.finish().unwrap().into_inner();
+
+        let Err(error) = package_from_archive(bytes) else {
+            panic!("a newer contract must not install");
+        };
+        assert_eq!(error.code(), Some("tapp_contract_too_new"));
+        assert!(error.to_string().contains("newer Myriad"), "{error}");
     }
 
     #[tokio::test]

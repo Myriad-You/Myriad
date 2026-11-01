@@ -607,6 +607,7 @@
     "tapp_media_volume_invalid": "音量要在 0 到 100 之間。",
     "tapp_metrics_unavailable": "應用執行統計暫時取不到，稍後再試。",
     "tapp_package_unusable": "這個應用的安裝包不相容，請更新或重新安裝。",
+    "tapp_contract_too_new": "這個應用需要更新版本的 Myriad，升級後再安裝。",
     "tapp_reauthorization_required": "這個應用需要重新授權後才能啟動。",
     "tapp_runtime_grant_mismatch": "這個應用工作階段屬於別的帳號，請重新開啟應用。",
     "tapp_settings_load_failed": "應用設定沒能載入，請重試。",

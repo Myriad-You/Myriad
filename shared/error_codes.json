@@ -1782,6 +1782,7 @@
     "report_style_too_long",
     "report_style_builtin_readonly",
     "report_style_limit",
-    "report_style_not_found"
+    "report_style_not_found",
+    "tapp_contract_too_new"
   ]
 }

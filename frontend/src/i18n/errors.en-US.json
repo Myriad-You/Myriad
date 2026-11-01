@@ -607,6 +607,7 @@
     "tapp_media_volume_invalid": "Volume must be between 0 and 100.",
     "tapp_metrics_unavailable": "Could not collect Tapp runtime stats right now. Try again shortly.",
     "tapp_package_unusable": "This Tapp’s package is incompatible. Update or reinstall it.",
+    "tapp_contract_too_new": "This Tapp needs a newer version of Myriad. Update Myriad, then install it.",
     "tapp_reauthorization_required": "This Tapp needs its permissions approved again before it can start.",
     "tapp_runtime_grant_mismatch": "This Tapp session belongs to a different account. Reopen the Tapp.",
     "tapp_settings_load_failed": "Could not load this Tapp’s settings. Please try again.",

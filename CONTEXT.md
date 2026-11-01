@@ -142,6 +142,14 @@ _Avoid_: webhook（webhook 只是入站端点的一种调用方）
 跨 CLI、前端、后端共享的静态事实：权限目录、路径与存储键规则、Manifest 校验、宿主 CSS 固定路径。不含授予，也不含 HMAC 或 pipeline 求值。
 _Avoid_: 把授予、HMAC、transform 求值写进契约
 
+**契约版本（contract version）**：
+契约的整数版本号，从 1 开始；契约每加一样应用能依赖的东西（manifest 字段或桥上的动作）就加 1。各端通用，跟 Myriad 自己的版本号无关。
+_Avoid_: 系统版本、`minSystemVersion`（那是 Myriad 的产品版本）
+
+**需要的契约版本（`minContractVersion`）**：
+manifest 写的、这个应用至少要宿主实现到的契约版本。宿主在严格解析 manifest 之前先读它，比自己实现的新就答「需要更新宿主」，不答「manifest 无效」。比这个字段更早的宿主不认识它、会整个拒收，所以只在用到第 1 版之后的东西时才写。
+_Avoid_: 最低系统版本、兼容版本、在 `pack` 时自动补上
+
 **规则（rules）**：
 无 I/O 的求值：HMAC、transform pipeline、已安装资源计划、Agent 文本上限与出站错误归类。backend 只做 re-export，不在规则层做授权判定。
 _Avoid_: 把规则接到数据库、Web 框架或 HTTP 客户端

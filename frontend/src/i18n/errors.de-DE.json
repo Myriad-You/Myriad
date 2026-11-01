@@ -607,6 +607,7 @@
     "tapp_media_volume_invalid": "Die Lautstärke muss zwischen 0 und 100 liegen.",
     "tapp_metrics_unavailable": "Tapp-Laufzeitstatistiken sind gerade nicht abrufbar. Versuche es gleich noch einmal.",
     "tapp_package_unusable": "Das Paket dieses Tapps ist nicht kompatibel. Aktualisiere oder installiere es neu.",
+    "tapp_contract_too_new": "Dieses Tapp braucht eine neuere Myriad-Version. Aktualisiere Myriad und installiere es dann.",
     "tapp_reauthorization_required": "Die Berechtigungen dieses Tapps müssen erneut bestätigt werden, bevor er starten kann.",
     "tapp_runtime_grant_mismatch": "Diese Tapp-Sitzung gehört zu einem anderen Konto. Öffne den Tapp erneut.",
     "tapp_settings_load_failed": "Die Einstellungen dieses Tapps konnten nicht geladen werden. Bitte erneut versuchen.",
