@@ -15,7 +15,12 @@ ARG PNPM_VERSION=11.25.0
 # Prefer the builder machine's native arch (avoids QEMU for Node when used).
 FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-alpine AS builder
 
-WORKDIR /app
+# The builder mirrors the repo under /src/ (frontend at /src/frontend). The
+# pnpm workspace reaches up into ../figure and ../tapp/runtime; with the root
+# at /app those resolve beside /, and pnpm 11 then installs nothing — exit 0,
+# no packages, `vite: not found` at build time. Keep the workspace root one
+# level below a non-root parent.
+WORKDIR /src/frontend
 
 # Copy package files (workspace yaml carries pnpm overrides / settings).
 # patchedDependencies hashes the patch files during install — they must
@@ -23,9 +28,9 @@ WORKDIR /app
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 COPY frontend/patches ./patches
 # The 2.5D figure (figure/ submodule) is a workspace package at ../figure.
-COPY figure/package.json /figure/package.json
+COPY figure/package.json /src/figure/package.json
 # The Tapp runtime (tapp/ submodule) is a workspace package at ../tapp/runtime.
-COPY tapp/runtime/package.json /tapp/runtime/package.json
+COPY tapp/runtime/package.json /src/tapp/runtime/package.json
 
 # Disable husky in Docker (no .git directory)
 ENV HUSKY=0
@@ -40,21 +45,24 @@ RUN npm install --global pnpm@${PNPM_VERSION} && \
 COPY frontend/ ./
 
 # Shared static contracts imported by frontend source
-# (relative ../../../shared/... from /app/src/... → /shared/...)
-COPY shared /shared
+# (relative ../../../shared/... from /src/frontend/src/... → /src/shared/...)
+COPY shared /src/shared
 # Rig and performance contracts from the shared-core submodule
-# (@myriad/core/shared/... → /core/shared/...)
-COPY core/shared /core/shared
-# The 2.5D figure's source (@myriad/figure → /figure/src)
-COPY figure/src /figure/src
-# The Tapp runtime's source (@myriad/tapp-runtime → /tapp/runtime/src) and the
-# sandbox contract it imports (../../shared/... → /tapp/shared)
-COPY tapp/runtime/src /tapp/runtime/src
-COPY tapp/shared /tapp/shared
+# (@myriad/core/shared/... → /src/core/shared/...)
+COPY core/shared /src/core/shared
+# The 2.5D figure's source (@myriad/figure → /src/figure/src)
+COPY figure/src /src/figure/src
+# and the rig / performance contract copies it reads (../../contracts/... →
+# /src/figure/contracts; figure keeps its own byte-for-byte copies of core's).
+COPY figure/contracts /src/figure/contracts
+# The Tapp runtime's source (@myriad/tapp-runtime → /src/tapp/runtime/src) and
+# the sandbox contract it imports (../../shared/... → /src/tapp/shared)
+COPY tapp/runtime/src /src/tapp/runtime/src
+COPY tapp/shared /src/tapp/shared
 
 # Built-in TAPP sources bundled as examples
-# (relative ../../../../../tapps/... from /app/src/tapp/examples/tapps/... → /tapps/...)
-COPY tapps /tapps
+# (relative ../../../../../tapps/... from /src/frontend/src/tapp/examples/tapps/... → /src/tapps/...)
+COPY tapps /src/tapps
 
 # Build argument for backend URL
 # 默认为空字符串，使用相对路径（生产环境推荐）
@@ -73,7 +81,7 @@ RUN --network=none pnpm run build
 # Canonical /dist layout. CI may replace this stage with a prebuilt context:
 #   docker buildx build --build-context assets=./frontend-export ...
 FROM builder AS assets
-RUN mkdir -p /dist && cp -a /app/dist/. /dist/
+RUN mkdir -p /dist && cp -a /src/frontend/dist/. /dist/
 
 # Export for `docker build --target export -o type=local,dest=...`
 FROM scratch AS export
