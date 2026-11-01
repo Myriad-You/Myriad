@@ -1866,11 +1866,12 @@ async fn a_node_of_someone_else_in_hers_stays_bodiless_across_batches() {
 }
 
 /// A stub kept for its place of her mood about the partner under
-/// `local-owner` (a host's fault: held back whole) is filled when the same row comes moved
-/// to the partner's id: the server then holds it whole, its body too, and
-/// looks it up by the id it names now.
+/// `local-owner` (a host's fault: held back whole) is filled when the same
+/// row comes moved to the partner's id: the server then holds it whole, its
+/// body too, and looks it up by the id it names now. When the moved row
+/// comes as a stub too, the held stub takes its envelope (`relabelled`).
 #[tokio::test]
-async fn a_stub_held_back_under_the_old_id_is_filled_by_the_row_moved() {
+async fn a_stub_held_back_under_the_old_id_is_filled_or_relabelled_by_the_row_moved() {
     use myriad_persona_log::partner::{LEGACY, Move};
     let Some(schema) = schema("her_log_filled").await else {
         return;
@@ -1964,6 +1965,78 @@ async fn a_stub_held_back_under_the_old_id_is_filled_by_the_row_moved() {
         )
         .await,
         0
+    );
+    assert_eq!(
+        count(db, "SELECT COUNT(*) FROM agent_log_payloads").await,
+        1
+    );
+
+    // The same again, the moved row coming as a stub too (forgotten where it
+    // was moved): the held stub takes its envelope and stays a stub.
+    let earlier = Row {
+        id: "dev_mac_mood".to_string(),
+        dseq: Some(2),
+        hlc: myriad_persona_log::clock::next(Some(&row.hlc), T0, 0, "dev_mac").unwrap(),
+        payload: Some(Payload {
+            reference: "blob:dev_mac_mood".to_string(),
+            key: None,
+        }),
+        ..row.clone()
+    };
+    let as_held = wire::Batch {
+        audience: OWN.to_string(),
+        rows: vec![earlier.stub()],
+        payloads: Vec::new(),
+        withheld: Vec::new(),
+    };
+    store::take(
+        db,
+        &root(),
+        &owner(db).await,
+        "dev_mac",
+        as_held,
+        &Default::default(),
+        T0 + MINUTE,
+    )
+    .await
+    .unwrap();
+    let moved_stub = myriad_persona_log::partner::row(
+        &earlier,
+        &Move {
+            from: LEGACY.to_string(),
+            to: PARTNER.to_string(),
+        },
+    )
+    .stub();
+    let taken = store::take(
+        db,
+        &root(),
+        &owner(db).await,
+        "dev_mac",
+        wire::Batch {
+            audience: OWN.to_string(),
+            rows: vec![moved_stub.clone()],
+            payloads: Vec::new(),
+            withheld: Vec::new(),
+        },
+        &Default::default(),
+        T0 + MINUTE,
+    )
+    .await
+    .unwrap();
+    assert_eq!(taken.relabelled, [earlier.id.clone()], "{taken:?}");
+    let held = store::rows(db, OWNER, OWN).await.unwrap();
+    assert!(held.contains(&moved_stub));
+    assert_eq!(
+        count(
+            db,
+            &format!(
+                "SELECT COUNT(*) FROM agent_log_rows \
+                 WHERE id = 'dev_mac_mood' AND object = 'affect:{PARTNER}' AND forgotten"
+            )
+        )
+        .await,
+        1
     );
     assert_eq!(
         count(db, "SELECT COUNT(*) FROM agent_log_payloads").await,

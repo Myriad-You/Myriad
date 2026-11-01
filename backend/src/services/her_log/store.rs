@@ -305,6 +305,10 @@ pub struct Taken {
     /// Stubs here that a whole row filled (only a row moved to the
     /// partner's id does, on the server: it is never a home).
     pub filled: Vec<String>,
+    /// Stubs held back under `local-owner` that took the envelope of the
+    /// same row moved to the partner's id, still stubs (it came as one, or
+    /// the ledger takes it away here).
+    pub relabelled: Vec<String>,
     pub duplicates: u64,
     pub not_taken: Vec<NotTaken>,
     /// Rows taken (or asked for again) without their body, and why
@@ -570,6 +574,10 @@ async fn take_in<C: ConnectionTrait>(
             keep_payload(txn, root, user, row, &data).await?;
         }
     }
+    // Still stubs, under the moved envelope: no payload either way.
+    for id in &merged.relabelled {
+        restate(txn, user, by_id[id.as_str()]).await?;
+    }
     let mut stubbed: BTreeSet<String> = BTreeSet::new();
     for id in &merged.stubbed {
         restate(txn, user, by_id[id.as_str()]).await?;
@@ -610,6 +618,7 @@ async fn take_in<C: ConnectionTrait>(
     taken.added = merged.added;
     taken.stubbed = stubbed.into_iter().collect();
     taken.filled = merged.filled;
+    taken.relabelled = merged.relabelled;
     taken.duplicates = merged.duplicates;
     taken.withheld = wired.withheld;
     taken.ask = wired.ask;

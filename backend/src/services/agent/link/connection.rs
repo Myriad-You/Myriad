@@ -103,7 +103,13 @@ pub(super) fn with_images(custom_data: Option<Value>, images: Vec<String>) -> Op
     };
     let attachments = images
         .into_iter()
-        .take(CONTRACT.frames["input"].max_items.get("images").copied().unwrap_or(0))
+        .take(
+            CONTRACT.frames["input"]
+                .max_items
+                .get("images")
+                .copied()
+                .unwrap_or(0),
+        )
         .map(|image| json!({ "image": image }))
         .collect();
     data.insert("attachments".into(), Value::Array(attachments));
@@ -605,9 +611,7 @@ impl Link {
         self.moments = capabilities
             .iter()
             .any(|capability| capability == "moments");
-        self.images = capabilities
-            .iter()
-            .any(|capability| capability == "images");
+        self.images = capabilities.iter().any(|capability| capability == "images");
         if capabilities.iter().any(|capability| capability == "nodes") {
             self.nodes = true;
             self.tell_nodes().await;
@@ -772,24 +776,38 @@ impl Link {
             self.tx.clone(),
             frozen.map(|moving| moving.id.clone()),
         );
-        self.reply(frame(
-            "welcome",
-            json!({
-                "protocol": CONTRACT.protocol,
-                "role": "site",
-                "host": "app",
-                "deviceId": self.device.id,
-                "deviceName": self.device.name,
-                "lineage": lease.lineage,
-                "hostEpoch": lease.epoch,
-                "heartbeatMs": self.timing.heartbeat.as_millis() as u64,
-                // What the site itself can do: its core reads her log's
-                // merge, split and retract rows (ABI 2).
-                "capabilities": ["log2"],
-                "turns": [],
-                "serverTime": crate::clock::now().timestamp_millis(),
-            }),
-        ));
+        let mut welcome = json!({
+            "protocol": CONTRACT.protocol,
+            "role": "site",
+            "host": "app",
+            "deviceId": self.device.id,
+            "deviceName": self.device.name,
+            "lineage": lease.lineage,
+            "hostEpoch": lease.epoch,
+            "heartbeatMs": self.timing.heartbeat.as_millis() as u64,
+            // What the site itself can do: its core reads her log's merge,
+            // split and retract rows (ABI 2).
+            "capabilities": ["log2"],
+            "turns": [],
+            "serverTime": crate::clock::now().timestamp_millis(),
+        });
+        // The device she lives on gets the account's partner id too, only
+        // here (it holds her lease at the epoch it said): it moves to it while
+        // her writes are stopped, so she comes back under the id the site
+        // holds.
+        if hello
+            .capabilities
+            .iter()
+            .any(|capability| capability == "partner")
+        {
+            match crate::services::her_log::partner_id(&self.db, self.owner).await {
+                Ok(partner) => welcome["partner"] = json!(partner),
+                Err(error) => {
+                    tracing::warn!(%error, device = %self.device.id, "[link] the account's partner id could not be read; her host is welcomed without it");
+                }
+            }
+        }
+        self.reply(frame("welcome", welcome));
         if let Some(moving) = frozen {
             self.reply(frame("host.freeze", freeze_body(moving)));
         }
@@ -843,7 +861,11 @@ impl Link {
                         self.owner,
                         &self.device.id,
                     ),
-                    if self.images { input.images } else { Vec::new() },
+                    if self.images {
+                        input.images
+                    } else {
+                        Vec::new()
+                    },
                 ),
                 on_device: Some(self.device.id.clone()),
                 ..Default::default()

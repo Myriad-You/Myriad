@@ -190,7 +190,14 @@ fn every_frame_has_a_fixture_that_fits_it() {
             match t {
                 "hello" => {
                     let hello: Hello = serde_json::from_value(inbound.body).unwrap();
-                    assert_eq!((hello.protocol, hello.role.as_str()), (1, "child"));
+                    // A child's, or the device she lives on saying the
+                    // epoch it holds her lease at.
+                    assert_eq!(hello.protocol, 1);
+                    match hello.role.as_str() {
+                        "child" => {}
+                        "host" => assert!(hello.host_epoch.is_some()),
+                        role => panic!("hello from {role}"),
+                    }
                     assert!(CONTRACT.surfaces.contains(&hello.surface));
                     assert!(
                         hello
@@ -1151,6 +1158,33 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
     let (status, body) = refused(&site, Some(&other)).await;
     assert_eq!((status, body["code"].as_str()), (403, Some("host_moved")));
     assert_eq!(body["host"]["name"], "Studio");
+    drop(host);
+    // Listing `partner`, her host gets the account's partner id too: the
+    // same one every link of the account gets.
+    let mut host = Child::open(&site, &token).await;
+    host.send(
+        "hello",
+        None,
+        json!({ "protocol": 1, "role": "host", "surface": "app",
+                "capabilities": ["rig", "partner", "log2"],
+                "lineage": born.lineage, "hostEpoch": 2 }),
+    )
+    .await;
+    let welcome = host.expect("welcome").await;
+    assert_eq!(
+        welcome["body"]["partner"],
+        crate::services::her_log::partner_id(&site.db, OWNER)
+            .await
+            .unwrap()
+            .as_str()
+    );
+    assert_eq!(welcome["body"]["capabilities"], json!(["log2"]));
+    // Everything the shared core's welcome to a host carries.
+    let shaped = fixtures()
+        .into_iter()
+        .find(|frame| frame["t"] == "welcome" && frame["body"]["host"] == "app")
+        .unwrap();
+    assert!(keys(&shaped["body"]).is_subset(&keys(&welcome["body"])));
     drop(host);
     // The device she lived on, at an old epoch: she moved since.
     site.db
@@ -4047,7 +4081,11 @@ fn what_the_owner_shows_her_on_a_child_comes_as_the_chats_attached_images() {
     // Beside what she senses there, at most the contract's few, where the
     // chat's attachments go; from there she sees them for this turn only.
     let senses = json!({ "musicStatus": { "isPlaying": false } });
-    let mut data = with_images(Some(senses.clone()), vec![input.images[0].clone(); most + 1]).unwrap();
+    let mut data = with_images(
+        Some(senses.clone()),
+        vec![input.images[0].clone(); most + 1],
+    )
+    .unwrap();
     assert_eq!(data["musicStatus"], senses["musicStatus"]);
     assert_eq!(data["attachments"].as_array().unwrap().len(), most);
     let images = chat_attachments::take_images(Some(&mut data));
