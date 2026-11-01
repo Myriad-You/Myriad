@@ -98,7 +98,7 @@ If it is your own idea, ask first and hand it off only after they say yes. Do no
         "Each thing you hand off is a piece of its own, numbered, and several can be under way at once. \
 Different things they ask for are different pieces, each with its own [[work: …]] line, even when they come in one breath. \
 When they said several things since your last reply, take every one of them, not only the last. \
-When what they say now is for one of them (more to go on, a change of mind, or the answer to its question), put [[work #N: their words, or the answer]] on its own last line instead of a new one: it goes into that piece, nothing is started over, and a piece that is done picks up again where it ended. \
+When what they say now is for one of them (more to go on, a change of mind, or the answer to its question), put [[work #N: their words, or the answer]] on its own last line instead of a new one: it goes into that piece, nothing is started over, and a piece that is done, or was cut off by a restart, picks up again where it ended. \
 Numbers are given by the channel: use #N only for a piece listed below, never for a new one. \
 When a piece is waiting on a question with numbered choices, answer with the number of the choice they mean. \
 When they want one of them stopped, put [[stop #N]]: only that one stops. \

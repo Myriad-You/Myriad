@@ -379,7 +379,7 @@ pub(crate) async fn listed(db: &DatabaseConnection, user_id: i32, chat: &str) ->
         .map(|now| {
             let (state, detail) = match &now.piece.standing {
                 Standing::Doing { progress } => ("doing", json!({ "progress": progress })),
-                Standing::Waiting { .. } => (
+                Standing::Waiting { .. } | Standing::CutOff => (
                     "waiting",
                     json!({
                         "taskId": now.task.as_ref().map(|task| &task.task_id),

@@ -11,6 +11,7 @@
 
 use super::*;
 use crate::services::agent::delegate::HandOff;
+use crate::services::agent::types::TaskStatus;
 
 const LANE: char = '#';
 /// What of a piece's request is shown in its label.
@@ -48,6 +49,9 @@ pub(crate) enum Standing {
     Waiting { question: String },
     Done { result: Option<String> },
     Stopped,
+    /// A restart cut its run off: it waits on a question the chat never
+    /// heard, and nothing goes on until it is picked up.
+    CutOff,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,7 +66,7 @@ impl Piece {
     pub(crate) fn unfinished(&self) -> bool {
         matches!(
             self.standing,
-            Standing::Doing { .. } | Standing::Waiting { .. }
+            Standing::Doing { .. } | Standing::Waiting { .. } | Standing::CutOff
         )
     }
 }
@@ -104,6 +108,7 @@ pub(crate) fn line(piece: &Piece, now: i64) -> String {
         }
         Standing::Done { result: None } => format!("{head}办完了"),
         Standing::Stopped => format!("{head}被叫停了"),
+        Standing::CutOff => format!("{head}被打断了（重启），还没办完"),
     }
 }
 
@@ -173,13 +178,16 @@ pub(crate) fn act(hand_off: &HandOff, pieces: &[Piece]) -> Act {
     match hand_off {
         HandOff::New { text } => Act::Start(text.clone()),
         HandOff::To { work, text } => match standing(*work) {
-            Some(Standing::Waiting { .. }) => Act::Answer(*work, text.clone()),
+            // Picking up a cut-off piece answers the question it was left on.
+            Some(Standing::Waiting { .. } | Standing::CutOff) => Act::Answer(*work, text.clone()),
             Some(Standing::Doing { .. }) => Act::Steer(*work, text.clone()),
             Some(Standing::Done { .. }) => Act::Continue(*work, text.clone()),
             _ => Act::Nothing,
         },
         HandOff::Stop { work } => match standing(*work) {
-            Some(Standing::Waiting { .. } | Standing::Doing { .. }) => Act::Stop(*work),
+            Some(Standing::Waiting { .. } | Standing::Doing { .. } | Standing::CutOff) => {
+                Act::Stop(*work)
+            }
             _ => Act::Nothing,
         },
     }
@@ -307,6 +315,10 @@ pub(super) async fn pieces(
             Standing::Waiting {
                 question: format_pending_prompt(&pending.prompt),
             }
+        } else if live.is_some_and(|task| {
+            task.status == TaskStatus::WaitingForInput && task.pending_question.is_some()
+        }) {
+            Standing::CutOff
         } else if live.is_some() || is_active(&lane.key).await {
             Standing::Doing {
                 progress: live.map(|task| task.progress),
@@ -477,6 +489,7 @@ pub(super) async fn carry_out(
                     continue;
                 };
                 let Some(pending) = load_pending(db, platform, &lane.key).await else {
+                    pick_up(db, user_id, lane, &work_input(&answer, their_words), sink).await;
                     continue;
                 };
                 let answer = her_choice(&pending.prompt, &answer);
@@ -521,6 +534,51 @@ pub(super) async fn carry_out(
                 info!(?hand_off, "[Channel] her line is for no piece under way");
             }
         }
+    }
+}
+
+/// A piece a restart cut off goes on from where it was saved: what she says
+/// answers the question its run was left on.
+async fn pick_up(
+    db: &DatabaseConnection,
+    user_id: i32,
+    lane: &Lane,
+    text: &str,
+    sink: &ChannelSink,
+) {
+    let tasks = Agent::new(db.clone()).await.get_user_tasks(user_id).await;
+    let Some((task_id, question_id)) = tasks.into_iter().find_map(|task| {
+        let question = task.pending_question.as_ref()?;
+        (task.status == TaskStatus::WaitingForInput
+            && session_id_from_lane_id(task.lane_id.as_deref()).as_deref()
+                == Some(lane.stored.session_id.as_str()))
+        .then(|| (task.task_id.clone(), question.question_id.clone()))
+    }) else {
+        warn!("[Channel] nothing left waiting to pick this piece up");
+        return;
+    };
+    match crate::services::agent::run::answer_for_user(
+        db.clone(),
+        user_id,
+        task_id,
+        question_id,
+        text.to_string(),
+        Some(lane.stored.session_id.clone()),
+    )
+    .await
+    {
+        Ok(run) => {
+            start_delivery(
+                run,
+                db.clone(),
+                user_id,
+                lane.key.clone(),
+                sink.clone(),
+                text.to_string(),
+            )
+            .await;
+        }
+        Err(error) => warn!(error = %error.to_json(), "[Channel] a cut-off piece did not pick up"),
     }
 }
 
@@ -666,6 +724,7 @@ mod tests {
             waiting(2),
             piece(3, Standing::Done { result: None }),
             piece(4, Standing::Stopped),
+            piece(5, Standing::CutOff),
         ];
         let to = |work, text: &str| HandOff::To {
             work,
@@ -678,6 +737,12 @@ mod tests {
             Act::Continue(3, "再查一次".into())
         );
         assert_eq!(act(&to(4, "接着办"), &pieces), Act::Nothing);
+        // A restart cut it off: it goes on from where it was saved.
+        assert_eq!(
+            act(&to(5, "接着办"), &pieces),
+            Act::Answer(5, "接着办".into())
+        );
+        assert_eq!(act(&HandOff::Stop { work: 5 }, &pieces), Act::Stop(5));
         assert_eq!(act(&to(9, "嗯"), &pieces), Act::Nothing);
         assert_eq!(act(&HandOff::Stop { work: 1 }, &pieces), Act::Stop(1));
         assert_eq!(act(&HandOff::Stop { work: 2 }, &pieces), Act::Stop(2));
@@ -713,6 +778,10 @@ mod tests {
         );
         assert_eq!(line(&back, now), "#1「第1件」办完了：周报整理好了");
         assert_eq!(line(&piece(4, Standing::Stopped), now), "#4「第4件」被叫停了");
+        assert_eq!(
+            line(&piece(5, Standing::CutOff), now),
+            "#5「第5件」被打断了（重启），还没办完"
+        );
         running.started_at = Some(now - 2 * 60 * 60 - 5 * 60);
         assert!(line(&running, now).contains("已办 2 小时 5 分钟"));
     }
