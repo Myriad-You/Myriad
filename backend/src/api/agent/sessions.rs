@@ -125,6 +125,40 @@ pub async fn list_sessions(
     Ok(Json(json!({ "sessions": sessions_json })))
 }
 
+/// The panel conversation last talked in, for the panel to take up again
+/// when it is opened anew (`{ "session": null }` when there is none to).
+/// GET /api/agent/panel-chat
+pub async fn panel_chat(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<Value>, HttpError> {
+    let user_id = parse_user_id(&claims)?;
+    let Some(id) = crate::services::agent::panel_work::current(&db, user_id).await else {
+        return Ok(Json(json!({ "session": null })));
+    };
+    let session = agent_sessions::Entity::find_by_id(&id)
+        .filter(agent_sessions::Column::UserId.eq(user_id))
+        .filter(agent_sessions::Column::Archived.eq(false))
+        .filter(private_sessions())
+        .one(&db)
+        .await
+        .map_err(|error| session_store_http("find session", error))?
+        .filter(|session| {
+            session_mode(session.context.as_ref())
+                == crate::services::agent::AgentInteractionMode::Chat
+        });
+    Ok(Json(json!({
+        "session": session.map(|s| json!({
+            "id": s.id,
+            "title": s.title,
+            "messageCount": s.message_count,
+            "lastActiveAt": s.last_active_at.to_rfc3339(),
+            "createdAt": s.created_at.to_rfc3339(),
+            "mode": "chat",
+        })),
+    })))
+}
+
 /// 获取会话消息
 /// GET /api/agent/sessions/:id/messages
 pub async fn get_session_messages(

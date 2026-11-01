@@ -10,7 +10,9 @@
 //! gate as any run.
 //!
 //! A piece is kept under `{chat session}#{n}` with its own Work session; how
-//! it stands is read from that session's task and run.
+//! it stands is read from that session's task and run. When a run of it
+//! ends, she says so in the conversation in one line (`tell`), as in a
+//! private chat; the whole result stays on the piece.
 
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
@@ -24,8 +26,13 @@ use crate::services::runtime_registry::{self as registry, RegistryIdentity};
 use myriad_agent_rules::channel::{PendingKind, PendingOption, PendingPrompt};
 
 const NS: &str = "agent_panel_pieces";
+/// Each ending already told, so it is told once whoever reads it first.
+const TOLD_NS: &str = "agent_panel_told";
+/// The panel conversation last talked in.
+const CHAT_NS: &str = "agent_panel_chat";
 const KEPT_FOR: chrono::Duration = chrono::Duration::days(30);
 const RESULT_CHARS: usize = 2000;
+const LINE_CHARS: usize = 80;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,6 +46,18 @@ struct Kept {
     /// The run it was last started or answered with.
     #[serde(default)]
     run_id: Option<String>,
+    /// Her line about how it last ended.
+    #[serde(default)]
+    told: Option<Told>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Told {
+    /// The message its run ended with, in its own session.
+    ending: i32,
+    /// Her line about it, in the conversation.
+    line: i32,
 }
 
 struct Kept1 {
@@ -128,8 +147,8 @@ struct Now {
     piece: Piece,
     task: Option<TaskState>,
     run_id: Option<String>,
-    /// Ended without getting it done: its last turn failed.
-    failed: bool,
+    /// How its last run ended, when it is over.
+    ended: Option<Ended>,
 }
 
 async fn now(db: &DatabaseConnection, user_id: i32, chat: &str) -> Vec<Now> {
@@ -144,7 +163,7 @@ async fn now(db: &DatabaseConnection, user_id: i32, chat: &str) -> Vec<Now> {
         let running =
             crate::services::agent::run_hub::executing_run_for_session(user_id, &kept.session_id)
                 .await;
-        let mut failed = false;
+        let mut ended = None;
         let standing = if kept.stopped {
             Standing::Stopped
         } else if let Some(prompt) = task
@@ -160,10 +179,9 @@ async fn now(db: &DatabaseConnection, user_id: i32, chat: &str) -> Vec<Now> {
                 progress: task.as_ref().map(|task| task.progress),
             }
         } else {
-            let ended = came_back(db, &kept.session_id).await;
-            failed = ended.as_ref().is_some_and(|ended| ended.failed);
+            ended = came_back(db, &kept.session_id).await;
             Standing::Done {
-                result: ended.map(|ended| ended.text),
+                result: ended.as_ref().map(|ended| ended.text.clone()),
             }
         };
         let piece = Piece {
@@ -180,14 +198,19 @@ async fn now(db: &DatabaseConnection, user_id: i32, chat: &str) -> Vec<Now> {
             piece,
             task,
             run_id,
-            failed,
+            ended,
         });
     }
     pieces
 }
 
+#[derive(Debug, Clone)]
 struct Ended {
+    /// The message it ended with.
+    id: i32,
+    at: sea_orm::prelude::DateTimeWithTimeZone,
     text: String,
+    /// Ended without getting it done: its last turn failed.
     failed: bool,
 }
 
@@ -213,22 +236,128 @@ async fn came_back(db: &DatabaseConnection, session_id: &str) -> Option<Ended> {
         return None;
     }
     Some(Ended {
+        id: last.id,
+        at: last.created_at,
         text: last.content.chars().take(RESULT_CHARS).collect(),
         failed,
     })
 }
 
+/// Her line when a run of a piece ends: what came of it, in one line.
+fn ended_line(ended: &Ended) -> String {
+    let first = ended
+        .text
+        .lines()
+        .map(|line| line.trim().trim_start_matches(['#', '>', '-', '*']).trim())
+        .find(|line| !line.is_empty())
+        .unwrap_or("");
+    let mut short: String = first.chars().take(LINE_CHARS).collect();
+    if first.chars().count() > LINE_CHARS {
+        short.push('…');
+    }
+    match (ended.failed, short.is_empty()) {
+        (true, true) => "没办成。".into(),
+        (true, false) => format!("没办成：{short}"),
+        (false, true) => "办完了。".into(),
+        (false, false) => short,
+    }
+}
+
+/// Each run of a piece that has ended gets her line in the conversation it
+/// was handed off from, once, at the time it ended, saying which one it is
+/// while another is not done. Done whenever the pieces are read, so one that
+/// ended with nobody there is told when they are back. None for one stopped.
+async fn tell(db: &DatabaseConnection, user_id: i32, chat: &str, pieces: &mut [Now]) {
+    let unfinished: Vec<u32> = pieces
+        .iter()
+        .filter(|now| {
+            matches!(
+                now.piece.standing,
+                Standing::Doing { .. } | Standing::Waiting { .. }
+            )
+        })
+        .map(|now| now.number)
+        .collect();
+    let until = (crate::clock::now() + KEPT_FOR).timestamp();
+    for now in pieces.iter_mut() {
+        let Some(ended) = now.ended.clone().filter(|_| !now.kept.stopped) else {
+            continue;
+        };
+        if now.kept.told.is_some_and(|told| told.ending == ended.id) {
+            continue;
+        }
+        let first = registry::put_if_absent(
+            db,
+            TOLD_NS,
+            &ended.id.to_string(),
+            identity(user_id),
+            &json!({ "chat": chat, "number": now.number }),
+            until,
+        )
+        .await;
+        if !matches!(first, Ok(true)) {
+            continue;
+        }
+        let others = unfinished.iter().any(|number| *number != now.number);
+        let content = works::labelled(now.number, &now.kept.asked, others, &ended_line(&ended));
+        match crate::services::agent::sessions::persist_assistant_message_at(
+            db,
+            chat,
+            &content,
+            Some(json!({ "piece": now.number })),
+            ended.at,
+        )
+        .await
+        {
+            Ok(line) => {
+                now.kept.told = Some(Told {
+                    ending: ended.id,
+                    line,
+                });
+                keep(db, user_id, &now.key, &now.kept).await;
+            }
+            Err(error) => tracing::warn!(%error, "[Panel] could not tell how a piece ended"),
+        }
+    }
+}
+
+/// Her lines about how pieces ended, as the transcript lists messages.
+async fn told_lines(db: &DatabaseConnection, chat: &str, pieces: &[Now]) -> Vec<Value> {
+    use crate::models::entities::agent_messages;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+    let ids: Vec<i32> = pieces
+        .iter()
+        .filter_map(|now| now.kept.told.map(|told| told.line))
+        .collect();
+    if ids.is_empty() {
+        return Vec::new();
+    }
+    agent_messages::Entity::find()
+        .filter(agent_messages::Column::SessionId.eq(chat))
+        .filter(agent_messages::Column::Id.is_in(ids))
+        .all(db)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|message| {
+            json!({
+                "id": message.id,
+                "sessionId": message.session_id,
+                "role": message.role,
+                "content": message.content,
+                "metadata": message.metadata,
+                "createdAt": message.created_at.to_rfc3339(),
+            })
+        })
+        .collect()
+}
+
 /// What she sees of the pieces of this conversation, as in a private chat.
 pub(crate) async fn view(db: &DatabaseConnection, user_id: i32, chat: &str) -> ChannelChat {
     let at = crate::clock::now().timestamp();
-    let shown = works::shown(
-        now(db, user_id, chat)
-            .await
-            .into_iter()
-            .map(|piece| piece.piece)
-            .collect(),
-        at,
-    );
+    let mut pieces = now(db, user_id, chat).await;
+    tell(db, user_id, chat, &mut pieces).await;
+    let shown = works::shown(pieces.into_iter().map(|piece| piece.piece).collect(), at);
     ChannelChat {
         works: shown.iter().map(|piece| works::line(piece, at)).collect(),
         waiting: shown
@@ -239,10 +368,13 @@ pub(crate) async fn view(db: &DatabaseConnection, user_id: i32, chat: &str) -> C
     }
 }
 
-/// The pieces of this conversation for the panel to show and follow.
-pub(crate) async fn listed(db: &DatabaseConnection, user_id: i32, chat: &str) -> Vec<Value> {
-    now(db, user_id, chat)
-        .await
+/// The pieces of this conversation for the panel to show and follow, and
+/// her lines about how they ended.
+pub(crate) async fn listed(db: &DatabaseConnection, user_id: i32, chat: &str) -> Listed {
+    let mut pieces = now(db, user_id, chat).await;
+    tell(db, user_id, chat, &mut pieces).await;
+    let told = told_lines(db, chat, &pieces).await;
+    let pieces = pieces
         .into_iter()
         .map(|now| {
             let (state, detail) = match &now.piece.standing {
@@ -255,7 +387,11 @@ pub(crate) async fn listed(db: &DatabaseConnection, user_id: i32, chat: &str) ->
                     }),
                 ),
                 Standing::Done { result } => (
-                    if now.failed { "failed" } else { "done" },
+                    if now.ended.as_ref().is_some_and(|ended| ended.failed) {
+                        "failed"
+                    } else {
+                        "done"
+                    },
                     json!({ "result": result }),
                 ),
                 Standing::Stopped => ("stopped", json!({})),
@@ -271,7 +407,42 @@ pub(crate) async fn listed(db: &DatabaseConnection, user_id: i32, chat: &str) ->
                 "key": now.key,
             })
         })
-        .collect()
+        .collect();
+    Listed { pieces, told }
+}
+
+pub(crate) struct Listed {
+    pub pieces: Vec<Value>,
+    pub told: Vec<Value>,
+}
+
+/// Talked in from the panel: the conversation to take up again when it is
+/// opened anew (a reload, another device).
+pub(crate) async fn remember(db: &DatabaseConnection, user_id: i32, chat: &str) {
+    let until = (crate::clock::now() + KEPT_FOR).timestamp();
+    let at = user_id.to_string();
+    if let Err(error) = registry::put(
+        db,
+        CHAT_NS,
+        &at,
+        identity(user_id),
+        &json!({ "sessionId": chat }),
+        until,
+    )
+    .await
+    {
+        tracing::warn!(%error, "[Panel] could not keep which conversation is current");
+    }
+}
+
+/// The panel conversation last talked in, if any.
+pub(crate) async fn current(db: &DatabaseConnection, user_id: i32) -> Option<String> {
+    registry::get::<Value>(db, CHAT_NS, &user_id.to_string())
+        .await
+        .ok()??
+        .get("sessionId")?
+        .as_str()
+        .map(str::to_string)
 }
 
 async fn start(
@@ -498,14 +669,51 @@ mod tests {
             started_at: 7,
             stopped: false,
             run_id: Some("run_1".into()),
+            told: Some(Told { ending: 3, line: 9 }),
         };
         let back: Kept = serde_json::from_value(serde_json::to_value(&kept).unwrap()).unwrap();
         assert_eq!(back.session_id, "ses_w");
         assert_eq!(back.run_id.as_deref(), Some("run_1"));
+        assert_eq!(back.told.map(|told| told.line), Some(9));
         // Written before a field existed, it still reads.
         let old: Kept =
             serde_json::from_value(json!({ "sessionId": "s", "asked": "a", "startedAt": 1 }))
                 .unwrap();
         assert!(!old.stopped);
+        assert!(old.told.is_none());
+    }
+
+    fn ended(text: &str, failed: bool) -> Ended {
+        Ended {
+            id: 1,
+            at: crate::clock::now().fixed_offset(),
+            text: text.into(),
+            failed,
+        }
+    }
+
+    #[test]
+    fn how_it_ended_is_one_line() {
+        assert_eq!(
+            ended_line(&ended("\n## 明天晴\n\n最高 21 度", false)),
+            "明天晴"
+        );
+        assert_eq!(ended_line(&ended("", false)), "办完了。");
+        assert_eq!(ended_line(&ended("没有权限", true)), "没办成：没有权限");
+        assert_eq!(ended_line(&ended("  ", true)), "没办成。");
+        let long = "很".repeat(LINE_CHARS + 5);
+        let line = ended_line(&ended(&long, false));
+        assert_eq!(line.chars().count(), LINE_CHARS + 1);
+        assert!(line.ends_with('…'));
+    }
+
+    #[test]
+    fn it_says_which_one_while_another_is_not_done() {
+        let line = ended_line(&ended("订好了", false));
+        assert_eq!(
+            works::labelled(2, "订明晚七点的餐厅，两个人，靠窗", true, &line),
+            "【#2 订明晚七点的餐厅，两个人…】\n订好了"
+        );
+        assert_eq!(works::labelled(2, "订餐厅", false, &line), "订好了");
     }
 }

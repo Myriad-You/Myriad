@@ -369,6 +369,14 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 middleware::auth::auth_middleware,
             )),
         )
+        // 面板上次说话的那段对话：刷新或换设备时接回
+        .route(
+            "/panel-chat",
+            get(panel_chat).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
         // 获取会话消息
         .route(
             "/sessions/{session_id}/messages",

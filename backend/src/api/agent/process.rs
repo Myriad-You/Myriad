@@ -99,8 +99,10 @@ pub async fn session_pieces(
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, HttpError> {
     let user_id = parse_user_id(&claims)?;
-    let pieces = crate::services::agent::panel_work::listed(&db, user_id, &session_id).await;
-    Ok(Json(json!({ "pieces": pieces })))
+    let listed = crate::services::agent::panel_work::listed(&db, user_id, &session_id).await;
+    Ok(Json(
+        json!({ "pieces": listed.pieces, "told": listed.told }),
+    ))
 }
 
 /// Stop one piece, and only it:

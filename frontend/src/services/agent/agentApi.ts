@@ -1081,12 +1081,29 @@ class AgentService {
   }
 
   /** The pieces she handed off in this conversation, as they stand. */
-  async listPieces(sessionId: string, signal = authSubject.signal): Promise<unknown[]> {
-    const response = await apiService.get<{ pieces?: unknown[] }>(
+  async listPieces(
+    sessionId: string,
+    signal = authSubject.signal,
+  ): Promise<{ pieces: unknown[]; told: unknown[] }> {
+    const response = await apiService.get<{ pieces?: unknown[]; told?: unknown[] }>(
       `${this.baseUrl}/sessions/${encodeURIComponent(sessionId)}/pieces`,
       { signal },
     )
-    return Array.isArray(response.pieces) ? response.pieces : []
+    return {
+      pieces: Array.isArray(response.pieces) ? response.pieces : [],
+      told: Array.isArray(response.told) ? response.told : [],
+    }
+  }
+
+  /** The panel conversation last talked in, to take up again; null when none. */
+  async getPanelChat(signal = authSubject.signal): Promise<SessionInfo | null> {
+    const response = await apiService.get<{ session?: SessionInfo | null }>(
+      `${this.baseUrl}/panel-chat`,
+      { signal },
+    )
+    return response.session && typeof response.session.id === 'string'
+      ? response.session
+      : null
   }
 
   /** Stop one piece, and only it. */

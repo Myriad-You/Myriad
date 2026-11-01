@@ -410,14 +410,16 @@ pub(crate) async fn start(
         user_request.context = Some(new_ctx);
     }
     // The panel's one conversation: she sees the pieces she handed off here
-    // and may hand off more (see `panel_work`). A chat app, a device or a
-    // group answers elsewhere and keeps its own.
+    // and may hand off more (see `panel_work`), and it is the one the panel
+    // takes up again when opened anew. A chat app, a device or a group
+    // answers elsewhere and keeps its own.
     if is_chat
         && has_session
         && !answered_elsewhere
         && let Some(ctx) = user_request.context.as_mut()
         && ctx.venue.is_none()
     {
+        crate::services::agent::panel_work::remember(&db, user_id, &session_id).await;
         ctx.panel_work =
             Some(crate::services::agent::panel_work::view(&db, user_id, &session_id).await);
     }

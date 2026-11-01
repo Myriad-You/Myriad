@@ -113,7 +113,12 @@ import {
   takeQueuedAgentSubmit,
 } from './agentPanelEvents'
 import { getAgentPanelMode, useAgentPanelMode } from './agentPanelMode'
-import { setPieceActionRunner, showPieces } from './agentPieces'
+import {
+  setPieceActionRunner,
+  setPieceLineSink,
+  showPieces,
+  withToldLines,
+} from './agentPieces'
 import { turnSelectionText } from './agentSelection'
 import {
   pushAgentStatusEvent,
@@ -290,6 +295,16 @@ export const AgentEngine: React.FC = () => {
     setPieceActionRunner((key, actions) => void enqueueFrontendActions(key, [...actions]))
     return () => setPieceActionRunner(null)
   }, [enqueueFrontendActions])
+  // Her lines about how they ended go into the conversation they came from.
+  // One line each, short by construction: kept inline, with no body to store.
+  useEffect(() => {
+    setPieceLineSink((chat, lines) => {
+      if (sessionIdsByModeRef.current.chat !== chat) return
+      const restored = lines.map((line) => restoreSessionMessage(line, chat))
+      setMessages((prev) => withToldLines(prev, restored), 'chat')
+    })
+    return () => setPieceLineSink(null)
+  }, [setMessages])
   const answerQuestionRef =
     useRef<(messageId: string, answer: string, history?: HistoryAnswerSource) => void>(null)
   const sessionTitleSetByModeRef = useRef<Record<AgentPanelMode, boolean>>({
@@ -520,6 +535,34 @@ export const AgentEngine: React.FC = () => {
     },
     [reattachLiveChat, reattachLiveWork, sessionLoads],
   )
+
+  // Opened anew (a reload, another device), the panel takes up the
+  // conversation it was last talked in, and with it the pieces handed off
+  // there that are still under way. What she is given of it is windowed by
+  // the backend as any chat is; only the last page is shown here.
+  useEffect(() => {
+    const takeUp = async () => {
+      const subject = authSubject.signal
+      let session: ChatSession | null
+      try {
+        session = await agentService.getPanelChat(subject)
+      } catch {
+        return
+      }
+      if (
+        !session ||
+        subject.aborted ||
+        sessionIdsByModeRef.current.chat ||
+        loadingByModeRef.current.chat ||
+        messagesRef.current.chat.length > 0
+      ) {
+        return
+      }
+      void loadSession({ ...session, mode: 'chat' }, undefined, 'chat')
+    }
+    void takeUp()
+    return authSubject.subscribe(() => void takeUp())
+  }, [loadSession, messagesRef])
 
   useEffect(() => {
     const openSession = (detail: {
@@ -1732,7 +1775,11 @@ export const AgentEngine: React.FC = () => {
       // each on its own run, after the talk.
       const chatSessionId = sessionIdsByModeRef.current.chat
       if (mode === 'chat' && chatSessionId && Array.isArray(responseData?.pieces)) {
-        showPieces(chatSessionId, responseData.pieces as unknown[])
+        showPieces(
+          chatSessionId,
+          responseData.pieces as unknown[],
+          Array.isArray(responseData.told) ? (responseData.told as unknown[]) : [],
+        )
       }
       if (mode === 'chat' && responseData && Object.hasOwn(responseData, 'outfitId')) {
         const overlayId = responseData.outfitId

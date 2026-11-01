@@ -1,5 +1,11 @@
-import type { FrontendAction, ProgressEvent, WorkPlanItem } from '../../services/agent/types'
+import type {
+  FrontendAction,
+  ProgressEvent,
+  SessionMessage,
+  WorkPlanItem,
+} from '../../services/agent/types'
 import type { AgentMessageQuestion } from './agentMessages'
+import type { ChatMessage } from './engineTypes'
 import { agentService } from '../../services/agent'
 import { createStore, useStore } from '../../utils/store'
 import { readConfirmationDetail } from './confirmationDetail'
@@ -43,6 +49,60 @@ let runActions: ActionRunner | null = null
 
 export function setPieceActionRunner(runner: ActionRunner | null): void {
   runActions = runner
+}
+
+/**
+ * Takes her lines about how pieces ended into conversation `chat`: the
+ * engine's own messages, set while it is mounted. Each is kept in the
+ * transcript, so a reload reads it back with the rest.
+ */
+type LineSink = (chat: string, lines: readonly SessionMessage[]) => void
+let tellLines: LineSink | null = null
+
+export function setPieceLineSink(sink: LineSink | null): void {
+  tellLines = sink
+}
+
+function toldLine(raw: unknown): SessionMessage | null {
+  if (!raw || typeof raw !== 'object') return null
+  const line = raw as Record<string, unknown>
+  if (typeof line.id !== 'number' || typeof line.content !== 'string') return null
+  return {
+    id: line.id,
+    role: 'assistant',
+    content: line.content,
+    metadata:
+      line.metadata && typeof line.metadata === 'object'
+        ? (line.metadata as Record<string, unknown>)
+        : undefined,
+    createdAt: text(line.createdAt),
+  }
+}
+
+/**
+ * Her lines about how pieces ended, put among the messages shown by when
+ * each ended: those not shown yet, and not older than every message shown
+ * (that part of the conversation is not loaded). Exported for tests.
+ */
+export function withToldLines(
+  messages: readonly ChatMessage[],
+  lines: readonly ChatMessage[],
+): ChatMessage[] {
+  const shown = new Set(messages.map((message) => message.id))
+  const oldest = messages[0]?.createdAt.getTime() ?? -Infinity
+  const added = lines.filter(
+    (line) =>
+      !shown.has(line.id) &&
+      !Number.isNaN(line.createdAt.getTime()) &&
+      line.createdAt.getTime() >= oldest,
+  )
+  if (added.length === 0) return messages as ChatMessage[]
+  const next = [...messages]
+  for (const line of added.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())) {
+    const at = next.findIndex((message) => message.createdAt.getTime() > line.createdAt.getTime())
+    next.splice(at === -1 ? next.length : at, 0, line)
+  }
+  return next
 }
 
 /** One event of a piece's run: what it says about the piece, and its page actions run. */
@@ -155,9 +215,14 @@ export function readListed(raw: Listed): PieceView | null {
 
 /**
  * Show the pieces of conversation `chat` as listed, keeping what a followed
- * run already told of each, and follow those still under way.
+ * run already told of each, and follow those still under way; her lines
+ * about how they ended go into the conversation.
  */
-export function showPieces(chat: string, listed: readonly unknown[]): void {
+export function showPieces(
+  chat: string,
+  listed: readonly unknown[],
+  told: readonly unknown[] = [],
+): void {
   const known = new Map(
     (store.get().chat === chat ? store.get().pieces : []).map((piece) => [piece.number, piece]),
   )
@@ -176,6 +241,8 @@ export function showPieces(chat: string, listed: readonly unknown[]): void {
         : piece
     })
   store.set({ chat, pieces })
+  const lines = told.map(toldLine).filter((line): line is SessionMessage => line !== null)
+  if (lines.length > 0) tellLines?.(chat, lines)
   for (const piece of pieces) {
     if (piece.runId && (piece.state === 'doing' || piece.state === 'waiting')) {
       follow(chat, piece.number, piece.runId)
@@ -190,7 +257,8 @@ export async function loadPieces(chat: string | null): Promise<void> {
   }
   if (store.get().chat !== chat) store.set({ chat, pieces: [] })
   try {
-    showPieces(chat, await agentService.listPieces(chat))
+    const { pieces, told } = await agentService.listPieces(chat)
+    showPieces(chat, pieces, told)
   } catch {
     // Kept as shown; the next turn lists them again.
   }

@@ -257,6 +257,33 @@ async fn persist_message(
     metadata: Option<Value>,
 ) -> Result<(), String> {
     let now = crate::clock::now().fixed_offset();
+    persist_message_at(db, session_id, task_id, role, content, metadata, now)
+        .await
+        .map(|_| ())
+}
+
+/// One of her lines that belongs at `at` in the transcript, not where it is
+/// written (a piece that ended while nobody was reading). Its id.
+pub(crate) async fn persist_assistant_message_at(
+    db: &DatabaseConnection,
+    session_id: &str,
+    content: &str,
+    metadata: Option<Value>,
+    at: sea_orm::prelude::DateTimeWithTimeZone,
+) -> Result<i32, String> {
+    persist_message_at(db, session_id, None, "assistant", content, metadata, at).await
+}
+
+async fn persist_message_at(
+    db: &DatabaseConnection,
+    session_id: &str,
+    task_id: Option<&str>,
+    role: &str,
+    content: &str,
+    metadata: Option<Value>,
+    at: sea_orm::prelude::DateTimeWithTimeZone,
+) -> Result<i32, String> {
+    let now = crate::clock::now().fixed_offset();
     let cited_metadata = metadata.clone();
     let msg = agent_messages::ActiveModel {
         id: sea_orm::ActiveValue::NotSet,
@@ -265,7 +292,7 @@ async fn persist_message(
         role: Set(role.to_string()),
         content: Set(content.to_string()),
         metadata: Set(metadata),
-        created_at: Set(now),
+        created_at: Set(at),
     };
     let inserted = agent_messages::Entity::insert(msg)
         .exec(db)
@@ -294,7 +321,7 @@ async fn persist_message(
         let _ = active.update(db).await;
     }
 
-    Ok(())
+    Ok(inserted.last_insert_id)
 }
 
 /// 加载会话历史消息作为对话上下文。

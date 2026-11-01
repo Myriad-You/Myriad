@@ -377,11 +377,10 @@ async fn chat_reply_with_overlay(
             &request.raw_input,
         )
         .await;
+        let listed = crate::services::agent::panel_work::listed(db, request.user_id, chat).await;
         if let Some(object) = data.as_object_mut() {
-            object.insert(
-                "pieces".into(),
-                json!(crate::services::agent::panel_work::listed(db, request.user_id, chat).await),
-            );
+            object.insert("pieces".into(), json!(listed.pieces));
+            object.insert("told".into(), json!(listed.told));
         }
     }
     let session_id = request

@@ -1,7 +1,15 @@
 import type { PieceView } from './agentPieces'
+import type { ChatMessage } from './engineTypes'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { pieceChange, placePieces, readListed } from './agentPieces'
+import {
+  pieceChange,
+  placePieces,
+  readListed,
+  setPieceLineSink,
+  showPieces,
+  withToldLines,
+} from './agentPieces'
 
 function piece(number: number, startedAt: number): PieceView {
   return {
@@ -64,4 +72,49 @@ test('a run ending tells the piece how it ended', () => {
     { state: 'failed', question: undefined, result: '没订上' },
   )
   assert.equal(pieceChange({ type: 'thinking' } as never), null)
+})
+
+function said(id: string, at: number): ChatMessage {
+  return { id, sessionId: 'c', role: 'assistant', content: id, createdAt: new Date(at) }
+}
+
+test('her line about how a piece ended goes where it ended, once', () => {
+  const shown = [said('ask', 1_000), said('her', 2_000), said('later', 9_000)]
+  const line = said('loaded_7', 5_000)
+  const next = withToldLines(shown, [line])
+  assert.deepEqual(next.map((one) => one.id), ['ask', 'her', 'loaded_7', 'later'])
+  // Read back with the transcript, or told again: not twice.
+  assert.equal(withToldLines(next, [line]), next)
+  // Ended after everything shown: last.
+  assert.equal(withToldLines(shown, [said('loaded_8', 10_000)]).at(-1)?.id, 'loaded_8')
+})
+
+test('a line older than every message shown is not put in', () => {
+  const shown = [said('her', 2_000)]
+  assert.equal(withToldLines(shown, [said('loaded_1', 1_000)]), shown)
+  // Nothing shown yet: it is all there is.
+  assert.deepEqual(withToldLines([], [said('loaded_1', 1_000)]).map((one) => one.id), ['loaded_1'])
+})
+
+test('pieces listed with her lines hand the lines to the conversation', () => {
+  const heard: Array<{ chat: string; ids: number[]; content: string[] }> = []
+  setPieceLineSink((chat, lines) =>
+    heard.push({ chat, ids: lines.map((line) => line.id), content: lines.map((line) => line.content) }),
+  )
+  try {
+    showPieces(
+      'chat-1',
+      [{ number: 1, asked: '查天气', startedAt: 1, state: 'done', detail: { result: '晴' } }],
+      [
+        { id: 7, role: 'assistant', content: '晴', createdAt: '2026-11-01T10:00:00Z' },
+        { id: 'not a line' },
+      ],
+    )
+    assert.deepEqual(heard, [{ chat: 'chat-1', ids: [7], content: ['晴'] }])
+    // No lines: nothing handed over.
+    showPieces('chat-1', [])
+    assert.equal(heard.length, 1)
+  } finally {
+    setPieceLineSink(null)
+  }
 })
