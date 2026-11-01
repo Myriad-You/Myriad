@@ -40,4 +40,4 @@
 - SDK 方法必须同时存在权限映射和目标沙箱 handler。
 - REST 端点以后端路由注册为准；Tapp 代码优先使用 SDK 而不是直接调用 REST。
 - 商店目录字段以官方 `index.json` + 安装器实际读取的键为准；见 [STORE.md](https://github.com/Myriad-You/myriad-tapp/blob/main/docs/STORE.md)。
-- 权限字符串与 host 归因以 [`tapp/docs/fixtures/*.json`](https://github.com/Myriad-You/myriad-tapp/tree/main/docs/fixtures) 为 source of truth（先改 fixture 再改代码）。
+- 权限字符串以 `tapp/crates/tapp-contract/src/permission.rs` 的 `TappPermission` 为准；沙箱动作 → 权限以 `tapp/shared/tapp_sandbox_contract.json` 为准；宿主代理路由的归因以 `host_route_permissions.json` 为准，`action_permissions.json` 只是一致性 fixture（见 [fixtures README](https://github.com/Myriad-You/myriad-tapp/blob/main/docs/fixtures/README.md)，改宿主代理域先改 fixture）。
