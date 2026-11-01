@@ -6,13 +6,13 @@
 //! dump, a backup, a replica) from reading without the installation's data
 //! key, and it makes forgetting reach those copies at once:
 //!
-//! - one key per audience, sealed by the installation's data key
+//! - one key per audience of an account, sealed by the installation's data key
 //!   (`myriad_data_key`, kept outside the database and its backups);
 //! - one key per object, sealed by its audience's key, with the subject it
 //!   is about, so forgetting everything about someone finds their keys;
 //! - each payload sealed by its object's key (AES-256-GCM, a fresh nonce
-//!   each time, the row's id as associated data, so a payload cannot be
-//!   moved to another row).
+//!   each time, the account and the row's id as associated data, so a
+//!   payload cannot be moved to another row or account).
 //!
 //! Forgetting an object deletes its key: a payload left in any copy of the
 //! database no longer opens. Keys never leave this module: not in a row, a
@@ -79,27 +79,28 @@ fn key_of(bytes: &[u8]) -> Result<[u8; KEY_BYTES], Error> {
     bytes.try_into().map_err(|_| Error::Key)
 }
 
-/// What an object key is sealed with besides its audience's key: which
-/// object it is, so a key cannot be moved to another.
-fn object_aad(audience: &str, object: &str) -> Vec<u8> {
-    format!("myriad-her-log/object-key\n{audience}\n{object}").into_bytes()
+/// What an object key is sealed with besides its audience's key: whose and
+/// which object it is, so a key cannot be moved to another.
+fn object_aad(user: i32, audience: &str, object: &str) -> Vec<u8> {
+    format!("myriad-her-log/object-key\n{user}\n{audience}\n{object}").into_bytes()
 }
 
-fn payload_aad(row_id: &str) -> Vec<u8> {
-    format!("myriad-her-log/payload\n{row_id}").into_bytes()
+fn payload_aad(user: i32, row_id: &str) -> Vec<u8> {
+    format!("myriad-her-log/payload\n{user}\n{row_id}").into_bytes()
 }
 
-/// The audience's key, made the first time it is needed.
+/// The key of `user`'s `audience`, made the first time it is needed.
 async fn audience_key<C: ConnectionTrait>(
     db: &C,
     root: &dyn Root,
+    user: i32,
     audience: &str,
 ) -> Result<[u8; KEY_BYTES], Error> {
     let read = || {
         Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT sealed FROM agent_log_audience_keys WHERE audience = $1",
-            [audience.into()],
+            "SELECT sealed FROM agent_log_audience_keys WHERE user_id = $1 AND audience = $2",
+            [user.into(), audience.into()],
         )
     };
     if db.query_one_raw(read()).await?.is_none() {
@@ -107,9 +108,14 @@ async fn audience_key<C: ConnectionTrait>(
         let sealed = root.seal(&BASE64.encode(fresh)).map_err(|_| Error::Key)?;
         db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "INSERT INTO agent_log_audience_keys (audience, sealed, created_at) \
-             VALUES ($1, $2, $3) ON CONFLICT (audience) DO NOTHING",
-            [audience.into(), sealed.into(), crate::clock::now().into()],
+            "INSERT INTO agent_log_audience_keys (user_id, audience, sealed, created_at) \
+             VALUES ($1, $2, $3, $4) ON CONFLICT (user_id, audience) DO NOTHING",
+            [
+                user.into(),
+                audience.into(),
+                sealed.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await?;
     }
@@ -128,6 +134,7 @@ async fn audience_key<C: ConnectionTrait>(
 async fn object_key<C: ConnectionTrait>(
     db: &C,
     root: &dyn Root,
+    user: i32,
     audience: &str,
     object: &str,
     subject: Option<&str>,
@@ -136,20 +143,23 @@ async fn object_key<C: ConnectionTrait>(
     let read = || {
         Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT sealed FROM agent_log_object_keys WHERE audience = $1 AND object = $2",
-            [audience.into(), object.into()],
+            "SELECT sealed FROM agent_log_object_keys \
+             WHERE user_id = $1 AND audience = $2 AND object = $3",
+            [user.into(), audience.into(), object.into()],
         )
     };
     let mut row = db.query_one_raw(read()).await?;
     if row.is_none() && make {
-        let wrap = audience_key(db, root, audience).await?;
+        let wrap = audience_key(db, root, user, audience).await?;
         let fresh: [u8; KEY_BYTES] = rand::random();
-        let sealed = seal_with(&wrap, &fresh, &object_aad(audience, object))?;
+        let sealed = seal_with(&wrap, &fresh, &object_aad(user, audience, object))?;
         db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "INSERT INTO agent_log_object_keys (audience, object, subject, sealed, created_at) \
-             VALUES ($1, $2, $3, $4, $5) ON CONFLICT (audience, object) DO NOTHING",
+            "INSERT INTO agent_log_object_keys \
+             (user_id, audience, object, subject, sealed, created_at) \
+             VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (user_id, audience, object) DO NOTHING",
             [
+                user.into(),
                 audience.into(),
                 object.into(),
                 subject.map(str::to_string).into(),
@@ -164,25 +174,27 @@ async fn object_key<C: ConnectionTrait>(
         return Ok(None);
     };
     let sealed: Vec<u8> = row.try_get("", "sealed")?;
-    let wrap = audience_key(db, root, audience).await?;
-    let key = open_with(&wrap, &sealed, &object_aad(audience, object))?;
+    let wrap = audience_key(db, root, user, audience).await?;
+    let key = open_with(&wrap, &sealed, &object_aad(user, audience, object))?;
     key_of(&key).map(Some)
 }
 
 /// `data`, the payload of row `row_id` about `object`, sealed for keeping.
+#[allow(clippy::too_many_arguments)]
 pub async fn seal_payload<C: ConnectionTrait>(
     db: &C,
     root: &dyn Root,
+    user: i32,
     audience: &str,
     object: &str,
     subject: Option<&str>,
     row_id: &str,
     data: &[u8],
 ) -> Result<Vec<u8>, Error> {
-    let key = object_key(db, root, audience, object, subject, true)
+    let key = object_key(db, root, user, audience, object, subject, true)
         .await?
         .ok_or(Error::Key)?;
-    seal_with(&key, data, &payload_aad(row_id))
+    seal_with(&key, data, &payload_aad(user, row_id))
 }
 
 /// The payload of row `row_id` about `object`, opened. None when its
@@ -190,22 +202,24 @@ pub async fn seal_payload<C: ConnectionTrait>(
 pub async fn open_payload<C: ConnectionTrait>(
     db: &C,
     root: &dyn Root,
+    user: i32,
     audience: &str,
     object: &str,
     row_id: &str,
     sealed: &[u8],
 ) -> Result<Option<Vec<u8>>, Error> {
-    let Some(key) = object_key(db, root, audience, object, None, false).await? else {
+    let Some(key) = object_key(db, root, user, audience, object, None, false).await? else {
         return Ok(None);
     };
-    open_with(&key, sealed, &payload_aad(row_id)).map(Some)
+    open_with(&key, sealed, &payload_aad(user, row_id)).map(Some)
 }
 
-/// Forgets the keys a ledger entry reaches: the object's, or for
-/// `subject:<id>` every key of an object about that subject in the
+/// Forgets the keys a ledger entry of `user`'s reaches: the object's, or
+/// for `subject:<id>` every key of an object about that subject in the
 /// audience. Returns how many went.
 pub async fn forget<C: ConnectionTrait>(
     db: &C,
+    user: i32,
     audience: &str,
     target: &str,
 ) -> Result<u64, Error> {
@@ -216,16 +230,18 @@ pub async fn forget<C: ConnectionTrait>(
         Some(subject) => {
             db.execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "DELETE FROM agent_log_object_keys WHERE audience = $1 AND subject = $2",
-                [audience.into(), subject.into()],
+                "DELETE FROM agent_log_object_keys \
+                 WHERE user_id = $1 AND audience = $2 AND subject = $3",
+                [user.into(), audience.into(), subject.into()],
             ))
             .await?
         }
         None => {
             db.execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "DELETE FROM agent_log_object_keys WHERE audience = $1 AND object = $2",
-                [audience.into(), target.into()],
+                "DELETE FROM agent_log_object_keys \
+                 WHERE user_id = $1 AND audience = $2 AND object = $3",
+                [user.into(), audience.into(), target.into()],
             ))
             .await?
         }
@@ -259,13 +275,14 @@ pub(crate) mod test_root {
     #[test]
     fn a_payload_opens_only_for_its_own_row() {
         let key = [7u8; KEY_BYTES];
-        let sealed = seal_with(&key, b"what she thought", &payload_aad("row_1")).unwrap();
+        let sealed = seal_with(&key, b"what she thought", &payload_aad(41, "row_1")).unwrap();
         assert!(!sealed.windows(4).any(|w| w == b"what"), "not in the clear");
         assert_eq!(
-            open_with(&key, &sealed, &payload_aad("row_1")).unwrap(),
+            open_with(&key, &sealed, &payload_aad(41, "row_1")).unwrap(),
             b"what she thought"
         );
-        assert!(open_with(&key, &sealed, &payload_aad("row_2")).is_err());
-        assert!(open_with(&[8u8; KEY_BYTES], &sealed, &payload_aad("row_1")).is_err());
+        assert!(open_with(&key, &sealed, &payload_aad(41, "row_2")).is_err());
+        assert!(open_with(&key, &sealed, &payload_aad(42, "row_1")).is_err());
+        assert!(open_with(&[8u8; KEY_BYTES], &sealed, &payload_aad(41, "row_1")).is_err());
     }
 }

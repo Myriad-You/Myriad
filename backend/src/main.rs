@@ -533,7 +533,9 @@ async fn run_server(role: runtime_role::RuntimeRole) -> anyhow::Result<()> {
                 services::blog::start(db.clone());
 
                 // Her log on the server (multi-device sync): nothing starts
-                // unless HER_LOG_ENABLED is on.
+                // unless HER_LOG_ENABLED is on, and not while tables of its
+                // old shape still hold rows.
+                services::her_log::check(&db).await;
                 services::her_log::retention::start(db.clone());
 
                 // Process-global DB must be wired before persona boot recovery.

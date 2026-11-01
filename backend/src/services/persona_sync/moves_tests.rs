@@ -117,15 +117,18 @@ async fn she_moves_to_a_device_and_back_and_finds_others_as_she_left_them() {
         Err(MoveError::Unknown)
     ));
     let bytes = whole_file(db, &id, &mac.id).await;
-    assert!(archive::open("留在站点的", &bytes).is_err());
-    let opened = archive::open(&key, &bytes).unwrap();
+    assert!(archive::open("留在站点的", &bytes, false).is_err());
+    let opened = archive::open(&key, &bytes, false).unwrap();
     assert_eq!(opened.manifest.digest, digest);
     // The copy the site keeps opens with the owner's passphrase.
     let kept = tokio::fs::read(super::super::merge::retired_dir().join(retired_name(&id)))
         .await
         .unwrap();
     assert_eq!(
-        archive::open("留在站点的", &kept).unwrap().manifest.digest,
+        archive::open("留在站点的", &kept, false)
+            .unwrap()
+            .manifest
+            .digest,
         digest
     );
 
@@ -308,7 +311,7 @@ async fn she_is_taken_back_from_a_backup_and_another_lineage_replaces_what_was_l
     let file = super::super::export::export(&source.db, 41, "备份口令".into())
         .await
         .unwrap();
-    let opened = archive::open("备份口令", &file.bytes).unwrap();
+    let opened = archive::open("备份口令", &file.bytes, false).unwrap();
     source.close().await;
 
     let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {

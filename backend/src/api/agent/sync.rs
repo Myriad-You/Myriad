@@ -642,11 +642,18 @@ pub async fn sync_log_full(
         return Err(not_found());
     }
     let now = her_log::now();
-    her_log::full::redeem(&db, her_log::keys::root(), &device.0.id, &link, now)
-        .await
-        .map_err(sync_failed)?
-        .map(Json)
-        .ok_or_else(not_found)
+    her_log::full::redeem(
+        &db,
+        her_log::keys::root(),
+        owner_of(&device),
+        &device.0.id,
+        &link,
+        now,
+    )
+    .await
+    .map_err(sync_failed)?
+    .map(Json)
+    .ok_or_else(not_found)
 }
 
 /// GET /api/agent/sync/assets/{asset_id}: a picture as itself, a rig as

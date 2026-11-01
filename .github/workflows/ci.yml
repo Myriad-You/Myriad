@@ -404,6 +404,16 @@ jobs:
         env:
           MYRIAD_SCHEMA_DRIFT_DB: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
         run: cargo test --workspace --locked migrations_leave_no_schema_drift -- --nocapture
+      # Her log on the server and what carries it (export, import, her link)
+      # skip without a test database. They build isolated schemas, so they get
+      # a database of their own: the drift step above migrates into `public`.
+      - name: Her log, persona sync and her link against a database
+        env:
+          PGPASSWORD: myriad_ci
+          MYRIAD_MEDIA_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_media_test
+        run: |
+          createdb -h 127.0.0.1 -U myriad myriad_media_test
+          cargo test --workspace --locked -- services::her_log services::persona_sync services::agent::link api::agent::sync --test-threads=1
       - name: Federation outbox and delivery lease database contracts
         env:
           MYRIAD_SCHEMA_DRIFT_DB: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
