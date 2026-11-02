@@ -34,7 +34,6 @@ mod memory_bench;
 mod size_guard_tests;
 pub(in crate::services::agent) mod memory_jobs;
 pub(in crate::services::agent) mod motion;
-mod motion_local;
 pub(in crate::services::agent) mod motion_preview;
 pub(in crate::services::agent) mod nodes;
 pub(in crate::services::agent) mod observe;

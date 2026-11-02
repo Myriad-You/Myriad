@@ -2,13 +2,15 @@
 //! with her, shown on her face instead of written beside it. The director
 //! decides it, as it decides all of her acting, from what she is doing on her
 //! own; one direction serves everyone watching for as long as she keeps
-//! doing that.
+//! doing that. How what she is doing is told and shows is the shared core's
+//! (`myriad_merope::motion::standing`); keeping the direction is here.
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
 use chrono::{DateTime, Utc};
 use myriad_merope::RigStateSummary;
+use myriad_merope::motion::standing::{self, Doing};
 use sea_orm::DatabaseConnection;
 
 use super::motion::standing_floor;
@@ -44,20 +46,18 @@ pub async fn standing_direction(
     let now = crate::clock::now();
     // Only what she is doing: why she picked it stays hers, and the minutes in
     // are left out so one direction holds for the whole of it.
-    let (started, ends, what, way) = if let Some(current) = doing::current() {
+    let (started, ends, (way, activity)) = if let Some(current) = doing::current() {
         (
             current.started,
             current.ends,
-            format!("{} {}", current.thing.verb(), current.thing.describe()),
-            way_of_thing(&current.thing),
+            standing::doing(Doing::Thing(&current.thing), together),
         )
     } else {
         let lazing = doing::lazing()?;
         (
             lazing.started,
             lazing.ends,
-            super::pace::lazing_line(lazing.kind).to_string(),
-            way_of_lazing(lazing.kind),
+            standing::doing(Doing::Lazing(lazing.kind), together),
         )
     };
     let state = get_or_create_state(db, user_id).await.ok()?;
@@ -85,11 +85,6 @@ pub async fn standing_direction(
         state.arousal.round() as i32,
     )
     .await;
-    let activity = if together {
-        format!("{what}, and the person who has her face open is listening along with her")
-    } else {
-        what
-    };
     let context = MotionContext {
         user_id,
         phase: MotionPhase::Presence,
@@ -104,7 +99,7 @@ pub async fn standing_direction(
     };
     let directed = refine_motion(context.clone())
         .await
-        .filter(|direction| !direction.score.is_empty() || direction.plan.baseline.is_some());
+        .filter(standing::is_acting);
     // When the director cannot be reached (offline), what she is doing still
     // shows, by its kind; the director is asked again soon.
     let directed_here = directed.is_some();
@@ -137,24 +132,6 @@ pub async fn standing_direction(
         );
     }
     direction
-}
-
-/// How what she is doing shows on her, by its kind (`presence::WAYS`).
-fn way_of_thing(thing: &doing::Thing) -> &'static str {
-    match thing {
-        doing::Thing::Song { .. } => "listening",
-        doing::Thing::Note { .. } | doing::Thing::Chapter { .. } => "reading",
-        doing::Thing::Inquiry { .. } => "looking-about",
-    }
-}
-
-/// How lazing of `kind` shows on her (`presence::WAYS`).
-fn way_of_lazing(kind: &str) -> &'static str {
-    match kind {
-        "wander_the_site" => "looking-about",
-        "reread_old_chats" => "reading",
-        _ => "daydreaming",
-    }
 }
 
 fn kept(key: &str, now: DateTime<Utc>) -> Option<Option<PerformanceDirective>> {

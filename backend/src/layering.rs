@@ -373,11 +373,6 @@ fn merope_background_work_uses_the_managed_runner() {
 /// site's own that is not hers. A new file is one or the other only by
 /// review; the list only shrinks.
 const MEROPE_RULES_STILL_HERE: &[(&str, &str)] = &[
-    ("services/agent/merope/motion/control.rs", "hers, to move"),
-    ("services/agent/merope/motion/offered.rs", "hers, to move"),
-    ("services/agent/merope/motion/presence.rs", "hers, to move"),
-    ("services/agent/merope/motion/way.rs", "hers, to move"),
-    ("services/agent/merope/motion_local.rs", "hers, to move"),
     ("services/agent/merope/motion_preview.rs", "hers, to move"),
     (
         "services/agent/merope/onboarding_prompts.rs",
