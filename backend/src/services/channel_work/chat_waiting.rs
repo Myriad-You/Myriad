@@ -21,6 +21,12 @@ const WAITING_FOR: chrono::Duration = chrono::Duration::hours(24);
 /// meanwhile does not lose a message already claimed.
 const ARRIVING_NS: &str = "channel_private_arriving";
 
+tokio::task_local! {
+    /// The arriving record of the message being handled: what it is known
+    /// by once it waits, so a restart takes it back once.
+    pub(super) static ARRIVING: String;
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Arriving {
     user_id: i32,
@@ -50,6 +56,9 @@ struct Waiting {
     work_session_id: String,
     texts: Vec<String>,
     images: Vec<KeptImage>,
+    /// The arriving records already in `texts`.
+    #[serde(default)]
+    arrived: Vec<String>,
 }
 
 /// Keep what she has not answered in this chat, so a restart before she
@@ -75,6 +84,7 @@ pub(super) async fn keep_waiting(
                     size: image.size,
                 })
                 .collect(),
+            arrived: seen.arrived.clone(),
         })
     }) else {
         return;
@@ -197,14 +207,17 @@ async fn take_back_arriving(
                 .collect();
             super::with_chat_lock(
                 &session_key,
-                super::inbound::continue_text(
-                    &db,
-                    kept.user_id,
-                    "",
-                    &kept.text,
-                    &images,
-                    &session_key,
-                    sink,
+                ARRIVING.scope(
+                    record.clone(),
+                    super::inbound::continue_text(
+                        &db,
+                        kept.user_id,
+                        "",
+                        &kept.text,
+                        &images,
+                        &session_key,
+                        sink,
+                    ),
                 ),
             )
             .await;
@@ -225,7 +238,9 @@ pub(crate) async fn take_back_waiting(db: &DatabaseConnection) {
         .await
         .unwrap_or_default();
     // What was arriving goes after what waited in the same chat; what had
-    // already reached the waiting record when the site stopped comes in once.
+    // already reached the waiting record when the site stopped comes in
+    // once. Known by its record, not its words: the same `?` sent again, or
+    // two pictures without words, are two messages.
     let mut arriving = arriving_by_chat(db).await;
     for row in rows {
         let session_key = row.record_id;
@@ -248,17 +263,12 @@ pub(crate) async fn take_back_waiting(db: &DatabaseConnection) {
             })
             .collect();
         let mut later = arriving.remove(&session_key).unwrap_or_default();
-        let mut waited = waiting.texts.clone();
-        let mut kept_later = Vec::with_capacity(later.len());
-        for (record, kept) in later.drain(..) {
-            if let Some(at) = waited.iter().position(|text| *text == kept.text) {
-                waited.remove(at);
-                arrived(db, &record).await;
-            } else {
-                kept_later.push((record, kept));
+        for (record, _) in &later {
+            if waiting.arrived.contains(record) {
+                arrived(db, record).await;
             }
         }
-        let later = kept_later;
+        later.retain(|(record, _)| !waiting.arrived.contains(record));
         let texts = waiting.texts.join("\n");
         let (db, user_id, work_session_id) = (db.clone(), waiting.user_id, waiting.work_session_id);
         // She is not on the site: what was waiting is held for when she is
@@ -356,10 +366,17 @@ mod tests {
                 mime: "image/jpeg".into(),
                 size: 3,
             }],
+            arrived: vec!["tg:1:0001:a".into()],
         })
         .unwrap();
-        let back: Waiting = serde_json::from_value(kept).unwrap();
+        let back: Waiting = serde_json::from_value(kept.clone()).unwrap();
         assert_eq!(back.texts, ["在吗", "睡了？"]);
         assert_eq!(back.images[0].url, "tg:file");
+        assert_eq!(back.arrived, ["tg:1:0001:a"]);
+        // One kept before records were: none.
+        let mut before = kept;
+        before.as_object_mut().unwrap().remove("arrived");
+        let back: Waiting = serde_json::from_value(before).unwrap();
+        assert!(back.arrived.is_empty());
     }
 }

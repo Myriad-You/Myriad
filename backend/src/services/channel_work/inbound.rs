@@ -77,7 +77,16 @@ pub async fn handle_text_with_images(
     };
     with_chat_lock(&lock_key, async move {
         if sink.authorized().await {
-            continue_text(&db, user_id, &chat_id, &input, &images, &session_key, sink).await;
+            let handled =
+                continue_text(&db, user_id, &chat_id, &input, &images, &session_key, sink);
+            match &arriving {
+                Some(record) => {
+                    super::chat_waiting::ARRIVING
+                        .scope(record.clone(), handled)
+                        .await
+                }
+                None => handled.await,
+            }
         }
         if let Some(record) = arriving {
             super::chat_waiting::arrived(&db, &record).await;
@@ -123,7 +132,10 @@ pub async fn handle_callback(
         // A piece's button answers that piece's question.
         let key = myriad_agent_rules::channel::parse_telegram_callback(&data)
             .and_then(|bound| works::number_of_prompt(&bound.prompt_id))
-            .map_or_else(|| session_key.clone(), |number| works::lane_key(&session_key, number));
+            .map_or_else(
+                || session_key.clone(),
+                |number| works::lane_key(&session_key, number),
+            );
         let Some(pending) = load_pending(&db, platform, &key).await else {
             return;
         };
@@ -139,7 +151,15 @@ pub async fn handle_callback(
                 super::held::INBOUND
                     .scope(
                         claimed,
-                        works::answer_pending(&db, user_id, &key, work_session, pending, &answer, sink),
+                        works::answer_pending(
+                            &db,
+                            user_id,
+                            &key,
+                            work_session,
+                            pending,
+                            &answer,
+                            sink,
+                        ),
                     )
                     .await;
             }

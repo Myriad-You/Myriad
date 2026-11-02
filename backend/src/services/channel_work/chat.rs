@@ -47,6 +47,8 @@ const IN_TALK: Duration = Duration::from_secs(10 * 60);
 pub(super) struct Unseen {
     pub(super) texts: Vec<String>,
     pub(super) images: Vec<ChannelImageRef>,
+    /// The arriving records these came by (see `chat_waiting::ARRIVING`).
+    pub(super) arrived: Vec<String>,
 }
 
 pub(super) static UNSEEN: LazyLock<Mutex<HashMap<String, Unseen>>> =
@@ -89,12 +91,16 @@ pub(super) fn take_in(session_key: &str, input: &str, images: &[ChannelImageRef]
             lines.pop_front();
         }
     }
+    let arrived = super::chat_waiting::ARRIVING
+        .try_with(|record| record.clone())
+        .ok();
     let Ok(mut unseen) = UNSEEN.lock() else {
         return false;
     };
     if let Some(waiting) = unseen.get_mut(session_key) {
         waiting.texts.push(input.to_string());
         waiting.images.extend_from_slice(images);
+        waiting.arrived.extend(arrived);
         return false;
     }
     if unseen.len() >= CHATS_KEPT {
@@ -105,6 +111,7 @@ pub(super) fn take_in(session_key: &str, input: &str, images: &[ChannelImageRef]
         Unseen {
             texts: vec![input.to_string()],
             images: images.to_vec(),
+            arrived: arrived.into_iter().collect(),
         },
     );
     true
@@ -582,6 +589,19 @@ mod seeing_tests {
         // A turn that ends any way lets go of what it was to read.
         drop(Seeing(key));
         assert!(UNSEEN.lock().unwrap().get(key).is_none());
+    }
+
+    #[test]
+    fn each_message_is_known_by_its_record_not_its_words() {
+        use super::super::chat_waiting::ARRIVING;
+        let key = "test:arrived:1";
+        ARRIVING.sync_scope("r1".into(), || take_in(key, "？", &[]));
+        ARRIVING.sync_scope("r2".into(), || take_in(key, "？", &[]));
+        // Taken back after a restart: not by a record.
+        take_in(key, "", &[]);
+        let seen = UNSEEN.lock().unwrap().remove(key).unwrap();
+        assert_eq!(seen.texts, ["？", "？", ""]);
+        assert_eq!(seen.arrived, ["r1", "r2"]);
     }
 
     #[test]
