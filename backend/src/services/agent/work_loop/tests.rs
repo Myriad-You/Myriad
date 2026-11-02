@@ -923,10 +923,11 @@ fn the_tool_failing_again_after_its_memory_is_marked() {
     assert!(loaded.recall.shown.is_empty() && !loaded.recall.used);
 }
 
-/// A write confirmed in chat is taken: her line for the piece on the web
-/// panel, or their reply in an IM chat, reaches the Work loop as `yes` or
-/// `no`, the only answers a confirmation takes. Read through the same
-/// prompt, rules and mapping the panel and the channel use.
+/// A write confirmed in chat is taken: her line for the piece (on the web
+/// panel or in an IM chat), or their reply in an IM chat, reaches the Work
+/// loop as `yes` or `no`, the only answers a confirmation takes. Read
+/// through the same lines, rules and mapping the panel and the channel use;
+/// a no or a maybe never reads as yes.
 #[test]
 fn a_write_confirmed_in_chat_is_taken() {
     use crate::services::channel_work::works;
@@ -941,25 +942,67 @@ fn a_write_confirmed_in_chat_is_taken() {
     });
     let prompt = crate::services::agent::panel_work::prompt_of(&approval.task).unwrap();
     assert!(works::is_confirmation(&prompt));
-    for (said, taken) in [("好", "yes"), ("是", "yes"), ("不", "no")] {
-        let PendingDecision::Resume {
+    let waiting = works::Piece {
+        number: 1,
+        asked: "发邮件".into(),
+        started_at: Some(0),
+        standing: works::Standing::Waiting {
+            question: "发出去吗？".into(),
+        },
+    };
+    let taken = |reply: &str| match decide_pending_reply(&prompt, reply, 0) {
+        PendingDecision::Resume {
             answer: reply,
             confirmed,
             ..
-        } = decide_pending_reply(&prompt, said, 0)
-        else {
-            panic!("{said} answers a confirmation");
-        };
-        // The chat's own words for it are refused.
-        assert!(
+        } => {
+            // The chat's own words for it are refused.
+            assert!(
+                approval
+                    .validate_answer(&answer(&approval, &reply))
+                    .is_err()
+            );
+            let reply = works::task_answer(reply, confirmed);
             approval
                 .validate_answer(&answer(&approval, &reply))
-                .is_err()
+                .unwrap();
+            Some(reply)
+        }
+        _ => None,
+    };
+    let hers = |line: &str| {
+        let (_, hand_offs) = crate::services::agent::delegate::split(line);
+        let works::Act::Answer { text, .. } = works::act(&hand_offs[0], &[waiting.clone()]) else {
+            panic!("{line} answers the piece");
+        };
+        taken(&works::her_choice(&prompt, &text))
+    };
+    for (line, meant) in [
+        ("[[work #1: yes]]", Some("yes")),
+        ("[[work #1: Yes]]", Some("yes")),
+        ("[[work #1: 1]]", Some("yes")),
+        ("[[work #1: 是]]", Some("yes")),
+        ("[[work #1: 2]]", Some("no")),
+        ("[[work #1: no]]", Some("no")),
+        ("[[work #1: 不]]", Some("no")),
+        ("[[work #1: 不确定]]", None),
+        ("[[work #1: 不要 yes]]", None),
+        ("[[work #1: yesterday 那封]]", None),
+        ("[[work #1: 3]]", None),
+    ] {
+        assert_eq!(hers(line).as_deref(), meant, "{line}");
+    }
+    // Theirs, in an IM chat: the same.
+    for (said, meant) in [
+        ("1", Some("yes")),
+        ("好", Some("yes")),
+        ("否", Some("no")),
+        ("再说", None),
+    ] {
+        assert_eq!(
+            taken(&works::confirmation_reply(&prompt, said)).as_deref(),
+            meant,
+            "{said}"
         );
-        let reply = works::task_answer(reply, confirmed);
-        assert_eq!(reply, taken);
-        approval
-            .validate_answer(&answer(&approval, &reply))
-            .unwrap();
     }
 }

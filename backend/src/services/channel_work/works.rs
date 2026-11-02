@@ -56,7 +56,22 @@ pub(crate) fn task_answer(answer: String, confirmed: Option<bool>) -> String {
 
 /// Her answer to a piece's choice question, as the choice she means.
 pub(crate) fn her_choice(prompt: &PendingPrompt, text: &str) -> String {
+    if is_confirmation(prompt) {
+        return confirmation_reply(prompt, text);
+    }
     myriad_merope::handoff::her_choice(&prompt.options, text)
+}
+
+/// A reply to a confirmation, hers or theirs: the number it is listed under
+/// (`1. Yes`) is that yes or no. Nothing else is read into it, so a no, a
+/// maybe or `yesterday` never reads as yes; the words go as written, and
+/// only a plain yes or no takes.
+pub(crate) fn confirmation_reply(prompt: &PendingPrompt, text: &str) -> String {
+    let text = text.trim();
+    text.parse::<usize>()
+        .ok()
+        .and_then(|number| prompt.options.get(number.checked_sub(1)?))
+        .map_or_else(|| text.to_string(), |option| option.value.clone())
 }
 
 /// A piece's question carries its number in its id, and so in its buttons.
@@ -128,7 +143,7 @@ pub(super) async fn pieces(
         });
         let facts = Facts {
             stopped: lane.stored.stopped,
-            question: load_pending(db, platform, &lane.key)
+            question: still_asked(db, platform, user_id, &lane.key)
                 .await
                 .map(|pending| format_pending_prompt(&pending.prompt)),
             // A restart leaves its run on a question the chat never heard.
@@ -154,12 +169,41 @@ pub(super) async fn pieces(
     pieces
 }
 
+/// The question kept for a piece, while its task still asks it. A wait
+/// that runs out (`work_loop::recover`) fails the task and takes its
+/// question away; the one kept on the chat goes with it, so the piece does
+/// not stand waiting on an answer nothing will take.
+async fn still_asked(
+    db: &DatabaseConnection,
+    platform: ChannelPlatform,
+    user_id: i32,
+    key: &str,
+) -> Option<StoredPending> {
+    let pending = load_pending(db, platform, key).await?;
+    if let PendingKind::Answer {
+        task_id,
+        question_id,
+        ..
+    } = &pending.prompt.kind
+        && let Some(task) =
+            crate::services::agent::executor::get_task_for_user(task_id, user_id).await
+        && !(task.status == TaskStatus::WaitingForInput
+            && task
+                .pending_question
+                .as_ref()
+                .is_some_and(|question| &question.question_id == question_id))
+    {
+        clear_pending(db, platform, key).await;
+        return None;
+    }
+    Some(pending)
+}
+
 /// What the helper last said in a piece's Work session.
 async fn came_back(db: &DatabaseConnection, session_id: &str) -> Option<String> {
-    let history =
-        crate::services::agent::sessions::load_session_history(db, session_id, 2, false)
-            .await
-            .ok()?;
+    let history = crate::services::agent::sessions::load_session_history(db, session_id, 2, false)
+        .await
+        .ok()?;
     history
         .last()
         .filter(|message| message.role == "assistant")
@@ -259,8 +303,8 @@ pub(super) async fn label_for(
             continue;
         }
         if !others && !lane.stored.stopped {
-            others = is_active(&lane.key).await
-                || load_pending(db, platform, &lane.key).await.is_some();
+            others =
+                is_active(&lane.key).await || load_pending(db, platform, &lane.key).await.is_some();
         }
     }
     labelled(number, &asked, others, content)
@@ -322,7 +366,13 @@ pub(super) async fn carry_out(
                 let Some((lane, _)) = lane_of(work) else {
                     continue;
                 };
-                steer(db, user_id, &lane.stored.session_id, &work_input(&text, their_words)).await;
+                steer(
+                    db,
+                    user_id,
+                    &lane.stored.session_id,
+                    &work_input(&text, their_words),
+                )
+                .await;
             }
             Act::Continue { work, text } => {
                 let Some((lane, _)) = lane_of(work) else {
@@ -435,7 +485,12 @@ pub(super) async fn answer_pending(
         let _ = sink.send_text(PENDING_STALE_REPLY).await;
         return;
     }
-    match decide_pending_reply(&pending.prompt, input, crate::clock::now().timestamp()) {
+    let reply = if is_confirmation(&pending.prompt) {
+        confirmation_reply(&pending.prompt, input)
+    } else {
+        input.to_string()
+    };
+    match decide_pending_reply(&pending.prompt, &reply, crate::clock::now().timestamp()) {
         PendingDecision::Reask { reply } => {
             // Not an answer, but meant for this piece: it goes on with it.
             // Not past a confirmation: what waits on it would take these
@@ -595,8 +650,9 @@ mod tests {
             expires_at_unix: None,
         };
         assert!(is_confirmation(&confirm));
-        let PendingDecision::Resume { answer, confirmed, .. } =
-            decide_pending_reply(&confirm, "好", 0)
+        let PendingDecision::Resume {
+            answer, confirmed, ..
+        } = decide_pending_reply(&confirm, "好", 0)
         else {
             panic!("a yes resumes it");
         };
