@@ -47,6 +47,10 @@ struct Kept {
     /// Her line about how it last ended.
     #[serde(default)]
     told: Option<Told>,
+    /// Picked up again, and that run did not start: what came of it before
+    /// is not what it was asked now.
+    #[serde(default)]
+    not_started: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -175,7 +179,12 @@ async fn now(db: &DatabaseConnection, user_id: i32, chat: &str) -> Vec<Now> {
             ..Facts::default()
         };
         let mut standing = works::stands(&facts);
-        if let Standing::Done { result } = &mut standing {
+        if kept.not_started && matches!(standing, Standing::Done { .. }) {
+            standing = works::stands(&Facts {
+                begun: works::Begun::Never,
+                ..facts
+            });
+        } else if let Standing::Done { result } = &mut standing {
             ended = came_back(db, &kept.session_id).await;
             *result = ended.as_ref().map(|ended| ended.text.clone());
             // Nothing came of it, and no run was ever started with it.
@@ -566,6 +575,7 @@ async fn carry_out_in_order(
                             Ok(run) => {
                                 let mut kept = now.kept.clone();
                                 kept.run_id = Some(run.run_id().to_string());
+                                kept.not_started = false;
                                 keep(db, user_id, &now.key, &kept).await;
                             }
                             Err(error) => {
@@ -603,18 +613,25 @@ async fn carry_out_in_order(
             }
             Act::Continue { work, text } => {
                 let Some(now) = of(work) else { continue };
-                if let Ok(run_id) = start(
+                let started = start(
                     db,
                     user_id,
                     &now.kept.session_id,
                     works::work_input(&text, their_words),
                 )
-                .await
-                {
-                    let mut kept = now.kept.clone();
-                    kept.run_id = Some(run_id);
-                    keep(db, user_id, &now.key, &kept).await;
+                .await;
+                let mut kept = now.kept.clone();
+                match started {
+                    Ok(run_id) => {
+                        kept.run_id = Some(run_id);
+                        kept.not_started = false;
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "[Panel] a piece did not go on");
+                        kept.not_started = true;
+                    }
                 }
+                keep(db, user_id, &now.key, &kept).await;
             }
             Act::Stop { work } => {
                 stop(db, user_id, chat, work).await;
@@ -671,6 +688,7 @@ mod tests {
             stopped: false,
             run_id: Some("run_1".into()),
             told: Some(Told { ending: 3, line: 9 }),
+            not_started: false,
         };
         let back: Kept = serde_json::from_value(serde_json::to_value(&kept).unwrap()).unwrap();
         assert_eq!(back.session_id, "ses_w");

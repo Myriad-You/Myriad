@@ -57,6 +57,14 @@ pub(super) async fn start_work_run(
                 .unwrap_or("办事没能开始。")
                 .to_string();
             warn!(error = %message, "channel Work start failed");
+            // A piece picked up again whose run did not start: what came of
+            // it before is not what it was asked now (see `works::pieces`).
+            if super::works::split_lane(session_key).is_some()
+                && let Some(mut stored) = load_session(&db, sink.platform(), session_key).await
+                && stored.last_run_id.take().is_some()
+            {
+                let _ = put_session(&db, sink.platform(), user_id, session_key, stored).await;
+            }
             let _ = sink.send_text(&message).await;
             return;
         }
