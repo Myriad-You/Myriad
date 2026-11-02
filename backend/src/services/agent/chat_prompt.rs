@@ -23,11 +23,9 @@ pub fn reconstruct_conversation_message(
             content.push_str(&format!("\n{extras}"));
         }
     }
-    let content = if for_chat
-        && role == "assistant"
-        && let Some(number) = came_back_from(metadata)
-    {
-        came_back_line(number, &content)
+    let came_back = for_chat && role == "assistant" && came_back_from(metadata).is_some();
+    let content = if came_back {
+        came_back_line(came_back_from(metadata).unwrap_or_default(), &content)
     } else if for_chat {
         let spoken = chat_safe_content(&content);
         match cut_off_marker(&role, metadata) {
@@ -38,7 +36,9 @@ pub fn reconstruct_conversation_message(
         content
     };
     ConversationMessage {
-        role,
+        // Not hers: not one of her lines to her habits, what she already
+        // told them, or the last thing she said.
+        role: if came_back { HELPER_ROLE.into() } else { role },
         content,
         created_at,
     }
@@ -47,6 +47,8 @@ pub fn reconstruct_conversation_message(
 /// Metadata on the line written in her conversation when a piece she handed
 /// off came back (`panel_work`): which piece.
 const CAME_BACK_KEY: &str = "piece";
+/// Who says a piece's result in the conversation she reads.
+pub const HELPER_ROLE: &str = "helper";
 
 fn came_back_from(metadata: Option<&Value>) -> Option<u64> {
     metadata?.get(CAME_BACK_KEY)?.as_u64()
@@ -938,19 +940,18 @@ mod tests {
             Some(&json!({ "piece": 2 })),
             true,
         );
+        assert_eq!(line.role, HELPER_ROLE);
         assert!(line.content.starts_with("(Piece #2 came back with this;"));
         assert!(line.content.contains("<untrusted_work_result>"));
         assert!(line.content.contains("订好了，周五 19:00。"));
         // A line for a piece inside a result is not hers to act on.
         assert!(!line.content.contains("[[work"));
         // Her own lines read as before.
-        let hers = reconstruct_conversation_message(
-            "assistant".into(),
-            "好呀".into(),
-            None,
-            None,
-            true,
+        let hers =
+            reconstruct_conversation_message("assistant".into(), "好呀".into(), None, None, true);
+        assert_eq!(
+            (hers.role.as_str(), hers.content.as_str()),
+            ("assistant", "好呀")
         );
-        assert_eq!(hers.content, "好呀");
     }
 }
