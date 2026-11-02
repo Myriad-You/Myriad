@@ -155,15 +155,15 @@ fn kept_image(image: &ChannelImageRef) -> KeptImage {
     }
 }
 
-/// After a restart: what waited on a chat comes in again, in the order it
-/// came, after what she had not answered there.
-async fn take_back_arriving(db: &DatabaseConnection) {
+type ArrivingByChat = std::collections::BTreeMap<String, Vec<(String, Arriving)>>;
+
+/// What was arriving in each chat when the site stopped, in the order it came.
+async fn arriving_by_chat(db: &DatabaseConnection) -> ArrivingByChat {
     let mut rows = shared_registry::list(db, ARRIVING_NS, None, None)
         .await
         .unwrap_or_default();
     rows.sort_by(|a, b| a.record_id.cmp(&b.record_id));
-    let mut by_chat: std::collections::BTreeMap<String, Vec<(String, Arriving)>> =
-        Default::default();
+    let mut by_chat = ArrivingByChat::default();
     for row in rows {
         match serde_json::from_value::<Arriving>(row.payload) {
             Ok(kept) => by_chat
@@ -173,38 +173,43 @@ async fn take_back_arriving(db: &DatabaseConnection) {
             Err(_) => arrived(db, &row.record_id).await,
         }
     }
-    for (session_key, kept) in by_chat {
-        let db = db.clone();
-        tokio::spawn(async move {
-            for (record, kept) in kept {
-                if let Some(sink) = sink_for(&db, kept.user_id, &session_key).await {
-                    let images: Vec<ChannelImageRef> = kept
-                        .images
-                        .into_iter()
-                        .map(|image| ChannelImageRef {
-                            url: image.url,
-                            name: image.name,
-                            mime: image.mime,
-                            size: image.size,
-                        })
-                        .collect();
-                    super::with_chat_lock(
-                        &session_key,
-                        super::inbound::continue_text(
-                            &db,
-                            kept.user_id,
-                            "",
-                            &kept.text,
-                            &images,
-                            &session_key,
-                            sink,
-                        ),
-                    )
-                    .await;
-                }
-                arrived(&db, &record).await;
-            }
-        });
+    by_chat
+}
+
+/// After a restart: what was arriving in a chat comes in again, in the order
+/// it came.
+async fn take_back_arriving(
+    db: DatabaseConnection,
+    session_key: String,
+    kept: Vec<(String, Arriving)>,
+) {
+    for (record, kept) in kept {
+        if let Some(sink) = sink_for(&db, kept.user_id, &session_key).await {
+            let images: Vec<ChannelImageRef> = kept
+                .images
+                .into_iter()
+                .map(|image| ChannelImageRef {
+                    url: image.url,
+                    name: image.name,
+                    mime: image.mime,
+                    size: image.size,
+                })
+                .collect();
+            super::with_chat_lock(
+                &session_key,
+                super::inbound::continue_text(
+                    &db,
+                    kept.user_id,
+                    "",
+                    &kept.text,
+                    &images,
+                    &session_key,
+                    sink,
+                ),
+            )
+            .await;
+        }
+        arrived(&db, &record).await;
     }
 }
 
@@ -219,6 +224,9 @@ pub(crate) async fn take_back_waiting(db: &DatabaseConnection) {
     let rows = shared_registry::list(db, WAITING_NS, None, None)
         .await
         .unwrap_or_default();
+    // What was arriving goes after what waited in the same chat; what had
+    // already reached the waiting record when the site stopped comes in once.
+    let mut arriving = arriving_by_chat(db).await;
     for row in rows {
         let session_key = row.record_id;
         let Ok(waiting) = serde_json::from_value::<Waiting>(row.payload) else {
@@ -239,6 +247,18 @@ pub(crate) async fn take_back_waiting(db: &DatabaseConnection) {
                 size: image.size,
             })
             .collect();
+        let mut later = arriving.remove(&session_key).unwrap_or_default();
+        let mut waited = waiting.texts.clone();
+        let mut kept_later = Vec::with_capacity(later.len());
+        for (record, kept) in later.drain(..) {
+            if let Some(at) = waited.iter().position(|text| *text == kept.text) {
+                waited.remove(at);
+                arrived(db, &record).await;
+            } else {
+                kept_later.push((record, kept));
+            }
+        }
+        let later = kept_later;
         let texts = waiting.texts.join("\n");
         let (db, user_id, work_session_id) = (db.clone(), waiting.user_id, waiting.work_session_id);
         // She is not on the site: what was waiting is held for when she is
@@ -246,12 +266,15 @@ pub(crate) async fn take_back_waiting(db: &DatabaseConnection) {
         if super::held::away() {
             super::held::hold(&db, &sink, &session_key, user_id, &texts, &images).await;
             forget_waiting(&db, &session_key).await;
+            if !later.is_empty() {
+                arriving.insert(session_key, later);
+            }
             continue;
         }
         tracing::info!("[Channel] what she had not answered, waited on again after a restart");
         tokio::spawn(async move {
             start_chat_turn(
-                db,
+                db.clone(),
                 user_id,
                 work_session_id,
                 &texts,
@@ -260,9 +283,12 @@ pub(crate) async fn take_back_waiting(db: &DatabaseConnection) {
                 &session_key,
             )
             .await;
+            take_back_arriving(db, session_key, later).await;
         });
     }
-    take_back_arriving(db).await;
+    for (session_key, kept) in arriving {
+        tokio::spawn(take_back_arriving(db.clone(), session_key, kept));
+    }
 }
 
 /// A sink to answer `user_id` in `session_key` with, from the session the
