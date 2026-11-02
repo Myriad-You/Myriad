@@ -999,6 +999,8 @@ fn a_write_confirmed_in_chat_is_taken() {
         ("好", Some("yes")),
         ("否", Some("no")),
         ("再说", None),
+        ("+1", None),
+        ("01", None),
     ] {
         assert_eq!(
             taken(&works::confirmation_reply(&prompt, said)).as_deref(),

@@ -68,8 +68,13 @@ pub(crate) fn her_choice(prompt: &PendingPrompt, text: &str) -> String {
 /// only a plain yes or no takes.
 pub(crate) fn confirmation_reply(prompt: &PendingPrompt, text: &str) -> String {
     let text = text.trim();
-    text.parse::<usize>()
-        .ok()
+    // Plain digits only: `+1` and `01` are not the first.
+    let plain = !text.is_empty()
+        && !text.starts_with('0')
+        && text.chars().all(|digit| digit.is_ascii_digit());
+    plain
+        .then(|| text.parse::<usize>().ok())
+        .flatten()
         .and_then(|number| prompt.options.get(number.checked_sub(1)?))
         .map_or_else(|| text.to_string(), |option| option.value.clone())
 }
@@ -157,17 +162,19 @@ pub(super) async fn pieces(
         let mut standing = stands(&facts);
         let mut ended_at = None;
         if matches!(standing, Standing::Done { .. }) {
-            standing = match came_back(db, &lane.stored.session_id).await {
-                Some(back) => {
-                    ended_at = back.at;
-                    Standing::Done {
-                        result: back.result,
-                    }
-                }
-                None => stands(&Facts {
+            // Every run of it is kept as its last (`start_delivery`); only a
+            // stop lets go of it.
+            standing = if lane.stored.last_run_id.is_none() {
+                stands(&Facts {
                     begun: not_begun(lane.stored.started_at),
                     ..facts
-                }),
+                })
+            } else {
+                let back = came_back(db, &lane.stored.session_id).await;
+                ended_at = back.at;
+                Standing::Done {
+                    result: back.result,
+                }
             };
         }
         let piece = Piece {
@@ -216,8 +223,8 @@ async fn still_asked(
 /// that never began.
 const BEGINS_WITHIN: i64 = 30;
 
-/// A piece that is not under way and has nothing to show: handed off a
-/// moment ago, or one whose run never began.
+/// A piece no run was ever started for: handed off a moment ago, or one
+/// whose run never began.
 pub(crate) fn not_begun(started_at: Option<i64>) -> Begun {
     let now = crate::clock::now().timestamp();
     if started_at.is_some_and(|at| now - at < BEGINS_WITHIN) {
@@ -228,6 +235,7 @@ pub(crate) fn not_begun(started_at: Option<i64>) -> Begun {
 }
 
 /// What came of a piece's Work session.
+#[derive(Default)]
 struct Back {
     /// What the helper last said, when it said the last word.
     result: Option<String>,
@@ -235,26 +243,21 @@ struct Back {
     at: Option<i64>,
 }
 
-/// None when its Work session has nothing in it: a run writes what it was
-/// asked first thing, so this one never began. Unread, it counts as begun.
-async fn came_back(db: &DatabaseConnection, session_id: &str) -> Option<Back> {
-    let Ok(history) =
-        crate::services::agent::sessions::load_session_history(db, session_id, 2, false).await
-    else {
-        return Some(Back {
-            result: None,
-            at: None,
-        });
+async fn came_back(db: &DatabaseConnection, session_id: &str) -> Back {
+    let history = crate::services::agent::sessions::load_session_history(db, session_id, 2, false)
+        .await
+        .unwrap_or_default();
+    let Some(last) = history.last() else {
+        return Back::default();
     };
-    let last = history.last()?;
-    Some(Back {
+    Back {
         result: (last.role == "assistant").then(|| last.content.clone()),
         at: last
             .created_at
             .as_deref()
             .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
             .map(|at| at.timestamp()),
-    })
+    }
 }
 
 /// A new piece: its number, its own Work session, kept before it starts.
