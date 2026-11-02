@@ -246,7 +246,7 @@ pub(super) async fn continue_text(
     // The one piece waiting for an answer takes it; more, and she places it.
     let pieces = works::pieces(db, platform, user_id, session_key).await;
     let plain: Vec<works::Piece> = pieces.iter().map(|(_, piece)| piece.clone()).collect();
-    if let works::Route::Answer(number) = works::route(&plain)
+    if let works::Route::Answer { work: number } = works::route(&plain)
         && let Some((lane, _)) = pieces.iter().find(|(lane, _)| lane.number == number)
         && let Some(pending) = load_pending(db, platform, &lane.key).await
     {

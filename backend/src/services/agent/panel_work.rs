@@ -18,10 +18,9 @@ use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::services::agent::delegate::HandOff;
 use crate::services::agent::types::{ChannelChat, TaskState, TaskStatus};
 use crate::services::agent::{Agent, AgentInteractionMode};
-use crate::services::channel_work::works::{self, Act, Piece, Standing};
+use crate::services::channel_work::works::{self, Act, Facts, HandOff, Piece, Standing};
 use crate::services::runtime_registry::{self as registry, RegistryIdentity};
 use myriad_agent_rules::channel::{PendingKind, PendingOption, PendingPrompt};
 
@@ -32,7 +31,6 @@ const TOLD_NS: &str = "agent_panel_told";
 const CHAT_NS: &str = "agent_panel_chat";
 const KEPT_FOR: chrono::Duration = chrono::Duration::days(30);
 const RESULT_CHARS: usize = 2000;
-const LINE_CHARS: usize = 80;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -113,7 +111,7 @@ fn live_task<'a>(tasks: &'a [TaskState], session_id: &str) -> Option<&'a TaskSta
 
 /// A parked task question as the channel's prompt, so her answer is read
 /// by the same rules.
-fn prompt_of(task: &TaskState) -> Option<PendingPrompt> {
+pub(crate) fn prompt_of(task: &TaskState) -> Option<PendingPrompt> {
     let question = task.pending_question.as_ref()?;
     let question_type = serde_json::to_value(&question.question_type)
         .ok()
@@ -164,26 +162,23 @@ async fn now(db: &DatabaseConnection, user_id: i32, chat: &str) -> Vec<Now> {
             crate::services::agent::run_hub::executing_run_for_session(user_id, &kept.session_id)
                 .await;
         let mut ended = None;
-        let standing = if kept.stopped {
-            Standing::Stopped
-        } else if let Some(prompt) = task
-            .as_ref()
-            .filter(|task| task.status == TaskStatus::WaitingForInput)
-            .and_then(prompt_of)
-        {
-            Standing::Waiting {
-                question: myriad_agent_rules::channel::format_pending_prompt(&prompt),
-            }
-        } else if task.is_some() || running.is_some() {
-            Standing::Doing {
-                progress: task.as_ref().map(|task| task.progress),
-            }
-        } else {
-            ended = came_back(db, &kept.session_id).await;
-            Standing::Done {
-                result: ended.as_ref().map(|ended| ended.text.clone()),
-            }
+        // The panel shows a task's question on its card, so they see it.
+        let facts = Facts {
+            stopped: kept.stopped,
+            question: task
+                .as_ref()
+                .filter(|task| task.status == TaskStatus::WaitingForInput)
+                .and_then(prompt_of)
+                .map(|prompt| myriad_agent_rules::channel::format_pending_prompt(&prompt)),
+            under_way: task.is_some() || running.is_some(),
+            progress: task.as_ref().map(|task| task.progress),
+            ..Facts::default()
         };
+        let mut standing = works::stands(&facts);
+        if let Standing::Done { result } = &mut standing {
+            ended = came_back(db, &kept.session_id).await;
+            *result = ended.as_ref().map(|ended| ended.text.clone());
+        }
         let piece = Piece {
             number,
             asked: kept.asked.clone(),
@@ -243,27 +238,9 @@ async fn came_back(db: &DatabaseConnection, session_id: &str) -> Option<Ended> {
     })
 }
 
-/// Her line when a run of a piece ends: what came of it, in one line. The
-/// lines run together, so a result that opens with "here they are:" still
-/// carries what follows.
+/// Her line when a run of a piece ends: what came of it, in one line.
 fn ended_line(ended: &Ended) -> String {
-    let all = ended
-        .text
-        .lines()
-        .map(|line| line.trim().trim_start_matches(['#', '>', '-', '*']).trim())
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
-    let mut short: String = all.chars().take(LINE_CHARS).collect();
-    if all.chars().count() > LINE_CHARS {
-        short.push('…');
-    }
-    match (ended.failed, short.is_empty()) {
-        (true, true) => "没办成。".into(),
-        (true, false) => format!("没办成：{short}"),
-        (false, true) => "办完了。".into(),
-        (false, false) => short,
-    }
+    myriad_merope::handoff::ended_line(&ended.text, ended.failed)
 }
 
 /// Each run of a piece that has ended gets her line in the conversation it
@@ -273,12 +250,7 @@ fn ended_line(ended: &Ended) -> String {
 async fn tell(db: &DatabaseConnection, user_id: i32, chat: &str, pieces: &mut [Now]) {
     let unfinished: Vec<u32> = pieces
         .iter()
-        .filter(|now| {
-            matches!(
-                now.piece.standing,
-                Standing::Doing { .. } | Standing::Waiting { .. }
-            )
-        })
+        .filter(|now| now.piece.unfinished())
         .map(|now| now.number)
         .collect();
     let until = (crate::clock::now() + KEPT_FOR).timestamp();
@@ -381,8 +353,9 @@ pub(crate) async fn listed(db: &DatabaseConnection, user_id: i32, chat: &str) ->
         .into_iter()
         .map(|now| {
             let (state, detail) = match &now.piece.standing {
-                Standing::Doing { progress } => ("doing", json!({ "progress": progress })),
-                Standing::Waiting { .. } | Standing::CutOff => (
+                Standing::Doing { progress, .. } => ("doing", json!({ "progress": progress })),
+                Standing::Starting | Standing::Confirming => ("doing", json!({ "progress": null })),
+                Standing::Waiting { .. } | Standing::CutOff { .. } => (
                     "waiting",
                     json!({
                         "taskId": now.task.as_ref().map(|task| &task.task_id),
@@ -397,6 +370,7 @@ pub(crate) async fn listed(db: &DatabaseConnection, user_id: i32, chat: &str) ->
                     },
                     json!({ "result": result }),
                 ),
+                Standing::Failed { why } => ("failed", json!({ "result": why })),
                 Standing::Stopped => ("stopped", json!({})),
             };
             json!({
@@ -404,7 +378,11 @@ pub(crate) async fn listed(db: &DatabaseConnection, user_id: i32, chat: &str) ->
                 "asked": now.kept.asked,
                 "startedAt": now.kept.started_at,
                 "sessionId": now.kept.session_id,
-                "runId": now.run_id,
+                // Only a run going on is followed; one parked on a question
+                // has ended, and following it again would only end again.
+                "runId": now.run_id.as_ref().filter(|_| {
+                    matches!(now.piece.standing, Standing::Doing { .. } | Standing::Starting)
+                }),
                 "state": state,
                 "detail": detail,
                 "key": now.key,
@@ -504,7 +482,7 @@ async fn carry_out_in_order(
         let plain: Vec<Piece> = pieces.iter().map(|now| now.piece.clone()).collect();
         let of = |work: u32| pieces.iter().find(|now| now.number == work);
         match works::act(hand_off, &plain) {
-            Act::Start(asked) => {
+            Act::Start { text: asked } => {
                 let number = works::next_number(pieces.iter().map(|now| now.number));
                 let Ok(session_id) = crate::services::agent::sessions::ensure_session(
                     db,
@@ -539,7 +517,7 @@ async fn carry_out_in_order(
                     Err(error) => tracing::warn!(%error, "[Panel] a piece did not start"),
                 }
             }
-            Act::Answer(work, answer) => {
+            Act::Answer { work, text: answer } => {
                 let Some(now) = of(work) else { continue };
                 let Some((task, prompt)) = now
                     .task
@@ -554,7 +532,12 @@ async fn carry_out_in_order(
                     &answer,
                     crate::clock::now().timestamp(),
                 ) {
-                    myriad_agent_rules::channel::PendingDecision::Resume { answer, .. } => {
+                    myriad_agent_rules::channel::PendingDecision::Resume {
+                        answer,
+                        confirmed,
+                        ..
+                    } => {
+                        let answer = works::task_answer(answer, confirmed);
                         let question_id = task
                             .pending_question
                             .as_ref()
@@ -581,7 +564,11 @@ async fn carry_out_in_order(
                         }
                     }
                     // Not an answer to it: kept for the piece; its question
-                    // stays on it for them.
+                    // stays on it for them. Not past a confirmation, which
+                    // would take these words as more to do once confirmed.
+                    _ if works::is_confirmation(&prompt) => {
+                        tracing::info!("[Panel] her line is not a yes or no to its confirmation");
+                    }
                     _ => {
                         let _ = crate::services::agent::executor::enqueue_steering(
                             db,
@@ -592,7 +579,7 @@ async fn carry_out_in_order(
                     }
                 }
             }
-            Act::Steer(work, text) => {
+            Act::Steer { work, text } => {
                 let Some(task) = of(work).and_then(|now| now.task.as_ref()) else {
                     tracing::warn!("[Panel] no task under way to take more for this piece");
                     continue;
@@ -604,7 +591,7 @@ async fn carry_out_in_order(
                 )
                 .await;
             }
-            Act::Continue(work, text) => {
+            Act::Continue { work, text } => {
                 let Some(now) = of(work) else { continue };
                 if let Ok(run_id) = start(
                     db,
@@ -619,10 +606,11 @@ async fn carry_out_in_order(
                     keep(db, user_id, &now.key, &kept).await;
                 }
             }
-            Act::Stop(work) => {
+            Act::Stop { work } => {
                 stop(db, user_id, chat, work).await;
             }
-            Act::Nothing => {
+            // The panel reads a cut-off run's question as one waiting.
+            Act::PickUp { .. } | Act::Nothing => {
                 tracing::info!(?hand_off, "[Panel] her line is for no piece under way");
             }
         }
@@ -697,10 +685,6 @@ mod tests {
 
     #[test]
     fn how_it_ended_is_one_line() {
-        assert_eq!(
-            ended_line(&ended("\n## 明天晴\n\n最高 21 度", false)),
-            "明天晴 最高 21 度"
-        );
         // What it leads into comes along.
         assert_eq!(
             ended_line(&ended("助手列的是：\n\n1. 整理桌面\n2. 散步", false)),
@@ -709,10 +693,6 @@ mod tests {
         assert_eq!(ended_line(&ended("", false)), "办完了。");
         assert_eq!(ended_line(&ended("没有权限", true)), "没办成：没有权限");
         assert_eq!(ended_line(&ended("  ", true)), "没办成。");
-        let long = "很".repeat(LINE_CHARS + 5);
-        let line = ended_line(&ended(&long, false));
-        assert_eq!(line.chars().count(), LINE_CHARS + 1);
-        assert!(line.ends_with('…'));
     }
 
     #[test]

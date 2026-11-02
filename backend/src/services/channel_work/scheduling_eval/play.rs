@@ -30,18 +30,14 @@ pub(super) struct SimPiece {
 }
 
 impl SimPiece {
+    /// How it stands, read by the product's own rule.
     fn standing(&self) -> Standing {
-        if self.stopped {
-            Standing::Stopped
-        } else if let Some(prompt) = &self.waiting {
-            Standing::Waiting {
-                question: format_pending_prompt(prompt),
-            }
-        } else if self.finished {
-            Standing::Done { result: None }
-        } else {
-            Standing::Doing { progress: None }
-        }
+        works::stands(&Facts {
+            stopped: self.stopped,
+            question: self.waiting.as_ref().map(format_pending_prompt),
+            under_way: !self.finished,
+            ..Facts::default()
+        })
     }
 
     fn piece(&self) -> Piece {
@@ -292,7 +288,7 @@ impl<'a> Run<'a> {
         self.arriving.retain(|other| *other != index);
         let plain = self.plain();
         if !self.scene.panel
-            && let Route::Answer(number) = works::route(&plain)
+            && let Route::Answer { work: number } = works::route(&plain)
         {
             self.handled(index);
             let text = self.scene.said[index].text;
@@ -335,7 +331,7 @@ impl<'a> Run<'a> {
         for hand_off in hand_offs {
             let plain = self.plain();
             match works::act(&hand_off, &plain) {
-                Act::Start(asked) => {
+                Act::Start { text: asked } => {
                     let from = read
                         .iter()
                         .copied()
@@ -343,7 +339,7 @@ impl<'a> Run<'a> {
                         .unwrap_or(read[0]);
                     self.start(asked, from);
                 }
-                Act::Answer(number, text) => {
+                Act::Answer { work: number, text } => {
                     let text = match self
                         .piece_mut(number)
                         .and_then(|piece| piece.waiting.clone())
@@ -353,7 +349,7 @@ impl<'a> Run<'a> {
                     };
                     self.answer_piece(number, &text, &read);
                 }
-                Act::Continue(number, text) => {
+                Act::Continue { work: number, text } => {
                     if let Some(piece) = self.piece_mut(number) {
                         piece.inputs.push(text);
                         piece.heard.extend(&read);
@@ -363,14 +359,17 @@ impl<'a> Run<'a> {
                     }
                     self.go_on(number);
                 }
-                Act::Steer(number, text) => {
+                Act::Steer { work: number, text } => {
                     if let Some(piece) = self.piece_mut(number) {
                         piece.inputs.push(text);
                         piece.heard.extend(&read);
                     }
                 }
-                Act::Stop(number) => self.stop(number),
-                Act::Nothing => self.note("nothing", json!(format!("{hand_off:?}"))),
+                Act::Stop { work: number } => self.stop(number),
+                // Nothing here is cut off by a restart.
+                Act::PickUp { .. } | Act::Nothing => {
+                    self.note("nothing", json!(format!("{hand_off:?}")))
+                }
             }
         }
     }

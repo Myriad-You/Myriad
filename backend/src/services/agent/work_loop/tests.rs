@@ -922,3 +922,44 @@ fn the_tool_failing_again_after_its_memory_is_marked() {
     let loaded: Checkpoint = serde_json::from_value(saved).unwrap();
     assert!(loaded.recall.shown.is_empty() && !loaded.recall.used);
 }
+
+/// A write confirmed in chat is taken: her line for the piece on the web
+/// panel, or their reply in an IM chat, reaches the Work loop as `yes` or
+/// `no`, the only answers a confirmation takes. Read through the same
+/// prompt, rules and mapping the panel and the channel use.
+#[test]
+fn a_write_confirmed_in_chat_is_taken() {
+    use crate::services::channel_work::works;
+    use myriad_agent_rules::channel::{PendingDecision, decide_pending_reply};
+    let mut approval = checkpoint();
+    approval.task.status = TaskStatus::WaitingForInput;
+    approval
+        .task
+        .set_pending_question(UserQuestion::confirmation("发出去吗？", "mail.send"));
+    approval.wait = Some(Wait::Approval {
+        fingerprint: "mail.send".into(),
+    });
+    let prompt = crate::services::agent::panel_work::prompt_of(&approval.task).unwrap();
+    assert!(works::is_confirmation(&prompt));
+    for (said, taken) in [("好", "yes"), ("是", "yes"), ("不", "no")] {
+        let PendingDecision::Resume {
+            answer: reply,
+            confirmed,
+            ..
+        } = decide_pending_reply(&prompt, said, 0)
+        else {
+            panic!("{said} answers a confirmation");
+        };
+        // The chat's own words for it are refused.
+        assert!(
+            approval
+                .validate_answer(&answer(&approval, &reply))
+                .is_err()
+        );
+        let reply = works::task_answer(reply, confirmed);
+        assert_eq!(reply, taken);
+        approval
+            .validate_answer(&answer(&approval, &reply))
+            .unwrap();
+    }
+}
