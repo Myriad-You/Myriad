@@ -137,7 +137,7 @@ pub async fn count(db: &DatabaseConnection, day: NaiveDate) -> Day {
            WHERE p.session_id = m.session_id AND p.created_at < m.created_at \
            ORDER BY p.created_at DESC LIMIT 1) prev ON true \
          WHERE s.context->>'mode' = 'chat' AND m.role = 'assistant' AND prev.role = 'user' \
-           AND m.created_at >= $1 AND m.created_at < $2",
+           AND m.created_at >= $1 AND m.created_at < $2 AND (m.metadata->>'piece') IS NULL",
         start,
         end,
     )
@@ -163,7 +163,7 @@ pub async fn count(db: &DatabaseConnection, day: NaiveDate) -> Day {
             db,
             "SELECT m.content FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
              WHERE s.context->>'mode' = 'chat' AND m.role = 'assistant' \
-               AND m.created_at >= $1 AND m.created_at < $2",
+               AND m.created_at >= $1 AND m.created_at < $2 AND (m.metadata->>'piece') IS NULL",
             from,
             to,
         )
@@ -188,7 +188,7 @@ pub async fn count(db: &DatabaseConnection, day: NaiveDate) -> Day {
                lag(m.created_at) OVER w AS a1, lag(m.created_at, 2) OVER w AS a2 \
                FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
                WHERE s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
-                 AND m.created_at >= $1 - interval '1 day' AND m.created_at < $2 \
+                 AND m.created_at >= $1 - interval '1 day' AND m.created_at < $2 AND (m.metadata->>'piece') IS NULL \
                WINDOW w AS (PARTITION BY s.user_id ORDER BY m.created_at)) \
              SELECT content FROM t WHERE role = 'assistant' AND r1 = 'user' \
                AND (a2 IS NULL OR a1 - a2 >= interval '3 hours') AND created_at >= $1",

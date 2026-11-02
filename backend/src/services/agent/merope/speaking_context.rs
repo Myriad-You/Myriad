@@ -59,7 +59,7 @@ pub async fn her_openers(db: &sea_orm::DatabaseConnection, user_id: i32) -> Vec<
                lag(m.created_at) OVER w AS a1, lag(m.created_at, 2) OVER w AS a2 \
                FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
                WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
-                 AND NOT s.archived AND m.created_at < $2 \
+                 AND NOT s.archived AND m.created_at < $2 AND (m.metadata->>'piece') IS NULL \
                WINDOW w AS (ORDER BY m.created_at)) \
              SELECT content, created_at FROM t WHERE role = 'assistant' AND r1 = 'user' \
                AND a2 IS NOT NULL AND a1 - a2 >= interval '3 hours' \

@@ -55,7 +55,7 @@ pub(in crate::services::agent::merope) async fn settle(
              JOIN agent_sessions s ON s.id = m.session_id \
              WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NOT DISTINCT FROM $2 \
-               AND m.role IN ('user', 'assistant') AND m.created_at >= $3 \
+               AND m.role IN ('user', 'assistant') AND (m.metadata->>'piece') IS NULL AND m.created_at >= $3 \
              ORDER BY m.created_at DESC LIMIT $4",
             [
                 user_id.into(),
