@@ -42,6 +42,8 @@ interface Pieces {
 
 const store = createStore<Pieces>({ chat: null, pieces: [] })
 const followed = new Set<string>()
+/** Runs followed to their end on this page: not followed again. */
+const followedToEnd = new Set<string>()
 
 /** Runs a run's page actions: the engine's own queue, set while it is mounted. */
 type ActionRunner = (key: string, actions: readonly FrontendAction[]) => void
@@ -244,9 +246,7 @@ export function showPieces(
   const lines = told.map(toldLine).filter((line): line is SessionMessage => line !== null)
   if (lines.length > 0) tellLines?.(chat, lines)
   for (const piece of pieces) {
-    if (piece.runId && (piece.state === 'doing' || piece.state === 'waiting')) {
-      follow(chat, piece.number, piece.runId)
-    }
+    if (toFollow(piece, followedToEnd)) follow(chat, piece.number, piece.runId!)
   }
 }
 
@@ -297,6 +297,15 @@ export function pieceChange(event: ProgressEvent): Partial<PieceView> | null {
   }
 }
 
+/**
+ * A piece's run is followed while it goes on, and only once to its end: a
+ * run that ended (or parked on a question) and is listed again would only
+ * end again. Exported for tests.
+ */
+export function toFollow(piece: PieceView, ended: ReadonlySet<string>): boolean {
+  return Boolean(piece.runId) && piece.state === 'doing' && !ended.has(piece.runId!)
+}
+
 function follow(chat: string, number: number, runId: string): void {
   if (followed.has(runId)) return
   followed.add(runId)
@@ -306,6 +315,7 @@ function follow(chat: string, number: number, runId: string): void {
     .catch(() => {})
     .finally(() => {
       followed.delete(runId)
+      followedToEnd.add(runId)
       // How it ended, as kept: done, stopped, or waiting for them.
       if (store.get().chat === chat) void loadPieces(chat)
     })

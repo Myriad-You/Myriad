@@ -8,6 +8,7 @@ import {
   readListed,
   setPieceLineSink,
   showPieces,
+  toFollow,
   withToldLines,
 } from './agentPieces'
 
@@ -117,4 +118,14 @@ test('pieces listed with her lines hand the lines to the conversation', () => {
   } finally {
     setPieceLineSink(null)
   }
+})
+
+test('only a run going on is followed, and once to its end', () => {
+  const going = { ...piece(1, 1), runId: 'run-1' }
+  assert.equal(toFollow(going, new Set()), true)
+  // Parked on a question: its run has ended.
+  assert.equal(toFollow({ ...going, state: 'waiting' }, new Set()), false)
+  // Listed again after its run ended: not followed again.
+  assert.equal(toFollow(going, new Set(['run-1'])), false)
+  assert.equal(toFollow(piece(2, 1), new Set()), false)
 })
