@@ -686,17 +686,19 @@ mod tests {
                 .to_vec(),
             expires_at_unix: None,
         };
-        assert_eq!(her_choice(&prompt, "2（19:00）"), "2");
-        assert_eq!(her_choice(&prompt, "订 19:00 的"), "2");
-        assert_eq!(her_choice(&prompt, "19:00，选项2"), "2");
-        assert_eq!(her_choice(&prompt, "1"), "1");
-        // A time is not a choice number; two choices named is not one.
-        assert_eq!(her_choice(&prompt, "19点"), "19点");
-        assert_eq!(her_choice(&prompt, "18:00 或 19:00"), "18:00 或 19:00");
-        assert!(matches!(
-            decide_pending_reply(&prompt, &her_choice(&prompt, "2（19:00）"), 0),
-            PendingDecision::Resume { answer, .. } if answer == "19:00"
-        ));
+        // Her choice is its number alone or its words as listed; anything
+        // else is asked again, never guessed.
+        let taken = |said: &str| match decide_pending_reply(&prompt, &her_choice(&prompt, said), 0)
+        {
+            PendingDecision::Resume { answer, .. } => Some(answer),
+            _ => None,
+        };
+        assert_eq!(taken("2").as_deref(), Some("19:00"));
+        assert_eq!(taken("19:00").as_deref(), Some("19:00"));
+        assert_eq!(taken("19:00。").as_deref(), Some("19:00"));
+        for said in ["2（19:00）", "订 19:00 的", "19点", "18:00 或 19:00", "01"] {
+            assert_eq!(taken(said), None, "{said}");
+        }
     }
 
     #[test]
