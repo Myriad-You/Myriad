@@ -14,8 +14,8 @@
 use super::*;
 use crate::services::agent::types::TaskStatus;
 pub(crate) use myriad_merope::handoff::{
-    Act, Facts, HandOff, Piece, Route, Standing, act, label, labelled, line, next_number, route,
-    shown, stands, work_input,
+    Act, Begun, Facts, HandOff, Piece, Route, Standing, act, label, labelled, line, next_number,
+    route, shown, stands, work_input,
 };
 
 const LANE: char = '#';
@@ -152,16 +152,29 @@ pub(super) async fn pieces(
             }),
             under_way: live.is_some() || is_active(&lane.key).await,
             progress: live.map(|task| task.progress),
-            result: None,
+            ..Facts::default()
         };
         let mut standing = stands(&facts);
-        if let Standing::Done { result } = &mut standing {
-            *result = came_back(db, &lane.stored.session_id).await;
+        let mut ended_at = None;
+        if matches!(standing, Standing::Done { .. }) {
+            standing = match came_back(db, &lane.stored.session_id).await {
+                Some(back) => {
+                    ended_at = back.at;
+                    Standing::Done {
+                        result: back.result,
+                    }
+                }
+                None => stands(&Facts {
+                    begun: not_begun(lane.stored.started_at),
+                    ..facts
+                }),
+            };
         }
         let piece = Piece {
             number: lane.number,
             asked: lane.stored.asked.clone(),
             started_at: lane.stored.started_at,
+            ended_at,
             standing,
         };
         pieces.push((lane, piece));
@@ -199,15 +212,49 @@ async fn still_asked(
     Some(pending)
 }
 
-/// What the helper last said in a piece's Work session.
-async fn came_back(db: &DatabaseConnection, session_id: &str) -> Option<String> {
-    let history = crate::services::agent::sessions::load_session_history(db, session_id, 2, false)
-        .await
-        .ok()?;
-    history
-        .last()
-        .filter(|message| message.role == "assistant")
-        .map(|message| message.content.clone())
+/// How long a piece handed off may go without its run before it is one
+/// that never began.
+const BEGINS_WITHIN: i64 = 30;
+
+/// A piece that is not under way and has nothing to show: handed off a
+/// moment ago, or one whose run never began.
+pub(crate) fn not_begun(started_at: Option<i64>) -> Begun {
+    let now = crate::clock::now().timestamp();
+    if started_at.is_some_and(|at| now - at < BEGINS_WITHIN) {
+        Begun::NotYet
+    } else {
+        Begun::Never
+    }
+}
+
+/// What came of a piece's Work session.
+struct Back {
+    /// What the helper last said, when it said the last word.
+    result: Option<String>,
+    /// When, Unix seconds.
+    at: Option<i64>,
+}
+
+/// None when its Work session has nothing in it: a run writes what it was
+/// asked first thing, so this one never began. Unread, it counts as begun.
+async fn came_back(db: &DatabaseConnection, session_id: &str) -> Option<Back> {
+    let Ok(history) =
+        crate::services::agent::sessions::load_session_history(db, session_id, 2, false).await
+    else {
+        return Some(Back {
+            result: None,
+            at: None,
+        });
+    };
+    let last = history.last()?;
+    Some(Back {
+        result: (last.role == "assistant").then(|| last.content.clone()),
+        at: last
+            .created_at
+            .as_deref()
+            .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+            .map(|at| at.timestamp()),
+    })
 }
 
 /// A new piece: its number, its own Work session, kept before it starts.
@@ -224,7 +271,7 @@ pub(super) async fn open(
             .await
             .iter()
             .map(|lane| lane.number),
-    );
+    )?;
     let session_id = crate::services::agent::sessions::ensure_session(
         db,
         None,
@@ -569,8 +616,25 @@ mod tests {
         assert_eq!(split_lane("telegram:42"), None);
         assert_eq!(chat_of("telegram:42#3"), "telegram:42");
         assert_eq!(chat_of("telegram:42"), "telegram:42");
-        assert_eq!(next_number([]), 1);
-        assert_eq!(next_number([1, 3, 2]), 4);
+        assert_eq!(next_number([]), Some(1));
+        assert_eq!(next_number([1, 3, 2]), Some(4));
+    }
+
+    #[test]
+    fn a_piece_whose_run_never_began_did_not_get_done() {
+        let now = crate::clock::now().timestamp();
+        let nothing_came = |started_at| {
+            stands(&Facts {
+                begun: not_begun(started_at),
+                ..Facts::default()
+            })
+        };
+        assert_eq!(nothing_came(Some(now - 5)), Standing::Starting);
+        assert!(matches!(
+            nothing_came(Some(now - BEGINS_WITHIN - 1)),
+            Standing::Failed { why: Some(_) }
+        ));
+        assert!(matches!(nothing_came(None), Standing::Failed { .. }));
     }
 
     #[test]

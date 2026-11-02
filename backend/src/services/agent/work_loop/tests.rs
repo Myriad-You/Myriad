@@ -946,6 +946,7 @@ fn a_write_confirmed_in_chat_is_taken() {
         number: 1,
         asked: "发邮件".into(),
         started_at: Some(0),
+        ended_at: None,
         standing: works::Standing::Waiting {
             question: "发出去吗？".into(),
         },

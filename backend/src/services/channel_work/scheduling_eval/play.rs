@@ -45,6 +45,7 @@ impl SimPiece {
             number: self.number,
             asked: self.asked.clone(),
             started_at: Some(0),
+            ended_at: None,
             standing: self.standing(),
         }
     }
@@ -422,7 +423,7 @@ impl<'a> Run<'a> {
     }
 
     fn start(&mut self, asked: String, from: usize) {
-        let number = works::next_number(self.pieces.iter().map(|piece| piece.number));
+        let number = works::next_number(self.pieces.iter().map(|piece| piece.number)).unwrap();
         let job = self.jobs.pop_front().unwrap_or_else(|| job(30.0));
         self.pieces.push(SimPiece {
             number,

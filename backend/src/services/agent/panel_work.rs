@@ -178,11 +178,19 @@ async fn now(db: &DatabaseConnection, user_id: i32, chat: &str) -> Vec<Now> {
         if let Standing::Done { result } = &mut standing {
             ended = came_back(db, &kept.session_id).await;
             *result = ended.as_ref().map(|ended| ended.text.clone());
+            // Nothing came of it, and no run was ever started with it.
+            if ended.is_none() && kept.run_id.is_none() {
+                standing = works::stands(&Facts {
+                    begun: works::not_begun(Some(kept.started_at)),
+                    ..facts
+                });
+            }
         }
         let piece = Piece {
             number,
             asked: kept.asked.clone(),
             started_at: Some(kept.started_at),
+            ended_at: ended.as_ref().map(|ended| ended.at.timestamp()),
             standing,
         };
         let run_id = running.or_else(|| kept.run_id.clone());
@@ -483,7 +491,9 @@ async fn carry_out_in_order(
         let of = |work: u32| pieces.iter().find(|now| now.number == work);
         match works::act(hand_off, &plain) {
             Act::Start { text: asked } => {
-                let number = works::next_number(pieces.iter().map(|now| now.number));
+                let Some(number) = works::next_number(pieces.iter().map(|now| now.number)) else {
+                    continue;
+                };
                 let Ok(session_id) = crate::services::agent::sessions::ensure_session(
                     db,
                     None,

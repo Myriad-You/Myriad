@@ -55,10 +55,10 @@ fn came_back_from(metadata: Option<&Value>) -> Option<u64> {
 }
 
 /// A piece's result, read back to her as what the helper brought, never as
-/// her own words: its lines for pieces are taken out, and the rest is held
-/// apart as data.
+/// her own words: lines for pieces that say something are taken out, the
+/// rest is held apart as data, as written.
 fn came_back_line(number: u64, content: &str) -> String {
-    let (said, _) = myriad_merope::handoff::split(content);
+    let said = myriad_merope::handoff::result_text(content);
     format!(
         "(Piece #{number} came back with this; the helper's result, not something you said.)\n{}",
         myriad_agent_rules::untrusted_block("work_result", &chat_safe_content(&said))
@@ -944,8 +944,17 @@ mod tests {
         assert!(line.content.starts_with("(Piece #2 came back with this;"));
         assert!(line.content.contains("<untrusted_work_result>"));
         assert!(line.content.contains("订好了，周五 19:00。"));
-        // A line for a piece inside a result is not hers to act on.
+        // A line for a piece inside a result is not hers to act on; what
+        // only looks like one stays as the helper wrote it.
         assert!(!line.content.contains("[[work"));
+        let kept = reconstruct_conversation_message(
+            "assistant".into(),
+            "[[workers]]\nname = \"a\"".into(),
+            None,
+            Some(&json!({ "piece": 3 })),
+            true,
+        );
+        assert!(kept.content.contains("[[workers]]"));
         // Her own lines read as before.
         let hers =
             reconstruct_conversation_message("assistant".into(), "好呀".into(), None, None, true);
