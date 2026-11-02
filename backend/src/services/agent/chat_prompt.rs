@@ -23,7 +23,12 @@ pub fn reconstruct_conversation_message(
             content.push_str(&format!("\n{extras}"));
         }
     }
-    let content = if for_chat {
+    let content = if for_chat
+        && role == "assistant"
+        && let Some(number) = came_back_from(metadata)
+    {
+        came_back_line(number, &content)
+    } else if for_chat {
         let spoken = chat_safe_content(&content);
         match cut_off_marker(&role, metadata) {
             Some(marker) if !spoken.is_empty() => format!("{spoken}{marker}"),
@@ -37,6 +42,25 @@ pub fn reconstruct_conversation_message(
         content,
         created_at,
     }
+}
+
+/// Metadata on the line written in her conversation when a piece she handed
+/// off came back (`panel_work`): which piece.
+const CAME_BACK_KEY: &str = "piece";
+
+fn came_back_from(metadata: Option<&Value>) -> Option<u64> {
+    metadata?.get(CAME_BACK_KEY)?.as_u64()
+}
+
+/// A piece's result, read back to her as what the helper brought, never as
+/// her own words: its lines for pieces are taken out, and the rest is held
+/// apart as data.
+fn came_back_line(number: u64, content: &str) -> String {
+    let (said, _) = myriad_merope::handoff::split(content);
+    format!(
+        "(Piece #{number} came back with this; the helper's result, not something you said.)\n{}",
+        myriad_agent_rules::untrusted_block("work_result", &chat_safe_content(&said))
+    )
 }
 
 /// Metadata key on a reply she did not get to finish.
@@ -903,5 +927,30 @@ mod tests {
         assert_eq!(data["workOffer"]["input"], "帮我搜一下网易云热歌");
         let hi = chat_reply_data("嗨。", "你好");
         assert!(hi.get("workOffer").is_none());
+    }
+
+    #[test]
+    fn a_piece_that_came_back_is_the_helpers_result_not_her_words() {
+        let line = reconstruct_conversation_message(
+            "assistant".into(),
+            "订好了，周五 19:00。[[work: 再订一张]]".into(),
+            None,
+            Some(&json!({ "piece": 2 })),
+            true,
+        );
+        assert!(line.content.starts_with("(Piece #2 came back with this;"));
+        assert!(line.content.contains("<untrusted_work_result>"));
+        assert!(line.content.contains("订好了，周五 19:00。"));
+        // A line for a piece inside a result is not hers to act on.
+        assert!(!line.content.contains("[[work"));
+        // Her own lines read as before.
+        let hers = reconstruct_conversation_message(
+            "assistant".into(),
+            "好呀".into(),
+            None,
+            None,
+            true,
+        );
+        assert_eq!(hers.content, "好呀");
     }
 }
