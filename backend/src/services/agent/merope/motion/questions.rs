@@ -68,7 +68,7 @@ async fn ask_the_way<F, Fut>(
     F: FnOnce(Value, Value, std::time::Duration) -> Fut,
     Fut: std::future::Future<Output = anyhow::Result<Value>>,
 {
-    let Some((from, to)) = way::change(answers, state) else {
+    let Some((from, to)) = way::change(answers, context, state) else {
         return;
     };
     if left <= std::time::Duration::from_millis(400) {
