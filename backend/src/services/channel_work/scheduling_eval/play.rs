@@ -552,7 +552,7 @@ impl<'a> Run<'a> {
                 piece.result_at.get_or_insert(now);
             }
             let sent = works::labelled(number, &asked, others, &content);
-            if others && !sent.starts_with(&works::label(number, &asked)) {
+            if others && !sent.starts_with(&myriad_merope::handoff::label(number, &asked)) {
                 self.tally.unlabelled_while_others += 1;
             }
             let started = self.scene.said[from].at;

@@ -14,8 +14,8 @@
 use super::*;
 use crate::services::agent::types::TaskStatus;
 pub(crate) use myriad_merope::handoff::{
-    Act, Begun, Facts, HandOff, Piece, Route, Standing, act, label, labelled, line, next_number,
-    route, shown, stands, work_input,
+    Act, Begun, Facts, HandOff, Piece, Route, Standing, act, labelled, line, next_number, route,
+    shown, stands, work_input,
 };
 
 const LANE: char = '#';
@@ -63,20 +63,15 @@ pub(crate) fn her_choice(prompt: &PendingPrompt, text: &str) -> String {
 }
 
 /// A reply to a confirmation, hers or theirs: the number it is listed under
-/// (`1. Yes`) is that yes or no. Nothing else is read into it, so a no, a
-/// maybe or `yesterday` never reads as yes; the words go as written, and
-/// only a plain yes or no takes.
+/// (`1. Yes`), read as any choice number is (`choice_by_number`), is that
+/// yes or no. Nothing else is read into it, so a no, a maybe or
+/// `yesterday` never reads as yes; the words go as written, and only a
+/// plain yes or no takes.
 pub(crate) fn confirmation_reply(prompt: &PendingPrompt, text: &str) -> String {
-    let text = text.trim();
-    // Plain digits only: `+1` and `01` are not the first.
-    let plain = !text.is_empty()
-        && !text.starts_with('0')
-        && text.chars().all(|digit| digit.is_ascii_digit());
-    plain
-        .then(|| text.parse::<usize>().ok())
-        .flatten()
-        .and_then(|number| prompt.options.get(number.checked_sub(1)?))
-        .map_or_else(|| text.to_string(), |option| option.value.clone())
+    myriad_agent_rules::channel::choice_by_number(&prompt.options, text).map_or_else(
+        || text.trim().to_string(),
+        |index| prompt.options[index].value.clone(),
+    )
 }
 
 /// A piece's question carries its number in its id, and so in its buttons.
