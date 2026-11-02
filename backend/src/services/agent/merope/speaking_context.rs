@@ -212,6 +212,7 @@ async fn how_she_differs_with(db: &sea_orm::DatabaseConnection, user_id: i32) ->
              JOIN agent_sessions s ON s.id = m.session_id \
              WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND m.role IN ('user', 'assistant') \
+               AND (m.metadata->>'piece') IS NULL \
              ORDER BY m.created_at DESC LIMIT $2",
             vec![SeaValue::Int(Some(user_id)), SeaValue::Int(Some(LATEST))],
         ))

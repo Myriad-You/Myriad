@@ -360,7 +360,7 @@ pub(super) async fn day_with(
 ) -> Vec<Value> {
     let lines = db.query_all_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "SELECT m.role, m.content, m.created_at FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+        "SELECT m.role, m.content, m.created_at, m.metadata->>'piece' AS piece FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
          WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
            AND m.created_at >= $2 AND m.created_at < $3 AND m.role IN ('user', 'assistant') \
          ORDER BY m.created_at DESC LIMIT $4",
@@ -383,12 +383,14 @@ pub(super) async fn day_with(
             .take(300)
             .collect();
         let at = row.try_get::<DateTime<FixedOffset>>("", "created_at").ok()?;
-        (!text.trim().is_empty()).then(|| {
-            (
-                at,
-                json!({ "who": if role == "user" { "they" } else { "you" }, "text": text }),
-            )
-        })
+        // A piece's result is her helper's, not what she said.
+        let piece = row.try_get::<Option<String>>("", "piece").ok().flatten();
+        let who = match (role.as_str(), piece) {
+            ("user", _) => "they",
+            (_, Some(_)) => "your helper",
+            _ => "you",
+        };
+        (!text.trim().is_empty()).then(|| (at, json!({ "who": who, "text": text })))
     })
     .collect::<Vec<_>>();
     with_after(lines)

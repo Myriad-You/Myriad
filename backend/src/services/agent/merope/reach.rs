@@ -376,7 +376,12 @@ async fn would_write(
             })),
         },
         "recentTalk": talk.iter().rev().take(6).rev()
-            .map(|message| format!("{}: {}", if message.role == "user" { "they" } else { "you" }, message.content.chars().take(200).collect::<String>()))
+            // A piece's result is her helper's, not what she said.
+            .map(|message| format!("{}: {}", match message.role.as_str() {
+                "user" => "they",
+                crate::services::agent::chat_prompt::HELPER_ROLE => "your helper",
+                _ => "you",
+            }, message.content.chars().take(200).collect::<String>()))
             .collect::<Vec<_>>(),
     })
     .to_string();
