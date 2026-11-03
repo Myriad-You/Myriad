@@ -47,6 +47,16 @@ pub(super) async fn her_memory_on_longmemeval() {
     .await
     .expect("Lite model")
     .with_light_thinking();
+    // `MEROPE_MEMORY_BENCH_READER=<model>`: also answer and grade the wide
+    // way with that model on Lite's provider, as published results did.
+    let reader = match std::env::var("MEROPE_MEMORY_BENCH_READER") {
+        Ok(model) => Some(
+            crate::services::ai::create_lite_ai_analyzer_as(&model, Some(Duration::from_secs(60)))
+                .await
+                .expect("reader model"),
+        ),
+        Err(_) => None,
+    };
     let url = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL").expect("test database");
     let isolated = crate::db::IsolatedSchema::migrated(&url, "memory_bench").await;
     let db = isolated.db.clone();
@@ -61,17 +71,18 @@ pub(super) async fn her_memory_on_longmemeval() {
         .collect();
     let outcomes: Vec<(Question, usize, Outcome)> = futures::stream::iter(runs)
         .map(|(question, round)| {
-            let (db, judge, lite) = (db.clone(), &judge, &lite);
+            let (db, judge, lite, reader) = (db.clone(), &judge, &lite, reader.as_ref());
             async move {
-                let outcome = run_one(&db, judge, lite, &question, round).await;
+                let outcome = run_one(&db, judge, lite, reader, &question, round).await;
                 println!(
-                    "{} {} #{round} written={} plain={:?} cued={:?} wide={:?}",
+                    "{} {} #{round} written={} plain={:?} cued={:?} wide={:?} read={:?}",
                     question.question_type,
                     question.question_id,
                     outcome.written,
                     outcome.plain.correct,
                     outcome.cued.correct,
-                    outcome.wide.correct
+                    outcome.wide.correct,
+                    outcome.read.as_ref().map(|read| read.correct)
                 );
                 (question, round, outcome)
             }
@@ -98,10 +109,11 @@ pub(super) fn times() -> usize {
 /// Each way of recalling scored by its run: right once on average, and
 /// pass^n, the questions right every time they were run.
 fn report(questions: &[Question], times: usize, outcomes: &[(Question, usize, Outcome)]) -> Value {
-    let arms: [(&str, fn(&Outcome) -> &Answered); 3] = [
-        ("plain", |outcome| &outcome.plain),
-        ("cued", |outcome| &outcome.cued),
-        ("wide", |outcome| &outcome.wide),
+    let arms: [(&str, fn(&Outcome) -> Option<&Answered>); 4] = [
+        ("plain", |outcome| Some(&outcome.plain)),
+        ("cued", |outcome| Some(&outcome.cued)),
+        ("wide", |outcome| Some(&outcome.wide)),
+        ("read", |outcome| outcome.read.as_ref()),
     ];
     let of = |id: &str| -> Vec<&Outcome> {
         let mut runs: Vec<(usize, &Outcome)> = outcomes
@@ -123,15 +135,20 @@ fn report(questions: &[Question], times: usize, outcomes: &[(Question, usize, Ou
     };
     let mut scores = serde_json::Map::new();
     for (arm, answered) in arms {
+        if outcomes
+            .iter()
+            .all(|(_, _, outcome)| answered(outcome).is_none())
+        {
+            continue;
+        }
+        let right_of =
+            |outcome: &Outcome| answered(outcome).is_some_and(|a| a.correct == Some(true));
         let mut by_kind: BTreeMap<String, [usize; 6]> = BTreeMap::new();
         let mut per_round = vec![0usize; times];
         let (mut right, mut every) = (0, 0);
         for question in questions {
             let runs = of(&question.question_id);
-            let rights: Vec<bool> = runs
-                .iter()
-                .map(|outcome| answered(outcome).correct == Some(true))
-                .collect();
+            let rights: Vec<bool> = runs.iter().map(|outcome| right_of(outcome)).collect();
             let slot = by_kind.entry(kind_of(question)).or_default();
             slot[0] += 1;
             slot[1] += rights.iter().filter(|right| **right).count();
@@ -141,12 +158,12 @@ fn report(questions: &[Question], times: usize, outcomes: &[(Question, usize, Ou
             slot[4] += runs.iter().filter(|outcome| outcome.written).count();
             slot[5] += runs
                 .iter()
-                .filter(|outcome| answered(outcome).retrieved)
+                .filter(|outcome| answered(outcome).is_some_and(|a| a.retrieved))
                 .count();
             every += usize::from(all);
             right += rights.iter().filter(|right| **right).count();
             for (round, outcome) in runs.iter().enumerate() {
-                per_round[round] += usize::from(answered(outcome).correct == Some(true));
+                per_round[round] += usize::from(right_of(outcome));
             }
         }
         let kinds: serde_json::Map<String, Value> = by_kind
@@ -222,7 +239,7 @@ fn report(questions: &[Question], times: usize, outcomes: &[(Question, usize, Ou
             "question":question.question,"answer":question.answer,
             "written":outcome.written,"kept":outcome.kept,
             "plain":answered(&outcome.plain),"cued":answered(&outcome.cued),
-            "wide":answered(&outcome.wide),
+            "wide":answered(&outcome.wide),"read":outcome.read.as_ref().map(answered),
             "bare":outcome.bare.as_ref().map(answered),"inPrivate":outcome.in_private,
             "memories":outcome.memories,"concepts":outcome.concepts})
         })

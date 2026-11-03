@@ -373,6 +373,10 @@ struct Outcome {
     /// Asked with nothing kept of them (noise questions): what the noise
     /// changed.
     bare: Option<Answered>,
+    /// The wide way answered and graded by `MEROPE_MEMORY_BENCH_READER`
+    /// instead, from the same memories: comparable with results published
+    /// with that reader and judge.
+    read: Option<Answered>,
     /// Asked where something private must not come up: whether recall in
     /// private would have brought it, so not bringing it there is the
     /// audience's doing, not a memory that was never kept.
@@ -394,6 +398,7 @@ async fn run_one(
     db: &sea_orm::DatabaseConnection,
     judge: &crate::services::analyzer::AiAnalyzer,
     lite: &crate::services::analyzer::AiAnalyzer,
+    reader: Option<&crate::services::analyzer::AiAnalyzer>,
     question: &Question,
     round: usize,
 ) -> Outcome {
@@ -423,7 +428,15 @@ async fn run_one(
     sessions.sort_by_key(|(at, _, _)| *at);
     // The chat itself, as the site keeps it, for scrolling back through.
     for (number, (session_at, turns, here)) in sessions.iter().enumerate() {
-        keep_chat(db, &format!("{name}-{number}"), user_id, *session_at, turns, here).await;
+        keep_chat(
+            db,
+            &format!("{name}-{number}"),
+            user_id,
+            *session_at,
+            turns,
+            here,
+        )
+        .await;
     }
     // What she already keeps of them, a week before they ask.
     if !question.memories.is_empty() {
@@ -546,6 +559,24 @@ async fn run_one(
         &answering,
     )
     .await;
+    let read = match reader {
+        Some(reader) => Some(
+            answer_one(
+                db,
+                reader,
+                reader,
+                question,
+                user_id,
+                &present,
+                cues.as_ref(),
+                THOROUGH,
+                true,
+                &answering,
+            )
+            .await,
+        ),
+        None => None,
+    };
     let bare = if question.memories.is_empty() {
         None
     } else {
@@ -640,6 +671,7 @@ async fn run_one(
         cued,
         wide,
         bare,
+        read,
         in_private,
         kept,
         memories,

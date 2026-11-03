@@ -107,6 +107,21 @@ pub async fn create_strict_lite_ai_analyzer_with_timeout(
     lite_analyzer(resolved, request_timeout).await
 }
 
+/// Lite's provider and credentials with another model on them: for a
+/// benchmark that answers with the model a published result used.
+#[cfg(test)]
+pub async fn create_lite_ai_analyzer_as(
+    model: &str,
+    request_timeout: Option<std::time::Duration>,
+) -> Option<AiAnalyzer> {
+    let mut resolved = GLOBAL_DYNAMIC_CONFIG
+        .read()
+        .await
+        .resolve_strict_lite_ai_config()?;
+    resolved.model = model.to_string();
+    lite_analyzer(resolved, request_timeout).await
+}
+
 /// Lite for small typed judgments (see `aux_judge_model`): a fast model
 /// deciding, while Lite's own model speaks. Judgments are short, so it
 /// thinks little: measured on the judgment suite, the same decisions in
