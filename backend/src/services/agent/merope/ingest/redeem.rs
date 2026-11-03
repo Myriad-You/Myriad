@@ -6,7 +6,7 @@ use futures::{StreamExt, stream};
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
 
-use super::super::gates::{IngestDecision, decide_ingest, is_task_outcome, is_valuable_event};
+use super::super::gates::{IngestDecision, decide_ingest, is_valuable_event};
 use super::super::store::{
     affect_from_state, get_or_create_state, get_persona, latest_open_session,
 };
@@ -15,7 +15,7 @@ use super::super::{
     local_directive, public_persona_name, refine_motion, resolve_round_motion_style,
 };
 use super::in_person::{InPerson, in_person, say_on_app};
-use super::{SAME_EVENT_MINUTES, current_sight, is_enabled, is_trivial_line, log_skip};
+use super::{current_sight, is_enabled, is_trivial_line, log_skip};
 use crate::services::agent::consciousness::{SpeakIntent, drain_speak_intents, last_live_presence};
 use crate::services::agent::merope::gates::IngestSight;
 use crate::services::agent::notification_preferences::{ACTION_OPEN_AGENT, NotificationEventKey};
@@ -77,9 +77,8 @@ async fn redeem_speak_intent(
     let Some(decision) = current_delivery(db, &intent, input_at, false).await else {
         return Ok(());
     };
-    let repeat_minutes = if touch { 1 } else { SAME_EVENT_MINUTES };
-    if let Some(reason) = held_back(db, &intent, repeat_minutes).await {
-        log_skip(intent.user_id, &intent.topic, reason);
+    if touch && touched_again(db, &intent).await {
+        log_skip(intent.user_id, &intent.topic, "recently_spoke");
         return Ok(());
     }
 
@@ -145,8 +144,8 @@ async fn redeem_speak_intent(
         log_skip(intent.user_id, &intent.topic, "let_go_for_another");
         return Ok(());
     };
-    if let Some(reason) = held_back(db, &intent, repeat_minutes).await {
-        log_skip(intent.user_id, &intent.topic, reason);
+    if touch && touched_again(db, &intent).await {
+        log_skip(intent.user_id, &intent.topic, "recently_spoke");
         return Ok(());
     }
     wish.text = Some(spoken.clone());
@@ -679,47 +678,18 @@ fn wish_of(intent: &SpeakIntent) -> Wish {
     wish
 }
 
-/// The gates still held as rules, read from the ledger: the same event to
-/// them a moment ago (`repeat_minutes`), and her cooldown since she last
-/// spoke up to them unasked. Why it is held back, if it is.
-async fn held_back(
-    db: &DatabaseConnection,
-    intent: &SpeakIntent,
-    repeat_minutes: i64,
-) -> Option<&'static str> {
-    let now = crate::clock::now();
+/// A touch answered a moment ago (within a minute): the only gate on
+/// what she says of an event that is still a rule here, read from the
+/// ledger. The same event to them within fifteen minutes and her cooldown
+/// since she last spoke up are hers to weigh now (`self.speaking`: what she
+/// said lately and whether they answered); the event's own window is still
+/// one thing, said once.
+async fn touched_again(db: &DatabaseConnection, intent: &SpeakIntent) -> bool {
     let user = intent.user_id;
     let prefix = super::produce::event_thing_prefix(user, &intent.topic);
-    if ledger::last_about(db, user, &prefix, &intent.topic)
+    ledger::last_about(db, user, &prefix, &intent.topic)
         .await
-        .is_some_and(|at| (now - at).num_minutes() < repeat_minutes)
-    {
-        return Some("recently_spoke");
-    }
-    let last = ledger::last_unasked_at(db, &speech::private(user)).await;
-    let cooldown = crate::services::agent::merope::self_state::current(db)
-        .await
-        .proactive_cooldown_secs();
-    within_proactive_cooldown(&intent.topic, last, now, cooldown).then_some("proactive_cooldown")
-}
-
-/// 刚主动说过话就先不再开口。间隔跨事件计算（同一事件的重复另有
-/// `SAME_EVENT_MINUTES` 管），由她自己的精力决定，最短
-/// `BASE_PROACTIVE_COOLDOWN_SECS`，累了就等更久（见 `self_state`）。
-/// 触摸是对当下动作的回应，任务结果是对方在等的事，这两类不受间隔限制。
-fn within_proactive_cooldown(
-    topic: &str,
-    last_proactive_at: Option<DateTime<Utc>>,
-    now: DateTime<Utc>,
-    cooldown_secs: i64,
-) -> bool {
-    if topic == "agent.merope.touch" || is_task_outcome(topic) {
-        return false;
-    }
-    let cooldown =
-        cooldown_secs.max(crate::services::agent::merope::self_state::BASE_PROACTIVE_COOLDOWN_SECS);
-    last_proactive_at
-        .is_some_and(|last| now.signed_duration_since(last) < chrono::Duration::seconds(cooldown))
+        .is_some_and(|at| (crate::clock::now() - at).num_minutes() < 1)
 }
 
 #[cfg(test)]
@@ -733,59 +703,6 @@ mod tests {
         assert_eq!(super::sanitize_speech("```\n就一句\n```"), "就一句");
     }
 
-    #[test]
-    fn proactive_speech_waits_between_events_but_not_for_touch_or_outcomes() {
-        let now = crate::clock::now();
-        let recent = Some(now - chrono::Duration::seconds(30));
-        let old = Some(
-            now - chrono::Duration::seconds(
-                crate::services::agent::merope::self_state::BASE_PROACTIVE_COOLDOWN_SECS + 1,
-            ),
-        );
-        assert!(super::within_proactive_cooldown(
-            "phantasi.digest",
-            recent,
-            now,
-            180
-        ));
-        assert!(!super::within_proactive_cooldown(
-            "phantasi.digest",
-            old,
-            now,
-            180
-        ));
-        assert!(!super::within_proactive_cooldown(
-            "phantasi.digest",
-            None,
-            now,
-            180
-        ));
-        assert!(!super::within_proactive_cooldown(
-            "agent.merope.touch",
-            recent,
-            now,
-            180
-        ));
-        assert!(!super::within_proactive_cooldown(
-            "agent.task_completed",
-            recent,
-            now,
-            180
-        ));
-        // A tired persona waits longer; nothing makes the wait shorter.
-        assert!(super::within_proactive_cooldown(
-            "phantasi.digest",
-            old,
-            now,
-            600
-        ));
-        assert!(super::within_proactive_cooldown(
-            "phantasi.digest",
-            Some(now - chrono::Duration::seconds(100)),
-            now,
-            10
-        ));
-    }
     #[test]
     fn every_event_rechecks_input_expiry_switch_dnd_and_delivery_surface() {
         let now = crate::clock::now();
@@ -982,6 +899,9 @@ mod tests {
         // The same line again is the core's to refuse, with the words in it.
         assert!(redeem.contains("wish.text = Some(spoken.clone())"));
         assert!(redeem.contains("ledger::write("));
+        // A cooldown or the same topic a while ago are hers to weigh (step 3
+        // of unified speech), not rules here.
+        assert!(!src.contains("proactive_cooldown") && !src.contains("SAME_EVENT_MINUTES"));
         assert!(redeem.contains("emit_speech_notification"));
         assert!(redeem.contains("emit_live_speech"));
         assert!(redeem.contains("if shown {"));
