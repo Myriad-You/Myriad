@@ -48,17 +48,18 @@ async fn note_turn(
 }
 
 /// A session gone over once it is over (the settle way): which of its short
-/// notes last, put together, kept as production keeps a fact. Returns the
-/// lasting facts kept, with their evidence.
+/// notes last, put together, kept as production keeps a fact, and a note the
+/// answer passed over kept as it is. The lasting facts kept, with their
+/// evidence, and which of them are notes kept as they were.
 async fn settle_session(
     db: &sea_orm::DatabaseConnection,
     judge: &crate::services::analyzer::AiAnalyzer,
     user_id: i32,
     present: &Audience,
     turns: &[Turn],
-    notes: &[String],
+    notes: &[super::super::chat_remember::ChatMemoryUpdate],
     at: chrono::DateTime<chrono::FixedOffset>,
-) -> Vec<(String, String)> {
+) -> (Vec<(String, String)>, Vec<String>) {
     // What she knows of them for good, newest first, as many as production
     // shows beside a stretch.
     let mut known = crate::services::agent::memory::unified::active_in(
@@ -87,6 +88,10 @@ async fn settle_session(
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let lately: Vec<&str> = notes
+        .iter()
+        .filter_map(|note| note.fact.as_deref())
+        .collect();
     let input = json!({
         "conversation": turns
             .iter()
@@ -95,7 +100,7 @@ async fn settle_session(
                 "text": turn.content,
             }))
             .collect::<Vec<_>>(),
-        "lately": notes,
+        "lately": lately,
         "today": at.with_timezone(&super::super::clock::zone()).format("%Y-%m-%d (%A)").to_string(),
     })
     .to_string();
@@ -108,45 +113,23 @@ async fn settle_session(
         )
         .await
     else {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     };
-    let Ok(answer) =
-        serde_json::from_str::<Value>(myriad_merope::chat_remember::strip_json_fence(&raw))
+    let Some((kept, replaces)) =
+        myriad_merope::chat_remember::parse_settle(&raw, &theirs, &known, notes.len())
     else {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     };
-    let replaces: Vec<String> = answer["replaces"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|old| old.as_str())
-        .filter(|old| known.iter().any(|fact| fact == old))
-        .map(str::to_string)
-        .collect();
+    let left = myriad_merope::chat_remember::settle_left(&raw, &kept, notes.len());
     let mut lasting = Vec::new();
     let mut updates = super::super::chat_remember::ChatMemoryUpdates::default();
-    for item in answer["lasting"].as_array().into_iter().flatten() {
-        let (Some(fact), Some(evidence)) = (item["fact"].as_str(), item["evidence"].as_str())
-        else {
-            continue;
-        };
-        let fact = super::super::ingest::compact_summary(fact);
-        if fact.is_empty()
-            || !myriad_merope::chat_remember::settle_evidence_holds(evidence, &theirs)
-        {
-            continue;
-        }
-        let concepts = serde_json::from_value(item["concepts"].clone()).unwrap_or_default();
+    for item in kept {
+        let fact = super::super::ingest::compact_summary(&item.fact);
         updates
             .updates
             .push(super::super::chat_remember::ChatMemoryUpdate {
                 // When it would be worth remembering, as production keeps it.
-                cues: item["whenFor"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|cue| cue.as_str().map(str::to_string))
-                    .collect(),
+                cues: item.when_for,
                 fact: Some(fact.clone()),
                 // What it changes goes with the first: it says how it is now.
                 supersedes: if updates.updates.is_empty() {
@@ -154,22 +137,44 @@ async fn settle_session(
                 } else {
                     Vec::new()
                 },
-                evidence: Some(evidence.to_string()),
-                concepts: crate::services::agent::memory::unified::clean_concepts(concepts),
+                evidence: Some(item.evidence.clone()),
+                concepts: crate::services::agent::memory::unified::clean_concepts(
+                    serde_json::from_value(item.concepts).unwrap_or_default(),
+                ),
             });
-        lasting.push((fact, evidence.to_string()));
+        lasting.push((fact, item.evidence));
+    }
+    // A note the answer passed over is kept as it is, as production does.
+    let mut passed_over = Vec::new();
+    for index in left {
+        let note = &notes[index];
+        let fact = super::super::ingest::compact_summary(note.fact.as_deref().unwrap_or(""));
+        updates
+            .updates
+            .push(super::super::chat_remember::ChatMemoryUpdate {
+                cues: Vec::new(),
+                fact: Some(fact.clone()),
+                supersedes: Vec::new(),
+                evidence: note.evidence.clone(),
+                concepts: crate::services::agent::memory::unified::clean_concepts(
+                    note.concepts.clone(),
+                ),
+            });
+        lasting.push((fact.clone(), note.evidence.clone().unwrap_or_default()));
+        passed_over.push(fact);
     }
     if !updates.updates.is_empty() {
         apply_at(db, user_id, present, at, &updates).await;
     }
-    lasting
+    (lasting, passed_over)
 }
 
 /// One session the settle way as weeks go by: each of their lines taken as
 /// a short note, what she said kept as it is, and the session gone over
 /// once it is over. The short notes themselves are not kept: by the next
-/// session they are settled or fading. The lasting facts kept, with their
-/// evidence.
+/// session they are settled or fading. The short notes taken, the lasting
+/// facts kept with their evidence, and which of those are notes the answer
+/// passed over, kept as they were.
 pub(super) async fn over_time(
     db: &sea_orm::DatabaseConnection,
     judge: &crate::services::analyzer::AiAnalyzer,
@@ -177,8 +182,8 @@ pub(super) async fn over_time(
     present: &Audience,
     session_at: chrono::DateTime<chrono::FixedOffset>,
     turns: &[Turn],
-) -> Vec<(String, String)> {
-    let mut notes: Vec<String> = Vec::new();
+) -> (Vec<String>, Vec<(String, String)>, Vec<String>) {
+    let mut notes: Vec<super::super::chat_remember::ChatMemoryUpdate> = Vec::new();
     for (index, turn) in turns.iter().enumerate() {
         if turn.role != "user" {
             continue;
@@ -201,7 +206,8 @@ pub(super) async fn over_time(
             updates
                 .updates
                 .iter()
-                .filter_map(|update| update.fact.clone()),
+                .filter(|update| update.fact.is_some())
+                .cloned(),
         );
         let hers = super::super::chat_remember::ChatMemoryUpdates {
             updates: Vec::new(),
@@ -213,10 +219,13 @@ pub(super) async fn over_time(
         }
     }
     if notes.is_empty() {
-        return Vec::new();
+        return (Vec::new(), Vec::new(), Vec::new());
     }
     let over_at = session_at + chrono::Duration::minutes(turns.len() as i64);
-    settle_session(db, judge, user_id, present, turns, &notes, over_at).await
+    let (lasting, passed_over) =
+        settle_session(db, judge, user_id, present, turns, &notes, over_at).await;
+    let notes = notes.into_iter().filter_map(|note| note.fact).collect();
+    (notes, lasting, passed_over)
 }
 
 /// What she knows of them for good, at most, shown beside a stretch (as
@@ -243,7 +252,7 @@ pub(super) async fn go_over(
     let asked_at = date_of(question_date);
     for (session_at, turns, present) in sessions {
         let (session_at, present) = (*session_at, present);
-        let mut notes: Vec<String> = Vec::new();
+        let mut notes: Vec<super::super::chat_remember::ChatMemoryUpdate> = Vec::new();
         let mut short: Vec<(
             chrono::DateTime<chrono::FixedOffset>,
             super::super::chat_remember::ChatMemoryUpdates,
@@ -275,7 +284,8 @@ pub(super) async fn go_over(
                 updates
                     .updates
                     .iter()
-                    .filter_map(|update| update.fact.clone()),
+                    .filter(|update| update.fact.is_some())
+                    .cloned(),
             );
             let answer_here =
                 turn.has_answer || turns.get(index + 1).is_some_and(|next| next.has_answer);
@@ -315,7 +325,9 @@ pub(super) async fn go_over(
                 .collect::<Vec<_>>()
                 .join("\n");
             for (fact, evidence) in
-                settle_session(db, judge, user_id, present, turns, &notes, over_at).await
+                settle_session(db, judge, user_id, present, turns, &notes, over_at)
+                    .await
+                    .0
             {
                 *kept += 1;
                 if !answer_lines.is_empty()

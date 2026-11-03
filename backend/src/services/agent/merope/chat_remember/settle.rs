@@ -15,7 +15,9 @@ const SETTLE_KNOWN: usize = 40;
 /// from it since `from`, gone over with the whole stretch in view. What
 /// lasts is kept for good (put together, as it is now), what it shows has
 /// changed is replaced, and the notes it puts together are taken back in
-/// its favor; the rest stay notes and fade. Nothing to go over, no call.
+/// its favor; the rest stay notes and fade, but only those it leaves to
+/// the moment or finds already known: a note it passes over is kept for
+/// good as it is. Nothing to go over, no call.
 pub(in crate::services::agent::merope) async fn settle(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
@@ -108,7 +110,8 @@ pub(in crate::services::agent::merope) async fn settle(
     let (lasting, replaces) =
         myriad_merope::chat_remember::parse_settle(&raw, &theirs, &known, notes.len())
             .ok_or(super::super::call::Failure::InvalidOutput)?;
-    if lasting.is_empty() && replaces.is_empty() {
+    let left = myriad_merope::chat_remember::settle_left(&raw, &lasting, notes.len());
+    if lasting.is_empty() && replaces.is_empty() && left.is_empty() {
         return Ok(Effect::NoChange);
     }
     let mut updates = ChatMemoryUpdates::default();
@@ -135,6 +138,17 @@ pub(in crate::services::agent::merope) async fn settle(
                 serde_json::from_value(item.concepts).unwrap_or_default(),
             ),
             cues: item.when_for,
+        });
+    }
+    for index in left {
+        let note = notes[index];
+        settled.push(vec![note.id.clone()]);
+        updates.updates.push(ChatMemoryUpdate {
+            fact: Some(compact_summary(&note.content)),
+            supersedes: Vec::new(),
+            evidence: note.evidence.clone(),
+            concepts: unified::clean_concepts(note.concepts.clone()),
+            cues: Vec::new(),
         });
     }
     Ok(Effect::Settle { updates, settled })

@@ -173,6 +173,9 @@ struct Kept {
     memories: Vec<String>,
     /// Retired so far, by why.
     retired: BTreeMap<String, i64>,
+    /// Each session since the last checkpoint: its short notes and what of
+    /// them lasted, to tell a note never taken from one not kept.
+    sessions: Vec<Value>,
 }
 
 #[tokio::test]
@@ -232,6 +235,7 @@ async fn run_weeks(
     let mut asked = Vec::new();
     let mut kept = Vec::new();
     let mut next = 0;
+    let mut sessions: Vec<Value> = Vec::new();
     for (number, checkpoint) in weeks.checkpoints.iter().enumerate() {
         for (session, day) in weeks.sessions[..=checkpoint.after]
             .iter()
@@ -248,8 +252,13 @@ async fn run_weeks(
                 &present,
             )
             .await;
-            let lasting = settle::over_time(db, judge, user_id, &present, at, &day.turns).await;
+            let (notes, lasting, passed_over) =
+                settle::over_time(db, judge, user_id, &present, at, &day.turns).await;
             println!("#{round} session {session}: {} lasting", lasting.len());
+            sessions.push(
+                json!({"session": session, "notes": notes, "lasting": lasting,
+                "passedOver": passed_over}),
+            );
         }
         next = checkpoint.after + 1;
         let memories: Vec<String> = crate::services::agent::memory::unified::active_in(
@@ -372,6 +381,7 @@ async fn run_weeks(
             checkpoint: number,
             memories,
             retired,
+            sessions: std::mem::take(&mut sessions),
         });
     }
     (asked, kept)
@@ -459,7 +469,8 @@ fn report(weeks: &Weeks, times: usize, asked: &[Asked], kept: &[Kept]) -> Value 
         .iter()
         .map(|kept| {
             json!({"round": kept.round, "week": kept.checkpoint,
-                "memories": kept.memories, "retired": kept.retired})
+                "memories": kept.memories, "retired": kept.retired,
+                "sessions": kept.sessions})
         })
         .collect();
     json!({"times": times, "weeks": by_week, "rows": rows, "memories": memories})
