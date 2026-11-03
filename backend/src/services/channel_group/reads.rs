@@ -249,6 +249,7 @@ pub(super) async fn read(venue: &str, what: ToRead) -> Answer {
             doing: crate::services::agent::merope::group::doing::now_text(
                 crate::services::agent::memory::utc_now(),
             ),
+            state: crate::services::agent::merope::her_state_for_anyone().await,
         },
         ToRead::Stickers { venue } => {
             use crate::services::agent::merope::group::stickers;

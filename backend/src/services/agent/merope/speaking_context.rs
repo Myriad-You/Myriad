@@ -656,6 +656,19 @@ async fn speaking_prompt_from_db(
     sections
 }
 
+/// How she is for anyone she talks to who is not one of hers (someone from
+/// outside in a group): her day so far, and that by her hours she would be
+/// asleep. Her mood is kept towards each person, so none is given here.
+pub async fn her_state_for_anyone() -> Vec<String> {
+    let Ok(db) = crate::services::process_db::database() else {
+        return Vec::new();
+    };
+    let myself = self_state::current(&db).await;
+    let mut sections = vec![self_state::format_day_section(&myself.facts)];
+    sections.extend(super::timing::past_bedtime());
+    sections
+}
+
 pub fn speaking_prompt_plain(sections: &[String]) -> String {
     sections.join("\n\n")
 }

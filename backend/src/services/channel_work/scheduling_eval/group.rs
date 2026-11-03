@@ -47,6 +47,7 @@ fn answer(kind: &str) -> Answer {
         "now" => Answer::Now {
             local: "2026-10-14T14:00:00+08:00".into(),
             doing: None,
+            state: Vec::new(),
         },
         "stickers" => Answer::Stickers {
             stickers: Vec::new(),
