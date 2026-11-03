@@ -138,6 +138,7 @@ function StudioToolPage({
       unscheduleFailed: t.phantasi.workbenchUnscheduleFailed,
       mediaLoadFailed: t.errors.mediaLoadFailed,
       mediaUploadFailed: t.errors.mediaUploadFailed,
+      mediaUploadSkipped: t.phantasi.workbenchUploadSkipped,
       mediaDeleteFailed: t.errors.mediaDeleteFailed,
       commentDeleteFailed: t.phantasi.workbenchCommentDeleteFailed,
       reviewApproveFailed: t.phantasi.workbenchReviewApproveFailed,
@@ -211,6 +212,7 @@ function StudioToolPage({
         commentsLoading={workbench.commentsLoading}
         applicationsLoading={workbench.applicationsLoading}
         busy={workbench.busy}
+        uploadProgress={workbench.uploadProgress}
         noteCategories={categories.noteRows.map((row) => row.name)}
         categoryRows={categories.noteRows}
         categoriesLoading={categories.loading}

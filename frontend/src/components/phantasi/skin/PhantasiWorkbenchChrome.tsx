@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { DOMAttributes, ReactNode } from 'react'
 import { LuLoader2, LuSearch } from '@lib/icons'
 
 /**
@@ -12,6 +12,7 @@ export function WorkbenchPage({
   search,
   filters,
   back,
+  drop,
   children,
 }: {
   title: string
@@ -21,6 +22,10 @@ export function WorkbenchPage({
   search?: ReactNode
   filters?: ReactNode
   back: ReactNode
+  /** 整页接拖放：事件挂在整页上，`overlay` 盖在整页上面。 */
+  drop?: Pick<DOMAttributes<HTMLElement>, 'onDragEnter' | 'onDragOver' | 'onDragLeave' | 'onDrop'> & {
+    overlay?: ReactNode
+  }
   children: ReactNode
 }) {
   const crumb = back ? (
@@ -30,9 +35,10 @@ export function WorkbenchPage({
     </div>
   ) : null
   const bar = crumb || lead || search || action || filters
+  const { overlay, ...dropHandlers } = drop ?? {}
 
   return (
-    <section className="tool-pane" aria-label={title}>
+    <section className={`tool-pane${drop ? ' is-droppable' : ''}`} aria-label={title} {...dropHandlers}>
       {bar ? (
         <div className="tool-pane__bar">
           {crumb}
@@ -43,6 +49,7 @@ export function WorkbenchPage({
         </div>
       ) : null}
       <div className="tool-pane__body">{children}</div>
+      {overlay}
     </section>
   )
 }

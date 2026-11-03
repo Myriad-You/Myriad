@@ -49,6 +49,8 @@ export interface StudioToolPaneProps {
   commentsLoading: boolean
   applicationsLoading: boolean
   busy: boolean
+  /** 正在传第几个、一共几个。 */
+  uploadProgress: { current: number; total: number } | null
   noteCategories: readonly string[]
   categoryRows: WorkbenchCategoryRow[]
   categoriesLoading: boolean
@@ -70,7 +72,7 @@ export interface StudioToolPaneProps {
   onApproveApplication: (id: number) => Promise<boolean>
   onRejectApplication: (id: number) => void
   onDeleteApplications: (ids: number[]) => void
-  onUpload: (file: File) => void
+  onUpload: (files: File[]) => void
   onDeleteMedia: (id: number) => void
   onMediaSaved: (item: MediaAsset) => void
   onExportNotes: (kind: NoteTransferKind) => void
@@ -210,6 +212,7 @@ export function StudioToolPane(props: StudioToolPaneProps) {
             mediaHasMore={props.mediaHasMore}
             onLoadMoreMedia={props.onLoadMoreMedia}
             busy={props.busy}
+            uploadProgress={props.uploadProgress}
             onUpload={props.onUpload}
             onDeleteMedia={props.onDeleteMedia}
             onMediaSaved={props.onMediaSaved}

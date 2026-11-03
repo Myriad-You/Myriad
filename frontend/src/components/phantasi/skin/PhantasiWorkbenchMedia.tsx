@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { DragEvent, ReactNode } from 'react'
 import type { MediaAsset, MediaFilter } from '../../../services/mediaApi'
 import type { ManagedListItem } from '../../settings/ManagedList'
 import {
@@ -6,12 +6,14 @@ import {
   LuImage,
   LuList,
   LuSquare,
+  LuUpload,
 } from '@lib/icons'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useConfigI18n as useI18n } from '../../../contexts/I18nContext'
 import { mediaAssetOrigin, mediaAssetSrc } from '../../../services/mediaApi'
 import { MediaPreview } from '../../media/MediaPreview'
 import { ManagedList, SettingsButton } from '../../settings'
+import { isOutsideFileDrag, WORKBENCH_MEDIA_ACCEPT } from '../logic/mediaUpload'
 import {
   formatWorkbenchBytes,
   WORKBENCH_MEDIA_FORMATS,
@@ -37,6 +39,7 @@ export function WorkbenchMediaPane({
   mediaHasMore,
   onLoadMoreMedia,
   busy,
+  uploadProgress,
   onUpload,
   onDeleteMedia,
   onMediaSaved,
@@ -54,13 +57,35 @@ export function WorkbenchMediaPane({
   mediaHasMore: boolean
   onLoadMoreMedia: () => void
   busy: boolean
-  onUpload: (file: File) => void
+  /** 正在传第几个、一共几个；没在传是 null。 */
+  uploadProgress?: { current: number; total: number } | null
+  /** 一次给一批，按顺序传由调用方负责。 */
+  onUpload: (files: File[]) => void
   onDeleteMedia: (id: number) => void
   onMediaSaved?: (item: MediaAsset) => void
 }) {
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
   const phantasi = t.phantasi
   const fileRef = useRef<HTMLInputElement>(null)
+  const [dropping, setDropping] = useState(false)
+  // 进出子元素都会触发 dragenter/dragleave，数层数才知道是不是真离开了。
+  const dragDepth = useRef(0)
+  // 页面里自己拖起来的（文字、缩略图）不算上传。
+  const dragFromPage = useRef(false)
+  useEffect(() => {
+    const start = () => {
+      dragFromPage.current = true
+    }
+    const end = () => {
+      dragFromPage.current = false
+    }
+    document.addEventListener('dragstart', start)
+    document.addEventListener('dragend', end)
+    return () => {
+      document.removeEventListener('dragstart', start)
+      document.removeEventListener('dragend', end)
+    }
+  }, [])
   const { origin: mediaOrigin, format: mediaFormat, query: mediaQuery } = mediaFilter
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [mediaLayout, setMediaLayout] = useState<'list' | 'grid'>('grid')
@@ -158,11 +183,49 @@ export function WorkbenchMediaPane({
   const selected = media[selectedIndex]
   if (!active) return null
 
+  const fileDrag = (event: DragEvent) =>
+    isOutsideFileDrag(Array.from(event.dataTransfer.types), dragFromPage.current)
+
   return (
     <WorkbenchPage
       title={title ?? phantasi.workbenchMedia}
       back={back}
       filters={filters}
+      drop={{
+        onDragEnter: (event) => {
+          if (!fileDrag(event)) return
+          event.preventDefault()
+          dragDepth.current += 1
+          setDropping(true)
+        },
+        onDragOver: (event) => {
+          if (!fileDrag(event)) return
+          // 不拦下来浏览器会直接打开这个文件；忙的时候拦下但不收。
+          event.preventDefault()
+          event.dataTransfer.dropEffect = busy ? 'none' : 'copy'
+        },
+        onDragLeave: (event) => {
+          if (!fileDrag(event)) return
+          dragDepth.current = Math.max(0, dragDepth.current - 1)
+          if (dragDepth.current === 0) setDropping(false)
+        },
+        onDrop: (event) => {
+          if (!fileDrag(event)) return
+          event.preventDefault()
+          dragDepth.current = 0
+          setDropping(false)
+          const files = Array.from(event.dataTransfer.files)
+          if (!busy && files.length > 0) onUpload(files)
+        },
+        overlay: dropping && !busy ? (
+          <div className="workbench-media-drop" aria-hidden>
+            <span className="workbench-media-drop__label">
+              <LuUpload />
+              {phantasi.workbenchMediaDrop}
+            </span>
+          </div>
+        ) : null,
+      }}
       search={
         <WorkbenchSearch
           value={mediaQuery}
@@ -172,11 +235,14 @@ export function WorkbenchMediaPane({
       }
       action={
         <PageAction
-          label={phantasi.workbenchUpload}
+          label={uploadProgress
+            ? format(phantasi.workbenchUploading, uploadProgress)
+            : phantasi.workbenchUpload}
           description={phantasi.workbenchUploadHint}
           icon={<LuImage />}
           primary
           disabled={busy}
+          loading={uploadProgress != null}
           onPick={() => fileRef.current?.click()}
         />
       }
@@ -246,12 +312,13 @@ export function WorkbenchMediaPane({
       <input
         ref={fileRef}
         type="file"
-        accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime"
+        accept={WORKBENCH_MEDIA_ACCEPT}
+        multiple
         hidden
         onChange={(event) => {
-          const file = event.target.files?.[0]
+          const files = Array.from(event.target.files ?? [])
           event.target.value = ''
-          if (file) onUpload(file)
+          if (files.length > 0) onUpload(files)
         }}
       />
     </WorkbenchPage>
