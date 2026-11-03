@@ -265,12 +265,14 @@ const EMPTY_REPLY: &str = "Chat model returned an empty response";
 const CUT_REPLY: &str = "Chat model reply was cut off before it finished";
 
 /// Whether only the finished reply reaches anyone: a group or an IM chat,
-/// where a reply is sent whole. On the panel it is shown as it is written.
+/// where a reply is sent whole, or the panel typed a message at a time.
+/// Said aloud on the panel, it is shown as it is written.
 fn sent_whole(request: &UserRequest) -> bool {
     request
         .context
         .as_ref()
         .is_some_and(|context| context.venue.is_some() || context.channel_chat.is_some())
+        || crate::services::agent::merope::chat_typing::in_messages(request.context.as_ref())
 }
 
 fn is_cut(error: &anyhow::Error) -> bool {
@@ -624,6 +626,20 @@ impl Agent {
                 {
                     blocks.push(stickers);
                 }
+            } else if crate::services::agent::merope::chat_typing::in_messages(
+                request.context.as_ref(),
+            ) {
+                // Typed here a message at a time: she types as she does in a
+                // chat app, the way they type to her.
+                blocks.push(myriad_merope::speaking::chat_app_section().to_string());
+                if let Some(room) = request
+                    .context
+                    .as_ref()
+                    .and_then(|context| context.conversation_history.as_deref())
+                    .and_then(crate::services::agent::merope::their_typing)
+                {
+                    blocks.push(myriad_merope::talk_shape::describe(&room, "How they type"));
+                }
             }
             if !merope_block.is_empty() {
                 blocks.insert(0, merope_block);
@@ -799,6 +815,10 @@ impl Agent {
             .context
             .as_ref()
             .and_then(|context| context.session_id.clone());
+        // Typed out a message at a time once it is whole: nothing shows as
+        // it is written.
+        let typed =
+            crate::services::agent::merope::chat_typing::in_messages(request.context.as_ref());
         let said_anything = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let heard = said_anything.clone();
         let on_delta = |delta| {
@@ -832,7 +852,7 @@ impl Agent {
                                 tx.clone(),
                             );
                         }
-                        if spoken.is_empty() {
+                        if spoken.is_empty() || typed {
                             return true;
                         }
                         crate::services::analyzer::StreamDelta::Text(spoken)
@@ -945,7 +965,7 @@ impl Agent {
                         progress_tx.clone(),
                     );
                 }
-                if !leftover.is_empty() {
+                if !leftover.is_empty() && !typed {
                     emit_chat_delta(
                         progress_tx,
                         crate::services::analyzer::StreamDelta::Text(leftover),
@@ -971,12 +991,14 @@ impl Agent {
                     {
                         let opening = format!("\n\n{opening}");
                         full_text.push_str(&opening);
-                        emit_chat_delta(
-                            progress_tx,
-                            crate::services::analyzer::StreamDelta::Text(opening),
-                            speech_delivery.as_ref(),
-                        )
-                        .await;
+                        if !typed {
+                            emit_chat_delta(
+                                progress_tx,
+                                crate::services::analyzer::StreamDelta::Text(opening),
+                                speech_delivery.as_ref(),
+                            )
+                            .await;
+                        }
                     }
                 }
                 if let Some(delivery) = speech_delivery.as_ref() {

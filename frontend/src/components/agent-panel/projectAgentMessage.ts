@@ -115,6 +115,7 @@ export function projectAgentMessage(message: ChatMessage): AgentMessage {
         }
       : {}),
     at: message.createdAt.getTime(),
+    ...(message.typing !== undefined ? { typing: message.typing } : {}),
     ...(message.suggestions?.length
       ? { suggestions: message.suggestions }
       : {}),

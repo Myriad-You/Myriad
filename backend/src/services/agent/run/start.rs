@@ -313,17 +313,29 @@ pub(crate) async fn start(
     } else {
         None
     };
-    if let Some(cut) = chat_claim.as_ref().and_then(|claim| claim.cut_off.as_ref()) {
-        if has_session {
-            save_cut_off(
-                &db,
-                &session_id,
-                &cut.text,
-                cut.voice,
-                &cut.run_id,
-                cut.heard_chars,
-            )
-            .await;
+    if let Some(claim) = chat_claim.as_ref()
+        && let Some(cut) = claim.cut_off.as_ref()
+        && has_session
+    {
+        use crate::services::agent::merope::chat_typing::{AfterCut, after_cut, send_first};
+        match after_cut(&db, user_id, &session_id, cut, &req.input).await {
+            AfterCut::AsBefore => {
+                save_cut_off(
+                    &db,
+                    &session_id,
+                    &cut.text,
+                    cut.voice,
+                    &cut.run_id,
+                    cut.heard_chars,
+                )
+                .await;
+            }
+            AfterCut::Kept => {}
+            // Her last draft still fits: this turn sends it first.
+            AfterCut::GoesFirst(messages) => {
+                claim.spoken.carry(&messages);
+                send_first(&run_id_for_meta, messages);
+            }
         }
     }
 
@@ -557,6 +569,11 @@ pub(crate) async fn start(
         LANE_QUEUE.clone()
     };
     let source_intent_id_for_work = source_intent_id.clone();
+    // Typed here a message at a time: she sees it when she would, sooner
+    // while they are talking (see `merope::chat_typing`).
+    let until_seen =
+        crate::services::agent::merope::chat_typing::in_messages(user_request.context.as_ref())
+            .then(|| crate::services::agent::merope::chat_typing::until_seen_here(&user_request));
     let (mut chat_cancel, chat_slot_id, chat_spoken) = match chat_claim {
         Some(claim) => (
             Some(claim.cancelled),
@@ -567,6 +584,29 @@ pub(crate) async fn start(
     };
     // tx 会被移动到 spawn 中，确保 channel 在任务完成前不会关闭
     let execution = tokio::spawn(async move {
+        // Not seen yet, she holds no lane; what they send meanwhile cuts
+        // this off, and the next turn reads it all together.
+        if let (Some(wait), Some(cancelled)) = (until_seen, chat_cancel.as_mut()) {
+            let seen = tokio::select! {
+                biased;
+                _ = cancelled => false,
+                _ = tokio::time::sleep(wait) => true,
+            };
+            if !seen {
+                let _ = tx
+                    .send(crate::services::agent::turn::superseded_turn_event())
+                    .await;
+                if let Some(slot_id) = chat_slot_id {
+                    crate::services::agent::turn::finish_chat_turn(
+                        user_id,
+                        &session_id_clone,
+                        slot_id,
+                    )
+                    .await;
+                }
+                return;
+            }
+        }
         // 同一 lane 串行；全局许可 4；`acquire_timeout` 默认 60s
         // 注意：进入 wait-for-input 后必须释放，否则最多 4 个等待任务会堵死全局槽位
         {

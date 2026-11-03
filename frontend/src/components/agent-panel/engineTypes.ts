@@ -88,6 +88,8 @@ export interface ChatMessage {
   dataDisplay?: DataDisplayHint
   data?: unknown
   imageUrls?: string[]
+  /** Typed a message at a time: whether she is at her next one. */
+  typing?: boolean
 }
 
 export interface TaskExecution {

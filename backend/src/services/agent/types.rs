@@ -1208,6 +1208,9 @@ pub enum AgentProgressEvent {
         /// 是否为最后一个 token
         done: bool,
     },
+    /// She is typing her next message, in a chat typed a message at a time
+    /// (see `merope::chat_typing`): the next text is a message of its own.
+    Typing,
     /// 模型思考链流式 token（reasoning_content / thought parts）
     ///
     /// 和 SummaryToken 分开：思考过程进气泡的过程区，不能写进正文。

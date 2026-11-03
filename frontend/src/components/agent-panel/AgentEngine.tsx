@@ -811,6 +811,8 @@ export const AgentEngine: React.FC = () => {
       let performanceRunId = initialRunId
       let notedStaleGeneration = false
       let liveTaskId = ''
+      // Typed a message at a time (`typing` events): only then is typing shown and cleared.
+      let typed = false
       const speech = openTurnSpeech(mode, assistantMessageId, generation, locale, speechOutput)
       const utterance = openTurnReply(
         mode,
@@ -1085,7 +1087,16 @@ export const AgentEngine: React.FC = () => {
             utterance.cancel()
             speech.cancel()
             updateMessageExecution(assistantMessageId, { status: 'error' })
-            updateMessage(assistantMessageId, { content: event.message })
+            updateMessage(assistantMessageId, {
+              content: event.message,
+              ...(typed ? { typing: false } : {}),
+            })
+            break
+
+          case 'typing':
+            // Typed a message at a time: she is at her next one.
+            typed = true
+            updateMessage(assistantMessageId, { typing: true })
             break
 
           case 'thinking_token': {
@@ -1114,7 +1125,10 @@ export const AgentEngine: React.FC = () => {
               // SummaryTextStream applies stripChatWearMarker semantics incrementally.
               // The disk body already contains only visible reply text. Never
               // re-parse a bounded prefix as if it were the complete transcript.
-              await updateMessage(assistantMessageId, snapshot)
+              await updateMessage(
+                assistantMessageId,
+                typed ? { ...snapshot, typing: false } : snapshot,
+              )
               const sealed = speech.push(text.content)
               if (sealed == null) utterance.chunk(text.content)
               else if (sealed > 0) markTurnTraceOnce('first_sentence')
@@ -1207,6 +1221,7 @@ export const AgentEngine: React.FC = () => {
               updateMessage(assistantMessageId, {
                 pendingQuestion: undefined,
                 selectedAnswer: undefined,
+                ...(typed ? { typing: false } : {}),
               })
               updateMessageExecution(assistantMessageId, {
                 status: completedEvent.success ? 'completed' : 'error',

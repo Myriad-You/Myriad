@@ -8,6 +8,7 @@ mod call;
 pub(in crate::services::agent) mod chat_days;
 pub mod clock;
 pub(in crate::services::agent) mod chat_remember;
+pub(crate) mod chat_typing;
 pub(in crate::services::agent) mod curiosity;
 pub(in crate::services::agent) mod doing;
 pub mod draft;

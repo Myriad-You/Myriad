@@ -220,6 +220,11 @@ export interface SummaryTokenEvent {
   done: boolean
 }
 
+/** She is typing her next message in a chat typed a message at a time: the next text is a message of its own. */
+export interface TypingEvent {
+  type: 'typing'
+}
+
 export interface ThinkingTokenEvent {
   type: 'thinking_token'
   token: string
@@ -381,6 +386,7 @@ export type ProgressEvent =
   | SessionCreatedEvent
   | SessionTitleUpdatedEvent
   | SummaryTokenEvent
+  | TypingEvent
   | ThinkingTokenEvent
   | PerformancePlanEvent
   | MeropeStateChangedEvent

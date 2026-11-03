@@ -247,10 +247,14 @@ export const AgentPanelMessage: React.FC<AgentPanelMessageProps> = React.memo(
       hideThinking: mode === 'chat',
     })
     const keepThinking = useHeldOpen(showsThinking, THINKING_FOLD_MS)
+    // Typed a message at a time: while she is at the next one, it shows.
+    // Cut off by their message, what she sent stays and the rest never comes.
+    const typing =
+      isAssistant && !!message.typing && message.state === 'streaming'
     const showsBody =
       message.role === 'user'
         ? !!(message.content || message.attachments?.length)
-        : hasAnswer || showsThinking || keepThinking
+        : hasAnswer || showsThinking || keepThinking || typing
     const { ref: bubbleRef, growRef } = useBubbleHeight(showsBody)
     // In chat her reply reads as a few messages in a row: each line its own
     // bubble. The outer body keeps its height animation but draws nothing.
@@ -262,6 +266,7 @@ export const AgentPanelMessage: React.FC<AgentPanelMessageProps> = React.memo(
         data-role={message.role}
         data-state={message.state ?? 'settled'}
         data-split-lines={splitsLines ? 'true' : undefined}
+        data-typed={message.typing !== undefined ? 'true' : undefined}
       >
         {showsBody ? (
           <div
@@ -289,7 +294,7 @@ export const AgentPanelMessage: React.FC<AgentPanelMessageProps> = React.memo(
                   </div>
                 </div>
               ) : null}
-              {hasAnswer ? (
+              {hasAnswer || typing ? (
                 <div className="agent-panel-message-answer">
                   {message.bodyUnavailable && <p role="alert">{t.agentPanel.sessions.loadFailed}</p>}
                   {message.body ? <AgentMessageBody body={message.body} preview={message.content} /> : message.role === 'user' ? (
@@ -324,6 +329,17 @@ export const AgentPanelMessage: React.FC<AgentPanelMessageProps> = React.memo(
                     </>
                   ) : message.content ? (
                     <AgentMarkdown text={message.content} />
+                  ) : null}
+                  {typing ? (
+                    <p
+                      className="agent-md-p agent-panel-typing"
+                      role="status"
+                      aria-label={t.agentPanel.typing}
+                    >
+                      <span />
+                      <span />
+                      <span />
+                    </p>
                   ) : null}
 
                   {message.imageUrls && message.imageUrls.length > 0 && (

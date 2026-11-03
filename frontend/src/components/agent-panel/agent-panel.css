@@ -2226,7 +2226,8 @@ html .agent-panel-session.glass {
   font-size: 12px;
 }
 
-.agent-panel-message[data-state='error'] .agent-panel-message-body {
+.agent-panel-message[data-state='error']:not([data-typed='true'])
+  .agent-panel-message-body {
   color: var(--color-error, #ef4444);
 }
 
@@ -2253,8 +2254,9 @@ html .agent-panel-session.glass {
   box-shadow: var(--surface-shadow);
 }
 
-/* 句尾光标挂在正文最后一块。思考、提问、图不是「还在说」。 */
-.agent-panel-message[data-state='streaming']
+/* 句尾光标挂在正文最后一块。思考、提问、图不是「还在说」；一条条打出来
+   的话每条是发出去的整条，后面也没有光标。 */
+.agent-panel-message[data-state='streaming']:not([data-typed='true'])
   .agent-panel-message-answer
   > :last-child:not(
     .agent-panel-question,
@@ -2276,6 +2278,50 @@ html .agent-panel-session.glass {
 @keyframes agent-panel-caret {
   50% {
     opacity: 0;
+  }
+}
+
+/* 她在打下一条：气泡里三个点轮流亮起。 */
+.agent-panel-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 1.4em;
+}
+
+.agent-panel-typing > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentcolor;
+  opacity: 0.35;
+  animation: agent-panel-typing 1.2s ease-in-out infinite;
+}
+
+.agent-panel-typing > span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.agent-panel-typing > span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes agent-panel-typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+  }
+
+  30% {
+    opacity: 0.9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-panel-typing > span {
+    animation: none;
+    opacity: 0.6;
   }
 }
 

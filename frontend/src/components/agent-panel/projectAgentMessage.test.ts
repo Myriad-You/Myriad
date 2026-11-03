@@ -417,3 +417,12 @@ test('long background batches safely fall back to full projection', () => {
     ['69', '68'],
   )
 })
+
+test('一条条打出来的回复：在打下一条时界面知道，打完了也还记得是打出来的', () => {
+  assert.equal(projectAgentMessage(chat()).typing, undefined)
+  assert.equal(projectAgentMessage(chat({ content: '', typing: true })).typing, true)
+  assert.equal(projectAgentMessage(chat({ content: '嗯\n好', typing: false })).typing, false)
+  syncProjectedMessages([chat({ typing: true })])
+  syncProjectedMessages([chat({ typing: false })])
+  assert.equal(getAgentMessagesSnapshot()[0].typing, false)
+})

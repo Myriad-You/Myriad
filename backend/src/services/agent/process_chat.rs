@@ -142,10 +142,43 @@ impl Agent {
             motion_refinement = Some(guard);
         }
 
+        // Typed here a message at a time: what was left of her last reply
+        // goes first, then typing shows while she thinks and writes, and
+        // the reply goes out once whole (see `merope::chat_typing`).
+        let typed = super::merope::chat_typing::in_messages(request.context.as_ref());
+        let run_id = request
+            .context
+            .as_ref()
+            .and_then(|ctx| ctx.run_id.clone())
+            .unwrap_or_default();
+        let carried = if typed {
+            super::merope::chat_typing::take_first(&run_id)
+        } else {
+            Vec::new()
+        };
+        if !carried.is_empty() {
+            super::merope::chat_typing::type_out(
+                &carried,
+                None,
+                true,
+                &progress_tx,
+                speech_delivery.as_deref(),
+            )
+            .await;
+        }
+        if typed {
+            let _ = progress_tx.send(AgentProgressEvent::Typing).await;
+        }
+        let began = std::time::Instant::now();
+
         // Persistence still precedes chat context construction, but must
         // not stand in front of the character's immediate reaction.
         let (reply, handed_off, sticker) = match self
-            .stream_strict_lite_chat_response(&request, &progress_tx, speech_delivery)
+            .stream_strict_lite_chat_response(
+                &request,
+                &progress_tx,
+                speech_delivery.clone().filter(|_| !typed),
+            )
             .await
         {
             Ok(reply) => {
@@ -166,6 +199,50 @@ impl Agent {
                 crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
                 return Err(error);
             }
+        };
+
+        // Typed out: what goes out is what she said, a message a line.
+        let reply = if typed {
+            let room = request
+                .context
+                .as_ref()
+                .and_then(|ctx| ctx.conversation_history.as_deref())
+                .and_then(crate::services::agent::merope::their_typing);
+            let sent = super::merope::chat_typing::messages_of(&reply, room.as_ref());
+            if let Some(session_id) = request
+                .context
+                .as_ref()
+                .and_then(|ctx| ctx.session_id.as_deref())
+            {
+                super::turn::note_draft(
+                    user_id,
+                    session_id,
+                    &run_id,
+                    super::turn::Draft {
+                        said: request.raw_input.clone(),
+                        reply: reply.clone(),
+                        messages: sent.clone(),
+                    },
+                )
+                .await;
+            }
+            super::merope::chat_typing::type_out(
+                &sent,
+                Some(began),
+                carried.is_empty(),
+                &progress_tx,
+                speech_delivery.as_deref(),
+            )
+            .await;
+            if let Some(delivery) = speech_delivery.as_ref() {
+                delivery
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .finish(&progress_tx);
+            }
+            sent.join("\n")
+        } else {
+            reply
         };
 
         // Close text without waiting for the director. Already-published plans

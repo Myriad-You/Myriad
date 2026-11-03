@@ -37,6 +37,7 @@ pub fn event_plane(event: &AgentProgressEvent) -> EventPlane {
         | AgentProgressEvent::SessionCreated { .. }
         | AgentProgressEvent::SessionTitleUpdated { .. }
         | AgentProgressEvent::SummaryToken { .. }
+        | AgentProgressEvent::Typing
         | AgentProgressEvent::ThinkingToken { .. }
         | AgentProgressEvent::PerformancePlan { .. }
         | AgentProgressEvent::MeropeStateChanged { .. }
@@ -87,6 +88,20 @@ pub struct Spoken {
     /// Said aloud and cut off while still being written: how many of its
     /// characters were heard, once the end saying it knows.
     heard: Arc<std::sync::Mutex<Option<u64>>>,
+    /// Typed out a message at a time: what it had written, before sending.
+    draft: Arc<std::sync::Mutex<Option<Draft>>>,
+    /// Her last turn's draft, sent first by this one: not this turn's words.
+    carried: Arc<std::sync::Mutex<String>>,
+}
+
+/// A reply written whole and typed out a message at a time (see
+/// `merope::chat_typing`): what they said, what she wrote, what it goes
+/// out as.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Draft {
+    pub said: String,
+    pub reply: String,
+    pub messages: Vec<String>,
 }
 
 /// A turn cut off partway, and what it had said.
@@ -97,6 +112,8 @@ pub struct CutOff {
     pub run_id: String,
     /// How much of it was heard, when it was said aloud and cut off there.
     pub heard_chars: Option<u64>,
+    /// Typed out a message at a time: the whole of what it was to send.
+    pub draft: Option<Draft>,
 }
 
 impl Spoken {
@@ -124,14 +141,42 @@ impl Spoken {
         self.state
             .compare_exchange(RUNNING, to, Ordering::AcqRel, Ordering::Acquire)
             .ok()?;
-        let text = self.text.lock().ok()?.trim().to_string();
+        let text = self.own_text()?;
         let heard_chars = self.heard();
-        (!text.is_empty()).then(|| CutOff {
+        let draft = self.draft.lock().ok().and_then(|draft| draft.clone());
+        (!text.is_empty() || draft.is_some()).then(|| CutOff {
             text,
             voice: self.voice || heard_chars.is_some(),
             run_id: run_id.to_owned(),
             heard_chars,
+            draft,
         })
+    }
+
+    /// What this turn said itself, without the draft it sent first.
+    fn own_text(&self) -> Option<String> {
+        let text = self.text.lock().ok()?;
+        let carried = self.carried.lock().ok()?;
+        Some(
+            text.strip_prefix(carried.as_str())
+                .unwrap_or(&text)
+                .trim()
+                .to_string(),
+        )
+    }
+
+    /// Its whole reply is written, to go out as `draft.messages`.
+    pub fn drafted(&self, draft: Draft) {
+        if let Ok(mut kept) = self.draft.lock() {
+            *kept = Some(draft);
+        }
+    }
+
+    /// It sends `messages`, her last turn's draft, before its own words.
+    pub fn carry(&self, messages: &[String]) {
+        if let Ok(mut carried) = self.carried.lock() {
+            *carried = messages.join("\n");
+        }
     }
 
     /// They spoke over it while it was said aloud, this much heard.
@@ -154,7 +199,7 @@ impl Spoken {
     /// Stopped with no newer turn: what this turn said, for it to save.
     pub fn stopped(&self) -> Option<String> {
         (self.state.load(Ordering::Acquire) == STOPPED)
-            .then(|| self.text.lock().ok().map(|text| text.trim().to_string()))
+            .then(|| self.own_text())
             .flatten()
             .filter(|text| !text.is_empty())
     }
@@ -259,6 +304,17 @@ pub async fn note_heard(user_id: i32, session_id: &str, run_id: &str, heard: u64
     // Noted before the check: a run finishing in between still reads it.
     slot.spoken.note_heard(heard);
     slot.spoken.running()
+}
+
+/// This run wrote its whole reply and types it out now (see `Draft`).
+pub async fn note_draft(user_id: i32, session_id: &str, run_id: &str, draft: Draft) {
+    let slots = CHAT_TURNS.lock().await;
+    if let Some(slot) = slots
+        .get(&(user_id, session_id.to_owned()))
+        .filter(|slot| slot.run_id == run_id)
+    {
+        slot.spoken.drafted(draft);
+    }
 }
 
 /// Drop this Chat slot after it finishes, if a newer claim has not replaced it.
@@ -448,6 +504,7 @@ mod tests {
                 voice: false,
                 run_id: "first".into(),
                 heard_chars: None,
+                draft: None,
             })
         );
         // The cut-off turn does not also save its whole reply.
@@ -498,5 +555,30 @@ mod tests {
         assert!(!cancel_chat_run(15, "shared-chat", "typed-run").await);
         assert!(cancel_chat_run(14, "shared-chat", "typed-run").await);
         assert!(typed.await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_typed_turn_hands_over_its_draft_without_what_it_carried() {
+        let draft = Draft {
+            said: "周末去哪".into(),
+            reply: "海边吧\n那边人少".into(),
+            messages: vec!["海边吧".into(), "那边人少".into()],
+        };
+        // Written, nothing sent yet: the draft goes with the cut.
+        let first = claim_speaking_turn(23, "s", "first", false).await;
+        note_draft(23, "s", "first", draft.clone()).await;
+        let second = claim_speaking_turn(23, "s", "second", false).await;
+        let cut = second.cut_off.expect("a draft is handed over");
+        assert_eq!((cut.text.as_str(), cut.draft), ("", Some(draft.clone())));
+        assert!(!first.spoken.finish());
+
+        // Sending that draft first, then a line of its own, and cut there:
+        // only its own line is what it said.
+        second.spoken.carry(&draft.messages);
+        second.spoken.push("海边吧");
+        second.spoken.push("\n那边人少");
+        second.spoken.push("\n你呢");
+        let third = claim_speaking_turn(23, "s", "third", false).await;
+        assert_eq!(third.cut_off.map(|cut| cut.text).as_deref(), Some("你呢"));
     }
 }

@@ -30,6 +30,8 @@ export interface AgentMessage {
   suggestions?: string[]
   workOffer?: { input: string }
   at?: number
+  /** Typed a message at a time: whether she is at her next one. */
+  typing?: boolean
 }
 
 const EMPTY: readonly AgentMessage[] = Object.freeze([])
@@ -73,6 +75,7 @@ function sameMessage(x: AgentMessage, y: AgentMessage): boolean {
     x.bodyUnavailable === y.bodyUnavailable &&
     x.thoughtBody?.id === y.thoughtBody?.id && x.thoughtBody?.chars === y.thoughtBody?.chars &&
     x.state === y.state &&
+    x.typing === y.typing &&
     x.imageUrls?.length === y.imageUrls?.length &&
     x.attachments?.length === y.attachments?.length &&
     !x.attachments?.some(

@@ -131,7 +131,7 @@ pub(super) async fn start_chat_turn(
     sink: ChannelSink,
     session_key: &str,
 ) {
-    use crate::services::agent::merope::group::timing;
+    use crate::services::agent::merope::chat_typing;
     let may_sleep = can_answer_later(sink.platform());
     // What waits must be answerable after a restart: where, and paired with whom.
     if may_sleep {
@@ -152,16 +152,10 @@ pub(super) async fn start_chat_turn(
         .and_then(|last| last.get(&user_id).copied())
         .is_some_and(|at| at.elapsed() < IN_TALK)
         || wrote_lately(&db, user_id).await;
-    let at = timing::where_she_is(talking, may_sleep);
     if may_sleep {
         keep_waiting(&db, session_key, user_id, &work_session_id).await;
     }
-    let wait = timing::until_read(at, input);
-    tracing::info!(
-        ?at,
-        seconds = wait.as_secs(),
-        "[Channel] she will see the message"
-    );
+    let wait = chat_typing::until_seen(talking, may_sleep, input);
     // She waits apart from the chat's lock, so what they send meanwhile comes
     // in and is read with it; she answers holding it.
     let session_key = session_key.to_string();
@@ -364,18 +358,17 @@ async fn answer(
         .unwrap_or("");
     // Most turns go as one message, and a few in a row when something grabs
     // her, typed the way they type to her, typing each first.
-    let lines = myriad_agent_rules::channel::as_messages(message);
-    let most = myriad_merope::talk_shape::messages_this_turn(lines.len(), rand::random::<f64>());
+    use crate::services::agent::merope::chat_typing;
     let mut sent_any = false;
     // What they sent while she wrote it, already weighed.
     let mut looked = 0;
-    for (index, line) in myriad_merope::talk_shape::goes_out_as(&lines, most, room.as_ref())
+    for (index, line) in chat_typing::messages_of(message, room.as_ref())
         .into_iter()
         .enumerate()
     {
         // Typing takes as long as it takes; the first she was already at
         // while she thought.
-        let typing = crate::services::agent::merope::group::timing::typing(&line);
+        let typing = chat_typing::typing(&line);
         let left = if index == 0 {
             typing.saturating_sub(began.elapsed())
         } else {
@@ -398,11 +391,7 @@ async fn answer(
                 .iter()
                 .map(|text| ("them".to_string(), text.clone()))
                 .collect();
-            if !crate::services::agent::merope::draft::still_fits(
-                user_id, input, message, &came_now,
-            )
-            .await
-            {
+            if !chat_typing::still_fits(user_id, input, message, &came_now).await {
                 mark_delivery(&db, &chat_session_id_for_mark, &run_id, CUT_OFF_UNSENT).await;
                 return;
             }
@@ -491,7 +480,7 @@ const THEIR_LINES_LOOKED_AT: u64 = 40;
 
 /// How they type to her in this chat, once they have said enough of it:
 /// what each of their turns went in as, a line a message.
-async fn their_typing(
+pub(super) async fn their_typing(
     db: &DatabaseConnection,
     chat_session_id: &str,
 ) -> Option<myriad_merope::talk_shape::Shape> {

@@ -82,6 +82,7 @@ pub(crate) fn map_progress(
         | AgentProgressEvent::SessionCreated { .. }
         | AgentProgressEvent::SessionTitleUpdated { .. }
         | AgentProgressEvent::SummaryToken { .. }
+        | AgentProgressEvent::Typing
         | AgentProgressEvent::PerformancePlan { .. }
         | AgentProgressEvent::MeropeStateChanged { .. }
         | AgentProgressEvent::OutfitOverlay { .. }

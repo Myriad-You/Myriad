@@ -58,24 +58,39 @@ pub(crate) async fn say_first(
             db: db.clone(),
         };
         let session_key = row.record_id;
+        let chat = chat::chat_session(db, platform, user_id, &session_key).await;
+        // Sent the way she answers: most often one message, a few in a row
+        // now and then, typed the way they type to her, typing each first.
+        use crate::services::agent::merope::chat_typing;
+        let room = match chat.as_deref() {
+            Some(chat) => chat::their_typing(db, chat).await,
+            None => None,
+        };
+        let messages = chat_typing::messages_of(text, room.as_ref());
         let sent = runtime::with_chat_lock(&session_key, async {
-            for chunk in split_channel_text(text, sink.text_limit()) {
-                if sink.send_text(&chunk).await.is_err() {
-                    return false;
+            let mut sent = Vec::new();
+            for message in messages {
+                sink.send_typing().await;
+                tokio::time::sleep(chat_typing::typing(&message)).await;
+                for chunk in split_channel_text(&message, sink.text_limit()) {
+                    if sink.send_text(&chunk).await.is_err() {
+                        return sent;
+                    }
                 }
+                sent.push(message);
             }
-            true
+            sent
         })
         .await;
-        if !sent {
+        if sent.is_empty() {
             return None;
         }
-        if let Some(chat) = chat::chat_session(db, platform, user_id, &session_key).await {
+        if let Some(chat) = chat {
             if let Err(error) = crate::services::agent::sessions::persist_assistant_message(
                 db,
                 &chat,
                 None,
-                text,
+                &sent.join("\n"),
                 Some(serde_json::json!({ "unprompted": true })),
             )
             .await
