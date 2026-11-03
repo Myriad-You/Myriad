@@ -398,6 +398,7 @@ server {
         proxy_set_header Upgrade    $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         proxy_buffering off;
+        # Also Merope rig work, which waits on image providers up to 15 min.
         proxy_read_timeout 3600s;
     }
 }

@@ -46,6 +46,19 @@ Match path-only (no query). Order in `proxy/src/main.rs` `handle`: persona
 
 Persona WebSocket upgrades are rejected (400). `/internal/*` is 404 at the edge.
 
+Persona HTTP must answer with headers in time, or the proxy returns an empty
+504. Each layer waits longer than the one behind it:
+
+| Layer | Merope rig, `/api/agent/persona/*` | Other persona HTTP |
+| --- | --- | --- |
+| Browser, image/vision client inside the worker | 15 min | 5 min or less |
+| persona-worker | 17 min | 10 min |
+| Myriad proxy (from the first request byte) | 18 min | 11 min |
+| Outer reverse proxy | above 18 min | above 11 min |
+
+The Nginx templates use `proxy_read_timeout 3600s`. An outer Nginx at 600 s cuts
+long Merope work at 10 minutes while everything behind it is still waiting.
+
 #### Proxy → federation-worker
 
 | Path | Role |

@@ -546,12 +546,16 @@ pub(crate) async fn request_estimate(
             (url, request)
         }
     };
-    let response = tokio::time::timeout(REQUEST_TIMEOUT, request.send())
-        .await
-        .map_err(|_| "vision request timed out".to_string())?
-        .map_err(|error| error.to_string())?;
-    let status = response.status();
-    let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+    // The whole round trip, body included: a provider that sends headers and
+    // then stalls would otherwise hold the import until the client gives up.
+    let (status, bytes) = tokio::time::timeout(REQUEST_TIMEOUT, async {
+        let response = request.send().await?;
+        let status = response.status();
+        response.bytes().await.map(|bytes| (status, bytes))
+    })
+    .await
+    .map_err(|_| "vision request timed out".to_string())?
+    .map_err(|error| error.to_string())?;
     if bytes.len() > MAX_RESPONSE_BYTES {
         return Err("vision response exceeds size limit".to_string());
     }

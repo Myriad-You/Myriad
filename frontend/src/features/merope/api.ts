@@ -5,6 +5,7 @@ import { currentCopy } from '../../i18n/localeCopy'
 import { ApiError, apiService } from '../../services/api'
 
 export const PREFIX = '/merope/rig'
+/** A floor only: under /api/merope/ the wait is AI_IMAGE_REQUEST_TIMEOUT_MS. */
 export const RIG_MUTATION_TIMEOUT_MS = 6 * 60 * 1000
 /** Keep in sync with MEROPE_PROXY_TIMEOUT_MS and get_long_running_client. */
 const PORTRAIT_GENERATION_TIMEOUT_MS = 15 * 60 * 1000

@@ -226,7 +226,8 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         # Long enough for WS + multi-minute file download streams
-        # (GET /api/federation/transfers/{id}/content is streamed, not buffered).
+        # (GET /api/federation/transfers/{id}/content is streamed, not buffered),
+        # and above the 18 min the Myriad proxy gives Merope rig work (PORTS.md).
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
         # Do not buffer large transfer downloads into temp files on the edge.

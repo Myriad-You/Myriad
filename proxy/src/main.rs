@@ -369,7 +369,7 @@ async fn handle(
             return Ok(StatusCode::SERVICE_UNAVAILABLE.into_response());
         };
         let response = tokio::time::timeout(
-            Duration::from_secs(600),
+            persona_request_timeout(&path),
             forward(
                 &state,
                 upstream,
@@ -554,6 +554,35 @@ fn backend_isolated(value: &serde_json::Value, field: &str) -> Option<bool> {
 /// The one persona path that is a WebSocket: her link, which a device dials.
 const PERSONA_LINK_PATH: &str = "/api/agent/link";
 
+/// Time a persona HTTP request has to answer with headers, upload included.
+/// Each sits one minute above the persona worker's own
+/// (`backend/src/persona/worker.rs`), so the worker answers first; the outer
+/// reverse proxy must wait longer still.
+const PERSONA_REQUEST_TIMEOUT: Duration = Duration::from_secs(11 * 60);
+/// Merope rig work and persona onboarding wait on image and vision providers
+/// for up to 15 minutes (`get_long_running_client`, `ONBOARDING_AI_TIMEOUT`),
+/// and the browser waits as long (`AI_IMAGE_REQUEST_TIMEOUT_MS`).
+const PERSONA_LONG_REQUEST_TIMEOUT: Duration = Duration::from_secs(18 * 60);
+const PERSONA_LONG_PATHS: [&str; 2] = ["/api/merope/rig", "/api/agent/persona"];
+
+fn persona_request_timeout(path: &str) -> Duration {
+    if PERSONA_LONG_PATHS
+        .iter()
+        .any(|prefix| is_under(path, prefix))
+    {
+        PERSONA_LONG_REQUEST_TIMEOUT
+    } else {
+        PERSONA_REQUEST_TIMEOUT
+    }
+}
+
+fn is_under(path: &str, prefix: &str) -> bool {
+    path == prefix
+        || path
+            .strip_prefix(prefix)
+            .is_some_and(|tail| tail.starts_with('/'))
+}
+
 fn is_persona_path(path: &str) -> bool {
     [
         "/api/agent",
@@ -562,12 +591,7 @@ fn is_persona_path(path: &str) -> bool {
         "/api/tapp/agent/v2/interactions",
     ]
     .iter()
-    .any(|prefix| {
-        path == *prefix
-            || path
-                .strip_prefix(prefix)
-                .is_some_and(|tail| tail.starts_with('/'))
-    })
+    .any(|prefix| is_under(path, prefix))
 }
 
 /// Includes AP object dereference paths as well as inbox and authenticated APIs.
@@ -2627,6 +2651,33 @@ mod tests {
         let headers = HeaderMap::new();
         assert!(upstream_request_host(&headers).is_none());
     }
+    /// Rig and onboarding work outlast the 15 minutes the browser and the
+    /// image client wait; the rest of persona keeps the shorter leash.
+    #[test]
+    fn long_persona_work_outlasts_the_browser_wait() {
+        let browser = Duration::from_secs(15 * 60);
+        for path in [
+            "/api/merope/rig/import/preview",
+            "/api/merope/rig/full-body/id/import/preview",
+            "/api/merope/rig",
+            "/api/agent/persona/visual-from-portrait",
+        ] {
+            assert!(persona_request_timeout(path) > browser, "{path}");
+        }
+        for path in [
+            "/api/agent/process",
+            "/api/agent/personas",
+            "/api/merope/rigs",
+            "/api/speech",
+        ] {
+            assert_eq!(
+                persona_request_timeout(path),
+                PERSONA_REQUEST_TIMEOUT,
+                "{path}"
+            );
+        }
+    }
+
     #[test]
     fn persona_routes_and_legacy_capability_are_explicit() {
         for path in [

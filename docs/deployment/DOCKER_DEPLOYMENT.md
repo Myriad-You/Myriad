@@ -50,6 +50,10 @@ name and must be upgraded first; see [external DB setup](./EXTERNAL_POSTGRES.md)
   shells via backend. See [PORTS.md](./PORTS.md). An outer TLS reverse proxy
   must pass the whole site (or the same AP + media allowlist) — `/api`-only
   breaks federation discovery **and** Note attachment media display.
+- **Timeouts**: Merope rig and persona onboarding requests can run up to 15
+  minutes; `proxy` waits 18 minutes for them. The outer reverse proxy must wait
+  longer (`proxy_read_timeout 3600s` in the templates); 600 s ends them early
+  with an empty 504. Layer by layer in [PORTS.md](./PORTS.md#proxy--persona-worker).
 - **Frontend/postgres cannot reach updater** (no shared L2 with updater).
 - The updater is not an A/B dual-live system. It uses one running business slot,
   maintenance mode, `pgdata` snapshots, and immutable image tags.
