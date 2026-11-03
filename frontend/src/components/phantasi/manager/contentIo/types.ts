@@ -10,6 +10,7 @@ export interface TransferNote {
   title: string
   content_md: string
   topic: string | null
+  /** Unix 秒。笔记接口是毫秒，换算只在 contentIo.ts 里做。 */
   published_at: number | null
   status: TransferNoteStatus
   /** 旧站的 slug；这里用不了的样子不带，发布时自动生成。 */

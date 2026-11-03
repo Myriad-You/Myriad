@@ -6,7 +6,7 @@ import { parseHaloJson, serializeHaloJson } from './halo.ts'
 import { parseMarkdownFile, serializeMarkdownFile } from './markdown.ts'
 import { fileSlug, htmlToMarkdown, markdownToHtml } from './text.ts'
 import { parseTypechoXml, serializeTypechoXml } from './typecho.ts'
-import { parseWordpressXml, serializeWordpressXml } from './wordpress.ts'
+import { parseWordpressXml, serializeWordpressXml, stripShortcodes } from './wordpress.ts'
 
 const sample = {
   title: '第一篇',
@@ -76,6 +76,30 @@ describe('wordpress wxr', () => {
     assert.equal(notes[0]!.topic, sample.topic)
     assert.equal(notes[0]!.status, 'published')
     assert.match(notes[0]!.content_md, /世界/)
+  })
+})
+
+describe('wordpress 简码', () => {
+  it('成对的留内容，单个带参数的去掉，像正文的方括号不动', () => {
+    assert.equal(
+      stripShortcodes('<p>[showcard icon="fa" title="J" img="https://x/a.png"]https://j.com/[/showcard]</p>'),
+      '<p>https://j.com/</p>',
+    )
+    assert.equal(
+      stripShortcodes('[conversations avatar="https://x/a.webp" direction="row-reverse"] 来 [/conversations]'),
+      ' 来 ',
+    )
+    assert.equal(stripShortcodes('[box][box type="a"]里[/box]外[/box]'), '里外')
+    assert.equal(stripShortcodes('<p>[gallery ids="1,2,3"]</p><p>[hr /]</p>'), '<p></p><p></p>')
+    assert.equal(stripShortcodes('见[1]和[注]，[[gallery]] 是字面的'), '见[1]和[注]，[gallery] 是字面的')
+  })
+
+  it('导入时正文去掉简码', () => {
+    const [note] = parseWordpressXml(`<rss><channel><item>
+      <title>t</title><wp:post_type>post</wp:post_type><wp:status>publish</wp:status>
+      <content:encoded><![CDATA[<p>[tip type="a"]小心[/tip]</p>]]></content:encoded>
+    </item></channel></rss>`)
+    assert.equal(note?.content_md.trim(), '小心')
   })
 })
 

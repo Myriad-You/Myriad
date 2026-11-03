@@ -66,12 +66,24 @@ function dayStamp(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+/**
+ * 导入导出文件里的时间都按秒（[`TransferNote`]），笔记接口按毫秒。只在这里换算：
+ * 以前直接把秒交给接口，导入的文章日期全成了 1970 年 1 月。
+ */
+function secondsFromApi(ms: number | null): number | null {
+  return ms == null ? null : Math.round(ms / 1000)
+}
+
+function millisForApi(seconds: number | null): number | null {
+  return seconds == null ? null : seconds * 1000
+}
+
 function fromDocs(docs: readonly PhantasiNoteDoc[]): TransferNote[] {
   return docs.map((doc) => ({
     title: doc.title,
     content_md: doc.content_md,
     topic: doc.topic,
-    published_at: doc.published_at,
+    published_at: secondsFromApi(doc.published_at),
     status: doc.status === 'published' ? 'published' : 'draft',
     ...(doc.status === 'published'
       ? addressFields(doc.slug?.trim() || null, doc.old_paths ?? [])
@@ -256,7 +268,7 @@ export async function importTransferFile(
           title,
           content_md: note.content_md,
           topic: note.topic ?? null,
-          published_at: note.published_at,
+          published_at: millisForApi(note.published_at),
         })
         if (note.status === 'published') {
           try {
@@ -268,7 +280,7 @@ export async function importTransferFile(
                 title,
                 content_md: note.content_md,
                 topic: note.topic ?? null,
-                published_at: note.published_at,
+                published_at: millisForApi(note.published_at),
               },
               note,
               (err) => void showPhantasiError(err, copy.errorImportFailed),
