@@ -39,7 +39,6 @@ pub(in crate::services::agent) mod motion_preview;
 pub(in crate::services::agent) mod nodes;
 pub(in crate::services::agent) mod observe;
 pub(in crate::services::agent) mod onboarding_ai;
-pub(in crate::services::agent) mod onboarding_prompts;
 mod other_groups;
 pub(in crate::services::agent) mod others;
 mod outfit_overlay;
@@ -140,11 +139,14 @@ pub async fn resolve_speaking_soul() -> Option<String> {
     if enabled {
         if let Ok(db) = crate::services::process_db::database() {
             if let Ok(Some(persona)) = get_persona(&db).await {
-                if let Some(text) = format_persona(&persona) {
-                    return Some(format!(
-                        "{text}\n\n{}",
-                        myriad_merope::speaking::site_line(&site)
-                    ));
+                // Put together once, in the core: she lives on this site,
+                // called by its name.
+                if let Some(soul) = myriad_merope::speaking::soul(
+                    &persona.name,
+                    &persona.personality,
+                    &myriad_merope::speaking::Home::site(&site),
+                ) {
+                    return Some(soul);
                 }
             }
         }

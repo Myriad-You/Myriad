@@ -5,7 +5,7 @@
 //!
 //! Latest report per platform; evidence is summary / insights / notes /
 //! structured labels. Pro writes spoken temperament tags via
-//! `onboarding_prompts::TAGS_SYSTEM_PROMPT`. Visual assets stay out.
+//! `myriad_merope::onboarding_prompts::TAGS_SYSTEM_PROMPT`. Visual assets stay out.
 
 use myriad_agent_rules::extract_json_object_from_ai_response;
 use std::collections::HashSet;
@@ -26,7 +26,7 @@ use crate::config::ModelTier;
 use crate::models::entities::platform_reports;
 use crate::services::ai::create_ai_analyzer_for_tier_with_timeout;
 
-use super::onboarding_prompts::TAGS_SYSTEM_PROMPT;
+use myriad_merope::onboarding_prompts::TAGS_SYSTEM_PROMPT;
 
 mod evidence;
 mod tags;

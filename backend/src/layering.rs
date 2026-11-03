@@ -375,10 +375,6 @@ fn merope_background_work_uses_the_managed_runner() {
 const MEROPE_RULES_STILL_HERE: &[(&str, &str)] = &[
     ("services/agent/merope/motion_preview.rs", "hers, to move"),
     (
-        "services/agent/merope/onboarding_prompts.rs",
-        "the site's: creating her persona on the site",
-    ),
-    (
         "services/agent/merope/report_dna/evidence.rs",
         "the site's: reading the site's platform reports",
     ),

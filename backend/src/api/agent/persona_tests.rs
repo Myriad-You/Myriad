@@ -683,3 +683,31 @@ fn visual_profile_keeps_persona_seeds() {
     assert_eq!(persona["summary"], "安静但对新事物有持续好奇心");
     assert!(persona.get("gender").is_none());
 }
+
+/// Her personality is flattened from her persona's fields in her own
+/// language, whoever saved it in whatever language the page was in; a
+/// persona that says nothing leaves what the page sent.
+#[test]
+fn her_personality_is_flattened_from_her_fields_in_her_language() {
+    let saved = serde_json::json!({
+        "language": "ja-JP",
+        "summary": "話は短い。",
+        "temperament": ["落ち着いている"],
+        "speechStyle": "先に答える。"
+    });
+    assert_eq!(
+        super::flattened_personality(&saved, None).as_deref(),
+        Some("気質：落ち着いている\n話し方：先に答える。\n\n話は短い。")
+    );
+    // No language of its own: her look's.
+    let look = serde_json::json!({ "language": "zh-CN" });
+    let unsaid = serde_json::json!({ "summary": "她说话很短。", "traits": ["想到就试"] });
+    assert_eq!(
+        super::flattened_personality(&unsaid, Some(&look)).as_deref(),
+        Some("气质：想到就试\n\n她说话很短。")
+    );
+    assert!(super::flattened_personality(&unsaid, None).is_none());
+    assert!(
+        super::flattened_personality(&serde_json::json!({ "language": "zh-CN" }), None).is_none()
+    );
+}

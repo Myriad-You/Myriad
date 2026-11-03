@@ -66,18 +66,18 @@ pub(crate) async fn say_first(
             Some(chat) => chat::their_typing(db, chat).await,
             None => None,
         };
-        let messages = chat_typing::messages_of(text, room.as_ref());
+        let messages = chat_typing::goes_out(text, room.as_ref());
         let sent = runtime::with_chat_lock(&session_key, async {
             let mut sent = Vec::new();
-            for message in messages {
+            for chat_typing::Typed { text, typing } in messages {
                 sink.send_typing().await;
-                tokio::time::sleep(chat_typing::typing(&message)).await;
-                for chunk in split_channel_text(&message, sink.text_limit()) {
+                tokio::time::sleep(typing).await;
+                for chunk in split_channel_text(&text, sink.text_limit()) {
                     if sink.send_text(&chunk).await.is_err() {
                         return sent;
                     }
                 }
-                sent.push(message);
+                sent.push(text);
             }
             sent
         })

@@ -3,8 +3,9 @@
 //! they send meanwhile she looks at before it goes. Her habits in chat apps
 //! are her habits on the site too (decisions 17 and 18).
 //!
-//! The site's timing, draft and talk-shape calls behind these habits are
-//! kept here together, so they move to the core in one place.
+//! The rules are the core's (`myriad_merope::sending`, `timing`, `draft`);
+//! here are the site's draws, clock and model, and what the site does with
+//! the answers.
 
 use std::time::{Duration, Instant};
 
@@ -20,25 +21,62 @@ use crate::services::agent::{ConversationMessage, RequestContext};
 /// She is in talk with someone this long after the last line between them.
 const IN_TALK: Duration = Duration::from_secs(10 * 60);
 
-/// Her reply as the messages it goes out as, typed the way people type to
-/// her (`room`, or as people in chat apps usually do).
-pub fn messages_of(reply: &str, room: Option<&Shape>) -> Vec<String> {
-    let lines = myriad_agent_rules::channel::as_messages(reply);
-    let most = myriad_merope::talk_shape::messages_this_turn(lines.len(), rand::random::<f64>());
-    myriad_merope::talk_shape::goes_out_as(&lines, most, room)
+/// A message of hers as it goes out, and how long typing it takes her.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Typed {
+    pub text: String,
+    pub typing: Duration,
+}
+
+/// Her reply as the messages it goes out as (see
+/// `myriad_merope::sending::goes_out`): kept within how far a reply may
+/// run, typed the way people type to her (`room`, or as people in chat apps
+/// usually do), each with how long typing it takes her.
+pub fn goes_out(reply: &str, room: Option<&Shape>) -> Vec<Typed> {
+    let rolls = myriad_merope::sending::Rolls {
+        split: super::timing::roll(),
+        typing: (0..myriad_agent_rules::channel::CHAT_MESSAGES)
+            .map(|_| super::timing::roll())
+            .collect(),
+    };
+    let out = myriad_merope::sending::goes_out(reply, room, &rolls);
+    if let Some(stopped) = out.stopped {
+        tracing::warn!(
+            ?stopped,
+            "[Merope] her reply was cut short before it went out"
+        );
+    }
+    out.messages
+        .into_iter()
+        .map(|message| Typed {
+            text: message.text,
+            typing: Duration::from_secs_f64(message.typing_seconds),
+        })
+        .collect()
 }
 
 /// How long typing `message` takes her, give or take.
 pub fn typing(message: &str) -> Duration {
-    super::timing::typing(message)
+    Duration::from_secs_f64(myriad_merope::timing::typing(
+        message.chars().count(),
+        super::timing::roll(),
+    ))
 }
 
 /// How long until she has seen `text` and read it: at once, near enough,
 /// while they are talking; later when she is busy with something of her
 /// own, or (where `may_sleep`) asleep.
 pub fn until_seen(in_talk: bool, may_sleep: bool, text: &str) -> Duration {
-    let at = super::timing::where_she_is(in_talk, may_sleep);
-    let wait = super::timing::until_read(at, text);
+    use myriad_merope::timing;
+    let free_in = super::doing::current()
+        .map(|doing| (doing.ends - crate::clock::now()).num_seconds() as f64);
+    let at = timing::where_she_is(in_talk, may_sleep, super::timing::asleep_now(), free_in);
+    let wait = Duration::from_secs_f64(timing::until_read(
+        at,
+        text.chars().count(),
+        super::timing::roll(),
+        super::timing::roll(),
+    ));
     tracing::info!(
         ?at,
         seconds = wait.as_secs(),
@@ -48,9 +86,31 @@ pub fn until_seen(in_talk: bool, may_sleep: bool, text: &str) -> Duration {
 }
 
 /// Whether her draft, written to `said`, still fits now that `came` arrived
-/// while she wrote it (who, what, oldest first).
+/// while she wrote it (who, what, oldest first): asked only when something
+/// came; no answer in time, it goes, as it would have before she looked.
 pub async fn still_fits(owner: i32, said: &str, draft: &str, came: &[(String, String)]) -> bool {
-    super::draft::still_fits(owner, said, draft, came).await
+    use myriad_merope::draft;
+    if !draft::asks(came) {
+        return true;
+    }
+    let answer = super::call::Ask::new(super::call::Voice::Judge, owner, "draft_still")
+        .within(Duration::from_secs(draft::LOOK_WITHIN_SECONDS))
+        .json_raw(
+            &draft::system(),
+            &draft::input(said, draft, came),
+            draft::SCHEMA_NAME,
+            &draft::schema(),
+        )
+        .await
+        .ok();
+    let send = draft::send(answer.as_deref());
+    tracing::info!(
+        owner,
+        came = came.len(),
+        send,
+        "[Merope] looked at what she wrote again"
+    );
+    send
 }
 
 /// A private chat typed on the site, a message at a time as in a chat app:
@@ -162,17 +222,23 @@ pub(crate) async fn after_cut(
 /// `began`, for the first), and each goes as a message of its own. A
 /// message of theirs meanwhile cuts this off from outside (see `turn`).
 pub(in crate::services::agent) async fn type_out(
-    messages: &[String],
+    messages: &[Typed],
     began: Option<Instant>,
     first_of_turn: bool,
     tx: &Sender<AgentProgressEvent>,
     delivery: Option<&std::sync::Mutex<super::super::motion_overlay::ChatMotionDelivery>>,
 ) {
-    for (index, message) in messages.iter().enumerate() {
-        let typing = typing(message);
+    for (
+        index,
+        Typed {
+            text: message,
+            typing,
+        },
+    ) in messages.iter().enumerate()
+    {
         let left = match began {
             Some(began) if index == 0 => typing.saturating_sub(began.elapsed()),
-            _ => typing,
+            _ => *typing,
         };
         let _ = tx.send(AgentProgressEvent::Typing).await;
         tokio::time::sleep(left).await;
@@ -252,11 +318,15 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn each_message_is_typed_then_goes_on_its_own() {
         let (tx, mut rx) = tokio::sync::mpsc::channel(16);
-        let messages = vec!["嗯".to_string(), "周六可以".to_string()];
+        let messages = goes_out("嗯\n周六可以。", None);
+        // Two lines go as written, typed the way people type in chat apps.
+        let texts: Vec<&str> = messages.iter().map(|m| m.text.as_str()).collect();
+        assert_eq!(texts, ["嗯", "周六可以"]);
         let began = tokio::time::Instant::now();
         type_out(&messages, None, true, &tx, None).await;
-        // Typing took time: about as long as typing them does.
-        assert!(began.elapsed() >= Duration::from_secs(1));
+        // Typing took as long as typing them does.
+        let typing: Duration = messages.iter().map(|m| m.typing).sum();
+        assert!(typing >= Duration::from_secs(1) && began.elapsed() >= typing);
         drop(tx);
         let mut seen = Vec::new();
         while let Some(event) = rx.recv().await {

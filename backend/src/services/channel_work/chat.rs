@@ -362,13 +362,13 @@ async fn answer(
     let mut sent_any = false;
     // What they sent while she wrote it, already weighed.
     let mut looked = 0;
-    for (index, line) in chat_typing::messages_of(message, room.as_ref())
-        .into_iter()
-        .enumerate()
+    for (index, chat_typing::Typed { text: line, typing }) in
+        chat_typing::goes_out(message, room.as_ref())
+            .into_iter()
+            .enumerate()
     {
         // Typing takes as long as it takes; the first she was already at
         // while she thought.
-        let typing = chat_typing::typing(&line);
         let left = if index == 0 {
             typing.saturating_sub(began.elapsed())
         } else {

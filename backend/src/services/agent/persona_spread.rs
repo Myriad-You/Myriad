@@ -35,7 +35,7 @@ use serde_json::{Value, json};
 
 use super::chat_prompt;
 use super::merope::onboarding_ai::suggest_persona_with_system;
-use super::merope::onboarding_prompts::PERSONA_SYSTEM_PROMPT;
+use myriad_merope::onboarding_prompts::PERSONA_SYSTEM_PROMPT;
 use super::merope::report_dna::persona_pool_labels;
 
 

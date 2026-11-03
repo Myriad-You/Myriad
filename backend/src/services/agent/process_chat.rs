@@ -157,6 +157,13 @@ impl Agent {
             Vec::new()
         };
         if !carried.is_empty() {
+            let carried: Vec<_> = carried
+                .iter()
+                .map(|text| super::merope::chat_typing::Typed {
+                    text: text.clone(),
+                    typing: super::merope::chat_typing::typing(text),
+                })
+                .collect();
             super::merope::chat_typing::type_out(
                 &carried,
                 None,
@@ -208,7 +215,8 @@ impl Agent {
                 .as_ref()
                 .and_then(|ctx| ctx.conversation_history.as_deref())
                 .and_then(crate::services::agent::merope::their_typing);
-            let sent = super::merope::chat_typing::messages_of(&reply, room.as_ref());
+            let sent = super::merope::chat_typing::goes_out(&reply, room.as_ref());
+            let texts: Vec<String> = sent.iter().map(|typed| typed.text.clone()).collect();
             if let Some(session_id) = request
                 .context
                 .as_ref()
@@ -221,7 +229,7 @@ impl Agent {
                     super::turn::Draft {
                         said: request.raw_input.clone(),
                         reply: reply.clone(),
-                        messages: sent.clone(),
+                        messages: texts.clone(),
                     },
                 )
                 .await;
@@ -240,7 +248,7 @@ impl Agent {
                     .unwrap_or_else(|p| p.into_inner())
                     .finish(&progress_tx);
             }
-            sent.join("\n")
+            texts.join("\n")
         } else {
             reply
         };

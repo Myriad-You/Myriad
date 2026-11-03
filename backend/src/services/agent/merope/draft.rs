@@ -1,10 +1,8 @@
-//! Before what she wrote goes out (see `myriad_merope::draft`): whether it
-//! still fits, asked only when something came while she wrote it.
+//! What her group mind asks of a model, and the look before what she wrote
+//! goes out on the site's judgment model (the look itself is
+//! `chat_typing::still_fits`, its words `myriad_merope::draft`).
 
 use std::time::Duration;
-
-/// Someone is waiting on her answer: a quick look, not a second thought.
-const LOOK_FOR: Duration = Duration::from_secs(8);
 
 /// What her group mind asks of a model (see `myriad_merope::group`): its
 /// prompt as the core put it, in the voice it names, billed to `owner`; a
@@ -86,35 +84,6 @@ pub async fn ask(
     }
 }
 
-/// Whether `draft`, her answer to `said`, still fits now that `came` arrived
-/// while she wrote it (who, what, oldest first). Nothing came: it does. No
-/// answer in time: it goes, as it would have before she looked.
-pub async fn still_fits(owner: i32, said: &str, draft: &str, came: &[(String, String)]) -> bool {
-    if came.is_empty() {
-        return true;
-    }
-    let answer = super::call::Ask::new(super::call::Voice::Judge, owner, "draft_still")
-        .within(LOOK_FOR)
-        .json_raw(
-            &myriad_merope::draft::system(),
-            &myriad_merope::draft::input(said, draft, came),
-            myriad_merope::draft::SCHEMA_NAME,
-            &myriad_merope::draft::schema(),
-        )
-        .await;
-    let send = answer
-        .ok()
-        .and_then(|raw| myriad_merope::draft::parse(&raw))
-        .unwrap_or(true);
-    tracing::info!(
-        owner,
-        came = came.len(),
-        send,
-        "[Merope] looked at what she wrote again"
-    );
-    send
-}
-
 /// The look on the site's judgment model, a few times each: held back when
 /// the talk moved past it, sent when what came does not touch it.
 /// `cargo test -p myriad-backend --bin myriad-backend -- --ignored
@@ -124,9 +93,11 @@ pub async fn still_fits(owner: i32, said: &str, draft: &str, came: &[(String, St
 #[ignore = "reads the site's database and asks its judgment model"]
 async fn draft_still_on_the_sites_model() {
     let _db = crate::services::agent::semantic_eval::load_configured_lite().await;
-    let judge = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(LOOK_FOR))
-        .await
-        .expect("judgment model");
+    let judge = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(
+        Duration::from_secs(myriad_merope::draft::LOOK_WITHIN_SECONDS),
+    ))
+    .await
+    .expect("judgment model");
     let cases: [(&str, &str, &[(&str, &str)], bool); 4] = [
         (
             "周六几点集合",

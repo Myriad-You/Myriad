@@ -1,5 +1,5 @@
 //! Onboarding helpers: strict-Lite name roll; Pro persona draft and visual design.
-//! Prompts live in `onboarding_prompts`.
+//! Prompts live in `myriad_merope::onboarding_prompts`.
 
 use serde_json::{Map, Value, json};
 use std::time::Duration;
@@ -16,7 +16,7 @@ use crate::services::gemini_media;
 use crate::services::http_client::get_long_running_client;
 use crate::services::image_generation::ImageReference;
 
-use super::onboarding_prompts::{
+use myriad_merope::onboarding_prompts::{
     IMPORT_PERSONA_SYSTEM_PROMPT, PERSONA_SYSTEM_PROMPT, name_system_prompt,
     observe_portrait_visual_prompt, visual_design_system_prompt,
 };
