@@ -165,6 +165,60 @@ async fn settle_session(
     lasting
 }
 
+/// One session the settle way as weeks go by: each of their lines taken as
+/// a short note, what she said kept as it is, and the session gone over
+/// once it is over. The short notes themselves are not kept: by the next
+/// session they are settled or fading. The lasting facts kept, with their
+/// evidence.
+pub(super) async fn over_time(
+    db: &sea_orm::DatabaseConnection,
+    judge: &crate::services::analyzer::AiAnalyzer,
+    user_id: i32,
+    present: &Audience,
+    session_at: chrono::DateTime<chrono::FixedOffset>,
+    turns: &[Turn],
+) -> Vec<(String, String)> {
+    let mut notes: Vec<String> = Vec::new();
+    for (index, turn) in turns.iter().enumerate() {
+        if turn.role != "user" {
+            continue;
+        }
+        let reply = turns
+            .get(index + 1)
+            .filter(|next| next.role == "assistant")
+            .map(|next| next.content.as_str())
+            .unwrap_or("");
+        let at = session_at + chrono::Duration::minutes(index as i64);
+        let text: String = turn
+            .content
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let Some(updates) = note_turn(db, judge, user_id, present, &text, reply, at).await else {
+            continue;
+        };
+        notes.extend(
+            updates
+                .updates
+                .iter()
+                .filter_map(|update| update.fact.clone()),
+        );
+        let hers = super::super::chat_remember::ChatMemoryUpdates {
+            updates: Vec::new(),
+            said: updates.said,
+            put_onto: updates.put_onto,
+        };
+        if !hers.said.is_empty() || !hers.put_onto.is_empty() {
+            apply_at(db, user_id, present, at, &hers).await;
+        }
+    }
+    if notes.is_empty() {
+        return Vec::new();
+    }
+    let over_at = session_at + chrono::Duration::minutes(turns.len() as i64);
+    settle_session(db, judge, user_id, present, turns, &notes, over_at).await
+}
+
 /// What she knows of them for good, at most, shown beside a stretch (as
 /// production's `chat_remember::settle`).
 const SETTLE_KNOWN: usize = 40;

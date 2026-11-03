@@ -87,7 +87,7 @@ pub(super) async fn her_memory_on_longmemeval() {
 
 /// `MEROPE_MEMORY_BENCH_TIMES` (default 1): how many times each question
 /// is run, each time by someone new, written down again from the start.
-fn times() -> usize {
+pub(super) fn times() -> usize {
     std::env::var("MEROPE_MEMORY_BENCH_TIMES")
         .ok()
         .and_then(|value| value.parse().ok())

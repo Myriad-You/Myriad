@@ -46,6 +46,7 @@ mod memes;
 mod probes;
 mod settle;
 mod since_up;
+mod weeks;
 mod wishing;
 
 use answering::{Answered, answer_one, recalled_for};
@@ -321,6 +322,49 @@ async fn apply_at(
     Some(())
 }
 
+/// A session's turns kept as the site keeps a chat, a minute apart, for
+/// scrolling back through.
+async fn keep_chat(
+    db: &sea_orm::DatabaseConnection,
+    session: &str,
+    user_id: i32,
+    at: chrono::DateTime<chrono::FixedOffset>,
+    turns: &[Turn],
+    here: &Audience,
+) {
+    let context = here
+        .group_id()
+        .map(|group| json!({"mode": "chat", "venue": group}));
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO agent_sessions (id, user_id, message_count, archived, created_at, last_active_at, context) \
+         VALUES ($1, $2, $3, false, $4, $4, $5)",
+        [
+            session.into(),
+            user_id.into(),
+            (turns.len() as i32).into(),
+            at.into(),
+            context.into(),
+        ],
+    ))
+    .await
+    .unwrap();
+    for (index, turn) in turns.iter().enumerate() {
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO agent_messages (session_id, role, content, created_at) VALUES ($1, $2, $3, $4)",
+            [
+                session.into(),
+                turn.role.clone().into(),
+                turn.content.clone().into(),
+                (at + chrono::Duration::minutes(index as i64)).into(),
+            ],
+        ))
+        .await
+        .unwrap();
+    }
+}
+
 struct Outcome {
     written: bool,
     plain: Answered,
@@ -379,38 +423,7 @@ async fn run_one(
     sessions.sort_by_key(|(at, _, _)| *at);
     // The chat itself, as the site keeps it, for scrolling back through.
     for (number, (session_at, turns, here)) in sessions.iter().enumerate() {
-        let session = format!("{name}-{number}");
-        let context = here
-            .group_id()
-            .map(|group| json!({"mode": "chat", "venue": group}));
-        db.execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO agent_sessions (id, user_id, message_count, archived, created_at, last_active_at, context) \
-             VALUES ($1, $2, $3, false, $4, $4, $5)",
-            [
-                session.clone().into(),
-                user_id.into(),
-                (turns.len() as i32).into(),
-                (*session_at).into(),
-                context.into(),
-            ],
-        ))
-        .await
-        .unwrap();
-        for (index, turn) in turns.iter().enumerate() {
-            db.execute_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "INSERT INTO agent_messages (session_id, role, content, created_at) VALUES ($1, $2, $3, $4)",
-                [
-                    session.clone().into(),
-                    turn.role.clone().into(),
-                    turn.content.clone().into(),
-                    (*session_at + chrono::Duration::minutes(index as i64)).into(),
-                ],
-            ))
-            .await
-            .unwrap();
-        }
+        keep_chat(db, &format!("{name}-{number}"), user_id, *session_at, turns, here).await;
     }
     // What she already keeps of them, a week before they ask.
     if !question.memories.is_empty() {
