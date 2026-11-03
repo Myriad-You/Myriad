@@ -74,7 +74,7 @@ pub(crate) fn finish_security_headers(
             frame-ancestors {}; \
             frame-src 'none'; \
             worker-src 'self' blob:; \
-            manifest-src 'self'; \
+            manifest-src 'self' blob:; \
             upgrade-insecure-requests; ",
                 allowed_api_origins, frame_ancestors
             )
@@ -221,6 +221,7 @@ mod tests {
             .unwrap();
         assert!(csp.contains("frame-ancestors 'self'"));
         assert!(csp.contains("script-src 'self';"));
+        assert!(csp.contains("manifest-src 'self' blob:;"));
         assert_eq!(embed.get(header::X_FRAME_OPTIONS).unwrap(), "SAMEORIGIN");
 
         let mut dev = HeaderMap::new();

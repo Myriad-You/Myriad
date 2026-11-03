@@ -39,6 +39,9 @@ backend 生产策略一致：
 - `connect-src` 默认 `'self' https: wss: stun: turn:`（与 backend 生产默认一致，含声网 RTC），
   再加 `blob: data:`（TApp 沙箱的资源）。覆盖用 frontend 容器的 `FRONTEND_CSP_CONNECT_SRC`，
   **不读** `CSP_CONNECT_SRC`：compose 给 backend 的默认值不含 `wss:`，用在文档上会挡掉实时通话。
+- `manifest-src 'self' blob:`：站点品牌（名称、主题色、合成图标）的 manifest 由
+  `frontend/src/utils/pwa.ts` 在页面里拼成 `blob:` 挂上；只放 `'self'` 会被浏览器拦掉，
+  安装信息退回静态 `/manifest.webmanifest`。backend 生产策略同样放行。
 - 不发 `upgrade-insecure-requests`：自托管可以只走 HTTP，文档上加它会让整站资源失败。
   需要时在外层 TLS 入口自己加。
 - 开发服务器（Vite）与 `vite preview` 不发 CSP，开发时的 HMR 内联脚本不受影响。

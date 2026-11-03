@@ -47,6 +47,7 @@ export const DEFAULT_CSP_CONNECT_SRC = "'self' https: wss: stun: turn:"
  * 它的脚本是运行时拼的，只能带同一个 nonce 通过；统计脚本（GA、站长填的 Umami 地址）由
  * 我们自己的脚本插入，靠 'strict-dynamic' 放行。'self' 只给不认 'strict-dynamic' 的旧浏览器。
  * connect-src / media-src 的 blob: data: 也是给 TApp 的（它自己的策略只放这两种）。
+ * manifest-src 的 blob: 给 pwa.ts 拼的站点品牌 manifest（名称、主题色、按 Logo 缩放合成的图标）。
  * 不发 upgrade-insecure-requests：自托管可能只有 HTTP，文档上加它整站资源都会失败。
  */
 export function documentContentSecurityPolicy({ nonce, embed, connectSrc = DEFAULT_CSP_CONNECT_SRC }) {
@@ -65,7 +66,7 @@ export function documentContentSecurityPolicy({ nonce, embed, connectSrc = DEFAU
     `frame-ancestors ${embed ? "'self'" : "'none'"}`,
     "frame-src 'self'",
     "worker-src 'self' blob:",
-    "manifest-src 'self'",
+    "manifest-src 'self' blob:",
   ].join('; ')
 }
 
