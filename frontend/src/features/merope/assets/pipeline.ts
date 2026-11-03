@@ -49,6 +49,7 @@ export async function preflightRigPsdAsset(
   sourceGenerationFingerprint?: string,
   signal?: AbortSignal,
   expressions?: RigPsdImportOptions['expressions'],
+  armVariants?: RigPsdImportOptions['armVariants'],
 ): Promise<RigAssetPreflight> {
   // Bound to the joints found on the worn bust, when that is this portrait.
   const skeleton = await getSiteSkeleton()
@@ -57,7 +58,7 @@ export async function preflightRigPsdAsset(
     sourceMasterAssetId,
     {
       prepare: (psd, options) =>
-        prepareSitePsd(psd, { ...options, profile: 'bust', skeleton: skeleton ?? undefined }),
+        prepareSitePsd(psd, { ...options, profile: 'bust', skeleton: skeleton ?? undefined, armVariants }),
       preview: previewMeropeRigImport,
     },
     onStage,

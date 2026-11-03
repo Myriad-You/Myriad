@@ -286,6 +286,16 @@ export function MotionPanel({
           'accentSparkle',
           'accentBlush',
         ])}
+        {sliderCluster(labels.clusterGestures, [
+          'handWaveL',
+          'handPointL',
+          'handChestL',
+          'handChinL',
+          'handWaveR',
+          'handPointR',
+          'handChestR',
+          'handChinR',
+        ])}
       </SettingGroup>
       <SettingGroup
         title={labels.hairBodyGroup}

@@ -203,7 +203,7 @@ pub(super) fn parse_upright_check(raw: &str) -> Result<UprightCheck, OnboardingA
 
 /// The two pictures at one height, left and right, on white: one image any
 /// vision provider takes.
-fn side_by_side(left: &[u8], right: &[u8]) -> Option<Vec<u8>> {
+pub(super) fn side_by_side(left: &[u8], right: &[u8]) -> Option<Vec<u8>> {
     use image::{GenericImage, ImageFormat, Rgba, RgbaImage, imageops::FilterType};
     let fit = |bytes: &[u8]| {
         let picture = image::load_from_memory(bytes).ok()?;

@@ -22,10 +22,12 @@ use super::onboarding_prompts::{
 };
 use super::report_dna::sanitize_onboarding_tags_for_language;
 
+mod arms;
 mod names;
 mod upright;
 mod vision;
 
+pub use arms::*;
 pub use names::*;
 pub use upright::*;
 pub use vision::*;

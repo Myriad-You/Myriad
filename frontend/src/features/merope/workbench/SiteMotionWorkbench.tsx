@@ -41,6 +41,7 @@ import { portraitUploads } from './portraitUploads'
 import { activeRigMode } from './rigMode'
 import { useAddressee } from './useAddressee'
 import { useAiExpressions } from './useAiExpressions'
+import { useArmVariants } from './useArmVariants'
 import { useFullBodyStage } from './useFullBodyStage'
 import { usePersonaRestore } from './usePersonaRestore'
 import { usePersonaWardrobe } from './usePersonaWardrobe'
@@ -112,6 +113,7 @@ export default function SiteMotionWorkbench({
   )
   const seeThrough = useSeeThroughToken(t.merope.seeThroughStatusFailed)
   const aiExpressions = useAiExpressions(portraitUrl)
+  const armVariants = useArmVariants(portraitUrl)
   // The stage plays the worn bust, or any full-body set in the wardrobe.
   const fullBody = useFullBodyStage(wardrobeItems, persona.activeFullBodyId)
   const staged = fullBody.staged
@@ -164,12 +166,13 @@ export default function SiteMotionWorkbench({
   }, [adopt, forget, hydrateAddressee, setStickerUrl])
 
   const { references: expressionReferences } = aiExpressions
+  const { references: armVariantReferences } = armVariants
   const preflightRigPsd = useCallback(
     async (
       file: File,
       onStage: NonNullable<Parameters<typeof preflightRigPsdAsset>[2]>,
       signal?: AbortSignal,
-      options?: { aiExpressions?: boolean },
+      options?: { aiExpressions?: boolean; armVariants?: boolean },
     ) => {
       if (!portraitUrl) throw new Error(t.merope.assetNeedsPortrait)
       return preflightRigPsdAsset(
@@ -178,11 +181,12 @@ export default function SiteMotionWorkbench({
         onStage,
         generationFingerprint || undefined,
         signal,
-        // The redrawn expressions belong to the enhanced rig only.
+        // The redrawn expressions and gesture arms belong to the enhanced rig only.
         options?.aiExpressions ? expressionReferences() : [],
+        options?.armVariants ? armVariantReferences() : [],
       )
     },
-    [expressionReferences, generationFingerprint, portraitUrl, t.merope.assetNeedsPortrait],
+    [armVariantReferences, expressionReferences, generationFingerprint, portraitUrl, t.merope.assetNeedsPortrait],
   )
 
   const decomposeRigPsd = useCallback(async (
@@ -584,6 +588,10 @@ export default function SiteMotionWorkbench({
           aiExpressionsReady={aiExpressions.ready.length > 0}
           aiExpressionsDrawing={aiExpressions.drawing}
           awaitAiExpressions={aiExpressions.settled}
+          onGenerateArmVariants={portraitUrl ? armVariants.generate : undefined}
+          armVariantsReady={armVariants.ready}
+          armVariantsDrawing={armVariants.drawing}
+          awaitArmVariants={armVariants.settled}
           activeRigMode={activeRigMode(rigManifest, portraitUrl)}
           motionEnabled={motionEnabled}
           stageSwitch={

@@ -10,6 +10,7 @@ import {
   SettingTitleTag,
 } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'
+import { ARM_VARIANT_KEYS } from '../armVariantsApi'
 import { enhancePlanOf } from './enhanceEstimate'
 import { EnhanceProgress } from './EnhanceProgress'
 import { FaceTabs } from './FaceTabs'
@@ -274,6 +275,31 @@ export function RigImportPanel({
               {rig.aiExpressionsError}
             </p>
           ) : null}
+          {rig.armsOffered ? (
+            <CheckboxItem
+              itemKey="rig-enhance-arms"
+              label={labels.rigEnhanceArms}
+              description={labels.rigEnhanceArmsHint}
+              value={rig.enhanceArms}
+              onChange={rig.setEnhanceArms}
+              disabled={importing}
+            />
+          ) : null}
+          {/* Being drawn shows even unchosen: begun before a reload, or in another tab. */}
+          {rig.armsOffered && (rig.enhanceArms || rig.armVariantsBusy) ? (
+            <p className="merope-motion-rig__hint" role={rig.armVariantsBusy ? 'status' : undefined}>
+              {rig.armVariantsBusy
+                ? labels.armVariantsGenerating
+                : rig.armVariantsReady > 0
+                  ? format(labels.armVariantsReady, { count: rig.armVariantsReady, total: ARM_VARIANT_KEYS.length })
+                  : labels.armVariantsNone}
+            </p>
+          ) : null}
+          {rig.armVariantsError ? (
+            <p className="merope-motion-rig__hint" role="alert">
+              {rig.armVariantsError}
+            </p>
+          ) : null}
           <span className="merope-turn-archives__actions">
             {decomposeButton}
             {canGenerateAiExpressions && (rig.enhanceExpressions || rig.aiExpressionsBusy) && aiExpressions.length > 0 ? (
@@ -288,6 +314,20 @@ export function RigImportPanel({
                 {rig.aiExpressionsBusy
                   ? labels.aiExpressionsGenerating
                   : labels.aiExpressionsRegenerate}
+              </SettingsButton>
+            ) : null}
+            {rig.armsOffered && (rig.enhanceArms || rig.armVariantsBusy) && rig.armVariantsReady > 0 ? (
+              <SettingsButton
+                type="button"
+                size="sm"
+                disabled={rig.armVariantsBusy || importing}
+                loading={rig.armVariantsBusy}
+                confirm={labels.armVariantsConfirm}
+                onClick={() => void rig.generateArmVariants()}
+              >
+                {rig.armVariantsBusy
+                  ? labels.armVariantsGenerating
+                  : labels.armVariantsRegenerate}
               </SettingsButton>
             ) : null}
           </span>

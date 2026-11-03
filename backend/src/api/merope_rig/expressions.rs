@@ -83,7 +83,7 @@ fn producer_prefix(portrait_asset_id: &str, kind: &str) -> String {
     format!("merope-expression:{portrait}:{kind}:")
 }
 
-async fn current_portrait(db: &DatabaseConnection) -> ApiResult<String> {
+pub(super) async fn current_portrait(db: &DatabaseConnection) -> ApiResult<String> {
     merope::get_persona(db)
         .await
         .map_err(internal_error)?
@@ -93,7 +93,7 @@ async fn current_portrait(db: &DatabaseConnection) -> ApiResult<String> {
         .ok_or_else(portrait_required)
 }
 
-fn portrait_required() -> ApiError {
+pub(super) fn portrait_required() -> ApiError {
     (
         StatusCode::CONFLICT,
         Json(json!({

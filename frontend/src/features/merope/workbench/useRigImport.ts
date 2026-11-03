@@ -69,7 +69,7 @@ export interface RigImportSource {
     file: File,
     onStage: (event: RigAssetCompileEvent) => void,
     signal?: AbortSignal,
-    options?: { aiExpressions?: boolean },
+    options?: { aiExpressions?: boolean; armVariants?: boolean },
   ) => Promise<RigAssetPreflight>
   onCommitRigPsd: (
     preflight: RigAssetPreflight,
@@ -83,6 +83,14 @@ export interface RigImportSource {
   aiExpressionsDrawing?: boolean
   /** Resolves once the server draws none of the expressions any more. */
   awaitAiExpressions?: () => Promise<void>
+  /** Draws the gesture arms the portrait lacks (all again with `again`); absent where they are not offered (full body). */
+  onGenerateArmVariants?: (again?: boolean) => Promise<void>
+  /** How many gesture arms the current portrait has already. */
+  armVariantsReady?: number
+  /** Gesture arms being drawn on the server, begun before a reload or in another tab. */
+  armVariantsDrawing?: boolean
+  /** Resolves once the server draws none of the gesture arms any more. */
+  awaitArmVariants?: () => Promise<void>
 }
 
 /**
@@ -104,6 +112,10 @@ export function useRigImport({
   aiExpressionsReady = false,
   aiExpressionsDrawing = false,
   awaitAiExpressions,
+  onGenerateArmVariants,
+  armVariantsReady = 0,
+  armVariantsDrawing = false,
+  awaitArmVariants,
 }: RigImportSource) {
   const { t } = useI18n()
   const labels = t.merope
@@ -138,18 +150,24 @@ export function useRigImport({
   const [aiExpressionsError, setAiExpressionsError] = useState<string | null>(
     null,
   )
+  const [armVariantsBusy, setArmVariantsBusy] = useState(false)
+  const [armVariantsError, setArmVariantsError] = useState<string | null>(null)
   const [mode, setMode] = useState<RigMode>('plain')
   // What the enhanced rig adds; the body's keys and the expressions only where they are offered.
   const [enhanceTurn, setEnhanceTurn] = useState(true)
   const [enhanceBody, setEnhanceBody] = useState(true)
   const [enhanceExpressions, setEnhanceExpressions] = useState(Boolean(onGenerateAiExpressions))
   const expressionsOffered = Boolean(onGenerateAiExpressions)
+  const [enhanceArms, setEnhanceArms] = useState(Boolean(onGenerateArmVariants))
+  const armsOffered = Boolean(onGenerateArmVariants)
   const enhanceParts: EnhanceParts = { head: enhanceTurn, body: bodyKeysOffered && enhanceBody }
   const enhanceChosen = enhanceParts.head || enhanceParts.body || (expressionsOffered && enhanceExpressions)
-  // The PSD last preflighted here, and whether with the redrawn expressions,
-  // so fresh expressions can be tried on it at once.
+    || (armsOffered && enhanceArms)
+  // The PSD last preflighted here, and whether with the redrawn expressions
+  // and the gesture arms, so fresh ones can be tried on it at once.
   const lastRigPsdRef = useRef<File | null>(null)
   const lastWithExpressionsRef = useRef(false)
+  const lastWithArmsRef = useRef(false)
   const importAbortRef = useRef<AbortController | null>(null)
   const failRigImport = (message: string) => {
     setError(message)
@@ -206,10 +224,11 @@ export function useRigImport({
     }))
   }
 
-  const preflightPsd = async (file: File, aiExpressions = false) => {
+  const preflightPsd = async (file: File, aiExpressions = false, armVariants = false) => {
     if (importing || !sourceMasterAssetId) return
     lastRigPsdRef.current = file
     lastWithExpressionsRef.current = aiExpressions
+    lastWithArmsRef.current = armVariants
     const controller = new AbortController()
     importAbortRef.current = controller
     setOperation('manual')
@@ -223,7 +242,7 @@ export function useRigImport({
           if (!controller.signal.aborted) recordStage(event)
         },
         controller.signal,
-        { aiExpressions },
+        { aiExpressions, armVariants },
       )
       controller.signal.throwIfAborted()
       setPreflight(imported)
@@ -253,18 +272,19 @@ export function useRigImport({
     }
   }
 
-  /** Preflights what a split made, with the redrawn expressions when they were chosen. */
-  const preflightSplit = async (file: File, expressions: boolean, controller: AbortController) => {
+  /** Preflights what a split made, with the redrawn expressions and gesture arms when they were chosen. */
+  const preflightSplit = async (file: File, expressions: boolean, arms: boolean, controller: AbortController) => {
     setDecomposeStatus(null)
     controller.signal.throwIfAborted()
     lastRigPsdRef.current = file
     lastWithExpressionsRef.current = expressions
+    lastWithArmsRef.current = arms
     const imported = await onPreflightRigPsd(file,
       (event) => {
         if (!controller.signal.aborted) recordStage(event)
       },
       controller.signal,
-      { aiExpressions: expressions },
+      { aiExpressions: expressions, armVariants: arms },
     )
     controller.signal.throwIfAborted()
     setPreflight(imported)
@@ -312,10 +332,15 @@ export function useRigImport({
         }, controller.signal)
         if (!file || controller.signal.aborted) return
         pick()
-        // Expressions still being drawn (begun before the reload) go in once done.
-        await awaitAiExpressions?.()
+        // Expressions and gesture arms still being drawn (begun before the reload) go in once done.
+        await Promise.all([awaitAiExpressions?.(), awaitArmVariants?.()])
         if (controller.signal.aborted) return
-        await preflightSplit(file, expressionsOffered && enhanceExpressions && aiExpressionsReadyRef.current, controller)
+        await preflightSplit(
+          file,
+          expressionsOffered && enhanceExpressions && aiExpressionsReadyRef.current,
+          armsOffered && enhanceArms,
+          controller,
+        )
       } catch (reason) {
         if (controller.signal.aborted || !picked) return
         failSplit(reason)
@@ -344,7 +369,8 @@ export function useRigImport({
     const turn = enhanced && (enhanceTurn || fromArchive !== undefined)
     const body = enhanced && enhanceParts.body && fromArchive === undefined
     const expressions = enhanced && expressionsOffered && enhanceExpressions
-    if (!enhanced || (!turn && !body && !expressions)) return
+    const arms = enhanced && armsOffered && enhanceArms
+    if (!enhanced || (!turn && !body && !expressions && !arms)) return
     const controller = new AbortController()
     importAbortRef.current = controller
     setOperation('decompose')
@@ -369,8 +395,16 @@ export function useRigImport({
       const redraw = expressions && !aiExpressionsReady && onGenerateAiExpressions
         ? onGenerateAiExpressions()
         : Promise.resolve()
-      const [file] = await Promise.all([split, redraw])
-      await preflightSplit(file, expressions, controller)
+      // Only the gestures this portrait lacks are drawn. None drawn does not
+      // throw the split away: the rig goes in with the ones it has.
+      setArmVariantsError(null)
+      const gestures = arms && onGenerateArmVariants
+        ? onGenerateArmVariants().catch((reason: unknown) => {
+            setArmVariantsError(userFacingError(reason, labels.armVariantsFailed))
+          })
+        : Promise.resolve()
+      const [file] = await Promise.all([split, redraw, gestures])
+      await preflightSplit(file, expressions, arms, controller)
     } catch (reason) {
       if (controller.signal.aborted) return
       failSplit(reason)
@@ -399,11 +433,27 @@ export function useRigImport({
       await onGenerateAiExpressions()
       // Tried at once on the PSD last preflighted with expressions.
       const file = lastRigPsdRef.current
-      if (file && lastWithExpressionsRef.current && !importing) void preflightPsd(file, true)
+      if (file && lastWithExpressionsRef.current && !importing) void preflightPsd(file, true, lastWithArmsRef.current)
     } catch (reason) {
       setAiExpressionsError(userFacingError(reason, labels.aiExpressionsFailed))
     } finally {
       setAiExpressionsBusy(false)
+    }
+  }
+
+  const generateArmVariants = async () => {
+    if (armVariantsBusy || !onGenerateArmVariants) return
+    setArmVariantsBusy(true)
+    setArmVariantsError(null)
+    try {
+      await onGenerateArmVariants(true)
+      // Tried at once on the PSD last preflighted with gesture arms.
+      const file = lastRigPsdRef.current
+      if (file && lastWithArmsRef.current && !importing) void preflightPsd(file, lastWithExpressionsRef.current, true)
+    } catch (reason) {
+      setArmVariantsError(userFacingError(reason, labels.armVariantsFailed))
+    } finally {
+      setArmVariantsBusy(false)
     }
   }
 
@@ -470,6 +520,13 @@ export function useRigImport({
     aiExpressionsBusy: aiExpressionsBusy || aiExpressionsDrawing,
     aiExpressionsError,
     generateAiExpressions,
+    enhanceArms,
+    setEnhanceArms,
+    armsOffered,
+    armVariantsReady,
+    armVariantsBusy: armVariantsBusy || armVariantsDrawing,
+    armVariantsError,
+    generateArmVariants,
   }
 }
 
