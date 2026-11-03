@@ -101,7 +101,7 @@ test('hidden face and motion timeout leave a local floor without blocking text',
   const motion = source(
     '../../../../backend/src/services/agent/merope/motion.rs',
   )
-  assert.match(motion, /fn face_is_hidden/)
+  assert.match(motion, /moment\.face_hidden\(\)/)
   assert.match(motion, /MOTION_TOTAL_TIMEOUT/)
   assert.match(motion, /pub async fn refine_motion/)
   const overlay = source(
