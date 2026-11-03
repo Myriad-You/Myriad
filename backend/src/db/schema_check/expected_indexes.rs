@@ -668,6 +668,19 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             columns: vec!["user_id".into(), "created_at".into()],
             is_unique: false,
         },
+        // 「说过的话」账
+        IndexDef {
+            name: "idx_agent_speech_said_audience".into(),
+            table: "agent_speech_said".into(),
+            columns: vec!["audience".into(), "at".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_agent_speech_said_thing".into(),
+            table: "agent_speech_said".into(),
+            columns: vec!["thing".into(), "at".into()],
+            is_unique: false,
+        },
         // federation 索引
         IndexDef {
             name: "idx_remote_actors_domain".into(),

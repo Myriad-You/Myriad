@@ -144,6 +144,12 @@ pub struct SelfSnapshot {
     /// already heard from her, and whether they wrote back.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub said_unasked_lately: Vec<SaidUnasked>,
+    /// What she weighs about speaking up to them now, from the shared core
+    /// (`speech::facts`): why, what she said lately and whether they
+    /// answered, how long since they talked, her night, what she is doing.
+    /// When given, it carries what she said lately.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub speaking: Vec<String>,
     /// How she was after her last exchange with them, if a moment ago.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inner: Option<String>,

@@ -187,25 +187,6 @@ pub async fn first_words_said(
         .collect())
 }
 
-pub async fn recently_spoke_event(
-    db: &DatabaseConnection,
-    user_id: i32,
-    event_key: &str,
-    within_minutes: i64,
-) -> Result<bool, anyhow::Error> {
-    let Some(latest) = agent_proactive_messages::Entity::find()
-        .filter(agent_proactive_messages::Column::UserId.eq(user_id))
-        .filter(agent_proactive_messages::Column::EventKey.eq(event_key))
-        .order_by_desc(agent_proactive_messages::Column::CreatedAt)
-        .one(db)
-        .await?
-    else {
-        return Ok(false);
-    };
-    let age = crate::clock::now() - latest.created_at.with_timezone(&Utc);
-    Ok(age.num_minutes() < within_minutes)
-}
-
 pub async fn latest_open_session(
     db: &DatabaseConnection,
     user_id: i32,
@@ -225,18 +206,6 @@ pub async fn latest_open_session(
         session.id,
         session.last_active_at.with_timezone(&Utc),
     )))
-}
-
-pub async fn touch_proactive(
-    db: &DatabaseConnection,
-    user_id: i32,
-) -> Result<agent_addressee_state::Model, anyhow::Error> {
-    let state = get_or_create_state(db, user_id).await?;
-    let now = crate::clock::now().into();
-    let mut active: agent_addressee_state::ActiveModel = state.into();
-    active.last_proactive_at = Set(Some(now));
-    active.updated_at = Set(now);
-    Ok(active.update(db).await?)
 }
 
 /// Someone's own lines to her in chat, in private and in groups, newest

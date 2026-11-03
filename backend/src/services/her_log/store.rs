@@ -934,6 +934,62 @@ pub async fn forget(
     Ok(row)
 }
 
+/// Her row of the server's own, for something she did while her mind is
+/// here (a line she said: `speech.said`): written with the server's epoch,
+/// so only while the server holds the lease; refused when another side
+/// does, as that side writes her rows. The payload is checked as the log
+/// checks it and sealed beside the row, like any body the server keeps.
+#[allow(clippy::too_many_arguments)]
+pub async fn write_hers(
+    db: &DatabaseConnection,
+    root: &dyn keys::Root,
+    owner: &Owner,
+    audience: &str,
+    subject: Option<&str>,
+    object: &str,
+    kind: &str,
+    payload: &Value,
+) -> Result<Row, Error> {
+    Audience::parse(audience)?;
+    myriad_persona_log::payloads::check(kind, payload)?;
+    let grant = super::lease::current(db).await?;
+    if grant.holder != NODE {
+        return Err(Error::Refused("her mind is not on the server".into()));
+    }
+    let user = owner.user;
+    let txn = db.begin().await?;
+    lock(&txn, user, audience).await?;
+    let hlc = next_rev(&txn).await?;
+    let dseq = next_dseq(&txn, user, audience).await?;
+    let id = format!("site_{}", uuid::Uuid::new_v4().simple());
+    let row = Row {
+        version: LOG_VERSION,
+        id: id.clone(),
+        origin: NODE.to_string(),
+        author: Author::Her,
+        epoch: Some(grant.epoch),
+        dseq: Some(dseq),
+        hlc,
+        audience: audience.to_string(),
+        subject: subject.map(str::to_string),
+        object: object.to_string(),
+        kind: kind.to_string(),
+        payload: Some(myriad_persona_log::row::Payload {
+            reference: format!("blob:{id}"),
+            key: None,
+        }),
+        replicate: Replicate::Shared,
+        forgotten: false,
+        to: None,
+        takes: Vec::new(),
+    };
+    row.check()?;
+    insert(&txn, user, &row, NODE).await?;
+    keep_payload(&txn, root, user, &row, &canonical_bytes(payload)).await?;
+    txn.commit().await?;
+    Ok(row)
+}
+
 /// The owner's account for her log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

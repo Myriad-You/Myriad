@@ -1,4 +1,3 @@
-use chrono::Utc;
 use sea_orm::DatabaseConnection;
 
 use crate::services::agent::{AgentInteractionMode, get_user_permissions, merope, run_hub};
@@ -71,16 +70,16 @@ pub async fn capture_self_snapshot(
         live: super::presence::senses_presence(user_id),
         attention: super::attention::last_attention(user_id),
         myself: Some(merope::self_state::current(db).await.facts_view()),
-        minutes_since_you_spoke_unasked: state.last_proactive_at.map(|at| {
-            ((crate::clock::now() - at.with_timezone(&Utc))
-                .num_seconds()
-                .max(0) as f64
-                / 60.0
-                * 10.0)
-                .round()
-                / 10.0
+        minutes_since_you_spoke_unasked: crate::services::agent::speech::ledger::last_unasked_at(
+            db,
+            &crate::services::agent::speech::private(user_id),
+        )
+        .await
+        .map(|at| {
+            ((crate::clock::now() - at).num_seconds().max(0) as f64 / 60.0 * 10.0).round() / 10.0
         }),
         said_unasked_lately: said_unasked_lately(db, user_id).await,
+        speaking: Vec::new(),
         addressee_name: Some(merope::resolve_addressee_label(db, user_id).await)
             .filter(|name| !name.trim().is_empty()),
         inner: merope::inner::current(

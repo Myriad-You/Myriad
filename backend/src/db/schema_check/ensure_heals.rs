@@ -97,6 +97,14 @@ pub(crate) async fn ensure_agent_nodes_tables(db: &DatabaseConnection) -> Result
     Ok(())
 }
 
+/// What she said (`migrations/speech_said.sql`), for databases that ran 004
+/// before it was in it. Same file as 004.
+pub(crate) async fn ensure_speech_said_table(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(include_str!("../../../migrations/speech_said.sql"))
+        .await?;
+    Ok(())
+}
+
 /// When each memory would come to mind (`migrations/memory_cues.sql`), for
 /// databases that ran 004 before it was in it. Same file as 004.
 pub(crate) async fn ensure_memory_cues_table(db: &DatabaseConnection) -> Result<(), DbErr> {

@@ -10,7 +10,6 @@
 //!
 //! Produce does not write a sentence. Redeem does not call `consider_event`.
 
-mod delivery_claim;
 mod in_person;
 mod produce;
 mod redeem;
@@ -269,10 +268,10 @@ mod tests {
             .next()
             .unwrap();
         assert!(produce.contains("enqueue_speak_intent"));
-        assert!(!produce.contains("insert_proactive"));
+        assert!(!produce.contains("ledger::write("));
         assert!(!produce.contains("emit_speech_notification"));
         assert!(!produce.contains("direct_motion"));
-        assert!(redeem.contains("insert_proactive"));
+        assert!(redeem.contains("ledger::write("));
         assert!(redeem.contains("emit_speech_notification"));
         assert!(redeem.contains("emit_live_speech"));
         assert!(redeem.contains("direct_motion"));

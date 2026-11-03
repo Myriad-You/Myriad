@@ -944,6 +944,7 @@ fn event_context(case: &Case) -> (event::ConsciousnessEvent, event::SelfSnapshot
                 they_wrote_since: said.they_wrote_since,
             })
             .collect(),
+        speaking: vec![],
         inner: None,
         macs_for_work: vec![],
     };

@@ -5,9 +5,7 @@ use sea_orm::DatabaseConnection;
 use std::collections::BTreeMap;
 
 use super::super::gates::{decide_ingest, is_valuable_event, keeps_memory_of};
-use super::super::store::{
-    affect_from_state, get_or_create_state, recently_spoke_event, update_affect,
-};
+use super::super::store::{affect_from_state, get_or_create_state, update_affect};
 use super::super::{is_extremely_low, is_logged_in_addressee};
 use super::told::{Told, told_summary};
 use super::{
@@ -30,7 +28,10 @@ pub fn work_outcome_parent(
     }
 }
 
-pub fn stable_consciousness_event_id(user_id: i32, event_key: &str, summary: &str) -> String {
+/// What every event id of `event_key` for `user_id` begins with: the ledger
+/// keeps a line's event id as the thing it was about, so this finds what
+/// she said of that event, whichever window it fell in.
+pub(crate) fn event_thing_prefix(user_id: i32, event_key: &str) -> String {
     let key: String = event_key
         .chars()
         .map(|c| {
@@ -41,6 +42,11 @@ pub fn stable_consciousness_event_id(user_id: i32, event_key: &str, summary: &st
             }
         })
         .collect();
+    format!("evt_{user_id}_{key}_")
+}
+
+pub fn stable_consciousness_event_id(user_id: i32, event_key: &str, summary: &str) -> String {
+    let prefix = event_thing_prefix(user_id, event_key);
     let distinguisher = if is_work_outcome(event_key) {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -51,7 +57,7 @@ pub fn stable_consciousness_event_id(user_id: i32, event_key: &str, summary: &st
     } else {
         (crate::clock::now().timestamp() / (SAME_EVENT_MINUTES * 60)).to_string()
     };
-    format!("evt_{user_id}_{key}_{distinguisher}")
+    format!("{prefix}{distinguisher}")
 }
 
 pub fn spawn_presence(user_id: i32) {
@@ -81,9 +87,16 @@ pub fn spawn_presence(user_id: i32) {
         if !first_today && gap_hours < 12.0 {
             return;
         }
-        if recently_spoke_event(&db, user_id, "agent.merope.greeting", 12 * 60)
-            .await
-            .unwrap_or(true)
+        // Greeted them within half a day: not again (read from the ledger).
+        let greeting = "agent.merope.greeting";
+        if crate::services::agent::speech::ledger::last_about(
+            &db,
+            user_id,
+            &event_thing_prefix(user_id, greeting),
+            greeting,
+        )
+        .await
+        .is_some_and(|at| crate::clock::now() - at < chrono::Duration::hours(12))
         {
             return;
         }
@@ -210,7 +223,15 @@ pub(super) async fn take_in(
         if !live.face_visible || live.speaking || !decision.allow_model {
             return Ok(());
         }
-        if recently_spoke_event(db, user_id, event_key, 1).await? {
+        if crate::services::agent::speech::ledger::last_about(
+            db,
+            user_id,
+            &event_thing_prefix(user_id, event_key),
+            event_key,
+        )
+        .await
+        .is_some_and(|at| crate::clock::now() - at < chrono::Duration::minutes(1))
+        {
             return Ok(());
         }
     }

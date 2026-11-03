@@ -309,6 +309,16 @@ async fn persist_message_at(
 
     // 更新会话消息计数和最后活跃时间
     if let Ok(Some(session)) = agent_sessions::Entity::find_by_id(session_id).one(db).await {
+        if role == "assistant" {
+            said_in_private(
+                db,
+                &session,
+                content,
+                cited_metadata.as_ref(),
+                inserted.last_insert_id,
+            )
+            .await;
+        }
         let mut active: agent_sessions::ActiveModel = session.into();
         active.last_active_at = Set(now);
         if let Ok(count) = agent_messages::Entity::find()
@@ -322,6 +332,61 @@ async fn persist_message_at(
     }
 
     Ok(inserted.last_insert_id)
+}
+
+/// Her answer in a private chat, kept in the ledger of what she said
+/// (`speech`): called on, so it passed only the audience and the grants.
+/// Her lines said unasked are kept there by the path that said them
+/// (`unprompted`), and a group's by the group; a line that never went out
+/// (`cutOff: unsent`) is kept as not said.
+async fn said_in_private(
+    db: &DatabaseConnection,
+    session: &agent_sessions::Model,
+    content: &str,
+    metadata: Option<&Value>,
+    message_id: i32,
+) {
+    use crate::services::agent::chat_prompt::{CUT_OFF_KEY, CUT_OFF_UNSENT};
+    use crate::services::agent::speech::{self, Extent, Source, ledger};
+    let context = session.context.as_ref();
+    let private_chat = context
+        .and_then(|context| context.get("mode"))
+        .and_then(Value::as_str)
+        == Some("chat")
+        && context
+            .and_then(|context| context.get("venue"))
+            .is_none_or(Value::is_null);
+    let unprompted = metadata
+        .and_then(|metadata| metadata.get("unprompted"))
+        .and_then(Value::as_bool)
+        == Some(true);
+    if !private_chat || unprompted || session.user_id <= 0 {
+        return;
+    }
+    let cut = metadata
+        .and_then(|metadata| metadata.get(CUT_OFF_KEY))
+        .and_then(Value::as_str);
+    let mut out = ledger::Out::full("web", "chat")
+        .extent(if cut == Some(CUT_OFF_UNSENT) {
+            Extent::None
+        } else {
+            Extent::Full
+        })
+        .line(Some(message_id.to_string()));
+    out.interrupted = cut.is_some_and(|cut| cut != CUT_OFF_UNSENT);
+    ledger::write(
+        db,
+        ledger::Line {
+            to: &speech::private(session.user_id),
+            source: Source::Reply,
+            called: true,
+            thing: None,
+            text: content,
+        },
+        out,
+        None,
+    )
+    .await;
 }
 
 /// 加载会话历史消息作为对话上下文。

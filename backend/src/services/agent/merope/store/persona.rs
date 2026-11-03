@@ -320,6 +320,9 @@ where
         // Her own memories and the owner's private ones (vectors go with them).
         format!("DELETE FROM agent_memories WHERE {synced}"),
         "DELETE FROM agent_proactive_messages WHERE user_id = $1".to_string(),
+        // What she said to the owner in private (the ledger does not move
+        // with her yet: it goes across once her link speaks protocol 2).
+        "DELETE FROM agent_speech_said WHERE user_id = $1".to_string(),
         "DELETE FROM agent_diary WHERE user_id = $1".to_string(),
         "DELETE FROM agent_affect_events WHERE user_id = $1".to_string(),
         "DELETE FROM agent_affect_anchor WHERE user_id = $1".to_string(),
@@ -373,6 +376,8 @@ where
     memory_jobs::forget(db).await?;
     agent_proactive_messages::Entity::delete_many()
         .exec(db)
+        .await?;
+    db.execute_unprepared("DELETE FROM agent_speech_said")
         .await?;
     agent_diary::Entity::delete_many().exec(db).await?;
     // Everything the persona learned or lived goes with her: what she heard

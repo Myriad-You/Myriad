@@ -950,6 +950,18 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
+            name: "agent_speech_said".to_string(),
+            columns: vec![
+                ColumnDef::new("id", "character varying").not_null(),
+                ColumnDef::new("audience", "text").not_null(),
+                ColumnDef::new("user_id", "integer"),
+                ColumnDef::new("thing", "text"),
+                ColumnDef::new("called", "boolean").not_null(),
+                ColumnDef::new("at", "timestamp with time zone").not_null(),
+                ColumnDef::new("payload", "jsonb").not_null(),
+            ],
+        },
+        TableDef {
             name: "agent_memory_cues".to_string(),
             columns: vec![
                 ColumnDef::new("memory_id", "character varying").not_null(),

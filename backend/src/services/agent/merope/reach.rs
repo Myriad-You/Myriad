@@ -16,15 +16,19 @@
 //! - away otherwise: the same notification, waiting on the site.
 //!
 //! Only a few things are gates: they have not asked her not to (「别主动找
-//!我」, with its hours), she is awake by her own night (see `timing`), they
-//! are not in the middle of talking with her, and there is a reason. How
+//!我」, with its hours: the shared core's admission, `speech`), she is awake
+//! by her own night (see `timing`), they are not in the middle of talking
+//! with her, and there is a reason. How
 //! often she writes is not capped: the judgment model decides, as her, with
 //! the facts a friend would weigh (how long since they talked, what they
 //! are to her, when she last wrote first and whether they answered); most of
 //! the time she would not. The same reason is put to her once, in this run:
 //! after a restart it may be put again, with her last first words in front
-//! of her. If she would, she writes it in her own voice with their recent
-//! talk in front of her, and a thread of theirs she wrote about is taken up.
+//! of her; a reason she wrote about is in the ledger of what she said and is
+//! not written about again. If she would, she writes it in her own voice
+//! with their recent talk in front of her, and before it goes it is looked
+//! at again, as things stand then: where they are, the line itself. A
+//! thread of theirs she wrote about is taken up.
 
 use std::time::Duration;
 
@@ -33,6 +37,11 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::json;
 
 use super::threads;
+use crate::services::agent::speech::{
+    self, Extent, Source, Wish,
+    admit::{admit, facts, goes_on},
+    ledger::{self, Line, Out, Transcript},
+};
 use myriad_merope::reach::{
     JUDGE_SCHEMA, Reason, Route, THINKS_BACK_DAYS, as_text, judge_schema, judge_system,
     parse_judged, reason, route, writing_first,
@@ -71,7 +80,7 @@ pub async fn tick(db: DatabaseConnection) {
             crate::services::agent::consciousness::live_presence_panel_open(user_id),
             crate::services::agent::consciousness::present_users().contains(&user_id),
         );
-        if here == Route::Stay || !quiet_enough(&db, user_id).await {
+        if here == Route::Stay {
             continue;
         }
         if reach_out(&db, user_id, here).await {
@@ -103,13 +112,12 @@ fn asked_already(user_id: i32, reason: &Reason) -> bool {
     false
 }
 
-/// They have not asked her not to be disturbed. When she last wrote first
-/// and whether they answered are hers to weigh (`yourLastFirstWords`).
-async fn quiet_enough(db: &DatabaseConnection, user_id: i32) -> bool {
-    let Ok(state) = super::get_or_create_state(db, user_id).await else {
-        return false;
-    };
-    !super::effective_do_not_disturb(&state)
+/// Writing to them first about `reason`, as the shared core takes it.
+fn wish_for(user_id: i32, reason: &Reason) -> Wish {
+    let to = speech::private(user_id);
+    let mut wish = speech::wish(to.clone(), Source::Reach, reason.key(), to);
+    wish.thing = Some(format!("reach|{}", reason.key()));
+    wish
 }
 
 /// People who have talked with her in private lately.
@@ -166,7 +174,18 @@ async fn recent_talk(
 
 /// Whether she would write to them first now, and if so why, about what,
 /// and her line.
+#[cfg(test)]
 async fn first_words(db: &DatabaseConnection, user_id: i32) -> Option<(Reason, String, String)> {
+    first_words_as(db, user_id)
+        .await
+        .map(|(reason, about, line, _)| (reason, about, line))
+}
+
+/// [`first_words`], with what she meant to say as the core takes it.
+async fn first_words_as(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> Option<(Reason, String, String, Wish)> {
     let now = super::clock::now();
     let threads = threads::open(db, user_id).await;
     let last = last_talk(db, user_id).await;
@@ -181,12 +200,17 @@ async fn first_words(db: &DatabaseConnection, user_id: i32) -> Option<(Reason, S
     if asked_already(user_id, &reason) {
         return None;
     }
+    let wish = wish_for(user_id, &reason);
+    let admission = admit(db, &wish).await;
+    if !goes_on(&admission) {
+        return None;
+    }
     let talk = recent_talk(db, user_id).await;
-    let about = would_write(db, user_id, &reason, &talk).await?;
+    let about = would_write(db, user_id, &reason, &talk, facts(&admission)).await?;
     let own = puzzle.as_ref().map(|made| made.surface.as_str());
     let last_talked = last.map(|last| myriad_merope::doing::ago_text(now - last));
     let line = compose(db, user_id, &about, own, &talk, last_talked.as_deref()).await?;
-    Some((reason, about, line))
+    Some((reason, about, line, wish))
 }
 
 #[cfg(test)]
@@ -197,19 +221,59 @@ pub(super) async fn first_words_now(
     first_words(db, user_id).await
 }
 
-async fn reach_out(db: &DatabaseConnection, user_id: i32, here: Route) -> bool {
-    let Some((reason, _, line)) = first_words(db, user_id).await else {
+async fn reach_out(db: &DatabaseConnection, user_id: i32, _was: Route) -> bool {
+    let Some((reason, _, line, mut wish)) = first_words_as(db, user_id).await else {
         return false;
     };
-    let Some((went, said)) = deliver_first_words_as(db, user_id, here, &line).await else {
+    // Writing took a while: one line at a time to them, and then, as things
+    // stand now, where they are and whether this line may go.
+    let Some(_turn) =
+        speech::send::turn(user_id, &wish.to, speech::send::hand(Source::Reach, &line)).await
+    else {
         return false;
     };
-    if let Err(error) =
-        super::store::insert_proactive(db, user_id, &line, Some(EVENT_KEY), true, said.as_deref())
-            .await
-    {
-        tracing::warn!(%error, user_id, "[Merope] wrote to someone first but could not keep the line");
+    let here = route(
+        crate::services::agent::consciousness::live_presence_panel_open(user_id),
+        crate::services::agent::consciousness::present_users().contains(&user_id),
+    );
+    wish.text = Some(line.clone());
+    if here == Route::Stay || !goes_on(&admit(db, &wish).await) {
+        tracing::info!(user_id, "[Merope] her first words no longer fit; not sent");
+        return false;
     }
+    let went = deliver_first_words_as(db, user_id, here, &line).await;
+    let (place, exit) = match went.as_ref().map(|(went, _)| *went) {
+        Some("app") => ("app", "app"),
+        Some("site") | None => ("web", "notice"),
+        Some(platform) => (platform, "im"),
+    };
+    let said = went.as_ref().and_then(|(_, said)| said.clone());
+    ledger::write(
+        db,
+        Line {
+            to: &wish.to,
+            source: Source::Reach,
+            called: false,
+            thing: wish.thing.as_deref(),
+            text: &line,
+        },
+        Out::full(place, exit)
+            .extent(if went.is_some() {
+                Extent::Full
+            } else {
+                Extent::None
+            })
+            .line(said.clone()),
+        Some(Transcript {
+            event_key: EVENT_KEY,
+            notified: true,
+            say_id: said.as_deref(),
+        }),
+    )
+    .await;
+    let Some((went, _)) = went else {
+        return false;
+    };
     let taken: Vec<String> = reason.due.iter().map(|thread| thread.id.clone()).collect();
     threads::close(db, user_id, &taken, "reached_out").await;
     tracing::info!(user_id, went, "[Merope] wrote to someone first");
@@ -312,6 +376,7 @@ async fn would_write(
     user_id: i32,
     reason: &Reason,
     talk: &[crate::services::agent::ConversationMessage],
+    speaking: &[String],
 ) -> Option<String> {
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
@@ -367,6 +432,8 @@ async fn would_write(
         "remembered": remembered,
         "whatTheyAreToYou": super::bits::us(db, user_id).await.map(|us| us.now),
         "yourLastFirstWords": myriad_merope::others::first_words_view(&first_words),
+        // What she weighs about writing now, from the shared core.
+        "speaking": speaking,
         "yourOwnTime": {
             "now": super::doing::now_text(crate::clock::now()),
             "wouldTell": reason.to_tell,

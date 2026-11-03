@@ -637,6 +637,13 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .execute_unprepared(include_str!("agent_nodes.sql"))
             .await?;
 
+        // 她说过的话（`speech.said`），她的日志没开时记在站点上。
+        // schema_check::ensure_speech_said_table 跑同一份文件。
+        manager
+            .get_connection()
+            .execute_unprepared(include_str!("speech_said.sql"))
+            .await?;
+
         Ok(())
     }
 

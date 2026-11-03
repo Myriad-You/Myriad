@@ -131,9 +131,14 @@ pub async fn tick(db: DatabaseConnection) {
         let (last_thought, avoid) = recently_thought(user_id, now);
         let utc =
             |at: Option<chrono::DateTime<chrono::FixedOffset>>| at.map(|at| at.with_timezone(&Utc));
+        let spoke_up = crate::services::agent::speech::ledger::last_unasked_at(
+            &db,
+            &crate::services::agent::speech::private(user_id),
+        )
+        .await;
         if !quiet_enough(
             utc(state.last_user_message_at),
-            utc(state.last_proactive_at),
+            spoke_up,
             last_thought,
             myself.proactive_cooldown_secs(),
             now,

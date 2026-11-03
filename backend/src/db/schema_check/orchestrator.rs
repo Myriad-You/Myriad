@@ -73,7 +73,9 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// `agent_log_ledgers`，加伙伴 id `agent_log_partners`、别人的节点 `agent_log_elsewhere`、
 /// 整份下载的 `peer_abi`。旧形状的日志从没开过，`persona_log.sql` 只在表空时重建；
 /// 有行的旧表原样留着，她的日志拒绝打开（`her_log::admit`）。
-pub const SCHEMA_VERSION: &str = "2026.11.01.1";
+/// 2026.11.03.1：她说过的话 `agent_speech_said`（「说过的话」账，她的日志没开时记在站点上；
+/// `speech_said.sql`，随 004 与 `ensure_speech_said_table` 一起建）。
+pub const SCHEMA_VERSION: &str = "2026.11.03.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -333,6 +335,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     ensure_persona_log_tables(db).await?;
     ensure_memory_cues_table(db).await?;
     ensure_agent_nodes_tables(db).await?;
+    ensure_speech_said_table(db).await?;
     unlink_note_docs_without_article(db).await?;
     drop_retired_columns(db).await?;
     ensure_user_lifecycle(db).await?;
