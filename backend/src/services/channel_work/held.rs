@@ -10,8 +10,11 @@
 //! with it (D3-7). Nothing held expires: a row goes when she reads it, when
 //! its pairing is gone, or when the owner clears what is held (D3-4).
 //!
-//! Held while she lives on another end too (D3-6): from H4 the site hands
-//! it to that end instead (`lease::Where::Elsewhere`).
+//! Held while she lives on another end too (D3-6), unless her mind is on a
+//! PC that can think with it (its link speaks protocol 2): then it is lent
+//! there (`chat.lend`), the site answers nothing itself, and what she says
+//! back is sent here as her ([`say_lent`], `her_log::lend`). No link speaks
+//! protocol 2 yet, so for now it is always held.
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex as StdMutex};
@@ -102,6 +105,9 @@ pub(super) async fn hold(
         .ok()
         .filter(|id| !id.is_empty())
         .unwrap_or_else(|| format!("held:{}", uuid::Uuid::new_v4()));
+    if lend(db, platform, session_key, user_id, &inbound, text, images).await {
+        return;
+    }
     let result = db
         .execute_raw(statement(
             "INSERT INTO agent_channel_held \
@@ -124,6 +130,112 @@ pub(super) async fn hold(
         ),
         Err(error) => tracing::warn!(%error, %platform, "[Channel] could not hold what came"),
     }
+}
+
+/// Lines of the chat before the new one lent with it, at most.
+const RECENT: u64 = 20;
+
+/// Lend what came to her mind on a PC; whether it was (else it is held).
+/// Pictures do not go in a lend: what came with one is held for when she is
+/// back.
+async fn lend(
+    db: &DatabaseConnection,
+    platform: ChannelPlatform,
+    session_key: &str,
+    user_id: i32,
+    inbound: &str,
+    text: &str,
+    images: &[ChannelImageRef],
+) -> bool {
+    use crate::services::her_log::lend::{self as her, Place};
+    if !images.is_empty() || text.trim().is_empty() {
+        return false;
+    }
+    let Some(device) = her::mind_on_a_pc(db).await else {
+        return false;
+    };
+    let Ok(audience) = her::chat_audience(db, user_id).await else {
+        return false;
+    };
+    let chat_session = super::load_session(db, platform, session_key)
+        .await
+        .and_then(|stored| stored.chat_session_id);
+    let mut recent = Vec::new();
+    if let Some(chat_session) = &chat_session
+        && let Ok(lines) =
+            crate::services::agent::sessions::load_session_history(db, chat_session, RECENT, true)
+                .await
+    {
+        for (n, line) in lines.into_iter().enumerate() {
+            if !matches!(line.role.as_str(), "user" | "assistant") {
+                continue;
+            }
+            let at_ms = line
+                .created_at
+                .as_deref()
+                .and_then(|at| DateTime::parse_from_rfc3339(at).ok())
+                .map_or(0, |at| at.timestamp_millis());
+            recent.push(her::Message {
+                id: format!("{chat_session}#{n}"),
+                from: None,
+                name: None,
+                text: line.content,
+                at_ms,
+                to_her: false,
+                mine: line.role == "assistant",
+            });
+        }
+    }
+    let one = her::Message {
+        id: inbound.to_string(),
+        from: None,
+        name: None,
+        text: text.to_string(),
+        at_ms: crate::clock::now().timestamp_millis(),
+        to_her: true,
+        mine: false,
+    };
+    let place = Place::Chat {
+        user: user_id,
+        session_key: session_key.to_string(),
+    };
+    if !her::lend(&device, &audience, place, None, &[one], &recent) {
+        return false;
+    }
+    // Their line is kept in the chat, as a turn here keeps it.
+    if let Some(chat_session) = &chat_session {
+        let _ =
+            crate::services::agent::sessions::persist_user_message(db, chat_session, text).await;
+    }
+    true
+}
+
+/// Her line from her mind on a PC, sent in the chat `session_key` with
+/// `user_id` as she sends her own, and kept there as hers.
+pub(crate) async fn say_lent(
+    db: &DatabaseConnection,
+    user_id: i32,
+    session_key: &str,
+    text: &str,
+) -> Result<(), &'static str> {
+    let sink = super::chat_waiting::sink_for(db, user_id, session_key)
+        .await
+        .ok_or("the chat is not reachable")?;
+    sink.send_text(text).await.map_err(|_| "not sent")?;
+    if let Some(chat_session) = super::load_session(db, sink.platform(), session_key)
+        .await
+        .and_then(|stored| stored.chat_session_id)
+    {
+        let _ = crate::services::agent::sessions::persist_assistant_message(
+            db,
+            &chat_session,
+            None,
+            text,
+            None,
+        )
+        .await;
+    }
+    Ok(())
 }
 
 /// What was held in one chat, taken to be read now.

@@ -258,6 +258,10 @@ pub async fn record(message: &GroupLine) -> bool {
 pub async fn handle(message: GroupLine, token: String) {
     let venue = message.venue();
     note_token(&venue, &token);
+    // She is on a PC that can think with it: it is hers to answer there.
+    if lent::lend(&message).await {
+        return;
+    }
     let waiter = format!(
         "{venue}#{}",
         WAITER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -334,6 +338,21 @@ async fn whispered_on(
 pub fn notice(message: GroupLine, token: String) {
     let venue = message.venue();
     note_token(&venue, &token);
+    if away() && crate::services::her_log::lend::may_lend() {
+        tokio::spawn(async move {
+            if lent::lend(&message).await {
+                return;
+            }
+            let out = step(
+                &venue,
+                Event::Noticed {
+                    message: message.to_message(),
+                },
+            );
+            execute(venue, out.effects).await;
+        });
+        return;
+    }
     let out = step(
         &venue,
         Event::Noticed {

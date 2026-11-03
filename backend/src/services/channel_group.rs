@@ -67,6 +67,7 @@ mod first;
 pub(crate) mod g0;
 mod io;
 mod ledger;
+mod lent;
 mod line;
 mod mind;
 mod platform;
@@ -85,6 +86,7 @@ use turns::*;
 
 pub use first::{come_back, share_first};
 pub(crate) use ledger::talk_between;
+pub(crate) use lent::say_lent;
 pub use line::GroupLine;
 pub(crate) use mind::shown_as;
 pub use mind::{

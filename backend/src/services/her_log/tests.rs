@@ -24,7 +24,7 @@ use serde_json::{Value, json};
 use super::{
     NODE, Owner, Settings,
     keys::test_root::TestRoot,
-    lease, relay,
+    lease, lend, relay,
     relay::{Outgoing, To},
     store,
     test_partner::PARTNER,
@@ -993,6 +993,83 @@ async fn a_groups_rows_go_to_no_computer_and_come_back_only_from_her_mind() {
     .await
     .unwrap();
     assert_eq!(delivered(&outs[0])["body"]["code"], "bad_frame");
+    schema.drop().await;
+}
+
+/// What a group or a private chat says is lent only to the PC her mind is
+/// on, and only once its link speaks protocol 2 (none does yet): until then
+/// the site holds it as before. A say for a place never lent is answered
+/// with its code and nothing is sent; one from a device her mind is not on
+/// is refused by the contract.
+#[tokio::test]
+async fn chats_are_lent_only_to_her_mind_on_a_pc_whose_link_speaks_protocol_two() {
+    let Some(schema) = schema("her_log_lend").await else {
+        return;
+    };
+    let db = &schema.db;
+    // Her mind is on the server: nothing to lend to.
+    assert_eq!(lend::mind_on_a_pc_if(db, true).await, None);
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], T0).await;
+    assert!(mac.epoch.is_some());
+    // The Mac holds her, but its link does not speak protocol 2.
+    assert_eq!(lend::mind_on_a_pc_if(db, true).await, None);
+    let (send, _lent) = tokio::sync::mpsc::unbounded_channel();
+    lend::open("dev_mac", send);
+    assert_eq!(
+        lend::mind_on_a_pc_if(db, true).await.as_deref(),
+        Some("dev_mac")
+    );
+    // Her log off on the server: closed.
+    assert_eq!(lend::mind_on_a_pc_if(db, false).await, None);
+
+    let say = mac.frame(
+        "group.say",
+        Some("gsay_1"),
+        json!({ "group": GROUP, "text": "嗯" }),
+    );
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        OWNER,
+        "dev_mac",
+        Core::Pc,
+        &mut relay::Session::default(),
+        &say,
+        T0,
+    )
+    .await
+    .unwrap();
+    let said = delivered(&outs[0]);
+    assert_eq!(said["t"], "group.said");
+    assert_eq!(
+        said["body"],
+        json!({ "sayId": "gsay_1", "sent": false, "code": "group_unknown" })
+    );
+    let mut win = Side::new("dev_win");
+    let say = win.frame(
+        "group.say",
+        Some("gsay_2"),
+        json!({ "group": GROUP, "text": "嗯" }),
+    );
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        OWNER,
+        "dev_win",
+        Core::Pc,
+        &mut relay::Session::default(),
+        &say,
+        T0,
+    )
+    .await
+    .unwrap();
+    assert_eq!(delivered(&outs[0])["body"]["code"], "bad_frame");
+    lend::close("dev_mac");
+    assert_eq!(lend::mind_on_a_pc_if(db, true).await, None);
     schema.drop().await;
 }
 

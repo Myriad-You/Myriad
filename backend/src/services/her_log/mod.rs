@@ -58,6 +58,7 @@ pub mod full;
 pub mod keys;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod lease;
+pub mod lend;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod relay;
 pub mod retention;

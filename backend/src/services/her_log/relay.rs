@@ -41,6 +41,10 @@
 //!   grant goes to the new holder (`lease.grant`) and every device is told
 //!   where she is now (`lease.epoch`), both with the server's stop time.
 //!
+//! - `group.say`, `chat.say`: her mind on a PC says something in a group
+//!   or a private chat the site lent it ([`super::lend`]); sent there as
+//!   her, answered with `group.said` or `chat.said`.
+//!
 //! What is not here yet: speaking protocol 2 on the WebSocket itself (the
 //! site's link still speaks protocol 1, and these frames reach nothing
 //! until it negotiates 2), delivering to other connected devices
@@ -385,6 +389,10 @@ pub async fn take(
             )
             .await?;
             Ok(Vec::new())
+        }
+        // Her mind on a PC says something where the site lent her a chat.
+        "group.say" | "chat.say" => {
+            Ok(super::lend::say(db, &super::lend::Platforms, device, mine, frame).await)
         }
         _ => Err(Error::Refused("not a log or lease frame".into())),
     }
