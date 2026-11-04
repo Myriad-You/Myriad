@@ -1,5 +1,3 @@
-/** runtimeGrant → X-Tapp-Runtime-Grant. */
-
 import type {
   AddPeerRequest,
   AnnounceRequest,
@@ -51,9 +49,12 @@ import type {
   UpdateTrustRequest,
   UploadChunkRequest,
 } from '../types/federation'
+/** runtimeGrant → X-Tapp-Runtime-Grant. */
+
 import type { ApiRequestOptions } from './api'
 import { currentCopy } from '../i18n/localeCopy'
 import { formatUserFacingError } from '../utils/formatUserFacingError'
+import { safeRandomUUID } from '../utils/uuid'
 import { ApiError, apiService } from './api'
 
 const PREFIX = '/federation'
@@ -74,7 +75,7 @@ function attributionOptions(
  * instead of creating a second Note.
  */
 export function newPublishIdempotencyKey(): string {
-  return `publish-${crypto.randomUUID()}`
+  return `publish-${safeRandomUUID()}`
 }
 
 /** Attempts per publish when the response may have been lost after commit. */
