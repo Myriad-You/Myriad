@@ -254,12 +254,7 @@ fn chat_history_messages(history: &[ConversationMessage]) -> Vec<ChatMessage> {
         .into_iter()
         .map(|line| {
             let message = &latest[line.index];
-            let said = chat_safe_content(&message.content)
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty())
-                .collect::<Vec<_>>()
-                .join("\n");
+            let said = myriad_merope::chat_history::chat_history_content(&message.content);
             let said = match message.role.as_str() {
                 "user" | "assistant" => said,
                 who => format!("{who}：{said}"),
