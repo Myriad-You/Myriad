@@ -182,14 +182,15 @@ pub(in crate::services::agent::merope) fn shown_topics(
     myriad_merope::topics::shown(&topics, &(0..topics.len()).collect::<Vec<_>>())
 }
 
-/// Where going over put a fact, by the topics it was `offered`.
+/// Where going over or sorting put a fact, by the topics it was `offered`;
+/// `None` only for a label that is not among them.
 pub(in crate::services::agent::merope) fn goes_under(
     under: &myriad_merope::topics::Under,
     offered: &[super::super::store::OfferedTopic],
 ) -> Option<super::super::store::GoesUnder> {
     use myriad_merope::topics::Under;
     match under {
-        Under::Nowhere => None,
+        Under::Nowhere => Some(super::super::store::GoesUnder::Nowhere),
         Under::Offered(index) => offered
             .get(*index)
             .map(|topic| super::super::store::GoesUnder::Topic(topic.id.clone())),

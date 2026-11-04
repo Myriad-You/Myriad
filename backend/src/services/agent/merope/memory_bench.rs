@@ -517,6 +517,11 @@ async fn run_one(
             }
         }
     }
+    // Kept before she put facts under topics: sorted afterwards, as upkeep
+    // does, to see what sorting gets that going over would have.
+    if settle && settle::topics_later() {
+        settle::sort_all(db, judge, user_id).await;
+    }
     // As a chat turn does: think what to look for, then recall with it.
     let cues = judge
         .analyze_json(

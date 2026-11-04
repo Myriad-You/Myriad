@@ -1110,6 +1110,7 @@ mod tests {
 }
 
 pub(super) mod cues;
+pub(in crate::services::agent::merope) mod sort;
 #[cfg(test)]
 mod replay;
 

@@ -10,6 +10,9 @@
 //!   else's after [`OTHERS_CHANGES_KEPT`](super::store::OTHERS_CHANGES_KEPT).
 //! - **When what she knows would come to mind.** Facts kept before they
 //!   came with it get it, a few at a time (`chat_remember::cues`).
+//! - **Which topic what she knows goes under.** Facts kept before she put
+//!   facts under topics, or kept without one, are sorted under them, a
+//!   batch at a time (`chat_remember::sort`).
 
 use std::sync::{LazyLock, Mutex};
 
@@ -22,6 +25,7 @@ static FOLDED_ON: LazyLock<Mutex<Option<NaiveDate>>> = LazyLock::new(|| Mutex::n
 pub async fn tick(db: DatabaseConnection) {
     if super::is_enabled().await {
         super::chat_remember::cues::write_missing(&db).await;
+        super::chat_remember::sort::sort_missing(&db).await;
     }
     let today = super::clock::today();
     if FOLDED_ON.lock().is_ok_and(|folded| *folded == Some(today)) {

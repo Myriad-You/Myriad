@@ -77,7 +77,9 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// `speech_said.sql`，随 004 与 `ensure_speech_said_table` 一起建）。
 /// 2026.11.04.1：她把记下的事挂在哪个话题下：话题节点 `agent_topic_nodes` 与记忆的指向
 /// `agent_memory_topics`（`topic_nodes.sql`，随 004 与 `ensure_topic_nodes_tables` 一起建）。
-pub const SCHEMA_VERSION: &str = "2026.11.04.1";
+/// 2026.11.04.2：`agent_memory_topics.topic_id` 可以为空，表示她看过、没挂在任何话题下
+/// （同一份 `topic_nodes.sql` 里补的 `ALTER`）。
+pub const SCHEMA_VERSION: &str = "2026.11.04.2";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);

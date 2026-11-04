@@ -5,7 +5,10 @@
 -- log is off; the fact itself stays on the memory row, and a memory points at
 -- the topic it goes under (`agent_memory_topics`). Forgetting a memory takes
 -- its pointer; a topic none points at any more is forgotten with the last
--- one, for its name can say as much as what was under it. Created by
+-- one, for its name can say as much as what was under it. A pointer with no
+-- topic is a memory she sorted under none (only about them, or of no kind),
+-- so sorting what she knew before topics (`chat_remember::sort`) does not ask
+-- of it again. Created by
 -- migration 004 and, for databases already past it, by the startup heal
 -- `ensure_topic_nodes_tables`; both run this same file.
 CREATE TABLE IF NOT EXISTS agent_topic_nodes (
@@ -21,9 +24,11 @@ CREATE TABLE IF NOT EXISTS agent_topic_nodes (
 CREATE TABLE IF NOT EXISTS agent_memory_topics (
     memory_id VARCHAR(64) PRIMARY KEY REFERENCES agent_memories(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL,
-    topic_id VARCHAR(64) NOT NULL,
+    topic_id VARCHAR(64),
     FOREIGN KEY (user_id, topic_id) REFERENCES agent_topic_nodes(user_id, id) ON DELETE CASCADE
 );
+-- Under none was added after the first version of this table.
+ALTER TABLE agent_memory_topics ALTER COLUMN topic_id DROP NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_agent_memory_topics_topic
     ON agent_memory_topics (user_id, topic_id);
 CREATE OR REPLACE FUNCTION agent_memory_topics_forget() RETURNS trigger AS $$

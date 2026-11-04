@@ -2,8 +2,10 @@
 //! (`myriad_merope::topics`, `migrations/topic_nodes.sql`): a kind of thing in
 //! their life they come back to. Going over a stretch of talk she is shown
 //! the likely ones and puts each fact she keeps under one, starts one, or
-//! leaves it under none; going through all of something, what she kept
-//! under the same topic comes to mind together.
+//! leaves it under none; what she knew before she kept topics, or kept
+//! without one, she sorts the same way at upkeep (`chat_remember::sort`).
+//! Going through all of something, what she kept under the same topic comes
+//! to mind together.
 //!
 //! Only a private talk's facts go under topics for now: a group's and
 //! anyone else's stay as they were. The fact stays on its memory row; a
@@ -21,6 +23,8 @@ use crate::services::agent::memory::unified::{self, Audience, MemoryKind, Memory
 const PRIVATE_TALK: &str = "personal:local-owner";
 /// Facts under a topic she is shown with it, newest first.
 const HOLDS_SHOWN: usize = 3;
+/// What she knows for good of someone, which she sorts under topics.
+const SORTED_SOURCES: &[&str] = &["chat", "import"];
 
 /// Where a fact she keeps goes, as going over a stretch decided.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,6 +34,9 @@ pub enum GoesUnder {
     Topic(String),
     /// One she starts.
     New { name: String, aliases: Vec<String> },
+    /// None: only about them, or of no kind. Kept, so it is not asked of
+    /// again.
+    Nowhere,
 }
 
 /// A topic offered beside a stretch of talk.
@@ -77,11 +84,12 @@ async fn topics<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<Vec<Kept>, D
         .collect())
 }
 
-/// Which topic each of their memories goes under, by memory id.
+/// Which topic each of their memories she has sorted goes under, by memory
+/// id; `None` for under none.
 async fn pointers<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
-) -> Result<std::collections::HashMap<String, String>, DbErr> {
+) -> Result<std::collections::HashMap<String, Option<String>>, DbErr> {
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -94,7 +102,7 @@ async fn pointers<C: ConnectionTrait>(
         .filter_map(|row| {
             Some((
                 row.try_get("", "memory_id").ok()?,
-                row.try_get("", "topic_id").ok()?,
+                row.try_get::<Option<String>>("", "topic_id").ok()?,
             ))
         })
         .collect())
@@ -113,7 +121,7 @@ async fn under_each<C: ConnectionTrait>(
     let mut under: std::collections::HashMap<String, Vec<MemoryRecord>> =
         std::collections::HashMap::new();
     for row in rows {
-        if let Some(topic) = pointers.get(&row.id) {
+        if let Some(Some(topic)) = pointers.get(&row.id) {
             under.entry(topic.clone()).or_default().push(row);
         }
     }
@@ -173,9 +181,10 @@ pub async fn offered_topics<C: ConnectionTrait>(
 
 /// Puts memory `memory_id` under a topic, once: under the one a memory it
 /// replaces was under, whatever going over decided (it says how that same
-/// thing is now); else where going over put it. A topic she starts under a
-/// name she already keeps one by is that one. Nothing outside a private
-/// talk, or for a memory already under one.
+/// thing is now); else where going over or sorting put it. A topic she
+/// starts under a name she already keeps one by is that one. Nothing
+/// outside a private talk, for a memory already sorted, or when where it
+/// goes was not decided (it stays to be sorted).
 pub async fn put_under<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
@@ -192,11 +201,18 @@ pub async fn put_under<C: ConnectionTrait>(
         return Ok(());
     }
     let kept = topics(db, user_id).await?;
-    let topic = match replaced.iter().find_map(|old| pointers.get(old)) {
-        Some(topic) => Some(topic.clone()),
+    let topic: Option<String> = match replaced
+        .iter()
+        .find_map(|old| pointers.get(old).cloned().flatten())
+    {
+        Some(topic) => Some(topic),
         None => match goes {
             Some(GoesUnder::Topic(id)) => {
-                kept.iter().any(|topic| &topic.id == id).then(|| id.clone())
+                // Gone since she was shown it: still to be sorted.
+                if !kept.iter().any(|topic| &topic.id == id) {
+                    return Ok(());
+                }
+                Some(id.clone())
             }
             Some(GoesUnder::New { name, aliases }) => {
                 match kept
@@ -207,11 +223,9 @@ pub async fn put_under<C: ConnectionTrait>(
                     None => Some(start(db, user_id, name, aliases).await?),
                 }
             }
-            None => None,
+            Some(GoesUnder::Nowhere) => None,
+            None => return Ok(()),
         },
-    };
-    let Some(topic) = topic else {
-        return Ok(());
     };
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -271,7 +285,7 @@ pub async fn kept_together<C: ConnectionTrait>(
     let pointers = pointers(db, user_id).await?;
     let mut order: Vec<&String> = Vec::new();
     for id in named {
-        if let Some(topic) = pointers.get(id)
+        if let Some(Some(topic)) = pointers.get(id)
             && !order.contains(&topic)
         {
             order.push(topic);
@@ -310,6 +324,54 @@ pub async fn kept_together<C: ConnectionTrait>(
         }
     }
     Ok((added, cut))
+}
+
+/// People with facts still to sort, at most `at_most` of them.
+pub async fn with_unsorted<C: ConnectionTrait>(db: &C, at_most: i64) -> Result<Vec<i32>, DbErr> {
+    Ok(db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT DISTINCT m.user_id FROM agent_memories m \
+             WHERE m.user_id IS NOT NULL AND m.source = ANY($1) AND m.invalid_at IS NULL \
+               AND m.superseded_by IS NULL AND m.venue NOT LIKE 'group:%' \
+               AND m.kind IN ('fact', 'preference') \
+               AND NOT EXISTS (SELECT 1 FROM agent_memory_topics t WHERE t.memory_id = m.id) \
+             LIMIT $2",
+            [
+                SORTED_SOURCES
+                    .iter()
+                    .map(|source| source.to_string())
+                    .collect::<Vec<_>>()
+                    .into(),
+                at_most.into(),
+            ],
+        ))
+        .await?
+        .iter()
+        .filter_map(|row| row.try_get::<i32>("", "user_id").ok())
+        .collect())
+}
+
+/// What she knows for good of them in a private talk that she has not
+/// sorted under a topic yet, oldest first, at most `at_most`. None outside
+/// a private talk.
+pub async fn unsorted<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    present: &Audience,
+    at_most: usize,
+) -> Result<Vec<MemoryRecord>, DbErr> {
+    if user_id <= 0 || !admitted(present) {
+        return Ok(Vec::new());
+    }
+    let pointers = pointers(db, user_id).await?;
+    let mut rows = unified::active_in(db, user_id, present, &MemoryKind::ABOUT_PERSON).await?;
+    rows.retain(|row| {
+        SORTED_SOURCES.contains(&row.source.as_str()) && !pointers.contains_key(&row.id)
+    });
+    rows.sort_by_key(|row| row.created_at);
+    rows.truncate(at_most);
+    Ok(rows)
 }
 
 #[cfg(test)]
@@ -436,7 +498,7 @@ mod tests {
         let patel = id_of(&rows, "had a check-up with Dr. Patel");
         let austin = id_of(&rows, "lives in Austin");
         let pointers = pointers(db, 7).await.unwrap();
-        assert_eq!(pointers.get(&cleared), Some(&id));
+        assert_eq!(pointers.get(&cleared), Some(&Some(id.clone())));
         assert_eq!(pointers.get(&austin), None);
 
         // Going through all of it from Dr. Patel, Dr. Lee comes along.
@@ -466,6 +528,16 @@ mod tests {
                 .is_empty()
         );
 
+        // What going over left without a place is still to be sorted.
+        let left: Vec<String> = unsorted(db, 7, &present, 40)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.content)
+            .collect();
+        assert_eq!(left, vec!["lives in Austin".to_string()]);
+        assert_eq!(with_unsorted(db, 10).await.unwrap(), vec![7]);
+
         // He has her forget all of it: the topic's name goes with it.
         db.execute_unprepared("DELETE FROM agent_memories WHERE user_id = 7")
             .await
@@ -474,5 +546,92 @@ mod tests {
             count(db, "SELECT COUNT(*) AS n FROM agent_topic_nodes").await,
             0
         );
+    }
+
+    /// What she knew before topics is sorted the same way: under one she
+    /// keeps, one she starts, or none, which is kept so it is not asked of
+    /// again; a fact her answer gives no place stays to be sorted.
+    #[tokio::test]
+    async fn what_she_knew_before_topics_is_sorted_once() {
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let schema = crate::db::IsolatedSchema::migrated(&url, "topic_nodes_sort").await;
+        let db = &schema.db;
+        db.execute_unprepared("INSERT INTO users (id, username) VALUES (8, 'eight')")
+            .await
+            .unwrap();
+        let plants = GoesUnder::New {
+            name: "their plants".into(),
+            aliases: Vec::new(),
+        };
+        keep(db, 8, fact("has a snake plant", &[], Some(plants))).await;
+        keep(
+            db,
+            8,
+            fact("cannot eat mango", &[], Some(GoesUnder::Nowhere)),
+        )
+        .await;
+        for old in [
+            "bought a fern on May 6",
+            "sees Dr. Lee",
+            "had a long day",
+            "likes tea",
+        ] {
+            keep(db, 8, fact(old, &[], None)).await;
+        }
+        let present = Audience::private(8);
+        let rows = unsorted(db, 8, &present, 40).await.unwrap();
+        let texts: Vec<&str> = rows.iter().map(|row| row.content.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec![
+                "bought a fern on May 6",
+                "sees Dr. Lee",
+                "had a long day",
+                "likes tea"
+            ],
+            "under none is sorted; oldest first"
+        );
+        let offered = offered_topics(db, 8, &present, "fern").await.unwrap();
+        assert_eq!(offered[0].name, "their plants");
+        let raw = serde_json::json!({"facts": [
+            {"fact": 1, "topic": {"on": "t1", "name": "", "aliases": []}},
+            {"fact": 2, "topic": {"on": "", "name": "seeing doctors", "aliases": []}},
+            {"fact": 3, "topic": {"on": "", "name": "", "aliases": []}}
+        ]})
+        .to_string();
+        let placed = super::super::super::chat_remember::sort::placed(&raw, &rows, &offered);
+        assert_eq!(placed.len(), 3, "the fourth was given no place");
+        for (id, goes) in &placed {
+            put_under(db, 8, &present, id, &[], Some(goes))
+                .await
+                .unwrap();
+        }
+        let left: Vec<String> = unsorted(db, 8, &present, 40)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.content)
+            .collect();
+        assert_eq!(left, vec!["likes tea".to_string()]);
+        let pointers = pointers(db, 8).await.unwrap();
+        let rows = kept(db, 8).await;
+        assert_eq!(
+            pointers.get(&id_of(&rows, "bought a fern on May 6")),
+            pointers.get(&id_of(&rows, "has a snake plant"))
+        );
+        assert_eq!(pointers.get(&id_of(&rows, "had a long day")), Some(&None));
+        assert_eq!(
+            count(db, "SELECT COUNT(*) AS n FROM agent_topic_nodes").await,
+            2
+        );
+        // Under none points at no topic: going through all of it brings
+        // nothing of it along.
+        let (more, cut) =
+            kept_together(db, 8, &present, &[id_of(&rows, "had a long day")], &[], 24)
+                .await
+                .unwrap();
+        assert!(more.is_empty() && cut.is_empty());
     }
 }

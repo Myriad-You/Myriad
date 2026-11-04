@@ -968,7 +968,7 @@ pub(crate) fn tables() -> Vec<TableDef> {
             columns: vec![
                 ColumnDef::new("memory_id", "character varying").not_null(),
                 ColumnDef::new("user_id", "integer").not_null(),
-                ColumnDef::new("topic_id", "character varying").not_null(),
+                ColumnDef::new("topic_id", "character varying"),
             ],
         },
         TableDef {
