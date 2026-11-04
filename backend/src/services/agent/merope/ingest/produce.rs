@@ -87,19 +87,8 @@ pub fn spawn_presence(user_id: i32) {
         if !first_today && gap_hours < 12.0 {
             return;
         }
-        // Greeted them within half a day: not again (read from the ledger).
-        let greeting = "agent.merope.greeting";
-        if crate::services::agent::speech::ledger::last_about(
-            &db,
-            user_id,
-            &event_thing_prefix(user_id, greeting),
-            greeting,
-        )
-        .await
-        .is_some_and(|at| crate::clock::now() - at < chrono::Duration::hours(12))
-        {
-            return;
-        }
+        // Whether she greets them again is hers: the core tells her when she
+        // already greeted them today, and what she said.
         let summary = if first_today {
             "这个人今天第一次来了"
         } else {

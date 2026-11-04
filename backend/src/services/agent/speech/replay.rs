@@ -651,7 +651,12 @@ fn admit_for(situation: &Situation, at: i64) -> Admit {
             to: to.clone(),
             text: text.to_string(),
             place: "web".into(),
-            source: Some(Source::Event),
+            // What she said lately for the same kind of thing went into the
+            // ledger as that kind (a greeting as a greeting).
+            source: Some(match source {
+                Source::Greeting => Source::Greeting,
+                _ => Source::Event,
+            }),
             called: false,
             thing: None,
             exit: "notice".into(),
