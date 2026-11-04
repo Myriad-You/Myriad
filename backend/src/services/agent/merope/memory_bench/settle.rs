@@ -43,6 +43,7 @@ async fn note_turn(
             Some(&myriad_merope::chat_remember::extract_schema()),
         )
         .await
+        .inspect_err(|error| eprintln!("bench call failed: noting: {error:#}"))
         .ok()?;
     super::super::chat_remember::parse_chat_memory_updates(&raw, text, reply, &existing)
 }
@@ -50,7 +51,9 @@ async fn note_turn(
 /// A session gone over once it is over (the settle way): which of its short
 /// notes last, put together, kept as production keeps a fact, and a note the
 /// answer passed over kept as it is. The lasting facts kept, with their
-/// evidence, and which of them are notes kept as they were.
+/// evidence, which of them are notes kept as they were, and the indexes of
+/// the notes put into what is kept for good: production retires those, so
+/// they are no longer short notes.
 async fn settle_session(
     db: &sea_orm::DatabaseConnection,
     judge: &crate::services::analyzer::AiAnalyzer,
@@ -59,7 +62,7 @@ async fn settle_session(
     turns: &[Turn],
     notes: &[super::super::chat_remember::ChatMemoryUpdate],
     at: chrono::DateTime<chrono::FixedOffset>,
-) -> (Vec<(String, String)>, Vec<String>) {
+) -> (Vec<(String, String)>, Vec<String>, Vec<usize>) {
     // What she knows of them for good, newest first, as many as production
     // shows beside a stretch.
     let mut known = crate::services::agent::memory::unified::active_in(
@@ -112,15 +115,18 @@ async fn settle_session(
             Some(&myriad_merope::chat_remember::settle_schema()),
         )
         .await
+        .inspect_err(|error| eprintln!("bench call failed: settling: {error:#}"))
     else {
-        return (Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), Vec::new());
     };
     let Some((kept, replaces)) =
         myriad_merope::chat_remember::parse_settle(&raw, &theirs, &known, notes.len())
     else {
-        return (Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), Vec::new());
     };
     let left = myriad_merope::chat_remember::settle_left(&raw, &kept, notes.len());
+    let mut settled: Vec<usize> = kept.iter().flat_map(|item| item.from.clone()).collect();
+    settled.extend(&left);
     let mut lasting = Vec::new();
     let mut updates = super::super::chat_remember::ChatMemoryUpdates::default();
     for item in kept {
@@ -166,7 +172,7 @@ async fn settle_session(
     if !updates.updates.is_empty() {
         apply_at(db, user_id, present, at, &updates).await;
     }
-    (lasting, passed_over)
+    (lasting, passed_over, settled)
 }
 
 /// One session the settle way as weeks go by: each of their lines taken as
@@ -222,7 +228,7 @@ pub(super) async fn over_time(
         return (Vec::new(), Vec::new(), Vec::new());
     }
     let over_at = session_at + chrono::Duration::minutes(turns.len() as i64);
-    let (lasting, passed_over) =
+    let (lasting, passed_over, _) =
         settle_session(db, judge, user_id, present, turns, &notes, over_at).await;
     let notes = notes.into_iter().filter_map(|note| note.fact).collect();
     (notes, lasting, passed_over)
@@ -312,6 +318,7 @@ pub(super) async fn go_over(
                 }
             }
         }
+        let mut settled = Vec::new();
         if !notes.is_empty() {
             let answer_lines: String = turns
                 .iter()
@@ -324,11 +331,10 @@ pub(super) async fn go_over(
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
-            for (fact, evidence) in
-                settle_session(db, judge, user_id, present, turns, &notes, over_at)
-                    .await
-                    .0
-            {
+            let (lasting, _, put_away) =
+                settle_session(db, judge, user_id, present, turns, &notes, over_at).await;
+            settled = put_away;
+            for (fact, evidence) in lasting {
                 *kept += 1;
                 if !answer_lines.is_empty()
                     && evidence
@@ -339,11 +345,24 @@ pub(super) async fn go_over(
                 }
             }
         }
-        // Short notes still fresh when the question is asked.
+        // Short notes still fresh when the question is asked, but not those
+        // settled into what is kept for good: production retires them.
         if asked_at - over_at <= SHORT_NOTES_LAST {
+            let mut note = 0;
             for (at, updates, answer_here) in short {
                 let facts = super::super::chat_remember::ChatMemoryUpdates {
-                    updates: updates.updates.clone(),
+                    updates: updates
+                        .updates
+                        .iter()
+                        .filter(|update| {
+                            if update.fact.is_none() {
+                                return true;
+                            }
+                            note += 1;
+                            !settled.contains(&(note - 1))
+                        })
+                        .cloned()
+                        .collect(),
                     said: Vec::new(),
                     put_onto: Vec::new(),
                 };

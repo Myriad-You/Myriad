@@ -92,10 +92,15 @@ pub(super) async fn answer_one(
         }
         None => None,
     };
+    // Needing all of it, she goes through it as production has her do.
+    let going_through = cues
+        .filter(|cues| cues.thorough && !recalled.is_empty())
+        .map(|_| myriad_merope::speaking::format_going_through_all_section());
     let input = json!({
         "today": question.question_date,
         "whatYouRemember": recalled,
         "scrollingBack": scrolled,
+        "goingThroughAll": going_through,
         "question": question.question,
     })
     .to_string();
@@ -106,6 +111,7 @@ pub(super) async fn answer_one(
         answer = lite
             .analyze_with_system(&answer_system(question, present), &input)
             .await
+            .inspect_err(|error| eprintln!("bench call failed: answering: {error:#}"))
             .unwrap_or_default();
         if !answer.trim().is_empty() {
             break;
@@ -133,6 +139,7 @@ pub(super) async fn answer_one(
             Some(&grade_schema(question)),
         )
         .await
+        .inspect_err(|error| eprintln!("bench call failed: grading: {error:#}"))
         .ok()
         .and_then(|raw| {
             let json = myriad_agent_rules::extract_json_object_from_ai_response(raw.trim());
