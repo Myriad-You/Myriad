@@ -183,6 +183,7 @@ async fn lend(
                 at_ms,
                 to_her: false,
                 mine: line.role == "assistant",
+                who: None,
             });
         }
     }
@@ -194,12 +195,18 @@ async fn lend(
         at_ms: crate::clock::now().timestamp_millis(),
         to_her: true,
         mine: false,
+        who: None,
     };
     let place = Place::Chat {
         user: user_id,
         session_key: session_key.to_string(),
     };
-    if !her::lend(&device, &audience, place, None, &[one], &recent) {
+    // Only someone paired with an account here is lent a chat: a member.
+    let about = her::About {
+        who: Some(json!({ "kind": "member", "user_id": user_id, "bound": true })),
+        ..Default::default()
+    };
+    if !her::lend(&device, &audience, place, about, &[one], &recent) {
         return false;
     }
     // Their line is kept in the chat, as a turn here keeps it.

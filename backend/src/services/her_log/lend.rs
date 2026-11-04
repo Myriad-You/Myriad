@@ -146,6 +146,19 @@ pub struct Message {
     pub to_her: bool,
     /// A line she said there (a private chat's recent only).
     pub mine: bool,
+    /// Who wrote it, as the group mind's `identified` answer has it
+    /// (groups only; none when the site could not tell).
+    pub who: Option<Value>,
+}
+
+/// What the site knows of a lend besides its lines: what the place is
+/// called, the site's owner (groups: who hosts her there) and who she
+/// talks with (private chats), in the `identified` answer's shape.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct About<'a> {
+    pub name: Option<&'a str>,
+    pub owner: Option<i32>,
+    pub who: Option<Value>,
 }
 
 impl Message {
@@ -156,6 +169,9 @@ impl Message {
             body["name"] = json!(self.name.clone().unwrap_or_default());
             if self.to_her {
                 body["toHer"] = json!(true);
+            }
+            if let Some(who) = &self.who {
+                body["who"] = who.clone();
             }
         } else if self.mine {
             body["mine"] = json!(true);
@@ -168,7 +184,7 @@ impl Message {
 fn lend_frame(
     audience: &str,
     place: &Place,
-    name: Option<&str>,
+    about: &About<'_>,
     messages: &[Message],
     recent: &[Message],
 ) -> Outgoing {
@@ -183,8 +199,14 @@ fn lend_frame(
         all[skip..].iter().map(|one| one.body(group)).collect()
     };
     let mut body = json!({ field: audience, "messages": cap(messages) });
-    if let Some(name) = name.filter(|name| !name.is_empty()) {
+    if let Some(name) = about.name.filter(|name| !name.is_empty()) {
         body["name"] = json!(name);
+    }
+    if let Some(owner) = about.owner.filter(|_| group) {
+        body["owner"] = json!(owner);
+    }
+    if let Some(who) = about.who.as_ref().filter(|_| !group) {
+        body["who"] = who.clone();
     }
     if !recent.is_empty() {
         body["recent"] = json!(cap(recent));
@@ -203,7 +225,7 @@ pub fn lend(
     device: &str,
     audience: &str,
     place: Place,
-    name: Option<&str>,
+    about: About<'_>,
     messages: &[Message],
     recent: &[Message],
 ) -> bool {
@@ -213,7 +235,7 @@ pub fn lend(
     let Some(send) = link(device) else {
         return false;
     };
-    let mut frame = lend_frame(audience, &place, name, messages, recent);
+    let mut frame = lend_frame(audience, &place, &about, messages, recent);
     frame.to = To::Device(device.to_string());
     let id = frame.id.clone().unwrap_or_default();
     if let (Ok(mut lent), Ok(mut latest)) = (LENT.lock(), LATEST.lock()) {
@@ -378,6 +400,7 @@ mod tests {
             at_ms: 1_760_140_800_000,
             to_her: true,
             mine: false,
+            who: None,
         }
     }
 
@@ -409,7 +432,7 @@ mod tests {
             "dev_lend_unit",
             "personal:7",
             place.clone(),
-            None,
+            About::default(),
             &[],
             &[]
         ));
@@ -417,7 +440,11 @@ mod tests {
             "dev_lend_unit",
             "personal:7",
             place.clone(),
-            Some("小林"),
+            About {
+                name: Some("小林"),
+                owner: Some(1),
+                who: Some(json!({ "kind": "member", "user_id": 7, "bound": true })),
+            },
             &[message("m_1", "在吗")],
             &recent,
         ));
@@ -429,6 +456,9 @@ mod tests {
         assert_eq!(frame.body["messages"][0]["text"], "在吗");
         assert!(frame.body["messages"][0].get("from").is_none());
         assert_eq!(frame.body["recent"][0]["mine"], true);
+        // Who she talks with goes on the lend; the owner is a group's.
+        assert_eq!(frame.body["who"]["user_id"], 7);
+        assert!(frame.body.get("owner").is_none());
         let lend_id = frame.id.unwrap();
 
         let kept = Kept::default();
@@ -495,7 +525,7 @@ mod tests {
             "dev_lend_unit",
             "personal:7",
             place,
-            None,
+            About::default(),
             &[message("m_2", "人呢")],
             &[],
         ));
@@ -516,21 +546,36 @@ mod tests {
         let line = Message {
             from: Some("m7".into()),
             name: Some("小林".into()),
+            who: Some(json!({ "kind": "member", "user_id": 101, "bound": true })),
             ..message("m_903", "这周读到哪了？")
+        };
+        let before = Message {
+            to_her: false,
+            who: Some(json!({ "kind": "stranger" })),
+            ..message("m_902", "我还在第三章")
         };
         assert!(lend(
             "dev_lend_group",
             &audience,
             place.clone(),
-            Some("读书会"),
+            About {
+                name: Some("读书会"),
+                owner: Some(1),
+                who: Some(json!({ "kind": "stranger" })),
+            },
             &[line],
-            &[],
+            &[before],
         ));
         let frame = lent.try_recv().unwrap();
         assert_eq!(frame.t, "group.lend");
         assert_eq!(frame.body["group"], "group:telegram:-100");
         assert_eq!(frame.body["messages"][0]["toHer"], true);
         assert_eq!(frame.body["messages"][0]["from"], "m7");
+        // Who wrote each line, and who hosts her there.
+        assert_eq!(frame.body["messages"][0]["who"]["kind"], "member");
+        assert_eq!(frame.body["recent"][0]["who"]["kind"], "stranger");
+        assert_eq!(frame.body["owner"], 1);
+        assert!(frame.body.get("who").is_none());
         super::super::relay::encode(&frame, 1, 0, 1_760_140_800_000).unwrap();
         let kept = Kept::default();
         let said = say(

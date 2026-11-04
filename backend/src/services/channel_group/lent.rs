@@ -3,11 +3,41 @@
 //! line goes there instead of to the group mind here, and what she says
 //! back is sent in the group as her.
 
+use std::collections::HashMap;
+
 use super::*;
-use crate::services::her_log::lend::{self as her, Place};
+use crate::services::her_log::lend::{self as her, About, Place};
+use myriad_merope::group::{Answer, Who};
 
 /// Lines before the new one lent with it, at most.
 const RECENT: usize = 20;
+
+/// Who wrote lines there, as the site's own group mind would ask
+/// (`identify`): each sender looked up once per lend. Unknown is left out.
+struct Senders {
+    venue: String,
+    known: HashMap<String, Option<serde_json::Value>>,
+    owner: Option<i32>,
+}
+
+impl Senders {
+    async fn who(&mut self, from: &str) -> Option<serde_json::Value> {
+        if let Some(who) = self.known.get(from) {
+            return who.clone();
+        }
+        let who = match identify(&self.venue, from).await {
+            Answer::Identified { who, owner } => {
+                self.owner = self.owner.or(owner);
+                (who != Who::Unknown)
+                    .then(|| serde_json::to_value(&who).ok())
+                    .flatten()
+            }
+            _ => None,
+        };
+        self.known.insert(from.to_string(), who.clone());
+        who
+    }
+}
 
 /// Lend `message` to her mind on a PC; whether it was (else the group mind
 /// here takes it, as before).
@@ -37,6 +67,7 @@ pub(super) async fn lend(message: &GroupLine) -> bool {
                     at_ms: line.at.timestamp_millis(),
                     to_her: line.addressed,
                     mine: false,
+                    who: None,
                 })
             })
             .collect();
@@ -44,6 +75,18 @@ pub(super) async fn lend(message: &GroupLine) -> bool {
         theirs[skip..].to_vec()
     })
     .unwrap_or_default();
+    // She knows the group's people as she does here.
+    let mut senders = Senders {
+        venue: venue.clone(),
+        known: HashMap::new(),
+        owner: None,
+    };
+    let mut recent = recent;
+    for line in &mut recent {
+        if let Some(from) = line.from.clone() {
+            line.who = senders.who(&from).await;
+        }
+    }
     let text = if message.text.trim().is_empty() && !message.images.is_empty() {
         "[图片]".to_string()
     } else {
@@ -57,6 +100,7 @@ pub(super) async fn lend(message: &GroupLine) -> bool {
         at_ms: now().timestamp_millis(),
         to_her: message.addressed,
         mine: false,
+        who: senders.who(&message.from).await,
     };
     let name = title(&venue).await;
     her::lend(
@@ -66,7 +110,11 @@ pub(super) async fn lend(message: &GroupLine) -> bool {
             venue,
             thread: message.thread,
         },
-        name.as_deref(),
+        About {
+            name: name.as_deref(),
+            owner: senders.owner,
+            who: None,
+        },
         &[one],
         &recent,
     )
