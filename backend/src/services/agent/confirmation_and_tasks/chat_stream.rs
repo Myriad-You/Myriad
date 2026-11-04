@@ -600,15 +600,15 @@ impl Agent {
                 if let Some(away) = &chat.came_while_away {
                     blocks.push(format!("## While you were away\n{away}"));
                 }
-                // How they type to her, once there is enough of it.
-                if let Some(room) = request
+                // How they type to her (how people in a chat app usually
+                // do, until they have said enough).
+                let room = request
                     .context
                     .as_ref()
                     .and_then(|context| context.conversation_history.as_deref())
                     .and_then(crate::services::agent::merope::their_typing)
-                {
-                    blocks.push(myriad_merope::talk_shape::describe(&room, "How they type"));
-                }
+                    .unwrap_or(myriad_merope::talk_shape::CHAT_APP_USUAL);
+                blocks.push(myriad_merope::talk_shape::describe(&room, "How they type"));
                 // No player there: a song goes as its link.
                 if let Some(songs) =
                     crate::services::agent::chat_music::offer_song_links(&self.db).await
