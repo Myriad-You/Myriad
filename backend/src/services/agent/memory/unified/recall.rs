@@ -107,35 +107,11 @@ pub async fn recall_primed<C: ConnectionTrait>(
     priming: &Priming,
     breadth: f64,
 ) -> Result<(Vec<MemoryRecord>, Priming), DbErr> {
-    recall_primed_up_to(
-        db, user_id, present, query, kinds, limit, limit, priming, breadth,
-    )
-    .await
-}
-
-/// [`recall_primed`] where what their words name comes to mind up to
-/// `named_up_to` however many that is, while what only came along (by
-/// association, or recent rows filling the rest) still fills only up to
-/// `limit`. Asked where they take yoga, a dozen of their yoga memories are
-/// named, and the one with the studio's name must not fall past the
-/// first eight.
-#[allow(clippy::too_many_arguments)]
-pub async fn recall_primed_up_to<C: ConnectionTrait>(
-    db: &C,
-    user_id: i32,
-    present: &Audience,
-    query: Option<&str>,
-    kinds: &[MemoryKind],
-    limit: usize,
-    named_up_to: usize,
-    priming: &Priming,
-    breadth: f64,
-) -> Result<(Vec<MemoryRecord>, Priming), DbErr> {
     if user_id <= 0 || limit == 0 {
         return Ok((Vec::new(), Priming::default()));
     }
     let rows = rows_for(db, user_id, present, kinds).await?;
-    recall_among(db, rows, query, limit, named_up_to, priming, breadth).await
+    recall_among(db, rows, query, limit, priming, breadth).await
 }
 
 /// [`recall`] for Work: what it is still trying comes to mind too.
@@ -151,16 +127,8 @@ pub async fn recall_for_work<C: ConnectionTrait>(
         return Ok(Vec::new());
     }
     let rows = rows_with(db, user_id, present, kinds, true).await?;
-    let (recalled, _) = recall_among(
-        db,
-        rows,
-        Some(query),
-        limit,
-        limit,
-        &Priming::default(),
-        1.0,
-    )
-    .await?;
+    let (recalled, _) =
+        recall_among(db, rows, Some(query), limit, &Priming::default(), 1.0).await?;
     Ok(recalled)
 }
 
@@ -170,7 +138,6 @@ async fn recall_among<C: ConnectionTrait>(
     rows: Vec<agent_memories::Model>,
     query: Option<&str>,
     limit: usize,
-    named_up_to: usize,
     priming: &Priming,
     breadth: f64,
 ) -> Result<(Vec<MemoryRecord>, Priming), DbErr> {
@@ -182,15 +149,7 @@ async fn recall_among<C: ConnectionTrait>(
         ),
         None => std::collections::HashMap::new(),
     };
-    let (chosen, next, filler) = rank_marked_up_to(
-        rows,
-        query,
-        limit,
-        named_up_to,
-        priming,
-        breadth,
-        &by_meaning,
-    );
+    let (chosen, next, filler) = rank_marked(rows, query, limit, priming, breadth, &by_meaning);
     // Only what came to mind counts: the recent rows filling the rest were
     // shown, and counting them would make what is shown most come easiest.
     let recalled: Vec<String> = chosen
@@ -218,6 +177,7 @@ async fn recall_among<C: ConnectionTrait>(
             .into_iter()
             .map(|(row, brought_to_mind)| MemoryRecord {
                 brought_to_mind,
+                recent: filler.contains(&row.id),
                 ..MemoryRecord::from(super::cues::as_said(row, &said))
             })
             .collect(),
@@ -270,22 +230,6 @@ pub(super) fn rank_marked(
     breadth: f64,
     by_meaning: &std::collections::HashMap<String, f64>,
 ) -> (Vec<(agent_memories::Model, bool)>, Priming, Vec<String>) {
-    rank_marked_up_to(rows, query, limit, limit, priming, breadth, by_meaning)
-}
-
-/// [`rank_marked`], then what else `query` names, up to `named_up_to` in
-/// all, after it: what comes to mind within `limit` is as it was, and
-/// only rows named themselves are added, never more association or
-/// recent context.
-pub(super) fn rank_marked_up_to(
-    rows: Vec<agent_memories::Model>,
-    query: Option<&str>,
-    limit: usize,
-    named_up_to: usize,
-    priming: &Priming,
-    breadth: f64,
-    by_meaning: &std::collections::HashMap<String, f64>,
-) -> (Vec<(agent_memories::Model, bool)>, Priming, Vec<String>) {
     use myriad_agent_rules::memory::rank;
     let concepts: Vec<Vec<Concept>> = rows.iter().map(concepts_of).collect();
     let view: Vec<rank::Row> = rows
@@ -302,7 +246,7 @@ pub(super) fn rank_marked_up_to(
         })
         .collect();
     let now = super::super::utc_now().fixed_offset();
-    let mut ranked = rank::rank_marked(
+    let ranked = rank::rank_marked(
         &view,
         query,
         limit,
@@ -311,27 +255,6 @@ pub(super) fn rank_marked_up_to(
         by_meaning,
         now,
     );
-    if named_up_to > limit {
-        let wider = rank::rank_marked(
-            &view,
-            query,
-            named_up_to,
-            &priming.by_id,
-            breadth,
-            by_meaning,
-            now,
-        );
-        let named_more: Vec<(usize, bool)> = wider
-            .chosen
-            .into_iter()
-            .filter(|(index, brought)| {
-                !brought
-                    && !wider.filler.contains(index)
-                    && !ranked.chosen.iter().any(|(chosen, _)| chosen == index)
-            })
-            .collect();
-        ranked.chosen.extend(named_more);
-    }
     drop(view);
     let filler = ranked
         .filler

@@ -378,11 +378,12 @@ pub(crate) fn about_someone_else(content: &str, name: &str) -> String {
 pub struct Recalled {
     pub named: Vec<String>,
     pub brought_to_mind: Vec<String>,
+    /// Of `named`, those only filling the budget as recent context.
+    pub recent: Vec<String>,
 }
 
 /// [`recall_remembered_primed`], keeping apart what was named and what it
-/// brought to mind; what is named comes up to `named_up_to` (see
-/// [`crate::services::agent::memory::unified::recall_primed_up_to`]).
+/// brought to mind.
 #[allow(clippy::too_many_arguments)]
 pub async fn recall_remembered_split(
     db: &DatabaseConnection,
@@ -390,19 +391,17 @@ pub async fn recall_remembered_split(
     present: &crate::services::agent::memory::unified::Audience,
     query: Option<&str>,
     limit: usize,
-    named_up_to: usize,
     priming: &Priming,
     breadth: f64,
 ) -> Result<(Recalled, Priming), anyhow::Error> {
     use crate::services::agent::memory::unified;
-    let (recalled, next) = unified::recall_primed_up_to(
+    let (recalled, next) = unified::recall_primed(
         db,
         user_id,
         present,
         query.filter(|query| !query.trim().is_empty()),
         &unified::MemoryKind::ABOUT_PERSON,
         limit,
-        named_up_to,
         priming,
         breadth,
     )
@@ -410,6 +409,7 @@ pub async fn recall_remembered_split(
     let mut split = Recalled {
         named: Vec::new(),
         brought_to_mind: Vec::new(),
+        recent: Vec::new(),
     };
     // In a group she remembers what everyone there said; what is about
     // someone else says whose it is, so it is never taken for the speaker's:
@@ -435,6 +435,9 @@ pub async fn recall_remembered_split(
         if note.brought_to_mind {
             split.brought_to_mind.push(content);
         } else {
+            if note.recent {
+                split.recent.push(content.clone());
+            }
             split.named.push(content);
         }
     }

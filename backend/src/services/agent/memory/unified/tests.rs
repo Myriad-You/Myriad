@@ -154,44 +154,6 @@ fn of_two_as_important_the_one_never_recalled_fades_first() {
     assert_eq!(order, ["minor", "untouched", "often"]);
 }
 
-/// Asked where they take yoga, a dozen of their yoga memories are named:
-/// all of them come to mind, the one with the studio's name too; with
-/// fewer named, or none, what comes to mind is as it was.
-#[test]
-fn all_that_is_named_comes_to_mind_and_the_rest_is_as_it_was() {
-    let mut rows: Vec<agent_memories::Model> = (0..12)
-        .map(|n| row(&format!("yoga{n}"), &format!("yoga note {n}"), 0.5, 100 + n))
-        .collect();
-    rows.extend((0..6).map(|n| row(&format!("other{n}"), &format!("cat note {n}"), 0.5, 10 + n)));
-    let none = std::collections::HashMap::new();
-    let ids = |chosen: Vec<(agent_memories::Model, bool)>| -> Vec<String> {
-        chosen.into_iter().map(|(row, _)| row.id).collect()
-    };
-    let before = |rows: &[agent_memories::Model], query| -> Vec<String> {
-        rank(rows.to_vec(), query, 8)
-            .into_iter()
-            .map(|row| row.id)
-            .collect()
-    };
-    let now = |rows: &[agent_memories::Model], query| {
-        ids(rank_marked_up_to(rows.to_vec(), query, 8, 24, &Priming::default(), 1.0, &none).0)
-    };
-    let all = now(&rows, Some("yoga"));
-    assert_eq!(
-        all.iter().filter(|id| id.starts_with("yoga")).count(),
-        12,
-        "{all:?}"
-    );
-    assert_eq!(
-        all[..8],
-        before(&rows, Some("yoga"))[..],
-        "the first eight are as they were"
-    );
-    let few: Vec<agent_memories::Model> = rows[10..].to_vec();
-    assert_eq!(now(&few, Some("yoga")), before(&few, Some("yoga")));
-    assert_eq!(now(&rows, None), before(&rows, None));
-}
-
 fn row(id: &str, content: &str, importance: f64, age_secs: i64) -> agent_memories::Model {
     let at = (crate::clock::now() - chrono::Duration::seconds(age_secs)).fixed_offset();
     agent_memories::Model {

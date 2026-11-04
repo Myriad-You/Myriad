@@ -99,6 +99,7 @@ pub(super) async fn recollection(
             .map(|named| store::Recalled {
                 named,
                 brought_to_mind: Vec::new(),
+                recent: Vec::new(),
             }),
     };
     if let Ok(mut recalled) = remembered {
@@ -119,6 +120,9 @@ pub(super) async fn recollection(
         }
         if let Some(block) = format_remembered_section(&recalled.named) {
             sections.push(block);
+            if cues.as_ref().is_some_and(|cues| cues.thorough) {
+                sections.push(myriad_merope::speaking::format_going_through_all_section());
+            }
         }
         // What their words brought to mind, apart from what they named: the
         // stuff of callbacks and unexpected remarks, hers to use or not.

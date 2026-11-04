@@ -289,6 +289,9 @@ pub struct MemoryRecord {
     /// Recalled because what they said brought it to mind by association,
     /// not because they named it.
     pub brought_to_mind: bool,
+    /// Shown only to fill the budget as recent context: nothing asked
+    /// named it.
+    pub recent: bool,
     /// What it is about, as written with it.
     pub concepts: Vec<Concept>,
 }
@@ -309,6 +312,7 @@ impl From<agent_memories::Model> for MemoryRecord {
             access_count: model.access_count,
             created_at: model.created_at,
             brought_to_mind: false,
+            recent: false,
         }
     }
 }

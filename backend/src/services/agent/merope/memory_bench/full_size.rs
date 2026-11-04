@@ -276,7 +276,6 @@ pub(super) async fn her_memory_at_its_full_size() {
                                 &Audience::private(among),
                                 Some(&query),
                                 full,
-                                full,
                                 &Priming::default(),
                                 0.0,
                             )

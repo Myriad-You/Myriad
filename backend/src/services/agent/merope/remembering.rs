@@ -386,16 +386,12 @@ pub async fn recall_with(
         Some(cues) if cues.thorough => thorough.max(limit),
         _ => limit,
     };
-    // All that their words name comes to mind, as many as she goes
-    // through when answering needs all of it; only what came along is held
-    // to `limit`.
     let (first, next) = store::recall_remembered_split(
         db,
         user_id,
         present,
         Some(message),
         limit,
-        thorough.max(limit),
         priming,
         breadth,
     )
@@ -405,7 +401,22 @@ pub async fn recall_with(
     };
     // What the cues mean, in one request rather than one each.
     crate::services::agent::memory::meaning::warm(&cues.cues).await;
-    let mut tries = vec![first.named];
+    // Going through all of it, she goes through only what something names:
+    // the recent rows filling a try that named nothing do not bear on it,
+    // and would take the room of what does.
+    let named_of = |recalled: &Recalled| -> Vec<String> {
+        if !cues.thorough {
+            return recalled.named.clone();
+        }
+        recalled
+            .named
+            .iter()
+            .filter(|line| !recalled.recent.contains(line))
+            .cloned()
+            .collect()
+    };
+    let mut tries = vec![named_of(&first)];
+    let mut recent = first.recent.clone();
     for cue in &cues.cues {
         let (found, _) = store::recall_remembered_split(
             db,
@@ -413,23 +424,28 @@ pub async fn recall_with(
             present,
             Some(cue),
             limit,
-            thorough.max(limit),
             &Priming::default(),
             0.0,
         )
         .await?;
-        tries.push(found.named);
+        tries.push(named_of(&found));
+        recent.extend(found.recent);
     }
-    // Room for as much as the try that named the most.
-    let named_most = tries.iter().map(Vec::len).max().unwrap_or(0);
-    let room = limit
-        .saturating_sub(first.brought_to_mind.len())
-        .max(named_most)
-        .max(1);
+    if tries.iter().all(Vec::is_empty) {
+        tries = vec![first.named.clone()];
+    }
+    let room = limit.saturating_sub(first.brought_to_mind.len()).max(1);
+    let named = merged(&tries, room);
+    let recent = named
+        .iter()
+        .filter(|line| recent.contains(line))
+        .cloned()
+        .collect();
     Ok((
         Recalled {
-            named: merged(&tries, room),
+            named,
             brought_to_mind: first.brought_to_mind,
+            recent,
         },
         next,
     ))
