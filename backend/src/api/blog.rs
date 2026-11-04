@@ -285,6 +285,51 @@ async fn serve_blog(
             None
         },
     };
+    // 站内搜索：纯服务端渲染，主题有没有 JS 都一样。放在 chrome 建好之后，
+    // 这样导航岛和深浅色跟其它博客页一致。
+    if matches!(path.as_str(), "/blog/search" | "/blog/search/") {
+        let keyword = query
+            .as_deref()
+            .and_then(|query| {
+                url::form_urlencoded::parse(query.as_bytes())
+                    .find(|(key, _)| key == "q")
+                    .map(|(_, value)| value.into_owned())
+            })
+            .unwrap_or_default();
+        let settings = crate::services::blog::load_settings(&db).await;
+        let posts = crate::services::blog::search_posts(
+            &db,
+            &keyword,
+            crate::services::blog::SEARCH_PAGE_LIMIT,
+        )
+        .await
+        .map_err(|message| blog_error(500, message))?;
+        let html = crate::services::blog::render_search_page(
+            &settings.site_title,
+            &crate::api::reports::locale::host_locale_from_headers(request.headers()),
+            keyword.trim(),
+            &posts,
+        );
+        let html = chrome
+            .dark
+            .and_then(|dark| myriad_blog::apply_page_scheme(&html, dark))
+            .unwrap_or(html);
+        let html = myriad_blog::decorate_page(
+            &html,
+            myriad_blog::nav_island_head(),
+            &chrome.nav,
+            chrome.studio.as_deref(),
+        );
+        let cache = if anonymous && !chrome.personal {
+            "public, max-age=60"
+        } else {
+            "private, max-age=60"
+        };
+        let mut response = html_response(StatusCode::OK, html, cache);
+        finish_blog_response(&mut response, request.method());
+        return Ok(response);
+    }
+
     let response = match target {
         BlogTarget::Redirect(location) => {
             let location = match &query {
@@ -441,7 +486,7 @@ fn blog_nav(
     locale: &str,
     site: Option<&myriad_blog::SiteChrome>,
 ) -> String {
-    myriad_blog::nav_island_html(
+    myriad_blog::blog_nav_island_html(
         |module| {
             crate::api::phantasi::phantasi_access_allowed(
                 preferences.module_visibility(module),
@@ -450,6 +495,7 @@ fn blog_nav(
             )
         },
         |key| crate::i18n::nav(locale, key),
+        &crate::i18n::blog(locale, "search"),
         site,
     )
 }
