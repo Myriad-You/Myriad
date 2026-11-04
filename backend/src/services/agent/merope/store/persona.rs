@@ -320,8 +320,7 @@ where
         // Her own memories and the owner's private ones (vectors go with them).
         format!("DELETE FROM agent_memories WHERE {synced}"),
         "DELETE FROM agent_proactive_messages WHERE user_id = $1".to_string(),
-        // What she said to the owner in private (the ledger does not move
-        // with her yet: it goes across once her link speaks protocol 2).
+        // What she said to the owner in private: the ledger moves with her.
         "DELETE FROM agent_speech_said WHERE user_id = $1".to_string(),
         "DELETE FROM agent_diary WHERE user_id = $1".to_string(),
         "DELETE FROM agent_affect_events WHERE user_id = $1".to_string(),

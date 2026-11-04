@@ -22,7 +22,7 @@ use myriad_persona_sync::{
         ConversationLine, DiaryBody, Embedding, EmbeddingModel, FieldHistoryBody, IntentionBody,
         LinePicture, MemoryAudience, MemoryBody, MemoryVenue, OutfitBody, OwnerStateBody, PACE_ID,
         PERSONA_ID, PRESENT_ID, PaceBody, PresentBody, PresentDoing, PresentLazing,
-        ProactiveLineBody, SOUP_GAME_ID, StickerBody, WearingBody, Worn,
+        ProactiveLineBody, SOUP_GAME_ID, SpeechSaidBody, StickerBody, WearingBody, Worn,
     },
     hlc,
     persona::{PersonaBody, PersonaField},
@@ -206,6 +206,7 @@ async fn of_kind<C: ConnectionTrait>(
         Kind::Pace => pace(db).await?.into_iter().collect(),
         Kind::Present => present(db).await?.into_iter().collect(),
         Kind::ProactiveLine => proactive_lines(db, owner).await?,
+        Kind::SpeechSaid => speech_said(db, owner).await?,
         Kind::Wearing => wearing(db).await?.into_iter().collect(),
     };
     found.sort_by(|a, b| a.id.cmp(&b.id));
@@ -1034,6 +1035,48 @@ async fn proactive_lines<C: ConnectionTrait>(
             Kind::ProactiveLine,
             &id,
             site_rev(created_at),
+            State::Live,
+            &body,
+        ));
+    }
+    Ok(out)
+}
+
+/// The ledger of what she said to the owner in private, called on or not
+/// (`agent_speech_said`); what she said in groups stays with the site.
+async fn speech_said<C: ConnectionTrait>(db: &C, owner: i32) -> Result<Vec<EntityVersion>, DbErr> {
+    let rows = db
+        .query_all_raw(statement(
+            "SELECT id, at, payload FROM agent_speech_said WHERE audience = $1 ORDER BY id",
+            vec![format!("personal:{owner}").into()],
+        ))
+        .await?;
+    let mut out = Vec::new();
+    for row in &rows {
+        let id: String = row.try_get("", "id")?;
+        let at: DateTime<FixedOffset> = row.try_get("", "at")?;
+        let payload: Value = row.try_get("", "payload")?;
+        let Ok(said) = serde_json::from_value::<myriad_persona_log::payloads::SpeechSaid>(payload)
+        else {
+            continue;
+        };
+        let body = SpeechSaidBody {
+            at: said.at.saturating_mul(1000),
+            text: said.text,
+            place: said.place,
+            source: said.source,
+            called: said.called,
+            thing: said.thing,
+            exit: said.exit,
+            extent: said.extent,
+            heard: said.heard,
+            interrupted: said.interrupted,
+            line: said.line,
+        };
+        out.extend(entity(
+            Kind::SpeechSaid,
+            &format!("said_{id}"),
+            site_rev(at),
             State::Live,
             &body,
         ));

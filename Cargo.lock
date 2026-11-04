@@ -3043,6 +3043,7 @@ dependencies = [
  "chrono",
  "earcutr",
  "myriad-agent-rules",
+ "myriad-perception-filter",
  "scraper",
  "serde",
  "serde_json",

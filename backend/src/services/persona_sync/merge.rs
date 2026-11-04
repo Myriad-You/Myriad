@@ -27,7 +27,7 @@ use myriad_persona_sync::{
     entity::{
         AffectAnchorBody, AffectEventBody, ConversationBody, DiaryBody, FieldHistoryBody,
         IntentionBody, MemoryBody, MemoryVenue, OutfitBody, OwnerStateBody, PaceBody, Picture,
-        PresentBody, ProactiveLineBody, StickerBody, WearingBody,
+        PresentBody, ProactiveLineBody, SpeechSaidBody, StickerBody, WearingBody,
     },
     hlc,
     merge::{self, Device, MergeInput, MergePlan, Side},
@@ -38,8 +38,8 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, DatabaseTransaction, Transact
 use serde_json::{Value, json};
 
 use super::import::{
-    ImportError, KEEP_DAYS, KEEP_PRESENT_DAYS, Landed, Session, Whole, at, her_on, keep_files,
-    locked, merge_refused, one_at_a_time, phase, statement, utc, vectors_fit,
+    ImportError, KEEP_DAYS, KEEP_PRESENT_DAYS, Landed, Session, Whole, at, her_on, insert_said,
+    keep_files, locked, merge_refused, one_at_a_time, phase, statement, utc, vectors_fit,
 };
 use super::{assets, lease, snapshot};
 use crate::services::agent::merope::api::sync as her;
@@ -961,6 +961,11 @@ async fn land(
             ],
         ))
         .await?;
+    }
+    for write in written(Kind::SpeechSaid).filter(|write| !write.replaces) {
+        let entity = entity_of(write)?;
+        let said: SpeechSaidBody = entity.body_as().map_err(bad)?;
+        insert_said(txn, owner, &entity.id, said).await?;
     }
     for write in written(Kind::Intention) {
         let entity = entity_of(write)?;

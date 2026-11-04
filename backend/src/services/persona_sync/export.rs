@@ -492,6 +492,17 @@ mod tests {
              '2026-10-09T01:00:00Z', 'say1'), (42, 'assistant', '给别人的', 'reach', true, \
              '2026-10-09T01:00:00Z', NULL)"
                 .to_string(),
+            "INSERT INTO agent_speech_said (id, audience, user_id, thing, called, at, payload) \
+             VALUES ('s1', 'personal:41', 41, 'reach|rain', false, '2026-10-09T01:00:00Z', \
+             '{\"at\":1759971600000,\"text\":\"雨停了\",\"place\":\"web\",\"source\":\"reach\",\
+             \"called\":false,\"thing\":\"reach|rain\",\"exit\":\"im\",\"extent\":\"full\"}'), \
+             ('s2', 'personal:42', 42, NULL, true, '2026-10-09T01:00:00Z', \
+             '{\"at\":1759971600000,\"text\":\"别人听到的\",\"place\":\"web\",\"source\":\"reply\",\
+             \"called\":true,\"exit\":\"face\",\"extent\":\"full\"}'), \
+             ('s3', 'group:telegram:-1', NULL, NULL, true, '2026-10-09T01:00:00Z', \
+             '{\"at\":1759971600000,\"text\":\"群里的话\",\"place\":\"group\",\
+             \"source\":\"group_at\",\"called\":true,\"exit\":\"im\",\"extent\":\"full\"}')"
+                .to_string(),
             "INSERT INTO agent_addressee_state (user_id, mood, arousal, emotion, emotion_arousal, \
              activity, mood_settled_at, emotion_settled_at, updated_at) VALUES \
              (41, 40, 50, 60, 50, '写代码', '2026-10-09Z', '2026-10-09Z', '2026-10-09Z')"
@@ -534,6 +545,7 @@ mod tests {
         assert_eq!(count("memory"), 1);
         assert_eq!(count("conversation"), 1);
         assert_eq!(count("proactive_line"), 1);
+        assert_eq!(count("speech_said"), 1);
         assert_eq!(count("owner_state"), 1);
         assert_eq!(count("pace"), 1);
         assert_eq!(count("wearing"), 1);

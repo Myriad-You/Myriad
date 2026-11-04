@@ -49,7 +49,8 @@ use myriad_persona_sync::{
     entity::{
         AffectAnchorBody, AffectEventBody, ConversationBody, DiaryBody, Embedding, EmbeddingModel,
         FieldHistoryBody, IntentionBody, MemoryBody, MemoryVenue, OutfitBody, OwnerStateBody,
-        PaceBody, Picture, PresentBody, ProactiveLineBody, StickerBody, WearingBody,
+        PaceBody, Picture, PresentBody, ProactiveLineBody, SpeechSaidBody, StickerBody,
+        WearingBody,
     },
     hlc,
     persona::{FieldRev, PersonaBody, VISUAL_PREFIX},
@@ -2323,6 +2324,13 @@ async fn land(
         .await?;
         count(Kind::ProactiveLine);
     }
+    for entity in of(Kind::SpeechSaid) {
+        let said: SpeechSaidBody = entity
+            .body_as()
+            .map_err(|error| ImportError::Mismatch(error.to_string()))?;
+        insert_said(&txn, owner, &entity.id, said).await?;
+        count(Kind::SpeechSaid);
+    }
     for entity in of(Kind::Intention) {
         let intention: IntentionBody = entity
             .body_as()
@@ -2415,6 +2423,54 @@ async fn land(
 
 /// Her pictures into the media library (each once, by its sha256) and her
 /// rigs as packages: the address each picture is at now, by asset id.
+/// A line of the ledger of what she said to the owner, kept as the site
+/// keeps its own (`agent_speech_said`, her log's `speech.said`): under the
+/// id it had where it was said, once.
+pub(super) async fn insert_said<C: ConnectionTrait>(
+    db: &C,
+    owner: i32,
+    id: &str,
+    said: SpeechSaidBody,
+) -> Result<(), DbErr> {
+    let id = id.strip_prefix("said_").unwrap_or(id);
+    let id = if id.chars().count() <= 64 {
+        id.to_string()
+    } else {
+        sha256_hex(id.as_bytes()).chars().take(64).collect()
+    };
+    let when = at(said.at);
+    let payload = serde_json::to_value(myriad_persona_log::payloads::SpeechSaid {
+        at: said.at.div_euclid(1000),
+        text: said.text,
+        place: said.place,
+        source: said.source,
+        called: said.called,
+        thing: said.thing.clone(),
+        exit: said.exit,
+        extent: said.extent,
+        heard: said.heard,
+        interrupted: said.interrupted,
+        line: said.line,
+        group_name: None,
+    })
+    .unwrap_or_default();
+    db.execute_raw(statement(
+        "INSERT INTO agent_speech_said (id, audience, user_id, thing, called, at, payload) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING",
+        vec![
+            id.into(),
+            format!("personal:{owner}").into(),
+            owner.into(),
+            said.thing.into(),
+            said.called.into(),
+            when.into(),
+            payload.into(),
+        ],
+    ))
+    .await?;
+    Ok(())
+}
+
 pub(super) async fn keep_files(
     db: &DatabaseConnection,
     owner: i32,
