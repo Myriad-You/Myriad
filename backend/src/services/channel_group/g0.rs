@@ -67,6 +67,8 @@ pub(crate) struct World {
     /// What she says to a whole speaking prompt, by operation, in order:
     /// how long it takes, and the words or how it failed.
     pub says: HashMap<String, VecDeque<(f64, Result<String, &'static str>)>>,
+    /// Her speaking soul in this world, when not `SOUL`.
+    pub soul: Option<String>,
     pub log: Vec<Value>,
 }
 
@@ -103,6 +105,7 @@ impl World {
             recent_surfaces: Vec::new(),
             titles: HashMap::new(),
             says: HashMap::new(),
+            soul: None,
             log: Vec::new(),
         }
     }
@@ -169,6 +172,13 @@ pub(crate) fn note(kind: &str, value: Value) {
             .log
             .push(json!({ "t": t, "kind": kind, "what": value }));
     });
+}
+
+/// Her speaking soul in this world.
+pub(crate) fn soul() -> String {
+    with(|world| world.soul.clone())
+        .flatten()
+        .unwrap_or_else(|| SOUL.to_string())
 }
 
 pub(crate) fn owner() -> Option<i32> {

@@ -13,6 +13,8 @@
 mod in_person;
 mod produce;
 mod redeem;
+#[cfg(test)]
+pub(in crate::services::agent) use redeem::proactive_prompt;
 mod told;
 
 use sea_orm::DatabaseConnection;

@@ -13,6 +13,7 @@ use serde_json::json;
 const TOKEN: &str = "g0-token";
 
 mod avalon;
+mod consistency;
 mod games;
 mod jubensha;
 mod jubensha_writing;

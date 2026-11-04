@@ -86,7 +86,7 @@ pub async fn get_identity() -> Option<AgentIdentity> {
 pub async fn get_speaking_soul() -> Option<String> {
     #[cfg(test)]
     if crate::services::channel_group::g0::on() {
-        return Some(crate::services::channel_group::g0::SOUL.to_string());
+        return Some(crate::services::channel_group::g0::soul());
     }
     crate::services::agent::merope::resolve_speaking_soul().await
 }

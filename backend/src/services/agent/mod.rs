@@ -49,6 +49,8 @@ pub(crate) mod work_loop;
 
 #[cfg(test)]
 mod behavior_contract;
+#[cfg(test)]
+pub(crate) mod consistency_recording;
 
 #[cfg(test)]
 mod persona_spread;

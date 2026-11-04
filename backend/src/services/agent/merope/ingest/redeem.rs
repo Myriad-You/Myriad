@@ -439,6 +439,38 @@ fn speech_is_shown(event_key: &str, notify: bool) -> bool {
     notify && merope_owns_notify(event_key)
 }
 
+/// What she is given to say `gist` (about `happened`) unasked: the system
+/// (her soul, the sections a chat turn wears, what she already said unasked)
+/// and the line asking for it.
+pub(crate) async fn proactive_prompt(
+    db: &DatabaseConnection,
+    user_id: i32,
+    gist: &str,
+    happened: Option<&str>,
+) -> (String, String) {
+    let soul = crate::services::agent::identity::get_speaking_soul()
+        .await
+        .unwrap_or_else(|| "You are Agent.".to_string());
+    let mut sections =
+        crate::services::agent::merope::speaking_prompt_for_event(db, user_id, gist).await;
+    // How the last exchange left her, if it was a moment ago.
+    sections.extend(
+        super::super::inner::current(
+            user_id,
+            &crate::services::agent::memory::unified::Audience::private(user_id),
+        )
+        .as_deref()
+        .and_then(crate::services::agent::merope::format_inner_moment_ago_section),
+    );
+    let mind = crate::services::agent::merope::speaking_prompt_plain(&sections);
+    // What she already said unasked, as her decision saw it.
+    let recent_block = super::said_lately_block(db, user_id).await;
+    let system =
+        super::super::speaking_prompts::compose_proactive_system(&soul, &mind, &recent_block);
+    let prompt = super::super::speaking_prompts::compose_proactive_user(gist, happened);
+    (system, prompt)
+}
+
 /// The line she says for `intent` (what she means, about what happened), as
 /// she would put it; with `voice`, in her own voice, its sound sent as it is
 /// made.
@@ -456,29 +488,8 @@ async fn compose_line(
         .model()
         .await
         .ok()?;
-    let soul = crate::services::agent::identity::get_speaking_soul()
-        .await
-        .unwrap_or_else(|| "You are Agent.".to_string());
-    let mut sections =
-        crate::services::agent::merope::speaking_prompt_for_event(db, user_id, &intent.gist).await;
-    // How the last exchange left her, if it was a moment ago.
-    sections.extend(
-        super::super::inner::current(
-            user_id,
-            &crate::services::agent::memory::unified::Audience::private(user_id),
-        )
-        .as_deref()
-        .and_then(crate::services::agent::merope::format_inner_moment_ago_section),
-    );
-    let mind = crate::services::agent::merope::speaking_prompt_plain(&sections);
-    // What she already said unasked, as her decision saw it.
-    let recent_block = super::said_lately_block(db, user_id).await;
-    let system =
-        super::super::speaking_prompts::compose_proactive_system(&soul, &mind, &recent_block);
-    let prompt = super::super::speaking_prompts::compose_proactive_user(
-        &intent.gist,
-        intent.happened.as_deref(),
-    );
+    let (system, prompt) =
+        proactive_prompt(db, user_id, &intent.gist, intent.happened.as_deref()).await;
     let made = match voice {
         Some((omni, out)) => {
             let aloud = crate::services::omni_voice::said_aloud(&format!("{system}\n\n{prompt}"));
