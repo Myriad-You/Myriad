@@ -681,6 +681,13 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             columns: vec!["thing".into(), "at".into()],
             is_unique: false,
         },
+        // 记忆挂在哪个话题下
+        IndexDef {
+            name: "idx_agent_memory_topics_topic".into(),
+            table: "agent_memory_topics".into(),
+            columns: vec!["user_id".into(), "topic_id".into()],
+            is_unique: false,
+        },
         // federation 索引
         IndexDef {
             name: "idx_remote_actors_domain".into(),

@@ -95,6 +95,10 @@ async fn settle_session(
         .iter()
         .filter_map(|note| note.fact.as_deref())
         .collect();
+    // The topics to put what lasts under, as production shows them.
+    let offered = super::super::store::offered_topics(db, user_id, present, &theirs)
+        .await
+        .unwrap_or_default();
     let input = json!({
         "conversation": turns
             .iter()
@@ -105,6 +109,7 @@ async fn settle_session(
             .collect::<Vec<_>>(),
         "lately": lately,
         "today": at.with_timezone(&super::super::clock::zone()).format("%Y-%m-%d (%A)").to_string(),
+        "topics": super::super::chat_remember::settle::shown_topics(&offered),
     })
     .to_string();
     let Ok(raw) = judge
@@ -119,9 +124,13 @@ async fn settle_session(
     else {
         return (Vec::new(), Vec::new(), Vec::new());
     };
-    let Some((kept, replaces)) =
-        myriad_merope::chat_remember::parse_settle(&raw, &theirs, &known, notes.len())
-    else {
+    let Some((kept, replaces)) = myriad_merope::chat_remember::parse_settle(
+        &raw,
+        &theirs,
+        &known,
+        notes.len(),
+        offered.len(),
+    ) else {
         return (Vec::new(), Vec::new(), Vec::new());
     };
     let left = myriad_merope::chat_remember::settle_left(&raw, &kept, notes.len());
@@ -136,6 +145,7 @@ async fn settle_session(
             .push(super::super::chat_remember::ChatMemoryUpdate {
                 // When it would be worth remembering, as production keeps it.
                 cues: item.when_for,
+                topic: super::super::chat_remember::settle::goes_under(&item.topic, &offered),
                 fact: Some(fact.clone()),
                 // What it changes goes with the first: it says how it is now.
                 supersedes: if updates.updates.is_empty() {
@@ -158,6 +168,7 @@ async fn settle_session(
         updates
             .updates
             .push(super::super::chat_remember::ChatMemoryUpdate {
+                topic: None,
                 cues: Vec::new(),
                 fact: Some(fact.clone()),
                 supersedes: Vec::new(),

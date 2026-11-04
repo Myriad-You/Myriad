@@ -384,6 +384,8 @@ struct Outcome {
     memories: Vec<String>,
     /// Each memory's concepts, as kept beside it.
     concepts: Vec<Value>,
+    /// The topic each memory went under, if any.
+    topics: Vec<Option<String>>,
     kept: usize,
 }
 
@@ -449,6 +451,7 @@ async fn run_one(
                     supersedes: Vec::new(),
                     evidence: Some(fact.clone()),
                     concepts: Vec::new(),
+                    topic: None,
                     cues: Vec::new(),
                 })
                 .collect(),
@@ -606,7 +609,8 @@ async fn run_one(
             cues.as_ref(),
             THOROUGH,
         )
-        .await;
+        .await
+        .0;
         Some(
             answering
                 .iter()
@@ -658,6 +662,30 @@ async fn run_one(
             .map(|row| (row.id, row.concepts))
             .collect()
     };
+    let topic_by_id: std::collections::HashMap<String, String> = {
+        use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+        db.query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT m.memory_id, t.name FROM agent_memory_topics m \
+             JOIN agent_topic_nodes t ON t.user_id = m.user_id AND t.id = m.topic_id \
+             WHERE m.user_id = $1",
+            [user_id.into()],
+        ))
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|row| {
+            Some((
+                row.try_get::<String>("", "memory_id").ok()?,
+                row.try_get::<String>("", "name").ok()?,
+            ))
+        })
+        .collect()
+    };
+    let topics: Vec<Option<String>> = kept_rows
+        .iter()
+        .map(|row| topic_by_id.get(&row.id).cloned())
+        .collect();
     let (memories, concepts): (Vec<String>, Vec<Value>) = kept_rows
         .into_iter()
         .map(|row| {
@@ -676,5 +704,6 @@ async fn run_one(
         kept,
         memories,
         concepts,
+        topics,
     }
 }

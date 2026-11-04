@@ -1663,6 +1663,7 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
                 &theirs,
                 &case.remembered,
                 case.lately.len(),
+                0,
             ) else {
                 return "output_invalid";
             };

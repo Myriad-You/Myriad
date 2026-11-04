@@ -260,7 +260,8 @@ pub(super) async fn her_memory_at_its_full_size() {
                                 with,
                                 THOROUGH,
                             )
-                            .await;
+                            .await
+                            .0;
                             row[format!("{name}_{way}")] = json!(found(&recalled));
                         }
                     }

@@ -76,6 +76,8 @@ fn test_folded_extension_tables_in_expected_schema() {
         "agent_speech_said",
         "agent_nodes",
         "agent_node_events",
+        "agent_topic_nodes",
+        "agent_memory_topics",
         "agent_sync_devices",
         "agent_host_lease",
         "agent_host_import",

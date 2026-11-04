@@ -71,6 +71,10 @@ pub struct ChatMemoryUpdate {
     /// When it would be worth remembering (see `unified::keep_cues`).
     #[serde(default)]
     pub cues: Vec<String>,
+    /// The topic it goes under, when going over a stretch put it under one
+    /// (`store::put_under`).
+    #[serde(default)]
+    pub topic: Option<super::store::GoesUnder>,
 }
 
 /// Something she told them that she would remember having said.
@@ -97,6 +101,7 @@ impl ChatMemoryUpdates {
     /// fact, and everything it withdraws.
     pub fn combined(&self) -> ChatMemoryUpdate {
         ChatMemoryUpdate {
+            topic: None,
             cues: Vec::new(),
             fact: self.updates.iter().find_map(|update| update.fact.clone()),
             supersedes: self
@@ -670,7 +675,12 @@ pub(crate) fn settle_probe(
     (
         myriad_merope::chat_remember::settle_system_prompt(known),
         myriad_merope::chat_remember::settle_schema(),
-        settle::input(lines, lately, "2026-09-25 (Thursday)"),
+        settle::input(
+            lines,
+            lately,
+            "2026-09-25 (Thursday)",
+            &serde_json::json!([]),
+        ),
     )
 }
 
@@ -682,6 +692,7 @@ mod tests {
 
     fn new_fact(fact: &str, subject: &str) -> ChatMemoryUpdate {
         ChatMemoryUpdate {
+            topic: None,
             cues: Vec::new(),
             fact: Some(fact.into()),
             supersedes: Vec::new(),
@@ -1102,5 +1113,5 @@ pub(super) mod cues;
 #[cfg(test)]
 mod replay;
 
-mod settle;
+pub(in crate::services::agent::merope) mod settle;
 pub(super) use settle::settle;

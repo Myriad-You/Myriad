@@ -216,11 +216,22 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
             .await?;
             if let Some(id) = replaced.id {
                 unified::keep_cues(db, &id, &update.cues).await?;
+                if keep == Keep::Lasting {
+                    super::put_under(db, user_id, present, &id, &targets, update.topic.as_ref())
+                        .await?;
+                }
             }
         }
         None => {
             unified::retire_in_favor_of(db, user_id, &targets, "superseded", duplicate.as_deref())
                 .await?;
+            // What already said it goes under the topic this was put under,
+            // when it is under none yet.
+            if keep == Keep::Lasting
+                && let Some(id) = duplicate.as_deref()
+            {
+                super::put_under(db, user_id, present, id, &targets, update.topic.as_ref()).await?;
+            }
         }
     }
     let applied = !targets.is_empty() || insert.is_some();
@@ -380,6 +391,11 @@ pub struct Recalled {
     pub brought_to_mind: Vec<String>,
     /// Of `named`, those only filling the budget as recent context.
     pub recent: Vec<String>,
+    /// The memory behind each line of `named`, by line.
+    pub ids: Vec<(String, String)>,
+    /// Going through all of it, the topics whose facts are not all in
+    /// `named`: each one's name, how many are, and how many she keeps.
+    pub not_all_here: Vec<(String, usize, usize)>,
 }
 
 /// [`recall_remembered_primed`], keeping apart what was named and what it
@@ -410,6 +426,8 @@ pub async fn recall_remembered_split(
         named: Vec::new(),
         brought_to_mind: Vec::new(),
         recent: Vec::new(),
+        ids: Vec::new(),
+        not_all_here: Vec::new(),
     };
     // In a group she remembers what everyone there said; what is about
     // someone else says whose it is, so it is never taken for the speaker's:
@@ -438,6 +456,7 @@ pub async fn recall_remembered_split(
             if note.recent {
                 split.recent.push(content.clone());
             }
+            split.ids.push((content.clone(), note.id.clone()));
             split.named.push(content);
         }
     }

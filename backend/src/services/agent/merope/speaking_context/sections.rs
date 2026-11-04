@@ -100,6 +100,8 @@ pub(super) async fn recollection(
                 named,
                 brought_to_mind: Vec::new(),
                 recent: Vec::new(),
+                ids: Vec::new(),
+                not_all_here: Vec::new(),
             }),
     };
     if let Ok(mut recalled) = remembered {
@@ -122,6 +124,9 @@ pub(super) async fn recollection(
             sections.push(block);
             if cues.as_ref().is_some_and(|cues| cues.thorough) {
                 sections.push(myriad_merope::speaking::format_going_through_all_section());
+                sections.extend(myriad_merope::speaking::format_not_all_here_section(
+                    &recalled.not_all_here,
+                ));
             }
         }
         // What their words brought to mind, apart from what they named: the

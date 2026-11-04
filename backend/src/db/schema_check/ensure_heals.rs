@@ -97,6 +97,14 @@ pub(crate) async fn ensure_agent_nodes_tables(db: &DatabaseConnection) -> Result
     Ok(())
 }
 
+/// The topics she keeps what she knows under (`migrations/topic_nodes.sql`),
+/// for databases that ran 004 before it was in it. Same file as 004.
+pub(crate) async fn ensure_topic_nodes_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(include_str!("../../../migrations/topic_nodes.sql"))
+        .await?;
+    Ok(())
+}
+
 /// What she said (`migrations/speech_said.sql`), for databases that ran 004
 /// before it was in it. Same file as 004.
 pub(crate) async fn ensure_speech_said_table(db: &DatabaseConnection) -> Result<(), DbErr> {

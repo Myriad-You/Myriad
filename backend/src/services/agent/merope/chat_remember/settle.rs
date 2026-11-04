@@ -90,12 +90,18 @@ pub(in crate::services::agent::merope) async fn settle(
         .iter()
         .map(|row| compact_summary(&row.content))
         .collect();
+    // The topics she keeps facts under that this stretch most likely
+    // touches, to put what lasts under (none outside a private talk).
+    let offered = super::super::store::offered_topics(db, user_id, present, &theirs)
+        .await
+        .map_err(|_| Failure::Storage)?;
     let input = input(
         &conversation,
         &lately,
         &super::super::clock::local_now()
             .format("%Y-%m-%d (%A)")
             .to_string(),
+        &shown_topics(&offered),
     );
     let raw =
         super::super::call::Ask::new(super::super::call::Voice::Thorough, user_id, "chat_settle")
@@ -107,9 +113,14 @@ pub(in crate::services::agent::merope) async fn settle(
                 &myriad_merope::chat_remember::settle_schema(),
             )
             .await?;
-    let (lasting, replaces) =
-        myriad_merope::chat_remember::parse_settle(&raw, &theirs, &known, notes.len())
-            .ok_or(super::super::call::Failure::InvalidOutput)?;
+    let (lasting, replaces) = myriad_merope::chat_remember::parse_settle(
+        &raw,
+        &theirs,
+        &known,
+        notes.len(),
+        offered.len(),
+    )
+    .ok_or(super::super::call::Failure::InvalidOutput)?;
     let left = myriad_merope::chat_remember::settle_left(&raw, &lasting, notes.len());
     if lasting.is_empty() && replaces.is_empty() && left.is_empty() {
         return Ok(Effect::NoChange);
@@ -138,6 +149,7 @@ pub(in crate::services::agent::merope) async fn settle(
                 serde_json::from_value(item.concepts).unwrap_or_default(),
             ),
             cues: item.when_for,
+            topic: goes_under(&item.topic, &offered),
         });
     }
     for index in left {
@@ -148,15 +160,55 @@ pub(in crate::services::agent::merope) async fn settle(
             supersedes: Vec::new(),
             evidence: note.evidence.clone(),
             concepts: unified::clean_concepts(note.concepts.clone()),
+            topic: None,
             cues: Vec::new(),
         });
     }
     Ok(Effect::Settle { updates, settled })
 }
 
+/// The topics `offered` as she sees them beside a stretch.
+pub(in crate::services::agent::merope) fn shown_topics(
+    offered: &[super::super::store::OfferedTopic],
+) -> serde_json::Value {
+    let topics: Vec<myriad_merope::topics::Topic> = offered
+        .iter()
+        .map(|topic| myriad_merope::topics::Topic {
+            name: &topic.name,
+            aliases: &topic.aliases,
+            holds: &topic.holds,
+        })
+        .collect();
+    myriad_merope::topics::shown(&topics, &(0..topics.len()).collect::<Vec<_>>())
+}
+
+/// Where going over put a fact, by the topics it was `offered`.
+pub(in crate::services::agent::merope) fn goes_under(
+    under: &myriad_merope::topics::Under,
+    offered: &[super::super::store::OfferedTopic],
+) -> Option<super::super::store::GoesUnder> {
+    use myriad_merope::topics::Under;
+    match under {
+        Under::Nowhere => None,
+        Under::Offered(index) => offered
+            .get(*index)
+            .map(|topic| super::super::store::GoesUnder::Topic(topic.id.clone())),
+        Under::New { name, aliases } => Some(super::super::store::GoesUnder::New {
+            name: name.clone(),
+            aliases: aliases.clone(),
+        }),
+    }
+}
+
 /// What going over a stretch is given: the stretch as it was said (`true`
-/// on their lines), the short notes taken from it, and today.
-pub(super) fn input(conversation: &[(bool, String)], lately: &[String], today: &str) -> String {
+/// on their lines), the short notes taken from it, today, and the topics
+/// she keeps facts under that it most likely touches (`shown_topics`).
+pub(super) fn input(
+    conversation: &[(bool, String)],
+    lately: &[String],
+    today: &str,
+    topics: &serde_json::Value,
+) -> String {
     json!({
         "conversation": conversation
             .iter()
@@ -167,6 +219,7 @@ pub(super) fn input(conversation: &[(bool, String)], lately: &[String], today: &
             .collect::<Vec<_>>(),
         "lately": lately,
         "today": today,
+        "topics": topics,
     })
     .to_string()
 }

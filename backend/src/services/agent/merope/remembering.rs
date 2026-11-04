@@ -24,6 +24,9 @@ pub const LOOK_BACK_THOROUGH: usize = 8;
 const THINK_WITHIN: Duration = Duration::from_secs(6);
 /// What she goes through when answering needs all of it.
 pub const THOROUGH: usize = 24;
+/// What else of the topics of what came to mind she goes through then, at
+/// most (`store::kept_together`); she is told how much more there is.
+const KEPT_TOGETHER: usize = 24;
 
 /// What she would try to remember before answering `message`; billed to
 /// `owner`.
@@ -396,7 +399,7 @@ pub async fn recall_with(
         breadth,
     )
     .await?;
-    let Some(cues) = cues.filter(|cues| !cues.cues.is_empty()) else {
+    let Some(cues) = cues.filter(|cues| cues.thorough || !cues.cues.is_empty()) else {
         return Ok((first, next));
     };
     // What the cues mean, in one request rather than one each.
@@ -417,6 +420,7 @@ pub async fn recall_with(
     };
     let mut tries = vec![named_of(&first)];
     let mut recent = first.recent.clone();
+    let mut ids = first.ids.clone();
     for cue in &cues.cues {
         let (found, _) = store::recall_remembered_split(
             db,
@@ -430,22 +434,48 @@ pub async fn recall_with(
         .await?;
         tries.push(named_of(&found));
         recent.extend(found.recent);
+        ids.extend(found.ids);
     }
     if tries.iter().all(Vec::is_empty) {
         tries = vec![first.named.clone()];
     }
     let room = limit.saturating_sub(first.brought_to_mind.len()).max(1);
-    let named = merged(&tries, room);
+    let mut named = merged(&tries, room);
     let recent = named
         .iter()
         .filter(|line| recent.contains(line))
         .cloned()
         .collect();
+    let named_ids: Vec<String> = named
+        .iter()
+        .filter_map(|line| ids.iter().find(|(seen, _)| seen == line))
+        .map(|(_, id)| id.clone())
+        .collect();
+    // Going through all of it, what she keeps under the same topics comes
+    // to mind with it: a fact of the kind is found through another of its
+    // kind, sharing no word with what they asked.
+    let mut not_all_here = Vec::new();
+    if cues.thorough {
+        let have: Vec<String> = named
+            .iter()
+            .chain(&first.brought_to_mind)
+            .cloned()
+            .collect();
+        let (more, cut) =
+            store::kept_together(db, user_id, present, &named_ids, &have, KEPT_TOGETHER).await?;
+        named.extend(more);
+        not_all_here = cut;
+    }
     Ok((
         Recalled {
             named,
             brought_to_mind: first.brought_to_mind,
             recent,
+            ids: ids
+                .into_iter()
+                .filter(|(_, id)| named_ids.contains(id))
+                .collect(),
+            not_all_here,
         },
         next,
     ))

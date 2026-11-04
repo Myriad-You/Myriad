@@ -644,6 +644,13 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .execute_unprepared(include_str!("speech_said.sql"))
             .await?;
 
+        // 她把记下的事挂在哪个话题下：话题节点和记忆的指向。
+        // schema_check::ensure_topic_nodes_tables 跑同一份文件。
+        manager
+            .get_connection()
+            .execute_unprepared(include_str!("topic_nodes.sql"))
+            .await?;
+
         Ok(())
     }
 
@@ -676,6 +683,9 @@ DROP TABLE IF EXISTS agent_affect_anchor;
 DROP TABLE IF EXISTS agent_affect_events;
 DROP TABLE IF EXISTS agent_sync_devices;
 DROP TABLE IF EXISTS merope_stickers;
+DROP TABLE IF EXISTS agent_memory_topics;
+DROP TABLE IF EXISTS agent_topic_nodes;
+DROP FUNCTION IF EXISTS agent_memory_topics_forget();
 DROP TABLE IF EXISTS agent_node_events;
 DROP TABLE IF EXISTS agent_nodes;
 DROP TABLE IF EXISTS agent_memory_cues;

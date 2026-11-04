@@ -216,6 +216,7 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         .await
         .unwrap();
     let correction = ChatMemoryUpdate {
+        topic: None,
         cues: Vec::new(),
         fact: Some("现在不喝咖啡".into()),
         supersedes: vec!["喜欢咖啡".into()],
@@ -279,6 +280,7 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
     );
 
     let addition = ChatMemoryUpdate {
+        topic: None,
         cues: Vec::new(),
         fact: Some("喜欢茶".into()),
         supersedes: vec![],
@@ -299,6 +301,7 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         "addition keeps unrelated facts"
     );
     let invalid = ChatMemoryUpdate {
+        topic: None,
         cues: Vec::new(),
         fact: Some("不应写入".into()),
         supersedes: vec!["喜欢茶".into(), "不存在的事实".into()],
@@ -320,6 +323,7 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
     );
 
     let withdrawal = ChatMemoryUpdate {
+        topic: None,
         cues: Vec::new(),
         fact: None,
         supersedes: vec!["喜欢茶".into()],
@@ -368,6 +372,7 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
             .is_err()
     );
     let newer = ChatMemoryUpdate {
+        topic: None,
         cues: Vec::new(),
         fact: Some("喜欢抹茶".into()),
         supersedes: vec![],

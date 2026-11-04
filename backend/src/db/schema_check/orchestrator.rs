@@ -75,7 +75,9 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// 有行的旧表原样留着，她的日志拒绝打开（`her_log::admit`）。
 /// 2026.11.03.1：她说过的话 `agent_speech_said`（「说过的话」账，她的日志没开时记在站点上；
 /// `speech_said.sql`，随 004 与 `ensure_speech_said_table` 一起建）。
-pub const SCHEMA_VERSION: &str = "2026.11.03.1";
+/// 2026.11.04.1：她把记下的事挂在哪个话题下：话题节点 `agent_topic_nodes` 与记忆的指向
+/// `agent_memory_topics`（`topic_nodes.sql`，随 004 与 `ensure_topic_nodes_tables` 一起建）。
+pub const SCHEMA_VERSION: &str = "2026.11.04.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -336,6 +338,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     ensure_memory_cues_table(db).await?;
     ensure_agent_nodes_tables(db).await?;
     ensure_speech_said_table(db).await?;
+    ensure_topic_nodes_tables(db).await?;
     unlink_note_docs_without_article(db).await?;
     drop_retired_columns(db).await?;
     ensure_user_lifecycle(db).await?;

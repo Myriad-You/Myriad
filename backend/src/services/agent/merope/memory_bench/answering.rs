@@ -4,7 +4,8 @@ use super::super::remembering;
 use super::*;
 
 /// What a chat turn would recall for `question`: from their words, and
-/// the cues when there are any.
+/// the cues when there are any; and, going through all of it, the topics
+/// not all of whose facts are there (`store::Recalled::not_all_here`).
 pub(super) async fn recalled_for(
     db: &sea_orm::DatabaseConnection,
     question: &Question,
@@ -12,7 +13,7 @@ pub(super) async fn recalled_for(
     present: &Audience,
     cues: Option<&myriad_merope::remembering::Cues>,
     thorough: usize,
-) -> Vec<String> {
+) -> (Vec<String>, Vec<(String, usize, usize)>) {
     remembering::recall_with(
         db,
         user_id,
@@ -26,11 +27,14 @@ pub(super) async fn recalled_for(
     )
     .await
     .map(|(recalled, _)| {
-        recalled
-            .named
-            .into_iter()
-            .chain(recalled.brought_to_mind)
-            .collect::<Vec<_>>()
+        (
+            recalled
+                .named
+                .into_iter()
+                .chain(recalled.brought_to_mind)
+                .collect::<Vec<_>>(),
+            recalled.not_all_here,
+        )
     })
     .unwrap_or_default()
 }
@@ -58,7 +62,8 @@ pub(super) async fn answer_one(
     back_when_thorough: bool,
     answering: &[String],
 ) -> Answered {
-    let recalled = recalled_for(db, question, user_id, present, cues, thorough).await;
+    let (recalled, not_all_here) =
+        recalled_for(db, question, user_id, present, cues, thorough).await;
     let retrieved = answering
         .iter()
         .any(|fact| recalled.iter().any(|line| line.contains(fact.as_str())));
@@ -95,7 +100,14 @@ pub(super) async fn answer_one(
     // Needing all of it, she goes through it as production has her do.
     let going_through = cues
         .filter(|cues| cues.thorough && !recalled.is_empty())
-        .map(|_| myriad_merope::speaking::format_going_through_all_section());
+        .map(|_| {
+            std::iter::once(myriad_merope::speaking::format_going_through_all_section())
+                .chain(myriad_merope::speaking::format_not_all_here_section(
+                    &not_all_here,
+                ))
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        });
     let input = json!({
         "today": question.question_date,
         "whatYouRemember": recalled,
