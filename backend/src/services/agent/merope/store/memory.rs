@@ -381,7 +381,8 @@ pub struct Recalled {
 }
 
 /// [`recall_remembered_primed`], keeping apart what was named and what it
-/// brought to mind.
+/// brought to mind; what is named comes up to `named_up_to` (see
+/// [`crate::services::agent::memory::unified::recall_primed_up_to`]).
 #[allow(clippy::too_many_arguments)]
 pub async fn recall_remembered_split(
     db: &DatabaseConnection,
@@ -389,17 +390,19 @@ pub async fn recall_remembered_split(
     present: &crate::services::agent::memory::unified::Audience,
     query: Option<&str>,
     limit: usize,
+    named_up_to: usize,
     priming: &Priming,
     breadth: f64,
 ) -> Result<(Recalled, Priming), anyhow::Error> {
     use crate::services::agent::memory::unified;
-    let (recalled, next) = unified::recall_primed(
+    let (recalled, next) = unified::recall_primed_up_to(
         db,
         user_id,
         present,
         query.filter(|query| !query.trim().is_empty()),
         &unified::MemoryKind::ABOUT_PERSON,
         limit,
+        named_up_to,
         priming,
         breadth,
     )

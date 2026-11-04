@@ -386,12 +386,16 @@ pub async fn recall_with(
         Some(cues) if cues.thorough => thorough.max(limit),
         _ => limit,
     };
+    // All that their words name comes to mind, as many as she goes
+    // through when answering needs all of it; only what came along is held
+    // to `limit`.
     let (first, next) = store::recall_remembered_split(
         db,
         user_id,
         present,
         Some(message),
         limit,
+        thorough.max(limit),
         priming,
         breadth,
     )
@@ -409,13 +413,19 @@ pub async fn recall_with(
             present,
             Some(cue),
             limit,
+            thorough.max(limit),
             &Priming::default(),
             0.0,
         )
         .await?;
         tries.push(found.named);
     }
-    let room = limit.saturating_sub(first.brought_to_mind.len()).max(1);
+    // Room for as much as the try that named the most.
+    let named_most = tries.iter().map(Vec::len).max().unwrap_or(0);
+    let room = limit
+        .saturating_sub(first.brought_to_mind.len())
+        .max(named_most)
+        .max(1);
     Ok((
         Recalled {
             named: merged(&tries, room),
