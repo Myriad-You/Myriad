@@ -630,16 +630,16 @@ impl Agent {
                 request.context.as_ref(),
             ) {
                 // Typed here a message at a time: she types as she does in a
-                // chat app, the way they type to her.
+                // chat app, the way they type to her (how people in a chat
+                // app usually do, until they have said enough).
                 blocks.push(myriad_merope::speaking::chat_app_section().to_string());
-                if let Some(room) = request
+                let room = request
                     .context
                     .as_ref()
                     .and_then(|context| context.conversation_history.as_deref())
                     .and_then(crate::services::agent::merope::their_typing)
-                {
-                    blocks.push(myriad_merope::talk_shape::describe(&room, "How they type"));
-                }
+                    .unwrap_or(myriad_merope::talk_shape::CHAT_APP_USUAL);
+                blocks.push(myriad_merope::talk_shape::describe(&room, "How they type"));
             }
             if !merope_block.is_empty() {
                 blocks.insert(0, merope_block);
