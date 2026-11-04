@@ -202,6 +202,50 @@ pub(super) fn topics_later() -> bool {
     std::env::var("MEROPE_MEMORY_BENCH_TOPICS").as_deref() == Ok("later")
 }
 
+/// `MEROPE_MEMORY_BENCH_TIDY=1`: once all is written (and sorted), the
+/// topics are tidied as upkeep tidies them ([`tidy_all`]).
+pub(super) fn topics_tidied() -> bool {
+    std::env::var("MEROPE_MEMORY_BENCH_TIDY").as_deref() == Ok("1")
+}
+
+/// Their topics tidied as upkeep tidies them (`chat_remember::tidy`),
+/// however few wait, until a round changes nothing (a few rounds at most).
+pub(super) async fn tidy_all(
+    db: &sea_orm::DatabaseConnection,
+    judge: &crate::services::analyzer::AiAnalyzer,
+    user_id: i32,
+) {
+    use super::super::chat_remember::tidy;
+    for _ in 0..4 {
+        let _ = super::super::store::merge_same_names(db, user_id).await;
+        let Some((due, others)) = tidy::to_ask(db, user_id, true).await else {
+            break;
+        };
+        let due_shown: Vec<_> = due.iter().map(|due| tidy::shown(&due.topic)).collect();
+        let others_shown: Vec<_> = others.iter().map(tidy::shown).collect();
+        let Ok(raw) = judge
+            .analyze_json(
+                &myriad_merope::topics::tidy_system_prompt(),
+                &myriad_merope::topics::tidy_input(&due_shown, &others_shown),
+                tidy::SCHEMA_NAME,
+                Some(&myriad_merope::topics::tidy_schema()),
+            )
+            .await
+            .inspect_err(|error| eprintln!("bench call failed: tidying: {error:#}"))
+        else {
+            break;
+        };
+        let tidied = myriad_merope::topics::read_tidied(&raw, due.len(), others.len());
+        let changed = tidied
+            .iter()
+            .any(|what| !matches!(what, myriad_merope::topics::Tidied::Keep));
+        let _ = super::super::store::apply_tidied(db, user_id, &due, &others, &tidied).await;
+        if !changed {
+            break;
+        }
+    }
+}
+
 /// Everything she knows of them in private sorted under topics, a batch at
 /// a time as upkeep sorts it (`chat_remember::sort`), until a batch sorts
 /// nothing.

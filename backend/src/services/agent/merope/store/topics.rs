@@ -374,6 +374,300 @@ pub async fn unsorted<C: ConnectionTrait>(
     Ok(rows)
 }
 
+/// Other names a topic keeps, at most, once others have gone into it.
+const KEPT_ALIASES: usize = 10;
+
+/// A topic to tidy: as she is shown it, and when it last changed.
+#[derive(Debug, Clone)]
+pub struct DueTopic {
+    pub topic: OfferedTopic,
+    pub changed: chrono::DateTime<chrono::FixedOffset>,
+}
+
+/// People whose topics are to tidy, at most `at_most` of them, longest
+/// waiting first: at least `ask_at` topics holding few facts
+/// (`myriad_merope::topics::SMALL`) changed since they were last tidied (or
+/// never were), or one of them changed `waited` ago or longer.
+pub async fn with_untidied<C: ConnectionTrait>(
+    db: &C,
+    at_most: i64,
+    ask_at: usize,
+    waited: chrono::Duration,
+) -> Result<Vec<i32>, DbErr> {
+    Ok(db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT user_id FROM ( \
+                SELECT t.user_id, MAX(m.linked_at) AS changed FROM agent_topic_nodes t \
+                JOIN agent_memory_topics m ON m.user_id = t.user_id AND m.topic_id = t.id \
+                GROUP BY t.user_id, t.id, t.tidied_at \
+                HAVING COUNT(*) <= $1 AND (t.tidied_at IS NULL OR MAX(m.linked_at) > t.tidied_at) \
+             ) due GROUP BY user_id \
+             HAVING COUNT(*) >= $3 OR MIN(changed) <= now() - $4::float8 * interval '1 second' \
+             ORDER BY MIN(changed) LIMIT $2",
+            [
+                (myriad_merope::topics::SMALL as i64).into(),
+                at_most.into(),
+                (ask_at as i64).into(),
+                (waited.num_seconds() as f64).into(),
+            ],
+        ))
+        .await?
+        .iter()
+        .filter_map(|row| row.try_get::<i32>("", "user_id").ok())
+        .collect())
+}
+
+/// Their topics to tidy, longest waiting first, and the others: a topic
+/// holding few of what may be said here of them, changed since it was last
+/// tidied. None outside a private talk. One that changed but holds nothing
+/// that may be said here (all of it faded) is marked tidied, so it is not
+/// waited on.
+pub async fn untidied<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    present: &Audience,
+) -> Result<(Vec<DueTopic>, Vec<OfferedTopic>), DbErr> {
+    if user_id <= 0 || !admitted(present) {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let mut vacant = Vec::new();
+    let under = under_each(db, user_id, present).await?;
+    let marks: std::collections::HashMap<
+        String,
+        (
+            Option<chrono::DateTime<chrono::FixedOffset>>,
+            Option<chrono::DateTime<chrono::FixedOffset>>,
+        ),
+    > = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT t.id, t.tidied_at, MAX(m.linked_at) AS changed FROM agent_topic_nodes t \
+             LEFT JOIN agent_memory_topics m ON m.user_id = t.user_id AND m.topic_id = t.id \
+             WHERE t.user_id = $1 GROUP BY t.id, t.tidied_at",
+            [user_id.into()],
+        ))
+        .await?
+        .iter()
+        .filter_map(|row| {
+            Some((
+                row.try_get::<String>("", "id").ok()?,
+                (
+                    row.try_get("", "tidied_at").ok()?,
+                    row.try_get("", "changed").ok()?,
+                ),
+            ))
+        })
+        .collect();
+    let mut due = Vec::new();
+    let mut others = Vec::new();
+    for topic in topics(db, user_id).await? {
+        let held = under.get(&topic.id).map(Vec::len).unwrap_or(0);
+        let (tidied, changed) = marks.get(&topic.id).cloned().unwrap_or((None, None));
+        // What is under it has all faded or gone: nothing to show of it.
+        if held == 0 {
+            if changed.is_some_and(|changed| tidied.is_none_or(|tidied| changed > tidied)) {
+                vacant.push(topic.id);
+            }
+            continue;
+        }
+        let holds = under
+            .get(&topic.id)
+            .into_iter()
+            .flatten()
+            .take(HOLDS_SHOWN)
+            .map(super::as_known)
+            .collect();
+        let shown = OfferedTopic {
+            id: topic.id.clone(),
+            name: topic.name,
+            aliases: topic.aliases,
+            holds,
+        };
+        match changed {
+            Some(changed)
+                if held <= myriad_merope::topics::SMALL
+                    && tidied.is_none_or(|tidied| changed > tidied) =>
+            {
+                due.push(DueTopic {
+                    topic: shown,
+                    changed,
+                })
+            }
+            _ => others.push(shown),
+        }
+    }
+    mark_tidied(db, user_id, &vacant).await?;
+    due.sort_by_key(|due| due.changed);
+    Ok((due, others))
+}
+
+async fn mark_tidied<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    ids: &[String],
+) -> Result<(), DbErr> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_topic_nodes SET tidied_at = now() WHERE user_id = $1 AND id = ANY($2)",
+        [user_id.into(), ids.to_vec().into()],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// Topics she keeps under one name: one whose name is another's name or
+/// one of its names goes into the one holding more (the older on a tie).
+/// Free, before she is asked anything. How many went.
+pub async fn merge_same_names<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<usize, DbErr> {
+    let mut merged = 0;
+    loop {
+        let kept = topics(db, user_id).await?;
+        let pointers = pointers(db, user_id).await?;
+        let held = |id: &str| {
+            pointers
+                .values()
+                .filter(|topic| topic.as_deref() == Some(id))
+                .count()
+        };
+        let named = |a: &Kept, b: &Kept| {
+            myriad_merope::topics::same_name(&a.name, &b.name)
+                || b.aliases
+                    .iter()
+                    .any(|alias| myriad_merope::topics::same_name(&a.name, alias))
+        };
+        let pair = kept.iter().enumerate().find_map(|(n, one)| {
+            kept.iter()
+                .skip(n + 1)
+                .find(|other| named(one, other) || named(other, one))
+                .map(|other| (one, other))
+        });
+        let Some((one, other)) = pair else {
+            return Ok(merged);
+        };
+        // `kept` is oldest first: the older wins a tie.
+        let (from, into) = if held(&other.id) > held(&one.id) {
+            (one, other)
+        } else {
+            (other, one)
+        };
+        merge(db, user_id, &from.id, &into.id).await?;
+        merged += 1;
+    }
+}
+
+/// What tidying made of `due` topics, `others` shown beside them, written:
+/// a topic going into another takes what is under it there and its names
+/// with it; one let go leaves what was under it under none. Every due topic
+/// still kept, and every one taking another in, is marked tidied: she has
+/// just looked at it.
+pub async fn apply_tidied<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    due: &[DueTopic],
+    others: &[OfferedTopic],
+    tidied: &[myriad_merope::topics::Tidied],
+) -> Result<(), DbErr> {
+    use myriad_merope::topics::{Target, Tidied};
+    let kept = topics(db, user_id).await?;
+    let find = |id: &str| kept.iter().find(|topic| topic.id == id);
+    let mut looked_at: Vec<String> = due.iter().map(|due| due.topic.id.clone()).collect();
+    for (at, what) in tidied.iter().enumerate() {
+        let Some(from) = due.get(at).and_then(|due| find(&due.topic.id)) else {
+            continue;
+        };
+        match what {
+            Tidied::Keep => {}
+            Tidied::Into(target) => {
+                let into = match target {
+                    Target::Due(to) => due.get(*to).map(|due| due.topic.id.as_str()),
+                    Target::Other(to) => others.get(*to).map(|other| other.id.as_str()),
+                };
+                if let Some(into) = into {
+                    merge(db, user_id, &from.id, into).await?;
+                    looked_at.push(into.to_string());
+                }
+            }
+            Tidied::LetGo => {
+                db.execute_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "UPDATE agent_memory_topics SET topic_id = NULL, linked_at = now() \
+                     WHERE user_id = $1 AND topic_id = $2",
+                    [user_id.into(), from.id.clone().into()],
+                ))
+                .await?;
+                forget_topic(db, user_id, &from.id).await?;
+            }
+        }
+    }
+    mark_tidied(db, user_id, &looked_at).await
+}
+
+/// Topic `from` into `into`, by id: what is under it, and its names.
+async fn merge<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    from: &str,
+    into: &str,
+) -> Result<(), DbErr> {
+    let kept = topics(db, user_id).await?;
+    let (Some(from), Some(into)) = (
+        kept.iter().find(|topic| topic.id == from),
+        kept.iter().find(|topic| topic.id == into),
+    ) else {
+        return Ok(());
+    };
+    if from.id == into.id {
+        return Ok(());
+    }
+    let mut aliases = into.aliases.clone();
+    for name in std::iter::once(&from.name).chain(&from.aliases) {
+        if !myriad_merope::topics::same_name(name, &into.name)
+            && !aliases
+                .iter()
+                .any(|alias| myriad_merope::topics::same_name(alias, name))
+        {
+            aliases.push(name.clone());
+        }
+    }
+    aliases.truncate(KEPT_ALIASES);
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_topic_nodes SET aliases = $3 WHERE user_id = $1 AND id = $2",
+        [
+            user_id.into(),
+            into.id.clone().into(),
+            serde_json::json!(aliases).into(),
+        ],
+    ))
+    .await?;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_memory_topics SET topic_id = $3, linked_at = now() \
+         WHERE user_id = $1 AND topic_id = $2",
+        [
+            user_id.into(),
+            from.id.clone().into(),
+            into.id.clone().into(),
+        ],
+    ))
+    .await?;
+    forget_topic(db, user_id, &from.id).await
+}
+
+async fn forget_topic<C: ConnectionTrait>(db: &C, user_id: i32, id: &str) -> Result<(), DbErr> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "DELETE FROM agent_topic_nodes WHERE user_id = $1 AND id = $2",
+        [user_id.into(), id.into()],
+    ))
+    .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::super::chat_remember::ChatMemoryUpdate;
@@ -633,5 +927,176 @@ mod tests {
                 .await
                 .unwrap();
         assert!(more.is_empty() && cut.is_empty());
+    }
+
+    /// Topics under one name go together for free; the small ones changed
+    /// since they were last tidied are what she is asked of, and once she
+    /// has looked they wait again only when they change.
+    #[tokio::test]
+    async fn small_topics_are_tidied_once_until_they_change() {
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let schema = crate::db::IsolatedSchema::migrated(&url, "topic_nodes_tidy").await;
+        let db = &schema.db;
+        db.execute_unprepared("INSERT INTO users (id, username) VALUES (9, 'nine')")
+            .await
+            .unwrap();
+        let new = |name: &str, aliases: &[&str]| {
+            Some(GoesUnder::New {
+                name: name.into(),
+                aliases: aliases.iter().map(|alias| alias.to_string()).collect(),
+            })
+        };
+        for (text, topic) in [
+            ("made a clay cat", new("sculpting", &[])),
+            ("takes a sculpting class on Tuesdays", new("sculpting", &[])),
+            ("bought carving tools", new("sculpting", &[])),
+            (
+                "finished a bust of their dad",
+                new("sculpting projects", &[]),
+            ),
+            ("sees Dr. Lee", new("Dr. Lee", &[])),
+            ("sees a dentist on Fridays", new("seeing doctors", &[])),
+            ("had a long day", new("being tired", &[])),
+            ("has a snake plant", new("their plants", &[])),
+            ("bought a fern", new("plants", &["Their  Plants"])),
+        ] {
+            keep(db, 9, fact(text, &[], topic)).await;
+        }
+        let names = || async {
+            let mut names: Vec<String> = topics(db, 9)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|topic| topic.name)
+                .collect();
+            names.sort();
+            names
+        };
+        assert_eq!(merge_same_names(db, 9).await.unwrap(), 1);
+        let named = topics(db, 9).await.unwrap();
+        let plants = named
+            .iter()
+            .find(|topic| topic.name == "their plants")
+            .unwrap();
+        assert_eq!(
+            plants.aliases,
+            vec!["plants".to_string()],
+            "the older keeps its name"
+        );
+        assert!(!named.iter().any(|topic| topic.name == "plants"));
+
+        let day = chrono::Duration::days(1);
+        assert!(
+            with_untidied(db, 10, 6, day).await.unwrap().is_empty(),
+            "five wait, not long"
+        );
+        assert_eq!(with_untidied(db, 10, 5, day).await.unwrap(), vec![9]);
+        assert_eq!(
+            with_untidied(db, 10, 6, chrono::Duration::zero())
+                .await
+                .unwrap(),
+            vec![9],
+            "one has waited long enough"
+        );
+        let present = Audience::private(9);
+        let (due, others) = untidied(db, 9, &present).await.unwrap();
+        let mut waiting: Vec<&str> = due.iter().map(|due| due.topic.name.as_str()).collect();
+        waiting.sort();
+        assert_eq!(
+            waiting,
+            vec![
+                "Dr. Lee",
+                "being tired",
+                "sculpting projects",
+                "seeing doctors",
+                "their plants"
+            ]
+        );
+        assert_eq!(
+            others
+                .iter()
+                .map(|other| other.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["sculpting"],
+            "it holds more than a few"
+        );
+        let label = |name: &str| {
+            format!(
+                "d{}",
+                due.iter().position(|due| due.topic.name == name).unwrap() + 1
+            )
+        };
+        let raw = serde_json::json!({"topics": [
+            {"topic": label("sculpting projects"), "do": "into", "into": "o1"},
+            {"topic": label("Dr. Lee"), "do": "into", "into": label("seeing doctors")},
+            {"topic": label("being tired"), "do": "let_go", "into": ""},
+            {"topic": label("their plants"), "do": "keep", "into": ""}
+        ]})
+        .to_string();
+        let tidied = myriad_merope::topics::read_tidied(&raw, due.len(), others.len());
+        apply_tidied(db, 9, &due, &others, &tidied).await.unwrap();
+        assert_eq!(
+            names().await,
+            vec!["sculpting", "seeing doctors", "their plants"]
+        );
+        let rows = kept(db, 9).await;
+        let pointers = pointers(db, 9).await.unwrap();
+        let under = |content: &str| pointers.get(&id_of(&rows, content)).cloned().flatten();
+        assert_eq!(
+            under("finished a bust of their dad"),
+            under("made a clay cat")
+        );
+        assert_eq!(under("sees Dr. Lee"), under("sees a dentist on Fridays"));
+        assert_eq!(
+            under("had a long day"),
+            None,
+            "let go: under none, still sorted"
+        );
+        assert!(pointers.contains_key(&id_of(&rows, "had a long day")));
+        let doctors = topics(db, 9).await.unwrap();
+        let doctors = doctors
+            .iter()
+            .find(|topic| topic.name == "seeing doctors")
+            .unwrap();
+        assert_eq!(doctors.aliases, vec!["Dr. Lee".to_string()]);
+
+        assert!(
+            with_untidied(db, 10, 1, chrono::Duration::zero())
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            untidied(db, 9, &present).await.unwrap().0.is_empty(),
+            "all looked at"
+        );
+        let waiting = || async {
+            let (due, others) = untidied(db, 9, &present).await.unwrap();
+            let names: Vec<String> = due.iter().map(|due| due.topic.name.clone()).collect();
+            (names, due, others)
+        };
+        keep(
+            db,
+            9,
+            fact("has a cat named Mochi", &[], new("their cat", &[])),
+        )
+        .await;
+        let (names, due, others) = waiting().await;
+        assert_eq!(names, vec!["their cat"], "only what changed");
+        let keep_it = serde_json::json!({"topics": [{"topic": "d1", "do": "keep", "into": ""}]});
+        let tidied = myriad_merope::topics::read_tidied(&keep_it.to_string(), 1, others.len());
+        apply_tidied(db, 9, &due, &others, &tidied).await.unwrap();
+        assert!(waiting().await.0.is_empty());
+        keep(db, 9, fact("Mochi is three", &[], new("their cat", &[]))).await;
+        assert_eq!(waiting().await.0, vec!["their cat"], "changed again");
+        keep(
+            db,
+            9,
+            fact("Mochi sleeps on the piano", &[], new("their cat", &[])),
+        )
+        .await;
+        assert!(waiting().await.0.is_empty(), "three now: more than a few");
     }
 }

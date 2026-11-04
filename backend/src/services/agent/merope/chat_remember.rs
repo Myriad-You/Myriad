@@ -1111,6 +1111,7 @@ mod tests {
 
 pub(super) mod cues;
 pub(in crate::services::agent::merope) mod sort;
+pub(in crate::services::agent::merope) mod tidy;
 #[cfg(test)]
 mod replay;
 

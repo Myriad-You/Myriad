@@ -13,6 +13,9 @@
 //! - **Which topic what she knows goes under.** Facts kept before she put
 //!   facts under topics, or kept without one, are sorted under them, a
 //!   batch at a time (`chat_remember::sort`).
+//! - **Tidying the topics.** Topics under one name go together; the small
+//!   ones changed since they were last tidied she keeps, puts into another,
+//!   or lets go, once enough wait (`chat_remember::tidy`).
 
 use std::sync::{LazyLock, Mutex};
 
@@ -26,6 +29,7 @@ pub async fn tick(db: DatabaseConnection) {
     if super::is_enabled().await {
         super::chat_remember::cues::write_missing(&db).await;
         super::chat_remember::sort::sort_missing(&db).await;
+        super::chat_remember::tidy::tidy_waiting(&db).await;
     }
     let today = super::clock::today();
     if FOLDED_ON.lock().is_ok_and(|folded| *folded == Some(today)) {

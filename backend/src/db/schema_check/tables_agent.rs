@@ -961,6 +961,7 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     .not_null()
                     .default_value("'[]'::jsonb"),
                 ColumnDef::new("created_at", "timestamp with time zone").not_null(),
+                ColumnDef::new("tidied_at", "timestamp with time zone"),
             ],
         },
         TableDef {
@@ -969,6 +970,9 @@ pub(crate) fn tables() -> Vec<TableDef> {
                 ColumnDef::new("memory_id", "character varying").not_null(),
                 ColumnDef::new("user_id", "integer").not_null(),
                 ColumnDef::new("topic_id", "character varying"),
+                ColumnDef::new("linked_at", "timestamp with time zone")
+                    .not_null()
+                    .default_value("now()"),
             ],
         },
         TableDef {

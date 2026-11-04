@@ -79,7 +79,9 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// `agent_memory_topics`（`topic_nodes.sql`，随 004 与 `ensure_topic_nodes_tables` 一起建）。
 /// 2026.11.04.2：`agent_memory_topics.topic_id` 可以为空，表示她看过、没挂在任何话题下
 /// （同一份 `topic_nodes.sql` 里补的 `ALTER`）。
-pub const SCHEMA_VERSION: &str = "2026.11.04.2";
+/// 2026.11.04.3：话题上次整理的时间 `agent_topic_nodes.tidied_at`、记忆挂上去的时间
+/// `agent_memory_topics.linked_at`（只有整理之后变过的话题才再看一遍；同一份 `topic_nodes.sql`）。
+pub const SCHEMA_VERSION: &str = "2026.11.04.3";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
