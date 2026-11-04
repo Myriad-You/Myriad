@@ -291,7 +291,12 @@ impl Day {
             .await;
             let reply = self
                 .analyzer
-                .analyze_stream(&prompt, |_| true)
+                .analyze_stream_messages_with_images(
+                    &prompt.system,
+                    &prompt.messages,
+                    &[],
+                    |_| async { true },
+                )
                 .await
                 .unwrap_or_default();
             said(
@@ -365,11 +370,13 @@ impl Day {
             super::super::clock::in_zone(self.zone, agent.chat_response_prompt(&request)).await;
         let reply = self
             .analyzer
-            .analyze_stream(&prompt, |_| true)
+            .analyze_stream_messages_with_images(&prompt.system, &prompt.messages, &[], |_| async {
+                true
+            })
             .await
             .unwrap_or_default();
         let parts = sections_of(
-            &prompt,
+            &prompt.system,
             &[
                 "You and them",
                 "What they are to you",
@@ -391,11 +398,11 @@ impl Day {
         self.report.push(json!({
             "asked": label,
             "said": line,
-            "headings": headings(&prompt),
+            "headings": headings(&prompt.system),
             "parts": parts,
             "reply": reply,
         }));
-        (prompt, reply)
+        (prompt.text(), reply)
     }
 
     /// What she picks at a free moment now, from what is at hand on the

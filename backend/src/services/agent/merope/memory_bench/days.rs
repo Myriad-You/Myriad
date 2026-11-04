@@ -184,7 +184,12 @@ async fn live_days(days: &[&[&str]], name: &str) -> Lived {
             })
             .await;
             let reply = analyzer
-                .analyze_stream(&prompt, |_| true)
+                .analyze_stream_messages_with_images(
+                    &prompt.system,
+                    &prompt.messages,
+                    &[],
+                    |_| async { true },
+                )
                 .await
                 .unwrap_or_default();
             said(

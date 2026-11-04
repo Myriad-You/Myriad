@@ -3,6 +3,7 @@
 use super::super::agent_header::*;
 use super::super::response_agent;
 use super::super::types::*;
+use crate::services::agent::chat_prompt::ChatTurnPrompt;
 
 type ChatDelivery =
     std::sync::Arc<std::sync::Mutex<super::super::motion_overlay::ChatMotionDelivery>>;
@@ -332,31 +333,30 @@ async fn streamed_analyzer() -> Result<Option<crate::services::analyzer::AiAnaly
     chat_analyzer().await.map(Some)
 }
 
-/// What she says to `prompt` in a recorded scene, streamed as one piece.
+/// What she says to `prompt` in a recorded scene, streamed as one piece:
+/// the scene reads it as one text.
 #[cfg(test)]
-async fn said_in_scene<F, Fut>(prompt: &str, mut on_delta: F) -> anyhow::Result<String>
+async fn said_in_scene<F, Fut>(prompt: &ChatTurnPrompt, mut on_delta: F) -> anyhow::Result<String>
 where
     F: FnMut(crate::services::analyzer::StreamDelta) -> Fut,
     Fut: std::future::Future<Output = bool>,
 {
-    match crate::services::channel_group::g0::say("chat", prompt).await {
+    match crate::services::channel_group::g0::say("chat", &prompt.text()).await {
         Some(Ok(text)) => {
             if !text.is_empty() {
                 on_delta(crate::services::analyzer::StreamDelta::Text(text.clone())).await;
             }
             Ok(text)
         }
-        Some(Err("cut")) => Err(anyhow::Error::new(
-            crate::services::analyzer::StreamCut {
-                partial: String::new(),
-            },
-        )),
+        Some(Err("cut")) => Err(anyhow::Error::new(crate::services::analyzer::StreamCut {
+            partial: String::new(),
+        })),
         _ => Err(anyhow::anyhow!("unavailable")),
     }
 }
 
 #[cfg(not(test))]
-async fn said_in_scene<F, Fut>(_: &str, _: F) -> anyhow::Result<String>
+async fn said_in_scene<F, Fut>(_: &ChatTurnPrompt, _: F) -> anyhow::Result<String>
 where
     F: FnMut(crate::services::analyzer::StreamDelta) -> Fut,
     Fut: std::future::Future<Output = bool>,
@@ -445,7 +445,15 @@ impl Agent {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentProgressEvent>(256);
         tokio::spawn(async move { while rx.recv().await.is_some() {} });
         match self
-            .stream_chat_response_with_analyzer(request, prompt, &tx, analyzer, None, None, false)
+            .stream_chat_response_with_analyzer(
+                request,
+                &ChatTurnPrompt::whole(prompt),
+                &tx,
+                analyzer,
+                None,
+                None,
+                false,
+            )
             .await
         {
             Ok(text) => Ok(text),
@@ -464,7 +472,12 @@ impl Agent {
         // The same request as the streamed path, only not relayed. Nothing
         // was shown, so a reply the provider dropped halfway is asked again.
         let mut response = analyzer
-            .analyze_stream_parts_with_images(&prompt, images_of(request), |_| async { true })
+            .analyze_stream_messages_with_images(
+                &prompt.system,
+                &prompt.messages,
+                images_of(request),
+                |_| async { true },
+            )
             .await;
         if response.as_ref().is_err_and(is_cut) {
             tracing::warn!(
@@ -472,7 +485,12 @@ impl Agent {
                 "[Chat] reply cut off; asking once more"
             );
             response = analyzer
-                .analyze_stream_parts_with_images(&prompt, images_of(request), |_| async { true })
+                .analyze_stream_messages_with_images(
+                    &prompt.system,
+                    &prompt.messages,
+                    images_of(request),
+                    |_| async { true },
+                )
                 .await;
         }
         let response = response.map_err(|error| error.to_string())?;
@@ -491,7 +509,7 @@ impl Agent {
         }
     }
 
-    pub(crate) async fn chat_response_prompt(&self, request: &UserRequest) -> String {
+    pub(crate) async fn chat_response_prompt(&self, request: &UserRequest) -> ChatTurnPrompt {
         let soul = crate::services::agent::identity::get_speaking_soul()
             .await
             .unwrap_or_default();
@@ -522,9 +540,8 @@ impl Agent {
         // theirs to run: those sections are for a private chat on the site,
         // where they are really there.
         if request.context.as_ref().is_some_and(|context| {
-                context.interaction_mode == crate::services::agent::AgentInteractionMode::Chat
-            })
-        {
+            context.interaction_mode == crate::services::agent::AgentInteractionMode::Chat
+        }) {
             let in_app = request
                 .context
                 .as_ref()
@@ -658,7 +675,8 @@ impl Agent {
                 .filter(|message| message.role == "assistant")
                 .flat_map(|message| message.content.lines())
                 .collect();
-            let about = crate::services::agent::merope::doing::now_line(&doing, crate::clock::now());
+            let about =
+                crate::services::agent::merope::doing::now_line(&doing, crate::clock::now());
             let told = myriad_merope::speaking::already_told(&about, &hers);
             if let Some(section) = myriad_merope::speaking::format_already_told_section(&told) {
                 merope_block = if merope_block.is_empty() {
@@ -786,7 +804,7 @@ impl Agent {
                 format!("{perception}\n\n{attached}")
             };
         }
-        crate::services::agent::chat_prompt::build_chat_lite_prompt_with_perception(
+        crate::services::agent::chat_prompt::chat_turn_prompt(
             &soul,
             &with_moment(merope_block),
             &history,
@@ -798,7 +816,7 @@ impl Agent {
     async fn stream_chat_response_with_analyzer(
         &self,
         request: &UserRequest,
-        prompt: &str,
+        prompt: &ChatTurnPrompt,
         progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
         analyzer: Option<crate::services::analyzer::AiAnalyzer>,
         speech_delivery: Option<ChatDelivery>,
@@ -866,10 +884,11 @@ impl Agent {
         let mut streamed = None;
         if let Some(HerVoice { omni, out, heard }) = &voice {
             let mut unsaid = crate::services::omni_voice::Unsaid::default();
-            let aloud = crate::services::omni_voice::said_aloud(prompt);
-            let spoken = crate::services::omni_voice::speak(
+            let aloud = crate::services::omni_voice::said_aloud(&prompt.system);
+            let spoken = crate::services::omni_voice::speak_turn(
                 omni,
                 &aloud,
+                &prompt.messages,
                 images_of(request),
                 heard.as_deref(),
                 |piece| {
@@ -916,7 +935,12 @@ impl Agent {
             None => match analyzer {
                 Some(analyzer) => {
                     analyzer
-                        .analyze_stream_parts_with_images(&prompt, images_of(request), on_delta)
+                        .analyze_stream_messages_with_images(
+                            &prompt.system,
+                            &prompt.messages,
+                            images_of(request),
+                            on_delta,
+                        )
                         .await
                 }
                 None => said_in_scene(prompt, on_delta).await,
@@ -1074,7 +1098,7 @@ mod prompt_size {
         let mut parts: Vec<(usize, String)> = Vec::new();
         let mut title = "(before any heading)".to_string();
         let mut chars = 0;
-        for line in prompt.lines() {
+        for line in prompt.text().lines() {
             if line.starts_with("## ") || line.starts_with("# ") {
                 parts.push((chars, title));
                 title = line.chars().take(70).collect();
@@ -1088,12 +1112,12 @@ mod prompt_size {
         }
         println!(
             "{:>6}  total ({} parts; history {} messages, {history_chars} chars)",
-            prompt.chars().count(),
+            prompt.text().chars().count(),
             parts.len(),
             history.len()
         );
         if let Ok(path) = std::env::var("MEROPE_PROBE_DUMP") {
-            std::fs::write(path, &prompt).unwrap();
+            std::fs::write(path, prompt.text()).unwrap();
         }
     }
 }

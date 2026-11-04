@@ -217,8 +217,18 @@ async fn her_private_prompts_recorded() {
                     agent.chat_response_prompt(&request),
                 ))
                 .await;
-                // The site sends a chat turn as one text (`analyze_stream_parts`).
-                record(&out, scene, &[("user", &prompt)]);
+                // As the site sends a chat turn: who she is, then the talk
+                // a message each (`analyze_stream_messages_with_images`).
+                let messages: Vec<(&str, &str)> =
+                    std::iter::once(("system", prompt.system.as_str()))
+                        .chain(
+                            prompt
+                                .messages
+                                .iter()
+                                .map(|message| (message.role.as_str(), message.content.as_str())),
+                        )
+                        .collect();
+                record(&out, scene, &messages);
             }
             "private_proactive" => {
                 let (system, prompt) =
@@ -308,7 +318,9 @@ async fn her_real_turns_answered_on_a_bare_site() {
         ))
         .await;
         let reply = analyzer
-            .analyze_stream(&prompt, |_| true)
+            .analyze_stream_messages_with_images(&prompt.system, &prompt.messages, &[], |_| async {
+                true
+            })
             .await
             .unwrap_or_default();
         println!("> {said}\n  {}", reply.replace('\n', " / "));

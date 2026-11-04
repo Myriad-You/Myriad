@@ -1378,13 +1378,136 @@ impl AiAnalyzer {
             }
             return self.analyze_stream_parts(prompt, on_delta).await;
         }
-        // The ledger counts characters (about four per token); an image of
-        // this size costs roughly a thousand input tokens.
-        const IMAGE_INPUT_CHARS: usize = 4_000;
         let input_chars = prompt.len() + images.len() * IMAGE_INPUT_CHARS;
         let result = self.analyze_stream_images(prompt, images, on_delta).await;
         self.note_ledger(input_chars, &result).await;
         result
+    }
+
+    /// [`Self::analyze_stream_parts_with_images`] for a conversation: a
+    /// system prompt and the messages in order, user / assistant, with
+    /// `images` on the last of them. Every protocol takes them as messages
+    /// (Gemini as `systemInstruction` and turns). A single user message and
+    /// no system prompt: exactly the prompt path.
+    pub async fn analyze_stream_messages_with_images<F, Fut>(
+        &self,
+        system: &str,
+        messages: &[ChatMessage],
+        images: &[ImageInput],
+        on_delta: F,
+    ) -> Result<String>
+    where
+        F: FnMut(StreamDelta) -> Fut + Send,
+        Fut: Future<Output = bool> + Send,
+    {
+        if system.trim().is_empty()
+            && let [only] = messages
+            && only.role == "user"
+        {
+            return self
+                .analyze_stream_parts_with_images(&only.content, images, on_delta)
+                .await;
+        }
+        let images = if images.is_empty()
+            || matches!(
+                self.provider,
+                AiProvider::Gemini | AiProvider::OpenAI | AiProvider::Anthropic
+            ) {
+            images
+        } else {
+            tracing::info!(
+                provider = ?self.provider,
+                "images not supported on this protocol; sending text only"
+            );
+            &[]
+        };
+        let input_chars = system.len()
+            + messages
+                .iter()
+                .map(|message| message.content.len())
+                .sum::<usize>()
+            + images.len() * IMAGE_INPUT_CHARS;
+        let result = self
+            .analyze_stream_messages(system, messages, images, on_delta)
+            .await;
+        self.note_ledger(input_chars, &result).await;
+        result
+    }
+
+    async fn analyze_stream_messages<F, Fut>(
+        &self,
+        system: &str,
+        messages: &[ChatMessage],
+        images: &[ImageInput],
+        on_delta: F,
+    ) -> Result<String>
+    where
+        F: FnMut(StreamDelta) -> Fut + Send,
+        Fut: Future<Output = bool> + Send,
+    {
+        match self.provider {
+            AiProvider::Gemini => {
+                let body = gemini_messages_request(system, messages, images);
+                let url = self.gemini_url(true).await;
+                let response = self
+                    .authenticate(self.client.post(&url))
+                    .json(&self.prepare_body(&body)?)
+                    .send()
+                    .await
+                    .context("Failed to send streaming request to Gemini API")?;
+                if !response.status().is_success() {
+                    let status = response.status();
+                    let error_text = Self::read_limited_error_text(response).await;
+                    return Err(ProviderCallFailure::http(
+                        status,
+                        anyhow::anyhow!("Gemini streaming API error {}: {}", status, error_text),
+                    )
+                    .into_error());
+                }
+                super::sse::consume_text_sse(response, on_delta, gemini_stream_deltas).await
+            }
+            AiProvider::OpenAI => {
+                let response = self
+                    .post_openai_stream(openai_messages_request(
+                        &self.model,
+                        system,
+                        messages,
+                        images,
+                    ))
+                    .await?;
+                consume_openai_sse(response, on_delta).await
+            }
+            AiProvider::OpenAIResponses | AiProvider::Anthropic => {
+                let url = text_protocol::endpoint(self.provider, self.base_url.as_deref());
+                let mut body = text_protocol::request_body(
+                    self.provider,
+                    &self.model,
+                    system,
+                    messages,
+                    None,
+                    None,
+                    true,
+                );
+                if !images.is_empty() {
+                    anthropic_images_on_last(&mut body, images);
+                }
+                let mut request = self.authenticate(self.client.post(url));
+                if self.provider == AiProvider::Anthropic {
+                    request = request.header("anthropic-version", "2023-06-01");
+                }
+                let response = request.json(&self.prepare_body(&body)?).send().await?;
+                if !response.status().is_success() {
+                    let status = response.status();
+                    return Err(ProviderCallFailure::http(
+                        status,
+                        anyhow::anyhow!("AI provider streaming API returned HTTP {status}"),
+                    )
+                    .into_error());
+                }
+                super::sse::consume_text_sse(response, on_delta, self.protocol_stream_extractor())
+                    .await
+            }
+        }
     }
 
     async fn analyze_stream_images<F, Fut>(
@@ -1538,6 +1661,10 @@ impl AiAnalyzer {
     }
 }
 
+/// The ledger counts characters (about four per token); an image of this
+/// size costs roughly a thousand input tokens.
+const IMAGE_INPUT_CHARS: usize = 4_000;
+
 fn gemini_image_request(prompt: &str, images: &[ImageInput]) -> serde_json::Value {
     let mut parts = vec![serde_json::json!({ "text": prompt })];
     parts.extend(images.iter().map(|image| {
@@ -1582,6 +1709,100 @@ fn openai_image_request(model: &str, prompt: &str, images: &[ImageInput]) -> ser
     })
 }
 
+/// A conversation as Gemini takes it: the system prompt as its
+/// `systemInstruction`, the messages as turns (hers the model's), `images`
+/// after the last one's text.
+fn gemini_messages_request(
+    system: &str,
+    messages: &[ChatMessage],
+    images: &[ImageInput],
+) -> serde_json::Value {
+    let last = messages.len().saturating_sub(1);
+    let contents: Vec<serde_json::Value> = messages
+        .iter()
+        .enumerate()
+        .map(|(index, message)| {
+            let role = if message.role == "assistant" {
+                "model"
+            } else {
+                "user"
+            };
+            let mut parts = vec![serde_json::json!({ "text": message.content })];
+            if index == last {
+                parts.extend(images.iter().map(|image| {
+                    serde_json::json!({ "inlineData": { "mimeType": image.mime, "data": image.base64 } })
+                }));
+            }
+            serde_json::json!({ "role": role, "parts": parts })
+        })
+        .collect();
+    let mut body = serde_json::json!({ "contents": contents });
+    if !system.trim().is_empty() {
+        body["systemInstruction"] = serde_json::json!({ "parts": [{ "text": system }] });
+    }
+    body
+}
+
+/// A conversation on an OpenAI-compatible endpoint: the system prompt
+/// first, the messages after it, `images` beside the last one's text.
+fn openai_messages_request(
+    model: &str,
+    system: &str,
+    messages: &[ChatMessage],
+    images: &[ImageInput],
+) -> serde_json::Value {
+    let last = messages.len().saturating_sub(1);
+    let mut sent = Vec::with_capacity(messages.len() + 1);
+    if !system.trim().is_empty() {
+        sent.push(serde_json::json!({ "role": "system", "content": system }));
+    }
+    for (index, message) in messages.iter().enumerate() {
+        let role = match message.role.as_str() {
+            "assistant" => "assistant",
+            "system" => "system",
+            _ => "user",
+        };
+        let content = if index == last && !images.is_empty() {
+            let mut content = vec![serde_json::json!({ "type": "text", "text": message.content })];
+            content.extend(images.iter().map(|image| {
+                serde_json::json!({
+                    "type": "image_url",
+                    "image_url": { "url": format!("data:{};base64,{}", image.mime, image.base64) }
+                })
+            }));
+            serde_json::Value::Array(content)
+        } else {
+            serde_json::json!(message.content)
+        };
+        sent.push(serde_json::json!({ "role": role, "content": content }));
+    }
+    serde_json::json!({ "model": model, "messages": sent, "stream": true })
+}
+
+/// `images` as base64 `image` blocks before the text of the last message of
+/// a Messages API body.
+fn anthropic_images_on_last(body: &mut serde_json::Value, images: &[ImageInput]) {
+    let Some(last) = body
+        .get_mut("messages")
+        .and_then(serde_json::Value::as_array_mut)
+        .and_then(|messages| messages.last_mut())
+    else {
+        return;
+    };
+    let text = last["content"].take();
+    let mut content: Vec<serde_json::Value> = images
+        .iter()
+        .map(|image| {
+            serde_json::json!({
+                "type": "image",
+                "source": { "type": "base64", "media_type": image.mime, "data": image.base64 }
+            })
+        })
+        .collect();
+    content.push(serde_json::json!({ "type": "text", "text": text }));
+    last["content"] = serde_json::Value::Array(content);
+}
+
 #[cfg(test)]
 mod image_request_tests {
     use super::*;
@@ -1591,6 +1812,65 @@ mod image_request_tests {
             mime: "image/webp".into(),
             base64: "AAAA".into(),
         }
+    }
+
+    /// A conversation goes as messages on every protocol: the system prompt
+    /// apart, hers as hers, an image beside the last one's text.
+    #[test]
+    fn a_conversation_goes_as_messages_with_images_on_the_last() {
+        let talk = [
+            ChatMessage::user("早"),
+            ChatMessage::assistant("早啊"),
+            ChatMessage::user("看看这个"),
+        ];
+        let openai = openai_messages_request("m", "你是瞳。", &talk, &[image()]);
+        let sent = openai["messages"].as_array().unwrap();
+        assert_eq!(
+            sent.iter()
+                .map(|message| message["role"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["system", "user", "assistant", "user"]
+        );
+        assert_eq!(sent[0]["content"], "你是瞳。");
+        assert_eq!(sent[2]["content"], "早啊");
+        assert_eq!(sent[3]["content"][0]["text"], "看看这个");
+        assert_eq!(sent[3]["content"][1]["type"], "image_url");
+        assert_eq!(openai["stream"], true);
+
+        let gemini = gemini_messages_request("你是瞳。", &talk, &[image()]);
+        assert_eq!(gemini["systemInstruction"]["parts"][0]["text"], "你是瞳。");
+        let turns = gemini["contents"].as_array().unwrap();
+        assert_eq!(
+            turns
+                .iter()
+                .map(|turn| turn["role"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["user", "model", "user"]
+        );
+        assert_eq!(turns[2]["parts"][1]["inlineData"]["mimeType"], "image/webp");
+        assert!(turns[1]["parts"].as_array().unwrap().len() == 1);
+        assert!(
+            gemini_messages_request("", &talk, &[])
+                .get("systemInstruction")
+                .is_none()
+        );
+
+        let mut anthropic = text_protocol::request_body(
+            AiProvider::Anthropic,
+            "m",
+            "你是瞳。",
+            &talk,
+            None,
+            None,
+            true,
+        );
+        anthropic_images_on_last(&mut anthropic, &[image()]);
+        assert_eq!(anthropic["system"], "你是瞳。");
+        let sent = anthropic["messages"].as_array().unwrap();
+        assert_eq!(sent.len(), 3);
+        assert_eq!(sent[1]["content"], "早啊");
+        assert_eq!(sent[2]["content"][0]["type"], "image");
+        assert_eq!(sent[2]["content"][1]["text"], "看看这个");
     }
 
     #[tokio::test]

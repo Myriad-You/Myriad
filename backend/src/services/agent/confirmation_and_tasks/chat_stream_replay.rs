@@ -12,6 +12,7 @@
 //! words, not a rerun of the past.
 
 use super::*;
+use crate::services::agent::chat_prompt::ChatTurnPrompt;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::{Value, json};
 
@@ -131,25 +132,9 @@ async fn history_before(
 /// as the judgment model reads it: a fact, memory, state or thing of hers
 /// that shows in what she said. How-to-talk rules do not count, nor what the
 /// conversation or their words already hold.
-async fn drew_on(prompt: &str, said: &str, reply: &str) -> Vec<String> {
-    let head = prompt
-        .find("\nConversation:\n")
-        .or_else(|| prompt.find("\nThey said:"))
-        .map_or(prompt, |end| &prompt[..end]);
-    let tail = prompt
-        .find("\nConversation:\n")
-        .map(|start| &prompt[start..])
-        .and_then(|rest| rest.find("\nLatest message:").map(|end| &rest[..end]))
-        .unwrap_or_default();
-    let conversation: String = tail
-        .lines()
-        .rev()
-        .take(8)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect::<Vec<_>>()
-        .join("\n");
+async fn drew_on(prompt: &ChatTurnPrompt, said: &str, reply: &str) -> Vec<String> {
+    let head = prompt.briefing();
+    let conversation = conversation_tail(prompt);
     let sections: Vec<(String, String)> = head
         .split("\n## ")
         .skip(1)
@@ -194,41 +179,56 @@ async fn drew_on(prompt: &str, said: &str, reply: &str) -> Vec<String> {
 }
 
 /// The prompt without the sections headed `headings`: each runs to the next
-/// heading, or to the conversation.
-fn without_sections(prompt: &str, headings: &[&str]) -> String {
-    let mut prompt = prompt.to_string();
+/// heading, or to how she replies.
+fn without_sections(prompt: &ChatTurnPrompt, headings: &[&str]) -> ChatTurnPrompt {
+    let mut lighter = prompt.clone();
+    let rules = format!("\n{}", myriad_merope::chat_history::CHAT_REPLY_INSTRUCTION);
+    let system = &mut lighter.system;
     for heading in headings {
         let marker = format!("\n## {heading}\n");
-        let Some(start) = prompt.find(&marker) else {
+        let Some(start) = system.find(&marker) else {
             continue;
         };
-        let rest = &prompt[start + 1..];
-        let end = ["\n## ", "\nConversation:", "\nLatest message:"]
+        let rest = &system[start + 1..];
+        let end = ["\n## ", rules.as_str()]
             .iter()
             .filter_map(|next| rest.find(next))
             .min()
-            .map_or(prompt.len(), |end| start + 1 + end);
-        prompt.replace_range(start..end, "");
+            .map_or(system.len(), |end| start + 1 + end);
+        system.replace_range(start..end, "");
     }
-    prompt
+    lighter
 }
 
 /// The last lines of the conversation in a prompt, for a reader of a reply.
-fn conversation_tail(prompt: &str) -> String {
-    let tail = prompt
-        .find("\nConversation:\n")
-        .map(|start| &prompt[start..])
-        .and_then(|rest| rest.find("\nLatest message:").map(|end| &rest[..end]))
-        .unwrap_or_default();
-    let lines: Vec<&str> = tail.lines().rev().take(8).collect();
-    lines.into_iter().rev().collect::<Vec<_>>().join("\n")
+fn conversation_tail(prompt: &ChatTurnPrompt) -> String {
+    let lines = prompt.conversation();
+    lines[lines.len().saturating_sub(8)..].join("\n")
+}
+
+/// Her reply to `prompt` on `analyzer`, as a turn of hers goes.
+async fn answer(
+    analyzer: &crate::services::analyzer::AiAnalyzer,
+    prompt: &ChatTurnPrompt,
+) -> String {
+    analyzer
+        .analyze_stream_messages_with_images(&prompt.system, &prompt.messages, &[], |_| async {
+            true
+        })
+        .await
+        .unwrap_or_default()
 }
 
 /// Two replies to the same words, read blind (in either order): whether
 /// they read as the same person talking the same way, and which answers the
 /// moment better, as someone who knows them would. (same voice, preferred:
 /// 0 for `a`, 1 for `b`, none for neither).
-async fn compare(prompt: &str, said: &str, a: &str, b: &str) -> Option<(bool, Option<usize>)> {
+async fn compare(
+    prompt: &ChatTurnPrompt,
+    said: &str,
+    a: &str,
+    b: &str,
+) -> Option<(bool, Option<usize>)> {
     let flip: bool = rand::random();
     let (x, y) = if flip { (b, a) } else { (a, b) };
     let input = json!({
@@ -406,15 +406,12 @@ async fn her_real_talk_answered_again() {
         {
             let (old, new) = swap.split_once("|||").expect("<old>|||<new>");
             assert!(
-                prompt.contains(old),
+                prompt.text().contains(old),
                 "the passage to rewrite is not in the prompt"
             );
-            prompt = prompt.replace(old, new);
+            prompt.replace(old, new);
         }
-        let again = analyzer
-            .analyze_stream(&prompt, |_| true)
-            .await
-            .unwrap_or_default();
+        let again = answer(&analyzer, &prompt).await;
         then.add(&original);
         now.add(&again);
         if opening {
@@ -429,24 +426,15 @@ async fn her_real_talk_answered_again() {
         let mut kept = json!({ "said": said, "at": at.to_rfc3339(), "opening": opening, "then": original, "now": again });
         // The whole prompt too, to see which parts of it her reply drew on.
         if std::env::var("MEROPE_REPLAY_PROMPTS").is_ok() {
-            kept["prompt"] = json!(prompt);
+            kept["prompt"] = json!(prompt.text());
         }
         if std::env::var("MEROPE_REPLAY_ATTRIBUTE").is_ok() {
             kept["drewOn"] = json!(drew_on(&prompt, &said, &again).await);
         }
         if let Some(other) = &other {
-            let twice = analyzer
-                .analyze_stream(&prompt, |_| true)
-                .await
-                .unwrap_or_default();
-            let theirs = other
-                .analyze_stream(&prompt, |_| true)
-                .await
-                .unwrap_or_default();
-            let theirs_twice = other
-                .analyze_stream(&prompt, |_| true)
-                .await
-                .unwrap_or_default();
+            let twice = answer(&analyzer, &prompt).await;
+            let theirs = answer(&other, &prompt).await;
+            let theirs_twice = answer(&other, &prompt).await;
             theirs_shape.add(&theirs);
             let ours = compare(&prompt, &said, &again, &twice).await;
             let theirs_self = compare(&prompt, &said, &theirs, &theirs_twice).await;
@@ -465,15 +453,9 @@ async fn her_real_talk_answered_again() {
         if !drop.is_empty() {
             let headings: Vec<&str> = drop.iter().map(String::as_str).collect();
             let lighter = without_sections(&prompt, &headings);
-            chars_saved.push(prompt.chars().count() - lighter.chars().count());
-            let twice = analyzer
-                .analyze_stream(&prompt, |_| true)
-                .await
-                .unwrap_or_default();
-            let without = analyzer
-                .analyze_stream(&lighter, |_| true)
-                .await
-                .unwrap_or_default();
+            chars_saved.push(prompt.text().chars().count() - lighter.text().chars().count());
+            let twice = answer(&analyzer, &prompt).await;
+            let without = answer(&analyzer, &lighter).await;
             again_shape.add(&twice);
             without_shape.add(&without);
             let same_prompt = compare(&prompt, &said, &again, &twice).await;
@@ -538,11 +520,22 @@ async fn her_real_talk_answered_again() {
 
 #[test]
 fn a_section_left_out_runs_to_the_next_one_or_to_the_conversation() {
-    let prompt = "Intro\n## About this person\nlikes cats\n\n## Now\nIt is 3pm.\n## Games\nZelda\n\nConversation:\nthem: hi\nLatest message: hi";
-    let lighter = without_sections(prompt, &["About this person", "Games", "Not here"]);
+    let rules = myriad_merope::chat_history::CHAT_REPLY_INSTRUCTION;
+    let prompt = ChatTurnPrompt {
+        system: format!(
+            "Intro\n## About this person\nlikes cats\n\n## Now\nIt is 3pm.\n## Games\nZelda\n\n{rules}"
+        ),
+        messages: vec![
+            crate::services::analyzer::ChatMessage::user("hi"),
+            crate::services::analyzer::ChatMessage::assistant("hey\nyou"),
+            crate::services::analyzer::ChatMessage::user("hi"),
+        ],
+    };
+    let lighter = without_sections(&prompt, &["About this person", "Games", "Not here"]);
     assert_eq!(
-        lighter,
-        "Intro\n## Now\nIt is 3pm.\nConversation:\nthem: hi\nLatest message: hi"
+        lighter.system,
+        format!("Intro\n## Now\nIt is 3pm.\n{rules}")
     );
-    assert_eq!(conversation_tail(prompt), "\nConversation:\nthem: hi");
+    assert_eq!(lighter.messages, prompt.messages);
+    assert_eq!(conversation_tail(&prompt), "user：hi\nassistant：hey / you");
 }
