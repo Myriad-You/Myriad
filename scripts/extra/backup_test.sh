@@ -131,17 +131,24 @@ all="$( ( for d in other proj edit gone; do require_matching_keys "$tmp/m/$d" "$
 case "$all" in *"$secret"*) fail "refusals must not print the key" ;; esac
 pass "mismatched keys parts are refused without printing the key"
 
-echo "== SCRIPT-006: a split data part is not restored without its keys part"
+echo "== SCRIPT-006: a split data part restores with the keys part where backup put it, never without one"
 
-refused do_restore --from "$tmp/m/ok" || fail "restore without --keys must be refused"
 : > "$tmp/m/ok/postgres.dump"; : > "$tmp/m/ok/backend_data.tar.gz"
-msg="$( ( do_restore --from "$tmp/m/ok" ) 2>&1 || true)"
-case "$msg" in *"--keys DIR is required"*) ;; *) fail "restore must say the keys part is required, got: $msg" ;; esac
+msg="$( ( BACKUP_KEYS_DIR="$tmp/m/nowhere" do_restore --from "$tmp/m/ok" ) 2>&1 || true)"
+case "$msg" in *"no keys part at $tmp/m/nowhere"*"--keys DIR"*) ;; *) fail "restore must say the keys part is missing and how to give it, got: $msg" ;; esac
+# Found at BACKUP_KEYS_DIR without --keys: the keys checks pass and restore
+# goes on to the next refusal (the live .env), never to "no keys part".
+msg="$( ( BACKUP_KEYS_DIR="$tmp/m/ok-keys" do_restore --from "$tmp/m/ok" ) 2>&1 || true)"
+case "$msg" in *"keys part: $tmp/m/ok-keys"*) ;; *) fail "restore must take the keys part from BACKUP_KEYS_DIR, got: $msg" ;; esac
+case "$msg" in *"no keys part"*) fail "a keys part at BACKUP_KEYS_DIR must be found" ;; esac
+# A keys part found there is still checked against the data part.
+msg="$( ( BACKUP_KEYS_DIR="$tmp/m/proj-keys" do_restore --from "$tmp/m/ok" ) 2>&1 || true)"
+case "$msg" in *"different compose projects"*) ;; *) fail "a keys part found by default must still match, got: $msg" ;; esac
 mkdir -p "$tmp/m/legacy"
 : > "$tmp/m/legacy/postgres.dump"; : > "$tmp/m/legacy/backend_data.tar.gz"
 printf 'project=myriad\n' > "$tmp/m/legacy/MANIFEST.txt"
 msg="$( ( do_restore --from "$tmp/m/legacy" --keys "$tmp/m/ok-keys" ) 2>&1 || true)"
 case "$msg" in *"drop --keys"*) ;; *) fail "an unsplit backup must refuse --keys, got: $msg" ;; esac
-pass "restore asks for the keys part it needs"
+pass "restore finds the keys part it needs or refuses"
 
 echo "backup.sh helpers ok"

@@ -454,15 +454,19 @@ Usage: $0 <backup|keys|restore> [options]
       keeps the original exit code.
 
   keys
-      Rewrite only the keys part, without stopping anything. Run it after
-      forgetting, or hourly from cron: an object forgotten since the last
-      run still has its key in the keys part until then.
+      Rewrite only the keys part, without stopping anything. Optional:
+      every backup rewrites it anyway. Running it in between (after
+      forgetting, or from cron) only makes forgetting reach the backups
+      sooner: an object forgotten since the last rewrite still has its key
+      in the keys part until then.
 
-  restore --from DIR --keys KEYS [--no-stop]
+  restore --from DIR [--keys KEYS] [--no-stop]
       Restore Postgres, backend_data, and .env from a data part and the
       keys part. Destructive. Stops writers unless --no-stop is set.
-      Refused without a matching keys part: without it the backend would
-      make a new data key and nothing sealed would open again.
+      Without --keys the keys part is taken from BACKUP_KEYS_DIR (default
+      ./backup-keys), where backup put it. Refused when there is no
+      matching keys part: without it the backend would make a new data key
+      and nothing sealed would open again.
       A backup made before the parts were split restores without --keys.
       Supported scope: same compose project and the same
       POSTGRES_PASSWORD as the running role. A different password or
@@ -594,11 +598,16 @@ do_restore() {
     [ -f "$from/backend_data.tar.gz" ] || { err "missing $from/backend_data.tar.gz"; exit 1; }
     if [ "$(manifest_value "$from/MANIFEST.txt" format)" = "2" ]; then
         split=1
-        [ -n "$keys" ] || {
-            err "--keys DIR is required: the data part holds no data key, .env or her log keys"
-            err "without them the backend would make a new data key and nothing sealed would open"
-            exit 1
-        }
+        if [ -z "$keys" ]; then
+            keys="$(keys_dir)"
+            if [ ! -f "$keys/MANIFEST.txt" ]; then
+                err "no keys part at $keys: the data part holds no data key, .env or her log keys"
+                err "give the keys part with --keys DIR (or set BACKUP_KEYS_DIR); without it the"
+                err "backend would make a new data key and nothing sealed would open"
+                exit 1
+            fi
+            info "==> keys part: $keys"
+        fi
         require_matching_keys "$from" "$keys"
         require_same_postgres_password "$keys/env"
         require_same_compose_project "$from/MANIFEST.txt" "$keys/env"

@@ -44,8 +44,9 @@ CREATE TABLE agent_log_object_keys (
 """
 
 
-def run(args, check=True, data=None):
-    result = subprocess.run(args, cwd=ROOT, env=ENV, input=data, capture_output=True, text=True)
+def run(args, check=True, data=None, env=None):
+    result = subprocess.run(args, cwd=ROOT, env={**ENV, **(env or {})}, input=data,
+                            capture_output=True, text=True)
     if check and result.returncode:
         raise RuntimeError(f"{args[:3]} failed:\n{result.stderr}")
     return result
@@ -320,11 +321,14 @@ test "$(stat -c %a /restored)" = 700
     # even after the pathname is restored. Release it before the valid restore.
     compose("down")
     start()
-    keyless = run(["bash", str(scripts / "backup.sh"), "restore", "--from", str(backup)], check=False)
-    assert keyless.returncode != 0 and "--keys" in keyless.stdout + keyless.stderr
+    # No keys part where backup puts it, none given: refused before anything.
+    keyless = run(["bash", str(scripts / "backup.sh"), "restore", "--from", str(backup)], check=False,
+                  env={"BACKUP_KEYS_DIR": str(ROOT / "no-keys-here")})
+    assert keyless.returncode != 0 and "no keys part" in keyless.stdout + keyless.stderr
     assert (ROOT / ".env").read_bytes() == live_env
     assert sql("SELECT value FROM volume_test;") == "changed"
-    said = run(["bash", str(scripts / "backup.sh"), "restore", "--from", str(backup), "--keys", str(keys)])
+    # The keys part is found where backup put it: one command, as before the split.
+    said = run(["bash", str(scripts / "backup.sh"), "restore", "--from", str(backup)])
     for value in secret_values:
         assert value not in said.stdout + said.stderr, "restore must not print a secret"
     assert sql("SELECT value FROM volume_test;") == "original"

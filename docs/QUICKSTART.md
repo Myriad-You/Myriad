@@ -121,8 +121,7 @@ Windows:
 
 ```bash
 bash scripts/extra/backup.sh backup
-bash scripts/extra/backup.sh keys   # 只刷新钥匙份，建议每小时 cron 一次
-bash scripts/extra/backup.sh restore --from backups/myriad-YYYYMMDD_HHMMSS --keys backup-keys
+bash scripts/extra/backup.sh restore --from backups/myriad-YYYYMMDD_HHMMSS   # 钥匙份默认从 backup-keys/ 找
 ```
 
 ## 清理数据

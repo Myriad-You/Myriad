@@ -474,7 +474,8 @@ pg_dump -U myriad -h 127.0.0.1 -d myriad -Fc \
 tar czf /var/backups/myriad_data_$(date +%F).tar.gz -C /opt/myriad \
   --exclude=data/.secret-key --exclude='data/..secret-key.tmp-*' data
 
-# Keys part: overwrite the one copy (hourly from cron is a good default)
+# Keys part: overwrite the one copy (with every backup; rewriting it more
+# often only makes forgetting reach the backups sooner)
 install -d -m 700 /var/lib/myriad-keys
 umask 077
 cp /opt/myriad/.env /opt/myriad/data/.secret-key /var/lib/myriad-keys/
