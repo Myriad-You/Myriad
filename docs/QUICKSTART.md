@@ -116,11 +116,13 @@ Windows:
 ## 数据备份
 
 只 dump 数据库不够：Tapp 安装、形象 atlas 和密钥在 `backend_data` 与 `.env`。
+备份分成数据份（`backups/`，可以留多份）和钥匙份（`backup-keys/`，只留最新一份），
 完整步骤见 [BACKUP.md](deployment/BACKUP.md)。
 
 ```bash
 bash scripts/extra/backup.sh backup
-bash scripts/extra/backup.sh restore --from backups/myriad-YYYYMMDD_HHMMSS
+bash scripts/extra/backup.sh keys   # 只刷新钥匙份，建议每小时 cron 一次
+bash scripts/extra/backup.sh restore --from backups/myriad-YYYYMMDD_HHMMSS --keys backup-keys
 ```
 
 ## 清理数据

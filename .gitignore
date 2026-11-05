@@ -102,6 +102,7 @@ docker/volumes/
 # --- Updater / deploy host runtime (never in git) ---
 /state/
 /backups/
+/backup-keys/
 /pgdata/
 /cache/
 /guard-policy/

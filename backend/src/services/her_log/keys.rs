@@ -4,19 +4,24 @@
 //! live here while the PCs sleep), so it holds the keys; sealing does not
 //! keep the server from reading, it keeps every copy of the database (a
 //! dump, a backup, a replica) from reading without the installation's data
-//! key, and it makes forgetting reach those copies at once:
+//! key. Forgetting reaches a copy only where that copy has no key rows:
+//! `scripts/extra/backup.sh` keeps them, with the data key, in a keys part
+//! of which only the newest copy is kept. A copy made any other way (the
+//! updater's `pgdata` snapshot, a hand-made dump) still has them, and the
+//! data key never changes, so it still opens what was forgotten.
 //!
 //! - one key per audience of an account, sealed by the installation's data key
-//!   (`myriad_data_key`, kept outside the database and its backups);
+//!   (`myriad_data_key`, kept outside the database and out of the backup's
+//!   data part);
 //! - one key per object, sealed by its audience's key, with the subject it
 //!   is about, so forgetting everything about someone finds their keys;
 //! - each payload sealed by its object's key (AES-256-GCM, a fresh nonce
 //!   each time, the account and the row's id as associated data, so a
 //!   payload cannot be moved to another row or account).
 //!
-//! Forgetting an object deletes its key: a payload left in any copy of the
-//! database no longer opens. Keys never leave this module: not in a row, a
-//! frame, an answer, an error or the log.
+//! Forgetting an object deletes its key: a payload left in a copy without
+//! that key's row no longer opens. Keys never leave this module: not in a
+//! row, a frame, an answer, an error or the log.
 
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
