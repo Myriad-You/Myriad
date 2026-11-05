@@ -58,6 +58,7 @@ use myriad_nodes::wire::{ASK_ROWS, Batch};
 use myriad_persona_log::{
     Core, Holder, Vector,
     lease::{Refusal as MoveRefusal, Request, Through},
+    row::Author,
 };
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
@@ -333,13 +334,15 @@ pub async fn take(
                     body: body.clone(),
                 }]);
             }
-            // What a computer may not hold, only her mind writes, for here.
-            if !side.holds(&audience) && !mine {
-                return Ok(vec![Outgoing::error("not_holder", seq)]);
-            }
             let Ok(batch) = serde_json::from_value::<Batch>(body.clone()) else {
                 return Ok(vec![Outgoing::error("bad_frame", seq)]);
             };
+            // What a computer may not hold, only her mind writes, for here:
+            // her mind there now, or there before a takeover sending what it
+            // wrote while it held her (her own memory catching up).
+            if !side.holds(&audience) && !mine && !(host && held_then(db, device, &batch).await?) {
+                return Ok(vec![Outgoing::error("not_holder", seq)]);
+            }
             lease::heard(db, device, Some(Seen::Host), now).await?;
             rows(db, root, settings, &owner, device, session, batch, seq, now).await
         }
@@ -479,6 +482,25 @@ async fn vector(
         vector_body(audience, &ours, &[]),
     ));
     Ok(out)
+}
+
+/// Every row of `batch` is hers from `device`, at an epoch it held her: her
+/// mind there before the server took her over, back with what it wrote
+/// then.
+async fn held_then(db: &DatabaseConnection, device: &str, batch: &Batch) -> Result<bool, Error> {
+    if batch.rows.is_empty() {
+        return Ok(false);
+    }
+    let history = lease::history(db).await?;
+    Ok(batch.rows.iter().all(|row| {
+        row.author == Author::Her
+            && row.origin == device
+            && row.epoch.is_some_and(|epoch| {
+                history
+                    .iter()
+                    .any(|grant| grant.epoch == epoch && grant.held_by(device))
+            })
+    }))
 }
 
 #[allow(clippy::too_many_arguments)]

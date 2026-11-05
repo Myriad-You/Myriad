@@ -1057,13 +1057,14 @@ pub async fn device_step(
     Ok(lease)
 }
 
-/// The commit of a move to the device `device`, in the transaction that
-/// lets the site's copy go: her lease goes to the device, and she lives
-/// there now.
+/// The commit of a move to the device `device`: her lease goes to it. In the
+/// transaction that lets the site's copy go she lives there now; with the
+/// site's copy kept (`keep`, her log synced) her mind is on it.
 pub(super) async fn committed_to_device(
     txn: &sea_orm::DatabaseTransaction,
     id: &str,
     device: &str,
+    keep: bool,
 ) -> Result<Lease, DbErr> {
     let lease = locked(txn).await?.ok_or(DbErr::RecordNotUpdated)?;
     if lease.moving.as_ref().is_none_or(|moving| moving.id != id) {
@@ -1077,7 +1078,9 @@ pub(super) async fn committed_to_device(
         None,
     )
     .await?;
-    rows::set_copy(txn, State::Away).await?;
+    if !keep {
+        rows::set_copy(txn, State::Away).await?;
+    }
     rows::finish(txn, grant.epoch as i64).await?;
     let copy = rows::copy(txn, false)
         .await?

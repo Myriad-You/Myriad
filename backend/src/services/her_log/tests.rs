@@ -1192,6 +1192,133 @@ async fn the_server_takes_over_only_when_the_holder_has_stopped() {
     schema.drop().await;
 }
 
+/// Her mind on the Mac is taken over while it is out of reach; what it
+/// wrote before it stopped and had not sent comes up once it is back, in
+/// the partner's private talk and in a group alike: taken (not refused as
+/// from a computer that is not her mind), and folded on the server as hers,
+/// one her catching up, not two. Until then the server's her did not know
+/// it.
+#[tokio::test]
+async fn what_her_mind_wrote_before_a_takeover_is_taken_when_it_comes_back() {
+    let Some(schema) = schema("her_log_takeover_late").await else {
+        return;
+    };
+    let db = &schema.db;
+    let settings = on();
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], T0).await;
+    lease::place(db, "dev_mac", Some("home"), true, T0)
+        .await
+        .unwrap();
+    mac.write(
+        PERSONAL,
+        "node:walk",
+        "node.created",
+        Author::Her,
+        Some("a walk"),
+        T0,
+    );
+    sync(db, &mut mac, PERSONAL, T0).await;
+    // Written before it went out of reach, never sent.
+    let late = mac.write(
+        PERSONAL,
+        "node:rain",
+        "node.created",
+        Author::Her,
+        Some("rain"),
+        T0 + 1,
+    );
+    let late_group = mac.write(
+        GROUP,
+        "case:loud",
+        "case.verdict",
+        Author::Her,
+        Some("too loud"),
+        T0 + 2,
+    );
+
+    for minutes in [1, 3, 5] {
+        lease::place(db, "dev_phone", Some("office"), true, T0 + minutes * MINUTE)
+            .await
+            .unwrap();
+    }
+    lease::watch(db, &settings, T0 + 5 * MINUTE)
+        .await
+        .unwrap()
+        .expect("taken over");
+    assert!(
+        !store::rows(db, OWNER, PERSONAL)
+            .await
+            .unwrap()
+            .iter()
+            .any(|row| row.id == late.id)
+    );
+
+    // Back: it sends what it wrote.
+    sync(db, &mut mac, PERSONAL, T0 + 6 * MINUTE).await;
+    let frame = mac.rows_frame(GROUP, mac.log(GROUP));
+    exchange(db, &mut mac, vec![frame], T0 + 6 * MINUTE).await;
+    let history = lease::history(db).await.unwrap();
+    for (audience, id, object) in [
+        (PERSONAL, &late.id, "node:rain"),
+        (GROUP, &late_group.id, "case:loud"),
+    ] {
+        let rows = store::rows(db, OWNER, audience).await.unwrap();
+        assert!(rows.iter().any(|row| &row.id == id), "{audience}");
+        assert!(
+            myriad_persona_log::lease::standings(&rows, &history).is_empty(),
+            "{audience}: hers, standing normal"
+        );
+        let folded = fold(FoldInput {
+            rows,
+            leases: history.clone(),
+            ledger: store::ledger(db, OWNER, audience).await.unwrap(),
+        })
+        .unwrap();
+        let folded = serde_json::to_value(folded).unwrap();
+        let object = folded["objects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|folded| folded["object"] == object)
+            .unwrap_or_else(|| panic!("{audience}: {object} folded"));
+        assert!(object["rows"].as_array().unwrap().contains(&json!(id)));
+        assert_ne!(object["concurrent"], true, "{audience}");
+    }
+
+    // A row of hers at an epoch it never held is still not taken there.
+    let mut win = Side::new("dev_win");
+    win.epoch = history
+        .iter()
+        .find(|grant| grant.held_by("dev_mac"))
+        .map(|grant| grant.epoch);
+    let stray = win.write(
+        GROUP,
+        "case:quiet",
+        "case.verdict",
+        Author::Her,
+        Some("x"),
+        T0 + 6 * MINUTE,
+    );
+    let frame = win.rows_frame(GROUP, vec![stray]);
+    let outs = relay::take(
+        db,
+        &root(),
+        &settings,
+        OWNER,
+        "dev_win",
+        Core::Pc,
+        &mut relay::Session::default(),
+        &frame,
+        T0 + 6 * MINUTE,
+    )
+    .await
+    .unwrap();
+    assert_eq!(delivered(&outs[0])["body"]["code"], "not_holder");
+    schema.drop().await;
+}
+
 /// The shared lease cases (`core/crates/conformance/v1/lease/move.json`) run
 /// through the server's wiring: the lease, the holder and the owner's
 /// sighting put where the server keeps them, the move asked as the server
