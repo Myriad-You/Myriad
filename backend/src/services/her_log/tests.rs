@@ -8,7 +8,7 @@
 //! and out), and must fold to the same her. The lease cases of the shared
 //! conformance files run through the server's wiring.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use myriad_nodes::wire::{self, SendInput};
@@ -3222,9 +3222,9 @@ async fn the_server_takes_her_back_from_a_mac_cut_off_with_the_owner_elsewhere()
 }
 
 /// Her records go into her log by comparing (b1): what is new or changed is
-/// written once, a diary entry gone is not written yet (no state for it, never
-/// a forget), and a second comparison
-/// with nothing changed writes nothing. Her rows only while the site holds
+/// written once, a diary entry gone is written deleted (never a forget) and
+/// live again when it comes back, and a second comparison with nothing
+/// changed writes nothing. Her rows only while the site holds
 /// the pen; then only what the owner edits here (her persona, her wardrobe).
 #[tokio::test]
 async fn her_records_go_into_her_log_by_comparing() {
@@ -3274,15 +3274,38 @@ async fn her_records_go_into_her_log_by_comparing() {
         .await
         .unwrap();
     let changed = super::state::sync(db, &root, OWNER).await.unwrap();
-    assert_eq!((changed.written, changed.gone), (1, 0));
+    assert_eq!((changed.written, changed.gone), (1, 1));
     let rows = state_rows(store::rows(db, OWNER, PERSONAL).await.unwrap());
     assert!(!rows.iter().any(|(kind, _, _)| kind == "forget"));
-    assert_eq!(
-        rows.iter()
-            .filter(|(kind, object, _)| kind == "state.write" && object == "state:diary:d2")
-            .count(),
-        2
-    );
+    for object in ["state:diary:d1", "state:diary:d2"] {
+        assert_eq!(
+            rows.iter()
+                .filter(|(kind, of, _)| kind == "state.write" && of == object)
+                .count(),
+            2,
+            "{object}"
+        );
+    }
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    let held: Vec<&Row> = rows
+        .iter()
+        .filter(|row| row.object == "state:diary:d1")
+        .collect();
+    let bodies = store::bodies(db, &root, OWNER, PERSONAL, &held)
+        .await
+        .unwrap();
+    let states: BTreeSet<String> = bodies
+        .values()
+        .map(|body| body["state"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert_eq!(states, BTreeSet::from(["live".into(), "deleted".into()]));
+
+    // The entry back under its id: live again, written once more.
+    db.execute_unprepared(&diary("d1", "一起看了雨"))
+        .await
+        .unwrap();
+    let back = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!((back.written, back.gone), (1, 0));
 
     // Her mind on the Mac: her diary is not compared here.
     let mut mac = Side::new("dev_mac");
@@ -3297,9 +3320,9 @@ async fn her_records_go_into_her_log_by_comparing() {
 }
 
 /// Her records the Mac wrote while her mind was there go into the site's
-/// tables (b1): a new one is added, a changed one written over, one
-/// forgotten there goes here; and comparing afterwards writes none of it
-/// back.
+/// tables (b1): a new one is added, a changed one written over, one gone
+/// there (deleted) goes here, and so does one the owner had her forget; and
+/// comparing afterwards writes none of it back.
 #[tokio::test]
 async fn her_records_from_another_end_go_into_the_sites_tables() {
     let Some(schema) = schema("her_log_state_in").await else {
@@ -3307,7 +3330,11 @@ async fn her_records_from_another_end_go_into_the_sites_tables() {
     };
     let db = &schema.db;
     let root = root();
-    for (id, content) in [("d1", "一起看了雨"), ("d2", "说到了猫")] {
+    for (id, content) in [
+        ("d1", "一起看了雨"),
+        ("d2", "说到了猫"),
+        ("d3", "忘掉的那天"),
+    ] {
         db.execute_unprepared(&format!(
             "INSERT INTO agent_diary (id, user_id, content, source, created_at) \
              VALUES ('{id}', {OWNER}, '{content}', 'chat', now())"
@@ -3348,9 +3375,24 @@ async fn her_records_from_another_end_go_into_the_sites_tables() {
         Some(diary("d1", "一起看了大雨")),
         now + 2,
     );
-    mac.write(
+    mac.write_body(
         PERSONAL,
         "state:diary:d2",
+        "state.write",
+        Author::Her,
+        Some(json!({
+            "at": now / 1000,
+            "format": myriad_persona_sync::FORMAT_VERSION,
+            "kind": "diary",
+            "id": "d2",
+            "state": "deleted",
+            "body": null,
+        })),
+        now + 3,
+    );
+    mac.write(
+        PERSONAL,
+        "state:diary:d3",
         "forget",
         Author::Owner,
         None,
@@ -3386,7 +3428,7 @@ async fn her_records_from_another_end_go_into_the_sites_tables() {
     let yielded = mac.frame(
         "lease.yield",
         Some("yield_back"),
-        json!({ "epoch": mac.epoch, "through": { PERSONAL: 3 } }),
+        json!({ "epoch": mac.epoch, "through": { PERSONAL: 4 } }),
     );
     exchange(db, &mut mac, vec![yielded], now + 5).await;
     assert!(

@@ -1,6 +1,6 @@
 //! Her records as rows of her log (b1 of protocol 2): her persona, what she
-//! wears, her mood's anchor, her state toward the owner, what she means to
-//! do, what she said first, her life (pace, what she is doing, her vitals,
+//! wears, her mood's anchor and each change of it, her state toward the
+//! owner, what she means to do, what she said first, her life (pace, what she is doing, her vitals,
 //! her serials, the game of soup), her stickers and her diary, so another end
 //! her mind moves to has her whole.
 //!
@@ -10,13 +10,14 @@
 //! compared with what her log last has of it (`agent_her_state_rows`, one
 //! digest an object), and one that differs is written again: a persona field
 //! as `persona.field`, any other record as `state.write`. One the log has and
-//! the site no longer does is written as gone: an outfit as `state.write`
-//! deleted, a persona field as `persona.field` null. The other kinds have no
-//! state for it yet (only live): nothing is written for one gone and its
-//! digest is kept, so it is compared again once they can be. Never a
-//! `forget` of the object: that would take every row it ever has, a record
-//! of the same id coming back too. The first comparison is the backfill. A row's clock is the comparison's, not the change's: it says when
-//! the site wrote it to her log, not when the record changed.
+//! the site no longer does is written as gone: a record as `state.write`
+//! deleted (live again under its id when it comes back), a persona field as
+//! `persona.field` null. One the site keeps only one of (her pace, her
+//! anchor…) never goes. Never a `forget` of the object: that would take every
+//! row it ever has, a record of the same id coming back too. The first
+//! comparison is the backfill. A row's clock is the comparison's, not the
+//! change's: it says when the site wrote it to her log, not when the record
+//! changed.
 //!
 //! Her rows only while the site holds the pen; otherwise only the owner
 //! changes her here (her persona and her wardrobe, on the settings page), as
@@ -25,8 +26,9 @@
 //! The other way ([`take_in`]): the newest row of an object another end
 //! wrote is written into the site's tables as a merge lands what it takes
 //! (`persona_sync::merge::land_records`), and its digest kept, so the next
-//! comparison does not write it back. A record forgotten on another end goes
-//! from the site's tables.
+//! comparison does not write it back. A record gone on another end (its
+//! newest row deleted), or one the owner had her forget (every row of it
+//! forgotten), goes from the site's tables.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -49,10 +51,11 @@ use crate::services::persona_sync::{assets, snapshot};
 
 /// The kinds whose records are her log's rows here, in the order they are
 /// compared. Her memories and diary of nodes come with b2; her talk is D6.
-pub const KINDS: [Kind; 16] = [
+pub const KINDS: [Kind; 17] = [
     Kind::Persona,
     Kind::Outfit,
     Kind::AffectAnchor,
+    Kind::AffectEvent,
     Kind::OwnerState,
     Kind::Intention,
     Kind::ProactiveLine,
@@ -317,11 +320,9 @@ fn kind_of(object: &str) -> Option<Kind> {
         .flatten()
 }
 
-/// A record gone from the site, written as gone: whether it was. Only an
-/// outfit (deleted) and a persona field (null) can be now; the other kinds
-/// have no state for it yet (a `forget` of the object would take every row
-/// it ever has, a record of the same id coming back too), so nothing is
-/// written and the digest is kept: they are compared again once they can be.
+/// A record gone from the site, written as gone: whether it was. A persona
+/// field as null, any other record as deleted when its kind can go (the
+/// core says: one the site keeps only one of never does).
 async fn gone(
     txn: &DatabaseTransaction,
     root: &dyn keys::Root,
@@ -352,9 +353,6 @@ async fn gone(
         .await?;
         return Ok(true);
     }
-    if kind != Kind::Outfit {
-        return Ok(false);
-    }
     let Some(audience) = audience_of(owner, kind) else {
         return Ok(false);
     };
@@ -371,6 +369,9 @@ async fn gone(
         body: Value::Null,
     })
     .unwrap_or_default();
+    if myriad_persona_log::payloads::check("state.write", &payload).is_err() {
+        return Ok(false);
+    }
     store::write_row_on(
         txn,
         root,
@@ -434,7 +435,8 @@ async fn drop_known<C: ConnectionTrait>(db: &C, user: i32, object: &str) -> Resu
 
 /// Her records another end wrote, taken into the site's tables: for each
 /// object of these kinds, its newest row when another end wrote it and the
-/// site does not have it yet, and each record whose rows are all forgotten.
+/// site does not have it yet (one deleted goes from the site's tables), and
+/// each record whose rows are all forgotten (the owner had her forget it).
 /// How many records were taken in or went.
 pub async fn take_in(
     db: &DatabaseConnection,
@@ -544,6 +546,9 @@ pub async fn take_in(
     let mut plan: Vec<EntityVersion> = Vec::new();
     let mut writes = Vec::new();
     let mut removes = Vec::new();
+    // Records gone on another end, other than outfits (a merge settles where
+    // those go): they go from the site's tables as a forgotten one does.
+    let mut went: Vec<String> = Vec::new();
     for kind in planned.iter().copied() {
         let mut have: BTreeMap<String, EntityVersion> =
             snapshot::of_kind(db, &pictures, site_owner, kind, None, EVERY)
@@ -578,8 +583,10 @@ pub async fn take_in(
             }
             let replaces = have.remove(id).is_some();
             if entity.state == State::Deleted {
-                if replaces {
+                if replaces && kind == Kind::Outfit {
                     removes.push(write_of(kind, id, true));
+                } else if replaces {
+                    went.push(state_object(kind.as_str(), id));
                 }
                 continue;
             }
@@ -594,8 +601,11 @@ pub async fn take_in(
         crate::services::persona_sync::merge::land_records(&txn, site_owner, plan, writes, removes)
             .await
             .map_err(|error| Error::Refused(format!("{error:?}")))?;
+    for object in &went {
+        remove_here(&txn, site_owner, object).await?;
+    }
     for object in &forgotten {
-        forget_here(&txn, site_owner, object).await?;
+        remove_here(&txn, site_owner, object).await?;
         drop_known(&txn, site_owner, object).await?;
     }
     // What the site has of them now is what the log has: the next comparison
@@ -630,10 +640,10 @@ fn write_of(kind: Kind, id: &str, replaces: bool) -> myriad_persona_sync::merge:
     }
 }
 
-/// A record forgotten on another end goes from the site's tables. Her
-/// persona, her looks and the records she has one of (her anchor, her pace,
-/// what she is doing) are not forgotten that way, only written again.
-async fn forget_here<C: ConnectionTrait>(db: &C, user: i32, object: &str) -> Result<(), Error> {
+/// A record gone or forgotten on another end goes from the site's tables.
+/// Her persona, her looks and the records she has one of (her anchor, her
+/// pace, what she is doing) never go that way, only written again.
+async fn remove_here<C: ConnectionTrait>(db: &C, user: i32, object: &str) -> Result<(), Error> {
     use crate::services::agent::merope::api::sync as her;
     let Some((kind, id)) = object
         .strip_prefix("state:")
@@ -642,6 +652,28 @@ async fn forget_here<C: ConnectionTrait>(db: &C, user: i32, object: &str) -> Res
         return Ok(());
     };
     let (sql, values): (&str, Vec<sea_orm::Value>) = match kind {
+        "affect_event" => (
+            "DELETE FROM agent_affect_events WHERE user_id = $1 AND id = $2",
+            vec![user.into(), id.into()],
+        ),
+        // The books she follows are one list (`reading`; a single one,
+        // `following`, before it).
+        "serial_following" => {
+            db.execute_raw(Statement::from_sql_and_values(
+                db.get_database_backend(),
+                "DELETE FROM runtime_registry WHERE namespace = $1 AND record_id = 'following' \
+                 AND payload->>'id' = $2",
+                vec![her::SERIAL_NAMESPACE.into(), id.into()],
+            ))
+            .await?;
+            (
+                "UPDATE runtime_registry SET payload = COALESCE((SELECT jsonb_agg(book) \
+                 FROM jsonb_array_elements(payload) AS book WHERE book->>'id' IS DISTINCT FROM $2), \
+                 '[]'::jsonb) WHERE namespace = $1 AND record_id = 'reading' \
+                 AND jsonb_typeof(payload) = 'array'",
+                vec![her::SERIAL_NAMESPACE.into(), id.into()],
+            )
+        }
         "diary" => (
             "DELETE FROM agent_diary WHERE user_id = $1 AND id = $2",
             vec![user.into(), id.into()],
