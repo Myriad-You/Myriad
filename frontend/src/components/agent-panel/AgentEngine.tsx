@@ -101,10 +101,12 @@ import { setAgentSessionId } from './agentMessages'
 import {
   AGENT_PANEL_ANSWER_EVENT,
   AGENT_PANEL_COMMAND_EVENT,
+  AGENT_PANEL_FORGOTTEN_EVENT,
   AGENT_PANEL_OPEN_SESSION_EVENT,
   AGENT_PANEL_SUBMIT_EVENT,
   agentPanelAnswerDetail,
   agentPanelCommand,
+  forgottenLinesDetail,
   agentPanelOpenSessionCount,
   agentPanelOpenSessionId,
   agentPanelSubmitDetail,
@@ -649,6 +651,24 @@ export const AgentEngine: React.FC = () => {
     return () =>
       window.removeEventListener(AGENT_PANEL_ANSWER_EVENT, handleAnswer)
   }, [])
+
+  // Lines she forgot, and what went with them, leave the conversation shown.
+  useEffect(() => {
+    const handleForgotten = (event: Event) => {
+      const detail = forgottenLinesDetail(event)
+      if (!detail) return
+      const gone = new Set(detail.lines.map((line) => `loaded_${line}`))
+      for (const mode of ['chat', 'work'] as const) {
+        setMessages(
+          (prev) => prev.filter((message) => !(message.sessionId === detail.sessionId && gone.has(message.id))),
+          mode,
+        )
+      }
+    }
+    window.addEventListener(AGENT_PANEL_FORGOTTEN_EVENT, handleForgotten)
+    return () =>
+      window.removeEventListener(AGENT_PANEL_FORGOTTEN_EVENT, handleForgotten)
+  }, [setMessages])
 
   useEffect(() => {
     return attachLiveBody()

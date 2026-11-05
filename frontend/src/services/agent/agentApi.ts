@@ -1705,6 +1705,14 @@ class AgentService {
     return response.sessions
   }
 
+  /** Has her forget one line and what it taught her (on every end while her log syncs): the lines that went. */
+  async forgetSessionMessage(sessionId: string, messageId: number): Promise<number[]> {
+    const response = await apiService.delete<{ forgotten: number[] }>(
+      `${this.baseUrl}/sessions/${encodeURIComponent(sessionId)}/messages/${messageId}`,
+    )
+    return response.forgotten
+  }
+
   async getSessionMessages(
     sessionId: string,
     page: number = 1,

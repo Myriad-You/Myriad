@@ -1408,6 +1408,312 @@ async fn the_partners_private_lines_are_theirs_in_her_log_wherever_her_mind_is()
     schema.drop().await;
 }
 
+/// What the partner and she said in private on the Mac shows in the site's
+/// conversations as copies (D6-e): a segment goes on with the conversation
+/// last talked in within six hours before it, or opens a new one, and her
+/// line goes where the talk was; each copy is at its row's time, says where
+/// it was said and how many pictures came, and is copied once. Copies are
+/// never written to the log again, and go when their row is forgotten.
+#[tokio::test]
+async fn lines_said_on_the_mac_show_in_the_sites_conversations() {
+    let Some(schema) = schema("her_log_partner_copies").await else {
+        return;
+    };
+    let db = &schema.db;
+    let at = |micros: i64| format!("to_timestamp({}::double precision / 1000000)", micros);
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_sync_devices (id, user_id, name, token_hash, token_hint, created_at) \
+         VALUES ('dev_mac', {OWNER}, 'Mac', 'h', 'x', NOW()); \
+         INSERT INTO agent_sessions (id, user_id, title, context, message_count, archived, \
+         created_at, last_active_at) VALUES \
+         ('ses_a', {OWNER}, 'a', '{{\"mode\":\"chat\"}}', 1, false, {t}, {t}); \
+         INSERT INTO agent_messages (session_id, role, content, created_at) \
+         VALUES ('ses_a', 'user', '早', {t})",
+        t = at(T0 - 60 * MINUTE)
+    ))
+    .await
+    .unwrap();
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], T0).await;
+    assert!(mac.epoch.is_some(), "her mind is on the Mac");
+
+    let later = T0 + 7 * 60 * MINUTE;
+    for (object, start, line) in [
+        ("segment:dev_mac_s1", T0 + MINUTE, "在 Mac 上说的"),
+        ("segment:dev_mac_s2", later, "隔了很久"),
+    ] {
+        let open = json!({ "at": start / 1000, "place": "app" });
+        mac.write_body(
+            PERSONAL,
+            object,
+            "segment.open",
+            Author::Owner,
+            Some(open),
+            start,
+        );
+        let body =
+            json!({ "at": (start + MINUTE) / 1000, "text": line, "line": "m1", "pictures": 2 });
+        mac.write_body(
+            PERSONAL,
+            object,
+            "segment.line",
+            Author::Owner,
+            Some(body),
+            start + MINUTE,
+        );
+        let reply = said(&format!("回：{line}"), (start + 2 * MINUTE) / 1000);
+        mac.write_body(
+            PERSONAL,
+            &format!("speech:{object}"),
+            "speech.said",
+            Author::Her,
+            Some(reply),
+            start + 2 * MINUTE,
+        );
+    }
+    sync(db, &mut mac, PERSONAL, later + 3 * MINUTE).await;
+
+    let messages = |session: &'static str| async move {
+        db.query_all_raw(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT role, content, origin, metadata, created_at FROM agent_messages \
+             WHERE session_id = $1 ORDER BY created_at, id",
+            [session.into()],
+        ))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| {
+            let metadata: Option<Value> = row.try_get("", "metadata").unwrap();
+            (
+                row.try_get::<String>("", "role").unwrap(),
+                row.try_get::<String>("", "content").unwrap(),
+                row.try_get::<Option<String>>("", "origin").unwrap(),
+                metadata.unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>()
+    };
+    let first = messages("ses_a").await;
+    assert_eq!(
+        first
+            .iter()
+            .map(|(role, content, origin, _)| (role.as_str(), content.as_str(), origin.as_deref()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("user", "早", None),
+            ("user", "在 Mac 上说的", Some("dev_mac")),
+            ("assistant", "回：在 Mac 上说的", Some("dev_mac")),
+        ]
+    );
+    assert_eq!(
+        first[1].3,
+        json!({ "said": { "on": "dev_mac", "name": "Mac", "place": "app" }, "pictures": 2 })
+    );
+    assert_eq!(first[2].3["said"]["place"], json!("web"));
+    assert!(first[2].3.get("unprompted").is_none());
+    // Seven hours on, the talk is a new conversation, her reply with it.
+    let sessions = db
+        .query_all_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT object, session_id FROM agent_her_segments ORDER BY object",
+        ))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| row.try_get::<String>("", "session_id").unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(sessions.len(), 2);
+    assert_eq!(sessions[0], "ses_a");
+    let second: &'static str = Box::leak(sessions[1].clone().into_boxed_str());
+    assert_ne!(second, "ses_a");
+    assert_eq!(
+        messages(second)
+            .await
+            .iter()
+            .map(|(role, content, _, _)| (role.as_str(), content.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("user", "隔了很久"), ("assistant", "回：隔了很久")]
+    );
+    // Copied once; nothing written to the log here.
+    assert_eq!(super::talk::fold(db, &root(), OWNER).await.unwrap(), 0);
+    sync(db, &mut mac, PERSONAL, later + 4 * MINUTE).await;
+    assert_eq!(messages("ses_a").await.len(), 3);
+    assert!(
+        store::rows(db, OWNER, PERSONAL)
+            .await
+            .unwrap()
+            .iter()
+            .all(|row| row.origin != NODE)
+    );
+    // Forgotten, its copy goes.
+    let line = store::rows(db, OWNER, PERSONAL)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.kind == "segment.line" && row.object == "segment:dev_mac_s1")
+        .unwrap();
+    store::forget(db, &owner(db).await, PERSONAL, &format!("row:{}", line.id))
+        .await
+        .unwrap();
+    super::talk::fold(db, &root(), OWNER).await.unwrap();
+    assert_eq!(
+        messages("ses_a")
+            .await
+            .iter()
+            .map(|(_, content, _, _)| content.as_str())
+            .collect::<Vec<_>>(),
+        vec!["早", "回：在 Mac 上说的"]
+    );
+    schema.drop().await;
+}
+
+/// Forgetting a line of the owner's private talk is forgetting it on every
+/// end (D6-g): a line forgotten here is a forget of its row in her log (the
+/// partner's by the row it was written as, hers by what she said), and it
+/// goes with the memories that quote it; a row forgotten anywhere takes its
+/// line here with what it taught her.
+#[tokio::test]
+async fn forgetting_a_line_forgets_it_on_every_end_with_what_it_taught_her() {
+    let Some(schema) = schema("her_log_forget_line").await else {
+        return;
+    };
+    let db = &schema.db;
+    let memory = |id: &str, evidence: &str| {
+        format!(
+            "INSERT INTO agent_memories (id, user_id, kind, content, evidence, speaker, source, \
+             venue, audience, concepts, valid_from, created_at, updated_at) VALUES \
+             ('{id}', {OWNER}, 'fact', '{evidence}', '{evidence}', 'user', 'chat', 'private', \
+              '[{OWNER}]', '[]', NOW(), NOW() + interval '1 minute', NOW())"
+        )
+    };
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_sessions (id, user_id, title, context, message_count, archived, \
+         created_at, last_active_at) VALUES \
+         ('ses_a', {OWNER}, 'a', '{{\"mode\":\"chat\"}}', 3, false, NOW(), NOW()); \
+         INSERT INTO agent_messages (id, session_id, role, content, created_at) VALUES \
+         (901, 'ses_a', 'user', '我养了一只猫叫团子', NOW()), \
+         (902, 'ses_a', 'assistant', '团子好可爱', NOW() + interval '1 second'), \
+         (903, 'ses_a', 'user', '下周去看海', NOW() + interval '2 seconds'); \
+         {}; {}; {}",
+        memory("m_cat", "养了一只猫叫团子"),
+        memory("m_sea", "下周去看海"),
+        memory("m_rain", "喜欢雨天"),
+    ))
+    .await
+    .unwrap();
+    let at = chrono::Utc::now();
+    let root = root();
+    let mut rows = Vec::new();
+    for (message, text) in [(901, "我养了一只猫叫团子"), (903, "下周去看海")] {
+        let row = super::talk::keep(db, &root, OWNER, "ses_a", message, text, at, "web")
+            .await
+            .unwrap()
+            .unwrap();
+        rows.push(row);
+    }
+    // Her line, as the site's ledger of what she said keeps it.
+    let owner = owner(db).await;
+    let hers = store::write_owners(
+        db,
+        &root,
+        &owner,
+        PERSONAL,
+        None,
+        "speech:sd1",
+        "speech.said",
+        &said("团子好可爱", at.timestamp_millis()),
+    )
+    .await
+    .unwrap();
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_speech_said (id, audience, user_id, called, at, payload) VALUES \
+         ('sd1', 'personal:{OWNER}', {OWNER}, true, NOW(), '{{\"line\":\"902\"}}')"
+    ))
+    .await
+    .unwrap();
+    use crate::models::entities::agent_messages;
+    use sea_orm::EntityTrait;
+    let line = |id: i32| async move {
+        agent_messages::Entity::find_by_id(id)
+            .one(db)
+            .await
+            .unwrap()
+    };
+    assert_eq!(
+        line(901).await.unwrap().log_row.as_deref(),
+        Some(rows[0].id.as_str())
+    );
+
+    // Forgotten here: the line, the memory that quotes it and what that came
+    // from (her answer to it), then a forget of each one's row in her log
+    // (`forget_lines`, here without the switch it waits on).
+    let gone = crate::services::agent::memory::manage::forget_line(db, OWNER, "ses_a", 901)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        gone.iter().map(|line| line.id).collect::<Vec<_>>(),
+        vec![901, 902]
+    );
+    for (line, row) in gone.iter().zip([&rows[0].id, &hers.id]) {
+        let forget = super::talk::forget_row_of(db, OWNER, line)
+            .await
+            .unwrap()
+            .expect("a forget of its row");
+        assert_eq!(forget.object, format!("row:{row}"));
+        // Once is enough.
+        assert!(
+            super::talk::forget_row_of(db, OWNER, line)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+    let held = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    for row in [&rows[0].id, &hers.id] {
+        assert!(
+            held.iter().any(|kept| kept.id == *row && kept.forgotten),
+            "{row}"
+        );
+    }
+    // Forgotten on another end: the next fold takes the line and its memory.
+    store::forget(db, &owner, PERSONAL, &format!("row:{}", rows[1].id))
+        .await
+        .unwrap();
+    super::talk::fold(db, &root, OWNER).await.unwrap();
+    for gone in [901, 902, 903] {
+        assert!(line(gone).await.is_none(), "{gone}");
+    }
+    let memories = db
+        .query_all_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT id FROM agent_memories ORDER BY id",
+        ))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| row.try_get::<String>("", "id").unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(memories, vec!["m_rain"]);
+    // A line the log never had is forgotten here only.
+    db.execute_unprepared(
+        "INSERT INTO agent_messages (id, session_id, role, content, created_at) \
+         VALUES (904, 'ses_a', 'user', '没进日志', NOW())",
+    )
+    .await
+    .unwrap();
+    let unlogged = crate::services::agent::memory::origins::Gone::of(&line(904).await.unwrap());
+    assert!(
+        super::talk::forget_row_of(db, OWNER, &unlogged)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    schema.drop().await;
+}
+
 /// The owner turns syncing her log off while her mind is on the Mac: the
 /// server forces it back here, the site's copy being live. Off again with
 /// her mind here, or while she lives on a device the site let its copy go

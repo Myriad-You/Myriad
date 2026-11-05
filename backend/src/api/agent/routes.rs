@@ -385,6 +385,14 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 middleware::auth::auth_middleware,
             )),
         )
+        // 让她忘掉一句话（连同由它记下的事；同步时两端都忘）
+        .route(
+            "/sessions/{session_id}/messages/{message_id}",
+            delete(forget_session_message).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
         // 会话里还在写的回复：刷新或新开页面时接上
         .route(
             "/sessions/{session_id}/live-run",

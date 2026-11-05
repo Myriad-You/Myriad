@@ -274,6 +274,9 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     default_value: None,
                     not_null: false,
                 },
+                // A copy of a line said on another end (D6-e, `persona_log.sql`).
+                ColumnDef::new("origin", "character varying"),
+                ColumnDef::new("log_row", "character varying"),
             ],
         },
         TableDef {
@@ -1298,6 +1301,14 @@ pub(crate) fn tables() -> Vec<TableDef> {
                 ColumnDef::new("created_at", "timestamp with time zone").not_null(),
                 ColumnDef::new("from_holder", "character varying"),
                 ColumnDef::new("move_id", "character varying"),
+            ],
+        },
+        TableDef {
+            name: "agent_her_segments".to_string(),
+            columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("object", "character varying").not_null(),
+                ColumnDef::new("session_id", "character varying").not_null(),
             ],
         },
         TableDef {

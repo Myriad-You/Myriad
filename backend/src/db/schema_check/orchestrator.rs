@@ -96,7 +96,11 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// 后来怎样了：做了、改成提起、取消），挂在 `node.intent` 行旁边；那句话被忘掉时一起删
 /// （`memory_nodes.sql`，随 004 与 `ensure_memory_nodes_tables` 一起建）。开关
 /// `merope_memory_nodes` 关着时不判断、不写；只有 `on` 时到点才提起或去做。
-pub const SCHEMA_VERSION: &str = "2026.11.05.4";
+/// 2026.11.06.1：别的端上说的私聊话在站点会话里的副本（D6-e）：`agent_messages` 加
+/// `origin`（说这句的端）、`log_row`（它是她日志里的哪一行），`log_row` 上的
+/// 部分唯一索引（一行只复制一次）；一段别端的话归进站点哪一场会话 `agent_her_segments`（`persona_log.sql`，
+/// 随 004 与 `ensure_persona_log_tables` 一起建；两列旧库走通用 ADD）。
+pub const SCHEMA_VERSION: &str = "2026.11.06.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);

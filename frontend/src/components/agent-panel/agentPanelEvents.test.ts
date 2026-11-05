@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { beginIdentityChange, settleIdentity } from '../../utils/identity'
 import {
+  AGENT_PANEL_FORGOTTEN_EVENT,
+  forgottenLinesDetail,
   agentPanelOpenSessionCount,
   agentPanelSubmitDetail,
   askAgentPanel,
@@ -118,4 +120,12 @@ test('an identity change discards words asked for the previous subject', (t) => 
   beginIdentityChange()
   settleIdentity({ id: 3 })
   assert.equal(takeQueuedAgentSubmit(), null)
+})
+
+test('lines she forgot are read back from their event, ids only', () => {
+  const event = new CustomEvent(AGENT_PANEL_FORGOTTEN_EVENT, {
+    detail: { sessionId: 'ses_a', lines: [901, '902', 903] },
+  })
+  assert.deepEqual(forgottenLinesDetail(event), { sessionId: 'ses_a', lines: [901, 903] })
+  assert.equal(forgottenLinesDetail(new CustomEvent(AGENT_PANEL_FORGOTTEN_EVENT)), null)
 })

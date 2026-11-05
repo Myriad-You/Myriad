@@ -210,6 +210,31 @@ pub async fn get_session_messages(
     Ok(Json(json!({ "messages": messages_json })))
 }
 
+/// Has her forget one line of a conversation (D6-g): the line, what it
+/// taught her, and, in the site owner's private talk while her log syncs,
+/// the same on every end (a forget of its row in her log).
+/// DELETE /api/agent/sessions/:id/messages/:message_id
+pub async fn forget_session_message(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path((session_id, message_id)): Path<(String, i32)>,
+) -> Result<Json<Value>, HttpError> {
+    let user_id = parse_user_id(&claims)?;
+    let gone =
+        crate::services::agent::memory::manage::forget_line(&db, user_id, &session_id, message_id)
+            .await
+            .map_err(|error| session_store_http("forget message", error))?;
+    let Some(gone) = gone else {
+        return Err(HttpError::from((
+            StatusCode::NOT_FOUND,
+            Json(AppError::public_json("Message not found")),
+        )));
+    };
+    // What went with it, for the panel to take away too.
+    let lines: Vec<i32> = gone.iter().map(|line| line.id).collect();
+    Ok(Json(json!({ "forgotten": lines })))
+}
+
 /// 归档会话
 /// DELETE /api/agent/sessions/:id
 pub async fn archive_session(
@@ -473,7 +498,7 @@ mod title_endpoint_tests {
             500,
             "a missing messages table must not become an empty conversation"
         );
-        db.execute_unprepared("CREATE TABLE agent_messages (id SERIAL PRIMARY KEY, session_id TEXT NOT NULL, task_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, metadata JSONB, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())").await.unwrap();
+        db.execute_unprepared("CREATE TABLE agent_messages (id SERIAL PRIMARY KEY, session_id TEXT NOT NULL, task_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, metadata JSONB, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), origin TEXT, log_row TEXT)").await.unwrap();
         assert_eq!(
             generate_session_title(
                 State(db.clone()),

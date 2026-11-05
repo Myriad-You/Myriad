@@ -267,3 +267,24 @@ CREATE TABLE IF NOT EXISTS agent_lease_ends (
     stopped_epoch BIGINT,
     stopped_at BIGINT
 );
+
+-- What the partner and she said in private on another of the owner's ends,
+-- kept in the site's own conversations as copies (D6-e): `origin` is the
+-- end that wrote the line (none for a line said here), `log_row` the row of
+-- her log it is a copy of, or, for the partner's line said here, the row it
+-- was written as. A copy is never written to the log again. A line goes,
+-- with what it taught her, when its row is forgotten (D6-g). A row is
+-- copied once, into one conversation.
+ALTER TABLE agent_messages ADD COLUMN IF NOT EXISTS origin VARCHAR(64);
+ALTER TABLE agent_messages ADD COLUMN IF NOT EXISTS log_row VARCHAR(512);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_messages_log_row
+    ON agent_messages (log_row) WHERE log_row IS NOT NULL;
+-- Which of the site's conversations a segment of another end's talk goes
+-- in, settled the first time the site sees it: the owner's private chat
+-- last talked in within six hours before its first line, or a new one.
+CREATE TABLE IF NOT EXISTS agent_her_segments (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    object VARCHAR(512) NOT NULL,
+    session_id VARCHAR(64) NOT NULL,
+    PRIMARY KEY (user_id, object)
+);

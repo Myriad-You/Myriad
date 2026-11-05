@@ -178,6 +178,8 @@ pub(crate) async fn persist_user_message_from(
         content: Set(content.to_string()),
         metadata: Set(None),
         created_at: Set(now),
+        origin: Set(None),
+        log_row: Set(None),
     };
     let inserted = agent_messages::Entity::insert(msg)
         .exec(db)
@@ -313,6 +315,8 @@ async fn persist_message_at(
         content: Set(content.to_string()),
         metadata: Set(metadata),
         created_at: Set(at),
+        origin: Set(None),
+        log_row: Set(None),
     };
     let inserted = agent_messages::Entity::insert(msg)
         .exec(db)

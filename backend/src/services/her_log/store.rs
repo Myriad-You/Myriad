@@ -49,7 +49,7 @@ use serde_json::Value;
 
 use super::{Error, NODE, Owner, keys};
 
-fn rows_of(results: Vec<QueryResult>) -> Result<Vec<Row>, Error> {
+pub(super) fn rows_of(results: Vec<QueryResult>) -> Result<Vec<Row>, Error> {
     results
         .into_iter()
         .map(|result| {
@@ -766,7 +766,7 @@ pub async fn send<C: ConnectionTrait>(
 /// The payloads of `rows`, opened and read as JSON, by row id. One whose key
 /// is gone, that does not open or that does not read, is left out: its row
 /// goes without it (`no_body`).
-async fn bodies<C: ConnectionTrait>(
+pub(super) async fn bodies<C: ConnectionTrait>(
     db: &C,
     root: &dyn keys::Root,
     user: i32,

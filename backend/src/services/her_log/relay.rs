@@ -544,6 +544,13 @@ async fn rows(
         .take(ASK_ROWS)
         .collect();
     session.asked.extend(ask.iter().cloned());
+    // What another end heard and she said there in the owner's private
+    // talk shows in the site's conversations too (D6-e).
+    if audience == owner.personal()
+        && let Err(error) = super::talk::fold(db, root, owner.user).await
+    {
+        tracing::warn!(%error, "[her-log] lines said on another end were not copied here");
+    }
     // A catch-up waiting on these rows may be over: she thinks here again.
     if !taken.added.is_empty()
         && matches!(super::pen::current(), super::pen::Pen::CatchingUp { .. })
