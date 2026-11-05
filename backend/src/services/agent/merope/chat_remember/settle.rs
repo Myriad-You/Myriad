@@ -191,6 +191,9 @@ pub(in crate::services::agent::merope) fn goes_under(
     use myriad_merope::topics::Under;
     match under {
         Under::Nowhere => Some(super::super::store::GoesUnder::Nowhere),
+        // About them as a person: under no topic until her topics are
+        // node rows and it goes on their own node.
+        Under::AboutThem => Some(super::super::store::GoesUnder::Nowhere),
         Under::Offered(index) => offered
             .get(*index)
             .map(|topic| super::super::store::GoesUnder::Topic(topic.id.clone())),
