@@ -16,6 +16,7 @@ pub async fn install_dynamic_config(
 ) {
     let mut current = target.write().await;
     crate::services::memory_profile::apply_from_saver_flag(config.memory_saver_enabled);
+    crate::services::agent::merope::memory_nodes::apply_config(&config.merope_memory_nodes);
     crate::services::outbound_security::apply_dynamic_config(&config);
     *current = config;
     // 整份配置刚从库里重读过（保存、恢复备份之后）：模块可见性也跟着重读。
@@ -126,6 +127,7 @@ standard_fields! {
         speech_tts_voice,
         merope_voice_mode,
         merope_voice_voice,
+        merope_memory_nodes,
         site_visibility_policy,
     ],
     opt_text: [

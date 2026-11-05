@@ -639,6 +639,10 @@ pub struct DynamicConfig {
     pub merope_voice_mode: String,
     /// `omni` 时她的音色：预置音色名或复刻得到的音色 id；空为模型默认。
     pub merope_voice_voice: String,
+    /// 她的记忆走不走核心节点（站点记忆改用节点）：`off` 照今天的话题路径（默认）、
+    /// `shadow` 节点也写但仍读旧路径、`on` 读节点。改了下一次装配置时生效，不用重启
+    /// （`merope::memory_nodes::switch`）；环境变量 `MEROPE_MEMORY_NODES` 只给测试和测评压过它。
+    pub merope_memory_nodes: String,
 
     /// Agent 人设的页面形象：当前生效的 2.5D 图集包 id（sha256 hex）。
     /// None = 没有编译过的骨骼，浮动层只回退主立绘。站点级——全站一份形象。
@@ -947,6 +951,7 @@ impl Default for DynamicConfig {
             merope_speech_enabled: false,
             merope_voice_mode: String::new(),
             merope_voice_voice: String::new(),
+            merope_memory_nodes: "off".into(),
             agent_rig_asset_id: None,
             see_through_hf_token: None,
             see_through_space: None,

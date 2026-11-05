@@ -651,6 +651,13 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .execute_unprepared(include_str!("topic_nodes.sql"))
             .await?;
 
+        // 她的节点照共享核心存：只追加的节点行、折叠出的头、记忆放在哪、拿不准的收件箱。
+        // 默认不用（`merope_memory_nodes`）。schema_check::ensure_memory_nodes_tables 跑同一份文件。
+        manager
+            .get_connection()
+            .execute_unprepared(include_str!("memory_nodes.sql"))
+            .await?;
+
         Ok(())
     }
 
@@ -683,6 +690,10 @@ DROP TABLE IF EXISTS agent_affect_anchor;
 DROP TABLE IF EXISTS agent_affect_events;
 DROP TABLE IF EXISTS agent_sync_devices;
 DROP TABLE IF EXISTS merope_stickers;
+DROP TABLE IF EXISTS agent_node_inbox;
+DROP TABLE IF EXISTS agent_node_placements;
+DROP TABLE IF EXISTS agent_node_heads;
+DROP TABLE IF EXISTS agent_node_rows;
 DROP TABLE IF EXISTS agent_memory_topics;
 DROP TABLE IF EXISTS agent_topic_nodes;
 DROP FUNCTION IF EXISTS agent_memory_topics_forget();

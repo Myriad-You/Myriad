@@ -105,6 +105,14 @@ pub(crate) async fn ensure_topic_nodes_tables(db: &DatabaseConnection) -> Result
     Ok(())
 }
 
+/// Her nodes as the shared core keeps them (`migrations/memory_nodes.sql`),
+/// for databases that ran 004 before it was in it. Same file as 004.
+pub(crate) async fn ensure_memory_nodes_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(include_str!("../../../migrations/memory_nodes.sql"))
+        .await?;
+    Ok(())
+}
+
 /// What she said (`migrations/speech_said.sql`), for databases that ran 004
 /// before it was in it. Same file as 004.
 pub(crate) async fn ensure_speech_said_table(db: &DatabaseConnection) -> Result<(), DbErr> {
