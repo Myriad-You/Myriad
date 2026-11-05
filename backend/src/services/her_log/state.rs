@@ -11,9 +11,11 @@
 //! digest an object), and one that differs is written again: a persona field
 //! as `persona.field`, any other record as `state.write`. One the log has and
 //! the site no longer does is written as gone: an outfit as `state.write`
-//! deleted, a persona field as `persona.field` null, the rest (the only state
-//! they have is live) as a `forget` of the object. The first comparison is the
-//! backfill. A row's clock is the comparison's, not the change's: it says when
+//! deleted, a persona field as `persona.field` null. The other kinds have no
+//! state for it yet (only live): nothing is written for one gone and its
+//! digest is kept, so it is compared again once they can be. Never a
+//! `forget` of the object: that would take every row it ever has, a record
+//! of the same id coming back too. The first comparison is the backfill. A row's clock is the comparison's, not the change's: it says when
 //! the site wrote it to her log, not when the record changed.
 //!
 //! Her rows only while the site holds the pen; otherwise only the owner
@@ -202,7 +204,9 @@ pub async fn sync(
         if !compared.contains(kind.as_str()) {
             continue;
         }
-        gone(&txn, root, &owner, object, kind, now, author).await?;
+        if !gone(&txn, root, &owner, object, kind, now, author).await? {
+            continue;
+        }
         drop_known(&txn, site_owner, object).await?;
         synced.gone += 1;
     }
@@ -313,7 +317,11 @@ fn kind_of(object: &str) -> Option<Kind> {
         .flatten()
 }
 
-/// A record gone from the site, written as gone.
+/// A record gone from the site, written as gone: whether it was. Only an
+/// outfit (deleted) and a persona field (null) can be now; the other kinds
+/// have no state for it yet (a `forget` of the object would take every row
+/// it ever has, a record of the same id coming back too), so nothing is
+/// written and the digest is kept: they are compared again once they can be.
 async fn gone(
     txn: &DatabaseTransaction,
     root: &dyn keys::Root,
@@ -322,7 +330,7 @@ async fn gone(
     kind: Kind,
     now: i64,
     author: (Author, Option<u64>),
-) -> Result<(), Error> {
+) -> Result<bool, Error> {
     if let Some(field) = object.strip_prefix("persona:") {
         let payload = serde_json::to_value(PersonaField {
             at: now,
@@ -342,41 +350,40 @@ async fn gone(
             author,
         )
         .await?;
-        return Ok(());
+        return Ok(true);
+    }
+    if kind != Kind::Outfit {
+        return Ok(false);
     }
     let Some(audience) = audience_of(owner, kind) else {
-        return Ok(());
+        return Ok(false);
     };
-    if kind == Kind::Outfit {
-        let id = object
-            .rsplit_once(':')
-            .map(|(_, id)| id)
-            .unwrap_or_default();
-        let payload = serde_json::to_value(StateWrite {
-            at: now,
-            format: FORMAT_VERSION,
-            kind: kind.as_str().to_string(),
-            id: id.to_string(),
-            state: State::Deleted,
-            body: Value::Null,
-        })
+    let id = object
+        .rsplit_once(':')
+        .map(|(_, id)| id)
         .unwrap_or_default();
-        store::write_row_on(
-            txn,
-            root,
-            owner,
-            &audience,
-            None,
-            object,
-            "state.write",
-            &payload,
-            author,
-        )
-        .await?;
-        return Ok(());
-    }
-    store::forget_on(txn, owner, &audience, object).await?;
-    Ok(())
+    let payload = serde_json::to_value(StateWrite {
+        at: now,
+        format: FORMAT_VERSION,
+        kind: kind.as_str().to_string(),
+        id: id.to_string(),
+        state: State::Deleted,
+        body: Value::Null,
+    })
+    .unwrap_or_default();
+    store::write_row_on(
+        txn,
+        root,
+        owner,
+        &audience,
+        None,
+        object,
+        "state.write",
+        &payload,
+        author,
+    )
+    .await?;
+    Ok(true)
 }
 
 /// What her log last has of each object written here, by its digest.

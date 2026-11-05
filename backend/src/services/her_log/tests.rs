@@ -3222,7 +3222,8 @@ async fn the_server_takes_her_back_from_a_mac_cut_off_with_the_owner_elsewhere()
 }
 
 /// Her records go into her log by comparing (b1): what is new or changed is
-/// written once, what is gone is written as gone, and a second comparison
+/// written once, a diary entry gone is not written yet (no state for it, never
+/// a forget), and a second comparison
 /// with nothing changed writes nothing. Her rows only while the site holds
 /// the pen; then only what the owner edits here (her persona, her wardrobe).
 #[tokio::test]
@@ -3273,9 +3274,9 @@ async fn her_records_go_into_her_log_by_comparing() {
         .await
         .unwrap();
     let changed = super::state::sync(db, &root, OWNER).await.unwrap();
-    assert_eq!((changed.written, changed.gone), (1, 1));
+    assert_eq!((changed.written, changed.gone), (1, 0));
     let rows = state_rows(store::rows(db, OWNER, PERSONAL).await.unwrap());
-    assert!(rows.contains(&("forget".into(), "state:diary:d1".into(), Author::Owner)));
+    assert!(!rows.iter().any(|(kind, _, _)| kind == "forget"));
     assert_eq!(
         rows.iter()
             .filter(|(kind, object, _)| kind == "state.write" && object == "state:diary:d2")
