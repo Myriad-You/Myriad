@@ -380,6 +380,14 @@ pub(crate) async fn after_turn(
             judged.dropped.push(id.clone());
         }
     }
+    // A thread their words called off goes with its intent.
+    if judged
+        .dropped
+        .iter()
+        .any(|id| id.starts_with(super::home_intents::THREAD))
+    {
+        super::home_intents::in_step(db, user_id).await;
+    }
     Ok(judged)
 }
 

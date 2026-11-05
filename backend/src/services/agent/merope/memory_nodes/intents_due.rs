@@ -141,6 +141,14 @@ async fn due_in(
             }
         }
     }
+    // A thread said this way is not raised again the old way.
+    if due
+        .due
+        .iter()
+        .any(|due| due.intent.starts_with(super::home_intents::THREAD))
+    {
+        super::home_intents::in_step(db, user_id).await;
+    }
     Ok(runs)
 }
 

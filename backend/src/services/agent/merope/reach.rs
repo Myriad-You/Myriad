@@ -187,7 +187,14 @@ async fn first_words_as(
     user_id: i32,
 ) -> Option<(Reason, String, String, Wish)> {
     let now = super::clock::now();
-    let threads = threads::open(db, user_id).await;
+    // While she reads her nodes, those that are her intents come due as
+    // intents instead (`memory_nodes::home_intents`).
+    let threads = super::memory_nodes::home_intents::not_intents(
+        db,
+        user_id,
+        threads::open(db, user_id).await,
+    )
+    .await;
     let last = last_talk(db, user_id).await;
     let to_tell = super::doing::would_tell(db, last, None).await;
     // A puzzle she made that they have not played.

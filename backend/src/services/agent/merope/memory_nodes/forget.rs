@@ -185,8 +185,8 @@ pub(crate) async fn forget<C: ConnectionTrait>(
         return Ok(());
     }
     inbox::forget_citing(db, &refs).await?;
-    // Her intents resting on the lines go with them.
-    super::intent_store::forget_resting_on(db, lines).await?;
+    // Her intents resting on the lines, or on the rows, go with them.
+    super::intent_store::forget_resting_on(db, lines, memories).await?;
     let mut by_audience: BTreeMap<(i32, String), (BTreeSet<String>, BTreeSet<String>)> =
         BTreeMap::new();
     for (user_id, audience, node, row) in citing(db, &refs).await? {

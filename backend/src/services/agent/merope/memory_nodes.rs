@@ -56,6 +56,9 @@
 //!   someone is to her and how she comes across as her views, sore spots as
 //!   what is not wrapped up, bits, a group's own words and what people told
 //!   her about herself as entries, a group's days and her own as spans.
+//! - **What is on her mind and what she wants** ([`home_intents`]): a
+//!   thread about someone, and a want of hers, as her intent, kept in step
+//!   with its row both ways.
 //! - **A child end** ([`child`]): what she made of a moment there, on the
 //!   site owner's repository or talks-with-other-AIs node.
 //!
@@ -82,6 +85,7 @@ pub(crate) mod forget;
 pub(crate) mod group_facts;
 pub(crate) mod hanging;
 mod heads;
+pub(crate) mod home_intents;
 pub(crate) mod homes;
 pub(crate) mod inbox;
 pub(crate) mod intending;
@@ -160,3 +164,6 @@ mod intent_tests;
 
 #[cfg(test)]
 mod source_tests;
+
+#[cfg(test)]
+mod home_intent_tests;

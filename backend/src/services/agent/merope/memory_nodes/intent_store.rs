@@ -380,14 +380,23 @@ pub(crate) async fn message_text(
 }
 
 /// Forgets the intents resting on the lines `lines` (`agent_messages.id`)
-/// being forgotten, on `db`'s transaction: every row of each is forgotten
+/// or the memory rows `memories` being forgotten, on `db`'s transaction: every row of each is forgotten
 /// by a forget of its own and becomes a stub, its head is folded again,
 /// and what the site kept of the instruction goes.
 pub(crate) async fn forget_resting_on<C: ConnectionTrait>(
     db: &C,
     lines: &[i32],
+    memories: &[String],
 ) -> Result<(), Error> {
-    let refs: Vec<String> = lines.iter().map(|id| format!("message:{id}")).collect();
+    let refs: Vec<String> = lines
+        .iter()
+        .map(|id| format!("message:{id}"))
+        .chain(
+            memories
+                .iter()
+                .map(|id| format!("{}{id}", myriad_nodes::body::MEMORY_REF)),
+        )
+        .collect();
     if refs.is_empty() {
         return Ok(());
     }
