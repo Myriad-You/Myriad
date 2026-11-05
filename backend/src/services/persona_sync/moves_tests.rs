@@ -351,6 +351,9 @@ async fn with_her_log_synced_a_move_to_a_device_keeps_her_here_and_her_mind_come
         (lease::Where::MindOn(mac.id.clone()), 3, lease::State::Live)
     );
     assert!(!committed.lives_on(&mac.id));
+    // A device reads that she lives on the site: her mind being on the Mac
+    // does not make it her host.
+    assert_eq!(committed.json(|_| None)["holder"], lease::SITE);
     // Asked again: the same answer.
     assert_eq!(
         commit_to_device_with(db, &settings, 41, &id, &mac.id, &digest)

@@ -334,6 +334,17 @@ impl Lease {
         }
     }
 
+    /// Where she lives as the owner's page and a device read it: the site
+    /// while its copy of her is live, wherever her mind is (that is
+    /// `/agent/mind/where`'s), so a device her mind is on is not taken for
+    /// one she lives on; otherwise the end her lease names.
+    fn shown_holder(&self) -> &str {
+        match self.state {
+            State::Live => SITE,
+            _ => &self.holder,
+        }
+    }
+
     /// As the site owner's page and a device read it: where she lives, her
     /// lineage and epoch, and the move in progress. `name` gives a device id
     /// the name the owner gave it. Nothing secret is in it.
@@ -360,8 +371,8 @@ impl Lease {
             })
         });
         json!({
-            "holder": self.holder,
-            "holderName": named(&self.holder),
+            "holder": self.shown_holder(),
+            "holderName": named(self.shown_holder()),
             "lineage": self.lineage,
             "epoch": self.epoch,
             "state": self.shown_state(),

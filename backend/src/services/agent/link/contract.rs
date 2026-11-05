@@ -157,7 +157,6 @@ pub(crate) enum Close {
     HostMoved,
     /// She is moving: while the move is under way no end has her.
     HostFrozen,
-    HostIsSite,
     BadFrame,
     UnsupportedProtocol,
     Timeout,
@@ -166,13 +165,12 @@ pub(crate) enum Close {
 
 impl Close {
     #[cfg(test)]
-    pub(crate) const ALL: [Close; 10] = [
+    pub(crate) const ALL: [Close; 9] = [
         Close::Revoked,
         Close::OwnerChanged,
         Close::Replaced,
         Close::HostMoved,
         Close::HostFrozen,
-        Close::HostIsSite,
         Close::BadFrame,
         Close::UnsupportedProtocol,
         Close::Timeout,
@@ -186,7 +184,6 @@ impl Close {
             Close::Replaced => "replaced",
             Close::HostMoved => "host_moved",
             Close::HostFrozen => "host_frozen",
-            Close::HostIsSite => "host_is_site",
             Close::BadFrame => "bad_frame",
             Close::UnsupportedProtocol => "unsupported_protocol",
             Close::Timeout => "timeout",

@@ -1007,9 +1007,11 @@ async fn hello_welcome_and_what_the_link_will_not_take() {
 
     // A handshake that is not one closes the link, saying why.
     for (hello, close) in [
+        // An app from before the device she lives on dialled as a child:
+        // told to update.
         (
             json!({ "protocol": 2, "role": "host", "surface": "app" }),
-            Close::HostIsSite,
+            Close::UnsupportedProtocol,
         ),
         (
             json!({ "protocol": 1, "role": "child", "surface": "app" }),
@@ -1023,6 +1025,22 @@ async fn hello_welcome_and_what_the_link_will_not_take() {
     ] {
         let mut other = Child::open(&site, &token).await;
         other.send("hello", None, hello).await;
+        assert_eq!(
+            other.closed().await,
+            (close.code(), close.name().to_string())
+        );
+    }
+    // The shared core's hellos the host closes on, each with its code.
+    let shared: Value = serde_json::from_str(FIXTURES_JSON).unwrap();
+    for case in shared["closed"].as_array().unwrap() {
+        let mut other = Child::open(&site, &token).await;
+        other
+            .raw(Message::Text(case["frame"].to_string().into()))
+            .await;
+        let close = Close::ALL
+            .into_iter()
+            .find(|close| close.name() == case["close"])
+            .unwrap();
         assert_eq!(
             other.closed().await,
             (close.code(), close.name().to_string())
@@ -1164,7 +1182,7 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
     host.send(
         "hello",
         None,
-        json!({ "protocol": 2, "role": "host", "surface": "app", "capabilities": ["rig"],
+        json!({ "protocol": 2, "role": "child", "surface": "app", "capabilities": ["rig"],
                 "lineage": born.lineage, "hostEpoch": 2 }),
     )
     .await;
@@ -1174,10 +1192,11 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
             welcome["body"]["role"].as_str(),
             welcome["body"]["host"].as_str()
         ),
-        (Some("site"), Some("app"))
+        (Some("host"), Some("app"))
     );
-    // The site's own list: its core reads log2 rows.
-    assert_eq!(welcome["body"]["capabilities"], json!(["log2"]));
+    // Its list as accepted, as on every link.
+    assert_eq!(welcome["body"]["capabilities"], json!(["rig"]));
+    assert_eq!(welcome["body"]["turns"], json!([]));
     assert!(welcome["body"].get("partner").is_none());
     assert_eq!(welcome["body"]["hostEpoch"], 2);
     assert_eq!(welcome["body"]["lineage"], born.lineage.as_str());
@@ -1206,7 +1225,7 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
     host.send(
         "hello",
         None,
-        json!({ "protocol": 2, "role": "host", "surface": "app",
+        json!({ "protocol": 2, "role": "child", "surface": "app",
                 "capabilities": ["rig", "partner", "log2"],
                 "lineage": born.lineage, "hostEpoch": 2 }),
     )
@@ -1219,7 +1238,11 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
             .unwrap()
             .as_str()
     );
-    assert_eq!(welcome["body"]["capabilities"], json!(["log2"]));
+    // The site's core reads log2 rows: taken.
+    assert_eq!(
+        welcome["body"]["capabilities"],
+        json!(["rig", "partner", "log2"])
+    );
     // Everything the shared core's welcome to a host carries.
     let shaped = fixtures()
         .into_iter()
@@ -1240,7 +1263,7 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
         .send(
             "hello",
             None,
-            json!({ "protocol": 2, "role": "host", "surface": "app", "hostEpoch": 2 }),
+            json!({ "protocol": 2, "role": "child", "surface": "app", "hostEpoch": 2 }),
         )
         .await;
     assert_eq!(

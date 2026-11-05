@@ -545,8 +545,12 @@ impl Link {
         }
         match hello.role.as_str() {
             "child" => {}
-            // The device she lives on, as her host (H3e-7).
-            "host" => return self.host_hello(hello).await,
+            // An app from before the device she lives on dialled as a child
+            // too: told to update, as for another protocol.
+            "host" => {
+                tracing::info!(device = %self.device.id, "[link] a hello as her host, from an app before the links were one");
+                return Some(Close::UnsupportedProtocol);
+            }
             _ => return Some(Close::BadFrame),
         }
         if !CONTRACT.surfaces.contains(&hello.surface) {
@@ -561,6 +565,19 @@ impl Link {
                 return Some(Close::Unavailable);
             }
         };
+        let mut capabilities: Vec<String> = Vec::new();
+        for capability in &hello.capabilities {
+            if CONTRACT.capabilities.contains(capability) && !capabilities.contains(capability) {
+                capabilities.push(capability.clone());
+            }
+        }
+        // The device she lives on, as her host (H3e-7).
+        if let Some(lease) = lease
+            .as_ref()
+            .filter(|lease| lease.lives_on(&self.device.id))
+        {
+            return self.host_hello(&hello, lease, &capabilities).await;
+        }
         match lease.as_ref().map(|lease| lease.place()) {
             None
             | Some(
@@ -571,12 +588,6 @@ impl Link {
                 return Some(Close::HostFrozen);
             }
             Some(_) => return Some(Close::HostMoved),
-        }
-        let mut capabilities: Vec<String> = Vec::new();
-        for capability in hello.capabilities {
-            if CONTRACT.capabilities.contains(&capability) && !capabilities.contains(&capability) {
-                capabilities.push(capability);
-            }
         }
         self.hello = true;
         let mut told = Vec::new();
@@ -788,30 +799,21 @@ impl Link {
         None
     }
 
-    /// The device she lives on dials in as her host: welcomed only while it
-    /// holds her lease at the epoch it heard; otherwise she moved (it lets
-    /// its copy go). It is told at once if she is frozen there for a move.
-    async fn host_hello(&mut self, hello: Hello) -> Option<Close> {
-        use crate::services::persona_sync::lease;
-        if !CONTRACT.surfaces.contains(&hello.surface) {
-            return Some(Close::BadFrame);
-        }
-        let lease = match lease::read(&self.db).await {
-            Ok(lease) => lease,
-            Err(error) => {
-                tracing::warn!(%error, device = %self.device.id, "[link] could not read her host lease");
-                return Some(Close::Unavailable);
-            }
-        };
-        let Some(lease) = lease else {
-            return Some(Close::HostIsSite);
-        };
+    /// The device she lives on (`lease` names it): welcomed as her host
+    /// (host app) only while it holds her lease at the epoch it heard;
+    /// otherwise she moved (it lets its copy go). It is told at once if she
+    /// is frozen there for a move.
+    async fn host_hello(
+        &mut self,
+        hello: &Hello,
+        lease: &crate::services::persona_sync::lease::Lease,
+        capabilities: &[String],
+    ) -> Option<Close> {
         // The epoch it heard is one of its holding: freezing her there for
         // a move and thawing her move the epoch on, not her.
-        let holds = lease.lives_on(&self.device.id)
-            && hello
-                .host_epoch
-                .is_none_or(|epoch| (lease.since..=lease.epoch).contains(&epoch));
+        let holds = hello
+            .host_epoch
+            .is_none_or(|epoch| (lease.since..=lease.epoch).contains(&epoch));
         if !holds {
             tracing::info!(device = %self.device.id, epoch = lease.epoch, heard = ?hello.host_epoch, "[link] a host that does not hold her lease: she moved");
             return Some(Close::HostMoved);
@@ -832,16 +834,16 @@ impl Link {
             "protocol": CONTRACT.protocol,
             // Her host's link carries nothing of the sync families.
             "sync": "off",
-            "role": "site",
+            "role": "host",
             "host": "app",
             "deviceId": self.device.id,
             "deviceName": self.device.name,
             "lineage": lease.lineage,
             "hostEpoch": lease.epoch,
             "heartbeatMs": self.timing.heartbeat.as_millis() as u64,
-            // What the site itself can do: its core reads her log's merge,
-            // split and retract rows (ABI 2).
-            "capabilities": ["log2"],
+            // As accepted, on every link alike (the site's core reads her
+            // log's merge, split and retract rows: log2 is taken).
+            "capabilities": capabilities,
             "turns": [],
             "serverTime": crate::clock::now().timestamp_millis(),
         });
@@ -849,8 +851,7 @@ impl Link {
         // here (it holds her lease at the epoch it said): it moves to it while
         // her writes are stopped, so she comes back under the id the site
         // holds.
-        if hello
-            .capabilities
+        if capabilities
             .iter()
             .any(|capability| capability == "partner")
         {
