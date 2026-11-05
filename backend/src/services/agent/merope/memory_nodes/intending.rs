@@ -392,7 +392,7 @@ pub(crate) async fn after_turn(
 }
 
 /// `held` called off: dropped, never to run or be said.
-async fn call_off(
+pub(crate) async fn call_off(
     db: &DatabaseConnection,
     user_id: i32,
     audience: &str,

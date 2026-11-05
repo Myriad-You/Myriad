@@ -62,6 +62,10 @@
 //! - **A child end** ([`child`]): what she made of a moment there, on the
 //!   site owner's repository or talks-with-other-AIs node.
 //!
+//! What the site owner sees of her nodes, and the little they may change
+//! there (delete, rename, cancel an intent, answer what was heard), is the
+//! page ([`page`], [`page_edit`]).
+//!
 //! What placing, going over and sorting are shown of her nodes is
 //! [`known`]. What she is shown of them when she speaks in a private talk,
 //! while she reads them: every time, what she keeps of the person and of
@@ -101,6 +105,9 @@ pub(crate) mod intent_store;
 pub(crate) mod intents_due;
 pub(crate) mod intents_run;
 pub(crate) mod known;
+pub(crate) mod page;
+pub(crate) mod page_edit;
+mod page_intents;
 pub(crate) mod placements;
 pub(crate) mod placing;
 pub(crate) mod prepare;
@@ -183,3 +190,6 @@ pub(crate) mod read_tests;
 
 #[cfg(test)]
 pub(crate) mod group_read_tests;
+
+#[cfg(test)]
+mod page_tests;

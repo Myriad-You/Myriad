@@ -695,6 +695,14 @@ pub(crate) fn collect_database_updates_with_vendor(
                 updates.insert(field.key.clone(), JsonValue::String(mode.to_string()));
                 continue;
             }
+            // Only one of the three modes is kept; anything else is not saved.
+            "merope_memory_nodes" => {
+                use crate::services::agent::merope::memory_nodes::Mode;
+                if let Some(mode) = Mode::parse(&field.value) {
+                    updates.insert(field.key.clone(), JsonValue::String(mode.as_str().into()));
+                }
+                continue;
+            }
             "site_visibility_policy" => {
                 let pol = crate::api::seo_policy::normalize_visibility_policy(&field.value, false);
                 updates.insert(

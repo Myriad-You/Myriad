@@ -12,6 +12,8 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
     use axum::middleware::from_fn_with_state;
 
     Router::<crate::state::AppState>::new()
+        // 她的节点页（站长）：每个受众的节点、一个节点，删、改名、取消意图、听说
+        .merge(super::memory_nodes::routes(app_state.clone()))
         // 健康检查（公开）
         .route("/health", get(health))
         // 队列状态（需要认证）

@@ -867,6 +867,20 @@ pub(crate) async fn build_config(
                     placeholder: "Tina".to_string(),
                     required: false,
                 },
+                // 她的记忆走不走节点：off / shadow / on（`memory_nodes::switch`）
+                ConfigField {
+                    key: "merope_memory_nodes".to_string(),
+                    label: "Agent persona memory nodes".to_string(),
+                    field_type: "select".to_string(),
+                    value: crate::services::agent::merope::memory_nodes::switch::resolve(
+                        None,
+                        &stored.merope_memory_nodes,
+                    )
+                    .as_str()
+                    .to_string(),
+                    placeholder: "off".to_string(),
+                    required: false,
+                },
                 // 网络代理配置
                 ConfigField {
                     key: "proxy_enabled".to_string(),

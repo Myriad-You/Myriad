@@ -17,10 +17,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
 import { agentService } from '../../../services/agent'
 import { SegmentedControl, SettingsButton } from '../../settings'
+import AgentNodesPanel from './AgentNodesPanel'
 import { fill, Fold, History, newestFirst, Section, shortDate, Tag } from './mindParts'
 import './AgentMindPanel.css'
 
-type Tab = 'her' | 'people' | 'groups' | 'signs'
+type Tab = 'her' | 'people' | 'groups' | 'nodes' | 'signs'
 
 /** How many of a long list show before the rest is asked for. */
 const SHOWN = { story: 1, doing: 4, days: 3, list: 6, chat: 4, alerts: 0 }
@@ -585,17 +586,18 @@ export default function AgentMindPanel() {
       <header className="merope-mind__header">
         <SegmentedControl<Tab>
           size="md"
-          columns={4}
+          columns={5}
           value={tab}
           onChange={setTab}
           options={[
             { value: 'her', label: copy.tabs.her },
             { value: 'people', label: copy.tabs.people, count: mind?.people.length },
             { value: 'groups', label: copy.tabs.groups, count: mind?.groups.length },
+            { value: 'nodes', label: copy.tabs.nodes },
             { value: 'signs', label: copy.tabs.signs },
           ]}
         />
-        <div className="merope-mind__toolbar">
+        {tab !== 'nodes' && <div className="merope-mind__toolbar">
           {mind && (
             <span className="merope-mind__stamp">
               <span>{copy.updatedAt}</span>
@@ -612,11 +614,12 @@ export default function AgentMindPanel() {
           <SettingsButton size="sm" loading={loading} onClick={() => void load()}>
             {copy.refresh}
           </SettingsButton>
-        </div>
+        </div>}
       </header>
 
-      {failed && <p className="merope-mind__status" role="alert">{copy.error}</p>}
-      {!mind && !failed && <p className="merope-mind__status">{copy.loading}</p>}
+      {tab === 'nodes' && <AgentNodesPanel />}
+      {tab !== 'nodes' && failed && <p className="merope-mind__status" role="alert">{copy.error}</p>}
+      {tab !== 'nodes' && !mind && !failed && <p className="merope-mind__status">{copy.loading}</p>}
 
       {her && tab === 'her' && (
         <div className="merope-mind__body">

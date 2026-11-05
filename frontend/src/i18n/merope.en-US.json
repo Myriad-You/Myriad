@@ -567,7 +567,8 @@
       "her": "Herself",
       "people": "People",
       "groups": "Groups",
-      "signs": "Vitals"
+      "signs": "Vitals",
+      "nodes": "Nodes"
     },
     "her": {
       "selfStory": "Who she has been lately",
@@ -750,6 +751,101 @@
       },
       "newToHer": "New to her",
       "knewIt": "knew it already"
+    },
+    "nodes": {
+      "none": "No nodes",
+      "modeOff": "Memory nodes are off; no new nodes are written.",
+      "modeShadow": "Memory nodes are written only; conversations still use the earlier memory.",
+      "private": "Your Private Chat",
+      "own": "{name}’s Own",
+      "group": "Group: {group}",
+      "unnamed": "Unnamed",
+      "aboutYou": "About You",
+      "back": "Back to Nodes",
+      "kind": {
+        "topic": "Topic",
+        "task": "In progress",
+        "person": "Person"
+      },
+      "status": {
+        "active": "Active",
+        "ongoing": "Ongoing",
+        "resting": "Inactive",
+        "done": "Done",
+        "dropped": "Dropped"
+      },
+      "count": {
+        "entries": "Memories {count}",
+        "spans": "Experiences {count}",
+        "waiting": "To bring up {count}"
+      },
+      "summary": "Summary",
+      "views": "Views",
+      "open": "Not Wrapped Up",
+      "entries": "Noted",
+      "heard": "Heard",
+      "spans": "Experiences",
+      "intents": "To Bring Up",
+      "actions": "Actions",
+      "said": {
+        "partner": "You said",
+        "her": "Noted by {name}",
+        "other_person": "Said by a group member",
+        "third_party": "Other source"
+      },
+      "seenElsewhere": "Seen elsewhere",
+      "quoteOnly": "Quote only",
+      "wordsGone": "The original was deleted; only what {name} noted is kept",
+      "deleted": "(This part was deleted)",
+      "movedTo": "Merged into another node",
+      "openMoved": "Open",
+      "namedByYou": "Renamed by you",
+      "heardYes": "That’s right",
+      "heardNo": "Not so",
+      "intent": {
+        "byYou": "From you",
+        "byHer": "{name}’s own",
+        "say": "To bring up",
+        "work": "To do",
+        "state": {
+          "waiting": "Waiting",
+          "said": "Brought up",
+          "done": "Done",
+          "dropped": "Dropped"
+        },
+        "way": {
+          "ran": "Done",
+          "raised": "Raised a hand instead",
+          "cancelled": "Cancelled"
+        },
+        "whenChanged": "When “{name}” changes",
+        "whenDone": "When “{name}” is done",
+        "whenNone": "When the moment fits",
+        "asked": "Your words",
+        "reply": "Reply",
+        "result": "Result",
+        "cancel": "Cancel"
+      },
+      "rename": "Rename",
+      "renameHint": "A name set here is not changed back when nodes are organised.",
+      "nameField": "Name",
+      "save": "Save",
+      "cancel": "Cancel",
+      "deleteNode": "Delete Node",
+      "deleteNodeTitle": "Delete “{name}”?",
+      "deleteNodeMessage": "The node, the memories on the node and the chat messages those memories came from will be deleted. This action can’t be undone.",
+      "deleteEntry": "Delete",
+      "deleteEntryTitle": "Delete this memory?",
+      "deleteEntryMessage": "This memory and the chat messages the memory came from will be deleted. This action can’t be undone.",
+      "confirmDelete": "Delete",
+      "failed": {
+        "away": "Can’t make changes: the character isn’t on this site now.",
+        "off": "Can’t make changes: memory nodes are off.",
+        "badName": "Can’t rename: the name is empty or longer than 80 characters.",
+        "heardUnkept": "Can’t save the answer: the site doesn’t record sources yet.",
+        "notFound": "Can’t find this node.",
+        "other": "Can’t complete the action."
+      }
     }
   },
   "fullBody": {

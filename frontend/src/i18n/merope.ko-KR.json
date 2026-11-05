@@ -567,7 +567,8 @@
       "her": "그녀 자신",
       "people": "사람들",
       "groups": "그룹",
-      "signs": "바이탈"
+      "signs": "바이탈",
+      "nodes": "노드"
     },
     "her": {
       "selfStory": "요즘의 그녀",
@@ -750,6 +751,101 @@
       },
       "newToHer": "새로 안 것",
       "knewIt": "사실 알고 있었다"
+    },
+    "nodes": {
+      "none": "노드 없음",
+      "modeOff": "기억 노드가 꺼져 있어 새 노드를 기록하지 않습니다.",
+      "modeShadow": "기억 노드는 기록만 하고, 대화에는 기존 기억을 사용합니다.",
+      "private": "개인 채팅",
+      "own": "{name} 자신",
+      "group": "그룹: {group}",
+      "unnamed": "이름 없음",
+      "aboutYou": "본인에 대해",
+      "back": "노드로 돌아가기",
+      "kind": {
+        "topic": "주제",
+        "task": "진행 중인 일",
+        "person": "사람"
+      },
+      "status": {
+        "active": "활성",
+        "ongoing": "지속",
+        "resting": "비활성",
+        "done": "완료",
+        "dropped": "중단"
+      },
+      "count": {
+        "entries": "기억 {count}",
+        "spans": "경험 {count}",
+        "waiting": "꺼낼 이야기 {count}"
+      },
+      "summary": "요약",
+      "views": "견해",
+      "open": "미완료",
+      "entries": "기록한 내용",
+      "heard": "들은 이야기",
+      "spans": "경험",
+      "intents": "꺼낼 이야기",
+      "actions": "작업",
+      "said": {
+        "partner": "본인이 말함",
+        "her": "{name} 기록",
+        "other_person": "그룹 멤버가 말함",
+        "third_party": "다른 출처"
+      },
+      "seenElsewhere": "다른 곳에서 봄",
+      "quoteOnly": "인용만",
+      "wordsGone": "원문은 삭제되었고 {name} 기록만 남아 있습니다",
+      "deleted": "(이 부분은 삭제되었습니다)",
+      "movedTo": "다른 노드에 합쳐졌습니다",
+      "openMoved": "열기",
+      "namedByYou": "직접 바꾼 이름",
+      "heardYes": "맞음",
+      "heardNo": "아님",
+      "intent": {
+        "byYou": "요청한 일",
+        "byHer": "{name} 스스로",
+        "say": "말하기",
+        "work": "실행",
+        "state": {
+          "waiting": "대기 중",
+          "said": "말함",
+          "done": "완료",
+          "dropped": "중단"
+        },
+        "way": {
+          "ran": "완료",
+          "raised": "바로 실행하지 않고 알림으로 바꿈",
+          "cancelled": "취소됨"
+        },
+        "whenChanged": "“{name}”에 변화가 있을 때",
+        "whenDone": "“{name}” 완료 시",
+        "whenNone": "적당한 때",
+        "asked": "원래 메시지",
+        "reply": "답장",
+        "result": "결과",
+        "cancel": "취소"
+      },
+      "rename": "이름 변경",
+      "renameHint": "바꾼 이름은 정리할 때 되돌리지 않습니다.",
+      "nameField": "이름",
+      "save": "저장",
+      "cancel": "취소",
+      "deleteNode": "노드 삭제",
+      "deleteNodeTitle": "“{name}”을(를) 삭제할까요?",
+      "deleteNodeMessage": "노드, 노드의 기억, 그 기억의 원래 대화 내용이 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
+      "deleteEntry": "삭제",
+      "deleteEntryTitle": "이 기억을 삭제할까요?",
+      "deleteEntryMessage": "이 기억과 기억의 원래 대화 내용이 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
+      "confirmDelete": "삭제",
+      "failed": {
+        "away": "변경할 수 없음: 캐릭터가 지금 이 사이트에 없습니다.",
+        "off": "변경할 수 없음: 기억 노드가 꺼져 있습니다.",
+        "badName": "이름을 바꿀 수 없음: 이름이 비어 있거나 80자를 넘습니다.",
+        "heardUnkept": "답을 저장할 수 없음: 사이트에서 아직 출처를 기록하지 않습니다.",
+        "notFound": "이 노드를 찾을 수 없습니다.",
+        "other": "작업을 완료할 수 없습니다."
+      }
     }
   },
   "fullBody": {

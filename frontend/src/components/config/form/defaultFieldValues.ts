@@ -83,6 +83,7 @@ export function defaultUiFieldValue(key: string): string {
   if (key === 'merope_enabled') return 'false'
   if (key === 'merope_speech_enabled') return 'false'
   if (key === 'merope_voice_mode') return 'tts'
+  if (key === 'merope_memory_nodes') return 'off'
   if (key === 'proxy_url') return ''
   if (key === 'proxy_bypass') return ''
   if (key === 'outbound_fake_ip_ranges') return ''
