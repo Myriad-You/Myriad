@@ -371,7 +371,7 @@ pub async fn not_empty<C: ConnectionTrait>(
     // (her lineage takes up what she left; another lets it go, H3e-15).
     let leased = db
         .query_one_raw(statement(
-            "SELECT 1 AS one FROM agent_host_lease WHERE id = 'her' AND state <> 'vacant'",
+            "SELECT 1 AS one FROM agent_her_copy WHERE id = 'her' AND state <> 'vacant'",
             vec![],
         ))
         .await?
@@ -384,7 +384,7 @@ pub async fn not_empty<C: ConnectionTrait>(
 async fn sealed_other<C: ConnectionTrait>(db: &C, lineage: &str) -> Result<bool, DbErr> {
     Ok(db
         .query_one_raw(statement(
-            "SELECT 1 AS one FROM agent_host_lease WHERE id = 'her' AND state = 'vacant' \
+            "SELECT 1 AS one FROM agent_her_copy WHERE id = 'her' AND state = 'vacant' \
              AND lineage <> $1",
             vec![lineage.into()],
         ))

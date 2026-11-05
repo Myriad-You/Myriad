@@ -1,8 +1,9 @@
 -- Her log on the server: the relay between host cores, the server's key ring,
 -- what was forgotten, and her one lease (services/her_log; the rules are
 -- crates/myriad-persona-log). Nothing reads or writes these tables unless
--- HER_LOG_ENABLED is on, and nothing is ever stored in them in the clear: a
--- row is an envelope, its content is a payload sealed by its object's key.
+-- HER_LOG_ENABLED is on, but her lease: its grants say which end holds her,
+-- log or no log. Nothing is ever stored in them in the clear: a row is an
+-- envelope, its content is a payload sealed by its object's key.
 -- Created by migration 004 and, for databases already past it, by the
 -- startup heal `ensure_persona_log_tables`; both run this same file.
 
@@ -188,23 +189,45 @@ CREATE TABLE IF NOT EXISTS agent_log_full_links (
     used_at TIMESTAMPTZ
 );
 
--- Her lease: every grant the server issued, one for all audiences. The
--- epoch only goes up; the newest row is the grant that stands.
+-- Her lease: every grant the server issued, one for all audiences, and the
+-- one record of which end holds her (persona_sync::lease reads where she is
+-- from it). The epoch only goes up; the newest row is the grant that stands.
 CREATE TABLE IF NOT EXISTS agent_lease_grants (
     epoch BIGINT PRIMARY KEY CHECK (epoch >= 1),
-    holder VARCHAR(64) NOT NULL,
+    -- None while she moves house (a freeze): no end holds her.
+    holder VARCHAR(64),
     issued VARCHAR(96) NOT NULL,
     how VARCHAR(12) NOT NULL
         CONSTRAINT agent_lease_grants_how_check
-        CHECK (how IN ('first', 'handover', 'takeover', 'force')),
-    -- A handover's {audience: last dseq} of the side that gave it up.
+        CHECK (how IN ('first', 'handover', 'takeover', 'force', 'freeze', 'thaw')),
+    -- A handover's or a freeze's {audience: last dseq} of the side that gave it up.
     through JSONB,
     created_at TIMESTAMPTZ NOT NULL,
-    -- The holder it moved from (every grant but the first; none on grants
-    -- kept before it was written).
-    from_holder VARCHAR(64)
+    -- The holder it moved from (every grant but the first and a thaw; none
+    -- on grants kept before it was written).
+    from_holder VARCHAR(64),
+    -- A freeze's move.
+    move_id VARCHAR(64),
+    CONSTRAINT agent_lease_grants_freeze_check
+        CHECK ((how = 'freeze') = (holder IS NULL) AND (how = 'freeze') = (move_id IS NOT NULL))
 );
 ALTER TABLE agent_lease_grants ADD COLUMN IF NOT EXISTS from_holder VARCHAR(64);
+-- Grants from before she could be frozen: a holder always, and two ways fewer.
+ALTER TABLE agent_lease_grants ADD COLUMN IF NOT EXISTS move_id VARCHAR(64);
+ALTER TABLE agent_lease_grants ALTER COLUMN holder DROP NOT NULL;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'agent_lease_grants'::regclass AND conname = 'agent_lease_grants_freeze_check'
+    ) THEN
+        ALTER TABLE agent_lease_grants DROP CONSTRAINT IF EXISTS agent_lease_grants_how_check;
+        ALTER TABLE agent_lease_grants ADD CONSTRAINT agent_lease_grants_how_check
+            CHECK (how IN ('first', 'handover', 'takeover', 'force', 'freeze', 'thaw'));
+        ALTER TABLE agent_lease_grants ADD CONSTRAINT agent_lease_grants_freeze_check
+            CHECK ((how = 'freeze') = (holder IS NULL) AND (how = 'freeze') = (move_id IS NOT NULL));
+    END IF;
+END $$;
 CREATE OR REPLACE FUNCTION agent_lease_grants_guard() RETURNS trigger AS $$
 BEGIN
     IF TG_OP = 'UPDATE' OR TG_OP = 'DELETE' THEN
@@ -218,8 +241,8 @@ END $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS agent_lease_grants_guard ON agent_lease_grants;
 CREATE TRIGGER agent_lease_grants_guard BEFORE INSERT OR UPDATE OR DELETE ON agent_lease_grants
     FOR EACH ROW EXECUTE FUNCTION agent_lease_grants_guard();
--- A new grant is announced on `myriad_her_host`, where the host lease is,
--- so each process reads where her mind is again as it commits.
+-- A new grant is announced on `myriad_her_host`, with her copy and her
+-- moves, so each process reads where she is again as it commits.
 CREATE OR REPLACE FUNCTION agent_lease_grants_issued() RETURNS trigger AS $$
 BEGIN
     PERFORM pg_notify('myriad_her_host', 'mind:' || NEW.epoch::text);

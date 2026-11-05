@@ -87,7 +87,16 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// `agent_node_rows`、折叠出的头 `agent_node_heads`、记忆放在哪 `agent_node_placements`、
 /// 拿不准放哪的收件箱 `agent_node_inbox`（`memory_nodes.sql`，随 004 与
 /// `ensure_memory_nodes_tables` 一起建）。开关 `merope_memory_nodes` 默认关，关着时不读不写。
-pub const SCHEMA_VERSION: &str = "2026.11.05.2";
+/// 2026.11.05.3：「她住在哪」只看执笔权（D2）：执笔权可以冻住（`agent_lease_grants` 的
+/// `holder` 可以为空、加 `move_id`、`how` 加 freeze/thaw）；旧的主机租约 `agent_host_lease`
+/// 拆成站点那一份 `agent_her_copy` 和搬家 `agent_her_moves`（`persona_sync.sql`），旧行在
+/// `ensure_persona_log_tables` 里拆进三张表后删表（`lease::take_old_lease`）。
+/// 2026.11.05.4：她的意图（站点记忆改用节点 S2b）：伙伴交代的本机细节
+/// `agent_node_instructions`（交代的那句话、她当下回的一句、交代时的身份与有效授予、
+/// 后来怎样了：做了、改成提起、取消），挂在 `node.intent` 行旁边；那句话被忘掉时一起删
+/// （`memory_nodes.sql`，随 004 与 `ensure_memory_nodes_tables` 一起建）。开关
+/// `merope_memory_nodes` 关着时不判断、不写；只有 `on` 时到点才提起或去做。
+pub const SCHEMA_VERSION: &str = "2026.11.05.4";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);

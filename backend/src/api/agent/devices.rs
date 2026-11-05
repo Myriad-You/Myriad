@@ -924,7 +924,8 @@ mod tests {
             .unwrap();
         assert_eq!(back["host"]["state"], "live");
         assert_eq!(back["host"]["move"], Value::Null);
-        assert_eq!(back["host"]["epoch"], 1);
+        // Frozen (2) and thawed (3) where she was.
+        assert_eq!(back["host"]["epoch"], 3);
 
         // Asked by the device: only the owner confirms it.
         let proposed = lease::start(&db, lease::Kind::Merge, &mac.id, lease::Starter::Device)

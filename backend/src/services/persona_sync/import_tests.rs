@@ -183,8 +183,8 @@ async fn she_comes_into_an_empty_site_from_a_file_or_a_device() {
     ));
     let frozen = confirm(db, 41, &asked.id, None, false).await.unwrap();
     assert_eq!(
-        (frozen.holder.as_str(), frozen.state, frozen.epoch),
-        (mac.id.as_str(), lease::State::Frozen, 3)
+        (frozen.holder.as_str(), frozen.frozen, frozen.epoch),
+        (mac.id.as_str(), true, 4)
     );
     let called_off = lease::cancel(db, &asked.id, None).await.unwrap();
     assert!(called_off.is_none());
@@ -224,14 +224,16 @@ async fn she_comes_into_an_empty_site_from_a_file_or_a_device() {
             here.epoch,
             here.state
         ),
-        ("site", born.lineage.as_str(), 4, lease::State::Live)
+        // The device's grant at its epoch (3), frozen (4), thawed when the
+        // first try was called off (5), frozen again (6), handed to the site.
+        ("site", born.lineage.as_str(), 7, lease::State::Live)
     );
     assert!(here.moving.is_none());
     // A commit asked again after she landed answers, and changes nothing.
     commit(db, 41, &asked.id, &mac.id, &manifest.digest)
         .await
         .unwrap();
-    assert_eq!(lease::read(db).await.unwrap().unwrap().epoch, 4);
+    assert_eq!(lease::read(db).await.unwrap().unwrap().epoch, 7);
     let staged: i64 = one(
         db,
         "SELECT COUNT(*)::BIGINT AS n FROM agent_host_import_staging",
@@ -374,7 +376,8 @@ async fn a_macs_her_is_merged_into_the_sites() {
         (
             "site",
             born.lineage.as_str(),
-            born.epoch + 1,
+            // Frozen while she is taken together, then thawed.
+            born.epoch + 2,
             lease::State::Live
         )
     );

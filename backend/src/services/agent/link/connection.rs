@@ -792,7 +792,7 @@ impl Link {
     /// holds her lease at the epoch it heard; otherwise she moved (it lets
     /// its copy go). It is told at once if she is frozen there for a move.
     async fn host_hello(&mut self, hello: Hello) -> Option<Close> {
-        use crate::services::persona_sync::lease::{self, State};
+        use crate::services::persona_sync::lease;
         if !CONTRACT.surfaces.contains(&hello.surface) {
             return Some(Close::BadFrame);
         }
@@ -806,9 +806,12 @@ impl Link {
         let Some(lease) = lease else {
             return Some(Close::HostIsSite);
         };
-        let holds = lease.holder == self.device.id
-            && matches!(lease.state, State::Live | State::Frozen)
-            && hello.host_epoch.is_none_or(|epoch| epoch == lease.epoch);
+        // The epoch it heard is one of its holding: freezing her there for
+        // a move and thawing her move the epoch on, not her.
+        let holds = lease.lives_on(&self.device.id)
+            && hello
+                .host_epoch
+                .is_none_or(|epoch| (lease.since..=lease.epoch).contains(&epoch));
         if !holds {
             tracing::info!(device = %self.device.id, epoch = lease.epoch, heard = ?hello.host_epoch, "[link] a host that does not hold her lease: she moved");
             return Some(Close::HostMoved);
@@ -818,7 +821,7 @@ impl Link {
         let frozen = lease
             .moving
             .as_ref()
-            .filter(|moving| lease.state == State::Frozen && moving.from == self.device.id);
+            .filter(|moving| lease.frozen && moving.from == self.device.id);
         super::takes_host(
             &self.device.id,
             self.registered,

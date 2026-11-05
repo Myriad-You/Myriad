@@ -106,7 +106,7 @@ async fn she_moves_to_a_device_and_back_and_finds_others_as_she_left_them() {
     let sealed = confirm_to_device(db, 41, &id, "留在站点的".into())
         .await
         .unwrap();
-    assert_eq!(sealed.state, lease::State::Frozen);
+    assert!(sealed.frozen);
     let digest = sealed.moving.as_ref().unwrap().digest.clone().unwrap();
 
     // The device reads its copy in pieces; the key opens it, nothing else.
@@ -160,9 +160,10 @@ async fn she_moves_to_a_device_and_back_and_finds_others_as_she_left_them() {
     let committed = commit_to_device(db, 41, &id, &mac.id, &digest)
         .await
         .unwrap();
+    // Her lease: frozen on the site (2), then handed to the Mac (3).
     assert_eq!(
-        (committed.holder.as_str(), committed.epoch, committed.state),
-        (mac.id.as_str(), 2, lease::State::Live)
+        (committed.place(), committed.epoch),
+        (lease::Where::Elsewhere(mac.id.clone()), 3)
     );
     assert_eq!(committed.lineage, born.lineage);
     // Asked again: the same answer.
@@ -171,7 +172,7 @@ async fn she_moves_to_a_device_and_back_and_finds_others_as_she_left_them() {
             .await
             .unwrap()
             .epoch,
-        2
+        3
     );
 
     // Her own parts went; others' stay, and so does what was held for her.
@@ -268,7 +269,7 @@ async fn she_moves_to_a_device_and_back_and_finds_others_as_she_left_them() {
             home.state,
             home.lineage.as_str()
         ),
-        ("site", 3, lease::State::Live, born.lineage.as_str())
+        ("site", 5, lease::State::Live, born.lineage.as_str())
     );
     assert_eq!(
         count(db, "SELECT COUNT(*)::BIGINT AS n FROM agent_persona").await,
@@ -323,13 +324,9 @@ async fn she_is_taken_back_from_a_backup_and_another_lineage_replaces_what_was_l
     let (b, _) = super::super::devices::add(db, 41, "B").await.unwrap();
     // She lives on A at epoch 5 with the source's lineage, and the site let
     // its own copy go.
-    db.execute_unprepared(&format!(
-        "DELETE FROM agent_host_lease; INSERT INTO agent_host_lease (id, holder, lineage, epoch, \
-         state, updated_at) VALUES ('her', '{}', '{}', 5, 'live', NOW())",
-        a.id, born.lineage
-    ))
-    .await
-    .unwrap();
+    lease::seed(db, &a.id, &born.lineage, 5, lease::State::Away)
+        .await
+        .unwrap();
     crate::services::agent::merope::retire_her_on(db, 41)
         .await
         .unwrap();
@@ -357,16 +354,13 @@ async fn she_is_taken_back_from_a_backup_and_another_lineage_replaces_what_was_l
             lease::Kind::Recover,
             a.id.as_str(),
             Some(b.id.as_str()),
-            lease::State::Live
+            lease::State::Away
         )
     );
     import::confirm(db, 41, &asked.id, None, false)
         .await
         .unwrap();
-    assert_eq!(
-        lease::read(db).await.unwrap().unwrap().state,
-        lease::State::Frozen
-    );
+    assert!(lease::read(db).await.unwrap().unwrap().frozen);
     for page in &opened.envelopes {
         import::take_page(db, &asked.id, &b.id, page.clone())
             .await
@@ -378,8 +372,8 @@ async fn she_is_taken_back_from_a_backup_and_another_lineage_replaces_what_was_l
     let here = lease::read(db).await.unwrap().unwrap();
     assert_eq!(
         (here.holder.as_str(), here.epoch, here.lineage.as_str()),
-        ("site", 6, born.lineage.as_str()),
-        "one past the lease's, whatever the backup said"
+        ("site", 7, born.lineage.as_str()),
+        "frozen and handed to the site past the lease's, whatever the backup said"
     );
 
     // She moves out and is let go: vacant, others' parts left with her lineage.
@@ -394,12 +388,9 @@ async fn she_is_taken_back_from_a_backup_and_another_lineage_replaces_what_was_l
         txn.commit().await.unwrap();
     }
     // A file of another lineage: the site keeps what was left of this one.
-    db.execute_unprepared(
-        "DELETE FROM agent_host_lease; INSERT INTO agent_host_lease (id, holder, lineage, epoch, \
-         state, updated_at) VALUES ('her', 'site', 'other-lineage', 2, 'vacant', NOW())",
-    )
-    .await
-    .unwrap();
+    lease::seed(db, lease::SITE, "other-lineage", 2, lease::State::Vacant)
+        .await
+        .unwrap();
     let session = import::begin_file(db, 41, file.bytes.len() as u64)
         .await
         .unwrap();
@@ -455,13 +446,9 @@ async fn seven_backups_are_kept() {
     .await
     .unwrap();
     let (mac, _) = super::super::devices::add(db, 41, "Mac").await.unwrap();
-    db.execute_unprepared(&format!(
-        "INSERT INTO agent_host_lease (id, holder, lineage, epoch, state, updated_at) \
-         VALUES ('her', '{}', 'l-7', 2, 'live', NOW())",
-        mac.id
-    ))
-    .await
-    .unwrap();
+    lease::seed(db, &mac.id, "l-7", 2, lease::State::Away)
+        .await
+        .unwrap();
     for day in 1..=9 {
         let bytes = [day as u8; 10];
         let query = |offset: u64| backups::PieceQuery {

@@ -1156,11 +1156,8 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
         .unwrap();
     let (mac, token) = device(&site.db, "Studio").await;
     let (_, other) = device(&site.db, "Laptop").await;
-    site.db
-        .execute_unprepared(&format!(
-            "UPDATE agent_host_lease SET holder = '{}', epoch = 2",
-            mac.id
-        ))
+    use crate::services::persona_sync::lease::{SITE, State, seed};
+    seed(&site.db, &mac.id, &born.lineage, 2, State::Away)
         .await
         .unwrap();
     let mut host = Child::open(&site, &token).await;
@@ -1230,9 +1227,12 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
         .unwrap();
     assert!(keys(&shaped["body"]).is_subset(&keys(&welcome["body"])));
     drop(host);
-    // The device she lived on, at an old epoch: she moved since.
-    site.db
-        .execute_unprepared("UPDATE agent_host_lease SET epoch = 3")
+    // The device she lived on, at an old epoch: she moved since (to the
+    // site and back to it).
+    seed(&site.db, SITE, &born.lineage, 3, State::Live)
+        .await
+        .unwrap();
+    seed(&site.db, &mac.id, &born.lineage, 4, State::Away)
         .await
         .unwrap();
     let mut stale = Child::open(&site, &token).await;

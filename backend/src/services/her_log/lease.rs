@@ -17,9 +17,12 @@
 //! setting ([`super::Settings::stop_after_micros`]), given to the holders
 //! with every grant and epoch so they stop by the same value.
 //!
-//! The old host lease (`persona_sync::lease`, `agent_host_lease`) is not
-//! touched: it runs the site as it is. This one is used only while her log
-//! on the server is on.
+//! It is also the one record of which end holds her, log or no log:
+//! `persona_sync::lease` reads where she lives from the grant that stands,
+//! and her moves house sign theirs here ([`for_move`]): a freeze while she
+//! moves (no end holds her), then a thaw or the commit. The rest moves it
+//! only while her log on the server is on, and never while the site's copy
+//! of her is not the live one ([`request`]).
 
 use myriad_persona_log::lease::{
     self as rules, Grant, How, MoveInput, Moved, OwnerPlace, Refusal, Request, Through,
@@ -56,13 +59,13 @@ fn grant_of(row: QueryResult) -> Result<Grant, Error> {
     };
     Ok(Grant {
         epoch: row.try_get::<i64>("", "epoch")? as u64,
-        holder: Some(row.try_get("", "holder")?),
+        holder: row.try_get("", "holder")?,
         issued: issued
             .parse()
             .map_err(|_| Error::Refused("a kept grant has no clock".into()))?,
         how,
         from: row.try_get("", "from_holder")?,
-        moving: None,
+        moving: row.try_get("", "move_id")?,
         through: row
             .try_get::<Option<Value>>("", "through")?
             .map(serde_json::from_value)
@@ -76,7 +79,8 @@ fn grant_of(row: QueryResult) -> Result<Grant, Error> {
 pub async fn history<C: ConnectionTrait>(db: &C) -> Result<Vec<Grant>, Error> {
     db.query_all_raw(Statement::from_string(
         DatabaseBackend::Postgres,
-        "SELECT epoch, holder, issued, how, through, from_holder FROM agent_lease_grants ORDER BY epoch",
+        "SELECT epoch, holder, issued, how, through, from_holder, move_id FROM agent_lease_grants \
+         ORDER BY epoch",
     ))
     .await?
     .into_iter()
@@ -88,7 +92,7 @@ pub async fn history<C: ConnectionTrait>(db: &C) -> Result<Vec<Grant>, Error> {
 pub async fn standing<C: ConnectionTrait>(db: &C) -> Result<Option<Grant>, Error> {
     db.query_one_raw(Statement::from_string(
         DatabaseBackend::Postgres,
-        "SELECT epoch, holder, issued, how, through, from_holder FROM agent_lease_grants \
+        "SELECT epoch, holder, issued, how, through, from_holder, move_id FROM agent_lease_grants \
          ORDER BY epoch DESC LIMIT 1",
     ))
     .await?
@@ -98,23 +102,20 @@ pub async fn standing<C: ConnectionTrait>(db: &C) -> Result<Option<Grant>, Error
 
 async fn insert<C: ConnectionTrait>(db: &C, grant: &Grant) -> Result<(), Error> {
     grant.check()?;
-    // A frozen grant (no one holds her while she moves) is the core's; the
-    // site neither asks for one nor keeps one yet.
-    let Some(holder) = grant.holder.clone() else {
-        return Err(Error::Refused("the site keeps no frozen grant".into()));
-    };
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "INSERT INTO agent_lease_grants (epoch, holder, issued, how, through, created_at, from_holder) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        "INSERT INTO agent_lease_grants \
+         (epoch, holder, issued, how, through, created_at, from_holder, move_id) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         [
             (grant.epoch as i64).into(),
-            holder.into(),
+            grant.holder.clone().into(),
             grant.issued.to_string().into(),
             how_name(grant.how).into(),
             grant.through.as_ref().map(|through| json!(through)).into(),
             crate::clock::now().into(),
             grant.from.clone().into(),
+            grant.moving.clone().into(),
         ],
     ))
     .await?;
@@ -122,7 +123,7 @@ async fn insert<C: ConnectionTrait>(db: &C, grant: &Grant) -> Result<(), Error> 
 }
 
 /// The lease moves one at a time.
-async fn lock<C: ConnectionTrait>(db: &C) -> Result<(), Error> {
+pub(crate) async fn lock<C: ConnectionTrait>(db: &C) -> Result<(), Error> {
     db.execute_unprepared("SELECT pg_advisory_xact_lock(hashtextextended('myriad-her-lease', 0))")
         .await?;
     Ok(())
@@ -155,6 +156,83 @@ pub async fn current(db: &DatabaseConnection) -> Result<Grant, Error> {
     let grant = standing_or_first(&txn).await?;
     txn.commit().await?;
     Ok(grant)
+}
+
+/// A site that never issued a grant takes in a her from `holder`, who has
+/// held her up to `epoch`: the first grant names it, at that epoch, so the
+/// epoch she is at never goes down. The grant that stands when one was
+/// issued already. In the caller's transaction.
+pub(crate) async fn begin_with<C: ConnectionTrait>(
+    db: &C,
+    holder: &str,
+    epoch: u64,
+) -> Result<Grant, Error> {
+    lock(db).await?;
+    if let Some(grant) = standing(db).await? {
+        return Ok(grant);
+    }
+    let grant = Grant {
+        epoch: epoch.max(1),
+        holder: Some(holder.to_string()),
+        issued: store::next_rev(db).await?,
+        how: How::First,
+        from: None,
+        through: None,
+        moving: None,
+    };
+    insert(db, &grant).await?;
+    Ok(grant)
+}
+
+/// The lease moves for her moving house (`persona_sync::lease`), in the
+/// transaction that moves her: `Freeze` when a move stops her, `Thaw` when
+/// it is called off, `Commit` when she lands on its target, `Force` when a
+/// new birth or a landing brings her to the site. By the rule, like any
+/// other move; a refusal is an error, since the move's own step decided.
+/// `at_least` keeps the epoch from going below one an end already heard
+/// (a file's, a device's).
+pub(crate) async fn for_move<C: ConnectionTrait>(
+    db: &C,
+    request: Request,
+    at_least: Option<u64>,
+) -> Result<Grant, Error> {
+    lock(db).await?;
+    let lease = standing_or_first(db).await?;
+    let moved = rules::decide(MoveInput {
+        lease,
+        request: request.clone(),
+        now: super::now(),
+        issued: store::next_rev(db).await?,
+        holder_last_seen: None,
+        holder_place: None,
+        owner_place: None,
+        stop_after: None,
+    })?;
+    let mut grant = match moved {
+        Moved::Granted(grant) => grant,
+        Moved::Refused(refusal) => {
+            return Err(Error::Refused(format!("{request:?}: {refusal:?}")));
+        }
+    };
+    grant.epoch = grant.epoch.max(at_least.unwrap_or(0));
+    insert(db, &grant).await?;
+    tracing::info!(
+        epoch = grant.epoch,
+        holder = ?grant.holder,
+        how = how_name(grant.how),
+        "[her-log] her lease moved with her move"
+    );
+    Ok(grant)
+}
+
+/// Whether the site's copy of her is the live one, or there is none (no
+/// her on the site at all). While she lives on a device the site let its
+/// copy go to, or the site lost or let her go, only a move moves her.
+async fn copy_live<C: ConnectionTrait>(db: &C) -> Result<bool, Error> {
+    use crate::services::persona_sync::lease::{State, copy_state};
+    Ok(copy_state(db)
+        .await?
+        .is_none_or(|state| state == State::Live))
 }
 
 /// Whether an end is a host core (keeps her log, can hold her mind) or a
@@ -288,7 +366,8 @@ pub enum Outcome {
     Granted(Grant),
     Refused(Refusal),
     /// A handover or force to an end that is not a host core: only those
-    /// keep her log and can think.
+    /// keep her log and can think. Also any of them while the site's copy
+    /// of her is not the live one: then only a move moves her.
     NotAHost,
 }
 
@@ -318,6 +397,14 @@ pub(super) async fn request_issued(
     let is_host = |id: &str| id == NODE || ends.iter().any(|end| end.device_id == id && end.host);
     match &request {
         Request::Handover { to, .. } | Request::Force { to } if !is_host(to) => {
+            txn.commit().await?;
+            return Ok(Outcome::NotAHost);
+        }
+        // She lives on a device the site let its copy go to, or is not
+        // here: no host core may take her mind but by a move.
+        Request::Handover { .. } | Request::Force { .. } | Request::Takeover { .. }
+            if !copy_live(&txn).await? =>
+        {
             txn.commit().await?;
             return Ok(Outcome::NotAHost);
         }

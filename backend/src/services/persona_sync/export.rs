@@ -573,7 +573,8 @@ mod tests {
         assert!(opened.header.lineage.is_some());
 
         // Living elsewhere, the site's copy is not her: no export.
-        db.execute_unprepared("UPDATE agent_host_lease SET holder = 'dev_1', epoch = epoch + 1")
+        let lineage = lease::read(db).await.unwrap().unwrap().lineage;
+        lease::seed(db, "dev_1", &lineage, 2, lease::State::Away)
             .await
             .unwrap();
         assert!(matches!(

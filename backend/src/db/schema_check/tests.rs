@@ -82,8 +82,10 @@ fn test_folded_extension_tables_in_expected_schema() {
         "agent_node_heads",
         "agent_node_placements",
         "agent_node_inbox",
+        "agent_node_instructions",
         "agent_sync_devices",
-        "agent_host_lease",
+        "agent_her_copy",
+        "agent_her_moves",
         "agent_host_import",
         "agent_host_import_staging",
         "agent_host_backups",
@@ -652,15 +654,30 @@ VALUES
     );
 
     // The generic path puts back a missing index, in its declared shape, and
-    // a database that ran 004 before the host lease gets it. Its devices still
-    // carry the retired parent/child flag and its one-parent index, which go.
+    // a database that ran 004 before her copy gets it, its old one-row host
+    // lease taken apart into her copy and her lease. Its devices still carry
+    // the retired parent/child flag and its one-parent index, which go.
     // A persona row from before her zone gets the column, empty (the site's).
     db.execute_unprepared(
         r#"
 DROP INDEX idx_phantasi_items_source_recent;
 DROP INDEX idx_metadata_history_user_date;
-DROP TABLE agent_host_lease;
-DROP FUNCTION agent_host_lease_guard(), agent_host_lease_changed();
+DROP TABLE agent_her_moves;
+DROP TABLE agent_her_copy;
+DROP FUNCTION agent_her_copy_guard(), agent_her_place_changed();
+CREATE TABLE agent_host_lease (
+    id VARCHAR(8) PRIMARY KEY CHECK (id = 'her'),
+    holder VARCHAR(40) NOT NULL,
+    lineage VARCHAR(36) NOT NULL,
+    epoch BIGINT NOT NULL CHECK (epoch >= 1),
+    state VARCHAR(12) NOT NULL,
+    move JSONB,
+    updated_at TIMESTAMPTZ NOT NULL,
+    done JSONB
+);
+INSERT INTO agent_host_lease (id, holder, lineage, epoch, state, updated_at, done)
+VALUES ('her', 'dev_schema_fixture', 'lineage-fixture', 4, 'live', NOW(),
+        '{"id": "mv_1", "kind": "move", "epoch": 4}');
 DROP TABLE agent_lease_grants;
 DROP FUNCTION agent_lease_grants_guard();
 DROP TABLE agent_log_payloads;
@@ -722,41 +739,86 @@ ALTER TABLE agent_proactive_messages DROP COLUMN say_id, DROP COLUMN metadata;
         (0, 0, 1),
         "the one-parent index and the role column go, the device stays"
     );
-    // The lease is back with its guard: the epoch never goes down.
-    db.execute_unprepared(
-        "INSERT INTO agent_host_lease (id, holder, lineage, epoch, state, updated_at) \
-         VALUES ('her', 'site', 'lineage-fixture', 2, 'live', NOW())",
-    )
-    .await
-    .expect("the heal creates the host lease");
-    assert!(
-        db.execute_unprepared("UPDATE agent_host_lease SET epoch = 1")
-            .await
-            .is_err(),
-        "the epoch only goes up"
+    // The old lease was taken apart: she lives on the device, at its epoch,
+    // and the commit it kept is still answered. The old table is gone.
+    let taken = crate::services::persona_sync::lease::read(&db)
+        .await
+        .unwrap()
+        .expect("her copy is made from the old lease");
+    assert_eq!(
+        (
+            taken.place(),
+            taken.epoch,
+            taken.lineage.as_str(),
+            taken.done.map(|done| (done.id, done.epoch))
+        ),
+        (
+            crate::services::persona_sync::lease::Where::Elsewhere("dev_schema_fixture".into()),
+            4,
+            "lineage-fixture",
+            Some(("mv_1".to_string(), 4))
+        )
     );
     assert!(
-        db.execute_unprepared("UPDATE agent_host_lease SET lineage = 'another'")
+        db.query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT to_regclass('agent_host_lease')::text AS name",
+        ))
+        .await
+        .unwrap()
+        .and_then(|row| row.try_get::<Option<String>>("", "name").ok().flatten())
+        .is_none(),
+        "the old lease is gone"
+    );
+    // Her copy keeps its lineage, and is one.
+    assert!(
+        db.execute_unprepared("UPDATE agent_her_copy SET lineage = 'another'")
             .await
             .is_err(),
         "the lineage does not change in place"
     );
     assert!(
         db.execute_unprepared(
-            "INSERT INTO agent_host_lease (id, holder, lineage, epoch, state, updated_at) \
-             VALUES ('second', 'site', 'x', 1, 'live', NOW())"
+            "INSERT INTO agent_her_copy (id, lineage, state, state_at) \
+             VALUES ('second', 'x', 'live', NOW())"
         )
         .await
         .is_err(),
-        "one lease"
+        "one copy"
     );
-    // Her log on the server is back too; a grant is only ever added.
+    assert!(
+        db.execute_unprepared(
+            "INSERT INTO agent_her_moves (id, kind, from_holder, to_holder, phase, started_by, \
+             started_at, updated_at) VALUES \
+             ('mv_a', 'move', 'site', 'd', 'proposed', 'owner', NOW(), NOW()), \
+             ('mv_b', 'move', 'site', 'd', 'proposed', 'owner', NOW(), NOW())"
+        )
+        .await
+        .is_err(),
+        "one move under way"
+    );
     db.execute_unprepared(
-        "INSERT INTO agent_lease_grants (epoch, holder, issued, how, created_at) \
-         VALUES (1, 'site', 'r1', 'first', NOW()), (2, 'dev_mac', 'r2', 'handover', NOW())",
+        "DELETE FROM agent_her_moves; DELETE FROM agent_her_copy; TRUNCATE agent_lease_grants",
     )
     .await
-    .expect("the heal creates the lease grants");
+    .unwrap();
+    // Her log on the server is back too; a grant is only ever added.
+    db.execute_unprepared(
+        "INSERT INTO agent_lease_grants (epoch, holder, issued, how, created_at, move_id) \
+         VALUES (1, 'site', 'r1', 'first', NOW(), NULL), (2, 'dev_mac', 'r2', 'handover', NOW(), NULL), \
+         (3, NULL, 'r3', 'freeze', NOW(), 'mv_1')",
+    )
+    .await
+    .expect("the heal creates the lease grants, a freeze held by no one");
+    assert!(
+        db.execute_unprepared(
+            "INSERT INTO agent_lease_grants (epoch, holder, issued, how, created_at) \
+             VALUES (4, NULL, 'r4', 'thaw', NOW())"
+        )
+        .await
+        .is_err(),
+        "only a freeze is held by no one"
+    );
     for refused in [
         "UPDATE agent_lease_grants SET holder = 'dev_win' WHERE epoch = 2",
         "DELETE FROM agent_lease_grants WHERE epoch = 2",
@@ -769,9 +831,9 @@ ALTER TABLE agent_proactive_messages DROP COLUMN say_id, DROP COLUMN metadata;
     )
     .await
     .expect("the heal creates her log's rows and payloads");
-    db.execute_unprepared("DELETE FROM agent_host_lease; DELETE FROM agent_sync_devices WHERE id = 'dev_schema_fixture'")
+    db.execute_unprepared("DELETE FROM agent_sync_devices WHERE id = 'dev_schema_fixture'")
         .await
-        .expect("remove fixture lease and device");
+        .expect("remove fixture device");
     for table in [
         "agent_affect_events",
         "agent_affect_anchor",

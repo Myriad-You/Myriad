@@ -2409,6 +2409,35 @@ async fn while_her_mind_is_on_the_mac_the_server_does_not_think() {
     schema.drop().await;
 }
 
+/// While she lives on a device the site let its copy go to (H3e: her lease
+/// went there with the move), no host core takes her mind by asking, not
+/// even "come here": only a move moves her. The site, not being her then,
+/// keeps its pen here (its Work runs as the plain assistant).
+#[tokio::test]
+async fn while_she_lives_on_a_device_only_a_move_moves_her() {
+    let Some(schema) = schema("her_log_pen_copy_away").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    use crate::services::persona_sync::lease as host;
+    host::seed(db, "dev_home", "l-1", 2, host::State::Away)
+        .await
+        .unwrap();
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "force" }));
+    exchange(db, &mut mac, vec![ask], T0).await;
+    assert_eq!(mac.epoch, None, "no grant for the Mac");
+    let standing = lease::standing(db).await.unwrap().unwrap();
+    assert_eq!(
+        (standing.holder.as_deref(), standing.epoch),
+        (Some("dev_home"), 2)
+    );
+    assert_eq!(settled(db).await, super::pen::Pen::Here);
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
 /// Asking for her mind while the server is in the middle of a thought:
 /// nothing new starts, and the grant goes out only once that thought ends.
 #[tokio::test]

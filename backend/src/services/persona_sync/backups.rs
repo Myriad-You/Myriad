@@ -21,7 +21,7 @@ use sea_orm::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::lease::{self, Phase, State};
+use super::lease::{self, Phase};
 
 /// The newest backups of her lineage that are kept.
 pub const KEEP: i64 = 7;
@@ -120,7 +120,7 @@ pub struct PieceQuery {
 /// May `device` keep a backup of her now: it is where she lives, or the
 /// device she is moving to once it has her whole.
 fn may_push(lease: &lease::Lease, device: &str) -> bool {
-    if lease.holder == device && matches!(lease.state, State::Live | State::Frozen) {
+    if lease.lives_on(device) {
         return true;
     }
     lease.moving.as_ref().is_some_and(|moving| {

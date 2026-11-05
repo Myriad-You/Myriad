@@ -11,8 +11,12 @@
 //! The server thinks when `myriad_persona_log::lease::here` says so for
 //! [`NODE`] and, after a handover to it, once it holds everything the
 //! previous holder wrote up to the handover (`lease::behind`): she catches
-//! up first, then thinks. With her log on the server off, or the owner not
-//! syncing, there is no lease in play and she thinks here as she always did.
+//! up first, then thinks. The grants are always there (her moves house sign
+//! theirs too), so this holds with her log off as well; only the catching
+//! up needs her log on and the owner syncing it ([`in_play`]): without it
+//! there is nothing to catch up on. While the site's copy of her is not the
+//! live one (she lives on a device, or is not here) the site is not her at
+//! all, and the pen stays here: `persona_sync::lease` keeps her out.
 //!
 //! A handover away from the server waits for what is being thought here to
 //! end ([`Thought`]): from the moment it is asked nothing new starts, and the
@@ -227,10 +231,11 @@ async fn held<C: ConnectionTrait>(
     Ok(held)
 }
 
-/// What the pen is under `grant`, the standing one of `history`.
+/// What the pen is under `grant`, the standing one of `history`. `owner`
+/// when her log is in play, so she catches up on what it holds.
 async fn of_grant<C: ConnectionTrait>(
     db: &C,
-    owner: i32,
+    owner: Option<i32>,
     history: &[Grant],
     grant: &Grant,
     settings: &Settings,
@@ -251,7 +256,7 @@ async fn of_grant<C: ConnectionTrait>(
             epoch: grant.epoch,
         });
     }
-    let (Some(through), How::Handover) = (&grant.through, grant.how) else {
+    let (Some(owner), Some(through), How::Handover) = (owner, &grant.through, grant.how) else {
         return Ok(Pen::Here);
     };
     let Some(from) = from_of(history, grant) else {
@@ -270,8 +275,9 @@ async fn of_grant<C: ConnectionTrait>(
     })
 }
 
-/// Whether the lease is in play at all: her log on the server on, and the
-/// site owner (`owner`) syncing it.
+/// Whether her log is in play: her log on the server on, and the site owner
+/// (`owner`) syncing it. Only then does she catch up, and only then do the
+/// lease's own frames flow on her link (`sync`).
 pub async fn in_play<C: ConnectionTrait>(
     db: &C,
     settings: &Settings,
@@ -301,20 +307,30 @@ pub async fn settle_for(
     settings: &Settings,
     owner: Option<i32>,
 ) -> Result<Pen, Error> {
-    let pen = match owner {
-        Some(owner) if in_play(db, settings, Some(owner)).await? => {
-            let history = lease::history(db).await?;
-            match history.last() {
-                None => Pen::Here,
-                Some(grant) => of_grant(db, owner, &history, grant, settings, super::now()).await?,
-            }
+    let pen = if copy_live(db).await? {
+        let catching = match owner {
+            Some(owner) if in_play(db, settings, Some(owner)).await? => Some(owner),
+            _ => None,
+        };
+        let history = lease::history(db).await?;
+        match history.last() {
+            None => Pen::Here,
+            Some(grant) => of_grant(db, catching, &history, grant, settings, super::now()).await?,
         }
-        _ => Pen::Here,
+    } else {
+        Pen::Here
     };
     if !with_handing(|handing| handing.load(Ordering::SeqCst)) {
         set(pen.clone());
     }
     Ok(pen)
+}
+
+/// Whether the site's copy of her is the live one, or there is none yet.
+async fn copy_live<C: ConnectionTrait>(db: &C) -> Result<bool, Error> {
+    Ok(crate::services::persona_sync::lease::copy_state(db)
+        .await?
+        .is_none_or(|state| state == crate::services::persona_sync::lease::State::Live))
 }
 
 #[cfg(test)]
