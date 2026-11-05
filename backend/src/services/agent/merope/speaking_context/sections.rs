@@ -102,6 +102,7 @@ pub(super) async fn recollection(
                 recent: Vec::new(),
                 ids: Vec::new(),
                 not_all_here: Vec::new(),
+                said: std::collections::HashMap::new(),
             }),
     };
     if let Ok(mut recalled) = remembered {
@@ -120,9 +121,15 @@ pub(super) async fn recollection(
                 }
             }
         }
-        if let Some(block) = format_remembered_section(&recalled.named) {
+        let thorough = cues.as_ref().is_some_and(|cues| cues.thorough);
+        let named = if thorough {
+            recalled.with_their_words()
+        } else {
+            recalled.named.clone()
+        };
+        if let Some(block) = format_remembered_section(&named) {
             sections.push(block);
-            if cues.as_ref().is_some_and(|cues| cues.thorough) {
+            if thorough {
                 sections.push(myriad_merope::speaking::format_going_through_all_section());
                 sections.extend(myriad_merope::speaking::format_not_all_here_section(
                     &recalled.not_all_here,

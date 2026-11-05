@@ -421,6 +421,7 @@ pub async fn recall_with(
     let mut tries = vec![named_of(&first)];
     let mut recent = first.recent.clone();
     let mut ids = first.ids.clone();
+    let mut said = first.said.clone();
     for cue in &cues.cues {
         let (found, _) = store::recall_remembered_split(
             db,
@@ -435,6 +436,7 @@ pub async fn recall_with(
         tries.push(named_of(&found));
         recent.extend(found.recent);
         ids.extend(found.ids);
+        said.extend(found.said);
     }
     if tries.iter().all(Vec::is_empty) {
         tries = vec![first.named.clone()];
@@ -461,11 +463,13 @@ pub async fn recall_with(
             .chain(&first.brought_to_mind)
             .cloned()
             .collect();
-        let (more, cut) =
+        let together =
             store::kept_together(db, user_id, present, &named_ids, &have, KEPT_TOGETHER).await?;
-        named.extend(more);
-        not_all_here = cut;
+        named.extend(together.more);
+        said.extend(together.said);
+        not_all_here = together.cut;
     }
+    said.retain(|line, _| named.contains(line));
     Ok((
         Recalled {
             named,
@@ -476,6 +480,7 @@ pub async fn recall_with(
                 .filter(|(_, id)| named_ids.contains(id))
                 .collect(),
             not_all_here,
+            said,
         },
         next,
     ))

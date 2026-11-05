@@ -278,9 +278,9 @@ pub async fn kept_together<C: ConnectionTrait>(
     named: &[String],
     have: &[String],
     at_most: usize,
-) -> Result<(Vec<String>, Vec<(String, usize, usize)>), DbErr> {
+) -> Result<Together, DbErr> {
     if user_id <= 0 || !admitted(present) || named.is_empty() {
-        return Ok((Vec::new(), Vec::new()));
+        return Ok(Together::default());
     }
     let pointers = pointers(db, user_id).await?;
     let mut order: Vec<&String> = Vec::new();
@@ -292,7 +292,7 @@ pub async fn kept_together<C: ConnectionTrait>(
         }
     }
     if order.is_empty() {
-        return Ok((Vec::new(), Vec::new()));
+        return Ok(Together::default());
     }
     let names: std::collections::HashMap<String, String> = topics(db, user_id)
         .await?
@@ -301,18 +301,23 @@ pub async fn kept_together<C: ConnectionTrait>(
         .collect();
     let under = under_each(db, user_id, present).await?;
     let mut added: Vec<String> = Vec::new();
+    let mut said = std::collections::HashMap::new();
     let mut cut = Vec::new();
     for topic in order {
-        let lines: Vec<String> = under
+        let rows: Vec<(String, &MemoryRecord)> = under
             .get(topic)
             .into_iter()
             .flatten()
-            .map(super::as_known)
-            .filter(|line| !line.is_empty())
+            .map(|row| (super::as_known(row), row))
+            .filter(|(line, _)| !line.is_empty())
             .collect();
-        for line in &lines {
+        let lines: Vec<String> = rows.iter().map(|(line, _)| line.clone()).collect();
+        for (line, row) in &rows {
             if added.len() < at_most && !have.contains(line) && !added.contains(line) {
                 added.push(line.clone());
+                if let Some(words) = super::their_words(row) {
+                    said.insert(line.clone(), words);
+                }
             }
         }
         let given = lines
@@ -323,7 +328,23 @@ pub async fn kept_together<C: ConnectionTrait>(
             cut.push((name.clone(), given, lines.len()));
         }
     }
-    Ok((added, cut))
+    Ok(Together {
+        more: added,
+        said,
+        cut,
+    })
+}
+
+/// What going through all of something adds ([`kept_together`]).
+#[derive(Debug, Default)]
+pub struct Together {
+    /// The rest of what she keeps under the same topics.
+    pub more: Vec<String>,
+    /// Their words behind each of `more`, where there are any.
+    pub said: std::collections::HashMap<String, String>,
+    /// Each topic whose facts are not all there: its name, how many are, and
+    /// how many she keeps.
+    pub cut: Vec<(String, usize, usize)>,
 }
 
 /// People with facts still to sort, at most `at_most` of them.
@@ -798,17 +819,27 @@ mod tests {
         // Going through all of it from Dr. Patel, Dr. Lee comes along.
         let line = |id: &str| super::super::as_known(rows.iter().find(|row| row.id == id).unwrap());
         let have = vec![line(&patel)];
-        let (more, cut) = kept_together(db, 7, &present, &[patel.clone()], &have, 24)
+        db.execute_unprepared(&format!(
+            "UPDATE agent_memories SET evidence = 'Dr. Lee says the rash is gone' WHERE id = '{cleared}'"
+        ))
+        .await
+        .unwrap();
+        let together = kept_together(db, 7, &present, &[patel.clone()], &have, 24)
             .await
             .unwrap();
-        assert_eq!(more, vec![line(&cleared)]);
-        assert_eq!(cut, vec![("seeing doctors".to_string(), 2, 2)]);
-        let (more, cut) = kept_together(db, 7, &present, &[patel.clone()], &have, 0)
-            .await
-            .unwrap();
-        assert!(more.is_empty());
+        assert_eq!(together.more, vec![line(&cleared)]);
         assert_eq!(
-            cut,
+            together.said.get(&line(&cleared)).map(String::as_str),
+            Some("Dr. Lee says the rash is gone"),
+            "what they said comes with it"
+        );
+        assert_eq!(together.cut, vec![("seeing doctors".to_string(), 2, 2)]);
+        let together = kept_together(db, 7, &present, &[patel.clone()], &have, 0)
+            .await
+            .unwrap();
+        assert!(together.more.is_empty() && together.said.is_empty());
+        assert_eq!(
+            together.cut,
             vec![("seeing doctors".to_string(), 1, 2)],
             "she is told"
         );
@@ -922,11 +953,10 @@ mod tests {
         );
         // Under none points at no topic: going through all of it brings
         // nothing of it along.
-        let (more, cut) =
-            kept_together(db, 8, &present, &[id_of(&rows, "had a long day")], &[], 24)
-                .await
-                .unwrap();
-        assert!(more.is_empty() && cut.is_empty());
+        let together = kept_together(db, 8, &present, &[id_of(&rows, "had a long day")], &[], 24)
+            .await
+            .unwrap();
+        assert!(together.more.is_empty() && together.cut.is_empty());
     }
 
     /// Topics under one name go together for free; the small ones changed

@@ -27,9 +27,14 @@ pub(super) async fn recalled_for(
     )
     .await
     .map(|(recalled, _)| {
+        // Going through all of it, as production shows it: with their words.
+        let named = if cues.is_some_and(|cues| cues.thorough) {
+            recalled.with_their_words()
+        } else {
+            recalled.named
+        };
         (
-            recalled
-                .named
+            named
                 .into_iter()
                 .chain(recalled.brought_to_mind)
                 .collect::<Vec<_>>(),

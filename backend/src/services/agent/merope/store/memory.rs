@@ -371,6 +371,30 @@ pub(crate) fn as_known(note: &crate::services::agent::memory::unified::MemoryRec
     format!("[{when}] {content} ({how})")
 }
 
+/// What they said that a kept fact was taken from, when it is their own
+/// words: going through all of it, a name or detail the fact left out is
+/// still in them (`myriad_merope::speaking::with_their_words`).
+pub(crate) fn their_words(
+    note: &crate::services::agent::memory::unified::MemoryRecord,
+) -> Option<String> {
+    let theirs = matches!(
+        (note.source.as_str(), note.speaker.as_str()),
+        (
+            "chat" | crate::services::agent::memory::unified::SHORT_NOTE_SOURCE,
+            "user"
+        )
+    );
+    let said = super::super::ingest::compact_summary(note.evidence.as_deref()?);
+    // Only what the fact does not already say in full: the words are there
+    // for what it left out (a name, a number), not to say it twice.
+    (theirs && !said.is_empty() && !note.content.contains(said.as_str()))
+        .then(|| said.chars().take(THEIR_WORDS_CHARS).collect())
+}
+
+/// How much of what they said goes beside a fact: enough for the sentence
+/// a name or detail was in.
+const THEIR_WORDS_CHARS: usize = 160;
+
 /// Source of what she herself told someone and would remember saying (a
 /// recommendation, a promise, an answer they may come back to).
 pub const SAID_SOURCE: &str = "said";
@@ -396,6 +420,23 @@ pub struct Recalled {
     /// Going through all of it, the topics whose facts are not all in
     /// `named`: each one's name, how many are, and how many she keeps.
     pub not_all_here: Vec<(String, usize, usize)>,
+    /// What they said behind a line of `named`, by line, where it was their
+    /// own words ([`their_words`]); shown only going through all of it.
+    pub said: std::collections::HashMap<String, String>,
+}
+
+impl Recalled {
+    /// What was named, each with their words beside it where there are any:
+    /// as she sees it going through all of it.
+    pub fn with_their_words(&self) -> Vec<String> {
+        self.named
+            .iter()
+            .map(|line| match self.said.get(line) {
+                Some(said) => myriad_merope::speaking::with_their_words(line, said),
+                None => line.clone(),
+            })
+            .collect()
+    }
 }
 
 /// [`recall_remembered_primed`], keeping apart what was named and what it
@@ -428,6 +469,7 @@ pub async fn recall_remembered_split(
         recent: Vec::new(),
         ids: Vec::new(),
         not_all_here: Vec::new(),
+        said: std::collections::HashMap::new(),
     };
     // In a group she remembers what everyone there said; what is about
     // someone else says whose it is, so it is never taken for the speaker's:
@@ -457,6 +499,9 @@ pub async fn recall_remembered_split(
                 split.recent.push(content.clone());
             }
             split.ids.push((content.clone(), note.id.clone()));
+            if let Some(said) = their_words(&note) {
+                split.said.insert(content.clone(), said);
+            }
             split.named.push(content);
         }
     }
