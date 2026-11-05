@@ -3294,3 +3294,104 @@ async fn her_records_go_into_her_log_by_comparing() {
     let elsewhere = super::state::sync(db, &root, OWNER).await.unwrap();
     assert_eq!((elsewhere.written, elsewhere.gone), (0, 0));
 }
+
+/// Her records the Mac wrote while her mind was there go into the site's
+/// tables (b1): a new one is added, a changed one written over, one
+/// forgotten there goes here; and comparing afterwards writes none of it
+/// back.
+#[tokio::test]
+async fn her_records_from_another_end_go_into_the_sites_tables() {
+    let Some(schema) = schema("her_log_state_in").await else {
+        return;
+    };
+    let db = &schema.db;
+    let root = root();
+    for (id, content) in [("d1", "一起看了雨"), ("d2", "说到了猫")] {
+        db.execute_unprepared(&format!(
+            "INSERT INTO agent_diary (id, user_id, content, source, created_at) \
+             VALUES ('{id}', {OWNER}, '{content}', 'chat', now())"
+        ))
+        .await
+        .unwrap();
+    }
+    super::state::sync(db, &root, OWNER).await.unwrap();
+
+    let mut mac = Side::new("dev_mac");
+    let now = super::now();
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], now).await;
+    assert!(mac.epoch.is_some(), "her mind is on the Mac");
+    let diary = |id: &str, content: &str| {
+        json!({
+            "at": now / 1000,
+            "format": myriad_persona_sync::FORMAT_VERSION,
+            "kind": "diary",
+            "id": id,
+            "state": "live",
+            "body": { "content": content, "source": "chat", "createdAt": now, "subject": "owner" },
+        })
+    };
+    mac.write_body(
+        PERSONAL,
+        "state:diary:d9",
+        "state.write",
+        Author::Her,
+        Some(diary("d9", "在 Mac 上记的")),
+        now + 1,
+    );
+    mac.write_body(
+        PERSONAL,
+        "state:diary:d1",
+        "state.write",
+        Author::Her,
+        Some(diary("d1", "一起看了大雨")),
+        now + 2,
+    );
+    mac.write(
+        PERSONAL,
+        "state:diary:d2",
+        "forget",
+        Author::Owner,
+        None,
+        now + 3,
+    );
+    sync(db, &mut mac, PERSONAL, now + 4).await;
+
+    let mut diary_now: Vec<(String, String)> = db
+        .query_all_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            format!("SELECT id, content FROM agent_diary WHERE user_id = {OWNER}"),
+        ))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| {
+            (
+                row.try_get("", "id").unwrap(),
+                row.try_get("", "content").unwrap(),
+            )
+        })
+        .collect();
+    diary_now.sort();
+    assert_eq!(
+        diary_now,
+        vec![
+            ("d1".into(), "一起看了大雨".into()),
+            ("d9".into(), "在 Mac 上记的".into()),
+        ]
+    );
+
+    // Her mind back here: nothing of it is written back.
+    let yielded = mac.frame(
+        "lease.yield",
+        Some("yield_back"),
+        json!({ "epoch": mac.epoch, "through": { PERSONAL: 3 } }),
+    );
+    exchange(db, &mut mac, vec![yielded], now + 5).await;
+    assert!(
+        lease::current(db).await.unwrap().held_by(NODE),
+        "her mind is on the site again"
+    );
+    let after = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!((after.written, after.gone), (0, 0));
+}

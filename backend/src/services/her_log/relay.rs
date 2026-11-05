@@ -561,6 +561,13 @@ async fn rows(
     {
         tracing::warn!(%error, "[her-log] lines said on another end were not copied here");
     }
+    // Her records another end wrote go into the site's tables (b1).
+    if (audience == owner.personal() || audience == "own")
+        && !taken.added.is_empty()
+        && let Err(error) = super::state::take_in(db, root, owner.user).await
+    {
+        tracing::warn!(%error, "[her-log] her records from another end were not taken in here");
+    }
     // A catch-up waiting on these rows may be over: she thinks here again.
     if !taken.added.is_empty()
         && matches!(super::pen::current(), super::pen::Pen::CatchingUp { .. })

@@ -19,13 +19,19 @@
 //! Her rows only while the site holds the pen; otherwise only the owner
 //! changes her here (her persona and her wardrobe, on the settings page), as
 //! the owner's rows.
+//!
+//! The other way ([`take_in`]): the newest row of an object another end
+//! wrote is written into the site's tables as a merge lands what it takes
+//! (`persona_sync::merge::land_records`), and its digest kept, so the next
+//! comparison does not write it back. A record forgotten on another end goes
+//! from the site's tables.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use myriad_persona_log::{
-    Author,
+    Author, Row,
     payloads::{
         PersonaField, STATE_KINDS, StateAudience, StateWrite, state_audience, state_object,
     },
@@ -212,10 +218,27 @@ async fn records(
     kinds: &[Kind],
     now: i64,
 ) -> Result<BTreeMap<String, Record>, Error> {
-    let pictures = assets::Pictures::new(db, owner.user);
+    records_on(
+        db,
+        &assets::Pictures::new(db, owner.user),
+        owner,
+        kinds,
+        now,
+    )
+    .await
+}
+
+/// [`records`] read on `db` (a transaction too).
+async fn records_on<C: ConnectionTrait>(
+    db: &C,
+    pictures: &assets::Pictures,
+    owner: &Owner,
+    kinds: &[Kind],
+    now: i64,
+) -> Result<BTreeMap<String, Record>, Error> {
     let mut records = BTreeMap::new();
     for kind in kinds.iter().copied() {
-        for entity in snapshot::of_kind(db, &pictures, owner.user, kind, None, EVERY).await? {
+        for entity in snapshot::of_kind(db, pictures, owner.user, kind, None, EVERY).await? {
             for record in records_of(owner, &entity, now) {
                 records.insert(record.object.clone(), record);
             }
@@ -397,6 +420,263 @@ async fn drop_known<C: ConnectionTrait>(db: &C, user: i32, object: &str) -> Resu
         db.get_database_backend(),
         "DELETE FROM agent_her_state_rows WHERE user_id = $1 AND object = $2",
         vec![user.into(), object.into()],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// Her records another end wrote, taken into the site's tables: for each
+/// object of these kinds, its newest row when another end wrote it and the
+/// site does not have it yet, and each record whose rows are all forgotten.
+/// How many records were taken in or went.
+pub async fn take_in(
+    db: &DatabaseConnection,
+    root: &dyn keys::Root,
+    site_owner: i32,
+) -> Result<usize, Error> {
+    let owner = super::owner(db, site_owner).await?;
+    let known = known(db, site_owner).await?;
+    let mut came: Vec<(String, Row, Value)> = Vec::new();
+    let mut forgotten: Vec<String> = Vec::new();
+    for audience in ["own".to_string(), owner.personal()] {
+        let mut by_object: BTreeMap<String, Vec<Row>> = BTreeMap::new();
+        for row in store::rows(db, site_owner, &audience).await? {
+            if matches!(row.kind.as_str(), "state.write" | "persona.field")
+                && kind_of(&row.object).is_some()
+            {
+                by_object.entry(row.object.clone()).or_default().push(row);
+            }
+        }
+        let mut newest = Vec::new();
+        for (object, rows) in by_object {
+            let Some(last) = rows
+                .into_iter()
+                .filter(|row| !row.forgotten)
+                .max_by(|a, b| a.hlc.cmp(&b.hlc).then_with(|| a.id.cmp(&b.id)))
+            else {
+                if known.contains_key(&object) {
+                    forgotten.push(object);
+                }
+                continue;
+            };
+            if last.origin != NODE {
+                newest.push(last);
+            }
+        }
+        let held: Vec<&Row> = newest.iter().collect();
+        let mut bodies = store::bodies(db, root, site_owner, &audience, &held).await?;
+        for row in newest {
+            // A body still to come is taken in when it comes.
+            if let Some(body) = bodies.remove(&row.id) {
+                came.push((row.object.clone(), row, body));
+            }
+        }
+    }
+
+    // What came, as entities, past what the site has already.
+    let mut fields: BTreeMap<String, myriad_persona_sync::persona::PersonaField> = BTreeMap::new();
+    let mut entities: BTreeMap<(Kind, String), EntityVersion> = BTreeMap::new();
+    let mut objects: BTreeSet<String> = BTreeSet::new();
+    for (object, row, body) in came {
+        if row.kind == "persona.field" {
+            let Ok(field) = serde_json::from_value::<PersonaField>(body) else {
+                continue;
+            };
+            if known.get(&object) == Some(&myriad_persona_sync::digest(&field.value)) {
+                continue;
+            }
+            fields.insert(
+                field.field,
+                myriad_persona_sync::persona::PersonaField {
+                    value: field.value,
+                    rev: row.hlc.clone(),
+                    origin: row.origin.clone(),
+                },
+            );
+            objects.insert(object);
+            continue;
+        }
+        let Ok(write) = serde_json::from_value::<StateWrite>(body) else {
+            continue;
+        };
+        let Some(kind) = Kind::parse(&write.kind) else {
+            continue;
+        };
+        let Ok(entity) = EntityVersion::new(
+            kind,
+            write.id.clone(),
+            row.hlc.clone(),
+            row.origin.clone(),
+            write.state,
+            &write.body,
+        ) else {
+            tracing::warn!(%object, "[her-log] a record from another end does not read; left out");
+            continue;
+        };
+        if known.get(&object) == Some(&format!("{}:{:?}", entity.digest, entity.state)) {
+            continue;
+        }
+        entities.insert((kind, write.id), entity);
+        objects.insert(object);
+    }
+    if objects.is_empty() && forgotten.is_empty() {
+        return Ok(0);
+    }
+
+    let pictures = assets::Pictures::new(db, site_owner);
+    let mut touched: BTreeSet<Kind> = entities.keys().map(|(kind, _)| *kind).collect();
+    if !fields.is_empty() {
+        touched.insert(Kind::Persona);
+    }
+    // Her looks are written whole: her persona, her wardrobe and which set
+    // each end wears go in together.
+    let mut planned = touched.clone();
+    if touched.contains(&Kind::Persona) || touched.contains(&Kind::Outfit) {
+        planned.extend([Kind::Persona, Kind::Outfit, Kind::Wearing]);
+    }
+    let mut plan: Vec<EntityVersion> = Vec::new();
+    let mut writes = Vec::new();
+    let mut removes = Vec::new();
+    for kind in planned.iter().copied() {
+        let mut have: BTreeMap<String, EntityVersion> =
+            snapshot::of_kind(db, &pictures, site_owner, kind, None, EVERY)
+                .await?
+                .into_iter()
+                .map(|entity| (entity.id.clone(), entity))
+                .collect();
+        if kind == Kind::Persona && !fields.is_empty() {
+            let Some(mut persona) = have.remove(myriad_persona_sync::entity::PERSONA_ID) else {
+                tracing::warn!("[her-log] her persona came from another end and the site has none");
+                continue;
+            };
+            let mut body: PersonaBody = persona
+                .body_as()
+                .map_err(|error| Error::Refused(error.to_string()))?;
+            body.fields.extend(fields.clone());
+            persona = EntityVersion::new(
+                Kind::Persona,
+                persona.id.clone(),
+                persona.rev.clone(),
+                persona.origin.clone(),
+                State::Live,
+                &body,
+            )
+            .map_err(|error| Error::Refused(error.to_string()))?;
+            writes.push(write_of(Kind::Persona, &persona.id, true));
+            plan.push(persona);
+        }
+        for ((of, id), entity) in &entities {
+            if *of != kind {
+                continue;
+            }
+            let replaces = have.remove(id).is_some();
+            if entity.state == State::Deleted {
+                if replaces {
+                    removes.push(write_of(kind, id, true));
+                }
+                continue;
+            }
+            writes.push(write_of(kind, id, replaces));
+            plan.push(entity.clone());
+        }
+        plan.extend(have.into_values());
+    }
+
+    let txn = db.begin().await?;
+    let rig =
+        crate::services::persona_sync::merge::land_records(&txn, site_owner, plan, writes, removes)
+            .await
+            .map_err(|error| Error::Refused(format!("{error:?}")))?;
+    for object in &forgotten {
+        forget_here(&txn, site_owner, object).await?;
+        drop_known(&txn, site_owner, object).await?;
+    }
+    // What the site has of them now is what the log has: the next comparison
+    // writes none of it back.
+    let now = records_on(
+        &txn,
+        &pictures,
+        &owner,
+        &touched.into_iter().collect::<Vec<_>>(),
+        0,
+    )
+    .await?;
+    for object in &objects {
+        match now.get(object) {
+            Some(record) => keep(&txn, site_owner, object, &record.digest).await?,
+            None => drop_known(&txn, site_owner, object).await?,
+        }
+    }
+    txn.commit().await?;
+    if let Some(Some(rig)) = rig {
+        crate::services::merope_rig::mirror_active_asset(Some(rig)).await;
+    }
+    Ok(objects.len() + forgotten.len())
+}
+
+fn write_of(kind: Kind, id: &str, replaces: bool) -> myriad_persona_sync::merge::Write {
+    myriad_persona_sync::merge::Write {
+        kind,
+        id: id.to_string(),
+        replaces,
+        from: Some(myriad_persona_sync::merge::Side::Other),
+    }
+}
+
+/// A record forgotten on another end goes from the site's tables. Her
+/// persona, her looks and the records she has one of (her anchor, her pace,
+/// what she is doing) are not forgotten that way, only written again.
+async fn forget_here<C: ConnectionTrait>(db: &C, user: i32, object: &str) -> Result<(), Error> {
+    use crate::services::agent::merope::api::sync as her;
+    let Some((kind, id)) = object
+        .strip_prefix("state:")
+        .and_then(|rest| rest.split_once(':'))
+    else {
+        return Ok(());
+    };
+    let (sql, values): (&str, Vec<sea_orm::Value>) = match kind {
+        "diary" => (
+            "DELETE FROM agent_diary WHERE user_id = $1 AND id = $2",
+            vec![user.into(), id.into()],
+        ),
+        "intention" => (
+            "DELETE FROM agent_intentions WHERE user_id = $1 AND id = $2",
+            vec![user.into(), id.into()],
+        ),
+        "sticker" => (
+            "DELETE FROM merope_stickers WHERE venue IS NULL AND id = $1",
+            vec![id.into()],
+        ),
+        "proactive_line" => match id.strip_prefix("say_") {
+            Some(say) => (
+                "DELETE FROM agent_proactive_messages WHERE user_id = $1 AND say_id = $2",
+                vec![user.into(), say.into()],
+            ),
+            None => match id.strip_prefix("pro_").and_then(|n| n.parse::<i64>().ok()) {
+                Some(number) => (
+                    "DELETE FROM agent_proactive_messages WHERE user_id = $1 AND id = $2",
+                    vec![user.into(), number.into()],
+                ),
+                None => return Ok(()),
+            },
+        },
+        "vitals_day" => (
+            "DELETE FROM runtime_registry WHERE namespace = $1 AND record_id = $2",
+            vec![
+                her::VITALS_NAMESPACE.into(),
+                format!("day:{}", id.split('@').next().unwrap_or_default()).into(),
+            ],
+        ),
+        "serial_work" => (
+            "DELETE FROM runtime_registry WHERE namespace = $1 AND record_id = $2",
+            vec![her::SERIAL_NAMESPACE.into(), format!("work:{id}").into()],
+        ),
+        _ => return Ok(()),
+    };
+    db.execute_raw(Statement::from_sql_and_values(
+        db.get_database_backend(),
+        sql,
+        values,
     ))
     .await?;
     Ok(())
