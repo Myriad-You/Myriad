@@ -2,7 +2,9 @@
 //! its entries, the spans and inbox items whose words were forgotten with
 //! it (the lines `memory::origins` deletes), and a topic she started that
 //! holds no entry any more, for its name can say as much as what was on it
-//! (the rule the old topic tables keep, `migrations/topic_nodes.sql`).
+//! (the rule the old topic tables keep, `migrations/topic_nodes.sql`). An
+//! intent resting on a forgotten line goes too, with what the site kept of
+//! the instruction ([`super::intent_store::forget_resting_on`]).
 //!
 //! The core forgets a whole node (a `forget` row about `node:<id>`) or one
 //! row of it (about `row:<id>`), and every fold reads both. Here each entry
@@ -59,7 +61,7 @@ async fn citing<C: ConnectionTrait>(
 }
 
 /// Rows of `user_id` made stubs: no payload, no body.
-async fn stub<C: ConnectionTrait>(db: &C, user_id: i32, rows: &[Row]) -> Result<(), Error> {
+pub(super) async fn stub<C: ConnectionTrait>(db: &C, user_id: i32, rows: &[Row]) -> Result<(), Error> {
     // A forget is never a stub: it holds no words.
     for row in rows
         .iter()
@@ -80,14 +82,14 @@ async fn stub<C: ConnectionTrait>(db: &C, user_id: i32, rows: &[Row]) -> Result<
 }
 
 /// What a forget names: a whole node, or one row on it.
-enum Forgets<'a> {
+pub(super) enum Forgets<'a> {
     Node,
     Row(&'a str),
 }
 
 /// The person's forget of `node`, or of one row on it, in `user_id`'s
 /// `audience`, kept as a row (filed under `node`).
-async fn forget_one<C: ConnectionTrait>(
+pub(super) async fn forget_one<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
     audience: &str,
@@ -177,6 +179,8 @@ pub(crate) async fn forget<C: ConnectionTrait>(
         return Ok(());
     }
     inbox::forget_citing(db, &refs).await?;
+    // Her intents resting on the lines go with them.
+    super::intent_store::forget_resting_on(db, lines).await?;
     let mut by_audience: BTreeMap<(i32, String), (BTreeSet<String>, BTreeSet<String>)> =
         BTreeMap::new();
     for (user_id, audience, node, row) in citing(db, &refs).await? {
@@ -232,7 +236,7 @@ pub(crate) async fn forget<C: ConnectionTrait>(
 }
 
 /// The node a row is about, without `node:`.
-fn row_node(row: &Row) -> String {
+pub(super) fn row_node(row: &Row) -> String {
     row.object
         .strip_prefix("node:")
         .unwrap_or(&row.object)

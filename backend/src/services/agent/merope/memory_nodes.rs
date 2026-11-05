@@ -40,6 +40,11 @@
 //!   core, with a budget per account.
 //! - **Forgetting** ([`forget`]): a forgotten memory's entries, the spans
 //!   of its words, and a topic she started left empty.
+//! - **Her intents** ([`intending`]): after each message of theirs, what it
+//!   leaves her for later: their instruction, or something she wants to
+//!   bring up, as an intent on a node ([`intent_store`]); come due, said or,
+//!   their instruction checked again, done ([`intents_due`],
+//!   [`intents_run`]).
 //!
 //! What she is shown of her nodes is [`known`]. Reading her nodes into what
 //! she says comes in the next step.
@@ -62,6 +67,10 @@ pub(crate) mod facts;
 pub(crate) mod forget;
 mod heads;
 pub(crate) mod inbox;
+pub(crate) mod intending;
+pub(crate) mod intent_store;
+pub(crate) mod intents_due;
+pub(crate) mod intents_run;
 pub(crate) mod known;
 pub(crate) mod placements;
 pub(crate) mod placing;
@@ -128,3 +137,6 @@ mod talk_tests;
 
 #[cfg(test)]
 mod keep_tests;
+
+#[cfg(test)]
+mod intent_tests;

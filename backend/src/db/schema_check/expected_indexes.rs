@@ -707,6 +707,12 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             columns: vec!["user_id".into(), "audience".into(), "node_id".into()],
             is_unique: false,
         },
+        IndexDef {
+            name: "idx_agent_node_instructions_message".into(),
+            table: "agent_node_instructions".into(),
+            columns: vec!["message_ref".into()],
+            is_unique: false,
+        },
         // federation 索引
         IndexDef {
             name: "idx_remote_actors_domain".into(),

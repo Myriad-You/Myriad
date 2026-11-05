@@ -66,7 +66,7 @@ fn random_topic_key() -> String {
     )
 }
 
-async fn person_name<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<String, Error> {
+pub(super) async fn person_name<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<String, Error> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,

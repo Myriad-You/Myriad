@@ -831,6 +831,56 @@ fn an_unattended_task_waiting_for_an_answer_is_over() {
     assert!(!super::unattended_and_waiting(&state));
 }
 
+/// A person's run marked unattended (their instruction come due) is
+/// answered as the heartbeat's: what needs someone there is refused, a
+/// Medium read runs on its own, a question ends it; and the mark is kept
+/// with the run, so a resumed run is still unattended.
+#[test]
+fn a_persons_unattended_run_is_answered_as_the_heartbeats() {
+    let call = |id: &str| PendingCall {
+        call: ToolCall {
+            id: id.into(),
+            name: tools::tool_name(id),
+            arguments: "{}".into(),
+        },
+        capability_id: Some(id.into()),
+        approval: None,
+    };
+    let mut state = checkpoint();
+    state.user_id = 7;
+    let delete = call("file.delete");
+    state.pending.push_back(delete.clone());
+    assert!(
+        !reject_unattended_confirmation(&mut state, &delete, "file.delete", RiskLevel::High),
+        "a person there is asked"
+    );
+    state.request.context = Some(RequestContext {
+        unattended: true,
+        ..Default::default()
+    });
+    let mut high = state.clone();
+    assert!(reject_unattended_confirmation(
+        &mut high,
+        &delete,
+        "file.delete",
+        RiskLevel::High
+    ));
+    assert!(!high.task.step_results["file.delete"].success);
+    let fetch = call("http.fetch");
+    let mut medium = state.clone();
+    medium.pending.push_back(fetch.clone());
+    assert!(!reject_unattended_confirmation(
+        &mut medium,
+        &fetch,
+        "http.fetch",
+        RiskLevel::Medium
+    ));
+    state.task.status = TaskStatus::WaitingForInput;
+    assert!(super::unattended_and_waiting(&state));
+    let kept: Checkpoint = serde_json::from_value(serde_json::to_value(&state).unwrap()).unwrap();
+    assert!(super::unattended_and_waiting(&kept));
+}
+
 /// A tool's error or empty answer is where the run is stuck, once a run; a
 /// refusal is not, until it is the same call a third time.
 #[test]

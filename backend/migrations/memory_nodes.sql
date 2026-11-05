@@ -75,3 +75,30 @@ CREATE TABLE IF NOT EXISTS agent_node_inbox (
     placed_at TIMESTAMPTZ,
     PRIMARY KEY (user_id, audience, day, id)
 );
+-- What only the site keeps of the partner's instruction beside its
+-- `node.intent` row (her intents, S2b): the message it was given in
+-- (`message:<id>`), her line back at once, who, where and under which
+-- runtime grants it was given (checked again when it comes due), and what
+-- came of it (it ran, her hand went up instead, or it was called off).
+-- Goes when the message it rests on is forgotten.
+CREATE TABLE IF NOT EXISTS agent_node_instructions (
+    intent_id VARCHAR(64) NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    audience TEXT NOT NULL,
+    node_id VARCHAR(64) NOT NULL,
+    message_ref VARCHAR(64) NOT NULL,
+    echo TEXT NOT NULL,
+    owner VARCHAR(64) NOT NULL,
+    persona VARCHAR(128) NOT NULL,
+    device VARCHAR(64) NOT NULL,
+    granted JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    outcome_way VARCHAR(16),
+    outcome_line TEXT,
+    outcome_at TIMESTAMPTZ,
+    succeeded BOOLEAN,
+    work_session_id VARCHAR(64),
+    PRIMARY KEY (user_id, intent_id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_node_instructions_message
+    ON agent_node_instructions (message_ref);

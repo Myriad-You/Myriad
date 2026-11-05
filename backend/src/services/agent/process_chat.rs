@@ -54,6 +54,10 @@ impl Agent {
             crate::services::agent::merope::audience_for(&request),
             crate::services::agent::merope::turn_context(&request),
         );
+        crate::services::agent::merope::memory_nodes::intending::spawn_after_turn(
+            self.db.clone(),
+            &request,
+        );
         return attach_motion_to_result(
             Ok(AgentResponse {
                 response_type: AgentResponseType::Answer,
@@ -280,6 +284,10 @@ impl Agent {
             reply.clone(),
             crate::services::agent::merope::audience_for(&request),
             crate::services::agent::merope::turn_context(&request),
+        );
+        crate::services::agent::merope::memory_nodes::intending::spawn_after_turn(
+            self.db.clone(),
+            &request,
         );
         let performance = None;
 
