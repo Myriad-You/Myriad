@@ -95,7 +95,9 @@ fn parse(raw: &str) -> Option<Changes> {
 const BROUGHT_BACK: usize = 2;
 
 /// A bit as kept: its handle and how it goes.
-fn bit_of(row: &crate::models::entities::agent_memories::Model) -> Option<(String, String)> {
+pub(crate) fn bit_of(
+    row: &crate::models::entities::agent_memories::Model,
+) -> Option<(String, String)> {
     let evidence: Value = serde_json::from_str(row.evidence.as_deref()?).ok()?;
     let handle = evidence.get("handle")?.as_str()?.trim().to_string();
     (!handle.is_empty()).then(|| (handle, row.content.clone()))

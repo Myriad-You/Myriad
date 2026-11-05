@@ -62,8 +62,13 @@
 //! - **A child end** ([`child`]): what she made of a moment there, on the
 //!   site owner's repository or talks-with-other-AIs node.
 //!
-//! What she is shown of her nodes is [`known`]. Reading her nodes into what
-//! she says comes in the next step.
+//! What placing, going over and sorting are shown of her nodes is
+//! [`known`]. What she is shown of them when she speaks in a private talk,
+//! while she reads them: every time, what she keeps of the person and of
+//! herself there, what is going on and what she may bring up now
+//! ([`context`]); chosen for their words, the nodes they touch and their
+//! entries, and all of a kind listed by code ([`recall`]); each entry as
+//! far as she may take it ([`shown`]). A group is read as before.
 //!
 //! The site keeps no ledger of forgets for these rows: forgetting a memory
 //! row takes its placement with it (the foreign key), and its rows on nodes
@@ -80,6 +85,7 @@ use sea_orm::DbErr;
 
 pub(crate) mod audience;
 pub(crate) mod child;
+pub(crate) mod context;
 pub(crate) mod facts;
 pub(crate) mod forget;
 pub(crate) mod group_facts;
@@ -97,6 +103,8 @@ pub(crate) mod placements;
 pub(crate) mod placing;
 pub(crate) mod prepare;
 pub(crate) mod read;
+pub(crate) mod recall;
+pub(crate) mod shown;
 pub(crate) mod sorting;
 pub(crate) mod switch;
 pub(crate) mod upkeep;
@@ -167,3 +175,6 @@ mod source_tests;
 
 #[cfg(test)]
 mod home_intent_tests;
+
+#[cfg(test)]
+pub(crate) mod read_tests;

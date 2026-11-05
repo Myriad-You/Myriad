@@ -634,20 +634,27 @@ async fn speaking_prompt_from_db(
     } else {
         addressee_speaking_section(&addressee)
     }];
-    sections::who_they_are(db, user_id, turn, present, &mut sections).await;
+    // While she reads her nodes, what she keeps of a private talk there,
+    // read once for the turn; nothing of them otherwise.
+    let nodes = match turn {
+        Turn::Plain => None,
+        _ => super::memory_nodes::context::for_turn(db, user_id, present).await,
+    };
+    let nodes = nodes.as_ref();
+    sections::who_they_are(db, user_id, turn, present, nodes, &mut sections).await;
     let Ok(state) = get_or_create_state(db, user_id).await else {
         return sections;
     };
     let myself = self_state::current(db).await;
     let (her_life, opening) =
-        sections::recollection(db, user_id, turn, present, &myself, &mut sections).await;
+        sections::recollection(db, user_id, turn, present, &myself, nodes, &mut sections).await;
     sections::their_recent(db, user_id, group, &state, &mut sections).await;
     let inner_block =
         sections::her_state(db, user_id, turn, present, &state, &myself, &mut sections).await;
     sections::what_she_found(db, user_id, turn, present, &mut sections).await;
     if !matches!(turn, Turn::Plain) {
         sections::her_own(db, turn, her_life, &mut sections).await;
-        sections::between_them(db, user_id, turn, present, opening, &mut sections).await;
+        sections::between_them(db, user_id, turn, present, opening, nodes, &mut sections).await;
     }
     if matches!(turn, Turn::Chat(_)) {
         sections::chat_extras(db, user_id, turn, present, &mut sections).await;
@@ -672,6 +679,9 @@ pub async fn her_state_for_anyone() -> Vec<String> {
 pub fn speaking_prompt_plain(sections: &[String]) -> String {
     sections.join("\n\n")
 }
+
+#[cfg(test)]
+mod node_tests;
 
 #[cfg(test)]
 mod tests {

@@ -23,7 +23,8 @@ pub const SOURCE: &str = "sore";
 /// Untouched this long, a sore spot fades.
 const FADES_AFTER: chrono::Duration = chrono::Duration::days(60);
 
-fn sore_of(row: &crate::models::entities::agent_memories::Model) -> Option<Sore> {
+/// A sore spot as its row keeps it.
+pub(crate) fn sore_of(row: &crate::models::entities::agent_memories::Model) -> Option<Sore> {
     let evidence: Value = serde_json::from_str(row.evidence.as_deref()?).ok()?;
     let at = |key: &str| {
         evidence
