@@ -42,7 +42,8 @@ use myriad_persona_log::{
 };
 use myriad_persona_sync::{Rev, canonical::canonical_bytes};
 use sea_orm::{
-    ConnectionTrait, DatabaseBackend, DatabaseConnection, QueryResult, Statement, TransactionTrait,
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, DatabaseTransaction, QueryResult,
+    Statement, TransactionTrait,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -895,14 +896,26 @@ pub async fn forget(
     audience: &str,
     target: &str,
 ) -> Result<Row, Error> {
-    Audience::parse(audience)?;
-    let user = owner.user;
     // The count, the clock, the row and the ledger in one transaction: a
     // forget that is not kept leaves no hole in the server's count.
     let txn = db.begin().await?;
-    lock(&txn, user, audience).await?;
-    let hlc = next_rev(&txn).await?;
-    let dseq = next_dseq(&txn, user, audience).await?;
+    let row = forget_on(&txn, owner, audience, target).await?;
+    txn.commit().await?;
+    Ok(row)
+}
+
+/// [`forget`] inside the caller's transaction.
+pub(super) async fn forget_on(
+    txn: &DatabaseTransaction,
+    owner: &Owner,
+    audience: &str,
+    target: &str,
+) -> Result<Row, Error> {
+    Audience::parse(audience)?;
+    let user = owner.user;
+    lock(txn, user, audience).await?;
+    let hlc = next_rev(txn).await?;
+    let dseq = next_dseq(txn, user, audience).await?;
     let row = Row {
         version: LOG_VERSION,
         id: format!("site_{}", uuid::Uuid::new_v4().simple()),
@@ -922,15 +935,14 @@ pub async fn forget(
         takes: Vec::new(),
     };
     row.check()?;
-    let before = ledger(&txn, user, audience).await?;
+    let before = ledger(txn, user, audience).await?;
     let recorded = forget::record(forget::RecordInput {
         rows: vec![row.clone()],
         ledger: before.clone(),
         holder: Some(owner.server()),
     })?;
-    insert(&txn, user, &row, NODE).await?;
-    apply_ledger(&txn, user, audience, &before, &recorded.ledger).await?;
-    txn.commit().await?;
+    insert(txn, user, &row, NODE).await?;
+    apply_ledger(txn, user, audience, &before, &recorded.ledger).await?;
     Ok(row)
 }
 
@@ -1008,13 +1020,42 @@ async fn write_row(
     payload: &Value,
     (author, epoch): (Author, Option<u64>),
 ) -> Result<Row, Error> {
+    let txn = db.begin().await?;
+    let row = write_row_on(
+        &txn,
+        root,
+        owner,
+        audience,
+        subject,
+        object,
+        kind,
+        payload,
+        (author, epoch),
+    )
+    .await?;
+    txn.commit().await?;
+    Ok(row)
+}
+
+/// [`write_row`] inside the caller's transaction.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn write_row_on(
+    txn: &DatabaseTransaction,
+    root: &dyn keys::Root,
+    owner: &Owner,
+    audience: &str,
+    subject: Option<&str>,
+    object: &str,
+    kind: &str,
+    payload: &Value,
+    (author, epoch): (Author, Option<u64>),
+) -> Result<Row, Error> {
     Audience::parse(audience)?;
     myriad_persona_log::payloads::check(kind, payload)?;
     let user = owner.user;
-    let txn = db.begin().await?;
-    lock(&txn, user, audience).await?;
-    let hlc = next_rev(&txn).await?;
-    let dseq = next_dseq(&txn, user, audience).await?;
+    lock(txn, user, audience).await?;
+    let hlc = next_rev(txn).await?;
+    let dseq = next_dseq(txn, user, audience).await?;
     let id = format!("site_{}", uuid::Uuid::new_v4().simple());
     let row = Row {
         version: LOG_VERSION,
@@ -1038,9 +1079,8 @@ async fn write_row(
         takes: Vec::new(),
     };
     row.check()?;
-    insert(&txn, user, &row, NODE).await?;
-    keep_payload(&txn, root, user, &row, &canonical_bytes(payload)).await?;
-    txn.commit().await?;
+    insert(txn, user, &row, NODE).await?;
+    keep_payload(txn, root, user, &row, &canonical_bytes(payload)).await?;
     Ok(row)
 }
 

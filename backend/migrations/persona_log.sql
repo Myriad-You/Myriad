@@ -288,3 +288,13 @@ CREATE TABLE IF NOT EXISTS agent_her_segments (
     session_id VARCHAR(64) NOT NULL,
     PRIMARY KEY (user_id, object)
 );
+
+-- Her records as her log last has them (b1 of protocol 2): each object's
+-- digest, as the site wrote it or took it in. A record whose digest differs
+-- is written again; one gone from the site is written as gone.
+CREATE TABLE IF NOT EXISTS agent_her_state_rows (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    object VARCHAR(512) NOT NULL,
+    digest VARCHAR(128) NOT NULL,
+    PRIMARY KEY (user_id, object)
+);

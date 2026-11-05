@@ -100,7 +100,10 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// `origin`（说这句的端）、`log_row`（它是她日志里的哪一行），`log_row` 上的
 /// 部分唯一索引（一行只复制一次）；一段别端的话归进站点哪一场会话 `agent_her_segments`（`persona_log.sql`，
 /// 随 004 与 `ensure_persona_log_tables` 一起建；两列旧库走通用 ADD）。
-pub const SCHEMA_VERSION: &str = "2026.11.06.1";
+/// 2026.11.06.2：她的记录进日志（协议 2 b1）：`agent_her_state_rows` 记每个对象在她日志里
+/// 最后一行的摘要，比对时不同就再写一行，站点上没了就写成没了（`persona_log.sql`，随 004 与
+/// `ensure_persona_log_tables` 一起建）。
+pub const SCHEMA_VERSION: &str = "2026.11.06.2";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);

@@ -1312,6 +1312,14 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
+            name: "agent_her_state_rows".to_string(),
+            columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("object", "character varying").not_null(),
+                ColumnDef::new("digest", "character varying").not_null(),
+            ],
+        },
+        TableDef {
             name: "agent_lease_ends".to_string(),
             columns: vec![
                 ColumnDef::new("device_id", "character varying").not_null(),

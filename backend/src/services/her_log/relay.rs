@@ -349,9 +349,16 @@ pub async fn take(
         "lease.ask" => {
             lease::heard(db, device, Some(Seen::Host), now).await?;
             let request = match body["why"].as_str() {
-                Some("force") => Request::Force {
-                    to: device.to_string(),
-                },
+                Some("force") => {
+                    // Taken from here by force: her records as they are now
+                    // go into her log first, while she still writes here.
+                    if holder == NODE {
+                        records_before_leaving(db, root, user).await;
+                    }
+                    Request::Force {
+                        to: device.to_string(),
+                    }
+                }
                 Some("talk" | "place") if holder == NODE => {
                     let standing = lease::current(db).await?;
                     // Nothing new starts here from now on; what is in hand
@@ -366,6 +373,9 @@ pub async fn take(
                             "[her-log] handing her mind over with a thought still in hand"
                         );
                     }
+                    // Her records as they are now go into her log before
+                    // `through` is read: the device has her whole.
+                    records_before_leaving(db, root, user).await;
                     let through = lease::through_of(db, NODE).await?;
                     let request = Request::Handover {
                         from: NODE.to_string(),
@@ -609,5 +619,14 @@ async fn moved(
         Outcome::Refused(MoveRefusal::NotHolder) => Ok(vec![Outgoing::error("not_holder", seq)]),
         Outcome::Refused(MoveRefusal::StaleEpoch) => Ok(vec![Outgoing::error("stale_epoch", seq)]),
         Outcome::Refused(_) | Outcome::NotAHost => Ok(Vec::new()),
+    }
+}
+
+/// Her records compared with her log (`state::sync`) as she leaves the
+/// server: a handover or a force. A comparison that fails does not stop her
+/// leaving; what it missed is the gap a takeover has anyway.
+async fn records_before_leaving(db: &DatabaseConnection, root: &dyn keys::Root, user: i32) {
+    if let Err(error) = super::state::sync(db, root, user).await {
+        tracing::warn!(%error, "[her-log] her records did not reach her log before she left");
     }
 }

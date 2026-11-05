@@ -3220,3 +3220,77 @@ async fn the_server_takes_her_back_from_a_mac_cut_off_with_the_owner_elsewhere()
     super::pen::reset_for_test();
     schema.drop().await;
 }
+
+/// Her records go into her log by comparing (b1): what is new or changed is
+/// written once, what is gone is written as gone, and a second comparison
+/// with nothing changed writes nothing. Her rows only while the site holds
+/// the pen; then only what the owner edits here (her persona, her wardrobe).
+#[tokio::test]
+async fn her_records_go_into_her_log_by_comparing() {
+    let Some(schema) = schema("her_log_state").await else {
+        return;
+    };
+    let db = &schema.db;
+    let root = root();
+    let diary = |id: &str, content: &str| {
+        format!(
+            "INSERT INTO agent_diary (id, user_id, content, source, created_at) \
+             VALUES ('{id}', {OWNER}, '{content}', 'chat', now())"
+        )
+    };
+    db.execute_unprepared(&diary("d1", "一起看了雨"))
+        .await
+        .unwrap();
+    db.execute_unprepared(&diary("d2", "说到了猫"))
+        .await
+        .unwrap();
+    let state_rows = |rows: Vec<Row>| {
+        let mut rows: Vec<(String, String, Author)> = rows
+            .into_iter()
+            .filter(|row| row.object.starts_with("state:"))
+            .map(|row| (row.kind, row.object, row.author))
+            .collect();
+        rows.sort();
+        rows
+    };
+
+    let first = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!((first.written, first.gone), (2, 0));
+    assert_eq!(
+        state_rows(store::rows(db, OWNER, PERSONAL).await.unwrap()),
+        vec![
+            ("state.write".into(), "state:diary:d1".into(), Author::Her),
+            ("state.write".into(), "state:diary:d2".into(), Author::Her),
+        ]
+    );
+    let again = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!((again.written, again.gone), (0, 0));
+
+    db.execute_unprepared("UPDATE agent_diary SET content = '说到了两只猫' WHERE id = 'd2'")
+        .await
+        .unwrap();
+    db.execute_unprepared("DELETE FROM agent_diary WHERE id = 'd1'")
+        .await
+        .unwrap();
+    let changed = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!((changed.written, changed.gone), (1, 1));
+    let rows = state_rows(store::rows(db, OWNER, PERSONAL).await.unwrap());
+    assert!(rows.contains(&("forget".into(), "state:diary:d1".into(), Author::Owner)));
+    assert_eq!(
+        rows.iter()
+            .filter(|(kind, object, _)| kind == "state.write" && object == "state:diary:d2")
+            .count(),
+        2
+    );
+
+    // Her mind on the Mac: her diary is not compared here.
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], T0).await;
+    assert!(mac.epoch.is_some(), "her mind is on the Mac");
+    db.execute_unprepared(&diary("d3", "Mac 上的她不在这里写"))
+        .await
+        .unwrap();
+    let elsewhere = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!((elsewhere.written, elsewhere.gone), (0, 0));
+}

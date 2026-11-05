@@ -691,6 +691,8 @@ pub async fn agree(db: &DatabaseConnection, id: &str, device: &str) -> Result<Le
 /// The owner confirmed on the site the move `id` a device asked for: she is
 /// frozen where she is.
 pub async fn confirm(db: &DatabaseConnection, id: &str) -> Result<Lease, MoveError> {
+    // Her records as they are now go into her log before she is frozen.
+    crate::services::her_log::state::sync_now(db).await;
     let txn = db.begin().await?;
     let lease = locked(&txn).await?.ok_or(MoveError::Unknown)?;
     let mut moving = lease
