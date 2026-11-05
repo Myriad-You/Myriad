@@ -105,6 +105,11 @@ pub(crate) mod intent_store;
 pub(crate) mod intents_due;
 pub(crate) mod intents_run;
 pub(crate) mod known;
+pub(crate) mod migrate;
+mod migrate_check;
+mod migrate_replay;
+mod migrate_sources;
+mod migrate_topics;
 pub(crate) mod page;
 pub(crate) mod page_edit;
 mod page_intents;
@@ -181,6 +186,12 @@ mod intent_tests;
 
 #[cfg(test)]
 mod source_tests;
+
+#[cfg(test)]
+mod migrate_tests;
+
+#[cfg(test)]
+mod migrate_more_tests;
 
 #[cfg(test)]
 mod home_intent_tests;

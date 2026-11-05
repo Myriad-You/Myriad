@@ -52,6 +52,7 @@ mod heartbeat_mcp;
 mod helpers;
 mod intentions;
 mod link;
+mod memory_migration;
 mod memory_nodes;
 mod mind;
 mod notifications;

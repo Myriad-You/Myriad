@@ -29,9 +29,9 @@ const TIMEOUT: Duration = Duration::from_secs(90);
 const OPERATION: &str = "memory_node_sort";
 /// What she knows for good of someone, which she sorts: and what she found
 /// out herself in their talk (`lookup`), put as an ordinary fact is.
-const SORTED: &[&str] = &["chat", "import", "lookup"];
+pub(crate) const SORTED: &[&str] = &["chat", "import", "lookup"];
 /// The kinds of those.
-const KINDS: [MemoryKind; 3] = [
+pub(crate) const KINDS: [MemoryKind; 3] = [
     MemoryKind::Fact,
     MemoryKind::Preference,
     MemoryKind::Knowledge,
@@ -137,6 +137,39 @@ async fn sort_batch(
     if rows.is_empty() {
         return Ok(0);
     }
+    let Some(answer) = answer(db, user_id, audience, &rows, OPERATION).await? else {
+        return Ok(0);
+    };
+    if answer.facts.is_empty() {
+        return Ok(0);
+    }
+    facts::put(db, user_id, audience, &answer.facts, pen).await
+}
+
+/// What she answered sorting `rows` onto the topics of `user_id`'s
+/// `audience`, billed to `user_id` under `operation`.
+pub(crate) struct Answer {
+    /// Where each fact she gave a readable place goes.
+    pub facts: Vec<facts::Fact>,
+    /// How long the exchange was, in tokens as the plan counts them
+    /// ([`super::migrate::tokens_of`]): what was sent and what came back,
+    /// for counting what it cost when the call reports no usage.
+    pub tokens: u64,
+}
+
+/// Asks her where the first [`SORT_BATCH`] of `rows` go among the topics of
+/// `user_id`'s `audience`, through the core's prompt and reading. `None`
+/// when no answer came. Writes nothing.
+pub(crate) async fn answer(
+    db: &DatabaseConnection,
+    user_id: i32,
+    audience: &str,
+    rows: &[MemoryRecord],
+    operation: &'static str,
+) -> Result<Option<Answer>, Error> {
+    if rows.is_empty() {
+        return Ok(None);
+    }
     let topics: Vec<known::Known> = known::known(db, user_id, audience)
         .await?
         .into_iter()
@@ -172,7 +205,7 @@ async fn sort_batch(
                 .to_string(),
         ),
     })?;
-    let Ok(raw) = Ask::new(Voice::Thorough, user_id, OPERATION)
+    let Ok(raw) = Ask::new(Voice::Thorough, user_id, operation)
         .within(TIMEOUT)
         .json_raw(
             &prepared.system,
@@ -182,8 +215,12 @@ async fn sort_batch(
         )
         .await
     else {
-        return Ok(0);
+        return Ok(None);
     };
+    let tokens = [prepared.system.as_str(), &prepared.input, &raw]
+        .into_iter()
+        .map(super::migrate::tokens_of)
+        .sum();
     let read = entries::sort_read(SortReadInput {
         output: raw,
         offered: prepared.offered.clone(),
@@ -201,22 +238,26 @@ async fn sort_batch(
             })
             .collect(),
     })?;
-    let facts: Vec<facts::Fact> = read
+    let facts = read
         .facts
         .into_iter()
         .filter_map(|sorted| {
             let row = rows.iter().find(|row| row.id == sorted.fact)?;
+            // In a group, everyone but her is someone there.
+            let who = if row.speaker == "agent" {
+                audience::Speaker::Her
+            } else {
+                audience::Speaker::Person
+            };
             Some(facts::Fact {
                 memory: row.id.clone(),
                 text: row.content.clone(),
-                said_by: facts::said_by(&row.speaker),
+                said_by: audience::said_by(audience, who)
+                    .unwrap_or_else(|| facts::said_by(&row.speaker)),
                 placement: sorted.placement,
                 standing: sorted.standing,
             })
         })
         .collect();
-    if facts.is_empty() {
-        return Ok(0);
-    }
-    facts::put(db, user_id, audience, &facts, pen).await
+    Ok(Some(Answer { facts, tokens }))
 }

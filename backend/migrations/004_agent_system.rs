@@ -691,6 +691,7 @@ DROP TABLE IF EXISTS agent_affect_anchor;
 DROP TABLE IF EXISTS agent_affect_events;
 DROP TABLE IF EXISTS agent_sync_devices;
 DROP TABLE IF EXISTS merope_stickers;
+DROP TABLE IF EXISTS agent_node_migrations;
 DROP TABLE IF EXISTS agent_node_instructions;
 DROP TABLE IF EXISTS agent_node_inbox;
 DROP TABLE IF EXISTS agent_node_placements;

@@ -102,3 +102,21 @@ CREATE TABLE IF NOT EXISTS agent_node_instructions (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_node_instructions_message
     ON agent_node_instructions (message_ref);
+-- Each run of moving what she kept before her nodes onto them
+-- (`memory_nodes::migrate`, step S4): whether it only counted, how it
+-- ended (`done`, `stopped` with why in `note`, `failed`), what it counted
+-- and wrote, what the part that asks the model was estimated to cost
+-- before it started and what it cost, and when. A run taken up again
+-- after a stop writes only what is not there yet; the old tables are never
+-- written by it.
+CREATE TABLE IF NOT EXISTS agent_node_migrations (
+    id BIGSERIAL PRIMARY KEY,
+    dry_run BOOLEAN NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    counts JSONB NOT NULL DEFAULT '{}'::jsonb,
+    estimate JSONB NOT NULL DEFAULT '{}'::jsonb,
+    spent JSONB NOT NULL DEFAULT '{}'::jsonb,
+    note TEXT,
+    started_at TIMESTAMPTZ NOT NULL,
+    finished_at TIMESTAMPTZ
+);

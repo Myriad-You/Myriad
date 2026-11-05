@@ -83,6 +83,7 @@ fn test_folded_extension_tables_in_expected_schema() {
         "agent_node_placements",
         "agent_node_inbox",
         "agent_node_instructions",
+        "agent_node_migrations",
         "agent_sync_devices",
         "agent_her_copy",
         "agent_her_moves",

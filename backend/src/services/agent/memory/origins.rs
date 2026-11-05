@@ -197,7 +197,7 @@ fn place(venue: &str) -> Option<Option<&str>> {
 
 /// The words as said, with runs of space as one: a quote is plain text (a
 /// record's evidence is JSON and quotes nothing).
-fn quote(evidence: Option<&str>) -> Option<String> {
+pub(crate) fn quote(evidence: Option<&str>) -> Option<String> {
     let evidence = evidence?.trim();
     if evidence.starts_with('{') || evidence.starts_with('[') {
         return None;

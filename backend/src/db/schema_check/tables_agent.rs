@@ -1071,6 +1071,26 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
+            name: "agent_node_migrations".to_string(),
+            columns: vec![
+                ColumnDef::new("id", "bigint").not_null(),
+                ColumnDef::new("dry_run", "boolean").not_null(),
+                ColumnDef::new("status", "character varying").not_null(),
+                ColumnDef::new("counts", "jsonb")
+                    .not_null()
+                    .default_value("'{}'::jsonb"),
+                ColumnDef::new("estimate", "jsonb")
+                    .not_null()
+                    .default_value("'{}'::jsonb"),
+                ColumnDef::new("spent", "jsonb")
+                    .not_null()
+                    .default_value("'{}'::jsonb"),
+                ColumnDef::new("note", "text"),
+                ColumnDef::new("started_at", "timestamp with time zone").not_null(),
+                ColumnDef::new("finished_at", "timestamp with time zone"),
+            ],
+        },
+        TableDef {
             name: "agent_speech_said".to_string(),
             columns: vec![
                 ColumnDef::new("id", "character varying").not_null(),

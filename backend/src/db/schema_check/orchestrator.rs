@@ -103,7 +103,11 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// 2026.11.06.2：她的记录进日志（协议 2 b1）：`agent_her_state_rows` 记每个对象在她日志里
 /// 最后一行的摘要，比对时不同就再写一行，站点上没了就写成没了（`persona_log.sql`，随 004 与
 /// `ensure_persona_log_tables` 一起建）。
-pub const SCHEMA_VERSION: &str = "2026.11.06.2";
+/// 2026.11.06.3：把节点之前记下的搬上节点（站点记忆改用节点 S4）：每跑一次记一行
+/// `agent_node_migrations`（只数不写还是真搬、怎么结束的、数了多少写了多少、要问模型那部分
+/// 开跑前估了多少花了多少、停下的原因），下次接着跑时只写还没有的；旧表一行不改
+/// （`memory_nodes.sql`，随 004 与 `ensure_memory_nodes_tables` 一起建）。
+pub const SCHEMA_VERSION: &str = "2026.11.06.3";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);

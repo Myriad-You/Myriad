@@ -254,15 +254,7 @@ pub(crate) async fn threads_in_step(
     site_owner: Option<i32>,
     now: DateTime<Utc>,
 ) -> Result<Stepped, Error> {
-    let talk = audience::private_talk(user_id, site_owner);
-    let key = audience::person_key(&talk, user_id);
-    let side = Side {
-        user_id,
-        node: myriad_nodes::node_id(&talk, &key)?,
-        audience: talk,
-        prefix: THREAD,
-        source: "thread",
-    };
+    let side = threads_side(user_id, site_owner)?;
     let mut stepped = step(db, &side, now).await?;
     // Past the bound, the oldest waiting go, and their rows with them.
     let Some(pen) = crate::services::her_log::pen::think() else {
@@ -287,6 +279,32 @@ pub(crate) async fn threads_in_step(
         }
     }
     Ok(stepped)
+}
+
+/// `user_id`'s threads in their private talk, on 「关于你」 there.
+fn threads_side(user_id: i32, site_owner: Option<i32>) -> Result<Side, Error> {
+    let talk = audience::private_talk(user_id, site_owner);
+    let key = audience::person_key(&talk, user_id);
+    Ok(Side {
+        user_id,
+        node: myriad_nodes::node_id(&talk, &key)?,
+        audience: talk,
+        prefix: THREAD,
+        source: "thread",
+    })
+}
+
+/// [`threads_in_step`] without letting the oldest past the bound go: what
+/// moving what she kept before onto her nodes writes
+/// ([`super::migrate`]), which leaves her rows as they are; the next pass
+/// in step keeps the bound.
+pub(crate) async fn threads_intended(
+    db: &DatabaseConnection,
+    user_id: i32,
+    site_owner: Option<i32>,
+    now: DateTime<Utc>,
+) -> Result<Stepped, Error> {
+    step(db, &threads_side(user_id, site_owner)?, now).await
 }
 
 /// [`in_step_own`]: her own audience is kept with the site owner.
