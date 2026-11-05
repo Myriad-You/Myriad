@@ -48,6 +48,24 @@ async fn note_turn(
     super::super::chat_remember::parse_chat_memory_updates(&raw, text, reply, &existing)
 }
 
+/// A line that only takes something back, saying nothing new, let go at
+/// once as production lets it go: what she knows for good too.
+async fn let_go(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    present: &Audience,
+    at: chrono::DateTime<chrono::FixedOffset>,
+    updates: &super::super::chat_remember::ChatMemoryUpdates,
+) {
+    if !updates.updates.is_empty() && updates.updates.iter().all(|update| update.fact.is_none()) {
+        let taken_back = super::super::chat_remember::ChatMemoryUpdates {
+            updates: updates.updates.clone(),
+            ..Default::default()
+        };
+        apply_at(db, user_id, present, at, &taken_back).await;
+    }
+}
+
 /// A session gone over once it is over (the settle way): which of its short
 /// notes last, put together, kept as production keeps a fact, and a note the
 /// answer passed over kept as it is. The lasting facts kept, with their
@@ -326,6 +344,7 @@ pub(super) async fn over_time(
         let Some(updates) = note_turn(db, judge, user_id, present, &text, reply, at).await else {
             continue;
         };
+        let_go(db, user_id, present, at, &updates).await;
         notes.extend(
             updates
                 .updates
@@ -404,6 +423,7 @@ pub(super) async fn go_over(
             else {
                 continue;
             };
+            let_go(db, user_id, present, at, &updates).await;
             notes.extend(
                 updates
                     .updates

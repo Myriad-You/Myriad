@@ -47,6 +47,10 @@ pub(in crate::services::agent::merope) enum Keep {
     /// What they said lately: it can only take back other short notes, and
     /// what she knows for good is changed only once the talk is gone over.
     Note,
+    /// A line that only takes something back, saying nothing new ('当我没说'):
+    /// let go at once wherever it is kept, for a stretch that leaves no
+    /// short note is never gone over.
+    LetGo,
     /// Kept for good: it changes only what she knows for good.
     Lasting,
 }
@@ -54,7 +58,7 @@ pub(in crate::services::agent::merope) enum Keep {
 impl Keep {
     fn source(self) -> &'static str {
         match self {
-            Self::Note => crate::services::agent::memory::unified::SHORT_NOTE_SOURCE,
+            Self::Note | Self::LetGo => crate::services::agent::memory::unified::SHORT_NOTE_SOURCE,
             Self::Lasting => "chat",
         }
     }
@@ -68,6 +72,11 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<C: 
     present: &crate::services::agent::memory::unified::Audience,
     keep: Keep,
 ) -> Result<bool, anyhow::Error> {
+    let keep = if keep == Keep::Note && updates.updates.iter().all(|update| update.fact.is_none()) {
+        Keep::LetGo
+    } else {
+        keep
+    };
     let mut kept = false;
     for update in &updates.updates {
         kept |= apply_chat_memory_update_on(db, user_id, input_at, update, present, keep).await?;
@@ -143,23 +152,28 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
     // Lines are gone over one by one, so an older one must not undo a newer
     // one. A stretch is gone over on its own, once, with all of it in view:
     // it is not fenced by the lines, nor does it fence them.
-    if keep == Keep::Note && !chat_memory_input_is_current(db, user_id, input_at, present).await? {
+    if keep != Keep::Lasting
+        && !chat_memory_input_is_current(db, user_id, input_at, present).await?
+    {
         return Ok(false);
     }
     use crate::services::agent::memory::unified;
     use unified::SHORT_NOTE_SOURCE;
     let rows = unified::active_in(db, user_id, present, &unified::MemoryKind::ABOUT_PERSON).await?;
     let own =
-        |row: &unified::MemoryRecord| (row.source == SHORT_NOTE_SOURCE) == (keep == Keep::Note);
+        |row: &unified::MemoryRecord| (row.source == SHORT_NOTE_SOURCE) == (keep != Keep::Lasting);
     // A short note takes back only short notes: what she knows for good
-    // changes once the stretch is gone over, with all of it in view.
+    // changes once the stretch is gone over, with all of it in view. What
+    // is only taken back is let go wherever it is kept.
+    let may_take =
+        |row: &unified::MemoryRecord| own(row) || (keep == Keep::LetGo && row.source == "chat");
     let supersedes: Vec<String> = match keep {
-        Keep::Note => update
+        Keep::Note | Keep::LetGo => update
             .supersedes
             .iter()
             .filter(|old| {
                 rows.iter().any(|row| {
-                    own(row) && &super::super::ingest::compact_summary(&row.content) == *old
+                    may_take(row) && &super::super::ingest::compact_summary(&row.content) == *old
                 })
             })
             .cloned()
@@ -177,10 +191,10 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
     let mut duplicate = None;
     for note in rows {
         let content = super::super::ingest::compact_summary(&note.content);
-        if own(&note) && supersedes.contains(&content) {
+        if may_take(&note) && supersedes.contains(&content) {
             targets.push(note.id);
             found.insert(content);
-        } else if update.fact.as_ref() == Some(&content) && (keep == Keep::Note || own(&note)) {
+        } else if update.fact.as_ref() == Some(&content) && (keep != Keep::Lasting || own(&note)) {
             duplicate = Some(note.id);
         }
     }
@@ -235,7 +249,7 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
         }
     }
     let applied = !targets.is_empty() || insert.is_some();
-    if applied && keep == Keep::Note {
+    if applied && keep != Keep::Lasting {
         mark_applied(db, user_id, input_at, present).await?;
     }
     Ok(applied)
