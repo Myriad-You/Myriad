@@ -35,7 +35,10 @@ pub(in crate::services::agent::merope) async fn settle(
         .iter()
         .filter(|row| row.source == unified::SHORT_NOTE_SOURCE && row.created_at >= from)
         .collect();
-    if notes.is_empty() {
+    // While her nodes are written, the stretch is placed on them first,
+    // notes or none (see `memory_nodes::placing`).
+    let nodes = super::super::memory_nodes::mode().writes() && !present.is_group();
+    if notes.is_empty() && !nodes {
         return Ok(Effect::NoChange);
     }
     notes.sort_by_key(|row| row.created_at);
@@ -53,7 +56,7 @@ pub(in crate::services::agent::merope) async fn settle(
     let lines = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT m.role, m.content FROM agent_messages m \
+            "SELECT m.id, m.role, m.content, m.created_at FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
              WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NOT DISTINCT FROM $2 \
@@ -77,6 +80,31 @@ pub(in crate::services::agent::merope) async fn settle(
         })
         .collect();
     conversation.reverse();
+    let mut placed = Vec::new();
+    let mut site_owner = None;
+    if nodes {
+        use super::super::memory_nodes::placing::{self, Line};
+        let mut stretch: Vec<Line> = lines
+            .iter()
+            .filter_map(|row| {
+                Some(Line {
+                    id: row.try_get("", "id").ok()?,
+                    theirs: row.try_get::<String>("", "role").ok()? == "user",
+                    text: row.try_get("", "content").ok()?,
+                    at: row.try_get("", "created_at").ok()?,
+                })
+            })
+            .collect();
+        stretch.reverse();
+        site_owner = crate::services::principal::site_owner_id(db)
+            .await
+            .ok()
+            .flatten();
+        placed = placing::place(db, user_id, site_owner, &stretch).await;
+    }
+    if notes.is_empty() {
+        return Ok(Effect::NoChange);
+    }
     let theirs = conversation
         .iter()
         .filter(|(theirs, _)| *theirs)
@@ -92,9 +120,15 @@ pub(in crate::services::agent::merope) async fn settle(
         .collect();
     // The topics she keeps facts under that this stretch most likely
     // touches, to put what lasts under (none outside a private talk).
-    let offered = super::super::store::offered_topics(db, user_id, present, &theirs)
+    let mut offered = super::super::store::offered_topics(db, user_id, present, &theirs)
         .await
         .map_err(|_| Failure::Storage)?;
+    if nodes {
+        offered = super::super::memory_nodes::facts::shown_topics(
+            db, user_id, site_owner, &theirs, &placed, offered,
+        )
+        .await;
+    }
     let input = input(
         &conversation,
         &lately,
@@ -191,12 +225,20 @@ pub(in crate::services::agent::merope) fn goes_under(
     use myriad_merope::topics::Under;
     match under {
         Under::Nowhere => Some(super::super::store::GoesUnder::Nowhere),
-        // About them as a person: under no topic until her topics are
-        // node rows and it goes on their own node.
-        Under::AboutThem => Some(super::super::store::GoesUnder::Nowhere),
-        Under::Offered(index) => offered
-            .get(*index)
-            .map(|topic| super::super::store::GoesUnder::Topic(topic.id.clone())),
+        // About them as a person: under no topic, on their own node.
+        Under::AboutThem => Some(super::super::store::GoesUnder::AboutThem),
+        // One of her nodes shown beside the topics: a topic by its names
+        // here (`memory_nodes::facts` finds the node by them again).
+        Under::Offered(index) => offered.get(*index).map(|topic| {
+            if topic.id.starts_with(super::super::memory_nodes::facts::SHOWN) {
+                super::super::store::GoesUnder::New {
+                    name: topic.name.clone(),
+                    aliases: topic.aliases.clone(),
+                }
+            } else {
+                super::super::store::GoesUnder::Topic(topic.id.clone())
+            }
+        }),
         Under::New { name, aliases } => Some(super::super::store::GoesUnder::New {
             name: name.clone(),
             aliases: aliases.clone(),

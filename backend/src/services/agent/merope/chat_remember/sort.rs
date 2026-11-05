@@ -19,11 +19,14 @@ const ASKS: usize = 3;
 const CALL_TIMEOUT: Duration = Duration::from_secs(90);
 pub(in crate::services::agent::merope) const SCHEMA_NAME: &str = "topic_sort";
 
-/// Sort what is still to be sorted, for a few people.
+/// Sort what is still to be sorted, for a few people; and, while her nodes
+/// are written, what is on no node yet onto them, the same way
+/// (`memory_nodes::sorting`).
 pub async fn sort_missing(db: &DatabaseConnection) {
     for user_id in store::with_unsorted(db, PEOPLE).await.unwrap_or_default() {
         sort_for(db, user_id, ASKS).await;
     }
+    super::super::memory_nodes::sorting::sort_missing(db).await;
 }
 
 /// Up to `asks` batches of what she knows of them in private; how many

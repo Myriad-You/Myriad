@@ -26,16 +26,31 @@
 //! - **The switch** ([`switch`]): `off` (today's topics, the default),
 //!   `shadow` (nodes written too, the old path read), `on` (nodes read).
 //!
-//! Nothing outside the tests calls this yet: what writes and reads it from
-//! talk comes in the next steps, and while the switch is off nothing will.
+//! What writes them from a private talk, while the switch writes (the old
+//! topic path goes on beside it in every mode, so turning it off is the
+//! way back):
 //!
-//! The site keeps no ledger of forgets for these rows yet: forgetting a
-//! memory row takes its placement with it (the foreign key), and forgetting
-//! on nodes comes with the steps that write them. Every fold is given an
-//! empty ledger; the forgets the rows themselves hold still count.
+//! - **Placing a stretch** ([`placing`]): once a stretch is gone over,
+//!   first she cuts it into spans on her nodes, the unsure ones into the
+//!   day's inbox ([`inbox`]).
+//! - **What she keeps for good** ([`facts`]): every memory going over the
+//!   stretch keeps, an entry on the node it is of, on 「关于你」, or nowhere;
+//!   what she knew before, sorted onto them at upkeep ([`sorting`]).
+//! - **Her upkeep** ([`upkeep`]): the nodes due, gone over through the
+//!   core, with a budget per account.
+//! - **Forgetting** ([`forget`]): a forgotten memory's entries, the spans
+//!   of its words, and a topic she started left empty.
+//!
+//! What she is shown of her nodes is [`known`]. Reading her nodes into what
+//! she says comes in the next step.
+//!
+//! The site keeps no ledger of forgets for these rows: forgetting a memory
+//! row takes its placement with it (the foreign key), and its rows on nodes
+//! become stubs ([`forget`]). Every fold is given an empty ledger; the
+//! forgets the rows themselves hold still count.
 
-// Nothing calls most of this until the steps that write and read it from
-// talk; the tests use what they test, the rest waits.
+// Some of this is read only by the steps that read her nodes into what she
+// says; the tests use what they test, the rest waits.
 #![allow(dead_code, unused_imports)]
 
 use std::fmt;
@@ -43,16 +58,23 @@ use std::fmt;
 use sea_orm::DbErr;
 
 pub(crate) mod audience;
+pub(crate) mod facts;
+pub(crate) mod forget;
 mod heads;
+pub(crate) mod inbox;
+pub(crate) mod known;
 pub(crate) mod placements;
+pub(crate) mod placing;
 pub(crate) mod prepare;
 pub(crate) mod read;
+pub(crate) mod sorting;
 pub(crate) mod switch;
+pub(crate) mod upkeep;
 pub(crate) mod write;
 
 pub(crate) use prepare::{Author, RowIn};
 pub(crate) use switch::{Mode, apply_config, mode};
-pub(crate) use write::{Written, write};
+pub(crate) use write::{Beside, Written, write, write_with};
 
 /// Why rows were not written or a read could not be made. It says what was
 /// refused, never with what: a row holds her words and the person's things.
@@ -100,3 +122,9 @@ impl From<crate::services::her_log::Error> for Error {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod talk_tests;
+
+#[cfg(test)]
+mod keep_tests;

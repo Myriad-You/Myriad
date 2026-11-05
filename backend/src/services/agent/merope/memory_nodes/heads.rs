@@ -19,22 +19,58 @@ pub(crate) struct KeptRow {
     pub body: Option<String>,
 }
 
-/// The fold of `rows`. The site keeps no ledger of forgets for these rows
-/// yet, so the ledger is empty; the forgets among the rows still count.
-pub(crate) fn fold_rows(rows: &[KeptRow]) -> Result<Folded, Error> {
+/// The bodies of `rows` by row id, as the core takes them: none for a stub.
+pub(crate) fn bodies(rows: &[KeptRow]) -> Result<BTreeMap<String, Value>, Error> {
     let mut bodies = BTreeMap::new();
     for kept in rows {
+        // A row with no payload (a forget) has no body.
+        if kept.row.payload.is_none() {
+            continue;
+        }
         if let (false, Some(body)) = (kept.row.forgotten, &kept.body) {
             let value: Value = serde_json::from_str(body)
                 .map_err(|_| Error::Refused("a kept body does not read".into()))?;
             bodies.insert(kept.row.id.clone(), value);
         }
     }
+    Ok(bodies)
+}
+
+/// The fold of `rows`. The site keeps no ledger of forgets for these rows
+/// yet, so the ledger is empty; the forgets among the rows still count.
+pub(crate) fn fold_rows(rows: &[KeptRow]) -> Result<Folded, Error> {
     Ok(fold(FoldInput {
         rows: rows.iter().map(|kept| kept.row.clone()).collect(),
-        bodies,
+        bodies: bodies(rows)?,
         ledger: Vec::new(),
     })?)
+}
+
+/// Every row of `user_id`'s `audience`, as kept (a stub without its body).
+pub(crate) async fn rows_of<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    audience: &str,
+) -> Result<Vec<KeptRow>, Error> {
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT body, envelope FROM agent_node_rows WHERE user_id = $1 AND audience = $2",
+            [user_id.into(), audience.into()],
+        ))
+        .await?;
+    rows.into_iter()
+        .map(|result| {
+            let envelope: Value = result.try_get("", "envelope")?;
+            let row: Row = serde_json::from_value(envelope)
+                .map_err(|_| Error::Refused("a kept row does not read as a row".into()))?;
+            let body: String = result.try_get("", "body")?;
+            Ok(KeptRow {
+                body: (!row.forgotten).then_some(body),
+                row,
+            })
+        })
+        .collect()
 }
 
 fn word<T: serde::Serialize>(value: &T) -> Option<String> {

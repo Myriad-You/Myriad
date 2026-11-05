@@ -34,9 +34,11 @@ pub enum GoesUnder {
     Topic(String),
     /// One she starts.
     New { name: String, aliases: Vec<String> },
-    /// None: only about them, or of no kind. Kept, so it is not asked of
-    /// again.
+    /// None: of no kind. Kept, so it is not asked of again.
     Nowhere,
+    /// Only about them as a person: under no topic here either (kept, so it
+    /// is not asked of again); on her nodes, on their own (「关于你」).
+    AboutThem,
 }
 
 /// A topic offered beside a stretch of talk.
@@ -223,7 +225,7 @@ pub async fn put_under<C: ConnectionTrait>(
                     None => Some(start(db, user_id, name, aliases).await?),
                 }
             }
-            Some(GoesUnder::Nowhere) => None,
+            Some(GoesUnder::Nowhere | GoesUnder::AboutThem) => None,
             None => return Ok(()),
         },
     };

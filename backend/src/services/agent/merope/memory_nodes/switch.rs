@@ -94,8 +94,25 @@ pub(crate) fn apply_config(configured: &str) {
     }
 }
 
+// Tests run side by side in one process, each on its own thread: each may
+// set its own mode, so one test's switch never reaches another's.
+#[cfg(test)]
+thread_local! {
+    static TEST_MODE: std::cell::Cell<Option<Mode>> = const { std::cell::Cell::new(None) };
+}
+
+/// This test's mode, until set back to `None`.
+#[cfg(test)]
+pub(crate) fn set_for_test(mode: Option<Mode>) {
+    TEST_MODE.with(|held| held.set(mode));
+}
+
 /// The mode now.
 pub(crate) fn mode() -> Mode {
+    #[cfg(test)]
+    if let Some(mode) = TEST_MODE.with(std::cell::Cell::get) {
+        return mode;
+    }
     let configured = Mode::of_code(CONFIGURED.load(Ordering::SeqCst));
     resolve(std::env::var(ENV).ok().as_deref(), configured.as_str())
 }

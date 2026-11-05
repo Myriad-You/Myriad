@@ -159,7 +159,12 @@ pub async fn forget_any(db: &sea_orm::DatabaseConnection, id: &str) -> Result<bo
         .filter(agent_memories::Column::Id.is_in(doomed.clone()))
         .all(&txn)
         .await?;
-    super::origins::forget(&txn, &rows).await?;
+    let lines = super::origins::forget(&txn, &rows).await?;
+    // On her nodes: its entries, the spans of those lines, a topic left
+    // empty (`merope::memory_nodes::forget`).
+    crate::services::agent::merope::memory_nodes::forget::forget(&txn, &doomed, &lines)
+        .await
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
     agent_memories::Entity::delete_many()
         .filter(agent_memories::Column::Id.is_in(doomed))
         .exec(&txn)

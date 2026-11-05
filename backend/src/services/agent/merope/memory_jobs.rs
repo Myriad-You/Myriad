@@ -186,8 +186,14 @@ pub(crate) async fn tick(db: DatabaseConnection) {
     }
     let db = &db;
     futures::future::join_all(claims.into_iter().map(|claim| async move {
-        let result = match tokio::time::timeout(Duration::from_secs(45), prepare(db, &claim)).await
-        {
+        // A stretch placed on her nodes first takes that long more.
+        let limit = match claim.job.data {
+            Some(Payload::Settle { .. }) if super::memory_nodes::mode().writes() => {
+                Duration::from_secs(45) + super::memory_nodes::placing::TIMEOUT
+            }
+            _ => Duration::from_secs(45),
+        };
+        let result = match tokio::time::timeout(limit, prepare(db, &claim)).await {
             Ok(result) => result,
             Err(_) => Err(Failure::Model(call::Failure::Timeout)),
         };

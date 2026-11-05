@@ -33,6 +33,8 @@ use serde_json::Value;
 use super::{
     Error,
     heads::{self, KeptRow},
+    inbox,
+    placements::{self, Placement},
     prepare::{Author, Prepared, RowIn, prepare_all},
 };
 use crate::services::her_log::{self, NODE, pen::Thought};
@@ -44,7 +46,41 @@ pub(crate) struct Written {
     pub heads: Vec<String>,
 }
 
-async fn lock<C: ConnectionTrait>(db: &C, user_id: i32, audience: &str) -> Result<(), Error> {
+/// What goes with a batch, in its transaction: where the memories it puts
+/// on nodes were put ([`placements`]), what she was unsure where to put
+/// ([`inbox`]), and the inbox items it put on a node.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Beside {
+    pub placements: Vec<Placement>,
+    pub inbox: Vec<inbox::Item>,
+    pub taken_out: Vec<String>,
+}
+
+impl Beside {
+    fn is_empty(&self) -> bool {
+        self.placements.is_empty() && self.inbox.is_empty() && self.taken_out.is_empty()
+    }
+
+    async fn keep<C: ConnectionTrait>(
+        &self,
+        db: &C,
+        user_id: i32,
+        audience: &str,
+    ) -> Result<(), Error> {
+        for placement in &self.placements {
+            if placement.user_id != user_id || placement.audience != audience {
+                return Err(Error::Refused(
+                    "a placement is kept in the audience of its batch".into(),
+                ));
+            }
+            placements::place(db, placement).await?;
+        }
+        inbox::add(db, user_id, audience, &self.inbox).await?;
+        inbox::take_out(db, user_id, audience, &self.taken_out).await
+    }
+}
+
+pub(super) async fn lock<C: ConnectionTrait>(db: &C, user_id: i32, audience: &str) -> Result<(), Error> {
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT pg_advisory_xact_lock(hashtextextended('myriad-memory-nodes:' || $1 || ':' || $2, 0))",
@@ -111,7 +147,7 @@ async fn epoch<C: ConnectionTrait>(db: &C) -> Result<u64, Error> {
 }
 
 /// The site's last count of shared rows in the audience.
-async fn last_count<C: ConnectionTrait>(
+pub(super) async fn last_count<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
     audience: &str,
@@ -211,17 +247,38 @@ pub(crate) async fn write(
     rows: &[RowIn],
     pen: Option<&Thought>,
 ) -> Result<Written, Error> {
-    if rows.is_empty() {
+    write_with(db, user_id, audience, rows, pen, &Beside::default()).await
+}
+
+/// [`write`], with what goes beside the rows kept in the same transaction:
+/// a batch with no row and only that is written too. What is beside her
+/// rows is hers as well: it needs `pen` as they do.
+pub(crate) async fn write_with(
+    db: &DatabaseConnection,
+    user_id: i32,
+    audience: &str,
+    rows: &[RowIn],
+    pen: Option<&Thought>,
+    beside: &Beside,
+) -> Result<Written, Error> {
+    if rows.is_empty() && beside.is_empty() {
         return Ok(Written::default());
     }
     // An audience the core reads, where her own node may be.
     myriad_nodes::node_id(audience, "her")?;
-    if pen.is_none() && rows.iter().any(|row| row.author == Author::Her) {
+    if pen.is_none()
+        && (rows.iter().any(|row| row.author == Author::Her) || !beside.is_empty())
+    {
         return Err(Error::NoPen);
     }
     let batch = prepare_all(audience, rows)?;
     let txn = db.begin().await?;
     lock(&txn, user_id, audience).await?;
+    if batch.is_empty() {
+        beside.keep(&txn, user_id, audience).await?;
+        txn.commit().await?;
+        return Ok(Written::default());
+    }
     let ids: Vec<String> = batch.iter().map(|row| row.id.clone()).collect();
     let kept = kept(&txn, user_id, audience, ids).await?;
     let mut fresh: Vec<&Prepared> = Vec::new();
@@ -241,6 +298,7 @@ pub(crate) async fn write(
         }
     }
     if fresh.is_empty() {
+        beside.keep(&txn, user_id, audience).await?;
         txn.commit().await?;
         return Ok(Written::default());
     }
@@ -304,6 +362,7 @@ pub(crate) async fn write(
         insert(&txn, user_id, prepared, row).await?;
     }
     let changed = heads::refresh(&txn, user_id, audience, &folded).await?;
+    beside.keep(&txn, user_id, audience).await?;
     txn.commit().await?;
     Ok(Written {
         rows: new.iter().map(|(_, row)| row.id.clone()).collect(),

@@ -15,7 +15,9 @@
 //!   batch at a time (`chat_remember::sort`).
 //! - **Tidying the topics.** Topics under one name go together; the small
 //!   ones changed since they were last tidied she keeps, puts into another,
-//!   or lets go, once enough wait (`chat_remember::tidy`).
+//!   or lets go, once enough wait (`chat_remember::tidy`). Only while she
+//!   does not read her nodes: once she does, her upkeep of them keeps them
+//!   instead (`memory_nodes::upkeep`), which runs whenever they are written.
 
 use std::sync::{LazyLock, Mutex};
 
@@ -29,7 +31,13 @@ pub async fn tick(db: DatabaseConnection) {
     if super::is_enabled().await {
         super::chat_remember::cues::write_missing(&db).await;
         super::chat_remember::sort::sort_missing(&db).await;
-        super::chat_remember::tidy::tidy_waiting(&db).await;
+        let nodes = super::memory_nodes::mode();
+        if !nodes.reads() {
+            super::chat_remember::tidy::tidy_waiting(&db).await;
+        }
+        if nodes.writes() {
+            super::memory_nodes::upkeep::tick(&db).await;
+        }
     }
     let today = super::clock::today();
     if FOLDED_ON.lock().is_ok_and(|folded| *folded == Some(today)) {
