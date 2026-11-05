@@ -416,6 +416,16 @@ pub async fn recall_with(
     Ok((recalled, next))
 }
 
+/// Of `named`, what only filled a try (`filled`) and no try found by what
+/// it says (`found`).
+fn only_filling(named: &[String], filled: &[String], found: &[String]) -> Vec<String> {
+    named
+        .iter()
+        .filter(|line| filled.contains(line) && !found.contains(line))
+        .cloned()
+        .collect()
+}
+
 /// [`recall_with`] up to what she keeps under the same topics: what their
 /// words and each cue found, merged and ranked, each line with the memory
 /// it is (`Recalled::ids`); going through all of it, only what something
@@ -467,12 +477,24 @@ pub async fn ranked_with(
             .cloned()
             .collect()
     };
+    // A line any try found by what it says is found, whatever another try
+    // only filled with it: else, many cues each naming one of a kind leave
+    // every one of them only filling, and none picks the kind it is of.
+    let found_by_words = |recalled: &Recalled| -> Vec<String> {
+        recalled
+            .named
+            .iter()
+            .filter(|line| !recalled.recent.contains(line))
+            .cloned()
+            .collect()
+    };
     let mut tries = vec![named_of(&first)];
+    let mut found = found_by_words(&first);
     let mut recent = first.recent.clone();
     let mut ids = first.ids.clone();
     let mut said = first.said.clone();
     for cue in &cues.cues {
-        let (found, _) = store::recall_remembered_split(
+        let (cue_found, _) = store::recall_remembered_split(
             db,
             user_id,
             present,
@@ -482,21 +504,18 @@ pub async fn ranked_with(
             0.0,
         )
         .await?;
-        tries.push(named_of(&found));
-        recent.extend(found.recent);
-        ids.extend(found.ids);
-        said.extend(found.said);
+        tries.push(named_of(&cue_found));
+        found.extend(found_by_words(&cue_found));
+        recent.extend(cue_found.recent);
+        ids.extend(cue_found.ids);
+        said.extend(cue_found.said);
     }
     if tries.iter().all(Vec::is_empty) {
         tries = vec![first.named.clone()];
     }
     let room = limit.saturating_sub(first.brought_to_mind.len()).max(1);
     let named = merged(&tries, room);
-    let recent = named
-        .iter()
-        .filter(|line| recent.contains(line))
-        .cloned()
-        .collect();
+    let recent = only_filling(&named, &recent, &found);
     let named_ids: Vec<String> = named
         .iter()
         .filter_map(|line| ids.iter().find(|(seen, _)| seen == line))
@@ -538,6 +557,20 @@ mod tests {
         );
         assert_eq!(found.len(), 2);
         assert_eq!(found[0].0, "2026-09-12");
+    }
+
+    /// Each cue naming one book fills with the others: a book some try
+    /// found is found, so all of them pick the kind they are of.
+    #[test]
+    fn a_line_any_try_found_is_never_only_filling() {
+        let lines = |all: &[&str]| all.iter().map(|line| line.to_string()).collect::<Vec<_>>();
+        let named = lines(&["看完了《三体》", "读完了《挪威的森林》", "养了一只猫"]);
+        let filled = lines(&["看完了《三体》", "读完了《挪威的森林》", "养了一只猫"]);
+        let found = lines(&["看完了《三体》", "读完了《挪威的森林》"]);
+        assert_eq!(
+            super::only_filling(&named, &filled, &found),
+            lines(&["养了一只猫"])
+        );
     }
 
     #[test]
