@@ -503,6 +503,26 @@ pub fn back_from_away() {
     }
 }
 
+/// She is back on the site from her mind on another core: the groups whose
+/// lent lines that core never took (it was cut off) are taken up here as
+/// after being away; the others she answered there.
+pub fn back_from_lending() {
+    for venue in crate::services::her_log::lend::untaken_groups() {
+        let out = step(
+            &venue,
+            Event::Resumed {
+                why: Resume::Back,
+                past: Vec::new(),
+                up_since: None,
+            },
+        );
+        if !out.effects.is_empty() {
+            info!(%venue, "[Group] her mind is back: a line lent and never taken is taken up");
+        }
+        tokio::spawn(execute(venue, out.effects));
+    }
+}
+
 /// Groups of `platform` she has kept lines of lately.
 pub async fn groups_lately(platform: ChannelPlatform) -> Vec<String> {
     let Ok(db) = db() else {

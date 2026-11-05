@@ -231,7 +231,8 @@ pub(crate) fn lease_changed(lease: &crate::services::persona_sync::lease::Lease)
                 continue;
             }
             let why = match place {
-                Where::Here => continue,
+                // The stored lease never says where her mind is.
+                Where::Here | Where::MindOn(_) => continue,
                 // No end has her: every child is told, and reconnects to the refusal.
                 Where::Moving => Close::HostFrozen,
                 Where::Elsewhere(_) | Where::Vacant | Where::MovedOut => Close::HostMoved,

@@ -664,7 +664,9 @@
       "moving": "Elle déménage : aucun bout ne l'a avant la fin ou l'annulation.",
       "vacant": "Elle n'est pas sur ce site maintenant.",
       "movedOut": "Elle a déménagé de ce site.",
-      "member": "Elle n'est pas sur ce site maintenant."
+      "member": "Elle n'est pas sur ce site maintenant.",
+      "mindElsewhere": "Elle est sur « {name} » en ce moment.",
+      "mindElsewhereUnknown": "Elle est sur un autre de vos appareils en ce moment."
     },
     "status": {
       "idle": "En attente",

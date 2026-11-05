@@ -57,6 +57,7 @@ fn grant_of(row: QueryResult) -> Result<Grant, Error> {
             .parse()
             .map_err(|_| Error::Refused("a kept grant has no clock".into()))?,
         how,
+        from: row.try_get("", "from_holder")?,
         through: row
             .try_get::<Option<Value>>("", "through")?
             .map(serde_json::from_value)
@@ -70,7 +71,7 @@ fn grant_of(row: QueryResult) -> Result<Grant, Error> {
 pub async fn history<C: ConnectionTrait>(db: &C) -> Result<Vec<Grant>, Error> {
     db.query_all_raw(Statement::from_string(
         DatabaseBackend::Postgres,
-        "SELECT epoch, holder, issued, how, through FROM agent_lease_grants ORDER BY epoch",
+        "SELECT epoch, holder, issued, how, through, from_holder FROM agent_lease_grants ORDER BY epoch",
     ))
     .await?
     .into_iter()
@@ -82,7 +83,7 @@ pub async fn history<C: ConnectionTrait>(db: &C) -> Result<Vec<Grant>, Error> {
 pub async fn standing<C: ConnectionTrait>(db: &C) -> Result<Option<Grant>, Error> {
     db.query_one_raw(Statement::from_string(
         DatabaseBackend::Postgres,
-        "SELECT epoch, holder, issued, how, through FROM agent_lease_grants \
+        "SELECT epoch, holder, issued, how, through, from_holder FROM agent_lease_grants \
          ORDER BY epoch DESC LIMIT 1",
     ))
     .await?
@@ -94,8 +95,8 @@ async fn insert<C: ConnectionTrait>(db: &C, grant: &Grant) -> Result<(), Error> 
     grant.check()?;
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "INSERT INTO agent_lease_grants (epoch, holder, issued, how, through, created_at) \
-         VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO agent_lease_grants (epoch, holder, issued, how, through, created_at, from_holder) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
         [
             (grant.epoch as i64).into(),
             grant.holder.clone().into(),
@@ -103,6 +104,7 @@ async fn insert<C: ConnectionTrait>(db: &C, grant: &Grant) -> Result<(), Error> 
             how_name(grant.how).into(),
             grant.through.as_ref().map(|through| json!(through)).into(),
             crate::clock::now().into(),
+            grant.from.clone().into(),
         ],
     ))
     .await?;
@@ -127,6 +129,7 @@ async fn standing_or_first<C: ConnectionTrait>(db: &C) -> Result<Grant, Error> {
         holder: NODE.to_string(),
         issued: store::next_rev(db).await?,
         how: How::First,
+        from: None,
         through: None,
     };
     insert(db, &grant).await?;

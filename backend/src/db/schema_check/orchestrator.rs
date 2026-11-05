@@ -81,7 +81,9 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// （同一份 `topic_nodes.sql` 里补的 `ALTER`）。
 /// 2026.11.04.3：话题上次整理的时间 `agent_topic_nodes.tidied_at`、记忆挂上去的时间
 /// `agent_memory_topics.linked_at`（只有整理之后变过的话题才再看一遍；同一份 `topic_nodes.sql`）。
-pub const SCHEMA_VERSION: &str = "2026.11.04.3";
+/// 2026.11.05.1：执笔权的新一份签出时在 `myriad_her_host` 上通知
+/// （`agent_lease_grants_issued` 触发器，`persona_log.sql`），各进程据此重读她的心智在哪。
+pub const SCHEMA_VERSION: &str = "2026.11.05.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);

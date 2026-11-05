@@ -120,7 +120,10 @@ pub async fn read(db: &DatabaseConnection, owner: i32) -> Result<Her, ExportErro
     let lease = lease::read(db).await.map_err(ExportError::failed)?;
     if let Some(lease) = &lease {
         match lease.place() {
-            lease::Where::Here | lease::Where::Moving | lease::Where::MovedOut => {}
+            lease::Where::Here
+            | lease::Where::Moving
+            | lease::Where::MovedOut
+            | lease::Where::MindOn(_) => {}
             lease::Where::Elsewhere(device) => return Err(ExportError::Elsewhere(Some(device))),
             lease::Where::Vacant => return Err(ExportError::Elsewhere(None)),
         }

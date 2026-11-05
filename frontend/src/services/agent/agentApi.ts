@@ -711,6 +711,16 @@ class AgentService {
     return apiService.get(`${this.baseUrl}/host`)
   }
 
+  /** Where her one mind is now (owner only): here, or the device it is on. */
+  async getMindPlace(): Promise<{
+    here: boolean
+    holder?: string
+    holderName?: string | null
+    catchingUp?: boolean
+  }> {
+    return apiService.get(`${this.baseUrl}/mind/where`)
+  }
+
   /** Calls a move off before its commit (or turns down one a device asked for): she is back as she was. */
   async cancelHostMove(id: string): Promise<{ host: HostLease | null }> {
     return apiService.post(

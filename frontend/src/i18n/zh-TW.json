@@ -664,7 +664,9 @@
       "moving": "她正在搬家：搬完或取消之前哪一端都沒有她。",
       "vacant": "她現在不在這個站點上。",
       "movedOut": "她已經從這個站點搬走了。",
-      "member": "她現在不在這個站點上。"
+      "member": "她現在不在這個站點上。",
+      "mindElsewhere": "她現在在「{name}」那邊。",
+      "mindElsewhereUnknown": "她現在在你的另一台裝置上。"
     },
     "status": {
       "idle": "待命",

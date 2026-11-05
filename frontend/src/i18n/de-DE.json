@@ -664,7 +664,9 @@
       "moving": "Sie zieht gerade um: Bis der Umzug fertig oder abgebrochen ist, hat sie kein Ende.",
       "vacant": "Sie ist jetzt nicht auf dieser Website.",
       "movedOut": "Sie ist von dieser Website ausgezogen.",
-      "member": "Sie ist jetzt nicht auf dieser Website."
+      "member": "Sie ist jetzt nicht auf dieser Website.",
+      "mindElsewhere": "Sie ist gerade auf „{name}“.",
+      "mindElsewhereUnknown": "Sie ist gerade auf einem anderen deiner Geräte."
     },
     "status": {
       "idle": "Bereit",

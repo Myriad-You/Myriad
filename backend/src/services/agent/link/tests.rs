@@ -50,20 +50,30 @@ fn strings(values: &[&str]) -> BTreeSet<String> {
 #[test]
 fn the_host_speaks_the_contract() {
     let raw: Value = serde_json::from_str(CONTRACT_JSON).unwrap();
-    assert_eq!(CONTRACT.protocol, 1);
+    assert_eq!(CONTRACT.protocol, 2);
     assert_eq!(CONTRACT.path, "/api/agent/link");
     assert_eq!(raw["auth"]["tokenPrefix"], devices::TOKEN_PREFIX);
     assert_eq!(CONTRACT.hosts, ["site", "app"]);
     assert_eq!(CONTRACT.surfaces, ["app"]);
-    // Every frame type is one the host sends, takes, or both.
-    let declared: BTreeSet<String> = CONTRACT.frames.keys().cloned().collect();
+    // Every frame type of no family is one the host sends, takes, or both;
+    // the families' (lease, log, fact…) are her log's and her mind's.
+    let declared: BTreeSet<String> = CONTRACT
+        .frames
+        .keys()
+        .filter(|t| myriad_her_link::family(t).is_none())
+        .cloned()
+        .collect();
     let known: BTreeSet<String> = HOST_FRAMES
         .iter()
         .chain(CHILD_FRAMES.iter())
         .map(|t| t.to_string())
         .collect();
     assert_eq!(declared, known);
-    for (t, spec) in &CONTRACT.frames {
+    for (t, spec) in CONTRACT
+        .frames
+        .iter()
+        .filter(|(t, _)| myriad_her_link::family(t).is_none())
+    {
         let host = HOST_FRAMES.contains(&t.as_str());
         let child = CHILD_FRAMES.contains(&t.as_str());
         let from = match (host, child) {
@@ -132,9 +142,28 @@ fn the_host_speaks_the_contract() {
         Duration::from_secs(crate::services::agent::presence_window::PRESENCE_WINDOW_SECS as u64),
         "a line waits as long as presence lasts"
     );
-    // Codes: what the host sends is declared, and declared codes are what it sends.
+    // Codes: what the host sends is declared, and declared codes are what it
+    // sends, or what her log's relay (`her_log::relay`, `her_log::lend`)
+    // and the shared core's frame rules refuse with.
     let declared: BTreeSet<String> = CONTRACT.error_codes.keys().cloned().collect();
-    assert_eq!(declared, strings(&HOST_ERROR_CODES));
+    let theirs = [
+        "bad_sealed",
+        "too_many",
+        "not_for_me",
+        "not_holder",
+        "stale_epoch",
+        "clock_ahead",
+        "group_unknown",
+        "chat_unknown",
+        "sync_off",
+    ];
+    assert_eq!(
+        declared,
+        strings(&HOST_ERROR_CODES)
+            .union(&strings(&theirs))
+            .cloned()
+            .collect::<BTreeSet<_>>()
+    );
     let mut numbers = BTreeSet::new();
     for spec in CONTRACT.close_codes.values() {
         assert!((4000..5000).contains(&spec.code));
@@ -182,7 +211,7 @@ fn every_frame_has_a_fixture_that_fits_it() {
         seen.insert(t.to_string());
         // Its envelope and body as the shared core checks them.
         core_check(frame).unwrap_or_else(|refusal| panic!("{t}: {refusal:?}"));
-        assert!(frame.get("v").is_none(), "{t}: protocol 1 has no v");
+        assert_eq!(frame["v"], CONTRACT.encoding.frame_version, "{t}");
         assert!(frame["at"].as_i64().is_some(), "{t}");
         // What a child sends, the host reads.
         if spec.from != "host" {
@@ -192,7 +221,7 @@ fn every_frame_has_a_fixture_that_fits_it() {
                     let hello: Hello = serde_json::from_value(inbound.body).unwrap();
                     // A child's, or the device she lives on saying the
                     // epoch it holds her lease at.
-                    assert_eq!(hello.protocol, 1);
+                    assert_eq!(hello.protocol, 2);
                     match hello.role.as_str() {
                         "child" => {}
                         "host" => assert!(hello.host_epoch.is_some()),
@@ -450,7 +479,7 @@ impl Site {
 
 /// A ping as a child sends it, to bend one way at a time.
 fn ping() -> Value {
-    json!({ "t": "ping", "seq": 3, "ack": 0, "at": 1_760_140_800_000_i64, "body": {} })
+    json!({ "v": 1, "t": "ping", "seq": 3, "ack": 0, "at": 1_760_140_800_000_i64, "body": {} })
 }
 
 /// Where the shared core's rules and the host's own read of a child's frame
@@ -465,26 +494,28 @@ fn where_they_differ() -> Vec<(&'static str, String, Option<&'static str>, bool)
         bend(&mut frame);
         frame.to_string()
     };
-    let mut lease_ask = serde_json::from_str::<Value>(FIXTURES_JSON).unwrap()["next"]["frames"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|frame| frame["t"] == "lease.ask")
-        .unwrap()
-        .clone();
-    lease_ask.as_object_mut().unwrap().remove("v");
+    let lease_ask = fixture("lease.ask");
     vec![
+        // Both refuse a v that is not the contract's.
+        (
+            "a v the core does not read",
+            bent(&|frame| frame["v"] = json!(2)),
+            Some("version_unsupported"),
+            true,
+        ),
+        (
+            "a frame without v (the host: version_unsupported)",
+            bent(&|frame| {
+                frame.as_object_mut().unwrap().remove("v");
+            }),
+            Some("bad_frame"),
+            true,
+        ),
         // The core is stricter: the host takes these.
         (
             "an envelope field the contract does not name",
             bent(&|frame| frame["trace"] = json!("x")),
             Some("bad_frame"),
-            true,
-        ),
-        (
-            "a v the core does not read",
-            bent(&|frame| frame["v"] = json!(2)),
-            Some("version_unsupported"),
             true,
         ),
         (
@@ -565,12 +596,12 @@ fn where_they_differ() -> Vec<(&'static str, String, Option<&'static str>, bool)
         ),
         (
             "an envelope field twice",
-            r#"{"t":"ping","seq":3,"seq":4,"ack":0,"at":1,"body":{}}"#.to_string(),
+            r#"{"v":1,"t":"ping","seq":3,"seq":4,"ack":0,"at":1,"body":{}}"#.to_string(),
             None,
             false,
         ),
         (
-            "a protocol-2 frame (the host: unknown_frame)",
+            "a lease frame (the host: unknown_frame, as it takes none yet)",
             lease_ask.to_string(),
             None,
             true,
@@ -701,7 +732,7 @@ impl Child {
     async fn send(&mut self, t: &str, id: Option<&str>, body: Value) -> u64 {
         self.seq += 1;
         let mut frame = json!({
-            "t": t, "seq": self.seq, "ack": self.heard,
+            "v": 1, "t": t, "seq": self.seq, "ack": self.heard,
             "at": crate::clock::now().timestamp_millis(), "body": body,
         });
         if let Some(id) = id {
@@ -781,7 +812,7 @@ impl Child {
         self.send(
             "hello",
             None,
-            json!({ "protocol": 1, "role": "child", "surface": "app",
+            json!({ "protocol": 2, "role": "child", "surface": "app",
                     "capabilities": capabilities }),
         )
         .await;
@@ -922,7 +953,8 @@ async fn hello_welcome_and_what_the_link_will_not_take() {
     let welcome = child.hello().await;
     assert_eq!(welcome["ack"], 2, "the host acknowledges what it heard");
     let body = &welcome["body"];
-    assert_eq!(body["protocol"], 1);
+    assert_eq!(body["protocol"], 2);
+    assert_eq!(body["sync"], "off", "her log on the site is off");
     assert_eq!(
         (body["role"].as_str(), body["host"].as_str()),
         (Some("host"), Some("site"))
@@ -976,15 +1008,15 @@ async fn hello_welcome_and_what_the_link_will_not_take() {
     // A handshake that is not one closes the link, saying why.
     for (hello, close) in [
         (
-            json!({ "protocol": 1, "role": "host", "surface": "app" }),
+            json!({ "protocol": 2, "role": "host", "surface": "app" }),
             Close::HostIsSite,
         ),
         (
-            json!({ "protocol": 2, "role": "child", "surface": "app" }),
+            json!({ "protocol": 1, "role": "child", "surface": "app" }),
             Close::UnsupportedProtocol,
         ),
         (
-            json!({ "protocol": 1, "role": "child", "surface": "fridge" }),
+            json!({ "protocol": 2, "role": "child", "surface": "fridge" }),
             Close::BadFrame,
         ),
         (json!({ "role": "child" }), Close::BadFrame),
@@ -996,6 +1028,17 @@ async fn hello_welcome_and_what_the_link_will_not_take() {
             (close.code(), close.name().to_string())
         );
     }
+    // An App on protocol 1 sends its hello without v: it is told the
+    // protocol, so it can say the site needs updating.
+    let mut other = Child::open(&site, &token).await;
+    let old = json!({ "t": "hello", "seq": 1, "ack": 0, "at": 1_760_140_800_000_i64,
+        "body": { "protocol": 1, "role": "child", "surface": "app" } });
+    other.raw(Message::Text(old.to_string().into())).await;
+    let close = Close::UnsupportedProtocol;
+    assert_eq!(
+        other.closed().await,
+        (close.code(), close.name().to_string())
+    );
     let mut other = Child::open(&site, &token).await;
     other.raw(Message::Text("{".into())).await;
     assert_eq!(other.closed().await, (4400, "bad_frame".to_string()));
@@ -1043,12 +1086,13 @@ async fn the_host_answers_as_before_where_the_core_is_stricter() {
         .send(
             "hello",
             None,
-            json!({ "protocol": 1, "role": "child", "surface": "app", "trace": "x" }),
+            json!({ "protocol": 2, "role": "child", "surface": "app", "trace": "x" }),
         )
         .await;
     child.expect("welcome").await;
     let answers: Vec<Value> = vec![
-        json!({ "t": "pong" }),
+        json!({ "t": "error", "body": { "code": "version_unsupported" } }),
+        json!({ "t": "error", "body": { "code": "version_unsupported" } }),
         json!({ "t": "pong" }),
         json!({ "t": "pong" }),
         json!({ "t": "pong" }),
@@ -1123,7 +1167,7 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
     host.send(
         "hello",
         None,
-        json!({ "protocol": 1, "role": "host", "surface": "app", "capabilities": ["rig"],
+        json!({ "protocol": 2, "role": "host", "surface": "app", "capabilities": ["rig"],
                 "lineage": born.lineage, "hostEpoch": 2 }),
     )
     .await;
@@ -1165,7 +1209,7 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
     host.send(
         "hello",
         None,
-        json!({ "protocol": 1, "role": "host", "surface": "app",
+        json!({ "protocol": 2, "role": "host", "surface": "app",
                 "capabilities": ["rig", "partner", "log2"],
                 "lineage": born.lineage, "hostEpoch": 2 }),
     )
@@ -1196,7 +1240,7 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
         .send(
             "hello",
             None,
-            json!({ "protocol": 1, "role": "host", "surface": "app", "hostEpoch": 2 }),
+            json!({ "protocol": 2, "role": "host", "surface": "app", "hostEpoch": 2 }),
         )
         .await;
     assert_eq!(

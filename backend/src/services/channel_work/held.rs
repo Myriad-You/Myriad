@@ -49,7 +49,7 @@ pub(crate) fn away() -> bool {
 pub(super) fn is_away_refusal(body: &Value) -> bool {
     matches!(
         body.get("code").and_then(Value::as_str),
-        Some("host_frozen" | "host_moved")
+        Some("host_frozen" | "host_moved" | "mind_elsewhere")
     )
 }
 

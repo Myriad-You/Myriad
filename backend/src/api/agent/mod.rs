@@ -52,6 +52,7 @@ mod heartbeat_mcp;
 mod helpers;
 mod intentions;
 mod link;
+mod mind;
 mod notifications;
 mod onebot_pairing;
 mod onebot_status;

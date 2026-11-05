@@ -1187,6 +1187,7 @@ pub(crate) fn tables() -> Vec<TableDef> {
                 ColumnDef::new("how", "character varying").not_null(),
                 ColumnDef::new("through", "jsonb"),
                 ColumnDef::new("created_at", "timestamp with time zone").not_null(),
+                ColumnDef::new("from_holder", "character varying"),
             ],
         },
         TableDef {

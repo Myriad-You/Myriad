@@ -79,6 +79,9 @@ impl Outgoing {
 /// A frame as a child sends it. Every field but `id` is required.
 #[derive(Deserialize)]
 pub(super) struct Inbound {
+    /// The frame version; `None` from an end that sends none (protocol 1).
+    #[serde(default)]
+    pub(super) v: Option<u64>,
     pub(super) t: String,
     pub(super) seq: u64,
     pub(super) ack: u64,
@@ -393,6 +396,7 @@ impl Link {
     async fn send(&mut self, sink: &mut Sink, outgoing: Outgoing) -> bool {
         self.sent += 1;
         let mut envelope = json!({
+            "v": CONTRACT.encoding.frame_version,
             "t": outgoing.t,
             "seq": self.sent,
             "ack": self.heard,
@@ -467,6 +471,21 @@ impl Link {
         };
         self.heard = self.heard.max(inbound.seq);
         self.acked(inbound.ack);
+        if inbound.v != Some(CONTRACT.encoding.frame_version) {
+            if !self.hello {
+                // An end on another protocol (protocol 1 sent no v) is told
+                // that, so it shows the site needs updating.
+                let other =
+                    inbound.t == "hello" && inbound.body["protocol"] != json!(CONTRACT.protocol);
+                return Some(if other {
+                    Close::UnsupportedProtocol
+                } else {
+                    Close::BadFrame
+                });
+            }
+            self.error("version_unsupported", Some(inbound.seq));
+            return None;
+        }
         if !self.hello {
             if inbound.t != "hello" {
                 self.error("not_ready", Some(inbound.seq));
@@ -535,7 +554,11 @@ impl Link {
             }
         };
         match lease.as_ref().map(|lease| lease.place()) {
-            None | Some(crate::services::persona_sync::lease::Where::Here) => {}
+            None
+            | Some(
+                crate::services::persona_sync::lease::Where::Here
+                | crate::services::persona_sync::lease::Where::MindOn(_),
+            ) => {}
             Some(crate::services::persona_sync::lease::Where::Moving) => {
                 return Some(Close::HostFrozen);
             }
@@ -565,8 +588,25 @@ impl Link {
             }
             told.push(told_turn);
         }
+        // Her log, her lease and the lent chats flow on this link only while
+        // the owner syncs her and the site keeps her log.
+        let settings = crate::services::her_log::settings();
+        let sync = match crate::services::her_log::pen::in_play(
+            &self.db,
+            settings,
+            Some(self.owner),
+        )
+        .await
+        {
+            Ok(on) => on,
+            Err(error) => {
+                tracing::warn!(%error, device = %self.device.id, "[link] whether she syncs could not be read; welcomed with sync off");
+                false
+            }
+        };
         let mut welcome = json!({
             "protocol": CONTRACT.protocol,
+            "sync": if sync { "on" } else { "off" },
             "role": "host",
             "host": "site",
             "deviceId": self.device.id,
@@ -778,6 +818,8 @@ impl Link {
         );
         let mut welcome = json!({
             "protocol": CONTRACT.protocol,
+            // Her host's link carries nothing of the sync families.
+            "sync": "off",
             "role": "site",
             "host": "app",
             "deviceId": self.device.id,

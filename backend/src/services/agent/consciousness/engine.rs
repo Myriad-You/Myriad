@@ -54,6 +54,10 @@ pub async fn consider_event(
     db: &DatabaseConnection,
     event: &ConsciousnessEvent,
 ) -> Result<Option<Consideration>, anyhow::Error> {
+    // She considers it only where her mind is.
+    let Some(_thought) = crate::services::her_log::pen::think() else {
+        return Ok(None);
+    };
     let mut snapshot = capture_self_snapshot(
         db,
         event.addressee_user_id,

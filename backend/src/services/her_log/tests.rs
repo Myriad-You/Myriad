@@ -2327,3 +2327,293 @@ async fn her_log_stays_off_while_a_log_of_the_old_shape_holds_rows() {
     assert!(!super::admit(db, &Settings::default()).await);
     schema.drop().await;
 }
+
+// ------------------------------------------------- her mind on another core
+
+/// Where her mind is, read as every process reads it.
+async fn settled(db: &DatabaseConnection) -> super::pen::Pen {
+    super::pen::settle_for(db, &on(), Some(OWNER))
+        .await
+        .unwrap()
+}
+
+/// A line she said, as the ledger writes it.
+fn said(text: &str, at: i64) -> Value {
+    json!({
+        "at": at,
+        "text": text,
+        "place": "web",
+        "source": "chat",
+        "called": true,
+        "exit": "web",
+        "extent": "full",
+    })
+}
+
+/// The Mac asks for her mind and gets it: from then on nothing on the
+/// server thinks as her. Not a thought, not a turn, not a driver tick, not
+/// a row of hers; a run is refused as her being on another device.
+#[tokio::test]
+async fn while_her_mind_is_on_the_mac_the_server_does_not_think() {
+    let Some(schema) = schema("her_log_pen_away").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    assert_eq!(settled(db).await, super::pen::Pen::Here);
+    assert!(super::pen::think().is_some());
+
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "place" }));
+    exchange(db, &mut mac, vec![ask], T0).await;
+    let epoch = mac.epoch.expect("the Mac holds her");
+    assert_eq!(
+        super::pen::current(),
+        super::pen::Pen::Away {
+            holder: "dev_mac".into(),
+            epoch
+        }
+    );
+    assert!(super::pen::think().is_none());
+    use crate::services::persona_sync::lease as host;
+    assert_eq!(host::place(), host::Where::MindOn("dev_mac".into()));
+    assert!(host::paused("a driver of hers in a test"));
+    let refused = host::refuse_while_away().unwrap_err();
+    assert_eq!(refused.code(), Some("mind_elsewhere"));
+    assert!(host::refuse_work_while_away().is_err());
+    // Every agent turn passes the same gate first.
+    let turn = crate::services::agent::AgentTurnBudget::run(
+        db,
+        OWNER,
+        "agent.process",
+        "t".into(),
+        Box::pin(async { Ok::<_, String>(()) }),
+    )
+    .await;
+    assert_eq!(turn, Err("her mind is on another device now".into()));
+    // No row of hers is written here.
+    let owner = owner(db).await;
+    let hers = store::write_hers(
+        db,
+        &root(),
+        &owner,
+        PERSONAL,
+        None,
+        "speech:s1",
+        "speech.said",
+        &said("在吗", 1),
+    )
+    .await;
+    assert!(hers.is_err());
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// Asking for her mind while the server is in the middle of a thought:
+/// nothing new starts, and the grant goes out only once that thought ends.
+#[tokio::test]
+async fn asking_for_her_waits_for_the_servers_thought_in_hand() {
+    let Some(schema) = schema("her_log_pen_quiet").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    settled(db).await;
+    let thought = super::pen::think().expect("she thinks here");
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    let root = root();
+    let settings = on();
+    {
+        let asking = relay::take(
+            db,
+            &root,
+            &settings,
+            OWNER,
+            "dev_mac",
+            Core::Pc,
+            &mut mac.link,
+            &ask,
+            T0,
+        );
+        tokio::pin!(asking);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(100), asking.as_mut())
+                .await
+                .is_err(),
+            "the grant waits"
+        );
+        assert!(super::pen::think().is_none(), "nothing new starts");
+        assert_eq!(
+            count(
+                db,
+                "SELECT COUNT(*) FROM agent_lease_grants WHERE holder = 'dev_mac'"
+            )
+            .await,
+            0
+        );
+        drop(thought);
+        let outs = asking.await.unwrap();
+        assert!(outs.iter().any(|out| out.t == "lease.grant"));
+        assert_eq!(super::pen::thinking(), 0);
+    }
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// The Mac gives her back with rows the server does not have yet: she
+/// thinks on the server only once those arrived, and what she says here
+/// then is a row of hers at the server's epoch, which the Mac reads.
+#[tokio::test]
+async fn handed_back_she_catches_up_before_she_thinks() {
+    let Some(schema) = schema("her_log_pen_back").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    settled(db).await;
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], T0).await;
+    mac.write_body(
+        PERSONAL,
+        "speech:m1",
+        "speech.said",
+        Author::Her,
+        Some(said("我在 Mac 这边。", 1)),
+        T0,
+    );
+    sync(db, &mut mac, PERSONAL, T0).await;
+    // A line the Mac wrote just before it locked, not synced yet.
+    let late = mac.write_body(
+        PERSONAL,
+        "speech:m2",
+        "speech.said",
+        Author::Her,
+        Some(said("先睡了", 2)),
+        T0 + 1,
+    );
+    let yielded = mac.frame(
+        "lease.yield",
+        Some("yield_back"),
+        json!({ "epoch": mac.epoch, "through": { PERSONAL: 2 } }),
+    );
+    exchange(db, &mut mac, vec![yielded], T0 + MINUTE).await;
+    assert!(matches!(
+        super::pen::current(),
+        super::pen::Pen::CatchingUp { ref behind, .. } if behind.get(PERSONAL) == Some(&2)
+    ));
+    assert!(super::pen::think().is_none(), "not before she caught up");
+    use crate::services::persona_sync::lease as host;
+    assert_eq!(host::place(), host::Where::MindOn(host::SITE.into()));
+
+    let rows = mac.rows_frame(PERSONAL, vec![late]);
+    exchange(db, &mut mac, vec![rows], T0 + MINUTE).await;
+    assert_eq!(super::pen::current(), super::pen::Pen::Here);
+    assert!(super::pen::think().is_some());
+
+    let owner = owner(db).await;
+    let row = store::write_hers(
+        db,
+        &root(),
+        &owner,
+        PERSONAL,
+        None,
+        "speech:web1",
+        "speech.said",
+        &said("我在网页这边。", 3),
+    )
+    .await
+    .unwrap();
+    let standing = lease::standing(db).await.unwrap().unwrap();
+    assert_eq!(standing.from.as_deref(), Some("dev_mac"));
+    assert_eq!(
+        (row.origin.as_str(), row.epoch),
+        (NODE, Some(standing.epoch))
+    );
+    sync(db, &mut mac, PERSONAL, super::now()).await;
+    assert!(
+        mac.log(PERSONAL)
+            .iter()
+            .any(|held| held.id == row.id && held.kind == "speech.said")
+    );
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// The Mac holds her and drops off the network; the owner's phone says, by
+/// `lease.place`, they are somewhere else. Within the stop time nothing
+/// moves; past it the server takes her and thinks again.
+#[tokio::test]
+async fn the_server_takes_her_back_from_a_mac_cut_off_with_the_owner_elsewhere() {
+    let Some(schema) = schema("her_log_pen_takeover").await else {
+        return;
+    };
+    let db = &schema.db;
+    let settings = on();
+    super::pen::reset_for_test();
+    settled(db).await;
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "place" }));
+    let here = mac.frame(
+        "lease.place",
+        None,
+        json!({ "place": "pl_home", "ownerHere": true }),
+    );
+    exchange(db, &mut mac, vec![ask, here], T0).await;
+    assert!(super::pen::think().is_none());
+
+    let mut phone = Side::new("dev_phone");
+    let out = phone.frame(
+        "lease.place",
+        None,
+        json!({ "place": "pl_out", "ownerHere": true }),
+    );
+    let root = root();
+    for minutes in [1, 3] {
+        let at = T0 + minutes * MINUTE;
+        relay::take(
+            db,
+            &root,
+            &settings,
+            OWNER,
+            "dev_phone",
+            Core::Child,
+            &mut phone.link,
+            &out,
+            at,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            lease::watch(db, &settings, at).await.unwrap(),
+            None,
+            "{minutes} min"
+        );
+        settled(db).await;
+        assert!(super::pen::think().is_none(), "{minutes} min");
+    }
+    let at = T0 + 5 * MINUTE;
+    relay::take(
+        db,
+        &root,
+        &settings,
+        OWNER,
+        "dev_phone",
+        Core::Child,
+        &mut phone.link,
+        &out,
+        at,
+    )
+    .await
+    .unwrap();
+    let grant = lease::watch(db, &settings, at)
+        .await
+        .unwrap()
+        .expect("taken over");
+    assert_eq!(grant.how, myriad_persona_log::How::Takeover);
+    assert_eq!(settled(db).await, super::pen::Pen::Here);
+    assert!(super::pen::think().is_some());
+    super::pen::reset_for_test();
+    schema.drop().await;
+}

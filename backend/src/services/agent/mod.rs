@@ -76,6 +76,8 @@ pub use agent_footer::{
     ensure_agent_usage_allowed, get_capabilities_summary_for_user,
     get_user_permissions, init_task_store, user_is_current_admin,
 };
+#[cfg(test)]
+pub(crate) use agent_footer::AgentTurnBudget;
 pub(crate) use agent_footer::{
     max_user_agent_permissions, scheduler_create_actions_within_grants,
     scheduler_create_tapp_permissions_within_grants,

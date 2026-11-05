@@ -268,6 +268,12 @@ pub enum Where {
     /// Exported to be brought in elsewhere; stopped here until the owner
     /// lets this copy go or undoes it.
     MovedOut,
+    /// She lives here, but her one mind is on another host core now: the
+    /// one that holds her mind lease (`her_log::pen`), `holder`, or the
+    /// site itself while it catches up on what that core wrote before it
+    /// gave her back. Nothing thinks as her here; what arrives is kept for
+    /// her or lent to her mind there.
+    MindOn(String),
 }
 
 impl Where {
@@ -1315,9 +1321,18 @@ pub fn current() -> Option<Lease> {
     CURRENT.read().ok().and_then(|lease| lease.clone())
 }
 
-/// Where she is, by the lease this process last read.
+/// Where she is, by the lease this process last read and, while she lives
+/// here, where her mind is (`her_log::pen`).
 pub fn place() -> Where {
-    current().map_or(Where::Here, |lease| lease.place())
+    use crate::services::her_log::pen::{self, Pen};
+    match current().map_or(Where::Here, |lease| lease.place()) {
+        Where::Here => match pen::current() {
+            Pen::Here => Where::Here,
+            Pen::Away { holder, .. } => Where::MindOn(holder),
+            Pen::CatchingUp { .. } => Where::MindOn(SITE.into()),
+        },
+        elsewhere => elsewhere,
+    }
 }
 
 /// What a run is refused with while she is not on the site; Ok while she is.
@@ -1331,6 +1346,10 @@ pub fn refuse_while_away() -> Result<(), AppError> {
         Where::Elsewhere(_) | Where::Vacant | Where::MovedOut => {
             Err(AppError::conflict("She does not live on this site now").with_code("host_moved"))
         }
+        Where::MindOn(_) => Err(AppError::conflict(
+            "She is on another of your devices now; what you say here is left for her",
+        )
+        .with_code("mind_elsewhere")),
     }
 }
 
@@ -1364,13 +1383,19 @@ pub fn paused(driver: &'static str) -> bool {
     true
 }
 
+/// Where she was when this process last took a lease or her mind moved.
+static TAKEN: LazyLock<Mutex<Where>> = LazyLock::new(|| Mutex::new(Where::Here));
+
 /// Takes a lease just read: what changed for her links and her drivers.
 pub fn adopt(lease: Option<Lease>) {
-    let before = place();
     if let Ok(mut current) = CURRENT.write() {
         *current = lease.clone();
     }
     let after = place();
+    let before = match TAKEN.lock() {
+        Ok(mut taken) => std::mem::replace(&mut *taken, after.clone()),
+        Err(_) => return,
+    };
     if before == after {
         return;
     }
@@ -1387,7 +1412,11 @@ pub fn adopt(lease: Option<Lease>) {
         crate::services::agent::link::lease_changed(lease);
     }
     match after {
-        Where::Moving | Where::Elsewhere(_) | Where::Vacant | Where::MovedOut => {}
+        Where::Moving
+        | Where::Elsewhere(_)
+        | Where::Vacant
+        | Where::MovedOut
+        | Where::MindOn(_) => {}
         Where::Here => {
             if let Ok(mut paused) = PAUSED.lock() {
                 paused.clear();
@@ -1399,7 +1428,14 @@ pub fn adopt(lease: Option<Lease>) {
                 && let Ok(db) = crate::services::process_db::database()
                 && tokio::runtime::Handle::try_current().is_ok()
             {
-                crate::services::channel_group::back_from_away();
+                // Back from her mind on another core: only the groups whose
+                // lent lines that core never answered are hers to take up
+                // here; the rest she answered there.
+                if matches!(before, Where::MindOn(_)) {
+                    crate::services::channel_group::back_from_lending();
+                } else {
+                    crate::services::channel_group::back_from_away();
+                }
                 tokio::spawn(crate::services::channel_work::held::replay(db.clone()));
                 tokio::spawn(crate::services::agent::merope::replay_kept_for_her(db));
             }
@@ -1415,9 +1451,31 @@ pub async fn reload<C: ConnectionTrait>(db: &C) {
         return;
     }
     match read(db).await {
-        Ok(lease) => adopt(lease),
+        Ok(lease) => {
+            settle_pen().await;
+            adopt(lease)
+        }
         Err(error) => tracing::warn!(%error, "[host] could not read her host lease"),
     }
+}
+
+/// Reads where her mind is again (`her_log::pen`) before the lease is
+/// taken, so [`adopt`] sees both change together.
+async fn settle_pen() {
+    let Ok(db) = crate::services::process_db::database() else {
+        return;
+    };
+    if let Err(error) =
+        crate::services::her_log::pen::settle(&db, crate::services::her_log::settings()).await
+    {
+        tracing::warn!(%error, "[host] could not read where her mind is");
+    }
+}
+
+/// Her mind moved (a grant was kept, or the server caught up): this
+/// process takes it as it takes a lease change.
+pub fn mind_moved() {
+    adopt(current());
 }
 
 /// [`reload`], first making a lease vacant whose device is not the site
@@ -1489,7 +1547,9 @@ pub async fn link_refusal<C: ConnectionTrait>(
         return Ok(None);
     }
     Ok(match lease.place() {
-        Where::Here => None,
+        // Her mind on another core is not in the stored lease: her links
+        // stay open (the mind lease is told over them).
+        Where::Here | Where::MindOn(_) => None,
         Where::Moving => Some((
             "host_frozen",
             json!({

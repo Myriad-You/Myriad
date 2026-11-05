@@ -339,7 +339,7 @@ pub async fn take(
                 return Ok(vec![Outgoing::error("bad_frame", seq)]);
             };
             lease::heard(db, device, Some(Seen::Host), now).await?;
-            rows(db, root, &owner, device, session, batch, seq, now).await
+            rows(db, root, settings, &owner, device, session, batch, seq, now).await
         }
         "lease.ask" => {
             lease::heard(db, device, Some(Seen::Host), now).await?;
@@ -349,19 +349,34 @@ pub async fn take(
                 },
                 Some("talk" | "place") if holder == NODE => {
                     let standing = lease::current(db).await?;
+                    // Nothing new starts here from now on; what is in hand
+                    // ends before the grant goes out, so her rows here stop
+                    // at `through`.
+                    if !super::pen::quiet(device, standing.epoch + 1, super::pen::HANDOVER_WAIT)
+                        .await
+                    {
+                        tracing::warn!(
+                            device,
+                            thinking = super::pen::thinking(),
+                            "[her-log] handing her mind over with a thought still in hand"
+                        );
+                    }
                     let through = lease::through_of(db, NODE).await?;
-                    Request::Handover {
+                    let request = Request::Handover {
                         from: NODE.to_string(),
                         epoch: standing.epoch,
                         to: device.to_string(),
                         through: (!through.is_empty()).then_some(through),
-                    }
+                    };
+                    let out = moved(db, settings, user, request, seq, now).await;
+                    super::pen::handed(db, settings, user).await?;
+                    return out;
                 }
                 // Asking another holder to give her up is not done yet: no
                 // answer, as the contract allows.
                 _ => return Ok(Vec::new()),
             };
-            moved(db, settings, request, seq, now).await
+            moved(db, settings, user, request, seq, now).await
         }
         "lease.yield" => {
             lease::heard(db, device, Some(Seen::Host), now).await?;
@@ -376,7 +391,13 @@ pub async fn take(
                 to,
                 through: (!through.is_empty()).then_some(through),
             };
-            moved(db, settings, request, seq, now).await
+            moved(db, settings, user, request, seq, now).await
+        }
+        "lease.place" => {
+            let place = body["place"].as_str().filter(|place| !place.is_empty());
+            let owner_here = body["ownerHere"].as_bool().unwrap_or(false);
+            lease::place(db, device, place, owner_here, now).await?;
+            Ok(Vec::new())
         }
         "lease.stopped" => {
             lease::heard(db, device, Some(Seen::Host), now).await?;
@@ -462,6 +483,7 @@ async fn vector(
 async fn rows(
     db: &DatabaseConnection,
     root: &dyn keys::Root,
+    settings: &Settings,
     owner: &Owner,
     device: &str,
     session: &mut Session,
@@ -498,6 +520,12 @@ async fn rows(
         .take(ASK_ROWS)
         .collect();
     session.asked.extend(ask.iter().cloned());
+    // A catch-up waiting on these rows may be over: she thinks here again.
+    if !taken.added.is_empty()
+        && matches!(super::pen::current(), super::pen::Pen::CatchingUp { .. })
+    {
+        super::pen::settle_for(db, settings, Some(owner.user)).await?;
+    }
     let ours = store::holdings(db, owner.user, &audience).await?;
     let mut out = vec![Outgoing::back(
         "log.vector",
@@ -519,11 +547,16 @@ async fn rows(
 async fn moved(
     db: &DatabaseConnection,
     settings: &Settings,
+    user: i32,
     request: Request,
     seq: Option<u64>,
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
-    match lease::request(db, settings, request, now).await? {
+    let outcome = lease::request(db, settings, request, now).await?;
+    // Where her mind is, read again here (the other processes hear the
+    // grant from the database).
+    super::pen::settle_for(db, settings, Some(user)).await?;
+    match outcome {
         Outcome::Granted(grant) => {
             let mut out = Vec::new();
             if grant.holder != NODE {

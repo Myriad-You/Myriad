@@ -280,6 +280,8 @@ pub async fn get_public_config(
             crate::services::persona_sync::lease::Where::Elsewhere(_) => Some("elsewhere"),
             crate::services::persona_sync::lease::Where::Vacant => Some("vacant"),
             crate::services::persona_sync::lease::Where::MovedOut => Some("moved_out"),
+            // Her mind is on another of the owner's devices (the mind lease).
+            crate::services::persona_sync::lease::Where::MindOn(_) => Some("mind_elsewhere"),
         },
     });
 

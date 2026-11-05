@@ -199,8 +199,12 @@ CREATE TABLE IF NOT EXISTS agent_lease_grants (
         CHECK (how IN ('first', 'handover', 'takeover', 'force')),
     -- A handover's {audience: last dseq} of the side that gave it up.
     through JSONB,
-    created_at TIMESTAMPTZ NOT NULL
+    created_at TIMESTAMPTZ NOT NULL,
+    -- The holder it moved from (every grant but the first; none on grants
+    -- kept before it was written).
+    from_holder VARCHAR(64)
 );
+ALTER TABLE agent_lease_grants ADD COLUMN IF NOT EXISTS from_holder VARCHAR(64);
 CREATE OR REPLACE FUNCTION agent_lease_grants_guard() RETURNS trigger AS $$
 BEGIN
     IF TG_OP = 'UPDATE' OR TG_OP = 'DELETE' THEN
@@ -214,6 +218,16 @@ END $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS agent_lease_grants_guard ON agent_lease_grants;
 CREATE TRIGGER agent_lease_grants_guard BEFORE INSERT OR UPDATE OR DELETE ON agent_lease_grants
     FOR EACH ROW EXECUTE FUNCTION agent_lease_grants_guard();
+-- A new grant is announced on `myriad_her_host`, where the host lease is,
+-- so each process reads where her mind is again as it commits.
+CREATE OR REPLACE FUNCTION agent_lease_grants_issued() RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify('myriad_her_host', 'mind:' || NEW.epoch::text);
+    RETURN NULL;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS agent_lease_grants_issued ON agent_lease_grants;
+CREATE TRIGGER agent_lease_grants_issued AFTER INSERT ON agent_lease_grants
+    FOR EACH ROW EXECUTE FUNCTION agent_lease_grants_issued();
 
 -- What the server knows of each of the owner's ends for moving the lease:
 -- whether it is a host core, when it last heard from it, the place it said

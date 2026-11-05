@@ -99,6 +99,9 @@ struct Lent {
     device: String,
     audience: String,
     place: Place,
+    /// Her mind there took it: she said something for it. One not taken
+    /// when her mind comes back is the site's again.
+    taken: bool,
 }
 
 /// What was lent and not yet let go, by lend id; and, by audience, the
@@ -249,6 +252,7 @@ pub fn lend(
                 device: device.to_string(),
                 audience: audience.to_string(),
                 place,
+                taken: false,
             },
         );
         latest.insert(audience.to_string(), id);
@@ -264,17 +268,44 @@ pub fn lend(
     true
 }
 
+/// The groups (by venue) with lines lent that her mind never took: when
+/// she is back on the site, these are hers to take up here; the others she
+/// answered (or chose not to) there. What was lent is let go.
+pub fn untaken_groups() -> Vec<String> {
+    let Ok(mut lent) = LENT.lock() else {
+        return Vec::new();
+    };
+    let mut venues: Vec<String> = lent
+        .values()
+        .filter(|one| !one.taken)
+        .filter_map(|one| match &one.place {
+            Place::Group { venue, .. } => Some(venue.clone()),
+            Place::Chat { .. } => None,
+        })
+        .collect();
+    venues.sort();
+    venues.dedup();
+    lent.clear();
+    if let Ok(mut latest) = LATEST.lock() {
+        latest.clear();
+    }
+    venues
+}
+
 /// Where a `say` from `device` for `audience` (naming `lend`, maybe) goes:
 /// the lend it names, else the latest one there; only one lent to it.
 fn place_for(device: &str, audience: &str, lend: Option<&str>) -> Option<Place> {
-    let lent = LENT.lock().ok()?;
+    let mut lent = LENT.lock().ok()?;
     let id = match lend {
         Some(id) => id.to_string(),
         None => LATEST.lock().ok()?.get(audience)?.clone(),
     };
-    lent.get(&id)
+    lent.get_mut(&id)
         .filter(|one| one.device == device && one.audience == audience)
-        .map(|one| one.place.clone())
+        .map(|one| {
+            one.taken = true;
+            one.place.clone()
+        })
 }
 
 /// Sends her line to a place the site lent: how it failed, if it did.

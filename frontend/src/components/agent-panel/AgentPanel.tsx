@@ -158,7 +158,7 @@ export const AgentPanel: React.FC<{ resident?: boolean }> = ({ resident = false 
   }, [showsFull])
 
   // She is not on this site (H3e-9): no chat with her here; Work stays.
-  const { away, device: awayOn } = useHerAway(open)
+  const { away, device: awayOn, owner: leavesNotes } = useHerAway(open)
   const awayFromChat = away !== null && mode === 'chat'
   const showsComposer = !(showsFull && fullView === 'manage')
 
@@ -361,7 +361,7 @@ export const AgentPanel: React.FC<{ resident?: boolean }> = ({ resident = false 
             ) : null}
 
             {showsComposer && awayFromChat && away ? (
-              <AgentPanelHerAway away={away} device={awayOn} mode={mode} />
+              <AgentPanelHerAway away={away} device={awayOn} owner={leavesNotes} mode={mode} />
             ) : null}
             {showsComposer && !awayFromChat && (
               <AgentPanelComposer

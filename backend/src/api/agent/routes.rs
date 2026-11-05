@@ -717,6 +717,14 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 middleware::auth::auth_middleware,
             )),
         )
+        // 她的心智此刻在哪台设备上（执笔权，只限站长）
+        .route(
+            "/mind/where",
+            get(super::mind::get_mind).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
         // 她的主机租约：她住在哪、开始 / 确认 / 取消一次搬家（会话凭据，只限站长；
         // 写站点的搬家只能在这里确认，设备令牌不行）
         .route(

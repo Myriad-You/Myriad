@@ -39,12 +39,6 @@ pub(super) struct Contract {
     pub frames: BTreeMap<String, FrameSpec>,
     pub error_codes: BTreeMap<String, String>,
     pub close_codes: BTreeMap<String, CloseSpec>,
-    pub next: Next,
-}
-
-/// `next`: protocol 2, which the shared core's frame rules are written for.
-#[derive(Debug, Deserialize)]
-pub(super) struct Next {
     pub encoding: Encoding,
 }
 
@@ -269,8 +263,9 @@ pub(super) const CHILD_FRAMES: [&str; 19] = [
 /// Error codes of the link: what the host sends (run.rejected may also carry
 /// an AI quota code), and the act codes `act.result` and `act.cancel` carry.
 #[cfg(test)]
-pub(super) const HOST_ERROR_CODES: [&str; 24] = [
+pub(super) const HOST_ERROR_CODES: [&str; 25] = [
     "unknown_frame",
+    "version_unsupported",
     "bad_frame",
     "not_ready",
     "binary_unsupported",
@@ -312,21 +307,13 @@ pub(super) fn cap_for_mac(cap: Vec<String>) -> Vec<String> {
 /// `seq`, `ack`, `at`, a reliable frame's `id`, its body's fields and its
 /// size (`myriad_her_link::check`).
 ///
-/// The core reads protocol-1 frames inside the protocol-2 envelope, which is
-/// protocol 1's with `v`. A protocol-1 frame has no `v`, so it is read as the
-/// contract's frame version; one that carries its own is read as it says.
-/// Senders' roles are the core's for protocol 2 only, so none are given.
+/// Every frame carries `v`, the contract's frame version: one without it is
+/// refused. Senders' roles are not given.
 ///
 /// The host does not refuse a frame on this alone. The core is stricter than
 /// the host has been in a few places, and the host keeps its own answer
 /// there until those are settled in the core; each is in the tests
 /// (`where_the_core_and_the_host_differ`).
 pub(super) fn core_check(frame: &Value) -> Result<(), myriad_her_link::Refusal> {
-    let mut frame = frame.clone();
-    if let Some(envelope) = frame.as_object_mut() {
-        envelope
-            .entry("v")
-            .or_insert(CONTRACT.next.encoding.frame_version.into());
-    }
-    myriad_her_link::check(&frame, &[]).map(|_| ())
+    myriad_her_link::check(frame, &[]).map(|_| ())
 }
