@@ -666,7 +666,9 @@
       "movedOut": "她已經從這個站點搬走了。",
       "member": "她現在不在這個站點上。",
       "mindElsewhere": "她現在在「{name}」那邊。",
-      "mindElsewhereUnknown": "她現在在你的另一台裝置上。"
+      "mindElsewhereUnknown": "她現在在你的另一台裝置上。",
+      "mindElsewhereLeave": "她現在在「{name}」那邊，在這裡說的話她在那邊看得到。",
+      "mindElsewhereLeaveUnknown": "她現在在你的另一台裝置上，在這裡說的話她在那邊看得到。"
     },
     "status": {
       "idle": "待命",

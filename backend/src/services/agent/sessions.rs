@@ -158,6 +158,17 @@ pub(crate) async fn persist_user_message(
     session_id: &str,
     content: &str,
 ) -> Result<(), String> {
+    persist_user_message_from(db, session_id, content, "web").await
+}
+
+/// [`persist_user_message`] said where `place` names (`web`, `app`, a chat
+/// app): in the owner's private chat it goes into her log too (D6).
+pub(crate) async fn persist_user_message_from(
+    db: &DatabaseConnection,
+    session_id: &str,
+    content: &str,
+    place: &str,
+) -> Result<(), String> {
     let now = crate::clock::now().fixed_offset();
     let msg = agent_messages::ActiveModel {
         id: sea_orm::ActiveValue::NotSet,
@@ -173,6 +184,15 @@ pub(crate) async fn persist_user_message(
         .await
         .map_err(|error| session_store_failed("save user message", error))?;
     bind_message_media(db, session_id, inserted.last_insert_id, content, None).await;
+    crate::services::her_log::talk::partner_said(
+        db,
+        session_id,
+        inserted.last_insert_id,
+        content,
+        now.to_utc(),
+        place,
+    )
+    .await;
     Ok(())
 }
 

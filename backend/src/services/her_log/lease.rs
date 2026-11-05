@@ -479,6 +479,37 @@ pub async fn watch(
     }
 }
 
+/// The owner turned syncing her log off: her mind moves between host cores
+/// only while her log syncs (D2-d), so when it is on a device and the site's
+/// copy of her is live, the server takes it back here by a force. The device
+/// stops on hearing it, or once it is back (`lease.here`, `lease.epoch`).
+/// The grant when it moved.
+pub async fn sync_off(
+    db: &DatabaseConnection,
+    settings: &Settings,
+    owner: i32,
+    now: i64,
+) -> Result<Option<Grant>, Error> {
+    store::stop(db, owner).await?;
+    match standing(db).await? {
+        Some(grant) if grant.holder.is_some() && !grant.held_by(NODE) => {}
+        _ => return Ok(None),
+    }
+    match request(
+        db,
+        settings,
+        Request::Force {
+            to: NODE.to_string(),
+        },
+        now,
+    )
+    .await?
+    {
+        Outcome::Granted(grant) => Ok(Some(grant)),
+        _ => Ok(None),
+    }
+}
+
 /// `lease.epoch`: where her mind is, for every device.
 pub fn epoch_body(grant: &Grant, settings: &Settings) -> Value {
     json!({

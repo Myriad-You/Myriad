@@ -1348,10 +1348,9 @@ pub fn refuse_while_away() -> Result<(), AppError> {
         Where::Elsewhere(_) | Where::Vacant | Where::MovedOut => {
             Err(AppError::conflict("She does not live on this site now").with_code("host_moved"))
         }
-        Where::MindOn(_) => Err(AppError::conflict(
-            "She is on another of your devices now; what you say here is left for her",
-        )
-        .with_code("mind_elsewhere")),
+        Where::MindOn(_) => Err(
+            AppError::conflict("She is on another of your devices now").with_code("mind_elsewhere")
+        ),
     }
 }
 

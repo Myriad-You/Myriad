@@ -65,6 +65,7 @@ pub mod relay;
 pub mod retention;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod store;
+pub mod talk;
 
 #[cfg(test)]
 mod tests;

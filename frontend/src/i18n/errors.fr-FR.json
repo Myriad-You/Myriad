@@ -658,6 +658,8 @@
     "agent_access_denied": "Vous n'avez pas le droit de faire ça.",
     "host_frozen": "Elle déménage et n'est nulle part pour l'instant. Réessayez quand le déménagement sera terminé ou annulé.",
     "host_moved": "Elle n'habite pas sur ce site en ce moment.",
+    "mind_elsewhere": "Elle est sur un autre de tes appareils en ce moment ; ici, personne ne répond pour l'instant.",
+    "left_for_her": "Ton message est gardé ; elle le voit sur cet appareil.",
     "device_host_later": "La faire vivre sur un appareil viendra dans une version ultérieure.",
     "move_not_agreed": "Cet appareil n'a pas encore accepté.",
     "move_mismatch": "Ce qui est arrivé n'est pas ce qui a été scellé : le déménagement ne continue pas.",

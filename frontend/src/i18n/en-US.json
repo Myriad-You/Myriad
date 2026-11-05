@@ -666,7 +666,9 @@
       "movedOut": "She moved out of this site.",
       "member": "She is not on this site now.",
       "mindElsewhere": "She is on “{name}” right now.",
-      "mindElsewhereUnknown": "She is on another of your devices right now."
+      "mindElsewhereUnknown": "She is on another of your devices right now.",
+      "mindElsewhereLeave": "She is on “{name}” right now; what you say here, she sees there.",
+      "mindElsewhereLeaveUnknown": "She is on another of your devices right now; what you say here, she sees there."
     },
     "status": {
       "idle": "Idle",

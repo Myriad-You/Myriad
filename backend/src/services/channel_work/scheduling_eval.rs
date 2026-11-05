@@ -208,6 +208,7 @@ impl Her for Live {
                 .collect(),
             waiting,
             came_while_away: None,
+            ..Default::default()
         });
         let system = format!(
             "{}\n\nYou are talking with someone in a private chat app conversation. Reply in their language, briefly.\n\n{section}",

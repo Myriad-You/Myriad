@@ -135,6 +135,9 @@ pub struct ChannelChat {
     /// What they wrote came while she was not on the site (D3): when, as a
     /// fact she reads with it.
     pub came_while_away: Option<String>,
+    /// The chat app it is in (`ChannelPlatform::slug`), where her log says
+    /// the talk is.
+    pub platform: String,
 }
 
 /// 对话消息

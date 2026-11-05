@@ -666,7 +666,9 @@
       "movedOut": "Elle a déménagé de ce site.",
       "member": "Elle n'est pas sur ce site maintenant.",
       "mindElsewhere": "Elle est sur « {name} » en ce moment.",
-      "mindElsewhereUnknown": "Elle est sur un autre de vos appareils en ce moment."
+      "mindElsewhereUnknown": "Elle est sur un autre de vos appareils en ce moment.",
+      "mindElsewhereLeave": "Elle est sur « {name} » en ce moment ; ce que vous dites ici, elle le voit là-bas.",
+      "mindElsewhereLeaveUnknown": "Elle est sur un autre de vos appareils en ce moment ; ce que vous dites ici, elle le voit là-bas."
     },
     "status": {
       "idle": "En attente",

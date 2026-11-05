@@ -950,12 +950,66 @@ pub async fn write_hers(
     kind: &str,
     payload: &Value,
 ) -> Result<Row, Error> {
-    Audience::parse(audience)?;
-    myriad_persona_log::payloads::check(kind, payload)?;
     let grant = super::lease::current(db).await?;
     if !grant.held_by(NODE) {
         return Err(Error::Refused("her mind is not on the server".into()));
     }
+    write_row(
+        db,
+        root,
+        owner,
+        audience,
+        subject,
+        object,
+        kind,
+        payload,
+        (Author::Her, Some(grant.epoch)),
+    )
+    .await
+}
+
+/// The owner's row of the server's own, for what the owner did here (a line
+/// they said to her: `segment.line`): written wherever her mind is, as the
+/// owner's rows are on every side. Checked and sealed as [`write_hers`].
+#[allow(clippy::too_many_arguments)]
+pub async fn write_owners(
+    db: &DatabaseConnection,
+    root: &dyn keys::Root,
+    owner: &Owner,
+    audience: &str,
+    subject: Option<&str>,
+    object: &str,
+    kind: &str,
+    payload: &Value,
+) -> Result<Row, Error> {
+    write_row(
+        db,
+        root,
+        owner,
+        audience,
+        subject,
+        object,
+        kind,
+        payload,
+        (Author::Owner, None),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn write_row(
+    db: &DatabaseConnection,
+    root: &dyn keys::Root,
+    owner: &Owner,
+    audience: &str,
+    subject: Option<&str>,
+    object: &str,
+    kind: &str,
+    payload: &Value,
+    (author, epoch): (Author, Option<u64>),
+) -> Result<Row, Error> {
+    Audience::parse(audience)?;
+    myriad_persona_log::payloads::check(kind, payload)?;
     let user = owner.user;
     let txn = db.begin().await?;
     lock(&txn, user, audience).await?;
@@ -966,8 +1020,8 @@ pub async fn write_hers(
         version: LOG_VERSION,
         id: id.clone(),
         origin: NODE.to_string(),
-        author: Author::Her,
-        epoch: Some(grant.epoch),
+        author,
+        epoch,
         dseq: Some(dseq),
         hlc,
         audience: audience.to_string(),

@@ -666,7 +666,9 @@
       "movedOut": "彼女はこのサイトから引っ越しました。",
       "member": "彼女は今このサイトにいません。",
       "mindElsewhere": "彼女はいま「{name}」のほうにいます。",
-      "mindElsewhereUnknown": "彼女はいまあなたの別のデバイスにいます。"
+      "mindElsewhereUnknown": "彼女はいまあなたの別のデバイスにいます。",
+      "mindElsewhereLeave": "彼女はいま「{name}」のほうにいます。ここで言ったことは、彼女があちらで読めます。",
+      "mindElsewhereLeaveUnknown": "彼女はいまあなたの別のデバイスにいます。ここで言ったことは、彼女があちらで読めます。"
     },
     "status": {
       "idle": "待機中",

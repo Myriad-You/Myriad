@@ -666,7 +666,9 @@
       "movedOut": "Sie ist von dieser Website ausgezogen.",
       "member": "Sie ist jetzt nicht auf dieser Website.",
       "mindElsewhere": "Sie ist gerade auf „{name}“.",
-      "mindElsewhereUnknown": "Sie ist gerade auf einem anderen deiner Geräte."
+      "mindElsewhereUnknown": "Sie ist gerade auf einem anderen deiner Geräte.",
+      "mindElsewhereLeave": "Sie ist gerade auf „{name}“; was du hier sagst, sieht sie dort.",
+      "mindElsewhereLeaveUnknown": "Sie ist gerade auf einem anderen deiner Geräte; was du hier sagst, sieht sie dort."
     },
     "status": {
       "idle": "Bereit",

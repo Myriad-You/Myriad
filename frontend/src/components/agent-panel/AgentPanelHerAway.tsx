@@ -18,16 +18,20 @@ const AWAY: readonly HerAway[] = ['moving', 'elsewhere', 'vacant', 'moved_out', 
  * Whether she is away from this site, read while the panel is open; for the
  * owner, the name of the device she lives on (`/agent/host` is theirs only),
  * or that her mind is on (`/agent/mind/where`), and whether they are the
- * owner (`owner`): only they are told which device.
+ * owner (`owner`): only they are told which device. `leaves`: her mind is on
+ * another device and what the owner says here reaches her there (D6-b), so
+ * the composer stays.
  */
 export function useHerAway(open: boolean): {
   away: HerAway | null
   device: string | null
   owner: boolean
+  leaves: boolean
 } {
   const [away, setAway] = useState<HerAway | null>(null)
   const [device, setDevice] = useState<string | null>(null)
   const [owner, setOwner] = useState(false)
+  const [leaves, setLeaves] = useState(false)
   useEffect(() => {
     if (!open) return
     let alive = true
@@ -42,9 +46,11 @@ export function useHerAway(open: boolean): {
         if (!alive) return
         setOwner(mind !== null)
         setDevice(mind?.holderName ?? null)
+        setLeaves(mind?.leaves === true)
         return
       }
       setOwner(false)
+      setLeaves(false)
       if (next !== 'elsewhere') {
         setDevice(null)
         return
@@ -56,7 +62,7 @@ export function useHerAway(open: boolean): {
       alive = false
     }
   }, [open])
-  return { away, device, owner }
+  return { away, device, owner, leaves }
 }
 
 /**
@@ -67,8 +73,9 @@ export const AgentPanelHerAway: React.FC<{
   away: HerAway
   device: string | null
   owner?: boolean
+  leaves?: boolean
   mode: AgentPanelMode
-}> = ({ away, device, owner = false, mode }) => {
+}> = ({ away, device, owner = false, leaves = false, mode }) => {
   const { t, format } = useI18n()
   if (mode !== 'chat') return null
   const words = t.agentPanel.away
@@ -76,9 +83,13 @@ export const AgentPanelHerAway: React.FC<{
     away === 'mind_elsewhere'
       ? !owner
         ? words.member
-        : device
-          ? format(words.mindElsewhere, { name: device })
-          : words.mindElsewhereUnknown
+        : leaves
+          ? device
+            ? format(words.mindElsewhereLeave, { name: device })
+            : words.mindElsewhereLeaveUnknown
+          : device
+            ? format(words.mindElsewhere, { name: device })
+            : words.mindElsewhereUnknown
       : away === 'elsewhere'
         ? device
           ? format(words.elsewhere, { name: device })

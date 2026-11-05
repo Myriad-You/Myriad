@@ -1661,6 +1661,12 @@ export const AgentEngine: React.FC = () => {
           updateMessageExecution(assistantMsgId, { status: 'error' })
           return
         }
+        // Her mind is on another of the owner's devices: what they said is
+        // kept for her there and nothing answers here (D6-b), so no reply.
+        if (errorCode(error) === 'left_for_her') {
+          setMessages((prev) => prev.filter((m) => m.id !== assistantMsgId))
+          return
+        }
         // quota arrives as HTTP 200; the error-event code is the only signal
         const errorMsg = generationFailureMessage(
           error,

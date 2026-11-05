@@ -717,6 +717,8 @@ class AgentService {
     holder?: string
     holderName?: string | null
     catchingUp?: boolean
+    /** What the owner says here reaches her there (her log synced). */
+    leaves?: boolean
   }> {
     return apiService.get(`${this.baseUrl}/mind/where`)
   }

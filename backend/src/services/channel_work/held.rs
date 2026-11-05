@@ -211,8 +211,13 @@ async fn lend(
     }
     // Their line is kept in the chat, as a turn here keeps it.
     if let Some(chat_session) = &chat_session {
-        let _ =
-            crate::services::agent::sessions::persist_user_message(db, chat_session, text).await;
+        let _ = crate::services::agent::sessions::persist_user_message_from(
+            db,
+            chat_session,
+            text,
+            platform.slug(),
+        )
+        .await;
     }
     true
 }

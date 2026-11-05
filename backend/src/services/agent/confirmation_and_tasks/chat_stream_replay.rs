@@ -408,6 +408,7 @@ async fn her_real_talk_answered_again() {
                             .filter(|line| line.contains("在等对方回答"))
                             .count(),
                         came_while_away: None,
+                        ..Default::default()
                     }
                 }),
                 ..Default::default()

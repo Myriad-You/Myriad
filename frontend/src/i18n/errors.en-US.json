@@ -658,6 +658,8 @@
     "agent_access_denied": "You do not have permission to do that.",
     "host_frozen": "She is moving and is on no end right now. Try again once the move is done or cancelled.",
     "host_moved": "She does not live on this site now.",
+    "mind_elsewhere": "She is on another of your devices now, so nothing here answers for the moment.",
+    "left_for_her": "Your message is kept; she sees it on that device.",
     "device_host_later": "Letting her live on a device comes in a later version.",
     "move_not_agreed": "That device has not agreed to her living on it yet.",
     "move_mismatch": "What arrived is not what was sealed, so the move did not go on.",
