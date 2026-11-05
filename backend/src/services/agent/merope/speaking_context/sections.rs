@@ -128,9 +128,10 @@ pub(super) async fn recollection(
             }),
     };
     if let (Ok(recalled), Some(nodes)) = (&remembered, nodes) {
-        let recollection = recall::recollect(
+        let recollection = recall::recollect_here(
             &nodes.shown,
             &nodes.own,
+            nodes.group.as_ref().map(|group| &group.here),
             recalled,
             cues.as_ref(),
             super::super::clock::now(),
@@ -521,7 +522,7 @@ pub(super) async fn between_them(
     // heard only where it grew. While she reads her nodes, theirs are on
     // 「关于你」, and so is the rest of what is between them below.
     let shared = match nodes {
-        Some(nodes) => nodes.bits_section(BITS_LIMIT as usize),
+        Some(nodes) => nodes.bits_shown(db, BITS_LIMIT as usize, words).await,
         None => {
             let shared = match present.group_id() {
                 Some(venue) => bits::in_group(db, venue, BITS_LIMIT, words).await,
@@ -535,7 +536,10 @@ pub(super) async fn between_them(
     }
     // What the last days in this group were like: the group's own.
     if let Some(venue) = present.group_id() {
-        let days = bits::days_in(db, venue, GROUP_DAYS, words).await;
+        let days = match nodes {
+            Some(nodes) => nodes.group_days(db, GROUP_DAYS as usize, words).await,
+            None => bits::days_in(db, venue, GROUP_DAYS, words).await,
+        };
         if let Some(block) = format_group_days_section(&days) {
             sections.push(block);
         }
@@ -599,9 +603,12 @@ pub(super) async fn between_them(
             }
         }
         Some(venue) => {
-            if let Some(block) =
-                sore::section(&sore::open_in_group(db, venue, Some(user_id)).await, now)
-            {
+            // While she reads her nodes: on their own node in this group.
+            let here = match nodes {
+                Some(nodes) => nodes.sores_here(now),
+                None => sore::section(&sore::open_in_group(db, venue, Some(user_id)).await, now),
+            };
+            if let Some(block) = here {
                 sections.push(block);
             }
             if let Some(block) = sore::carried_section(&sore::open_all(db, user_id).await, now) {

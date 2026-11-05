@@ -477,19 +477,22 @@ pub async fn days_in(
     )
     .await
     .into_iter()
-    .map(|row| {
-        let day = row
-            .evidence
-            .as_deref()
-            .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
-            .and_then(|evidence| evidence.get("day")?.as_str().map(str::to_string))
-            .unwrap_or_else(|| row.created_at.format("%Y-%m-%d").to_string());
-        (day, row.content)
-    })
+    .map(day_of_row)
     .collect();
     // Freshest first, then what was brought back: by date, oldest first.
     days.sort_by(|left, right| left.0.cmp(&right.0));
     days
+}
+
+/// A day in a group as its row keeps it: (date, what it was like).
+pub(crate) fn day_of_row(row: crate::models::entities::agent_memories::Model) -> (String, String) {
+    let day = row
+        .evidence
+        .as_deref()
+        .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
+        .and_then(|evidence| evidence.get("day")?.as_str().map(str::to_string))
+        .unwrap_or_else(|| row.created_at.format("%Y-%m-%d").to_string());
+    (day, row.content)
 }
 
 #[cfg(test)]

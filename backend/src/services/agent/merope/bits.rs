@@ -92,7 +92,7 @@ fn parse(raw: &str) -> Option<Changes> {
 
 /// Older bits, or days, of a group the talk can bring back besides the
 /// freshest.
-const BROUGHT_BACK: usize = 2;
+pub(crate) const BROUGHT_BACK: usize = 2;
 
 /// A bit as kept: its handle and how it goes.
 pub(crate) fn bit_of(

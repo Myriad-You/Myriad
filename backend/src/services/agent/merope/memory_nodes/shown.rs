@@ -192,13 +192,13 @@ fn latest_of(head: &Value) -> i64 {
         .unwrap_or(0)
 }
 
-/// Every memory row a head names: on its entries, views and open items.
+/// Every memory row a head names: on its entries and spans, views and
+/// open items.
 fn named_by(head: &Value) -> Vec<String> {
-    let entries = head["entries"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .flat_map(|entry| cited(&entry["refs"]));
+    let entries = ["entries", "spans"]
+        .iter()
+        .flat_map(|field| head[field].as_array().into_iter().flatten())
+        .flat_map(|item| cited(&item["refs"]));
     let items = ["views", "open"]
         .iter()
         .flat_map(|field| head[field].as_object().into_iter().flatten())

@@ -41,6 +41,27 @@ pub(crate) struct Own {
     pub her: Option<String>,
 }
 
+/// In a group: who is talking, and the names the group knows its members
+/// by. What is about anyone else there is said as theirs, as recall has
+/// always said it (`store::theirs_here`).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Here {
+    pub speaker: i32,
+    pub names: HashMap<i32, String>,
+}
+
+impl Here {
+    /// `text`, of the memory row `row`, said as whose it is.
+    fn theirs(&self, text: String, row: Option<&MemoryRecord>) -> String {
+        match row.and_then(|row| row.user_id) {
+            Some(other) if other != self.speaker => {
+                store::theirs_here(&text, other, Some(&self.names))
+            }
+            _ => text,
+        }
+    }
+}
+
 /// What comes to mind.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Recollection {
@@ -87,6 +108,7 @@ struct Lines<'a> {
     said: &'a HashMap<String, String>,
     thorough: bool,
     zone: Zone,
+    here: Option<&'a Here>,
 }
 
 impl Lines<'_> {
@@ -99,7 +121,14 @@ impl Lines<'_> {
         let (line, said) = match self.ranked.get(entry_id) {
             Some(line) => (line.clone(), self.said.get(line).cloned()),
             None => match self.record(entry_id) {
-                Some(record) => (store::as_known(&record), store::their_words(&record)),
+                Some(record) => {
+                    let line = store::as_known(&record);
+                    let line = match self.here {
+                        Some(here) => here.theirs(line, Some(&record)),
+                        None => line,
+                    };
+                    (line, store::their_words(&record))
+                }
                 None => {
                     let day = DateTime::from_timestamp_micros(at)
                         .unwrap_or_default()
@@ -138,10 +167,22 @@ fn find<'a>(shown: &'a Shown, node: &str, id: &str) -> Option<&'a Entry> {
 }
 
 /// What comes to mind of `shown` for what `recalled` ranked; going through
-/// all of a kind when `cues` say so, at `now`.
+/// all of a kind when `cues` say so, at `now`. In a private talk.
 pub(crate) fn recollect(
     shown: &Shown,
     own: &Own,
+    recalled: &Recalled,
+    cues: Option<&Cues>,
+    now: DateTime<Utc>,
+) -> Recollection {
+    recollect_here(shown, own, None, recalled, cues, now)
+}
+
+/// [`recollect`]; `here` in a group.
+pub(crate) fn recollect_here(
+    shown: &Shown,
+    own: &Own,
+    here: Option<&Here>,
     recalled: &Recalled,
     cues: Option<&Cues>,
     now: DateTime<Utc>,
@@ -169,6 +210,7 @@ pub(crate) fn recollect(
         said: &recalled.said,
         thorough,
         zone: clock::zone(),
+        here,
     };
     let Ok(pick) = recall::pick(PickInput {
         ranked: ranked.clone(),
@@ -261,10 +303,11 @@ pub(crate) fn recollect(
 }
 
 /// All of a kind, listed by code: every fact on `kind` (the nodes their
-/// words found, in the order they rank), in the stretch of time and the
-/// state `cues` ask about, their own words beside each where they add
-/// something. None when she keeps nothing of it, or nothing of a kind was
-/// found.
+/// words found, in the order they rank; never a person's own node, which is
+/// no kind of thing), in the stretch of time and the state `cues` ask
+/// about, their own words beside each where they add something, and in a
+/// group what is about someone else said as theirs. None when she keeps
+/// nothing of it, or nothing of a kind was found.
 fn listed(
     shown: &Shown,
     kind: &[&str],
@@ -291,6 +334,7 @@ fn listed(
     let nodes = kind
         .iter()
         .filter_map(|id| shown.node(id))
+        .filter(|node| node.kind.as_deref() != Some("person"))
         .map(|node| ListNode {
             id: node.id.clone(),
             gone: false,
@@ -298,19 +342,24 @@ fn listed(
                 .facts
                 .iter()
                 .filter(|entry| shown.ordinary(entry))
-                .map(|entry| ListEntry {
-                    id: entry.row.clone(),
-                    at: entry.at,
-                    text: entry.text.clone(),
-                    memory: entry.memory.clone(),
-                    quote: entry
+                .map(|entry| {
+                    let record = entry
                         .memory
                         .as_deref()
-                        .and_then(|memory| lines.record(memory))
-                        .and_then(|record| store::their_words(&record)),
-                    happened: entry.happened.clone(),
-                    state: entry.state.clone(),
-                    open: entry.open,
+                        .and_then(|memory| lines.record(memory));
+                    ListEntry {
+                        id: entry.row.clone(),
+                        at: entry.at,
+                        text: match lines.here {
+                            Some(here) => here.theirs(entry.text.clone(), record.as_ref()),
+                            None => entry.text.clone(),
+                        },
+                        memory: entry.memory.clone(),
+                        quote: record.as_ref().and_then(store::their_words),
+                        happened: entry.happened.clone(),
+                        state: entry.state.clone(),
+                        open: entry.open,
+                    }
                 })
                 .collect(),
         })

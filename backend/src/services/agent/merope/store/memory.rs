@@ -419,6 +419,20 @@ pub const SAID_SOURCE: &str = "said";
 /// talk there lately.
 const SOMEONE_ELSE_HERE: &str = "someone else in this group";
 
+/// A kept fact about `other`, another member of the group, said as theirs
+/// by the name the group knows them by (`names`), never their name on the
+/// site.
+pub(crate) fn theirs_here(
+    content: &str,
+    other: i32,
+    names: Option<&std::collections::HashMap<i32, String>>,
+) -> String {
+    let name = names
+        .and_then(|names| names.get(&other))
+        .map_or(SOMEONE_ELSE_HERE, String::as_str);
+    about_someone_else(content, name)
+}
+
 /// A kept fact about another member of the group, said as theirs.
 pub(crate) fn about_someone_else(content: &str, name: &str) -> String {
     format!("{content} (this is about {name}, not the one talking to you)")
@@ -500,11 +514,7 @@ pub async fn recall_remembered_split(
             if names.is_none() {
                 names = Some(crate::services::channel_group::names_here(db, venue).await);
             }
-            let name = names
-                .as_ref()
-                .and_then(|names| names.get(&other))
-                .map_or(SOMEONE_ELSE_HERE, String::as_str);
-            content = about_someone_else(&content, name);
+            content = theirs_here(&content, other, names.as_ref());
         }
         if note.brought_to_mind {
             split.brought_to_mind.push(content);

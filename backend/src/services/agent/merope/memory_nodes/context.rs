@@ -22,6 +22,9 @@
 //! audience (`own:`) is not read here; her own life comes where it always
 //! did.
 //!
+//! A group turn is read the same way, from that group's audience alone
+//! ([`super::group_context`]).
+//!
 //! Each section is worded as the one it replaces (`myriad_merope::speaking`
 //! and the modules of each source), from the memory row each item names:
 //! the node decides what she is shown, the row is still where its time and
@@ -41,7 +44,9 @@ use sea_orm::{
 use serde_json::Value;
 
 use super::{
-    Error, audience, hanging, heads,
+    Error, audience,
+    group_context::Group,
+    hanging, heads,
     intent_store::{self, Held},
     known,
     recall::Own,
@@ -58,30 +63,40 @@ pub(crate) const ONGOING: usize = 2;
 /// What they told her about herself shown, newest first.
 const TOLD_SHOWN: usize = 3;
 
-/// A private talk as she reads it this turn.
+/// A talk as she reads it this turn: a private talk, or a group
+/// ([`super::group_context`]).
 #[derive(Debug, Clone)]
 pub(crate) struct NodeTurn {
     pub own: Own,
     pub shown: Shown,
-    /// What still stings with them, wherever it was born, oldest first.
+    /// What still stings with them, oldest first: in private wherever it
+    /// was born, in a group what they did there.
     pub sores: Vec<sore::Sore>,
-    /// What she may bring up now, oldest first.
+    /// What she may bring up now, oldest first; none in a group.
     pub intents: Vec<Held>,
+    /// The group, in one.
+    pub group: Option<Group>,
 }
 
-/// This turn's read of `user_id`'s private talk while she reads her nodes;
-/// none otherwise, in a group, or when it cannot be read (then she reads
-/// as before).
+/// This turn's read of `user_id`'s talk in front of `present` while she
+/// reads her nodes; none otherwise, or when it cannot be read (then she
+/// reads as before).
 pub(crate) async fn for_turn(
     db: &DatabaseConnection,
     user_id: i32,
     present: &Audience,
 ) -> Option<NodeTurn> {
-    if !super::mode().reads() || present.is_group() || user_id <= 0 {
+    if !super::mode().reads() || user_id <= 0 {
         return None;
     }
-    match load(db, user_id, crate::services::agent::merope::clock::now()).await {
-        Ok(turn) => Some(turn),
+    let read = match present.group_id() {
+        None => load(db, user_id, crate::services::agent::merope::clock::now())
+            .await
+            .map(Some),
+        Some(venue) => super::group_context::load(db, user_id, venue).await,
+    };
+    match read {
+        Ok(turn) => turn,
         Err(error) => {
             tracing::warn!(%error, "[memory-nodes] her nodes could not be read for a turn");
             None
@@ -117,12 +132,16 @@ pub(crate) async fn load(
         shown,
         sores,
         intents,
+        group: None,
     })
 }
 
 /// The open items of `head` not let go of that are sore spots, as their
 /// rows keep them.
-fn open_sores(head: &Value, memories: &HashMap<String, agent_memories::Model>) -> Vec<sore::Sore> {
+pub(super) fn open_sores(
+    head: &Value,
+    memories: &HashMap<String, agent_memories::Model>,
+) -> Vec<sore::Sore> {
     head["open"]
         .as_object()
         .into_iter()
@@ -252,6 +271,9 @@ impl NodeTurn {
 
     /// What they told her about herself, newest first.
     pub(crate) fn told_section(&self, now: DateTime<Utc>) -> Option<String> {
+        if self.group.is_some() {
+            return None;
+        }
         let her = self.her()?;
         let mut told: Vec<(String, DateTime<Utc>)> = her
             .facts
@@ -284,6 +306,9 @@ impl NodeTurn {
 
     /// What only the two of them share, freshest first, at most `limit`.
     pub(crate) fn bits_section(&self, limit: usize) -> Option<String> {
+        if self.group.is_some() {
+            return None;
+        }
         let about = self.about()?;
         let mut rows: Vec<&agent_memories::Model> = about
             .facts
@@ -307,6 +332,9 @@ impl NodeTurn {
 
     /// How she comes across with them, as she last found it.
     pub(crate) fn lands_section(&self, now: DateTime<Utc>) -> Option<String> {
+        if self.group.is_some() {
+            return self.group_lands_section(now);
+        }
         let row = self.shown.memory_of(self.view("lands")?)?;
         myriad_merope::speaking::format_lands_section(
             &row.content,
@@ -318,6 +346,9 @@ impl NodeTurn {
 
     /// What they are to her, as she last put it, and before.
     pub(crate) fn us_section(&self, now: DateTime<Utc>) -> Option<String> {
+        if self.group.is_some() {
+            return None;
+        }
         let us = bits::us_of(self.shown.memory_of(self.view("us")?)?.clone());
         myriad_merope::speaking::format_us_section(
             &us.now,
@@ -333,6 +364,9 @@ impl NodeTurn {
     /// How she sums them up and what is not wrapped up with them, beyond
     /// what the sections above say: what her upkeep wrote on 「关于你」.
     pub(crate) fn about_head_section(&self) -> Option<String> {
+        if self.group.is_some() {
+            return self.group_head_section();
+        }
         let lines = head_lines(self.about()?, &self.shown);
         section(
             "What you make of them",
@@ -344,6 +378,9 @@ impl NodeTurn {
 
     /// The same of what they told her about herself, on 「她自己」.
     pub(crate) fn her_head_section(&self) -> Option<String> {
+        if self.group.is_some() {
+            return None;
+        }
         let lines = head_lines(self.her()?, &self.shown);
         section(
             "What you make of yourself with them",
@@ -356,6 +393,9 @@ impl NodeTurn {
     /// One or two things going on with them now, besides `picked`: the
     /// most recently added to.
     pub(crate) fn ongoing_section(&self, picked: &[String]) -> Option<String> {
+        if self.group.is_some() {
+            return None;
+        }
         use myriad_nodes::body::Status;
         let mut going: Vec<&shown::Node> = self
             .shown
@@ -427,7 +467,7 @@ pub(crate) fn heard_section(heard: &[String]) -> Option<String> {
     })
 }
 
-fn section(title: &str, about: &str, tag: &str, lines: &[String]) -> Option<String> {
+pub(super) fn section(title: &str, about: &str, tag: &str, lines: &[String]) -> Option<String> {
     (!lines.is_empty()).then(|| {
         format!(
             "## {title}\n{about}\n{}",
@@ -451,7 +491,7 @@ fn summary_of(head: &Value) -> Vec<String> {
 
 /// What a person's head says beyond its own sections: its summary, her
 /// views but `us` and `lands`, what is not wrapped up that is no sore spot.
-fn head_lines(node: &shown::Node, shown: &Shown) -> Vec<String> {
+pub(super) fn head_lines(node: &shown::Node, shown: &Shown) -> Vec<String> {
     let mut lines: Vec<String> = summary_of(&node.head)
         .into_iter()
         .map(|text| format!("- {text}"))

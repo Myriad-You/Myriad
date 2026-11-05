@@ -43,7 +43,7 @@ pub(crate) async fn owned(prefix: &str) -> Option<crate::db::IsolatedSchema> {
 }
 
 /// A memory row of `user_id`'s, said where `audience` is, by `speaker`.
-async fn memory(
+pub(crate) async fn memory(
     db: &DatabaseConnection,
     user_id: i32,
     speaker: Speaker,
@@ -95,7 +95,7 @@ async fn kept(
 /// Facts of `them`'s kept for good, put where `placement` says in
 /// `user_id`'s `audience`; their memory rows' ids.
 #[allow(clippy::too_many_arguments)]
-async fn put(
+pub(crate) async fn put(
     db: &DatabaseConnection,
     user_id: i32,
     audience: &str,
@@ -125,7 +125,7 @@ async fn put(
     ids
 }
 
-fn start(name: &str) -> Placement {
+pub(crate) fn start(name: &str) -> Placement {
     Placement::Start {
         name: name.into(),
         aliases: Vec::new(),

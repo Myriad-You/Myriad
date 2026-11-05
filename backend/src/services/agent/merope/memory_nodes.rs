@@ -68,7 +68,8 @@
 //! herself there, what is going on and what she may bring up now
 //! ([`context`]); chosen for their words, the nodes they touch and their
 //! entries, and all of a kind listed by code ([`recall`]); each entry as
-//! far as she may take it ([`shown`]). A group is read as before.
+//! far as she may take it ([`shown`]). In a group, that group's audience
+//! alone ([`group_context`]).
 //!
 //! The site keeps no ledger of forgets for these rows: forgetting a memory
 //! row takes its placement with it (the foreign key), and its rows on nodes
@@ -88,6 +89,7 @@ pub(crate) mod child;
 pub(crate) mod context;
 pub(crate) mod facts;
 pub(crate) mod forget;
+pub(crate) mod group_context;
 pub(crate) mod group_facts;
 pub(crate) mod hanging;
 mod heads;
@@ -178,3 +180,6 @@ mod home_intent_tests;
 
 #[cfg(test)]
 pub(crate) mod read_tests;
+
+#[cfg(test)]
+pub(crate) mod group_read_tests;
