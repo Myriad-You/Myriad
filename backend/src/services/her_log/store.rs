@@ -953,7 +953,7 @@ pub async fn write_hers(
     Audience::parse(audience)?;
     myriad_persona_log::payloads::check(kind, payload)?;
     let grant = super::lease::current(db).await?;
-    if grant.holder != NODE {
+    if !grant.held_by(NODE) {
         return Err(Error::Refused("her mind is not on the server".into()));
     }
     let user = owner.user;

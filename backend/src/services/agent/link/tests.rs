@@ -601,7 +601,7 @@ fn where_they_differ() -> Vec<(&'static str, String, Option<&'static str>, bool)
             false,
         ),
         (
-            "a lease frame (the host: unknown_frame, as it takes none yet)",
+            "a lease frame on a link whose welcome said sync off (the host: sync_off)",
             lease_ask.to_string(),
             None,
             true,
@@ -1105,7 +1105,7 @@ async fn the_host_answers_as_before_where_the_core_is_stricter() {
         json!({ "t": "error", "body": { "code": "bad_frame" }, "unref": true }),
         json!({ "t": "error", "body": { "code": "bad_frame" }, "unref": true }),
         json!({ "t": "error", "body": { "code": "bad_frame" }, "unref": true }),
-        json!({ "t": "error", "body": { "code": "unknown_frame" } }),
+        json!({ "t": "error", "body": { "code": "sync_off" } }),
         json!({ "t": "error", "body": { "code": "bad_frame" } }),
     ];
     let cases = where_they_differ();

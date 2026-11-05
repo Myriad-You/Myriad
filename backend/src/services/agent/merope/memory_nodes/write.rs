@@ -105,7 +105,7 @@ async fn epoch<C: ConnectionTrait>(db: &C) -> Result<u64, Error> {
         return Ok(ALONE);
     }
     Ok(match her_log::lease::standing(db).await? {
-        Some(grant) if grant.holder == NODE => grant.epoch,
+        Some(grant) if grant.held_by(NODE) => grant.epoch,
         _ => ALONE,
     })
 }

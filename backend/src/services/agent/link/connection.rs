@@ -212,6 +212,7 @@ pub(super) async fn serve_with(
         wardrobe: None,
         live: None,
         host: false,
+        sync: false,
         core_refused: HashSet::new(),
     };
     tracing::info!(device = %link.device.id, "[link] opened");
@@ -292,6 +293,9 @@ struct Link {
     /// The end dialled in as her host (the device she lives on, H3e-7): it
     /// only hears what becomes of her there.
     host: bool,
+    /// Whether this link's welcome said `sync` on: only then may the sync
+    /// families (`lease`, `log`, `group`, `chat`) flow on it.
+    sync: bool,
     /// What the shared core refused of the child's frames on this link and
     /// was logged: `t code`, a frame type outside the contract as `?`.
     core_refused: HashSet<String>,
@@ -522,6 +526,10 @@ impl Link {
             "act.result" => self.act_result(inbound).await,
             "ping" => self.reply(frame("pong", json!({}))),
             "ack" | "pong" => {}
+            // A sync family's frame on a link whose welcome said sync off.
+            t if !self.sync && myriad_her_link::needs_sync(t) => {
+                self.error("sync_off", Some(inbound.seq))
+            }
             t if CONTRACT.frames.contains_key(t) => self.error("bad_frame", Some(inbound.seq)),
             _ => self.error("unknown_frame", Some(inbound.seq)),
         }
@@ -604,6 +612,7 @@ impl Link {
                 false
             }
         };
+        self.sync = sync;
         let mut welcome = json!({
             "protocol": CONTRACT.protocol,
             "sync": if sync { "on" } else { "off" },

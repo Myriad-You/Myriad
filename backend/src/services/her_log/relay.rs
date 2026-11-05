@@ -192,11 +192,13 @@ fn vector_body(audience: &str, holdings: &myriad_persona_log::Holdings, ask: &[S
     body
 }
 
-/// Who holds her mind now: the server when no grant was ever issued.
+/// Who holds her mind now: the server when no grant was ever issued (none
+/// while she is frozen between ends, which the site keeps no grant of yet).
 async fn holder(db: &DatabaseConnection) -> Result<String, Error> {
     Ok(lease::standing(db)
         .await?
-        .map_or_else(|| NODE.to_string(), |grant| grant.holder))
+        .map_or_else(|| Some(NODE.to_string()), |grant| grant.holder)
+        .unwrap_or_default())
 }
 
 /// What the server sends a device that just connected: where her mind is,
@@ -219,11 +221,11 @@ pub async fn welcome(
         lease::epoch_body(standing, settings),
     )];
     let taken_from_it = history.windows(2).any(|pair| {
-        pair[0].holder == device
+        pair[0].held_by(device)
             && pair[1].how == myriad_persona_log::How::Takeover
-            && pair[1].holder == NODE
+            && pair[1].held_by(NODE)
     });
-    if standing.holder != device && taken_from_it {
+    if !standing.held_by(device) && taken_from_it {
         let takeover = history
             .iter()
             .rev()
@@ -559,9 +561,9 @@ async fn moved(
     match outcome {
         Outcome::Granted(grant) => {
             let mut out = Vec::new();
-            if grant.holder != NODE {
+            if let Some(holder) = grant.holder.clone().filter(|holder| holder != NODE) {
                 out.push(Outgoing {
-                    to: To::Device(grant.holder.clone()),
+                    to: To::Device(holder),
                     t: "lease.grant",
                     id: Some(grant.epoch.to_string()),
                     body: lease::grant_body(&grant, settings),

@@ -208,7 +208,7 @@ fn from_of(history: &[Grant], grant: &Grant) -> Option<String> {
         .iter()
         .rev()
         .find(|earlier| earlier.epoch < grant.epoch)
-        .map(|earlier| earlier.holder.clone())
+        .and_then(|earlier| earlier.holder.clone())
 }
 
 /// What the server holds of `owner`'s log in each audience of `through`.
@@ -247,7 +247,7 @@ async fn of_grant<C: ConnectionTrait>(
     })?;
     if !matches!(state, myriad_persona_log::Here::Thinking) {
         return Ok(Pen::Away {
-            holder: grant.holder.clone(),
+            holder: grant.holder.clone().unwrap_or_default(),
             epoch: grant.epoch,
         });
     }

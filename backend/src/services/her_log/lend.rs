@@ -81,7 +81,7 @@ pub(crate) async fn mind_on_a_pc_if(db: &DatabaseConnection, on: bool) -> Option
     if !on || !any_link() {
         return None;
     }
-    let holder = super::lease::standing(db).await.ok()??.holder;
+    let holder = super::lease::standing(db).await.ok()??.holder?;
     (holder != NODE && link(&holder).is_some()).then_some(holder)
 }
 

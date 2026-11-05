@@ -37,6 +37,8 @@ fn how_name(how: How) -> &'static str {
         How::Handover => "handover",
         How::Takeover => "takeover",
         How::Force => "force",
+        How::Freeze => "freeze",
+        How::Thaw => "thaw",
     }
 }
 
@@ -48,16 +50,19 @@ fn grant_of(row: QueryResult) -> Result<Grant, Error> {
         "handover" => How::Handover,
         "takeover" => How::Takeover,
         "force" => How::Force,
+        "freeze" => How::Freeze,
+        "thaw" => How::Thaw,
         _ => return Err(Error::Refused("a kept grant has no known way".into())),
     };
     Ok(Grant {
         epoch: row.try_get::<i64>("", "epoch")? as u64,
-        holder: row.try_get("", "holder")?,
+        holder: Some(row.try_get("", "holder")?),
         issued: issued
             .parse()
             .map_err(|_| Error::Refused("a kept grant has no clock".into()))?,
         how,
         from: row.try_get("", "from_holder")?,
+        moving: None,
         through: row
             .try_get::<Option<Value>>("", "through")?
             .map(serde_json::from_value)
@@ -93,13 +98,18 @@ pub async fn standing<C: ConnectionTrait>(db: &C) -> Result<Option<Grant>, Error
 
 async fn insert<C: ConnectionTrait>(db: &C, grant: &Grant) -> Result<(), Error> {
     grant.check()?;
+    // A frozen grant (no one holds her while she moves) is the core's; the
+    // site neither asks for one nor keeps one yet.
+    let Some(holder) = grant.holder.clone() else {
+        return Err(Error::Refused("the site keeps no frozen grant".into()));
+    };
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "INSERT INTO agent_lease_grants (epoch, holder, issued, how, through, created_at, from_holder) \
          VALUES ($1, $2, $3, $4, $5, $6, $7)",
         [
             (grant.epoch as i64).into(),
-            grant.holder.clone().into(),
+            holder.into(),
             grant.issued.to_string().into(),
             how_name(grant.how).into(),
             grant.through.as_ref().map(|through| json!(through)).into(),
@@ -126,11 +136,12 @@ async fn standing_or_first<C: ConnectionTrait>(db: &C) -> Result<Grant, Error> {
     }
     let grant = Grant {
         epoch: 1,
-        holder: NODE.to_string(),
+        holder: Some(NODE.to_string()),
         issued: store::next_rev(db).await?,
         how: How::First,
         from: None,
         through: None,
+        moving: None,
     };
     insert(db, &grant).await?;
     Ok(grant)
@@ -312,11 +323,11 @@ pub(super) async fn request_issued(
         }
         _ => {}
     }
-    let holder = ends.iter().find(|end| end.device_id == lease.holder);
+    let holder = ends.iter().find(|end| lease.held_by(&end.device_id));
     // The owner's freshest sighting by any other end.
     let owner_place = ends
         .iter()
-        .filter(|end| end.device_id != lease.holder)
+        .filter(|end| !lease.held_by(&end.device_id))
         .filter_map(|end| {
             Some(OwnerPlace {
                 place: end.place.clone()?,
@@ -360,7 +371,7 @@ pub async fn watch(
     now: i64,
 ) -> Result<Option<Grant>, Error> {
     match standing(db).await? {
-        Some(grant) if grant.holder != NODE => {}
+        Some(grant) if !grant.held_by(NODE) => {}
         _ => return Ok(None),
     }
     match request(

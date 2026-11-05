@@ -404,7 +404,7 @@ impl Side {
             }
             "lease.grant" => {
                 let grant: Grant = serde_json::from_value(body["grant"].clone()).unwrap();
-                if grant.holder == self.id {
+                if grant.held_by(&self.id) {
                     self.epoch = Some(grant.epoch);
                 }
                 Vec::new()
@@ -967,8 +967,8 @@ async fn a_groups_rows_go_to_no_computer_and_come_back_only_from_her_mind() {
     exchange(db, &mut mac, vec![yielded], T0 + 2 * MINUTE).await;
     let standing = lease::standing(db).await.unwrap().unwrap();
     assert_eq!(
-        (standing.holder.as_str(), standing.how),
-        (NODE, myriad_persona_log::How::Handover)
+        (standing.holder.as_deref(), standing.how),
+        (Some(NODE), myriad_persona_log::How::Handover)
     );
     assert_eq!(json!(standing.through), through);
     // A count for the whole side, not per audience, is not a yield.
@@ -1171,8 +1171,8 @@ async fn the_server_takes_over_only_when_the_holder_has_stopped() {
         .unwrap()
         .expect("taken over");
     assert_eq!(
-        (grant.holder.as_str(), grant.how),
-        (NODE, myriad_persona_log::How::Takeover)
+        (grant.holder.as_deref(), grant.how),
+        (Some(NODE), myriad_persona_log::How::Takeover)
     );
 
     let welcome = relay::welcome(db, &settings, "dev_mac").await.unwrap();
@@ -1236,7 +1236,7 @@ async fn the_lease_conformance_cases_pass_through_the_servers_wiring() {
         if let Some(last_seen) = input["holderLastSeen"].as_i64() {
             lease::heard(
                 db,
-                &standing.holder,
+                standing.holder.as_deref().unwrap(),
                 Some(lease::Core::Host),
                 last_seen - silence,
             )
@@ -2343,7 +2343,7 @@ fn said(text: &str, at: i64) -> Value {
         "at": at,
         "text": text,
         "place": "web",
-        "source": "chat",
+        "source": "reply",
         "called": true,
         "exit": "web",
         "extent": "full",
