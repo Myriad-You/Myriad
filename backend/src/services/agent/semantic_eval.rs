@@ -1374,7 +1374,7 @@ fn request(case: &Case) -> Value {
             json!({"system":system,"schema":schema,"schemaName":"agent_consciousness_decision","input":json!({"event":event,"self":snapshot}).to_string()})
         }
         // The line made from a decision's gist (`reply`) about what a child
-        // end told (`input`), as `redeem::compose_line` asks for it; without
+        // end told (`input`), as `compose::compose_line` asks for it; without
         // the speaking sections a chat turn wears (memory, mood, how she is).
         "speak" => {
             use myriad_merope::speaking::{
