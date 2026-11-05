@@ -89,7 +89,14 @@ pub(crate) async fn run(
     };
     let run = create_run(user_id, Some(session_id.clone())).await;
     let (progress_tx, progress_rx) = tokio::sync::mpsc::channel(256);
-    tokio::spawn(forward_autonomy_progress(run.clone(), progress_rx));
+    // Her managed background work: with every slot taken, the run goes on
+    // without anyone watching its progress (what it sends is dropped).
+    if !crate::services::agent::merope::background::spawn(
+        "intent work progress",
+        forward_autonomy_progress(run.clone(), progress_rx),
+    ) {
+        tracing::info!("[memory-nodes] an instruction's run goes on unwatched: no slot free");
+    }
     let run_id = run.run_id().to_string();
     let lane_key = LaneQueue::make_lane_key(user_id, Some(&session_id));
     let request = UserRequest {

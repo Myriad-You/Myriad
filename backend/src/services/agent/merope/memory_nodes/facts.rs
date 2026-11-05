@@ -49,6 +49,10 @@ pub(crate) struct Fact {
     pub text: String,
     pub said_by: SaidBy,
     pub placement: Placement,
+    /// When what it tells of happened and where it stands, as she answered
+    /// (`myriad_merope::happened`), for listing a kind whole: on the entry
+    /// only.
+    pub standing: myriad_merope::happened::Standing,
 }
 
 /// Where a group of facts goes: a node there already (its key), or one to
@@ -244,6 +248,9 @@ pub(crate) async fn put_about(
                     refs: Vec::new(),
                     revision: String::new(),
                     audience: None,
+                    happened: fact.standing.happened.clone(),
+                    state: fact.standing.state.clone(),
+                    open: fact.standing.open,
                 })
                 .collect(),
         })?;
@@ -421,6 +428,7 @@ pub(crate) async fn settled(
                     text: holder.content.clone(),
                     said_by: said_by_in(&audience, &holder.speaker),
                     placement,
+                    standing: update.standing.clone(),
                 });
             }
         }

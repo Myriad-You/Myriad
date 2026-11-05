@@ -294,6 +294,7 @@ async fn run_one(
                 .memories
                 .iter()
                 .map(|fact| super::chat_remember::ChatMemoryUpdate {
+                    standing: Default::default(),
                     fact: Some(fact.clone()),
                     supersedes: Vec::new(),
                     evidence: Some(fact.clone()),

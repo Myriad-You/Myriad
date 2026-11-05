@@ -111,6 +111,7 @@ pub(super) fn update(
     topic: Option<GoesUnder>,
 ) -> ChatMemoryUpdate {
     ChatMemoryUpdate {
+        standing: Default::default(),
         fact: Some(text.into()),
         supersedes: supersedes.iter().map(|old| old.to_string()).collect(),
         evidence: Some(text.into()),
@@ -442,6 +443,55 @@ async fn what_she_knew_before_is_sorted_onto_her_nodes() {
         None,
         "a short note is not sorted"
     );
+    set_for_test(None);
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn when_it_happened_and_where_it_stands_go_on_its_entry() {
+    let Some(schema) = schema("memory_nodes_standing").await else {
+        return;
+    };
+    let db = &schema.db;
+    set_for_test(Some(Mode::Shadow));
+    let goes = || {
+        Some(GoesUnder::New {
+            name: "their laundry".into(),
+            aliases: Vec::new(),
+        })
+    };
+    let mut shirt = update("left a shirt at the cleaner's", &[], goes());
+    shirt.standing = myriad_merope::happened::Standing {
+        happened: Some(myriad_merope::happened::Happened {
+            from: "2026-10-03".into(),
+            to: None,
+            about: false,
+        }),
+        state: Some("待取".into()),
+        open: Some(true),
+    };
+    let coat = update("got a coat back", &[], goes());
+    settle(db, vec![shirt, coat]).await;
+    let body = |like: &str| {
+        let sql = format!(
+            "SELECT body FROM agent_node_rows WHERE kind = 'node.entry' AND body LIKE '%{like}%'"
+        );
+        async move {
+            let row = db
+                .query_one_raw(Statement::from_string(DatabaseBackend::Postgres, sql))
+                .await
+                .unwrap()
+                .unwrap();
+            serde_json::from_str::<Value>(&row.try_get::<String>("", "body").unwrap()).unwrap()
+        }
+    };
+    let shirt = body("shirt").await;
+    assert_eq!(shirt["happened"], json!({"from": "2026-10-03"}));
+    assert_eq!(shirt["state"], "待取");
+    assert_eq!(shirt["open"], true);
+    // None given: none kept, the entry as it was before.
+    let coat = body("coat").await;
+    assert!(coat.get("happened").is_none() && coat.get("state").is_none());
     set_for_test(None);
     schema.drop().await;
 }

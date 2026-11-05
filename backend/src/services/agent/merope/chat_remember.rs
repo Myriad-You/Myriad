@@ -75,6 +75,12 @@ pub struct ChatMemoryUpdate {
     /// (`store::put_under`).
     #[serde(default)]
     pub topic: Option<super::store::GoesUnder>,
+    /// When what it tells of happened and where it stands, as going over
+    /// the stretch answered (`myriad_merope::happened`): for the entry on
+    /// her nodes, which is where a kind of thing is listed whole. Not kept
+    /// on the memory row.
+    #[serde(default)]
+    pub standing: myriad_merope::happened::Standing,
 }
 
 /// Something she told them that she would remember having said.
@@ -101,6 +107,7 @@ impl ChatMemoryUpdates {
     /// fact, and everything it withdraws.
     pub fn combined(&self) -> ChatMemoryUpdate {
         ChatMemoryUpdate {
+            standing: Default::default(),
             topic: None,
             cues: Vec::new(),
             fact: self.updates.iter().find_map(|update| update.fact.clone()),
@@ -692,6 +699,7 @@ mod tests {
 
     fn new_fact(fact: &str, subject: &str) -> ChatMemoryUpdate {
         ChatMemoryUpdate {
+            standing: Default::default(),
             topic: None,
             cues: Vec::new(),
             fact: Some(fact.into()),

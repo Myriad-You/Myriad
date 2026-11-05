@@ -162,6 +162,10 @@ fn entry(home: &Home, memory: &str, said_by: &[SaidBy]) -> Result<Vec<RowIn>, Er
             refs: Vec::new(),
             revision: String::new(),
             audience: None,
+            // These sources say nothing of when or where it stands.
+            happened: None,
+            state: None,
+            open: None,
         }],
     })?))
 }

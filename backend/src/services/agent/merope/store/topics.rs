@@ -699,6 +699,7 @@ mod tests {
 
     fn fact(text: &str, supersedes: &[&str], topic: Option<GoesUnder>) -> ChatMemoryUpdate {
         ChatMemoryUpdate {
+            standing: Default::default(),
             fact: Some(text.into()),
             supersedes: supersedes.iter().map(|old| old.to_string()).collect(),
             evidence: Some(text.into()),

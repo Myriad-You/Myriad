@@ -515,6 +515,8 @@ mod tests {
                 thorough: false,
                 look_back: false,
                 about_you,
+                range: None,
+                open: None,
             }),
             opening,
             about_her: false,

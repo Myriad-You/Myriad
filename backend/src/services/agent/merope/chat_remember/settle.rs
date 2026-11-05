@@ -171,6 +171,7 @@ pub(in crate::services::agent::merope) async fn settle(
         from.dedup();
         settled.push(from);
         updates.updates.push(ChatMemoryUpdate {
+            standing: item.standing.clone(),
             fact: Some(compact_summary(&item.fact)),
             // What it changes goes with the first: it says how it is now.
             supersedes: if updates.updates.is_empty() {
@@ -190,6 +191,7 @@ pub(in crate::services::agent::merope) async fn settle(
         let note = notes[index];
         settled.push(vec![note.id.clone()]);
         updates.updates.push(ChatMemoryUpdate {
+            standing: Default::default(),
             fact: Some(compact_summary(&note.content)),
             supersedes: Vec::new(),
             evidence: note.evidence.clone(),

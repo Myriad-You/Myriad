@@ -48,6 +48,7 @@ fn fact() -> Effect {
     Effect::Chat(
         crate::services::agent::merope::chat_remember::ChatMemoryUpdates {
             updates: vec![ChatMemoryUpdate {
+                standing: Default::default(),
                 topic: None,
                 cues: Vec::new(),
                 fact: Some("养了一只猫叫年糕".into()),
@@ -64,6 +65,7 @@ fn fact_of(fact: &str) -> Effect {
     Effect::Chat(
         crate::services::agent::merope::chat_remember::ChatMemoryUpdates {
             updates: vec![ChatMemoryUpdate {
+                standing: Default::default(),
                 topic: None,
                 cues: Vec::new(),
                 fact: Some(fact.into()),
@@ -625,6 +627,7 @@ async fn taking_back_lets_go_of_what_she_knows_for_good() {
     // it says, if anything.
     let line = |fact: Option<&str>| {
         let mut updates = vec![ChatMemoryUpdate {
+            standing: Default::default(),
             topic: None,
             cues: Vec::new(),
             fact: None,
@@ -633,6 +636,7 @@ async fn taking_back_lets_go_of_what_she_knows_for_good() {
             concepts: vec![],
         }];
         updates.extend(fact.map(|fact| ChatMemoryUpdate {
+            standing: Default::default(),
             topic: None,
             cues: Vec::new(),
             fact: Some(fact.into()),

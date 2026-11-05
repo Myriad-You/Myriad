@@ -166,6 +166,7 @@ async fn settle_session(
         updates
             .updates
             .push(super::super::chat_remember::ChatMemoryUpdate {
+                standing: Default::default(),
                 // When it would be worth remembering, as production keeps it.
                 cues: item.when_for,
                 topic: if topics_later() {
@@ -195,6 +196,7 @@ async fn settle_session(
         updates
             .updates
             .push(super::super::chat_remember::ChatMemoryUpdate {
+                standing: Default::default(),
                 topic: None,
                 cues: Vec::new(),
                 fact: Some(fact.clone()),

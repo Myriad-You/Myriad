@@ -157,8 +157,20 @@ async fn sort_batch(
             .map(|row| FactIn {
                 id: row.id.clone(),
                 text: crate::services::agent::merope::store::as_known(row),
+                // The day it was said, in her zone: what「上个月」is read against.
+                said: Some(
+                    row.created_at
+                        .with_timezone(&crate::services::agent::merope::clock::zone())
+                        .format("%Y-%m-%d")
+                        .to_string(),
+                ),
             })
             .collect(),
+        today: Some(
+            crate::services::agent::merope::clock::today()
+                .format("%Y-%m-%d")
+                .to_string(),
+        ),
     })?;
     let Ok(raw) = Ask::new(Voice::Thorough, user_id, OPERATION)
         .within(TIMEOUT)
@@ -199,6 +211,7 @@ async fn sort_batch(
                 text: row.content.clone(),
                 said_by: facts::said_by(&row.speaker),
                 placement: sorted.placement,
+                standing: sorted.standing,
             })
         })
         .collect();

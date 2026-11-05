@@ -90,6 +90,9 @@ async fn copy(
                 refs: Vec::new(),
                 revision: String::new(),
                 audience: Some(group.to_string()),
+                happened: fact.standing.happened.clone(),
+                state: fact.standing.state.clone(),
+                open: fact.standing.open,
             })
             .collect(),
     })?;
@@ -118,6 +121,7 @@ mod tests {
             text: "works nights".into(),
             said_by,
             placement,
+            standing: Default::default(),
         }
     }
 
