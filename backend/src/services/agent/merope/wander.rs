@@ -13,22 +13,22 @@
 //! which sees her energy. What she thought of lately is not thought of again
 //! for a few days. That record is attention, not memory, and lives in
 //! process memory only.
+//!
+//! The rules are the core's (`myriad_merope::wander`: when the mind drifts
+//! and what the thought says; `recall::wander`: where it drifts); who is
+//! present, the record and handing the thought on are here.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
 use chrono::{DateTime, Utc};
+use myriad_agent_rules::memory::recall::NOT_AGAIN_SECS;
+use myriad_merope::wander::{quiet_enough, thought};
 use sea_orm::DatabaseConnection;
 
 use crate::services::agent::memory::unified;
 
-pub const THOUGHT_EVENT: &str = "agent.merope.thought";
-/// Quiet this long before the mind starts to drift.
-const QUIET_SECS: i64 = 3 * 60;
-/// Between two thoughts about the same person.
-const BETWEEN_THOUGHTS_SECS: i64 = 10 * 60;
-/// A thought is not had again about the same memory for this long.
-const NOT_AGAIN_SECS: i64 = 3 * 24 * 3600;
+pub use myriad_merope::wander::THOUGHT_EVENT;
 const THOUGHTS_KEPT: usize = 64;
 
 #[derive(Default)]
@@ -47,33 +47,24 @@ pub(super) fn forget() {
     }
 }
 
-/// Whether it has been quiet long enough, since they spoke, since she last
-/// spoke up and since her last thought, for her mind to drift to them.
-fn quiet_enough(
-    last_user_message_at: Option<DateTime<Utc>>,
-    last_proactive_at: Option<DateTime<Utc>>,
-    last_thought_at: Option<DateTime<Utc>>,
-    cooldown_secs: i64,
+/// Her last thought about them, and when she last thought of each memory
+/// still within the core's not-again window.
+fn recently_thought(
+    user_id: i32,
     now: DateTime<Utc>,
-) -> bool {
-    let since = |at: Option<DateTime<Utc>>| at.map(|at| (now - at).num_seconds());
-    since(last_user_message_at).is_none_or(|secs| secs >= QUIET_SECS)
-        && since(last_proactive_at).is_none_or(|secs| secs >= cooldown_secs)
-        && since(last_thought_at).is_none_or(|secs| secs >= BETWEEN_THOUGHTS_SECS)
-}
-
-fn recently_thought(user_id: i32, now: DateTime<Utc>) -> (Option<DateTime<Utc>>, HashSet<String>) {
+) -> (Option<DateTime<Utc>>, HashMap<String, DateTime<Utc>>) {
     let Ok(mut held) = WANDERING.lock() else {
-        return (None, HashSet::new());
+        return (None, HashMap::new());
     };
     let entry = held.entry(user_id).or_default();
     entry
         .thought
         .retain(|(at, _)| (now - *at).num_seconds() < NOT_AGAIN_SECS);
-    (
-        entry.last,
-        entry.thought.iter().map(|(_, id)| id.clone()).collect(),
-    )
+    let mut thought = HashMap::new();
+    for (at, id) in &entry.thought {
+        thought.insert(id.clone(), *at);
+    }
+    (entry.last, thought)
 }
 
 fn note_thought(user_id: i32, memory_id: String, now: DateTime<Utc>) {
@@ -87,22 +78,13 @@ fn note_thought(user_id: i32, memory_id: String, now: DateTime<Utc>) {
     }
 }
 
-/// What the thought is, for the event decision. Where it lands on something
-/// she knows only a little about, that fact comes with it; whether it makes
-/// her want to know more is the decision's to judge.
+/// What the thought is, for the event decision (the core's words).
 fn thought_summary(wandered: &unified::Wandered) -> String {
-    match &wandered.gap {
-        Some((gap, known)) => format!(
-            "你忽然想起关于对方的一件事：{}。关于「{gap}」，你只记得{}。",
-            wandered.memory.content,
-            if *known <= 1 {
-                "这一件事"
-            } else {
-                "两件事"
-            }
-        ),
-        None => format!("你忽然想起关于对方的一件事：{}", wandered.memory.content),
-    }
+    let gap = wandered
+        .gap
+        .as_ref()
+        .map(|(gap, known)| (gap.as_str(), *known));
+    thought(&wandered.memory.content, gap)
 }
 
 /// One minute of her idle mind across everyone present.
@@ -128,7 +110,7 @@ pub async fn tick(db: DatabaseConnection) {
         if super::effective_do_not_disturb(&state) || super::current_activity(&state) != "idle" {
             continue;
         }
-        let (last_thought, avoid) = recently_thought(user_id, now);
+        let (last_thought, thought_at) = recently_thought(user_id, now);
         let utc =
             |at: Option<chrono::DateTime<chrono::FixedOffset>>| at.map(|at| at.with_timezone(&Utc));
         let spoke_up = crate::services::agent::speech::ledger::last_unasked_at(
@@ -151,7 +133,7 @@ pub async fn tick(db: DatabaseConnection) {
             user_id,
             &unified::Audience::private(user_id),
             &super::priming::current(user_id),
-            &avoid,
+            &thought_at,
             &mut roll,
         )
         .await;
@@ -173,35 +155,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_mind_drifts_only_after_quiet_and_not_too_often() {
-        let now = crate::clock::now();
-        let ago = |secs: i64| Some(now - chrono::Duration::seconds(secs));
-        assert!(quiet_enough(ago(600), None, None, 180, now));
-        assert!(!quiet_enough(ago(30), None, None, 180, now), "just spoke");
-        assert!(
-            !quiet_enough(ago(600), ago(100), None, 180, now),
-            "she spoke up a moment ago"
-        );
-        assert!(
-            !quiet_enough(ago(600), ago(300), None, 600, now),
-            "a tired cooldown is longer"
-        );
-        assert!(
-            !quiet_enough(ago(600), None, ago(60), 180, now),
-            "just had a thought"
-        );
-        assert!(quiet_enough(None, None, None, 180, now));
-    }
-
-    #[test]
     fn a_thought_is_not_had_again_for_days() {
         let user = -93_001;
         let now = crate::clock::now();
         note_thought(user, "mem_cat".into(), now - chrono::Duration::days(1));
         note_thought(user, "mem_tea".into(), now - chrono::Duration::days(4));
-        let (last, avoid) = recently_thought(user, now);
+        let (last, thought_at) = recently_thought(user, now);
         assert!(last.is_some());
-        assert!(avoid.contains("mem_cat"));
-        assert!(!avoid.contains("mem_tea"), "long enough ago");
+        assert!(thought_at.contains_key("mem_cat"));
+        assert!(!thought_at.contains_key("mem_tea"), "long enough ago");
     }
 }

@@ -209,28 +209,10 @@ impl NotificationEventKey {
         }
     }
 
-    /// Agent 任务的终局，或需要用户回应的状态。
-    pub const fn is_task_outcome(self) -> bool {
-        matches!(
-            self,
-            Self::AgentTaskCompleted
-                | Self::AgentTaskFailed
-                | Self::AgentTaskCancelled
-                | Self::AgentClarification
-        )
-    }
-
-    /// 值得 Merope 在用户离开时主动打扰的事件。
-    pub const fn interrupts_when_away(self) -> bool {
-        self.is_task_outcome()
-            || matches!(
-                self,
-                Self::PhantasiSourceError
-                    | Self::PlatformSyncFailed
-                    | Self::MeropePlatformActivity
-                    | Self::MeropeReportReady
-                    | Self::MeropeReachOut
-            )
+    /// 值得 Merope 在用户离开时主动打扰的事件（核心 `notify::interrupts_when_away`，
+    /// 任务终局也在其中）。
+    pub fn interrupts_when_away(self) -> bool {
+        myriad_merope::notify::interrupts_when_away(self.key())
     }
 
     pub fn from_key(key: &str) -> Option<Self> {

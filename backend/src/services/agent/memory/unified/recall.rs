@@ -1,10 +1,6 @@
 //! Recall: which memories come to mind for what is said now, primed by what came to mind just before, and where her thoughts wander from there.
 
 use super::*;
-use myriad_agent_rules::memory::recall::{concept_counts, thinly_known};
-
-/// How far one bout of mind-wandering drifts.
-pub(super) const WANDER_STEPS: usize = 3;
 
 tokio::task_local! {
     static QUIETLY: ();
@@ -325,67 +321,42 @@ pub async fn named_done<C: ConnectionTrait>(
         .collect())
 }
 
-/// Let the mind wander over a person's memories that `present` may hear:
-/// start from what is still on the mind (else somewhere recent), drift a few
-/// steps along association, and return where it settled. `avoid` holds ids
-/// thought of lately, which are never landed on. Nothing is counted as used:
-/// a passing thought is not a recall until it is said.
+/// Let the mind wander over a person's memories that `present` may hear
+/// (the core's `recall::wander`: from what is still on the mind, else
+/// somewhere recent, a few steps along association) and return where it
+/// settled. `thought_at` holds when she last thought of a memory while
+/// wandering; one thought of lately is never landed on. Nothing is counted
+/// as used: a passing thought is not a recall until it is said.
 pub async fn wander<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
     present: &Audience,
     priming: &Priming,
-    avoid: &std::collections::HashSet<String>,
+    thought_at: &std::collections::HashMap<String, chrono::DateTime<chrono::Utc>>,
     roll: &mut impl FnMut() -> f64,
 ) -> Result<Option<Wandered>, DbErr> {
+    use myriad_agent_rules::memory::recall;
     if user_id <= 0 {
         return Ok(None);
     }
-    let mut seen = std::collections::HashSet::new();
     let rows: Vec<agent_memories::Model> =
-        rows_for(db, user_id, present, &MemoryKind::ABOUT_PERSON)
-            .await?
-            .into_iter()
-            .filter(|row| {
-                let content = normalize_content(&row.content);
-                !content.is_empty() && seen.insert(content)
-            })
-            .collect();
-    if rows.len() < 2 {
-        return Ok(None);
-    }
+        rows_for(db, user_id, present, &MemoryKind::ABOUT_PERSON).await?;
     let concepts: Vec<Vec<Concept>> = rows.iter().map(concepts_of).collect();
-    let nodes: Vec<super::super::association::Node> = rows
+    let musings: Vec<recall::Musing> = rows
         .iter()
         .zip(&concepts)
-        .map(|(row, concepts)| super::super::association::Node {
+        .map(|(row, concepts)| recall::Musing {
+            content: &row.content,
             concepts,
             at: row.created_at,
+            primed: priming.of(&row.id),
+            thought_at: thought_at.get(&row.id).map(|at| at.fixed_offset()),
         })
         .collect();
-    let primed = rows
-        .iter()
-        .enumerate()
-        .map(|(index, row)| (priming.of(&row.id), index))
-        .filter(|(activation, _)| *activation > 0.0)
-        .max_by(|left, right| left.0.total_cmp(&right.0))
-        .map(|(_, index)| index);
-    // Rows are newest first; squaring leans a random start toward recent.
-    let start = primed.unwrap_or_else(|| {
-        let at = roll().clamp(0.0, 1.0);
-        ((at * at) * rows.len() as f64) as usize % rows.len()
-    });
-    let avoid: Vec<usize> = rows
-        .iter()
-        .enumerate()
-        .filter(|(_, row)| avoid.contains(&row.id))
-        .map(|(index, _)| index)
-        .collect();
-    let landed = super::super::association::wander(&nodes, start, WANDER_STEPS, &avoid, roll);
-    let counts = concept_counts(concepts.iter().map(Vec::as_slice));
-    Ok(landed.map(|index| Wandered {
-        memory: MemoryRecord::from(rows[index].clone()),
-        gap: thinly_known(&concepts[index], &counts),
+    let landed = recall::wander(&musings, super::super::utc_now().fixed_offset(), roll);
+    Ok(landed.map(|landed| Wandered {
+        memory: MemoryRecord::from(rows[landed.index].clone()),
+        gap: landed.gap,
     }))
 }
 
