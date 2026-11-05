@@ -321,6 +321,18 @@ async fn her_real_talk_answered_again() {
         .ok()
         .and_then(|n| n.parse().ok())
         .unwrap_or(16);
+    // One conversation only, and in it only the turns with these words,
+    // when it is those to see again.
+    let only = std::env::var("MEROPE_REPLAY_SESSION").unwrap_or_default();
+    let said_only = std::env::var("MEROPE_REPLAY_SAID").unwrap_or_default();
+    // Said in the site's panel, where she hands work off (`MEROPE_REPLAY_PANEL`),
+    // with what she had handed off there as her lines about it read
+    // (`#1「…」在等对方回答：…`, `&&&` between): the panel's pieces are
+    // read when a turn is made, so a replay is told them.
+    let panel = std::env::var("MEROPE_REPLAY_PANEL").is_ok();
+    let pieces: Vec<String> = std::env::var("MEROPE_REPLAY_PIECES")
+        .map(|lines| lines.split("&&&").map(str::to_string).collect())
+        .unwrap_or_default();
     let turns = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -330,8 +342,10 @@ async fn her_real_talk_answered_again() {
                WHERE s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
                WINDOW w AS (PARTITION BY s.user_id ORDER BY m.created_at)) \
              SELECT user_id, session_id, content, created_at, next_content FROM t \
-             WHERE role = 'user' AND next_role = 'assistant' ORDER BY created_at DESC LIMIT $1",
-            [n.into()],
+             WHERE role = 'user' AND next_role = 'assistant' AND ($2 = '' OR session_id = $2) \
+               AND ($3 = '' OR content = $3) \
+             ORDER BY created_at DESC LIMIT $1",
+            [n.into(), only.into(), said_only.into()],
         ))
         .await
         .unwrap();
@@ -386,6 +400,16 @@ async fn her_real_talk_answered_again() {
                 interaction_mode: AgentInteractionMode::Chat,
                 session_id: Some(session),
                 conversation_history: Some(history),
+                panel_work: (panel || !pieces.is_empty()).then(|| {
+                    crate::services::agent::types::ChannelChat {
+                        works: pieces.clone(),
+                        waiting: pieces
+                            .iter()
+                            .filter(|line| line.contains("在等对方回答"))
+                            .count(),
+                        came_while_away: None,
+                    }
+                }),
                 ..Default::default()
             }),
         };
