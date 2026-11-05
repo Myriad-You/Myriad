@@ -325,8 +325,9 @@ async fn apply_bits(
         )
         .await
         .map(|replaced| replaced.id);
-        if matches!(remembered, Ok(Some(_))) {
+        if let Ok(Some(id)) = &remembered {
             kept += 1;
+            super::memory_nodes::hanging::kept(db, id).await;
         }
     }
     kept
@@ -381,8 +382,9 @@ pub async fn picture_again(
         },
     )
     .await;
-    if matches!(remembered, Ok(Some(_))) {
+    if let Ok(Some(id)) = &remembered {
         tracing::info!(%venue, "[Merope] a picture this group keeps sending is one of its bits");
+        super::memory_nodes::hanging::kept(db, id).await;
     }
 }
 

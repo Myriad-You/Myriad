@@ -40,6 +40,19 @@ pub(crate) fn private_talk(user_id: i32, site_owner: Option<i32>) -> String {
     }
 }
 
+/// The key of `user_id`'s own node in `audience`. In a private talk it is
+/// 「关于你」, under the name the core gives the talk's one member: in the
+/// site owner's talk that is `person:local-owner`, the core's one name for
+/// the partner, or the core would not know the node for 「关于你」.
+/// Anywhere else (a group) `person:<user_id>`.
+pub(crate) fn person_key(audience: &str, user_id: i32) -> String {
+    if audience == owners_talk() {
+        format!("person:{LEGACY}")
+    } else {
+        format!("person:{user_id}")
+    }
+}
+
 /// A group's audience, from its id (`telegram:-100123`).
 pub(crate) fn group(id: &str) -> String {
     format!("group:{id}")
@@ -124,6 +137,23 @@ mod tests {
                 "{audience}"
             );
         }
+    }
+
+    #[test]
+    fn each_private_talk_has_the_node_the_core_knows_as_about_you() {
+        use myriad_nodes::key::Key;
+        for (user_id, audience) in [(1, private_talk(1, Some(1))), (7, private_talk(7, Some(1)))] {
+            let key = person_key(&audience, user_id);
+            assert!(
+                Key::parse(&key).unwrap().is_about_you(&audience),
+                "{audience} {key}"
+            );
+        }
+        assert_eq!(person_key(&owners_talk(), 1), "person:local-owner");
+        // In a group a person's node is theirs there, never 「关于你」.
+        let group = group("qq:5");
+        assert_eq!(person_key(&group, 7), "person:7");
+        assert!(!Key::parse("person:7").unwrap().is_about_you(&group));
     }
 
     #[test]

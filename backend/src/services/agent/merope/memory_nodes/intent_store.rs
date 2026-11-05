@@ -166,7 +166,7 @@ pub(crate) async fn about_them(
     user_id: i32,
     audience: &str,
 ) -> Result<(String, Vec<RowIn>), Error> {
-    let key = format!("person:{user_id}");
+    let key = super::audience::person_key(audience, user_id);
     let id = myriad_nodes::node_id(audience, &key)?;
     if read::node(db, user_id, audience, &id).await?.is_some() {
         return Ok((id, Vec::new()));

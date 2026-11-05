@@ -428,7 +428,7 @@ pub(super) async fn put_day(
         .iter()
         .filter_map(|row| row.try_get::<String>("", "id").ok())
         .collect();
-    let _ = unified::remember_in_place_of(
+    let kept = unified::remember_in_place_of(
         db,
         unified::NewMemory {
             user_id: circle.keeper(),
@@ -449,6 +449,9 @@ pub(super) async fn put_day(
         },
     )
     .await;
+    if let Ok(unified::Replaced { id: Some(id), .. }) = &kept {
+        super::super::memory_nodes::hanging::kept(db, id).await;
+    }
 }
 
 /// What days in a group (`venue` as sessions keep it) were like, oldest

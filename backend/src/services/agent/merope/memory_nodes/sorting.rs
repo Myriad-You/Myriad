@@ -1,6 +1,7 @@
 //! What she knows for good of someone in private and has not put on a node
 //! yet (kept before nodes were written, or by a going-over whose nodes
-//! could not be written), sorted onto her nodes at upkeep: a batch at a
+//! could not be written), and what she found out herself in their talk,
+//! sorted onto her nodes at upkeep: a batch at a
 //! time through the core (`myriad_nodes::entries::sort_prepare`,
 //! `sort_read`, the same prompt and reading the old topics are sorted by),
 //! and put on them as going over a stretch puts what it keeps
@@ -26,8 +27,15 @@ const PEOPLE: i64 = 10;
 const ASKS: usize = 3;
 const TIMEOUT: Duration = Duration::from_secs(90);
 const OPERATION: &str = "memory_node_sort";
-/// What she knows for good of someone, which she sorts.
-const SORTED: &[&str] = &["chat", "import"];
+/// What she knows for good of someone, which she sorts: and what she found
+/// out herself in their talk (`lookup`), put as an ordinary fact is.
+const SORTED: &[&str] = &["chat", "import", "lookup"];
+/// The kinds of those.
+const KINDS: [MemoryKind; 3] = [
+    MemoryKind::Fact,
+    MemoryKind::Preference,
+    MemoryKind::Knowledge,
+];
 
 /// People with private facts on no node yet, at most `at_most`.
 async fn with_unplaced<C: ConnectionTrait>(db: &C, at_most: i64) -> Result<Vec<i32>, Error> {
@@ -36,7 +44,7 @@ async fn with_unplaced<C: ConnectionTrait>(db: &C, at_most: i64) -> Result<Vec<i
             DatabaseBackend::Postgres,
             "SELECT DISTINCT m.user_id FROM agent_memories m \
              WHERE m.user_id IS NOT NULL AND m.user_id > 0 AND m.venue = 'private' \
-               AND m.source = ANY($1) AND m.kind IN ('fact', 'preference') \
+               AND m.source = ANY($1) AND m.kind IN ('fact', 'preference', 'knowledge') \
                AND m.invalid_at IS NULL AND m.superseded_by IS NULL \
                AND NOT EXISTS (SELECT 1 FROM agent_node_placements p WHERE p.memory_id = m.id) \
              LIMIT $2",
@@ -76,13 +84,7 @@ async fn unplaced(
     audience: &str,
 ) -> Result<Vec<MemoryRecord>, Error> {
     let ids = placements::unplaced(db, user_id, audience, SORTED, SORT_BATCH as u64 * 4).await?;
-    let mut rows = active_in(
-        db,
-        user_id,
-        &Audience::private(user_id),
-        &MemoryKind::ABOUT_PERSON,
-    )
-    .await?;
+    let mut rows = active_in(db, user_id, &Audience::private(user_id), &KINDS).await?;
     rows.retain(|row| ids.contains(&row.id) && SORTED.contains(&row.source.as_str()));
     rows.sort_by_key(|row| (row.created_at, row.id.clone()));
     rows.truncate(SORT_BATCH);

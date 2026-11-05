@@ -46,6 +46,19 @@
 //!   their instruction checked again, done ([`intents_due`],
 //!   [`intents_run`]).
 //!
+//! What writes them from everything else she keeps, at the place each is
+//! written, beside the row:
+//!
+//! - **Groups**: what going over a stretch in a group keeps, on the group's
+//!   nodes ([`facts`]), and what someone there said of themselves also on
+//!   「关于你」 in their own private talk ([`group_facts`]).
+//! - **Her other sources** ([`hanging`], where each goes: [`homes`]): what
+//!   someone is to her and how she comes across as her views, sore spots as
+//!   what is not wrapped up, bits, a group's own words and what people told
+//!   her about herself as entries, a group's days and her own as spans.
+//! - **A child end** ([`child`]): what she made of a moment there, on the
+//!   site owner's repository or talks-with-other-AIs node.
+//!
 //! What she is shown of her nodes is [`known`]. Reading her nodes into what
 //! she says comes in the next step.
 //!
@@ -63,9 +76,13 @@ use std::fmt;
 use sea_orm::DbErr;
 
 pub(crate) mod audience;
+pub(crate) mod child;
 pub(crate) mod facts;
 pub(crate) mod forget;
+pub(crate) mod group_facts;
+pub(crate) mod hanging;
 mod heads;
+pub(crate) mod homes;
 pub(crate) mod inbox;
 pub(crate) mod intending;
 pub(crate) mod intent_store;
@@ -140,3 +157,6 @@ mod keep_tests;
 
 #[cfg(test)]
 mod intent_tests;
+
+#[cfg(test)]
+mod source_tests;

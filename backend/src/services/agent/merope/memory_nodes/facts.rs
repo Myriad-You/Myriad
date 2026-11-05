@@ -88,12 +88,14 @@ fn key_of(known: &[Known], id: &str) -> Option<String> {
         .and_then(|node| node.key.clone())
 }
 
-/// Where `placement` puts a fact in `user_id`'s `audience`; none for
-/// nowhere, or a node gone with nothing in its place (left to be placed).
+/// Where `placement` puts a fact in `user_id`'s `audience`, about `them`;
+/// none for nowhere, or a node gone with nothing in its place (left to be
+/// placed).
 async fn target<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
     audience: &str,
+    them: i32,
     known: &[Known],
     placement: &Placement,
 ) -> Result<Option<(String, Target, How)>, Error> {
@@ -149,7 +151,7 @@ async fn target<C: ConnectionTrait>(
             Some((id, Target::Start(start), How::Node))
         }
         Placement::AboutThem => {
-            let key = format!("person:{user_id}");
+            let key = audience::person_key(audience, them);
             let id = myriad_nodes::node_id(audience, &key)?;
             if super::read::node(db, user_id, audience, &id)
                 .await?
@@ -159,7 +161,7 @@ async fn target<C: ConnectionTrait>(
             } else {
                 let start = Start {
                     key: Some(key),
-                    name: person_name(db, user_id).await?,
+                    name: person_name(db, them).await?,
                     aliases: Vec::new(),
                 };
                 Some((id, Target::Start(start), How::About))
@@ -177,6 +179,19 @@ pub(crate) async fn put(
     facts: &[Fact],
     pen: &Thought,
 ) -> Result<usize, Error> {
+    put_about(db, user_id, audience, user_id, facts, pen).await
+}
+
+/// [`put`], what is only about a person going on `them`'s own node: in a
+/// private talk its one person, in a group the member it was about.
+pub(crate) async fn put_about(
+    db: &DatabaseConnection,
+    user_id: i32,
+    audience: &str,
+    them: i32,
+    facts: &[Fact],
+    pen: &Thought,
+) -> Result<usize, Error> {
     let known = known::known(db, user_id, audience).await?;
     let mut nowhere = Beside::default();
     let mut groups: BTreeMap<String, (Target, How, Vec<&Fact>)> = BTreeMap::new();
@@ -184,7 +199,7 @@ pub(crate) async fn put(
         if placements::placement(db, &fact.memory).await?.is_some() {
             continue;
         }
-        match target(db, user_id, audience, &known, &fact.placement).await? {
+        match target(db, user_id, audience, them, &known, &fact.placement).await? {
             Some((node, target, how)) => {
                 let group = groups
                     .entry(node)
@@ -273,6 +288,17 @@ pub(crate) fn said_by(speaker: &str) -> SaidBy {
     }
 }
 
+/// Who said a memory, as the core tags it in `audience`: in a group,
+/// everyone but her is someone there.
+fn said_by_in(audience: &str, speaker: &str) -> SaidBy {
+    let who = if speaker == "agent" {
+        audience::Speaker::Her
+    } else {
+        audience::Speaker::Person
+    };
+    audience::said_by(audience, who).unwrap_or_else(|| said_by(speaker))
+}
+
 /// Where the memory a memory replaced was put, if it was.
 async fn replaced<C: ConnectionTrait>(db: &C, memory: &str) -> Result<Option<Placement>, Error> {
     let row = db
@@ -338,9 +364,13 @@ async fn from_settled<C: ConnectionTrait>(
 }
 
 /// What going over a stretch of `user_id`'s talk in front of `present`
-/// kept for good (`updates`, already written), put on her nodes. Only a
-/// private talk; only while nodes are written and her mind is here. What
-/// is not placed now is sorted later ([`super::sorting`]).
+/// kept for good (`updates`, already written), put on her nodes: their
+/// private talk's, or the group's (kept with the site owner), what is only
+/// about them on their own node there; and in a group, what they said
+/// about themselves on 「关于你」 in their own private talk too
+/// ([`super::group_facts`]). Only while nodes are written and her mind is
+/// here. What a private talk does not place now is sorted later
+/// ([`super::sorting`]).
 pub(crate) async fn settled(
     db: &DatabaseConnection,
     user_id: i32,
@@ -348,16 +378,19 @@ pub(crate) async fn settled(
     present: &Audience,
     updates: &crate::services::agent::merope::chat_remember::ChatMemoryUpdates,
 ) {
-    if !super::mode().writes() || present.is_group() || user_id <= 0 {
+    if !super::mode().writes() || user_id <= 0 {
         return;
     }
+    let Some(home) = audience::of_talk(present, user_id, site_owner) else {
+        return;
+    };
     let Some(pen) = crate::services::her_log::pen::think() else {
         tracing::info!(
             "[memory-nodes] what a stretch kept not put on nodes: her mind is elsewhere"
         );
         return;
     };
-    let audience = audience::private_talk(user_id, site_owner);
+    let audience = home.audience;
     let result = async {
         let rows = unified::active_in(db, user_id, present, &MemoryKind::ABOUT_PERSON).await?;
         let mut facts: Vec<Fact> = Vec::new();
@@ -386,12 +419,17 @@ pub(crate) async fn settled(
                 facts.push(Fact {
                     memory: holder.id.clone(),
                     text: holder.content.clone(),
-                    said_by: said_by(&holder.speaker),
+                    said_by: said_by_in(&audience, &holder.speaker),
                     placement,
                 });
             }
         }
-        put(db, user_id, &audience, &facts, &pen).await
+        let placed = put_about(db, home.user_id, &audience, user_id, &facts, &pen).await?;
+        if present.is_group() {
+            super::group_facts::to_their_talk(db, user_id, site_owner, &audience, &facts, &pen)
+                .await;
+        }
+        Ok::<usize, Error>(placed)
     }
     .await;
     match result {

@@ -48,8 +48,9 @@ pub(super) async fn put_us(
         },
     )
     .await;
-    if matches!(kept, Ok(unified::Replaced { id: Some(_), .. })) {
+    if let Ok(unified::Replaced { id: Some(id), .. }) = &kept {
         tracing::info!(user_id, "[Merope] what someone is to her, put anew");
+        super::super::memory_nodes::hanging::kept(db, id).await;
     }
 }
 

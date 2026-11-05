@@ -1,6 +1,7 @@
 //! Forgetting on her nodes what goes with a forgotten memory (decision D7):
 //! its entries, the spans and inbox items whose words were forgotten with
-//! it (the lines `memory::origins` deletes), and a topic she started that
+//! it (the lines `memory::origins` deletes), the versions of her views and
+//! of what is not wrapped up that rest on either, and a topic she started that
 //! holds no entry any more, for its name can say as much as what was on it
 //! (the rule the old topic tables keep, `migrations/topic_nodes.sql`). An
 //! intent resting on a forgotten line goes too, with what the site kept of
@@ -32,7 +33,9 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use super::{Error, heads, inbox, write};
 use crate::services::her_log::{self, NODE};
 
-/// The rows citing any of `refs`: each with its account, audience and node.
+/// The rows citing any of `refs`: entries and spans by their references,
+/// her views and what is not wrapped up by what they rest on (`because`);
+/// each with its account, audience and node.
 async fn citing<C: ConnectionTrait>(
     db: &C,
     refs: &[String],
@@ -43,8 +46,11 @@ async fn citing<C: ConnectionTrait>(
             "SELECT DISTINCT r.user_id, r.audience, r.node_id, r.row_id FROM agent_node_rows r \
              CROSS JOIN LATERAL jsonb_array_elements_text( \
                CASE WHEN r.body = '' THEN '[]'::jsonb \
-                    ELSE COALESCE((r.body::jsonb)->'refs', '[]'::jsonb) END) AS cited(ref) \
-             WHERE r.kind IN ('node.entry', 'node.span') AND cited.ref = ANY($1)",
+                    ELSE COALESCE((r.body::jsonb)->(CASE \
+                      WHEN r.kind IN ('node.view_changed', 'node.open_item') THEN 'because' \
+                      ELSE 'refs' END), '[]'::jsonb) END) AS cited(ref) \
+             WHERE r.kind IN ('node.entry', 'node.span', 'node.view_changed', 'node.open_item') \
+               AND cited.ref = ANY($1)",
             [refs.to_vec().into()],
         ))
         .await?;
