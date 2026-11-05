@@ -26,8 +26,8 @@ impl Agent {
             }
         };
         crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
-        let (reply, handed_off) = crate::services::agent::delegate::split(&reply);
-        let (reply, sticker) = myriad_merope::stickers::split_sticker_directive(&reply);
+        let handed_off = crate::services::agent::delegate::split(&reply).1;
+        let sticker = myriad_merope::stickers::split_sticker_directive(&reply).1;
         let (reply, music) = publish_model_outfit_overlay(&self.db, &request, &reply, None).await;
         crate::services::agent::merope::enqueue_chat_remember(
             &self.db,
@@ -189,8 +189,8 @@ impl Agent {
             .await
         {
             Ok(reply) => {
-                let (reply, handed_off) = crate::services::agent::delegate::split(&reply);
-                let (reply, sticker) = myriad_merope::stickers::split_sticker_directive(&reply);
+                let handed_off = crate::services::agent::delegate::split(&reply).1;
+                let sticker = myriad_merope::stickers::split_sticker_directive(&reply).1;
                 (
                     publish_model_outfit_overlay(&self.db, &request, &reply, Some(&progress_tx))
                         .await
@@ -373,7 +373,7 @@ fn chat_music_frontend_action(
 }
 
 /// Her words to a group as they stand once her wear directive, if any, is
-/// acted on and peeled off (see [`publish_model_outfit_overlay`]).
+/// acted on and every mark peeled off (see [`publish_model_outfit_overlay`]).
 pub(super) async fn published_reply(
     db: &sea_orm::DatabaseConnection,
     request: &UserRequest,
