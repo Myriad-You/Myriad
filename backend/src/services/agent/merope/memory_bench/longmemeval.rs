@@ -91,7 +91,8 @@ pub(super) async fn her_memory_on_longmemeval() {
         .collect()
         .await;
     isolated.drop().await;
-    let report = report(&questions, times, &outcomes);
+    let mut report = report(&questions, times, &outcomes);
+    report["spent"] = crate::services::ai_cost_ledger::spent::take();
     println!("{}", report["scores"]);
     std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
 }

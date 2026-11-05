@@ -115,13 +115,33 @@ async fn settle_session(
         .collect();
     // The topics to put what lasts under, as production shows them; none,
     // and nothing put under one, when they are sorted afterwards.
-    let offered = if topics_later() {
+    let mut offered = if topics_later() {
         Vec::new()
     } else {
         super::super::store::offered_topics(db, user_id, present, &theirs)
             .await
             .unwrap_or_default()
     };
+    // While her nodes are written, the stretch is cut onto them first and
+    // her nodes are what she puts it under, as production goes over it.
+    if on_nodes(present) {
+        use super::super::memory_nodes::placing::{self, Line};
+        let lines: Vec<Line> = turns
+            .iter()
+            .enumerate()
+            .map(|(index, turn)| Line {
+                id: index as i32 + 1,
+                theirs: turn.role == "user",
+                text: turn.content.clone(),
+                at: at - chrono::Duration::minutes((turns.len() - index) as i64),
+            })
+            .collect();
+        let placed = placing::place(db, user_id, None, &lines).await;
+        offered = super::super::memory_nodes::facts::shown_topics(
+            db, user_id, None, &theirs, &placed, offered,
+        )
+        .await;
+    }
     let input = json!({
         "conversation": turns
             .iter()
@@ -166,7 +186,8 @@ async fn settle_session(
         updates
             .updates
             .push(super::super::chat_remember::ChatMemoryUpdate {
-                standing: Default::default(),
+                // When it happened and where it stands, as production keeps it.
+                standing: item.standing.clone(),
                 // When it would be worth remembering, as production keeps it.
                 cues: item.when_for,
                 topic: if topics_later() {
@@ -211,9 +232,39 @@ async fn settle_session(
     }
     if !updates.updates.is_empty() {
         apply_at(db, user_id, present, at, &updates).await;
+        super::super::memory_nodes::facts::settled(db, user_id, None, present, &updates).await;
     }
     (lasting, passed_over, settled)
 }
+
+/// Whether what she goes over is put on her nodes too
+/// (`MEROPE_MEMORY_NODES=shadow` or `on`): a private talk only, as production.
+pub(super) fn on_nodes(present: &Audience) -> bool {
+    super::super::memory_nodes::mode().writes() && !present.is_group()
+}
+
+/// Once all is written, what production's upkeep does to her nodes: what
+/// going over placed nowhere sorted onto them, and those due gone over.
+pub(super) async fn keep_up_nodes(db: &sea_orm::DatabaseConnection, user_id: i32) {
+    if !on_nodes(&Audience::private(user_id)) {
+        return;
+    }
+    super::super::memory_nodes::sorting::sort_for(db, user_id, None, NODE_SORTS).await;
+    let Some(pen) = crate::services::her_log::pen::think() else {
+        return;
+    };
+    let audience = super::super::memory_nodes::audience::private_talk(user_id, None);
+    if let Err(error) =
+        super::super::memory_nodes::upkeep::run(db, user_id, &audience, NODE_UPKEEPS, &pen).await
+    {
+        eprintln!("bench call failed: node upkeep: {error:#}");
+    }
+}
+
+/// Batches of what is on no node sorted at the end, at most.
+const NODE_SORTS: usize = 8;
+/// Upkeep calls at the end, at most: what another account gets in a day.
+const NODE_UPKEEPS: usize = 6;
 
 /// `MEROPE_MEMORY_BENCH_TOPICS=later`: what going over keeps is put under
 /// no topic, and sorted under them once all is written ([`sort_all`]), as

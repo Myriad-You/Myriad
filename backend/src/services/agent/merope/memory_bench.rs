@@ -373,6 +373,9 @@ async fn run_one(
     if settle && settle::topics_tidied() {
         settle::tidy_all(db, judge, user_id).await;
     }
+    if settle {
+        settle::keep_up_nodes(db, user_id).await;
+    }
     // As a chat turn does: think what to look for, then recall with it.
     let cues = judge
         .analyze_json(

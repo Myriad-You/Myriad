@@ -252,6 +252,9 @@ pub async fn record_ai_tokens_from_attribution(
     let input_tokens = input_tokens.max(0);
     let output_tokens = output_tokens.max(0);
 
+    #[cfg(test)]
+    spent::add(model, input_tokens, output_tokens);
+
     // Metered even without attribution: planner / nested work must still settle.
     let _ = AI_USAGE_METER.try_with(|meter| {
         meter.add(u64::from(input_tokens as u32) + u64::from(output_tokens as u32));
@@ -340,6 +343,46 @@ pub async fn record_ai_cost(db: &DatabaseConnection, entry: AiCostLedgerEntry<'_
             task_id = entry.task_id,
             "[AI ledger] Failed to append AI cost ledger entry"
         );
+    }
+}
+
+/// What every model call in this test process spent, by model, with the
+/// same estimates the ledger keeps: the memory benches report it, so what a
+/// run costs is known from the last run instead of guessed.
+#[cfg(test)]
+pub(crate) mod spent {
+    use std::collections::BTreeMap;
+    use std::sync::Mutex;
+
+    /// Calls, input tokens, output tokens.
+    static SPENT: Mutex<BTreeMap<String, (u64, u64, u64)>> = Mutex::new(BTreeMap::new());
+
+    pub(super) fn add(model: &str, input_tokens: i32, output_tokens: i32) {
+        let mut spent = SPENT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let entry = spent.entry(model.to_string()).or_default();
+        entry.0 += 1;
+        entry.1 += input_tokens as u64;
+        entry.2 += output_tokens as u64;
+    }
+
+    /// What was spent since the last call, by model, and in all.
+    pub(crate) fn take() -> serde_json::Value {
+        let spent =
+            std::mem::take(&mut *SPENT.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
+        let total = spent
+            .values()
+            .fold((0, 0, 0), |sum, one| (sum.0 + one.0, sum.1 + one.1, sum.2 + one.2));
+        let line = |(calls, input, output): (u64, u64, u64)| {
+            serde_json::json!({"calls": calls, "input_tokens": input, "output_tokens": output})
+        };
+        serde_json::json!({
+            "estimated": "length/4 per call, as the ledger counts",
+            "by_model": spent
+                .into_iter()
+                .map(|(model, one)| (model, line(one)))
+                .collect::<serde_json::Map<_, _>>(),
+            "total": line(total),
+        })
     }
 }
 
