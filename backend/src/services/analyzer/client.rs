@@ -898,7 +898,11 @@ impl AiAnalyzer {
         }
 
         let result = result.map_err(ProviderCallFailure::into_error);
-        self.note_ledger(input_chars, &result).await;
+        crate::services::ai_cost_ledger::as_step(
+            schema_name,
+            self.note_ledger(input_chars, &result),
+        )
+        .await;
         result
     }
 
@@ -973,7 +977,11 @@ impl AiAnalyzer {
         }
 
         let result = result.map_err(ProviderCallFailure::into_error);
-        self.note_ledger(input_chars, &result).await;
+        crate::services::ai_cost_ledger::as_step(
+            schema_name,
+            self.note_ledger(input_chars, &result),
+        )
+        .await;
         result
     }
 
