@@ -1352,7 +1352,7 @@ fn request(case: &Case) -> Value {
             json!({"input":chat_prompt::build_chat_lite_prompt_with_perception(&default_soul(),&remembered,&[],&case.input,&scene),"schema":null,"schemaName":null,"system":null})
         }
         "memory" => {
-            let (system, schema) = memory::live_probe_contract(&case.remembered);
+            let (system, schema) = memory::live_probe_contract(&case.remembered, &case.input);
             let turn = super::merope::TurnContext {
                 before: case
                     .history

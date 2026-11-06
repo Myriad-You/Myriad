@@ -141,7 +141,10 @@ pub(in crate::services::agent::merope) async fn settle(
         super::super::call::Ask::new(super::super::call::Voice::Thorough, user_id, "chat_settle")
             .within(EXTRACT_TIMEOUT)
             .json_raw(
-                &myriad_merope::chat_remember::settle_system_prompt(&known),
+                &myriad_merope::chat_remember::settle_system_prompt(
+                    &known,
+                    myriad_merope::chat_remember::Examples::for_words(&theirs),
+                ),
                 &input,
                 myriad_merope::chat_remember::SETTLE_SCHEMA_NAME,
                 &myriad_merope::chat_remember::settle_schema(),
@@ -155,6 +158,16 @@ pub(in crate::services::agent::merope) async fn settle(
         offered.len(),
     )
     .ok_or(super::super::call::Failure::InvalidOutput)?;
+    // A fact written in another language than they spoke is left to its
+    // notes; how many, never what.
+    let changed = myriad_merope::chat_remember::settle_changed_language(&raw, &theirs);
+    if changed > 0 {
+        tracing::info!(
+            user_id,
+            changed,
+            "[Merope] chat settle: facts in another language than they spoke were left to their notes"
+        );
+    }
     let left = myriad_merope::chat_remember::settle_left(&raw, &lasting, notes.len());
     if lasting.is_empty() && replaces.is_empty() && left.is_empty() {
         return Ok(Effect::NoChange);

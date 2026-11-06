@@ -37,7 +37,10 @@ async fn note_turn(
     );
     let raw = judge
         .analyze_json(
-            &myriad_merope::chat_remember::extract_system_prompt(&existing),
+            &myriad_merope::chat_remember::extract_system_prompt(
+                &existing,
+                myriad_merope::chat_remember::Examples::for_words(text),
+            ),
             &input,
             myriad_merope::chat_remember::EXTRACT_SCHEMA_NAME,
             Some(&myriad_merope::chat_remember::extract_schema()),
@@ -157,7 +160,10 @@ async fn settle_session(
     .to_string();
     let Ok(raw) = judge
         .analyze_json(
-            &myriad_merope::chat_remember::settle_system_prompt(&known),
+            &myriad_merope::chat_remember::settle_system_prompt(
+                &known,
+                myriad_merope::chat_remember::Examples::for_words(&theirs),
+            ),
             &input,
             myriad_merope::chat_remember::SETTLE_SCHEMA_NAME,
             Some(&myriad_merope::chat_remember::settle_schema()),
