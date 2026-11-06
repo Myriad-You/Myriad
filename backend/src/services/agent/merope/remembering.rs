@@ -1,6 +1,6 @@
 //! Trying to remember before answering (see `myriad_merope::remembering`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
@@ -27,6 +27,12 @@ pub const THOROUGH: usize = 24;
 /// What else of the topics of what came to mind she goes through then, at
 /// most (`store::kept_together`); she is told how much more there is.
 const KEPT_TOGETHER: usize = 24;
+/// Not going through all of it, the lines each try brings of its own
+/// before the rest are ranked together, so each thing their words ask
+/// about has a few; and what a turn asking of several goes through, at
+/// most. One cue beside their words is the turn's eight as ever.
+const EACH_TRY: usize = 4;
+const SEVERAL: usize = 16;
 
 /// What she would try to remember before answering `message`; billed to
 /// `owner`.
@@ -426,6 +432,32 @@ fn only_filling(named: &[String], filled: &[String], found: &[String]) -> Vec<St
         .collect()
 }
 
+/// Of `tries`, the first `each` lines of every try that it found by what
+/// they say (`found`), as they stand merged; then the rest as merged, up to
+/// `room` in all.
+fn shared_out(tries: &[Vec<String>], found: &[String], each: usize, room: usize) -> Vec<String> {
+    let ranked = merged(tries, usize::MAX);
+    let own: HashSet<&String> = tries
+        .iter()
+        .flat_map(|tried| tried.iter().filter(|line| found.contains(line)).take(each))
+        .collect();
+    let mut out: Vec<String> = ranked
+        .iter()
+        .filter(|line| own.contains(line))
+        .take(room)
+        .cloned()
+        .collect();
+    for line in &ranked {
+        if out.len() >= room {
+            break;
+        }
+        if !out.contains(line) {
+            out.push(line.clone());
+        }
+    }
+    out
+}
+
 /// [`recall_with`] up to what she keeps under the same topics: what their
 /// words and each cue found, merged and ranked, each line with the memory
 /// it is (`Recalled::ids`); going through all of it, only what something
@@ -513,8 +545,20 @@ pub async fn ranked_with(
     if tries.iter().all(Vec::is_empty) {
         tries = vec![first.named.clone()];
     }
-    let room = limit.saturating_sub(first.brought_to_mind.len()).max(1);
-    let named = merged(&tries, room);
+    let named = if cues.thorough {
+        merged(
+            &tries,
+            limit.saturating_sub(first.brought_to_mind.len()).max(1),
+        )
+    } else {
+        let room = (EACH_TRY * tries.len()).clamp(limit, SEVERAL.max(limit));
+        shared_out(
+            &tries,
+            &found,
+            EACH_TRY,
+            room.saturating_sub(first.brought_to_mind.len()).max(1),
+        )
+    };
     let recent = only_filling(&named, &recent, &found);
     let named_ids: Vec<String> = named
         .iter()
@@ -545,6 +589,39 @@ pub async fn ranked_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lines(prefix: &str, n: usize) -> Vec<String> {
+        (0..n).map(|i| format!("{prefix}{i}")).collect()
+    }
+
+    #[test]
+    fn each_thing_asked_about_has_lines_of_its_own() {
+        let tries = vec![lines("m", 8), lines("a", 8), lines("b", 8), lines("c", 8)];
+        let found: Vec<String> = tries.concat();
+        let room = (EACH_TRY * tries.len()).clamp(8, SEVERAL);
+        let named = shared_out(&tries, &found, EACH_TRY, room);
+        assert_eq!(named.len(), 16);
+        for prefix in ["m", "a", "b", "c"] {
+            assert_eq!(
+                named.iter().filter(|line| line.starts_with(prefix)).count(),
+                4,
+                "{prefix}"
+            );
+        }
+    }
+
+    #[test]
+    fn one_cue_beside_their_words_is_eight_and_fillers_only_fill() {
+        let tries = vec![lines("m", 8), vec!["m0".into(), "x0".into(), "x1".into()]];
+        // x1 only filled its try: it has no room of its own.
+        let found: Vec<String> = lines("m", 8).into_iter().chain(["x0".into()]).collect();
+        let room = (EACH_TRY * tries.len()).clamp(8, SEVERAL);
+        let named = shared_out(&tries, &found, EACH_TRY, room);
+        assert_eq!(named.len(), 8);
+        assert_eq!(named[0], "m0");
+        assert!(named.contains(&"x0".to_string()));
+        assert!(named[..5].iter().all(|line| line != "x1"));
+    }
 
     #[test]
     fn what_was_found_by_words_and_by_day_is_there_once_in_order() {
