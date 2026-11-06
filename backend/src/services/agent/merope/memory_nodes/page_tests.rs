@@ -125,6 +125,41 @@ async fn the_page_is_their_own_talk_her_own_and_her_groups() {
 }
 
 #[tokio::test]
+async fn an_entry_is_dated_the_day_she_learned_it() {
+    let Some(schema) = owned("memory_nodes_page_learned").await else {
+        return;
+    };
+    let db = &schema.db;
+    let (node, ids) = seeded(db).await;
+    db.execute_unprepared(&format!(
+        "UPDATE agent_memories SET created_at = '2026-10-20T12:00:00+08:00' WHERE id = '{}'",
+        ids[0]
+    ))
+    .await
+    .unwrap();
+    let shown = page::node(db, OWNER, &audience::owners_talk(), &node)
+        .await
+        .unwrap()
+        .unwrap();
+    let at = |text: &str| {
+        shown
+            .entries
+            .iter()
+            .find(|entry| entry.text == text)
+            .unwrap()
+            .at
+    };
+    assert_eq!(
+        at(COFFEE[0]),
+        chrono::DateTime::parse_from_rfc3339("2026-10-20T12:00:00+08:00")
+            .unwrap()
+            .timestamp_micros()
+    );
+    // Put on the node today, and learned today.
+    assert!(at(COFFEE[1]) > at(COFFEE[0]));
+}
+
+#[tokio::test]
 async fn a_name_they_set_is_theirs_and_upkeep_holds_against_it() {
     let Some(schema) = owned("memory_nodes_page_name").await else {
         return;

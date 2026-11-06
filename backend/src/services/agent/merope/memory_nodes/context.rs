@@ -278,17 +278,16 @@ impl NodeTurn {
             .facts
             .iter()
             .map(|entry| {
-                match entry
+                let what = match entry
                     .memory
                     .as_ref()
                     .and_then(|id| self.shown.memories.get(id))
                 {
-                    Some(row) => (row.content.clone(), row.created_at.with_timezone(&Utc)),
-                    None => (
-                        entry.text.clone(),
-                        DateTime::from_timestamp_micros(entry.at).unwrap_or_default(),
-                    ),
-                }
+                    Some(row) => row.content.clone(),
+                    None => entry.text.clone(),
+                };
+                let at = DateTime::from_timestamp_micros(self.shown.learned(entry));
+                (what, at.unwrap_or_default())
             })
             .collect();
         told.sort_by(|a, b| b.1.cmp(&a.1));
@@ -413,7 +412,7 @@ impl NodeTurn {
                 let about = summary_of(&node.head).into_iter().next().or_else(|| {
                     node.facts
                         .iter()
-                        .max_by_key(|entry| entry.at)
+                        .max_by_key(|entry| self.shown.learned(entry))
                         .map(|entry| entry.text.clone())
                 });
                 Some(match about {

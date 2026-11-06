@@ -5,7 +5,7 @@
 //! entry whose memory was replaced, faded or let go is hidden, never shown
 //! as if it still held.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::Value;
@@ -89,6 +89,36 @@ pub(crate) async fn held<C: ConnectionTrait>(
         .await?;
     rows.iter()
         .map(|row| Ok(row.try_get::<String>("", "id")?))
+        .collect()
+}
+
+/// The day she learned each of the memory rows `ids`, Unix microseconds:
+/// when it was kept, or when the first of the short notes settled into it
+/// was taken ([`crate::services::agent::merope::chat_remember`]), which is
+/// when it was said. Not when it was put on a node: an old memory put on
+/// one today was still learned then.
+pub(crate) async fn learned<C: ConnectionTrait>(
+    db: &C,
+    ids: Vec<String>,
+) -> Result<HashMap<String, i64>, Error> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT h.id, LEAST(h.created_at, min(n.created_at)) AS at \
+             FROM agent_memories h \
+             LEFT JOIN agent_memories n ON n.superseded_by = h.id AND n.invalid_reason = 'settled' \
+             WHERE h.id = ANY($1) GROUP BY h.id, h.created_at",
+            [ids.into()],
+        ))
+        .await?;
+    rows.iter()
+        .map(|row| {
+            let at: chrono::DateTime<chrono::FixedOffset> = row.try_get("", "at")?;
+            Ok((row.try_get::<String>("", "id")?, at.timestamp_micros()))
+        })
         .collect()
 }
 

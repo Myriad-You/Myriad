@@ -112,8 +112,15 @@ struct Lines<'a> {
 }
 
 impl Lines<'_> {
+    /// The memory row `id`, dated the day she learned it.
     fn record(&self, id: &str) -> Option<MemoryRecord> {
-        self.shown.memories.get(id).cloned().map(MemoryRecord::from)
+        let mut record = MemoryRecord::from(self.shown.memories.get(id).cloned()?);
+        if let Some(learned) = self.shown.learned_of(id)
+            && let Some(at) = DateTime::from_timestamp_micros(learned)
+        {
+            record.created_at = at.fixed_offset();
+        }
+        Some(record)
     }
 
     /// The line itself, and with their words beside it when they go there.
@@ -156,7 +163,7 @@ fn pick_node(shown: &Shown, node: &super::shown::Node) -> PickNode {
             .filter(|entry| shown.ordinary(entry))
             .map(|entry| PickEntry {
                 id: entry.id.clone(),
-                at: entry.at,
+                at: shown.learned(entry),
             })
             .collect(),
     }
@@ -272,7 +279,12 @@ pub(crate) fn recollect_here(
         .and_then(|about| shown.node(about))
         .map(|node| {
             let mut heard: Vec<&Entry> = node.heard.iter().collect();
-            heard.sort_by(|a, b| b.at.cmp(&a.at).then_with(|| a.id.cmp(&b.id)));
+            heard.sort_by(|a, b| {
+                shown
+                    .learned(b)
+                    .cmp(&shown.learned(a))
+                    .then_with(|| a.id.cmp(&b.id))
+            });
             heard
                 .into_iter()
                 .take(HEARD)
@@ -349,7 +361,7 @@ fn listed(
                         .and_then(|memory| lines.record(memory));
                     ListEntry {
                         id: entry.row.clone(),
-                        at: entry.at,
+                        at: shown.learned(entry),
                         text: match lines.here {
                             Some(here) => here.theirs(entry.text.clone(), record.as_ref()),
                             None => entry.text.clone(),

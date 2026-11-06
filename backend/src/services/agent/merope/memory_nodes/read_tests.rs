@@ -390,6 +390,84 @@ async fn going_through_all_of_a_kind_lists_every_one_with_their_words() {
     }
 }
 
+#[tokio::test]
+async fn what_is_listed_is_dated_the_day_she_learned_it_not_the_day_it_went_on_a_node() {
+    let Some(schema) = owned("memory_nodes_read_learned").await else {
+        return;
+    };
+    let db = &schema.db;
+    let (plants, _) = seed(db).await;
+    // Kept long ago, put on a node today, as moving her memory does.
+    db.execute_unprepared(&format!(
+        "UPDATE agent_memories SET created_at = '2026-10-20T12:00:00+08:00' WHERE id = '{}'",
+        plants[0]
+    ))
+    .await
+    .unwrap();
+    // Kept for good when the talk was gone over, from a short note taken
+    // days before: learned when the note was.
+    let note = memory(
+        db,
+        SEVEN,
+        Speaker::User,
+        unified::SHORT_NOTE_SOURCE,
+        Audience::private(SEVEN),
+        "NOTE 绿萝放在阳台",
+        None,
+    )
+    .await;
+    db.execute_unprepared(&format!(
+        "UPDATE agent_memories SET created_at = '2026-11-01T12:00:00+08:00' WHERE id = '{settled}'; \
+         UPDATE agent_memories SET created_at = '2026-10-25T12:00:00+08:00', invalid_at = now(), \
+           invalid_reason = 'settled', superseded_by = '{settled}' WHERE id = '{note}'",
+        settled = plants[1]
+    ))
+    .await
+    .unwrap();
+    let now = crate::clock::now();
+    let turn = context::load(db, SEVEN, now).await.unwrap();
+    let day = |at: &str| {
+        chrono::DateTime::parse_from_rfc3339(at)
+            .unwrap()
+            .timestamp_micros()
+    };
+    let learned = |id: &str| {
+        let entry = turn
+            .shown
+            .nodes
+            .iter()
+            .flat_map(|node| &node.facts)
+            .find(|entry| entry.memory.as_deref() == Some(id))
+            .unwrap();
+        turn.shown.learned(entry)
+    };
+    assert_eq!(learned(&plants[0]), day("2026-10-20T12:00:00+08:00"));
+    assert_eq!(learned(&plants[1]), day("2026-10-25T12:00:00+08:00"));
+    let recalled = ranked(db, &[&plants[1]]).await;
+    let cues = myriad_merope::remembering::Cues {
+        thorough: true,
+        ..Default::default()
+    };
+    let recollection = recall::recollect(&turn.shown, &turn.own, &recalled, Some(&cues), now);
+    let listed = recollection.listed.expect("a list");
+    assert!(
+        listed.contains("10-20") && listed.contains("10-25"),
+        "{listed}"
+    );
+    assert!(
+        !listed.contains("11-01"),
+        "the day it was gone over: {listed}"
+    );
+    let today = now
+        .with_timezone(&crate::services::agent::merope::clock::zone())
+        .format("%m-%d")
+        .to_string();
+    assert!(
+        !listed.contains(&today),
+        "the day it went on a node: {listed}"
+    );
+}
+
 fn held(id: &str, origin: Origin, action: Action, trigger: Option<Value>, at: i64) -> Held {
     Held {
         node: "n".into(),
