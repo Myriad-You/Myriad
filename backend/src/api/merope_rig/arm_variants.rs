@@ -129,7 +129,8 @@ fn producer_prefix(portrait_asset_id: &str, key: &str) -> String {
     format!("merope-arm-variant:{portrait}:{key}:")
 }
 
-/// The hand points kept beside each drawing, by its producer key's last part.
+/// What the pose model found on each drawing (its hand, and every keypoint
+/// for the 3D arm), kept beside it by its producer key's last part.
 fn hand_file(producer_key: &str) -> Option<std::path::PathBuf> {
     let id = producer_key.rsplit(':').next()?;
     (!id.is_empty() && id.bytes().all(|byte| byte.is_ascii_hexdigit())).then(|| {
@@ -155,7 +156,7 @@ async fn latest_variant(
         .await
         .map_err(internal_error)?;
     let Some(row) = row else { return Ok(None) };
-    let hand = match row.producer_key.as_deref().and_then(hand_file) {
+    let stored = match row.producer_key.as_deref().and_then(hand_file) {
         Some(path) => tokio::fs::read(path)
             .await
             .ok()
@@ -163,7 +164,22 @@ async fn latest_variant(
             .unwrap_or(Value::Null),
         None => Value::Null,
     };
-    Ok(Some(json!({ "url": row.url, "hand": hand })))
+    let (hand, keypoints) = stored_points(stored);
+    Ok(Some(
+        json!({ "url": row.url, "hand": hand, "keypoints": keypoints }),
+    ))
+}
+
+/// A drawing's kept points: the hand and every keypoint, or (kept before the
+/// 3D arm) the hand alone.
+fn stored_points(stored: Value) -> (Value, Value) {
+    match stored {
+        Value::Object(mut found) => (
+            found.remove("hand").unwrap_or(Value::Null),
+            found.remove("keypoints").unwrap_or(Value::Null),
+        ),
+        hand => (hand, Value::Null),
+    }
 }
 
 pub async fn list_arm_variants(
@@ -295,7 +311,7 @@ async fn draw_arm_variant(
             notes.push("unreadable picture".into());
             continue;
         };
-        let Some(hand) = hand_points(&png, (width, height)).await else {
+        let Some(found) = find_pose(&png, (width, height)).await else {
             tracing::info!(
                 gesture,
                 side,
@@ -327,7 +343,7 @@ async fn draw_arm_variant(
             // The check is a guard, not the drawing: without a vision model the drawing stands.
             Err(error) => tracing::warn!(%error, gesture, side, "arm variant check unavailable"),
         }
-        return keep(db, user_id, (gesture, side, portrait), png, hand).await;
+        return keep(db, user_id, (gesture, side, portrait), png, found).await;
     }
     Err((
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -344,7 +360,7 @@ async fn keep(
     user_id: i32,
     (gesture, side, portrait): (&str, &str, &str),
     png: Vec<u8>,
-    hand: Vec<[f32; 2]>,
+    Found { hand, keypoints }: Found,
 ) -> ApiResult<Json<Value>> {
     let key = format!("{gesture}-{side}");
     let (width, height) = dimensions(&png).unwrap_or_default();
@@ -359,7 +375,8 @@ async fn keep(
                 .await
                 .map_err(internal_error)?;
         }
-        tokio::fs::write(&path, serde_json::to_vec(&hand).map_err(internal_error)?)
+        let stored = json!({ "hand": hand, "keypoints": keypoints });
+        tokio::fs::write(&path, serde_json::to_vec(&stored).map_err(internal_error)?)
             .await
             .map_err(internal_error)?;
     }
@@ -384,7 +401,7 @@ async fn keep(
     .await
     .map_err(portrait_generation_provider_error)?;
     Ok(Json(
-        json!({ "key": key, "url": persisted.url, "hand": hand }),
+        json!({ "key": key, "url": persisted.url, "hand": hand, "keypoints": keypoints }),
     ))
 }
 
@@ -409,9 +426,16 @@ fn flip(bytes: &[u8]) -> Option<Vec<u8>> {
     encode(image::load_from_memory(bytes).ok()?.fliph())
 }
 
-/// The points of the hand the drawing shows most surely, in the portrait's
-/// pixels (`size`); none when no hand is drawn well enough to find.
-async fn hand_points(png: &[u8], size: (u32, u32)) -> Option<Vec<[f32; 2]>> {
+/// What the pose model found on a drawing, in the portrait's pixels: the
+/// points of the hand it shows most surely (the cut seeds there), and every
+/// keypoint with its score (the 3D arm is measured from them).
+struct Found {
+    hand: Vec<[f32; 2]>,
+    keypoints: Vec<[f32; 3]>,
+}
+
+/// None when no hand is drawn well enough to find.
+async fn find_pose(png: &[u8], size: (u32, u32)) -> Option<Found> {
     let pose = match pose_estimation::estimate(png).await {
         Ok(pose) => pose,
         Err(error) => {
@@ -419,7 +443,23 @@ async fn hand_points(png: &[u8], size: (u32, u32)) -> Option<Vec<[f32; 2]>> {
             return None;
         }
     };
-    surest_hand(&pose.keypoints, (pose.width, pose.height), size)
+    let drawn = (pose.width, pose.height);
+    Some(Found {
+        hand: surest_hand(&pose.keypoints, drawn, size)?,
+        keypoints: in_portrait(&pose.keypoints, drawn, size),
+    })
+}
+
+/// Keypoints found on a drawing `drawn` large, moved onto the portrait's `size`.
+fn in_portrait(keypoints: &[[f32; 3]], drawn: (u32, u32), size: (u32, u32)) -> Vec<[f32; 3]> {
+    let scale = (
+        size.0 as f32 / drawn.0.max(1) as f32,
+        size.1 as f32 / drawn.1.max(1) as f32,
+    );
+    keypoints
+        .iter()
+        .map(|&[x, y, score]| [x * scale.0, y * scale.1, score])
+        .collect()
 }
 
 /// COCO-WholeBody's two hands are points 91–111 and 112–132.
@@ -505,6 +545,27 @@ mod tests {
             *point = [10.0, 10.0, 0.95];
         }
         assert!(surest_hand(&few, (500, 500), (1000, 1000)).is_none());
+    }
+
+    #[test]
+    fn every_keypoint_is_kept_in_the_portrait_s_pixels_with_its_score() {
+        let keypoints = vec![[100.0, 50.0, 0.9], [0.0, 400.0, 0.1]];
+        assert_eq!(
+            in_portrait(&keypoints, (500, 1000), (1000, 1000)),
+            vec![[200.0, 50.0, 0.9], [0.0, 400.0, 0.1]]
+        );
+    }
+
+    #[test]
+    fn points_kept_before_the_3d_arm_are_the_hand_alone() {
+        let hand = json!([[1.0, 2.0], [3.0, 4.0]]);
+        assert_eq!(stored_points(hand.clone()), (hand.clone(), Value::Null));
+        let keypoints = json!([[1.0, 2.0, 0.5]]);
+        assert_eq!(
+            stored_points(json!({ "hand": hand, "keypoints": keypoints })),
+            (hand, keypoints)
+        );
+        assert_eq!(stored_points(Value::Null), (Value::Null, Value::Null));
     }
 
     #[test]

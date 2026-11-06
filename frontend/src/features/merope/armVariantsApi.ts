@@ -55,7 +55,7 @@ export async function generateSiteArmVariant(key: ArmVariantKey): Promise<ArmVar
 
 function readArmVariant(key: ArmVariantKey, value: unknown): ArmVariantSource | null {
   if (!value || typeof value !== 'object') return null
-  const { url, hand } = value as { url?: unknown; hand?: unknown }
+  const { url, hand, keypoints } = value as { url?: unknown; hand?: unknown; keypoints?: unknown }
   if (typeof url !== 'string' || !url.trim()) return null
   const [gesture, side] = key.split('-') as [ArmVariantGesture, ArmVariantSide]
   // Where the pose model found the raised hand, in portrait pixels; the cut seeds there.
@@ -66,5 +66,17 @@ function readArmVariant(key: ArmVariantKey, value: unknown): ArmVariantSource | 
           : [],
       )
     : []
-  return { gesture, side, url, ...(points.length > 0 ? { hand: points } : {}) }
+  // Every joint it found on the drawing, with its score: the arm is measured as a 3D arm from them. Kept whole or
+  // not at all (they are looked up by index); drawings kept before that have none.
+  const joints = Array.isArray(keypoints)
+    && keypoints.every((point) => Array.isArray(point) && point.length === 3 && point.every((v) => typeof v === 'number'))
+    ? (keypoints as Array<[number, number, number]>).map(([x, y, score]) => [x, y, score] as const)
+    : []
+  return {
+    gesture,
+    side,
+    url,
+    ...(points.length > 0 ? { hand: points } : {}),
+    ...(joints.length > 0 ? { keypoints: joints } : {}),
+  }
 }
