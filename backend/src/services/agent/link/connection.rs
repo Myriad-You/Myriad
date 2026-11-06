@@ -41,22 +41,6 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
-#[cfg(test)]
-thread_local! {
-    /// A test's own settings of her log, for the links served on its thread.
-    pub(super) static HER_LOG_IN_TEST: std::cell::RefCell<Option<crate::services::her_log::Settings>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-/// How her log on the server runs, as this link reads it.
-fn her_log_settings() -> crate::services::her_log::Settings {
-    #[cfg(test)]
-    if let Some(settings) = HER_LOG_IN_TEST.with(|settings| settings.borrow().clone()) {
-        return settings;
-    }
-    crate::services::her_log::settings().clone()
-}
-
 /// The account has its partner id: her nodes in the site owner's talk go
 /// under it, off the welcome's way.
 fn talk_under_partner(db: DatabaseConnection) {
@@ -473,7 +457,7 @@ impl Link {
             self.error("bad_frame", Some(seq));
             return;
         };
-        let settings = her_log_settings();
+        let settings = crate::services::her_log::current_settings();
         let session = self.relay.get_or_insert_with(relay::Session::default);
         let taken = relay::take(
             &self.db,
@@ -720,7 +704,7 @@ impl Link {
         }
         // Her log, her lease and the lent chats flow on this link only while
         // the owner syncs her and the site keeps her log.
-        let settings = her_log_settings();
+        let settings = crate::services::her_log::current_settings();
         let sync = match crate::services::her_log::pen::in_play(
             &self.db,
             &settings,

@@ -260,6 +260,37 @@ pub fn settings() -> &'static Settings {
     SETTINGS.get_or_init(Settings::from_env)
 }
 
+/// [`settings`], or in a test the settings it set for its own thread
+/// ([`test_settings::set`]).
+pub fn current_settings() -> Settings {
+    #[cfg(test)]
+    if let Some(settings) = test_settings::get() {
+        return settings;
+    }
+    settings().clone()
+}
+
+/// A test's own settings of her log, for what runs on its thread.
+#[cfg(test)]
+pub(crate) mod test_settings {
+    use std::cell::RefCell;
+
+    use super::Settings;
+
+    thread_local! {
+        static HERE: RefCell<Option<Settings>> = const { RefCell::new(None) };
+    }
+
+    /// Her log as `settings` say on this thread, until the test ends.
+    pub(crate) fn set(settings: Settings) {
+        HERE.with(|here| *here.borrow_mut() = Some(settings));
+    }
+
+    pub(super) fn get() -> Option<Settings> {
+        HERE.with(|here| here.borrow().clone())
+    }
+}
+
 /// Set at start when `HER_LOG_ENABLED` is on but her log may not run on
 /// this database ([`admit`]).
 static REFUSED: AtomicBool = AtomicBool::new(false);

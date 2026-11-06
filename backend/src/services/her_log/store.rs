@@ -883,6 +883,50 @@ async fn next_dseq<C: ConnectionTrait>(db: &C, user: i32, audience: &str) -> Res
     Ok(row.try_get::<i64>("", "dseq")?.max(1) as u64)
 }
 
+/// The server's next count in `user`'s `audience`, for a row of its own
+/// written elsewhere first (her nodes, `memory_nodes::logged`): under the
+/// audience's lock, as the log's own rows take theirs.
+pub(crate) async fn own_count<C: ConnectionTrait>(
+    db: &C,
+    user: i32,
+    audience: &str,
+) -> Result<u64, Error> {
+    lock(db, user, audience).await?;
+    next_dseq(db, user, audience).await
+}
+
+/// Keeps `row`, one of the server's own written elsewhere first (her
+/// nodes), in `owner`'s log as it is: its envelope already counted by
+/// [`own_count`], `body` its payload's bytes (none for a forget or a
+/// stub). A forget goes on the ledger as the server's own forgets do
+/// ([`forget_on`]), and what the ledger takes away goes.
+pub(crate) async fn keep_own<C: ConnectionTrait>(
+    db: &C,
+    root: &dyn keys::Root,
+    owner: &Owner,
+    row: &Row,
+    body: Option<&[u8]>,
+) -> Result<(), Error> {
+    let user = owner.user;
+    lock(db, user, &row.audience).await?;
+    if row.kind != "forget" || row.forgotten {
+        insert(db, user, row, NODE).await?;
+        if let (Some(body), Some(_), false) = (body, &row.payload, row.forgotten) {
+            keep_payload(db, root, user, row, body).await?;
+        }
+        return Ok(());
+    }
+    let before = ledger(db, user, &row.audience).await?;
+    let recorded = forget::record(forget::RecordInput {
+        rows: vec![row.clone()],
+        ledger: before.clone(),
+        holder: Some(owner.server()),
+    })?;
+    insert(db, user, row, NODE).await?;
+    apply_ledger(db, user, &row.audience, &before, &recorded.ledger).await?;
+    Ok(())
+}
+
 /// The owner, on the server, has her forget `target` (an object, or
 /// `subject:<id>`) in `audience` of `owner`'s log: an owner's `forget` row
 /// of the server's own. Like every row a side writes, it goes on the ledger

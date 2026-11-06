@@ -939,11 +939,9 @@ async fn her_log_goes_over_the_link_while_she_syncs() {
     let Some(site) = site().await else {
         return;
     };
-    super::connection::HER_LOG_IN_TEST.with(|settings| {
-        *settings.borrow_mut() = Some(crate::services::her_log::Settings {
-            enabled: true,
-            ..crate::services::her_log::Settings::default()
-        })
+    crate::services::her_log::test_settings::set(crate::services::her_log::Settings {
+        enabled: true,
+        ..crate::services::her_log::Settings::default()
     });
     crate::services::her_log::store::start(&site.db, OWNER)
         .await

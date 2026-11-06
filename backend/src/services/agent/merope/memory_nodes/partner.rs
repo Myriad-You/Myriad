@@ -132,28 +132,50 @@ async fn any_under_old<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<bool,
         .is_some())
 }
 
+/// A batch sent under the old name, moved: the partner id, the new name,
+/// and the batch's rows as the core moves them.
+pub(super) struct Redirected {
+    pub partner: String,
+    pub audience: String,
+    pub rows: Vec<RowIn>,
+}
+
 /// Where a batch for `user_id`'s `audience` goes, in `txn`: under the old
 /// name once the partner id is there, the talk is moved first and the batch
-/// goes under the new name, its rows moved as the core moves them. `None`
-/// when it goes where it was sent.
+/// goes under the new name. `None` when it goes where it was sent. The
+/// caller remembers the partner id once its transaction is kept.
+///
+/// A talk that does not move (two rows on one place) stays under the old
+/// name and the batch is written there: her memory does not stop for it.
+/// The next [`settle`] says so again, for someone to look at.
 pub(super) async fn redirect<C: ConnectionTrait>(
     txn: &C,
     user_id: i32,
     audience: &str,
     rows: &[RowIn],
-) -> Result<Option<(String, Vec<RowIn>)>, Error> {
+) -> Result<Option<Redirected>, Error> {
     if audience != legacy_talk() {
         return Ok(None);
     }
     let Some(partner) = partner_of(txn, user_id).await? else {
         return Ok(None);
     };
-    move_talk(txn, user_id, &partner).await?;
-    remember(Some(&partner));
-    Ok(Some((
-        format!("personal:{partner}"),
-        moved_rows(rows, &partner)?,
-    )))
+    match move_talk(txn, user_id, &partner).await {
+        Ok(_) => {}
+        Err(Error::Refused(why)) => {
+            tracing::warn!(
+                why,
+                "[memory-nodes] written under the old name: the talk does not move"
+            );
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    }
+    Ok(Some(Redirected {
+        audience: format!("personal:{partner}"),
+        rows: moved_rows(rows, &partner)?,
+        partner,
+    }))
 }
 
 /// `rows`, written under the old name, as the core moves them.

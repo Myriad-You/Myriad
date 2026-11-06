@@ -28,7 +28,7 @@ use myriad_persona_log::{
 };
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
-use super::{Error, heads, inbox, write};
+use super::{Error, heads, inbox, logged, write};
 use crate::services::her_log::{self, NODE};
 
 /// The rows citing any of `refs`: entries and spans by their references,
@@ -107,11 +107,32 @@ pub(super) async fn forget_one<C: ConnectionTrait>(
             format!("{}:{row}", myriad_persona_log::kinds::ROW),
         ),
     };
+    let id = myriad_nodes::entries::row_id_from("forget", node, &source, "");
+    // The same forget again: kept already, and no count is taken for it.
+    let known = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT 1 AS one FROM agent_node_rows WHERE user_id = $1 AND row_id = $2",
+            [user_id.into(), id.clone().into()],
+        ))
+        .await?;
+    if known.is_some() {
+        return Ok(());
+    }
+    // In an audience her log keeps, while she syncs it, the forget goes
+    // into the log too, after what is not in it yet (`logged`).
+    let into_log = logged::into_log(db, user_id, audience).await?;
+    if let Some(owner) = &into_log {
+        logged::catch_up(db, her_log::keys::root(), owner, audience).await?;
+    }
     let hlc = her_log::store::next_rev(db).await?;
-    let count = write::last_count(db, user_id, audience).await? + 1;
+    let count = match &into_log {
+        Some(_) => her_log::store::own_count(db, user_id, audience).await?,
+        None => write::last_count(db, user_id, audience).await? + 1,
+    };
     let row = Row {
         version: LOG_VERSION,
-        id: myriad_nodes::entries::row_id_from("forget", node, &source, ""),
+        id,
         origin: NODE.to_string(),
         author: Author::Owner,
         epoch: None,
@@ -151,6 +172,9 @@ pub(super) async fn forget_one<C: ConnectionTrait>(
         ],
     ))
     .await?;
+    if let Some(owner) = &into_log {
+        her_log::store::keep_own(db, her_log::keys::root(), owner, &row, None).await?;
+    }
     Ok(())
 }
 

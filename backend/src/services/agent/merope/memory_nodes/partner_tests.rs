@@ -23,10 +23,15 @@ async fn schema(prefix: &str) -> Option<crate::db::IsolatedSchema> {
 
 /// A topic she starts in `audience` with one fact on it, as her rows.
 fn topic(audience: &str, memory: &str, text: &str) -> (String, Vec<RowIn>) {
+    named(audience, "houseplants", memory, text)
+}
+
+/// [`topic`], named `name`.
+fn named(audience: &str, name: &str, memory: &str, text: &str) -> (String, Vec<RowIn>) {
     let made = myriad_nodes::entries::fact_rows(
         serde_json::from_value(json!({
             "audience": audience,
-            "start": {"name": "houseplants", "aliases": ["the green ones"]},
+            "start": {"name": name, "aliases": ["the green ones"]},
             "facts": [{"memory": memory, "text": text, "saidBy": ["partner"]}],
         }))
         .unwrap(),
@@ -145,5 +150,40 @@ async fn the_site_owners_talk_moves_to_the_partner_id_once_there_is_one() {
     // Moving again moves nothing.
     assert_eq!(partner::move_talk(db, OWNER, PARTNER).await.unwrap(), 0);
     assert_eq!(rows(db, &new).await, after);
+    schema.drop().await;
+}
+
+/// A talk that cannot move (a row under the new name already stands where
+/// one under the old name does) stays under the old name, and what she
+/// writes there is still kept.
+#[tokio::test]
+async fn a_talk_that_cannot_move_keeps_being_written_under_the_old_name() {
+    let Some(schema) = schema("memory_nodes_partner_clash").await else {
+        return;
+    };
+    let db = &schema.db;
+    let old = partner::legacy_talk();
+    let new = format!("personal:{PARTNER}");
+    let thought = pen::think().expect("her mind is here in tests");
+    partner::remember(None);
+    let (_, first) = topic(&old, "m1", "has a snake plant");
+    write::write(db, OWNER, &old, &first, Some(&thought))
+        .await
+        .unwrap();
+    // Something already under the new name, on the same places.
+    let (_, theirs) = named(&new, "bees", "m9", "keeps bees");
+    write::write(db, OWNER, &new, &theirs, Some(&thought))
+        .await
+        .unwrap();
+
+    crate::services::her_log::test_partner::give(db, OWNER, PARTNER).await;
+    let (_, second) = topic(&old, "m2", "repots in spring");
+    let written = write::write(db, OWNER, &old, &second, Some(&thought))
+        .await
+        .unwrap();
+    assert_eq!(written.rows.len(), 1);
+    assert_eq!(rows(db, &old).await.len(), 4, "still under the old name");
+    assert_eq!(rows(db, &new).await.len(), 3, "nothing half moved");
+    assert_eq!(partner::moved_to(), None);
     schema.drop().await;
 }

@@ -20,8 +20,10 @@ pub(crate) struct IsolatedSchema {
 /// Postgres has room for only so many at once (`max_locks_per_transaction`
 /// across its connections): tests run side by side make and drop their
 /// schemas a few at a time, or they run out ("out of shared memory").
+/// Every test fixture that makes a schema takes its turn here
+/// (`federation::test_db` too).
 #[cfg(test)]
-static SCHEMA_WORK: std::sync::LazyLock<tokio::sync::Semaphore> =
+pub(crate) static SCHEMA_WORK: std::sync::LazyLock<tokio::sync::Semaphore> =
     std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(2));
 
 #[cfg(test)]

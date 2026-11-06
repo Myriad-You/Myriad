@@ -105,6 +105,7 @@ pub(crate) mod intent_store;
 pub(crate) mod intents_due;
 pub(crate) mod intents_run;
 pub(crate) mod known;
+pub(crate) mod logged;
 pub(crate) mod migrate;
 mod migrate_census;
 mod migrate_check;
@@ -207,3 +208,6 @@ mod page_tests;
 
 #[cfg(test)]
 mod partner_tests;
+
+#[cfg(test)]
+mod logged_tests;
