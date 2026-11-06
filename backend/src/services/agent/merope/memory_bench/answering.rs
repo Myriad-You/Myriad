@@ -166,7 +166,6 @@ pub(super) async fn answer_one(
         });
     let input = json!({
         "today": question.question_date,
-        "whatYouRemember": recalled,
         "scrollingBack": scrolled,
         "goingThroughAll": going_through,
         "question": question.question,
@@ -177,7 +176,7 @@ pub(super) async fn answer_one(
     let mut answer = String::new();
     for _ in 0..3 {
         answer = lite
-            .analyze_with_system(&answer_system(question, present), &input)
+            .analyze_with_system(&answer_system(question, present, &recalled), &input)
             .await
             .inspect_err(|error| eprintln!("bench call failed: answering: {error:#}"))
             .unwrap_or_default();

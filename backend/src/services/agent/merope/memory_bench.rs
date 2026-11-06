@@ -154,16 +154,24 @@ fn date_of(text: &str) -> chrono::DateTime<chrono::FixedOffset> {
 /// with the date she learned it), with what she generally knows for advice
 /// or a recommendation; what she does not remember of them she does not make
 /// up. In a group, she knows others read along.
-fn answer_system(question: &Question, present: &Audience) -> String {
+/// What she answers on: `answer.sectioned`, with what she remembers laid
+/// out after it by the core, as a chat turn lays it out
+/// (`myriad_merope::speaking::format_remembered_section`), so the bench and
+/// production say alike when a memory is worth bringing up. (`answer.system`
+/// is the native runner's until it lays memories out the same way.)
+fn answer_system(question: &Question, present: &Audience, remembered: &[String]) -> String {
     let answer = &prompts()["answer"];
-    let mut system = answer["system"].as_str().unwrap().to_string();
+    let mut system = answer["sectioned"].as_str().unwrap().to_string();
     if present.is_group() {
         system = format!("{system} {}", answer["group"].as_str().unwrap());
         if question.question_speaker.as_deref() == Some("other") {
             system = format!("{system} {}", answer["other"].as_str().unwrap());
         }
     }
-    system
+    match myriad_merope::speaking::format_remembered_section(remembered) {
+        Some(section) => format!("{system}\n\n{section}"),
+        None => system,
+    }
 }
 
 /// Which grading rule a question takes: by its id's ending for those that
