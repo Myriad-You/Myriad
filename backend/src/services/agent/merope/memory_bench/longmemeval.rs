@@ -240,7 +240,8 @@ fn report(questions: &[Question], times: usize, outcomes: &[(Question, usize, Ou
     }
     let answered = |answered: &Answered| {
         json!({"retrieved":answered.retrieved,"correct":answered.correct,
-            "dragged":answered.dragged,"recalled":answered.recalled,"response":answered.answer,
+            "dragged":answered.dragged,"why":answered.why,"recalled":answered.recalled,
+            "response":answered.answer,
             "cues":answered.cues,"through":answered.through})
     };
     let rows: Vec<Value> = outcomes

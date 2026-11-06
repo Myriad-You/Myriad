@@ -87,6 +87,8 @@ pub(super) struct Answered {
     /// Noise questions: whether the answer brought in what she keeps of
     /// them where the question did not call for it.
     pub(super) dragged: Option<bool>,
+    /// Why the grader judged it so, in a few words, when it said.
+    pub(super) why: Option<String>,
     pub(super) answer: String,
     pub(super) recalled: Vec<String>,
     /// What she was to think of before answering, as the cues judged it.
@@ -179,6 +181,7 @@ pub(super) async fn answer_one(
             retrieved,
             correct: None,
             dragged: None,
+            why: None,
             answer,
             recalled,
             cues: cues.map(|cues| format!("{cues:?}")),
@@ -208,6 +211,10 @@ pub(super) async fn answer_one(
         retrieved,
         correct: graded.as_ref().and_then(|value| value["correct"].as_bool()),
         dragged: graded.as_ref().and_then(|value| value["dragged"].as_bool()),
+        why: graded
+            .as_ref()
+            .and_then(|value| value["why"].as_str())
+            .map(str::to_string),
         answer,
         recalled,
         cues: cues.map(|cues| format!("{cues:?}")),

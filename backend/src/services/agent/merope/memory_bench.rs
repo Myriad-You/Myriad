@@ -214,10 +214,11 @@ fn grade_schema(question: &Question) -> Value {
     if question.question_type == "noise" {
         return json!({"type":"object","additionalProperties":false,
             "required":["correct","dragged"],
-            "properties":{"correct":{"type":"boolean"},"dragged":{"type":"boolean"}}});
+            "properties":{"correct":{"type":"boolean"},"dragged":{"type":"boolean"},
+                "why":{"type":"string"}}});
     }
     json!({"type":"object","additionalProperties":false,"required":["correct"],
-        "properties":{"correct":{"type":"boolean"}}})
+        "properties":{"correct":{"type":"boolean"},"why":{"type":"string"}}})
 }
 
 struct Outcome {
