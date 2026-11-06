@@ -109,7 +109,9 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// （`memory_nodes.sql`，随 004 与 `ensure_memory_nodes_tables` 一起建）。
 /// 2026.11.06.4：`agent_her_state_rows` 加 `took`（别的端写来、站点已经收进表里的那一行），
 /// 同一行只收一次（`persona_log.sql`，旧库走通用 ADD）。
-pub const SCHEMA_VERSION: &str = "2026.11.06.4";
+/// 2026.11.06.5：`agent_sync_devices` 加 `app_outdated_at`（她的链接因为它说别的协议把它关掉的时候，
+/// 设备页据此说那台设备上的 App 要更新；它下次 hello 被收下就清掉）（`persona_sync.sql`，旧库走通用 ADD）。
+pub const SCHEMA_VERSION: &str = "2026.11.06.5";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);

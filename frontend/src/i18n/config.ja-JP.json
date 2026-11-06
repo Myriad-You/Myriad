@@ -929,6 +929,7 @@
   "agentDevicesEmpty": "デバイスはまだありません",
   "agentDevicesStatLive": "デバイス",
   "agentDevicesStale": "しばらく接続なし",
+  "agentDevicesAppOutdated": "このデバイスの App はアップデートが必要です",
   "agentDevicesRemoved": "削除済み",
   "agentDevicesRemovedLeft": "デバイス側で切断",
   "agentDevicesRemovedOwnerChanged": "サイトオーナーが変わりました",

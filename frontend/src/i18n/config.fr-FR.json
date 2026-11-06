@@ -929,6 +929,7 @@
   "agentDevicesEmpty": "Aucun appareil pour l’instant",
   "agentDevicesStatLive": "Appareils",
   "agentDevicesStale": "Pas connecté récemment",
+  "agentDevicesAppOutdated": "L’app sur cet appareil doit être mise à jour",
   "agentDevicesRemoved": "Retiré",
   "agentDevicesRemovedLeft": "Déconnecté par l’appareil",
   "agentDevicesRemovedOwnerChanged": "Propriétaire du site changé",

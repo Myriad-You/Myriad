@@ -217,6 +217,13 @@ pub(super) async fn serve_with(
     };
     tracing::info!(device = %link.device.id, "[link] opened");
     let why = link.run(sink, stream, rx, closed).await;
+    // Closed for speaking another protocol: its devices page says the app on
+    // it is to be updated, until a hello of it is taken.
+    if why == Some(Close::UnsupportedProtocol)
+        && let Err(error) = devices::app_outdated(&link.db, &link.device.id, true).await
+    {
+        tracing::warn!(%error, device = %link.device.id, "[link] that the app is to be updated could not be kept");
+    }
     // A device that is not one any more fails what it was asked to do.
     if matches!(why, Some(Close::Revoked | Close::OwnerChanged)) {
         super::act::forget_device(&link.device.id);
@@ -536,6 +543,13 @@ impl Link {
         None
     }
 
+    /// A hello of it was taken: the app on it speaks this protocol.
+    async fn app_current(&self) {
+        if let Err(error) = devices::app_outdated(&self.db, &self.device.id, false).await {
+            tracing::warn!(%error, device = %self.device.id, "[link] that the app is current could not be kept");
+        }
+    }
+
     async fn hello(&mut self, body: Value) -> Option<Close> {
         let Ok(hello) = serde_json::from_value::<Hello>(body) else {
             return Some(Close::BadFrame);
@@ -590,6 +604,7 @@ impl Link {
             Some(_) => return Some(Close::HostMoved),
         }
         self.hello = true;
+        self.app_current().await;
         let mut told = Vec::new();
         for turn in turns::recent(&self.device.id, turns::TOLD_IN_WELCOME) {
             let Some(run) = get_live_run_for_user(&turn.run_id, self.owner).await else {
@@ -819,6 +834,7 @@ impl Link {
             return Some(Close::HostMoved);
         }
         self.hello = true;
+        self.app_current().await;
         self.host = true;
         let frozen = lease
             .moving
