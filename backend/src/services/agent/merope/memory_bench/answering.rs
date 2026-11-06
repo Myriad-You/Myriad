@@ -93,6 +93,11 @@ pub(super) struct Answered {
     pub(super) dragged: Option<bool>,
     pub(super) answer: String,
     pub(super) recalled: Vec<String>,
+    /// What she was to think of before answering, as the cues judged it.
+    pub(super) cues: Option<String>,
+    /// What she went through when needing all of it: from her nodes, the
+    /// list code made.
+    pub(super) through: Option<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -187,6 +192,8 @@ pub(super) async fn answer_one(
             dragged: None,
             answer,
             recalled,
+            cues: cues.map(|cues| format!("{cues:?}")),
+            through: going_through,
         };
     }
     let mut graded = json!({"question": question.question, "correctAnswer": question.answer,
@@ -214,5 +221,7 @@ pub(super) async fn answer_one(
         dragged: graded.as_ref().and_then(|value| value["dragged"].as_bool()),
         answer,
         recalled,
+        cues: cues.map(|cues| format!("{cues:?}")),
+        through: going_through,
     }
 }

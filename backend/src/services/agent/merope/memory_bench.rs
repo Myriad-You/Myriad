@@ -233,6 +233,10 @@ struct Outcome {
     concepts: Vec<Value>,
     /// The topic each memory went under, if any.
     topics: Vec<Option<String>>,
+    /// Where each memory was put on her nodes, while they are written: the
+    /// node's name, `about` (「关于你」), `nowhere`, or none when it was
+    /// never decided.
+    nodes: Vec<Option<String>>,
     kept: usize,
 }
 
@@ -545,6 +549,36 @@ async fn run_one(
         .iter()
         .map(|row| topic_by_id.get(&row.id).cloned())
         .collect();
+    // A node merged away since keeps its id here, as the placement does.
+    let node_by_id: std::collections::HashMap<String, String> = {
+        use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+        db.query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT p.memory_id, p.how, p.node_id, h.name FROM agent_node_placements p \
+             LEFT JOIN agent_node_heads h ON h.user_id = p.user_id \
+               AND h.audience = p.audience AND h.node_id = p.node_id \
+             WHERE p.user_id = $1",
+            [user_id.into()],
+        ))
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|row| {
+            let how = row.try_get::<String>("", "how").ok()?;
+            let node = row.try_get::<Option<String>>("", "node_id").ok()?;
+            let name = row.try_get::<Option<String>>("", "name").ok()?;
+            let shown = match how.as_str() {
+                "node" => name.or(node)?,
+                _ => how,
+            };
+            Some((row.try_get::<String>("", "memory_id").ok()?, shown))
+        })
+        .collect()
+    };
+    let nodes: Vec<Option<String>> = kept_rows
+        .iter()
+        .map(|row| node_by_id.get(&row.id).cloned())
+        .collect();
     let (memories, concepts): (Vec<String>, Vec<Value>) = kept_rows
         .into_iter()
         .map(|row| {
@@ -564,5 +598,6 @@ async fn run_one(
         memories,
         concepts,
         topics,
+        nodes,
     }
 }
