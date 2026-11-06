@@ -754,8 +754,6 @@
     },
     "nodes": {
       "none": "Keine Knoten",
-      "modeOff": "Erinnerungsknoten sind aus; neue Knoten werden nicht geschrieben.",
-      "modeShadow": "Erinnerungsknoten werden nur geschrieben; Unterhaltungen nutzen weiterhin das bisherige Gedächtnis.",
       "private": "Ihr privater Chat",
       "own": "{name} selbst",
       "group": "Gruppe: {group}",
@@ -840,7 +838,6 @@
       "confirmDelete": "Löschen",
       "failed": {
         "away": "Änderung nicht möglich: Die Figur ist gerade nicht auf dieser Website.",
-        "off": "Änderung nicht möglich: Erinnerungsknoten sind aus.",
         "badName": "Umbenennen nicht möglich: Der Name ist leer oder länger als 80 Zeichen.",
         "heardUnkept": "Antwort nicht gespeichert: Die Website erfasst noch keine Quellen.",
         "notFound": "Knoten nicht gefunden.",

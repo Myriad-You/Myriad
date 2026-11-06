@@ -23,7 +23,10 @@
 //!
 //! Then the fold-back check ([`super::migrate_check`]): the moved rows,
 //! folded again, hold one entry for each old placement on the node it was
-//! moved to; what does not is reported, never mended here.
+//! moved to; what does not is reported, never mended here. And the count
+//! by audience ([`super::migrate_census`]): of what belongs on a node, how
+//! much is on one, put nowhere, or not decided; a run that asked the model
+//! and still leaves some undecided stops, saying where, to be run again.
 //!
 //! A dry run only counts and estimates. Every run is a row of
 //! `agent_node_migrations` (`migrations/memory_nodes.sql`); one runs at a
@@ -36,7 +39,9 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, T
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::{Error, hanging, migrate_check, migrate_replay, migrate_sources, migrate_topics};
+use super::{
+    Error, hanging, migrate_census, migrate_check, migrate_replay, migrate_sources, migrate_topics,
+};
 use crate::services::her_log::pen::{self, Thought};
 
 /// A run left `running` this long ago is taken to have died with its
@@ -95,6 +100,9 @@ pub(crate) struct Counts {
     /// The fold-back check.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub check: Option<migrate_check::Checked>,
+    /// The count by audience, after the run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub census: Option<migrate_census::Census>,
 }
 
 /// The part that asks the model, by count: asks, tokens, dollars.
@@ -369,6 +377,7 @@ async fn steps(db: &DatabaseConnection, options: Options, report: &mut Report) -
         migrate_sources::count(db, &mut report.counts).await?;
         report.estimate = migrate_replay::estimate(db, site_owner).await?;
         report.counts.to_sort = report.estimate.facts;
+        report.counts.census = Some(migrate_census::census(db).await?);
         return Ok(());
     }
     her_pen()?;
@@ -381,6 +390,16 @@ async fn steps(db: &DatabaseConnection, options: Options, report: &mut Report) -
         migrate_replay::run(db, site_owner, report).await?;
     }
     report.counts.check = Some(migrate_check::check(db, &moved).await?);
+    let census = migrate_census::census(db).await?;
+    let undecided = census.undecided;
+    let undecided_where = census.undecided_where();
+    report.counts.census = Some(census);
+    if options.replay && undecided > 0 {
+        return Err(Halt::Stopped(format!(
+            "{undecided} of what belongs on a node is on none and not put nowhere \
+             ({undecided_where}); the next run asks of it again"
+        )));
+    }
     Ok(())
 }
 

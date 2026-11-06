@@ -1,6 +1,5 @@
 //! Her intents come due (decision D5, N3): every half minute, while she
-//! reads her nodes ([`super::Mode::reads`]; `shadow` writes them and acts
-//! on none) and lives on the site, the waiting intents of each private
+//! lives on the site, the waiting intents of each private
 //! audience are put to the core (`myriad_nodes::intents::due`): a time come,
 //! or the node one waits on changed or done.
 //!
@@ -59,7 +58,7 @@ pub(crate) async fn tick(db: DatabaseConnection) {
 /// What is due at `now`, settled and raised; the instructions to run,
 /// returned to be run.
 pub(crate) async fn tick_at(db: &DatabaseConnection, now: DateTime<Utc>) -> Vec<ToRun> {
-    if !super::mode().reads() || !crate::services::agent::merope::is_enabled().await {
+    if !crate::services::agent::merope::is_enabled().await {
         return Vec::new();
     }
     let audiences = match intent_store::waiting_audiences(db).await {

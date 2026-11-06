@@ -116,17 +116,9 @@ async fn settle_session(
         .iter()
         .filter_map(|note| note.fact.as_deref())
         .collect();
-    // The topics to put what lasts under, as production shows them; none,
-    // and nothing put under one, when they are sorted afterwards.
-    let mut offered = if topics_later() {
-        Vec::new()
-    } else {
-        super::super::store::offered_topics(db, user_id, present, &theirs)
-            .await
-            .unwrap_or_default()
-    };
-    // While her nodes are written, the stretch is cut onto them first and
-    // her nodes are what she puts it under, as production goes over it.
+    // In a private talk the stretch is cut onto her nodes first and her
+    // nodes are what she puts it on, as production goes over it.
+    let mut offered = Vec::new();
     if on_nodes(present) {
         use super::super::memory_nodes::placing::{self, Line};
         let lines: Vec<Line> = turns
@@ -140,10 +132,9 @@ async fn settle_session(
             })
             .collect();
         let placed = placing::place(db, user_id, None, &lines).await;
-        offered = super::super::memory_nodes::facts::shown_topics(
-            db, user_id, None, &theirs, &placed, offered,
-        )
-        .await;
+        offered =
+            super::super::memory_nodes::facts::shown_topics(db, user_id, None, &theirs, &placed)
+                .await;
     }
     let input = json!({
         "conversation": turns
@@ -196,11 +187,7 @@ async fn settle_session(
                 standing: item.standing.clone(),
                 // When it would be worth remembering, as production keeps it.
                 cues: item.when_for,
-                topic: if topics_later() {
-                    None
-                } else {
-                    super::super::chat_remember::settle::goes_under(&item.topic, &offered)
-                },
+                topic: super::super::chat_remember::settle::goes_under(&item.topic, &offered),
                 fact: Some(fact.clone()),
                 // What it changes goes with the first: it says how it is now.
                 supersedes: if updates.updates.is_empty() {
@@ -243,10 +230,10 @@ async fn settle_session(
     (lasting, passed_over, settled)
 }
 
-/// Whether what she goes over is put on her nodes too
-/// (`MEROPE_MEMORY_NODES=shadow` or `on`): a private talk only, as production.
+/// Whether what she goes over is put on her nodes: a private talk only, as
+/// production.
 pub(super) fn on_nodes(present: &Audience) -> bool {
-    super::super::memory_nodes::mode().writes() && !present.is_group()
+    !present.is_group()
 }
 
 /// Once all is written, what production's upkeep does to her nodes: what
@@ -271,104 +258,6 @@ pub(super) async fn keep_up_nodes(db: &sea_orm::DatabaseConnection, user_id: i32
 const NODE_SORTS: usize = 8;
 /// Upkeep calls at the end, at most: what another account gets in a day.
 const NODE_UPKEEPS: usize = 6;
-
-/// `MEROPE_MEMORY_BENCH_TOPICS=later`: what going over keeps is put under
-/// no topic, and sorted under them once all is written ([`sort_all`]), as
-/// what she knew before topics is sorted at upkeep.
-pub(super) fn topics_later() -> bool {
-    std::env::var("MEROPE_MEMORY_BENCH_TOPICS").as_deref() == Ok("later")
-}
-
-/// `MEROPE_MEMORY_BENCH_TIDY=1`: once all is written (and sorted), the
-/// topics are tidied as upkeep tidies them ([`tidy_all`]).
-pub(super) fn topics_tidied() -> bool {
-    std::env::var("MEROPE_MEMORY_BENCH_TIDY").as_deref() == Ok("1")
-}
-
-/// Their topics tidied as upkeep tidies them (`chat_remember::tidy`),
-/// however few wait, until a round changes nothing (a few rounds at most).
-pub(super) async fn tidy_all(
-    db: &sea_orm::DatabaseConnection,
-    judge: &crate::services::analyzer::AiAnalyzer,
-    user_id: i32,
-) {
-    use super::super::chat_remember::tidy;
-    for _ in 0..4 {
-        let _ = super::super::store::merge_same_names(db, user_id).await;
-        let Some((due, others)) = tidy::to_ask(db, user_id, true).await else {
-            break;
-        };
-        let due_shown: Vec<_> = due.iter().map(|due| tidy::shown(&due.topic)).collect();
-        let others_shown: Vec<_> = others.iter().map(tidy::shown).collect();
-        let Ok(raw) = judge
-            .analyze_json(
-                &myriad_merope::topics::tidy_system_prompt(),
-                &myriad_merope::topics::tidy_input(&due_shown, &others_shown),
-                tidy::SCHEMA_NAME,
-                Some(&myriad_merope::topics::tidy_schema()),
-            )
-            .await
-            .inspect_err(|error| eprintln!("bench call failed: tidying: {error:#}"))
-        else {
-            break;
-        };
-        let tidied = myriad_merope::topics::read_tidied(&raw, due.len(), others.len());
-        let changed = tidied
-            .iter()
-            .any(|what| !matches!(what, myriad_merope::topics::Tidied::Keep));
-        let _ = super::super::store::apply_tidied(db, user_id, &due, &others, &tidied).await;
-        if !changed {
-            break;
-        }
-    }
-}
-
-/// Everything she knows of them in private sorted under topics, a batch at
-/// a time as upkeep sorts it (`chat_remember::sort`), until a batch sorts
-/// nothing.
-pub(super) async fn sort_all(
-    db: &sea_orm::DatabaseConnection,
-    judge: &crate::services::analyzer::AiAnalyzer,
-    user_id: i32,
-) {
-    let present = Audience::private(user_id);
-    loop {
-        let rows =
-            super::super::store::unsorted(db, user_id, &present, myriad_merope::topics::SORT_BATCH)
-                .await
-                .unwrap_or_default();
-        if rows.is_empty() {
-            break;
-        }
-        let facts: Vec<String> = rows.iter().map(super::super::store::as_known).collect();
-        let offered = super::super::store::offered_topics(db, user_id, &present, &facts.join("\n"))
-            .await
-            .unwrap_or_default();
-        let Ok(raw) = judge
-            .analyze_json(
-                &myriad_merope::topics::sort_system_prompt(),
-                &myriad_merope::topics::sort_input(
-                    super::super::chat_remember::settle::shown_topics(&offered),
-                    &facts,
-                ),
-                super::super::chat_remember::sort::SCHEMA_NAME,
-                Some(&myriad_merope::topics::sort_schema()),
-            )
-            .await
-            .inspect_err(|error| eprintln!("bench call failed: sorting: {error:#}"))
-        else {
-            break;
-        };
-        let placed = super::super::chat_remember::sort::placed(&raw, &rows, &offered);
-        if placed.is_empty() {
-            break;
-        }
-        for (id, goes) in &placed {
-            let _ =
-                super::super::store::put_under(db, user_id, &present, id, &[], Some(goes)).await;
-        }
-    }
-}
 
 /// One session the settle way as weeks go by: each of their lines taken as
 /// a short note, what she said kept as it is, and the session gone over

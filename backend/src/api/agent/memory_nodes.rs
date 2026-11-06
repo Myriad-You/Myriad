@@ -29,7 +29,6 @@ use serde_json::{Value, json};
 use crate::error::HttpError;
 use crate::middleware::auth::Claims;
 use crate::services::agent::merope::memory_nodes::{
-    self,
     page::{self, AudienceLine},
     page_edit::{self, Answer, Refusal},
 };
@@ -104,7 +103,6 @@ pub(crate) async fn list(
         })
         .collect();
     Ok(Json(json!({
-        "mode": memory_nodes::mode().as_str(),
         "herName": her,
         "audiences": audiences,
     })))

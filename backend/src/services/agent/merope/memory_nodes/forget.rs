@@ -17,9 +17,7 @@
 //! of it is kept.
 //!
 //! Forgetting is the person's own act (`owner` rows, no pen needed), runs
-//! in the forgetting's own transaction under each audience's lock, and
-//! runs whatever the switch says: rows written while it was on are still
-//! words of the forgotten memory.
+//! in the forgetting's own transaction under each audience's lock.
 
 use std::collections::{BTreeMap, BTreeSet};
 

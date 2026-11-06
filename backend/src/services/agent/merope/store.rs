@@ -24,7 +24,6 @@ mod generation;
 mod memory;
 mod persona;
 mod proactive;
-mod topics;
 
 pub use addressee::*;
 pub use affect_fold::*;
@@ -33,7 +32,6 @@ pub use generation::*;
 pub use memory::*;
 pub use persona::*;
 pub use proactive::*;
-pub use topics::*;
 
 #[cfg(test)]
 #[path = "store_memory_tests.rs"]

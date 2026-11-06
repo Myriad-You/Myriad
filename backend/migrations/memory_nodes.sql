@@ -16,8 +16,6 @@
 -- a memory row was put: on a node, on 「关于你」, or nowhere (decided, not
 -- asked again). `agent_node_inbox` holds, per audience and day, what she was
 -- unsure where to put.
---
--- Nothing reads or writes these while `merope_memory_nodes` is off.
 -- Created by migration 004 and, for databases already past it, by the
 -- startup heal `ensure_memory_nodes_tables`; both run this same file.
 CREATE TABLE IF NOT EXISTS agent_node_rows (

@@ -12,8 +12,7 @@
 //! new, and costs nothing when nothing is. An answer the core cannot read
 //! as it stands writes nothing: the talk is all still there, and going
 //! over the stretch goes on without it. Only a private talk is placed;
-//! only while nodes are written ([`super::Mode::writes`]); only while her
-//! mind is here.
+//! only while her mind is here.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -136,7 +135,7 @@ pub(crate) async fn place(
     site_owner: Option<i32>,
     lines: &[Line],
 ) -> Vec<String> {
-    if !super::mode().writes() || lines.is_empty() || user_id <= 0 {
+    if lines.is_empty() || user_id <= 0 {
         return Vec::new();
     }
     let audience = audience::private_talk(user_id, site_owner);

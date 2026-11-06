@@ -18,7 +18,7 @@
 //! but for the row that lets a sore go: that one is also a memory of them
 //! like any other, for sorting to put where it goes.
 //!
-//! Only while her nodes are written, only with her pen. Nothing here ever
+//! Only with her pen. Nothing here ever
 //! fails the write it follows: what cannot be put on a node is said in the
 //! log and left. No model is called.
 
@@ -72,9 +72,6 @@ pub(crate) async fn site_owner(db: &DatabaseConnection) -> Option<i32> {
 /// The memory row `memory_id` was just kept: put it on her nodes, if it
 /// goes there. Never fails the write it follows.
 pub(crate) async fn kept(db: &DatabaseConnection, memory_id: &str) {
-    if !super::mode().writes() {
-        return;
-    }
     let site_owner = site_owner(db).await;
     if let Err(error) = hang(db, site_owner, memory_id).await {
         tracing::warn!(%error, "[memory-nodes] a memory not put on her nodes");

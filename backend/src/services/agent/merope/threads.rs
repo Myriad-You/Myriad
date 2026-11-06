@@ -309,8 +309,8 @@ pub fn as_input(threads: &[Thread]) -> Vec<Value> {
 }
 
 /// Threads past their time by a few days, or undated and untouched for
-/// two weeks, fade; but, while she reads her nodes, not those that are her
-/// intents (`memory_nodes::home_intents`): those wait for her as intents.
+/// two weeks, fade; but not those that are her intents
+/// (`memory_nodes::home_intents`): those wait for her as intents.
 pub async fn let_fade(db: &DatabaseConnection) {
     let now = crate::clock::now();
     let rows = unified::active_from_source(db, SOURCE)

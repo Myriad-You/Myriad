@@ -187,8 +187,7 @@ async fn first_words_as(
     user_id: i32,
 ) -> Option<(Reason, String, String, Wish)> {
     let now = super::clock::now();
-    // While she reads her nodes, those that are her intents come due as
-    // intents instead (`memory_nodes::home_intents`).
+    // Those that are her intents come due as intents instead (`memory_nodes::home_intents`).
     let threads = super::memory_nodes::home_intents::not_intents(
         db,
         user_id,

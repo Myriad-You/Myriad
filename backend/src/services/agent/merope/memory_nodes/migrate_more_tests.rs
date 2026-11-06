@@ -11,7 +11,6 @@ use super::migrate_tests::{
     real, seed, sql,
 };
 use super::placements::{self, How};
-use super::switch::set_for_test;
 use super::talk_tests::{answering, asked, count};
 use super::{audience, facts, read};
 use crate::services::her_log::pen;
@@ -72,7 +71,6 @@ async fn asking_the_model_stops_past_twice_its_estimate_and_the_next_run_goes_on
         placements::placement(db, &last).await.unwrap().unwrap().how,
         How::About
     );
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -133,7 +131,6 @@ async fn an_old_topic_her_nodes_already_keep_by_name_is_that_node() {
     let check = report.counts.check.unwrap();
     assert!(check.whole(), "{check:?}");
     assert_eq!((check.expected, check.matched, check.extra), (2, 2, 0));
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -190,7 +187,6 @@ async fn a_dry_run_counts_and_estimates_and_writes_nothing() {
     assert_eq!(asked(OPERATION), 0);
     assert_eq!((moved_only.counts.placed, moved_only.counts.asks), (3, 0));
     assert!(placements::placement(db, "m5").await.unwrap().is_none());
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -210,6 +206,84 @@ async fn one_run_at_a_time() {
     .await;
     let report = moved(db, real(false)).await;
     assert_eq!(report.status, Status::Done);
-    set_for_test(None);
+    schema.drop().await;
+}
+
+/// After a run that asks the model, each audience is counted: what belongs
+/// on a node is on one or put nowhere (a fact the answer left out), what
+/// does not is counted by source and kind; what is still undecided stops
+/// the run, saying where.
+#[tokio::test]
+async fn each_audience_is_counted_and_what_is_undecided_stops_the_run() {
+    let Some(schema) = owned("memory_nodes_migrate_census").await else {
+        return;
+    };
+    let db = &schema.db;
+    memory(
+        db,
+        "c1",
+        Some(SEVEN),
+        ("chat", "private", "user"),
+        "养了一只猫",
+        None,
+        3,
+    )
+    .await;
+    memory(
+        db,
+        "c2",
+        Some(SEVEN),
+        ("chat", "private", "user"),
+        "今天下雨",
+        None,
+        2,
+    )
+    .await;
+    memory(
+        db,
+        "d1",
+        Some(SEVEN),
+        ("day_with", "private", "user"),
+        "一起看了电影",
+        None,
+        1,
+    )
+    .await;
+    answering(&[(OPERATION, &about_them(1, 0))]);
+    let done = moved(db, real(true)).await;
+    assert_eq!(done.status, Status::Done, "{:?}", done.note);
+    let census = done.counts.census.clone().unwrap();
+    assert_eq!(census.undecided, 0);
+    let private = &census.audiences[0];
+    assert_eq!(private.audience, format!("private:{SEVEN}"));
+    assert_eq!(
+        (
+            private.held,
+            private.belong,
+            private.on_node,
+            private.nowhere
+        ),
+        (3, 2, 1, 1),
+        "the left-out fact is put nowhere"
+    );
+    assert_eq!(private.not_sorted.get("day_with/fact"), Some(&1));
+
+    // An answer that cannot be read leaves what it was asked undecided.
+    memory(
+        db,
+        "c3",
+        Some(SEVEN),
+        ("chat", "private", "user"),
+        "换了工作",
+        None,
+        0,
+    )
+    .await;
+    answering(&[(OPERATION, "not an answer")]);
+    let stopped = moved(db, real(true)).await;
+    assert_eq!(stopped.status, Status::Stopped);
+    let note = stopped.note.clone().unwrap();
+    assert!(note.contains(&format!("private:{SEVEN}: 1")), "{note}");
+    assert_eq!(stopped.counts.census.unwrap().undecided, 1);
     schema.drop().await;
 }

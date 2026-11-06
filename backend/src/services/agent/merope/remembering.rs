@@ -24,9 +24,6 @@ pub const LOOK_BACK_THOROUGH: usize = 8;
 const THINK_WITHIN: Duration = Duration::from_secs(6);
 /// What she goes through when answering needs all of it.
 pub const THOROUGH: usize = 24;
-/// What else of the topics of what came to mind she goes through then, at
-/// most (`store::kept_together`); she is told how much more there is.
-const KEPT_TOGETHER: usize = 24;
 /// Not going through all of it, the lines each try brings of its own
 /// before the rest are ranked together, so each thing their words ask
 /// about has a few; and what a turn asking of several goes through, at
@@ -395,30 +392,8 @@ pub async fn recall_with(
         db, user_id, present, message, cues, limit, thorough, priming, breadth,
     )
     .await?;
-    // Going through all of it, what she keeps under the same topics comes
-    // to mind with it: a fact of the kind is found through another of its
-    // kind, sharing no word with what they asked.
-    if cues.is_some_and(|cues| cues.thorough) {
-        let named_ids: Vec<String> = recalled
-            .named
-            .iter()
-            .filter_map(|line| recalled.ids.iter().find(|(seen, _)| seen == line))
-            .map(|(_, id)| id.clone())
-            .collect();
-        let have: Vec<String> = recalled
-            .named
-            .iter()
-            .chain(&recalled.brought_to_mind)
-            .cloned()
-            .collect();
-        let together =
-            store::kept_together(db, user_id, present, &named_ids, &have, KEPT_TOGETHER).await?;
-        recalled.named.extend(together.more);
-        recalled.said.extend(together.said);
-        recalled.not_all_here = together.cut;
-        let named = &recalled.named;
-        recalled.said.retain(|line, _| named.contains(line));
-    }
+    let named = &recalled.named;
+    recalled.said.retain(|line, _| named.contains(line));
     Ok((recalled, next))
 }
 
@@ -458,7 +433,7 @@ fn shared_out(tries: &[Vec<String>], found: &[String], each: usize, room: usize)
     out
 }
 
-/// [`recall_with`] up to what she keeps under the same topics: what their
+/// [`recall_with`] before their words are cut to what it named: what their
 /// words and each cue found, merged and ranked, each line with the memory
 /// it is (`Recalled::ids`); going through all of it, only what something
 /// named, and their words beside every line any try found (`said`, for
@@ -566,7 +541,7 @@ pub async fn ranked_with(
         .map(|(_, id)| id.clone())
         .collect();
     // Going through all of it, their words are kept for every line found:
-    // what is added under the same topics may be one of them.
+    // what her nodes add may be one of them.
     if !cues.thorough {
         said.retain(|line, _| named.contains(line));
     }
@@ -579,7 +554,6 @@ pub async fn ranked_with(
                 .into_iter()
                 .filter(|(_, id)| named_ids.contains(id))
                 .collect(),
-            not_all_here: Vec::new(),
             said,
         },
         next,

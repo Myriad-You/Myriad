@@ -3,21 +3,21 @@
 //! could not be written), and what she found out herself in their talk,
 //! sorted onto her nodes at upkeep: a batch at a
 //! time through the core (`myriad_nodes::entries::sort_prepare`,
-//! `sort_read`, the same prompt and reading the old topics are sorted by),
-//! and put on them as going over a stretch puts what it keeps
+//! `sort_read`), and put on them as going over a stretch puts what it keeps
 //! ([`super::facts::put`]). Billed to whom they are about, with today's
 //! budget for sorting: a few people an upkeep, a few batches each.
 //!
-//! Only while nodes are written, and only while her mind is here. A fact
-//! she gave no readable place is asked of again at a later upkeep; so is a
-//! batch whose answer could not be read at all, while the batches after it
-//! go on.
+//! Only while her mind is here. A fact a
+//! readable answer leaves out is put nowhere, decided, as the prompt asks
+//! her to leave out what she has nothing to put in; a batch whose answer
+//! could not be read at all is asked of again at a later upkeep, while the
+//! batches after it go on.
 
 use std::collections::HashSet;
 use std::time::Duration;
 
 use myriad_merope::topics::SORT_BATCH;
-use myriad_nodes::entries::{self, FactIn, SortInput, SortReadInput, TopicIn};
+use myriad_nodes::entries::{self, FactIn, Placement, SortInput, SortReadInput, TopicIn};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 
 use super::{Error, audience, facts, known, placements};
@@ -30,6 +30,8 @@ const PEOPLE: i64 = 10;
 const ASKS: usize = 3;
 const TIMEOUT: Duration = Duration::from_secs(90);
 const OPERATION: &str = "memory_node_sort";
+/// The answer's schema, by the name the old topics were sorted under.
+const SCHEMA_NAME: &str = "topic_sort";
 /// What she knows for good of someone, which she sorts: and what she found
 /// out herself in their talk (`lookup`), put as an ordinary fact is.
 pub(crate) const SORTED: &[&str] = &["chat", "import", "lookup"];
@@ -68,9 +70,6 @@ async fn with_unplaced<C: ConnectionTrait>(db: &C, at_most: i64) -> Result<Vec<i
 
 /// Sort what is still to be put on a node, for a few people.
 pub(crate) async fn sort_missing(db: &DatabaseConnection) {
-    if !super::mode().writes() {
-        return;
-    }
     let owner = crate::services::principal::site_owner_id(db)
         .await
         .ok()
@@ -190,7 +189,9 @@ async fn sort_batch(
 /// What she answered sorting `rows` onto the topics of `user_id`'s
 /// `audience`, billed to `user_id` under `operation`.
 pub(crate) struct Answer {
-    /// Where each fact she gave a readable place goes.
+    /// Where each fact asked goes: the place she gave it, or nowhere when
+    /// a readable answer left it out (she had nothing to put it in), so it
+    /// is decided and not asked again.
     pub facts: Vec<facts::Fact>,
     /// Nothing of her answer could be read: the batch failed, which is not
     /// her putting none of them anywhere.
@@ -254,7 +255,7 @@ pub(crate) async fn answer(
         .json_raw(
             &prepared.system,
             &prepared.input,
-            crate::services::agent::merope::chat_remember::sort::SCHEMA_NAME,
+            SCHEMA_NAME,
             &prepared.schema,
         )
         .await
@@ -283,27 +284,37 @@ pub(crate) async fn answer(
             .collect(),
     })?;
     let unreadable = read.unreadable;
-    let facts = read
+    let fact_of = |row: &MemoryRecord, placement, standing| {
+        // In a group, everyone but her is someone there.
+        let who = if row.speaker == "agent" {
+            audience::Speaker::Her
+        } else {
+            audience::Speaker::Person
+        };
+        facts::Fact {
+            memory: row.id.clone(),
+            text: row.content.clone(),
+            said_by: audience::said_by(audience, who)
+                .unwrap_or_else(|| facts::said_by(&row.speaker)),
+            placement,
+            standing,
+        }
+    };
+    let mut facts: Vec<facts::Fact> = read
         .facts
         .into_iter()
         .filter_map(|sorted| {
             let row = rows.iter().find(|row| row.id == sorted.fact)?;
-            // In a group, everyone but her is someone there.
-            let who = if row.speaker == "agent" {
-                audience::Speaker::Her
-            } else {
-                audience::Speaker::Person
-            };
-            Some(facts::Fact {
-                memory: row.id.clone(),
-                text: row.content.clone(),
-                said_by: audience::said_by(audience, who)
-                    .unwrap_or_else(|| facts::said_by(&row.speaker)),
-                placement: sorted.placement,
-                standing: sorted.standing,
-            })
+            Some(fact_of(row, sorted.placement, sorted.standing))
         })
         .collect();
+    if !unreadable {
+        for row in rows.iter().take(prepared.taken) {
+            if !facts.iter().any(|fact| fact.memory == row.id) {
+                facts.push(fact_of(row, Placement::Nowhere, Default::default()));
+            }
+        }
+    }
     Ok(Some(Answer {
         facts,
         unreadable,

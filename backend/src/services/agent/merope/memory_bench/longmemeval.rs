@@ -252,7 +252,7 @@ fn report(questions: &[Question], times: usize, outcomes: &[(Question, usize, Ou
             "plain":answered(&outcome.plain),"cued":answered(&outcome.cued),
             "wide":answered(&outcome.wide),"read":outcome.read.as_ref().map(answered),
             "bare":outcome.bare.as_ref().map(answered),"inPrivate":outcome.in_private,
-            "memories":outcome.memories,"concepts":outcome.concepts,"topics":outcome.topics,
+            "memories":outcome.memories,"concepts":outcome.concepts,
             "nodes":outcome.nodes})
         })
         .collect();

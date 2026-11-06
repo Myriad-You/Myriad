@@ -12,8 +12,7 @@
 //! owner has her forget a node there, its node here is forgotten with it:
 //! the owner's forget of the whole node, every row of it a stub.
 //!
-//! Only while her nodes are written (forgetting: always), only with her
-//! pen; never failing the write it follows.
+//! Only with her pen (forgetting: always); never failing the write it follows.
 
 use myriad_nodes::{BODY_VERSION, entries::row_id_from};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
@@ -45,7 +44,7 @@ pub(crate) async fn noted(
     event: &str,
     note: &Note,
 ) {
-    if !super::mode().writes() || user_id <= 0 {
+    if user_id <= 0 {
         return;
     }
     let site_owner = hanging::site_owner(db).await;
@@ -130,7 +129,7 @@ pub(crate) async fn put(
 }
 
 /// The site owner had her forget their node of `form` and `key` on a child:
-/// its node on her nodes goes too, whatever the switch says.
+/// its node on her nodes goes too.
 pub(crate) async fn forgotten(db: &DatabaseConnection, user_id: i32, form: Form, key: &str) {
     let site_owner = hanging::site_owner(db).await;
     if let Err(error) = forget_node(db, user_id, site_owner, form, key).await {

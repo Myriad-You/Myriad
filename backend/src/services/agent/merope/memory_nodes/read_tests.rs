@@ -19,7 +19,6 @@ use super::context::{self, NodeTurn};
 use super::facts::{self, Fact};
 use super::intent_store::Held;
 use super::recall::{self, Recollection};
-use super::switch::{Mode, set_for_test};
 use super::{audience, hanging};
 use crate::services::agent::memory::unified::{self, Audience, MemoryKind, NewMemory, Speaker};
 use crate::services::agent::merope::{making_sense, sore, store};
@@ -139,7 +138,6 @@ pub(crate) fn start(name: &str) -> Placement {
 /// account 8's private talk, and her own. Each text says where it is.
 /// The memory ids of the plant facts, and of 7's facts on 「关于你」.
 pub(crate) async fn seed(db: &DatabaseConnection) -> (Vec<String>, Vec<String>) {
-    set_for_test(Some(Mode::Shadow));
     let talk = audience::private_talk(SEVEN, Some(OWNER));
     let group = audience::group(GROUP);
     let plants = put(
@@ -226,7 +224,6 @@ pub(crate) async fn seed(db: &DatabaseConnection) -> (Vec<String>, Vec<String>) 
         &["OWN-TOPIC 最近总听同一首歌"],
     )
     .await;
-    set_for_test(Some(Mode::On));
     (plants, about)
 }
 
@@ -237,7 +234,6 @@ pub(crate) async fn ranked(db: &DatabaseConnection, named: &[&str]) -> store::Re
         brought_to_mind: Vec::new(),
         recent: Vec::new(),
         ids: Vec::new(),
-        not_all_here: Vec::new(),
         said: HashMap::new(),
     };
     for id in named {

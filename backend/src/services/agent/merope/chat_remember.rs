@@ -72,10 +72,10 @@ pub struct ChatMemoryUpdate {
     /// When it would be worth remembering (see `unified::keep_cues`).
     #[serde(default)]
     pub cues: Vec<String>,
-    /// The topic it goes under, when going over a stretch put it under one
-    /// (`store::put_under`).
+    /// Where on her nodes it goes, as going over the stretch decided
+    /// (`memory_nodes::facts::settled`).
     #[serde(default)]
-    pub topic: Option<super::store::GoesUnder>,
+    pub topic: Option<super::memory_nodes::facts::GoesUnder>,
     /// When what it tells of happened and where it stands, as going over
     /// the stretch answered (`myriad_merope::happened`): for the entry on
     /// her nodes, which is where a kind of thing is listed whole. Not kept
@@ -1136,8 +1136,6 @@ mod tests {
 }
 
 pub(super) mod cues;
-pub(in crate::services::agent::merope) mod sort;
-pub(in crate::services::agent::merope) mod tidy;
 #[cfg(test)]
 mod replay;
 

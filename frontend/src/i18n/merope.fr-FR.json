@@ -754,8 +754,6 @@
     },
     "nodes": {
       "none": "Aucun nœud",
-      "modeOff": "Les nœuds de mémoire sont désactivés ; aucun nouveau nœud n’est écrit.",
-      "modeShadow": "Les nœuds de mémoire sont seulement écrits ; les conversations utilisent encore la mémoire d’avant.",
       "private": "Votre conversation privée",
       "own": "Propre à {name}",
       "group": "Groupe : {group}",
@@ -840,7 +838,6 @@
       "confirmDelete": "Supprimer",
       "failed": {
         "away": "Modification impossible : le personnage n’est pas sur ce site actuellement.",
-        "off": "Modification impossible : les nœuds de mémoire sont désactivés.",
         "badName": "Renommage impossible : le nom est vide ou dépasse 80 caractères.",
         "heardUnkept": "Réponse non enregistrée : le site n’enregistre pas encore les sources.",
         "notFound": "Nœud introuvable.",

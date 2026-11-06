@@ -652,7 +652,7 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .await?;
 
         // 她的节点照共享核心存：只追加的节点行、折叠出的头、记忆放在哪、拿不准的收件箱。
-        // 默认不用（`merope_memory_nodes`）。schema_check::ensure_memory_nodes_tables 跑同一份文件。
+        // schema_check::ensure_memory_nodes_tables 跑同一份文件。
         manager
             .get_connection()
             .execute_unprepared(include_str!("memory_nodes.sql"))

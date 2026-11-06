@@ -754,8 +754,6 @@
     },
     "nodes": {
       "none": "No nodes",
-      "modeOff": "Memory nodes are off; no new nodes are written.",
-      "modeShadow": "Memory nodes are written only; conversations still use the earlier memory.",
       "private": "Your Private Chat",
       "own": "{name}’s Own",
       "group": "Group: {group}",
@@ -840,7 +838,6 @@
       "confirmDelete": "Delete",
       "failed": {
         "away": "Can’t make changes: the character isn’t on this site now.",
-        "off": "Can’t make changes: memory nodes are off.",
         "badName": "Can’t rename: the name is empty or longer than 80 characters.",
         "heardUnkept": "Can’t save the answer: the site doesn’t record sources yet.",
         "notFound": "Can’t find this node.",

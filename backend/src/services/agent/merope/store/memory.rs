@@ -230,22 +230,11 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
             .await?;
             if let Some(id) = replaced.id {
                 unified::keep_cues(db, &id, &update.cues).await?;
-                if keep == Keep::Lasting {
-                    super::put_under(db, user_id, present, &id, &targets, update.topic.as_ref())
-                        .await?;
-                }
             }
         }
         None => {
             unified::retire_in_favor_of(db, user_id, &targets, "superseded", duplicate.as_deref())
                 .await?;
-            // What already said it goes under the topic this was put under,
-            // when it is under none yet.
-            if keep == Keep::Lasting
-                && let Some(id) = duplicate.as_deref()
-            {
-                super::put_under(db, user_id, present, id, &targets, update.topic.as_ref()).await?;
-            }
         }
     }
     let applied = !targets.is_empty() || insert.is_some();
@@ -445,9 +434,6 @@ pub struct Recalled {
     pub recent: Vec<String>,
     /// The memory behind each line of `named`, by line.
     pub ids: Vec<(String, String)>,
-    /// Going through all of it, the topics whose facts are not all in
-    /// `named`: each one's name, how many are, and how many she keeps.
-    pub not_all_here: Vec<(String, usize, usize)>,
     /// What they said behind a line of `named`, by line, where it was their
     /// own words ([`their_words`]); shown only going through all of it.
     pub said: std::collections::HashMap<String, String>,
@@ -496,7 +482,6 @@ pub async fn recall_remembered_split(
         brought_to_mind: Vec::new(),
         recent: Vec::new(),
         ids: Vec::new(),
-        not_all_here: Vec::new(),
         said: std::collections::HashMap::new(),
     };
     // In a group she remembers what everyone there said; what is about

@@ -1,5 +1,5 @@
-//! What comes to mind of her nodes as she answers, while she reads them
-//! (§4 of the plan): the site ranks what she keeps for their words as it
+//! What comes to mind of her nodes as she answers (§4 of the plan): the
+//! site ranks what she keeps for their words as it
 //! always has (`unified::recall`, decision D3); the core picks from that
 //! ranking which nodes come, and which entries of each
 //! (`myriad_nodes::recall::pick`: three nodes, three entries each, five of
