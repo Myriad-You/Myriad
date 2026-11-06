@@ -343,9 +343,17 @@ pub(super) async fn her_memory_at_its_full_size() {
                     large.correct,
                     small.recalled.len()
                 );
+                // What the turn carries of her memory, as she reads it: the
+                // lines, and the list when going through all of a kind.
+                let carried = |answered: &Answered| {
+                    answered.recalled.iter().map(|line| line.chars().count()).sum::<usize>()
+                        + answered.through.as_ref().map_or(0, |list| list.chars().count())
+                };
                 json!({"id":question.question_id,"type":question.question_type,
                     "alone":small.correct,"among":large.correct,
                     "recalledAlone":small.recalled.len(),"stillRecalled":kept,
+                    "recalledAmong":large.recalled.len(),
+                    "charsAlone":carried(&small),"charsAmong":carried(&large),
                     "responseAmong":large.answer})
             }
         })
@@ -402,14 +410,24 @@ pub(super) async fn her_memory_at_its_full_size() {
         .iter()
         .filter_map(|row| row["stillRecalled"].as_u64())
         .sum::<u64>() as usize;
+    let sum = |key: &str| {
+        outcomes
+            .iter()
+            .filter_map(|row| row[key].as_u64())
+            .sum::<u64>()
+    };
+    let (chars_alone, chars_among) = (sum("charsAlone"), sum("charsAmong"));
     println!(
-        "alone {alone} among {among} of {}; recalled lines kept {still}/{recalled}",
+        "alone {alone} among {among} of {}; recalled lines kept {still}/{recalled}; \
+         memory carried {chars_alone} chars alone, {chars_among} among",
         outcomes.len()
     );
     std::fs::write(
         &report_path,
         serde_json::to_string_pretty(&json!({"alone":alone,"among":among,"total":outcomes.len(),
-            "recalledAlone":recalled,"stillRecalled":still,"rows":outcomes}))
+            "recalledAlone":recalled,"stillRecalled":still,
+            "recalledAmong":sum("recalledAmong"),
+            "charsAlone":chars_alone,"charsAmong":chars_among,"rows":outcomes}))
         .unwrap(),
     )
     .unwrap();
