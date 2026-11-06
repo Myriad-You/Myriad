@@ -114,6 +114,7 @@ mod migrate_topics;
 pub(crate) mod page;
 pub(crate) mod page_edit;
 mod page_intents;
+pub(crate) mod partner;
 pub(crate) mod placements;
 pub(crate) mod placing;
 pub(crate) mod prepare;
@@ -203,3 +204,6 @@ pub(crate) mod group_read_tests;
 
 #[cfg(test)]
 mod page_tests;
+
+#[cfg(test)]
+mod partner_tests;

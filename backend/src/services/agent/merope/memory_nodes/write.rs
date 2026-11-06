@@ -57,6 +57,15 @@ pub(crate) struct Beside {
 }
 
 impl Beside {
+    /// The same, kept under `audience`.
+    fn under(&self, audience: &str) -> Self {
+        let mut moved = self.clone();
+        for placement in &mut moved.placements {
+            placement.audience = audience.to_string();
+        }
+        moved
+    }
+
     fn is_empty(&self) -> bool {
         self.placements.is_empty() && self.inbox.is_empty() && self.taken_out.is_empty()
     }
@@ -167,7 +176,7 @@ pub(super) async fn last_count<C: ConnectionTrait>(
         .max(0) as u64)
 }
 
-fn envelope(
+pub(super) fn envelope(
     prepared: &Prepared,
     audience: &str,
     hlc: myriad_persona_sync::Rev,
@@ -271,8 +280,18 @@ pub(crate) async fn write_with(
     {
         return Err(Error::NoPen);
     }
-    let batch = prepare_all(audience, rows)?;
     let txn = db.begin().await?;
+    // Still sent under the site owner's talk's old name: moved first.
+    let redirected = super::partner::redirect(&txn, user_id, audience, rows).await?;
+    let moved_beside;
+    let (audience, rows, beside) = match &redirected {
+        Some((to, moved)) => {
+            moved_beside = beside.under(to);
+            (to.as_str(), moved.as_slice(), &moved_beside)
+        }
+        None => (audience, rows, beside),
+    };
+    let batch = prepare_all(audience, rows)?;
     lock(&txn, user_id, audience).await?;
     if batch.is_empty() {
         beside.keep(&txn, user_id, audience).await?;

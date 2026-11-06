@@ -1,11 +1,16 @@
 //! Which audience a node is in, and who said what there (decision D8, N5).
 //!
-//! The shared core makes a node's id from its audience and key, and names
-//! the partner's private talk one fixed way (`personal:local-owner`,
-//! `myriad_persona_log::partner::LEGACY`). On the site that is the site
-//! owner's private talk; every other account's is `personal:<user_id>`, the
-//! way the site names it elsewhere. So two accounts' nodes never share an
-//! audience. A group is `group:<id>` (`unified::Audience::group_id`), her
+//! The shared core makes a node's id from its audience and key. For the
+//! partner's private talk it uses one fixed name (`personal:local-owner`,
+//! `myriad_persona_log::partner::LEGACY`) whatever the talk is called.
+//!
+//! On the site the partner's talk is the site owner's private talk. It is
+//! `personal:<partner id>` once the account has its partner id: the name
+//! her log goes by. Before that it is the fixed name. Moving between the
+//! two is [`super::partner`]'s job.
+//!
+//! Every other account's talk is `personal:<user_id>`, the way the site
+//! names it elsewhere. So two accounts' nodes never share an audience. A group is `group:<id>` (`unified::Audience::group_id`), her
 //! own is `own:`.
 //!
 //! Whose copy of her an audience is kept in ([`Home::user_id`]): a private
@@ -20,14 +25,20 @@
 use myriad_nodes::SaidBy;
 use myriad_persona_log::partner::LEGACY;
 
+use super::partner;
+
 use crate::services::agent::memory::unified;
 
 /// Her own audience, as the core writes it.
 pub(crate) const OWN: &str = "own:";
 
-/// The site owner's private talk: the core's one name for the partner's.
+/// The site owner's private talk: under the partner id once the account
+/// has one ([`partner`]), before that the core's fixed name.
 pub(crate) fn owners_talk() -> String {
-    format!("personal:{LEGACY}")
+    match partner::moved_to() {
+        Some(id) => format!("personal:{id}"),
+        None => partner::legacy_talk(),
+    }
 }
 
 /// `user_id`'s private talk with her: the site owner's under the core's one
@@ -47,7 +58,10 @@ pub(crate) fn private_talk(user_id: i32, site_owner: Option<i32>) -> String {
 /// Anywhere else (a group) `person:<user_id>`.
 pub(crate) fn person_key(audience: &str, user_id: i32) -> String {
     if audience == owners_talk() {
-        format!("person:{LEGACY}")
+        format!(
+            "person:{}",
+            partner::moved_to().as_deref().unwrap_or(LEGACY)
+        )
     } else {
         format!("person:{user_id}")
     }

@@ -57,6 +57,17 @@ fn her_log_settings() -> crate::services::her_log::Settings {
     crate::services::her_log::settings().clone()
 }
 
+/// The account has its partner id: her nodes in the site owner's talk go
+/// under it, off the welcome's way.
+fn talk_under_partner(db: DatabaseConnection) {
+    tokio::spawn(async move {
+        if let Err(error) = crate::services::agent::merope::memory_nodes::partner::settle(&db).await
+        {
+            tracing::warn!(%error, "[link] the site owner's talk could not move to the partner id");
+        }
+    });
+}
+
 fn conversations_every() -> std::time::Duration {
     #[cfg(test)]
     if let Some(every) = CONVERSATIONS_EVERY_IN_TEST.with(std::cell::Cell::get) {
@@ -747,7 +758,10 @@ impl Link {
             .any(|capability| capability == "partner")
         {
             match crate::services::her_log::partner_id(&self.db, self.owner).await {
-                Ok(partner) => welcome["partner"] = json!(partner),
+                Ok(partner) => {
+                    welcome["partner"] = json!(partner);
+                    talk_under_partner(self.db.clone());
+                }
                 Err(error) => {
                     tracing::warn!(%error, device = %self.device.id, "[link] the account's partner id could not be read; welcomed without it");
                 }
@@ -973,7 +987,10 @@ impl Link {
             .any(|capability| capability == "partner")
         {
             match crate::services::her_log::partner_id(&self.db, self.owner).await {
-                Ok(partner) => welcome["partner"] = json!(partner),
+                Ok(partner) => {
+                    welcome["partner"] = json!(partner);
+                    talk_under_partner(self.db.clone());
+                }
                 Err(error) => {
                     tracing::warn!(%error, device = %self.device.id, "[link] the account's partner id could not be read; her host is welcomed without it");
                 }
