@@ -5,6 +5,15 @@ use super::*;
 #[tokio::test]
 #[ignore = "spends on the site's models; see the module docs"]
 pub(super) async fn her_memory_on_longmemeval() {
+    // With RUST_LOG set, what production would log goes to the run's log:
+    // a step that gave up shows why.
+    if std::env::var_os("RUST_LOG").is_some() {
+        use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+        let _ = tracing_subscriber::registry()
+            .with(tracing_subscriber::EnvFilter::from_default_env())
+            .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+            .try_init();
+    }
     let path = std::env::var("MEROPE_MEMORY_BENCH").expect("MEROPE_MEMORY_BENCH");
     let report_path = std::env::var("MEROPE_MEMORY_BENCH_REPORT").expect("report path");
     assert!(

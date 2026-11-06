@@ -9,8 +9,11 @@
 //! budget for sorting: a few people an upkeep, a few batches each.
 //!
 //! Only while nodes are written, and only while her mind is here. A fact
-//! she gave no readable place is asked of again at a later upkeep.
+//! she gave no readable place is asked of again at a later upkeep; so is a
+//! batch whose answer could not be read at all, while the batches after it
+//! go on.
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use myriad_merope::topics::SORT_BATCH;
@@ -77,22 +80,29 @@ pub(crate) async fn sort_missing(db: &DatabaseConnection) {
     }
 }
 
-/// Their private facts on no node yet, oldest first, at most a batch.
+/// Their private facts on no node yet, oldest first, at most a batch; none
+/// of `tried` (asked of already this upkeep).
 async fn unplaced(
     db: &DatabaseConnection,
     user_id: i32,
     audience: &str,
+    tried: &HashSet<String>,
 ) -> Result<Vec<MemoryRecord>, Error> {
     let ids = placements::unplaced(db, user_id, audience, SORTED, SORT_BATCH as u64 * 4).await?;
     let mut rows = active_in(db, user_id, &Audience::private(user_id), &KINDS).await?;
-    rows.retain(|row| ids.contains(&row.id) && SORTED.contains(&row.source.as_str()));
+    rows.retain(|row| {
+        ids.contains(&row.id) && SORTED.contains(&row.source.as_str()) && !tried.contains(&row.id)
+    });
     rows.sort_by_key(|row| (row.created_at, row.id.clone()));
     rows.truncate(SORT_BATCH);
     Ok(rows)
 }
 
 /// Up to `asks` batches of what she knows of them in private; how many
-/// facts were put where they go. Stops at the first batch that puts none.
+/// facts were put where they go. A batch whose answer could not be read
+/// failed: it is asked of again at a later upkeep, and the next batch goes
+/// on. Stops at the first batch she answered and put none of, or with no
+/// answer at all.
 pub(crate) async fn sort_for(
     db: &DatabaseConnection,
     user_id: i32,
@@ -105,17 +115,21 @@ pub(crate) async fn sort_for(
     };
     let audience = audience::private_talk(user_id, site_owner);
     let mut sorted = 0;
+    let mut tried: HashSet<String> = HashSet::new();
     for _ in 0..asks {
-        let done = match sort_batch(db, user_id, &audience, &pen).await {
-            Ok(done) => done,
+        match sort_batch(db, user_id, &audience, &pen, &mut tried).await {
+            Ok(Batch::Put(done)) if done > 0 => sorted += done,
+            Ok(Batch::Unreadable { asked }) => {
+                tracing::warn!(
+                    asked,
+                    "[memory-nodes] a sorting answer could not be read: asked again later"
+                );
+            }
+            Ok(_) => break,
             Err(error) => {
                 tracing::warn!(%error, "[memory-nodes] could not sort onto nodes");
-                0
+                break;
             }
-        };
-        sorted += done;
-        if done == 0 {
-            break;
         }
     }
     if sorted > 0 {
@@ -127,23 +141,50 @@ pub(crate) async fn sort_for(
     sorted
 }
 
+/// How one batch went.
+enum Batch {
+    /// Nothing left to sort, or no answer came.
+    Nothing,
+    /// Her answer could not be read: these are asked of again later.
+    Unreadable { asked: usize },
+    /// How many facts were put where they go.
+    Put(usize),
+}
+
 async fn sort_batch(
     db: &DatabaseConnection,
     user_id: i32,
     audience: &str,
     pen: &crate::services::her_log::pen::Thought,
-) -> Result<usize, Error> {
-    let rows = unplaced(db, user_id, audience).await?;
+    tried: &mut HashSet<String>,
+) -> Result<Batch, Error> {
+    let rows = unplaced(db, user_id, audience, tried).await?;
     if rows.is_empty() {
-        return Ok(0);
+        return Ok(Batch::Nothing);
     }
+    tried.extend(rows.iter().map(|row| row.id.clone()));
     let Some(answer) = answer(db, user_id, audience, &rows, OPERATION).await? else {
-        return Ok(0);
+        tracing::info!(asked = rows.len(), "[memory-nodes] sorting got no answer");
+        return Ok(Batch::Nothing);
     };
-    if answer.facts.is_empty() {
-        return Ok(0);
+    if answer.unreadable {
+        return Ok(Batch::Unreadable { asked: rows.len() });
     }
-    facts::put(db, user_id, audience, &answer.facts, pen).await
+    if answer.facts.is_empty() {
+        tracing::info!(
+            asked = rows.len(),
+            "[memory-nodes] sorting answer placed none"
+        );
+        return Ok(Batch::Put(0));
+    }
+    let put = facts::put(db, user_id, audience, &answer.facts, pen).await?;
+    tracing::info!(
+        asked = rows.len(),
+        read = answer.facts.len(),
+        put,
+        "[memory-nodes] sorted a batch"
+    );
+    Ok(Batch::Put(put))
 }
 
 /// What she answered sorting `rows` onto the topics of `user_id`'s
@@ -151,6 +192,9 @@ async fn sort_batch(
 pub(crate) struct Answer {
     /// Where each fact she gave a readable place goes.
     pub facts: Vec<facts::Fact>,
+    /// Nothing of her answer could be read: the batch failed, which is not
+    /// her putting none of them anywhere.
+    pub unreadable: bool,
     /// How long the exchange was, in tokens as the plan counts them
     /// ([`super::migrate::tokens_of`]): what was sent and what came back,
     /// for counting what it cost when the call reports no usage.
@@ -238,6 +282,7 @@ pub(crate) async fn answer(
             })
             .collect(),
     })?;
+    let unreadable = read.unreadable;
     let facts = read
         .facts
         .into_iter()
@@ -259,5 +304,9 @@ pub(crate) async fn answer(
             })
         })
         .collect();
-    Ok(Some(Answer { facts, tokens }))
+    Ok(Some(Answer {
+        facts,
+        unreadable,
+        tokens,
+    }))
 }

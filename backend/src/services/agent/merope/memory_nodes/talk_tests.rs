@@ -447,6 +447,64 @@ async fn what_she_knew_before_is_sorted_onto_her_nodes() {
     schema.drop().await;
 }
 
+/// A batch whose answer could not be read failed: the next batch is still
+/// sorted, and the failed one is asked of again at a later upkeep.
+#[tokio::test]
+async fn a_batch_not_read_leaves_the_next_to_be_sorted() {
+    let Some(schema) = schema("memory_nodes_sort_unread").await else {
+        return;
+    };
+    let db = &schema.db;
+    set_for_test(Some(Mode::Shadow));
+    topic(db, "their plants", &[("m0", "has a cactus")]).await;
+    let first = myriad_merope::topics::SORT_BATCH;
+    let values: Vec<String> = (0..=first)
+        .map(|n| {
+            format!(
+                "('u{n}', 7, 'fact', 'bought plant number {n}', 'chat', 'private', now(), \
+                 now() - interval '{} minute', now())",
+                first + 1 - n
+            )
+        })
+        .collect();
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, valid_from, \
+         created_at, updated_at) VALUES {}",
+        values.join(", ")
+    ))
+    .await
+    .unwrap();
+    answering(&[
+        (
+            "memory_node_sort",
+            "Here is where they go, though not as JSON",
+        ),
+        (
+            "memory_node_sort",
+            r#"```json
+{"facts":[{"fact":1,"topic":{"on":"t1","name":"","aliases":[]}}]}
+```"#,
+        ),
+    ]);
+    assert_eq!(sorting::sort_for(db, OTHER, None, 3).await, 1);
+    assert_eq!(
+        asked("memory_node_sort"),
+        2,
+        "the batch after the failed one"
+    );
+    assert_eq!(
+        placed(db, &format!("bought plant number {first}")).await,
+        Some(("node".to_string(), Some("their plants".to_string())))
+    );
+    assert_eq!(
+        placed(db, "bought plant number 0").await,
+        None,
+        "the failed batch is still to sort"
+    );
+    set_for_test(None);
+    schema.drop().await;
+}
+
 #[tokio::test]
 async fn when_it_happened_and_where_it_stands_go_on_its_entry() {
     let Some(schema) = schema("memory_nodes_standing").await else {
