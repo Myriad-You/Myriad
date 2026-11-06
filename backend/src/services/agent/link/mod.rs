@@ -105,6 +105,9 @@ struct Open {
     /// The device she lives on dialled in as her host (H3e-7): where it is
     /// told she is frozen there or thawed, and the move it was last told of.
     host: Option<(mpsc::Sender<connection::Outgoing>, Option<String>)>,
+    /// Where her log's frames for this device go, once its welcome said
+    /// sync on.
+    log: Option<mpsc::Sender<connection::Outgoing>>,
 }
 
 /// The open link of each device, by device id.
@@ -125,6 +128,7 @@ fn open(device_id: &str, owner: i32) -> (u64, oneshot::Receiver<Close>) {
             experience: None,
             acts: None,
             host: None,
+            log: None,
         };
         if let Some(previous) = open.insert(device_id.to_string(), link) {
             let _ = previous.close.send(Close::Replaced);
@@ -176,6 +180,45 @@ fn takes_host(
         if let Some(link) = open.get_mut(device_id).filter(|link| link.id == id) {
             link.host = Some((sender, frozen));
         }
+    }
+}
+
+/// The link `id` syncs her log: what the relay sends this device goes
+/// through `sender`.
+fn takes_log(device_id: &str, id: u64, sender: mpsc::Sender<connection::Outgoing>) {
+    if let Ok(mut open) = OPEN.lock() {
+        if let Some(link) = open.get_mut(device_id).filter(|link| link.id == id) {
+            link.log = Some(sender);
+        }
+    }
+}
+
+/// A frame of her log to one of the owner's devices, if its link syncs now.
+fn send_log(owner: i32, device_id: &str, outgoing: connection::Outgoing) {
+    let sender = OPEN.lock().ok().and_then(|open| {
+        open.get(device_id)
+            .filter(|link| link.owner == owner)
+            .and_then(|link| link.log.clone())
+    });
+    if let Some(sender) = sender {
+        let _ = sender.try_send(outgoing);
+    }
+}
+
+/// A frame of her log to each of the owner's other devices whose link syncs
+/// now (every end that dials in is a computer, so each is a host).
+fn send_log_all(owner: i32, except: &str, outgoing: connection::Outgoing) {
+    let senders: Vec<mpsc::Sender<connection::Outgoing>> = OPEN
+        .lock()
+        .map(|open| {
+            open.iter()
+                .filter(|(device, link)| link.owner == owner && device.as_str() != except)
+                .filter_map(|(_, link)| link.log.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    for sender in senders {
+        let _ = sender.try_send(outgoing.clone());
     }
 }
 

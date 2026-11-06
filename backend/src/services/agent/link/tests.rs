@@ -930,6 +930,69 @@ async fn the_welcome_gives_the_partner_id_only_to_an_end_that_knows_it() {
     site.close().await;
 }
 
+/// With her log on for the account, the link takes the sync families to
+/// her log's relay, and what it answers goes where it says: the grant to
+/// the Mac that asked, where her mind is now to every computer of the
+/// owner's, the Mac's vector back to it.
+#[tokio::test]
+async fn her_log_goes_over_the_link_while_she_syncs() {
+    let Some(site) = site().await else {
+        return;
+    };
+    super::connection::HER_LOG_IN_TEST.with(|settings| {
+        *settings.borrow_mut() = Some(crate::services::her_log::Settings {
+            enabled: true,
+            ..crate::services::her_log::Settings::default()
+        })
+    });
+    crate::services::her_log::store::start(&site.db, OWNER)
+        .await
+        .unwrap();
+    let (_, mac) = device(&site.db, "MacBook").await;
+    let (_, mini) = device(&site.db, "Mac mini").await;
+    let mut mac = Child::open(&site, &mac).await;
+    let welcome = mac.hello_with(&["partner", "log2"]).await;
+    assert_eq!(welcome["body"]["sync"], "on");
+    let personal = format!("personal:{}", welcome["body"]["partner"].as_str().unwrap());
+    let mut mini = Child::open(&site, &mini).await;
+    assert_eq!(
+        mini.hello_with(&["partner", "log2"]).await["body"]["sync"],
+        "on"
+    );
+
+    mac.send("lease.ask", None, json!({ "why": "talk" })).await;
+    let grant = mac.expect("lease.grant").await;
+    let epoch = mac.expect("lease.epoch").await;
+    assert_eq!(epoch["body"]["epoch"], grant["body"]["grant"]["epoch"]);
+    assert_eq!(mini.expect("lease.epoch").await["body"], epoch["body"]);
+
+    mac.send(
+        "log.vector",
+        None,
+        json!({ "audience": personal, "vector": {} }),
+    )
+    .await;
+    assert_eq!(
+        mac.expect("log.vector").await["body"]["audience"],
+        personal.as_str()
+    );
+
+    // A frame of her log the relay refuses is answered, and the link stays.
+    let seq = mac
+        .send(
+            "log.vector",
+            None,
+            json!({ "audience": "group:nowhere", "vector": {} }),
+        )
+        .await;
+    let refused = mac.expect("error").await;
+    assert_eq!(refused["body"]["code"], "not_holder");
+    assert_eq!(refused["body"]["ref"], seq);
+    mac.send("ping", None, json!({})).await;
+    mac.expect("pong").await;
+    site.close().await;
+}
+
 #[tokio::test]
 async fn hello_welcome_and_what_the_link_will_not_take() {
     let Some(site) = site().await else {

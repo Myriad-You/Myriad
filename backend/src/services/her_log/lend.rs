@@ -309,7 +309,8 @@ fn place_for(device: &str, audience: &str, lend: Option<&str>) -> Option<Place> 
 }
 
 /// Sends her line to a place the site lent: how it failed, if it did.
-pub trait Sender {
+/// `Sync`, so a link's task may hold it across a send.
+pub trait Sender: Sync {
     fn send<'a>(
         &'a self,
         db: &'a DatabaseConnection,

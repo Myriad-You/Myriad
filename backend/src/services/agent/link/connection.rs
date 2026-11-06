@@ -41,6 +41,22 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
+#[cfg(test)]
+thread_local! {
+    /// A test's own settings of her log, for the links served on its thread.
+    pub(super) static HER_LOG_IN_TEST: std::cell::RefCell<Option<crate::services::her_log::Settings>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// How her log on the server runs, as this link reads it.
+fn her_log_settings() -> crate::services::her_log::Settings {
+    #[cfg(test)]
+    if let Some(settings) = HER_LOG_IN_TEST.with(|settings| settings.borrow().clone()) {
+        return settings;
+    }
+    crate::services::her_log::settings().clone()
+}
+
 fn conversations_every() -> std::time::Duration {
     #[cfg(test)]
     if let Some(every) = CONVERSATIONS_EVERY_IN_TEST.with(std::cell::Cell::get) {
@@ -50,6 +66,7 @@ fn conversations_every() -> std::time::Duration {
 }
 
 /// A frame on its way to the child; the link numbers it as it goes out.
+#[derive(Clone)]
 pub(super) struct Outgoing {
     pub(super) t: &'static str,
     id: Option<String>,
@@ -213,6 +230,7 @@ pub(super) async fn serve_with(
         live: None,
         host: false,
         sync: false,
+        relay: None,
         core_refused: HashSet::new(),
     };
     tracing::info!(device = %link.device.id, "[link] opened");
@@ -303,6 +321,8 @@ struct Link {
     /// Whether this link's welcome said `sync` on: only then may the sync
     /// families (`lease`, `log`, `group`, `chat`) flow on it.
     sync: bool,
+    /// While it syncs: what her log's relay remembers of this link session.
+    relay: Option<crate::services::her_log::relay::Session>,
     /// What the shared core refused of the child's frames on this link and
     /// was logged: `t code`, a frame type outside the contract as `?`.
     core_refused: HashSet<String>,
@@ -434,6 +454,67 @@ impl Link {
         self.queue.push(outgoing);
     }
 
+    /// A frame of her log, her lease or a lent chat while she syncs: what
+    /// the server does with it is the relay's (`her_log::relay::take`).
+    async fn relayed(&mut self, text: &str, seq: u64) {
+        use crate::services::her_log::{self, relay};
+        let Ok(frame) = serde_json::from_str::<Value>(text) else {
+            self.error("bad_frame", Some(seq));
+            return;
+        };
+        let settings = her_log_settings();
+        let session = self.relay.get_or_insert_with(relay::Session::default);
+        let taken = relay::take(
+            &self.db,
+            her_log::keys::root(),
+            &settings,
+            self.owner,
+            &self.device.id,
+            // Every end that dials in is the app on a computer.
+            myriad_persona_log::Core::Pc,
+            session,
+            &frame,
+            crate::clock::now().timestamp_micros(),
+        )
+        .await;
+        match taken {
+            Ok(out) => self.deliver(out),
+            Err(her_log::Error::Off) => self.error("sync_off", Some(seq)),
+            Err(her_log::Error::ClockAhead { .. }) => self.error("clock_ahead", Some(seq)),
+            Err(her_log::Error::Refused(why)) => {
+                tracing::info!(device = %self.device.id, why = %why, "[link] a frame of her log was refused");
+                self.error("bad_frame", Some(seq));
+            }
+            Err(error) => {
+                tracing::warn!(%error, device = %self.device.id, "[link] a frame of her log was not taken");
+                self.error("internal_error", Some(seq));
+            }
+        }
+    }
+
+    /// What the relay answers, each where it goes: back on this link, to
+    /// one device, or to the owner's other computers too.
+    fn deliver(&mut self, out: Vec<crate::services::her_log::relay::Outgoing>) {
+        use crate::services::her_log::relay::To;
+        for one in out {
+            let outgoing = Outgoing {
+                t: one.t,
+                id: one.id,
+                body: one.body,
+            };
+            match one.to {
+                To::Sender => self.reply(outgoing),
+                To::Device(device) if device == self.device.id => self.reply(outgoing),
+                To::Device(device) => super::send_log(self.owner, &device, outgoing),
+                To::Hosts => super::send_log_all(self.owner, &self.device.id, outgoing),
+                To::Everyone => {
+                    super::send_log_all(self.owner, &self.device.id, outgoing.clone());
+                    self.reply(outgoing);
+                }
+            }
+        }
+    }
+
     fn error(&mut self, code: &str, frame_seq: Option<u64>) {
         let mut body = json!({ "code": code });
         if let Some(seq) = frame_seq {
@@ -533,7 +614,11 @@ impl Link {
             "act.result" => self.act_result(inbound).await,
             "ping" => self.reply(frame("pong", json!({}))),
             "ack" | "pong" => {}
-            // A sync family's frame on a link whose welcome said sync off.
+            // A sync family's frame: her log's relay takes it while she
+            // syncs; a link whose welcome said sync off is told that.
+            t if self.sync && myriad_her_link::needs_sync(t) => {
+                self.relayed(text, inbound.seq).await
+            }
             t if !self.sync && myriad_her_link::needs_sync(t) => {
                 self.error("sync_off", Some(inbound.seq))
             }
@@ -624,10 +709,10 @@ impl Link {
         }
         // Her log, her lease and the lent chats flow on this link only while
         // the owner syncs her and the site keeps her log.
-        let settings = crate::services::her_log::settings();
+        let settings = her_log_settings();
         let sync = match crate::services::her_log::pen::in_play(
             &self.db,
-            settings,
+            &settings,
             Some(self.owner),
         )
         .await
@@ -669,6 +754,22 @@ impl Link {
             }
         }
         self.reply(frame("welcome", welcome));
+        if sync {
+            self.relay = Some(crate::services::her_log::relay::Session::new(
+                crate::services::her_log::relay::peer_abi(&capabilities),
+            ));
+            super::takes_log(&self.device.id, self.registered, self.tx.clone());
+            // Where her mind is, and to a holder coming back after the
+            // server took her over, the takeover.
+            match crate::services::her_log::relay::welcome(&self.db, &settings, &self.device.id)
+                .await
+            {
+                Ok(out) => self.deliver(out),
+                Err(error) => {
+                    tracing::warn!(%error, device = %self.device.id, "[link] where her mind is could not be told");
+                }
+            }
+        }
         self.playback = capabilities
             .iter()
             .any(|capability| capability == "playback");
