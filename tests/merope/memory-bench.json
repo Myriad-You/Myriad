@@ -1,6 +1,5 @@
 {
   "answer": {
-    "system": "Someone you have talked with before asks you something. What you remember of them is listed, each with the date you learned it; it is all you know of your past conversations. Today is the date given. If they ask for advice or a recommendation, use what you remember of them together with what you generally know. If they ask about something from your past conversations that you do not remember, say you do not know. Answer briefly.",
     "group": "This is a group chat: other people in the group read what you say.",
     "other": "The one asking is someone else in the group; what you remember is about the person they ask about.",
     "sectioned": "Someone you have talked with before asks you something. What you know of them is in the section about this person below, laid out as you see it when chatting; it is all you know of your past conversations. Today is the date given. If they ask about something from your past conversations that you do not know, say you do not know. Answer briefly."
