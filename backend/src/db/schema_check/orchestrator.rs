@@ -107,7 +107,9 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// `agent_node_migrations`（只数不写还是真搬、怎么结束的、数了多少写了多少、要问模型那部分
 /// 开跑前估了多少花了多少、停下的原因），下次接着跑时只写还没有的；旧表一行不改
 /// （`memory_nodes.sql`，随 004 与 `ensure_memory_nodes_tables` 一起建）。
-pub const SCHEMA_VERSION: &str = "2026.11.06.3";
+/// 2026.11.06.4：`agent_her_state_rows` 加 `took`（别的端写来、站点已经收进表里的那一行），
+/// 同一行只收一次（`persona_log.sql`，旧库走通用 ADD）。
+pub const SCHEMA_VERSION: &str = "2026.11.06.4";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);

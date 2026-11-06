@@ -404,15 +404,18 @@ async fn merge_in(
 /// protocol 2), the way a merge lands what it takes from the other side:
 /// `entities` is every record of the kinds written as the site has them now
 /// with the ones that came in their place, `writes` the ones that came and
-/// `removes` the outfits that went. No files come with them: a picture or a
-/// rig the site does not have yet stays as it was. In the caller's
-/// transaction; the rig the site wears now when its looks were written.
+/// `removes` the outfits that went. Their pictures are those the site keeps
+/// already (`urls`, by asset id) and their rigs those it holds (`rigs`); one
+/// the site does not have stays as it was. In the caller's transaction; the
+/// rig the site wears now when its looks were written.
 pub(crate) async fn land_records(
     txn: &DatabaseTransaction,
     owner: i32,
     entities: Vec<EntityVersion>,
     writes: Vec<merge::Write>,
     removes: Vec<merge::Write>,
+    urls: &BTreeMap<String, String>,
+    rigs: &BTreeSet<String>,
 ) -> Result<Option<Option<String>>, ImportError> {
     if writes.iter().chain(&removes).any(|write| {
         write.kind == Kind::Persona || write.kind == Kind::Outfit || write.kind == Kind::Wearing
@@ -441,6 +444,7 @@ pub(crate) async fn land_records(
         counts: BTreeMap::new(),
         standing: None,
     };
+    // The rigs as files the other side brought (they are the site's already).
     let none = Whole {
         origin: String::new(),
         lineage: None,
@@ -448,9 +452,12 @@ pub(crate) async fn land_records(
         model: None,
         entities: Vec::new(),
         embeddings: Vec::new(),
-        files: BTreeMap::new(),
+        files: rigs
+            .iter()
+            .map(|rig| (rig.clone(), BTreeMap::new()))
+            .collect(),
     };
-    let (_, rig) = land(txn, owner, &plan, &none, &BTreeMap::new()).await?;
+    let (_, rig) = land(txn, owner, &plan, &none, urls).await?;
     Ok(rig)
 }
 

@@ -656,6 +656,55 @@ pub async fn sync_log_full(
     .ok_or_else(not_found)
 }
 
+/// PUT /api/agent/sync/assets/{asset_id}: a picture or one file of a rig
+/// (`?file=manifest.json|atlas.png`) a row of her log names that the site
+/// lacks (b1 of protocol 2, `her_log::assets`), checked against its id. Once
+/// it is whole, the records that waited for it are taken in.
+pub async fn sync_put_asset(
+    State(db): State<DatabaseConnection>,
+    Extension(device): Extension<SyncDevice>,
+    Path(asset_id): Path<String>,
+    Query(query): Query<ImportAssetQuery>,
+    body: axum::body::Bytes,
+) -> Result<Json<Value>, HttpError> {
+    use crate::services::her_log;
+    let owner = owner_of(&device);
+    let refused = |status: StatusCode, code: &str, message: String| {
+        HttpError::from((status, Json(json!({ "error": message, "code": code }))))
+    };
+    if !her_log::store::account(&db, owner)
+        .await
+        .map_err(sync_failed)?
+        .is_some_and(|account| account.on())
+    {
+        return Err(refused(
+            StatusCode::CONFLICT,
+            "sync_off",
+            "Her log is off".into(),
+        ));
+    }
+    let whole =
+        match her_log::assets::put(&db, owner, &asset_id, query.file.as_deref(), body.to_vec())
+            .await
+        {
+            Ok(whole) => whole,
+            Err(her_log::Error::Refused(why)) => {
+                tracing::warn!(why, "[sync] an asset was refused");
+                return Err(refused(StatusCode::BAD_REQUEST, "asset_refused", why));
+            }
+            Err(error) => return Err(sync_failed(error)),
+        };
+    if whole {
+        let db = db.clone();
+        tokio::spawn(async move {
+            if let Err(error) = her_log::state::take_in(&db, her_log::keys::root(), owner).await {
+                tracing::warn!(%error, "[her-log] records that waited for an asset were not taken in");
+            }
+        });
+    }
+    Ok(Json(json!({ "whole": whole })))
+}
+
 /// GET /api/agent/sync/assets/{asset_id}: a picture as itself, a rig as
 /// `multipart/mixed` (`manifest.json`, then `atlas.png`). Only what her
 /// persona refers to now.

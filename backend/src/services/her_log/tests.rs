@@ -3438,3 +3438,85 @@ async fn her_records_from_another_end_go_into_the_sites_tables() {
     let after = super::state::sync(db, &root, OWNER).await.unwrap();
     assert_eq!((after.written, after.gone), (0, 0));
 }
+
+/// A record from another end whose picture the site does not have waits
+/// for it (b1, `assets`): it is taken in once the picture is here, under the
+/// site's url for it. A picture put that is not the bytes its id names is
+/// refused.
+#[tokio::test]
+async fn a_record_waits_for_its_picture() {
+    let Some(schema) = schema("her_log_state_asset").await else {
+        return;
+    };
+    let db = &schema.db;
+    let root = root();
+    let picture = b"a sticker's bytes".to_vec();
+    let id = myriad_persona_sync::canonical::sha256_hex(&picture);
+
+    let mut mac = Side::new("dev_mac");
+    let now = super::now();
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], now).await;
+    assert!(mac.epoch.is_some(), "her mind is on the Mac");
+    mac.write_body(
+        OWN,
+        "state:sticker:stk_rain",
+        "state.write",
+        Author::Her,
+        Some(json!({
+            "at": now / 1000,
+            "format": myriad_persona_sync::FORMAT_VERSION,
+            "kind": "sticker",
+            "id": "stk_rain",
+            "state": "live",
+            // In its one form, as the core reads it.
+            "body": myriad_persona_sync::entity::check_body(
+                myriad_persona_sync::Kind::Sticker,
+                myriad_persona_sync::State::Live,
+                "stk_rain",
+                json!({
+                    "picture": "撑伞",
+                    "meaning": "下雨了",
+                    "identity": "her",
+                    "createdAt": now,
+                    "image": { "id": id, "type": "image", "bytes": picture.len(), "mediaType": "image/png" },
+                }),
+            )
+            .unwrap(),
+        })),
+        now + 1,
+    );
+    sync(db, &mut mac, OWN, now + 2).await;
+    let rows = store::rows(db, OWNER, OWN).await.unwrap();
+    let held: Vec<&Row> = rows
+        .iter()
+        .filter(|row| row.object == "state:sticker:stk_rain")
+        .collect();
+    assert_eq!(held.len(), 1, "the server holds the Mac's row");
+    let bodies = store::bodies(db, &root, OWNER, OWN, &held).await.unwrap();
+    assert_eq!(bodies.len(), 1, "and its body");
+    let sticker = || async {
+        db.query_one_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT asset_id FROM merope_stickers WHERE id = 'stk_rain'",
+        ))
+        .await
+        .unwrap()
+        .map(|row| row.try_get::<String>("", "asset_id").unwrap())
+    };
+    assert_eq!(sticker().await, None, "it waits for its picture");
+
+    let wrong = super::assets::put(db, OWNER, &id, None, b"other bytes".to_vec()).await;
+    assert!(matches!(wrong, Err(super::Error::Refused(_))));
+
+    // The picture is here (as `assets::put` keeps it, in the owner's media).
+    db.execute_unprepared(&format!(
+        "INSERT INTO media_assets (kind, url, mime, checksum_sha256, state, owner_user_id) \
+         VALUES ('image', '/media/her/rain.png', 'image/png', '{id}', 'ready', {OWNER})"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(super::state::take_in(db, &root, OWNER).await.unwrap(), 1);
+    assert_eq!(sticker().await.as_deref(), Some("/media/her/rain.png"));
+    assert_eq!(super::state::take_in(db, &root, OWNER).await.unwrap(), 0);
+}

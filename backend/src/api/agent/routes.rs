@@ -900,10 +900,15 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
         )
         .route(
             "/sync/assets/{asset_id}",
-            get(super::sync::sync_asset).route_layer(from_fn_with_state(
-                app_state.clone(),
-                middleware::sync_device::sync_device_auth,
-            )),
+            get(super::sync::sync_asset)
+                .put(super::sync::sync_put_asset)
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    crate::services::persona_sync::ASSET_MAX_BYTES as usize + 4096,
+                ))
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::sync_device::sync_device_auth,
+                )),
         )
         .route(
             "/sync/moves",

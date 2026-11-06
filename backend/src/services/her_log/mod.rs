@@ -50,6 +50,7 @@
 //! No key, token or secret is in a row, a frame, an answer or an error:
 //! errors say what was refused, never with what.
 
+pub mod assets;
 // Nothing outside the tests reaches the relay until her link speaks
 // protocol 2: the connection still speaks 1 and does not hand it frames.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -113,6 +114,9 @@ impl Owner {
             owner: self.partner.clone(),
         }
     }
+
+    /// Her own audience (`own:`): what is hers alone, her persona among it.
+    pub const OWN: &'static str = "own:";
 
     /// `personal:<partner id>`.
     pub fn personal(&self) -> String {

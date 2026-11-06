@@ -2471,7 +2471,7 @@ pub(super) async fn insert_said<C: ConnectionTrait>(
     Ok(())
 }
 
-pub(super) async fn keep_files(
+pub(crate) async fn keep_files(
     db: &DatabaseConnection,
     owner: i32,
     files: &BTreeMap<String, BTreeMap<String, Vec<u8>>>,

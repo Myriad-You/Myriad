@@ -1337,6 +1337,7 @@ pub(crate) fn tables() -> Vec<TableDef> {
                 ColumnDef::new("user_id", "integer").not_null(),
                 ColumnDef::new("object", "character varying").not_null(),
                 ColumnDef::new("digest", "character varying").not_null(),
+                ColumnDef::new("took", "character varying"),
             ],
         },
         TableDef {

@@ -26,7 +26,8 @@
 //! The other way ([`take_in`]): the newest row of an object another end
 //! wrote is written into the site's tables as a merge lands what it takes
 //! (`persona_sync::merge::land_records`), and its digest kept, so the next
-//! comparison does not write it back. A record gone on another end (its
+//! comparison does not write it back; one whose pictures or rig are not here
+//! yet waits for them (`assets`). A record gone on another end (its
 //! newest row deleted), or one the owner had her forget (every row of it
 //! forgotten), goes from the site's tables.
 
@@ -197,8 +198,9 @@ pub async fn sync(
         synced.written += 1;
     }
     let compared: BTreeSet<&str> = kinds.iter().map(|kind| kind.as_str()).collect();
-    for object in known.keys() {
-        if records.contains_key(object) {
+    for (object, digest) in &known {
+        // Gone here already as her log has it (`take_in`).
+        if records.contains_key(object) || digest.is_empty() {
             continue;
         }
         let Some(kind) = kind_of(object) else {
@@ -265,7 +267,7 @@ fn records_of(owner: &Owner, entity: &EntityVersion, now: i64) -> Vec<Record> {
             .iter()
             .map(|(field, value)| Record {
                 object: format!("persona:{field}"),
-                audience: "own".to_string(),
+                audience: Owner::OWN.to_string(),
                 kind: "persona.field",
                 payload: serde_json::to_value(PersonaField {
                     at: now,
@@ -302,7 +304,7 @@ fn records_of(owner: &Owner, entity: &EntityVersion, now: i64) -> Vec<Record> {
 /// owner only (every entry is about them), so it is theirs.
 fn audience_of(owner: &Owner, kind: Kind) -> Option<String> {
     Some(match state_audience(kind.as_str())? {
-        StateAudience::Own => "own".to_string(),
+        StateAudience::Own => Owner::OWN.to_string(),
         StateAudience::Partner | StateAudience::Either => owner.personal(),
     })
 }
@@ -343,7 +345,7 @@ async fn gone(
             txn,
             root,
             owner,
-            "own",
+            Owner::OWN,
             None,
             object,
             "persona.field",
@@ -423,6 +425,43 @@ pub(super) async fn keep<C: ConnectionTrait>(
     Ok(())
 }
 
+/// The log has `object` at `digest` now, taken in from `row` another end wrote.
+async fn taken_in<C: ConnectionTrait>(
+    db: &C,
+    user: i32,
+    object: &str,
+    digest: &str,
+    row: &str,
+) -> Result<(), Error> {
+    db.execute_raw(Statement::from_sql_and_values(
+        db.get_database_backend(),
+        "INSERT INTO agent_her_state_rows (user_id, object, digest, took) VALUES ($1, $2, $3, $4) \
+         ON CONFLICT (user_id, object) DO UPDATE SET digest = EXCLUDED.digest, took = EXCLUDED.took",
+        vec![user.into(), object.into(), digest.into(), row.into()],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// The row from another end last taken in of each object.
+async fn took<C: ConnectionTrait>(db: &C, user: i32) -> Result<BTreeMap<String, String>, Error> {
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            db.get_database_backend(),
+            "SELECT object, took FROM agent_her_state_rows WHERE user_id = $1 AND took IS NOT NULL",
+            vec![user.into()],
+        ))
+        .await?;
+    let mut out = BTreeMap::new();
+    for row in rows {
+        out.insert(
+            row.try_get::<String>("", "object")?,
+            row.try_get::<String>("", "took")?,
+        );
+    }
+    Ok(out)
+}
+
 async fn drop_known<C: ConnectionTrait>(db: &C, user: i32, object: &str) -> Result<(), Error> {
     db.execute_raw(Statement::from_sql_and_values(
         db.get_database_backend(),
@@ -445,9 +484,10 @@ pub async fn take_in(
 ) -> Result<usize, Error> {
     let owner = super::owner(db, site_owner).await?;
     let known = known(db, site_owner).await?;
+    let took = took(db, site_owner).await?;
     let mut came: Vec<(String, Row, Value)> = Vec::new();
     let mut forgotten: Vec<String> = Vec::new();
-    for audience in ["own".to_string(), owner.personal()] {
+    for audience in [Owner::OWN.to_string(), owner.personal()] {
         let mut by_object: BTreeMap<String, Vec<Row>> = BTreeMap::new();
         for row in store::rows(db, site_owner, &audience).await? {
             if matches!(row.kind.as_str(), "state.write" | "persona.field")
@@ -468,7 +508,8 @@ pub async fn take_in(
                 }
                 continue;
             };
-            if last.origin != NODE {
+            // Taken in already (once a row), or the site's own is newest.
+            if last.origin != NODE && took.get(&object) != Some(&last.id) {
                 newest.push(last);
             }
         }
@@ -485,7 +526,7 @@ pub async fn take_in(
     // What came, as entities, past what the site has already.
     let mut fields: BTreeMap<String, myriad_persona_sync::persona::PersonaField> = BTreeMap::new();
     let mut entities: BTreeMap<(Kind, String), EntityVersion> = BTreeMap::new();
-    let mut objects: BTreeSet<String> = BTreeSet::new();
+    let mut objects: BTreeMap<String, String> = BTreeMap::new();
     for (object, row, body) in came {
         if row.kind == "persona.field" {
             let Ok(field) = serde_json::from_value::<PersonaField>(body) else {
@@ -502,7 +543,7 @@ pub async fn take_in(
                     origin: row.origin.clone(),
                 },
             );
-            objects.insert(object);
+            objects.insert(object, row.id.clone());
             continue;
         }
         let Ok(write) = serde_json::from_value::<StateWrite>(body) else {
@@ -526,7 +567,25 @@ pub async fn take_in(
             continue;
         }
         entities.insert((kind, write.id), entity);
-        objects.insert(object);
+        objects.insert(object, row.id.clone());
+    }
+    // A record whose pictures or rig are not here yet waits for them, and is
+    // taken in when the last comes (`assets::put`).
+    let mut urls: BTreeMap<String, String> = BTreeMap::new();
+    let mut rigs: BTreeSet<String> = BTreeSet::new();
+    let mut waiting = Vec::new();
+    for (key, entity) in &entities {
+        let here = super::assets::here(db, site_owner, std::slice::from_ref(entity)).await?;
+        if here.missing {
+            waiting.push(key.clone());
+            continue;
+        }
+        urls.extend(here.urls);
+        rigs.extend(here.rigs);
+    }
+    for (kind, id) in waiting {
+        entities.remove(&(kind, id.clone()));
+        objects.remove(&state_object(kind.as_str(), &id));
     }
     if objects.is_empty() && forgotten.is_empty() {
         return Ok(0);
@@ -597,10 +656,11 @@ pub async fn take_in(
     }
 
     let txn = db.begin().await?;
-    let rig =
-        crate::services::persona_sync::merge::land_records(&txn, site_owner, plan, writes, removes)
-            .await
-            .map_err(|error| Error::Refused(format!("{error:?}")))?;
+    let rig = crate::services::persona_sync::merge::land_records(
+        &txn, site_owner, plan, writes, removes, &urls, &rigs,
+    )
+    .await
+    .map_err(|error| Error::Refused(format!("{error:?}")))?;
     for object in &went {
         remove_here(&txn, site_owner, object).await?;
     }
@@ -618,11 +678,11 @@ pub async fn take_in(
         0,
     )
     .await?;
-    for object in &objects {
-        match now.get(object) {
-            Some(record) => keep(&txn, site_owner, object, &record.digest).await?,
-            None => drop_known(&txn, site_owner, object).await?,
-        }
+    // One gone here as her log has it keeps no digest, so the next comparison
+    // writes nothing of it.
+    for (object, row) in &objects {
+        let digest = now.get(object).map(|record| record.digest.as_str());
+        taken_in(&txn, site_owner, object, digest.unwrap_or(""), row).await?;
     }
     txn.commit().await?;
     if let Some(Some(rig)) = rig {

@@ -290,11 +290,14 @@ CREATE TABLE IF NOT EXISTS agent_her_segments (
 );
 
 -- Her records as her log last has them (b1 of protocol 2): each object's
--- digest, as the site wrote it or took it in. A record whose digest differs
--- is written again; one gone from the site is written as gone.
+-- digest, as the site wrote it or took it in, and the row from another end
+-- last taken in of it (taken in once). A record whose digest differs is
+-- written again; one gone from the site is written as gone.
 CREATE TABLE IF NOT EXISTS agent_her_state_rows (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     object VARCHAR(512) NOT NULL,
     digest VARCHAR(128) NOT NULL,
+    took VARCHAR(256),
     PRIMARY KEY (user_id, object)
 );
+ALTER TABLE agent_her_state_rows ADD COLUMN IF NOT EXISTS took VARCHAR(256);
