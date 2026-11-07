@@ -34,9 +34,11 @@ pub struct IngestDecision {
 /// a task's outcome, which interrupt someone away, which are worth a
 /// notification at all. What a child end saw for her and told her host (her
 /// link's `moment`) is `TOLD_EVENTS`.
+#[cfg(test)]
+pub use myriad_merope::notify::TOLD_EVENTS;
 pub use myriad_merope::notify::{
-    AI_CHAT_EVENT, PEER_AGENT_EVENT, SITUATION_EVENT, TOLD_EVENTS, is_task_outcome,
-    said_only_in_person, worth_notifying,
+    AI_CHAT_EVENT, PEER_AGENT_EVENT, SITUATION_EVENT, is_task_outcome, said_only_in_person,
+    worth_notifying,
 };
 
 /// Worth her interrupting someone who is away for: the catalogued keys the

@@ -1,7 +1,8 @@
+import type { TappBridge } from '@myriad/tapp-runtime'
 /** 按 bridge 实例（session token）绑定，同 tappId 多窗互不覆盖。 */
 
-import type { TappBridge } from '@myriad/tapp-runtime'
 import { isImeComposing } from '../../utils/ime'
+import { safeRandomUUID } from '../../utils/uuid'
 
 export interface HostShortcutBinding {
   tappId: string
@@ -99,7 +100,7 @@ function emitShortcut(binding: InternalBinding): void {
   try {
     binding.bridge.emit('tappEvent', {
       version: 2,
-      eventId: `sc_${crypto.randomUUID().replaceAll('-', '')}`,
+      eventId: `sc_${safeRandomUUID().replaceAll('-', '')}`,
       topic: 'shortcut:triggered',
       scope: 'instance',
       source: { tappId: binding.tappId, runtimeId: 'host' },

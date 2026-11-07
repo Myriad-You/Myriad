@@ -10,6 +10,8 @@ import { useI18n } from '../../contexts/I18nContext'
 import { agentService } from '../../services/agent'
 import { AgentMarkdown } from './AgentMarkdown'
 import { AgentMessageBody } from './AgentMessageBody'
+import { useAgentSessionId } from './agentMessages'
+import { dispatchForgottenLines } from './agentPanelEvents'
 import { useAgentPanelMode } from './agentPanelMode'
 import { AgentPanelQuestion } from './AgentPanelQuestion'
 import { AgentPanelThinking } from './AgentPanelThinking'
@@ -20,8 +22,6 @@ import {
   messageShowsThinking,
   THINKING_FOLD_MS,
 } from './agentThinking'
-import { useAgentSessionId } from './agentMessages'
-import { dispatchForgottenLines } from './agentPanelEvents'
 import { invalidateComposerFavorites } from './composerFavorites'
 import { readCompleteBody } from './messageBody'
 

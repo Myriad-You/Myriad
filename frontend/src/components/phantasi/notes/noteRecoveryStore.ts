@@ -1,5 +1,6 @@
 import type { NoteCloudFields } from './noteCloudFields'
 import type { NotePendingWrite, NoteRecovery, NoteRecoveryScope } from './noteRecoveryRecord'
+import { safeRandomUUID } from '../../../utils/uuid'
 import { sameCloudFields } from './noteCloudFields'
 import { decodeNoteRecovery, noteRecoveryKey } from './noteRecoveryRecord'
 
@@ -91,7 +92,7 @@ export class NoteRecoveryWriter {
       const savedAt = lastTimestamp = Math.max(Date.now(), lastTimestamp + 1)
       const recovery: NoteRecovery = { version: 2, fields, base, revision, savedAt, ...(pending ? { pending } : {}) }
       const raw = JSON.stringify(recovery)
-      const key = `${storageKey(scope)}:copy:${crypto.randomUUID()}`
+      const key = `${storageKey(scope)}:copy:${safeRandomUUID()}`
       storage.setItem(key, raw)
       const previous = this.ownsCurrent ? this.current : null
       this.current = { key, raw, recovery }
