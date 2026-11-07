@@ -49,6 +49,9 @@ pub const NOTES_CSS: &str = "\
 @keyframes myriad-widget-reveal{to{opacity:1}}\n\
 math[display=block]{margin:1em 0;font-size:1.15em;max-width:100%;overflow-x:auto}\n\
 .myriad-table{max-width:100%;overflow-x:auto}\n\
+.myriad-embed{margin:1.5em 0;aspect-ratio:16/9;max-width:100%}\n\
+.myriad-embed--audio{aspect-ratio:auto;height:86px}\n\
+.myriad-embed>iframe{display:block;width:100%;height:100%;border:0}\n\
 :where(:has(>iframe.myriad-comments)){overflow-wrap:anywhere}\n\
 :where(:has(>iframe.myriad-comments) table){overflow-wrap:break-word}\n\
 :where(:has(>iframe.myriad-comments) pre){overflow-x:auto}\n\
@@ -81,8 +84,11 @@ mark.myriad-annot[data-type=abbreviation]{--myriad-annot:#ec4899}\n\
 /// WordPress 附件）本来就在正文里，卡住只会显示成空白。图片不构成 XSS —— 它在
 /// `<img>` 里不执行脚本，服务端也不去抓，所以没有 SSRF。代价是访客的 IP 会暴露给
 /// 图床，Referer 由全局 `Referrer-Policy: strict-origin-when-cross-origin` 限定为
-/// 只发 origin。脚本、frame、connect 的封锁不因此放松。
-pub const BLOG_CSP: &str = "default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https: http:; frame-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'";
+/// 只发 origin。脚本和 connect 的封锁不因此放松。
+///
+/// `frame-src` 只多放行 [`crate::embed`] 的三家播放器，地址由模板拼出，手写的 iframe
+/// 进不了笔记。
+pub const BLOG_CSP: &str = "default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https: http:; frame-src 'self' https://player.bilibili.com https://music.163.com https://www.youtube-nocookie.com; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'";
 
 /// 删掉非 JSON 的 `<script>`、`on*` 属性和 `javascript:` 链接，并在 `</head>` 前挂上笔记样式。
 pub fn postprocess_html(html: &str) -> String {

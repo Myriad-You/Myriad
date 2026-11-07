@@ -6,6 +6,7 @@
 mod archive;
 mod config;
 mod cover;
+mod embed;
 mod inspect;
 mod labels;
 mod model;

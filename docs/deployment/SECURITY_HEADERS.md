@@ -81,8 +81,12 @@ geolocation=(self), microphone=(self), camera=()
   （迁移过来的 WordPress 附件就是外部 URL）要能显示，否则只会是空白。图片不构成
   XSS：它在 `<img>` 里不执行脚本，服务端也不去抓，因此没有 SSRF；代价只是访客的
   IP 会暴露给图床，Referer 仍被 `strict-origin-when-cross-origin` 限制为只发 origin。
-  脚本、frame、connect 的封锁不因此放松：博客页仍是
-  `script-src 'none'` / `frame-src 'self'` / `connect-src 'none'`。
+  脚本和 connect 的封锁不因此放松：博客页仍是 `script-src 'none'` / `connect-src 'none'`。
+- **博客页的 `frame-src`**：除 `'self'` 外只放行 `player.bilibili.com`、`music.163.com`、
+  `www.youtube-nocookie.com`。一段里只有一个这几家的链接时，博客把它换成播放器
+  （`crates/myriad-blog/src/embed.rs`）：地址由模板拼出，框带 `sandbox`，不给
+  `allow-top-navigation`。笔记消毒器会剥掉手写的 iframe，所以这是博客上唯一的外站框。
+  代价是访客打开这一页时会连到这几家，并受它们的 Cookie 和统计影响。
 - `X-Content-Type-Options: nosniff`
 - `X-Frame-Options: DENY`
 - `X-XSS-Protection: 1; mode=block`
