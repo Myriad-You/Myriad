@@ -24,8 +24,7 @@
 //!   not keep yet: refused. Nothing is heard on the site until it does.
 //!
 //! Each is refused while she is not on the site (the caller asks), and for
-//! an audience not on the owner's page ([`page::on_the_page`]). Rename and
-//! cancel only while her nodes are written; delete always.
+//! an audience not on the owner's page ([`page::on_the_page`]).
 
 use myriad_nodes::{Kind, entries::row_id_from};
 use myriad_persona_log::Row;
@@ -84,14 +83,6 @@ async fn live(
     Ok(head)
 }
 
-fn writes() -> Result<(), Refusal> {
-    if super::mode().writes() {
-        Ok(())
-    } else {
-        Err(Refusal::No("nodes_off"))
-    }
-}
-
 /// Renames `node` to `name`, the owner's row.
 pub(crate) async fn rename(
     db: &DatabaseConnection,
@@ -101,7 +92,6 @@ pub(crate) async fn rename(
     name: &str,
 ) -> Result<(), Refusal> {
     let head = live(db, owner, audience, node).await?;
-    writes()?;
     let name = name.trim();
     if name.is_empty() || name.chars().count() > myriad_nodes::limits::NAME_CHARS {
         return Err(Refusal::No("bad_name"));
@@ -264,7 +254,6 @@ pub(crate) async fn cancel_intent(
     intent: &str,
 ) -> Result<(), Refusal> {
     live(db, owner, audience, node).await?;
-    writes()?;
     let Some(pen) = crate::services::her_log::pen::think() else {
         return Err(Refusal::No("mind_away"));
     };

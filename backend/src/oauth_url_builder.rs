@@ -65,6 +65,11 @@ impl SiteConfig {
     }
 }
 
+/// 联邦的 Actor 地址和站点地址不是同一个来源，两边可能各说一个域名。
+fn origins_differ(site: &str, federation: &str) -> bool {
+    site.trim_end_matches('/') != federation.trim_end_matches('/')
+}
+
 /// OAuth URL 构建器 — 启动时信息性检查
 ///
 /// 真正的 OAuth provider 实例化走 [`crate::services::oauth::registry`]，
@@ -82,6 +87,14 @@ impl OAuthUrlBuilder {
             );
         } else {
             tracing::info!("✅ Site base_url: {}", base_url);
+            let federation_url = crate::federation::types::get_base_url().await;
+            if origins_differ(&base_url, &federation_url) {
+                tracing::warn!(
+                    site = %base_url,
+                    federation = %federation_url,
+                    "⚠️ Federation actors use a different origin than the site. They read BASE_URL from the environment, where DATA_DIR/site_public.env wins over .env; the site reads the database first. Changing it changes actor identity, so it is not corrected automatically"
+                );
+            }
         }
 
         let cfg = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
@@ -93,5 +106,22 @@ impl OAuthUrlBuilder {
         } else {
             tracing::debug!("ℹ️  No OAuth providers configured (can be set in Settings > OAuth)");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::origins_differ;
+
+    #[test]
+    fn origin_split_ignores_only_the_trailing_slash() {
+        assert!(!origins_differ(
+            "https://www.example.cn",
+            "https://www.example.cn/"
+        ));
+        assert!(origins_differ(
+            "https://www.example.cn",
+            "https://example.cn"
+        ));
     }
 }

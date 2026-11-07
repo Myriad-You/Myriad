@@ -29,8 +29,6 @@ export interface MemoryNodeAudience {
 }
 
 export interface MemoryNodeList {
-  /** The switch: `off`, `shadow` or `on`. */
-  mode: string
   herName?: string | null
   audiences: MemoryNodeAudience[]
 }

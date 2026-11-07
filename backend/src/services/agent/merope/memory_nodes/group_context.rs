@@ -1,5 +1,5 @@
-//! What she is shown of her nodes when she answers someone in a group,
-//! while she reads them: that group's audience alone (`group:<id>`, kept
+//! What she is shown of her nodes when she answers someone in a group:
+//! that group's audience alone (`group:<id>`, kept
 //! with the site owner), never a private talk's, another group's or her
 //! own.
 //!

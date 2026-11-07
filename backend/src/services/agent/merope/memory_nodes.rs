@@ -23,12 +23,12 @@
 //! - **Reads** ([`read`]): an audience's heads, one node, its entries and
 //!   the memory rows they name. Where a memory was put, and what is not put
 //!   yet ([`placements`]).
-//! - **The switch** ([`switch`]): `off` (today's topics, the default),
-//!   `shadow` (nodes written too, the old path read), `on` (nodes read).
 //!
-//! What writes them from a private talk, while the switch writes (the old
-//! topic path goes on beside it in every mode, so turning it off is the
-//! way back):
+//! Her memory goes through them alone: the old topic tables
+//! (`agent_topic_nodes`, `agent_memory_topics`) are no longer written or
+//! read, only moved from ([`migrate`]).
+//!
+//! What writes them from a private talk:
 //!
 //! - **Placing a stretch** ([`placing`]): once a stretch is gone over,
 //!   first she cuts it into spans on her nodes, the unsure ones into the
@@ -67,8 +67,8 @@
 //! page ([`page`], [`page_edit`]).
 //!
 //! What placing, going over and sorting are shown of her nodes is
-//! [`known`]. What she is shown of them when she speaks in a private talk,
-//! while she reads them: every time, what she keeps of the person and of
+//! [`known`]. What she is shown of them when she speaks in a private talk:
+//! every time, what she keeps of the person and of
 //! herself there, what is going on and what she may bring up now
 //! ([`context`]); chosen for their words, the nodes they touch and their
 //! entries, and all of a kind listed by code ([`recall`]); each entry as
@@ -105,7 +105,9 @@ pub(crate) mod intent_store;
 pub(crate) mod intents_due;
 pub(crate) mod intents_run;
 pub(crate) mod known;
+pub(crate) mod logged;
 pub(crate) mod migrate;
+mod migrate_census;
 mod migrate_check;
 mod migrate_replay;
 mod migrate_sources;
@@ -113,6 +115,7 @@ mod migrate_topics;
 pub(crate) mod page;
 pub(crate) mod page_edit;
 mod page_intents;
+pub(crate) mod partner;
 pub(crate) mod placements;
 pub(crate) mod placing;
 pub(crate) mod prepare;
@@ -120,12 +123,10 @@ pub(crate) mod read;
 pub(crate) mod recall;
 pub(crate) mod shown;
 pub(crate) mod sorting;
-pub(crate) mod switch;
 pub(crate) mod upkeep;
 pub(crate) mod write;
 
 pub(crate) use prepare::{Author, RowIn};
-pub(crate) use switch::{Mode, apply_config, mode};
 pub(crate) use write::{Beside, Written, write, write_with};
 
 /// Why rows were not written or a read could not be made. It says what was
@@ -204,3 +205,9 @@ pub(crate) mod group_read_tests;
 
 #[cfg(test)]
 mod page_tests;
+
+#[cfg(test)]
+mod partner_tests;
+
+#[cfg(test)]
+mod logged_tests;

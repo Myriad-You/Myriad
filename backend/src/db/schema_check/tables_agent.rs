@@ -1136,6 +1136,7 @@ pub(crate) fn tables() -> Vec<TableDef> {
                 ColumnDef::new("last_seen_at", "timestamp with time zone"),
                 ColumnDef::new("revoked_at", "timestamp with time zone"),
                 ColumnDef::new("revoked_reason", "character varying"),
+                ColumnDef::new("app_outdated_at", "timestamp with time zone"),
             ],
         },
         TableDef {

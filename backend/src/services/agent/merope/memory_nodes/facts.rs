@@ -20,9 +20,8 @@
 //! memory went are written together ([`super::write::write_with`]), one
 //! node at a time, so a node that cannot take its rows leaves the others.
 //!
-//! Going over a stretch decided against the topics it was shown, on one
-//! side or the other while the old topic tables are kept beside the nodes
-//! ([`super::switch`]): a topic of the other side is found here by its name.
+//! Going over a stretch decided against the topics it was shown, her
+//! nodes ([`shown_topics`]): one of them is found here again by its name.
 
 use std::collections::BTreeMap;
 
@@ -39,8 +38,31 @@ use super::{
     write::{Beside, write_with},
 };
 use crate::services::agent::memory::unified::{self, Audience, MemoryKind};
-use crate::services::agent::merope::store::GoesUnder;
 use crate::services::her_log::pen::Thought;
+
+/// Where a fact she keeps goes, as going over a stretch decided.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GoesUnder {
+    /// A topic: one of her nodes shown beside the stretch, found again by
+    /// its names, or one she starts.
+    New { name: String, aliases: Vec<String> },
+    /// None: of no kind. Kept, so it is not asked of again.
+    Nowhere,
+    /// Only about them as a person: on their own node (「关于你」).
+    AboutThem,
+}
+
+/// A topic shown beside a stretch of talk: one of her nodes
+/// ([`shown_topics`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OfferedTopic {
+    pub id: String,
+    pub name: String,
+    pub aliases: Vec<String>,
+    /// Facts on it, newest first, as she would recall them.
+    pub holds: Vec<String>,
+}
 
 /// One memory to put on a node.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -329,45 +351,16 @@ async fn replaced<C: ConnectionTrait>(db: &C, memory: &str) -> Result<Option<Pla
     })
 }
 
-/// A topic of the old tables, by its id, as a topic to start under its
-/// names (found by them on the nodes).
-async fn old_topic<C: ConnectionTrait>(
-    db: &C,
-    user_id: i32,
-    id: &str,
-) -> Result<Option<Placement>, Error> {
-    let row = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT name, aliases FROM agent_topic_nodes WHERE user_id = $1 AND id = $2",
-            [user_id.into(), id.into()],
-        ))
-        .await?;
-    let Some(row) = row else {
-        return Ok(None);
-    };
-    let aliases: serde_json::Value = row.try_get("", "aliases")?;
-    Ok(Some(Placement::Start {
-        name: row.try_get("", "name")?,
-        aliases: serde_json::from_value(aliases).unwrap_or_default(),
-    }))
-}
-
 /// Where going over a stretch put a fact, on the nodes' side.
-async fn from_settled<C: ConnectionTrait>(
-    db: &C,
-    user_id: i32,
-    goes: &GoesUnder,
-) -> Result<Option<Placement>, Error> {
-    Ok(match goes {
-        GoesUnder::Nowhere => Some(Placement::Nowhere),
-        GoesUnder::AboutThem => Some(Placement::AboutThem),
-        GoesUnder::New { name, aliases } => Some(Placement::Start {
+fn from_settled(goes: &GoesUnder) -> Placement {
+    match goes {
+        GoesUnder::Nowhere => Placement::Nowhere,
+        GoesUnder::AboutThem => Placement::AboutThem,
+        GoesUnder::New { name, aliases } => Placement::Start {
             name: name.clone(),
             aliases: aliases.clone(),
-        }),
-        GoesUnder::Topic(id) => old_topic(db, user_id, id).await?,
-    })
+        },
+    }
 }
 
 /// What going over a stretch of `user_id`'s talk in front of `present`
@@ -375,8 +368,8 @@ async fn from_settled<C: ConnectionTrait>(
 /// private talk's, or the group's (kept with the site owner), what is only
 /// about them on their own node there; and in a group, what they said
 /// about themselves on 「关于你」 in their own private talk too
-/// ([`super::group_facts`]). Only while nodes are written and her mind is
-/// here. What a private talk does not place now is sorted later
+/// ([`super::group_facts`]). Only while her mind is here. What a private
+/// talk does not place now is sorted later
 /// ([`super::sorting`]).
 pub(crate) async fn settled(
     db: &DatabaseConnection,
@@ -385,7 +378,7 @@ pub(crate) async fn settled(
     present: &Audience,
     updates: &crate::services::agent::merope::chat_remember::ChatMemoryUpdates,
 ) {
-    if !super::mode().writes() || user_id <= 0 {
+    if user_id <= 0 {
         return;
     }
     let Some(home) = audience::of_talk(present, user_id, site_owner) else {
@@ -417,10 +410,7 @@ pub(crate) async fn settled(
             }
             let placement = match replaced(db, &holder.id).await? {
                 Some(placement) => Some(placement),
-                None => match &update.topic {
-                    Some(goes) => from_settled(db, user_id, goes).await?,
-                    None => None,
-                },
+                None => update.topic.as_ref().map(from_settled),
             };
             if let Some(placement) = placement {
                 facts.push(Fact {
@@ -453,30 +443,26 @@ pub(crate) async fn settled(
 /// shown: its id after this, so its label reads back as the node.
 pub(crate) const SHOWN: &str = "node:";
 
-/// The topics going over a stretch of `user_id`'s private talk shows: those
-/// it was going to show (`old`, the old topic tables'), or her nodes'
-/// topics instead once she reads her nodes, and either way first the nodes
-/// placing the stretch just used (`used`). A node shown is named
-/// [`SHOWN`]`<id>`; one of the same name as an old topic is not shown twice.
+/// The topics going over a stretch of `user_id`'s private talk shows: her
+/// nodes' topics its words touch, and first the nodes placing the stretch
+/// just used (`used`). A node shown is named [`SHOWN`]`<id>`, and none is
+/// shown twice. None when her nodes cannot be read.
 pub(crate) async fn shown_topics(
     db: &DatabaseConnection,
     user_id: i32,
     site_owner: Option<i32>,
     talk: &str,
     used: &[String],
-    old: Vec<crate::services::agent::merope::store::OfferedTopic>,
-) -> Vec<crate::services::agent::merope::store::OfferedTopic> {
-    use crate::services::agent::merope::store::OfferedTopic;
-    let mode = super::mode();
-    if !mode.writes() || user_id <= 0 {
-        return old;
+) -> Vec<OfferedTopic> {
+    if user_id <= 0 {
+        return Vec::new();
     }
     let audience = audience::private_talk(user_id, site_owner);
     let known = match known::known(db, user_id, &audience).await {
         Ok(known) => known,
         Err(error) => {
             tracing::warn!(%error, "[memory-nodes] her nodes could not be shown");
-            return old;
+            return Vec::new();
         }
     };
     let as_shown = |node: &Known| OfferedTopic {
@@ -494,17 +480,12 @@ pub(crate) async fn shown_topics(
         })
         .map(as_shown)
         .collect();
-    let rest: Vec<OfferedTopic> = if mode.reads() {
-        let topics: Vec<&Known> = known.iter().filter(|node| node.is_topic()).collect();
-        let seen: Vec<myriad_merope::topics::Topic> =
-            topics.iter().map(|node| node.topic()).collect();
-        myriad_merope::topics::offered(talk, &seen)
-            .into_iter()
-            .map(|at| as_shown(topics[at]))
-            .collect()
-    } else {
-        old
-    };
+    let topics: Vec<&Known> = known.iter().filter(|node| node.is_topic()).collect();
+    let seen: Vec<myriad_merope::topics::Topic> = topics.iter().map(|node| node.topic()).collect();
+    let rest: Vec<OfferedTopic> = myriad_merope::topics::offered(talk, &seen)
+        .into_iter()
+        .map(|at| as_shown(topics[at]))
+        .collect();
     for topic in rest {
         let again = shown.iter().any(|kept| {
             kept.id == topic.id || myriad_merope::topics::same_name(&kept.name, &topic.name)

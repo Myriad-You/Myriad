@@ -21,8 +21,7 @@
 //! beside it ([`super::intent_store::Instruction`]). What their words call
 //! off is dropped.
 //!
-//! Only while her nodes are written ([`super::Mode::writes`]), only for a
-//! logged-in account's private talk, only while her mind is here.
+//! Only for a logged-in account's private talk, only while her mind is here.
 
 use std::time::Duration;
 
@@ -77,7 +76,7 @@ pub(crate) fn spawn_after_turn(
     let Some(context) = request.context.as_ref() else {
         return;
     };
-    if user_id <= 0 || context.venue.is_some() || context.nobody_said || !super::mode().writes() {
+    if user_id <= 0 || context.venue.is_some() || context.nobody_said {
         return;
     }
     let Some(session) = context.session_id.clone() else {
@@ -211,7 +210,7 @@ pub(crate) async fn after_turn(
     said: &str,
     now: DateTime<Utc>,
 ) -> Result<Judged, Error> {
-    if !super::mode().writes() || user_id <= 0 {
+    if user_id <= 0 {
         return Ok(Judged::default());
     }
     let Some(pen) = crate::services::her_log::pen::think() else {

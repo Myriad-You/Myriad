@@ -25,9 +25,9 @@
 //! [`THREADS_WAITING`] waiting on 「关于你」, the oldest is let go, with its
 //! row.
 //!
-//! While she reads her nodes, a thread that is an intent is no longer
-//! raised by her writing first the old way ([`not_intents`]): it comes
-//! due as an intent. Only while her nodes are written, only with her pen.
+//! A thread that is an intent is no longer raised by her writing first
+//! the old way ([`not_intents`]): it comes due as an intent. Only with her
+//! pen.
 //! A group's threads stay as they are.
 
 use std::collections::BTreeSet;
@@ -226,7 +226,7 @@ pub(crate) struct Stepped {
 /// `user_id`'s threads in their private talk and her intents from them,
 /// kept in step ([module docs](self)). Never fails the caller.
 pub(crate) async fn in_step(db: &DatabaseConnection, user_id: i32) {
-    if !super::mode().writes() || user_id <= 0 {
+    if user_id <= 0 {
         return;
     }
     let site_owner = hanging::site_owner(db).await;
@@ -238,9 +238,6 @@ pub(crate) async fn in_step(db: &DatabaseConnection, user_id: i32) {
 /// Her wants and her intents from them, kept in step. Never fails the
 /// caller.
 pub(crate) async fn in_step_own(db: &DatabaseConnection) {
-    if !super::mode().writes() {
-        return;
-    }
     let site_owner = hanging::site_owner(db).await;
     if let Err(error) = wants_in_step(db, site_owner).await {
         tracing::warn!(%error, "[memory-nodes] wants and her intents not kept in step");
@@ -498,8 +495,8 @@ async fn step(db: &DatabaseConnection, side: &Side, now: DateTime<Utc>) -> Resul
 }
 
 /// `threads` of `user_id`'s private talk without those that are her
-/// intents, while she reads her nodes: those come due as intents. Shown
-/// as they are otherwise.
+/// intents: those come due as intents. Shown as they are when her intents
+/// cannot be read.
 pub(crate) async fn not_intents(
     db: &DatabaseConnection,
     user_id: i32,
@@ -515,12 +512,12 @@ pub(crate) async fn not_intents(
         .collect()
 }
 
-/// The intents (`thread-<row id>`) `user_id`'s threads are, while she reads
-/// her nodes: the old ways of raising and fading them leave those be (the
-/// bound of [`THREADS_WAITING`] is theirs instead). None otherwise, or when
-/// they cannot be read: then the old ways go on as before.
+/// The intents (`thread-<row id>`) `user_id`'s threads are: the old ways of
+/// raising and fading them leave those be (the bound of [`THREADS_WAITING`]
+/// is theirs instead). None when they cannot be read: then the old ways go
+/// on as before.
 pub(crate) async fn as_intents(db: &DatabaseConnection, user_id: i32) -> BTreeSet<String> {
-    if !super::mode().reads() || user_id <= 0 {
+    if user_id <= 0 {
         return BTreeSet::new();
     }
     let site_owner = hanging::site_owner(db).await;

@@ -4,13 +4,12 @@
 use sea_orm::TransactionTrait;
 use serde_json::{Value, json};
 
-use super::switch::{Mode, set_for_test};
+use super::facts::GoesUnder;
 use super::talk_tests::{
     OTHER, answering, asked, count, kept_today, line, memory_id, old_tables, schema, settle, talk,
     topic, update,
 };
 use super::{forget, placing, read, sorting, upkeep};
-use crate::services::agent::merope::store::GoesUnder;
 use crate::services::channel_group::g0;
 use crate::services::her_log::pen;
 
@@ -20,7 +19,6 @@ async fn her_upkeep_merges_a_duplicate_and_keeps_to_the_days_budget() {
         return;
     };
     let db = &schema.db;
-    set_for_test(Some(Mode::Shadow));
     let first = topic(db, "houseplants", &[("m1", "has a fern")]).await;
     let second = topic(db, "plants at home", &[("m2", "waters on Sundays")]).await;
     // Five calls made already today: one is left.
@@ -70,7 +68,6 @@ async fn her_upkeep_merges_a_duplicate_and_keeps_to_the_days_budget() {
     answering(&[("memory_node_upkeep", r#"{"actions":[]}"#)]);
     upkeep::tick(db).await;
     assert_eq!(asked("memory_node_upkeep"), 0);
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -80,7 +77,6 @@ async fn upkeep_with_nothing_due_asks_and_writes_nothing() {
         return;
     };
     let db = &schema.db;
-    set_for_test(Some(Mode::Shadow));
     topic(db, "houseplants", &[("m1", "has a fern")]).await;
     answering(&[("memory_node_upkeep", r#"{"actions":[]}"#)]);
     upkeep::tick(db).await;
@@ -94,7 +90,6 @@ async fn upkeep_with_nothing_due_asks_and_writes_nothing() {
     upkeep::tick(db).await;
     assert_eq!(asked("memory_node_upkeep"), 0, "nothing changed since");
     assert_eq!(count(db, rows).await, after_mark);
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -104,7 +99,6 @@ async fn forgetting_a_memory_takes_its_entry_and_an_empty_topic() {
         return;
     };
     let db = &schema.db;
-    set_for_test(Some(Mode::Shadow));
     settle(
         db,
         vec![
@@ -178,10 +172,9 @@ async fn forgetting_a_memory_takes_its_entry_and_an_empty_topic() {
         .await,
         0
     );
-    assert_eq!(
-        old_tables(db).await.0,
-        ["seeing doctors"],
-        "as the old tables do"
+    assert!(
+        old_tables(db).await.0.is_empty(),
+        "the old tables are no longer written"
     );
 
     // Its lines forgotten: the span of them goes, the node with entries stays.
@@ -221,7 +214,6 @@ async fn forgetting_a_memory_takes_its_entry_and_an_empty_topic() {
             .status,
         "active"
     );
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -231,7 +223,6 @@ async fn without_her_pen_none_of_her_rows_are_written() {
         return;
     };
     let db = &schema.db;
-    set_for_test(Some(Mode::Shadow));
     pen::reset_for_test();
     assert!(pen::quiet("dev_mac", 1, std::time::Duration::ZERO).await);
     assert!(pen::think().is_none());
@@ -260,10 +251,8 @@ async fn without_her_pen_none_of_her_rows_are_written() {
             "{table}"
         );
     }
-    // The old topics go on as ever.
-    assert_eq!(old_tables(db).await.0, ["their plants"]);
+    assert!(old_tables(db).await.0.is_empty());
     pen::reset_for_test();
-    set_for_test(None);
     schema.drop().await;
 }
 

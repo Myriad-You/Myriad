@@ -18,7 +18,8 @@ use serde_json::json;
 use super::ingest::{compact_summary, persona_remember_insert};
 use super::is_logged_in_addressee;
 use myriad_merope::chat_remember::{
-    EXTRACT_SCHEMA_NAME, MIN_USER_CHARS, extract_schema, extract_system_prompt, strip_json_fence,
+    EXTRACT_SCHEMA_NAME, Examples, MIN_USER_CHARS, extract_schema, extract_system_prompt,
+    strip_json_fence,
 };
 
 pub fn should_extract_chat_remember(user_text: &str) -> bool {
@@ -71,10 +72,10 @@ pub struct ChatMemoryUpdate {
     /// When it would be worth remembering (see `unified::keep_cues`).
     #[serde(default)]
     pub cues: Vec<String>,
-    /// The topic it goes under, when going over a stretch put it under one
-    /// (`store::put_under`).
+    /// Where on her nodes it goes, as going over the stretch decided
+    /// (`memory_nodes::facts::settled`).
     #[serde(default)]
-    pub topic: Option<super::store::GoesUnder>,
+    pub topic: Option<super::memory_nodes::facts::GoesUnder>,
     /// When what it tells of happened and where it stands, as going over
     /// the stretch answered (`myriad_merope::happened`): for the entry on
     /// her nodes, which is where a kind of thing is listed whole. Not kept
@@ -457,7 +458,7 @@ pub(super) async fn extract(
     let raw = super::call::Ask::new(super::call::Voice::Thorough, user_id, "chat_remember")
         .within(EXTRACT_TIMEOUT)
         .json_raw(
-            &extract_system_prompt(&existing),
+            &extract_system_prompt(&existing, Examples::for_words(user_text)),
             &input,
             EXTRACT_SCHEMA_NAME,
             &extract_schema(),
@@ -655,8 +656,14 @@ fn settle_already(
 }
 
 #[cfg(test)]
-pub(crate) fn live_probe_contract(existing: &[String]) -> (String, serde_json::Value) {
-    (extract_system_prompt(existing), extract_schema())
+pub(crate) fn live_probe_contract(
+    existing: &[String],
+    user_text: &str,
+) -> (String, serde_json::Value) {
+    (
+        extract_system_prompt(existing, Examples::for_words(user_text)),
+        extract_schema(),
+    )
 }
 
 /// The extraction input as production builds it, on a fixed date.
@@ -679,8 +686,16 @@ pub(crate) fn settle_probe(
     lately: &[String],
     known: &[String],
 ) -> (String, serde_json::Value, String) {
+    let theirs: Vec<&str> = lines
+        .iter()
+        .filter(|(theirs, _)| *theirs)
+        .map(|(_, line)| line.as_str())
+        .collect();
     (
-        myriad_merope::chat_remember::settle_system_prompt(known),
+        myriad_merope::chat_remember::settle_system_prompt(
+            known,
+            Examples::for_words(&theirs.join("\n")),
+        ),
         myriad_merope::chat_remember::settle_schema(),
         settle::input(
             lines,
@@ -869,10 +884,13 @@ mod tests {
             myriad_merope::chat_remember::MAX_PUT_ONTO
         );
         assert!(
-            myriad_merope::chat_remember::extract_system_prompt(&[])
+            myriad_merope::chat_remember::extract_system_prompt(&[], Examples::Chinese)
                 .contains("with no names of people")
         );
-        assert!(myriad_merope::chat_remember::extract_system_prompt(&[]).contains("当我没说"));
+        assert!(
+            myriad_merope::chat_remember::extract_system_prompt(&[], Examples::Chinese)
+                .contains("当我没说")
+        );
     }
 
     #[test]
@@ -983,7 +1001,7 @@ mod tests {
         ))
         .unwrap();
         assert!(quiet.get("before").is_none() && quiet.get("inGame").is_none());
-        let prompt = extract_system_prompt(&[]);
+        let prompt = extract_system_prompt(&[], Examples::Chinese);
         assert!(prompt.contains("If inGame is true"));
         assert!(prompt.contains("still taking the fact from userText"));
     }
@@ -1118,8 +1136,6 @@ mod tests {
 }
 
 pub(super) mod cues;
-pub(in crate::services::agent::merope) mod sort;
-pub(in crate::services::agent::merope) mod tidy;
 #[cfg(test)]
 mod replay;
 

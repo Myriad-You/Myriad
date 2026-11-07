@@ -9,7 +9,6 @@ use serde_json::json;
 
 use super::home_intents::{self, Stepped, THREAD, WANT};
 use super::intent_store::{self, Held};
-use super::switch::{Mode, set_for_test};
 use super::talk_tests::{OTHER, schema, talk};
 use super::{audience, intents_due, write};
 use crate::models::entities::agent_memories;
@@ -94,7 +93,6 @@ async fn a_thread_grown_from_their_words_is_her_intent_on_about_you() {
     };
     let db = &schema.db;
     pen::reset_for_test();
-    set_for_test(Some(Mode::Shadow));
     let at = now();
     let exam = grown(
         db,
@@ -160,7 +158,6 @@ async fn a_thread_grown_from_their_words_is_her_intent_on_about_you() {
             ..Stepped::default()
         }
     );
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -172,7 +169,6 @@ async fn past_eight_the_oldest_thread_intent_goes_with_its_row() {
     let db = &schema.db;
     pen::reset_for_test();
     // Kept as rows first (the old cap keeps the same number), then taken.
-    set_for_test(Some(Mode::Off));
     let mut rows = Vec::new();
     for n in 0..9 {
         let line = said(db, &format!("事{n}")).await;
@@ -199,7 +195,6 @@ async fn past_eight_the_oldest_thread_intent_goes_with_its_row() {
         rows.push(id);
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
     }
-    set_for_test(Some(Mode::Shadow));
     let stepped = home_intents::threads_in_step(db, OTHER, None, now())
         .await
         .unwrap();
@@ -220,23 +215,17 @@ async fn past_eight_the_oldest_thread_intent_goes_with_its_row() {
         .collect();
     assert_eq!(gone, vec![&rows[0]], "the oldest");
     assert_eq!(reason(db, gone[0]).await.as_deref(), Some("intent_dropped"));
-    set_for_test(None);
     schema.drop().await;
 }
 
 #[tokio::test]
-async fn read_from_her_nodes_a_thread_comes_due_as_her_intent_not_the_old_way() {
+async fn a_thread_comes_due_as_her_intent_not_the_old_way() {
     let Some(schema) = schema("memory_nodes_home_due").await else {
         return;
     };
     let db = &schema.db;
     pen::reset_for_test();
-    set_for_test(Some(Mode::Shadow));
     let exam = grown(db, "明天考试", kept("考试", "问问考得怎么样", Some(1))).await;
-    // In shadow the old way still sees it.
-    let open = threads::open(db, OTHER).await;
-    assert_eq!(home_intents::not_intents(db, OTHER, open).await.len(), 1);
-    set_for_test(Some(Mode::On));
     let open = threads::open(db, OTHER).await;
     assert!(home_intents::not_intents(db, OTHER, open).await.is_empty());
     // Come due: said, and its row with it.
@@ -257,7 +246,6 @@ async fn read_from_her_nodes_a_thread_comes_due_as_her_intent_not_the_old_way() 
     assert_eq!(intents(db).await[0].status, IntentStatus::Said);
     assert_eq!(reason(db, &exam).await.as_deref(), Some("intent_said"));
     assert!(threads::open(db, OTHER).await.is_empty());
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -271,7 +259,6 @@ async fn what_she_wants_is_her_intent_on_herself() {
         .await
         .unwrap();
     pen::reset_for_test();
-    set_for_test(Some(Mode::Shadow));
     let guitar = unified::remember_own(db, "学会弹吉他", "{}", Vec::new(), "want")
         .await
         .unwrap()
@@ -313,7 +300,6 @@ async fn what_she_wants_is_her_intent_on_herself() {
         home_intents::wants_in_step(db, None).await.unwrap(),
         Stepped::default()
     );
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -324,14 +310,12 @@ async fn forgetting_a_thread_takes_her_intent() {
     };
     let db = &schema.db;
     pen::reset_for_test();
-    set_for_test(Some(Mode::Shadow));
     let exam = grown(db, "明天考试", kept("考试", "问问考得怎么样", Some(20))).await;
     assert_eq!(intents(db).await.len(), 1);
     assert!(manage::forget_any(db, &exam).await.unwrap());
     assert!(intents(db).await.is_empty());
     let words = "SELECT COUNT(*) AS n FROM agent_node_rows WHERE body LIKE '%考得怎么样%'";
     assert_eq!(super::talk_tests::count(db, words).await, 0);
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -342,7 +326,6 @@ async fn read_from_her_nodes_a_thread_that_is_her_intent_does_not_fade() {
     };
     let db = &schema.db;
     pen::reset_for_test();
-    set_for_test(Some(Mode::On));
     let long_ago = now() - Duration::days(10);
     // Due nine days ago: past its time by more than a few days.
     said(db, "上周的考试").await;
@@ -385,11 +368,5 @@ async fn read_from_her_nodes_a_thread_that_is_her_intent_does_not_fade() {
     );
     assert_eq!(reason(db, &exam).await, None, "her intent waits");
     assert!(intents(db).await[0].waiting());
-    // In shadow it fades as today, and its intent with it.
-    set_for_test(Some(Mode::Shadow));
-    threads::let_fade(db).await;
-    assert_eq!(reason(db, &exam).await.as_deref(), Some("faded"));
-    assert_eq!(intents(db).await[0].status, IntentStatus::Dropped);
-    set_for_test(None);
     schema.drop().await;
 }

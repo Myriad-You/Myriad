@@ -9,12 +9,12 @@ use chrono::Duration;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::{Value, json};
 
+use super::facts::GoesUnder;
 use super::placing::{self, Line};
-use super::switch::{Mode, set_for_test};
 use super::{Author, RowIn, audience, facts, forget, inbox, read, sorting, upkeep, write};
 use crate::services::agent::memory::unified::Audience;
 use crate::services::agent::merope::chat_remember::{ChatMemoryUpdate, ChatMemoryUpdates};
-use crate::services::agent::merope::store::{self, GoesUnder, Keep};
+use crate::services::agent::merope::store::{self, Keep};
 use crate::services::channel_group::g0;
 use crate::services::her_log::pen;
 
@@ -47,7 +47,7 @@ pub(super) fn answering(answers: &[(&str, &str)]) {
         world
             .models
             .entry(operation.to_string())
-            .or_insert_with(VecDeque::new)
+            .or_default()
             .push_back(Some(answer.to_string()));
     }
     g0::enter(world);
@@ -242,7 +242,6 @@ async fn a_stretch_is_cut_into_spans_on_her_nodes_and_the_inbox() {
         return;
     };
     let db = &schema.db;
-    set_for_test(Some(Mode::Shadow));
     let plants = topic(db, "houseplants", &[("m0", "has a fern")]).await;
     let stretch = vec![
         line(101, true, "my fern got new leaves", 0),
@@ -292,7 +291,6 @@ async fn a_stretch_is_cut_into_spans_on_her_nodes_and_the_inbox() {
         inbox::waiting(db, OTHER, &talk(), 10).await.unwrap().len(),
         1
     );
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -302,7 +300,6 @@ async fn what_going_over_keeps_goes_on_her_nodes() {
         return;
     };
     let db = &schema.db;
-    set_for_test(Some(Mode::Shadow));
     settle(db, kept_today()).await;
     let plants = Some(("node".to_string(), Some("their plants".to_string())));
     assert_eq!(placed(db, "has a snake plant").await, plants);
@@ -358,43 +355,10 @@ async fn what_going_over_keeps_goes_on_her_nodes() {
     )
     .await;
     assert_eq!(placed(db, "has two snake plants").await, plants);
-    // The old tables are written beside the nodes, as ever.
+    // The old tables are no longer written.
     let (topics, under) = old_tables(db).await;
-    assert_eq!(topics, ["their plants"]);
-    assert_eq!(under.len(), 5);
-    set_for_test(None);
+    assert!(topics.is_empty() && under.is_empty());
     schema.drop().await;
-}
-
-#[tokio::test]
-async fn off_writes_no_node_and_the_old_tables_are_as_before() {
-    let mut tables = Vec::new();
-    for mode in [Mode::Off, Mode::Shadow] {
-        let Some(schema) = schema(&format!("memory_nodes_{}", mode.as_str())).await else {
-            return;
-        };
-        let db = &schema.db;
-        set_for_test(Some(mode));
-        settle(db, kept_today()).await;
-        answering(&[(
-            "memory_node_place",
-            r#"{"spans":[{"start":1,"node":null,"gist":"a plant"}]}"#,
-        )]);
-        placing::place(db, OTHER, None, &[line(201, true, "a plant", 0)]).await;
-        let calls = asked("memory_node_place");
-        let nodes = count(db, "SELECT COUNT(*) AS n FROM agent_node_rows").await
-            + count(db, "SELECT COUNT(*) AS n FROM agent_node_placements").await
-            + count(db, "SELECT COUNT(*) AS n FROM agent_node_inbox").await;
-        match mode {
-            Mode::Off => assert_eq!((calls, nodes), (0, 0), "off writes no node row"),
-            _ => assert!(calls == 1 && nodes > 0, "shadow writes both"),
-        }
-        tables.push(old_tables(db).await);
-        set_for_test(None);
-        schema.drop().await;
-    }
-    assert_eq!(tables[0], tables[1], "the old tables are the same in both");
-    assert_eq!(tables[0].0, ["their plants"]);
 }
 
 #[tokio::test]
@@ -403,7 +367,6 @@ async fn what_she_knew_before_is_sorted_onto_her_nodes() {
         return;
     };
     let db = &schema.db;
-    set_for_test(Some(Mode::Shadow));
     topic(db, "their plants", &[("m0", "has a cactus")]).await;
     db.execute_unprepared(
         "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, valid_from, \
@@ -443,7 +406,98 @@ async fn what_she_knew_before_is_sorted_onto_her_nodes() {
         None,
         "a short note is not sorted"
     );
-    set_for_test(None);
+    schema.drop().await;
+}
+
+/// A batch whose answer could not be read failed: the next batch is still
+/// sorted, and the failed one is asked of again at a later upkeep.
+#[tokio::test]
+async fn a_batch_not_read_leaves_the_next_to_be_sorted() {
+    let Some(schema) = schema("memory_nodes_sort_unread").await else {
+        return;
+    };
+    let db = &schema.db;
+    topic(db, "their plants", &[("m0", "has a cactus")]).await;
+    let first = myriad_merope::topics::SORT_BATCH;
+    let values: Vec<String> = (0..=first)
+        .map(|n| {
+            format!(
+                "('u{n}', 7, 'fact', 'bought plant number {n}', 'chat', 'private', now(), \
+                 now() - interval '{} minute', now())",
+                first + 1 - n
+            )
+        })
+        .collect();
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, valid_from, \
+         created_at, updated_at) VALUES {}",
+        values.join(", ")
+    ))
+    .await
+    .unwrap();
+    answering(&[
+        (
+            "memory_node_sort",
+            "Here is where they go, though not as JSON",
+        ),
+        (
+            "memory_node_sort",
+            r#"```json
+{"facts":[{"fact":1,"topic":{"on":"t1","name":"","aliases":[]}}]}
+```"#,
+        ),
+    ]);
+    assert_eq!(sorting::sort_for(db, OTHER, None, 3).await, 1);
+    assert_eq!(
+        asked("memory_node_sort"),
+        2,
+        "the batch after the failed one"
+    );
+    assert_eq!(
+        placed(db, &format!("bought plant number {first}")).await,
+        Some(("node".to_string(), Some("their plants".to_string())))
+    );
+    assert_eq!(
+        placed(db, "bought plant number 0").await,
+        None,
+        "the failed batch is still to sort"
+    );
+    schema.drop().await;
+}
+
+/// A fact a readable answer leaves out is put nowhere, decided: it is not
+/// asked of again at the next upkeep.
+#[tokio::test]
+async fn a_fact_a_readable_answer_leaves_out_is_put_nowhere() {
+    let Some(schema) = schema("memory_nodes_sort_left_out").await else {
+        return;
+    };
+    let db = &schema.db;
+    topic(db, "their plants", &[("m0", "has a cactus")]).await;
+    db.execute_unprepared(
+        "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, valid_from, \
+         created_at, updated_at) VALUES \
+         ('a1', 7, 'fact', 'bought a fern', 'chat', 'private', now(), now() - interval '2 minute', now()), \
+         ('a2', 7, 'fact', 'the weather was nice', 'chat', 'private', now(), now() - interval '1 minute', now())",
+    )
+    .await
+    .unwrap();
+    answering(&[(
+        "memory_node_sort",
+        r#"{"facts":[{"fact":1,"topic":{"on":"t1","name":"","aliases":[]}}]}"#,
+    )]);
+    assert_eq!(sorting::sort_for(db, OTHER, None, 3).await, 2);
+    assert_eq!(
+        placed(db, "bought a fern").await,
+        Some(("node".to_string(), Some("their plants".to_string())))
+    );
+    assert_eq!(
+        placed(db, "the weather was nice").await,
+        Some(("nowhere".to_string(), None))
+    );
+    answering(&[]);
+    assert_eq!(sorting::sort_for(db, OTHER, None, 3).await, 0);
+    assert_eq!(asked("memory_node_sort"), 0, "nothing left to ask of");
     schema.drop().await;
 }
 
@@ -453,7 +507,6 @@ async fn when_it_happened_and_where_it_stands_go_on_its_entry() {
         return;
     };
     let db = &schema.db;
-    set_for_test(Some(Mode::Shadow));
     let goes = || {
         Some(GoesUnder::New {
             name: "their laundry".into(),
@@ -492,6 +545,5 @@ async fn when_it_happened_and_where_it_stands_go_on_its_entry() {
     // None given: none kept, the entry as it was before.
     let coat = body("coat").await;
     assert!(coat.get("happened").is_none() && coat.get("state").is_none());
-    set_for_test(None);
     schema.drop().await;
 }

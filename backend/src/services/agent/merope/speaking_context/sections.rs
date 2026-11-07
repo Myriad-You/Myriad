@@ -19,8 +19,8 @@ pub(super) async fn who_they_are(
     if !group && let Some(differs) = how_she_differs_with(db, user_id).await {
         sections.push(differs);
     }
-    // While she reads her nodes, what they told her about herself is on
-    // 「她自己」 in their talk.
+    // What they told her about herself is on 「她自己」 in their talk, when
+    // her nodes are read.
     let told = match nodes {
         Some(nodes) => nodes.told_section(super::super::clock::now()),
         None if !group => making_sense::told_by_section(db, user_id).await,
@@ -85,8 +85,8 @@ pub(super) async fn recollection(
     };
     // Only a chat turn (it has the person's words) carries its train of
     // thought to the next turn; other readers see memory without moving it.
-    // While she reads her nodes, what she keeps under the same topics is
-    // theirs to bring (`memory_nodes::recall`), not the old topics'.
+    // When her nodes are read, what she keeps under the same topics is
+    // theirs to bring (`memory_nodes::recall`).
     let recall = if nodes.is_some() {
         RecallWay::Ranked
     } else {
@@ -123,7 +123,6 @@ pub(super) async fn recollection(
                 brought_to_mind: Vec::new(),
                 recent: Vec::new(),
                 ids: Vec::new(),
-                not_all_here: Vec::new(),
                 said: std::collections::HashMap::new(),
             }),
     };
@@ -163,9 +162,6 @@ pub(super) async fn recollection(
             sections.push(block);
             if thorough {
                 sections.push(myriad_merope::speaking::format_going_through_all_section());
-                sections.extend(myriad_merope::speaking::format_not_all_here_section(
-                    &recalled.not_all_here,
-                ));
             }
         }
         // What their words brought to mind, apart from what they named: the
@@ -519,7 +515,7 @@ pub(super) async fn between_them(
         Turn::Plain => None,
     };
     // What only she and this person share, or she and this group: each
-    // heard only where it grew. While she reads her nodes, theirs are on
+    // heard only where it grew. When her nodes are read, theirs are on
     // 「关于你」, and so is the rest of what is between them below.
     let shared = match nodes {
         Some(nodes) => nodes.bits_shown(db, BITS_LIMIT as usize, words).await,
@@ -593,7 +589,7 @@ pub(super) async fn between_them(
     // much it weighs, never what it was.
     let now = super::super::clock::now();
     match present.group_id() {
-        // While she reads her nodes: on 「关于你」, and theirs in each group.
+        // From her nodes: on 「关于你」, and theirs in each group.
         None if nodes.is_some() => {
             sections.extend(nodes.and_then(|nodes| sore::section(&nodes.sores, now)));
         }
@@ -603,7 +599,7 @@ pub(super) async fn between_them(
             }
         }
         Some(venue) => {
-            // While she reads her nodes: on their own node in this group.
+            // From her nodes: on their own node in this group.
             let here = match nodes {
                 Some(nodes) => nodes.sores_here(now),
                 None => sore::section(&sore::open_in_group(db, venue, Some(user_id)).await, now),
@@ -622,8 +618,8 @@ pub(super) async fn between_them(
     {
         let now = super::super::clock::now();
         let open = match present.group_id() {
-            // While she reads her nodes, those that are her intents come as
-            // intents, below.
+            // From her nodes, those that are her intents come as intents,
+            // below.
             None if nodes.is_some() => {
                 super::super::memory_nodes::home_intents::not_intents(
                     db,

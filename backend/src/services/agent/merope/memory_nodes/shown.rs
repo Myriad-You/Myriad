@@ -75,6 +75,9 @@ pub(crate) struct Shown {
     pub nodes: Vec<Node>,
     /// The live memory rows its entries, views and open items name, by id.
     pub memories: HashMap<String, agent_memories::Model>,
+    /// The day she learned each of those, Unix microseconds
+    /// ([`known::learned`]).
+    pub learned: HashMap<String, i64>,
 }
 
 impl Shown {
@@ -91,6 +94,27 @@ impl Shown {
             .as_ref()
             .and_then(|id| self.memories.get(id))
             .is_none_or(|row| !KEPT_APART.contains(&row.source.as_str()))
+    }
+
+    /// When she learned `entry`: its memory's day when it names one still
+    /// held, else its row's clock. Not when it was put on the node.
+    pub(crate) fn learned(&self, entry: &Entry) -> i64 {
+        entry
+            .memory
+            .as_ref()
+            .and_then(|id| self.learned_of(id))
+            .unwrap_or(entry.at)
+    }
+
+    /// When she learned the memory row `id`, while it is held.
+    pub(crate) fn learned_of(&self, id: &str) -> Option<i64> {
+        let row = self.memories.get(id)?;
+        Some(
+            self.learned
+                .get(id)
+                .copied()
+                .unwrap_or_else(|| row.created_at.timestamp_micros()),
+        )
     }
 
     /// The live memory row an item of a head (a view, an open item) rests
@@ -248,6 +272,7 @@ pub(crate) async fn shown<C: ConnectionTrait>(
             .map(|row| (row.id.clone(), row))
             .collect()
     };
+    let learned = known::learned(db, memories.keys().cloned().collect()).await?;
     // The site keeps none yet.
     let provenance = HashMap::new();
     let nodes = heads
@@ -278,7 +303,11 @@ pub(crate) async fn shown<C: ConnectionTrait>(
             }
         })
         .collect();
-    Ok(Shown { nodes, memories })
+    Ok(Shown {
+        nodes,
+        memories,
+        learned,
+    })
 }
 
 #[cfg(test)]

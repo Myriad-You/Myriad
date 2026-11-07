@@ -61,6 +61,8 @@ export interface SyncDevice {
   stale: boolean
   /** Its link to her is open right now. */
   connected?: boolean
+  /** Her link closed it for speaking another protocol: the app on it is to be updated. */
+  appOutdated?: boolean
 }
 
 /** A move of her between ends, in progress (her host lease). */

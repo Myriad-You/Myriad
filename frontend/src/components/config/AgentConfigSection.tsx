@@ -141,10 +141,6 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
     [uiConfigFields],
   )
   const chosenVoice = uiFieldValue('merope_voice_mode', 'tts')
-  // Whether her memory goes through her nodes (`memory_nodes::switch`).
-  const chosenNodes = uiFieldValue('merope_memory_nodes', 'off')
-  const memoryNodesMode =
-    chosenNodes === 'shadow' || chosenNodes === 'on' ? chosenNodes : 'off'
   const voiceMode =
     chosenVoice === 'omni' || chosenVoice === 'agora' ? chosenVoice : 'tts'
   // What is in effect, as the server resolves it from the saved settings
@@ -584,28 +580,6 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
             </>
           ) : null}
         </AgentNestedSection>
-        {meropeOn ? (
-          <ProviderItem
-            itemKey="merope_memory_nodes"
-            label={t.config.agentPersonaMemoryNodes}
-            value={memoryNodesMode}
-            onChange={(value) => updateUiFieldValue('merope_memory_nodes', value)}
-            options={[
-              { value: 'off', label: t.config.agentPersonaMemoryNodesOff },
-              { value: 'shadow', label: t.config.agentPersonaMemoryNodesShadow },
-              { value: 'on', label: t.config.agentPersonaMemoryNodesOn },
-            ]}
-            allowDeselect={false}
-            hint={
-              {
-                off: t.config.agentPersonaMemoryNodesOffHint,
-                shadow: t.config.agentPersonaMemoryNodesShadowHint,
-                on: t.config.agentPersonaMemoryNodesOnHint,
-              }[memoryNodesMode]
-            }
-            layout="horizontal"
-          />
-        ) : null}
       </SettingGroup>
       {meropeOn && hasSavedPersona ? (
         // 来一局总是跟她聊天，不是让 Agent 办事。

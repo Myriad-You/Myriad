@@ -66,7 +66,10 @@ pub(in super::super) async fn remember_turn(
     );
     let raw = judge
         .analyze_json(
-            &myriad_merope::chat_remember::extract_system_prompt(&existing),
+            &myriad_merope::chat_remember::extract_system_prompt(
+                &existing,
+                myriad_merope::chat_remember::Examples::for_words(text),
+            ),
             &input,
             myriad_merope::chat_remember::EXTRACT_SCHEMA_NAME,
             Some(&myriad_merope::chat_remember::extract_schema()),

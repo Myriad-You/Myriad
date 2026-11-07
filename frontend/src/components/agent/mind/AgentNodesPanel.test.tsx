@@ -14,7 +14,6 @@ const at = (day: number) => Date.UTC(2026, 10, day) * 1000
 
 /** Made-up answers in the shapes `/api/agent/memory/nodes` gives. */
 const list = {
-  mode: 'shadow',
   herName: '阿离',
   audiences: [
     {
@@ -103,7 +102,6 @@ test('the node page lists each audience, opens a node and changes only what the 
     assert.ok(text().includes(copy.private) && text().includes('阿离 自己') && text().includes('群：游戏群'))
     assert.ok(text().includes(copy.aboutYou) && text().includes(copy.status.resting))
     assert.ok(text().includes('记忆 2') && text().includes('待提起 1'))
-    assert.ok(text().includes(copy.modeShadow))
 
     await click(dom.window.document.querySelector('[data-node="coffee"]'))
     assert.ok(calls.includes('node:coffee'))

@@ -6,8 +6,8 @@
 //!   the site owner's talk (`personal:local-owner`, where the old ones were
 //!   all made) its id is the old topic's id; any other account's moves to
 //!   `personal:<user_id>`. A topic her nodes already have under another key
-//!   that goes by its name (started there by going over a stretch while
-//!   the switch wrote, `facts::from_settled`) is that node, not a second
+//!   that goes by its name (started there by going over a stretch,
+//!   `facts::from_settled`) is that node, not a second
 //!   one. A node of its key forgotten or taken back since is not written
 //!   to; one gone into another is written where it went.
 //! - **What was under it**, of a memory still held and not placed on a node

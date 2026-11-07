@@ -90,6 +90,9 @@ pub struct Synced {
     pub written: usize,
     /// Records written as gone.
     pub gone: usize,
+    /// Rows of her nodes put into the log that were not in it yet
+    /// (`memory_nodes::logged`).
+    pub nodes: usize,
     pub took: Duration,
 }
 
@@ -216,6 +219,12 @@ pub async fn sync(
         synced.gone += 1;
     }
     txn.commit().await?;
+    // Her nodes too: what was written while the log was off, or before.
+    match crate::services::agent::merope::memory_nodes::logged::catch_up_all(db, root, &owner).await
+    {
+        Ok(put) => synced.nodes = put,
+        Err(error) => tracing::warn!(%error, "[her-log] her nodes did not all reach her log"),
+    }
     synced.took = started.elapsed();
     Ok(synced)
 }

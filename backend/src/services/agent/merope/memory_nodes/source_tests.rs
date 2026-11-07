@@ -7,7 +7,7 @@
 use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionTrait};
 use serde_json::{Value, json};
 
-use super::switch::{Mode, set_for_test};
+use super::facts::GoesUnder;
 use super::talk_tests::{count, update};
 use super::{audience, facts, hanging, read};
 use crate::services::agent::memory::{
@@ -15,7 +15,7 @@ use crate::services::agent::memory::{
     unified::{self, Audience, MemoryKind, NewMemory, Speaker},
 };
 use crate::services::agent::merope::chat_remember::ChatMemoryUpdates;
-use crate::services::agent::merope::store::{self, GoesUnder, Keep};
+use crate::services::agent::merope::store::{self, Keep};
 use crate::services::agent::merope::{jargon, making_sense, nodes, sore};
 
 const OWNER: i32 = 1;
@@ -88,7 +88,6 @@ async fn what_she_keeps_of_someone_in_private_hangs_on_their_node() {
         return;
     };
     let db = &schema.db;
-    set_for_test(Some(Mode::Shadow));
     let talk = audience::private_talk(SEVEN, Some(OWNER));
     assert_eq!(talk, "personal:7");
 
@@ -194,7 +193,6 @@ async fn what_she_keeps_of_someone_in_private_hangs_on_their_node() {
     // Nothing of a private talk is anywhere but in it.
     let elsewhere = "SELECT COUNT(*) AS n FROM agent_node_rows WHERE audience <> 'personal:7'";
     assert_eq!(count(db, elsewhere).await, 0);
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -204,7 +202,6 @@ async fn what_she_keeps_of_a_group_stays_in_the_group() {
         return;
     };
     let db = &schema.db;
-    set_for_test(Some(Mode::Shadow));
     let group = audience::group(GROUP);
     let in_group = || Audience::group(GROUP, OWNER);
 
@@ -300,34 +297,6 @@ async fn what_she_keeps_of_a_group_stays_in_the_group() {
     assert_eq!(hers["spans"][0]["text"], "今天写完了一首歌。");
     // No group or her own without a site owner.
     assert!(!hanging::hang(db, None, "day_2026-11-04").await.unwrap());
-    set_for_test(None);
-    schema.drop().await;
-}
-
-#[tokio::test]
-async fn with_the_switch_off_nothing_is_hung() {
-    let Some(schema) = owned("memory_nodes_sources_off").await else {
-        return;
-    };
-    let db = &schema.db;
-    set_for_test(Some(Mode::Off));
-    making_sense::remember_told_by(db, SEVEN, "说她笑起来像猫").await;
-    sore::keep(
-        db,
-        SEVEN,
-        Audience::private(SEVEN),
-        "说我画得丑",
-        sore::Weight::Hurt,
-    )
-    .await;
-    assert_eq!(
-        count(db, "SELECT COUNT(*) AS n FROM agent_node_rows").await,
-        0
-    );
-    // The rows are written as they always were.
-    let rows = "SELECT COUNT(*) AS n FROM agent_memories WHERE source IN ('about_me', 'sore')";
-    assert_eq!(count(db, rows).await, 2);
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -337,7 +306,6 @@ async fn forgetting_a_row_takes_its_view_its_sore_and_its_entries() {
         return;
     };
     let db = &schema.db;
-    set_for_test(Some(Mode::Shadow));
     let talk = audience::private_talk(SEVEN, Some(OWNER));
     let us = kept(
         db,
@@ -385,7 +353,6 @@ async fn forgetting_a_row_takes_its_view_its_sore_and_its_entries() {
     assert!(!after.contains("包子"), "the entry is gone");
     let words = "SELECT COUNT(*) AS n FROM agent_node_rows WHERE body LIKE '%画得丑%' OR body LIKE '%半夜%'";
     assert_eq!(count(db, words).await, 0, "no word of them is kept");
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -395,7 +362,6 @@ async fn what_someone_said_of_themselves_in_a_group_is_theirs_in_private_too() {
         return;
     };
     let db = &schema.db;
-    set_for_test(Some(Mode::Shadow));
     let present = Audience::group(GROUP, SEVEN);
     let updates = vec![
         update("works nights", &[], Some(GoesUnder::AboutThem)),
@@ -475,7 +441,6 @@ async fn what_someone_said_of_themselves_in_a_group_is_theirs_in_private_too() {
             .unwrap()
             .is_empty()
     );
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -485,7 +450,6 @@ async fn a_child_ends_moments_hang_on_the_site_owners_repository() {
         return;
     };
     let db = &schema.db;
-    set_for_test(Some(Mode::Shadow));
     let facts = std::collections::BTreeMap::from([(
         "repo".to_string(),
         "git@github.com:Me/Repo.git".to_string(),
@@ -529,6 +493,5 @@ async fn a_child_ends_moments_hang_on_the_site_owners_repository() {
     assert!(gone.is_null() || gone["forgotten"] == json!(true));
     let words = "SELECT COUNT(*) AS n FROM agent_node_rows WHERE body LIKE '%等你回答%'";
     assert_eq!(count(db, words).await, 0);
-    set_for_test(None);
     schema.drop().await;
 }

@@ -930,6 +930,67 @@ async fn the_welcome_gives_the_partner_id_only_to_an_end_that_knows_it() {
     site.close().await;
 }
 
+/// With her log on for the account, the link takes the sync families to
+/// her log's relay, and what it answers goes where it says: the grant to
+/// the Mac that asked, where her mind is now to every computer of the
+/// owner's, the Mac's vector back to it.
+#[tokio::test]
+async fn her_log_goes_over_the_link_while_she_syncs() {
+    let Some(site) = site().await else {
+        return;
+    };
+    crate::services::her_log::test_settings::set(crate::services::her_log::Settings {
+        enabled: true,
+        ..crate::services::her_log::Settings::default()
+    });
+    crate::services::her_log::store::start(&site.db, OWNER)
+        .await
+        .unwrap();
+    let (_, mac) = device(&site.db, "MacBook").await;
+    let (_, mini) = device(&site.db, "Mac mini").await;
+    let mut mac = Child::open(&site, &mac).await;
+    let welcome = mac.hello_with(&["partner", "log2"]).await;
+    assert_eq!(welcome["body"]["sync"], "on");
+    let personal = format!("personal:{}", welcome["body"]["partner"].as_str().unwrap());
+    let mut mini = Child::open(&site, &mini).await;
+    assert_eq!(
+        mini.hello_with(&["partner", "log2"]).await["body"]["sync"],
+        "on"
+    );
+
+    mac.send("lease.ask", None, json!({ "why": "talk" })).await;
+    let grant = mac.expect("lease.grant").await;
+    let epoch = mac.expect("lease.epoch").await;
+    assert_eq!(epoch["body"]["epoch"], grant["body"]["grant"]["epoch"]);
+    assert_eq!(mini.expect("lease.epoch").await["body"], epoch["body"]);
+
+    mac.send(
+        "log.vector",
+        None,
+        json!({ "audience": personal, "vector": {} }),
+    )
+    .await;
+    assert_eq!(
+        mac.expect("log.vector").await["body"]["audience"],
+        personal.as_str()
+    );
+
+    // A frame of her log the relay refuses is answered, and the link stays.
+    let seq = mac
+        .send(
+            "log.vector",
+            None,
+            json!({ "audience": "group:nowhere", "vector": {} }),
+        )
+        .await;
+    let refused = mac.expect("error").await;
+    assert_eq!(refused["body"]["code"], "not_holder");
+    assert_eq!(refused["body"]["ref"], seq);
+    mac.send("ping", None, json!({})).await;
+    mac.expect("pong").await;
+    site.close().await;
+}
+
 #[tokio::test]
 async fn hello_welcome_and_what_the_link_will_not_take() {
     let Some(site) = site().await else {
@@ -1057,6 +1118,26 @@ async fn hello_welcome_and_what_the_link_will_not_take() {
         other.closed().await,
         (close.code(), close.name().to_string())
     );
+    // Its devices page says the app on it is to be updated (kept as the
+    // link ends, a moment after the close), until a hello of it is taken.
+    let outdated = || async {
+        devices::list(&site.db, OWNER)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|device| device.id == mac.id)
+            .unwrap()
+            .app_outdated_at
+    };
+    let mut kept = outdated().await;
+    for _ in 0..100 {
+        if kept.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        kept = outdated().await;
+    }
+    assert!(kept.is_some());
     let mut other = Child::open(&site, &token).await;
     other.raw(Message::Text("{".into())).await;
     assert_eq!(other.closed().await, (4400, "bad_frame".to_string()));
@@ -1066,6 +1147,7 @@ async fn hello_welcome_and_what_the_link_will_not_take() {
     // Removing the device closes its link at once, and it cannot come back.
     let mut child = Child::open(&site, &token).await;
     child.hello().await;
+    assert_eq!(outdated().await, None, "a hello taken clears it");
     devices::revoke(&site.db, OWNER, &mac.id, RevokeReason::ByOwner)
         .await
         .unwrap();

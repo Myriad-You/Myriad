@@ -45,12 +45,9 @@
 //!   or a private chat the site lent it ([`super::lend`]); sent there as
 //!   her, answered with `group.said` or `chat.said`.
 //!
-//! What is not here yet: speaking protocol 2 on the WebSocket itself (the
-//! site's link still speaks protocol 1, and these frames reach nothing
-//! until it negotiates 2), delivering to other connected devices
-//! ([`To::Device`], [`To::Hosts`], [`To::Everyone`] say where a frame goes;
-//! the connection would send them), and asking a holder to give her up
-//! when another core asks for her.
+//! The link hands these frames here once its welcome said sync on, and
+//! sends what comes back where [`To`] says. What is not here yet: asking a
+//! holder to give her up when another core asks for her.
 
 use std::collections::BTreeSet;
 

@@ -17,8 +17,8 @@ import type {
   ThinkingTokenEvent,
 } from '../../services/agent'
 import type { AgentAttachment } from './agentAttachments'
-
 import type { AgentPanelMode } from './agentPanelMode'
+
 import type {
   ChatMessage,
   ChatSession,
@@ -91,6 +91,7 @@ import {
 } from '../../services/agent/turnIdentity'
 import { authSubject } from '../../utils/authSubject'
 import { userFacingError } from '../../utils/userFacingError'
+import { safeRandomUUID } from '../../utils/uuid'
 import {
   errorCode,
   generationFailureMessage,
@@ -106,12 +107,12 @@ import {
   AGENT_PANEL_SUBMIT_EVENT,
   agentPanelAnswerDetail,
   agentPanelCommand,
-  forgottenLinesDetail,
   agentPanelOpenSessionCount,
   agentPanelOpenSessionId,
   agentPanelSubmitDetail,
   attachAgentSessionOpenQueue,
-  dispatchAgentPanelOpen, dispatchHistoryAnswerResult,
+  dispatchAgentPanelOpen,
+  dispatchHistoryAnswerResult, forgottenLinesDetail,
   takeQueuedAgentSubmit,
 } from './agentPanelEvents'
 import { getAgentPanelMode, useAgentPanelMode } from './agentPanelMode'
@@ -822,8 +823,8 @@ export const AgentEngine: React.FC = () => {
     ) => {
       if (subject.aborted) return () => {}
       subject = bodyScopes.begin(mode, subject)
-      let summaryBody = new BodyWriter(crypto.randomUUID(), subject)
-      const thinkingBody = new BodyWriter(crypto.randomUUID(), subject)
+      let summaryBody = new BodyWriter(safeRandomUUID(), subject)
+      const thinkingBody = new BodyWriter(safeRandomUUID(), subject)
       let summaryText = new SummaryTextStream()
       let streamedSummary = ''
       let streamedThinking = ''
@@ -939,7 +940,7 @@ export const AgentEngine: React.FC = () => {
             utterance.end()
             streamedSummary = ''
             summaryBody.finish()
-            summaryBody = new BodyWriter(crypto.randomUUID(), subject)
+            summaryBody = new BodyWriter(safeRandomUUID(), subject)
             summaryText = new SummaryTextStream()
             const stepEvent = event as StepStartedEvent
             addExecutionStep(assistantMessageId, {

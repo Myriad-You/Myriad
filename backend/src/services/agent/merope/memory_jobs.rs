@@ -188,7 +188,7 @@ pub(crate) async fn tick(db: DatabaseConnection) {
     futures::future::join_all(claims.into_iter().map(|claim| async move {
         // A stretch placed on her nodes first takes that long more.
         let limit = match claim.job.data {
-            Some(Payload::Settle { .. }) if super::memory_nodes::mode().writes() => {
+            Some(Payload::Settle { .. }) => {
                 Duration::from_secs(45) + super::memory_nodes::placing::TIMEOUT
             }
             _ => Duration::from_secs(45),

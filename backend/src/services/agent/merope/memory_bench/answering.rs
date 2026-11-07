@@ -4,9 +4,8 @@ use super::super::remembering;
 use super::*;
 
 /// What a chat turn would recall for `question`: from their words, and
-/// the cues when there are any; and, going through all of it, the topics
-/// not all of whose facts are there (`store::Recalled::not_all_here`), or,
-/// while she reads her nodes, all of the kind as code lists it.
+/// the cues when there are any; and, in a private talk, going through all
+/// of it, all of the kind as code lists it from her nodes.
 pub(super) async fn recalled_for(
     db: &sea_orm::DatabaseConnection,
     question: &Question,
@@ -14,10 +13,10 @@ pub(super) async fn recalled_for(
     present: &Audience,
     cues: Option<&myriad_merope::remembering::Cues>,
     thorough: usize,
-) -> (Vec<String>, Vec<(String, usize, usize)>, Option<String>) {
-    // While she reads her nodes, as production does: ranked, then what
-    // comes to mind of her nodes on the day it is asked.
-    if super::settle::on_nodes(present) && super::super::memory_nodes::mode().reads() {
+) -> (Vec<String>, Option<String>) {
+    // In a private talk, as production does: ranked, then what comes to
+    // mind of her nodes on the day it is asked.
+    if super::settle::on_nodes(present) {
         let now = date_of(&question.question_date).with_timezone(&chrono::Utc);
         let ranked = remembering::ranked_with(
             db,
@@ -47,14 +46,14 @@ pub(super) async fn recalled_for(
                     .chain(recollection.heard)
                     .chain(recalled.brought_to_mind)
                     .collect();
-                return (lines, Vec::new(), recollection.listed);
+                return (lines, recollection.listed);
             }
             (_, Err(error)) => eprintln!("bench call failed: reading her nodes: {error:#}"),
             _ => {}
         }
         return Default::default();
     }
-    let (named, not_all_here) = remembering::recall_with(
+    let named = remembering::recall_with(
         db,
         user_id,
         present,
@@ -73,16 +72,13 @@ pub(super) async fn recalled_for(
         } else {
             recalled.named
         };
-        (
-            named
-                .into_iter()
-                .chain(recalled.brought_to_mind)
-                .collect::<Vec<_>>(),
-            recalled.not_all_here,
-        )
+        named
+            .into_iter()
+            .chain(recalled.brought_to_mind)
+            .collect::<Vec<_>>()
     })
     .unwrap_or_default();
-    (named, not_all_here, None)
+    (named, None)
 }
 
 pub(super) struct Answered {
@@ -91,6 +87,8 @@ pub(super) struct Answered {
     /// Noise questions: whether the answer brought in what she keeps of
     /// them where the question did not call for it.
     pub(super) dragged: Option<bool>,
+    /// Why the grader judged it so, in a few words, when it said.
+    pub(super) why: Option<String>,
     pub(super) answer: String,
     pub(super) recalled: Vec<String>,
     /// What she was to think of before answering, as the cues judged it.
@@ -113,8 +111,7 @@ pub(super) async fn answer_one(
     back_when_thorough: bool,
     answering: &[String],
 ) -> Answered {
-    let (recalled, not_all_here, listed) =
-        recalled_for(db, question, user_id, present, cues, thorough).await;
+    let (recalled, listed) = recalled_for(db, question, user_id, present, cues, thorough).await;
     let retrieved = answering.iter().any(|fact| {
         recalled.iter().any(|line| line.contains(fact.as_str()))
             || listed
@@ -157,16 +154,10 @@ pub(super) async fn answer_one(
         .filter(|cues| cues.thorough && !recalled.is_empty())
         .map(|_| match &listed {
             Some(list) => list.clone(),
-            None => std::iter::once(myriad_merope::speaking::format_going_through_all_section())
-                .chain(myriad_merope::speaking::format_not_all_here_section(
-                    &not_all_here,
-                ))
-                .collect::<Vec<_>>()
-                .join("\n\n"),
+            None => myriad_merope::speaking::format_going_through_all_section(),
         });
     let input = json!({
         "today": question.question_date,
-        "whatYouRemember": recalled,
         "scrollingBack": scrolled,
         "goingThroughAll": going_through,
         "question": question.question,
@@ -177,7 +168,7 @@ pub(super) async fn answer_one(
     let mut answer = String::new();
     for _ in 0..3 {
         answer = lite
-            .analyze_with_system(&answer_system(question, present), &input)
+            .analyze_with_system(&answer_system(question, present, &recalled), &input)
             .await
             .inspect_err(|error| eprintln!("bench call failed: answering: {error:#}"))
             .unwrap_or_default();
@@ -190,6 +181,7 @@ pub(super) async fn answer_one(
             retrieved,
             correct: None,
             dragged: None,
+            why: None,
             answer,
             recalled,
             cues: cues.map(|cues| format!("{cues:?}")),
@@ -219,6 +211,10 @@ pub(super) async fn answer_one(
         retrieved,
         correct: graded.as_ref().and_then(|value| value["correct"].as_bool()),
         dragged: graded.as_ref().and_then(|value| value["dragged"].as_bool()),
+        why: graded
+            .as_ref()
+            .and_then(|value| value["why"].as_str())
+            .map(str::to_string),
         answer,
         recalled,
         cues: cues.map(|cues| format!("{cues:?}")),

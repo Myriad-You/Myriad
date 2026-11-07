@@ -11,7 +11,9 @@
 //! 4. each new row gets its envelope: the server's one clock
 //!    (`her_log::store::next_rev`, `agent_log_clock`, the clock her log's own
 //!    rows take), the site as its side, a count in the audience for a
-//!    shared row, and for her rows the lease epoch;
+//!    shared row, and for her rows the lease epoch. In an audience her log
+//!    keeps, while she syncs it, the count is the log's and the row goes
+//!    into the log in the same transaction ([`super::logged`]);
 //! 5. the audience's rows folded again with the new ones; a new row the fold
 //!    passes by (a tag that does not fit, the person's row not said by
 //!    them…) refuses the batch; every head the fold changes is rewritten.
@@ -33,7 +35,7 @@ use serde_json::Value;
 use super::{
     Error,
     heads::{self, KeptRow},
-    inbox,
+    inbox, logged,
     placements::{self, Placement},
     prepare::{Author, Prepared, RowIn, prepare_all},
 };
@@ -57,6 +59,15 @@ pub(crate) struct Beside {
 }
 
 impl Beside {
+    /// The same, kept under `audience`.
+    fn under(&self, audience: &str) -> Self {
+        let mut moved = self.clone();
+        for placement in &mut moved.placements {
+            placement.audience = audience.to_string();
+        }
+        moved
+    }
+
     fn is_empty(&self) -> bool {
         self.placements.is_empty() && self.inbox.is_empty() && self.taken_out.is_empty()
     }
@@ -167,7 +178,7 @@ pub(super) async fn last_count<C: ConnectionTrait>(
         .max(0) as u64)
 }
 
-fn envelope(
+pub(super) fn envelope(
     prepared: &Prepared,
     audience: &str,
     hlc: myriad_persona_sync::Rev,
@@ -238,6 +249,16 @@ async fn insert<C: ConnectionTrait>(
     Ok(())
 }
 
+/// Keeps `txn`; a batch that moved the site owner's talk then has this
+/// process read it under the partner id.
+async fn commit(txn: sea_orm::DatabaseTransaction, moved_to: Option<&str>) -> Result<(), Error> {
+    txn.commit().await?;
+    if let Some(partner) = moved_to {
+        super::partner::remember(Some(partner));
+    }
+    Ok(())
+}
+
 /// Writes `rows` into `user_id`'s `audience` ([module docs](self)). Her
 /// rows need `pen`.
 pub(crate) async fn write(
@@ -271,12 +292,33 @@ pub(crate) async fn write_with(
     {
         return Err(Error::NoPen);
     }
-    let batch = prepare_all(audience, rows)?;
     let txn = db.begin().await?;
+    // Still sent under the site owner's talk's old name: moved first.
+    let redirected = super::partner::redirect(&txn, user_id, audience, rows).await?;
+    let moved_beside;
+    let (audience, rows, beside) = match &redirected {
+        Some(moved) => {
+            moved_beside = beside.under(&moved.audience);
+            (
+                moved.audience.as_str(),
+                moved.rows.as_slice(),
+                &moved_beside,
+            )
+        }
+        None => (audience, rows, beside),
+    };
+    let moved_to = redirected.as_ref().map(|moved| moved.partner.as_str());
+    let batch = prepare_all(audience, rows)?;
     lock(&txn, user_id, audience).await?;
+    // Her own and the site owner's talk go into her log as well, while she
+    // syncs it: what is not in it yet goes first (`logged`).
+    let into_log = logged::into_log(&txn, user_id, audience).await?;
+    if let Some(owner) = &into_log {
+        logged::catch_up(&txn, her_log::keys::root(), owner, audience).await?;
+    }
     if batch.is_empty() {
         beside.keep(&txn, user_id, audience).await?;
-        txn.commit().await?;
+        commit(txn, moved_to).await?;
         return Ok(Written::default());
     }
     let ids: Vec<String> = batch.iter().map(|row| row.id.clone()).collect();
@@ -299,7 +341,7 @@ pub(crate) async fn write_with(
     }
     if fresh.is_empty() {
         beside.keep(&txn, user_id, audience).await?;
-        txn.commit().await?;
+        commit(txn, moved_to).await?;
         return Ok(Written::default());
     }
     let made: BTreeSet<&str> = kept
@@ -335,10 +377,16 @@ pub(crate) async fn write_with(
     let mut new = Vec::with_capacity(fresh.len());
     for prepared in &fresh {
         let hlc = her_log::store::next_rev(&txn).await?;
-        let dseq = (prepared.replicate == Replicate::Shared).then(|| {
-            count += 1;
-            count
-        });
+        let dseq = match (prepared.replicate, &into_log) {
+            (Replicate::Shared, Some(_)) => {
+                Some(her_log::store::own_count(&txn, user_id, audience).await?)
+            }
+            (Replicate::Shared, None) => {
+                count += 1;
+                Some(count)
+            }
+            (Replicate::Local, _) => None,
+        };
         let row = envelope(prepared, audience, hlc, dseq, epoch)?;
         rows.push(KeptRow {
             row: row.clone(),
@@ -360,10 +408,20 @@ pub(crate) async fn write_with(
     }
     for (prepared, row) in &new {
         insert(&txn, user_id, prepared, row).await?;
+        if let (Some(owner), Some(_)) = (&into_log, row.dseq) {
+            her_log::store::keep_own(
+                &txn,
+                her_log::keys::root(),
+                owner,
+                row,
+                Some(prepared.body.as_bytes()),
+            )
+            .await?;
+        }
     }
     let changed = heads::refresh(&txn, user_id, audience, &folded).await?;
     beside.keep(&txn, user_id, audience).await?;
-    txn.commit().await?;
+    commit(txn, moved_to).await?;
     Ok(Written {
         rows: new.iter().map(|(_, row)| row.id.clone()).collect(),
         heads: changed,

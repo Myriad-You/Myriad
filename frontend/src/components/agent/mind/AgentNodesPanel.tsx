@@ -35,7 +35,6 @@ function failure(copy: Copy, error: unknown): string {
   return (
     (
       {
-        nodes_off: copy.failed.off,
         bad_name: copy.failed.badName,
         heard_unkept: copy.failed.heardUnkept,
         node_not_found: copy.failed.notFound,
@@ -595,11 +594,6 @@ export default function AgentNodesPanel() {
       {problem && (
         <p className="merope-mind__status" role="alert">
           {problem}
-        </p>
-      )}
-      {list && list.mode !== 'on' && (
-        <p className="merope-mind__status">
-          {list.mode === 'shadow' ? copy.modeShadow : copy.modeOff}
         </p>
       )}
       {open ? (

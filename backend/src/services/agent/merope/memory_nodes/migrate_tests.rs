@@ -11,7 +11,6 @@ use serde_json::{Value, json};
 
 use super::migrate::{self, Options, Report, Status};
 use super::placements::{self, How};
-use super::switch::{Mode, set_for_test};
 use super::talk_tests::{answering, asked, count};
 use super::{audience, facts, home_intents, intent_store, read};
 use crate::services::agent::memory::unified::Audience;
@@ -25,7 +24,7 @@ pub(super) const OPERATION: &str = "memory_node_migrate_sort";
 pub(super) const PLANTS: &str = "minted:0123456789abcdef0123456789abcdef";
 pub(super) const DOCTORS: &str = "minted:fedcba9876543210fedcba9876543210";
 
-/// A database of its own whose site owner is account 1, the switch off.
+/// A database of its own whose site owner is account 1.
 pub(super) async fn owned(prefix: &str) -> Option<crate::db::IsolatedSchema> {
     let schema = super::talk_tests::schema(prefix).await?;
     schema
@@ -34,7 +33,6 @@ pub(super) async fn owned(prefix: &str) -> Option<crate::db::IsolatedSchema> {
         .await
         .unwrap();
     pen::reset_for_test();
-    set_for_test(Some(Mode::Off));
     Some(schema)
 }
 
@@ -163,22 +161,6 @@ pub(super) async fn old_tables(db: &DatabaseConnection) -> Vec<String> {
         ));
     }
     out
-}
-
-/// What the old path brings to mind with the owner's first fact, going
-/// through all of it.
-async fn together(db: &DatabaseConnection) -> Vec<String> {
-    store::kept_together(
-        db,
-        OWNER,
-        &Audience::private(OWNER),
-        &["m1".to_string()],
-        &[],
-        24,
-    )
-    .await
-    .unwrap()
-    .more
 }
 
 pub(super) async fn moved(db: &DatabaseConnection, options: Options) -> Report {
@@ -360,6 +342,14 @@ pub(super) async fn seed(db: &DatabaseConnection) -> i32 {
     )
     .await;
     threads::keep_from(db, SEVEN, &kept("天气", "提醒带伞"), now, None).await;
+    // As it was before her nodes: what writing it put on them is not there.
+    sql(
+        db,
+        "DELETE FROM agent_node_instructions; DELETE FROM agent_node_inbox; \
+         DELETE FROM agent_node_placements; DELETE FROM agent_node_heads; \
+         DELETE FROM agent_node_rows",
+    )
+    .await;
     quoted
 }
 
@@ -387,7 +377,6 @@ async fn moving_once_puts_each_thing_where_her_nodes_keep_it_and_again_writes_no
     };
     let db = &schema.db;
     let quoted = seed(db).await;
-    let read_before = together(db).await;
     let before = old_tables(db).await;
     assert_eq!(
         count(db, "SELECT COUNT(*) AS n FROM agent_node_rows").await,
@@ -537,9 +526,8 @@ async fn moving_once_puts_each_thing_where_her_nodes_keep_it_and_again_writes_no
     assert_eq!(intents.len(), 1, "the thread grown from their line");
     assert!(intents[0].id.starts_with(home_intents::THREAD) && intents[0].waiting());
 
-    // The old tables are as they were, and read so with the switch off.
+    // The old tables are as they were.
     assert_eq!(old_tables(db).await, before);
-    assert_eq!(together(db).await, read_before);
 
     // Again: nothing new, nothing asked.
     let rows = count(db, "SELECT COUNT(*) AS n FROM agent_node_rows").await;
@@ -574,6 +562,5 @@ async fn moving_once_puts_each_thing_where_her_nodes_keep_it_and_again_writes_no
     assert_eq!(runs[0]["status"], "done");
     assert_eq!(runs[1]["counts"]["placed"], 3);
     assert_eq!(runs[1]["estimate"]["asks"], 3);
-    set_for_test(None);
     schema.drop().await;
 }

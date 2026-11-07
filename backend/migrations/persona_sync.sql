@@ -17,8 +17,12 @@ CREATE TABLE IF NOT EXISTS agent_sync_devices (
     created_at TIMESTAMPTZ NOT NULL,
     last_seen_at TIMESTAMPTZ,
     revoked_at TIMESTAMPTZ,
-    revoked_reason VARCHAR(32)
+    revoked_reason VARCHAR(32),
+    -- When her link last closed it for speaking another protocol (its app is
+    -- to be updated); cleared by its next hello the site takes.
+    app_outdated_at TIMESTAMPTZ
 );
+ALTER TABLE agent_sync_devices ADD COLUMN IF NOT EXISTS app_outdated_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_agent_sync_devices_user_created
     ON agent_sync_devices (user_id, created_at DESC);
 -- The parent/child flag of the old design, retired: a database from before

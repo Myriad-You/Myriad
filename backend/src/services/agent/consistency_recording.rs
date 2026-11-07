@@ -183,7 +183,7 @@ async fn talk_so_far<C: ConnectionTrait>(db: &C, user_id: i32, history: &[Value]
     let first = history
         .first()
         .map(|line| at(&line["at"]))
-        .unwrap_or_else(chrono::Utc::now);
+        .unwrap_or_else(crate::clock::now);
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "INSERT INTO agent_sessions (id, user_id, title, context, message_count, archived, created_at, last_active_at) \

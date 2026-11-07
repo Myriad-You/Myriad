@@ -12,7 +12,7 @@
 //! every other account's at most [`PER_DAY`] calls a day, counted in the
 //! runtime registry ([`DAY_NAMESPACE`]) so a restart does not reset it.
 //! Nothing due and nothing in the inbox: no call, no row. Only private
-//! talks for now; only while nodes are written and her mind is here.
+//! talks for now; only while her mind is here.
 
 use std::collections::HashSet;
 use std::time::Duration;
@@ -219,9 +219,6 @@ async fn count_calls<C: ConnectionTrait>(
 
 /// One upkeep of her nodes, at the site's hourly upkeep.
 pub(crate) async fn tick(db: &DatabaseConnection) {
-    if !super::mode().writes() {
-        return;
-    }
     let talks = match audiences(db).await {
         Ok(talks) => talks,
         Err(error) => {

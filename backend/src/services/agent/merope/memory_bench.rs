@@ -154,16 +154,24 @@ fn date_of(text: &str) -> chrono::DateTime<chrono::FixedOffset> {
 /// with the date she learned it), with what she generally knows for advice
 /// or a recommendation; what she does not remember of them she does not make
 /// up. In a group, she knows others read along.
-fn answer_system(question: &Question, present: &Audience) -> String {
+/// What she answers on: `answer.sectioned`, with what she remembers laid
+/// out after it by the core, as a chat turn lays it out
+/// (`myriad_merope::speaking::format_remembered_section`), so the bench and
+/// production say alike when a memory is worth bringing up; the native
+/// runner answers the same way.
+fn answer_system(question: &Question, present: &Audience, remembered: &[String]) -> String {
     let answer = &prompts()["answer"];
-    let mut system = answer["system"].as_str().unwrap().to_string();
+    let mut system = answer["sectioned"].as_str().unwrap().to_string();
     if present.is_group() {
         system = format!("{system} {}", answer["group"].as_str().unwrap());
         if question.question_speaker.as_deref() == Some("other") {
             system = format!("{system} {}", answer["other"].as_str().unwrap());
         }
     }
-    system
+    match myriad_merope::speaking::format_remembered_section(remembered) {
+        Some(section) => format!("{system}\n\n{section}"),
+        None => system,
+    }
 }
 
 /// Which grading rule a question takes: by its id's ending for those that
@@ -206,10 +214,11 @@ fn grade_schema(question: &Question) -> Value {
     if question.question_type == "noise" {
         return json!({"type":"object","additionalProperties":false,
             "required":["correct","dragged"],
-            "properties":{"correct":{"type":"boolean"},"dragged":{"type":"boolean"}}});
+            "properties":{"correct":{"type":"boolean"},"dragged":{"type":"boolean"},
+                "why":{"type":"string"}}});
     }
     json!({"type":"object","additionalProperties":false,"required":["correct"],
-        "properties":{"correct":{"type":"boolean"}}})
+        "properties":{"correct":{"type":"boolean"},"why":{"type":"string"}}})
 }
 
 struct Outcome {
@@ -231,9 +240,7 @@ struct Outcome {
     memories: Vec<String>,
     /// Each memory's concepts, as kept beside it.
     concepts: Vec<Value>,
-    /// The topic each memory went under, if any.
-    topics: Vec<Option<String>>,
-    /// Where each memory was put on her nodes, while they are written: the
+    /// Where each memory was put on her nodes: the
     /// node's name, `about` (「关于你」), `nowhere`, or none when it was
     /// never decided.
     nodes: Vec<Option<String>>,
@@ -368,14 +375,6 @@ async fn run_one(
                 );
             }
         }
-    }
-    // Kept before she put facts under topics: sorted afterwards, as upkeep
-    // does, to see what sorting gets that going over would have.
-    if settle && settle::topics_later() {
-        settle::sort_all(db, judge, user_id).await;
-    }
-    if settle && settle::topics_tidied() {
-        settle::tidy_all(db, judge, user_id).await;
     }
     if settle {
         settle::keep_up_nodes(db, user_id).await;
@@ -525,30 +524,6 @@ async fn run_one(
             .map(|row| (row.id, row.concepts))
             .collect()
     };
-    let topic_by_id: std::collections::HashMap<String, String> = {
-        use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-        db.query_all_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT m.memory_id, t.name FROM agent_memory_topics m \
-             JOIN agent_topic_nodes t ON t.user_id = m.user_id AND t.id = m.topic_id \
-             WHERE m.user_id = $1",
-            [user_id.into()],
-        ))
-        .await
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|row| {
-            Some((
-                row.try_get::<String>("", "memory_id").ok()?,
-                row.try_get::<String>("", "name").ok()?,
-            ))
-        })
-        .collect()
-    };
-    let topics: Vec<Option<String>> = kept_rows
-        .iter()
-        .map(|row| topic_by_id.get(&row.id).cloned())
-        .collect();
     // A node merged away since keeps its id here, as the placement does.
     let node_by_id: std::collections::HashMap<String, String> = {
         use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
@@ -597,7 +572,6 @@ async fn run_one(
         kept,
         memories,
         concepts,
-        topics,
         nodes,
     }
 }

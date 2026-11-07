@@ -16,7 +16,6 @@ use serde_json::json;
 use super::group_read_tests::seed_group;
 use super::page_edit::{self, Answer, Refusal};
 use super::read_tests::{OWNER, SEVEN, owned, put, start};
-use super::switch::{Mode, set_for_test};
 use super::talk_tests::count;
 use super::{Author, RowIn, audience, heads, intent_store, page, read, write};
 use crate::services::agent::memory::unified::Audience;
@@ -27,7 +26,6 @@ const COFFEE: [&str; 2] = ["OWNER-TOPIC 每天早上手冲一杯", "OWNER-TOPIC 
 /// coffee and a fact on 「关于你」. The topic's node id and its memory ids.
 async fn seeded(db: &DatabaseConnection) -> (String, Vec<String>) {
     seed_group(db).await;
-    set_for_test(Some(Mode::Shadow));
     let talk = audience::owners_talk();
     let ids = put(
         db,
@@ -123,8 +121,42 @@ async fn the_page_is_their_own_talk_her_own_and_her_groups() {
         Err(Refusal::NotFound)
     ));
     assert!(page::on_the_page("group:qq:5") && !page::on_the_page("group:"));
-    set_for_test(None);
     schema.drop().await;
+}
+
+#[tokio::test]
+async fn an_entry_is_dated_the_day_she_learned_it() {
+    let Some(schema) = owned("memory_nodes_page_learned").await else {
+        return;
+    };
+    let db = &schema.db;
+    let (node, ids) = seeded(db).await;
+    db.execute_unprepared(&format!(
+        "UPDATE agent_memories SET created_at = '2026-10-20T12:00:00+08:00' WHERE id = '{}'",
+        ids[0]
+    ))
+    .await
+    .unwrap();
+    let shown = page::node(db, OWNER, &audience::owners_talk(), &node)
+        .await
+        .unwrap()
+        .unwrap();
+    let at = |text: &str| {
+        shown
+            .entries
+            .iter()
+            .find(|entry| entry.text == text)
+            .unwrap()
+            .at
+    };
+    assert_eq!(
+        at(COFFEE[0]),
+        chrono::DateTime::parse_from_rfc3339("2026-10-20T12:00:00+08:00")
+            .unwrap()
+            .timestamp_micros()
+    );
+    // Put on the node today, and learned today.
+    assert!(at(COFFEE[1]) > at(COFFEE[0]));
 }
 
 #[tokio::test]
@@ -181,13 +213,6 @@ async fn a_name_they_set_is_theirs_and_upkeep_holds_against_it() {
     page_edit::rename(db, OWNER, "group:qq:5", &topic.id, "群里的游戏")
         .await
         .unwrap();
-    // Off: nothing is written.
-    set_for_test(Some(Mode::Off));
-    assert!(matches!(
-        page_edit::rename(db, OWNER, &talk, &node, "咖啡豆").await,
-        Err(Refusal::No("nodes_off"))
-    ));
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -250,8 +275,6 @@ async fn what_they_delete_goes_truly() {
     );
     assert_eq!(count(db, &words).await, 0);
     assert!(!everything(db).await.contains("OWNER-TOPIC"));
-    // Deleting is the person's act: it runs whatever the switch says.
-    set_for_test(Some(Mode::Off));
     let about = page::node(db, OWNER, &talk, &about.id)
         .await
         .unwrap()
@@ -260,7 +283,6 @@ async fn what_they_delete_goes_truly() {
         .await
         .unwrap();
     assert!(!everything(db).await.contains("OWNER-ABOUT"));
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -383,6 +405,5 @@ async fn an_intent_they_cancel_is_dropped_and_recorded_so() {
         page_edit::answer_heard(db, OWNER, &talk, &about, &row, Answer::Denied).await,
         Err(Refusal::NotFound)
     ));
-    set_for_test(None);
     schema.drop().await;
 }

@@ -105,6 +105,34 @@ pub async fn upload_media(
     })))
 }
 
+#[derive(serde::Deserialize)]
+pub struct RemoteMediaBody {
+    url: String,
+}
+
+/// POST /api/media/remote
+///
+/// 笔记里贴进来、导入进来的外站图片：后端下载下来存成站点媒体（来源「导入」，私有），
+/// 正文换成本站地址后博客才显示得出来。同样内容只存一份。
+pub async fn import_remote_media(
+    State(db): State<DatabaseConnection>,
+    AdminClaims(claims): AdminClaims,
+    Json(body): Json<RemoteMediaBody>,
+) -> Result<Json<Value>, HttpError> {
+    let user_id: i32 = claims
+        .subject_id()
+        .ok_or_else(|| media_http(StatusCode::UNAUTHORIZED, "Invalid user ID"))?;
+    let actor = MediaActor::admin(user_id).map_err(|err| HttpError(err.into()))?;
+    let asset = MediaService::from_data_paths(paths())
+        .import_remote_image(&db, actor, &body.url)
+        .await
+        .map_err(|err| HttpError(err.into()))?;
+    Ok(Json(json!({
+        "success": true,
+        "item": catalog_item(&asset),
+    })))
+}
+
 /// DELETE /api/media/{id}
 pub async fn delete_media(
     State(db): State<DatabaseConnection>,

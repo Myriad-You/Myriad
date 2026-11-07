@@ -12,7 +12,6 @@ use serde_json::json;
 use super::group_context;
 use super::read_tests::{GROUP, OWNER, SEVEN, owned, put, ranked, seed, start};
 use super::recall;
-use super::switch::{Mode, set_for_test};
 use super::{audience, hanging};
 use crate::services::agent::memory::unified::{self, Audience};
 
@@ -43,7 +42,6 @@ async fn in_venue(
 /// and 8's.
 pub(crate) async fn seed_group(db: &DatabaseConnection) -> (String, String) {
     seed(db).await;
-    set_for_test(Some(Mode::Shadow));
     let group = audience::group(GROUP);
     in_venue(
         db,
@@ -111,7 +109,6 @@ pub(crate) async fn seed_group(db: &DatabaseConnection) -> (String, String) {
     ))
     .await
     .unwrap();
-    set_for_test(Some(Mode::On));
     (theirs[0].clone(), eights[0].clone())
 }
 

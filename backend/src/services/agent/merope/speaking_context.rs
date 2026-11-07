@@ -634,8 +634,8 @@ async fn speaking_prompt_from_db(
     } else {
         addressee_speaking_section(&addressee)
     }];
-    // While she reads her nodes, what she keeps of a private talk there,
-    // read once for the turn; nothing of them otherwise.
+    // What she keeps of a private talk on her nodes, read once for the
+    // turn.
     let nodes = match turn {
         Turn::Plain => None,
         _ => super::memory_nodes::context::for_turn(db, user_id, present).await,

@@ -689,12 +689,19 @@ async fn fetch_gateway(token: &str) -> Result<(String, Option<u64>), ConnectFail
     Ok((url, discord_session_starts_remaining(&body)))
 }
 
+/// Discord hands out `wss://gateway.discord.gg` with no path. Appending the
+/// query straight onto it makes the handshake line `GET ?v=10...`, which the
+/// gateway answers with 400; parsing gives the empty path its `/`.
 fn with_gateway_query(url: &str) -> String {
-    if url.contains('?') {
-        format!("{url}&v=10&encoding=json")
-    } else {
-        format!("{url}?v=10&encoding=json")
-    }
+    let Ok(mut parsed) = url::Url::parse(url) else {
+        let base = url.trim_end_matches('/');
+        return format!("{base}/?v=10&encoding=json");
+    };
+    parsed
+        .query_pairs_mut()
+        .append_pair("v", "10")
+        .append_pair("encoding", "json");
+    parsed.to_string()
 }
 
 async fn get_me(token: &str) -> Result<DiscordBotIdentity, ConnectFailureKind> {
@@ -1079,6 +1086,22 @@ fn log_transport(context: &str, err: &impl std::fmt::Display, token: &str) {
 mod tests {
     use super::*;
     use myriad_agent_rules::channel::{classify_discord_rest, discord_private_text_from_create};
+
+    #[test]
+    fn gateway_url_gets_a_path_before_its_query() {
+        assert_eq!(
+            with_gateway_query("wss://gateway.discord.gg"),
+            "wss://gateway.discord.gg/?v=10&encoding=json"
+        );
+        assert_eq!(
+            with_gateway_query("wss://gateway-us-east1-b.discord.gg/"),
+            "wss://gateway-us-east1-b.discord.gg/?v=10&encoding=json"
+        );
+        assert_eq!(
+            with_gateway_query("wss://gateway.discord.gg/?compress=zlib-stream"),
+            "wss://gateway.discord.gg/?compress=zlib-stream&v=10&encoding=json"
+        );
+    }
 
     #[test]
     fn fingerprint_intent_matches_rules() {

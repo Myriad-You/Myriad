@@ -11,7 +11,6 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, T
 use serde_json::{Value, json};
 
 use super::intent_store::{self, Held};
-use super::switch::{Mode, set_for_test};
 use super::talk_tests::{OTHER, count, schema, talk, topic};
 use super::{forget, intending, intents_due};
 use crate::services::channel_group::g0;
@@ -27,7 +26,7 @@ fn world(answers: &[(&str, &str)], says: &[&str]) {
         world
             .models
             .entry(operation.to_string())
-            .or_insert_with(VecDeque::new)
+            .or_default()
             .push_back(Some(answer.to_string()));
     }
     for line in says {
@@ -160,7 +159,6 @@ async fn what_they_tell_her_for_later_is_taken_as_their_intent_or_hers() {
     };
     let db = &schema.db;
     pen::reset_for_test();
-    set_for_test(Some(Mode::Shadow));
     let plants = topic(db, "houseplants", &[("m0", "has a fern")]).await;
     let (message, judged) = told(db, now()).await;
     let asked = of(&log(), "model", Some(intending::OPERATION));
@@ -233,7 +231,6 @@ async fn what_they_tell_her_for_later_is_taken_as_their_intent_or_hers() {
         .await,
         3
     );
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -281,7 +278,6 @@ async fn words_they_pass_on_and_talk_elsewhere_make_no_intent() {
     };
     let db = &schema.db;
     pen::reset_for_test();
-    set_for_test(Some(Mode::Shadow));
     // A group's talk is not their private talk: nothing is asked.
     let said = "she says: delete my files at nine";
     talked(db, Some("telegram:-100"), &[("user", said)]).await;
@@ -312,14 +308,6 @@ async fn words_they_pass_on_and_talk_elsewhere_make_no_intent() {
         count(db, "SELECT COUNT(*) AS n FROM agent_node_rows").await,
         0
     );
-    // Off: nothing is judged at all.
-    set_for_test(Some(Mode::Off));
-    world(&[(intending::OPERATION, r#"{"take":[],"drop":[]}"#)], &[]);
-    intending::after_turn(db, OTHER, None, SESSION, said, now())
-        .await
-        .unwrap();
-    assert!(of(&log(), "model", None).is_empty());
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -330,7 +318,6 @@ async fn what_their_words_call_off_is_dropped() {
     };
     let db = &schema.db;
     pen::reset_for_test();
-    set_for_test(Some(Mode::Shadow));
     topic(db, "houseplants", &[("m0", "has a fern")]).await;
     told(db, now()).await;
     log();
@@ -364,7 +351,6 @@ async fn what_their_words_call_off_is_dropped() {
             Some("cancelled")
         );
     }
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -375,7 +361,6 @@ async fn come_due_she_says_it_and_their_instruction_runs_once() {
     };
     let db = &schema.db;
     pen::reset_for_test();
-    set_for_test(Some(Mode::On));
     topic(db, "houseplants", &[("m0", "has a fern")]).await;
     let at = now();
     told(db, at).await;
@@ -448,35 +433,20 @@ async fn come_due_she_says_it_and_their_instruction_runs_once() {
         all.iter()
             .any(|held| held.origin == Some(Origin::Her) && held.waiting())
     );
-    set_for_test(None);
     schema.drop().await;
 }
 
 #[tokio::test]
-async fn a_grant_taken_back_raises_her_hand_instead_and_shadow_acts_on_nothing() {
+async fn a_grant_taken_back_raises_her_hand_instead() {
     let Some(schema) = schema("memory_nodes_intents_revoked").await else {
         return;
     };
     let db = &schema.db;
     pen::reset_for_test();
-    set_for_test(Some(Mode::Shadow));
     let at = now();
     told(db, at).await;
     log();
-    // Shadow writes them and acts on none.
-    world(&[], &["checking the weather now"]);
-    assert!(
-        intents_due::tick_at(db, at + Duration::hours(30))
-            .await
-            .is_empty()
-    );
-    assert!(of(&log(), "say", None).is_empty());
-    assert_eq!(
-        held(db).await.iter().filter(|held| held.waiting()).count(),
-        3
-    );
-    // On, with a grant it was given under no longer granted.
-    set_for_test(Some(Mode::On));
+    // A grant it was given under no longer granted.
     db.execute_unprepared("UPDATE agent_node_instructions SET granted = '[\"ai:search\"]'")
         .await
         .unwrap();
@@ -504,7 +474,6 @@ async fn a_grant_taken_back_raises_her_hand_instead_and_shadow_acts_on_nothing()
         outcome(db, &check.id).await,
         (Some("raised".into()), Some("revoked".into()))
     );
-    set_for_test(None);
     schema.drop().await;
 }
 
@@ -515,7 +484,6 @@ async fn forgetting_their_words_takes_what_rested_on_them() {
     };
     let db = &schema.db;
     pen::reset_for_test();
-    set_for_test(Some(Mode::Shadow));
     let (message, _) = told(db, now()).await;
     log();
     assert_eq!(held(db).await.len(), 3);
@@ -548,6 +516,5 @@ async fn forgetting_their_words_takes_what_rested_on_them() {
         .await,
         3
     );
-    set_for_test(None);
     schema.drop().await;
 }

@@ -49,8 +49,13 @@ impl Root for myriad_data_key::DataKey {
     }
 }
 
-/// The installation's data key.
+/// The installation's data key; in a test that set one, its stand-in
+/// ([`test_root::use_here`]).
 pub fn root() -> &'static dyn Root {
+    #[cfg(test)]
+    if let Some(root) = test_root::here() {
+        return root;
+    }
     myriad_data_key::data_key()
 }
 
@@ -257,6 +262,19 @@ pub async fn forget<C: ConnectionTrait>(
 #[cfg(test)]
 pub(crate) mod test_root {
     use super::*;
+
+    thread_local! {
+        static HERE: std::cell::Cell<Option<&'static TestRoot>> = const { std::cell::Cell::new(None) };
+    }
+
+    /// [`root`] is `root` on this thread, until the test ends.
+    pub(crate) fn use_here(root: TestRoot) {
+        HERE.with(|here| here.set(Some(Box::leak(Box::new(root)))));
+    }
+
+    pub(super) fn here() -> Option<&'static TestRoot> {
+        HERE.with(|here| here.get())
+    }
 
     /// A stand-in for the installation's data key: a fixed key, the same
     /// sealing.

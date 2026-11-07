@@ -19,7 +19,7 @@
 //!   words went, or the message an instruction was given in, the page says
 //!   so instead of showing them.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use myriad_nodes::trust::Tier;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
@@ -362,12 +362,15 @@ fn lines_of(refs: &Value) -> Vec<i32> {
         .collect()
 }
 
-/// The entries of `node`, sorted for the page: (entries, heard).
+/// The entries of `node`, sorted for the page: (entries, heard). Each is
+/// dated the day she learned it (`learned`, by memory row), not the day it
+/// was put on the node.
 fn entries_of(
     node: &Value,
     audience: &str,
     own: bool,
     held: &HashSet<String>,
+    learned: &HashMap<String, i64>,
 ) -> (Vec<EntryLine>, Vec<EntryLine>) {
     let (mut entries, mut heard) = (Vec::new(), Vec::new());
     for entry in items(node, "entries").filter(|entry| standing(entry, held)) {
@@ -378,7 +381,10 @@ fn entries_of(
         let line = EntryLine {
             row: entry["row"].as_str().unwrap_or_default().to_string(),
             text: entry["text"].as_str().unwrap_or_default().to_string(),
-            at: entry["at"].as_i64().unwrap_or_default(),
+            at: shown::cited(&entry["refs"])
+                .iter()
+                .find_map(|memory| learned.get(memory).copied())
+                .unwrap_or_else(|| entry["at"].as_i64().unwrap_or_default()),
             said_by: strings(&entry["saidBy"]),
             seen: !matches!(tier, Some(Tier::Counts) | Some(Tier::Heard)),
             quote_only: entry["quoteOnly"].as_bool().unwrap_or(false),
@@ -440,7 +446,8 @@ pub(crate) async fn node(
     }
     let value = &head.node;
     let held = known::held(db, named(std::iter::once(value))).await?;
-    let (entries, heard) = entries_of(value, audience, own, &held);
+    let learned = known::learned(db, held.iter().cloned().collect()).await?;
+    let (entries, heard) = entries_of(value, audience, own, &held, &learned);
     let gone_lines: Vec<i32> = items(value, "spans")
         .flat_map(|span| lines_of(&span["refs"]))
         .collect();

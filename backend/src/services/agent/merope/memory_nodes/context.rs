@@ -1,5 +1,5 @@
-//! What she is shown of her nodes every time she speaks in a private talk,
-//! while she reads them (§4 of the plan, the native host's `NodeRecall`):
+//! What she is shown of her nodes every time she speaks in a private talk
+//! (§4 of the plan, the native host's `NodeRecall`):
 //! read once a turn ([`for_turn`]), laid out by the sections that show it.
 //!
 //! - **The person** (「关于你」 in their talk): what they are to her and how
@@ -78,15 +78,14 @@ pub(crate) struct NodeTurn {
     pub group: Option<Group>,
 }
 
-/// This turn's read of `user_id`'s talk in front of `present` while she
-/// reads her nodes; none otherwise, or when it cannot be read (then she
-/// reads as before).
+/// This turn's read of `user_id`'s talk in front of `present`; none when
+/// it cannot be read (then she reads from the rows).
 pub(crate) async fn for_turn(
     db: &DatabaseConnection,
     user_id: i32,
     present: &Audience,
 ) -> Option<NodeTurn> {
-    if !super::mode().reads() || user_id <= 0 {
+    if user_id <= 0 {
         return None;
     }
     let read = match present.group_id() {
@@ -104,7 +103,7 @@ pub(crate) async fn for_turn(
     }
 }
 
-/// [`for_turn`] at `now`, read whatever the switch.
+/// [`for_turn`] at `now`.
 pub(crate) async fn load(
     db: &DatabaseConnection,
     user_id: i32,
@@ -279,17 +278,16 @@ impl NodeTurn {
             .facts
             .iter()
             .map(|entry| {
-                match entry
+                let what = match entry
                     .memory
                     .as_ref()
                     .and_then(|id| self.shown.memories.get(id))
                 {
-                    Some(row) => (row.content.clone(), row.created_at.with_timezone(&Utc)),
-                    None => (
-                        entry.text.clone(),
-                        DateTime::from_timestamp_micros(entry.at).unwrap_or_default(),
-                    ),
-                }
+                    Some(row) => row.content.clone(),
+                    None => entry.text.clone(),
+                };
+                let at = DateTime::from_timestamp_micros(self.shown.learned(entry));
+                (what, at.unwrap_or_default())
             })
             .collect();
         told.sort_by(|a, b| b.1.cmp(&a.1));
@@ -414,7 +412,7 @@ impl NodeTurn {
                 let about = summary_of(&node.head).into_iter().next().or_else(|| {
                     node.facts
                         .iter()
-                        .max_by_key(|entry| entry.at)
+                        .max_by_key(|entry| self.shown.learned(entry))
                         .map(|entry| entry.text.clone())
                 });
                 Some(match about {
