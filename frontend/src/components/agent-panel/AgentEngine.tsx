@@ -107,12 +107,12 @@ import {
   AGENT_PANEL_SUBMIT_EVENT,
   agentPanelAnswerDetail,
   agentPanelCommand,
-  forgottenLinesDetail,
   agentPanelOpenSessionCount,
   agentPanelOpenSessionId,
   agentPanelSubmitDetail,
   attachAgentSessionOpenQueue,
-  dispatchAgentPanelOpen, dispatchHistoryAnswerResult,
+  dispatchAgentPanelOpen,
+  dispatchHistoryAnswerResult, forgottenLinesDetail,
   takeQueuedAgentSubmit,
 } from './agentPanelEvents'
 import { getAgentPanelMode, useAgentPanelMode } from './agentPanelMode'

@@ -132,7 +132,7 @@ async fn her_group_prompts_recorded() {
             .iter()
             .filter(|entry| entry["kind"] == "say")
             .filter_map(|entry| entry["what"]["prompt"].as_str())
-            .last()
+            .next_back()
             .unwrap_or_else(|| {
                 for entry in &world.log {
                     let what = entry["what"].to_string();
