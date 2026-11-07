@@ -535,6 +535,7 @@
     "ai_billing_owner": "AI usage can’t be billed because the site owner isn’t set up. Finish setup and try again.",
     "allow_skip_versions_unsupported": "This update service can’t skip versions. Update one version at a time.",
     "channel_inbox_missing": "The other server hasn’t shared an inbox for this channel. Try again later.",
+    "transfer_same_instance": "Files can’t be sent between users of the same site yet. Share a link instead, or send it outside the site.",
     "remote_inbox_missing": "The other server has no inbox to deliver to. Try again later.",
     "e2e_required": "This conversation is end-to-end encrypted and the message couldn’t be encrypted, so it wasn’t sent.",
     "channel_pairing_identity": "This is a chat bot pairing. Manage it from the pairing page.",

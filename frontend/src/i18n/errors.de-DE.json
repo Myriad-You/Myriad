@@ -535,6 +535,7 @@
     "ai_billing_owner": "Die KI-Nutzung kann nicht verbucht werden, weil kein Seitenbesitzer eingerichtet ist.",
     "allow_skip_versions_unsupported": "Dieser Update-Dienst kann keine Versionen überspringen. Aktualisieren Sie schrittweise.",
     "channel_inbox_missing": "Der andere Server hat für diesen Kanal keinen Posteingang angegeben. Bitte später erneut versuchen.",
+    "transfer_same_instance": "Dateien können noch nicht zwischen Nutzern derselben Website gesendet werden. Teile stattdessen einen Link oder sende sie außerhalb der Website.",
     "remote_inbox_missing": "Der andere Server hat keinen Posteingang für die Zustellung. Bitte später erneut versuchen.",
     "e2e_required": "Diese Unterhaltung ist Ende-zu-Ende-verschlüsselt; die Nachricht ließ sich nicht verschlüsseln und wurde nicht gesendet.",
     "channel_pairing_identity": "Das ist eine Bot-Kopplung. Verwalten Sie sie auf der Kopplungsseite.",

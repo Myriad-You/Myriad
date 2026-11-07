@@ -7,6 +7,7 @@ use serde_json::json;
 use crate::federation::types::*;
 
 use super::e2e::load_e2e_session;
+use super::outbound::record;
 use super::types::{
     ChannelDetail, ChannelSummary, CreateChannelRequest, MessageItem, SendMessageRequest,
     SendMessageResponse,
@@ -229,22 +230,27 @@ pub async fn create_channel(
     }
 
     let inbox = &remote.inbox_url;
-    if !inbox.is_empty() {
-        let act_id = insert_local_activity(
-            &txn,
-            user_id,
-            &activity_id,
-            "ChannelOpen",
-            Some("Channel"),
-            channel_open.clone(),
-        )
-        .await
-        .map_err(db_err)?;
-        enqueue_delivery(&txn, act_id, inbox, "pending")
+    let outbound = if inbox.is_empty() {
+        None
+    } else {
+        Some(
+            record(
+                &txn,
+                user_id,
+                &activity_id,
+                "ChannelOpen",
+                Some("Channel"),
+                channel_open.clone(),
+                inbox,
+            )
             .await
-            .map_err(db_err)?;
-    }
+            .map_err(db_err)?,
+        )
+    };
     txn.commit().await.map_err(db_err)?;
+    if let Some(outbound) = outbound {
+        outbound.send(db).await.map_err(db_err)?;
+    }
 
     tracing::info!(
         "[Channel] Created channel {} with remote {}",
@@ -483,21 +489,20 @@ pub async fn close_channel(
     .await
     .map_err(db_err)?;
 
-    let act_id = insert_local_activity(
+    let outbound = record(
         &txn,
         user_id,
         &activity_id,
         "ChannelClose",
         Some("Channel"),
         close_activity,
+        &remote_inbox,
     )
     .await
     .map_err(db_err)?;
-    enqueue_delivery(&txn, act_id, &remote_inbox, "pending")
-        .await
-        .map_err(db_err)?;
 
     txn.commit().await.map_err(db_err)?;
+    outbound.send(db).await.map_err(db_err)?;
 
     crate::federation::ws_gateway::broadcast_to_channel(
         channel_id,
@@ -552,24 +557,6 @@ pub async fn delete_channel(
         ));
     }
 
-    // Messages first
-    db.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "DELETE FROM federation_channel_messages WHERE channel_id = $1",
-        [channel_id.into()],
-    ))
-    .await
-    .map_err(db_err)?;
-
-    // Related transfer rows (channel_id is not always FK-enforced)
-    db.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "DELETE FROM federation_file_transfers WHERE channel_id = $1",
-        [channel_id.into()],
-    ))
-    .await
-    .map_err(db_err)?;
-
     // Stop any leftover outbound deliveries for this channel id
     let _ = crate::federation::delivery::cancel_pending_deliveries_for_resource(
         db,
@@ -578,6 +565,7 @@ pub async fn delete_channel(
     )
     .await;
 
+    // The messages go with the last row (`channel_rows.sql`).
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM federation_channels WHERE user_id = $1 AND channel_id = $2",
@@ -586,15 +574,38 @@ pub async fn delete_channel(
     .await
     .map_err(db_err)?;
 
-    // Notify other local tabs/devices so they drop the conversation
-    crate::federation::ws_gateway::broadcast_to_channel(
-        channel_id,
-        &json!({
-            "type": "channel_deleted",
-            "channel_id": channel_id
-        }),
-    )
-    .await;
+    // The other end of a same-instance channel keeps its row and the history.
+    let other_end_remains = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT 1 FROM federation_channels WHERE channel_id = $1",
+            [channel_id.into()],
+        ))
+        .await
+        .map_err(db_err)?
+        .is_some();
+    if !other_end_remains {
+        // Related transfer rows (channel_id is not always FK-enforced)
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "DELETE FROM federation_file_transfers WHERE channel_id = $1",
+            [channel_id.into()],
+        ))
+        .await
+        .map_err(db_err)?;
+
+        // Notify other local tabs/devices so they drop the conversation. The
+        // socket registry is per channel, so with the other end still here
+        // this would drop it from their screen too.
+        crate::federation::ws_gateway::broadcast_to_channel(
+            channel_id,
+            &json!({
+                "type": "channel_deleted",
+                "channel_id": channel_id
+            }),
+        )
+        .await;
+    }
 
     tracing::info!("[Channel] Deleted channel {}", channel_id);
 
@@ -731,8 +742,13 @@ pub async fn send_message(
     };
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE federation_channels SET last_activity_at = $3::timestamptz, status = $2 WHERE channel_id = $1",
-        [channel_id.into(), new_status.into(), now.into()],
+        "UPDATE federation_channels SET last_activity_at = $3::timestamptz, status = $2 WHERE channel_id = $1 AND user_id = $4",
+        [
+            channel_id.into(),
+            new_status.into(),
+            now.into(),
+            user_id.into(),
+        ],
     ))
     .await
     .map_err(db_err)?;
@@ -763,19 +779,20 @@ pub async fn send_message(
         ..Default::default()
     };
     if let Some(inbox) = remote_inbox.filter(|s| !s.is_empty()) {
-        let act_id = insert_local_activity(
+        record(
             db,
             user_id,
             &activity_id,
             "ChannelMessage",
             Some("ChannelMessage"),
             msg_activity.clone(),
+            &inbox,
         )
         .await
+        .map_err(db_err)?
+        .send(db)
+        .await
         .map_err(db_err)?;
-        enqueue_delivery(db, act_id, &inbox, "pending")
-            .await
-            .map_err(db_err)?;
         delivery.queued = 1;
     } else {
         delivery.warning = Some("remote_inbox_missing".into());
@@ -941,8 +958,7 @@ mod tests {
             .next()
             .expect("body");
         assert!(body.contains("db.begin()"), "close must share a transaction");
-        assert!(body.contains("insert_local_activity"));
-        assert!(body.contains("enqueue_delivery"));
+        assert!(body.contains("record("));
         assert!(body.contains("status <> 'closed'"));
         assert!(
             !body.contains("let _ = db"),

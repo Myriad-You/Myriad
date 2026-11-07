@@ -535,6 +535,7 @@
     "ai_billing_owner": "站點擁有者尚未設定，無法記帳 AI 用量。請完成設定後重試。",
     "allow_skip_versions_unsupported": "目前更新服務不支援跳版本升級。請逐一版本更新。",
     "channel_inbox_missing": "對方伺服器沒有提供這個頻道的收件地址。請稍後再試。",
+    "transfer_same_instance": "同一站點的使用者之間還不能傳檔案。可以改傳連結，或透過站外方式傳送。",
     "remote_inbox_missing": "對方伺服器沒有可投遞的收件地址。請稍後再試。",
     "e2e_required": "這個對話要求端對端加密，但訊息加密失敗，未傳送。",
     "channel_pairing_identity": "這是聊天機器人配對。請到配對頁面管理。",

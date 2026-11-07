@@ -16,6 +16,7 @@ mod receive;
 mod signature;
 
 pub use local_deliver::deliver_activity_locally;
+pub(crate) use local_deliver::local_username_from_inbox_url;
 pub use receive::*;
 
 use axum::{Json, http::StatusCode};

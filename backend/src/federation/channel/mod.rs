@@ -12,6 +12,7 @@
 mod crud;
 mod e2e;
 mod inbox;
+mod outbound;
 mod types;
 
 pub use crud::*;
@@ -67,8 +68,7 @@ mod split_contract_tests {
     fn create_channel_commits_with_outbound_intent() {
         let src = include_str!("crud.rs");
         assert!(src.contains("db.begin()"));
-        assert!(src.contains("insert_local_activity"));
-        assert!(src.contains("enqueue_delivery"));
+        assert!(src.contains("record("));
         assert!(src.contains("is_unique_violation"));
     }
 }
@@ -303,5 +303,283 @@ mod send_e2e_tests {
         assert_eq!(stored, serde_json::json!({"text": "secret plaintext"}));
         assert!(!row.try_get::<bool>("", "is_encrypted").expect("flag"));
         fixture.close().await;
+    }
+}
+
+/// Two users of one instance: a channel has a row for each and one history.
+#[cfg(test)]
+mod same_instance_tests {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+    use serde_json::json;
+
+    use super::{
+        CreateChannelRequest, SendMessageRequest, accept_channel, close_channel, create_channel,
+        delete_channel, get_messages, handle_channel_open, initiate_e2e_key_exchange, send_message,
+    };
+    use crate::federation::test_db::SchemaDb;
+    use crate::federation::types::{actor_url, get_base_url};
+
+    async fn user(db: &DatabaseConnection, username: &str) -> i32 {
+        db.query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO users (username) VALUES ($1) RETURNING id",
+            [username.into()],
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "id")
+        .unwrap()
+    }
+
+    async fn count(db: &DatabaseConnection, sql: &str, channel_id: &str) -> i64 {
+        db.query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            sql,
+            [channel_id.into()],
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "n")
+        .unwrap()
+    }
+
+    async fn status(db: &DatabaseConnection, channel_id: &str, user_id: i32) -> Option<String> {
+        db.query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT status FROM federation_channels WHERE channel_id = $1 AND user_id = $2",
+            [channel_id.into(), user_id.into()],
+        ))
+        .await
+        .unwrap()
+        .map(|row| row.try_get("", "status").unwrap())
+    }
+
+    const MESSAGES: &str =
+        "SELECT COUNT(*) AS n FROM federation_channel_messages WHERE channel_id = $1";
+
+    /// Alice and bob with a channel bob has accepted.
+    async fn accepted(db: &DatabaseConnection) -> (i32, i32, String) {
+        let alice = user(db, "alice").await;
+        let bob = user(db, "bob").await;
+        let base = get_base_url().await;
+        let request: CreateChannelRequest =
+            serde_json::from_value(json!({ "remote_actor": actor_url(&base, "bob") })).unwrap();
+        let channel = create_channel(alice, "alice", db, &request).await.unwrap();
+        let channel_id = channel.channel_id;
+        assert_eq!(
+            status(db, &channel_id, bob).await.as_deref(),
+            Some("pending")
+        );
+        accept_channel(bob, "bob", &channel_id, db).await.unwrap();
+        assert_eq!(
+            status(db, &channel_id, alice).await.as_deref(),
+            Some("accepted")
+        );
+        assert_eq!(
+            status(db, &channel_id, bob).await.as_deref(),
+            Some("accepted")
+        );
+        (alice, bob, channel_id)
+    }
+
+    async fn say(db: &DatabaseConnection, user_id: i32, name: &str, channel_id: &str, text: &str) {
+        let request: SendMessageRequest =
+            serde_json::from_value(json!({ "payload": { "text": text } })).unwrap();
+        send_message(user_id, name, channel_id, db, &request)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn both_ends_talk_and_each_keeps_the_history_until_both_delete() {
+        let Some(fixture) = SchemaDb::new_or_media().await else {
+            return;
+        };
+        let db = &fixture.db;
+        let (alice, bob, channel_id) = accepted(db).await;
+
+        say(db, alice, "alice", &channel_id, "hello").await;
+        say(db, bob, "bob", &channel_id, "hi").await;
+        assert_eq!(
+            count(db, MESSAGES, &channel_id).await,
+            2,
+            "one row a message"
+        );
+        for (user_id, name) in [(alice, "alice"), (bob, "bob")] {
+            let seen = get_messages(user_id, &channel_id, db, None, None)
+                .await
+                .unwrap();
+            assert_eq!(seen.len(), 2, "{name} sees the whole talk");
+        }
+
+        close_channel(alice, "alice", &channel_id, db)
+            .await
+            .unwrap();
+        assert_eq!(
+            status(db, &channel_id, bob).await.as_deref(),
+            Some("closed")
+        );
+
+        delete_channel(alice, &channel_id, db).await.unwrap();
+        assert_eq!(status(db, &channel_id, alice).await, None);
+        assert_eq!(
+            count(db, MESSAGES, &channel_id).await,
+            2,
+            "bob still has it"
+        );
+
+        delete_channel(bob, &channel_id, db).await.unwrap();
+        assert_eq!(count(db, MESSAGES, &channel_id).await, 0);
+        fixture.close().await;
+    }
+
+    #[tokio::test]
+    async fn a_deleted_account_leaves_the_other_end_its_history() {
+        let Some(fixture) = SchemaDb::new_or_media().await else {
+            return;
+        };
+        let db = &fixture.db;
+        db.execute_unprepared(include_str!("../../../migrations/user_lifecycle.sql"))
+            .await
+            .unwrap();
+        let (alice, bob, channel_id) = accepted(db).await;
+        say(db, alice, "alice", &channel_id, "hello").await;
+
+        let gone = |id: i32| format!("DELETE FROM users WHERE id = {id}");
+        db.execute_unprepared(&gone(alice)).await.unwrap();
+        assert_eq!(count(db, MESSAGES, &channel_id).await, 1);
+        db.execute_unprepared(&gone(bob)).await.unwrap();
+        assert_eq!(count(db, MESSAGES, &channel_id).await, 0);
+        fixture.close().await;
+    }
+
+    #[tokio::test]
+    async fn encrypted_messages_open_with_each_ends_own_keys() {
+        let Some(fixture) = SchemaDb::new_or_media().await else {
+            return;
+        };
+        let db = &fixture.db;
+        let (alice, bob, channel_id) = accepted(db).await;
+        initiate_e2e_key_exchange(alice, "alice", &channel_id, db)
+            .await
+            .unwrap();
+        initiate_e2e_key_exchange(bob, "bob", &channel_id, db)
+            .await
+            .unwrap();
+
+        let request: SendMessageRequest = serde_json::from_value(json!({
+            "payload": { "text": "secret" },
+            "encrypt": true,
+        }))
+        .unwrap();
+        send_message(alice, "alice", &channel_id, db, &request)
+            .await
+            .unwrap();
+
+        for user_id in [alice, bob] {
+            let seen = get_messages(user_id, &channel_id, db, None, None)
+                .await
+                .unwrap();
+            let message = seen
+                .iter()
+                .find(|message| message.message_type == "text")
+                .expect("the message");
+            assert_eq!(message.payload["text"], "secret");
+        }
+        fixture.close().await;
+    }
+
+    /// A database from before: one unique `channel_id`, messages keyed to it.
+    #[tokio::test]
+    async fn an_older_database_gives_up_its_constraints_and_keeps_its_rows() {
+        let Some(fixture) = SchemaDb::new_or_media().await else {
+            return;
+        };
+        let db = &fixture.db;
+        let (alice, _, channel_id) = accepted(db).await;
+        say(db, alice, "alice", &channel_id, "hello").await;
+        db.execute_unprepared(&format!(
+            "DELETE FROM federation_channels WHERE channel_id = '{channel_id}' AND user_id <> {alice};
+             DROP INDEX idx_channels_channel_user;
+             ALTER TABLE federation_channels
+                 ADD CONSTRAINT federation_channels_channel_id_key UNIQUE (channel_id);
+             ALTER TABLE federation_channel_messages
+                 ADD CONSTRAINT fk_fed_channel_messages_channel FOREIGN KEY (channel_id)
+                 REFERENCES federation_channels (channel_id) ON DELETE CASCADE;"
+        ))
+        .await
+        .unwrap();
+
+        for _ in 0..2 {
+            db.execute_unprepared(migration::CHANNEL_ROWS_SQL)
+                .await
+                .unwrap();
+        }
+
+        let left = db
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT COUNT(*) AS n FROM pg_constraint \
+                 WHERE conname IN ('federation_channels_channel_id_key', \
+                                   'fk_fed_channel_messages_channel') \
+                   AND connamespace = current_schema()::regnamespace",
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get::<i64>("", "n")
+            .unwrap();
+        assert_eq!(left, 0);
+        assert_eq!(count(db, MESSAGES, &channel_id).await, 1, "history stays");
+        assert_eq!(
+            status(db, &channel_id, alice).await.as_deref(),
+            Some("active")
+        );
+        fixture.close().await;
+    }
+
+    /// Messages are shared by `channel_id`: a row for anyone but the other end
+    /// of the talk would read it.
+    #[tokio::test]
+    async fn a_channel_id_cannot_be_opened_to_a_third_party() {
+        let Some(fixture) = SchemaDb::new_or_media().await else {
+            return;
+        };
+        let db = &fixture.db;
+        let (_, _, channel_id) = accepted(db).await;
+        let carol = user(db, "carol").await;
+        let evil = "https://evil.example/users/mallory";
+        db.execute_unprepared(&format!(
+            "INSERT INTO federation_remote_actors (actor_url, domain, inbox_url) \
+             VALUES ('{evil}', 'evil.example', '{evil}/inbox')"
+        ))
+        .await
+        .unwrap();
+        let base = get_base_url().await;
+        let open = json!({
+            "type": "myriad:ChannelOpen",
+            "actor": evil,
+            "to": [actor_url(&base, "carol")],
+            "object": { "id": channel_id },
+        });
+
+        let refused = handle_channel_open(db, evil, &open).await.unwrap_err();
+        assert!(refused.contains("not the remote party"), "{refused}");
+        assert_eq!(status(db, &channel_id, carol).await, None);
+        fixture.close().await;
+    }
+
+    #[test]
+    fn the_other_end_is_the_owner_writing_to_its_peer() {
+        let base = "https://site.example";
+        let alice = "https://site.example/users/alice";
+        let bob = "https://site.example/users/bob";
+        assert!(super::inbox::is_other_end(base, "alice", bob, alice, "bob"));
+        assert!(!super::inbox::is_other_end(base, "alice", bob, bob, "bob"));
+        assert!(!super::inbox::is_other_end(
+            base, "alice", bob, alice, "carol"
+        ));
     }
 }

@@ -529,8 +529,7 @@ CREATE INDEX IF NOT EXISTS idx_delivery_queue_target_domain
                     .col(
                         ColumnDef::new(FederationChannels::ChannelId)
                             .text()
-                            .not_null()
-                            .unique_key(),
+                            .not_null(),
                     )
                     .col(
                         ColumnDef::new(FederationChannels::UserId)
@@ -687,6 +686,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_active_relationship
                     .col(FederationChannelMessages::CreatedAt)
                     .to_owned(),
             )
+            .await?;
+
+        manager
+            .get_connection()
+            .execute_unprepared(crate::CHANNEL_ROWS_SQL)
             .await?;
 
         // ==================== 9. FEDERATION_ROOMS 表 ====================
