@@ -122,6 +122,20 @@ static NAV: LazyLock<HashMap<&'static str, Catalog>> = LazyLock::new(|| {
     ])
 });
 
+/// 博客页独有的文案。导航岛的主条目和主站共用 `nav.*`（那份键集与前端契约锁死），
+/// 博客自己加的入口放这里。
+static BLOG: LazyLock<HashMap<&'static str, Catalog>> = LazyLock::new(|| {
+    HashMap::from([
+        ("en-US", parse_catalog(include_str!("../i18n/blog.en-US.json"))),
+        ("zh-CN", parse_catalog(include_str!("../i18n/blog.zh-CN.json"))),
+        ("zh-TW", parse_catalog(include_str!("../i18n/blog.zh-TW.json"))),
+        ("ja-JP", parse_catalog(include_str!("../i18n/blog.ja-JP.json"))),
+        ("ko-KR", parse_catalog(include_str!("../i18n/blog.ko-KR.json"))),
+        ("fr-FR", parse_catalog(include_str!("../i18n/blog.fr-FR.json"))),
+        ("de-DE", parse_catalog(include_str!("../i18n/blog.de-DE.json"))),
+    ])
+});
+
 fn lookup(
     table: &'static LazyLock<HashMap<&'static str, Catalog>>,
     locale: &str,
@@ -149,6 +163,10 @@ pub fn reports(locale: &str, key: &str) -> String {
 
 pub fn nav(locale: &str, key: &str) -> String {
     lookup(&NAV, locale, key)
+}
+
+pub fn blog(locale: &str, key: &str) -> String {
+    lookup(&BLOG, locale, key)
 }
 
 pub fn seo(locale: &str, key: &str) -> String {
@@ -215,6 +233,16 @@ mod tests {
                 include_str!("../i18n/reports.ko-KR.json"),
                 include_str!("../i18n/reports.fr-FR.json"),
                 include_str!("../i18n/reports.de-DE.json"),
+            ),
+            (
+                "blog",
+                include_str!("../i18n/blog.en-US.json"),
+                include_str!("../i18n/blog.zh-CN.json"),
+                include_str!("../i18n/blog.zh-TW.json"),
+                include_str!("../i18n/blog.ja-JP.json"),
+                include_str!("../i18n/blog.ko-KR.json"),
+                include_str!("../i18n/blog.fr-FR.json"),
+                include_str!("../i18n/blog.de-DE.json"),
             ),
             (
                 "seo",

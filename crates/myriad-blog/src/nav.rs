@@ -17,6 +17,11 @@ pub const NAV_ISLAND_ID: &str = "myriad-nav";
 /// 博客自己那一项：在博客页上它是选中的。
 const BLOG_ITEM: &str = "phantasi";
 
+/// 博客页导航岛额外挂的搜索条目。只出现在博客页，主站导航岛不动。
+const SEARCH_ITEM: &str = "blog-search";
+const SEARCH_PATH: &str = "/blog/search";
+const SEARCH_ICON_PATHS: [&str; 2] = ["M21 21l-4.35-4.35", "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z"];
+
 const NAV_ISLAND_CSS: &str = include_str!("nav_island.css");
 
 /// 页尾的空白：手机上导航岛横在底部，给它让出位置，页脚不被盖住。只在那时有高度。
@@ -177,6 +182,26 @@ pub fn nav_island_html(
     text: impl Fn(&str) -> String,
     chrome: Option<&SiteChrome>,
 ) -> String {
+    nav_island_html_with(shown, text, chrome, None)
+}
+
+/// 博客页用的导航岛：在「博客」条目后面多挂一个搜索入口。
+/// 搜索页是服务端渲染的纯 HTML，所以这里用一个普通链接就够，不需要脚本。
+pub fn blog_nav_island_html(
+    shown: impl Fn(&str) -> bool,
+    text: impl Fn(&str) -> String,
+    search_label: &str,
+    chrome: Option<&SiteChrome>,
+) -> String {
+    nav_island_html_with(shown, text, chrome, Some(search_label))
+}
+
+fn nav_island_html_with(
+    shown: impl Fn(&str) -> bool,
+    text: impl Fn(&str) -> String,
+    chrome: Option<&SiteChrome>,
+    search_label: Option<&str>,
+) -> String {
     let mut links = String::new();
     for item in nav_island_items() {
         if item.module.as_deref().is_some_and(|module| !shown(module)) {
@@ -199,6 +224,15 @@ pub fn nav_island_html(
             escape_attr(&text(&item.tip)),
             icon_svg(&item.id, &item.icon),
         ));
+        if let (Some(label), true) = (search_label, item.id == BLOG_ITEM) {
+            links.push_str(&format!(
+                "<a class=\"myriad-nav__item\" href=\"{}\" aria-label=\"{}\" data-tip=\"{}\">{}</a>",
+                escape_attr(SEARCH_PATH),
+                escape_attr(label),
+                escape_attr(label),
+                icon_svg(SEARCH_ITEM, &SEARCH_ICON),
+            ));
+        }
     }
     format!(
         "<nav id=\"{NAV_ISLAND_ID}\" class=\"myriad-nav\" aria-label=\"{}\"{}><div class=\"myriad-nav__island\">{links}</div></nav>",
@@ -206,6 +240,12 @@ pub fn nav_island_html(
         chrome.map(SiteChrome::nav_attrs).unwrap_or_default(),
     )
 }
+
+static SEARCH_ICON: LazyLock<NavIcon> = LazyLock::new(|| NavIcon {
+    stroke_width: 2.0,
+    transform: None,
+    paths: SEARCH_ICON_PATHS.iter().map(|d| (*d).to_string()).collect(),
+});
 
 /// 图标的换页名字和主站 `NavigationIsland` 给的一样，两边同一个图标原地交接。
 fn icon_svg(id: &str, icon: &NavIcon) -> String {
