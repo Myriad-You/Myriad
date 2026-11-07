@@ -42,8 +42,11 @@ pub async fn remember_told_by(db: &DatabaseConnection, user_id: i32, told: &str)
         },
     )
     .await;
-    if let Err(error) = kept {
-        tracing::warn!(%error, "[Merope] could not keep what she was told");
+    match kept {
+        // On her nodes too (`memory_nodes::hanging`).
+        Ok(Some(id)) => super::memory_nodes::hanging::kept(db, &id).await,
+        Ok(None) => {}
+        Err(error) => tracing::warn!(%error, "[Merope] could not keep what she was told"),
     }
 }
 

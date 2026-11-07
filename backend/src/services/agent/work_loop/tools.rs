@@ -30,10 +30,21 @@ pub(super) async fn granted_for(
     db: &sea_orm::DatabaseConnection,
 ) -> std::collections::HashSet<String> {
     let cap = state.context().autonomy_permission_cap;
+    // An instruction's run: no more than it was given under.
+    let given = state
+        .request
+        .context
+        .as_ref()
+        .and_then(|context| context.instruction_cap.clone());
     // Fail closed: an unreadable or revoked autonomy grant grants nothing.
     super::super::consciousness::effective_granted(db, state.user_id, cap.as_deref())
         .await
-        .map(|granted| granted.into_iter().collect())
+        .map(|granted| {
+            granted
+                .into_iter()
+                .filter(|name| given.as_ref().is_none_or(|given| given.contains(name)))
+                .collect()
+        })
         .unwrap_or_default()
 }
 

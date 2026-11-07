@@ -929,6 +929,7 @@
   "agentDevicesEmpty": "아직 기기가 없습니다",
   "agentDevicesStatLive": "기기",
   "agentDevicesStale": "한동안 연결 없음",
+  "agentDevicesAppOutdated": "이 기기의 앱을 업데이트해야 합니다",
   "agentDevicesRemoved": "삭제됨",
   "agentDevicesRemovedLeft": "기기에서 연결 해제",
   "agentDevicesRemovedOwnerChanged": "사이트 소유자 변경됨",

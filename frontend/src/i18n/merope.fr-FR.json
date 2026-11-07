@@ -567,7 +567,8 @@
       "her": "Elle-même",
       "people": "Personnes",
       "groups": "Groupes",
-      "signs": "Signes vitaux"
+      "signs": "Signes vitaux",
+      "nodes": "Nœuds"
     },
     "her": {
       "selfStory": "Qui elle est ces temps-ci",
@@ -750,6 +751,98 @@
       },
       "newToHer": "Nouveau pour elle",
       "knewIt": "le savait déjà"
+    },
+    "nodes": {
+      "none": "Aucun nœud",
+      "private": "Votre conversation privée",
+      "own": "Propre à {name}",
+      "group": "Groupe : {group}",
+      "unnamed": "Sans nom",
+      "aboutYou": "À votre sujet",
+      "back": "Retour aux nœuds",
+      "kind": {
+        "topic": "Sujet",
+        "task": "En cours",
+        "person": "Personne"
+      },
+      "status": {
+        "active": "Actif",
+        "ongoing": "Continu",
+        "resting": "Inactif",
+        "done": "Terminé",
+        "dropped": "Abandonné"
+      },
+      "count": {
+        "entries": "Souvenirs {count}",
+        "spans": "Expériences {count}",
+        "waiting": "À évoquer {count}"
+      },
+      "summary": "Résumé",
+      "views": "Avis",
+      "open": "Non terminé",
+      "entries": "Noté",
+      "heard": "Entendu dire",
+      "spans": "Expériences",
+      "intents": "À évoquer",
+      "actions": "Actions",
+      "said": {
+        "partner": "Dit par vous",
+        "her": "Noté par {name}",
+        "other_person": "Dit par un membre du groupe",
+        "third_party": "Autre source"
+      },
+      "seenElsewhere": "Vu ailleurs",
+      "quoteOnly": "Citation seule",
+      "wordsGone": "L’original a été supprimé ; seul ce que {name} a noté est conservé",
+      "deleted": "(Cette partie a été supprimée)",
+      "movedTo": "Fusionné dans un autre nœud",
+      "openMoved": "Ouvrir",
+      "namedByYou": "Nom modifié par vous",
+      "heardYes": "C’est exact",
+      "heardNo": "Non",
+      "intent": {
+        "byYou": "De votre part",
+        "byHer": "Idée de {name}",
+        "say": "À évoquer",
+        "work": "À faire",
+        "state": {
+          "waiting": "En attente",
+          "said": "Évoqué",
+          "done": "Fait",
+          "dropped": "Abandonné"
+        },
+        "way": {
+          "ran": "Fait",
+          "raised": "Signalé au lieu d’être fait",
+          "cancelled": "Annulé"
+        },
+        "whenChanged": "Quand « {name} » change",
+        "whenDone": "Quand « {name} » est terminé",
+        "whenNone": "Au bon moment",
+        "asked": "Vos mots",
+        "reply": "Réponse",
+        "result": "Résultat",
+        "cancel": "Annuler"
+      },
+      "rename": "Renommer",
+      "renameHint": "Un nom choisi ici n’est pas remplacé lors de la réorganisation.",
+      "nameField": "Nom",
+      "save": "Enregistrer",
+      "cancel": "Annuler",
+      "deleteNode": "Supprimer le nœud",
+      "deleteNodeTitle": "Supprimer « {name} » ?",
+      "deleteNodeMessage": "Le nœud, les souvenirs du nœud et les messages d’origine de ces souvenirs seront supprimés. Cette action est irréversible.",
+      "deleteEntry": "Supprimer",
+      "deleteEntryTitle": "Supprimer ce souvenir ?",
+      "deleteEntryMessage": "Ce souvenir et les messages d’origine du souvenir seront supprimés. Cette action est irréversible.",
+      "confirmDelete": "Supprimer",
+      "failed": {
+        "away": "Modification impossible : le personnage n’est pas sur ce site actuellement.",
+        "badName": "Renommage impossible : le nom est vide ou dépasse 80 caractères.",
+        "heardUnkept": "Réponse non enregistrée : le site n’enregistre pas encore les sources.",
+        "notFound": "Nœud introuvable.",
+        "other": "Action impossible."
+      }
     }
   },
   "fullBody": {

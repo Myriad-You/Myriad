@@ -27,6 +27,9 @@ pub(crate) fn device_json(device: &Device, now: chrono::DateTime<Utc>) -> Value 
         "revokedAt": device.revoked_at.map(|at| at.to_rfc3339()),
         "revokedReason": device.revoked_reason,
         "stale": device.stale(now),
+        // Her link closed it for speaking another protocol: the app on it is
+        // to be updated (said by this, never by the close's reason).
+        "appOutdated": device.revoked_at.is_none() && device.app_outdated_at.is_some(),
         // Its link to her is open now (lastSeenAt is when it last was).
         "connected": device.revoked_at.is_none()
             && crate::services::agent::link::is_open(&device.id),
@@ -924,7 +927,8 @@ mod tests {
             .unwrap();
         assert_eq!(back["host"]["state"], "live");
         assert_eq!(back["host"]["move"], Value::Null);
-        assert_eq!(back["host"]["epoch"], 1);
+        // Frozen (2) and thawed (3) where she was.
+        assert_eq!(back["host"]["epoch"], 3);
 
         // Asked by the device: only the owner confirms it.
         let proposed = lease::start(&db, lease::Kind::Merge, &mac.id, lease::Starter::Device)

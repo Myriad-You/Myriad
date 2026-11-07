@@ -10,11 +10,12 @@
 //!
 //! Produce does not write a sentence. Redeem does not call `consider_event`.
 
+mod compose;
 mod in_person;
 mod produce;
 mod redeem;
 #[cfg(test)]
-pub(in crate::services::agent) use redeem::proactive_prompt;
+pub(in crate::services::agent) use compose::proactive_prompt;
 mod told;
 
 use sea_orm::DatabaseConnection;

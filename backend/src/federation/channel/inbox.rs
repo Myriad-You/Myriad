@@ -91,6 +91,8 @@ pub async fn handle_channel_open(
         return Ok(());
     };
 
+    refuse_channel_of_others(db, &base_url, channel_id, target_user_id, actor_url_str).await?;
+
     // 创建本地 Channel 记录
     let inserted = match db
         .execute_raw(Statement::from_sql_and_values(
@@ -98,7 +100,7 @@ pub async fn handle_channel_open(
             r#"INSERT INTO federation_channels
            (channel_id, user_id, remote_actor_id, channel_type, tapp_id, status, transport, initiated_by, created_at)
            VALUES ($1, $2, $3, $4, $5, 'pending', $6, 'remote', $7::timestamptz)
-           ON CONFLICT (channel_id) DO NOTHING"#,
+           ON CONFLICT (channel_id, user_id) DO NOTHING"#,
             [
                 channel_id.into(),
                 target_user_id.into(),
@@ -141,6 +143,52 @@ pub async fn handle_channel_open(
     );
 
     Ok(())
+}
+
+/// 消息按 `channel_id` 共用，所以同一个 id 的第二行只给私信的另一端：发起方是已有那行的
+/// 主人，收件人是那行的对端。否则知道 id 的人给自己开一行，就读到别人的私信了。
+async fn refuse_channel_of_others(
+    db: &impl ConnectionTrait,
+    base_url: &str,
+    channel_id: &str,
+    target_user_id: i32,
+    sender: &str,
+) -> Result<(), String> {
+    let others = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"SELECT owner.username AS owner, ra.actor_url AS peer, target.username AS target
+               FROM federation_channels c
+               JOIN users owner ON owner.id = c.user_id
+               JOIN federation_remote_actors ra ON ra.id = c.remote_actor_id
+               JOIN users target ON target.id = $2
+               WHERE c.channel_id = $1 AND c.user_id <> $2"#,
+            [channel_id.into(), target_user_id.into()],
+        ))
+        .await
+        .map_err(|e| e.to_string())?;
+    for row in others {
+        let owner: String = row.try_get("", "owner").map_err(|e| e.to_string())?;
+        let peer: String = row.try_get("", "peer").map_err(|e| e.to_string())?;
+        let target: String = row.try_get("", "target").map_err(|e| e.to_string())?;
+        if !is_other_end(base_url, &owner, &peer, sender, &target) {
+            return Err(format!(
+                "Channel {channel_id} not found or actor {sender} is not the remote party"
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn is_other_end(
+    base_url: &str,
+    owner: &str,
+    peer: &str,
+    sender: &str,
+    target: &str,
+) -> bool {
+    same_actor_url(&actor_url(base_url, owner), sender)
+        && same_actor_url(peer, &actor_url(base_url, target))
 }
 
 /// 处理收到的 ChannelMessage Activity
@@ -237,6 +285,9 @@ pub async fn handle_channel_message(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
+    // 发送方在同实例上时，这条消息它已经存好、也推给了频道上的连接。
+    let from_here = local_username_from_actor_url(&get_base_url().await, sender).is_some();
+
     // 存入消息
     let now = crate::clock::now();
     let inserted = db
@@ -263,8 +314,8 @@ pub async fn handle_channel_message(
     // 更新通道活动时间
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE federation_channels SET last_activity_at = $2::timestamptz, status = 'active' WHERE channel_id = $1",
-        [channel_id.into(), now.into()],
+        "UPDATE federation_channels SET last_activity_at = $2::timestamptz, status = 'active' WHERE channel_id = $1 AND user_id = $3",
+        [channel_id.into(), now.into(), owner_user_id.into()],
     ))
     .await
     .map_err(|e| e.to_string())?;
@@ -272,12 +323,12 @@ pub async fn handle_channel_message(
     // 广播到 WebSocket。E2E 时优先明文，避免收件人先闪 ciphertext。
     let mut ws_payload = payload.clone();
     let mut ws_is_encrypted = is_encrypted;
-    if is_encrypted {
+    if is_encrypted && !from_here {
         if let Ok(Some(prop_row)) = db
             .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "SELECT properties FROM federation_channels WHERE channel_id = $1",
-                [channel_id.into()],
+                "SELECT properties FROM federation_channels WHERE channel_id = $1 AND user_id = $2",
+                [channel_id.into(), owner_user_id.into()],
             ))
             .await
         {
@@ -294,28 +345,30 @@ pub async fn handle_channel_message(
             }
         }
     }
-    crate::federation::ws_gateway::broadcast_to_channel(
-        channel_id,
-        &json!({
-            "type": "message",
-            "channel_id": channel_id,
-            "message": {
-                "message_id": message_id,
-                "sender_actor": sender,
-                "message_type": message_type,
-                "payload": ws_payload,
-                "is_encrypted": ws_is_encrypted,
-                "reply_to": reply_to,
-                "created_at": now_iso8601()
-            }
-        }),
-    )
-    .await;
+    if !from_here {
+        crate::federation::ws_gateway::broadcast_to_channel(
+            channel_id,
+            &json!({
+                "type": "message",
+                "channel_id": channel_id,
+                "message": {
+                    "message_id": message_id,
+                    "sender_actor": sender,
+                    "message_type": message_type,
+                    "payload": ws_payload,
+                    "is_encrypted": ws_is_encrypted,
+                    "reply_to": reply_to,
+                    "created_at": now_iso8601()
+                }
+            }),
+        )
+        .await;
+    }
 
     // 新消息才推通知中心（重放/去重不通知）。
     // 跳过自己发的内容（本机 actor 回环 / 同实例双端）。
     // 预览用已解密的 ws_payload，避免通知栏出现 ciphertext JSON。
-    if inserted.rows_affected() > 0 {
+    if inserted.rows_affected() > 0 || from_here {
         if let Some(user_id) = owner_user_id {
             let base_url = get_base_url().await;
             let is_self = db
@@ -373,7 +426,7 @@ pub async fn handle_channel_close(
     let ch_check = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT 1 FROM federation_channels c
+            r#"SELECT c.user_id FROM federation_channels c
                JOIN federation_remote_actors ra ON c.remote_actor_id = ra.id
                WHERE c.channel_id = $1 AND ra.actor_url = $2"#,
             [channel_id.into(), actor_url_str.into()],
@@ -381,17 +434,18 @@ pub async fn handle_channel_close(
         .await
         .map_err(|e| e.to_string())?;
 
-    if ch_check.is_none() {
+    let Some(ch_check) = ch_check else {
         return Err(format!(
             "Channel {} not found or actor {} is not the remote party",
             channel_id, actor_url_str
         ));
-    }
+    };
+    let owner_user_id: i32 = ch_check.try_get("", "user_id").map_err(|e| e.to_string())?;
 
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE federation_channels SET status = 'closed', closed_at = $2::timestamptz WHERE channel_id = $1",
-        [channel_id.into(), crate::clock::now().into()],
+        "UPDATE federation_channels SET status = 'closed', closed_at = $2::timestamptz WHERE channel_id = $1 AND user_id = $3",
+        [channel_id.into(), crate::clock::now().into(), owner_user_id.into()],
     ))
     .await
     .map_err(|e| e.to_string())?;

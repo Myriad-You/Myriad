@@ -818,7 +818,7 @@ impl Agent {
         {
             if reject_unattended_confirmation(state, &pending, id, risk) {
                 return Ok(false);
-            } else if state.user_id != super::SYSTEM_USER_ID
+            } else if !runs_unattended(state)
                 && pending.approval.as_deref() != Some(&fingerprint)
             {
                 let mut question = UserQuestion::confirmation(
@@ -1022,14 +1022,26 @@ fn request_evidence(request: &UserRequest, recipe: &Recipe, task: &TaskState) ->
         "music":recipe.metadata.get("music_status"),"windows":recipe.metadata.get("window_state")})
 }
 
-/// Heartbeat cannot authorize High and above, nor capabilities that create or
+/// Unattended Work (the heartbeat, or a run marked unattended) cannot
+/// authorize High and above, nor capabilities that create or
 /// trigger further automatic runs (`unattended_may_auto_run`). The call is
 /// recorded as a tool error and the handler is not entered, so there is no
 /// effect. Other Low / Medium calls return false and auto-run. Interactive
 /// users are unchanged.
 /// Run unattended (the heartbeat) and stopped to wait for someone.
 fn unattended_and_waiting(state: &Checkpoint) -> bool {
-    state.user_id == super::SYSTEM_USER_ID && state.task.status == TaskStatus::WaitingForInput
+    runs_unattended(state) && state.task.status == TaskStatus::WaitingForInput
+}
+
+/// Nobody is there to answer: the heartbeat, or a run for a person that
+/// is marked so (their instruction come due, `RequestContext::unattended`).
+fn runs_unattended(state: &Checkpoint) -> bool {
+    state.user_id == super::SYSTEM_USER_ID
+        || state
+            .request
+            .context
+            .as_ref()
+            .is_some_and(|context| context.unattended)
 }
 
 /// Whether a call may change something outside the task: anything but a
@@ -1061,7 +1073,7 @@ pub(super) fn reject_unattended_confirmation(
     capability_id: &str,
     risk: RiskLevel,
 ) -> bool {
-    if state.user_id != super::SYSTEM_USER_ID {
+    if !runs_unattended(state) {
         return false;
     }
     if super::executor_resolve_pure::unattended_may_auto_run(capability_id, risk) {

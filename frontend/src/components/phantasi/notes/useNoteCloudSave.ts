@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { ApiError } from '../../../services/api'
 import * as phantasiApi from '../../../services/phantasiApi'
 import { userFacingError } from '../../../utils/userFacingError'
+import { safeRandomUUID } from '../../../utils/uuid'
 import { cloudFieldsOf, mergeCloudFields, sameCloudFields } from './noteCloudFields'
 import { isOldPathTakenError, oldPathsFromField } from './noteOldPaths'
 import { NoteRecoveryWriter } from './noteRecoveryStore'
@@ -223,7 +224,7 @@ export function useNoteCloudSave({
       const track = (submitted?: NoteCloudFields, expectedFields?: NoteCloudFields): NoteWriteReceipt => {
         if (!current()) throw new DOMException('Note editor closed', 'AbortError')
         finishPending()
-        const receipt: PendingReceipt = { requestId: crypto.randomUUID(), fields: submitted ?? baseRef.current, expectedFields, confirmed: false }
+        const receipt: PendingReceipt = { requestId: safeRandomUUID(), fields: submitted ?? baseRef.current, expectedFields, confirmed: false }
         pendingRef.current = receipt
         receiptsRef.current.set(receipt.requestId, receipt)
         persistRecovery()

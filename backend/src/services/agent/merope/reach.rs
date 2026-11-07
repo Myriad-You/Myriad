@@ -187,7 +187,13 @@ async fn first_words_as(
     user_id: i32,
 ) -> Option<(Reason, String, String, Wish)> {
     let now = super::clock::now();
-    let threads = threads::open(db, user_id).await;
+    // Those that are her intents come due as intents instead (`memory_nodes::home_intents`).
+    let threads = super::memory_nodes::home_intents::not_intents(
+        db,
+        user_id,
+        threads::open(db, user_id).await,
+    )
+    .await;
     let last = last_talk(db, user_id).await;
     let to_tell = super::doing::would_tell(db, last, None).await;
     // A puzzle she made that they have not played.
@@ -278,6 +284,85 @@ async fn reach_out(db: &DatabaseConnection, user_id: i32, _was: Route) -> bool {
     threads::close(db, user_id, &taken, "reached_out").await;
     tracing::info!(user_id, went, "[Merope] wrote to someone first");
     true
+}
+
+/// One thing to say to them now, unasked, already decided: an intent of
+/// theirs or hers come due (`memory_nodes::intents_due`). It goes out the
+/// way writing first does, without her judging whether to (that was decided
+/// when it was taken): what they set about her writing first
+/// (do-not-disturb, its hours) still holds, and the same `thing` is said
+/// once. Her panel open is no reason to wait here: a time they asked for
+/// does not wait for the next talk, so it goes as when they are on the site
+/// elsewhere. Where it went, if anywhere.
+pub(super) async fn say_now(
+    db: &DatabaseConnection,
+    user_id: i32,
+    source: Source,
+    thing: &str,
+    about: &str,
+) -> Option<&'static str> {
+    let to = speech::private(user_id);
+    let mut wish = speech::wish(to.clone(), source, thing.to_string(), to);
+    wish.thing = Some(thing.to_string());
+    if !goes_on(&admit(db, &wish).await) {
+        return None;
+    }
+    let line = line_now(db, user_id, about).await?;
+    let _turn = speech::send::turn(user_id, &wish.to, speech::send::hand(source, &line)).await?;
+    wish.text = Some(line.clone());
+    if !goes_on(&admit(db, &wish).await) {
+        tracing::info!(user_id, "[Merope] what came due no longer fits; not sent");
+        return None;
+    }
+    let here = match route(
+        crate::services::agent::consciousness::live_presence_panel_open(user_id),
+        crate::services::agent::consciousness::present_users().contains(&user_id),
+    ) {
+        Route::Stay => Route::Site,
+        here => here,
+    };
+    let went = deliver_first_words_as(db, user_id, here, &line).await;
+    let (place, exit) = match went.as_ref().map(|(went, _)| *went) {
+        Some("app") => ("app", "app"),
+        Some("site") | None => ("web", "notice"),
+        Some(platform) => (platform, "im"),
+    };
+    let said = went.as_ref().and_then(|(_, said)| said.clone());
+    ledger::write(
+        db,
+        Line {
+            to: &wish.to,
+            source,
+            called: false,
+            thing: wish.thing.as_deref(),
+            text: &line,
+        },
+        Out::full(place, exit)
+            .extent(if went.is_some() {
+                Extent::Full
+            } else {
+                Extent::None
+            })
+            .line(said.clone()),
+        Some(Transcript {
+            event_key: EVENT_KEY,
+            notified: true,
+            say_id: said.as_deref(),
+        }),
+    )
+    .await;
+    went.map(|(went, _)| went)
+}
+
+/// Her line about `about`, in her voice, with their recent talk in front
+/// of her.
+async fn line_now(db: &DatabaseConnection, user_id: i32, about: &str) -> Option<String> {
+    #[cfg(test)]
+    if let Some(said) = crate::services::channel_group::g0::say("intent_raise", about).await {
+        return said.ok();
+    }
+    let talk = recent_talk(db, user_id).await;
+    compose(db, user_id, about, None, &talk, None).await
 }
 
 /// Where her first words went, if anywhere (see [`deliver_first_words_as`]).

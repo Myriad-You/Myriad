@@ -10,12 +10,10 @@
 //!   else's after [`OTHERS_CHANGES_KEPT`](super::store::OTHERS_CHANGES_KEPT).
 //! - **When what she knows would come to mind.** Facts kept before they
 //!   came with it get it, a few at a time (`chat_remember::cues`).
-//! - **Which topic what she knows goes under.** Facts kept before she put
-//!   facts under topics, or kept without one, are sorted under them, a
-//!   batch at a time (`chat_remember::sort`).
-//! - **Tidying the topics.** Topics under one name go together; the small
-//!   ones changed since they were last tidied she keeps, puts into another,
-//!   or lets go, once enough wait (`chat_remember::tidy`).
+//! - **Where on her nodes what she knows goes.** What she knows of someone
+//!   in private and is on no node yet is sorted onto them, a batch at a
+//!   time (`memory_nodes::sorting`).
+//! - **Her nodes.** The nodes due are gone over (`memory_nodes::upkeep`).
 
 use std::sync::{LazyLock, Mutex};
 
@@ -28,8 +26,8 @@ static FOLDED_ON: LazyLock<Mutex<Option<NaiveDate>>> = LazyLock::new(|| Mutex::n
 pub async fn tick(db: DatabaseConnection) {
     if super::is_enabled().await {
         super::chat_remember::cues::write_missing(&db).await;
-        super::chat_remember::sort::sort_missing(&db).await;
-        super::chat_remember::tidy::tidy_waiting(&db).await;
+        super::memory_nodes::sorting::sort_missing(&db).await;
+        super::memory_nodes::upkeep::tick(&db).await;
     }
     let today = super::clock::today();
     if FOLDED_ON.lock().is_ok_and(|folded| *folded == Some(today)) {

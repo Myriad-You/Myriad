@@ -29,7 +29,7 @@ use sea_orm::DatabaseConnection;
 use crate::services::agent::memory::unified::{self, Audience, Concept};
 
 /// What she saw change on their Steam status; said in person or let go.
-pub const PLAYING_EVENT: &str = "agent.merope.playing";
+pub use myriad_merope::notify::PLAYING_EVENT;
 /// Hours into a session worth her noticing, each once.
 const LONG_AT_HOURS: [i64; 2] = [2, 4];
 

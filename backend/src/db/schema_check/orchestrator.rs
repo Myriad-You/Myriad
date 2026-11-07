@@ -81,7 +81,40 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// （同一份 `topic_nodes.sql` 里补的 `ALTER`）。
 /// 2026.11.04.3：话题上次整理的时间 `agent_topic_nodes.tidied_at`、记忆挂上去的时间
 /// `agent_memory_topics.linked_at`（只有整理之后变过的话题才再看一遍；同一份 `topic_nodes.sql`）。
-pub const SCHEMA_VERSION: &str = "2026.11.04.3";
+/// 2026.11.05.1：执笔权的新一份签出时在 `myriad_her_host` 上通知
+/// （`agent_lease_grants_issued` 触发器，`persona_log.sql`），各进程据此重读她的心智在哪。
+/// 2026.11.05.2：她的节点照共享核心存（站点记忆改用节点 S1）：只追加的节点行
+/// `agent_node_rows`、折叠出的头 `agent_node_heads`、记忆放在哪 `agent_node_placements`、
+/// 拿不准放哪的收件箱 `agent_node_inbox`（`memory_nodes.sql`，随 004 与
+/// `ensure_memory_nodes_tables` 一起建）。开关 `merope_memory_nodes` 默认关，关着时不读不写。
+/// 2026.11.05.3：「她住在哪」只看执笔权（D2）：执笔权可以冻住（`agent_lease_grants` 的
+/// `holder` 可以为空、加 `move_id`、`how` 加 freeze/thaw）；旧的主机租约 `agent_host_lease`
+/// 拆成站点那一份 `agent_her_copy` 和搬家 `agent_her_moves`（`persona_sync.sql`），旧行在
+/// `ensure_persona_log_tables` 里拆进三张表后删表（`lease::take_old_lease`）。
+/// 2026.11.05.4：她的意图（站点记忆改用节点 S2b）：伙伴交代的本机细节
+/// `agent_node_instructions`（交代的那句话、她当下回的一句、交代时的身份与有效授予、
+/// 后来怎样了：做了、改成提起、取消），挂在 `node.intent` 行旁边；那句话被忘掉时一起删
+/// （`memory_nodes.sql`，随 004 与 `ensure_memory_nodes_tables` 一起建）。开关
+/// `merope_memory_nodes` 关着时不判断、不写；只有 `on` 时到点才提起或去做。
+/// 2026.11.06.1：别的端上说的私聊话在站点会话里的副本（D6-e）：`agent_messages` 加
+/// `origin`（说这句的端）、`log_row`（它是她日志里的哪一行），`log_row` 上的
+/// 部分唯一索引（一行只复制一次）；一段别端的话归进站点哪一场会话 `agent_her_segments`（`persona_log.sql`，
+/// 随 004 与 `ensure_persona_log_tables` 一起建；两列旧库走通用 ADD）。
+/// 2026.11.06.2：她的记录进日志（协议 2 b1）：`agent_her_state_rows` 记每个对象在她日志里
+/// 最后一行的摘要，比对时不同就再写一行，站点上没了就写成没了（`persona_log.sql`，随 004 与
+/// `ensure_persona_log_tables` 一起建）。
+/// 2026.11.06.3：把节点之前记下的搬上节点（站点记忆改用节点 S4）：每跑一次记一行
+/// `agent_node_migrations`（只数不写还是真搬、怎么结束的、数了多少写了多少、要问模型那部分
+/// 开跑前估了多少花了多少、停下的原因），下次接着跑时只写还没有的；旧表一行不改
+/// （`memory_nodes.sql`，随 004 与 `ensure_memory_nodes_tables` 一起建）。
+/// 2026.11.06.4：`agent_her_state_rows` 加 `took`（别的端写来、站点已经收进表里的那一行），
+/// 同一行只收一次（`persona_log.sql`，旧库走通用 ADD）。
+/// 2026.11.06.5：`agent_sync_devices` 加 `app_outdated_at`（她的链接因为它说别的协议把它关掉的时候，
+/// 设备页据此说那台设备上的 App 要更新；它下次 hello 被收下就清掉）（`persona_sync.sql`，旧库走通用 ADD）。
+/// 2026.11.07.1：同实例私信每人一行：`federation_channels` 的唯一键改成
+/// `(channel_id, user_id)`，消息外键换成最后一行频道删除时的触发器
+/// （`channel_rows.sql`，随 005 与 `ensure_channel_rows` 一起建）。
+pub const SCHEMA_VERSION: &str = "2026.11.07.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -343,11 +376,13 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     ensure_agent_nodes_tables(db).await?;
     ensure_speech_said_table(db).await?;
     ensure_topic_nodes_tables(db).await?;
+    ensure_memory_nodes_tables(db).await?;
     unlink_note_docs_without_article(db).await?;
     drop_retired_columns(db).await?;
     ensure_user_lifecycle(db).await?;
     ensure_conversation_changes(db).await?;
     ensure_federation_foreign_keys(db).await?;
+    ensure_channel_rows(db).await?;
     ensure_single_owner(db).await?;
 
     // 只有所有 repair 都成功且最终只读复核无漂移，才能记录版本并开放服务。

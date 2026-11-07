@@ -459,19 +459,52 @@ domain.
 All durable state lives in **PostgreSQL** plus the small `/opt/myriad/data`
 directory (tapps, phantasi assets, agent memory files). `cache/` is disposable.
 
-```bash
-# Database (run as a user that can auth as 'myriad')
-pg_dump -U myriad -h 127.0.0.1 -d myriad -Fc -f /var/backups/myriad_$(date +%F).dump
+Keep the backup in two parts, as [BACKUP.md](BACKUP.md) explains: a data
+part without any key (keep as many as you like) and a keys part (`.env`, the
+data key and her log's key rows) of which you keep **only the newest copy**.
+Forgetting deletes a key; an older copy of the keys still opens what was
+forgotten.
 
-# App data
-tar czf /var/backups/myriad_data_$(date +%F).tar.gz -C /opt/myriad data
+```bash
+# Data part (run as a user that can auth as 'myriad')
+pg_dump -U myriad -h 127.0.0.1 -d myriad -Fc \
+  --exclude-table-data=public.agent_log_audience_keys \
+  --exclude-table-data=public.agent_log_object_keys \
+  -f /var/backups/myriad_$(date +%F).dump
+tar czf /var/backups/myriad_data_$(date +%F).tar.gz -C /opt/myriad \
+  --exclude=data/.secret-key --exclude='data/..secret-key.tmp-*' data
+
+# Keys part: overwrite the one copy (with every backup; rewriting it more
+# often only makes forgetting reach the backups sooner)
+install -d -m 700 /var/lib/myriad-keys
+umask 077
+cp /opt/myriad/.env /opt/myriad/data/.secret-key /var/lib/myriad-keys/
+for t in agent_log_audience_keys agent_log_object_keys; do
+  psql -U myriad -h 127.0.0.1 -d myriad -c "COPY $t TO STDOUT" > /var/lib/myriad-keys/$t.copy
+done
 ```
+
+Do not keep `/var/lib/myriad-keys` in versioned storage or snapshots.
 
 Restore:
 
 ```bash
 pg_restore -U myriad -h 127.0.0.1 -d myriad --clean --if-exists /var/backups/myriad_YYYY-MM-DD.dump
+for t in agent_log_audience_keys agent_log_object_keys; do
+  psql -U myriad -h 127.0.0.1 -d myriad -v ON_ERROR_STOP=1 <<SQL
+BEGIN;
+CREATE TEMP TABLE restore_keys (LIKE $t) ON COMMIT DROP;
+\copy restore_keys FROM '/var/lib/myriad-keys/$t.copy'
+INSERT INTO $t SELECT * FROM restore_keys r
+  WHERE EXISTS (SELECT 1 FROM users u WHERE u.id = r.user_id) ON CONFLICT DO NOTHING;
+COMMIT;
+SQL
+done
+install -m 600 -o myriad -g myriad /var/lib/myriad-keys/.secret-key /opt/myriad/data/.secret-key
 ```
+
+Restore the data key before the backend starts: without it the backend makes
+a new one and nothing sealed opens again.
 
 Automate with a cron/systemd-timer entry.
 

@@ -664,7 +664,11 @@
       "moving": "그녀는 이사 중입니다: 끝나거나 취소될 때까지 어느 쪽에도 그녀가 없습니다.",
       "vacant": "그녀는 지금 이 사이트에 없습니다.",
       "movedOut": "그녀는 이 사이트에서 이사했습니다.",
-      "member": "그녀는 지금 이 사이트에 없습니다."
+      "member": "그녀는 지금 이 사이트에 없습니다.",
+      "mindElsewhere": "그녀는 지금 「{name}」 쪽에 있어요.",
+      "mindElsewhereUnknown": "그녀는 지금 당신의 다른 기기에 있어요.",
+      "mindElsewhereLeave": "그녀는 지금 「{name}」 쪽에 있어요. 여기서 한 말은 그녀가 그쪽에서 볼 수 있어요.",
+      "mindElsewhereLeaveUnknown": "그녀는 지금 당신의 다른 기기에 있어요. 여기서 한 말은 그녀가 그쪽에서 볼 수 있어요."
     },
     "status": {
       "idle": "대기",
@@ -794,6 +798,11 @@
     "typing": "입력 중…",
     "retry": "다시 시도",
     "zoomImage": "크게 보기",
+    "saidOn": "「{name}」에서",
+    "saidOnUnknown": "당신의 다른 기기에서",
+    "pictures": "(사진 {count}장)",
+    "forgetLine": "잊기",
+    "confirmForgetLine": "그녀는 이 말과 거기서 기억한 것을 잊어요. 동기화 중이면 양쪽 모두에서 지워져요.",
     "closeImage": "닫기",
     "newSession": "새 주제",
     "stop": "중지",

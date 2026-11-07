@@ -5,21 +5,33 @@ import { agentService } from '../../services/agent/agentApi'
 import { getPublicConfigDeduped } from '../../utils/requestDedup'
 import { setAgentPanelMode } from './agentPanelMode'
 
-/** Where she is when not on this site, as the public config says it (H3e-9). */
-export type HerAway = 'moving' | 'elsewhere' | 'vacant' | 'moved_out'
+/**
+ * Where she is when not on this site, as the public config says it (H3e-9);
+ * `mind_elsewhere`: she lives here, but her mind is on another of the
+ * owner's devices now (the mind lease).
+ */
+export type HerAway = 'moving' | 'elsewhere' | 'vacant' | 'moved_out' | 'mind_elsewhere'
 
-const AWAY: readonly HerAway[] = ['moving', 'elsewhere', 'vacant', 'moved_out']
+const AWAY: readonly HerAway[] = ['moving', 'elsewhere', 'vacant', 'moved_out', 'mind_elsewhere']
 
 /**
  * Whether she is away from this site, read while the panel is open; for the
- * owner, the name of the device she lives on (`/agent/host` is theirs only).
+ * owner, the name of the device she lives on (`/agent/host` is theirs only),
+ * or that her mind is on (`/agent/mind/where`), and whether they are the
+ * owner (`owner`): only they are told which device. `leaves`: her mind is on
+ * another device and what the owner says here reaches her there (D6-b), so
+ * the composer stays.
  */
 export function useHerAway(open: boolean): {
   away: HerAway | null
   device: string | null
+  owner: boolean
+  leaves: boolean
 } {
   const [away, setAway] = useState<HerAway | null>(null)
   const [device, setDevice] = useState<string | null>(null)
+  const [owner, setOwner] = useState(false)
+  const [leaves, setLeaves] = useState(false)
   useEffect(() => {
     if (!open) return
     let alive = true
@@ -29,6 +41,16 @@ export function useHerAway(open: boolean): {
       const next = AWAY.includes(said) ? (said as HerAway) : null
       if (!alive) return
       setAway(next)
+      if (next === 'mind_elsewhere') {
+        const mind = await agentService.getMindPlace().catch(() => null)
+        if (!alive) return
+        setOwner(mind !== null)
+        setDevice(mind?.holderName ?? null)
+        setLeaves(mind?.leaves === true)
+        return
+      }
+      setOwner(false)
+      setLeaves(false)
       if (next !== 'elsewhere') {
         setDevice(null)
         return
@@ -40,7 +62,7 @@ export function useHerAway(open: boolean): {
       alive = false
     }
   }, [open])
-  return { away, device }
+  return { away, device, owner, leaves }
 }
 
 /**
@@ -50,21 +72,33 @@ export function useHerAway(open: boolean): {
 export const AgentPanelHerAway: React.FC<{
   away: HerAway
   device: string | null
+  owner?: boolean
+  leaves?: boolean
   mode: AgentPanelMode
-}> = ({ away, device, mode }) => {
+}> = ({ away, device, owner = false, leaves = false, mode }) => {
   const { t, format } = useI18n()
   if (mode !== 'chat') return null
   const words = t.agentPanel.away
   const text =
-    away === 'elsewhere'
-      ? device
-        ? format(words.elsewhere, { name: device })
-        : words.elsewhereUnknown
-      : away === 'moving'
-        ? words.moving
-        : away === 'moved_out'
-          ? words.movedOut
-          : words.vacant
+    away === 'mind_elsewhere'
+      ? !owner
+        ? words.member
+        : leaves
+          ? device
+            ? format(words.mindElsewhereLeave, { name: device })
+            : words.mindElsewhereLeaveUnknown
+          : device
+            ? format(words.mindElsewhere, { name: device })
+            : words.mindElsewhereUnknown
+      : away === 'elsewhere'
+        ? device
+          ? format(words.elsewhere, { name: device })
+          : words.elsewhereUnknown
+        : away === 'moving'
+          ? words.moving
+          : away === 'moved_out'
+            ? words.movedOut
+            : words.vacant
   return (
     <div className="agent-panel-away" role="status">
       <p>{text}</p>

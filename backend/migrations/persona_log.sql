@@ -1,8 +1,9 @@
 -- Her log on the server: the relay between host cores, the server's key ring,
 -- what was forgotten, and her one lease (services/her_log; the rules are
 -- crates/myriad-persona-log). Nothing reads or writes these tables unless
--- HER_LOG_ENABLED is on, and nothing is ever stored in them in the clear: a
--- row is an envelope, its content is a payload sealed by its object's key.
+-- HER_LOG_ENABLED is on, but her lease: its grants say which end holds her,
+-- log or no log. Nothing is ever stored in them in the clear: a row is an
+-- envelope, its content is a payload sealed by its object's key.
 -- Created by migration 004 and, for databases already past it, by the
 -- startup heal `ensure_persona_log_tables`; both run this same file.
 
@@ -188,19 +189,45 @@ CREATE TABLE IF NOT EXISTS agent_log_full_links (
     used_at TIMESTAMPTZ
 );
 
--- Her lease: every grant the server issued, one for all audiences. The
--- epoch only goes up; the newest row is the grant that stands.
+-- Her lease: every grant the server issued, one for all audiences, and the
+-- one record of which end holds her (persona_sync::lease reads where she is
+-- from it). The epoch only goes up; the newest row is the grant that stands.
 CREATE TABLE IF NOT EXISTS agent_lease_grants (
     epoch BIGINT PRIMARY KEY CHECK (epoch >= 1),
-    holder VARCHAR(64) NOT NULL,
+    -- None while she moves house (a freeze): no end holds her.
+    holder VARCHAR(64),
     issued VARCHAR(96) NOT NULL,
     how VARCHAR(12) NOT NULL
         CONSTRAINT agent_lease_grants_how_check
-        CHECK (how IN ('first', 'handover', 'takeover', 'force')),
-    -- A handover's {audience: last dseq} of the side that gave it up.
+        CHECK (how IN ('first', 'handover', 'takeover', 'force', 'freeze', 'thaw')),
+    -- A handover's or a freeze's {audience: last dseq} of the side that gave it up.
     through JSONB,
-    created_at TIMESTAMPTZ NOT NULL
+    created_at TIMESTAMPTZ NOT NULL,
+    -- The holder it moved from (every grant but the first and a thaw; none
+    -- on grants kept before it was written).
+    from_holder VARCHAR(64),
+    -- A freeze's move.
+    move_id VARCHAR(64),
+    CONSTRAINT agent_lease_grants_freeze_check
+        CHECK ((how = 'freeze') = (holder IS NULL) AND (how = 'freeze') = (move_id IS NOT NULL))
 );
+ALTER TABLE agent_lease_grants ADD COLUMN IF NOT EXISTS from_holder VARCHAR(64);
+-- Grants from before she could be frozen: a holder always, and two ways fewer.
+ALTER TABLE agent_lease_grants ADD COLUMN IF NOT EXISTS move_id VARCHAR(64);
+ALTER TABLE agent_lease_grants ALTER COLUMN holder DROP NOT NULL;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'agent_lease_grants'::regclass AND conname = 'agent_lease_grants_freeze_check'
+    ) THEN
+        ALTER TABLE agent_lease_grants DROP CONSTRAINT IF EXISTS agent_lease_grants_how_check;
+        ALTER TABLE agent_lease_grants ADD CONSTRAINT agent_lease_grants_how_check
+            CHECK (how IN ('first', 'handover', 'takeover', 'force', 'freeze', 'thaw'));
+        ALTER TABLE agent_lease_grants ADD CONSTRAINT agent_lease_grants_freeze_check
+            CHECK ((how = 'freeze') = (holder IS NULL) AND (how = 'freeze') = (move_id IS NOT NULL));
+    END IF;
+END $$;
 CREATE OR REPLACE FUNCTION agent_lease_grants_guard() RETURNS trigger AS $$
 BEGIN
     IF TG_OP = 'UPDATE' OR TG_OP = 'DELETE' THEN
@@ -214,6 +241,16 @@ END $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS agent_lease_grants_guard ON agent_lease_grants;
 CREATE TRIGGER agent_lease_grants_guard BEFORE INSERT OR UPDATE OR DELETE ON agent_lease_grants
     FOR EACH ROW EXECUTE FUNCTION agent_lease_grants_guard();
+-- A new grant is announced on `myriad_her_host`, with her copy and her
+-- moves, so each process reads where she is again as it commits.
+CREATE OR REPLACE FUNCTION agent_lease_grants_issued() RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify('myriad_her_host', 'mind:' || NEW.epoch::text);
+    RETURN NULL;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS agent_lease_grants_issued ON agent_lease_grants;
+CREATE TRIGGER agent_lease_grants_issued AFTER INSERT ON agent_lease_grants
+    FOR EACH ROW EXECUTE FUNCTION agent_lease_grants_issued();
 
 -- What the server knows of each of the owner's ends for moving the lease:
 -- whether it is a host core, when it last heard from it, the place it said
@@ -230,3 +267,37 @@ CREATE TABLE IF NOT EXISTS agent_lease_ends (
     stopped_epoch BIGINT,
     stopped_at BIGINT
 );
+
+-- What the partner and she said in private on another of the owner's ends,
+-- kept in the site's own conversations as copies (D6-e): `origin` is the
+-- end that wrote the line (none for a line said here), `log_row` the row of
+-- her log it is a copy of, or, for the partner's line said here, the row it
+-- was written as. A copy is never written to the log again. A line goes,
+-- with what it taught her, when its row is forgotten (D6-g). A row is
+-- copied once, into one conversation.
+ALTER TABLE agent_messages ADD COLUMN IF NOT EXISTS origin VARCHAR(64);
+ALTER TABLE agent_messages ADD COLUMN IF NOT EXISTS log_row VARCHAR(512);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_messages_log_row
+    ON agent_messages (log_row) WHERE log_row IS NOT NULL;
+-- Which of the site's conversations a segment of another end's talk goes
+-- in, settled the first time the site sees it: the owner's private chat
+-- last talked in within six hours before its first line, or a new one.
+CREATE TABLE IF NOT EXISTS agent_her_segments (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    object VARCHAR(512) NOT NULL,
+    session_id VARCHAR(64) NOT NULL,
+    PRIMARY KEY (user_id, object)
+);
+
+-- Her records as her log last has them (b1 of protocol 2): each object's
+-- digest, as the site wrote it or took it in, and the row from another end
+-- last taken in of it (taken in once). A record whose digest differs is
+-- written again; one gone from the site is written as gone.
+CREATE TABLE IF NOT EXISTS agent_her_state_rows (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    object VARCHAR(512) NOT NULL,
+    digest VARCHAR(128) NOT NULL,
+    took VARCHAR(256),
+    PRIMARY KEY (user_id, object)
+);
+ALTER TABLE agent_her_state_rows ADD COLUMN IF NOT EXISTS took VARCHAR(256);

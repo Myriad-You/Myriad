@@ -110,6 +110,18 @@ pub struct RequestContext {
     /// Server-set only.
     #[serde(skip)]
     pub handed_off: bool,
+    /// Run with nobody there to answer, as the person it is for (their
+    /// instruction come due, `merope::memory_nodes::intents_run`): a
+    /// confirmation is given only where unattended Work may run on its own,
+    /// anything higher is refused, and a run that stops to ask ends there.
+    /// Server-set only; kept with the run, so a resumed run is still it.
+    #[serde(default)]
+    pub unattended: bool,
+    /// The runtime grants this run may use at most, met with what is
+    /// granted at each call: an instruction's grants as it was given. Not an
+    /// autonomy cap (no autonomy grant is asked for). Server-set only.
+    #[serde(default)]
+    pub instruction_cap: Option<Vec<String>>,
 }
 
 /// A private IM chat turn: she talks as herself and may hand work off.
@@ -123,6 +135,9 @@ pub struct ChannelChat {
     /// What they wrote came while she was not on the site (D3): when, as a
     /// fact she reads with it.
     pub came_while_away: Option<String>,
+    /// The chat app it is in (`ChannelPlatform::slug`), where her log says
+    /// the talk is.
+    pub platform: String,
 }
 
 /// 对话消息

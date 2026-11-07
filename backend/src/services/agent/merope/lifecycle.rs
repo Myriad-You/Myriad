@@ -9,6 +9,10 @@ pub mod doing {
     pub(crate) use crate::services::agent::merope::doing::tick;
 }
 
+pub mod intents {
+    pub(crate) use crate::services::agent::merope::memory_nodes::intents_due::tick;
+}
+
 pub mod life {
     pub(crate) use crate::services::agent::merope::life::tick;
 }

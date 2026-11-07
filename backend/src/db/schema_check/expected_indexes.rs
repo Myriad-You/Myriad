@@ -688,6 +688,31 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             columns: vec!["user_id".into(), "topic_id".into()],
             is_unique: false,
         },
+        // 她的节点照共享核心存
+        IndexDef {
+            name: "idx_agent_node_rows_node".into(),
+            table: "agent_node_rows".into(),
+            columns: vec!["user_id".into(), "audience".into(), "node_id".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_agent_node_heads_status".into(),
+            table: "agent_node_heads".into(),
+            columns: vec!["user_id".into(), "audience".into(), "status".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_agent_node_placements_node".into(),
+            table: "agent_node_placements".into(),
+            columns: vec!["user_id".into(), "audience".into(), "node_id".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_agent_node_instructions_message".into(),
+            table: "agent_node_instructions".into(),
+            columns: vec!["message_ref".into()],
+            is_unique: false,
+        },
         // federation 索引
         IndexDef {
             name: "idx_remote_actors_domain".into(),
@@ -765,6 +790,12 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             name: "idx_timeline_user_activity".into(),
             table: "federation_timeline".into(),
             columns: vec!["user_id".into(), "activity_id".into()],
+            is_unique: true,
+        },
+        IndexDef {
+            name: "idx_channels_channel_user".into(),
+            table: "federation_channels".into(),
+            columns: vec!["channel_id".into(), "user_id".into()],
             is_unique: true,
         },
         IndexDef {

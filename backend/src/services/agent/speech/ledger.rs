@@ -225,8 +225,10 @@ async fn into_her_log(db: &DatabaseConnection, to: &Audience<String>, id: &str, 
         }
         Err(error) => Err(error),
     };
-    if let Err(error) = written {
-        tracing::debug!(%error, "[Speech] her line stays on the site only");
+    match written {
+        // What the turn changed of her goes into her log with it (b1).
+        Ok(_) => her_log::state::soon(db),
+        Err(error) => tracing::debug!(%error, "[Speech] her line stays on the site only"),
     }
 }
 

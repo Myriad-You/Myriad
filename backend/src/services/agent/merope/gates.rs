@@ -29,34 +29,23 @@ pub struct IngestDecision {
     pub reason: &'static str,
 }
 
-/// Derived from the notification catalog: only catalogued keys may interrupt.
+/// What kind of event a key is, decided once in the core
+/// (`myriad_merope::notify`): which keys are said only in person, which are
+/// a task's outcome, which interrupt someone away, which are worth a
+/// notification at all. What a child end saw for her and told her host (her
+/// link's `moment`) is `TOLD_EVENTS`.
+#[cfg(test)]
+pub use myriad_merope::notify::TOLD_EVENTS;
+pub use myriad_merope::notify::{
+    AI_CHAT_EVENT, PEER_AGENT_EVENT, SITUATION_EVENT, is_task_outcome, said_only_in_person,
+    worth_notifying,
+};
+
+/// Worth her interrupting someone who is away for: the catalogued keys the
+/// core says interrupt.
 pub fn is_valuable_event(event_key: &str) -> bool {
     NotificationEventKey::from_key(event_key)
         .is_some_and(NotificationEventKey::interrupts_when_away)
-}
-
-pub fn is_task_outcome(event_key: &str) -> bool {
-    NotificationEventKey::from_key(event_key).is_some_and(NotificationEventKey::is_task_outcome)
-}
-
-/// What a child end saw for her and told her host (her link's `moment`):
-/// another coding agent's session on the owner's machine, their
-/// conversation with another AI there, and that machine's own reading of
-/// what they are doing in front of it.
-pub const PEER_AGENT_EVENT: &str = "agent.merope.peer_agent";
-pub const AI_CHAT_EVENT: &str = "agent.merope.ai_chat";
-pub const SITUATION_EVENT: &str = "agent.merope.situation";
-pub const TOLD_EVENTS: [&str; 3] = [PEER_AGENT_EVENT, AI_CHAT_EVENT, SITUATION_EVENT];
-
-/// Said to someone here or not at all: a passing thought, something she
-/// found out, something she just did on her own, what a child end saw for
-/// her. Never a notification, never a diary entry.
-pub fn said_only_in_person(event_key: &str) -> bool {
-    event_key == super::wander::THOUGHT_EVENT
-        || event_key == super::curiosity::FOUND_OUT_EVENT
-        || event_key == super::doing::DOING_EVENT
-        || event_key == super::playing::PLAYING_EVENT
-        || TOLD_EVENTS.contains(&event_key)
 }
 
 /// What a child end saw that she keeps on a node (`merope::nodes`): another
@@ -73,14 +62,6 @@ pub fn files_on_node(event_key: &str) -> bool {
 /// decided so on 2026-10-24). Everything else stays in the moment.
 pub fn keeps_memory_of(event_key: &str) -> bool {
     event_key == AI_CHAT_EVENT
-}
-
-pub fn worth_notifying(event_key: &str) -> bool {
-    // A touch answers the moment; the rest is said in person or not at all.
-    if event_key == "agent.merope.touch" || said_only_in_person(event_key) {
-        return false;
-    }
-    is_valuable_event(event_key) || event_key.starts_with("agent.merope.")
 }
 
 /// On the page → she may speak on the face.
@@ -148,6 +129,43 @@ pub fn decide_ingest(event_key: &str, sight: &IngestSight) -> IngestDecision {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shared cases (`core/crates/conformance/v1/notify/notify.kind.json`)
+    /// through the site's own gates and catalog: every key answers as the
+    /// core does.
+    #[test]
+    fn the_notify_conformance_cases_pass_through_the_sites_gates() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../core/crates/conformance/v1/notify/notify.kind.json");
+        let file: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(file["call"], "notify.kind");
+        let mut ran = 0;
+        for case in file["cases"].as_array().unwrap() {
+            let (Some(kind), Some(want)) = (case["input"]["kind"].as_str(), case.get("output"))
+            else {
+                continue;
+            };
+            let got = serde_json::json!({
+                "inPerson": said_only_in_person(kind),
+                "taskOutcome": is_task_outcome(kind),
+                "interruptsWhenAway": is_valuable_event(kind),
+                "worthNotifying": worth_notifying(kind),
+            });
+            assert_eq!(&got, want, "{}", case["name"]);
+            ran += 1;
+        }
+        assert!(ran > 50, "{ran}");
+    }
+
+    /// Every key the core says interrupts is one the catalog has.
+    #[test]
+    fn what_interrupts_is_catalogued() {
+        use myriad_merope::notify::{INTERRUPTS_WHEN_AWAY, TASK_OUTCOMES};
+        for key in TASK_OUTCOMES.iter().chain(&INTERRUPTS_WHEN_AWAY) {
+            assert!(NotificationEventKey::from_key(key).is_some(), "{key}");
+        }
+    }
 
     #[test]
     fn touch_only_speaks_in_person_and_never_notifies() {

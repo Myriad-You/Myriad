@@ -929,6 +929,7 @@
   "agentDevicesEmpty": "還沒有裝置",
   "agentDevicesStatLive": "裝置",
   "agentDevicesStale": "久未連上",
+  "agentDevicesAppOutdated": "這台裝置上的 App 需要更新",
   "agentDevicesRemoved": "已移除",
   "agentDevicesRemovedLeft": "裝置已中斷連線",
   "agentDevicesRemovedOwnerChanged": "站長已更換",

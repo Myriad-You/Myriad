@@ -34,6 +34,7 @@ mod memory_bench;
 #[cfg(test)]
 mod size_guard_tests;
 pub(in crate::services::agent) mod memory_jobs;
+pub(crate) mod memory_nodes;
 pub(in crate::services::agent) mod motion;
 pub(in crate::services::agent) mod motion_preview;
 pub(in crate::services::agent) mod nodes;

@@ -567,7 +567,8 @@
       "her": "彼女自身",
       "people": "一人ひとり",
       "groups": "グループ",
-      "signs": "バイタル"
+      "signs": "バイタル",
+      "nodes": "ノード"
     },
     "her": {
       "selfStory": "この頃の彼女",
@@ -750,6 +751,98 @@
       },
       "newToHer": "新しく知ったこと",
       "knewIt": "実は知っていた"
+    },
+    "nodes": {
+      "none": "ノードはありません",
+      "private": "個別チャット",
+      "own": "{name} 自身",
+      "group": "グループ：{group}",
+      "unnamed": "名称未設定",
+      "aboutYou": "本人について",
+      "back": "ノードに戻る",
+      "kind": {
+        "topic": "話題",
+        "task": "進行中のこと",
+        "person": "人"
+      },
+      "status": {
+        "active": "アクティブ",
+        "ongoing": "継続中",
+        "resting": "休止中",
+        "done": "完了",
+        "dropped": "やめました"
+      },
+      "count": {
+        "entries": "記憶 {count}",
+        "spans": "経験 {count}",
+        "waiting": "話す予定 {count}"
+      },
+      "summary": "概要",
+      "views": "見方",
+      "open": "未完了",
+      "entries": "書き留めたこと",
+      "heard": "聞いた話",
+      "spans": "経験",
+      "intents": "話すつもりのこと",
+      "actions": "操作",
+      "said": {
+        "partner": "本人の発言",
+        "her": "{name} が書き留めた",
+        "other_person": "グループのメンバーの発言",
+        "third_party": "ほかの情報源"
+      },
+      "seenElsewhere": "ほかで見かけた",
+      "quoteOnly": "引用のみ",
+      "wordsGone": "元の言葉は削除され、{name} が書き留めたことだけが残っています",
+      "deleted": "（この部分は削除されました）",
+      "movedTo": "別のノードに統合されました",
+      "openMoved": "開く",
+      "namedByYou": "変更した名前",
+      "heardYes": "そう",
+      "heardNo": "違う",
+      "intent": {
+        "byYou": "頼んだこと",
+        "byHer": "{name} が自分で",
+        "say": "話す",
+        "work": "やる",
+        "state": {
+          "waiting": "待機中",
+          "said": "伝えた",
+          "done": "済んだ",
+          "dropped": "やめました"
+        },
+        "way": {
+          "ran": "済んだ",
+          "raised": "そのままはやらず、手を挙げた",
+          "cancelled": "取り消した"
+        },
+        "whenChanged": "「{name}」に動きがあったら",
+        "whenDone": "「{name}」が終わったら",
+        "whenNone": "折を見て",
+        "asked": "元の言葉",
+        "reply": "返事",
+        "result": "結果",
+        "cancel": "取り消す"
+      },
+      "rename": "名前を変更",
+      "renameHint": "変更した名前は整理で戻されません。",
+      "nameField": "名前",
+      "save": "保存",
+      "cancel": "キャンセル",
+      "deleteNode": "ノードを削除",
+      "deleteNodeTitle": "「{name}」を削除しますか？",
+      "deleteNodeMessage": "ノード、ノード上の記憶、それらの記憶の元になった会話の原文が削除されます。この操作は取り消せません。",
+      "deleteEntry": "削除",
+      "deleteEntryTitle": "この記憶を削除しますか？",
+      "deleteEntryMessage": "この記憶と、記憶の元になった会話の原文が削除されます。この操作は取り消せません。",
+      "confirmDelete": "削除",
+      "failed": {
+        "away": "変更できません：キャラクターは現在このサイトにいません。",
+        "badName": "名前を変更できません：名前が空か、80 文字を超えています。",
+        "heardUnkept": "回答を保存できません：サイトはまだ情報源を記録していません。",
+        "notFound": "このノードが見つかりません。",
+        "other": "操作を完了できません。"
+      }
     }
   },
   "fullBody": {

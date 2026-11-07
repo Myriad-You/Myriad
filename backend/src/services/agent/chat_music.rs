@@ -4,6 +4,9 @@ use serde_json::Value;
 
 pub use myriad_merope::chat_music::{ChatMusicAction, split_chat_music_directive};
 
+/// Her reply as it is shown, with what its wear and music marks ask for.
+/// Which marks come out is the core's table, all of them, not only these
+/// two; spaces at either end go.
 pub fn peel_chat_live_reply(
     raw: &str,
 ) -> (
@@ -11,9 +14,15 @@ pub fn peel_chat_live_reply(
     Option<myriad_merope::WearDirective>,
     Option<ChatMusicAction>,
 ) {
-    let (spoken, wear) = myriad_merope::split_chat_wear_directive(raw);
-    let (spoken, music) = split_chat_music_directive(&spoken);
-    (spoken, wear, music)
+    let wear = myriad_merope::split_chat_wear_directive(raw).1;
+    let music = split_chat_music_directive(raw).1;
+    (
+        myriad_merope::speech::markers::strip(raw)
+            .trim()
+            .to_string(),
+        wear,
+        music,
+    )
 }
 
 pub fn format_chat_player_section(music: Option<&Value>) -> String {
@@ -81,15 +90,6 @@ pub fn control_event(
         action: action.as_str().to_string(),
         song,
     })
-}
-
-pub fn hold_incomplete_live_marker(spoken: &str) -> &str {
-    if let Some(at) = spoken.rfind("[[") {
-        if !spoken[at..].contains("]]") {
-            return &spoken[..at];
-        }
-    }
-    myriad_merope::hold_incomplete_wear_marker(spoken)
 }
 
 /// What came of her putting a song of hers on their player lately, as
@@ -299,9 +299,29 @@ mod tests {
         assert!(format_chat_player_section(None).contains("you do not know what comes next"));
     }
 
+    /// Before and after: the replies the readers used to peel come out the
+    /// same through the core's table, and a mark of another kind with them.
     #[test]
-    fn hold_cuts_an_open_live_marker() {
-        assert_eq!(hold_incomplete_live_marker("行[[music:pl"), "行");
-        assert_eq!(hold_incomplete_live_marker("行。"), "行。");
+    fn peeled_as_before() {
+        for (raw, shown) in [
+            ("行，我唱给你听。\n[[music:play]]", "行，我唱给你听。"),
+            ("等我一下，换上[[wear:睡衣]]啦", "等我一下，换上啦"),
+            ("⟦wear:睡衣⟧换好啦", "换好啦"),
+            ("好呀\n[[wear:japanese]]\n[[music:next]]", "好呀"),
+            ("第一段\n\n第二段", "第一段\n\n第二段"),
+            ("[[workers]] 不是", "[[workers]] 不是"),
+            (
+                "好，我去查\n[[work: 明天的天气]]\n[[sticker:2]]",
+                "好，我去查",
+            ),
+        ] {
+            assert_eq!(peel_chat_live_reply(raw).0, shown, "{raw}");
+        }
+        let (_, wear, music) = peel_chat_live_reply("好\n[[wear:睡衣]]\n[[music:share 2]]");
+        assert_eq!(
+            wear,
+            Some(myriad_merope::WearDirective::Label("睡衣".into()))
+        );
+        assert_eq!(music, Some(ChatMusicAction::Share(2)));
     }
 }

@@ -30,6 +30,69 @@ pub(crate) fn at(value: &Value) -> chrono::DateTime<chrono::Utc> {
         .with_timezone(&chrono::Utc)
 }
 
+/// Times each replayed turn is answered (`MYRIAD_CONSISTENCY_RUNS`, at
+/// least 1): three by default, as the core compares two ends
+/// (`consistency::RUNS_COMPARED`), since one draw of a reply is not her.
+fn runs() -> usize {
+    std::env::var("MYRIAD_CONSISTENCY_RUNS")
+        .ok()
+        .and_then(|runs| runs.parse().ok())
+        .unwrap_or(3)
+        .max(1)
+}
+
+/// Asks before a reply is written down as failed.
+const ATTEMPTS: usize = 3;
+
+/// One answer to a replayed turn: asked again when the call fails or
+/// comes back empty, and failed with why after `ATTEMPTS`.
+async fn answered<F, Fut>(mut ask: F) -> Result<String, String>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<String>>,
+{
+    let mut why = String::new();
+    for _ in 0..ATTEMPTS {
+        match ask().await {
+            Ok(reply) if !reply.trim().is_empty() => return Ok(reply),
+            Ok(_) => why = "an empty reply".to_string(),
+            Err(error) => why = format!("{error:#}"),
+        }
+    }
+    Err(why)
+}
+
+/// A line of a replies file: the turn, which run, and her reply, or why
+/// there is none.
+fn reply_line(id: &Value, run: usize, answer: &Result<String, String>) -> String {
+    let line = match answer {
+        Ok(reply) => json!({ "id": id, "run": run, "reply": reply }),
+        Err(why) => json!({ "id": id, "run": run, "failed": why }),
+    };
+    line.to_string() + "\n"
+}
+
+#[tokio::test]
+async fn a_failed_answer_is_asked_again_then_written_down_as_failed() {
+    let mut asked = 0;
+    let answer = answered(|| {
+        asked += 1;
+        let reply = match asked {
+            1 => Err(anyhow::anyhow!("timed out")),
+            2 => Ok("  ".to_string()),
+            _ => Ok("在呢".to_string()),
+        };
+        async move { reply }
+    })
+    .await;
+    assert_eq!((answer.as_deref(), asked), (Ok("在呢"), 3));
+    let never = answered(|| async { Err(anyhow::anyhow!("timed out")) }).await;
+    assert_eq!(
+        reply_line(&json!(421), 2, &never),
+        "{\"failed\":\"timed out\",\"id\":421,\"run\":2}\n"
+    );
+}
+
 /// Write one recording: `messages` as `(role, text)`, in the order they went.
 pub(crate) fn record(out: &std::path::Path, scene: &Value, messages: &[(&str, &str)]) {
     let name = scene["scene"].as_str().unwrap();
@@ -120,7 +183,7 @@ async fn talk_so_far<C: ConnectionTrait>(db: &C, user_id: i32, history: &[Value]
     let first = history
         .first()
         .map(|line| at(&line["at"]))
-        .unwrap_or_else(chrono::Utc::now);
+        .unwrap_or_else(crate::clock::now);
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "INSERT INTO agent_sessions (id, user_id, title, context, message_count, archived, created_at, last_active_at) \
@@ -255,11 +318,12 @@ async fn her_private_prompts_recorded() {
 /// `her.json` and `turns.jsonl`, exported from the site and kept out of the
 /// repository) answered again by the site's Lite model, each from the same
 /// little the other end has: her persona, how she is (`affect`) and the talk
-/// before it, as of when it was said. Writes `site-replies.jsonl`. Reads the
-/// site's database only for its model configuration; asks the model once a
-/// turn.
+/// before it, as of when it was said. Writes `site-replies.jsonl`, a line a
+/// turn a run (`runs()`), a reply that would not come marked `failed`.
+/// Reads the site's database only for its model configuration; asks the
+/// model `runs()` times a turn, and again for a call that failed.
 #[tokio::test]
-#[ignore = "asks the site's model once per replayed turn"]
+#[ignore = "asks the site's model a few times per replayed turn"]
 async fn her_real_turns_answered_on_a_bare_site() {
     let Ok(dir) = std::env::var("MYRIAD_CONSISTENCY_REPLAY") else {
         eprintln!("skipped: MYRIAD_CONSISTENCY_REPLAY not set");
@@ -279,7 +343,7 @@ async fn her_real_turns_answered_on_a_bare_site() {
         .await
         .map(crate::services::analyzer::AiAnalyzer::with_light_thinking)
         .expect("Lite model configured");
-    let mut replies = String::new();
+    let (runs, mut replies, mut failed) = (runs(), String::new(), 0);
     for turn in &turns {
         let fixture = crate::federation::test_db::SchemaDb::new_or_media()
             .await
@@ -317,27 +381,40 @@ async fn her_real_turns_answered_on_a_bare_site() {
             agent.chat_response_prompt(&request),
         ))
         .await;
-        let reply = analyzer
-            .analyze_stream_messages_with_images(&prompt.system, &prompt.messages, &[], |_| async {
-                true
+        println!("> {said}");
+        for run in 1..=runs {
+            let answer = answered(|| {
+                analyzer.analyze_stream_messages_with_images(
+                    &prompt.system,
+                    &prompt.messages,
+                    &[],
+                    |_| async { true },
+                )
             })
-            .await
-            .unwrap_or_default();
-        println!("> {said}\n  {}", reply.replace('\n', " / "));
-        replies.push_str(&json!({ "id": turn["id"], "reply": reply }).to_string());
-        replies.push('\n');
+            .await;
+            match &answer {
+                Ok(reply) => println!("  {run}: {}", reply.replace('\n', " / ")),
+                Err(why) => {
+                    failed += 1;
+                    println!("  {run}: FAILED {why}");
+                }
+            }
+            replies.push_str(&reply_line(&turn["id"], run, &answer));
+        }
         fixture.close().await;
     }
     std::fs::write(dir.join("site-replies.jsonl"), replies).unwrap();
+    println!("{} turns × {runs} runs, {failed} failed", turns.len());
 }
 
 /// The other end's whole prompts for the same real turns
 /// (`MYRIAD_CONSISTENCY_REPLAY=<dir>`, its `native-prompts/<id>.json`, as
 /// that end put them together) answered by the same Lite model the site
 /// replay uses: the two ends then differ only in how they put her together.
-/// Writes `native-replies.jsonl`; asks the model once a prompt.
+/// Writes `native-replies.jsonl` as `site-replies.jsonl` is written; asks
+/// the model `runs()` times a prompt, and again for a call that failed.
 #[tokio::test]
-#[ignore = "asks the site's model once per recorded prompt"]
+#[ignore = "asks the site's model a few times per recorded prompt"]
 async fn the_other_ends_prompts_answered_by_the_site_model() {
     let Ok(dir) = std::env::var("MYRIAD_CONSISTENCY_REPLAY") else {
         eprintln!("skipped: MYRIAD_CONSISTENCY_REPLAY not set");
@@ -355,7 +432,7 @@ async fn the_other_ends_prompts_answered_by_the_site_model() {
         .await
         .map(crate::services::analyzer::AiAnalyzer::with_light_thinking)
         .expect("Lite model configured");
-    let mut replies = String::new();
+    let (runs, mut replies, mut failed) = (runs(), String::new(), 0);
     for turn in &turns {
         let id = turn["id"].to_string();
         let path = dir
@@ -378,13 +455,20 @@ async fn the_other_ends_prompts_answered_by_the_site_model() {
                 });
             }
         }
-        let reply = analyzer
-            .analyze_with_messages(&system, messages)
-            .await
-            .unwrap_or_default();
-        println!("> {}\n  {}", turn["said"], reply.replace('\n', " / "));
-        replies.push_str(&json!({ "id": turn["id"], "reply": reply }).to_string());
-        replies.push('\n');
+        println!("> {}", turn["said"]);
+        for run in 1..=runs {
+            let answer =
+                answered(|| analyzer.analyze_with_messages(&system, messages.clone())).await;
+            match &answer {
+                Ok(reply) => println!("  {run}: {}", reply.replace('\n', " / ")),
+                Err(why) => {
+                    failed += 1;
+                    println!("  {run}: FAILED {why}");
+                }
+            }
+            replies.push_str(&reply_line(&turn["id"], run, &answer));
+        }
     }
     std::fs::write(dir.join("native-replies.jsonl"), replies).unwrap();
+    println!("{} prompts × {runs} runs, {failed} failed", turns.len());
 }

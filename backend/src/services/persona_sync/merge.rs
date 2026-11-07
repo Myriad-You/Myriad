@@ -400,6 +400,67 @@ async fn merge_in(
     })
 }
 
+/// Writes her records another end wrote, as her log brought them (b1 of
+/// protocol 2), the way a merge lands what it takes from the other side:
+/// `entities` is every record of the kinds written as the site has them now
+/// with the ones that came in their place, `writes` the ones that came and
+/// `removes` the outfits that went. Their pictures are those the site keeps
+/// already (`urls`, by asset id) and their rigs those it holds (`rigs`); one
+/// the site does not have stays as it was. In the caller's transaction; the
+/// rig the site wears now when its looks were written.
+pub(crate) async fn land_records(
+    txn: &DatabaseTransaction,
+    owner: i32,
+    entities: Vec<EntityVersion>,
+    writes: Vec<merge::Write>,
+    removes: Vec<merge::Write>,
+    urls: &BTreeMap<String, String>,
+    rigs: &BTreeSet<String>,
+) -> Result<Option<Option<String>>, ImportError> {
+    if writes.iter().chain(&removes).any(|write| {
+        write.kind == Kind::Persona || write.kind == Kind::Outfit || write.kind == Kind::Wearing
+    }) {
+        crate::services::agent::merope::api::store::lock_persona_on(txn)
+            .await
+            .map_err(|error| ImportError::Failed(error.to_string()))?;
+    }
+    let plan = MergePlan {
+        same_name: true,
+        names: BTreeMap::new(),
+        subject: None,
+        entities,
+        writes,
+        removes,
+        // Her sticker avatar is a picture: the site's stays.
+        fields: vec![merge::FieldOutcome {
+            field: "stickerAvatar".into(),
+            from: Some(Side::Host),
+            both: false,
+            to_history: None,
+        }],
+        renamed: Vec::new(),
+        late: Vec::new(),
+        dropped: Vec::new(),
+        counts: BTreeMap::new(),
+        standing: None,
+    };
+    // The rigs as files the other side brought (they are the site's already).
+    let none = Whole {
+        origin: String::new(),
+        lineage: None,
+        epoch: None,
+        model: None,
+        entities: Vec::new(),
+        embeddings: Vec::new(),
+        files: rigs
+            .iter()
+            .map(|rig| (rig.clone(), BTreeMap::new()))
+            .collect(),
+    };
+    let (_, rig) = land(txn, owner, &plan, &none, urls).await?;
+    Ok(rig)
+}
+
 fn find<'a>(plan: &'a MergePlan, kind: Kind, id: &str) -> Option<&'a EntityVersion> {
     plan.entities
         .iter()

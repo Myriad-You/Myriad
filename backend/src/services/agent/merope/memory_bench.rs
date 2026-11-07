@@ -48,6 +48,10 @@ mod settle;
 mod since_up;
 mod weeks;
 mod wishing;
+mod writing;
+
+pub(super) use writing::remember_turn;
+use writing::{apply_at, keep_chat, new_user};
 
 use answering::{Answered, answer_one, recalled_for};
 use probes::*;
@@ -150,16 +154,24 @@ fn date_of(text: &str) -> chrono::DateTime<chrono::FixedOffset> {
 /// with the date she learned it), with what she generally knows for advice
 /// or a recommendation; what she does not remember of them she does not make
 /// up. In a group, she knows others read along.
-fn answer_system(question: &Question, present: &Audience) -> String {
+/// What she answers on: `answer.sectioned`, with what she remembers laid
+/// out after it by the core, as a chat turn lays it out
+/// (`myriad_merope::speaking::format_remembered_section`), so the bench and
+/// production say alike when a memory is worth bringing up; the native
+/// runner answers the same way.
+fn answer_system(question: &Question, present: &Audience, remembered: &[String]) -> String {
     let answer = &prompts()["answer"];
-    let mut system = answer["system"].as_str().unwrap().to_string();
+    let mut system = answer["sectioned"].as_str().unwrap().to_string();
     if present.is_group() {
         system = format!("{system} {}", answer["group"].as_str().unwrap());
         if question.question_speaker.as_deref() == Some("other") {
             system = format!("{system} {}", answer["other"].as_str().unwrap());
         }
     }
-    system
+    match myriad_merope::speaking::format_remembered_section(remembered) {
+        Some(section) => format!("{system}\n\n{section}"),
+        None => system,
+    }
 }
 
 /// Which grading rule a question takes: by its id's ending for those that
@@ -202,167 +214,11 @@ fn grade_schema(question: &Question) -> Value {
     if question.question_type == "noise" {
         return json!({"type":"object","additionalProperties":false,
             "required":["correct","dragged"],
-            "properties":{"correct":{"type":"boolean"},"dragged":{"type":"boolean"}}});
+            "properties":{"correct":{"type":"boolean"},"dragged":{"type":"boolean"},
+                "why":{"type":"string"}}});
     }
     json!({"type":"object","additionalProperties":false,"required":["correct"],
-        "properties":{"correct":{"type":"boolean"}}})
-}
-
-async fn new_user(db: &sea_orm::DatabaseConnection, name: &str) -> i32 {
-    db.query_one_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "INSERT INTO users (username) VALUES ($1) RETURNING id",
-        [name.into()],
-    ))
-    .await
-    .unwrap()
-    .unwrap()
-    .try_get("", "id")
-    .unwrap()
-}
-
-/// This turn is the person's latest message, as the chat that carried it
-/// would have recorded.
-async fn said_at(
-    db: &sea_orm::DatabaseConnection,
-    user_id: i32,
-    at: chrono::DateTime<chrono::FixedOffset>,
-) {
-    let state = super::store::get_or_create_state(db, user_id)
-        .await
-        .unwrap();
-    let mut state: agent_addressee_state::ActiveModel = state.into();
-    state.last_user_message_at = Set(Some(at));
-    state.update(db).await.unwrap();
-}
-
-/// One turn of theirs written down as production writes it: what she
-/// already knows, whether it is worth writing, the extraction on the judgment
-/// model, then the same transaction, dated as the turn was. The updates
-/// applied, if any.
-pub(super) async fn remember_turn(
-    db: &sea_orm::DatabaseConnection,
-    judge: &crate::services::analyzer::AiAnalyzer,
-    user_id: i32,
-    present: &Audience,
-    text: &str,
-    reply: &str,
-    at: chrono::DateTime<chrono::FixedOffset>,
-) -> Option<super::chat_remember::ChatMemoryUpdates> {
-    let (existing, _) = super::store::recall_remembered_primed(
-        db,
-        user_id,
-        present,
-        Some(text),
-        8,
-        &Priming::default(),
-        1.0,
-    )
-    .await
-    .ok()?;
-    if !super::chat_remember::should_extract_chat_remember_against(text, &existing) {
-        return None;
-    }
-    let input = super::chat_remember::extract_input(
-        text,
-        reply,
-        &super::TurnContext::default(),
-        at.with_timezone(&super::clock::zone()),
-    );
-    let raw = judge
-        .analyze_json(
-            &myriad_merope::chat_remember::extract_system_prompt(&existing),
-            &input,
-            myriad_merope::chat_remember::EXTRACT_SCHEMA_NAME,
-            Some(&myriad_merope::chat_remember::extract_schema()),
-        )
-        .await
-        .ok()?;
-    let updates = super::chat_remember::parse_chat_memory_updates(&raw, text, reply, &existing)?;
-    apply_at(db, user_id, present, at, &updates).await?;
-    Some(updates)
-}
-
-/// Keep `updates` as production does, dated `at`; none when nothing was kept.
-async fn apply_at(
-    db: &sea_orm::DatabaseConnection,
-    user_id: i32,
-    present: &Audience,
-    at: chrono::DateTime<chrono::FixedOffset>,
-    updates: &super::chat_remember::ChatMemoryUpdates,
-) -> Option<()> {
-    said_at(db, user_id, at).await;
-    let before = crate::clock::now().fixed_offset();
-    let transaction = sea_orm::TransactionTrait::begin(db).await.ok()?;
-    // Written as kept for good: the bench compares ways of going over talk,
-    // with the short notes' fading stood in for by SHORT_NOTES_LAST.
-    let applied = super::store::apply_chat_memory_updates_on(
-        &transaction,
-        user_id,
-        at,
-        updates,
-        present,
-        super::store::Keep::Lasting,
-    )
-    .await
-    .unwrap_or(false);
-    transaction.commit().await.ok()?;
-    if !applied {
-        return None;
-    }
-    // Dated as the turn was, not as the bench ran.
-    db.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "UPDATE agent_memories SET created_at = $1, valid_from = $1, updated_at = $1 \
-         WHERE user_id = $2 AND created_at >= $3",
-        [at.into(), user_id.into(), before.into()],
-    ))
-    .await
-    .ok()?;
-    Some(())
-}
-
-/// A session's turns kept as the site keeps a chat, a minute apart, for
-/// scrolling back through.
-async fn keep_chat(
-    db: &sea_orm::DatabaseConnection,
-    session: &str,
-    user_id: i32,
-    at: chrono::DateTime<chrono::FixedOffset>,
-    turns: &[Turn],
-    here: &Audience,
-) {
-    let context = here
-        .group_id()
-        .map(|group| json!({"mode": "chat", "venue": group}));
-    db.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "INSERT INTO agent_sessions (id, user_id, message_count, archived, created_at, last_active_at, context) \
-         VALUES ($1, $2, $3, false, $4, $4, $5)",
-        [
-            session.into(),
-            user_id.into(),
-            (turns.len() as i32).into(),
-            at.into(),
-            context.into(),
-        ],
-    ))
-    .await
-    .unwrap();
-    for (index, turn) in turns.iter().enumerate() {
-        db.execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO agent_messages (session_id, role, content, created_at) VALUES ($1, $2, $3, $4)",
-            [
-                session.into(),
-                turn.role.clone().into(),
-                turn.content.clone().into(),
-                (at + chrono::Duration::minutes(index as i64)).into(),
-            ],
-        ))
-        .await
-        .unwrap();
-    }
+        "properties":{"correct":{"type":"boolean"},"why":{"type":"string"}}})
 }
 
 struct Outcome {
@@ -384,8 +240,10 @@ struct Outcome {
     memories: Vec<String>,
     /// Each memory's concepts, as kept beside it.
     concepts: Vec<Value>,
-    /// The topic each memory went under, if any.
-    topics: Vec<Option<String>>,
+    /// Where each memory was put on her nodes: the
+    /// node's name, `about` (「关于你」), `nowhere`, or none when it was
+    /// never decided.
+    nodes: Vec<Option<String>>,
     kept: usize,
 }
 
@@ -447,6 +305,7 @@ async fn run_one(
                 .memories
                 .iter()
                 .map(|fact| super::chat_remember::ChatMemoryUpdate {
+                    standing: Default::default(),
                     fact: Some(fact.clone()),
                     supersedes: Vec::new(),
                     evidence: Some(fact.clone()),
@@ -517,13 +376,8 @@ async fn run_one(
             }
         }
     }
-    // Kept before she put facts under topics: sorted afterwards, as upkeep
-    // does, to see what sorting gets that going over would have.
-    if settle && settle::topics_later() {
-        settle::sort_all(db, judge, user_id).await;
-    }
-    if settle && settle::topics_tidied() {
-        settle::tidy_all(db, judge, user_id).await;
+    if settle {
+        settle::keep_up_nodes(db, user_id).await;
     }
     // As a chat turn does: think what to look for, then recall with it.
     let cues = judge
@@ -670,29 +524,35 @@ async fn run_one(
             .map(|row| (row.id, row.concepts))
             .collect()
     };
-    let topic_by_id: std::collections::HashMap<String, String> = {
+    // A node merged away since keeps its id here, as the placement does.
+    let node_by_id: std::collections::HashMap<String, String> = {
         use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
         db.query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT m.memory_id, t.name FROM agent_memory_topics m \
-             JOIN agent_topic_nodes t ON t.user_id = m.user_id AND t.id = m.topic_id \
-             WHERE m.user_id = $1",
+            "SELECT p.memory_id, p.how, p.node_id, h.name FROM agent_node_placements p \
+             LEFT JOIN agent_node_heads h ON h.user_id = p.user_id \
+               AND h.audience = p.audience AND h.node_id = p.node_id \
+             WHERE p.user_id = $1",
             [user_id.into()],
         ))
         .await
         .unwrap_or_default()
         .iter()
         .filter_map(|row| {
-            Some((
-                row.try_get::<String>("", "memory_id").ok()?,
-                row.try_get::<String>("", "name").ok()?,
-            ))
+            let how = row.try_get::<String>("", "how").ok()?;
+            let node = row.try_get::<Option<String>>("", "node_id").ok()?;
+            let name = row.try_get::<Option<String>>("", "name").ok()?;
+            let shown = match how.as_str() {
+                "node" => name.or(node)?,
+                _ => how,
+            };
+            Some((row.try_get::<String>("", "memory_id").ok()?, shown))
         })
         .collect()
     };
-    let topics: Vec<Option<String>> = kept_rows
+    let nodes: Vec<Option<String>> = kept_rows
         .iter()
-        .map(|row| topic_by_id.get(&row.id).cloned())
+        .map(|row| node_by_id.get(&row.id).cloned())
         .collect();
     let (memories, concepts): (Vec<String>, Vec<Value>) = kept_rows
         .into_iter()
@@ -712,6 +572,6 @@ async fn run_one(
         kept,
         memories,
         concepts,
-        topics,
+        nodes,
     }
 }

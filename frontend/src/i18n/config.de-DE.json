@@ -929,6 +929,7 @@
   "agentDevicesEmpty": "Noch keine Geräte",
   "agentDevicesStatLive": "Geräte",
   "agentDevicesStale": "Länger nicht verbunden",
+  "agentDevicesAppOutdated": "Die App auf diesem Gerät muss aktualisiert werden",
   "agentDevicesRemoved": "Entfernt",
   "agentDevicesRemovedLeft": "Vom Gerät getrennt",
   "agentDevicesRemovedOwnerChanged": "Seitenbesitzer gewechselt",

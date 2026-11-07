@@ -17,8 +17,8 @@ import type {
   ThinkingTokenEvent,
 } from '../../services/agent'
 import type { AgentAttachment } from './agentAttachments'
-
 import type { AgentPanelMode } from './agentPanelMode'
+
 import type {
   ChatMessage,
   ChatSession,
@@ -91,6 +91,7 @@ import {
 } from '../../services/agent/turnIdentity'
 import { authSubject } from '../../utils/authSubject'
 import { userFacingError } from '../../utils/userFacingError'
+import { safeRandomUUID } from '../../utils/uuid'
 import {
   errorCode,
   generationFailureMessage,
@@ -101,6 +102,7 @@ import { setAgentSessionId } from './agentMessages'
 import {
   AGENT_PANEL_ANSWER_EVENT,
   AGENT_PANEL_COMMAND_EVENT,
+  AGENT_PANEL_FORGOTTEN_EVENT,
   AGENT_PANEL_OPEN_SESSION_EVENT,
   AGENT_PANEL_SUBMIT_EVENT,
   agentPanelAnswerDetail,
@@ -109,7 +111,8 @@ import {
   agentPanelOpenSessionId,
   agentPanelSubmitDetail,
   attachAgentSessionOpenQueue,
-  dispatchAgentPanelOpen, dispatchHistoryAnswerResult,
+  dispatchAgentPanelOpen,
+  dispatchHistoryAnswerResult, forgottenLinesDetail,
   takeQueuedAgentSubmit,
 } from './agentPanelEvents'
 import { getAgentPanelMode, useAgentPanelMode } from './agentPanelMode'
@@ -650,6 +653,24 @@ export const AgentEngine: React.FC = () => {
       window.removeEventListener(AGENT_PANEL_ANSWER_EVENT, handleAnswer)
   }, [])
 
+  // Lines she forgot, and what went with them, leave the conversation shown.
+  useEffect(() => {
+    const handleForgotten = (event: Event) => {
+      const detail = forgottenLinesDetail(event)
+      if (!detail) return
+      const gone = new Set(detail.lines.map((line) => `loaded_${line}`))
+      for (const mode of ['chat', 'work'] as const) {
+        setMessages(
+          (prev) => prev.filter((message) => !(message.sessionId === detail.sessionId && gone.has(message.id))),
+          mode,
+        )
+      }
+    }
+    window.addEventListener(AGENT_PANEL_FORGOTTEN_EVENT, handleForgotten)
+    return () =>
+      window.removeEventListener(AGENT_PANEL_FORGOTTEN_EVENT, handleForgotten)
+  }, [setMessages])
+
   useEffect(() => {
     return attachLiveBody()
   }, [])
@@ -802,8 +823,8 @@ export const AgentEngine: React.FC = () => {
     ) => {
       if (subject.aborted) return () => {}
       subject = bodyScopes.begin(mode, subject)
-      let summaryBody = new BodyWriter(crypto.randomUUID(), subject)
-      const thinkingBody = new BodyWriter(crypto.randomUUID(), subject)
+      let summaryBody = new BodyWriter(safeRandomUUID(), subject)
+      const thinkingBody = new BodyWriter(safeRandomUUID(), subject)
       let summaryText = new SummaryTextStream()
       let streamedSummary = ''
       let streamedThinking = ''
@@ -919,7 +940,7 @@ export const AgentEngine: React.FC = () => {
             utterance.end()
             streamedSummary = ''
             summaryBody.finish()
-            summaryBody = new BodyWriter(crypto.randomUUID(), subject)
+            summaryBody = new BodyWriter(safeRandomUUID(), subject)
             summaryText = new SummaryTextStream()
             const stepEvent = event as StepStartedEvent
             addExecutionStep(assistantMessageId, {
@@ -1659,6 +1680,12 @@ export const AgentEngine: React.FC = () => {
         if (isUserInterruptError(error)) {
           noteTurnTraceDrop('cancelled')
           updateMessageExecution(assistantMsgId, { status: 'error' })
+          return
+        }
+        // Her mind is on another of the owner's devices: what they said is
+        // kept for her there and nothing answers here (D6-b), so no reply.
+        if (errorCode(error) === 'left_for_her') {
+          setMessages((prev) => prev.filter((m) => m.id !== assistantMsgId))
           return
         }
         // quota arrives as HTTP 200; the error-event code is the only signal

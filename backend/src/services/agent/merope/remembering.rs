@@ -1,6 +1,6 @@
 //! Trying to remember before answering (see `myriad_merope::remembering`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
@@ -24,9 +24,12 @@ pub const LOOK_BACK_THOROUGH: usize = 8;
 const THINK_WITHIN: Duration = Duration::from_secs(6);
 /// What she goes through when answering needs all of it.
 pub const THOROUGH: usize = 24;
-/// What else of the topics of what came to mind she goes through then, at
-/// most (`store::kept_together`); she is told how much more there is.
-const KEPT_TOGETHER: usize = 24;
+/// Not going through all of it, the lines each try brings of its own
+/// before the rest are ranked together, so each thing their words ask
+/// about has a few; and what a turn asking of several goes through, at
+/// most. One cue beside their words is the turn's eight as ever.
+const EACH_TRY: usize = 4;
+const SEVERAL: usize = 16;
 
 /// What she would try to remember before answering `message`; billed to
 /// `owner`.
@@ -385,6 +388,69 @@ pub async fn recall_with(
     priming: &Priming,
     breadth: f64,
 ) -> Result<(Recalled, Priming), anyhow::Error> {
+    let (mut recalled, next) = ranked_with(
+        db, user_id, present, message, cues, limit, thorough, priming, breadth,
+    )
+    .await?;
+    let named = &recalled.named;
+    recalled.said.retain(|line, _| named.contains(line));
+    Ok((recalled, next))
+}
+
+/// Of `named`, what only filled a try (`filled`) and no try found by what
+/// it says (`found`).
+fn only_filling(named: &[String], filled: &[String], found: &[String]) -> Vec<String> {
+    named
+        .iter()
+        .filter(|line| filled.contains(line) && !found.contains(line))
+        .cloned()
+        .collect()
+}
+
+/// Of `tries`, the first `each` lines of every try that it found by what
+/// they say (`found`), as they stand merged; then the rest as merged, up to
+/// `room` in all.
+fn shared_out(tries: &[Vec<String>], found: &[String], each: usize, room: usize) -> Vec<String> {
+    let ranked = merged(tries, usize::MAX);
+    let own: HashSet<&String> = tries
+        .iter()
+        .flat_map(|tried| tried.iter().filter(|line| found.contains(line)).take(each))
+        .collect();
+    let mut out: Vec<String> = ranked
+        .iter()
+        .filter(|line| own.contains(line))
+        .take(room)
+        .cloned()
+        .collect();
+    for line in &ranked {
+        if out.len() >= room {
+            break;
+        }
+        if !out.contains(line) {
+            out.push(line.clone());
+        }
+    }
+    out
+}
+
+/// [`recall_with`] before their words are cut to what it named: what their
+/// words and each cue found, merged and ranked, each line with the memory
+/// it is (`Recalled::ids`); going through all of it, only what something
+/// named, and their words beside every line any try found (`said`, for
+/// what is added after). Her nodes go through all of a kind their own way
+/// (`memory_nodes::recall`).
+#[allow(clippy::too_many_arguments)]
+pub async fn ranked_with(
+    db: &DatabaseConnection,
+    user_id: i32,
+    present: &Audience,
+    message: &str,
+    cues: Option<&Cues>,
+    limit: usize,
+    thorough: usize,
+    priming: &Priming,
+    breadth: f64,
+) -> Result<(Recalled, Priming), anyhow::Error> {
     let limit = match cues {
         Some(cues) if cues.thorough => thorough.max(limit),
         _ => limit,
@@ -418,11 +484,24 @@ pub async fn recall_with(
             .cloned()
             .collect()
     };
+    // A line any try found by what it says is found, whatever another try
+    // only filled with it: else, many cues each naming one of a kind leave
+    // every one of them only filling, and none picks the kind it is of.
+    let found_by_words = |recalled: &Recalled| -> Vec<String> {
+        recalled
+            .named
+            .iter()
+            .filter(|line| !recalled.recent.contains(line))
+            .cloned()
+            .collect()
+    };
     let mut tries = vec![named_of(&first)];
+    let mut found = found_by_words(&first);
     let mut recent = first.recent.clone();
     let mut ids = first.ids.clone();
+    let mut said = first.said.clone();
     for cue in &cues.cues {
-        let (found, _) = store::recall_remembered_split(
+        let (cue_found, _) = store::recall_remembered_split(
             db,
             user_id,
             present,
@@ -432,39 +511,39 @@ pub async fn recall_with(
             0.0,
         )
         .await?;
-        tries.push(named_of(&found));
-        recent.extend(found.recent);
-        ids.extend(found.ids);
+        tries.push(named_of(&cue_found));
+        found.extend(found_by_words(&cue_found));
+        recent.extend(cue_found.recent);
+        ids.extend(cue_found.ids);
+        said.extend(cue_found.said);
     }
     if tries.iter().all(Vec::is_empty) {
         tries = vec![first.named.clone()];
     }
-    let room = limit.saturating_sub(first.brought_to_mind.len()).max(1);
-    let mut named = merged(&tries, room);
-    let recent = named
-        .iter()
-        .filter(|line| recent.contains(line))
-        .cloned()
-        .collect();
+    let named = if cues.thorough {
+        merged(
+            &tries,
+            limit.saturating_sub(first.brought_to_mind.len()).max(1),
+        )
+    } else {
+        let room = (EACH_TRY * tries.len()).clamp(limit, SEVERAL.max(limit));
+        shared_out(
+            &tries,
+            &found,
+            EACH_TRY,
+            room.saturating_sub(first.brought_to_mind.len()).max(1),
+        )
+    };
+    let recent = only_filling(&named, &recent, &found);
     let named_ids: Vec<String> = named
         .iter()
         .filter_map(|line| ids.iter().find(|(seen, _)| seen == line))
         .map(|(_, id)| id.clone())
         .collect();
-    // Going through all of it, what she keeps under the same topics comes
-    // to mind with it: a fact of the kind is found through another of its
-    // kind, sharing no word with what they asked.
-    let mut not_all_here = Vec::new();
-    if cues.thorough {
-        let have: Vec<String> = named
-            .iter()
-            .chain(&first.brought_to_mind)
-            .cloned()
-            .collect();
-        let (more, cut) =
-            store::kept_together(db, user_id, present, &named_ids, &have, KEPT_TOGETHER).await?;
-        named.extend(more);
-        not_all_here = cut;
+    // Going through all of it, their words are kept for every line found:
+    // what her nodes add may be one of them.
+    if !cues.thorough {
+        said.retain(|line, _| named.contains(line));
     }
     Ok((
         Recalled {
@@ -475,7 +554,7 @@ pub async fn recall_with(
                 .into_iter()
                 .filter(|(_, id)| named_ids.contains(id))
                 .collect(),
-            not_all_here,
+            said,
         },
         next,
     ))
@@ -484,6 +563,39 @@ pub async fn recall_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lines(prefix: &str, n: usize) -> Vec<String> {
+        (0..n).map(|i| format!("{prefix}{i}")).collect()
+    }
+
+    #[test]
+    fn each_thing_asked_about_has_lines_of_its_own() {
+        let tries = vec![lines("m", 8), lines("a", 8), lines("b", 8), lines("c", 8)];
+        let found: Vec<String> = tries.concat();
+        let room = (EACH_TRY * tries.len()).clamp(8, SEVERAL);
+        let named = shared_out(&tries, &found, EACH_TRY, room);
+        assert_eq!(named.len(), 16);
+        for prefix in ["m", "a", "b", "c"] {
+            assert_eq!(
+                named.iter().filter(|line| line.starts_with(prefix)).count(),
+                4,
+                "{prefix}"
+            );
+        }
+    }
+
+    #[test]
+    fn one_cue_beside_their_words_is_eight_and_fillers_only_fill() {
+        let tries = vec![lines("m", 8), vec!["m0".into(), "x0".into(), "x1".into()]];
+        // x1 only filled its try: it has no room of its own.
+        let found: Vec<String> = lines("m", 8).into_iter().chain(["x0".into()]).collect();
+        let room = (EACH_TRY * tries.len()).clamp(8, SEVERAL);
+        let named = shared_out(&tries, &found, EACH_TRY, room);
+        assert_eq!(named.len(), 8);
+        assert_eq!(named[0], "m0");
+        assert!(named.contains(&"x0".to_string()));
+        assert!(named[..5].iter().all(|line| line != "x1"));
+    }
 
     #[test]
     fn what_was_found_by_words_and_by_day_is_there_once_in_order() {
@@ -498,6 +610,20 @@ mod tests {
         assert_eq!(found[0].0, "2026-09-12");
     }
 
+    /// Each cue naming one book fills with the others: a book some try
+    /// found is found, so all of them pick the kind they are of.
+    #[test]
+    fn a_line_any_try_found_is_never_only_filling() {
+        let lines = |all: &[&str]| all.iter().map(|line| line.to_string()).collect::<Vec<_>>();
+        let named = lines(&["看完了《三体》", "读完了《挪威的森林》", "养了一只猫"]);
+        let filled = lines(&["看完了《三体》", "读完了《挪威的森林》", "养了一只猫"]);
+        let found = lines(&["看完了《三体》", "读完了《挪威的森林》"]);
+        assert_eq!(
+            super::only_filling(&named, &filled, &found),
+            lines(&["养了一只猫"])
+        );
+    }
+
     #[test]
     fn her_own_life_comes_to_mind_when_the_moment_asks_for_it() {
         let owner = -9_001;
@@ -510,6 +636,8 @@ mod tests {
                 thorough: false,
                 look_back: false,
                 about_you,
+                range: None,
+                open: None,
             }),
             opening,
             about_her: false,

@@ -35,7 +35,10 @@ pub(in crate::services::agent::merope) async fn settle(
         .iter()
         .filter(|row| row.source == unified::SHORT_NOTE_SOURCE && row.created_at >= from)
         .collect();
-    if notes.is_empty() {
+    // A private talk's stretch is placed on her nodes first, notes or none
+    // (see `memory_nodes::placing`).
+    let nodes = !present.is_group();
+    if notes.is_empty() && !nodes {
         return Ok(Effect::NoChange);
     }
     notes.sort_by_key(|row| row.created_at);
@@ -53,7 +56,7 @@ pub(in crate::services::agent::merope) async fn settle(
     let lines = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT m.role, m.content FROM agent_messages m \
+            "SELECT m.id, m.role, m.content, m.created_at FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
              WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NOT DISTINCT FROM $2 \
@@ -77,6 +80,31 @@ pub(in crate::services::agent::merope) async fn settle(
         })
         .collect();
     conversation.reverse();
+    let mut placed = Vec::new();
+    let mut site_owner = None;
+    if nodes {
+        use super::super::memory_nodes::placing::{self, Line};
+        let mut stretch: Vec<Line> = lines
+            .iter()
+            .filter_map(|row| {
+                Some(Line {
+                    id: row.try_get("", "id").ok()?,
+                    theirs: row.try_get::<String>("", "role").ok()? == "user",
+                    text: row.try_get("", "content").ok()?,
+                    at: row.try_get("", "created_at").ok()?,
+                })
+            })
+            .collect();
+        stretch.reverse();
+        site_owner = crate::services::principal::site_owner_id(db)
+            .await
+            .ok()
+            .flatten();
+        placed = placing::place(db, user_id, site_owner, &stretch).await;
+    }
+    if notes.is_empty() {
+        return Ok(Effect::NoChange);
+    }
     let theirs = conversation
         .iter()
         .filter(|(theirs, _)| *theirs)
@@ -90,11 +118,14 @@ pub(in crate::services::agent::merope) async fn settle(
         .iter()
         .map(|row| compact_summary(&row.content))
         .collect();
-    // The topics she keeps facts under that this stretch most likely
-    // touches, to put what lasts under (none outside a private talk).
-    let offered = super::super::store::offered_topics(db, user_id, present, &theirs)
-        .await
-        .map_err(|_| Failure::Storage)?;
+    // The topics on her nodes this stretch most likely touches, to put
+    // what lasts on (none outside a private talk).
+    let offered = if nodes {
+        super::super::memory_nodes::facts::shown_topics(db, user_id, site_owner, &theirs, &placed)
+            .await
+    } else {
+        Vec::new()
+    };
     let input = input(
         &conversation,
         &lately,
@@ -107,7 +138,10 @@ pub(in crate::services::agent::merope) async fn settle(
         super::super::call::Ask::new(super::super::call::Voice::Thorough, user_id, "chat_settle")
             .within(EXTRACT_TIMEOUT)
             .json_raw(
-                &myriad_merope::chat_remember::settle_system_prompt(&known),
+                &myriad_merope::chat_remember::settle_system_prompt(
+                    &known,
+                    myriad_merope::chat_remember::Examples::for_words(&theirs),
+                ),
                 &input,
                 myriad_merope::chat_remember::SETTLE_SCHEMA_NAME,
                 &myriad_merope::chat_remember::settle_schema(),
@@ -121,6 +155,16 @@ pub(in crate::services::agent::merope) async fn settle(
         offered.len(),
     )
     .ok_or(super::super::call::Failure::InvalidOutput)?;
+    // A fact written in another language than they spoke is left to its
+    // notes; how many, never what.
+    let changed = myriad_merope::chat_remember::settle_changed_language(&raw, &theirs);
+    if changed > 0 {
+        tracing::info!(
+            user_id,
+            changed,
+            "[Merope] chat settle: facts in another language than they spoke were left to their notes"
+        );
+    }
     let left = myriad_merope::chat_remember::settle_left(&raw, &lasting, notes.len());
     if lasting.is_empty() && replaces.is_empty() && left.is_empty() {
         return Ok(Effect::NoChange);
@@ -137,6 +181,7 @@ pub(in crate::services::agent::merope) async fn settle(
         from.dedup();
         settled.push(from);
         updates.updates.push(ChatMemoryUpdate {
+            standing: item.standing.clone(),
             fact: Some(compact_summary(&item.fact)),
             // What it changes goes with the first: it says how it is now.
             supersedes: if updates.updates.is_empty() {
@@ -156,6 +201,7 @@ pub(in crate::services::agent::merope) async fn settle(
         let note = notes[index];
         settled.push(vec![note.id.clone()]);
         updates.updates.push(ChatMemoryUpdate {
+            standing: Default::default(),
             fact: Some(compact_summary(&note.content)),
             supersedes: Vec::new(),
             evidence: note.evidence.clone(),
@@ -169,7 +215,7 @@ pub(in crate::services::agent::merope) async fn settle(
 
 /// The topics `offered` as she sees them beside a stretch.
 pub(in crate::services::agent::merope) fn shown_topics(
-    offered: &[super::super::store::OfferedTopic],
+    offered: &[super::super::memory_nodes::facts::OfferedTopic],
 ) -> serde_json::Value {
     let topics: Vec<myriad_merope::topics::Topic> = offered
         .iter()
@@ -186,15 +232,22 @@ pub(in crate::services::agent::merope) fn shown_topics(
 /// `None` only for a label that is not among them.
 pub(in crate::services::agent::merope) fn goes_under(
     under: &myriad_merope::topics::Under,
-    offered: &[super::super::store::OfferedTopic],
-) -> Option<super::super::store::GoesUnder> {
+    offered: &[super::super::memory_nodes::facts::OfferedTopic],
+) -> Option<super::super::memory_nodes::facts::GoesUnder> {
     use myriad_merope::topics::Under;
     match under {
-        Under::Nowhere => Some(super::super::store::GoesUnder::Nowhere),
-        Under::Offered(index) => offered
-            .get(*index)
-            .map(|topic| super::super::store::GoesUnder::Topic(topic.id.clone())),
-        Under::New { name, aliases } => Some(super::super::store::GoesUnder::New {
+        Under::Nowhere => Some(super::super::memory_nodes::facts::GoesUnder::Nowhere),
+        // About them as a person: under no topic, on their own node.
+        Under::AboutThem => Some(super::super::memory_nodes::facts::GoesUnder::AboutThem),
+        // One of her nodes shown beside the topics: a topic by its names
+        // here (`memory_nodes::facts` finds the node by them again).
+        Under::Offered(index) => offered.get(*index).map(|topic| {
+            super::super::memory_nodes::facts::GoesUnder::New {
+                name: topic.name.clone(),
+                aliases: topic.aliases.clone(),
+            }
+        }),
+        Under::New { name, aliases } => Some(super::super::memory_nodes::facts::GoesUnder::New {
             name: name.clone(),
             aliases: aliases.clone(),
         }),

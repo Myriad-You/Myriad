@@ -1,9 +1,13 @@
 import type { PhantasiNoteDoc } from '../../../../types/phantasi'
+import type { SaveRemoteImage } from '../../logic/remoteImages'
 import type { ImportProgress, NoteTransferKind, TransferNote } from './types'
 import { formatCurrent } from '../../../../i18n/localeCopy'
 import { ApiError } from '../../../../services/api'
+import { announceDataChange } from '../../../../services/dataChangeEvents'
 import * as phantasiApi from '../../../../services/phantasiApi'
+import { saveRemoteImage, siteImageOrigins } from '../../../../services/remoteMediaApi'
 import { userFacingError } from '../../../../utils/userFacingError'
+import { keepMarkdownImages, rememberSaves } from '../../logic/remoteImages'
 import { isOldPathTakenError } from '../../notes/noteOldPaths'
 import { isSlugTakenError } from '../../notes/noteSlug'
 import { showPhantasiError } from '../../phantasiNotice'
@@ -20,6 +24,10 @@ export interface ContentIoCopy {
   importStepReading: string
   importStepParsing: string
   importStepImporting: string
+  /** 导入某篇时存它的图片：{name}、{current}、{total}。 */
+  importStepImages: string
+  /** 导入完另外提醒：{count} 张图片没能存进本站。 */
+  importImagesKept: string
   errorInvalidFormat: string
   importSuccess: string
   errorImportFailed: string
@@ -27,7 +35,8 @@ export interface ContentIoCopy {
   siteTitle: string
 }
 
-type IoResult = { ok: true; message: string } | { ok: false; error: string }
+/** `warning`：做完了，但有要站长知道的事（比如有图片没能存进本站）。 */
+type IoResult = { ok: true; message: string; warning?: string } | { ok: false; error: string }
 
 interface ZipEntry {
   name: string
@@ -240,12 +249,16 @@ export async function exportTransferFile(
   }
 }
 
+/** 旧站多半已经关了：同一个外站接连这么多张都存不下，就不再一张张等超时。 */
+const IMPORT_IMAGE_GIVE_UP = 3
+
 export async function importTransferFile(
   kind: NoteTransferKind,
   file: File,
   copy: ContentIoCopy,
   onProgress: (progress: ImportProgress | null) => void,
   signal?: AbortSignal,
+  images: { save?: SaveRemoteImage; siteOrigins?: readonly string[] } = {},
 ): Promise<IoResult> {
   onProgress({ step: copy.importStepReading, current: 0, total: 0 })
   try {
@@ -254,6 +267,14 @@ export async function importTransferFile(
     if (notes.length === 0) throw new Error(copy.errorInvalidFormat)
     let imported = 0
     let skipped = 0
+    // 正文里的外站图片（旧站 wp-content/uploads 这类）先存进本站，地址换好再建笔记：
+    // 博客只显示本站图片。整次导入共用一份记录，几篇引用同一张图只存一次。
+    const saveImage = rememberSaves(images.save ?? saveRemoteImage, {
+      giveUpAfter: IMPORT_IMAGE_GIVE_UP,
+    })
+    const siteOrigins = images.siteOrigins ?? siteImageOrigins()
+    let imagesSaved = 0
+    let imagesKept = 0
     for (let i = 0; i < notes.length; i++) {
       if (signal?.aborted) break
       const note = notes[i]!
@@ -263,10 +284,25 @@ export async function importTransferFile(
         current: i + 1,
         total: notes.length,
       })
+      const kept = await keepMarkdownImages(note.content_md, siteOrigins, saveImage, {
+        signal,
+        onProgress: (done, total) => {
+          if (total === 0) return
+          onProgress({
+            step: fill(copy.importStepImages, { name: title, current: done, total }),
+            current: i + 1,
+            total: notes.length,
+          })
+        },
+      })
+      imagesSaved += kept.saved
+      imagesKept += kept.kept.length
+      if (signal?.aborted) break
+      const contentMd = kept.markdown
       try {
         const doc = await phantasiApi.createNoteDoc({
           title,
-          content_md: note.content_md,
+          content_md: contentMd,
           topic: note.topic ?? null,
           published_at: millisForApi(note.published_at),
         })
@@ -278,7 +314,7 @@ export async function importTransferFile(
               doc.revision,
               {
                 title,
-                content_md: note.content_md,
+                content_md: contentMd,
                 topic: note.topic ?? null,
                 published_at: millisForApi(note.published_at),
               },
@@ -296,9 +332,13 @@ export async function importTransferFile(
       }
     }
     onProgress(null)
+    if (imagesSaved > 0) announceDataChange('media')
     return {
       ok: true,
       message: fill(copy.importSuccess, { imported, skipped }),
+      ...(imagesKept > 0
+        ? { warning: fill(copy.importImagesKept, { count: imagesKept }) }
+        : {}),
     }
   } catch (err) {
     onProgress(null)

@@ -12,6 +12,10 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
     use axum::middleware::from_fn_with_state;
 
     Router::<crate::state::AppState>::new()
+        // 她的节点页（站长）：每个受众的节点、一个节点，删、改名、取消意图、听说
+        .merge(super::memory_nodes::routes(app_state.clone()))
+        // 把节点之前记下的搬上节点（站长）：只数不写或真搬，每次的记录
+        .merge(super::memory_migration::routes(app_state.clone()))
         // 健康检查（公开）
         .route("/health", get(health))
         // 队列状态（需要认证）
@@ -385,6 +389,14 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 middleware::auth::auth_middleware,
             )),
         )
+        // 让她忘掉一句话（连同由它记下的事；同步时两端都忘）
+        .route(
+            "/sessions/{session_id}/messages/{message_id}",
+            delete(forget_session_message).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
         // 会话里还在写的回复：刷新或新开页面时接上
         .route(
             "/sessions/{session_id}/live-run",
@@ -717,6 +729,14 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 middleware::auth::auth_middleware,
             )),
         )
+        // 她的心智此刻在哪台设备上（执笔权，只限站长）
+        .route(
+            "/mind/where",
+            get(super::mind::get_mind).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
         // 她的主机租约：她住在哪、开始 / 确认 / 取消一次搬家（会话凭据，只限站长；
         // 写站点的搬家只能在这里确认，设备令牌不行）
         .route(
@@ -880,10 +900,15 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
         )
         .route(
             "/sync/assets/{asset_id}",
-            get(super::sync::sync_asset).route_layer(from_fn_with_state(
-                app_state.clone(),
-                middleware::sync_device::sync_device_auth,
-            )),
+            get(super::sync::sync_asset)
+                .put(super::sync::sync_put_asset)
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    crate::services::persona_sync::ASSET_MAX_BYTES as usize + 4096,
+                ))
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::sync_device::sync_device_auth,
+                )),
         )
         .route(
             "/sync/moves",

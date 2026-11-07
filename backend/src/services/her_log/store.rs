@@ -42,14 +42,15 @@ use myriad_persona_log::{
 };
 use myriad_persona_sync::{Rev, canonical::canonical_bytes};
 use sea_orm::{
-    ConnectionTrait, DatabaseBackend, DatabaseConnection, QueryResult, Statement, TransactionTrait,
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, DatabaseTransaction, QueryResult,
+    Statement, TransactionTrait,
 };
 use serde::Serialize;
 use serde_json::Value;
 
 use super::{Error, NODE, Owner, keys};
 
-fn rows_of(results: Vec<QueryResult>) -> Result<Vec<Row>, Error> {
+pub(super) fn rows_of(results: Vec<QueryResult>) -> Result<Vec<Row>, Error> {
     results
         .into_iter()
         .map(|result| {
@@ -766,7 +767,7 @@ pub async fn send<C: ConnectionTrait>(
 /// The payloads of `rows`, opened and read as JSON, by row id. One whose key
 /// is gone, that does not open or that does not read, is left out: its row
 /// goes without it (`no_body`).
-async fn bodies<C: ConnectionTrait>(
+pub(super) async fn bodies<C: ConnectionTrait>(
     db: &C,
     root: &dyn keys::Root,
     user: i32,
@@ -882,6 +883,50 @@ async fn next_dseq<C: ConnectionTrait>(db: &C, user: i32, audience: &str) -> Res
     Ok(row.try_get::<i64>("", "dseq")?.max(1) as u64)
 }
 
+/// The server's next count in `user`'s `audience`, for a row of its own
+/// written elsewhere first (her nodes, `memory_nodes::logged`): under the
+/// audience's lock, as the log's own rows take theirs.
+pub(crate) async fn own_count<C: ConnectionTrait>(
+    db: &C,
+    user: i32,
+    audience: &str,
+) -> Result<u64, Error> {
+    lock(db, user, audience).await?;
+    next_dseq(db, user, audience).await
+}
+
+/// Keeps `row`, one of the server's own written elsewhere first (her
+/// nodes), in `owner`'s log as it is: its envelope already counted by
+/// [`own_count`], `body` its payload's bytes (none for a forget or a
+/// stub). A forget goes on the ledger as the server's own forgets do
+/// ([`forget_on`]), and what the ledger takes away goes.
+pub(crate) async fn keep_own<C: ConnectionTrait>(
+    db: &C,
+    root: &dyn keys::Root,
+    owner: &Owner,
+    row: &Row,
+    body: Option<&[u8]>,
+) -> Result<(), Error> {
+    let user = owner.user;
+    lock(db, user, &row.audience).await?;
+    if row.kind != "forget" || row.forgotten {
+        insert(db, user, row, NODE).await?;
+        if let (Some(body), Some(_), false) = (body, &row.payload, row.forgotten) {
+            keep_payload(db, root, user, row, body).await?;
+        }
+        return Ok(());
+    }
+    let before = ledger(db, user, &row.audience).await?;
+    let recorded = forget::record(forget::RecordInput {
+        rows: vec![row.clone()],
+        ledger: before.clone(),
+        holder: Some(owner.server()),
+    })?;
+    insert(db, user, row, NODE).await?;
+    apply_ledger(db, user, &row.audience, &before, &recorded.ledger).await?;
+    Ok(())
+}
+
 /// The owner, on the server, has her forget `target` (an object, or
 /// `subject:<id>`) in `audience` of `owner`'s log: an owner's `forget` row
 /// of the server's own. Like every row a side writes, it goes on the ledger
@@ -895,14 +940,26 @@ pub async fn forget(
     audience: &str,
     target: &str,
 ) -> Result<Row, Error> {
-    Audience::parse(audience)?;
-    let user = owner.user;
     // The count, the clock, the row and the ledger in one transaction: a
     // forget that is not kept leaves no hole in the server's count.
     let txn = db.begin().await?;
-    lock(&txn, user, audience).await?;
-    let hlc = next_rev(&txn).await?;
-    let dseq = next_dseq(&txn, user, audience).await?;
+    let row = forget_on(&txn, owner, audience, target).await?;
+    txn.commit().await?;
+    Ok(row)
+}
+
+/// [`forget`] inside the caller's transaction.
+pub(super) async fn forget_on(
+    txn: &DatabaseTransaction,
+    owner: &Owner,
+    audience: &str,
+    target: &str,
+) -> Result<Row, Error> {
+    Audience::parse(audience)?;
+    let user = owner.user;
+    lock(txn, user, audience).await?;
+    let hlc = next_rev(txn).await?;
+    let dseq = next_dseq(txn, user, audience).await?;
     let row = Row {
         version: LOG_VERSION,
         id: format!("site_{}", uuid::Uuid::new_v4().simple()),
@@ -922,15 +979,14 @@ pub async fn forget(
         takes: Vec::new(),
     };
     row.check()?;
-    let before = ledger(&txn, user, audience).await?;
+    let before = ledger(txn, user, audience).await?;
     let recorded = forget::record(forget::RecordInput {
         rows: vec![row.clone()],
         ledger: before.clone(),
         holder: Some(owner.server()),
     })?;
-    insert(&txn, user, &row, NODE).await?;
-    apply_ledger(&txn, user, audience, &before, &recorded.ledger).await?;
-    txn.commit().await?;
+    insert(txn, user, &row, NODE).await?;
+    apply_ledger(txn, user, audience, &before, &recorded.ledger).await?;
     Ok(row)
 }
 
@@ -950,24 +1006,107 @@ pub async fn write_hers(
     kind: &str,
     payload: &Value,
 ) -> Result<Row, Error> {
-    Audience::parse(audience)?;
-    myriad_persona_log::payloads::check(kind, payload)?;
     let grant = super::lease::current(db).await?;
-    if grant.holder != NODE {
+    if !grant.held_by(NODE) {
         return Err(Error::Refused("her mind is not on the server".into()));
     }
-    let user = owner.user;
+    write_row(
+        db,
+        root,
+        owner,
+        audience,
+        subject,
+        object,
+        kind,
+        payload,
+        (Author::Her, Some(grant.epoch)),
+    )
+    .await
+}
+
+/// The owner's row of the server's own, for what the owner did here (a line
+/// they said to her: `segment.line`): written wherever her mind is, as the
+/// owner's rows are on every side. Checked and sealed as [`write_hers`].
+#[allow(clippy::too_many_arguments)]
+pub async fn write_owners(
+    db: &DatabaseConnection,
+    root: &dyn keys::Root,
+    owner: &Owner,
+    audience: &str,
+    subject: Option<&str>,
+    object: &str,
+    kind: &str,
+    payload: &Value,
+) -> Result<Row, Error> {
+    write_row(
+        db,
+        root,
+        owner,
+        audience,
+        subject,
+        object,
+        kind,
+        payload,
+        (Author::Owner, None),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn write_row(
+    db: &DatabaseConnection,
+    root: &dyn keys::Root,
+    owner: &Owner,
+    audience: &str,
+    subject: Option<&str>,
+    object: &str,
+    kind: &str,
+    payload: &Value,
+    (author, epoch): (Author, Option<u64>),
+) -> Result<Row, Error> {
     let txn = db.begin().await?;
-    lock(&txn, user, audience).await?;
-    let hlc = next_rev(&txn).await?;
-    let dseq = next_dseq(&txn, user, audience).await?;
+    let row = write_row_on(
+        &txn,
+        root,
+        owner,
+        audience,
+        subject,
+        object,
+        kind,
+        payload,
+        (author, epoch),
+    )
+    .await?;
+    txn.commit().await?;
+    Ok(row)
+}
+
+/// [`write_row`] inside the caller's transaction.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn write_row_on(
+    txn: &DatabaseTransaction,
+    root: &dyn keys::Root,
+    owner: &Owner,
+    audience: &str,
+    subject: Option<&str>,
+    object: &str,
+    kind: &str,
+    payload: &Value,
+    (author, epoch): (Author, Option<u64>),
+) -> Result<Row, Error> {
+    Audience::parse(audience)?;
+    myriad_persona_log::payloads::check(kind, payload)?;
+    let user = owner.user;
+    lock(txn, user, audience).await?;
+    let hlc = next_rev(txn).await?;
+    let dseq = next_dseq(txn, user, audience).await?;
     let id = format!("site_{}", uuid::Uuid::new_v4().simple());
     let row = Row {
         version: LOG_VERSION,
         id: id.clone(),
         origin: NODE.to_string(),
-        author: Author::Her,
-        epoch: Some(grant.epoch),
+        author,
+        epoch,
         dseq: Some(dseq),
         hlc,
         audience: audience.to_string(),
@@ -984,9 +1123,8 @@ pub async fn write_hers(
         takes: Vec::new(),
     };
     row.check()?;
-    insert(&txn, user, &row, NODE).await?;
-    keep_payload(&txn, root, user, &row, &canonical_bytes(payload)).await?;
-    txn.commit().await?;
+    insert(txn, user, &row, NODE).await?;
+    keep_payload(txn, root, user, &row, &canonical_bytes(payload)).await?;
     Ok(row)
 }
 

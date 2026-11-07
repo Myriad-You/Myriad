@@ -48,6 +48,7 @@ fn fact() -> Effect {
     Effect::Chat(
         crate::services::agent::merope::chat_remember::ChatMemoryUpdates {
             updates: vec![ChatMemoryUpdate {
+                standing: Default::default(),
                 topic: None,
                 cues: Vec::new(),
                 fact: Some("养了一只猫叫年糕".into()),
@@ -64,6 +65,7 @@ fn fact_of(fact: &str) -> Effect {
     Effect::Chat(
         crate::services::agent::merope::chat_remember::ChatMemoryUpdates {
             updates: vec![ChatMemoryUpdate {
+                standing: Default::default(),
                 topic: None,
                 cues: Vec::new(),
                 fact: Some(fact.into()),
@@ -609,6 +611,102 @@ async fn durable_memory_settles_a_stretch_once_it_is_over() {
         .unwrap();
     assert_eq!(linked, 1);
     assert!(loaded(db, "settle").await.data.is_none());
+    schema.drop().await;
+}
+
+/// What they only take back is let go as they say it, even what she knows
+/// for good: a stretch that leaves no note is never gone over. A line that
+/// says how it is now still leaves what she knows for the stretch to change.
+#[tokio::test]
+#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
+async fn taking_back_lets_go_of_what_she_knows_for_good() {
+    let schema = fixture().await;
+    let db = &schema.db;
+    let known = "受够了组长，想辞职";
+    // As a line is read: what it takes back first, on its own, then what
+    // it says, if anything.
+    let line = |fact: Option<&str>| {
+        let mut updates = vec![ChatMemoryUpdate {
+            standing: Default::default(),
+            topic: None,
+            cues: Vec::new(),
+            fact: None,
+            supersedes: vec![known.into()],
+            evidence: Some("辞职那个你就当没听过吧".into()),
+            concepts: vec![],
+        }];
+        updates.extend(fact.map(|fact| ChatMemoryUpdate {
+            standing: Default::default(),
+            topic: None,
+            cues: Vec::new(),
+            fact: Some(fact.into()),
+            supersedes: vec![],
+            evidence: Some(fact.into()),
+            concepts: vec![],
+        }));
+        crate::services::agent::merope::chat_remember::ChatMemoryUpdates {
+            updates,
+            said: vec![],
+            put_onto: vec![],
+        }
+    };
+    let Effect::Chat(lasting) = fact_of(known) else {
+        unreachable!()
+    };
+    assert!(
+        super::super::apply_chat_memory_updates_on(
+            db,
+            7,
+            crate::clock::now().fixed_offset(),
+            &lasting,
+            &Audience::private(7),
+            super::super::Keep::Lasting,
+        )
+        .await
+        .unwrap()
+    );
+    let active = || async {
+        db.query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT content, source FROM agent_memories WHERE invalid_at IS NULL ORDER BY created_at"
+                .to_string(),
+        ))
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| {
+            (
+                row.try_get::<String>("", "content").unwrap(),
+                row.try_get::<String>("", "source").unwrap(),
+            )
+        })
+        .collect::<Vec<_>>()
+    };
+
+    chat(db, "change", Audience::private(7)).await;
+    let change = claim(db).await.unwrap().unwrap();
+    finish(db, &change, Ok(Effect::Chat(line(Some("受够了组长")))))
+        .await
+        .unwrap();
+    assert_eq!(
+        active().await,
+        [
+            (known.to_string(), "chat".to_string()),
+            ("受够了组长".to_string(), "chat_note".to_string()),
+        ],
+        "a change waits for the stretch"
+    );
+
+    chat(db, "back", Audience::private(7)).await;
+    let back = claim(db).await.unwrap().unwrap();
+    finish(db, &back, Ok(Effect::Chat(line(None))))
+        .await
+        .unwrap();
+    assert_eq!(
+        active().await,
+        [("受够了组长".to_string(), "chat_note".to_string())],
+        "taken back at once"
+    );
     schema.drop().await;
 }
 

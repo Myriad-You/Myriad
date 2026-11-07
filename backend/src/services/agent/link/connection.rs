@@ -41,6 +41,17 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
+/// The account has its partner id: her nodes in the site owner's talk go
+/// under it, off the welcome's way.
+fn talk_under_partner(db: DatabaseConnection) {
+    tokio::spawn(async move {
+        if let Err(error) = crate::services::agent::merope::memory_nodes::partner::settle(&db).await
+        {
+            tracing::warn!(%error, "[link] the site owner's talk could not move to the partner id");
+        }
+    });
+}
+
 fn conversations_every() -> std::time::Duration {
     #[cfg(test)]
     if let Some(every) = CONVERSATIONS_EVERY_IN_TEST.with(std::cell::Cell::get) {
@@ -50,6 +61,7 @@ fn conversations_every() -> std::time::Duration {
 }
 
 /// A frame on its way to the child; the link numbers it as it goes out.
+#[derive(Clone)]
 pub(super) struct Outgoing {
     pub(super) t: &'static str,
     id: Option<String>,
@@ -79,6 +91,9 @@ impl Outgoing {
 /// A frame as a child sends it. Every field but `id` is required.
 #[derive(Deserialize)]
 pub(super) struct Inbound {
+    /// The frame version; `None` from an end that sends none (protocol 1).
+    #[serde(default)]
+    pub(super) v: Option<u64>,
     pub(super) t: String,
     pub(super) seq: u64,
     pub(super) ack: u64,
@@ -209,10 +224,19 @@ pub(super) async fn serve_with(
         wardrobe: None,
         live: None,
         host: false,
+        sync: false,
+        relay: None,
         core_refused: HashSet::new(),
     };
     tracing::info!(device = %link.device.id, "[link] opened");
     let why = link.run(sink, stream, rx, closed).await;
+    // Closed for speaking another protocol: its devices page says the app on
+    // it is to be updated, until a hello of it is taken.
+    if why == Some(Close::UnsupportedProtocol)
+        && let Err(error) = devices::app_outdated(&link.db, &link.device.id, true).await
+    {
+        tracing::warn!(%error, device = %link.device.id, "[link] that the app is to be updated could not be kept");
+    }
     // A device that is not one any more fails what it was asked to do.
     if matches!(why, Some(Close::Revoked | Close::OwnerChanged)) {
         super::act::forget_device(&link.device.id);
@@ -289,6 +313,11 @@ struct Link {
     /// The end dialled in as her host (the device she lives on, H3e-7): it
     /// only hears what becomes of her there.
     host: bool,
+    /// Whether this link's welcome said `sync` on: only then may the sync
+    /// families (`lease`, `log`, `group`, `chat`) flow on it.
+    sync: bool,
+    /// While it syncs: what her log's relay remembers of this link session.
+    relay: Option<crate::services::her_log::relay::Session>,
     /// What the shared core refused of the child's frames on this link and
     /// was logged: `t code`, a frame type outside the contract as `?`.
     core_refused: HashSet<String>,
@@ -393,6 +422,7 @@ impl Link {
     async fn send(&mut self, sink: &mut Sink, outgoing: Outgoing) -> bool {
         self.sent += 1;
         let mut envelope = json!({
+            "v": CONTRACT.encoding.frame_version,
             "t": outgoing.t,
             "seq": self.sent,
             "ack": self.heard,
@@ -417,6 +447,67 @@ impl Link {
 
     fn reply(&mut self, outgoing: Outgoing) {
         self.queue.push(outgoing);
+    }
+
+    /// A frame of her log, her lease or a lent chat while she syncs: what
+    /// the server does with it is the relay's (`her_log::relay::take`).
+    async fn relayed(&mut self, text: &str, seq: u64) {
+        use crate::services::her_log::{self, relay};
+        let Ok(frame) = serde_json::from_str::<Value>(text) else {
+            self.error("bad_frame", Some(seq));
+            return;
+        };
+        let settings = crate::services::her_log::current_settings();
+        let session = self.relay.get_or_insert_with(relay::Session::default);
+        let taken = relay::take(
+            &self.db,
+            her_log::keys::root(),
+            &settings,
+            self.owner,
+            &self.device.id,
+            // Every end that dials in is the app on a computer.
+            myriad_persona_log::Core::Pc,
+            session,
+            &frame,
+            crate::clock::now().timestamp_micros(),
+        )
+        .await;
+        match taken {
+            Ok(out) => self.deliver(out),
+            Err(her_log::Error::Off) => self.error("sync_off", Some(seq)),
+            Err(her_log::Error::ClockAhead { .. }) => self.error("clock_ahead", Some(seq)),
+            Err(her_log::Error::Refused(why)) => {
+                tracing::info!(device = %self.device.id, why = %why, "[link] a frame of her log was refused");
+                self.error("bad_frame", Some(seq));
+            }
+            Err(error) => {
+                tracing::warn!(%error, device = %self.device.id, "[link] a frame of her log was not taken");
+                self.error("internal_error", Some(seq));
+            }
+        }
+    }
+
+    /// What the relay answers, each where it goes: back on this link, to
+    /// one device, or to the owner's other computers too.
+    fn deliver(&mut self, out: Vec<crate::services::her_log::relay::Outgoing>) {
+        use crate::services::her_log::relay::To;
+        for one in out {
+            let outgoing = Outgoing {
+                t: one.t,
+                id: one.id,
+                body: one.body,
+            };
+            match one.to {
+                To::Sender => self.reply(outgoing),
+                To::Device(device) if device == self.device.id => self.reply(outgoing),
+                To::Device(device) => super::send_log(self.owner, &device, outgoing),
+                To::Hosts => super::send_log_all(self.owner, &self.device.id, outgoing),
+                To::Everyone => {
+                    super::send_log_all(self.owner, &self.device.id, outgoing.clone());
+                    self.reply(outgoing);
+                }
+            }
+        }
     }
 
     fn error(&mut self, code: &str, frame_seq: Option<u64>) {
@@ -467,6 +558,21 @@ impl Link {
         };
         self.heard = self.heard.max(inbound.seq);
         self.acked(inbound.ack);
+        if inbound.v != Some(CONTRACT.encoding.frame_version) {
+            if !self.hello {
+                // An end on another protocol (protocol 1 sent no v) is told
+                // that, so it shows the site needs updating.
+                let other =
+                    inbound.t == "hello" && inbound.body["protocol"] != json!(CONTRACT.protocol);
+                return Some(if other {
+                    Close::UnsupportedProtocol
+                } else {
+                    Close::BadFrame
+                });
+            }
+            self.error("version_unsupported", Some(inbound.seq));
+            return None;
+        }
         if !self.hello {
             if inbound.t != "hello" {
                 self.error("not_ready", Some(inbound.seq));
@@ -503,10 +609,25 @@ impl Link {
             "act.result" => self.act_result(inbound).await,
             "ping" => self.reply(frame("pong", json!({}))),
             "ack" | "pong" => {}
+            // A sync family's frame: her log's relay takes it while she
+            // syncs; a link whose welcome said sync off is told that.
+            t if self.sync && myriad_her_link::needs_sync(t) => {
+                self.relayed(text, inbound.seq).await
+            }
+            t if !self.sync && myriad_her_link::needs_sync(t) => {
+                self.error("sync_off", Some(inbound.seq))
+            }
             t if CONTRACT.frames.contains_key(t) => self.error("bad_frame", Some(inbound.seq)),
             _ => self.error("unknown_frame", Some(inbound.seq)),
         }
         None
+    }
+
+    /// A hello of it was taken: the app on it speaks this protocol.
+    async fn app_current(&self) {
+        if let Err(error) = devices::app_outdated(&self.db, &self.device.id, false).await {
+            tracing::warn!(%error, device = %self.device.id, "[link] that the app is current could not be kept");
+        }
     }
 
     async fn hello(&mut self, body: Value) -> Option<Close> {
@@ -518,8 +639,12 @@ impl Link {
         }
         match hello.role.as_str() {
             "child" => {}
-            // The device she lives on, as her host (H3e-7).
-            "host" => return self.host_hello(hello).await,
+            // An app from before the device she lives on dialled as a child
+            // too: told to update, as for another protocol.
+            "host" => {
+                tracing::info!(device = %self.device.id, "[link] a hello as her host, from an app before the links were one");
+                return Some(Close::UnsupportedProtocol);
+            }
             _ => return Some(Close::BadFrame),
         }
         if !CONTRACT.surfaces.contains(&hello.surface) {
@@ -534,20 +659,32 @@ impl Link {
                 return Some(Close::Unavailable);
             }
         };
+        let mut capabilities: Vec<String> = Vec::new();
+        for capability in &hello.capabilities {
+            if CONTRACT.capabilities.contains(capability) && !capabilities.contains(capability) {
+                capabilities.push(capability.clone());
+            }
+        }
+        // The device she lives on, as her host (H3e-7).
+        if let Some(lease) = lease
+            .as_ref()
+            .filter(|lease| lease.lives_on(&self.device.id))
+        {
+            return self.host_hello(&hello, lease, &capabilities).await;
+        }
         match lease.as_ref().map(|lease| lease.place()) {
-            None | Some(crate::services::persona_sync::lease::Where::Here) => {}
+            None
+            | Some(
+                crate::services::persona_sync::lease::Where::Here
+                | crate::services::persona_sync::lease::Where::MindOn(_),
+            ) => {}
             Some(crate::services::persona_sync::lease::Where::Moving) => {
                 return Some(Close::HostFrozen);
             }
             Some(_) => return Some(Close::HostMoved),
         }
-        let mut capabilities: Vec<String> = Vec::new();
-        for capability in hello.capabilities {
-            if CONTRACT.capabilities.contains(&capability) && !capabilities.contains(&capability) {
-                capabilities.push(capability);
-            }
-        }
         self.hello = true;
+        self.app_current().await;
         let mut told = Vec::new();
         for turn in turns::recent(&self.device.id, turns::TOLD_IN_WELCOME) {
             let Some(run) = get_live_run_for_user(&turn.run_id, self.owner).await else {
@@ -565,8 +702,26 @@ impl Link {
             }
             told.push(told_turn);
         }
+        // Her log, her lease and the lent chats flow on this link only while
+        // the owner syncs her and the site keeps her log.
+        let settings = crate::services::her_log::current_settings();
+        let sync = match crate::services::her_log::pen::in_play(
+            &self.db,
+            &settings,
+            Some(self.owner),
+        )
+        .await
+        {
+            Ok(on) => on,
+            Err(error) => {
+                tracing::warn!(%error, device = %self.device.id, "[link] whether she syncs could not be read; welcomed with sync off");
+                false
+            }
+        };
+        self.sync = sync;
         let mut welcome = json!({
             "protocol": CONTRACT.protocol,
+            "sync": if sync { "on" } else { "off" },
             "role": "host",
             "host": "site",
             "deviceId": self.device.id,
@@ -587,13 +742,32 @@ impl Link {
             .any(|capability| capability == "partner")
         {
             match crate::services::her_log::partner_id(&self.db, self.owner).await {
-                Ok(partner) => welcome["partner"] = json!(partner),
+                Ok(partner) => {
+                    welcome["partner"] = json!(partner);
+                    talk_under_partner(self.db.clone());
+                }
                 Err(error) => {
                     tracing::warn!(%error, device = %self.device.id, "[link] the account's partner id could not be read; welcomed without it");
                 }
             }
         }
         self.reply(frame("welcome", welcome));
+        if sync {
+            self.relay = Some(crate::services::her_log::relay::Session::new(
+                crate::services::her_log::relay::peer_abi(&capabilities),
+            ));
+            super::takes_log(&self.device.id, self.registered, self.tx.clone());
+            // Where her mind is, and to a holder coming back after the
+            // server took her over, the takeover.
+            match crate::services::her_log::relay::welcome(&self.db, &settings, &self.device.id)
+                .await
+            {
+                Ok(out) => self.deliver(out),
+                Err(error) => {
+                    tracing::warn!(%error, device = %self.device.id, "[link] where her mind is could not be told");
+                }
+            }
+        }
         self.playback = capabilities
             .iter()
             .any(|capability| capability == "playback");
@@ -739,37 +913,32 @@ impl Link {
         None
     }
 
-    /// The device she lives on dials in as her host: welcomed only while it
-    /// holds her lease at the epoch it heard; otherwise she moved (it lets
-    /// its copy go). It is told at once if she is frozen there for a move.
-    async fn host_hello(&mut self, hello: Hello) -> Option<Close> {
-        use crate::services::persona_sync::lease::{self, State};
-        if !CONTRACT.surfaces.contains(&hello.surface) {
-            return Some(Close::BadFrame);
-        }
-        let lease = match lease::read(&self.db).await {
-            Ok(lease) => lease,
-            Err(error) => {
-                tracing::warn!(%error, device = %self.device.id, "[link] could not read her host lease");
-                return Some(Close::Unavailable);
-            }
-        };
-        let Some(lease) = lease else {
-            return Some(Close::HostIsSite);
-        };
-        let holds = lease.holder == self.device.id
-            && matches!(lease.state, State::Live | State::Frozen)
-            && hello.host_epoch.is_none_or(|epoch| epoch == lease.epoch);
+    /// The device she lives on (`lease` names it): welcomed as her host
+    /// (host app) only while it holds her lease at the epoch it heard;
+    /// otherwise she moved (it lets its copy go). It is told at once if she
+    /// is frozen there for a move.
+    async fn host_hello(
+        &mut self,
+        hello: &Hello,
+        lease: &crate::services::persona_sync::lease::Lease,
+        capabilities: &[String],
+    ) -> Option<Close> {
+        // The epoch it heard is one of its holding: freezing her there for
+        // a move and thawing her move the epoch on, not her.
+        let holds = hello
+            .host_epoch
+            .is_none_or(|epoch| (lease.since..=lease.epoch).contains(&epoch));
         if !holds {
             tracing::info!(device = %self.device.id, epoch = lease.epoch, heard = ?hello.host_epoch, "[link] a host that does not hold her lease: she moved");
             return Some(Close::HostMoved);
         }
         self.hello = true;
+        self.app_current().await;
         self.host = true;
         let frozen = lease
             .moving
             .as_ref()
-            .filter(|moving| lease.state == State::Frozen && moving.from == self.device.id);
+            .filter(|moving| lease.frozen && moving.from == self.device.id);
         super::takes_host(
             &self.device.id,
             self.registered,
@@ -778,16 +947,18 @@ impl Link {
         );
         let mut welcome = json!({
             "protocol": CONTRACT.protocol,
-            "role": "site",
+            // Her host's link carries nothing of the sync families.
+            "sync": "off",
+            "role": "host",
             "host": "app",
             "deviceId": self.device.id,
             "deviceName": self.device.name,
             "lineage": lease.lineage,
             "hostEpoch": lease.epoch,
             "heartbeatMs": self.timing.heartbeat.as_millis() as u64,
-            // What the site itself can do: its core reads her log's merge,
-            // split and retract rows (ABI 2).
-            "capabilities": ["log2"],
+            // As accepted, on every link alike (the site's core reads her
+            // log's merge, split and retract rows: log2 is taken).
+            "capabilities": capabilities,
             "turns": [],
             "serverTime": crate::clock::now().timestamp_millis(),
         });
@@ -795,13 +966,15 @@ impl Link {
         // here (it holds her lease at the epoch it said): it moves to it while
         // her writes are stopped, so she comes back under the id the site
         // holds.
-        if hello
-            .capabilities
+        if capabilities
             .iter()
             .any(|capability| capability == "partner")
         {
             match crate::services::her_log::partner_id(&self.db, self.owner).await {
-                Ok(partner) => welcome["partner"] = json!(partner),
+                Ok(partner) => {
+                    welcome["partner"] = json!(partner);
+                    talk_under_partner(self.db.clone());
+                }
                 Err(error) => {
                     tracing::warn!(%error, device = %self.device.id, "[link] the account's partner id could not be read; her host is welcomed without it");
                 }

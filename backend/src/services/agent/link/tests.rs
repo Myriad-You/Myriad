@@ -50,20 +50,30 @@ fn strings(values: &[&str]) -> BTreeSet<String> {
 #[test]
 fn the_host_speaks_the_contract() {
     let raw: Value = serde_json::from_str(CONTRACT_JSON).unwrap();
-    assert_eq!(CONTRACT.protocol, 1);
+    assert_eq!(CONTRACT.protocol, 2);
     assert_eq!(CONTRACT.path, "/api/agent/link");
     assert_eq!(raw["auth"]["tokenPrefix"], devices::TOKEN_PREFIX);
     assert_eq!(CONTRACT.hosts, ["site", "app"]);
     assert_eq!(CONTRACT.surfaces, ["app"]);
-    // Every frame type is one the host sends, takes, or both.
-    let declared: BTreeSet<String> = CONTRACT.frames.keys().cloned().collect();
+    // Every frame type of no family is one the host sends, takes, or both;
+    // the families' (lease, log, fact…) are her log's and her mind's.
+    let declared: BTreeSet<String> = CONTRACT
+        .frames
+        .keys()
+        .filter(|t| myriad_her_link::family(t).is_none())
+        .cloned()
+        .collect();
     let known: BTreeSet<String> = HOST_FRAMES
         .iter()
         .chain(CHILD_FRAMES.iter())
         .map(|t| t.to_string())
         .collect();
     assert_eq!(declared, known);
-    for (t, spec) in &CONTRACT.frames {
+    for (t, spec) in CONTRACT
+        .frames
+        .iter()
+        .filter(|(t, _)| myriad_her_link::family(t).is_none())
+    {
         let host = HOST_FRAMES.contains(&t.as_str());
         let child = CHILD_FRAMES.contains(&t.as_str());
         let from = match (host, child) {
@@ -132,9 +142,28 @@ fn the_host_speaks_the_contract() {
         Duration::from_secs(crate::services::agent::presence_window::PRESENCE_WINDOW_SECS as u64),
         "a line waits as long as presence lasts"
     );
-    // Codes: what the host sends is declared, and declared codes are what it sends.
+    // Codes: what the host sends is declared, and declared codes are what it
+    // sends, or what her log's relay (`her_log::relay`, `her_log::lend`)
+    // and the shared core's frame rules refuse with.
     let declared: BTreeSet<String> = CONTRACT.error_codes.keys().cloned().collect();
-    assert_eq!(declared, strings(&HOST_ERROR_CODES));
+    let theirs = [
+        "bad_sealed",
+        "too_many",
+        "not_for_me",
+        "not_holder",
+        "stale_epoch",
+        "clock_ahead",
+        "group_unknown",
+        "chat_unknown",
+        "sync_off",
+    ];
+    assert_eq!(
+        declared,
+        strings(&HOST_ERROR_CODES)
+            .union(&strings(&theirs))
+            .cloned()
+            .collect::<BTreeSet<_>>()
+    );
     let mut numbers = BTreeSet::new();
     for spec in CONTRACT.close_codes.values() {
         assert!((4000..5000).contains(&spec.code));
@@ -182,7 +211,7 @@ fn every_frame_has_a_fixture_that_fits_it() {
         seen.insert(t.to_string());
         // Its envelope and body as the shared core checks them.
         core_check(frame).unwrap_or_else(|refusal| panic!("{t}: {refusal:?}"));
-        assert!(frame.get("v").is_none(), "{t}: protocol 1 has no v");
+        assert_eq!(frame["v"], CONTRACT.encoding.frame_version, "{t}");
         assert!(frame["at"].as_i64().is_some(), "{t}");
         // What a child sends, the host reads.
         if spec.from != "host" {
@@ -192,7 +221,7 @@ fn every_frame_has_a_fixture_that_fits_it() {
                     let hello: Hello = serde_json::from_value(inbound.body).unwrap();
                     // A child's, or the device she lives on saying the
                     // epoch it holds her lease at.
-                    assert_eq!(hello.protocol, 1);
+                    assert_eq!(hello.protocol, 2);
                     match hello.role.as_str() {
                         "child" => {}
                         "host" => assert!(hello.host_epoch.is_some()),
@@ -450,7 +479,7 @@ impl Site {
 
 /// A ping as a child sends it, to bend one way at a time.
 fn ping() -> Value {
-    json!({ "t": "ping", "seq": 3, "ack": 0, "at": 1_760_140_800_000_i64, "body": {} })
+    json!({ "v": 1, "t": "ping", "seq": 3, "ack": 0, "at": 1_760_140_800_000_i64, "body": {} })
 }
 
 /// Where the shared core's rules and the host's own read of a child's frame
@@ -465,26 +494,28 @@ fn where_they_differ() -> Vec<(&'static str, String, Option<&'static str>, bool)
         bend(&mut frame);
         frame.to_string()
     };
-    let mut lease_ask = serde_json::from_str::<Value>(FIXTURES_JSON).unwrap()["next"]["frames"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|frame| frame["t"] == "lease.ask")
-        .unwrap()
-        .clone();
-    lease_ask.as_object_mut().unwrap().remove("v");
+    let lease_ask = fixture("lease.ask");
     vec![
+        // Both refuse a v that is not the contract's.
+        (
+            "a v the core does not read",
+            bent(&|frame| frame["v"] = json!(2)),
+            Some("version_unsupported"),
+            true,
+        ),
+        (
+            "a frame without v (the host: version_unsupported)",
+            bent(&|frame| {
+                frame.as_object_mut().unwrap().remove("v");
+            }),
+            Some("bad_frame"),
+            true,
+        ),
         // The core is stricter: the host takes these.
         (
             "an envelope field the contract does not name",
             bent(&|frame| frame["trace"] = json!("x")),
             Some("bad_frame"),
-            true,
-        ),
-        (
-            "a v the core does not read",
-            bent(&|frame| frame["v"] = json!(2)),
-            Some("version_unsupported"),
             true,
         ),
         (
@@ -565,12 +596,12 @@ fn where_they_differ() -> Vec<(&'static str, String, Option<&'static str>, bool)
         ),
         (
             "an envelope field twice",
-            r#"{"t":"ping","seq":3,"seq":4,"ack":0,"at":1,"body":{}}"#.to_string(),
+            r#"{"v":1,"t":"ping","seq":3,"seq":4,"ack":0,"at":1,"body":{}}"#.to_string(),
             None,
             false,
         ),
         (
-            "a protocol-2 frame (the host: unknown_frame)",
+            "a lease frame on a link whose welcome said sync off (the host: sync_off)",
             lease_ask.to_string(),
             None,
             true,
@@ -701,7 +732,7 @@ impl Child {
     async fn send(&mut self, t: &str, id: Option<&str>, body: Value) -> u64 {
         self.seq += 1;
         let mut frame = json!({
-            "t": t, "seq": self.seq, "ack": self.heard,
+            "v": 1, "t": t, "seq": self.seq, "ack": self.heard,
             "at": crate::clock::now().timestamp_millis(), "body": body,
         });
         if let Some(id) = id {
@@ -781,7 +812,7 @@ impl Child {
         self.send(
             "hello",
             None,
-            json!({ "protocol": 1, "role": "child", "surface": "app",
+            json!({ "protocol": 2, "role": "child", "surface": "app",
                     "capabilities": capabilities }),
         )
         .await;
@@ -899,6 +930,67 @@ async fn the_welcome_gives_the_partner_id_only_to_an_end_that_knows_it() {
     site.close().await;
 }
 
+/// With her log on for the account, the link takes the sync families to
+/// her log's relay, and what it answers goes where it says: the grant to
+/// the Mac that asked, where her mind is now to every computer of the
+/// owner's, the Mac's vector back to it.
+#[tokio::test]
+async fn her_log_goes_over_the_link_while_she_syncs() {
+    let Some(site) = site().await else {
+        return;
+    };
+    crate::services::her_log::test_settings::set(crate::services::her_log::Settings {
+        enabled: true,
+        ..crate::services::her_log::Settings::default()
+    });
+    crate::services::her_log::store::start(&site.db, OWNER)
+        .await
+        .unwrap();
+    let (_, mac) = device(&site.db, "MacBook").await;
+    let (_, mini) = device(&site.db, "Mac mini").await;
+    let mut mac = Child::open(&site, &mac).await;
+    let welcome = mac.hello_with(&["partner", "log2"]).await;
+    assert_eq!(welcome["body"]["sync"], "on");
+    let personal = format!("personal:{}", welcome["body"]["partner"].as_str().unwrap());
+    let mut mini = Child::open(&site, &mini).await;
+    assert_eq!(
+        mini.hello_with(&["partner", "log2"]).await["body"]["sync"],
+        "on"
+    );
+
+    mac.send("lease.ask", None, json!({ "why": "talk" })).await;
+    let grant = mac.expect("lease.grant").await;
+    let epoch = mac.expect("lease.epoch").await;
+    assert_eq!(epoch["body"]["epoch"], grant["body"]["grant"]["epoch"]);
+    assert_eq!(mini.expect("lease.epoch").await["body"], epoch["body"]);
+
+    mac.send(
+        "log.vector",
+        None,
+        json!({ "audience": personal, "vector": {} }),
+    )
+    .await;
+    assert_eq!(
+        mac.expect("log.vector").await["body"]["audience"],
+        personal.as_str()
+    );
+
+    // A frame of her log the relay refuses is answered, and the link stays.
+    let seq = mac
+        .send(
+            "log.vector",
+            None,
+            json!({ "audience": "group:nowhere", "vector": {} }),
+        )
+        .await;
+    let refused = mac.expect("error").await;
+    assert_eq!(refused["body"]["code"], "not_holder");
+    assert_eq!(refused["body"]["ref"], seq);
+    mac.send("ping", None, json!({})).await;
+    mac.expect("pong").await;
+    site.close().await;
+}
+
 #[tokio::test]
 async fn hello_welcome_and_what_the_link_will_not_take() {
     let Some(site) = site().await else {
@@ -922,7 +1014,8 @@ async fn hello_welcome_and_what_the_link_will_not_take() {
     let welcome = child.hello().await;
     assert_eq!(welcome["ack"], 2, "the host acknowledges what it heard");
     let body = &welcome["body"];
-    assert_eq!(body["protocol"], 1);
+    assert_eq!(body["protocol"], 2);
+    assert_eq!(body["sync"], "off", "her log on the site is off");
     assert_eq!(
         (body["role"].as_str(), body["host"].as_str()),
         (Some("host"), Some("site"))
@@ -975,16 +1068,18 @@ async fn hello_welcome_and_what_the_link_will_not_take() {
 
     // A handshake that is not one closes the link, saying why.
     for (hello, close) in [
+        // An app from before the device she lives on dialled as a child:
+        // told to update.
         (
-            json!({ "protocol": 1, "role": "host", "surface": "app" }),
-            Close::HostIsSite,
-        ),
-        (
-            json!({ "protocol": 2, "role": "child", "surface": "app" }),
+            json!({ "protocol": 2, "role": "host", "surface": "app" }),
             Close::UnsupportedProtocol,
         ),
         (
-            json!({ "protocol": 1, "role": "child", "surface": "fridge" }),
+            json!({ "protocol": 1, "role": "child", "surface": "app" }),
+            Close::UnsupportedProtocol,
+        ),
+        (
+            json!({ "protocol": 2, "role": "child", "surface": "fridge" }),
             Close::BadFrame,
         ),
         (json!({ "role": "child" }), Close::BadFrame),
@@ -996,6 +1091,53 @@ async fn hello_welcome_and_what_the_link_will_not_take() {
             (close.code(), close.name().to_string())
         );
     }
+    // The shared core's hellos the host closes on, each with its code.
+    let shared: Value = serde_json::from_str(FIXTURES_JSON).unwrap();
+    for case in shared["closed"].as_array().unwrap() {
+        let mut other = Child::open(&site, &token).await;
+        other
+            .raw(Message::Text(case["frame"].to_string().into()))
+            .await;
+        let close = Close::ALL
+            .into_iter()
+            .find(|close| close.name() == case["close"])
+            .unwrap();
+        assert_eq!(
+            other.closed().await,
+            (close.code(), close.name().to_string())
+        );
+    }
+    // An App on protocol 1 sends its hello without v: it is told the
+    // protocol, so it can say the site needs updating.
+    let mut other = Child::open(&site, &token).await;
+    let old = json!({ "t": "hello", "seq": 1, "ack": 0, "at": 1_760_140_800_000_i64,
+        "body": { "protocol": 1, "role": "child", "surface": "app" } });
+    other.raw(Message::Text(old.to_string().into())).await;
+    let close = Close::UnsupportedProtocol;
+    assert_eq!(
+        other.closed().await,
+        (close.code(), close.name().to_string())
+    );
+    // Its devices page says the app on it is to be updated (kept as the
+    // link ends, a moment after the close), until a hello of it is taken.
+    let outdated = || async {
+        devices::list(&site.db, OWNER)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|device| device.id == mac.id)
+            .unwrap()
+            .app_outdated_at
+    };
+    let mut kept = outdated().await;
+    for _ in 0..100 {
+        if kept.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        kept = outdated().await;
+    }
+    assert!(kept.is_some());
     let mut other = Child::open(&site, &token).await;
     other.raw(Message::Text("{".into())).await;
     assert_eq!(other.closed().await, (4400, "bad_frame".to_string()));
@@ -1005,6 +1147,7 @@ async fn hello_welcome_and_what_the_link_will_not_take() {
     // Removing the device closes its link at once, and it cannot come back.
     let mut child = Child::open(&site, &token).await;
     child.hello().await;
+    assert_eq!(outdated().await, None, "a hello taken clears it");
     devices::revoke(&site.db, OWNER, &mac.id, RevokeReason::ByOwner)
         .await
         .unwrap();
@@ -1043,12 +1186,13 @@ async fn the_host_answers_as_before_where_the_core_is_stricter() {
         .send(
             "hello",
             None,
-            json!({ "protocol": 1, "role": "child", "surface": "app", "trace": "x" }),
+            json!({ "protocol": 2, "role": "child", "surface": "app", "trace": "x" }),
         )
         .await;
     child.expect("welcome").await;
     let answers: Vec<Value> = vec![
-        json!({ "t": "pong" }),
+        json!({ "t": "error", "body": { "code": "version_unsupported" } }),
+        json!({ "t": "error", "body": { "code": "version_unsupported" } }),
         json!({ "t": "pong" }),
         json!({ "t": "pong" }),
         json!({ "t": "pong" }),
@@ -1061,7 +1205,7 @@ async fn the_host_answers_as_before_where_the_core_is_stricter() {
         json!({ "t": "error", "body": { "code": "bad_frame" }, "unref": true }),
         json!({ "t": "error", "body": { "code": "bad_frame" }, "unref": true }),
         json!({ "t": "error", "body": { "code": "bad_frame" }, "unref": true }),
-        json!({ "t": "error", "body": { "code": "unknown_frame" } }),
+        json!({ "t": "error", "body": { "code": "sync_off" } }),
         json!({ "t": "error", "body": { "code": "bad_frame" } }),
     ];
     let cases = where_they_differ();
@@ -1112,18 +1256,15 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
         .unwrap();
     let (mac, token) = device(&site.db, "Studio").await;
     let (_, other) = device(&site.db, "Laptop").await;
-    site.db
-        .execute_unprepared(&format!(
-            "UPDATE agent_host_lease SET holder = '{}', epoch = 2",
-            mac.id
-        ))
+    use crate::services::persona_sync::lease::{SITE, State, seed};
+    seed(&site.db, &mac.id, &born.lineage, 2, State::Away)
         .await
         .unwrap();
     let mut host = Child::open(&site, &token).await;
     host.send(
         "hello",
         None,
-        json!({ "protocol": 1, "role": "host", "surface": "app", "capabilities": ["rig"],
+        json!({ "protocol": 2, "role": "child", "surface": "app", "capabilities": ["rig"],
                 "lineage": born.lineage, "hostEpoch": 2 }),
     )
     .await;
@@ -1133,10 +1274,11 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
             welcome["body"]["role"].as_str(),
             welcome["body"]["host"].as_str()
         ),
-        (Some("site"), Some("app"))
+        (Some("host"), Some("app"))
     );
-    // The site's own list: its core reads log2 rows.
-    assert_eq!(welcome["body"]["capabilities"], json!(["log2"]));
+    // Its list as accepted, as on every link.
+    assert_eq!(welcome["body"]["capabilities"], json!(["rig"]));
+    assert_eq!(welcome["body"]["turns"], json!([]));
     assert!(welcome["body"].get("partner").is_none());
     assert_eq!(welcome["body"]["hostEpoch"], 2);
     assert_eq!(welcome["body"]["lineage"], born.lineage.as_str());
@@ -1165,7 +1307,7 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
     host.send(
         "hello",
         None,
-        json!({ "protocol": 1, "role": "host", "surface": "app",
+        json!({ "protocol": 2, "role": "child", "surface": "app",
                 "capabilities": ["rig", "partner", "log2"],
                 "lineage": born.lineage, "hostEpoch": 2 }),
     )
@@ -1178,7 +1320,11 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
             .unwrap()
             .as_str()
     );
-    assert_eq!(welcome["body"]["capabilities"], json!(["log2"]));
+    // The site's core reads log2 rows: taken.
+    assert_eq!(
+        welcome["body"]["capabilities"],
+        json!(["rig", "partner", "log2"])
+    );
     // Everything the shared core's welcome to a host carries.
     let shaped = fixtures()
         .into_iter()
@@ -1186,9 +1332,12 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
         .unwrap();
     assert!(keys(&shaped["body"]).is_subset(&keys(&welcome["body"])));
     drop(host);
-    // The device she lived on, at an old epoch: she moved since.
-    site.db
-        .execute_unprepared("UPDATE agent_host_lease SET epoch = 3")
+    // The device she lived on, at an old epoch: she moved since (to the
+    // site and back to it).
+    seed(&site.db, SITE, &born.lineage, 3, State::Live)
+        .await
+        .unwrap();
+    seed(&site.db, &mac.id, &born.lineage, 4, State::Away)
         .await
         .unwrap();
     let mut stale = Child::open(&site, &token).await;
@@ -1196,7 +1345,7 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
         .send(
             "hello",
             None,
-            json!({ "protocol": 1, "role": "host", "surface": "app", "hostEpoch": 2 }),
+            json!({ "protocol": 2, "role": "child", "surface": "app", "hostEpoch": 2 }),
         )
         .await;
     assert_eq!(

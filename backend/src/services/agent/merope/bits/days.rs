@@ -428,7 +428,7 @@ pub(super) async fn put_day(
         .iter()
         .filter_map(|row| row.try_get::<String>("", "id").ok())
         .collect();
-    let _ = unified::remember_in_place_of(
+    let kept = unified::remember_in_place_of(
         db,
         unified::NewMemory {
             user_id: circle.keeper(),
@@ -449,6 +449,9 @@ pub(super) async fn put_day(
         },
     )
     .await;
+    if let Ok(unified::Replaced { id: Some(id), .. }) = &kept {
+        super::super::memory_nodes::hanging::kept(db, id).await;
+    }
 }
 
 /// What days in a group (`venue` as sessions keep it) were like, oldest
@@ -474,19 +477,22 @@ pub async fn days_in(
     )
     .await
     .into_iter()
-    .map(|row| {
-        let day = row
-            .evidence
-            .as_deref()
-            .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
-            .and_then(|evidence| evidence.get("day")?.as_str().map(str::to_string))
-            .unwrap_or_else(|| row.created_at.format("%Y-%m-%d").to_string());
-        (day, row.content)
-    })
+    .map(day_of_row)
     .collect();
     // Freshest first, then what was brought back: by date, oldest first.
     days.sort_by(|left, right| left.0.cmp(&right.0));
     days
+}
+
+/// A day in a group as its row keeps it: (date, what it was like).
+pub(crate) fn day_of_row(row: crate::models::entities::agent_memories::Model) -> (String, String) {
+    let day = row
+        .evidence
+        .as_deref()
+        .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
+        .and_then(|evidence| evidence.get("day")?.as_str().map(str::to_string))
+        .unwrap_or_else(|| row.created_at.format("%Y-%m-%d").to_string());
+    (day, row.content)
 }
 
 #[cfg(test)]

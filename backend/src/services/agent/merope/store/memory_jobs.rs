@@ -442,6 +442,8 @@ pub(in crate::services::agent::merope) async fn finish(
         Ok(Effect::Stale)
     };
     let outcome;
+    // What a stretch kept, put on her nodes once it is written.
+    let mut on_nodes = None;
     match result {
         Err(failure) if failure.retryable() && job.attempts < MAX_ATTEMPTS => {
             outcome = failure.to_string();
@@ -518,6 +520,7 @@ pub(in crate::services::agent::merope) async fn finish(
                         )
                         .await?;
                     }
+                    on_nodes = Some((present.clone(), updates.clone()));
                     if kept { "applied" } else { "no_change" }.into()
                 }
                 Ok(Effect::Stranger { previous, note }) => {
@@ -555,6 +558,13 @@ pub(in crate::services::agent::merope) async fn finish(
     save(&tx, &claim.id, &job, now).await?;
     tx.commit().await?;
     tracing::info!(job = claim.id, attempt = claim.job.attempts, %outcome, "[Merope] memory job");
+    if let Some((present, updates)) = on_nodes {
+        let owner = crate::services::principal::site_owner_id(db)
+            .await
+            .ok()
+            .flatten();
+        super::super::memory_nodes::facts::settled(db, job.owner, owner, &present, &updates).await;
+    }
     Ok(())
 }
 

@@ -5,7 +5,7 @@ use crate::services::agent::{AgentInteractionMode, get_user_permissions, merope,
 use super::{IntentStore, SaidUnasked, SelfSnapshot};
 
 /// Her lines said unasked that a decision sees: as many as her line itself
-/// is shown (`redeem::compose_line`).
+/// is shown (`compose::compose_line`).
 pub(crate) const SAID_LATELY: i64 = 6;
 
 /// What she said to them lately unasked, newest first, as she is shown it
