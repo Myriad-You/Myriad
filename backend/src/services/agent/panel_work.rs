@@ -357,6 +357,7 @@ pub(crate) async fn view(db: &DatabaseConnection, user_id: i32, chat: &str) -> C
             .filter(|piece| matches!(piece.standing, Standing::Waiting { .. }))
             .count(),
         came_while_away: None,
+        ..Default::default()
     }
 }
 

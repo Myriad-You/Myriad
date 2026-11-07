@@ -37,7 +37,10 @@ async fn note_turn(
     );
     let raw = judge
         .analyze_json(
-            &myriad_merope::chat_remember::extract_system_prompt(&existing),
+            &myriad_merope::chat_remember::extract_system_prompt(
+                &existing,
+                myriad_merope::chat_remember::Examples::for_words(text),
+            ),
             &input,
             myriad_merope::chat_remember::EXTRACT_SCHEMA_NAME,
             Some(&myriad_merope::chat_remember::extract_schema()),
@@ -46,6 +49,24 @@ async fn note_turn(
         .inspect_err(|error| eprintln!("bench call failed: noting: {error:#}"))
         .ok()?;
     super::super::chat_remember::parse_chat_memory_updates(&raw, text, reply, &existing)
+}
+
+/// A line that only takes something back, saying nothing new, let go at
+/// once as production lets it go: what she knows for good too.
+async fn let_go(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    present: &Audience,
+    at: chrono::DateTime<chrono::FixedOffset>,
+    updates: &super::super::chat_remember::ChatMemoryUpdates,
+) {
+    if !updates.updates.is_empty() && updates.updates.iter().all(|update| update.fact.is_none()) {
+        let taken_back = super::super::chat_remember::ChatMemoryUpdates {
+            updates: updates.updates.clone(),
+            ..Default::default()
+        };
+        apply_at(db, user_id, present, at, &taken_back).await;
+    }
 }
 
 /// A session gone over once it is over (the settle way): which of its short
@@ -95,15 +116,26 @@ async fn settle_session(
         .iter()
         .filter_map(|note| note.fact.as_deref())
         .collect();
-    // The topics to put what lasts under, as production shows them; none,
-    // and nothing put under one, when they are sorted afterwards.
-    let offered = if topics_later() {
-        Vec::new()
-    } else {
-        super::super::store::offered_topics(db, user_id, present, &theirs)
-            .await
-            .unwrap_or_default()
-    };
+    // In a private talk the stretch is cut onto her nodes first and her
+    // nodes are what she puts it on, as production goes over it.
+    let mut offered = Vec::new();
+    if on_nodes(present) {
+        use super::super::memory_nodes::placing::{self, Line};
+        let lines: Vec<Line> = turns
+            .iter()
+            .enumerate()
+            .map(|(index, turn)| Line {
+                id: index as i32 + 1,
+                theirs: turn.role == "user",
+                text: turn.content.clone(),
+                at: at - chrono::Duration::minutes((turns.len() - index) as i64),
+            })
+            .collect();
+        let placed = placing::place(db, user_id, None, &lines).await;
+        offered =
+            super::super::memory_nodes::facts::shown_topics(db, user_id, None, &theirs, &placed)
+                .await;
+    }
     let input = json!({
         "conversation": turns
             .iter()
@@ -119,7 +151,10 @@ async fn settle_session(
     .to_string();
     let Ok(raw) = judge
         .analyze_json(
-            &myriad_merope::chat_remember::settle_system_prompt(&known),
+            &myriad_merope::chat_remember::settle_system_prompt(
+                &known,
+                myriad_merope::chat_remember::Examples::for_words(&theirs),
+            ),
             &input,
             myriad_merope::chat_remember::SETTLE_SCHEMA_NAME,
             Some(&myriad_merope::chat_remember::settle_schema()),
@@ -148,13 +183,11 @@ async fn settle_session(
         updates
             .updates
             .push(super::super::chat_remember::ChatMemoryUpdate {
+                // When it happened and where it stands, as production keeps it.
+                standing: item.standing.clone(),
                 // When it would be worth remembering, as production keeps it.
                 cues: item.when_for,
-                topic: if topics_later() {
-                    None
-                } else {
-                    super::super::chat_remember::settle::goes_under(&item.topic, &offered)
-                },
+                topic: super::super::chat_remember::settle::goes_under(&item.topic, &offered),
                 fact: Some(fact.clone()),
                 // What it changes goes with the first: it says how it is now.
                 supersedes: if updates.updates.is_empty() {
@@ -177,6 +210,7 @@ async fn settle_session(
         updates
             .updates
             .push(super::super::chat_remember::ChatMemoryUpdate {
+                standing: Default::default(),
                 topic: None,
                 cues: Vec::new(),
                 fact: Some(fact.clone()),
@@ -191,63 +225,39 @@ async fn settle_session(
     }
     if !updates.updates.is_empty() {
         apply_at(db, user_id, present, at, &updates).await;
+        super::super::memory_nodes::facts::settled(db, user_id, None, present, &updates).await;
     }
     (lasting, passed_over, settled)
 }
 
-/// `MEROPE_MEMORY_BENCH_TOPICS=later`: what going over keeps is put under
-/// no topic, and sorted under them once all is written ([`sort_all`]), as
-/// what she knew before topics is sorted at upkeep.
-pub(super) fn topics_later() -> bool {
-    std::env::var("MEROPE_MEMORY_BENCH_TOPICS").as_deref() == Ok("later")
+/// Whether what she goes over is put on her nodes: a private talk only, as
+/// production.
+pub(super) fn on_nodes(present: &Audience) -> bool {
+    !present.is_group()
 }
 
-/// Everything she knows of them in private sorted under topics, a batch at
-/// a time as upkeep sorts it (`chat_remember::sort`), until a batch sorts
-/// nothing.
-pub(super) async fn sort_all(
-    db: &sea_orm::DatabaseConnection,
-    judge: &crate::services::analyzer::AiAnalyzer,
-    user_id: i32,
-) {
-    let present = Audience::private(user_id);
-    loop {
-        let rows =
-            super::super::store::unsorted(db, user_id, &present, myriad_merope::topics::SORT_BATCH)
-                .await
-                .unwrap_or_default();
-        if rows.is_empty() {
-            break;
-        }
-        let facts: Vec<String> = rows.iter().map(super::super::store::as_known).collect();
-        let offered = super::super::store::offered_topics(db, user_id, &present, &facts.join("\n"))
-            .await
-            .unwrap_or_default();
-        let Ok(raw) = judge
-            .analyze_json(
-                &myriad_merope::topics::sort_system_prompt(),
-                &myriad_merope::topics::sort_input(
-                    super::super::chat_remember::settle::shown_topics(&offered),
-                    &facts,
-                ),
-                super::super::chat_remember::sort::SCHEMA_NAME,
-                Some(&myriad_merope::topics::sort_schema()),
-            )
-            .await
-            .inspect_err(|error| eprintln!("bench call failed: sorting: {error:#}"))
-        else {
-            break;
-        };
-        let placed = super::super::chat_remember::sort::placed(&raw, &rows, &offered);
-        if placed.is_empty() {
-            break;
-        }
-        for (id, goes) in &placed {
-            let _ =
-                super::super::store::put_under(db, user_id, &present, id, &[], Some(goes)).await;
-        }
+/// Once all is written, what production's upkeep does to her nodes: what
+/// going over placed nowhere sorted onto them, and those due gone over.
+pub(super) async fn keep_up_nodes(db: &sea_orm::DatabaseConnection, user_id: i32) {
+    if !on_nodes(&Audience::private(user_id)) {
+        return;
+    }
+    super::super::memory_nodes::sorting::sort_for(db, user_id, None, NODE_SORTS).await;
+    let Some(pen) = crate::services::her_log::pen::think() else {
+        return;
+    };
+    let audience = super::super::memory_nodes::audience::private_talk(user_id, None);
+    if let Err(error) =
+        super::super::memory_nodes::upkeep::run(db, user_id, &audience, NODE_UPKEEPS, &pen).await
+    {
+        eprintln!("bench call failed: node upkeep: {error:#}");
     }
 }
+
+/// Batches of what is on no node sorted at the end, at most.
+const NODE_SORTS: usize = 8;
+/// Upkeep calls at the end, at most: what another account gets in a day.
+const NODE_UPKEEPS: usize = 6;
 
 /// One session the settle way as weeks go by: each of their lines taken as
 /// a short note, what she said kept as it is, and the session gone over
@@ -282,6 +292,7 @@ pub(super) async fn over_time(
         let Some(updates) = note_turn(db, judge, user_id, present, &text, reply, at).await else {
             continue;
         };
+        let_go(db, user_id, present, at, &updates).await;
         notes.extend(
             updates
                 .updates
@@ -360,6 +371,7 @@ pub(super) async fn go_over(
             else {
                 continue;
             };
+            let_go(db, user_id, present, at, &updates).await;
             notes.extend(
                 updates
                     .updates

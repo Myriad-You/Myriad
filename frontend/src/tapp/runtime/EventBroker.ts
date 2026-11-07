@@ -2,6 +2,7 @@ import type { PublishEventRequest, TappBridge, TappEvent, TappInstance } from '@
 import { getDefaultLocale } from '../../i18n'
 import { subscribeToTheme } from '../../utils/themeSubscriber'
 import { userFacingError } from '../../utils/userFacingError'
+import { safeRandomUUID } from '../../utils/uuid'
 import * as TappApiService from '../services/TappApiService'
 import { onSpaNavigation } from './spaNavigation'
 
@@ -32,7 +33,7 @@ export function registerEventHandlers(
     if (!subscriptions.has(topic) || stopped) return
     bridge.emit('tappEvent', {
       version: 2,
-      eventId: `sys_${crypto.randomUUID().replaceAll('-', '')}`,
+      eventId: `sys_${safeRandomUUID().replaceAll('-', '')}`,
       topic,
       scope: 'instance',
       source: { tappId: 'system.host', runtimeId: hostRuntimeId },

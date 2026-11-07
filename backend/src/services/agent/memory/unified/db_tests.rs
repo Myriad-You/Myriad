@@ -476,3 +476,95 @@ async fn what_she_knows_most_about_them_stays_where_it_was_heard() {
     assert!(there[0].contains("吉他"));
     assert!(always_known(&db, 0, &private).await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn the_mind_wanders_only_over_their_own_and_not_back_to_a_recent_thought() {
+    let Some(db) = temp_db().await else {
+        return;
+    };
+    let about = |user_id: i32, content: &str, subjects: &[&str]| NewMemory {
+        concepts: subjects
+            .iter()
+            .map(|name| Concept {
+                name: (*name).into(),
+                aliases: Vec::new(),
+            })
+            .collect(),
+        ..fact(user_id, content)
+    };
+    remember(&db, about(7, "养了一只猫叫年糕", &["猫", "年糕"]))
+        .await
+        .unwrap();
+    remember(&db, about(7, "年糕怕吸尘器", &["年糕"]))
+        .await
+        .unwrap();
+    remember(&db, about(7, "喜欢乌龙茶", &["茶"]))
+        .await
+        .unwrap();
+    remember(&db, about(8, "年糕是他的狗", &["年糕"]))
+        .await
+        .unwrap();
+    let private = Audience::private(7);
+    let ids: std::collections::HashMap<String, String> =
+        rows_for(&db, 7, &private, &MemoryKind::ABOUT_PERSON)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| (row.content, row.id))
+            .collect();
+    let now = super::super::utc_now();
+    let thought_at: std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> = [(
+        ids["年糕怕吸尘器"].clone(),
+        now - chrono::Duration::hours(1),
+    )]
+    .into();
+    for roll in [0.0, 0.3, 0.6, 0.99] {
+        let mut drawn = std::iter::repeat(roll);
+        let landed = wander(
+            &db,
+            7,
+            &private,
+            &Priming::default(),
+            &thought_at,
+            &mut || drawn.next().unwrap(),
+        )
+        .await
+        .unwrap();
+        if let Some(landed) = landed {
+            assert_ne!(
+                landed.memory.content, "年糕怕吸尘器",
+                "thought of an hour ago"
+            );
+            assert_ne!(landed.memory.content, "年糕是他的狗", "someone else's");
+        }
+    }
+    // Long enough ago, it may come to mind again.
+    let long_ago: std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> =
+        [(ids["年糕怕吸尘器"].clone(), now - chrono::Duration::days(4))].into();
+    let mut drawn = std::iter::repeat(0.0);
+    let landed = wander(
+        &db,
+        7,
+        &private,
+        &Priming::default(),
+        &long_ago,
+        &mut || drawn.next().unwrap(),
+    )
+    .await
+    .unwrap()
+    .expect("from the newest it drifts to the cat");
+    assert_ne!(landed.memory.content, "年糕是他的狗");
+    assert!(
+        wander(
+            &db,
+            0,
+            &private,
+            &Priming::default(),
+            &long_ago,
+            &mut || 0.5
+        )
+        .await
+        .unwrap()
+        .is_none()
+    );
+}

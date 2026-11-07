@@ -30,6 +30,10 @@ export interface AgentMessage {
   suggestions?: string[]
   workOffer?: { input: string }
   at?: number
+  /** Said on another of the owner's ends: that end's name, when it has one. */
+  saidOn?: { name: string | null }
+  /** How many pictures came with a line said elsewhere. */
+  pictures?: number
   /** Typed a message at a time: whether she is at her next one. */
   typing?: boolean
 }
@@ -77,6 +81,8 @@ function sameMessage(x: AgentMessage, y: AgentMessage): boolean {
     x.state === y.state &&
     x.typing === y.typing &&
     x.imageUrls?.length === y.imageUrls?.length &&
+    x.saidOn?.name === y.saidOn?.name &&
+    x.pictures === y.pictures &&
     x.attachments?.length === y.attachments?.length &&
     !x.attachments?.some(
       (item, index) => item.id !== y.attachments?.[index]?.id,

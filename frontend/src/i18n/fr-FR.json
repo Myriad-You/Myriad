@@ -664,7 +664,11 @@
       "moving": "Elle déménage : aucun bout ne l'a avant la fin ou l'annulation.",
       "vacant": "Elle n'est pas sur ce site maintenant.",
       "movedOut": "Elle a déménagé de ce site.",
-      "member": "Elle n'est pas sur ce site maintenant."
+      "member": "Elle n'est pas sur ce site maintenant.",
+      "mindElsewhere": "Elle est sur « {name} » en ce moment.",
+      "mindElsewhereUnknown": "Elle est sur un autre de vos appareils en ce moment.",
+      "mindElsewhereLeave": "Elle est sur « {name} » en ce moment ; ce que vous dites ici, elle le voit là-bas.",
+      "mindElsewhereLeaveUnknown": "Elle est sur un autre de vos appareils en ce moment ; ce que vous dites ici, elle le voit là-bas."
     },
     "status": {
       "idle": "En attente",
@@ -794,6 +798,11 @@
     "typing": "En train d’écrire…",
     "retry": "Réessayer",
     "zoomImage": "Agrandir",
+    "saidOn": "Sur « {name} »",
+    "saidOnUnknown": "Sur un autre de vos appareils",
+    "pictures": "(a envoyé {count} images)",
+    "forgetLine": "Oublier",
+    "confirmForgetLine": "Elle oublie cette phrase et ce qu’elle en a retenu ; en synchronisation, partout.",
     "closeImage": "Fermer",
     "newSession": "Nouveau sujet",
     "stop": "Arrêter",

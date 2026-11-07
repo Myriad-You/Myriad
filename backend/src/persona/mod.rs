@@ -193,6 +193,20 @@ pub async fn start(db: DatabaseConnection) -> anyhow::Result<()> {
             )
         },
     );
+    // Her intents come due: what they asked her to say or do at a time, and
+    // what she meant to bring up. Hers, so only where she lives.
+    let intents_db = db.clone();
+    drivers.periodic(
+        "her intents",
+        Duration::from_secs(30),
+        Duration::from_secs(5),
+        move || {
+            her_own(
+                "her intents",
+                agent::merope::lifecycle::intents::tick(intents_db.clone()),
+            )
+        },
+    );
     // The owner's reminders kept on the site come due (H2-5), wherever she
     // lives: they are the owner's, not hers.
     let reminders_db = db.clone();

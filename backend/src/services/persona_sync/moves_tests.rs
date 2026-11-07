@@ -106,7 +106,7 @@ async fn she_moves_to_a_device_and_back_and_finds_others_as_she_left_them() {
     let sealed = confirm_to_device(db, 41, &id, "留在站点的".into())
         .await
         .unwrap();
-    assert_eq!(sealed.state, lease::State::Frozen);
+    assert!(sealed.frozen);
     let digest = sealed.moving.as_ref().unwrap().digest.clone().unwrap();
 
     // The device reads its copy in pieces; the key opens it, nothing else.
@@ -160,9 +160,10 @@ async fn she_moves_to_a_device_and_back_and_finds_others_as_she_left_them() {
     let committed = commit_to_device(db, 41, &id, &mac.id, &digest)
         .await
         .unwrap();
+    // Her lease: frozen on the site (2), then handed to the Mac (3).
     assert_eq!(
-        (committed.holder.as_str(), committed.epoch, committed.state),
-        (mac.id.as_str(), 2, lease::State::Live)
+        (committed.place(), committed.epoch),
+        (lease::Where::Elsewhere(mac.id.clone()), 3)
     );
     assert_eq!(committed.lineage, born.lineage);
     // Asked again: the same answer.
@@ -171,7 +172,7 @@ async fn she_moves_to_a_device_and_back_and_finds_others_as_she_left_them() {
             .await
             .unwrap()
             .epoch,
-        2
+        3
     );
 
     // Her own parts went; others' stay, and so does what was held for her.
@@ -268,7 +269,7 @@ async fn she_moves_to_a_device_and_back_and_finds_others_as_she_left_them() {
             home.state,
             home.lineage.as_str()
         ),
-        ("site", 3, lease::State::Live, born.lineage.as_str())
+        ("site", 5, lease::State::Live, born.lineage.as_str())
     );
     assert_eq!(
         count(db, "SELECT COUNT(*)::BIGINT AS n FROM agent_persona").await,
@@ -292,6 +293,124 @@ async fn she_moves_to_a_device_and_back_and_finds_others_as_she_left_them() {
         .await,
         0,
         "her own Work starts off where she arrived"
+    );
+    fixture.close().await;
+}
+
+/// With her log synced (C2-a), a move to a Mac keeps the site's copy of
+/// her: her mind goes to the Mac and the Mac is one of her host cores, her
+/// own parts stay here, and once the Mac is out of reach with the owner
+/// seen elsewhere the server takes her mind back, as from any host core
+/// (isolated schemas; skipped without a database).
+#[tokio::test]
+async fn with_her_log_synced_a_move_to_a_device_keeps_her_here_and_her_mind_comes_back() {
+    let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+        return;
+    };
+    let db = &fixture.db;
+    seed(db).await;
+    use crate::services::her_log;
+    let settings = her_log::Settings {
+        enabled: true,
+        ..her_log::Settings::default()
+    };
+    her_log::store::start(db, 41).await.unwrap();
+    let (mac, _) = super::super::devices::add(db, 41, "Mac").await.unwrap();
+    let born = lease::read(db).await.unwrap().unwrap();
+    let started = lease::start(db, lease::Kind::Move, &mac.id, lease::Starter::Owner)
+        .await
+        .unwrap();
+    let id = started.moving.unwrap().id;
+    lease::agree(db, &id, &mac.id).await.unwrap();
+    let sealed = confirm_to_device(db, 41, &id, "留在站点的".into())
+        .await
+        .unwrap();
+    let digest = sealed.moving.as_ref().unwrap().digest.clone().unwrap();
+    let bytes = whole_file(db, &id, &mac.id).await;
+    applied(db, &id, &mac.id, &digest).await.unwrap();
+    backups::take_piece(
+        db,
+        &mac.id,
+        "2026-10-14",
+        backups::PieceQuery {
+            offset: 0,
+            total: bytes.len() as u64,
+            lineage: born.lineage.clone(),
+            epoch: 2,
+            digest: digest.clone(),
+        },
+        bytes.clone(),
+    )
+    .await
+    .unwrap();
+    let committed = commit_to_device_with(db, &settings, 41, &id, &mac.id, &digest)
+        .await
+        .unwrap();
+    assert_eq!(
+        (committed.place(), committed.epoch, committed.state),
+        (lease::Where::MindOn(mac.id.clone()), 3, lease::State::Live)
+    );
+    assert!(!committed.lives_on(&mac.id));
+    // A device reads that she lives on the site: her mind being on the Mac
+    // does not make it her host.
+    assert_eq!(committed.json(|_| None)["holder"], lease::SITE);
+    // Asked again: the same answer.
+    assert_eq!(
+        commit_to_device_with(db, &settings, 41, &id, &mac.id, &digest)
+            .await
+            .unwrap()
+            .epoch,
+        3
+    );
+    // Her own parts stay here.
+    assert_eq!(
+        count(db, "SELECT COUNT(*)::BIGINT AS n FROM agent_persona").await,
+        1
+    );
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*)::BIGINT AS n FROM agent_memories WHERE id = 'm_owner'"
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        count(
+            db,
+            &format!(
+                "SELECT COUNT(*)::BIGINT AS n FROM agent_lease_ends \
+                 WHERE device_id = '{}' AND core = 'host'",
+                mac.id
+            )
+        )
+        .await,
+        1,
+        "the Mac is one of her host cores"
+    );
+
+    // The Mac goes out of reach at home; the owner's phone sees them out.
+    let t0 = her_log::now();
+    let minute = 60_000_000;
+    her_log::lease::place(db, &mac.id, Some("home"), true, t0)
+        .await
+        .unwrap();
+    for minutes in [1, 3, 5] {
+        her_log::lease::place(db, "dev_phone", Some("office"), true, t0 + minutes * minute)
+            .await
+            .unwrap();
+    }
+    let grant = her_log::lease::watch(db, &settings, t0 + 5 * minute)
+        .await
+        .unwrap()
+        .expect("taken back");
+    assert_eq!(
+        (grant.holder.as_deref(), grant.how),
+        (Some(lease::SITE), myriad_persona_log::How::Takeover)
+    );
+    assert_eq!(
+        lease::read(db).await.unwrap().unwrap().place(),
+        lease::Where::Here
     );
     fixture.close().await;
 }
@@ -323,13 +442,9 @@ async fn she_is_taken_back_from_a_backup_and_another_lineage_replaces_what_was_l
     let (b, _) = super::super::devices::add(db, 41, "B").await.unwrap();
     // She lives on A at epoch 5 with the source's lineage, and the site let
     // its own copy go.
-    db.execute_unprepared(&format!(
-        "DELETE FROM agent_host_lease; INSERT INTO agent_host_lease (id, holder, lineage, epoch, \
-         state, updated_at) VALUES ('her', '{}', '{}', 5, 'live', NOW())",
-        a.id, born.lineage
-    ))
-    .await
-    .unwrap();
+    lease::seed(db, &a.id, &born.lineage, 5, lease::State::Away)
+        .await
+        .unwrap();
     crate::services::agent::merope::retire_her_on(db, 41)
         .await
         .unwrap();
@@ -357,16 +472,13 @@ async fn she_is_taken_back_from_a_backup_and_another_lineage_replaces_what_was_l
             lease::Kind::Recover,
             a.id.as_str(),
             Some(b.id.as_str()),
-            lease::State::Live
+            lease::State::Away
         )
     );
     import::confirm(db, 41, &asked.id, None, false)
         .await
         .unwrap();
-    assert_eq!(
-        lease::read(db).await.unwrap().unwrap().state,
-        lease::State::Frozen
-    );
+    assert!(lease::read(db).await.unwrap().unwrap().frozen);
     for page in &opened.envelopes {
         import::take_page(db, &asked.id, &b.id, page.clone())
             .await
@@ -378,8 +490,8 @@ async fn she_is_taken_back_from_a_backup_and_another_lineage_replaces_what_was_l
     let here = lease::read(db).await.unwrap().unwrap();
     assert_eq!(
         (here.holder.as_str(), here.epoch, here.lineage.as_str()),
-        ("site", 6, born.lineage.as_str()),
-        "one past the lease's, whatever the backup said"
+        ("site", 7, born.lineage.as_str()),
+        "frozen and handed to the site past the lease's, whatever the backup said"
     );
 
     // She moves out and is let go: vacant, others' parts left with her lineage.
@@ -394,12 +506,9 @@ async fn she_is_taken_back_from_a_backup_and_another_lineage_replaces_what_was_l
         txn.commit().await.unwrap();
     }
     // A file of another lineage: the site keeps what was left of this one.
-    db.execute_unprepared(
-        "DELETE FROM agent_host_lease; INSERT INTO agent_host_lease (id, holder, lineage, epoch, \
-         state, updated_at) VALUES ('her', 'site', 'other-lineage', 2, 'vacant', NOW())",
-    )
-    .await
-    .unwrap();
+    lease::seed(db, lease::SITE, "other-lineage", 2, lease::State::Vacant)
+        .await
+        .unwrap();
     let session = import::begin_file(db, 41, file.bytes.len() as u64)
         .await
         .unwrap();
@@ -455,13 +564,9 @@ async fn seven_backups_are_kept() {
     .await
     .unwrap();
     let (mac, _) = super::super::devices::add(db, 41, "Mac").await.unwrap();
-    db.execute_unprepared(&format!(
-        "INSERT INTO agent_host_lease (id, holder, lineage, epoch, state, updated_at) \
-         VALUES ('her', '{}', 'l-7', 2, 'live', NOW())",
-        mac.id
-    ))
-    .await
-    .unwrap();
+    lease::seed(db, &mac.id, "l-7", 2, lease::State::Away)
+        .await
+        .unwrap();
     for day in 1..=9 {
         let bytes = [day as u8; 10];
         let query = |offset: u64| backups::PieceQuery {

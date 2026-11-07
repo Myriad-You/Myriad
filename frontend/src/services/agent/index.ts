@@ -11,6 +11,19 @@ export {
   unregisterActionHandler,
 } from './frontendActions'
 
+export { memoryNodesApi } from './memoryNodesApi'
+
+export type {
+  MemoryNodeAudience,
+  MemoryNodeEntry,
+  MemoryNodeHeadItem,
+  MemoryNodeIntent,
+  MemoryNodeLine,
+  MemoryNodeList,
+  MemoryNodePage,
+  MemoryNodeSpan,
+} from './memoryNodesApi'
+
 /** Quota rejections use error.code. */
 export { AgentStreamError } from './sseTransport'
 export type {

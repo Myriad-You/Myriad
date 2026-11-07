@@ -157,16 +157,19 @@ impl ProviderCallFailure {
         }
     }
 
-    /// 4xx except 401/403/429. No status (transport) is not a shape refusal.
+    /// 400, 404 (OpenRouter: no endpoint takes these parameters) and 422:
+    /// what was asked for is not taken. The account's own refusals (401,
+    /// 402 out of credit, 403, 429) and the rest of 4xx (a timeout, a body
+    /// too long) say nothing of the shape, and must not be remembered as
+    /// one for a day. No status (transport) is not a shape refusal.
     fn rejected_request(&self) -> bool {
         self.status.is_some_and(|status| {
-            status.is_client_error()
-                && !matches!(
-                    status,
-                    reqwest::StatusCode::UNAUTHORIZED
-                        | reqwest::StatusCode::FORBIDDEN
-                        | reqwest::StatusCode::TOO_MANY_REQUESTS
-                )
+            matches!(
+                status,
+                reqwest::StatusCode::BAD_REQUEST
+                    | reqwest::StatusCode::NOT_FOUND
+                    | reqwest::StatusCode::UNPROCESSABLE_ENTITY
+            )
         })
     }
 }
@@ -898,7 +901,11 @@ impl AiAnalyzer {
         }
 
         let result = result.map_err(ProviderCallFailure::into_error);
-        self.note_ledger(input_chars, &result).await;
+        crate::services::ai_cost_ledger::as_step(
+            schema_name,
+            self.note_ledger(input_chars, &result),
+        )
+        .await;
         result
     }
 
@@ -973,7 +980,11 @@ impl AiAnalyzer {
         }
 
         let result = result.map_err(ProviderCallFailure::into_error);
-        self.note_ledger(input_chars, &result).await;
+        crate::services::ai_cost_ledger::as_step(
+            schema_name,
+            self.note_ledger(input_chars, &result),
+        )
+        .await;
         result
     }
 
@@ -2097,10 +2108,13 @@ mod tests {
     }
 
     #[test]
-    fn auth_rate_limit_and_transport_failures_do_not_retry() {
+    fn auth_credit_rate_limit_and_transport_failures_do_not_retry() {
         for status in [
             reqwest::StatusCode::UNAUTHORIZED,
+            reqwest::StatusCode::PAYMENT_REQUIRED,
             reqwest::StatusCode::FORBIDDEN,
+            reqwest::StatusCode::REQUEST_TIMEOUT,
+            reqwest::StatusCode::PAYLOAD_TOO_LARGE,
             reqwest::StatusCode::TOO_MANY_REQUESTS,
             reqwest::StatusCode::INTERNAL_SERVER_ERROR,
             reqwest::StatusCode::BAD_GATEWAY,

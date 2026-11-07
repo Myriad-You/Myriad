@@ -213,7 +213,8 @@ async fn her_memory_over_weeks() {
     let (asked, kept): (Vec<_>, Vec<_>) = runs.into_iter().unzip();
     let asked: Vec<Asked> = asked.into_iter().flatten().collect();
     let kept: Vec<Kept> = kept.into_iter().flatten().collect();
-    let report = report(&weeks, times, &asked, &kept);
+    let mut report = report(&weeks, times, &asked, &kept);
+    report["spent"] = crate::services::ai_cost_ledger::spent::take();
     for line in report["weeks"].as_array().unwrap() {
         println!("{line}");
     }

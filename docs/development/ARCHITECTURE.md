@@ -214,7 +214,13 @@ its tables and the site behaves as before.
   object sealed by its audience's key, each payload AES-256-GCM under its
   object's key with the row id as associated data. The server holds the keys
   (problem 5). Forgetting deletes the object's key and payload; the stub and
-  the ledger stay.
+  the ledger stay. `scripts/extra/backup.sh` keeps the key rows and the data
+  key out of the data part, in a keys part of which only the newest copy is
+  kept (`docs/deployment/BACKUP.md`), so forgetting reaches those backups once
+  the keys part is next rewritten. Database copies made any other way (the
+  updater's `pgdata` snapshots, a hand-made `pg_dump`) still carry the key
+  rows, and the data key never changes, so with it they still open what was
+  forgotten, until they expire or are deleted.
 - **Relay** (`relay`): protocol-2 `log.vector`, `log.rows`, `lease.ask`,
   `lease.yield`, `lease.stopped` in; `log.rows`, `log.vector`, `log.full`,
   `lease.grant`, `lease.epoch`, `lease.takeover`, `error` out, every frame

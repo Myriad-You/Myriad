@@ -537,6 +537,9 @@ async fn run_server(role: runtime_role::RuntimeRole) -> anyhow::Result<()> {
                 // old shape still hold rows.
                 services::her_log::check(&db).await;
                 services::her_log::retention::start(db.clone());
+                // Her nodes in the site owner's talk go under the partner
+                // id once the account has one.
+                services::agent::merope::memory_nodes::partner::start(db.clone()).await;
 
                 // Process-global DB must be wired before persona boot recovery.
                 services::process_db::set_process_database(db.clone());

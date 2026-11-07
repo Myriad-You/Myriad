@@ -3061,6 +3061,11 @@ html[data-perf-mode='exlight'] .agent-panel-thinking-sweep {
   font-variant-numeric: tabular-nums;
 }
 
+/* A line said on another end: the pictures stayed there. */
+.agent-panel-message-pictures {
+  color: var(--text-muted, #9ca3af);
+}
+
 .agent-panel-image-open {
   padding: 0;
   border: none;

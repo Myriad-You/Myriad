@@ -91,7 +91,7 @@ pub(super) async fn run(
             Some("茶"),
         ),
     ] {
-        let (system, schema) = chat_remember::live_probe_contract(&existing);
+        let (system, schema) = chat_remember::live_probe_contract(&existing, user);
         let input = json!({"userText":user,"reply":reply}).to_string();
         let analyzer = trial_analyzer_with_timeout(model_override, Duration::from_secs(4)).await;
         let start = Instant::now();

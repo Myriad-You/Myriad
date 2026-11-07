@@ -19,7 +19,7 @@ use sea_orm::{
     TransactionTrait,
 };
 
-use crate::models::entities::agent_memories;
+use crate::models::entities::{agent_memories, agent_messages, agent_sessions};
 
 use super::unified::{MemoryKind, OWN_EXPERIENCE, OWN_VENUE, OWN_VIEW, normalize_content};
 
@@ -121,11 +121,27 @@ pub async fn update_any<C: ConnectionTrait>(
 /// keys) and the words they came from ([`super::origins::forget`]) are
 /// deleted in one transaction. Nothing of what they said is kept, not even
 /// to stop it being learned again: what would teach it again goes instead.
-/// Returns whether there was such a memory.
+/// The lines it came from that are in her log (the owner's private talk
+/// while it syncs) are forgotten there too, so on every end
+/// ([`crate::services::her_log::talk::forget_lines`]). Returns whether there
+/// was such a memory.
 ///
 /// The database frees the deleted rows' space at its next vacuum; its write-
 /// ahead log and the deployment's backups are outside what this reaches.
 pub async fn forget_any(db: &sea_orm::DatabaseConnection, id: &str) -> Result<bool, DbErr> {
+    let Some(lines) = forget_memory(db, id).await? else {
+        return Ok(false);
+    };
+    crate::services::her_log::talk::forget_lines(db, &lines).await;
+    Ok(true)
+}
+
+/// [`forget_any`] here only: the lines it took, or none when there was no
+/// such memory.
+async fn forget_memory(
+    db: &sea_orm::DatabaseConnection,
+    id: &str,
+) -> Result<Option<Vec<super::origins::Gone>>, DbErr> {
     let txn = db.begin().await?;
     // Before any row: queued memory work takes this lock, then writes rows.
     crate::services::agent::merope::store::memory_jobs::lock(&txn)
@@ -137,7 +153,7 @@ pub async fn forget_any(db: &sea_orm::DatabaseConnection, id: &str) -> Result<bo
         .await?
     else {
         txn.commit().await?;
-        return Ok(false);
+        return Ok(None);
     };
     let mut doomed = vec![row.id.clone()];
     let mut frontier = vec![row.id];
@@ -159,13 +175,85 @@ pub async fn forget_any(db: &sea_orm::DatabaseConnection, id: &str) -> Result<bo
         .filter(agent_memories::Column::Id.is_in(doomed.clone()))
         .all(&txn)
         .await?;
-    super::origins::forget(&txn, &rows).await?;
+    let lines = super::origins::forget(&txn, &rows).await?;
+    let ids: Vec<i32> = lines.iter().map(|line| line.id).collect();
+    // On her nodes: its entries, the spans of those lines, a topic left
+    // empty (`merope::memory_nodes::forget`).
+    crate::services::agent::merope::memory_nodes::forget::forget(&txn, &doomed, &ids)
+        .await
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
     agent_memories::Entity::delete_many()
         .filter(agent_memories::Column::Id.is_in(doomed))
         .exec(&txn)
         .await?;
     txn.commit().await?;
-    Ok(true)
+    Ok(Some(lines))
+}
+
+/// Has her forget one line of a conversation of `user_id`'s, truly (D6-g):
+/// the memories it taught her ([`super::origins::quoting`], each as
+/// [`forget_any`] forgets one: with its earlier versions and the words they
+/// came from), the same words in her chat diary and queued work, what rests
+/// on it on her nodes, and the line; then, in her log, every line that went
+/// ([`crate::services::her_log::talk::forget_lines`]). The lines that went,
+/// the line first, or none when the conversation has no such line of
+/// theirs.
+pub async fn forget_line(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    session_id: &str,
+    message_id: i32,
+) -> Result<Option<Vec<super::origins::Gone>>, DbErr> {
+    let Some(session) = agent_sessions::Entity::find_by_id(session_id.to_string())
+        .filter(agent_sessions::Column::UserId.eq(user_id))
+        .one(db)
+        .await?
+    else {
+        return Ok(None);
+    };
+    let Some(line) = agent_messages::Entity::find_by_id(message_id)
+        .filter(agent_messages::Column::SessionId.eq(session_id))
+        .one(db)
+        .await?
+    else {
+        return Ok(None);
+    };
+    let place = crate::services::agent::sessions::session_venue(session.context.as_ref());
+    let mut gone = vec![super::origins::Gone::of(&line)];
+    for memory in super::origins::quoting(
+        db,
+        user_id,
+        place.as_deref(),
+        &line.content,
+        line.created_at,
+    )
+    .await?
+    {
+        gone.extend(forget_memory(db, &memory).await?.into_iter().flatten());
+    }
+    let txn = db.begin().await?;
+    crate::services::agent::merope::store::memory_jobs::lock(&txn)
+        .await
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
+    super::origins::forget_line_traces(&txn, user_id, &line.content, line.created_at).await?;
+    crate::services::agent::merope::memory_nodes::forget::forget(&txn, &[], &[line.id])
+        .await
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
+    agent_messages::Entity::delete_by_id(line.id)
+        .exec(&txn)
+        .await?;
+    txn.execute_raw(sea_orm::Statement::from_sql_and_values(
+        sea_orm::DatabaseBackend::Postgres,
+        "UPDATE agent_sessions SET message_count = \
+           (SELECT COUNT(*) FROM agent_messages WHERE session_id = $1) WHERE id = $1",
+        [session_id.into()],
+    ))
+    .await?;
+    txn.commit().await?;
+    let mut seen = std::collections::BTreeSet::new();
+    gone.retain(|line| seen.insert(line.id));
+    crate::services::her_log::talk::forget_lines(db, &gone).await;
+    Ok(Some(gone))
 }
 
 /// Confirm a Work lesson or pattern still only tried (drawn from one run):

@@ -54,6 +54,9 @@ pub(crate) fn build_request_context(mut ctx: ProcessContext) -> RequestContext {
         nobody_said: false,
         on_device: ctx.on_device,
         handed_off: ctx.handed_off,
+        // Only an intent's own run sets these (`merope::memory_nodes`).
+        unattended: false,
+        instruction_cap: None,
     }
 }
 

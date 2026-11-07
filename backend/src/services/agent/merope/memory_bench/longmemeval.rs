@@ -5,6 +5,15 @@ use super::*;
 #[tokio::test]
 #[ignore = "spends on the site's models; see the module docs"]
 pub(super) async fn her_memory_on_longmemeval() {
+    // With RUST_LOG set, what production would log goes to the run's log:
+    // a step that gave up shows why.
+    if std::env::var_os("RUST_LOG").is_some() {
+        use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+        let _ = tracing_subscriber::registry()
+            .with(tracing_subscriber::EnvFilter::from_default_env())
+            .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+            .try_init();
+    }
     let path = std::env::var("MEROPE_MEMORY_BENCH").expect("MEROPE_MEMORY_BENCH");
     let report_path = std::env::var("MEROPE_MEMORY_BENCH_REPORT").expect("report path");
     assert!(
@@ -91,7 +100,8 @@ pub(super) async fn her_memory_on_longmemeval() {
         .collect()
         .await;
     isolated.drop().await;
-    let report = report(&questions, times, &outcomes);
+    let mut report = report(&questions, times, &outcomes);
+    report["spent"] = crate::services::ai_cost_ledger::spent::take();
     println!("{}", report["scores"]);
     std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
 }
@@ -230,7 +240,9 @@ fn report(questions: &[Question], times: usize, outcomes: &[(Question, usize, Ou
     }
     let answered = |answered: &Answered| {
         json!({"retrieved":answered.retrieved,"correct":answered.correct,
-            "dragged":answered.dragged,"recalled":answered.recalled,"response":answered.answer})
+            "dragged":answered.dragged,"why":answered.why,"recalled":answered.recalled,
+            "response":answered.answer,
+            "cues":answered.cues,"through":answered.through})
     };
     let rows: Vec<Value> = outcomes
         .iter()
@@ -241,7 +253,8 @@ fn report(questions: &[Question], times: usize, outcomes: &[(Question, usize, Ou
             "plain":answered(&outcome.plain),"cued":answered(&outcome.cued),
             "wide":answered(&outcome.wide),"read":outcome.read.as_ref().map(answered),
             "bare":outcome.bare.as_ref().map(answered),"inPrivate":outcome.in_private,
-            "memories":outcome.memories,"concepts":outcome.concepts,"topics":outcome.topics})
+            "memories":outcome.memories,"concepts":outcome.concepts,
+            "nodes":outcome.nodes})
         })
         .collect();
     json!({"times": times, "scores": scores, "rows": rows})

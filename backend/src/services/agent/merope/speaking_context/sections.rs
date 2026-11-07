@@ -3,6 +3,8 @@
 
 use super::*;
 
+use super::super::memory_nodes::{context::NodeTurn, recall};
+
 /// Who they are to her: how her lines differ from theirs, what they told her
 /// she got wrong, how long they have known each other, whether it reads like them.
 pub(super) async fn who_they_are(
@@ -10,14 +12,25 @@ pub(super) async fn who_they_are(
     user_id: i32,
     turn: Turn<'_>,
     present: &crate::services::agent::memory::unified::Audience,
+    nodes: Option<&NodeTurn>,
     sections: &mut Vec<String>,
 ) {
     let group = present.is_group();
     if !group && let Some(differs) = how_she_differs_with(db, user_id).await {
         sections.push(differs);
     }
-    if !group && let Some(told) = making_sense::told_by_section(db, user_id).await {
+    // What they told her about herself is on 「她自己」 in their talk, when
+    // her nodes are read.
+    let told = match nodes {
+        Some(nodes) => nodes.told_section(super::super::clock::now()),
+        None if !group => making_sense::told_by_section(db, user_id).await,
+        None => None,
+    };
+    if let Some(told) = told {
         sections.push(told);
+    }
+    if let Some(nodes) = nodes {
+        sections.extend(nodes.her_head_section());
     }
     // How long the two of them have known each other is between them; so
     // is how often they talk, when this time or lately is unlike it.
@@ -53,6 +66,7 @@ pub(super) async fn recollection(
     turn: Turn<'_>,
     present: &crate::services::agent::memory::unified::Audience,
     myself: &self_state::SelfState,
+    nodes: Option<&NodeTurn>,
     sections: &mut Vec<String>,
 ) -> (bool, bool) {
     let group = present.is_group();
@@ -71,29 +85,37 @@ pub(super) async fn recollection(
     };
     // Only a chat turn (it has the person's words) carries its train of
     // thought to the next turn; other readers see memory without moving it.
+    // When her nodes are read, what she keeps under the same topics is
+    // theirs to bring (`memory_nodes::recall`).
+    let recall = if nodes.is_some() {
+        RecallWay::Ranked
+    } else {
+        RecallWay::Whole
+    };
     let remembered = match turn {
-        Turn::Chat(words) | Turn::Event(words) => remembering::recall_with(
-            db,
-            user_id,
-            present,
-            words,
-            cues.as_ref(),
-            REMEMBERED_PROMPT_LIMIT,
-            remembering::THOROUGH,
-            &if group {
-                crate::services::agent::memory::unified::Priming::default()
-            } else {
-                priming::current(user_id)
-            },
-            myself.recall_breadth(),
-        )
-        .await
-        .map(|(recalled, next)| {
-            if matches!(turn, Turn::Chat(_)) && !group {
-                priming::keep(user_id, next);
-            }
-            recalled
-        }),
+        Turn::Chat(words) | Turn::Event(words) => recall
+            .run(
+                db,
+                user_id,
+                present,
+                words,
+                cues.as_ref(),
+                REMEMBERED_PROMPT_LIMIT,
+                remembering::THOROUGH,
+                &if group {
+                    crate::services::agent::memory::unified::Priming::default()
+                } else {
+                    priming::current(user_id)
+                },
+                myself.recall_breadth(),
+            )
+            .await
+            .map(|(recalled, next)| {
+                if matches!(turn, Turn::Chat(_)) && !group {
+                    priming::keep(user_id, next);
+                }
+                recalled
+            }),
         Turn::Plain => store::recall_remembered(db, user_id, None, REMEMBERED_PROMPT_LIMIT)
             .await
             .map(|named| store::Recalled {
@@ -101,10 +123,20 @@ pub(super) async fn recollection(
                 brought_to_mind: Vec::new(),
                 recent: Vec::new(),
                 ids: Vec::new(),
-                not_all_here: Vec::new(),
+                said: std::collections::HashMap::new(),
             }),
     };
-    if let Ok(mut recalled) = remembered {
+    if let (Ok(recalled), Some(nodes)) = (&remembered, nodes) {
+        let recollection = recall::recollect_here(
+            &nodes.shown,
+            &nodes.own,
+            nodes.group.as_ref().map(|group| &group.here),
+            recalled,
+            cues.as_ref(),
+            super::super::clock::now(),
+        );
+        from_her_nodes(nodes, recollection, recalled, cues.as_ref(), sections);
+    } else if let Ok(mut recalled) = remembered {
         // What she knows most about them is in mind whatever they say now,
         // as anyone keeps a friend's cat and work in mind; only what this
         // turn did not already bring.
@@ -120,13 +152,16 @@ pub(super) async fn recollection(
                 }
             }
         }
-        if let Some(block) = format_remembered_section(&recalled.named) {
+        let thorough = cues.as_ref().is_some_and(|cues| cues.thorough);
+        let named = if thorough {
+            recalled.with_their_words()
+        } else {
+            recalled.named.clone()
+        };
+        if let Some(block) = format_remembered_section(&named) {
             sections.push(block);
-            if cues.as_ref().is_some_and(|cues| cues.thorough) {
+            if thorough {
                 sections.push(myriad_merope::speaking::format_going_through_all_section());
-                sections.extend(myriad_merope::speaking::format_not_all_here_section(
-                    &recalled.not_all_here,
-                ));
             }
         }
         // What their words brought to mind, apart from what they named: the
@@ -195,6 +230,79 @@ pub(super) async fn recollection(
         }
     }
     (her_life, opening)
+}
+
+/// How a turn recalls: whole, with what she keeps under the same topics;
+/// or ranked only, for her nodes to pick from (`memory_nodes::recall`).
+enum RecallWay {
+    Whole,
+    Ranked,
+}
+
+impl RecallWay {
+    #[allow(clippy::too_many_arguments)]
+    async fn run(
+        self,
+        db: &sea_orm::DatabaseConnection,
+        user_id: i32,
+        present: &crate::services::agent::memory::unified::Audience,
+        message: &str,
+        cues: Option<&myriad_merope::remembering::Cues>,
+        limit: usize,
+        thorough: usize,
+        priming: &crate::services::agent::memory::unified::Priming,
+        breadth: f64,
+    ) -> Result<
+        (
+            store::Recalled,
+            crate::services::agent::memory::unified::Priming,
+        ),
+        anyhow::Error,
+    > {
+        match self {
+            Self::Whole => {
+                remembering::recall_with(
+                    db, user_id, present, message, cues, limit, thorough, priming, breadth,
+                )
+                .await
+            }
+            Self::Ranked => {
+                remembering::ranked_with(
+                    db, user_id, present, message, cues, limit, thorough, priming, breadth,
+                )
+                .await
+            }
+        }
+    }
+}
+
+/// What comes to mind of her nodes, laid out: the facts, all of a kind
+/// listed when answering needs it, what she only heard, what is going on,
+/// and what their words brought to mind as ever.
+fn from_her_nodes(
+    nodes: &NodeTurn,
+    recollection: recall::Recollection,
+    recalled: &store::Recalled,
+    cues: Option<&myriad_merope::remembering::Cues>,
+    sections: &mut Vec<String>,
+) {
+    if let Some(block) = format_remembered_section(&recollection.named) {
+        sections.push(block);
+        if cues.is_some_and(|cues| cues.thorough) {
+            sections.push(
+                recollection
+                    .listed
+                    .unwrap_or_else(myriad_merope::speaking::format_going_through_all_section),
+            );
+        }
+    }
+    sections.extend(super::super::memory_nodes::context::heard_section(
+        &recollection.heard,
+    ));
+    sections.extend(nodes.ongoing_section(&recollection.picked));
+    if let Some(block) = format_brought_to_mind_section(&recalled.brought_to_mind) {
+        sections.push(block);
+    }
 }
 
 /// Their own recent things: the chat diary, what they are doing on the site,
@@ -398,6 +506,7 @@ pub(super) async fn between_them(
     turn: Turn<'_>,
     present: &crate::services::agent::memory::unified::Audience,
     opening: bool,
+    nodes: Option<&NodeTurn>,
     sections: &mut Vec<String>,
 ) {
     let group = present.is_group();
@@ -406,17 +515,27 @@ pub(super) async fn between_them(
         Turn::Plain => None,
     };
     // What only she and this person share, or she and this group: each
-    // heard only where it grew.
-    let shared = match present.group_id() {
-        Some(venue) => bits::in_group(db, venue, BITS_LIMIT, words).await,
-        None => bits::between(db, user_id, BITS_LIMIT).await,
+    // heard only where it grew. When her nodes are read, theirs are on
+    // 「关于你」, and so is the rest of what is between them below.
+    let shared = match nodes {
+        Some(nodes) => nodes.bits_shown(db, BITS_LIMIT as usize, words).await,
+        None => {
+            let shared = match present.group_id() {
+                Some(venue) => bits::in_group(db, venue, BITS_LIMIT, words).await,
+                None => bits::between(db, user_id, BITS_LIMIT).await,
+            };
+            format_bits_section(&shared, group)
+        }
     };
-    if let Some(block) = format_bits_section(&shared, group) {
+    if let Some(block) = shared {
         sections.push(block);
     }
     // What the last days in this group were like: the group's own.
     if let Some(venue) = present.group_id() {
-        let days = bits::days_in(db, venue, GROUP_DAYS, words).await;
+        let days = match nodes {
+            Some(nodes) => nodes.group_days(db, GROUP_DAYS as usize, words).await,
+            None => bits::days_in(db, venue, GROUP_DAYS, words).await,
+        };
         if let Some(block) = format_group_days_section(&days) {
             sections.push(block);
         }
@@ -429,9 +548,15 @@ pub(super) async fn between_them(
     }
     // How she comes across: with them, or in this group, each heard only
     // where it was found.
-    let lands = match present.group_id() {
-        Some(venue) => bits::lands_in(db, venue).await,
-        None => bits::lands_with(db, user_id).await,
+    if let Some(nodes) = nodes {
+        sections.extend(nodes.lands_section(super::super::clock::now()));
+        sections.extend(nodes.us_section(super::super::clock::now()));
+        sections.extend(nodes.about_head_section());
+    }
+    let lands = match (nodes, present.group_id()) {
+        (Some(_), _) => None,
+        (None, Some(venue)) => bits::lands_in(db, venue).await,
+        (None, None) => bits::lands_with(db, user_id).await,
     };
     if let Some((lands, since)) = lands
         && let Some(block) = myriad_merope::speaking::format_lands_section(
@@ -444,7 +569,7 @@ pub(super) async fn between_them(
         sections.push(block);
     }
     // What they are to her: private, never in a group.
-    if !group {
+    if !group && nodes.is_none() {
         if let Some(us) = bits::us(db, user_id).await {
             if let Some(block) = format_us_section(
                 &us.now,
@@ -464,15 +589,22 @@ pub(super) async fn between_them(
     // much it weighs, never what it was.
     let now = super::super::clock::now();
     match present.group_id() {
+        // From her nodes: on 「关于你」, and theirs in each group.
+        None if nodes.is_some() => {
+            sections.extend(nodes.and_then(|nodes| sore::section(&nodes.sores, now)));
+        }
         None => {
             if let Some(block) = sore::section(&sore::open_all(db, user_id).await, now) {
                 sections.push(block);
             }
         }
         Some(venue) => {
-            if let Some(block) =
-                sore::section(&sore::open_in_group(db, venue, Some(user_id)).await, now)
-            {
+            // From her nodes: on their own node in this group.
+            let here = match nodes {
+                Some(nodes) => nodes.sores_here(now),
+                None => sore::section(&sore::open_in_group(db, venue, Some(user_id)).await, now),
+            };
+            if let Some(block) = here {
                 sections.push(block);
             }
             if let Some(block) = sore::carried_section(&sore::open_all(db, user_id).await, now) {
@@ -486,6 +618,16 @@ pub(super) async fn between_them(
     {
         let now = super::super::clock::now();
         let open = match present.group_id() {
+            // From her nodes, those that are her intents come as intents,
+            // below.
+            None if nodes.is_some() => {
+                super::super::memory_nodes::home_intents::not_intents(
+                    db,
+                    user_id,
+                    threads::open(db, user_id).await,
+                )
+                .await
+            }
             None => threads::open(db, user_id).await,
             Some(venue) => threads::open_in_group(db, venue).await,
         };
@@ -512,6 +654,7 @@ pub(super) async fn between_them(
         };
         sections.extend(block);
     }
+    sections.extend(nodes.and_then(NodeTurn::intents_section));
     // What she thinks of what their words touch: hers, the same whoever asks.
     if let Some(words) = words {
         let views = views::touched(db, words, VIEWS_LIMIT).await;

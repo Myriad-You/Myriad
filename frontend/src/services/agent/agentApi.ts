@@ -61,6 +61,8 @@ export interface SyncDevice {
   stale: boolean
   /** Its link to her is open right now. */
   connected?: boolean
+  /** Her link closed it for speaking another protocol: the app on it is to be updated. */
+  appOutdated?: boolean
 }
 
 /** A move of her between ends, in progress (her host lease). */
@@ -709,6 +711,18 @@ class AgentService {
   /** Where she lives (owner only). */
   async getHost(): Promise<{ host: HostLease | null }> {
     return apiService.get(`${this.baseUrl}/host`)
+  }
+
+  /** Where her one mind is now (owner only): here, or the device it is on. */
+  async getMindPlace(): Promise<{
+    here: boolean
+    holder?: string
+    holderName?: string | null
+    catchingUp?: boolean
+    /** What the owner says here reaches her there (her log synced). */
+    leaves?: boolean
+  }> {
+    return apiService.get(`${this.baseUrl}/mind/where`)
   }
 
   /** Calls a move off before its commit (or turns down one a device asked for): she is back as she was. */
@@ -1691,6 +1705,14 @@ class AgentService {
       `${this.baseUrl}/sessions?page=${page}&limit=${limit}`,
     )
     return response.sessions
+  }
+
+  /** Has her forget one line and what it taught her (on every end while her log syncs): the lines that went. */
+  async forgetSessionMessage(sessionId: string, messageId: number): Promise<number[]> {
+    const response = await apiService.delete<{ forgotten: number[] }>(
+      `${this.baseUrl}/sessions/${encodeURIComponent(sessionId)}/messages/${messageId}`,
+    )
+    return response.forgotten
   }
 
   async getSessionMessages(

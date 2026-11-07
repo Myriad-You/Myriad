@@ -444,8 +444,9 @@ pub(super) async fn write(what: ToWrite) {
                 return;
             };
             match unified::remember_in_venue(&db, &venue, &content, &evidence, kept_as).await {
-                Ok(Some(_)) => {
-                    info!(%venue, "[Merope] kept what the group told her about herself")
+                Ok(Some(id)) => {
+                    info!(%venue, "[Merope] kept what the group told her about herself");
+                    crate::services::agent::merope::memory_nodes::hanging::kept(&db, &id).await;
                 }
                 Ok(None) => {}
                 Err(error) => warn!(%error, "[Merope] could not keep what she was told"),

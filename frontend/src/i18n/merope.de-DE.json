@@ -567,7 +567,8 @@
       "her": "Sie selbst",
       "people": "Personen",
       "groups": "Gruppen",
-      "signs": "Vitalwerte"
+      "signs": "Vitalwerte",
+      "nodes": "Knoten"
     },
     "her": {
       "selfStory": "Wie sie in letzter Zeit ist",
@@ -750,6 +751,98 @@
       },
       "newToHer": "Neu für sie",
       "knewIt": "wusste es schon"
+    },
+    "nodes": {
+      "none": "Keine Knoten",
+      "private": "Ihr privater Chat",
+      "own": "{name} selbst",
+      "group": "Gruppe: {group}",
+      "unnamed": "Unbenannt",
+      "aboutYou": "Über Sie",
+      "back": "Zurück zu Knoten",
+      "kind": {
+        "topic": "Thema",
+        "task": "In Arbeit",
+        "person": "Person"
+      },
+      "status": {
+        "active": "Aktiv",
+        "ongoing": "Fortlaufend",
+        "resting": "Inaktiv",
+        "done": "Erledigt",
+        "dropped": "Aufgegeben"
+      },
+      "count": {
+        "entries": "Erinnerungen {count}",
+        "spans": "Erlebnisse {count}",
+        "waiting": "Anzusprechen {count}"
+      },
+      "summary": "Zusammenfassung",
+      "views": "Ansichten",
+      "open": "Offen",
+      "entries": "Notiert",
+      "heard": "Gehört",
+      "spans": "Erlebnisse",
+      "intents": "Anzusprechen",
+      "actions": "Aktionen",
+      "said": {
+        "partner": "Von Ihnen gesagt",
+        "her": "Notiert von {name}",
+        "other_person": "Von einem Gruppenmitglied gesagt",
+        "third_party": "Andere Quelle"
+      },
+      "seenElsewhere": "Anderswo gesehen",
+      "quoteOnly": "Nur Zitat",
+      "wordsGone": "Das Original wurde gelöscht; nur die Notiz von {name} bleibt",
+      "deleted": "(Dieser Teil wurde gelöscht)",
+      "movedTo": "In einen anderen Knoten zusammengeführt",
+      "openMoved": "Öffnen",
+      "namedByYou": "Von Ihnen umbenannt",
+      "heardYes": "Stimmt",
+      "heardNo": "Stimmt nicht",
+      "intent": {
+        "byYou": "Von Ihnen",
+        "byHer": "Idee von {name}",
+        "say": "Ansprechen",
+        "work": "Erledigen",
+        "state": {
+          "waiting": "Wartet",
+          "said": "Angesprochen",
+          "done": "Erledigt",
+          "dropped": "Aufgegeben"
+        },
+        "way": {
+          "ran": "Erledigt",
+          "raised": "Statt Ausführung gemeldet",
+          "cancelled": "Abgebrochen"
+        },
+        "whenChanged": "Wenn sich „{name}“ ändert",
+        "whenDone": "Wenn „{name}“ erledigt ist",
+        "whenNone": "Bei passender Gelegenheit",
+        "asked": "Ihre Worte",
+        "reply": "Antwort",
+        "result": "Ergebnis",
+        "cancel": "Abbrechen"
+      },
+      "rename": "Umbenennen",
+      "renameHint": "Ein hier gesetzter Name wird beim Ordnen nicht zurückgeändert.",
+      "nameField": "Name",
+      "save": "Sichern",
+      "cancel": "Abbrechen",
+      "deleteNode": "Knoten löschen",
+      "deleteNodeTitle": "„{name}“ löschen?",
+      "deleteNodeMessage": "Der Knoten, die Erinnerungen darauf und die Chatnachrichten, aus denen diese Erinnerungen stammen, werden gelöscht. Dies kann nicht rückgängig gemacht werden.",
+      "deleteEntry": "Löschen",
+      "deleteEntryTitle": "Diese Erinnerung löschen?",
+      "deleteEntryMessage": "Diese Erinnerung und die Chatnachrichten, aus denen die Erinnerung stammt, werden gelöscht. Dies kann nicht rückgängig gemacht werden.",
+      "confirmDelete": "Löschen",
+      "failed": {
+        "away": "Änderung nicht möglich: Die Figur ist gerade nicht auf dieser Website.",
+        "badName": "Umbenennen nicht möglich: Der Name ist leer oder länger als 80 Zeichen.",
+        "heardUnkept": "Antwort nicht gespeichert: Die Website erfasst noch keine Quellen.",
+        "notFound": "Knoten nicht gefunden.",
+        "other": "Aktion nicht möglich."
+      }
     }
   },
   "fullBody": {

@@ -254,10 +254,7 @@ pub async fn end(turn: &str, said: Option<String>, sticker: Option<Value>) -> Op
             None
         }
         Some(said) => {
-            let published = async {
-                let (reply, _) = super::delegate::split(&said);
-                super::process_chat::published_reply(&db, &request, &reply).await
-            };
+            let published = super::process_chat::published_reply(&db, &request, &said);
             Some(match &budget {
                 Some(budget) => budget.scope(published).await,
                 None => published.await,

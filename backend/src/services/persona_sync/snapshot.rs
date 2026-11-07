@@ -178,7 +178,7 @@ pub async fn page(
 }
 
 /// Up to `limit` entities of `kind` after `after`, in id order.
-async fn of_kind<C: ConnectionTrait>(
+pub(crate) async fn of_kind<C: ConnectionTrait>(
     db: &C,
     pictures: &assets::Pictures,
     owner: i32,

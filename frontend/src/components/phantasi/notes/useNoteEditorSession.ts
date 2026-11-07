@@ -46,6 +46,7 @@ import { useNoteEditorPreference } from './useNoteEditorPreference'
 import { useNoteEditorPreview } from './useNoteEditorPreview'
 import { useNoteEditorSidecar } from './useNoteEditorSidecar'
 import { useNotePublish } from './useNotePublish'
+import { useNoteRemoteImages } from './useNoteRemoteImages'
 import { useNoteSelection } from './useNoteSelection'
 import { useNoteVisual } from './useNoteVisual'
 
@@ -714,6 +715,17 @@ export function useNoteEditorSession({
     contentMd,
   })
 
+  const { keepPastedImages } = useNoteRemoteImages({
+    t,
+    format,
+    visualRef,
+    textareaRef,
+    paneRef,
+    visualEditing,
+    commitVisualMd,
+    setContentMd,
+  })
+
   useNoteAgentPage({ docId: cloudId, title, topic, status: docStatus }, textareaRef)
 
   const canDelete =
@@ -853,6 +865,7 @@ export function useNoteEditorSession({
     rememberVisualRange,
     applyLink,
     pasteAsLink,
+    keepPastedImages,
     selectImage,
     selectWidget,
     imageOp,

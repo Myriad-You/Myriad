@@ -319,6 +319,7 @@ async fn answer(
                         .filter(|piece| matches!(piece.standing, super::works::Standing::Waiting { .. }))
                         .count(),
                     came_while_away: super::held::note_for(session_key),
+                    platform: platform.slug().to_string(),
                 }),
                 ..Default::default()
             }),

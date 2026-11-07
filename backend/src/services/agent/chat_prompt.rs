@@ -161,6 +161,7 @@ impl ChatTurnPrompt {
     }
 
     /// The whole prompt, when it was put together as one message.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn as_whole(&self) -> Option<&str> {
         match self.messages.as_slice() {
             [only] if self.system.is_empty() && only.role == "user" => Some(&only.content),
@@ -169,6 +170,7 @@ impl ChatTurnPrompt {
     }
 
     /// What she is told before how she replies: who she is and her sections.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn briefing(&self) -> &str {
         self.system
             .find(CHAT_REPLY_INSTRUCTION)
@@ -177,6 +179,7 @@ impl ChatTurnPrompt {
 
     /// The conversation before their latest message, a line a message, each
     /// with who said it.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn conversation(&self) -> Vec<String> {
         let before = self.messages.len().saturating_sub(1);
         self.messages[..before]
@@ -187,6 +190,7 @@ impl ChatTurnPrompt {
 
     /// All of it as one text, each message under who sent it: for what
     /// reads a prompt as words (a scene's log, a look at what is in it).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn text(&self) -> String {
         if let Some(whole) = self.as_whole() {
             return whole.to_string();
@@ -203,6 +207,7 @@ impl ChatTurnPrompt {
     }
 
     /// `old` rewritten as `new` wherever it is.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn replace(&mut self, old: &str, new: &str) {
         self.system = self.system.replace(old, new);
         for message in &mut self.messages {
@@ -254,12 +259,7 @@ fn chat_history_messages(history: &[ConversationMessage]) -> Vec<ChatMessage> {
         .into_iter()
         .map(|line| {
             let message = &latest[line.index];
-            let said = chat_safe_content(&message.content)
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty())
-                .collect::<Vec<_>>()
-                .join("\n");
+            let said = myriad_merope::chat_history::chat_history_content(&message.content);
             let said = match message.role.as_str() {
                 "user" | "assistant" => said,
                 who => format!("{who}：{said}"),

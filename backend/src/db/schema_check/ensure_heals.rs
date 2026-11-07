@@ -60,9 +60,12 @@ CREATE TABLE IF NOT EXISTS agent_memory_cues (
 /// and anchor, and her persona's field history, for databases that ran 004
 /// before they were in it. Same file as 004 (`migrations/persona_sync.sql`),
 /// so the shapes cannot drift; every statement is `IF NOT EXISTS` or
-/// otherwise idempotent. It also gives her host lease (`agent_host_lease`,
-/// its guard and change announcement) to a database from before it, and takes
-/// the retired parent/child flag off the devices of one.
+/// otherwise idempotent. It also gives her copy and her moves
+/// (`agent_her_copy`, `agent_her_moves`, their guard and change announcement)
+/// to a database from before them, and takes the retired parent/child flag
+/// off the devices of one. The old host lease is taken apart after her log's
+/// tables are made ([`ensure_persona_log_tables`]), since its holder and
+/// epoch go into her lease's grants.
 pub(crate) async fn ensure_persona_sync_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
     db.execute_unprepared(include_str!("../../../migrations/persona_sync.sql"))
         .await?;
@@ -78,6 +81,7 @@ pub(crate) async fn ensure_persona_sync_tables(db: &DatabaseConnection) -> Resul
 pub(crate) async fn ensure_persona_log_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
     db.execute_unprepared(include_str!("../../../migrations/persona_log.sql"))
         .await?;
+    crate::services::persona_sync::lease::take_old_lease(db).await?;
     if let Some(left) = crate::services::her_log::old_shape(db).await? {
         tracing::warn!(
             %left,
@@ -101,6 +105,14 @@ pub(crate) async fn ensure_agent_nodes_tables(db: &DatabaseConnection) -> Result
 /// for databases that ran 004 before it was in it. Same file as 004.
 pub(crate) async fn ensure_topic_nodes_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
     db.execute_unprepared(include_str!("../../../migrations/topic_nodes.sql"))
+        .await?;
+    Ok(())
+}
+
+/// Her nodes as the shared core keeps them (`migrations/memory_nodes.sql`),
+/// for databases that ran 004 before it was in it. Same file as 004.
+pub(crate) async fn ensure_memory_nodes_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(include_str!("../../../migrations/memory_nodes.sql"))
         .await?;
     Ok(())
 }

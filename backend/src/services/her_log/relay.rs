@@ -45,12 +45,9 @@
 //!   or a private chat the site lent it ([`super::lend`]); sent there as
 //!   her, answered with `group.said` or `chat.said`.
 //!
-//! What is not here yet: speaking protocol 2 on the WebSocket itself (the
-//! site's link still speaks protocol 1, and these frames reach nothing
-//! until it negotiates 2), delivering to other connected devices
-//! ([`To::Device`], [`To::Hosts`], [`To::Everyone`] say where a frame goes;
-//! the connection would send them), and asking a holder to give her up
-//! when another core asks for her.
+//! The link hands these frames here once its welcome said sync on, and
+//! sends what comes back where [`To`] says. What is not here yet: asking a
+//! holder to give her up when another core asks for her.
 
 use std::collections::BTreeSet;
 
@@ -58,6 +55,7 @@ use myriad_nodes::wire::{ASK_ROWS, Batch};
 use myriad_persona_log::{
     Core, Holder, Vector,
     lease::{Refusal as MoveRefusal, Request, Through},
+    row::Author,
 };
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
@@ -192,11 +190,13 @@ fn vector_body(audience: &str, holdings: &myriad_persona_log::Holdings, ask: &[S
     body
 }
 
-/// Who holds her mind now: the server when no grant was ever issued.
+/// Who holds her mind now: the server when no grant was ever issued (none
+/// while she is frozen between ends, which the site keeps no grant of yet).
 async fn holder(db: &DatabaseConnection) -> Result<String, Error> {
     Ok(lease::standing(db)
         .await?
-        .map_or_else(|| NODE.to_string(), |grant| grant.holder))
+        .map_or_else(|| Some(NODE.to_string()), |grant| grant.holder)
+        .unwrap_or_default())
 }
 
 /// What the server sends a device that just connected: where her mind is,
@@ -219,11 +219,11 @@ pub async fn welcome(
         lease::epoch_body(standing, settings),
     )];
     let taken_from_it = history.windows(2).any(|pair| {
-        pair[0].holder == device
+        pair[0].held_by(device)
             && pair[1].how == myriad_persona_log::How::Takeover
-            && pair[1].holder == NODE
+            && pair[1].held_by(NODE)
     });
-    if standing.holder != device && taken_from_it {
+    if !standing.held_by(device) && taken_from_it {
         let takeover = history
             .iter()
             .rev()
@@ -331,37 +331,64 @@ pub async fn take(
                     body: body.clone(),
                 }]);
             }
-            // What a computer may not hold, only her mind writes, for here.
-            if !side.holds(&audience) && !mine {
-                return Ok(vec![Outgoing::error("not_holder", seq)]);
-            }
             let Ok(batch) = serde_json::from_value::<Batch>(body.clone()) else {
                 return Ok(vec![Outgoing::error("bad_frame", seq)]);
             };
+            // What a computer may not hold, only her mind writes, for here:
+            // her mind there now, or there before a takeover sending what it
+            // wrote while it held her (her own memory catching up).
+            if !side.holds(&audience) && !mine && !(host && held_then(db, device, &batch).await?) {
+                return Ok(vec![Outgoing::error("not_holder", seq)]);
+            }
             lease::heard(db, device, Some(Seen::Host), now).await?;
-            rows(db, root, &owner, device, session, batch, seq, now).await
+            rows(db, root, settings, &owner, device, session, batch, seq, now).await
         }
         "lease.ask" => {
             lease::heard(db, device, Some(Seen::Host), now).await?;
             let request = match body["why"].as_str() {
-                Some("force") => Request::Force {
-                    to: device.to_string(),
-                },
+                Some("force") => {
+                    // Taken from here by force: her records as they are now
+                    // go into her log first, while she still writes here.
+                    if holder == NODE {
+                        records_before_leaving(db, root, user).await;
+                    }
+                    Request::Force {
+                        to: device.to_string(),
+                    }
+                }
                 Some("talk" | "place") if holder == NODE => {
                     let standing = lease::current(db).await?;
+                    // Nothing new starts here from now on; what is in hand
+                    // ends before the grant goes out, so her rows here stop
+                    // at `through`.
+                    if !super::pen::quiet(device, standing.epoch + 1, super::pen::HANDOVER_WAIT)
+                        .await
+                    {
+                        tracing::warn!(
+                            device,
+                            thinking = super::pen::thinking(),
+                            "[her-log] handing her mind over with a thought still in hand"
+                        );
+                    }
+                    // Her records as they are now go into her log before
+                    // `through` is read: the device has her whole.
+                    records_before_leaving(db, root, user).await;
                     let through = lease::through_of(db, NODE).await?;
-                    Request::Handover {
+                    let request = Request::Handover {
                         from: NODE.to_string(),
                         epoch: standing.epoch,
                         to: device.to_string(),
                         through: (!through.is_empty()).then_some(through),
-                    }
+                    };
+                    let out = moved(db, settings, user, request, seq, now).await;
+                    super::pen::handed(db, settings, user).await?;
+                    return out;
                 }
                 // Asking another holder to give her up is not done yet: no
                 // answer, as the contract allows.
                 _ => return Ok(Vec::new()),
             };
-            moved(db, settings, request, seq, now).await
+            moved(db, settings, user, request, seq, now).await
         }
         "lease.yield" => {
             lease::heard(db, device, Some(Seen::Host), now).await?;
@@ -376,7 +403,13 @@ pub async fn take(
                 to,
                 through: (!through.is_empty()).then_some(through),
             };
-            moved(db, settings, request, seq, now).await
+            moved(db, settings, user, request, seq, now).await
+        }
+        "lease.place" => {
+            let place = body["place"].as_str().filter(|place| !place.is_empty());
+            let owner_here = body["ownerHere"].as_bool().unwrap_or(false);
+            lease::place(db, device, place, owner_here, now).await?;
+            Ok(Vec::new())
         }
         "lease.stopped" => {
             lease::heard(db, device, Some(Seen::Host), now).await?;
@@ -458,10 +491,30 @@ async fn vector(
     Ok(out)
 }
 
+/// Every row of `batch` is hers from `device`, at an epoch it held her: her
+/// mind there before the server took her over, back with what it wrote
+/// then.
+async fn held_then(db: &DatabaseConnection, device: &str, batch: &Batch) -> Result<bool, Error> {
+    if batch.rows.is_empty() {
+        return Ok(false);
+    }
+    let history = lease::history(db).await?;
+    Ok(batch.rows.iter().all(|row| {
+        row.author == Author::Her
+            && row.origin == device
+            && row.epoch.is_some_and(|epoch| {
+                history
+                    .iter()
+                    .any(|grant| grant.epoch == epoch && grant.held_by(device))
+            })
+    }))
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn rows(
     db: &DatabaseConnection,
     root: &dyn keys::Root,
+    settings: &Settings,
     owner: &Owner,
     device: &str,
     session: &mut Session,
@@ -498,6 +551,26 @@ async fn rows(
         .take(ASK_ROWS)
         .collect();
     session.asked.extend(ask.iter().cloned());
+    // What another end heard and she said there in the owner's private
+    // talk shows in the site's conversations too (D6-e).
+    if audience == owner.personal()
+        && let Err(error) = super::talk::fold(db, root, owner.user).await
+    {
+        tracing::warn!(%error, "[her-log] lines said on another end were not copied here");
+    }
+    // Her records another end wrote go into the site's tables (b1).
+    if (audience == owner.personal() || audience == Owner::OWN)
+        && !taken.added.is_empty()
+        && let Err(error) = super::state::take_in(db, root, owner.user).await
+    {
+        tracing::warn!(%error, "[her-log] her records from another end were not taken in here");
+    }
+    // A catch-up waiting on these rows may be over: she thinks here again.
+    if !taken.added.is_empty()
+        && matches!(super::pen::current(), super::pen::Pen::CatchingUp { .. })
+    {
+        super::pen::settle_for(db, settings, Some(owner.user)).await?;
+    }
     let ours = store::holdings(db, owner.user, &audience).await?;
     let mut out = vec![Outgoing::back(
         "log.vector",
@@ -519,16 +592,21 @@ async fn rows(
 async fn moved(
     db: &DatabaseConnection,
     settings: &Settings,
+    user: i32,
     request: Request,
     seq: Option<u64>,
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
-    match lease::request(db, settings, request, now).await? {
+    let outcome = lease::request(db, settings, request, now).await?;
+    // Where her mind is, read again here (the other processes hear the
+    // grant from the database).
+    super::pen::settle_for(db, settings, Some(user)).await?;
+    match outcome {
         Outcome::Granted(grant) => {
             let mut out = Vec::new();
-            if grant.holder != NODE {
+            if let Some(holder) = grant.holder.clone().filter(|holder| holder != NODE) {
                 out.push(Outgoing {
-                    to: To::Device(grant.holder.clone()),
+                    to: To::Device(holder),
                     t: "lease.grant",
                     id: Some(grant.epoch.to_string()),
                     body: lease::grant_body(&grant, settings),
@@ -545,5 +623,14 @@ async fn moved(
         Outcome::Refused(MoveRefusal::NotHolder) => Ok(vec![Outgoing::error("not_holder", seq)]),
         Outcome::Refused(MoveRefusal::StaleEpoch) => Ok(vec![Outgoing::error("stale_epoch", seq)]),
         Outcome::Refused(_) | Outcome::NotAHost => Ok(Vec::new()),
+    }
+}
+
+/// Her records compared with her log (`state::sync`) as she leaves the
+/// server: a handover or a force. A comparison that fails does not stop her
+/// leaving; what it missed is the gap a takeover has anyway.
+async fn records_before_leaving(db: &DatabaseConnection, root: &dyn keys::Root, user: i32) {
+    if let Err(error) = super::state::sync(db, root, user).await {
+        tracing::warn!(%error, "[her-log] her records did not reach her log before she left");
     }
 }

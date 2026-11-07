@@ -306,6 +306,8 @@ pub(crate) async fn decided(
         event: decided.event.to_string(),
         at: now,
     });
+    // On her nodes too, once this is kept (`memory_nodes::child`).
+    let on_nodes = decided.note.clone();
     if let Some(note) = decided.note {
         lines.push(if note.action == "remember" {
             ("noted", json!({ "event": decided.event }))
@@ -338,6 +340,9 @@ pub(crate) async fn decided(
         .await?;
     transaction.commit().await?;
     changed(user_id);
+    if let Some(note) = on_nodes {
+        super::memory_nodes::child::noted(db, user_id, place, decided.event, &note).await;
+    }
     Ok(())
 }
 
@@ -450,17 +455,25 @@ pub(crate) async fn forget(
     id: &str,
 ) -> Result<bool, sea_orm::DbErr> {
     let gone = db
-        .execute_raw(statement(
-            "DELETE FROM agent_nodes WHERE id = $1 AND user_id = $2",
+        .query_one_raw(statement(
+            "DELETE FROM agent_nodes WHERE id = $1 AND user_id = $2 RETURNING form, node_key",
             vec![id.into(), user_id.into()],
         ))
-        .await?
-        .rows_affected()
-        == 1;
-    if gone {
-        changed(user_id);
+        .await?;
+    let Some(gone) = gone else {
+        return Ok(false);
+    };
+    changed(user_id);
+    // Its node on her nodes goes with it (`memory_nodes::child`).
+    let form = match gone.try_get::<String>("", "form").ok().as_deref() {
+        Some("repo") => Some(Form::Repo),
+        Some("together") => Some(Form::Together),
+        _ => None,
+    };
+    if let (Some(form), Ok(key)) = (form, gone.try_get::<String>("", "node_key")) {
+        super::memory_nodes::child::forgotten(db, user_id, form, &key).await;
     }
-    Ok(gone)
+    Ok(true)
 }
 
 #[cfg(test)]

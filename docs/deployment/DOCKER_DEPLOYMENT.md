@@ -186,8 +186,11 @@ system's network settings):
 - If the address changes (DHCP), update `CORS_ORIGINS`. Giving the computer a
   fixed address in the router avoids this; that is outside the site's control.
 - Browsers treat plain-HTTP pages other than `localhost` as insecure: the
-  microphone (listen/talk) and location (weather) are unavailable there. This
-  is browser behaviour the site does not control. On the computer itself,
+  microphone (listen/talk), location (weather) and `crypto.randomUUID` are
+  unavailable there. Client-side IDs go through
+  `frontend/src/utils/uuid.ts`, which falls back to `crypto.getRandomValues`
+  when `randomUUID` is missing, so the app still loads. This is browser
+  behaviour the site does not control. On the computer itself,
   `http://localhost` does not have this limit.
 
 ### What a local instance cannot do

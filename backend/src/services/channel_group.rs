@@ -91,8 +91,8 @@ pub(crate) use lent::say_lent;
 pub use line::GroupLine;
 pub(crate) use mind::shown_as;
 pub use mind::{
-    back_from_away, catch_up, groups_lately, handle, muted, names_here, notice, record,
-    pressed, seated, take_back_kept, take_back_tables, whispered,
+    back_from_away, back_from_lending, catch_up, groups_lately, handle, muted, names_here, notice,
+    pressed, record, seated, take_back_kept, take_back_tables, whispered,
 };
 pub use title::title;
 

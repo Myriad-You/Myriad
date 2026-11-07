@@ -134,7 +134,9 @@ pub async fn sweep(
 /// How often the sweep and the takeover check run.
 pub const EVERY: std::time::Duration = std::time::Duration::from_secs(15);
 
-/// Runs the sweep (every hour) and the takeover check (every [`EVERY`])
+/// Runs the sweep (every hour), the comparison of her records with her log
+/// (every minute, while her mind is here) and the takeover check (every
+/// [`EVERY`])
 /// while her log on the server is on. Nothing starts when it is off.
 pub fn start(db: DatabaseConnection) {
     let settings = super::settings();
@@ -157,6 +159,10 @@ async fn run(db: DatabaseConnection, settings: &Settings) {
         let now = super::now();
         if let Err(error) = super::lease::watch(&db, settings, now).await {
             tracing::warn!(%error, "[her-log] the takeover check failed");
+        }
+        // Her records into her log once a minute, while her mind is here.
+        if ticks % 4 == 0 && super::pen::here() {
+            super::state::sync_now(&db).await;
         }
         if ticks % 240 == 0
             && let Err(error) = sweep(&db, settings, crate::clock::now()).await

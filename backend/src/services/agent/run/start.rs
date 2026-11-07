@@ -192,6 +192,55 @@ pub(crate) async fn save_stopped(
 
 /// Browser and realtime voice enter the same run lifecycle, history, budget,
 /// Chat supersession and director. Only their event transports differ.
+/// Whether this Chat turn is the site owner talking to her in the panel
+/// while her log is synced: a line her mind on another device hears.
+async fn leaves_it_for_her(db: &DatabaseConnection, user_id: i32, req: &ProcessRequest) -> bool {
+    let from_here = req.context.as_ref().is_none_or(|context| {
+        context.channel_chat.is_none() && !context.from_channel && context.on_device.is_none()
+    });
+    from_here
+        && crate::services::site_owner::site_owner_user_id(db).await == Ok(user_id)
+        && crate::services::her_log::pen::in_play(
+            db,
+            crate::services::her_log::settings(),
+            Some(user_id),
+        )
+        .await
+        .unwrap_or(false)
+}
+
+/// Keeps what the owner said in their private chat (her log takes it from
+/// there) and answers that she sees it on the device her mind is on.
+async fn left_for_her(db: &DatabaseConnection, user_id: i32, req: &ProcessRequest) -> AppError {
+    let session = req
+        .context
+        .as_ref()
+        .and_then(|context| context.session_id.as_deref());
+    let kept = match ensure_session_in(
+        db,
+        session,
+        user_id,
+        crate::services::agent::AgentInteractionMode::Chat,
+        None,
+    )
+    .await
+    {
+        Ok(session) => {
+            crate::services::agent::sessions::persist_user_message_from(
+                db, &session, &req.input, "web",
+            )
+            .await
+        }
+        Err(error) => Err(error.to_string()),
+    };
+    if let Err(error) = kept {
+        tracing::error!(%error, "[Agent API] what the owner left for her was not kept");
+        return AppError::internal("Could not save durable Agent message");
+    }
+    AppError::conflict("She is on another of your devices now; she sees this there")
+        .with_code("left_for_her")
+}
+
 pub(crate) async fn start(
     db: DatabaseConnection,
     caller: Caller,
@@ -210,8 +259,14 @@ pub(crate) async fn start(
     // assistant, without her (H3e-9); while she is moving it waits too.
     if interaction_mode == crate::services::agent::AgentInteractionMode::Work {
         crate::services::persona_sync::lease::refuse_work_while_away()?;
-    } else {
-        crate::services::persona_sync::lease::refuse_while_away()?;
+    } else if let Err(refused) = crate::services::persona_sync::lease::refuse_while_away() {
+        // Her mind on another of the owner's devices: what the owner says to
+        // her in the panel is kept and goes into her log, and she hears it
+        // there (D6-b); nothing runs here.
+        if refused.code() == Some("mind_elsewhere") && leaves_it_for_her(&db, user_id, &req).await {
+            return Err(left_for_her(&db, user_id, &req).await);
+        }
+        return Err(refused);
     }
     let channel_chat = req
         .context
@@ -380,9 +435,27 @@ pub(crate) async fn start(
         };
 
     if has_session {
-        if let Err(e) =
-            require_user_message_persisted(persist_user_message(&db, &session_id, &req.input).await)
-        {
+        // Where it was said, as her log names the talk (D6).
+        let place = match (&channel_chat, &answered_elsewhere) {
+            (Some(chat), _) if !chat.platform.is_empty() => chat.platform.as_str(),
+            _ if req
+                .context
+                .as_ref()
+                .is_some_and(|context| context.on_device.is_some()) =>
+            {
+                "app"
+            }
+            _ => "web",
+        };
+        if let Err(e) = require_user_message_persisted(
+            crate::services::agent::sessions::persist_user_message_from(
+                &db,
+                &session_id,
+                &req.input,
+                place,
+            )
+            .await,
+        ) {
             tracing::error!("[Agent API] Failed to persist user message: {}", e);
             return Err(AppError::internal("Could not save durable Agent message"));
         }
@@ -1167,7 +1240,7 @@ mod cut_off_tests {
         let claim = body.find("claim_speaking_turn(").expect("claim");
         let save = body.find("save_cut_off(").expect("save");
         let history = body.find("load_session_history(").expect("history");
-        let persist = body.find("persist_user_message(").expect("persist");
+        let persist = body.find("persist_user_message_from(").expect("persist");
         assert!(claim < save && save < history && history < persist);
         // A turn that was cut off does not also save its whole reply.
         let finish = body.find("spoken.finish()").expect("finish check");

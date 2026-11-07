@@ -38,7 +38,7 @@ impl Agent {
 
         tracing::info!(
             user_id = user_id,
-            input = %request.raw_input,
+            input_chars = request.raw_input.chars().count(),
             "[Agent] Processing request"
         );
 
@@ -115,13 +115,17 @@ impl Agent {
 
         tracing::info!(
             user_id = user_id,
-            input = %request.raw_input,
+            input_chars = request.raw_input.chars().count(),
             mode = request
                 .context
                 .as_ref()
                 .map(|context| context.interaction_mode.as_str())
                 .unwrap_or("work"),
-            has_history = request.context.as_ref().and_then(|c| c.conversation_history.as_ref()).is_some(),
+            has_history = request
+                .context
+                .as_ref()
+                .and_then(|c| c.conversation_history.as_ref())
+                .is_some(),
             "[Agent] Processing request with progress tracking"
         );
 

@@ -567,7 +567,8 @@
       "her": "她自己",
       "people": "每個人",
       "groups": "每個群",
-      "signs": "體徵"
+      "signs": "體徵",
+      "nodes": "節點"
     },
     "her": {
       "selfStory": "這陣子的她",
@@ -750,6 +751,98 @@
       },
       "newToHer": "新知道的",
       "knewIt": "其實早就知道"
+    },
+    "nodes": {
+      "none": "沒有節點",
+      "private": "你的私聊",
+      "own": "{name} 自己",
+      "group": "群：{group}",
+      "unnamed": "未命名",
+      "aboutYou": "關於你",
+      "back": "返回節點",
+      "kind": {
+        "topic": "話題",
+        "task": "進行中的事",
+        "person": "人"
+      },
+      "status": {
+        "active": "活躍",
+        "ongoing": "持續",
+        "resting": "不活躍",
+        "done": "已完成",
+        "dropped": "已放下"
+      },
+      "count": {
+        "entries": "記憶 {count}",
+        "spans": "經歷 {count}",
+        "waiting": "待提起 {count}"
+      },
+      "summary": "概要",
+      "views": "看法",
+      "open": "未完成",
+      "entries": "記下的",
+      "heard": "聽說",
+      "spans": "經歷",
+      "intents": "打算提起的事",
+      "actions": "操作",
+      "said": {
+        "partner": "你說的",
+        "her": "{name} 記下的",
+        "other_person": "群成員說的",
+        "third_party": "其他來源"
+      },
+      "seenElsewhere": "別處看到的",
+      "quoteOnly": "只有引文",
+      "wordsGone": "原話已刪除，只保留{name}記下的",
+      "deleted": "（這段已刪除）",
+      "movedTo": "已併入另一個節點",
+      "openMoved": "開啟",
+      "namedByYou": "你改的名字",
+      "heardYes": "是這樣",
+      "heardNo": "不是",
+      "intent": {
+        "byYou": "你交代的",
+        "byHer": "{name} 自己想的",
+        "say": "提起",
+        "work": "去做",
+        "state": {
+          "waiting": "等待中",
+          "said": "已提起",
+          "done": "做完了",
+          "dropped": "已放下"
+        },
+        "way": {
+          "ran": "做完了",
+          "raised": "沒有直接做，改成舉手",
+          "cancelled": "已取消"
+        },
+        "whenChanged": "等「{name}」有變化",
+        "whenDone": "等「{name}」做完",
+        "whenNone": "找合適的時候",
+        "asked": "你的原話",
+        "reply": "回覆",
+        "result": "結果",
+        "cancel": "取消"
+      },
+      "rename": "重新命名",
+      "renameHint": "改過的名字不會被整理改回去。",
+      "nameField": "名字",
+      "save": "儲存",
+      "cancel": "取消",
+      "deleteNode": "刪除節點",
+      "deleteNodeTitle": "要刪除「{name}」嗎？",
+      "deleteNodeMessage": "節點、節點上的記憶和這些記憶來自的對話原文會被刪除。此操作無法復原。",
+      "deleteEntry": "刪除",
+      "deleteEntryTitle": "要刪除這條記憶嗎？",
+      "deleteEntryMessage": "這條記憶和記憶來自的對話原文會被刪除。此操作無法復原。",
+      "confirmDelete": "刪除",
+      "failed": {
+        "away": "無法修改：角色目前不在這個站點上。",
+        "badName": "無法重新命名：名字為空或超過 80 個字。",
+        "heardUnkept": "無法記下回答：站點還沒有記錄來源。",
+        "notFound": "無法找到這個節點。",
+        "other": "無法完成操作。"
+      }
     }
   },
   "fullBody": {

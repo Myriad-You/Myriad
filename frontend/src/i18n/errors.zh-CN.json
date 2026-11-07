@@ -658,6 +658,8 @@
     "agent_access_denied": "没有权限执行这次操作。",
     "host_frozen": "她正在搬家，现在哪一端都没有她。搬完或取消后再试。",
     "host_moved": "她现在不住在这个站点上。",
+    "mind_elsewhere": "她现在在你的另一台设备上，在这里说的话这会儿没人接。",
+    "left_for_her": "这句话留下了，她在那台设备上看得到。",
     "device_host_later": "让她住到一台设备上要等以后的版本。",
     "move_not_agreed": "那台设备还没同意让她住过去。",
     "move_mismatch": "传上来的和封存的不一样，没有继续。",

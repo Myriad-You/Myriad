@@ -41,15 +41,16 @@
 //! keeps her log for it. That is the id alone; nothing of her is kept with
 //! it.
 //!
-//! Not wired up yet: her link still speaks protocol 1, so nothing outside
-//! the tests calls [`relay::take`], and no `log.*` frame reaches it from a
-//! connection (nor is a first full download ever issued: only the relay
-//! gives its link). Until it does, the log moves only in files: the export,
-//! a move to a device, and taking such a file in.
+//! On a link whose welcome said sync on, every frame of the sync families
+//! (`log.*`, `lease.*`, `group.say`, `chat.say`) goes to [`relay::take`],
+//! and what it answers goes where it says: back, to one device, or to the
+//! owner's other computers. Besides the link, the log moves in files: the
+//! export, a move to a device, and taking such a file in.
 //!
 //! No key, token or secret is in a row, a frame, an answer or an error:
 //! errors say what was refused, never with what.
 
+pub mod assets;
 // Nothing outside the tests reaches the relay until her link speaks
 // protocol 2: the connection still speaks 1 and does not hand it frames.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -59,11 +60,14 @@ pub mod keys;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod lease;
 pub mod lend;
+pub mod pen;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod relay;
 pub mod retention;
+pub mod state;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod store;
+pub mod talk;
 
 #[cfg(test)]
 mod tests;
@@ -110,6 +114,9 @@ impl Owner {
             owner: self.partner.clone(),
         }
     }
+
+    /// Her own audience (`own:`): what is hers alone, her persona among it.
+    pub const OWN: &'static str = "own:";
 
     /// `personal:<partner id>`.
     pub fn personal(&self) -> String {
@@ -251,6 +258,37 @@ static SETTINGS: OnceLock<Settings> = OnceLock::new();
 /// The settings this process runs with.
 pub fn settings() -> &'static Settings {
     SETTINGS.get_or_init(Settings::from_env)
+}
+
+/// [`settings`], or in a test the settings it set for its own thread
+/// ([`test_settings::set`]).
+pub fn current_settings() -> Settings {
+    #[cfg(test)]
+    if let Some(settings) = test_settings::get() {
+        return settings;
+    }
+    settings().clone()
+}
+
+/// A test's own settings of her log, for what runs on its thread.
+#[cfg(test)]
+pub(crate) mod test_settings {
+    use std::cell::RefCell;
+
+    use super::Settings;
+
+    thread_local! {
+        static HERE: RefCell<Option<Settings>> = const { RefCell::new(None) };
+    }
+
+    /// Her log as `settings` say on this thread, until the test ends.
+    pub(crate) fn set(settings: Settings) {
+        HERE.with(|here| *here.borrow_mut() = Some(settings));
+    }
+
+    pub(super) fn get() -> Option<Settings> {
+        HERE.with(|here| here.borrow().clone())
+    }
 }
 
 /// Set at start when `HER_LOG_ENABLED` is on but her log may not run on

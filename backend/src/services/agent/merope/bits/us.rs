@@ -48,8 +48,9 @@ pub(super) async fn put_us(
         },
     )
     .await;
-    if matches!(kept, Ok(unified::Replaced { id: Some(_), .. })) {
+    if let Ok(unified::Replaced { id: Some(id), .. }) = &kept {
         tracing::info!(user_id, "[Merope] what someone is to her, put anew");
+        super::super::memory_nodes::hanging::kept(db, id).await;
     }
 }
 
@@ -64,7 +65,11 @@ pub struct Us {
 }
 
 pub async fn us(db: &DatabaseConnection, user_id: i32) -> Option<Us> {
-    let row = us_row(db, user_id).await?;
+    us_row(db, user_id).await.map(us_of)
+}
+
+/// What they are to her as `row` puts it.
+pub(crate) fn us_of(row: crate::models::entities::agent_memories::Model) -> Us {
     let evidence: Value = row
         .evidence
         .as_deref()
@@ -74,12 +79,12 @@ pub async fn us(db: &DatabaseConnection, user_id: i32) -> Option<Us> {
         .get("before")
         .and_then(Value::as_str)
         .map(str::to_string);
-    Some(Us {
+    Us {
         now: row.content,
         since: row.created_at,
         before,
         first: first_of(&evidence),
-    })
+    }
 }
 
 /// What a new version of what they are to her keeps of the one it

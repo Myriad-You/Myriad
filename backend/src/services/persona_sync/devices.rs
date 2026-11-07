@@ -68,6 +68,9 @@ pub struct Device {
     pub last_seen_at: Option<DateTime<FixedOffset>>,
     pub revoked_at: Option<DateTime<FixedOffset>>,
     pub revoked_reason: Option<String>,
+    /// When her link last closed it for speaking another protocol: the app
+    /// on it is to be updated. Cleared by its next hello the site takes.
+    pub app_outdated_at: Option<DateTime<FixedOffset>>,
 }
 
 impl Device {
@@ -89,12 +92,13 @@ impl Device {
             last_seen_at: row.try_get("", "last_seen_at")?,
             revoked_at: row.try_get("", "revoked_at")?,
             revoked_reason: row.try_get("", "revoked_reason")?,
+            app_outdated_at: row.try_get("", "app_outdated_at")?,
         })
     }
 }
 
 const COLUMNS: &str = "id, user_id, name, token_hint, lineage, created_at, last_seen_at, \
-                       revoked_at, revoked_reason";
+                       revoked_at, revoked_reason, app_outdated_at";
 
 /// 32 random bytes as a fixed-width base62 number.
 fn base62(bytes: [u8; 32]) -> String {
@@ -360,6 +364,29 @@ pub async fn seen<C: ConnectionTrait>(db: &C, id: &str) -> Result<(), DbErr> {
     Ok(())
 }
 
+/// Her link closed the device for speaking another protocol (`outdated`), or
+/// took its hello: what its devices page says of the app on it.
+pub async fn app_outdated<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+    outdated: bool,
+) -> Result<(), DbErr> {
+    db.execute_raw(if outdated {
+        statement(
+            "UPDATE agent_sync_devices SET app_outdated_at = $2::timestamptz WHERE id = $1",
+            vec![id.into(), crate::clock::now().into()],
+        )
+    } else {
+        statement(
+            "UPDATE agent_sync_devices SET app_outdated_at = NULL \
+             WHERE id = $1 AND app_outdated_at IS NOT NULL",
+            vec![id.into()],
+        )
+    })
+    .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -500,6 +527,7 @@ mod tests {
             last_seen_at: at(29),
             revoked_at: None,
             revoked_reason: None,
+            app_outdated_at: None,
         };
         assert!(!device.stale(now));
         device.last_seen_at = at(31);

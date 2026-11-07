@@ -221,6 +221,7 @@ async fn keep(db: &DatabaseConnection, venue: &str, word: &Watched, meaning: &st
                 )
                 .await;
             }
+            super::memory_nodes::hanging::kept(db, &id).await;
             tracing::info!(%venue, "[Merope] worked out a word of the group's own");
         }
         Ok(None) => {}
@@ -267,6 +268,7 @@ pub async fn told(
                 )
                 .await;
             }
+            super::memory_nodes::hanging::kept(db, &id).await;
             tracing::info!(%venue, "[Merope] kept a group's word as someone there told it");
         }
         Ok(None) => {}

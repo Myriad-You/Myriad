@@ -19,16 +19,23 @@ CREATE TABLE IF NOT EXISTS agent_topic_nodes (
     name TEXT NOT NULL,
     aliases JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL,
+    tidied_at TIMESTAMPTZ,
     PRIMARY KEY (user_id, id)
 );
 CREATE TABLE IF NOT EXISTS agent_memory_topics (
     memory_id VARCHAR(64) PRIMARY KEY REFERENCES agent_memories(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL,
     topic_id VARCHAR(64),
+    linked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     FOREIGN KEY (user_id, topic_id) REFERENCES agent_topic_nodes(user_id, id) ON DELETE CASCADE
 );
--- Under none was added after the first version of this table.
+-- Under none, and when a topic was last tidied and a memory put under it
+-- (`chat_remember::tidy`: only a topic changed since it was tidied is looked
+-- at again), were added after the first version of these tables.
 ALTER TABLE agent_memory_topics ALTER COLUMN topic_id DROP NOT NULL;
+ALTER TABLE agent_topic_nodes ADD COLUMN IF NOT EXISTS tidied_at TIMESTAMPTZ;
+ALTER TABLE agent_memory_topics
+    ADD COLUMN IF NOT EXISTS linked_at TIMESTAMPTZ NOT NULL DEFAULT now();
 CREATE INDEX IF NOT EXISTS idx_agent_memory_topics_topic
     ON agent_memory_topics (user_id, topic_id);
 CREATE OR REPLACE FUNCTION agent_memory_topics_forget() RETURNS trigger AS $$

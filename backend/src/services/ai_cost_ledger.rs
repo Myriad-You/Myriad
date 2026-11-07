@@ -241,6 +241,18 @@ pub async fn record_ai_call_from_attribution(
 }
 
 /// Same hook with caller-supplied token estimates (images, speech).
+/// `fut`, its calls counted under `step` by the tests' spend counter;
+/// outside tests just `fut`.
+pub(crate) async fn as_step<F: std::future::Future>(step: &str, fut: F) -> F::Output {
+    #[cfg(test)]
+    return spent::during(step, fut).await;
+    #[cfg(not(test))]
+    {
+        let _ = step;
+        fut.await
+    }
+}
+
 pub async fn record_ai_tokens_from_attribution(
     provider: &str,
     model: &str,
@@ -251,6 +263,9 @@ pub async fn record_ai_tokens_from_attribution(
 ) {
     let input_tokens = input_tokens.max(0);
     let output_tokens = output_tokens.max(0);
+
+    #[cfg(test)]
+    spent::add(model, input_tokens, output_tokens);
 
     // Metered even without attribution: planner / nested work must still settle.
     let _ = AI_USAGE_METER.try_with(|meter| {
@@ -340,6 +355,78 @@ pub async fn record_ai_cost(db: &DatabaseConnection, entry: AiCostLedgerEntry<'_
             task_id = entry.task_id,
             "[AI ledger] Failed to append AI cost ledger entry"
         );
+    }
+}
+
+/// What every model call in this test process spent, by model, with the
+/// same estimates the ledger keeps: the memory benches report it, so what a
+/// run costs is known from the last run instead of guessed.
+#[cfg(test)]
+pub(crate) mod spent {
+    use std::collections::BTreeMap;
+    use std::sync::Mutex;
+
+    /// Calls, input tokens, output tokens.
+    type Spent = BTreeMap<String, (u64, u64, u64)>;
+    static SPENT: Mutex<Spent> = Mutex::new(BTreeMap::new());
+    /// The same, by what each call was for.
+    static BY_STEP: Mutex<Spent> = Mutex::new(BTreeMap::new());
+
+    tokio::task_local! {
+        static STEP: String;
+    }
+
+    /// `fut`, its calls counted as `step` unless an outer step is set.
+    pub(super) async fn during<F: std::future::Future>(step: &str, fut: F) -> F::Output {
+        if STEP.try_with(|_| ()).is_ok() {
+            fut.await
+        } else {
+            STEP.scope(step.to_string(), fut).await
+        }
+    }
+
+    fn count(into: &Mutex<Spent>, key: String, input_tokens: i32, output_tokens: i32) {
+        let mut spent = into.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let entry = spent.entry(key).or_default();
+        entry.0 += 1;
+        entry.1 += input_tokens as u64;
+        entry.2 += output_tokens as u64;
+    }
+
+    pub(super) fn add(model: &str, input_tokens: i32, output_tokens: i32) {
+        count(&SPENT, model.to_string(), input_tokens, output_tokens);
+        let step = STEP
+            .try_with(|step| step.clone())
+            .ok()
+            .or_else(|| super::current_ai_attribution().map(|attribution| attribution.operation))
+            .unwrap_or_else(|| "unlabeled".to_string());
+        count(&BY_STEP, step, input_tokens, output_tokens);
+    }
+
+    /// What was spent since the last call, by model, by step, and in all.
+    pub(crate) fn take() -> serde_json::Value {
+        let taken = |from: &Mutex<Spent>| {
+            std::mem::take(&mut *from.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))
+        };
+        let (spent, by_step) = (taken(&SPENT), taken(&BY_STEP));
+        let total = spent
+            .values()
+            .fold((0, 0, 0), |sum, one| (sum.0 + one.0, sum.1 + one.1, sum.2 + one.2));
+        let line = |(calls, input, output): (u64, u64, u64)| {
+            serde_json::json!({"calls": calls, "input_tokens": input, "output_tokens": output})
+        };
+        let lines = |spent: Spent| {
+            spent
+                .into_iter()
+                .map(|(key, one)| (key, line(one)))
+                .collect::<serde_json::Map<_, _>>()
+        };
+        serde_json::json!({
+            "estimated": "length/4 per call, as the ledger counts",
+            "by_model": lines(spent),
+            "by_step": lines(by_step),
+            "total": line(total),
+        })
     }
 }
 

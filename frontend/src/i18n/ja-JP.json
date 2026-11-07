@@ -664,7 +664,11 @@
       "moving": "彼女は引っ越し中です：終わるか取り消すまで、どの端にも彼女はいません。",
       "vacant": "彼女は今このサイトにいません。",
       "movedOut": "彼女はこのサイトから引っ越しました。",
-      "member": "彼女は今このサイトにいません。"
+      "member": "彼女は今このサイトにいません。",
+      "mindElsewhere": "彼女はいま「{name}」のほうにいます。",
+      "mindElsewhereUnknown": "彼女はいまあなたの別のデバイスにいます。",
+      "mindElsewhereLeave": "彼女はいま「{name}」のほうにいます。ここで言ったことは、彼女があちらで読めます。",
+      "mindElsewhereLeaveUnknown": "彼女はいまあなたの別のデバイスにいます。ここで言ったことは、彼女があちらで読めます。"
     },
     "status": {
       "idle": "待機中",
@@ -794,6 +798,11 @@
     "typing": "入力中…",
     "retry": "もう一度",
     "zoomImage": "拡大",
+    "saidOn": "「{name}」で",
+    "saidOnUnknown": "あなたの別のデバイスで",
+    "pictures": "（画像 {count} 枚）",
+    "forgetLine": "忘れる",
+    "confirmForgetLine": "この一言と、そこから覚えたことを彼女は忘れます。同期中なら両方の端末から消えます。",
     "closeImage": "閉じる",
     "newSession": "新しい話題",
     "stop": "止める",

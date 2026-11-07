@@ -258,10 +258,17 @@ pub async fn applied(
     lease::device_step(db, id, device, Phase::Applied).await
 }
 
-/// The device commits: she lives on it from now, one epoch on, and the site
-/// lets its copy of her go in the same transaction (Q2). Asked again after
+/// The device commits: her lease goes to it, one epoch on. Asked again after
 /// it went through, it answers the lease. Only once the device's first
 /// daily backup is here, so the site has a copy to take her back from.
+///
+/// With her log synced (C2-a) the site keeps its copy of her: her mind is
+/// on the device ([`lease::Where::MindOn`]), the device is one of her host
+/// cores from now, and the server takes her mind back if it goes out of
+/// reach ([`crate::services::her_log::lease::watch`]). What the log does not
+/// carry yet stays as it was here when she left. Without it the site lets
+/// its copy go in the same transaction (Q2) and takes her back only when
+/// the owner confirms it.
 pub async fn commit_to_device(
     db: &DatabaseConnection,
     owner: i32,
@@ -269,6 +276,28 @@ pub async fn commit_to_device(
     device: &str,
     digest: &str,
 ) -> Result<Lease, MoveError> {
+    commit_to_device_with(
+        db,
+        crate::services::her_log::settings(),
+        owner,
+        id,
+        device,
+        digest,
+    )
+    .await
+}
+
+pub(crate) async fn commit_to_device_with(
+    db: &DatabaseConnection,
+    settings: &crate::services::her_log::Settings,
+    owner: i32,
+    id: &str,
+    device: &str,
+    digest: &str,
+) -> Result<Lease, MoveError> {
+    let keep = crate::services::her_log::pen::in_play(db, settings, Some(owner))
+        .await
+        .map_err(|error| MoveError::Failed(error.to_string()))?;
     let txn = db.begin().await?;
     let lease = lease::hold(&txn).await?.ok_or(MoveError::Unknown)?;
     if lease.done.as_ref().is_some_and(|done| done.id == id) && lease.holder == device {
@@ -289,6 +318,22 @@ pub async fn commit_to_device(
     if !super::backups::has_one(&txn, device, &lease.lineage).await? {
         return Err(MoveError::BackupMissing);
     }
+    if keep {
+        let written = lease::committed_to_device(&txn, id, device, true).await?;
+        crate::services::her_log::lease::heard(
+            &txn,
+            device,
+            Some(crate::services::her_log::lease::Core::Host),
+            crate::services::her_log::now(),
+        )
+        .await
+        .map_err(|error| MoveError::Failed(error.to_string()))?;
+        txn.commit().await?;
+        forget_transfer(id).await;
+        lease::reload(db).await;
+        tracing::info!(move_id = %id, device, epoch = written.epoch, "[move] her mind is on the device now; the site keeps its copy (her log is synced)");
+        return Ok(written);
+    }
     crate::services::agent::merope::api::store::lock_persona_on(&txn)
         .await
         .map_err(|error| MoveError::Failed(error.to_string()))?;
@@ -307,7 +352,7 @@ pub async fn commit_to_device(
     )
     .await
     .map_err(|error| MoveError::Failed(error.to_string()))?;
-    let written = lease::committed_to_device(&txn, id, device).await?;
+    let written = lease::committed_to_device(&txn, id, device, false).await?;
     txn.commit().await?;
     crate::services::merope_rig::mirror_active_asset(cleared).await;
     crate::services::agent::merope::forget_in_memory();

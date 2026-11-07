@@ -10,6 +10,8 @@ import { useI18n } from '../../contexts/I18nContext'
 import { agentService } from '../../services/agent'
 import { AgentMarkdown } from './AgentMarkdown'
 import { AgentMessageBody } from './AgentMessageBody'
+import { useAgentSessionId } from './agentMessages'
+import { dispatchForgottenLines } from './agentPanelEvents'
 import { useAgentPanelMode } from './agentPanelMode'
 import { AgentPanelQuestion } from './AgentPanelQuestion'
 import { AgentPanelThinking } from './AgentPanelThinking'
@@ -198,7 +200,7 @@ function useBubbleHeight(open: boolean): {
 
 export const AgentPanelMessage: React.FC<AgentPanelMessageProps> = React.memo(
   ({ message, onRetry, onAnswer, onSuggest, onWorkOffer, onZoomImage }) => {
-    const { t, locale } = useI18n()
+    const { t, locale, format } = useI18n()
     const mode = useAgentPanelMode()
     const [copied, setCopied] = useState(false)
     const [workOfferSent, setWorkOfferSent] = useState(false)
@@ -230,6 +232,19 @@ export const AgentPanelMessage: React.FC<AgentPanelMessageProps> = React.memo(
           setSaved(false)
         })
     }, [message.content, message.body, message.bodyUnavailable])
+
+    // A line kept in the conversation (`loaded_<id>`) can be forgotten.
+    const sessionId = useAgentSessionId()
+    const line = /^loaded_(\d+)$/.exec(message.id)?.[1]
+    const [forgetting, setForgetting] = useState(false)
+    const forget = useCallback(() => {
+      if (!line || !sessionId || !window.confirm(t.agentPanel.confirmForgetLine)) return
+      setForgetting(true)
+      void agentService
+        .forgetSessionMessage(sessionId, Number(line))
+        .then((lines) => dispatchForgottenLines(sessionId, lines))
+        .catch(() => setForgetting(false))
+    }, [line, sessionId, t])
 
     const isAssistant = message.role === 'assistant'
     const question = message.question
@@ -330,6 +345,11 @@ export const AgentPanelMessage: React.FC<AgentPanelMessageProps> = React.memo(
                   ) : message.content ? (
                     <AgentMarkdown text={message.content} />
                   ) : null}
+                  {message.pictures ? (
+                    <p className="agent-md-p agent-panel-message-pictures">
+                      {format(t.agentPanel.pictures, { count: message.pictures })}
+                    </p>
+                  ) : null}
                   {typing ? (
                     <p
                       className="agent-md-p agent-panel-typing"
@@ -416,6 +436,13 @@ export const AgentPanelMessage: React.FC<AgentPanelMessageProps> = React.memo(
                 {formatTime(message.at, locale)}
               </span>
             )}
+            {message.saidOn ? (
+              <span className="agent-panel-message-said-on">
+                {message.saidOn.name
+                  ? format(t.agentPanel.saidOn, { name: message.saidOn.name })
+                  : t.agentPanel.saidOnUnknown}
+              </span>
+            ) : null}
             <button
               type="button"
               className="agent-panel-tag"
@@ -439,6 +466,16 @@ export const AgentPanelMessage: React.FC<AgentPanelMessageProps> = React.memo(
                 </span>
               </button>
             )}
+            {line && sessionId ? (
+              <button
+                type="button"
+                className="agent-panel-tag"
+                onClick={forget}
+                disabled={forgetting}
+              >
+                <span className="agent-panel-tag-text">{t.agentPanel.forgetLine}</span>
+              </button>
+            ) : null}
             {message.state === 'error' && onRetry ? (
               <button
                 type="button"

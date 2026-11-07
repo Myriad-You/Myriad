@@ -1352,7 +1352,7 @@ fn request(case: &Case) -> Value {
             json!({"input":chat_prompt::build_chat_lite_prompt_with_perception(&default_soul(),&remembered,&[],&case.input,&scene),"schema":null,"schemaName":null,"system":null})
         }
         "memory" => {
-            let (system, schema) = memory::live_probe_contract(&case.remembered);
+            let (system, schema) = memory::live_probe_contract(&case.remembered, &case.input);
             let turn = super::merope::TurnContext {
                 before: case
                     .history
@@ -1374,7 +1374,7 @@ fn request(case: &Case) -> Value {
             json!({"system":system,"schema":schema,"schemaName":"agent_consciousness_decision","input":json!({"event":event,"self":snapshot}).to_string()})
         }
         // The line made from a decision's gist (`reply`) about what a child
-        // end told (`input`), as `redeem::compose_line` asks for it; without
+        // end told (`input`), as `compose::compose_line` asks for it; without
         // the speaking sections a chat turn wears (memory, mood, how she is).
         "speak" => {
             use myriad_merope::speaking::{

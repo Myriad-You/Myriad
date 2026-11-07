@@ -1,0 +1,323 @@
+//! What she knows for good of someone in private and has not put on a node
+//! yet (kept before nodes were written, or by a going-over whose nodes
+//! could not be written), and what she found out herself in their talk,
+//! sorted onto her nodes at upkeep: a batch at a
+//! time through the core (`myriad_nodes::entries::sort_prepare`,
+//! `sort_read`), and put on them as going over a stretch puts what it keeps
+//! ([`super::facts::put`]). Billed to whom they are about, with today's
+//! budget for sorting: a few people an upkeep, a few batches each.
+//!
+//! Only while her mind is here. A fact a
+//! readable answer leaves out is put nowhere, decided, as the prompt asks
+//! her to leave out what she has nothing to put in; a batch whose answer
+//! could not be read at all is asked of again at a later upkeep, while the
+//! batches after it go on.
+
+use std::collections::HashSet;
+use std::time::Duration;
+
+use myriad_merope::topics::SORT_BATCH;
+use myriad_nodes::entries::{self, FactIn, Placement, SortInput, SortReadInput, TopicIn};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+
+use super::{Error, audience, facts, known, placements};
+use crate::services::agent::memory::unified::{Audience, MemoryKind, MemoryRecord, active_in};
+use crate::services::agent::merope::call::{Ask, Voice};
+
+/// People gone over in one upkeep, and how many batches each: today's
+/// budget for sorting under topics.
+const PEOPLE: i64 = 10;
+const ASKS: usize = 3;
+const TIMEOUT: Duration = Duration::from_secs(90);
+const OPERATION: &str = "memory_node_sort";
+/// The answer's schema, by the name the old topics were sorted under.
+const SCHEMA_NAME: &str = "topic_sort";
+/// What she knows for good of someone, which she sorts: and what she found
+/// out herself in their talk (`lookup`), put as an ordinary fact is.
+pub(crate) const SORTED: &[&str] = &["chat", "import", "lookup"];
+/// The kinds of those.
+pub(crate) const KINDS: [MemoryKind; 3] = [
+    MemoryKind::Fact,
+    MemoryKind::Preference,
+    MemoryKind::Knowledge,
+];
+
+/// People with private facts on no node yet, at most `at_most`.
+async fn with_unplaced<C: ConnectionTrait>(db: &C, at_most: i64) -> Result<Vec<i32>, Error> {
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT DISTINCT m.user_id FROM agent_memories m \
+             WHERE m.user_id IS NOT NULL AND m.user_id > 0 AND m.venue = 'private' \
+               AND m.source = ANY($1) AND m.kind IN ('fact', 'preference', 'knowledge') \
+               AND m.invalid_at IS NULL AND m.superseded_by IS NULL \
+               AND NOT EXISTS (SELECT 1 FROM agent_node_placements p WHERE p.memory_id = m.id) \
+             LIMIT $2",
+            [
+                SORTED
+                    .iter()
+                    .map(|source| source.to_string())
+                    .collect::<Vec<_>>()
+                    .into(),
+                at_most.into(),
+            ],
+        ))
+        .await?;
+    rows.iter()
+        .map(|row| Ok(row.try_get::<i32>("", "user_id")?))
+        .collect()
+}
+
+/// Sort what is still to be put on a node, for a few people.
+pub(crate) async fn sort_missing(db: &DatabaseConnection) {
+    let owner = crate::services::principal::site_owner_id(db)
+        .await
+        .ok()
+        .flatten();
+    for user_id in with_unplaced(db, PEOPLE).await.unwrap_or_default() {
+        sort_for(db, user_id, owner, ASKS).await;
+    }
+}
+
+/// Their private facts on no node yet, oldest first, at most a batch; none
+/// of `tried` (asked of already this upkeep).
+async fn unplaced(
+    db: &DatabaseConnection,
+    user_id: i32,
+    audience: &str,
+    tried: &HashSet<String>,
+) -> Result<Vec<MemoryRecord>, Error> {
+    let ids = placements::unplaced(db, user_id, audience, SORTED, SORT_BATCH as u64 * 4).await?;
+    let mut rows = active_in(db, user_id, &Audience::private(user_id), &KINDS).await?;
+    rows.retain(|row| {
+        ids.contains(&row.id) && SORTED.contains(&row.source.as_str()) && !tried.contains(&row.id)
+    });
+    rows.sort_by_key(|row| (row.created_at, row.id.clone()));
+    rows.truncate(SORT_BATCH);
+    Ok(rows)
+}
+
+/// Up to `asks` batches of what she knows of them in private; how many
+/// facts were put where they go. A batch whose answer could not be read
+/// failed: it is asked of again at a later upkeep, and the next batch goes
+/// on. Stops at the first batch she answered and put none of, or with no
+/// answer at all.
+pub(crate) async fn sort_for(
+    db: &DatabaseConnection,
+    user_id: i32,
+    site_owner: Option<i32>,
+    asks: usize,
+) -> usize {
+    let Some(pen) = crate::services::her_log::pen::think() else {
+        tracing::info!("[memory-nodes] nothing sorted onto nodes: her mind is on another device");
+        return 0;
+    };
+    let audience = audience::private_talk(user_id, site_owner);
+    let mut sorted = 0;
+    let mut tried: HashSet<String> = HashSet::new();
+    for _ in 0..asks {
+        match sort_batch(db, user_id, &audience, &pen, &mut tried).await {
+            Ok(Batch::Put(done)) if done > 0 => sorted += done,
+            Ok(Batch::Unreadable { asked }) => {
+                tracing::warn!(
+                    asked,
+                    "[memory-nodes] a sorting answer could not be read: asked again later"
+                );
+            }
+            Ok(_) => break,
+            Err(error) => {
+                tracing::warn!(%error, "[memory-nodes] could not sort onto nodes");
+                break;
+            }
+        }
+    }
+    if sorted > 0 {
+        tracing::info!(
+            sorted,
+            "[memory-nodes] sorted what she knows onto her nodes"
+        );
+    }
+    sorted
+}
+
+/// How one batch went.
+enum Batch {
+    /// Nothing left to sort, or no answer came.
+    Nothing,
+    /// Her answer could not be read: these are asked of again later.
+    Unreadable { asked: usize },
+    /// How many facts were put where they go.
+    Put(usize),
+}
+
+async fn sort_batch(
+    db: &DatabaseConnection,
+    user_id: i32,
+    audience: &str,
+    pen: &crate::services::her_log::pen::Thought,
+    tried: &mut HashSet<String>,
+) -> Result<Batch, Error> {
+    let rows = unplaced(db, user_id, audience, tried).await?;
+    if rows.is_empty() {
+        return Ok(Batch::Nothing);
+    }
+    tried.extend(rows.iter().map(|row| row.id.clone()));
+    let Some(answer) = answer(db, user_id, audience, &rows, OPERATION).await? else {
+        tracing::info!(asked = rows.len(), "[memory-nodes] sorting got no answer");
+        return Ok(Batch::Nothing);
+    };
+    if answer.unreadable {
+        return Ok(Batch::Unreadable { asked: rows.len() });
+    }
+    if answer.facts.is_empty() {
+        tracing::info!(
+            asked = rows.len(),
+            "[memory-nodes] sorting answer placed none"
+        );
+        return Ok(Batch::Put(0));
+    }
+    let put = facts::put(db, user_id, audience, &answer.facts, pen).await?;
+    tracing::info!(
+        asked = rows.len(),
+        read = answer.facts.len(),
+        put,
+        "[memory-nodes] sorted a batch"
+    );
+    Ok(Batch::Put(put))
+}
+
+/// What she answered sorting `rows` onto the topics of `user_id`'s
+/// `audience`, billed to `user_id` under `operation`.
+pub(crate) struct Answer {
+    /// Where each fact asked goes: the place she gave it, or nowhere when
+    /// a readable answer left it out (she had nothing to put it in), so it
+    /// is decided and not asked again.
+    pub facts: Vec<facts::Fact>,
+    /// Nothing of her answer could be read: the batch failed, which is not
+    /// her putting none of them anywhere.
+    pub unreadable: bool,
+    /// How long the exchange was, in tokens as the plan counts them
+    /// ([`super::migrate::tokens_of`]): what was sent and what came back,
+    /// for counting what it cost when the call reports no usage.
+    pub tokens: u64,
+}
+
+/// Asks her where the first [`SORT_BATCH`] of `rows` go among the topics of
+/// `user_id`'s `audience`, through the core's prompt and reading. `None`
+/// when no answer came. Writes nothing.
+pub(crate) async fn answer(
+    db: &DatabaseConnection,
+    user_id: i32,
+    audience: &str,
+    rows: &[MemoryRecord],
+    operation: &'static str,
+) -> Result<Option<Answer>, Error> {
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    let topics: Vec<known::Known> = known::known(db, user_id, audience)
+        .await?
+        .into_iter()
+        .filter(known::Known::is_topic)
+        .collect();
+    let prepared = entries::sort_prepare(SortInput {
+        topics: topics
+            .iter()
+            .map(|topic| TopicIn {
+                id: topic.id.clone(),
+                name: topic.name.clone(),
+                aliases: topic.aliases.clone(),
+                holds: topic.holds.clone(),
+            })
+            .collect(),
+        facts: rows
+            .iter()
+            .map(|row| FactIn {
+                id: row.id.clone(),
+                text: crate::services::agent::merope::store::as_known(row),
+                // The day it was said, in her zone: what「上个月」is read against.
+                said: Some(
+                    row.created_at
+                        .with_timezone(&crate::services::agent::merope::clock::zone())
+                        .format("%Y-%m-%d")
+                        .to_string(),
+                ),
+            })
+            .collect(),
+        today: Some(
+            crate::services::agent::merope::clock::today()
+                .format("%Y-%m-%d")
+                .to_string(),
+        ),
+    })?;
+    let Ok(raw) = Ask::new(Voice::Thorough, user_id, operation)
+        .within(TIMEOUT)
+        .json_raw(
+            &prepared.system,
+            &prepared.input,
+            SCHEMA_NAME,
+            &prepared.schema,
+        )
+        .await
+    else {
+        return Ok(None);
+    };
+    let tokens = [prepared.system.as_str(), &prepared.input, &raw]
+        .into_iter()
+        .map(super::migrate::tokens_of)
+        .sum();
+    let read = entries::sort_read(SortReadInput {
+        output: raw,
+        offered: prepared.offered.clone(),
+        facts: rows
+            .iter()
+            .take(prepared.taken)
+            .map(|row| row.id.clone())
+            .collect(),
+        known: topics
+            .iter()
+            .map(|topic| entries::Known {
+                id: topic.id.clone(),
+                name: topic.name.clone(),
+                aliases: topic.aliases.clone(),
+            })
+            .collect(),
+    })?;
+    let unreadable = read.unreadable;
+    let fact_of = |row: &MemoryRecord, placement, standing| {
+        // In a group, everyone but her is someone there.
+        let who = if row.speaker == "agent" {
+            audience::Speaker::Her
+        } else {
+            audience::Speaker::Person
+        };
+        facts::Fact {
+            memory: row.id.clone(),
+            text: row.content.clone(),
+            said_by: audience::said_by(audience, who)
+                .unwrap_or_else(|| facts::said_by(&row.speaker)),
+            placement,
+            standing,
+        }
+    };
+    let mut facts: Vec<facts::Fact> = read
+        .facts
+        .into_iter()
+        .filter_map(|sorted| {
+            let row = rows.iter().find(|row| row.id == sorted.fact)?;
+            Some(fact_of(row, sorted.placement, sorted.standing))
+        })
+        .collect();
+    if !unreadable {
+        for row in rows.iter().take(prepared.taken) {
+            if !facts.iter().any(|fact| fact.memory == row.id) {
+                facts.push(fact_of(row, Placement::Nowhere, Default::default()));
+            }
+        }
+    }
+    Ok(Some(Answer {
+        facts,
+        unreadable,
+        tokens,
+    }))
+}

@@ -120,7 +120,10 @@ pub async fn read(db: &DatabaseConnection, owner: i32) -> Result<Her, ExportErro
     let lease = lease::read(db).await.map_err(ExportError::failed)?;
     if let Some(lease) = &lease {
         match lease.place() {
-            lease::Where::Here | lease::Where::Moving | lease::Where::MovedOut => {}
+            lease::Where::Here
+            | lease::Where::Moving
+            | lease::Where::MovedOut
+            | lease::Where::MindOn(_) => {}
             lease::Where::Elsewhere(device) => return Err(ExportError::Elsewhere(Some(device))),
             lease::Where::Vacant => return Err(ExportError::Elsewhere(None)),
         }
@@ -570,7 +573,8 @@ mod tests {
         assert!(opened.header.lineage.is_some());
 
         // Living elsewhere, the site's copy is not her: no export.
-        db.execute_unprepared("UPDATE agent_host_lease SET holder = 'dev_1', epoch = epoch + 1")
+        let lineage = lease::read(db).await.unwrap().unwrap().lineage;
+        lease::seed(db, "dev_1", &lineage, 2, lease::State::Away)
             .await
             .unwrap();
         assert!(matches!(

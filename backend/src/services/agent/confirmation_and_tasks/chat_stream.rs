@@ -158,22 +158,18 @@ impl WearStreamFilter {
         Option<myriad_merope::WearDirective>,
         Option<crate::services::agent::chat_music::ChatMusicAction>,
     ) {
-        let (after_wear, wear) = myriad_merope::split_chat_wear_directive(&self.raw);
-        let (spoken, music) =
-            crate::services::agent::chat_music::split_chat_music_directive(&after_wear);
-        let (spoken, started) = crate::services::agent::merope::soup::split_start(&spoken);
-        self.started_game |= started;
-        // A hand-off line is for the channel, not to be seen or heard.
-        let (spoken, _) = crate::services::agent::delegate::split(&spoken);
-        // A sticker line is for the chat app, not to be seen or heard.
-        let (spoken, _) = myriad_merope::stickers::split_sticker_directive(&spoken);
-        let visible = if hold {
-            crate::services::agent::chat_music::hold_incomplete_live_marker(&spoken)
+        let wear = myriad_merope::split_chat_wear_directive(&self.raw).1;
+        let music = crate::services::agent::chat_music::split_chat_music_directive(&self.raw).1;
+        self.started_game |= crate::services::agent::merope::soup::split_start(&self.raw).1;
+        // No mark is seen or heard, nor one still being written (the core's
+        // table); spaces at either end wait for what comes next.
+        let shown = if hold {
+            myriad_merope::speech::markers::shown(&self.raw).0
         } else {
-            spoken.as_str()
+            myriad_merope::speech::markers::strip(&self.raw)
         };
         (
-            self.delta(visible),
+            self.delta(shown.trim()),
             self.take_wear(wear),
             self.take_music(music),
         )
@@ -1119,5 +1115,65 @@ mod prompt_size {
         if let Ok(path) = std::env::var("MEROPE_PROBE_DUMP") {
             std::fs::write(path, prompt.text()).unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+mod stream_filter_tests {
+    use super::WearStreamFilter;
+
+    /// What they see as her reply streams in, piece by piece: never a mark
+    /// or the start of one, the same words as before the core's table.
+    fn streamed(pieces: &[&str]) -> String {
+        let mut filter = WearStreamFilter::new("换睡衣".into());
+        let mut seen = String::new();
+        for piece in pieces {
+            seen.push_str(&filter.push(piece).0);
+        }
+        seen.push_str(&filter.flush().0);
+        seen
+    }
+
+    #[test]
+    fn marks_never_show_while_she_speaks() {
+        assert_eq!(
+            streamed(&["好，", "换上", "[[we", "ar:睡", "衣]]", "啦"]),
+            "好，换上啦"
+        );
+        assert_eq!(
+            streamed(&["行，我唱给你听。\n", "[[mus", "ic:play]]"]),
+            "行，我唱给你听。"
+        );
+        assert_eq!(
+            streamed(&[
+                "好，我去查",
+                "\n[[work: 明天",
+                "的天气]]\n",
+                "[[sticker:2]]"
+            ]),
+            "好，我去查"
+        );
+        assert_eq!(
+            streamed(&["好呀，等我想一个……", "\n[[game:so", "up]]"]),
+            "好呀，等我想一个……"
+        );
+        assert_eq!(streamed(&["[[workers]]", " 不是"]), "[[workers]] 不是");
+    }
+
+    #[test]
+    fn what_the_marks_ask_for_is_read_once() {
+        let mut filter = WearStreamFilter::new(String::new());
+        let (_, wear, _) = filter.push("好\n[[wear:睡衣]]");
+        assert_eq!(
+            wear,
+            Some(myriad_merope::WearDirective::Label("睡衣".into()))
+        );
+        let (_, wear, music) = filter.push("\n[[music:next]]\n[[game:soup]]");
+        assert!(wear.is_none());
+        assert_eq!(
+            music,
+            Some(crate::services::agent::chat_music::ChatMusicAction::Next)
+        );
+        assert!(filter.started_game);
     }
 }

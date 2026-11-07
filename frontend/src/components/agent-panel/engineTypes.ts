@@ -88,6 +88,10 @@ export interface ChatMessage {
   dataDisplay?: DataDisplayHint
   data?: unknown
   imageUrls?: string[]
+  /** Said on another of the owner's ends (D6-e): that end's name, when it has one. */
+  saidOn?: { name: string | null }
+  /** How many pictures came with a line said elsewhere; they stay there. */
+  pictures?: number
   /** Typed a message at a time: whether she is at her next one. */
   typing?: boolean
 }

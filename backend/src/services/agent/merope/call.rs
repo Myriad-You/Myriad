@@ -155,6 +155,15 @@ impl Ask {
 
     /// The configured model, or an observable configuration failure.
     pub(super) async fn model(self) -> Result<Model, Failure> {
+        // Not while her mind is on another core: she thinks there.
+        let Some(thought) = crate::services::her_log::pen::think() else {
+            tracing::info!(
+                owner = self.owner,
+                operation = self.operation,
+                "[Merope] model not asked: her mind is on another device"
+            );
+            return Err(Failure::Unavailable);
+        };
         let analyzer = match self.voice {
             Voice::Judge => {
                 crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(self.timeout))
@@ -189,6 +198,7 @@ impl Ask {
         Ok(Model {
             analyzer,
             ask: self,
+            _thought: thought,
         })
     }
 
@@ -245,6 +255,9 @@ impl Ask {
 pub(super) struct Model {
     analyzer: AiAnalyzer,
     ask: Ask,
+    /// Held while the model is in use: a handover of her mind away waits
+    /// for it.
+    _thought: crate::services::her_log::pen::Thought,
 }
 
 impl Model {
