@@ -486,7 +486,7 @@ mod same_instance_tests {
                 .iter()
                 .find(|message| message.message_type == "text")
                 .expect("the message");
-            assert_eq!(message.payload["text"], "secret", "user {user_id}");
+            assert_eq!(message.payload["text"], "secret");
         }
         fixture.close().await;
     }

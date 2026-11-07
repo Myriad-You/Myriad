@@ -535,6 +535,7 @@
     "ai_billing_owner": "L’usage de l’IA ne peut pas être comptabilisé : le propriétaire du site n’est pas configuré.",
     "allow_skip_versions_unsupported": "Ce service de mise à jour ne peut pas sauter de versions. Mettez à jour une version à la fois.",
     "channel_inbox_missing": "L’autre serveur n’a pas fourni de boîte de réception pour ce canal. Réessayez plus tard.",
+    "transfer_same_instance": "L’envoi de fichiers entre utilisateurs du même site n’est pas encore possible. Partagez plutôt un lien ou envoyez-le en dehors du site.",
     "remote_inbox_missing": "L’autre serveur n’a pas de boîte de réception où livrer. Réessayez plus tard.",
     "e2e_required": "Cette conversation est chiffrée de bout en bout et le message n’a pas pu être chiffré ; il n’a pas été envoyé.",
     "channel_pairing_identity": "Il s’agit d’un appairage de bot. Gérez-le depuis la page d’appairage.",

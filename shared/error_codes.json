@@ -1527,6 +1527,7 @@
     "cache_write_failed",
     "cdn_unavailable",
     "channel_inbox_missing",
+    "transfer_same_instance",
     "channel_pairing_identity",
     "character_asset_provenance_changed",
     "character_visual_inputs_changed",
