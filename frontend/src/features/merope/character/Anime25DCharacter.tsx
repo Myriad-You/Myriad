@@ -14,6 +14,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { safeRandomUUID } from '../../../utils/uuid'
 import { figureChannel } from '../figureChannel'
 import { getProductionMotionRuntime } from '../motion/runtimeHost'
 import { createTouchAppraisal } from '../presence/touchAppraisalHost'
@@ -72,7 +73,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       const canvas = canvasRef.current
       const player = playerRef.current
       if (!touchEnabled || manualControl || !ready || !canvas || !player) return
-      const owner = crypto.randomUUID()
+      const owner = safeRandomUUID()
       const source = getProductionMotionRuntime().touch
       const appraisal = createTouchAppraisal(owner, source)
       const cancelReaction = () => { appraisal.cancel(); source.release(owner) }
