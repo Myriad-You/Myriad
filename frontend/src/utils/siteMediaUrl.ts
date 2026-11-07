@@ -8,6 +8,11 @@ import { API_URL } from '../config'
 const SITE_MEDIA_PATH =
   /^\/(?:media\/assets\/|api\/media\/\d+\/content$|api\/phantasi\/image-cache\/|api\/proxy\/image(?:\/|$))/
 
+/** Whether `pathname` is one the platform serves as media, under whatever origin. */
+export function isSiteMediaPath(pathname: string): boolean {
+  return SITE_MEDIA_PATH.test(pathname)
+}
+
 /** Resolve backend-owned paths for display only; never rewrite stored asset identity. */
 export function siteMediaUrl(src: string, apiUrl = API_URL): string {
   let path = src.trim()
