@@ -26,7 +26,7 @@ fn world(answers: &[(&str, &str)], says: &[&str]) {
         world
             .models
             .entry(operation.to_string())
-            .or_insert_with(VecDeque::new)
+            .or_default()
             .push_back(Some(answer.to_string()));
     }
     for line in says {

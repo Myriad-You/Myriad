@@ -36,6 +36,7 @@ static LINKS: LazyLock<Mutex<HashMap<String, UnboundedSender<Outgoing>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// A link from `device` negotiated protocol 2: frames for it go to `send`.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn open(device: &str, send: UnboundedSender<Outgoing>) {
     if let Ok(mut links) = LINKS.lock() {
         links.insert(device.to_string(), send);

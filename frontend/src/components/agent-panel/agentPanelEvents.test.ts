@@ -4,13 +4,13 @@ import test from 'node:test'
 import { beginIdentityChange, settleIdentity } from '../../utils/identity'
 import {
   AGENT_PANEL_FORGOTTEN_EVENT,
-  forgottenLinesDetail,
   agentPanelOpenSessionCount,
   agentPanelSubmitDetail,
   askAgentPanel,
   attachAgentPanelOpenQueue,
   attachAgentSessionOpenQueue,
   clearQueuedAgentOpens,
+  forgottenLinesDetail,
   hasQueuedAgentPanelOpen,
   queueAgentPanelOpen,
   queueAgentSessionOpen,

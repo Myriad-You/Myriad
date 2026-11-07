@@ -1344,7 +1344,7 @@ async fn the_partners_private_lines_are_theirs_in_her_log_wherever_her_mind_is()
     exchange(db, &mut mac, vec![ask], T0).await;
     assert!(mac.epoch.is_some(), "her mind is on the Mac");
 
-    let at = chrono::Utc::now();
+    let at = crate::clock::now();
     let root = root();
     let keep = |session: &'static str, message: i32, text: &'static str| {
         super::talk::keep(db, &root, OWNER, session, message, text, at, "web")
@@ -1603,7 +1603,7 @@ async fn forgetting_a_line_forgets_it_on_every_end_with_what_it_taught_her() {
     ))
     .await
     .unwrap();
-    let at = chrono::Utc::now();
+    let at = crate::clock::now();
     let root = root();
     let mut rows = Vec::new();
     for (message, text) in [(901, "我养了一只猫叫团子"), (903, "下周去看海")] {
@@ -3511,8 +3511,8 @@ async fn a_record_waits_for_its_picture() {
 
     // The picture is here (as `assets::put` keeps it, in the owner's media).
     db.execute_unprepared(&format!(
-        "INSERT INTO media_assets (kind, url, mime, checksum_sha256, state, owner_user_id) \
-         VALUES ('image', '/media/her/rain.png', 'image/png', '{id}', 'ready', {OWNER})"
+        "INSERT INTO media_assets (kind, url, mime, checksum_sha256, state, scope, owner_user_id) \
+         VALUES ('image', '/media/her/rain.png', 'image/png', '{id}', 'ready', 'user', {OWNER})"
     ))
     .await
     .unwrap();
