@@ -39,6 +39,10 @@ CREATE TRIGGER federation_room_membership_notify
     FOR EACH ROW EXECUTE FUNCTION federation_room_membership_notify();
 "#;
 
+/// `federation_channels` per user, and what replaces the messages' foreign key.
+/// Shared by migration 005 and the runtime schema heal.
+pub const CHANNEL_ROWS_SQL: &str = include_str!("channel_rows.sql");
+
 /// Channel on which a change to someone's private conversations with her is
 /// announced, with that person's id (`conversation_changes.sql`), so a live
 /// link reads them again at once.

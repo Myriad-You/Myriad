@@ -79,6 +79,17 @@ pub async fn initiate_transfer(
     }
 
     let remote_actor_url: String = ch_row.try_get("", "actor_url").unwrap_or_default();
+    // A transfer is one row per `transfer_id`, with one direction: it has no
+    // shape yet for both ends living in the same database.
+    if local_username_from_actor_url(&base_url, &remote_actor_url).is_some() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "File transfer between users of the same site is not supported yet",
+                "code": "transfer_same_instance",
+            })),
+        ));
+    }
     let remote_inbox: Option<String> = ch_row
         .try_get::<Option<String>>("", "inbox_url")
         .unwrap_or(None);
@@ -932,8 +943,8 @@ pub async fn list_transfers(
     let ch_row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT user_id FROM federation_channels WHERE channel_id = $1",
-            [channel_id.into()],
+            "SELECT user_id FROM federation_channels WHERE channel_id = $1 ORDER BY user_id = $2 DESC LIMIT 1",
+            [channel_id.into(), user_id.into()],
         ))
         .await
         .map_err(db_err)?;

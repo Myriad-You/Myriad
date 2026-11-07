@@ -494,6 +494,14 @@ END $$;
 }
 
 /// Unknown `agent_tasks.status` values must not become executable Pending.
+/// 私信每人一行（`migrations/channel_rows.sql`）：旧库的 `channel_id` 唯一键和消息外键
+/// 在这里退场。排在 [`ensure_user_lifecycle`] 之后。
+pub(crate) async fn ensure_channel_rows(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(migration::CHANNEL_ROWS_SQL)
+        .await
+        .map(|_| ())
+}
+
 pub(crate) async fn ensure_agent_tasks_status_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     db.execute_unprepared(&agent_tasks_status_check_sql())
         .await?;

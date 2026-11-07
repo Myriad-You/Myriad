@@ -111,7 +111,10 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// 同一行只收一次（`persona_log.sql`，旧库走通用 ADD）。
 /// 2026.11.06.5：`agent_sync_devices` 加 `app_outdated_at`（她的链接因为它说别的协议把它关掉的时候，
 /// 设备页据此说那台设备上的 App 要更新；它下次 hello 被收下就清掉）（`persona_sync.sql`，旧库走通用 ADD）。
-pub const SCHEMA_VERSION: &str = "2026.11.06.5";
+/// 2026.11.07.1：同实例私信每人一行：`federation_channels` 的唯一键改成
+/// `(channel_id, user_id)`，消息外键换成最后一行频道删除时的触发器
+/// （`channel_rows.sql`，随 005 与 `ensure_channel_rows` 一起建）。
+pub const SCHEMA_VERSION: &str = "2026.11.07.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -379,6 +382,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     ensure_user_lifecycle(db).await?;
     ensure_conversation_changes(db).await?;
     ensure_federation_foreign_keys(db).await?;
+    ensure_channel_rows(db).await?;
     ensure_single_owner(db).await?;
 
     // 只有所有 repair 都成功且最终只读复核无漂移，才能记录版本并开放服务。

@@ -793,6 +793,12 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             is_unique: true,
         },
         IndexDef {
+            name: "idx_channels_channel_user".into(),
+            table: "federation_channels".into(),
+            columns: vec!["channel_id".into(), "user_id".into()],
+            is_unique: true,
+        },
+        IndexDef {
             name: "idx_channels_user".into(),
             table: "federation_channels".into(),
             columns: vec!["user_id".into()],
