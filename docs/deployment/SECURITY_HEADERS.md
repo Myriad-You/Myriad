@@ -76,6 +76,13 @@ geolocation=(self), microphone=(self), camera=()
   因此 CSP 必须允许远程 `https:`/`http:` 图片；不能收紧为仅 `'self'` 或仅
   代理路径，否则 RSS/博客封面与外链头像会空白。若未来强制全部走
   `/api/proxy/image`，才可再收窄 `img-src`。
+- **博客页的 `img-src`（`crates/myriad-blog/src/postprocess.rs` 的 `BLOG_CSP`）**：
+  `img-src 'self' data: https: http:`，和上面的主站口径一致。笔记正文里的外链图片
+  （迁移过来的 WordPress 附件就是外部 URL）要能显示，否则只会是空白。图片不构成
+  XSS：它在 `<img>` 里不执行脚本，服务端也不去抓，因此没有 SSRF；代价只是访客的
+  IP 会暴露给图床，Referer 仍被 `strict-origin-when-cross-origin` 限制为只发 origin。
+  脚本、frame、connect 的封锁不因此放松：博客页仍是
+  `script-src 'none'` / `frame-src 'self'` / `connect-src 'none'`。
 - `X-Content-Type-Options: nosniff`
 - `X-Frame-Options: DENY`
 - `X-XSS-Protection: 1; mode=block`
