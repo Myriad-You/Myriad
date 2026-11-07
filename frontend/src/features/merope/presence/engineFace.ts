@@ -9,6 +9,7 @@ import type { SpeechSegment } from '../speech/speechSegmenter'
 import type { FaceDelivery, FaceSpeechLine } from './faceSpeechArbitration'
 import { openVoiceStream } from '../../../services/speechApi'
 import { authSubject } from '../../../utils/authSubject'
+import { safeRandomUUID } from '../../../utils/uuid'
 import { getLocalPerception, getProductionBody } from '../body/host'
 import { figureChannel } from '../figureChannel'
 import { captureProductionRigStateSummary } from '../motion/runtimeHost'
@@ -146,7 +147,7 @@ function openOwnVoice(
   const pipeline = getSpeechPipeline()
   const stream = pipeline.openStream(messageId, generation, 'reply')
   if (!stream) return null
-  const token = crypto.randomUUID()
+  const token = safeRandomUUID()
   turnVoiceTokens.set(messageId, token)
   if (turnVoiceTokens.size > 64)
     turnVoiceTokens.delete(turnVoiceTokens.keys().next().value!)
