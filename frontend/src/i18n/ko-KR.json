@@ -748,6 +748,12 @@
       "kicker": "기분"
     },
     "send": "보내기",
+    "search": {
+      "label": "사이트 검색",
+      "placeholder": "사이트에서 검색…",
+      "posts": "글",
+      "library": "라이브러리"
+    },
     "attach": {
       "kind": "파일",
       "add": "첨부 추가",
@@ -782,7 +788,6 @@
     "executionFailed": "실행에 실패했습니다",
     "failReason": "실패: {reason}",
     "interrupted": "중단됨",
-    "loginRequiredHint": "로그인하면 Agent와 대화할 수 있습니다. 게스트는 보기만 됩니다.",
     "requestTimeout": "요청이 시간 초과되거나 중단됐습니다",
     "streamError": "응답 스트림을 읽지 못했습니다",
     "taskCompleted": "작업 완료",

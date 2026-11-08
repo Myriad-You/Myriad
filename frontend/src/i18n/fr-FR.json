@@ -748,6 +748,12 @@
       "kicker": "Humeur"
     },
     "send": "Envoyer",
+    "search": {
+      "label": "Recherche sur le site",
+      "placeholder": "Rechercher sur le site…",
+      "posts": "Articles",
+      "library": "Bibliothèque"
+    },
     "attach": {
       "kind": "Fichier",
       "add": "Ajouter une pièce jointe",
@@ -782,7 +788,6 @@
     "executionFailed": "Exécution échouée",
     "failReason": "Échec : {reason}",
     "interrupted": "Interrompu",
-    "loginRequiredHint": "Connectez-vous pour parler à Agent. Les invités regardent seulement.",
     "requestTimeout": "Requête expirée ou interrompue",
     "streamError": "Impossible de lire le flux de réponse",
     "taskCompleted": "Tâche terminée",

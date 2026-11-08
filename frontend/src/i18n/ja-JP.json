@@ -748,6 +748,12 @@
       "kicker": "気持ち"
     },
     "send": "送信",
+    "search": {
+      "label": "サイト内検索",
+      "placeholder": "サイト内を検索…",
+      "posts": "記事",
+      "library": "ライブラリ"
+    },
     "attach": {
       "kind": "添付",
       "add": "添付を追加",
@@ -782,7 +788,6 @@
     "executionFailed": "実行失敗",
     "failReason": "失敗理由: {reason}",
     "interrupted": "中断されました",
-    "loginRequiredHint": "ログイン後に Agent と会話できます。ゲストは閲覧のみです。",
     "requestTimeout": "リクエストがタイムアウトまたは中断されました",
     "streamError": "レスポンスストリームを読み取れません",
     "taskCompleted": "タスク完了",
