@@ -1,0 +1,9 @@
+{
+  "search": "Suchen",
+  "searchPlaceholder": "Beiträge suchen",
+  "searchHint": "Geben Sie einen Suchbegriff ein, um veröffentlichte Beiträge zu durchsuchen.",
+  "searchNoResults": "Keine Beiträge zu {q} gefunden.",
+  "searchResults": "{n} Beitrag/Beiträge zu {q} gefunden.",
+  "searchResultsMore": "Mehr als {n} Beiträge zu {q}.",
+  "siteFallbackTitle": "Blog"
+}

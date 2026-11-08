@@ -3,8 +3,9 @@
 use chrono::Utc;
 use myriad_blog::{BlogPost, BlogSettings, BlogSite, FriendLink, blog_settings_from_value};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, QueryFilter,
-    Statement,
+    ColumnTrait, Condition, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait,
+    QueryFilter, QueryOrder, QuerySelect, Statement,
+    sea_query::{Expr, extension::postgres::PgExpr},
 };
 
 use crate::models::entities::{phantasi_items, phantasi_sources};
@@ -100,6 +101,195 @@ pub async fn load_posts(db: &DatabaseConnection) -> Result<Vec<BlogPost>, &'stat
         .map_err(|_| "Could not read published notes")?;
     items.sort_by_key(|item| item.published_at);
     Ok(items.into_iter().map(item_to_post).collect())
+}
+
+/// 一页搜索结果。`more` 表示后面还有（只多查了一条用来判断）。
+pub struct SearchResults {
+    pub hits: Vec<SearchHit>,
+    pub more: bool,
+}
+
+/// 一条搜索结果：文章本身，加上「为什么命中」的那段上下文。
+pub struct SearchHit {
+    pub post: BlogPost,
+    /// 命中处前后的纯文本片段，带 `…` 边界。标题命中时给摘要开头。
+    pub excerpt: String,
+}
+
+/// 站内搜索：在已发布的文章里，标题 / 摘要 / 正文任一命中即算。
+///
+/// 沿用 [`load_posts`] 同一套「什么是已发布」的口径，避免搜索结果和静态页对不上。
+/// 只做子串匹配，中文不需要分词；`%` `_` `\` 会转义，不会被当成通配符。
+pub async fn search_posts(
+    db: &DatabaseConnection,
+    query: &str,
+    limit: u64,
+) -> Result<SearchResults, &'static str> {
+    let needle = query.trim();
+    if needle.is_empty() {
+        return Ok(SearchResults {
+            hits: Vec::new(),
+            more: false,
+        });
+    }
+    let sources = phantasi_sources::Entity::find()
+        .filter(phantasi_sources::Column::SourceType.eq(phantasi_sources::SourceType::Note))
+        .filter(phantasi_sources::Column::AdminOnly.eq(false))
+        .all(db)
+        .await
+        .map_err(|_| "Could not read published notes")?;
+    if sources.is_empty() {
+        return Ok(SearchResults {
+            hits: Vec::new(),
+            more: false,
+        });
+    }
+    let ids: Vec<i32> = sources.iter().map(|source| source.id).collect();
+    let pattern = like_pattern(needle);
+    let mut items = phantasi_items::Entity::find()
+        .filter(phantasi_items::Column::SourceId.is_in(ids))
+        .filter(
+            Condition::any()
+                .add(Expr::col(phantasi_items::Column::Title).ilike(&pattern))
+                .add(Expr::col(phantasi_items::Column::Summary).ilike(&pattern))
+                .add(Expr::col(phantasi_items::Column::Content).ilike(&pattern)),
+        )
+        .order_by_desc(phantasi_items::Column::PublishedAt)
+        .limit(limit + 1)
+        .all(db)
+        .await
+        .map_err(|_| "Could not search published notes")?;
+    let more = items.len() as u64 > limit;
+    items.truncate(limit as usize);
+    Ok(SearchResults {
+        hits: items
+            .into_iter()
+            .map(|item| {
+                let excerpt = hit_excerpt(&item, needle);
+                SearchHit {
+                    post: item_to_post(item),
+                    excerpt,
+                }
+            })
+            .collect(),
+        more,
+    })
+}
+
+/// 命中在哪一段就把哪一段的上下文给出来；都没命中（理论上不会）就退回正文开头。
+fn hit_excerpt(item: &phantasi_items::Model, needle: &str) -> String {
+    let summary = item.summary.as_deref().unwrap_or_default();
+    let content = item.content.as_deref().unwrap_or_default();
+    let content_text = strip_tags(content);
+    if let Some(excerpt) = excerpt_around(&content_text, needle) {
+        return excerpt;
+    }
+    if let Some(excerpt) = excerpt_around(summary, needle) {
+        return excerpt;
+    }
+    if excerpt_around(&item.title, needle).is_some() {
+        // 标题命中时正文里没有这个词，给摘要开头当说明。
+        let fallback = if summary.trim().is_empty() {
+            content_text
+        } else {
+            summary.to_string()
+        };
+        return clip(&fallback, 120);
+    }
+    clip(&content_text, 120)
+}
+
+/// `text` 里第一次出现 `needle` 的地方，取前后各 40 个字符。
+fn excerpt_around(text: &str, needle: &str) -> Option<String> {
+    // 先按原文找；找不到再退到大小写不敏感。小写化可能改变字节长度，
+    // 所以那条路只在 ASCII 上走，避免切片错位。
+    let (mut start, mut end) = match text.find(needle) {
+        Some(at) => (at, at + needle.len()),
+        None => {
+            if !text.is_ascii() || !needle.is_ascii() {
+                return None;
+            }
+            let at = text
+                .to_ascii_lowercase()
+                .find(&needle.to_ascii_lowercase())?;
+            (at, at + needle.len())
+        }
+    };
+    while start > 0 && !text.is_char_boundary(start) {
+        start -= 1;
+    }
+    while end < text.len() && !text.is_char_boundary(end) {
+        end += 1;
+    }
+    let before: String = text[..start]
+        .chars()
+        .rev()
+        .take(40)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    let after: String = text[end..].chars().take(40).collect();
+    let mut out = String::new();
+    if !before.trim().is_empty() {
+        out.push('…');
+        out.push_str(before.trim_start());
+    }
+    out.push_str(&text[start..end]);
+    let after_trimmed = after.trim_end();
+    if !after_trimmed.is_empty() {
+        out.push_str(after_trimmed);
+        out.push('…');
+    }
+    Some(collapse(&out))
+}
+
+/// 去掉 HTML 标签，保留文字。只处理笔记消毒器会写出的那些标签，够用。
+fn strip_tags(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut inside = false;
+    for ch in html.chars() {
+        match ch {
+            '<' => inside = true,
+            '>' => inside = false,
+            _ if !inside => out.push(ch),
+            _ => {}
+        }
+    }
+    out.replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+}
+
+fn collapse(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn clip(text: &str, max_chars: usize) -> String {
+    let collapsed = collapse(text);
+    if collapsed.chars().count() <= max_chars {
+        return collapsed;
+    }
+    let mut out: String = collapsed.chars().take(max_chars).collect();
+    out.push('…');
+    out
+}
+
+/// 把用户输入包成 `ILIKE` 模式，转义通配符（Postgres 的 ILIKE 默认用 `\` 转义）。
+fn like_pattern(query: &str) -> String {
+    let mut pattern = String::with_capacity(query.len() + 2);
+    pattern.push('%');
+    for ch in query.chars() {
+        if matches!(ch, '%' | '_' | '\\') {
+            pattern.push('\\');
+        }
+        pattern.push(ch);
+    }
+    pattern.push('%');
+    pattern
 }
 
 pub async fn load_friends(db: &DatabaseConnection) -> Result<Vec<FriendLink>, &'static str> {
@@ -223,5 +413,85 @@ mod tests {
         settle_locales(&mut site, &mut posts);
         assert_eq!(site.locale, "en");
         assert_eq!(posts[0].locale, "zh-CN");
+    }
+
+    #[test]
+    fn like_pattern_escapes_wildcards() {
+        assert_eq!(like_pattern("搜索"), "%搜索%");
+        assert_eq!(like_pattern("%"), "%\\%%");
+        assert_eq!(like_pattern("a_b"), "%a\\_b%");
+        assert_eq!(like_pattern("a\\b"), "%a\\\\b%");
+    }
+
+    #[test]
+    fn excerpt_around_finds_chinese_mid_string() {
+        let excerpt = excerpt_around("讲的是别的事情。", "是").unwrap();
+        assert_eq!(excerpt, "…讲的是别的事情。…");
+    }
+
+    #[test]
+    fn excerpt_around_from_the_start_has_no_leading_ellipsis() {
+        let excerpt = excerpt_around("完全无关。", "完全").unwrap();
+        assert_eq!(excerpt, "完全无关。…");
+    }
+
+    #[test]
+    fn excerpt_around_at_the_end_has_no_trailing_ellipsis() {
+        let excerpt = excerpt_around("abc开头", "开头").unwrap();
+        assert_eq!(excerpt, "…abc开头");
+    }
+
+    #[test]
+    fn excerpt_around_is_case_insensitive_for_ascii() {
+        let excerpt = excerpt_around("Hello World", "world").unwrap();
+        assert_eq!(excerpt, "…Hello World");
+    }
+
+    #[test]
+    fn excerpt_around_returns_none_without_a_match() {
+        assert!(excerpt_around("完全无关。", "搜索").is_none());
+    }
+
+    #[test]
+    fn strip_tags_keeps_text_and_decodes_basic_entities() {
+        assert_eq!(strip_tags("<p>a &amp; b</p><br/>c"), "a & bc");
+    }
+
+    /// 连库的测试，只在设了 fixture 环境变量时跑（见 `federation::test_db`）。
+    #[tokio::test]
+    async fn search_only_returns_public_sources() {
+        let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+            return;
+        };
+        let db = &fixture.db;
+        // phantasi_sources.user_id 由 trigger 校验，先放一个用户；
+        // note 类型的源全站只有一个（`idx_phantasi_sources_note_type`）。
+        db.execute_unprepared("INSERT INTO users (id, username) VALUES (9000, 'search-fixture')")
+            .await
+            .unwrap();
+        db.execute_unprepared(
+            "INSERT INTO phantasi_sources (id, user_id, name, url, source_type, admin_only) \
+             VALUES (9001, 9000, 'notes', 'local://notes', 'note', false)",
+        )
+        .await
+        .unwrap();
+        db.execute_unprepared(
+            "INSERT INTO phantasi_items (source_id, guid, title, link, summary, content, published_at) \
+             VALUES (9001, 'g-1', '公开的关键词文章', 'local://1', '摘要', '<p>正文</p>', NOW())",
+        )
+        .await
+        .unwrap();
+
+        let results = search_posts(db, "关键词", 50).await.unwrap();
+        assert_eq!(results.hits.len(), 1);
+        assert_eq!(results.hits[0].post.title, "公开的关键词文章");
+        assert!(!results.more);
+
+        // 同一个源自带 admin_only 之后，它的笔记就不该再出现在搜索结果里。
+        db.execute_unprepared("UPDATE phantasi_sources SET admin_only = true WHERE id = 9001")
+            .await
+            .unwrap();
+        let hidden = search_posts(db, "关键词", 50).await.unwrap();
+        assert!(hidden.hits.is_empty(), "admin_only 的源不该被搜出来");
     }
 }

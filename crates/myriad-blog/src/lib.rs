@@ -40,15 +40,16 @@ pub use model::{
 };
 pub use nav::{
     NAV_ISLAND_ID, NAV_SPECULATION_RULES, NAV_SPECULATION_RULES_PATH, NavItem, SITE_CHROME_COOKIE,
-    SiteChrome, decorate_page, inject_nav_island, nav_island_head, nav_island_html,
-    nav_island_items,
+    SiteChrome, blog_nav_island_html, decorate_page, inject_nav_island, nav_island_head,
+    nav_island_html, nav_island_items,
 };
 pub use postprocess::{
     BLOG_CSP, NOTES_CSS, NOTES_CSS_HREF, is_script_asset, is_stripped_asset, postprocess_html,
     postprocess_page, robots_for,
 };
 pub use render::{
-    export_site_files, render_friends_file, render_home_file, render_list_titles, render_post_file,
+    export_site_files, post_slug, render_friends_file, render_home_file, render_list_titles,
+    render_post_file,
 };
 pub use rewrite::{content_images, first_content_image, prepare_content_html};
 pub use scheme::{
