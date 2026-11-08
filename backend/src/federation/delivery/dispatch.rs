@@ -87,9 +87,11 @@ pub(crate) async fn deliver_activity(
         }
     })?;
 
+    // No `Host` header of our own: the signature already covers the host, and
+    // the client derives it from the URL. Over HTTP/2 a manual one goes out
+    // beside `:authority`, and nginx refuses the pair with 400.
     let resp = client
         .post(target_url)
-        .header("Host", &host_header)
         .header("Date", &signed.date)
         .header("Digest", &signed.digest.unwrap_or_default())
         .header("Signature", &signed.signature)
