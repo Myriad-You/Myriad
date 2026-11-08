@@ -142,13 +142,17 @@ mod tests {
         assert!(!title_matches("Blue Archive", "zelda"));
     }
 
+    /// Visitors search too, and `OptionalViewer` needs the optional auth layer
+    /// to tell who they are: without it every search answers 500.
     #[test]
-    fn the_route_is_open_to_visitors() {
+    fn the_route_is_open_to_visitors_through_optional_auth() {
         let src = include_str!("../router/authenticated.rs");
-        let line = src
-            .lines()
-            .find(|line| line.contains("\"/api/search\""))
+        let route = src
+            .split("\"/api/search\"")
+            .nth(1)
+            .and_then(|rest| rest.split(".route(").next())
             .expect("the route");
-        assert!(!line.contains("auth_middleware"), "visitors search too");
+        assert!(route.contains("optional_auth_middleware"));
+        assert!(!route.contains("middleware::auth::auth_middleware"));
     }
 }
