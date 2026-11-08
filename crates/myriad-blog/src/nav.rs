@@ -9,6 +9,7 @@ use std::sync::LazyLock;
 
 use serde::Deserialize;
 
+use crate::labels::labels;
 use crate::studio::escape_attr;
 
 /// 导航岛的 id；样式里的 `<link rel="expect">` 等它解析出来才画第一帧。
@@ -17,10 +18,28 @@ pub const NAV_ISLAND_ID: &str = "myriad-nav";
 /// 博客自己那一项：在博客页上它是选中的。
 const BLOG_ITEM: &str = "phantasi";
 
-/// 博客页导航岛额外挂的搜索条目。只出现在博客页，主站导航岛不动。
-const SEARCH_ITEM: &str = "blog-search";
-const SEARCH_PATH: &str = "/blog/search";
-const SEARCH_ICON_PATHS: [&str; 2] = ["M21 21l-4.35-4.35", "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z"];
+/// 博客页导航岛在「博客」后面多挂的条目：搜索，和 Hugo 已经生成、但站内没有链接指向的
+/// 分类、标签总览。只出现在博客页，主站导航岛不动。
+const BLOG_EXTRAS: [(&str, &str, &[&str]); 3] = [
+    (
+        "blog-search",
+        "/blog/search",
+        &["M21 21l-4.35-4.35", "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z"],
+    ),
+    (
+        "blog-categories",
+        "/blog/categories/",
+        &["M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"],
+    ),
+    (
+        "blog-tags",
+        "/blog/tags/",
+        &[
+            "M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z",
+            "M7 7h.01",
+        ],
+    ),
+];
 
 const NAV_ISLAND_CSS: &str = include_str!("nav_island.css");
 
@@ -185,22 +204,26 @@ pub fn nav_island_html(
     nav_island_html_with(shown, text, chrome, None)
 }
 
-/// 博客页用的导航岛：在「博客」条目后面多挂一个搜索入口。
-/// 搜索页是服务端渲染的纯 HTML，所以这里用一个普通链接就够，不需要脚本。
+/// 博客页用的导航岛：在「博客」条目后面多挂搜索、分类和标签。
+/// 这几页都是不跑脚本的 HTML，所以这里用普通链接就够。分类和标签的字和 Hugo 列表页
+/// 用的是同一份（[`labels`]），按 `locale` 取。
 pub fn blog_nav_island_html(
     shown: impl Fn(&str) -> bool,
     text: impl Fn(&str) -> String,
     search_label: &str,
+    locale: &str,
     chrome: Option<&SiteChrome>,
 ) -> String {
-    nav_island_html_with(shown, text, chrome, Some(search_label))
+    let words = labels(locale);
+    let extras = [search_label, words.categories, words.tags];
+    nav_island_html_with(shown, text, chrome, Some(extras))
 }
 
 fn nav_island_html_with(
     shown: impl Fn(&str) -> bool,
     text: impl Fn(&str) -> String,
     chrome: Option<&SiteChrome>,
-    search_label: Option<&str>,
+    blog: Option<[&str; 3]>,
 ) -> String {
     let mut links = String::new();
     for item in nav_island_items() {
@@ -224,14 +247,21 @@ fn nav_island_html_with(
             escape_attr(&text(&item.tip)),
             icon_svg(&item.id, &item.icon),
         ));
-        if let (Some(label), true) = (search_label, item.id == BLOG_ITEM) {
-            links.push_str(&format!(
-                "<a class=\"myriad-nav__item\" href=\"{}\" aria-label=\"{}\" data-tip=\"{}\">{}</a>",
-                escape_attr(SEARCH_PATH),
-                escape_attr(label),
-                escape_attr(label),
-                icon_svg(SEARCH_ITEM, &SEARCH_ICON),
-            ));
+        if let (Some(extras), true) = (blog, item.id == BLOG_ITEM) {
+            for ((id, path, paths), label) in BLOG_EXTRAS.iter().zip(extras) {
+                let icon = NavIcon {
+                    stroke_width: 2.0,
+                    transform: None,
+                    paths: paths.iter().map(|d| (*d).to_string()).collect(),
+                };
+                links.push_str(&format!(
+                    "<a class=\"myriad-nav__item\" href=\"{}\" aria-label=\"{}\" data-tip=\"{}\">{}</a>",
+                    escape_attr(path),
+                    escape_attr(label),
+                    escape_attr(label),
+                    icon_svg(id, &icon),
+                ));
+            }
         }
     }
     format!(
@@ -240,12 +270,6 @@ fn nav_island_html_with(
         chrome.map(SiteChrome::nav_attrs).unwrap_or_default(),
     )
 }
-
-static SEARCH_ICON: LazyLock<NavIcon> = LazyLock::new(|| NavIcon {
-    stroke_width: 2.0,
-    transform: None,
-    paths: SEARCH_ICON_PATHS.iter().map(|d| (*d).to_string()).collect(),
-});
 
 /// 图标的换页名字和主站 `NavigationIsland` 给的一样，两边同一个图标原地交接。
 fn icon_svg(id: &str, icon: &NavIcon) -> String {
@@ -486,5 +510,25 @@ mod tests {
         assert!(head.contains("<link rel=\"expect\" href=\"#myriad-nav\" blocking=\"render\">"));
         assert!(head.contains("@view-transition"));
         assert!(head.contains("view-transition-name: myriad-blog"));
+    }
+
+    #[test]
+    fn the_blog_island_links_its_search_and_taxonomies_after_the_blog() {
+        let html = blog_nav_island_html(|_| true, |key| key.into(), "Search", "zh-CN", None);
+        let blog = html.find("aria-current=\"page\"").expect("the blog item");
+        let after = &html[blog..];
+        let search = after.find("href=\"/blog/search\"").expect("search");
+        let categories = after
+            .find("href=\"/blog/categories/\"")
+            .expect("categories");
+        let tags = after.find("href=\"/blog/tags/\"").expect("tags");
+        assert!(search < categories && categories < tags);
+        assert!(html.contains("aria-label=\"分类\"") && html.contains("aria-label=\"标签\""));
+
+        let main = nav_island_html(|_| true, |key| key.into(), None);
+        assert!(
+            !main.contains("/blog/categories/"),
+            "the site's own island stays as it was"
+        );
     }
 }
