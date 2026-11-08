@@ -51,6 +51,11 @@ pub(super) async fn into_log<C: ConnectionTrait>(
     {
         return Ok(None);
     }
+    // Her own rows wait until the talk has moved: a move rewrites them,
+    // and a row in the log is never rewritten.
+    if audience == OWN && !super::partner::settled(db, user_id).await? {
+        return Ok(None);
+    }
     Ok(Some(her_log::owner(db, user_id).await?))
 }
 

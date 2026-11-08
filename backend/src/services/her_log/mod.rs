@@ -60,6 +60,7 @@ pub mod keys;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod lease;
 pub mod lend;
+pub mod memories;
 pub mod pen;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod relay;

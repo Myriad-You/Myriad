@@ -109,6 +109,8 @@ pub(super) async fn forget_one<C: ConnectionTrait>(
     };
     let id = myriad_nodes::entries::row_id_from("forget", node, &source, "");
     // The same forget again: kept already, and no count is taken for it.
+    // Asked under the audience's lock, so two at once do not both write.
+    write::lock(db, user_id, audience).await?;
     let known = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,

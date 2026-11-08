@@ -51,7 +51,8 @@ use super::{Error, NODE, Owner, keys, store};
 use crate::services::persona_sync::{assets, snapshot};
 
 /// The kinds whose records are her log's rows here, in the order they are
-/// compared. Her memories and diary of nodes come with b2; her talk is D6.
+/// compared. Her memories are compared on their own ([`super::memories`]),
+/// her nodes go in as they are written; her talk is D6.
 pub const KINDS: [Kind; 17] = [
     Kind::Persona,
     Kind::Outfit,
@@ -93,6 +94,8 @@ pub struct Synced {
     /// Rows of her nodes put into the log that were not in it yet
     /// (`memory_nodes::logged`).
     pub nodes: usize,
+    /// What the comparison of her memories wrote ([`super::memories`]).
+    pub memories: super::memories::Compared,
     pub took: Duration,
 }
 
@@ -217,6 +220,10 @@ pub async fn sync(
         }
         drop_known(&txn, site_owner, object).await?;
         synced.gone += 1;
+    }
+    // Her memories, while she thinks here.
+    if let (Author::Her, Some(epoch)) = author {
+        synced.memories = super::memories::compare(&txn, root, &owner, epoch, &known, now).await?;
     }
     txn.commit().await?;
     // Her nodes too: what was written while the log was off, or before.

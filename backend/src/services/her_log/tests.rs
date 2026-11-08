@@ -3319,6 +3319,125 @@ async fn her_records_go_into_her_log_by_comparing() {
     assert_eq!((elsewhere.written, elsewhere.gone), (0, 0));
 }
 
+/// Her memories go into her log by comparing (b2): one said in the owner's
+/// talk and one of her own are written, a group's never; one taking
+/// another's place is written with what it replaces and the other retired
+/// by it; one in use again is restored; one gone from the site's table is
+/// retired as deleted; and comparing again writes nothing.
+#[tokio::test]
+async fn her_memories_go_into_her_log_by_comparing() {
+    let Some(schema) = schema("her_log_memories").await else {
+        return;
+    };
+    let db = &schema.db;
+    let root = root();
+    let memory = |id: &str, kind: &str, content: &str, venue: &str| {
+        format!(
+            "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, concepts, \
+             valid_from, created_at, updated_at) VALUES ('{id}', {OWNER}, '{kind}', '{content}', \
+             'chat', '{venue}', '[\"茶\"]'::jsonb, now(), now(), now())"
+        )
+    };
+    for sql in [
+        memory("m1", "preference", "喜欢茶", "private"),
+        memory("m2", "narrative", "第一次一起看雨", "own"),
+        memory("m3", "fact", "群里有人养蜂", "group:telegram:-100"),
+    ] {
+        db.execute_unprepared(&sql).await.unwrap();
+    }
+    let memory_rows = |rows: Vec<Row>| {
+        let mut rows: Vec<(String, String)> = rows
+            .into_iter()
+            .filter(|row| row.object.starts_with("memory:"))
+            .map(|row| (row.kind, row.object))
+            .collect();
+        rows.sort();
+        rows
+    };
+    let counts = |compared: super::memories::Compared| {
+        (compared.written, compared.retired, compared.restored)
+    };
+
+    let first = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(counts(first.memories), (2, 0, 0));
+    assert_eq!(
+        memory_rows(store::rows(db, OWNER, PERSONAL).await.unwrap()),
+        vec![("memory.write".into(), "memory:m1".into())]
+    );
+    assert_eq!(
+        memory_rows(store::rows(db, OWNER, OWN).await.unwrap()),
+        vec![("memory.write".into(), "memory:m2".into())]
+    );
+    assert!(
+        store::audiences(db, OWNER)
+            .await
+            .unwrap()
+            .iter()
+            .all(|audience| !audience.starts_with("group:"))
+    );
+    let again = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(counts(again.memories), (0, 0, 0));
+
+    // m4 takes m1's place.
+    db.execute_unprepared(&memory("m4", "preference", "喜欢绿茶", "private"))
+        .await
+        .unwrap();
+    db.execute_unprepared(
+        "UPDATE agent_memories SET invalid_at = now(), invalid_reason = 'superseded', \
+         superseded_by = 'm4' WHERE id = 'm1'",
+    )
+    .await
+    .unwrap();
+    let replaced = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(counts(replaced.memories), (1, 1, 0));
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    let mine: Vec<&Row> = rows
+        .iter()
+        .filter(|row| row.object.starts_with("memory:"))
+        .collect();
+    let bodies = store::bodies(db, &root, OWNER, PERSONAL, &mine)
+        .await
+        .unwrap();
+    let body_of = |object: &str, kind: &str| {
+        let row = mine
+            .iter()
+            .find(|row| row.object == object && row.kind == kind)
+            .unwrap();
+        bodies[&row.id].clone()
+    };
+    assert_eq!(
+        body_of("memory:m4", "memory.write")["replaces"],
+        json!(["memory:m1"])
+    );
+    assert_eq!(body_of("memory:m4", "memory.write")["cues"], json!(["茶"]));
+    assert_eq!(
+        body_of("memory:m1", "memory.retire"),
+        json!({ "at": body_of("memory:m1", "memory.retire")["at"], "why": "superseded", "by": "memory:m4" })
+    );
+
+    // m1 in use again; m2 gone from the table.
+    db.execute_unprepared(
+        "UPDATE agent_memories SET invalid_at = NULL, invalid_reason = NULL, superseded_by = NULL \
+         WHERE id = 'm1'",
+    )
+    .await
+    .unwrap();
+    db.execute_unprepared("DELETE FROM agent_memories WHERE id = 'm2'")
+        .await
+        .unwrap();
+    let back = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(counts(back.memories), (0, 1, 1));
+    assert_eq!(
+        memory_rows(store::rows(db, OWNER, OWN).await.unwrap()),
+        vec![
+            ("memory.retire".into(), "memory:m2".into()),
+            ("memory.write".into(), "memory:m2".into()),
+        ]
+    );
+    let still = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(counts(still.memories), (0, 0, 0));
+}
+
 /// Her records the Mac wrote while her mind was there go into the site's
 /// tables (b1): a new one is added, a changed one written over, one gone
 /// there (deleted) goes here, and so does one the owner had her forget; and

@@ -24,11 +24,17 @@ async fn schema(prefix: &str) -> Option<crate::db::IsolatedSchema> {
 
 /// A topic she starts in `audience` with one fact on it, as her rows.
 fn topic(audience: &str, memory: &str, text: &str) -> (String, Vec<RowIn>) {
+    // Her own audience has no one else in it.
+    let said_by = if audience == audience::OWN {
+        "her"
+    } else {
+        "partner"
+    };
     let made = myriad_nodes::entries::fact_rows(
         serde_json::from_value(json!({
             "audience": audience,
             "start": {"name": "houseplants"},
-            "facts": [{"memory": memory, "text": text, "saidBy": ["partner"]}],
+            "facts": [{"memory": memory, "text": text, "saidBy": [said_by]}],
         }))
         .unwrap(),
     )
@@ -180,5 +186,41 @@ async fn her_nodes_go_into_her_log_under_its_counts() {
             .unwrap(),
         0
     );
+    schema.drop().await;
+}
+
+/// Her own rows wait for the partner id: until the owner's talk is under
+/// it a move may still rewrite them, and a row in her log never changes.
+#[tokio::test]
+async fn her_own_rows_wait_for_the_partner_id() {
+    let Some(schema) = schema("memory_nodes_logged_own").await else {
+        return;
+    };
+    let db = &schema.db;
+    test_settings::set(Settings {
+        enabled: true,
+        ..Settings::default()
+    });
+    keys::test_root::use_here(keys::test_root::TestRoot([9; 32]));
+    partner::remember(None);
+    store::start(db, OWNER).await.unwrap();
+    let thought = pen::think().expect("her mind is here in tests");
+    let own = audience::OWN;
+    let (_, first) = topic(own, "m1", "likes rain");
+    write::write(db, OWNER, own, &first, Some(&thought))
+        .await
+        .unwrap();
+    assert!(placed(db, LOG_ROWS, own).await.is_empty());
+
+    her_log::test_partner::give(db, OWNER, PARTNER).await;
+    let (_, second) = topic(own, "m2", "likes snow");
+    write::write(db, OWNER, own, &second, Some(&thought))
+        .await
+        .unwrap();
+    assert_eq!(
+        placed(db, LOG_ROWS, own).await,
+        placed(db, NODE_ROWS, own).await
+    );
+    assert_eq!(placed(db, LOG_ROWS, own).await.len(), 3);
     schema.drop().await;
 }
