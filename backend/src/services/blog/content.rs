@@ -103,6 +103,12 @@ pub async fn load_posts(db: &DatabaseConnection) -> Result<Vec<BlogPost>, &'stat
     Ok(items.into_iter().map(item_to_post).collect())
 }
 
+/// 一页搜索结果。`more` 表示后面还有（只多查了一条用来判断）。
+pub struct SearchResults {
+    pub hits: Vec<SearchHit>,
+    pub more: bool,
+}
+
 /// 一条搜索结果：文章本身，加上「为什么命中」的那段上下文。
 pub struct SearchHit {
     pub post: BlogPost,
@@ -118,10 +124,13 @@ pub async fn search_posts(
     db: &DatabaseConnection,
     query: &str,
     limit: u64,
-) -> Result<Vec<SearchHit>, &'static str> {
+) -> Result<SearchResults, &'static str> {
     let needle = query.trim();
     if needle.is_empty() {
-        return Ok(Vec::new());
+        return Ok(SearchResults {
+            hits: Vec::new(),
+            more: false,
+        });
     }
     let sources = phantasi_sources::Entity::find()
         .filter(phantasi_sources::Column::SourceType.eq(phantasi_sources::SourceType::Note))
@@ -130,11 +139,14 @@ pub async fn search_posts(
         .await
         .map_err(|_| "Could not read published notes")?;
     if sources.is_empty() {
-        return Ok(Vec::new());
+        return Ok(SearchResults {
+            hits: Vec::new(),
+            more: false,
+        });
     }
     let ids: Vec<i32> = sources.iter().map(|source| source.id).collect();
     let pattern = like_pattern(needle);
-    let items = phantasi_items::Entity::find()
+    let mut items = phantasi_items::Entity::find()
         .filter(phantasi_items::Column::SourceId.is_in(ids))
         .filter(
             Condition::any()
@@ -143,20 +155,25 @@ pub async fn search_posts(
                 .add(Expr::col(phantasi_items::Column::Content).ilike(&pattern)),
         )
         .order_by_desc(phantasi_items::Column::PublishedAt)
-        .limit(limit)
+        .limit(limit + 1)
         .all(db)
         .await
         .map_err(|_| "Could not search published notes")?;
-    Ok(items
-        .into_iter()
-        .map(|item| {
-            let excerpt = hit_excerpt(&item, needle);
-            SearchHit {
-                post: item_to_post(item),
-                excerpt,
-            }
-        })
-        .collect())
+    let more = items.len() as u64 > limit;
+    items.truncate(limit as usize);
+    Ok(SearchResults {
+        hits: items
+            .into_iter()
+            .map(|item| {
+                let excerpt = hit_excerpt(&item, needle);
+                SearchHit {
+                    post: item_to_post(item),
+                    excerpt,
+                }
+            })
+            .collect(),
+        more,
+    })
 }
 
 /// 命中在哪一段就把哪一段的上下文给出来；都没命中（理论上不会）就退回正文开头。
@@ -438,5 +455,43 @@ mod tests {
     #[test]
     fn strip_tags_keeps_text_and_decodes_basic_entities() {
         assert_eq!(strip_tags("<p>a &amp; b</p><br/>c"), "a & bc");
+    }
+
+    /// 连库的测试，只在设了 fixture 环境变量时跑（见 `federation::test_db`）。
+    #[tokio::test]
+    async fn search_only_returns_public_sources() {
+        let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+            return;
+        };
+        let db = &fixture.db;
+        // phantasi_sources.user_id 由 trigger 校验，先放一个用户；
+        // note 类型的源全站只有一个（`idx_phantasi_sources_note_type`）。
+        db.execute_unprepared("INSERT INTO users (id, username) VALUES (9000, 'search-fixture')")
+            .await
+            .unwrap();
+        db.execute_unprepared(
+            "INSERT INTO phantasi_sources (id, user_id, name, url, source_type, admin_only) \
+             VALUES (9001, 9000, 'notes', 'local://notes', 'note', false)",
+        )
+        .await
+        .unwrap();
+        db.execute_unprepared(
+            "INSERT INTO phantasi_items (source_id, guid, title, link, summary, content, published_at) \
+             VALUES (9001, 'g-1', '公开的关键词文章', 'local://1', '摘要', '<p>正文</p>', NOW())",
+        )
+        .await
+        .unwrap();
+
+        let results = search_posts(db, "关键词", 50).await.unwrap();
+        assert_eq!(results.hits.len(), 1);
+        assert_eq!(results.hits[0].post.title, "公开的关键词文章");
+        assert!(!results.more);
+
+        // 同一个源自带 admin_only 之后，它的笔记就不该再出现在搜索结果里。
+        db.execute_unprepared("UPDATE phantasi_sources SET admin_only = true WHERE id = 9001")
+            .await
+            .unwrap();
+        let hidden = search_posts(db, "关键词", 50).await.unwrap();
+        assert!(hidden.hits.is_empty(), "admin_only 的源不该被搜出来");
     }
 }

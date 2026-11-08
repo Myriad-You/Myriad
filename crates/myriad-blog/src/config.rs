@@ -63,9 +63,6 @@ pub fn render_hugo_config(site: &BlogSite, settings: &BlogSettings, theme_id: &s
                 weight: 10,
             }],
         },
-        outputs: Outputs {
-            home: vec!["HTML", "JSON"],
-        },
         security: forced_security(),
     };
     toml::to_string_pretty(&config).unwrap_or_default()
@@ -237,16 +234,7 @@ struct HugoConfig {
     permalinks: Permalinks,
     params: toml::Value,
     menus: Menus,
-    outputs: Outputs,
     security: SecurityConfig,
-}
-
-/// 首页额外产出 JSON：主题的前端搜索（Fuse.js）靠 `index.json` 建索引。
-/// 经典 `themes/` 目录下的主题配置不会被 Hugo 合并，所以这里必须显式声明；
-/// Blowfish 这类主题只在自己的 `config/_default/hugo.toml` 里写是不够的。
-#[derive(Serialize)]
-struct Outputs {
-    home: Vec<&'static str>,
 }
 
 #[derive(Serialize)]

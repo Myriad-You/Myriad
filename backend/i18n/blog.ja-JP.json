@@ -1,3 +1,9 @@
 {
-  "search": "検索"
+  "search": "検索",
+  "searchPlaceholder": "記事を検索",
+  "searchHint": "キーワードを入力して公開済みの記事を検索します。",
+  "searchNoResults": "{q} に一致する記事はありませんでした。",
+  "searchResults": "{q} に関する記事が {n} 件見つかりました。",
+  "searchResultsMore": "{q} に関する記事が {n} 件以上あります。",
+  "siteFallbackTitle": "ブログ"
 }

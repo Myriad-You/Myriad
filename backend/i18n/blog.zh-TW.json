@@ -1,3 +1,9 @@
 {
-  "search": "搜尋"
+  "search": "搜尋",
+  "searchPlaceholder": "搜尋文章",
+  "searchHint": "輸入關鍵字搜尋已發佈的文章。",
+  "searchNoResults": "沒有找到和 {q} 相關的文章。",
+  "searchResults": "找到 {n} 篇和 {q} 相關的文章。",
+  "searchResultsMore": "找到 {n} 篇以上和 {q} 相關的文章。",
+  "siteFallbackTitle": "部落格"
 }

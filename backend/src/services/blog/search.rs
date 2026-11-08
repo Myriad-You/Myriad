@@ -9,17 +9,35 @@ use crate::services::blog::content::SearchHit;
 /// 一页最多展示多少条。
 pub const SEARCH_PAGE_LIMIT: u64 = 50;
 
+/// 结果页的文案。后端按访客语言填好，这里只负责占位替换和转义。
+pub struct SearchCopy {
+    pub title: String,
+    pub placeholder: String,
+    pub hint: String,
+    /// `{q}` 换成转义后的关键词。
+    pub no_results: String,
+    /// `{n}` 条数、`{q}` 关键词。
+    pub results: String,
+    /// 命中数达到上限时用这条，`{n}` 是展示条数。
+    pub results_more: String,
+    /// 站点没配标题时的兜底。
+    pub site_fallback: String,
+}
+
 /// 渲染搜索结果页。`query` 已 trim 过；空串表示还没输入。
 pub fn render_search_page(
     site_title: &str,
     locale: &str,
     query: &str,
     hits: &[SearchHit],
+    more: bool,
+    copy: &SearchCopy,
 ) -> String {
-    let title = if site_title.trim().is_empty() {
-        "博客"
+    let suggested = site_title.trim();
+    let title = if suggested.is_empty() {
+        copy.site_fallback.trim()
     } else {
-        site_title.trim()
+        suggested
     };
     let styles = theme_stylesheets();
     let mut html = String::with_capacity(4096 + hits.len() * 320);
@@ -30,7 +48,7 @@ pub fn render_search_page(
     html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
     html.push_str("<meta name=\"robots\" content=\"noindex\">\n<title>");
     if query.is_empty() {
-        html.push_str("搜索");
+        html.push_str(&escape(copy.title.trim()));
     } else {
         html.push_str(&escape(query));
     }
@@ -48,24 +66,37 @@ pub fn render_search_page(
     html.push_str("<form class=\"myriad-search-form\" action=\"/blog/search\" method=\"get\" role=\"search\">");
     html.push_str("<input type=\"search\" name=\"q\" value=\"");
     html.push_str(&escape(query));
-    html.push_str("\" placeholder=\"搜索文章\" aria-label=\"搜索文章\" autofocus>");
-    html.push_str("<button type=\"submit\">搜索</button></form>\n");
+    html.push_str("\" placeholder=\"");
+    html.push_str(&escape(copy.placeholder.trim()));
+    html.push_str("\" aria-label=\"");
+    html.push_str(&escape(copy.placeholder.trim()));
+    html.push_str("\" autofocus>");
+    html.push_str("<button type=\"submit\">");
+    html.push_str(&escape(copy.title.trim()));
+    html.push_str("</button></form>\n");
 
     if query.is_empty() {
-        html.push_str("<p class=\"myriad-search-hint\">输入关键词搜索已发布的文章。</p>\n");
+        html.push_str("<p class=\"myriad-search-hint\">");
+        html.push_str(&escape(copy.hint.trim()));
+        html.push_str("</p>\n");
     } else if hits.is_empty() {
-        html.push_str("<p class=\"myriad-search-hint\">没有找到和 <b>");
-        html.push_str(&escape(query));
-        html.push_str("</b> 相关的文章。</p>\n");
+        html.push_str("<p class=\"myriad-search-hint\">");
+        html.push_str(&fill(&copy.no_results, &[("q", &escape(query))]));
+        html.push_str("</p>\n");
     } else {
-        html.push_str("<p class=\"myriad-search-hint\">找到 ");
-        html.push_str(&hits.len().to_string());
-        html.push_str(" 篇和 <b>");
-        html.push_str(&escape(query));
-        html.push_str("</b> 相关的文章。</p>\n<ul class=\"myriad-search-results\">\n");
+        let template = if more {
+            &copy.results_more
+        } else {
+            &copy.results
+        };
+        let count = hits.len().to_string();
+        html.push_str("<p class=\"myriad-search-hint\">");
+        html.push_str(&fill(template, &[("n", &count), ("q", &escape(query))]));
+        html.push_str("</p>\n<ul class=\"myriad-search-results\">\n");
         for hit in hits {
             let post = &hit.post;
-            let href = format!("/blog/posts/{}/", post.slug);
+            // 和 render_post_file 用同一份 slug：手改坏的 slug 会退回 `n{item_id}`。
+            let href = myriad_blog::post_path(&myriad_blog::post_slug(post));
             let summary = if hit.excerpt.trim().is_empty() {
                 myriad_blog::summarize(&post.content_html)
             } else {
@@ -96,6 +127,15 @@ pub fn render_search_page(
 
     html.push_str("</main>\n</body>\n</html>\n");
     html
+}
+
+/// 把 `{name}` 换成已经转义好的值。模板来自我们自己的 i18n 文件，不再转义。
+fn fill(template: &str, params: &[(&str, &str)]) -> String {
+    let mut out = template.to_string();
+    for (name, value) in params {
+        out = out.replace(&format!("{{{name}}}"), value);
+    }
+    out
 }
 
 /// 主题的样式表都在构建产物的 `css/` 下，按文件名排序取用（多数主题只有一个 bundle）。

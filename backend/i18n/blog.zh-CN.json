@@ -1,3 +1,9 @@
 {
-  "search": "搜索"
+  "search": "搜索",
+  "searchPlaceholder": "搜索文章",
+  "searchHint": "输入关键词搜索已发布的文章。",
+  "searchNoResults": "没有找到和 {q} 相关的文章。",
+  "searchResults": "找到 {n} 篇和 {q} 相关的文章。",
+  "searchResultsMore": "找到 {n} 篇以上和 {q} 相关的文章。",
+  "siteFallbackTitle": "博客"
 }

@@ -1,3 +1,9 @@
 {
-  "search": "검색"
+  "search": "검색",
+  "searchPlaceholder": "글 검색",
+  "searchHint": "키워드를 입력해 발행된 글을 검색합니다.",
+  "searchNoResults": "{q} 와(과) 관련된 글이 없습니다.",
+  "searchResults": "{q} 관련 글 {n}개를 찾았습니다.",
+  "searchResultsMore": "{q} 관련 글이 {n}개 이상 있습니다.",
+  "siteFallbackTitle": "블로그"
 }

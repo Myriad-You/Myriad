@@ -48,7 +48,8 @@ pub use postprocess::{
     postprocess_page, robots_for,
 };
 pub use render::{
-    export_site_files, render_friends_file, render_home_file, render_list_titles, render_post_file,
+    export_site_files, post_slug, render_friends_file, render_home_file, render_list_titles,
+    render_post_file,
 };
 pub use rewrite::{content_images, first_content_image, prepare_content_html};
 pub use scheme::{
