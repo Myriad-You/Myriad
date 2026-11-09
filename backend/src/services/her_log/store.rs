@@ -767,7 +767,7 @@ pub async fn send<C: ConnectionTrait>(
 /// The payloads of `rows`, opened and read as JSON, by row id. One whose key
 /// is gone, that does not open or that does not read, is left out: its row
 /// goes without it (`no_body`).
-pub(super) async fn bodies<C: ConnectionTrait>(
+pub(crate) async fn bodies<C: ConnectionTrait>(
     db: &C,
     root: &dyn keys::Root,
     user: i32,

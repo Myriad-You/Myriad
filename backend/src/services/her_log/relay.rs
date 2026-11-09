@@ -572,6 +572,14 @@ async fn rows(
     {
         tracing::warn!(%error, "[her-log] her memories from another end were not taken in here");
     }
+    // And her nodes, after the memories their entries name.
+    if (audience == owner.personal() || audience == Owner::OWN)
+        && !taken.added.is_empty()
+        && let Err(error) =
+            crate::services::agent::merope::memory_nodes::logged::take_in(db, root, owner).await
+    {
+        tracing::warn!(%error, "[her-log] her nodes from another end were not taken in here");
+    }
     // A catch-up waiting on these rows may be over: she thinks here again.
     if !taken.added.is_empty()
         && matches!(super::pen::current(), super::pen::Pen::CatchingUp { .. })

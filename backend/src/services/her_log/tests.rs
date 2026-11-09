@@ -3530,6 +3530,120 @@ async fn her_memories_from_another_end_go_into_the_sites_table() {
     );
     let compared = super::state::sync(db, &root, OWNER).await.unwrap();
     assert_eq!(compared.memories, super::memories::Compared::default());
+
+    // A group's memory under the same id is the group's: a forget from the
+    // owner's talk never takes it.
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, valid_from, \
+         created_at, updated_at) VALUES ('grp', {OWNER}, 'fact', '群里说的', 'chat', \
+         'group:telegram:-100', now(), now(), now())"
+    ))
+    .await
+    .unwrap();
+    mac.write_body(
+        PERSONAL,
+        "memory:grp",
+        "memory.write",
+        Author::Owner,
+        Some(json!({ "at": T0 / 1000, "kind": "fact", "text": "on the Mac" })),
+        T0 + 2 * MINUTE,
+    );
+    mac.write(
+        PERSONAL,
+        "memory:grp",
+        "forget",
+        Author::Owner,
+        None,
+        T0 + 3 * MINUTE,
+    );
+    sync(db, &mut mac, PERSONAL, T0 + 3 * MINUTE).await;
+    let kept = db
+        .query_one_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT content FROM agent_memories WHERE id = 'grp'",
+        ))
+        .await
+        .unwrap()
+        .map(|row| row.try_get::<String>("", "content").unwrap());
+    assert_eq!(kept.as_deref(), Some("群里说的"));
+}
+
+/// Her nodes the Mac wrote while her mind was there are kept on the site
+/// (b2) as they came, folded into its heads, once each; and a forget of the
+/// node there makes them stubs here.
+#[tokio::test]
+async fn her_nodes_from_another_end_are_kept_on_the_site() {
+    let Some(schema) = schema("her_log_nodes_in").await else {
+        return;
+    };
+    let db = &schema.db;
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], T0).await;
+    let node = myriad_nodes::node_id(PERSONAL, "minted:lamp").unwrap();
+    let object = format!("node:{node}");
+    mac.write_body(
+        PERSONAL,
+        &object,
+        "node.created",
+        Author::Her,
+        Some(json!({
+            "key": "minted:lamp", "kind": "task", "name": "a lamp",
+            "saidBy": ["her"], "sync": "shared", "version": 1,
+        })),
+        T0,
+    );
+    mac.write(
+        PERSONAL,
+        &object,
+        "node.span",
+        Author::Her,
+        Some("too bright"),
+        T0 + 1,
+    );
+    sync(db, &mut mac, PERSONAL, T0 + MINUTE).await;
+    let count = |sql: &'static str| {
+        let db = db.clone();
+        async move {
+            db.query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                sql,
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get::<i64>("", "n")
+            .unwrap()
+        }
+    };
+    assert_eq!(
+        count("SELECT COUNT(*) AS n FROM agent_node_rows WHERE origin = 'dev_mac' AND body <> ''")
+            .await,
+        2
+    );
+    assert_eq!(count("SELECT COUNT(*) AS n FROM agent_node_heads").await, 1);
+    sync(db, &mut mac, PERSONAL, T0 + 2 * MINUTE).await;
+    assert_eq!(
+        count("SELECT COUNT(*) AS n FROM agent_node_rows").await,
+        2,
+        "once each"
+    );
+
+    // Forgotten there: no word of it kept here.
+    mac.write(
+        PERSONAL,
+        &object,
+        "forget",
+        Author::Owner,
+        None,
+        T0 + 3 * MINUTE,
+    );
+    sync(db, &mut mac, PERSONAL, T0 + 3 * MINUTE).await;
+    assert_eq!(count("SELECT COUNT(*) AS n FROM agent_node_rows").await, 3);
+    assert_eq!(
+        count("SELECT COUNT(*) AS n FROM agent_node_rows WHERE body <> ''").await,
+        0
+    );
 }
 
 /// Her records the Mac wrote while her mind was there go into the site's

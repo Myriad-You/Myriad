@@ -392,7 +392,7 @@ pub async fn take_in(
             if rows.iter().all(|row| row.forgotten) {
                 txn.execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
-                    "DELETE FROM agent_memories WHERE id = $2 \
+                    "DELETE FROM agent_memories WHERE id = $2 AND venue NOT LIKE 'group:%' \
                      AND (user_id = $1 OR (user_id IS NULL AND venue = $3))",
                     [owner.user.into(), id.into(), OWN_VENUE.into()],
                 ))
@@ -440,8 +440,8 @@ pub async fn take_in(
                 DatabaseBackend::Postgres,
                 "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, audience, \
                  concepts, valid_from, invalid_at, invalid_reason, superseded_by, created_at, \
-                 updated_at, origin) \
-                 VALUES ($1, $2, $3, $4, 'sync', $5, $6, $7, $8, $9, $10, $11, $8, $12, $13) \
+                 updated_at, origin, speaker) \
+                 VALUES ($1, $2, $3, $4, 'sync', $5, $6, $7, $8, $9, $10, $11, $8, $12, $13, $14) \
                  ON CONFLICT (id) DO UPDATE SET kind = EXCLUDED.kind, content = EXCLUDED.content, \
                  concepts = EXCLUDED.concepts, invalid_at = EXCLUDED.invalid_at, \
                  invalid_reason = EXCLUDED.invalid_reason, superseded_by = EXCLUDED.superseded_by, \
@@ -463,6 +463,10 @@ pub async fn take_in(
                     by.into(),
                     crate::clock::now().fixed_offset().into(),
                     newest.origin.chars().take(64).collect::<String>().into(),
+                    // Her own are hers, as `unified::own` writes them. In a
+                    // private talk who said it does not travel yet: the
+                    // person, as the site takes what it is told.
+                    if own { "agent" } else { "user" }.into(),
                 ],
             ))
             .await?;
