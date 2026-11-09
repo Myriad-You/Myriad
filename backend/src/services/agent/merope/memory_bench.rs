@@ -37,6 +37,7 @@ use crate::services::agent::memory::unified::{Audience, Priming};
 
 mod answering;
 mod apart;
+mod background;
 mod chinese;
 mod days;
 mod full_size;
@@ -88,6 +89,11 @@ struct Question {
     /// where it should not: the pair counts only when both are right.
     #[serde(default)]
     pair: Option<String>,
+    /// The sessions of a long background (tests/merope/memory-long-zh.json)
+    /// it rests on, by index: what answers it is what those left her, and
+    /// asked with these alone it is the same question at a small size.
+    #[serde(default)]
+    background_sessions: Vec<usize>,
 }
 
 impl Question {
@@ -139,11 +145,29 @@ const AT_ONCE: usize = 6;
 /// cues and answering stay as they are. A change to how she recalls is
 /// kept only if it beats this at the same length of what she answers on.
 fn wider() -> usize {
-    std::env::var("MEROPE_MEMORY_BENCH_WIDER")
+    WIDER.try_with(|wider| *wider).unwrap_or_else(|_| {
+        std::env::var("MEROPE_MEMORY_BENCH_WIDER")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .filter(|wider| *wider > 0)
+            .unwrap_or(1)
+    })
+}
+
+tokio::task_local! {
+    /// The wider control as one more way of answering in the same run
+    /// (`MEROPE_MEMORY_BENCH_WIDER_ARM`), over what the run would recall.
+    static WIDER: usize;
+}
+
+/// `MEROPE_MEMORY_BENCH_WIDER_ARM=<n>`: each question is also answered the
+/// wide way recalling `n` times as much, from the same memories (`wider`
+/// in the report), so the control costs no writing of its own.
+fn wider_arm() -> Option<usize> {
+    std::env::var("MEROPE_MEMORY_BENCH_WIDER_ARM")
         .ok()
         .and_then(|value| value.parse().ok())
-        .filter(|wider| *wider > 0)
-        .unwrap_or(1)
+        .filter(|wider| *wider > 1)
 }
 
 /// `MEROPE_MEMORY_BENCH_AT_ONCE` when set: with little credit left, the
@@ -252,6 +276,10 @@ struct Outcome {
     /// Asked with nothing kept of them (noise questions): what the noise
     /// changed.
     bare: Option<Answered>,
+    /// The wide way recalling more (`MEROPE_MEMORY_BENCH_WIDER_ARM`).
+    wider: Option<Answered>,
+    /// What she kept that answers it.
+    answering: Vec<String>,
     /// The wide way answered and graded by `MEROPE_MEMORY_BENCH_READER`
     /// instead, from the same memories: comparable with results published
     /// with that reader and judge.
@@ -287,12 +315,41 @@ async fn run_one(
 ) -> Outcome {
     let name = format!("lme-{}-{round}", question.question_id);
     let user_id = new_user(db, &name).await;
+    run_for(
+        db,
+        (judge, lite, reader),
+        question,
+        &name,
+        (user_id, &name),
+        Vec::new(),
+    )
+    .await
+}
+
+/// The judgment model, her voice, and the reader when there is one.
+type Models<'a> = (
+    &'a crate::services::analyzer::AiAnalyzer,
+    &'a crate::services::analyzer::AiAnalyzer,
+    Option<&'a crate::services::analyzer::AiAnalyzer>,
+);
+
+/// [`run_one`] for someone already there (`who`: their id, and the tag of
+/// the groups they were in), from what of theirs already answers it: the
+/// question's own sessions written after what they had, then asked.
+/// `name` keeps this run's rows apart.
+async fn run_for(
+    db: &sea_orm::DatabaseConnection,
+    (judge, lite, reader): Models<'_>,
+    question: &Question,
+    name: &str,
+    (user_id, tag): (i32, &str),
+    mut answering: Vec<String>,
+) -> Outcome {
     let present = audience_at(
         question.question_venue.as_deref().unwrap_or("private"),
         user_id,
-        &name,
+        tag,
     );
-    let mut answering: Vec<String> = Vec::new();
     let mut kept = 0;
     let mut sessions: Vec<Session> = question
         .haystack_dates
@@ -304,7 +361,7 @@ async fn run_one(
             (
                 at,
                 turns,
-                audience_at(question.venue(number), user_id, &name),
+                audience_at(question.venue(number), user_id, tag),
             )
         })
         .collect();
@@ -447,6 +504,28 @@ async fn run_one(
         &answering,
     )
     .await;
+    let wider = match wider_arm() {
+        Some(more) => Some(
+            WIDER
+                .scope(
+                    more,
+                    answer_one(
+                        db,
+                        judge,
+                        lite,
+                        question,
+                        user_id,
+                        &present,
+                        cues.as_ref(),
+                        THOROUGH,
+                        true,
+                        &answering,
+                    ),
+                )
+                .await,
+        ),
+        None => None,
+    };
     let read = match reader {
         Some(reader) => Some(
             answer_one(
@@ -590,6 +669,8 @@ async fn run_one(
         cued,
         wide,
         bare,
+        wider,
+        answering,
         read,
         in_private,
         kept,

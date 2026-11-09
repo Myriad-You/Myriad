@@ -97,6 +97,7 @@ impl Probe {
             memories: Vec::new(),
             category: None,
             pair: None,
+            background_sessions: Vec::new(),
         }
     }
 }

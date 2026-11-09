@@ -1,0 +1,5714 @@
+[
+ {
+  "question_id": "zl-chg-commute-state",
+  "question_type": "implicit-state",
+  "category": "type-1",
+  "uses": [
+   "s01"
+  ],
+  "background_sessions": [
+   208,
+   278
+  ],
+  "question": "我现在上班还是骑车去的吗",
+  "answer": "不是了：电动车已经卖了，现在坐地铁上班，单程大约四十分钟。说仍骑电动车算错。（背景里每天骑电动车上班，十五分钟）",
+  "question_date": "2026/10/27 (Tue) 22:10",
+  "haystack_dates": [
+   "2026/10/19 (Mon) 21:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天开始坐地铁上班了 电动车周末挂闲鱼卖掉了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 怎么突然卖了"
+    },
+    {
+     "role": "user",
+     "content": "电池鼓包 换一块要八百多 想想算了 以后就地铁 走到站再坐七站 差不多四十分钟",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "四十分钟 那早上得早起不少"
+    },
+    {
+     "role": "user",
+     "content": "是啊 七点就得起 团子都还没醒 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "它估计觉得你疯了"
+    },
+    {
+     "role": "user",
+     "content": "晚饭随便吃了碗抄手 困死了先睡",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "去吧 明早别迟到"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-run-state",
+  "question_type": "implicit-state",
+  "category": "type-2",
+  "uses": [
+   "s02"
+  ],
+  "background_sessions": [
+   7,
+   107,
+   245
+  ],
+  "question": "我现在周三周五晚上还去江边跑吗",
+  "answer": "这阵子应该没在跑：他膝盖半月板磨损，医生说三个月内别做剧烈运动，上周三晚上也在家没出去。要说出停了或问到膝盖情况，说照常在跑算错。（背景里每周三、周五晚上在锦江边夜跑五公里，常和阿Ken一起）",
+  "question_date": "2026/10/28 (Wed) 18:40",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 20:15",
+   "2026/10/21 (Wed) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "下午去华西看了膝盖 拍了核磁 半月板有点磨损",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 严重吗 疼多久了"
+    },
+    {
+     "role": "user",
+     "content": "上周就隐隐疼 医生说不算严重 但三个月内别做剧烈运动 只能散散步游游泳",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那就老实养着 别逞强"
+    },
+    {
+     "role": "user",
+     "content": "嗯 回来路上买了个护膝 团子把包装盒占了 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "盒子永远比礼物香"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今晚在家窝着看了会书 阿Ken发消息说他一个人好无聊",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 他习惯有人陪了"
+    },
+    {
+     "role": "user",
+     "content": "我说等我三个月 先让他自己找个替补",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那他得自己扛一阵了"
+    },
+    {
+     "role": "user",
+     "content": "楼上今天又在钻墙 晚上九点了都不停",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "救命 这装修是要装到过年吗"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-home-state",
+  "question_type": "implicit-state",
+  "category": "type-1",
+  "uses": [
+   "s03"
+  ],
+  "background_sessions": [
+   98,
+   263
+  ],
+  "question": "我现在还住玉林那个一室一厅吧",
+  "answer": "不是了：房东卖房，他 10/17 搬到了双楠的两室一厅，还是和团子一起住。说仍住玉林算错。（背景里住在玉林，租的一室一厅）",
+  "question_date": "2026/10/26 (Mon) 21:00",
+  "haystack_dates": [
+   "2026/10/17 (Sat) 19:30",
+   "2026/10/20 (Tue) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "终于搬完了 累瘫",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "搬去哪了 之前都没听你说"
+    },
+    {
+     "role": "user",
+     "content": "房东要卖房 让月底前腾出来 赶紧在双楠那边租了个两室一厅 今天把东西全挪过去了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "两室 那团子有自己的房间了"
+    },
+    {
+     "role": "user",
+     "content": "它躲床底一下午不出来 吓坏了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "新地方要适应几天 放点它的旧垫子"
+    },
+    {
+     "role": "user",
+     "content": "晚上点了个冒菜 一个人吃了两人份",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "搬家日吃多少都合理"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "新家离玉林那边骑车也就十来分钟 但感觉完全两个片区了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "双楠老小区多 吃的应该也不少"
+    },
+    {
+     "role": "user",
+     "content": "嗯 楼下有个菜市场 明天下班去逛逛",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "去看看有没有好吃的卤菜"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-job-state",
+  "question_type": "implicit-state",
+  "category": "type-2",
+  "uses": [
+   "s04"
+  ],
+  "background_sessions": [
+   17,
+   258
+  ],
+  "question": "我现在还在毛球星干运营主管吗",
+  "answer": "不在了：10/16 已经交了工牌离职，10/19 起去一家宠物医疗公司做品牌。说仍在毛球星做运营主管算错。（背景里在毛球星做运营主管）",
+  "question_date": "2026/10/25 (Sun) 21:40",
+  "haystack_dates": [
+   "2026/10/16 (Fri) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天交了工牌 组里给我搞了个散伙饭",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 你要走了？"
+    },
+    {
+     "role": "user",
+     "content": "嗯 上个月就提了 一直没好意思说 下周一去一家做宠物医疗的公司报到 做品牌那块",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那恭喜啊 老韩没留你？"
+    },
+    {
+     "role": "user",
+     "content": "留了 我说想换个方向 他也就没多说",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "小林她们舍得吗"
+    },
+    {
+     "role": "user",
+     "content": "小林说以后没人帮她挡老韩了 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 那你走得挺值"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-guitar-state",
+  "question_type": "implicit-state",
+  "category": "type-1",
+  "uses": [
+   "s05"
+  ],
+  "background_sessions": [
+   66,
+   225
+  ],
+  "question": "我现在周六上午还去琴行上课吗",
+  "answer": "不去了：10/17 上完最后一节就没续，唐老师调去成华区分店，剩的课时退了。说还在上算错。（背景里每周六上午在弦音跟唐老师上吉他课）",
+  "question_date": "2026/10/29 (Thu) 20:15",
+  "haystack_dates": [
+   "2026/10/17 (Sat) 12:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天上完最后一节吉他课了 弦音那边我不续了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 不学了吗"
+    },
+    {
+     "role": "user",
+     "content": "唐老师调去成华区的分店带课 太远了 换别的老师又不习惯 剩的课时退了 以后周六上午就空出来了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "有点可惜 你那首曲子刚有点样子"
+    },
+    {
+     "role": "user",
+     "content": "自己在家对着教程练吧 反正琴还在",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "也行 卡住了再找人问"
+    },
+    {
+     "role": "user",
+     "content": "中午吃了碗冰粉 今天居然有点热",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "成都秋天就这样 忽冷忽热"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-lunch-state",
+  "question_type": "implicit-state",
+  "category": "type-2",
+  "uses": [
+   "s06"
+  ],
+  "background_sessions": [
+   78,
+   188
+  ],
+  "question": "我现在中午还天天去楼下那家面馆吗",
+  "answer": "这阵子不是了：公司 10/19 开了免费员工食堂，他中午都在食堂吃。说仍天天去面馆算错。（背景里工作日午饭基本都在青山面馆吃）",
+  "question_date": "2026/10/28 (Wed) 11:50",
+  "haystack_dates": [
+   "2026/10/19 (Mon) 12:50",
+   "2026/10/22 (Thu) 12:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "公司今天开了员工食堂 午饭免费",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哇 这么好 吃得怎么样"
+    },
+    {
+     "role": "user",
+     "content": "两荤两素 还有汤 比外卖强多了 组里以后都打算中午去食堂 我也是",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "又省钱又省事"
+    },
+    {
+     "role": "user",
+     "content": "就是排队要十分钟 下午还有个会 头大",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "吃完眯一会再去"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "食堂今天有回锅肉 抢疯了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 回锅肉谁扛得住"
+    },
+    {
+     "role": "user",
+     "content": "我打了两份 晚上得少吃点了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那晚饭清淡点"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-video-state",
+  "question_type": "implicit-state",
+  "category": "type-2",
+  "uses": [
+   "s07"
+  ],
+  "background_sessions": [
+   102,
+   189
+  ],
+  "question": "我每晚还跟苏禾视频吗",
+  "answer": "这阵子做不到了：苏禾 10/19 去肯尼亚驻场三个月，营地基本没信号，一周才能去镇上连一次网。说每晚照常视频算错。（背景里每晚十点左右和苏禾视频）",
+  "question_date": "2026/10/27 (Tue) 21:30",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 22:20",
+   "2026/10/24 (Sat) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "我对象明天飞肯尼亚了 公司一个项目要驻场三个月",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "三个月 这么久"
+    },
+    {
+     "role": "user",
+     "content": "说工地在很偏的地方 营地基本没信号 一周能去镇上连一次网",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那你们只能攒着话说了"
+    },
+    {
+     "role": "user",
+     "content": "嗯 我让她多拍点照片回来 团子刚把她寄来的明信片咬了个角",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 它是想她了"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "她今天终于连上网了 发了一堆照片 全是红土",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "好难得 聊了多久"
+    },
+    {
+     "role": "user",
+     "content": "就半小时 网太慢 又断了 下次估计又要等一周",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那这周你先把想说的记下来"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-momcall-state",
+  "question_type": "implicit-state",
+  "category": "type-1",
+  "uses": [
+   "s08"
+  ],
+  "background_sessions": [
+   145,
+   162
+  ],
+  "question": "我和我妈现在还是周日晚上通电话吗",
+  "answer": "改了：现在每周六中午打，周日晚上她要去社区合唱团排练。说仍是周日晚上打算错。（背景里每周日晚上给妈妈打电话）",
+  "question_date": "2026/10/25 (Sun) 20:15",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 12:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "跟我妈商量好了 以后改成每周六中午打电话 周日晚上不打了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "怎么改了"
+    },
+    {
+     "role": "user",
+     "content": "她报了个社区合唱团 每周日晚上排练 说要准备元旦演出",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "阿姨可以啊 生活好丰富"
+    },
+    {
+     "role": "user",
+     "content": "我爸血压最近也稳 她说比天天在家看电视强",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那挺好 多动动"
+    },
+    {
+     "role": "user",
+     "content": "中午吃了碗肥肠粉 太香了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "周末就该吃点好的"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-fish-state",
+  "question_type": "implicit-state",
+  "category": "type-2",
+  "uses": [
+   "s09"
+  ],
+  "background_sessions": [
+   181,
+   235
+  ],
+  "question": "我家里现在还养着那缸孔雀鱼吗",
+  "answer": "没有了：10/20 团子把鱼缸扒下来摔碎了，鱼一条没救回来，他也不打算再养。说还养着算错。（背景里家里养着一缸孔雀鱼）",
+  "question_date": "2026/10/28 (Wed) 20:15",
+  "haystack_dates": [
+   "2026/10/20 (Tue) 23:05"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "救命 团子把客厅柜子上那个玻璃缸扒下来了 碎了一地",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 你没被割到吧 它呢"
+    },
+    {
+     "role": "user",
+     "content": "都没事 就是里面那些一个都没救回来 我捡了半天 难受",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "抱抱 养了那么久"
+    },
+    {
+     "role": "user",
+     "content": "缸我也不打算再弄了 有团子在迟早还得出事",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "嗯 团子也安全点"
+    },
+    {
+     "role": "user",
+     "content": "今晚雾城更新还没看 先拖地",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "先收拾 剧明天再补"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-lens-state",
+  "question_type": "implicit-state",
+  "category": "type-2",
+  "uses": [
+   "s10"
+  ],
+  "background_sessions": [
+   56,
+   247
+  ],
+  "question": "我现在还戴隐形吗",
+  "answer": "不戴了：10/17 做了全飞秒，复查两眼都 1.0。说还戴隐形算错。（背景里戴月抛隐形眼镜，近视六百度）",
+  "question_date": "2026/10/26 (Mon) 22:20",
+  "haystack_dates": [
+   "2026/10/17 (Sat) 18:40",
+   "2026/10/19 (Mon) 20:15"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天下午去做了全飞秒",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 这么突然 疼不疼"
+    },
+    {
+     "role": "user",
+     "content": "不疼 十几分钟就完了 现在看东西有点雾 医生说明天就好",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那今晚别刷手机了"
+    },
+    {
+     "role": "user",
+     "content": "好 团子一直凑过来看我 估计觉得我怪怪的",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 别让它扑你"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天复查了 两只眼睛都 1.0",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "恭喜 世界清晰了"
+    },
+    {
+     "role": "user",
+     "content": "早上起来不用摸床头那堆小盒子了 真爽",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "又省钱又省时间"
+    },
+    {
+     "role": "user",
+     "content": "就是还得滴一个月眼药水 一天四次",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "设个闹钟 别忘了"
+    },
+    {
+     "role": "user",
+     "content": "晚上加了会班 上新后续的数据要对",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "早点收工 眼睛也要歇"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-breakfast-state",
+  "question_type": "implicit-state",
+  "category": "type-2",
+  "uses": [
+   "s11"
+  ],
+  "background_sessions": [
+   85,
+   155
+  ],
+  "question": "我早上现在还自己煮燕麦吗",
+  "answer": "这阵子不是了：他最近每天早上都在小区门口新开的包子铺吃包子、喝豆浆。说仍每天煮燕麦算错。（背景里每天早上自己煮燕麦当早饭）",
+  "question_date": "2026/10/29 (Thu) 07:50",
+  "haystack_dates": [
+   "2026/10/21 (Wed) 08:30",
+   "2026/10/26 (Mon) 08:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "小区门口新开了家包子铺 鲜肉的巨好吃",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "一大早就这么开心"
+    },
+    {
+     "role": "user",
+     "content": "上周开的 这几天天天早上都去 两个包子一杯豆浆",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "老板该认识你了"
+    },
+    {
+     "role": "user",
+     "content": "已经认识了 今天还送了我一个茶叶蛋 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "熟客福利"
+    },
+    {
+     "role": "user",
+     "content": "楼上八点又开钻了 我溜得比谁都快",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "包子铺救你一命"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天包子铺出了新口味 酸菜粉丝的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "好吃吗"
+    },
+    {
+     "role": "user",
+     "content": "还行 还是鲜肉的香 明天换回来",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "老实人就爱老味道"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-badminton-state",
+  "question_type": "implicit-state",
+  "category": "type-1",
+  "uses": [
+   "s12"
+  ],
+  "background_sessions": [
+   62,
+   266
+  ],
+  "question": "我周四晚上还和小林她们打球吗",
+  "answer": "不打了：10/22 是最后一次，体育馆周四晚上的场被培训班包了，大家也忙就散了。说还在打算错。（背景里每周四晚上和林悦他们打羽毛球）",
+  "question_date": "2026/10/29 (Thu) 18:40",
+  "haystack_dates": [
+   "2026/10/22 (Thu) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "周四的羽毛球散伙了 今天是最后一次",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 为啥"
+    },
+    {
+     "role": "user",
+     "content": "体育馆周四晚上的场被一个培训班包了 小林她们也都说忙 就干脆不打了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "有点可惜 打了这么久"
+    },
+    {
+     "role": "user",
+     "content": "说以后有空再约 估计就没下文了 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "成年人的再约"
+    },
+    {
+     "role": "user",
+     "content": "打完腿酸 回来团子还要我陪它玩逗猫棒",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "它才不管你累不累"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-japanese-state",
+  "question_type": "implicit-state",
+  "category": "type-1",
+  "uses": [
+   "s13"
+  ],
+  "background_sessions": [
+   122,
+   232
+  ],
+  "question": "我还在每天背日语单词吗",
+  "answer": "不背了：他放弃日语了，App 都删了，明年也不考 N3。说仍在背算错。（背景里每天背 50 个日语单词，准备明年考 N3）",
+  "question_date": "2026/10/27 (Tue) 23:05",
+  "haystack_dates": [
+   "2026/10/20 (Tue) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "日语我放弃了 单词这两周都没背 N3 明年也不考了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 背了那么久"
+    },
+    {
+     "role": "user",
+     "content": "背到后面完全记不住 工作上也用不着 想把时间省下来睡觉",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "也是 硬撑没意思"
+    },
+    {
+     "role": "user",
+     "content": "app 我都删了 上面连续打卡两百多天 删的时候还有点心疼",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 那串数字最难割舍"
+    },
+    {
+     "role": "user",
+     "content": "今晚雾城这集好虐",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "又虐 编剧是不是跟观众有仇"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-sister-state",
+  "question_type": "implicit-state",
+  "category": "type-1",
+  "uses": [
+   "s14"
+  ],
+  "background_sessions": [
+   182,
+   288
+  ],
+  "question": "我现在每月还给我妹打 1500 吗",
+  "answer": "不打了：周以安拿到每月四千的实习，从 10 月起他就停了生活费。说仍每月打 1500 算错。（背景里每月给妹妹打 1500 块生活费）",
+  "question_date": "2026/10/30 (Fri) 12:20",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "以安今天跟我说 她拿到一个实习 每月四千 以后生活费不用我打了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哇 研二就有实习了 好厉害"
+    },
+    {
+     "role": "user",
+     "content": "我说那从这个月起就停了 她还挺骄傲的 哈哈",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "她肯定想证明自己"
+    },
+    {
+     "role": "user",
+     "content": "嗯 刚跟我妈打完电话 她也挺高兴",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "一家人都松口气"
+    },
+    {
+     "role": "user",
+     "content": "楼上这周末居然没装修 难得安静",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "好好享受这一晚"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-shop-state",
+  "question_type": "implicit-state",
+  "category": "type-1",
+  "uses": [
+   "s15"
+  ],
+  "background_sessions": [
+   205,
+   252
+  ],
+  "question": "我那个卖猫爬架的小网店还开着吗",
+  "answer": "关了：10/23 发完最后几单就关了，木料涨价不赚还熬夜。说还开着算错。（背景里副业开了个小网店，卖自己做的猫爬架）",
+  "question_date": "2026/10/29 (Thu) 21:00",
+  "haystack_dates": [
+   "2026/10/23 (Fri) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "网店我关了 今天把最后几单发完了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 怎么突然"
+    },
+    {
+     "role": "user",
+     "content": "木料涨价 一个猫爬架做下来不怎么赚 还天天熬夜 不想干了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "也是 身体要紧"
+    },
+    {
+     "role": "user",
+     "content": "剩下的板子准备给团子钉个大的 它亲自验收 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "最大赢家是团子"
+    },
+    {
+     "role": "user",
+     "content": "刚跑完和阿Ken在鹿角坐了会",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "今天也是充实的一天"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-cafe-state",
+  "question_type": "implicit-state",
+  "category": "type-2",
+  "uses": [
+   "s16"
+  ],
+  "background_sessions": [
+   161,
+   277
+  ],
+  "question": "我周末还是常去春山待着看书吗",
+  "answer": "去不了了：春山已经关门，阿June把店面转出去、要改成美甲店。说他照常去春山算错。（背景里周末常去家楼下的「春山」看书）",
+  "question_date": "2026/10/30 (Fri) 22:00",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 18:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "阿June那家店这周关门了 她把店面转出去了 下个月改成美甲店",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 怎么这么突然"
+    },
+    {
+     "role": "user",
+     "content": "说房租涨了 她想回大理开民宿 走之前请我吃了块蛋糕",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "有点舍不得吧"
+    },
+    {
+     "role": "user",
+     "content": "嗯 门口那只橘猫也不知道以后谁喂",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "说不定新老板也会喂"
+    },
+    {
+     "role": "user",
+     "content": "晚上炒了个青椒肉丝 难得自己做饭",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哇 大厨上线"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-drama-state",
+  "question_type": "implicit-state",
+  "category": "type-1",
+  "uses": [
+   "s17"
+  ],
+  "background_sessions": [
+   27,
+   156
+  ],
+  "question": "雾城现在还在更吗",
+  "answer": "不更了：10/21（周三）已经大结局。说还在更算错。（背景里在追《雾城》，每周二、周三更新）",
+  "question_date": "2026/10/27 (Tue) 20:15",
+  "haystack_dates": [
+   "2026/10/21 (Wed) 23:05"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "雾城今晚大结局了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "怎么样 结局满意吗"
+    },
+    {
+     "role": "user",
+     "content": "哥哥最后没死 我哭成狗 追了几个月终于完了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 好歹是个好结局"
+    },
+    {
+     "role": "user",
+     "content": "突然不知道吃饭的时候看啥了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "剧荒期最难熬"
+    },
+    {
+     "role": "user",
+     "content": "团子今晚又在跑酷 我明天还要早起",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "它一点都不心疼你"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-weight-state",
+  "question_type": "implicit-state",
+  "category": "type-1",
+  "uses": [
+   "s18"
+  ],
+  "background_sessions": [
+   92,
+   230
+  ],
+  "question": "我还在减重吗",
+  "answer": "不减了：他说放弃减重，以后想吃啥吃啥、不控了。说仍在减算错。（背景里在减重，目标 75 公斤，现在 79）",
+  "question_date": "2026/10/30 (Fri) 19:30",
+  "haystack_dates": [
+   "2026/10/24 (Sat) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "跟你说 减肥这事我不搞了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "怎么了 卡住了吗"
+    },
+    {
+     "role": "user",
+     "content": "小半年了一直七十九上下 一斤都不动 想想算了 以后想吃啥吃啥 不控了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "心态放松点也好 别把自己憋坏"
+    },
+    {
+     "role": "user",
+     "content": "所以今晚直接去吃了火锅 毛肚鸭肠全上 爽",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 看得出来你很快乐"
+    },
+    {
+     "role": "user",
+     "content": "吃完回来团子闻了我半天 嫌弃得要死",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "一身火锅味 它当然嫌弃"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-laptop-state",
+  "question_type": "implicit-state",
+  "category": "type-2",
+  "uses": [
+   "s19"
+  ],
+  "background_sessions": [
+   1,
+   289
+  ],
+  "question": "我现在还是用那台老笔记本剪片子吗",
+  "answer": "不是了：他买了新电脑，网店介绍片都在新电脑上做，4K 导出两分钟；原来那台寄给妹妹以安了。说还用旧笔记本算错。（背景里用一台五年的旧笔记本剪视频，给网店拍介绍）",
+  "question_date": "2026/10/28 (Wed) 22:20",
+  "haystack_dates": [
+   "2026/10/20 (Tue) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "新电脑到了 双十一提前下的单 配置直接拉满",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哇 大出血"
+    },
+    {
+     "role": "user",
+     "content": "心疼但值 网店那几个介绍片导出 4K 才两分钟 以前要等半小时",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "半小时到两分钟 这是升天了"
+    },
+    {
+     "role": "user",
+     "content": "原来那台寄给以安了 她写论文够用 以后拍的素材都放新电脑上弄",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "物尽其用"
+    },
+    {
+     "role": "user",
+     "content": "团子已经躺进新电脑的盒子里了 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "果然 盒子才是本体"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-bar-state",
+  "question_type": "implicit-state",
+  "category": "type-2",
+  "uses": [
+   "s20"
+  ],
+  "background_sessions": [
+   154,
+   253
+  ],
+  "question": "我周五跑完还跟阿Ken去鹿角吗",
+  "answer": "这阵子去不了：阿Ken 10/26 起调去北京总行，人不在成都了。说照常一起去算错。（背景里每周五夜跑完和阿Ken去「鹿角」喝一杯）",
+  "question_date": "2026/10/30 (Fri) 18:40",
+  "haystack_dates": [
+   "2026/10/23 (Fri) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "阿Ken调去北京总行了 下周一就走",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 这么快 你们俩还挺铁的"
+    },
+    {
+     "role": "user",
+     "content": "今晚给他送行 吃了顿烤肉 他说一两年都不一定回来",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "有点舍不得吧"
+    },
+    {
+     "role": "user",
+     "content": "嗯 他家猫也带过去 说那边租了个带阳台的",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "猫都跟着走 是真打算长待了"
+    },
+    {
+     "role": "user",
+     "content": "回来路上买了袋橘子 巨甜",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "秋天的橘子最好吃"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-commute-premise",
+  "question_type": "stale-premise",
+  "category": "type-1",
+  "uses": [
+   "s01"
+  ],
+  "background_sessions": [
+   208,
+   278
+  ],
+  "question": "明天说是有雨 骑车上班穿雨衣还是雨披好啊",
+  "answer": "要指出他电动车已经卖了、现在坐地铁上班，用不着雨衣雨披，带把伞就行；或问清楚是不是又骑车了。只比较雨衣雨披怎么选算错。（背景里每天骑电动车上班）",
+  "question_date": "2026/10/27 (Tue) 22:10",
+  "haystack_dates": [
+   "2026/10/19 (Mon) 21:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天开始坐地铁上班了 电动车周末挂闲鱼卖掉了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 怎么突然卖了"
+    },
+    {
+     "role": "user",
+     "content": "电池鼓包 换一块要八百多 想想算了 以后就地铁 走到站再坐七站 差不多四十分钟",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "四十分钟 那早上得早起不少"
+    },
+    {
+     "role": "user",
+     "content": "是啊 七点就得起 团子都还没醒 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "它估计觉得你疯了"
+    },
+    {
+     "role": "user",
+     "content": "晚饭随便吃了碗抄手 困死了先睡",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "去吧 明早别迟到"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-run-premise",
+  "question_type": "stale-premise",
+  "category": "type-2",
+  "uses": [
+   "s02"
+  ],
+  "background_sessions": [
+   7,
+   107,
+   245
+  ],
+  "question": "今晚跑完五公里想吃点东西 有啥低卡的推荐",
+  "answer": "要指出他膝盖半月板磨损、医生让三个月内别剧烈运动，今晚不该去跑，或问他是不是真去跑了。只顾推荐跑后加餐算错。（背景里每周三、周五夜跑五公里）",
+  "question_date": "2026/10/28 (Wed) 18:40",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 20:15",
+   "2026/10/21 (Wed) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "下午去华西看了膝盖 拍了核磁 半月板有点磨损",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 严重吗 疼多久了"
+    },
+    {
+     "role": "user",
+     "content": "上周就隐隐疼 医生说不算严重 但三个月内别做剧烈运动 只能散散步游游泳",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那就老实养着 别逞强"
+    },
+    {
+     "role": "user",
+     "content": "嗯 回来路上买了个护膝 团子把包装盒占了 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "盒子永远比礼物香"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今晚在家窝着看了会书 阿Ken发消息说他一个人好无聊",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 他习惯有人陪了"
+    },
+    {
+     "role": "user",
+     "content": "我说等我三个月 先让他自己找个替补",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那他得自己扛一阵了"
+    },
+    {
+     "role": "user",
+     "content": "楼上今天又在钻墙 晚上九点了都不停",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "救命 这装修是要装到过年吗"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-home-premise",
+  "question_type": "stale-premise",
+  "category": "type-1",
+  "uses": [
+   "s03"
+  ],
+  "background_sessions": [
+   98,
+   263
+  ],
+  "question": "周末想在玉林家楼下转转 附近有啥新开的店能去",
+  "answer": "要指出他已经搬到双楠，玉林不是他家楼下了，或问清是不是专门回玉林逛。直接当作他家楼下来推荐算错。（背景里住在玉林）",
+  "question_date": "2026/10/26 (Mon) 21:00",
+  "haystack_dates": [
+   "2026/10/17 (Sat) 19:30",
+   "2026/10/20 (Tue) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "终于搬完了 累瘫",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "搬去哪了 之前都没听你说"
+    },
+    {
+     "role": "user",
+     "content": "房东要卖房 让月底前腾出来 赶紧在双楠那边租了个两室一厅 今天把东西全挪过去了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "两室 那团子有自己的房间了"
+    },
+    {
+     "role": "user",
+     "content": "它躲床底一下午不出来 吓坏了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "新地方要适应几天 放点它的旧垫子"
+    },
+    {
+     "role": "user",
+     "content": "晚上点了个冒菜 一个人吃了两人份",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "搬家日吃多少都合理"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "新家离玉林那边骑车也就十来分钟 但感觉完全两个片区了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "双楠老小区多 吃的应该也不少"
+    },
+    {
+     "role": "user",
+     "content": "嗯 楼下有个菜市场 明天下班去逛逛",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "去看看有没有好吃的卤菜"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-job-premise",
+  "question_type": "stale-premise",
+  "category": "type-2",
+  "uses": [
+   "s04"
+  ],
+  "background_sessions": [
+   17,
+   258
+  ],
+  "question": "明天又要开老韩的周会了 怎么熬过去",
+  "answer": "要指出他已经离开毛球星、老韩不再是他上司，明天去的是新公司，或问清是什么会。照着老韩的周会出主意算错。（背景里在毛球星做运营主管，老韩是部门总监）",
+  "question_date": "2026/10/25 (Sun) 21:40",
+  "haystack_dates": [
+   "2026/10/16 (Fri) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天交了工牌 组里给我搞了个散伙饭",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 你要走了？"
+    },
+    {
+     "role": "user",
+     "content": "嗯 上个月就提了 一直没好意思说 下周一去一家做宠物医疗的公司报到 做品牌那块",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那恭喜啊 老韩没留你？"
+    },
+    {
+     "role": "user",
+     "content": "留了 我说想换个方向 他也就没多说",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "小林她们舍得吗"
+    },
+    {
+     "role": "user",
+     "content": "小林说以后没人帮她挡老韩了 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 那你走得挺值"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-guitar-premise",
+  "question_type": "stale-premise",
+  "category": "type-1",
+  "uses": [
+   "s05"
+  ],
+  "background_sessions": [
+   66,
+   225
+  ],
+  "question": "这周六上完吉他课 下午去哪逛逛好",
+  "answer": "要指出他已经不在弦音上课了、周六上午其实空着，或问是不是又报了课。直接按上完课来安排下午算错。（背景里每周六上午上吉他课）",
+  "question_date": "2026/10/29 (Thu) 20:15",
+  "haystack_dates": [
+   "2026/10/17 (Sat) 12:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天上完最后一节吉他课了 弦音那边我不续了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 不学了吗"
+    },
+    {
+     "role": "user",
+     "content": "唐老师调去成华区的分店带课 太远了 换别的老师又不习惯 剩的课时退了 以后周六上午就空出来了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "有点可惜 你那首曲子刚有点样子"
+    },
+    {
+     "role": "user",
+     "content": "自己在家对着教程练吧 反正琴还在",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "也行 卡住了再找人问"
+    },
+    {
+     "role": "user",
+     "content": "中午吃了碗冰粉 今天居然有点热",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "成都秋天就这样 忽冷忽热"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-lunch-premise",
+  "question_type": "stale-premise",
+  "category": "type-2",
+  "uses": [
+   "s06"
+  ],
+  "background_sessions": [
+   78,
+   188
+  ],
+  "question": "等会去青山吃面 加个啥浇头好 你帮我选",
+  "answer": "要指出他最近中午都在公司免费食堂吃，问是不是今天特意去面馆；或按现状答。只顾推荐浇头、当他天天去青山算错。（背景里工作日午饭基本在青山面馆）",
+  "question_date": "2026/10/28 (Wed) 11:50",
+  "haystack_dates": [
+   "2026/10/19 (Mon) 12:50",
+   "2026/10/22 (Thu) 12:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "公司今天开了员工食堂 午饭免费",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哇 这么好 吃得怎么样"
+    },
+    {
+     "role": "user",
+     "content": "两荤两素 还有汤 比外卖强多了 组里以后都打算中午去食堂 我也是",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "又省钱又省事"
+    },
+    {
+     "role": "user",
+     "content": "就是排队要十分钟 下午还有个会 头大",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "吃完眯一会再去"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "食堂今天有回锅肉 抢疯了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 回锅肉谁扛得住"
+    },
+    {
+     "role": "user",
+     "content": "我打了两份 晚上得少吃点了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那晚饭清淡点"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-video-premise",
+  "question_type": "stale-premise",
+  "category": "type-2",
+  "uses": [
+   "s07"
+  ],
+  "background_sessions": [
+   102,
+   189
+  ],
+  "question": "等会十点跟苏禾视频 你说我跟她聊点啥",
+  "answer": "要指出苏禾在肯尼亚工地、营地基本没信号，今晚多半连不上，或问她今天是不是去了镇上。直接给视频聊天话题算错。（背景里每晚十点左右和苏禾视频）",
+  "question_date": "2026/10/27 (Tue) 21:30",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 22:20",
+   "2026/10/24 (Sat) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "我对象明天飞肯尼亚了 公司一个项目要驻场三个月",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "三个月 这么久"
+    },
+    {
+     "role": "user",
+     "content": "说工地在很偏的地方 营地基本没信号 一周能去镇上连一次网",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那你们只能攒着话说了"
+    },
+    {
+     "role": "user",
+     "content": "嗯 我让她多拍点照片回来 团子刚把她寄来的明信片咬了个角",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 它是想她了"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "她今天终于连上网了 发了一堆照片 全是红土",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "好难得 聊了多久"
+    },
+    {
+     "role": "user",
+     "content": "就半小时 网太慢 又断了 下次估计又要等一周",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那这周你先把想说的记下来"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-momcall-premise",
+  "question_type": "stale-premise",
+  "category": "type-1",
+  "uses": [
+   "s08"
+  ],
+  "background_sessions": [
+   145,
+   162
+  ],
+  "question": "等会照例给我妈打电话 想问问我爸的血压 怎么开口不让她担心",
+  "answer": "要指出周日晚上妈妈在合唱团排练，他们已经改成周六中午打，今晚照例打不对，可建议发消息或下周六中午再问；只顾教怎么开口算错。（背景里每周日晚上给妈妈打电话）",
+  "question_date": "2026/10/25 (Sun) 20:15",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 12:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "跟我妈商量好了 以后改成每周六中午打电话 周日晚上不打了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "怎么改了"
+    },
+    {
+     "role": "user",
+     "content": "她报了个社区合唱团 每周日晚上排练 说要准备元旦演出",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "阿姨可以啊 生活好丰富"
+    },
+    {
+     "role": "user",
+     "content": "我爸血压最近也稳 她说比天天在家看电视强",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那挺好 多动动"
+    },
+    {
+     "role": "user",
+     "content": "中午吃了碗肥肠粉 太香了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "周末就该吃点好的"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-fish-premise",
+  "question_type": "stale-premise",
+  "category": "type-2",
+  "uses": [
+   "s09"
+  ],
+  "background_sessions": [
+   181,
+   235
+  ],
+  "question": "周末想给孔雀鱼换点水草 买哪种好养",
+  "answer": "要指出鱼缸已经被团子打碎、鱼都没了，或温和地问是不是又养了。直接推荐水草算错。（背景里家里养着一缸孔雀鱼）",
+  "question_date": "2026/10/28 (Wed) 20:15",
+  "haystack_dates": [
+   "2026/10/20 (Tue) 23:05"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "救命 团子把客厅柜子上那个玻璃缸扒下来了 碎了一地",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 你没被割到吧 它呢"
+    },
+    {
+     "role": "user",
+     "content": "都没事 就是里面那些一个都没救回来 我捡了半天 难受",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "抱抱 养了那么久"
+    },
+    {
+     "role": "user",
+     "content": "缸我也不打算再弄了 有团子在迟早还得出事",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "嗯 团子也安全点"
+    },
+    {
+     "role": "user",
+     "content": "今晚雾城更新还没看 先拖地",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "先收拾 剧明天再补"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-lens-premise",
+  "question_type": "stale-premise",
+  "category": "type-2",
+  "uses": [
+   "s10"
+  ],
+  "background_sessions": [
+   56,
+   247
+  ],
+  "question": "我月抛快用完了 这次买哪个牌子好",
+  "answer": "要指出他已经做了全飞秒、用不着月抛了，或问是不是给别人买。直接推荐品牌算错。（背景里戴月抛隐形眼镜）",
+  "question_date": "2026/10/26 (Mon) 22:20",
+  "haystack_dates": [
+   "2026/10/17 (Sat) 18:40",
+   "2026/10/19 (Mon) 20:15"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天下午去做了全飞秒",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 这么突然 疼不疼"
+    },
+    {
+     "role": "user",
+     "content": "不疼 十几分钟就完了 现在看东西有点雾 医生说明天就好",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那今晚别刷手机了"
+    },
+    {
+     "role": "user",
+     "content": "好 团子一直凑过来看我 估计觉得我怪怪的",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 别让它扑你"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天复查了 两只眼睛都 1.0",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "恭喜 世界清晰了"
+    },
+    {
+     "role": "user",
+     "content": "早上起来不用摸床头那堆小盒子了 真爽",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "又省钱又省时间"
+    },
+    {
+     "role": "user",
+     "content": "就是还得滴一个月眼药水 一天四次",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "设个闹钟 别忘了"
+    },
+    {
+     "role": "user",
+     "content": "晚上加了会班 上新后续的数据要对",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "早点收工 眼睛也要歇"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-breakfast-premise",
+  "question_type": "stale-premise",
+  "category": "type-2",
+  "uses": [
+   "s11"
+  ],
+  "background_sessions": [
+   85,
+   155
+  ],
+  "question": "燕麦快吃完了 这回买即食的还是要煮的",
+  "answer": "要指出他最近早上都在包子铺吃，问燕麦是不是还在吃；或按现状答。直接比较即食和要煮的燕麦算错。（背景里每天早上自己煮燕麦当早饭）",
+  "question_date": "2026/10/29 (Thu) 07:50",
+  "haystack_dates": [
+   "2026/10/21 (Wed) 08:30",
+   "2026/10/26 (Mon) 08:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "小区门口新开了家包子铺 鲜肉的巨好吃",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "一大早就这么开心"
+    },
+    {
+     "role": "user",
+     "content": "上周开的 这几天天天早上都去 两个包子一杯豆浆",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "老板该认识你了"
+    },
+    {
+     "role": "user",
+     "content": "已经认识了 今天还送了我一个茶叶蛋 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "熟客福利"
+    },
+    {
+     "role": "user",
+     "content": "楼上八点又开钻了 我溜得比谁都快",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "包子铺救你一命"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天包子铺出了新口味 酸菜粉丝的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "好吃吗"
+    },
+    {
+     "role": "user",
+     "content": "还行 还是鲜肉的香 明天换回来",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "老实人就爱老味道"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-badminton-premise",
+  "question_type": "stale-premise",
+  "category": "type-1",
+  "uses": [
+   "s12"
+  ],
+  "background_sessions": [
+   62,
+   266
+  ],
+  "question": "今晚打完羽毛球回来想吃点 你说吃啥",
+  "answer": "要指出周四羽毛球已经散了、今晚不用打，或问是不是另外约了。直接推荐打完球吃什么算错。（背景里每周四晚上和林悦他们打羽毛球）",
+  "question_date": "2026/10/29 (Thu) 18:40",
+  "haystack_dates": [
+   "2026/10/22 (Thu) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "周四的羽毛球散伙了 今天是最后一次",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 为啥"
+    },
+    {
+     "role": "user",
+     "content": "体育馆周四晚上的场被一个培训班包了 小林她们也都说忙 就干脆不打了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "有点可惜 打了这么久"
+    },
+    {
+     "role": "user",
+     "content": "说以后有空再约 估计就没下文了 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "成年人的再约"
+    },
+    {
+     "role": "user",
+     "content": "打完腿酸 回来团子还要我陪它玩逗猫棒",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "它才不管你累不累"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-japanese-premise",
+  "question_type": "stale-premise",
+  "category": "type-1",
+  "uses": [
+   "s13"
+  ],
+  "background_sessions": [
+   122,
+   232
+  ],
+  "question": "今天的 50 个单词还没背 太困了 明天补行不行",
+  "answer": "要指出他已经放弃日语、不再背单词，或问是不是又捡起来了。直接安排补背算错。（背景里每天背 50 个日语单词）",
+  "question_date": "2026/10/27 (Tue) 23:05",
+  "haystack_dates": [
+   "2026/10/20 (Tue) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "日语我放弃了 单词这两周都没背 N3 明年也不考了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 背了那么久"
+    },
+    {
+     "role": "user",
+     "content": "背到后面完全记不住 工作上也用不着 想把时间省下来睡觉",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "也是 硬撑没意思"
+    },
+    {
+     "role": "user",
+     "content": "app 我都删了 上面连续打卡两百多天 删的时候还有点心疼",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 那串数字最难割舍"
+    },
+    {
+     "role": "user",
+     "content": "今晚雾城这集好虐",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "又虐 编剧是不是跟观众有仇"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-sister-premise",
+  "question_type": "stale-premise",
+  "category": "type-1",
+  "uses": [
+   "s14"
+  ],
+  "background_sessions": [
+   182,
+   288
+  ],
+  "question": "这个月给以安的 1500 还没转 你提醒我几号转合适",
+  "answer": "要指出已经说好从这个月起不再给以安打生活费，或问是不是另有原因要转。直接安排转账日期算错。（背景里每月给妹妹打 1500 块生活费）",
+  "question_date": "2026/10/30 (Fri) 12:20",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "以安今天跟我说 她拿到一个实习 每月四千 以后生活费不用我打了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哇 研二就有实习了 好厉害"
+    },
+    {
+     "role": "user",
+     "content": "我说那从这个月起就停了 她还挺骄傲的 哈哈",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "她肯定想证明自己"
+    },
+    {
+     "role": "user",
+     "content": "嗯 刚跟我妈打完电话 她也挺高兴",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "一家人都松口气"
+    },
+    {
+     "role": "user",
+     "content": "楼上这周末居然没装修 难得安静",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "好好享受这一晚"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-shop-premise",
+  "question_type": "stale-premise",
+  "category": "type-1",
+  "uses": [
+   "s15"
+  ],
+  "background_sessions": [
+   205,
+   252
+  ],
+  "question": "双十一快到了 网店要不要搞个满减 你帮我想想怎么定",
+  "answer": "要指出网店已经关了，或问是不是打算重开。直接给满减方案算错。（背景里副业开小网店卖猫爬架）",
+  "question_date": "2026/10/29 (Thu) 21:00",
+  "haystack_dates": [
+   "2026/10/23 (Fri) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "网店我关了 今天把最后几单发完了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 怎么突然"
+    },
+    {
+     "role": "user",
+     "content": "木料涨价 一个猫爬架做下来不怎么赚 还天天熬夜 不想干了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "也是 身体要紧"
+    },
+    {
+     "role": "user",
+     "content": "剩下的板子准备给团子钉个大的 它亲自验收 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "最大赢家是团子"
+    },
+    {
+     "role": "user",
+     "content": "刚跑完和阿Ken在鹿角坐了会",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "今天也是充实的一天"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-cafe-premise",
+  "question_type": "stale-premise",
+  "category": "type-2",
+  "uses": [
+   "s16"
+  ],
+  "background_sessions": [
+   161,
+   277
+  ],
+  "question": "周日去春山看书 带哪本好 你推荐一本",
+  "answer": "要指出春山已经关门了，或问他是不是换了地方；推荐书的同时指出这点可以。只推荐书、当春山照常开算错。（背景里周末常去春山看书）",
+  "question_date": "2026/10/30 (Fri) 22:00",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 18:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "阿June那家店这周关门了 她把店面转出去了 下个月改成美甲店",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 怎么这么突然"
+    },
+    {
+     "role": "user",
+     "content": "说房租涨了 她想回大理开民宿 走之前请我吃了块蛋糕",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "有点舍不得吧"
+    },
+    {
+     "role": "user",
+     "content": "嗯 门口那只橘猫也不知道以后谁喂",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "说不定新老板也会喂"
+    },
+    {
+     "role": "user",
+     "content": "晚上炒了个青椒肉丝 难得自己做饭",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哇 大厨上线"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-drama-premise",
+  "question_type": "stale-premise",
+  "category": "type-1",
+  "uses": [
+   "s17"
+  ],
+  "background_sessions": [
+   27,
+   156
+  ],
+  "question": "今晚雾城更新 我边吃饭边看 先点个外卖 你推荐个啥",
+  "answer": "要指出《雾城》上周三已经大结局、今晚没有新集，或问是不是在重刷。只推荐外卖、当今晚有更新算错。（背景里《雾城》每周二、三更新）",
+  "question_date": "2026/10/27 (Tue) 20:15",
+  "haystack_dates": [
+   "2026/10/21 (Wed) 23:05"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "雾城今晚大结局了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "怎么样 结局满意吗"
+    },
+    {
+     "role": "user",
+     "content": "哥哥最后没死 我哭成狗 追了几个月终于完了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 好歹是个好结局"
+    },
+    {
+     "role": "user",
+     "content": "突然不知道吃饭的时候看啥了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "剧荒期最难熬"
+    },
+    {
+     "role": "user",
+     "content": "团子今晚又在跑酷 我明天还要早起",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "它一点都不心疼你"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-weight-premise",
+  "question_type": "stale-premise",
+  "category": "type-1",
+  "uses": [
+   "s18"
+  ],
+  "background_sessions": [
+   92,
+   230
+  ],
+  "question": "离 75 还差四公斤 你说我这个月怎么冲一冲",
+  "answer": "要指出他已经说过不减了、放下了 75 的目标，或问是不是又想重新开始。直接给冲刺减重计划算错。（背景里在减重，目标 75 公斤，现在 79）",
+  "question_date": "2026/10/30 (Fri) 19:30",
+  "haystack_dates": [
+   "2026/10/24 (Sat) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "跟你说 减肥这事我不搞了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "怎么了 卡住了吗"
+    },
+    {
+     "role": "user",
+     "content": "小半年了一直七十九上下 一斤都不动 想想算了 以后想吃啥吃啥 不控了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "心态放松点也好 别把自己憋坏"
+    },
+    {
+     "role": "user",
+     "content": "所以今晚直接去吃了火锅 毛肚鸭肠全上 爽",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 看得出来你很快乐"
+    },
+    {
+     "role": "user",
+     "content": "吃完回来团子闻了我半天 嫌弃得要死",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "一身火锅味 它当然嫌弃"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-laptop-premise",
+  "question_type": "stale-premise",
+  "category": "type-2",
+  "uses": [
+   "s19"
+  ],
+  "background_sessions": [
+   1,
+   289
+  ],
+  "question": "那台老笔记本导出又卡死了 你说要不要清一下 C 盘",
+  "answer": "要指出他已经换了新电脑、老的寄给以安了，或问是不是以安那边卡。直接教清理 C 盘、当他还在用旧笔记本算错。（背景里用五年的旧笔记本剪视频）",
+  "question_date": "2026/10/28 (Wed) 22:20",
+  "haystack_dates": [
+   "2026/10/20 (Tue) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "新电脑到了 双十一提前下的单 配置直接拉满",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哇 大出血"
+    },
+    {
+     "role": "user",
+     "content": "心疼但值 网店那几个介绍片导出 4K 才两分钟 以前要等半小时",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "半小时到两分钟 这是升天了"
+    },
+    {
+     "role": "user",
+     "content": "原来那台寄给以安了 她写论文够用 以后拍的素材都放新电脑上弄",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "物尽其用"
+    },
+    {
+     "role": "user",
+     "content": "团子已经躺进新电脑的盒子里了 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "果然 盒子才是本体"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-bar-premise",
+  "question_type": "stale-premise",
+  "category": "type-2",
+  "uses": [
+   "s20"
+  ],
+  "background_sessions": [
+   154,
+   253
+  ],
+  "question": "今晚跑完照例跟阿Ken去鹿角 点啥下酒菜好",
+  "answer": "要指出阿Ken已经调去北京、今晚没法一起去，或问是不是他回成都了。直接推荐下酒菜算错。（背景里每周五夜跑完和阿Ken去鹿角）",
+  "question_date": "2026/10/30 (Fri) 18:40",
+  "haystack_dates": [
+   "2026/10/23 (Fri) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "阿Ken调去北京总行了 下周一就走",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 这么快 你们俩还挺铁的"
+    },
+    {
+     "role": "user",
+     "content": "今晚给他送行 吃了顿烤肉 他说一两年都不一定回来",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "有点舍不得吧"
+    },
+    {
+     "role": "user",
+     "content": "嗯 他家猫也带过去 说那边租了个带阳台的",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "猫都跟着走 是真打算长待了"
+    },
+    {
+     "role": "user",
+     "content": "回来路上买了袋橘子 巨甜",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "秋天的橘子最好吃"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-commute-use",
+  "question_type": "implicit-use",
+  "category": "type-1",
+  "uses": [
+   "s01"
+  ],
+  "background_sessions": [
+   208,
+   278
+  ],
+  "question": "明早九点有个会 我几点出门比较稳",
+  "answer": "要按坐地铁单程约四十分钟算，建议八点左右或更早出门，留出余量。按骑电动车十五分钟算（如八点三四十才出门）算错。（背景里骑电动车上班十五分钟）",
+  "question_date": "2026/10/27 (Tue) 22:10",
+  "haystack_dates": [
+   "2026/10/19 (Mon) 21:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天开始坐地铁上班了 电动车周末挂闲鱼卖掉了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 怎么突然卖了"
+    },
+    {
+     "role": "user",
+     "content": "电池鼓包 换一块要八百多 想想算了 以后就地铁 走到站再坐七站 差不多四十分钟",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "四十分钟 那早上得早起不少"
+    },
+    {
+     "role": "user",
+     "content": "是啊 七点就得起 团子都还没醒 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "它估计觉得你疯了"
+    },
+    {
+     "role": "user",
+     "content": "晚饭随便吃了碗抄手 困死了先睡",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "去吧 明早别迟到"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-run-use",
+  "question_type": "implicit-use",
+  "category": "type-2",
+  "uses": [
+   "s02"
+  ],
+  "background_sessions": [
+   7,
+   107,
+   245
+  ],
+  "question": "周五晚上阿Ken约我 你说我俩干点啥好",
+  "answer": "建议要避开跑步这类剧烈运动，顾及他膝盖半月板磨损、医生说三个月内别剧烈运动；可以提散步、吃饭、找个地方坐坐等。建议两人去夜跑算错。（背景里周五晚上常和阿Ken夜跑）",
+  "question_date": "2026/10/28 (Wed) 18:40",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 20:15",
+   "2026/10/21 (Wed) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "下午去华西看了膝盖 拍了核磁 半月板有点磨损",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 严重吗 疼多久了"
+    },
+    {
+     "role": "user",
+     "content": "上周就隐隐疼 医生说不算严重 但三个月内别做剧烈运动 只能散散步游游泳",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那就老实养着 别逞强"
+    },
+    {
+     "role": "user",
+     "content": "嗯 回来路上买了个护膝 团子把包装盒占了 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "盒子永远比礼物香"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今晚在家窝着看了会书 阿Ken发消息说他一个人好无聊",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 他习惯有人陪了"
+    },
+    {
+     "role": "user",
+     "content": "我说等我三个月 先让他自己找个替补",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那他得自己扛一阵了"
+    },
+    {
+     "role": "user",
+     "content": "楼上今天又在钻墙 晚上九点了都不停",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "救命 这装修是要装到过年吗"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-home-use",
+  "question_type": "implicit-use",
+  "category": "type-1",
+  "uses": [
+   "s03"
+  ],
+  "background_sessions": [
+   98,
+   263
+  ],
+  "question": "我妈要给我寄腊肉香肠 我跟她报哪个地址",
+  "answer": "要让他报双楠的新地址，提醒别报玉林的旧地址（具体门牌不知道可以不写）。让他报玉林地址算错。（背景里住在玉林）",
+  "question_date": "2026/10/26 (Mon) 21:00",
+  "haystack_dates": [
+   "2026/10/17 (Sat) 19:30",
+   "2026/10/20 (Tue) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "终于搬完了 累瘫",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "搬去哪了 之前都没听你说"
+    },
+    {
+     "role": "user",
+     "content": "房东要卖房 让月底前腾出来 赶紧在双楠那边租了个两室一厅 今天把东西全挪过去了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "两室 那团子有自己的房间了"
+    },
+    {
+     "role": "user",
+     "content": "它躲床底一下午不出来 吓坏了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "新地方要适应几天 放点它的旧垫子"
+    },
+    {
+     "role": "user",
+     "content": "晚上点了个冒菜 一个人吃了两人份",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "搬家日吃多少都合理"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "新家离玉林那边骑车也就十来分钟 但感觉完全两个片区了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "双楠老小区多 吃的应该也不少"
+    },
+    {
+     "role": "user",
+     "content": "嗯 楼下有个菜市场 明天下班去逛逛",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "去看看有没有好吃的卤菜"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-job-use",
+  "question_type": "implicit-use",
+  "category": "type-2",
+  "uses": [
+   "s04"
+  ],
+  "background_sessions": [
+   17,
+   258
+  ],
+  "question": "下周想请两天假回趟绵阳 你说现在好请吗",
+  "answer": "要顾及他 10/19 才去新公司报到，刚入职一两周请假可能不方便，提到试用期或先跟新领导沟通。按老公司、找老韩批假来答算错。（背景里在毛球星做运营主管）",
+  "question_date": "2026/10/25 (Sun) 21:40",
+  "haystack_dates": [
+   "2026/10/16 (Fri) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天交了工牌 组里给我搞了个散伙饭",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 你要走了？"
+    },
+    {
+     "role": "user",
+     "content": "嗯 上个月就提了 一直没好意思说 下周一去一家做宠物医疗的公司报到 做品牌那块",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那恭喜啊 老韩没留你？"
+    },
+    {
+     "role": "user",
+     "content": "留了 我说想换个方向 他也就没多说",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "小林她们舍得吗"
+    },
+    {
+     "role": "user",
+     "content": "小林说以后没人帮她挡老韩了 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 那你走得挺值"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-guitar-use",
+  "question_type": "implicit-use",
+  "category": "type-1",
+  "uses": [
+   "s05"
+  ],
+  "background_sessions": [
+   66,
+   225
+  ],
+  "question": "这周六想跟朋友约个早午饭 你帮我想想约几点",
+  "answer": "周六上午他已经没有吉他课，可以约上午十点、十一点左右。以要避开上午吉他课为由让他约到下午算错。（背景里每周六上午上吉他课）",
+  "question_date": "2026/10/29 (Thu) 20:15",
+  "haystack_dates": [
+   "2026/10/17 (Sat) 12:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天上完最后一节吉他课了 弦音那边我不续了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 不学了吗"
+    },
+    {
+     "role": "user",
+     "content": "唐老师调去成华区的分店带课 太远了 换别的老师又不习惯 剩的课时退了 以后周六上午就空出来了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "有点可惜 你那首曲子刚有点样子"
+    },
+    {
+     "role": "user",
+     "content": "自己在家对着教程练吧 反正琴还在",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "也行 卡住了再找人问"
+    },
+    {
+     "role": "user",
+     "content": "中午吃了碗冰粉 今天居然有点热",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "成都秋天就这样 忽冷忽热"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-lunch-use",
+  "question_type": "implicit-use",
+  "category": "type-2",
+  "uses": [
+   "s06"
+  ],
+  "background_sessions": [
+   78,
+   188
+  ],
+  "question": "这个月想把吃饭的钱压一压 你帮我看看哪块能省",
+  "answer": "要顾及工作日午饭现在在免费食堂吃、不花钱，省钱重点放在晚饭、外卖、周末等。建议他少去面馆吃午饭来省钱算错。（背景里工作日午饭基本在青山面馆）",
+  "question_date": "2026/10/28 (Wed) 11:50",
+  "haystack_dates": [
+   "2026/10/19 (Mon) 12:50",
+   "2026/10/22 (Thu) 12:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "公司今天开了员工食堂 午饭免费",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哇 这么好 吃得怎么样"
+    },
+    {
+     "role": "user",
+     "content": "两荤两素 还有汤 比外卖强多了 组里以后都打算中午去食堂 我也是",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "又省钱又省事"
+    },
+    {
+     "role": "user",
+     "content": "就是排队要十分钟 下午还有个会 头大",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "吃完眯一会再去"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "食堂今天有回锅肉 抢疯了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 回锅肉谁扛得住"
+    },
+    {
+     "role": "user",
+     "content": "我打了两份 晚上得少吃点了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那晚饭清淡点"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-video-use",
+  "question_type": "implicit-use",
+  "category": "type-2",
+  "uses": [
+   "s07"
+  ],
+  "background_sessions": [
+   102,
+   189
+  ],
+  "question": "最近晚上老觉得空落落的 你说咋办",
+  "answer": "要能联系到苏禾去肯尼亚驻场、营地没信号，晚上不能像以前那样视频了，再给建议（比如把想说的攒下来、安排点别的事）。提醒他别耽误晚上和苏禾视频算错。（背景里每晚十点左右和苏禾视频）",
+  "question_date": "2026/10/27 (Tue) 21:30",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 22:20",
+   "2026/10/24 (Sat) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "我对象明天飞肯尼亚了 公司一个项目要驻场三个月",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "三个月 这么久"
+    },
+    {
+     "role": "user",
+     "content": "说工地在很偏的地方 营地基本没信号 一周能去镇上连一次网",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那你们只能攒着话说了"
+    },
+    {
+     "role": "user",
+     "content": "嗯 我让她多拍点照片回来 团子刚把她寄来的明信片咬了个角",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 它是想她了"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "她今天终于连上网了 发了一堆照片 全是红土",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "好难得 聊了多久"
+    },
+    {
+     "role": "user",
+     "content": "就半小时 网太慢 又断了 下次估计又要等一周",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那这周你先把想说的记下来"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-momcall-use",
+  "question_type": "implicit-use",
+  "category": "type-1",
+  "uses": [
+   "s08"
+  ],
+  "background_sessions": [
+   145,
+   162
+  ],
+  "question": "今晚八点半林可约我打两把游戏 你看我有空吗",
+  "answer": "周日晚上他已经不用给妈妈打电话（改到周六中午了），可以答应。以周日晚上要给妈妈打电话为由说没空算错。（背景里每周日晚上给妈妈打电话）",
+  "question_date": "2026/10/25 (Sun) 20:15",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 12:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "跟我妈商量好了 以后改成每周六中午打电话 周日晚上不打了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "怎么改了"
+    },
+    {
+     "role": "user",
+     "content": "她报了个社区合唱团 每周日晚上排练 说要准备元旦演出",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "阿姨可以啊 生活好丰富"
+    },
+    {
+     "role": "user",
+     "content": "我爸血压最近也稳 她说比天天在家看电视强",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那挺好 多动动"
+    },
+    {
+     "role": "user",
+     "content": "中午吃了碗肥肠粉 太香了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "周末就该吃点好的"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-fish-use",
+  "question_type": "implicit-use",
+  "category": "type-2",
+  "uses": [
+   "s09"
+  ],
+  "background_sessions": [
+   181,
+   235
+  ],
+  "question": "下个月要出差三天 家里得怎么安排",
+  "answer": "要顾及家里只剩团子要照顾（喂食、铲屎、找人上门），已经没有鱼要喂。提醒他安排人喂鱼或照看鱼缸算错。（背景里家里养着一缸孔雀鱼）",
+  "question_date": "2026/10/28 (Wed) 20:15",
+  "haystack_dates": [
+   "2026/10/20 (Tue) 23:05"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "救命 团子把客厅柜子上那个玻璃缸扒下来了 碎了一地",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 你没被割到吧 它呢"
+    },
+    {
+     "role": "user",
+     "content": "都没事 就是里面那些一个都没救回来 我捡了半天 难受",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "抱抱 养了那么久"
+    },
+    {
+     "role": "user",
+     "content": "缸我也不打算再弄了 有团子在迟早还得出事",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "嗯 团子也安全点"
+    },
+    {
+     "role": "user",
+     "content": "今晚雾城更新还没看 先拖地",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "先收拾 剧明天再补"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-lens-use",
+  "question_type": "implicit-use",
+  "category": "type-2",
+  "uses": [
+   "s10"
+  ],
+  "background_sessions": [
+   56,
+   247
+  ],
+  "question": "周末想去游泳 要准备点啥",
+  "answer": "要顾及他 10/17 刚做完全飞秒、还在滴眼药水，术后一段时间一般不建议游泳、眼睛进水，应提醒先问医生或推迟。按近视戴隐形去游泳来提醒（比如摘隐形、配近视泳镜）算错。（背景里戴月抛隐形眼镜，近视六百度）",
+  "question_date": "2026/10/26 (Mon) 22:20",
+  "haystack_dates": [
+   "2026/10/17 (Sat) 18:40",
+   "2026/10/19 (Mon) 20:15"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天下午去做了全飞秒",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 这么突然 疼不疼"
+    },
+    {
+     "role": "user",
+     "content": "不疼 十几分钟就完了 现在看东西有点雾 医生说明天就好",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那今晚别刷手机了"
+    },
+    {
+     "role": "user",
+     "content": "好 团子一直凑过来看我 估计觉得我怪怪的",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 别让它扑你"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天复查了 两只眼睛都 1.0",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "恭喜 世界清晰了"
+    },
+    {
+     "role": "user",
+     "content": "早上起来不用摸床头那堆小盒子了 真爽",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "又省钱又省时间"
+    },
+    {
+     "role": "user",
+     "content": "就是还得滴一个月眼药水 一天四次",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "设个闹钟 别忘了"
+    },
+    {
+     "role": "user",
+     "content": "晚上加了会班 上新后续的数据要对",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "早点收工 眼睛也要歇"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-breakfast-use",
+  "question_type": "implicit-use",
+  "category": "type-2",
+  "uses": [
+   "s11"
+  ],
+  "background_sessions": [
+   85,
+   155
+  ],
+  "question": "最近是不是吃得有点多 早上吃的要不要调一调",
+  "answer": "要按他最近早上在包子铺吃包子豆浆来给建议（比如少一个包子、换素馅、加个鸡蛋），可以提回到燕麦。当他早上一直吃燕麦、只说燕麦怎么搭算错。（背景里每天早上自己煮燕麦当早饭）",
+  "question_date": "2026/10/29 (Thu) 07:50",
+  "haystack_dates": [
+   "2026/10/21 (Wed) 08:30",
+   "2026/10/26 (Mon) 08:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "小区门口新开了家包子铺 鲜肉的巨好吃",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "一大早就这么开心"
+    },
+    {
+     "role": "user",
+     "content": "上周开的 这几天天天早上都去 两个包子一杯豆浆",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "老板该认识你了"
+    },
+    {
+     "role": "user",
+     "content": "已经认识了 今天还送了我一个茶叶蛋 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "熟客福利"
+    },
+    {
+     "role": "user",
+     "content": "楼上八点又开钻了 我溜得比谁都快",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "包子铺救你一命"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天包子铺出了新口味 酸菜粉丝的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "好吃吗"
+    },
+    {
+     "role": "user",
+     "content": "还行 还是鲜肉的香 明天换回来",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "老实人就爱老味道"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-badminton-use",
+  "question_type": "implicit-use",
+  "category": "type-1",
+  "uses": [
+   "s12"
+  ],
+  "background_sessions": [
+   62,
+   266
+  ],
+  "question": "今晚下班后有啥安排比较好",
+  "answer": "要顾及周四晚上已经没有羽毛球了，可以自由安排。说他今晚要和林悦他们打羽毛球算错。（背景里每周四晚上打羽毛球）",
+  "question_date": "2026/10/29 (Thu) 18:40",
+  "haystack_dates": [
+   "2026/10/22 (Thu) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "周四的羽毛球散伙了 今天是最后一次",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 为啥"
+    },
+    {
+     "role": "user",
+     "content": "体育馆周四晚上的场被一个培训班包了 小林她们也都说忙 就干脆不打了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "有点可惜 打了这么久"
+    },
+    {
+     "role": "user",
+     "content": "说以后有空再约 估计就没下文了 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "成年人的再约"
+    },
+    {
+     "role": "user",
+     "content": "打完腿酸 回来团子还要我陪它玩逗猫棒",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "它才不管你累不累"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-japanese-use",
+  "question_type": "implicit-use",
+  "category": "type-1",
+  "uses": [
+   "s13"
+  ],
+  "background_sessions": [
+   122,
+   232
+  ],
+  "question": "明年想考个什么证提升下自己 你帮我参谋",
+  "answer": "要顾及他已经放弃日语、不打算考 N3，不能把 N3 当成他明年已定的目标来规划；可以问方向再推荐别的。把 N3 当既定计划来安排算错。（背景里准备明年考 N3）",
+  "question_date": "2026/10/27 (Tue) 23:05",
+  "haystack_dates": [
+   "2026/10/20 (Tue) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "日语我放弃了 单词这两周都没背 N3 明年也不考了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 背了那么久"
+    },
+    {
+     "role": "user",
+     "content": "背到后面完全记不住 工作上也用不着 想把时间省下来睡觉",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "也是 硬撑没意思"
+    },
+    {
+     "role": "user",
+     "content": "app 我都删了 上面连续打卡两百多天 删的时候还有点心疼",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 那串数字最难割舍"
+    },
+    {
+     "role": "user",
+     "content": "今晚雾城这集好虐",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "又虐 编剧是不是跟观众有仇"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-sister-use",
+  "question_type": "implicit-use",
+  "category": "type-1",
+  "uses": [
+   "s14"
+  ],
+  "background_sessions": [
+   182,
+   288
+  ],
+  "question": "帮我算算 每月工资到手后固定要出去的钱有哪些",
+  "answer": "列固定支出时不能再算给妹妹的 1500 生活费，要知道这笔已经停了（房租等其他项可以列或问）。把 1500 生活费列进去算错。（背景里每月给妹妹打 1500 块生活费）",
+  "question_date": "2026/10/30 (Fri) 12:20",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "以安今天跟我说 她拿到一个实习 每月四千 以后生活费不用我打了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哇 研二就有实习了 好厉害"
+    },
+    {
+     "role": "user",
+     "content": "我说那从这个月起就停了 她还挺骄傲的 哈哈",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "她肯定想证明自己"
+    },
+    {
+     "role": "user",
+     "content": "嗯 刚跟我妈打完电话 她也挺高兴",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "一家人都松口气"
+    },
+    {
+     "role": "user",
+     "content": "楼上这周末居然没装修 难得安静",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "好好享受这一晚"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-shop-use",
+  "question_type": "implicit-use",
+  "category": "type-1",
+  "uses": [
+   "s15"
+  ],
+  "background_sessions": [
+   205,
+   252
+  ],
+  "question": "周末有点空 想做点手工 有啥推荐",
+  "answer": "要顾及网店已经关了、不用再赶单，可以顺着提用剩下的板子给团子钉个大猫爬架这类。建议他周末赶网店订单、给网店拍新品算错。（背景里副业开小网店卖猫爬架）",
+  "question_date": "2026/10/29 (Thu) 21:00",
+  "haystack_dates": [
+   "2026/10/23 (Fri) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "网店我关了 今天把最后几单发完了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 怎么突然"
+    },
+    {
+     "role": "user",
+     "content": "木料涨价 一个猫爬架做下来不怎么赚 还天天熬夜 不想干了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "也是 身体要紧"
+    },
+    {
+     "role": "user",
+     "content": "剩下的板子准备给团子钉个大的 它亲自验收 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "最大赢家是团子"
+    },
+    {
+     "role": "user",
+     "content": "刚跑完和阿Ken在鹿角坐了会",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "今天也是充实的一天"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-cafe-use",
+  "question_type": "implicit-use",
+  "category": "type-2",
+  "uses": [
+   "s16"
+  ],
+  "background_sessions": [
+   161,
+   277
+  ],
+  "question": "这周末想找个安静地方待一下午 有啥建议",
+  "answer": "要顾及春山已经关门，不能推荐去春山，可以推荐别的咖啡馆、书店、图书馆等。推荐去春山算错。（背景里周末常去春山看书）",
+  "question_date": "2026/10/30 (Fri) 22:00",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 18:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "阿June那家店这周关门了 她把店面转出去了 下个月改成美甲店",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 怎么这么突然"
+    },
+    {
+     "role": "user",
+     "content": "说房租涨了 她想回大理开民宿 走之前请我吃了块蛋糕",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "有点舍不得吧"
+    },
+    {
+     "role": "user",
+     "content": "嗯 门口那只橘猫也不知道以后谁喂",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "说不定新老板也会喂"
+    },
+    {
+     "role": "user",
+     "content": "晚上炒了个青椒肉丝 难得自己做饭",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哇 大厨上线"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-drama-use",
+  "question_type": "implicit-use",
+  "category": "type-1",
+  "uses": [
+   "s17"
+  ],
+  "background_sessions": [
+   27,
+   156
+  ],
+  "question": "吃饭的时候想找个剧下饭 有啥推荐",
+  "answer": "要知道《雾城》已经完结，推荐别的剧（可以照他喜欢雾城的口味推荐）。推荐他继续追雾城的更新算错。（背景里在追《雾城》）",
+  "question_date": "2026/10/27 (Tue) 20:15",
+  "haystack_dates": [
+   "2026/10/21 (Wed) 23:05"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "雾城今晚大结局了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "怎么样 结局满意吗"
+    },
+    {
+     "role": "user",
+     "content": "哥哥最后没死 我哭成狗 追了几个月终于完了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 好歹是个好结局"
+    },
+    {
+     "role": "user",
+     "content": "突然不知道吃饭的时候看啥了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "剧荒期最难熬"
+    },
+    {
+     "role": "user",
+     "content": "团子今晚又在跑酷 我明天还要早起",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "它一点都不心疼你"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-weight-use",
+  "question_type": "implicit-use",
+  "category": "type-1",
+  "uses": [
+   "s18"
+  ],
+  "background_sessions": [
+   92,
+   230
+  ],
+  "question": "今晚想吃顿好的 推荐点啥",
+  "answer": "要顾及他已经不再减重，可以放开推荐，不拿减重、热量当限制（顺带提尿酸少吃海鲜啤酒可以）。以减重为由劝他吃清淡、控热量算错。（背景里在减重，目标 75 公斤）",
+  "question_date": "2026/10/30 (Fri) 19:30",
+  "haystack_dates": [
+   "2026/10/24 (Sat) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "跟你说 减肥这事我不搞了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "怎么了 卡住了吗"
+    },
+    {
+     "role": "user",
+     "content": "小半年了一直七十九上下 一斤都不动 想想算了 以后想吃啥吃啥 不控了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "心态放松点也好 别把自己憋坏"
+    },
+    {
+     "role": "user",
+     "content": "所以今晚直接去吃了火锅 毛肚鸭肠全上 爽",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 看得出来你很快乐"
+    },
+    {
+     "role": "user",
+     "content": "吃完回来团子闻了我半天 嫌弃得要死",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "一身火锅味 它当然嫌弃"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-laptop-use",
+  "question_type": "implicit-use",
+  "category": "type-2",
+  "uses": [
+   "s19"
+  ],
+  "background_sessions": [
+   1,
+   289
+  ],
+  "question": "这周末想拍一条网店新品介绍 当天能剪完发出去吗",
+  "answer": "要顾及他现在用新电脑、导出很快，当天剪完发出去很现实。以电脑太旧、导出慢为由劝他多留一两天算错。（背景里用五年的旧笔记本剪视频）",
+  "question_date": "2026/10/28 (Wed) 22:20",
+  "haystack_dates": [
+   "2026/10/20 (Tue) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "新电脑到了 双十一提前下的单 配置直接拉满",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哇 大出血"
+    },
+    {
+     "role": "user",
+     "content": "心疼但值 网店那几个介绍片导出 4K 才两分钟 以前要等半小时",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "半小时到两分钟 这是升天了"
+    },
+    {
+     "role": "user",
+     "content": "原来那台寄给以安了 她写论文够用 以后拍的素材都放新电脑上弄",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "物尽其用"
+    },
+    {
+     "role": "user",
+     "content": "团子已经躺进新电脑的盒子里了 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "果然 盒子才是本体"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-chg-bar-use",
+  "question_type": "implicit-use",
+  "category": "type-2",
+  "uses": [
+   "s20"
+  ],
+  "background_sessions": [
+   154,
+   253
+  ],
+  "question": "今天周五 跑完之后的安排你帮我想想",
+  "answer": "要顾及阿Ken已经去了北京，不能安排和阿Ken去鹿角；可以建议自己去坐坐、约别人、给阿Ken打个电话等。建议照常和阿Ken去鹿角算错。（背景里每周五夜跑完和阿Ken去鹿角喝一杯）",
+  "question_date": "2026/10/30 (Fri) 18:40",
+  "haystack_dates": [
+   "2026/10/23 (Fri) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "阿Ken调去北京总行了 下周一就走",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 这么快 你们俩还挺铁的"
+    },
+    {
+     "role": "user",
+     "content": "今晚给他送行 吃了顿烤肉 他说一两年都不一定回来",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "有点舍不得吧"
+    },
+    {
+     "role": "user",
+     "content": "嗯 他家猫也带过去 说那边租了个带阳台的",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "猫都跟着走 是真打算长待了"
+    },
+    {
+     "role": "user",
+     "content": "回来路上买了袋橘子 巨甜",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "秋天的橘子最好吃"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-feel-overtime",
+  "question_type": "feeling-cause",
+  "uses": [
+   "f01"
+  ],
+  "background_sessions": [
+   45,
+   149,
+   244
+  ],
+  "question": "累瘫了 话都不想说",
+  "answer": "好的回答要想起可能的原因：他这几个月一直为「秋季上新」加班到很晚（10/09 虽然上线了，可能还在收尾或又忙起来），并用问句问（如「今天又加班到很晚吗」），而不是断言原因；只安慰不提原因，或把原因说成确定的事实（如「肯定是加班累的」），都算错。",
+  "question_date": "2026/10/20 (Tue) 22:40",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-feel-drill",
+  "question_type": "feeling-cause",
+  "uses": [
+   "f02"
+  ],
+  "background_sessions": [
+   125,
+   169,
+   246
+  ],
+  "question": "早上七点多就醒了 烦得要命 一点都没睡好",
+  "answer": "好的回答要想起可能的原因：楼上从 8 月起在装修，常常一大早就开电钻（也可以顺带问别的，但要问到装修），并用问句问（如「楼上是不是又一早开电钻了」），而不是断言原因；只安慰不提原因，或把原因说成确定的事实（如「肯定又是楼上电钻吵的」），都算错。",
+  "question_date": "2026/10/21 (Wed) 08:30",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-feel-fight",
+  "question_type": "feeling-cause",
+  "uses": [
+   "f03"
+  ],
+  "background_sessions": [
+   31,
+   108,
+   283
+  ],
+  "question": "心里堵得慌 啥也不想干",
+  "answer": "好的回答要想起可能的原因：他和异地的女朋友苏禾（在深圳）之前几次因为异地吵架，可能又闹别扭了，并用问句问（如「是不是和苏禾又因为异地的事吵了」），而不是断言原因；只安慰不提原因，或把原因说成确定的事实（如「你们肯定又吵架了」），都算错。",
+  "question_date": "2026/10/22 (Thu) 23:10",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-feel-zoomies",
+  "question_type": "feeling-cause",
+  "uses": [
+   "f04"
+  ],
+  "background_sessions": [
+   36,
+   215,
+   231
+  ],
+  "question": "困得眼睛都睁不开 昨晚断断续续的",
+  "answer": "好的回答要想起可能的原因：他的猫团子半夜爱跑酷，常把他吵醒（也可以顺带问装修，但要问到团子），并用问句问（如「团子半夜是不是又跑酷把你闹醒了」），而不是断言原因；只安慰不提原因，或把原因说成确定的事实（如「肯定是团子又闹你了」），都算错。",
+  "question_date": "2026/10/23 (Fri) 12:50",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-feel-meeting",
+  "question_type": "feeling-cause",
+  "uses": [
+   "f05"
+  ],
+  "background_sessions": [
+   41,
+   212,
+   298
+  ],
+  "question": "下午那个会开完 心情差到极点",
+  "answer": "好的回答要想起可能的原因：部门总监老韩开会爱当众挑刺，之前几次当众批他的方案，并用问句问（如「老韩是不是又在会上当众挑你方案的刺了」），而不是断言原因；只安慰不提原因，或把原因说成确定的事实（如「又是老韩当众批你了」），都算错。",
+  "question_date": "2026/10/26 (Mon) 17:30",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-feel-toe",
+  "question_type": "feeling-cause",
+  "uses": [
+   "f06"
+  ],
+  "background_sessions": [
+   57,
+   131,
+   228
+  ],
+  "question": "脚又开始疼了 走路一瘸一拐的",
+  "answer": "好的回答要想起可能的原因：他尿酸偏高（7 月体检 480、8 月复查 430），之前疼过脚趾关节；可以问是不是脚趾那儿、最近是不是吃了海鲜或喝了啤酒，并用问句问（如「是不是脚趾那里？最近吃海鲜喝啤酒了吗」），而不是断言原因；只安慰不提原因，或把原因说成确定的事实（如「肯定是痛风犯了」），都算错。",
+  "question_date": "2026/10/27 (Tue) 21:00",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-still-commute",
+  "question_type": "still-true",
+  "uses": [
+   "s01"
+  ],
+  "background_sessions": [
+   208,
+   278
+  ],
+  "question": "早上骑车去公司 今天风大 要不要加件外套",
+  "answer": "他仍每天骑电动车上班（爆胎已经换内胎修好了），按骑车照常回答，比如建议加挡风外套。说车坏了改坐地铁、或「可能不骑了」算错。",
+  "question_date": "2026/10/26 (Mon) 07:50",
+  "haystack_dates": [
+   "2026/10/20 (Tue) 19:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "救命 早上骑到半路电动车后胎爆了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 那你怎么去的公司"
+    },
+    {
+     "role": "user",
+     "content": "推到路边修车摊换了个内胎 二十块 耽误十分钟 还好没迟到",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "修车师傅救星"
+    },
+    {
+     "role": "user",
+     "content": "中午在青山吃了个牛肉面 压压惊",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "补补"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-run",
+  "question_type": "still-true",
+  "uses": [
+   "s02"
+  ],
+  "background_sessions": [
+   7,
+   107,
+   245
+  ],
+  "question": "我最近还保持着一周两次的夜跑吗",
+  "answer": "仍然保持：每周三、周五晚上在锦江边夜跑五公里，阿Ken出差那周他就自己跑。说停了或可能不跑了算错。",
+  "question_date": "2026/10/27 (Tue) 21:00",
+  "haystack_dates": [
+   "2026/10/21 (Wed) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今晚一个人在锦江边跑的 阿Ken出差去广州了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "一个人跑会不会没劲"
+    },
+    {
+     "role": "user",
+     "content": "还好 五公里跑了二十八分钟 比平时还快 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "没人聊天 专心了"
+    },
+    {
+     "role": "user",
+     "content": "周五他也回不来 还是我自己跑",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那就当训练"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-home",
+  "question_type": "still-true",
+  "uses": [
+   "s03"
+  ],
+  "background_sessions": [
+   98,
+   263
+  ],
+  "question": "我是不是搬到金融城那边了",
+  "answer": "没有：只是去看了金融城的两室一厅，嫌贵没租，仍住在玉林的一室一厅，和团子一起。说搬了或可能搬了算错。",
+  "question_date": "2026/10/25 (Sun) 22:20",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 19:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天跟中介去看了个金融城的两室一厅",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "要换房子了吗"
+    },
+    {
+     "role": "user",
+     "content": "看看而已 一个月四千八 比我现在贵一倍 果断算了 还是住玉林",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "玉林多好 吃的多"
+    },
+    {
+     "role": "user",
+     "content": "而且团子刚习惯这边 再搬又得躲床底",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "它肯定投反对票"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-job",
+  "question_type": "still-true",
+  "uses": [
+   "s04"
+  ],
+  "background_sessions": [
+   17,
+   258
+  ],
+  "question": "明天要跟老韩过上新的复盘 你帮我捋一下从哪几块讲",
+  "answer": "他仍在毛球星做运营主管（猎头挖他去当总监，他拒了），按现状帮他梳理复盘（数据结果、问题、改进等）即可。说他已离职或要换工作算错。",
+  "question_date": "2026/10/27 (Tue) 22:20",
+  "haystack_dates": [
+   "2026/10/19 (Mon) 21:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天有个猎头打电话 想挖我去一家做猫粮的当运营总监",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哇 总监 心动吗"
+    },
+    {
+     "role": "user",
+     "content": "有点 但聊完感觉那边太乱 我拒了 上新刚做完 不想这时候走",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "稳一点也好"
+    },
+    {
+     "role": "user",
+     "content": "晚上吃了顿烧烤 腰子烤糊了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "烤糊的就别吃了"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-guitar",
+  "question_type": "still-true",
+  "uses": [
+   "s05"
+  ],
+  "background_sessions": [
+   66,
+   225
+  ],
+  "question": "这周六上午九点半想约林可开黑 你看行吗",
+  "answer": "要提醒周六上午他在弦音有吉他课（唐老师只请了一次假，已经回来），建议改到下午或晚上。说周六上午空着或吉他课停了算错。",
+  "question_date": "2026/10/29 (Thu) 21:40",
+  "haystack_dates": [
+   "2026/10/17 (Sat) 12:50"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天唐老师请假 弦音找了个代课的小哥",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "代课的怎么样"
+    },
+    {
+     "role": "user",
+     "content": "弹得挺好 就是讲得太快 下周唐老师就回来了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那这周就当换换口味"
+    },
+    {
+     "role": "user",
+     "content": "下课出来饿了 在路边吃了个锅盔",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "锅盔永远的神"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-lunch",
+  "question_type": "still-true",
+  "uses": [
+   "s06"
+  ],
+  "background_sessions": [
+   78,
+   188
+  ],
+  "question": "中午我一般都在哪解决的来着",
+  "answer": "仍在公司楼下的青山面馆（只是涨价两块，他照样去）。说换地方了或可能不去了算错。",
+  "question_date": "2026/10/28 (Wed) 11:40",
+  "haystack_dates": [
+   "2026/10/21 (Wed) 12:50"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "青山涨价了 牛肉面从十八涨到二十",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "涨得有点狠"
+    },
+    {
+     "role": "user",
+     "content": "骂归骂 还是去吃了 楼下就这家最好吃 明天估计还是这",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "真爱了"
+    },
+    {
+     "role": "user",
+     "content": "下午要写周报 不想动",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "先写个提纲"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-video",
+  "question_type": "still-true",
+  "uses": [
+   "s07"
+  ],
+  "background_sessions": [
+   102,
+   189
+  ],
+  "question": "等会十点跟苏禾视频 想给她个小惊喜 有啥点子",
+  "answer": "仍然每晚十点左右和苏禾视频（吵了两句当晚就和好了，说照常），按现状给视频里的惊喜点子即可。说他们不视频了或可能不成立算错。",
+  "question_date": "2026/10/27 (Tue) 21:20",
+  "haystack_dates": [
+   "2026/10/22 (Thu) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "刚跟苏禾视频完",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "今天聊得开心吗"
+    },
+    {
+     "role": "user",
+     "content": "一开始又因为异地的事吵了两句 后来说开了 明晚十点照常",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "能说开就好"
+    },
+    {
+     "role": "user",
+     "content": "她那边又下大雨 深圳这几天天天下",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "让她出门带伞"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-momcall",
+  "question_type": "still-true",
+  "uses": [
+   "s08"
+  ],
+  "background_sessions": [
+   145,
+   162
+  ],
+  "question": "今晚林可约我八点开黑 打到十一点 你看我答应不",
+  "answer": "要提醒周日晚上他要给妈妈打电话（上周妈妈还让他这周日再打给她），建议先打完电话再玩或调一下时间。说不用打电话了算错；完全不提周日给妈妈打电话算答得不好。",
+  "question_date": "2026/10/25 (Sun) 18:40",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 21:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "刚给家里打电话 我妈出去打麻将了 是我爸接的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "难得跟叔叔聊 说啥了"
+    },
+    {
+     "role": "user",
+     "content": "说他血压最近稳 每天走一万步 我妈让我下周日再打给她",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "叔叔挺自律"
+    },
+    {
+     "role": "user",
+     "content": "团子在旁边一直喵 我爸还以为是小孩 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 团子抢镜"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-fish",
+  "question_type": "still-true",
+  "uses": [
+   "s09"
+  ],
+  "background_sessions": [
+   181,
+   235
+  ],
+  "question": "家里那缸鱼现在还有吗",
+  "answer": "还养着：一条孔雀鱼死了，他又买了三条补上，还加了加热棒。说不养了或可能没了算错。",
+  "question_date": "2026/10/27 (Tue) 22:00",
+  "haystack_dates": [
+   "2026/10/20 (Tue) 20:15"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "早上发现缸里一条孔雀鱼翻肚了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 可惜 是生病了吗"
+    },
+    {
+     "role": "user",
+     "content": "可能水温掉了 下班去花鸟市场又买了三条补上 顺便买了个加热棒",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "降温了确实要加热"
+    },
+    {
+     "role": "user",
+     "content": "团子蹲缸前看了半小时 眼神不对劲",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "盖子要盖好"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-lens",
+  "question_type": "still-true",
+  "uses": [
+   "s10"
+  ],
+  "background_sessions": [
+   56,
+   247
+  ],
+  "question": "月抛快戴完了 这回囤一盒还是三盒划算",
+  "answer": "他仍白天戴月抛隐形（只是晚上在家换框架），按现状给囤货建议即可。说他改戴框架、不用再买月抛算错。",
+  "question_date": "2026/10/28 (Wed) 21:00",
+  "haystack_dates": [
+   "2026/10/19 (Mon) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天去配了副框架眼镜 晚上回家摘了隐形戴",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "早该配了 一直戴隐形眼睛累"
+    },
+    {
+     "role": "user",
+     "content": "白天上班还是戴月抛 就晚上在家换框架 度数还是六百",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "戴框架是不是像换了个人"
+    },
+    {
+     "role": "user",
+     "content": "团子不认识我了 盯着我看了半天 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "它需要重新认证"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-breakfast",
+  "question_type": "still-true",
+  "uses": [
+   "s11"
+  ],
+  "background_sessions": [
+   85,
+   155
+  ],
+  "question": "明早七点半就得出门 早上吃的还来得及弄吗",
+  "answer": "他早上都自己煮燕麦（只是换了牌子），五分钟左右就好，来得及，可以建议早起几分钟或提前备好。说他不吃燕麦了或可能换了算错。",
+  "question_date": "2026/10/29 (Thu) 21:00",
+  "haystack_dates": [
+   "2026/10/22 (Thu) 07:50"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "燕麦换了个牌子 进口的那个 煮出来更糯",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "好吃吗 加了啥"
+    },
+    {
+     "role": "user",
+     "content": "加了根香蕉 还有点牛奶 五分钟搞定 明天继续",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "健康"
+    },
+    {
+     "role": "user",
+     "content": "楼上又开钻了 七点五十 疯了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "他们是不是不用睡觉"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-badminton",
+  "question_type": "still-true",
+  "uses": [
+   "s12"
+  ],
+  "background_sessions": [
+   62,
+   266
+  ],
+  "question": "今晚下班我有啥安排来着",
+  "answer": "周四晚上要和林悦他们打羽毛球（小林崴脚只缺了一次，这周就回来）。说没安排或羽毛球停了算错。",
+  "question_date": "2026/10/29 (Thu) 12:20",
+  "haystack_dates": [
+   "2026/10/22 (Thu) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今晚打球小林没来 她上周崴了脚",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "严重吗"
+    },
+    {
+     "role": "user",
+     "content": "不严重 说下周就回来 今晚我们三个轮着打 我被打成狗",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 少一个人体力消耗翻倍"
+    },
+    {
+     "role": "user",
+     "content": "回来吃了碗小面 饿死了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "运动完吃面最幸福"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-japanese",
+  "question_type": "still-true",
+  "uses": [
+   "s13"
+  ],
+  "background_sessions": [
+   122,
+   232
+  ],
+  "question": "今天五十个背完了 你随便抽我几个 N3 范围的",
+  "answer": "他仍每天背 50 个日语单词准备明年考 N3（只是换了 App、打卡天数清零），按现状配合抽查即可。说他放弃日语或不背了算错。",
+  "question_date": "2026/10/26 (Mon) 22:40",
+  "haystack_dates": [
+   "2026/10/20 (Tue) 23:05"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "背单词那个 app 改版了 太难用 我换了一个",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "新的好用吗"
+    },
+    {
+     "role": "user",
+     "content": "还行 每天还是五十个 就是之前的打卡天数清零了 心疼",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "天数清零 记住的都还在脑子里"
+    },
+    {
+     "role": "user",
+     "content": "今晚雾城这集好看",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "不剧透 等你说"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-sister",
+  "question_type": "still-true",
+  "uses": [
+   "s14"
+  ],
+  "background_sessions": [
+   182,
+   288
+  ],
+  "question": "工资刚到账 固定要转出去的钱有哪几笔 帮我列一下",
+  "answer": "要包括每月给妹妹周以安打的 1500 生活费（她还没找到实习，他说照打）。说这笔已经不用给了算错；漏掉这笔算答得不好。",
+  "question_date": "2026/10/30 (Fri) 21:40",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "以安说她在找实习 投了好几家 还没回音",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "研二找实习挺正常的 别急"
+    },
+    {
+     "role": "user",
+     "content": "我跟她说找到之前生活费照打 别为了钱随便去",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "好哥哥"
+    },
+    {
+     "role": "user",
+     "content": "西安降温了 她说冻得要死",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "让她多穿点"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-shop",
+  "question_type": "still-true",
+  "uses": [
+   "s15"
+  ],
+  "background_sessions": [
+   205,
+   252
+  ],
+  "question": "我那个副业现在还在做着吧",
+  "answer": "还在做：网店照常卖他自己做的猫爬架（有个差评退了款，周末还有三单）。说关了或可能不做了算错。",
+  "question_date": "2026/10/29 (Thu) 22:00",
+  "haystack_dates": [
+   "2026/10/23 (Fri) 23:05"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "网店来了个差评 说猫爬架有毛刺",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 那怎么办"
+    },
+    {
+     "role": "user",
+     "content": "给她退了钱 以后打磨再多过一遍 这周末还有三单要做",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "一个差评别太往心里去"
+    },
+    {
+     "role": "user",
+     "content": "跑完回来腿有点酸",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "拉伸一下再睡"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-cafe",
+  "question_type": "still-true",
+  "uses": [
+   "s16"
+  ],
+  "background_sessions": [
+   161,
+   277
+  ],
+  "question": "这周末想找个地方坐着看看书 去哪好",
+  "answer": "顺着他的习惯推荐家楼下的春山即可（春山照常开，只是来了个新咖啡师）。说春山不行了、劝他别去春山算错。",
+  "question_date": "2026/10/30 (Fri) 21:00",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 18:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天在春山坐了一下午 阿June招了个新的咖啡师",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "新咖啡师手艺怎么样"
+    },
+    {
+     "role": "user",
+     "content": "拉花有点丑 但手冲还是阿June自己做 那本书看完一半了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 拉花可以练"
+    },
+    {
+     "role": "user",
+     "content": "回家路上看到有人卖桂花 买了一小枝",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "家里该香了"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-drama",
+  "question_type": "still-true",
+  "uses": [
+   "s17"
+  ],
+  "background_sessions": [
+   27,
+   156
+  ],
+  "question": "今晚雾城更新 我边吃边看 你推荐个外卖",
+  "answer": "《雾城》仍在更（官宣加更到年底，每周二、三更新），今天周三确有更新，直接推荐外卖即可。说雾城完结了或今晚没更算错。",
+  "question_date": "2026/10/28 (Wed) 19:30",
+  "haystack_dates": [
+   "2026/10/21 (Wed) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "雾城官宣加更了 本来下个月完结 现在改到年底",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哇 能多追两个月"
+    },
+    {
+     "role": "user",
+     "content": "还是每周二三更 今晚这集看完了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "今晚这集咋样"
+    },
+    {
+     "role": "user",
+     "content": "反转了 我饭都忘了吃",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "电子榨菜变正餐了"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-weight",
+  "question_type": "still-true",
+  "uses": [
+   "s18"
+  ],
+  "background_sessions": [
+   92,
+   230
+  ],
+  "question": "我减肥那事还在弄吗",
+  "answer": "还在减：目标 75 公斤，周末吃多涨到 79.5，他说这周晚饭少吃点。说放弃了或可能不减了算错。",
+  "question_date": "2026/10/30 (Fri) 12:20",
+  "haystack_dates": [
+   "2026/10/26 (Mon) 21:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "救命 早上称了一下 79.5 又涨了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "周末吃多了吧"
+    },
+    {
+     "role": "user",
+     "content": "周六火锅周日烧烤 活该 这周晚饭得少吃点 75 还远着呢",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "一周不算啥 慢慢来"
+    },
+    {
+     "role": "user",
+     "content": "今天上班老韩又在会上点我名",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "又来 他今天挑的是啥"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-laptop",
+  "question_type": "still-true",
+  "uses": [
+   "s19"
+  ],
+  "background_sessions": [
+   1,
+   289
+  ],
+  "question": "周末拍一条网店新品介绍 当天能剪完发出去吗",
+  "answer": "要顾及他仍用那台五年的旧笔记本剪（只是换了风扇），导出慢，建议早点开始、留足导出时间。说他用新电脑很快或已经换了电脑算错。",
+  "question_date": "2026/10/28 (Wed) 22:00",
+  "haystack_dates": [
+   "2026/10/20 (Tue) 21:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "那台老笔记本风扇响得跟拖拉机一样 今天拿去换了个风扇",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "换完好点没"
+    },
+    {
+     "role": "user",
+     "content": "安静多了 网店介绍还是靠它剪 能再撑一年 新的明年再说",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "五年了 老战友"
+    },
+    {
+     "role": "user",
+     "content": "团子今天把我耳机线咬断了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "它是不是看线不顺眼"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-still-bar",
+  "question_type": "still-true",
+  "uses": [
+   "s20"
+  ],
+  "background_sessions": [
+   154,
+   253
+  ],
+  "question": "今晚跑完和阿Ken去鹿角 我请他 点点啥好",
+  "answer": "仍然成立：每周五夜跑完和阿Ken去鹿角，这周轮到他请，按现状推荐即可（可顺带提尿酸少喝啤酒）。说他们不去了或可能不去了算错。",
+  "question_date": "2026/10/30 (Fri) 18:40",
+  "haystack_dates": [
+   "2026/10/23 (Fri) 23:05"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "刚从鹿角回来 今天阿Ken请客",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哟 有啥好事"
+    },
+    {
+     "role": "user",
+     "content": "他升职了 说下周五还得我请回来 哈哈",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "礼尚往来"
+    },
+    {
+     "role": "user",
+     "content": "明天上午吉他课 得早点睡",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "去吧 晚安"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-assoc-known-hisaishi",
+  "question_type": "associated",
+  "category": "model-known",
+  "uses": [
+   "a01"
+  ],
+  "background_sessions": [
+   83,
+   174
+  ],
+  "question": "成都十二月有场久石让作品音乐会 票还挺贵的 犹豫要不要抢",
+  "answer": "应联系到他喜欢宫崎骏：久石让就是给宫崎骏动画（龙猫、千与千寻等）配乐的人，好回答会从这一层说这场对他很有吸引力、值得抢；只泛泛说看预算、不提宫崎骏的算错",
+  "question_date": "2026/10/18 (Sun) 15:00",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-known-fenghuangshan",
+  "question_type": "associated",
+  "category": "model-known",
+  "uses": [
+   "a02"
+  ],
+  "background_sessions": [
+   142,
+   180
+  ],
+  "question": "周日凤凰山有比赛 阿Ken问我去不去 听说那天要下雨",
+  "answer": "应理解凤凰山是成都蓉城的主场球场，并联系到他是蓉城球迷、常去看主场：好回答会接到去看蓉城的球、提醒带雨衣之类；当成去爬凤凰山、或不提蓉城/看球的算错",
+  "question_date": "2026/10/22 (Thu) 22:30",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-known-ball-lightning",
+  "question_type": "associated",
+  "category": "model-known",
+  "uses": [
+   "a03"
+  ],
+  "background_sessions": [
+   128,
+   274
+  ],
+  "question": "《球状闪电》出了新的精装版 带插图 一百多块 要不要入",
+  "answer": "应联系到他喜欢刘慈欣的小说：《球状闪电》就是刘慈欣写的，好回答会说这是他喜欢的作者的书、精装插图版挺值得入；只说看预算、不提刘慈欣的算错",
+  "question_date": "2026/10/28 (Wed) 20:15",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-private-moxa",
+  "question_type": "associated",
+  "category": "private-link",
+  "uses": [
+   "a05"
+  ],
+  "background_sessions": [
+   94,
+   209
+  ],
+  "question": "今天陪同事去做艾灸 一屋子烟熏味 闻着闻着有点出神",
+  "answer": "应联想到他闻到艾草味会想起小时候外婆家，温和地问一句是不是想起外婆家了；只聊艾灸养生效果、没想到外婆家的算没想起",
+  "question_date": "2026/10/19 (Mon) 20:30",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-private-ktv-song",
+  "question_type": "associated",
+  "category": "private-link",
+  "uses": [
+   "a06"
+  ],
+  "background_sessions": [
+   97,
+   185
+  ],
+  "question": "昨天同事在KTV点了奶茶最出名那首 我拿着话筒愣了半天没唱出来",
+  "answer": "应理解「奶茶最出名那首」是刘若英的《后来》，并联想到他听到《后来》会想起高中同桌，温和地问一句是不是想起高中同桌了；只聊歌好听或KTV的算没想起",
+  "question_date": "2026/10/25 (Sun) 12:20",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-private-green-train",
+  "question_type": "associated",
+  "category": "private-link",
+  "uses": [
+   "a07"
+  ],
+  "background_sessions": [
+   5,
+   136
+  ],
+  "question": "今天在路上看到一列老式的墨绿色火车 慢悠悠开过去 我站那看了好久",
+  "answer": "应联想到他爸爸以前在绿皮火车上跑车当列车员（现已退休），温和地问一句是不是想起爸爸以前跑车的事了；只聊火车本身或怀旧情怀、没提他爸爸的算没想起",
+  "question_date": "2026/10/18 (Sun) 18:40",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-meme-early-c",
+  "question_type": "associated",
+  "category": "searchable-meme",
+  "uses": [
+   "a09"
+  ],
+  "background_sessions": [
+   157,
+   265
+  ],
+  "question": "这周末又是早C晚A的一天哈哈 你猜我会去哪",
+  "answer": "应按喝的来理解「早C晚A」（早上咖啡、晚上酒），并联系到他周末早上爱去楼下春山喝咖啡、晚上去玉林的鹿角喝一杯：好回答会猜到春山和鹿角；当成护肤品维C/A醇、或不懂梗的算错",
+  "question_date": "2026/10/25 (Sun) 09:00",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-meme-zhacai",
+  "question_type": "associated",
+  "category": "searchable-meme",
+  "uses": [
+   "a10"
+  ],
+  "background_sessions": [
+   67,
+   213
+  ],
+  "question": "外卖到了 电子榨菜也备好了 开吃",
+  "answer": "应理解「电子榨菜」指吃饭时下饭看的视频/剧，并联系到他吃饭一定要放一集《雾城》（今天周二正好更新）：好回答会接到看《雾城》上；当成真榨菜、或不懂梗的算错",
+  "question_date": "2026/10/27 (Tue) 19:30",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-meme-special-forces",
+  "question_type": "associated",
+  "category": "searchable-meme",
+  "uses": [
+   "a11"
+  ],
+  "background_sessions": [
+   201,
+   256
+  ],
+  "question": "特种兵旅游这种我这辈子估计就来那一次了 现在想想都腿软",
+  "answer": "应理解「特种兵旅游」是短时间里赶很多景点的暴走式旅游，并联系到他国庆三天把大理好几个地方排得满满当当（10/02–10/04）：好回答会接到大理那趟；当成当兵、或不懂梗、或扯到别的旅行的算错",
+  "question_date": "2026/10/19 (Mon) 21:00",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-group-new-place",
+  "question_type": "associated",
+  "category": "group-meme",
+  "uses": [
+   "g01",
+   "s18"
+  ],
+  "background_sessions": [
+   54,
+   92,
+   144,
+   230,
+   248
+  ],
+  "question": "春熙路新开了家烤肉放题 周六晚上谁一起去打卡",
+  "answer": "应按这个群里的用法把「打卡」理解为去吃一家新店，并联系到他在减重（目标 75 公斤、现在 79；尿酸偏高也该少吃肉）：好回答会接话约饭，同时半开玩笑提醒放题别吃超了；当成上班打卡或景点拍照打卡、或只回「好呀」的算错",
+  "question_date": "2026/10/20 (Tue) 12:50",
+  "question_venue": "group:qq:20260701",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-group-hotpot",
+  "question_type": "associated",
+  "category": "group-meme",
+  "uses": [
+   "g02",
+   "f06"
+  ],
+  "background_sessions": [
+   14,
+   57,
+   126,
+   131,
+   202,
+   228
+  ],
+  "question": "这周累惨了 周六晚上谁陪我去回血",
+  "answer": "应按这个群里的用法把「回血」理解为去吃火锅，并联系到他尿酸偏高（7 月体检 480、8 月复查 430，脚趾关节疼过）：好回答会接话约火锅，同时提醒少喝汤、少喝啤酒、少点海鲜和内脏；当成打游戏回血或回家睡觉休息、或只回「走起」的算错",
+  "question_date": "2026/10/28 (Wed) 12:20",
+  "question_venue": "group:qq:20260701",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-group-live",
+  "question_type": "associated",
+  "category": "group-meme",
+  "uses": [
+   "g03",
+   "s02"
+  ],
+  "background_sessions": [
+   7,
+   39,
+   107,
+   148,
+   245,
+   259
+  ],
+  "question": "下周三晚上七点半那场开炉还没人顶 要不我来吧",
+  "answer": "应按这个群里的用法把「开炉」理解为开直播带货，并联系到他每周三晚上固定在锦江边夜跑（常和阿Ken一起）：好回答会提一句这个时间和夜跑撞了、问他跑步怎么安排；当成开炉子做饭/炼东西、或只回「好呀」的算错",
+  "question_date": "2026/10/23 (Fri) 15:00",
+  "question_venue": "group:qq:20260702",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-later-echo-well",
+  "question_type": "associated",
+  "category": "learned-later",
+  "uses": [
+   "l01"
+  ],
+  "background_sessions": [
+   48,
+   123
+  ],
+  "question": "回声井下个月来成都演 livehouse 票一百二 去不去啊",
+  "answer": "应联系到：他很喜欢独立乐队「白噪号」，后来又知道回声井的主唱就是白噪号以前的吉他手单飞出来另组的；好回答会从这层关系出发，说这场对他应该很有吸引力、值得去；只泛泛说看预算或时间、不提白噪号的算错",
+  "question_date": "2026/10/26 (Mon) 20:15",
+  "haystack_dates": [
+   "2026/10/18 (Sun) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天刷到一个新乐队 叫「回声井」 有点东西",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "什么风格的"
+    },
+    {
+     "role": "user",
+     "content": "后来一查 主唱就是白噪号以前那个吉他手 单飞出来另组的 难怪味儿那么像",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那难怪你一听就上头"
+    },
+    {
+     "role": "user",
+     "content": "刚给我妈打完电话 她又念叨让我少熬夜",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "妈妈说得对哈哈"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-assoc-later-qingning",
+  "question_type": "associated",
+  "category": "learned-later",
+  "uses": [
+   "l02"
+  ],
+  "background_sessions": [
+   73,
+   159
+  ],
+  "question": "青柠出了本新绘本 签名版 九十八 要不要入一本",
+  "answer": "应联系到：他很喜欢插画师「小满鱼」的画，后来知道青柠就是小满鱼另开的号、专门画给小朋友的；好回答会说这其实是他喜欢的画师画的、签名版挺值得入；只说看预算、当成陌生画师随便评价、不提小满鱼的算错",
+  "question_date": "2026/10/29 (Thu) 12:50",
+  "haystack_dates": [
+   "2026/10/20 (Tue) 21:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "雾城今天这集反转 我真没想到",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "这周节奏终于快起来了"
+    },
+    {
+     "role": "user",
+     "content": "对了 我才发现那个画绘本的「青柠」 其实就是小满鱼另开的号 专门画给小朋友的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "怪不得配色那么眼熟"
+    },
+    {
+     "role": "user",
+     "content": "难怪我每次刷到都要多看两眼",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "你这眼光还挺稳定的"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-assoc-later-shanhou",
+  "question_type": "associated",
+  "category": "learned-later",
+  "uses": [
+   "l03"
+  ],
+  "background_sessions": [
+   119,
+   273
+  ],
+  "question": "周四要去太古里那边开会 完了顺路去山后坐会儿？",
+  "answer": "应联系到：他最喜欢春山的手冲，后来知道「山后」是春山老板阿June在太古里新开的店，豆子和春山同一批、冲咖啡的店员也是她带出来的；好回答会建议去、点一杯手冲试试；只当一家陌生咖啡店随便说、不提春山或手冲的算错",
+  "question_date": "2026/10/27 (Tue) 18:40",
+  "haystack_dates": [
+   "2026/10/17 (Sat) 16:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "下午在春山看了会书 人好少 舒服",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "周末下午最适合窝着"
+    },
+    {
+     "role": "user",
+     "content": "阿June说她在太古里那边又开了家店 叫「山后」 豆子跟春山用的同一批 冲咖啡的店员也是她自己带出来的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那口味应该差不了太多"
+    },
+    {
+     "role": "user",
+     "content": "回来路上买了个烤红薯 烫手",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "秋天就该吃这个"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-assoc-pair-grandpa-recall",
+  "question_type": "associated",
+  "category": "paired",
+  "pair": "grandpa",
+  "uses": [
+   "p01"
+  ],
+  "background_sessions": [
+   129
+  ],
+  "question": "今天在小区看见一个老爷子推着孙子遛弯 我站着看了好一会儿",
+  "answer": "应联想到他爷爷今年 5 月去世、他心里还没过去，温和地问一句是不是想起爷爷了、关心他的心情；只聊老人小孩或小区见闻的算没想起",
+  "question_date": "2026/10/18 (Sun) 17:30",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-pair-grandpa-hold",
+  "question_type": "associated",
+  "category": "paired",
+  "pair": "grandpa",
+  "uses": [
+   "p01"
+  ],
+  "background_sessions": [
+   129
+  ],
+  "question": "想给我妈买个老年机 字大声音大那种 有啥推荐",
+  "answer": "正常回答即可（推荐字大、音量大、操作简单的机型或要看的功能）；不应提起他爷爷去世的事",
+  "question_date": "2026/10/19 (Mon) 12:20",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-pair-layoff-recall",
+  "question_type": "associated",
+  "category": "paired",
+  "pair": "layoff",
+  "uses": [
+   "p02"
+  ],
+  "background_sessions": [
+   121
+  ],
+  "question": "刷到新闻 有家宠物公司一口气裁了一半人 整个部门直接没了",
+  "answer": "应联想到他去年 10 月被前公司「趣养」裁员的经历，温和地问一句是不是想起去年的事了、或共情一下；只评论新闻或行业形势、没想到他被裁过的算没想起",
+  "question_date": "2026/10/21 (Wed) 21:00",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-pair-layoff-hold",
+  "question_type": "associated",
+  "category": "paired",
+  "pair": "layoff",
+  "uses": [
+   "p02"
+  ],
+  "background_sessions": [
+   121
+  ],
+  "question": "年终述职的PPT咋写 有啥好用的框架",
+  "answer": "正常回答即可（给出述职框架，如成果、数据、问题、计划）；不应提起他去年被趣养裁员的事",
+  "question_date": "2026/10/22 (Thu) 20:15",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-pair-lost-cat-recall",
+  "question_type": "associated",
+  "category": "paired",
+  "pair": "lost-cat",
+  "uses": [
+   "p03"
+  ],
+  "background_sessions": [
+   226
+  ],
+  "question": "邻居家的猫跑出去两天了 她贴了一楼道的寻猫启事 刚才还在门口哭",
+  "answer": "应联想到团子去年走丢过三天、后来在楼道里找到，好回答会共情、提到他自己也经历过（比如可以帮邻居多在楼道找找）；只泛泛说怎么找猫、没想到团子走丢过的算没想起",
+  "question_date": "2026/10/24 (Sat) 20:15",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-pair-lost-cat-hold",
+  "question_type": "associated",
+  "category": "paired",
+  "pair": "lost-cat",
+  "uses": [
+   "p03"
+  ],
+  "background_sessions": [
+   226
+  ],
+  "question": "团子最近有点挑食 换什么猫粮好",
+  "answer": "正常回答即可（给换粮建议，如逐步过渡、看成分）；不应提起团子去年走丢的事",
+  "question_date": "2026/10/25 (Sun) 18:40",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-detail-spare-key",
+  "question_type": "associated",
+  "category": "in-detail",
+  "uses": [
+   "d01"
+  ],
+  "background_sessions": [
+   236
+  ],
+  "question": "下班到家门口 一摸兜 空的 门进不去了",
+  "answer": "应提醒他去楼下春山咖啡找老板阿June拿备用钥匙（备用钥匙放在她那）；只建议找开锁师傅、物业或回公司找，没想到春山阿June的算没想起",
+  "question_date": "2026/10/20 (Tue) 19:30",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-detail-id-card",
+  "question_type": "associated",
+  "category": "in-detail",
+  "uses": [
+   "d02"
+  ],
+  "background_sessions": [
+   287
+  ],
+  "question": "明早要去办护照 那张证我翻了半天没翻到 急死了",
+  "answer": "应提醒他身份证放在书桌抽屉的第二格；只说去补办、或泛泛让他到处找、没说出书桌抽屉第二格的算没想起",
+  "question_date": "2026/10/28 (Wed) 23:05",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-detail-parking",
+  "question_type": "associated",
+  "category": "in-detail",
+  "uses": [
+   "d06"
+  ],
+  "background_sessions": [
+   179
+  ],
+  "question": "下到车库转了两圈 我的小电驴停哪了 脑子一片空白",
+  "answer": "应提醒他电动车停在小区 B2 层的 117 号位；只建议慢慢找或问物业、没说出 B2 117 的算没想起",
+  "question_date": "2026/10/26 (Mon) 08:30",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-cross-seafood",
+  "question_type": "associated",
+  "category": "cross-topic",
+  "uses": [
+   "c01",
+   "f06"
+  ],
+  "background_sessions": [
+   57,
+   131,
+   195,
+   228
+  ],
+  "question": "苏禾月底又要过来 帮我想想第一顿带她吃啥",
+  "answer": "要把两件事合起来：苏禾说过来成都想去吃海鲜大排档 + 他尿酸偏高（7 月体检 480、8 月复查 430），要少吃海鲜、少喝啤酒；好回答会建议带她去海鲜大排档，但他自己少吃海鲜、别喝啤酒，多点蔬菜或别的菜；只推荐海鲜不提尿酸、或只说他要忌口没想到苏禾想吃海鲜大排档，都算错（两条都要用上才算对）",
+  "question_date": "2026/10/21 (Wed) 22:30",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-cross-flower-cake",
+  "question_type": "associated",
+  "category": "cross-topic",
+  "uses": [
+   "c02"
+  ],
+  "background_sessions": [
+   251
+  ],
+  "question": "从大理带回来的鲜花饼还剩一盒 明天带去公司 给谁好呢",
+  "answer": "要把两件事合起来：国庆（10/02–10/04）去大理时，团子是托同事林悦（设计组的小林，坐他斜对面）照顾的，好回答会建议把这盒送给林悦表示感谢；只说分给同事大家一起吃、或说成大学室友林可的，都算错",
+  "question_date": "2026/10/18 (Sun) 21:00",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-cross-wedding-guitar",
+  "question_type": "associated",
+  "category": "cross-topic",
+  "uses": [
+   "c03",
+   "s05"
+  ],
+  "background_sessions": [
+   66,
+   225
+  ],
+  "question": "周六去给阿Ken撑场子之前 我还有啥要提前搞定的不",
+  "answer": "要把两件事合起来：这周六（10/24）上午十点是阿Ken的婚礼（他当伴郎）+ 他每周六上午固定在「弦音」跟唐老师上吉他课，两件撞了，要提醒他提前跟唐老师请假或调课；只提准备西装、红包等婚礼事项、没想到吉他课冲突的算错",
+  "question_date": "2026/10/22 (Thu) 22:30",
+  "haystack_dates": [
+   "2026/10/19 (Mon) 21:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "救命 阿Ken要结婚了 跟他女朋友才谈一年",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "这么快 恭喜他"
+    },
+    {
+     "role": "user",
+     "content": "婚礼定在这周六 24号上午十点 城南一家酒店 他让我当伴郎",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "伴郎啊 那得好好捯饬一下"
+    },
+    {
+     "role": "user",
+     "content": "今晚楼上居然没钻 难得清净",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "珍惜这一晚哈哈"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zl-assoc-reminded-coriander",
+  "question_type": "associated",
+  "category": "reminded",
+  "uses": [
+   "r01"
+  ],
+  "background_sessions": [
+   132,
+   285
+  ],
+  "question": "周末想在家煮个牛肉粉 帮我列一下要买的配料",
+  "answer": "列配料时不要放香菜（他不吃香菜，之前她推荐过放很多香菜的菜、被他纠正过）；清单里出现香菜的算错",
+  "question_date": "2026/10/23 (Fri) 21:40",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-reminded-sister-city",
+  "question_type": "associated",
+  "category": "reminded",
+  "uses": [
+   "r02"
+  ],
+  "background_sessions": [
+   139,
+   280
+  ],
+  "question": "以安下个月过生日 我想给她订个蛋糕 帮我想想咋弄",
+  "answer": "要按妹妹周以安在西安读研来安排：在西安的蛋糕店订、同城配送到她学校或住处；当成她在成都、让他自己拎过去的算错（之前她以为妹妹在成都、被他纠正过）",
+  "question_date": "2026/10/24 (Sat) 21:00",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-assoc-reminded-tom-cat",
+  "question_type": "associated",
+  "category": "reminded",
+  "uses": [
+   "r03"
+  ],
+  "background_sessions": [
+   11,
+   127
+  ],
+  "question": "团子最近老在门口嚎 是不是发情了 要不要带去做个手术",
+  "answer": "要按团子是公猫来回答：说公猫发情的表现（嚎叫、乱尿标记）和公猫绝育；把团子说成母猫、用「她」指团子、或讲母猫绝育的都算错（之前她把团子当母猫、被他纠正过）",
+  "question_date": "2026/10/30 (Fri) 22:20",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-needle-suhe-day",
+  "question_type": "single-session-user",
+  "category": "needle",
+  "uses": [
+   "d03"
+  ],
+  "background_sessions": [
+   168
+  ],
+  "question": "苏禾哪天又要长一岁来着 我想提前订束花",
+  "answer": "11 月 3 日；答成别的日子或说不知道的算错",
+  "question_date": "2026/10/20 (Tue) 21:40",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-needle-cat-shot",
+  "question_type": "single-session-user",
+  "category": "needle",
+  "uses": [
+   "d04"
+  ],
+  "background_sessions": [
+   24
+  ],
+  "question": "团子下回该去宠物医院扎针是几月来着",
+  "answer": "12 月（团子下次打疫苗是 12 月）；答成别的月份或说不知道的算错",
+  "question_date": "2026/10/21 (Wed) 19:30",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-needle-new-company",
+  "question_type": "single-session-user",
+  "category": "needle",
+  "uses": [
+   "d05"
+  ],
+  "background_sessions": [
+   243
+  ],
+  "question": "小林新跳去的那家公司叫啥来着 我想搜搜看靠不靠谱",
+  "answer": "「矩阵云」——这是大学室友林可（在重庆做程序员，也叫小林）的新公司；同事林悦（设计组，也叫小林）没有跳槽，把跳槽的人说成林悦、或答成别的公司名都算错；可以顺带确认一句问的是不是重庆的林可",
+  "question_date": "2026/10/22 (Thu) 12:50",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-needle-first-check",
+  "question_type": "single-session-user",
+  "category": "needle",
+  "uses": [
+   "d07"
+  ],
+  "background_sessions": [
+   25
+  ],
+  "question": "七月公司组织查身体那回 让我少吃海鲜那个指标 数是多少来着",
+  "answer": "480（7/08 公司年度体检时的尿酸值）；答成 430 的算错（430 是 8/20 去医院复查的数）",
+  "question_date": "2026/10/23 (Fri) 20:15",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-needle-top-tower",
+  "question_type": "single-session-user",
+  "category": "needle",
+  "uses": [
+   "d08"
+  ],
+  "background_sessions": [
+   218
+  ],
+  "question": "我网店里那款最高配的爬架 标价多少来着 想做个双十一活动",
+  "answer": "399 块；答成别的价格或说不知道的算错",
+  "question_date": "2026/10/24 (Sat) 16:30",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-needle-mom-day",
+  "question_type": "single-session-user",
+  "category": "needle",
+  "uses": [
+   "d09"
+  ],
+  "background_sessions": [
+   82
+  ],
+  "question": "我妈每年哪天过寿来着 我老记混",
+  "answer": "农历八月十五，正好是中秋节；答成别的日子或说不知道的算错",
+  "question_date": "2026/10/25 (Sun) 20:30",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-needle-hz-hotel",
+  "question_type": "single-session-user",
+  "category": "needle",
+  "uses": [
+   "d10"
+  ],
+  "background_sessions": [
+   114
+  ],
+  "question": "八月去杭州那趟住的哪家来着 同事下个月也要去 问我有没有推荐",
+  "answer": "西湖边的「栖云」酒店；答成别的酒店或说不知道的算错",
+  "question_date": "2026/10/26 (Mon) 12:20",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-needle-lesson-fee",
+  "question_type": "single-session-user",
+  "category": "needle",
+  "uses": [
+   "d11"
+  ],
+  "background_sessions": [
+   2
+  ],
+  "question": "在弦音上一回课多少钱来着 我想算算一个月要花多少",
+  "answer": "一节 180 块（每周六一节，一个月四五节约 720–900 块）；单节价格说错的算错",
+  "question_date": "2026/10/27 (Tue) 22:20",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-needle-ken-cat",
+  "question_type": "single-session-user",
+  "category": "needle",
+  "uses": [
+   "d12"
+  ],
+  "background_sessions": [
+   46
+  ],
+  "question": "阿Ken家那只主子叫啥名来着 他天天发朋友圈我老忘",
+  "answer": "叫「可乐」；答成别的名字（如团子）或说不知道的算错",
+  "question_date": "2026/10/28 (Wed) 19:30",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zl-needle-dali-inn",
+  "question_type": "single-session-user",
+  "category": "needle",
+  "uses": [
+   "d13"
+  ],
+  "background_sessions": [
+   272
+  ],
+  "question": "国庆在大理落脚那家叫啥名来着 朋友也想去",
+  "answer": "古城里的「半日闲」客栈；答成别的名字或说不知道的算错",
+  "question_date": "2026/10/29 (Thu) 20:15",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ }
+]

@@ -1,0 +1,1088 @@
+[
+ {
+  "question_id": "zlh-chg-drama-state",
+  "question_type": "implicit-state",
+  "category": "type-1",
+  "uses": [
+   "s17"
+  ],
+  "background_sessions": [
+   27,
+   156
+  ],
+  "question": "雾城我现在还在追吗",
+  "answer": "不追了：他嫌剧情注水，10/21 说弃了、以后不看。说还在追算错。（背景里在追《雾城》，每周二、周三更新）",
+  "question_date": "2026/10/27 (Tue) 20:00",
+  "haystack_dates": [
+   "2026/10/21 (Wed) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "雾城我弃了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 不是追得好好的吗"
+    },
+    {
+     "role": "user",
+     "content": "这两周注水注到离谱 一集啥都没发生 今晚这集看了十分钟就关了 以后不看了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "注水确实劝退"
+    },
+    {
+     "role": "user",
+     "content": "改去补海贼王了 又刷了几集",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "海贼王永远不会让你失望"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zlh-chg-breakfast-state",
+  "question_type": "implicit-state",
+  "category": "type-1",
+  "uses": [
+   "s11"
+  ],
+  "background_sessions": [
+   85,
+   155
+  ],
+  "question": "我早上现在还吃燕麦吗",
+  "answer": "不吃了：10/19 起早上改成蒸两个鸡蛋、热一杯牛奶。说仍吃燕麦算错。（背景里每天早上自己煮燕麦当早饭）",
+  "question_date": "2026/10/28 (Wed) 07:50",
+  "haystack_dates": [
+   "2026/10/19 (Mon) 07:50"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "燕麦我吃腻了 从今天起早上改成蒸两个鸡蛋 再热杯牛奶",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "吃了几个月是会腻"
+    },
+    {
+     "role": "user",
+     "content": "剩的半袋燕麦拿去做饼干了 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "物尽其用"
+    },
+    {
+     "role": "user",
+     "content": "今天降温 骑车手冻僵了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "该戴手套了"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zlh-chg-video-state",
+  "question_type": "implicit-state",
+  "category": "type-2",
+  "uses": [
+   "s07"
+  ],
+  "background_sessions": [
+   102,
+   189
+  ],
+  "question": "我跟苏禾每天晚上那个视频现在还照常吗",
+  "answer": "这阵子多半不行：苏禾报了注册建筑师夜校，每晚九点到十一点上课，下课只想睡，晚上十点左右视频不现实。说照常视频算错。（背景里每晚十点左右和苏禾视频）",
+  "question_date": "2026/10/29 (Thu) 21:30",
+  "haystack_dates": [
+   "2026/10/20 (Tue) 23:05"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "我对象报了注册建筑师的夜校",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "好拼 要考证了"
+    },
+    {
+     "role": "user",
+     "content": "每天晚上九点到十一点上课 一直上到明年三月 下了课还要做题",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那她会很累"
+    },
+    {
+     "role": "user",
+     "content": "她说下课就只想睡 我让她别硬撑",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "你也多体谅她"
+    },
+    {
+     "role": "user",
+     "content": "今天楼上终于把墙打完了 据说下周开始刷漆",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "刷漆的味道也够呛"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zlh-chg-weight-state",
+  "question_type": "implicit-state",
+  "category": "type-2",
+  "uses": [
+   "s18"
+  ],
+  "background_sessions": [
+   92,
+   230
+  ],
+  "question": "我现在还在减重吗",
+  "answer": "这阵子不减了：体测时医生说他体脂只有 16%，让他别再饿着、改成增肌，晚饭正常吃。说仍在减重算错。（背景里在减重，目标 75 公斤，现在 79）",
+  "question_date": "2026/10/30 (Fri) 20:00",
+  "haystack_dates": [
+   "2026/10/24 (Sat) 19:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天去做了个体测 医生说我体脂才 16% 其实一点不胖",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那挺好啊"
+    },
+    {
+     "role": "user",
+     "content": "他说我这几个月光靠饿 掉的都是肌肉 让我别再饿着了 改成增肌 每天加两勺蛋白粉 晚饭正常吃",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那以后能好好吃饭了"
+    },
+    {
+     "role": "user",
+     "content": "已经买了一桶蛋白粉 巧克力味 团子凑过来闻 打了个喷嚏",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 它不喜欢巧克力味"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zlh-chg-drama-premise",
+  "question_type": "stale-premise",
+  "category": "type-1",
+  "uses": [
+   "s17"
+  ],
+  "background_sessions": [
+   27,
+   156
+  ],
+  "question": "今晚雾城又更了 你说这周会不会揭晓凶手",
+  "answer": "要指出他已经弃了《雾城》、不看了，或问是不是又捡回来了。直接跟着猜剧情算错。（背景里在追《雾城》）",
+  "question_date": "2026/10/27 (Tue) 20:00",
+  "haystack_dates": [
+   "2026/10/21 (Wed) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "雾城我弃了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 不是追得好好的吗"
+    },
+    {
+     "role": "user",
+     "content": "这两周注水注到离谱 一集啥都没发生 今晚这集看了十分钟就关了 以后不看了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "注水确实劝退"
+    },
+    {
+     "role": "user",
+     "content": "改去补海贼王了 又刷了几集",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "海贼王永远不会让你失望"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zlh-chg-breakfast-premise",
+  "question_type": "stale-premise",
+  "category": "type-1",
+  "uses": [
+   "s11"
+  ],
+  "background_sessions": [
+   85,
+   155
+  ],
+  "question": "早上煮燕麦老是溢锅 有啥办法",
+  "answer": "要指出他已经不煮燕麦、改吃蒸鸡蛋牛奶了，或问是不是又开始吃。直接教防溢锅算错。（背景里每天早上自己煮燕麦）",
+  "question_date": "2026/10/28 (Wed) 07:50",
+  "haystack_dates": [
+   "2026/10/19 (Mon) 07:50"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "燕麦我吃腻了 从今天起早上改成蒸两个鸡蛋 再热杯牛奶",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "吃了几个月是会腻"
+    },
+    {
+     "role": "user",
+     "content": "剩的半袋燕麦拿去做饼干了 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "物尽其用"
+    },
+    {
+     "role": "user",
+     "content": "今天降温 骑车手冻僵了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "该戴手套了"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zlh-chg-video-premise",
+  "question_type": "stale-premise",
+  "category": "type-2",
+  "uses": [
+   "s07"
+  ],
+  "background_sessions": [
+   102,
+   189
+  ],
+  "question": "十点跟苏禾视频 想跟她商量圣诞去哪 你帮我想想怎么说",
+  "answer": "要指出十点她在上夜校，没法视频，可建议换时间或先发消息。直接准备十点视频时的说法算错。（背景里每晚十点左右和苏禾视频）",
+  "question_date": "2026/10/29 (Thu) 21:30",
+  "haystack_dates": [
+   "2026/10/20 (Tue) 23:05"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "我对象报了注册建筑师的夜校",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "好拼 要考证了"
+    },
+    {
+     "role": "user",
+     "content": "每天晚上九点到十一点上课 一直上到明年三月 下了课还要做题",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那她会很累"
+    },
+    {
+     "role": "user",
+     "content": "她说下课就只想睡 我让她别硬撑",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "你也多体谅她"
+    },
+    {
+     "role": "user",
+     "content": "今天楼上终于把墙打完了 据说下周开始刷漆",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "刷漆的味道也够呛"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zlh-chg-weight-premise",
+  "question_type": "stale-premise",
+  "category": "type-2",
+  "uses": [
+   "s18"
+  ],
+  "background_sessions": [
+   92,
+   230
+  ],
+  "question": "还差四公斤到 75 你说我这周晚饭要不要只吃沙拉",
+  "answer": "要指出医生已经让他别再饿、改成增肌，晚饭要正常吃，只吃沙拉不对。照减重思路支持只吃沙拉算错。（背景里在减重，目标 75 公斤）",
+  "question_date": "2026/10/30 (Fri) 20:00",
+  "haystack_dates": [
+   "2026/10/24 (Sat) 19:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天去做了个体测 医生说我体脂才 16% 其实一点不胖",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那挺好啊"
+    },
+    {
+     "role": "user",
+     "content": "他说我这几个月光靠饿 掉的都是肌肉 让我别再饿着了 改成增肌 每天加两勺蛋白粉 晚饭正常吃",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那以后能好好吃饭了"
+    },
+    {
+     "role": "user",
+     "content": "已经买了一桶蛋白粉 巧克力味 团子凑过来闻 打了个喷嚏",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 它不喜欢巧克力味"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zlh-chg-drama-use",
+  "question_type": "implicit-use",
+  "category": "type-1",
+  "uses": [
+   "s17"
+  ],
+  "background_sessions": [
+   27,
+   156
+  ],
+  "question": "吃饭的时候配点啥看 你推荐个",
+  "answer": "要知道他已经弃了《雾城》，不能推荐他看雾城新集；可以推荐别的（如他在补的海贼王或别的剧）。推荐雾城算错。（背景里在追《雾城》）",
+  "question_date": "2026/10/27 (Tue) 20:00",
+  "haystack_dates": [
+   "2026/10/21 (Wed) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "雾城我弃了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 不是追得好好的吗"
+    },
+    {
+     "role": "user",
+     "content": "这两周注水注到离谱 一集啥都没发生 今晚这集看了十分钟就关了 以后不看了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "注水确实劝退"
+    },
+    {
+     "role": "user",
+     "content": "改去补海贼王了 又刷了几集",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "海贼王永远不会让你失望"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zlh-chg-breakfast-use",
+  "question_type": "implicit-use",
+  "category": "type-1",
+  "uses": [
+   "s11"
+  ],
+  "background_sessions": [
+   85,
+   155
+  ],
+  "question": "这周要去超市囤点早上吃的 帮我列个单子",
+  "answer": "清单应围绕鸡蛋、牛奶等他现在的早饭，不再把燕麦当主要早饭食材。把燕麦列为主力算错。（背景里每天早上煮燕麦当早饭）",
+  "question_date": "2026/10/28 (Wed) 07:50",
+  "haystack_dates": [
+   "2026/10/19 (Mon) 07:50"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "燕麦我吃腻了 从今天起早上改成蒸两个鸡蛋 再热杯牛奶",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "吃了几个月是会腻"
+    },
+    {
+     "role": "user",
+     "content": "剩的半袋燕麦拿去做饼干了 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "物尽其用"
+    },
+    {
+     "role": "user",
+     "content": "今天降温 骑车手冻僵了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "该戴手套了"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zlh-chg-video-use",
+  "question_type": "implicit-use",
+  "category": "type-2",
+  "uses": [
+   "s07"
+  ],
+  "background_sessions": [
+   102,
+   189
+  ],
+  "question": "想跟苏禾商量件事 打算今晚说 你看什么时候找她合适",
+  "answer": "要顾及她每晚九点到十一点上夜校、下课只想睡，建议九点前、白天或先发消息约时间。建议照常十点视频时说算错。（背景里每晚十点左右和苏禾视频）",
+  "question_date": "2026/10/29 (Thu) 21:30",
+  "haystack_dates": [
+   "2026/10/20 (Tue) 23:05"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "我对象报了注册建筑师的夜校",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "好拼 要考证了"
+    },
+    {
+     "role": "user",
+     "content": "每天晚上九点到十一点上课 一直上到明年三月 下了课还要做题",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那她会很累"
+    },
+    {
+     "role": "user",
+     "content": "她说下课就只想睡 我让她别硬撑",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "你也多体谅她"
+    },
+    {
+     "role": "user",
+     "content": "今天楼上终于把墙打完了 据说下周开始刷漆",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "刷漆的味道也够呛"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zlh-chg-weight-use",
+  "question_type": "implicit-use",
+  "category": "type-2",
+  "uses": [
+   "s18"
+  ],
+  "background_sessions": [
+   92,
+   230
+  ],
+  "question": "下周想把三餐理一理 你帮我排个大概",
+  "answer": "要按增肌思路排（蛋白质充足、晚饭正常吃、加蛋白粉），不按减重节食排。按减重控热量来排算错。（背景里在减重，目标 75 公斤）",
+  "question_date": "2026/10/30 (Fri) 20:00",
+  "haystack_dates": [
+   "2026/10/24 (Sat) 19:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天去做了个体测 医生说我体脂才 16% 其实一点不胖",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那挺好啊"
+    },
+    {
+     "role": "user",
+     "content": "他说我这几个月光靠饿 掉的都是肌肉 让我别再饿着了 改成增肌 每天加两勺蛋白粉 晚饭正常吃",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那以后能好好吃饭了"
+    },
+    {
+     "role": "user",
+     "content": "已经买了一桶蛋白粉 巧克力味 团子凑过来闻 打了个喷嚏",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 它不喜欢巧克力味"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zlh-feel-overtime",
+  "question_type": "feeling-cause",
+  "uses": [
+   "f01"
+  ],
+  "background_sessions": [
+   45,
+   149,
+   244
+  ],
+  "question": "到家直接瘫沙发上了 一根手指都不想动",
+  "answer": "好的回答要想起可能的原因：他这几个月一直为「秋季上新」加班到很晚（10/09 虽然上线了，可能还在收尾或又忙起来），并用问句问（如「今天是不是又加班到很晚」），而不是断言原因；只安慰不提原因，或把原因说成确定的事实（如「肯定是加班累的」），都算错。",
+  "question_date": "2026/10/29 (Thu) 23:20",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zlh-feel-zoomies",
+  "question_type": "feeling-cause",
+  "uses": [
+   "f04"
+  ],
+  "background_sessions": [
+   36,
+   215,
+   231
+  ],
+  "question": "今天哈欠打了一整天 晚上根本没睡踏实",
+  "answer": "好的回答要想起可能的原因：他的猫团子半夜爱跑酷，常把他吵醒（也可以顺带问装修，但要问到团子），并用问句问（如「团子昨晚是不是又半夜跑酷了」），而不是断言原因；只安慰不提原因，或把原因说成确定的事实（如「肯定是团子又闹你了」），都算错。",
+  "question_date": "2026/10/30 (Fri) 10:20",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zlh-still-guitar",
+  "question_type": "still-true",
+  "uses": [
+   "s05"
+  ],
+  "background_sessions": [
+   66,
+   225
+  ],
+  "question": "周六早上我是不是还有课",
+  "answer": "还有：每周六上午在弦音跟唐老师上吉他课，接下来几周专门练年底汇演的曲子。说停了或可能不上了算错。",
+  "question_date": "2026/10/30 (Fri) 22:00",
+  "haystack_dates": [
+   "2026/10/24 (Sat) 12:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "下课的时候唐老师说年底琴行有个学员汇演 让我上去弹一首",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哇 你要上台了"
+    },
+    {
+     "role": "user",
+     "content": "紧张死了 他说接下来几周周六的课就专门练那首",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "有老师带着练 稳的"
+    },
+    {
+     "role": "user",
+     "content": "中午在路边吃了碗酸辣粉 辣哭",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "下午喝点冰粉缓缓"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zlh-still-fish",
+  "question_type": "still-true",
+  "uses": [
+   "s09"
+  ],
+  "background_sessions": [
+   181,
+   235
+  ],
+  "question": "缸里那窝小孔雀鱼喂啥长得快",
+  "answer": "他仍养着孔雀鱼（生了小鱼、换了大缸），按现状答喂养即可。说他不养了或可能没了算错。",
+  "question_date": "2026/10/26 (Mon) 21:40",
+  "haystack_dates": [
+   "2026/10/19 (Mon) 20:15"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "孔雀鱼生了一窝小的 缸太挤了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哇 当爸爸了"
+    },
+    {
+     "role": "user",
+     "content": "下班去花鸟市场换了个大点的缸 小的单独隔开了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "团子看到会疯"
+    },
+    {
+     "role": "user",
+     "content": "它已经趴在柜子上盯了一晚上",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "盖子一定要盖牢"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zlh-still-sister",
+  "question_type": "still-true",
+  "uses": [
+   "s14"
+  ],
+  "background_sessions": [
+   182,
+   288
+  ],
+  "question": "下个月想存点钱 每月固定花出去的有哪些 帮我捋捋",
+  "answer": "要包括每月给妹妹的 1500 生活费（生日多给的 500 是一次性的，生活费照常）。说生活费停了或改了金额算错。",
+  "question_date": "2026/10/30 (Fri) 12:50",
+  "haystack_dates": [
+   "2026/10/22 (Thu) 19:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天以安生日 我多给她转了五百 让她吃顿好的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "好哥哥又上线了"
+    },
+    {
+     "role": "user",
+     "content": "她说生活费还是照常就行 别多给 下个月还是一千五",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "她还挺懂事"
+    },
+    {
+     "role": "user",
+     "content": "今天公司发了下午茶 吃撑了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "晚饭可以少吃点"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zlh-still-bar",
+  "question_type": "still-true",
+  "uses": [
+   "s20"
+  ],
+  "background_sessions": [
+   154,
+   253
+  ],
+  "question": "我周五晚上那个固定节目现在还有吗",
+  "answer": "还有：每周五夜跑完和阿Ken去鹿角喝一杯（鹿角要换老板但照开，店名酒单都不变）。说没了或可能不去了算错。",
+  "question_date": "2026/10/29 (Thu) 22:00",
+  "haystack_dates": [
+   "2026/10/16 (Fri) 23:05"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "刚跑完和阿Ken在鹿角 听说老板下个月要把店转给他表弟",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那还开吗"
+    },
+    {
+     "role": "user",
+     "content": "照开 店名不改 酒单也不改 阿Ken说那就照旧每周来",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那就好 你们的据点保住了"
+    },
+    {
+     "role": "user",
+     "content": "今天配速有点慢 可能是累了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "上新刚忙完 缓一缓"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zlh-assoc-known-rubber-man",
+  "question_type": "associated",
+  "category": "model-known",
+  "uses": [
+   "a04"
+  ],
+  "background_sessions": [
+   59,
+   175
+  ],
+  "question": "听说那个橡胶人的漫画要进最终章了 真的假的",
+  "answer": "应理解「橡胶人」指路飞、说的是《海贼王》，并联系到他追《海贼王》很多年：好回答会接到海贼王完结、问他什么心情或追到哪了；不懂指的是什么、或扯到别的漫画的算错",
+  "question_date": "2026/10/25 (Sun) 21:00",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zlh-assoc-private-rain",
+  "question_type": "associated",
+  "category": "private-link",
+  "uses": [
+   "a08"
+  ],
+  "background_sessions": [
+   96,
+   192
+  ],
+  "question": "下了一整天雨 团子趴窗台上看了一下午",
+  "answer": "应联想到团子就是一个下雨天在小区里捡回来的，好回答会自然提到这层（比如它是不是想起被捡那天了）；只聊下雨天气或猫爱看窗外、没想到团子是雨天捡的算没想起",
+  "question_date": "2026/10/29 (Thu) 18:40",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zlh-assoc-meme-dazi",
+  "question_type": "associated",
+  "category": "searchable-meme",
+  "uses": [
+   "a12",
+   "s02"
+  ],
+  "background_sessions": [
+   7,
+   107,
+   115,
+   204,
+   245
+  ],
+  "question": "最近特别想找个搭子 一个人真的坚持不下来",
+  "answer": "应理解「搭子」是一起做某件事的伙伴，并联系到他夜跑一个人坚持不下来、得有人一起（平时周三周五常和阿Ken在锦江边跑）：好回答会接到找夜跑搭子上（如问阿Ken最近是不是没空）；当成找对象、饭搭子等无关意思的算错",
+  "question_date": "2026/10/28 (Wed) 18:40",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zlh-assoc-group-crayfish",
+  "question_type": "associated",
+  "category": "group-meme",
+  "uses": [
+   "g04",
+   "f06"
+  ],
+  "background_sessions": [
+   33,
+   57,
+   80,
+   131,
+   228,
+   250
+  ],
+  "question": "建设路新开那家小龙虾 听说要排两小时 谁去过 别又是拔草",
+  "answer": "应按这个群里的用法把「拔草」理解为去吃了发现很一般（担心白排队），并联系到他尿酸偏高（7 月体检 480、8 月复查 430），小龙虾这类海鲜要少吃：好回答会接话评价值不值得排，并提醒他少吃；当成电商种草拔草（打消购买念头）或不懂这个词的算错",
+  "question_date": "2026/10/30 (Fri) 12:20",
+  "question_venue": "group:qq:20260701",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zlh-assoc-later-shavings",
+  "question_type": "associated",
+  "category": "learned-later",
+  "uses": [
+   "l04"
+  ],
+  "background_sessions": [
+   193,
+   296
+  ],
+  "question": "刨花出了套猫爬架的教程合集 一百块 值不值得买",
+  "answer": "应联系到：他常看木工博主「老屋」、做猫爬架就是跟老屋学的，后来知道「刨花」是老屋的徒弟开的号、用的就是老屋教的那套榫卯；好回答会说这套教程对他做网店猫爬架很对路、挺值；只说看预算、当成陌生博主、不提老屋的算错",
+  "question_date": "2026/10/28 (Wed) 21:40",
+  "haystack_dates": [
+   "2026/10/22 (Thu) 22:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天打完球 胳膊抬不起来了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "羽毛球打猛了吧"
+    },
+    {
+     "role": "user",
+     "content": "刷视频看到个木工号叫「刨花」 原来是老屋的徒弟开的 用的都是老屋教的那套榫卯",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "师父带出来的 路数应该一样"
+    },
+    {
+     "role": "user",
+     "content": "嗯 视频剪得比他师父还利索 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "青出于蓝了"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zlh-assoc-pair-deep-water-recall",
+  "question_type": "associated",
+  "category": "paired",
+  "pair": "deep-water",
+  "uses": [
+   "p04"
+  ],
+  "background_sessions": [
+   70
+  ],
+  "question": "阿Ken他们约周末去漂流 说中间有一段水挺深的 拉我一起",
+  "answer": "应联想到他小时候溺过水、现在不敢下深水，温和地问一句他想不想去、别勉强（或提醒穿好救生衣、深水段可以不下）；只说好玩去吧、没想到溺水旧事的算没想起",
+  "question_date": "2026/10/26 (Mon) 21:00",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zlh-assoc-pair-deep-water-hold",
+  "question_type": "associated",
+  "category": "paired",
+  "pair": "deep-water",
+  "uses": [
+   "p04"
+  ],
+  "background_sessions": [
+   70
+  ],
+  "question": "下个月想去海边玩两天 拍照有啥好看的姿势",
+  "answer": "正常回答即可（给几个海边拍照的姿势和构图建议）；不应提起他小时候溺水的事",
+  "question_date": "2026/10/27 (Tue) 20:15",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zlh-assoc-detail-blood",
+  "question_type": "associated",
+  "category": "in-detail",
+  "uses": [
+   "d14"
+  ],
+  "background_sessions": [
+   118
+  ],
+  "question": "公司下周搞无偿献血 报名表上 A B O 那一栏我又愣住了",
+  "answer": "应提醒他是 O 型血；答成别的血型、或只让他去查体检报告、没说出 O 型的算没想起",
+  "question_date": "2026/10/27 (Tue) 12:50",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zlh-assoc-cross-bbq",
+  "question_type": "associated",
+  "category": "cross-topic",
+  "uses": [
+   "c04",
+   "s18"
+  ],
+  "background_sessions": [
+   92,
+   230,
+   238
+  ],
+  "question": "下周一部门又聚餐 你帮我出出主意 到时候怎么点",
+  "answer": "要把两件事合起来：公司聚餐常去吃烧烤 + 他在减重（目标 75 公斤、现在 79）；好回答会按烧烤来建议，挑烤蔬菜、鸡胸、瘦肉，少吃肥串、少喝啤酒；没想到是烧烤、或没顾及减重，都算错（两条都要用上才算对）",
+  "question_date": "2026/10/29 (Thu) 21:00",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zlh-assoc-reminded-birthday",
+  "question_type": "associated",
+  "category": "reminded",
+  "uses": [
+   "r04"
+  ],
+  "background_sessions": [
+   124,
+   203
+  ],
+  "question": "明年过生日那天我想出去玩一天 用不用请假 那天星期几",
+  "answer": "要按他的生日 3 月 14 日来算：2027 年 3 月 14 日是星期日，不用请假；说成 4 月的算错（之前她说他生日在 4 月、被他纠正过）",
+  "question_date": "2026/10/31 (Sat) 15:00",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zlh-needle-succulent",
+  "question_type": "single-session-user",
+  "category": "needle",
+  "uses": [
+   "d15"
+  ],
+  "background_sessions": [
+   255
+  ],
+  "question": "苏禾窗台上那盆肉肉 她给起的啥名来着",
+  "answer": "叫「胖丁」（苏禾养的多肉）；答成别的名字或说不知道的算错",
+  "question_date": "2026/10/30 (Fri) 21:00",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ },
+ {
+  "question_id": "zlh-needle-uric-twice",
+  "question_type": "single-session-user",
+  "category": "needle",
+  "uses": [
+   "d07"
+  ],
+  "background_sessions": [
+   25
+  ],
+  "question": "我两次查尿酸分别是多少来着",
+  "answer": "两次都要答对：7/08 公司年度体检 480，8/20 去医院复查 430；只答出一次、或把两个数对调的算错",
+  "question_date": "2026/10/31 (Sat) 11:00",
+  "haystack_dates": [],
+  "haystack_sessions": []
+ }
+]

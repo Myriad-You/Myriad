@@ -148,3 +148,27 @@ MYRIAD_MEDIA_TEST_DATABASE_URL=… cargo test -p myriad-backend --bin myriad-bac
 ```
 
 每周一行里的 `offTopic` 是她记着的事在与它无关的提问里被想起的次数（无关＝这条记忆不含该题任何 `held` 词），`most` 列出最常这样出现的几条，用来看召回是不是总集中在少数记忆上。
+
+### 长背景
+
+`memory-implicit-zh.json` 每题只有几段聊天，她只记得十几条，回想时几乎全摆在面前，考不到「几百条里找出那一条」。`memory-long-background-zh.json` 补的是这一块：一个人（周以宁）2026/07/01–10/15 和她的 300 段聊天，私聊为主，有 30 段在两个群里，全部是编的。里面埋了 20 个一直成立的状态、几件反复提起的事（苏禾、团子各约 60 段）、名字相近的人和店（两个「小林」、春山和青山），还有只顺带说过一次的细节。
+
+`memory-long-zh.json`（126 条）的题型和变了没说的事那一套相同，另加 10 道 `single-session-user`/`needle`，直接问一个细节。每道题的 `background_sessions` 是它依赖的背景段，`haystack_sessions` 是它自己接在背景之后的几段，可以为空。`holdout/memory-long-zh.json` 是 30 条保留集，规矩同上。
+
+```sh
+MEROPE_MEMORY_BENCH=tests/merope/memory-long-zh.json \
+MEROPE_MEMORY_BENCH_BACKGROUND=tests/merope/memory-long-background-zh.json \
+MEROPE_MEMORY_BENCH_TIMES=3 MEROPE_MEMORY_BENCH_SMALL=1 MEROPE_MEMORY_BENCH_WIDER_ARM=2 \
+MEROPE_MEMORY_BENCH_REPORT=/absolute/new/file.json \
+MYRIAD_MEDIA_TEST_DATABASE_URL=… cargo test -p myriad-backend --bin myriad-backend \
+  -- --ignored her_memory_after_a_long_background --nocapture
+```
+
+- 背景按生产的 settle 方式写一次，每 10 段做一次节点维护，写进测试库里一个单独的 schema，作为快照。每道题、每一轮都从快照的一份副本出发，只接上自己的几段，所以题与题互不干扰，背景只花一次钱。
+- 三轮用的是同一份快照，所以只量得到回想和作答的波动，量不到写入的波动。
+- `MEROPE_MEMORY_BENCH_KEEP_SNAPSHOT=1` 跑完留下快照并打印它的名字；`MEROPE_MEMORY_BENCH_SNAPSHOT=<名字>` 直接用留下的快照，不再重写背景。
+- 复制快照要用能设置 `session_replication_role` 的角色，测试库的所有者就可以。
+- `MEROPE_MEMORY_BENCH_SMALL=1`：每道题再跑一次，只带它依赖的背景段和自己的几段，从头写起。同一道题在小背景下的结果见报告里的 `small`，两种规模按题型并排在 `bySize`。
+- `MEROPE_MEMORY_BENCH_WIDER_ARM=<n>`：在同一轮里多作答一次，召回放大 n 倍。记忆完全相同，不用另写聊天，结果是报告里的 `wider` 这一路。
+- `offTopic`：背景里每条记忆在它不负责回答的题里被想起的次数，`most` 列出出现最多的几条。
+- 和 `full_size.rs` 的区别：那边直接把旧报告里的记忆塞进去量召回，不走写入；这里从对话开始全程照生产的路径走。

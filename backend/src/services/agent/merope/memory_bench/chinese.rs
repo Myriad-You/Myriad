@@ -324,7 +324,7 @@ pub(super) fn the_implicit_memory_set_reads_as_the_bench_needs() {
 }
 
 /// The ways one thing is linked to another that `associated` asks.
-const ASSOCIATED: [&str; 9] = [
+pub(super) const ASSOCIATED: [&str; 9] = [
     "model-known",
     "private-link",
     "searchable-meme",

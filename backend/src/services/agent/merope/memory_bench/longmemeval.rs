@@ -41,21 +41,7 @@ pub(super) async fn her_memory_on_longmemeval() {
             }
         })
         .collect();
-    let config_db = super::super::super::semantic_eval::load_configured_lite().await;
-    config_db.close().await.ok();
-    embedding_as_asked().await;
-    let judge = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(
-        Duration::from_secs(60),
-    ))
-    .await
-    .expect("judgment model");
-    // Her voice thinks little, as production asks.
-    let lite = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
-        Duration::from_secs(60),
-    ))
-    .await
-    .expect("Lite model")
-    .with_light_thinking();
+    let (judge, lite) = the_models().await;
     // `MEROPE_MEMORY_BENCH_READER=<model>`: also answer and grade the wide
     // way with that model on Lite's provider, as published results did.
     let reader = match std::env::var("MEROPE_MEMORY_BENCH_READER") {
@@ -106,6 +92,29 @@ pub(super) async fn her_memory_on_longmemeval() {
     std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
 }
 
+/// The site's models as the bench uses them: the judgment model, and her
+/// voice thinking little, as production asks; embedding as asked.
+pub(super) async fn the_models() -> (
+    crate::services::analyzer::AiAnalyzer,
+    crate::services::analyzer::AiAnalyzer,
+) {
+    let config_db = super::super::super::semantic_eval::load_configured_lite().await;
+    config_db.close().await.ok();
+    embedding_as_asked().await;
+    let judge = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(
+        Duration::from_secs(60),
+    ))
+    .await
+    .expect("judgment model");
+    let lite = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
+        Duration::from_secs(60),
+    ))
+    .await
+    .expect("Lite model")
+    .with_light_thinking();
+    (judge, lite)
+}
+
 /// `MEROPE_MEMORY_BENCH_TIMES` (default 1): how many times each question
 /// is run, each time by someone new, written down again from the start.
 pub(super) fn times() -> usize {
@@ -118,11 +127,16 @@ pub(super) fn times() -> usize {
 
 /// Each way of recalling scored by its run: right once on average, and
 /// pass^n, the questions right every time they were run.
-fn report(questions: &[Question], times: usize, outcomes: &[(Question, usize, Outcome)]) -> Value {
-    let arms: [(&str, fn(&Outcome) -> Option<&Answered>); 4] = [
+pub(super) fn report(
+    questions: &[Question],
+    times: usize,
+    outcomes: &[(Question, usize, Outcome)],
+) -> Value {
+    let arms: [(&str, fn(&Outcome) -> Option<&Answered>); 5] = [
         ("plain", |outcome| Some(&outcome.plain)),
         ("cued", |outcome| Some(&outcome.cued)),
         ("wide", |outcome| Some(&outcome.wide)),
+        ("wider", |outcome| outcome.wider.as_ref()),
         ("read", |outcome| outcome.read.as_ref()),
     ];
     let of = |id: &str| -> Vec<&Outcome> {
@@ -292,11 +306,13 @@ fn report(questions: &[Question], times: usize, outcomes: &[(Question, usize, Ou
             "question":question.question,"answer":question.answer,
             "written":outcome.written,"kept":outcome.kept,
             "plain":answered(&outcome.plain),"cued":answered(&outcome.cued),
-            "wide":answered(&outcome.wide),"read":outcome.read.as_ref().map(answered),
+            "wide":answered(&outcome.wide),"wider":outcome.wider.as_ref().map(answered),
+            "read":outcome.read.as_ref().map(answered),
             "bare":outcome.bare.as_ref().map(answered),"inPrivate":outcome.in_private,
             "memories":outcome.memories,"concepts":outcome.concepts,
             "nodes":outcome.nodes})
         })
         .collect();
-    json!({"times": times, "wider": wider(), "scores": scores, "rows": rows})
+    json!({"times": times, "wider": wider(), "widerArm": wider_arm(), "scores": scores,
+        "rows": rows})
 }
