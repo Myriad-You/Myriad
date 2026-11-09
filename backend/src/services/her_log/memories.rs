@@ -216,6 +216,11 @@ pub(super) async fn compare(
                         .cloned()
                         .unwrap_or_default(),
                     cues: memory.cues.clone(),
+                    // Who it came from, where it was learned and when it
+                    // comes to mind go out once every end reads them.
+                    speaker: None,
+                    source: None,
+                    when: Vec::new(),
                 })
                 .unwrap_or_default(),
             ));
