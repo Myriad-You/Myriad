@@ -14,6 +14,10 @@ pub(super) async fn recalled_for(
     cues: Option<&myriad_merope::remembering::Cues>,
     thorough: usize,
 ) -> (Vec<String>, Option<String>) {
+    // The control that only recalls more, when asked for.
+    let wider = wider();
+    let (more, thorough_more) = ((wider - 1) * RECALLED, (wider - 1) * thorough);
+    let (limit, thorough) = (RECALLED * wider, thorough * wider);
     // In a private talk, as production does: ranked, then what comes to
     // mind of her nodes on the day it is asked.
     if super::settle::on_nodes(present) {
@@ -24,7 +28,7 @@ pub(super) async fn recalled_for(
             present,
             &question.question,
             cues,
-            RECALLED,
+            limit,
             thorough,
             &Priming::default(),
             1.0,
@@ -40,12 +44,13 @@ pub(super) async fn recalled_for(
                     cues,
                     now,
                 );
-                let lines = recollection
+                let mut lines: Vec<String> = recollection
                     .named
                     .into_iter()
                     .chain(recollection.heard)
-                    .chain(recalled.brought_to_mind)
+                    .chain(recalled.brought_to_mind.iter().cloned())
                     .collect();
+                widened(&mut lines, &recalled, cues, more, thorough_more);
                 return (lines, recollection.listed);
             }
             (_, Err(error)) => eprintln!("bench call failed: reading her nodes: {error:#}"),
@@ -59,7 +64,7 @@ pub(super) async fn recalled_for(
         present,
         &question.question,
         cues,
-        RECALLED,
+        limit,
         thorough,
         &Priming::default(),
         1.0,
@@ -79,6 +84,33 @@ pub(super) async fn recalled_for(
     })
     .unwrap_or_default();
     (named, None)
+}
+
+/// The wider control on her nodes: after what they brought, the ranked
+/// lines they left out, in their order, up to `more` (`thorough_more` when
+/// answering needs all of it); a line only filling as recent talk does not
+/// count, as it would not going through all of it.
+fn widened(
+    lines: &mut Vec<String>,
+    recalled: &crate::services::agent::merope::store::Recalled,
+    cues: Option<&myriad_merope::remembering::Cues>,
+    more: usize,
+    thorough_more: usize,
+) {
+    let more = if cues.is_some_and(|cues| cues.thorough) {
+        thorough_more
+    } else {
+        more
+    };
+    let left_out: Vec<String> = recalled
+        .named
+        .iter()
+        .filter(|line| !recalled.recent.contains(line))
+        .filter(|line| !lines.iter().any(|shown| shown.contains(line.as_str())))
+        .take(more)
+        .cloned()
+        .collect();
+    lines.extend(left_out);
 }
 
 pub(super) struct Answered {

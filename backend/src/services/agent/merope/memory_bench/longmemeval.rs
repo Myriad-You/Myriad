@@ -139,6 +139,8 @@ fn report(questions: &[Question], times: usize, outcomes: &[(Question, usize, Ou
             "abstention".to_string()
         } else if question.question_id.starts_with("zh-long-") {
             format!("long/{}", question.question_type)
+        } else if let Some(category) = &question.category {
+            format!("{}/{category}", question.question_type)
         } else {
             question.question_type.clone()
         }
@@ -176,6 +178,37 @@ fn report(questions: &[Question], times: usize, outcomes: &[(Question, usize, Ou
                 per_round[round] += usize::from(right_of(outcome));
             }
         }
+        // Pairs: right only when both sides are, in the same round.
+        let mut pairs: BTreeMap<&str, Vec<&Question>> = BTreeMap::new();
+        for question in questions {
+            if let Some(pair) = &question.pair {
+                pairs.entry(pair.as_str()).or_default().push(question);
+            }
+        }
+        let (mut pair_right, mut pair_every) = (0, 0);
+        for sides in pairs.values() {
+            let rounds: Vec<bool> = (0..times)
+                .map(|round| {
+                    sides.iter().all(|side| {
+                        of(&side.question_id)
+                            .get(round)
+                            .is_some_and(|outcome| right_of(outcome))
+                    })
+                })
+                .collect();
+            pair_right += rounds.iter().filter(|right| **right).count();
+            pair_every += usize::from(rounds.iter().all(|right| *right));
+        }
+        // How much she answered on, to compare ways of recalling at the
+        // same length.
+        let shown: Vec<&Answered> = outcomes
+            .iter()
+            .filter_map(|(_, _, outcome)| answered(outcome))
+            .collect();
+        let per_answer = |count: fn(&Answered) -> usize| {
+            shown.iter().map(|answered| count(answered)).sum::<usize>() as f64
+                / shown.len().max(1) as f64
+        };
         let kinds: serde_json::Map<String, Value> = by_kind
             .into_iter()
             .map(|(kind, [n, right, run, every, written, retrieved])| {
@@ -194,6 +227,13 @@ fn report(questions: &[Question], times: usize, outcomes: &[(Question, usize, Ou
                 format!("pass^{times}"): every,
                 "questions": questions.len(),
                 "byKind": kinds,
+                "pairs": (!pairs.is_empty()).then(|| json!({"pairs": pairs.len(),
+                    "right": format!("{pair_right}/{}", pairs.len() * times),
+                    format!("pass^{times}"): pair_every})),
+                "recalledLines": per_answer(|answered| answered.recalled.len()),
+                "recalledChars": per_answer(|answered| {
+                    answered.recalled.iter().map(|line| line.chars().count()).sum()
+                }),
             }),
         );
     }
@@ -247,7 +287,8 @@ fn report(questions: &[Question], times: usize, outcomes: &[(Question, usize, Ou
     let rows: Vec<Value> = outcomes
         .iter()
         .map(|(question, round, outcome)| {
-            json!({"id":question.question_id,"type":question.question_type,"round":round,
+            json!({"id":question.question_id,"type":question.question_type,
+            "category":question.category,"pair":question.pair,"round":round,
             "question":question.question,"answer":question.answer,
             "written":outcome.written,"kept":outcome.kept,
             "plain":answered(&outcome.plain),"cued":answered(&outcome.cued),
@@ -257,5 +298,5 @@ fn report(questions: &[Question], times: usize, outcomes: &[(Question, usize, Ou
             "nodes":outcome.nodes})
         })
         .collect();
-    json!({"times": times, "scores": scores, "rows": rows})
+    json!({"times": times, "wider": wider(), "scores": scores, "rows": rows})
 }

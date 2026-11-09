@@ -21,6 +21,12 @@
 //! --ignored her_memory_over_weeks --nocapture`; `MEROPE_MEMORY_BENCH_TIMES`
 //! runs the weeks that many times, each by someone new, for pass^n at each
 //! week. Writes go to a fresh schema that is dropped afterwards.
+//!
+//! `MEROPE_MEMORY_WEEKS=<file>` runs other weeks of the same shape instead:
+//! tests/merope/memory-chain-zh.json has a few things said again and again
+//! differently, each changed three times or more, its held words the parts
+//! that never changed beside how it is now, so what is measured is whether
+//! being replaced again and again keeps what still holds.
 
 use super::*;
 
@@ -89,23 +95,76 @@ impl Probe {
             question_venue: None,
             question_speaker: None,
             memories: Vec::new(),
+            category: None,
+            pair: None,
         }
     }
 }
 
+/// The six weeks, or `MEROPE_MEMORY_WEEKS` when set.
 fn weeks() -> Weeks {
-    serde_json::from_str(include_str!(
-        "../../../../../../tests/merope/memory-weeks-zh.json"
-    ))
-    .expect("memory weeks")
+    match std::env::var("MEROPE_MEMORY_WEEKS") {
+        Ok(path) => serde_json::from_str(&std::fs::read_to_string(&path).expect("weeks file"))
+            .expect("memory weeks"),
+        Err(_) => serde_json::from_str(SIX_WEEKS).expect("memory weeks"),
+    }
 }
+
+const SIX_WEEKS: &str = include_str!("../../../../../../tests/merope/memory-weeks-zh.json");
+const CHAIN: &str = include_str!("../../../../../../tests/merope/memory-chain-zh.json");
 
 /// The weeks read as the run needs: sessions in order, each checkpoint
 /// after its session, each probe's versions in order and asked by the end,
 /// a rule for each, and every held word said by then.
 #[test]
 fn the_weeks_read_as_the_run_needs() {
-    let weeks = weeks();
+    for weeks in [SIX_WEEKS, CHAIN] {
+        reads_as_the_run_needs(&serde_json::from_str(weeks).expect("memory weeks"));
+    }
+}
+
+/// The replacing weeks are what they are for: things changed three times
+/// or more, each version still holding a word that never changed, beside
+/// some told once and left alone.
+#[test]
+fn the_replacing_weeks_change_things_again_and_again() {
+    let weeks: Weeks = serde_json::from_str(CHAIN).unwrap();
+    let chains: Vec<&Probe> = weeks
+        .probes
+        .iter()
+        .filter(|probe| probe.versions.len() >= 4)
+        .collect();
+    assert!(chains.len() >= 5);
+    assert!(weeks.probes.iter().any(Probe::stable));
+    for probe in chains {
+        let kept: Vec<&String> = probe.versions[0]
+            .held
+            .iter()
+            .filter(|word| {
+                probe
+                    .versions
+                    .iter()
+                    .all(|version| version.held.contains(word))
+            })
+            .collect();
+        assert!(!kept.is_empty(), "{}", probe.id);
+        // What never changed is said once, so only memory carries it on.
+        for word in kept {
+            let saying: usize = weeks
+                .sessions
+                .iter()
+                .filter(|day| {
+                    day.turns
+                        .iter()
+                        .any(|turn| turn.role == "user" && turn.content.contains(word.as_str()))
+                })
+                .count();
+            assert_eq!(saying, 1, "{} {word}", probe.id);
+        }
+    }
+}
+
+fn reads_as_the_run_needs(weeks: &Weeks) {
     let dates: Vec<_> = weeks
         .sessions
         .iter()
@@ -159,6 +218,8 @@ struct Asked {
     checkpoint: usize,
     probe: Probe,
     answer: String,
+    /// The held words of the version asked.
+    held_words: Vec<String>,
     cued: Answered,
     wide: Answered,
     /// Whether one lasting memory still carries its held words; none when
@@ -353,6 +414,7 @@ async fn run_weeks(
                     round,
                     checkpoint: number,
                     probe,
+                    held_words: version.held,
                     answer: version.answer,
                     cued,
                     wide,
@@ -426,7 +488,18 @@ fn report(weeks: &Weeks, times: usize, asked: &[Asked], kept: &[Kept]) -> Value 
                 json!({"probes": probes, "right": format!("{right}/{}", probes * times),
                     format!("pass^{times}"): every})
             };
-            line[arm] = json!({"all": tally(false), "stable": tally(true)});
+            let chars: usize = here
+                .iter()
+                .map(|asked| {
+                    answered(asked)
+                        .recalled
+                        .iter()
+                        .map(|line| line.chars().count())
+                        .sum::<usize>()
+                })
+                .sum();
+            line[arm] = json!({"all": tally(false), "stable": tally(true),
+                "recalledChars": chars as f64 / here.len().max(1) as f64});
         }
         let held: Vec<bool> = here.iter().filter_map(|asked| asked.held).collect();
         line["held"] = json!(format!(
@@ -451,6 +524,7 @@ fn report(weeks: &Weeks, times: usize, asked: &[Asked], kept: &[Kept]) -> Value 
             }
         }
         line["retired"] = json!(retired);
+        line["offTopic"] = off_topic(&here, &kept_here);
         by_week.push(line);
     }
     let answered = |answered: &Answered| {
@@ -474,5 +548,44 @@ fn report(weeks: &Weeks, times: usize, asked: &[Asked], kept: &[Kept]) -> Value 
                 "sessions": kept.sessions})
         })
         .collect();
-    json!({"times": times, "weeks": by_week, "rows": rows, "memories": memories})
+    json!({"times": times, "wider": wider(), "weeks": by_week, "rows": rows,
+        "memories": memories})
+}
+
+/// How often what she keeps came up, answering the wide way, for probes it
+/// is not about (it carries none of the probe's held words, or the probe
+/// has none): the times in all, and the memories it happened to most. A
+/// few memories coming up for everything is what reinforcing what is
+/// recalled would make worse.
+fn off_topic(asked: &[&Asked], kept: &[&Kept]) -> Value {
+    let mut times: BTreeMap<&str, usize> = BTreeMap::new();
+    for kept in kept {
+        for memory in &kept.memories {
+            let here = asked
+                .iter()
+                .filter(|asked| asked.round == kept.round)
+                .filter(|asked| {
+                    !asked
+                        .held_words
+                        .iter()
+                        .any(|word| memory.contains(word.as_str()))
+                })
+                .filter(|asked| {
+                    asked
+                        .wide
+                        .recalled
+                        .iter()
+                        .any(|line| line.contains(memory.as_str()))
+                })
+                .count();
+            if here > 0 {
+                *times.entry(memory.as_str()).or_default() += here;
+            }
+        }
+    }
+    let mut most: Vec<(&str, usize)> = times.into_iter().collect();
+    most.sort_by(|left, right| right.1.cmp(&left.1));
+    json!({"times": most.iter().map(|(_, count)| count).sum::<usize>(),
+        "memories": kept.iter().map(|kept| kept.memories.len()).sum::<usize>(),
+        "most": most.into_iter().take(5).collect::<Vec<_>>()})
 }

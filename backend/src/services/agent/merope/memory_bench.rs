@@ -79,6 +79,15 @@ struct Question {
     /// noise questions): kept as written, nothing extracted.
     #[serde(default)]
     memories: Vec<String>,
+    /// Which kind of its type it is (tests/merope/memory-implicit-zh.json:
+    /// a change said outright or only implied, which way something is
+    /// linked): reported apart.
+    #[serde(default)]
+    category: Option<String>,
+    /// Two questions on the same talk, one where it should come up and one
+    /// where it should not: the pair counts only when both are right.
+    #[serde(default)]
+    pair: Option<String>,
 }
 
 impl Question {
@@ -122,6 +131,20 @@ struct Turn {
 const RECALLED: usize = 8;
 const THOROUGH: usize = super::remembering::THOROUGH;
 const AT_ONCE: usize = 6;
+
+/// `MEROPE_MEMORY_BENCH_WIDER=<n>` (default 1, as production): the
+/// control that only recalls more. Recall ranks `n` times as many lines,
+/// and in a private talk the ranked lines her nodes left out are added
+/// after what they brought, up to `n - 1` times as many again; writing,
+/// cues and answering stay as they are. A change to how she recalls is
+/// kept only if it beats this at the same length of what she answers on.
+fn wider() -> usize {
+    std::env::var("MEROPE_MEMORY_BENCH_WIDER")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|wider| *wider > 0)
+        .unwrap_or(1)
+}
 
 /// `MEROPE_MEMORY_BENCH_AT_ONCE` when set: with little credit left, the
 /// gateway refuses calls whose held-back output together exceeds it.

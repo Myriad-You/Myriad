@@ -114,3 +114,37 @@ MYRIAD_MEDIA_TEST_DATABASE_URL=… cargo test -p myriad-backend --bin myriad-bac
 ```
 
 会花站点模型的钱。写入只进每次新建、跑完删除的独立 schema。题目全部是编的：闲聊、私事和数字都不来自真实用户。报告的 `scores` 给出每种召回方式的单次准确率、每轮答对数和 `pass^n`（n 次都答对的题数）。`wide` 是生产的召回方式。
+
+### 变了没说的事
+
+`memory-implicit-zh.json` 用同一个入口跑（`MEROPE_MEMORY_BENCH=tests/merope/memory-implicit-zh.json`），考对方的情况变了以后，她是否还照着旧记忆说话：
+
+| 题型 | 数量 | 考什么 |
+|---|---|---|
+| `implicit-state` | 40 | 直接问旧状态还成立吗；`category` 分 `type-1`（对方明说变了）和 `type-2`（只说了另一件事，能推出旧状态不成立），各 20 |
+| `stale-premise` | 40 | 问题带着已经不成立的前提；场景与上一行一一对应 |
+| `implicit-use` | 40 | 不提这件事，但回答要顾及新情况；场景同上 |
+| `feeling-cause` | 10 | 只说感受，要想起以前说过的原因，并用问句问 |
+| `still-true` | 40 | 对照：后来的事看似相关，其实旧状态仍成立；量误伤 |
+| `associated` | 45 | 9 类关联各 5 道，见 `category`；`paired` 一道是两问（`-recall` 该想起、`-hold` 不该提），同一 `pair` 两问都对才算对 |
+
+前三种题型的同一场景三问共用同一段聊天，可以直接比「直接问对、带前提问错」。`associated` 的 `searchable-meme` 考的是她本来懂不懂这个梗：评测不走查梗；`group-meme` 的聊天和提问都在同一个群，群里每句都算提问的人说的。报告 `byKind` 按 `题型/category` 分开，`pairs` 给成对题的结果，`recalledLines`、`recalledChars` 是每次作答平均摆在她面前的记忆条数和字数，用来在同样长度下比较召回方式。
+
+`holdout/memory-implicit-zh.json` 是同样题型、数量更少的保留集，给以后的技术报告用：**改进她的记忆期间不要打开、不要拿它调提示词**，只在定稿时跑一次。格式由 `the_implicit_memory_set_reads_as_the_bench_needs` 检查。
+
+### 只召回更多（对照组）
+
+`MEROPE_MEMORY_BENCH_WIDER=<n>`（默认 1，即生产）对两个入口都生效：召回排出 n 倍的条数；私聊里在节点带出的内容之后，补上排名里被节点漏掉的条目，最多再加 (n−1) 倍。记下、线索和作答都不变。改召回结构的方案，要在 `recalledChars` 相近时赢过它才保留。报告顶层的 `wider` 记着这次用了几倍。
+
+### 几周里反复整理
+
+`her_memory_over_weeks` 默认跑 `memory-weeks-zh.json`（六周）。`MEROPE_MEMORY_WEEKS=tests/merope/memory-chain-zh.json` 换成改写链：几件事各被改口三次以上，每个版本的 `held` 同时含「一直没变的细节」（只说过一次）和「现在的值」，看一条记忆被反复取代以后，旧条目里仍成立的部分还在不在。不要往 `memory-weeks-zh.json` 里加题，它要和以前的结果可比。
+
+```sh
+MEROPE_MEMORY_WEEKS=tests/merope/memory-chain-zh.json MEROPE_MEMORY_BENCH_TIMES=3 \
+MEROPE_MEMORY_WEEKS_REPORT=/absolute/new/file.json \
+MYRIAD_MEDIA_TEST_DATABASE_URL=… cargo test -p myriad-backend --bin myriad-backend \
+  -- --ignored her_memory_over_weeks --nocapture
+```
+
+每周一行里的 `offTopic` 是她记着的事在与它无关的提问里被想起的次数（无关＝这条记忆不含该题任何 `held` 词），`most` 列出最常这样出现的几条，用来看召回是不是总集中在少数记忆上。

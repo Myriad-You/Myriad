@@ -1,0 +1,5038 @@
+[
+ {
+  "question_id": "zh-imp1-office-state",
+  "question_type": "implicit-state",
+  "category": "type-1",
+  "question": "我现在还在家办公吗",
+  "answer": "不是了：十月起公司要求回办公室坐班，单程通勤四十分钟、早上七点半出门（以前在家远程办公了一年多）",
+  "question_date": "2026/10/27 (Tue) 22:30",
+  "haystack_dates": [
+   "2026/08/12 (Wed) 10:30",
+   "2026/09/02 (Wed) 13:10",
+   "2026/09/30 (Wed) 21:00",
+   "2026/10/14 (Wed) 20:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "在家办公第二年了 今天穿着睡衣开了三个会",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "镜头只拍到上半身就行"
+    },
+    {
+     "role": "user",
+     "content": "对 上面衬衫下面睡裤 标准装备",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "远程人的基本修养"
+    },
+    {
+     "role": "user",
+     "content": "早上煮了个溏心蛋 成功了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "溏心蛋很难掐准"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "在家办公最爽的就是午饭可以自己煮",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "今天煮了啥"
+    },
+    {
+     "role": "user",
+     "content": "西红柿鸡蛋面 吃完还能午睡二十分钟",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "这是坐班的人羡慕不来的"
+    },
+    {
+     "role": "user",
+     "content": "楼下有只小狗天天叫",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "可能是主人不在家"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "公司要求全员回办公室坐班了 下周一开始",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 远程结束了"
+    },
+    {
+     "role": "user",
+     "content": "单程四十分钟 早上要七点半出门",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那得早起了"
+    },
+    {
+     "role": "user",
+     "content": "睡衣开会的日子没了 哭",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "可以买几件舒服的通勤衣服"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "最近迷上做手账 买了一堆贴纸",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "手账最费贴纸"
+    },
+    {
+     "role": "user",
+     "content": "已经用掉一半了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那就是真的在用"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp1-spanish-state",
+  "question_type": "implicit-state",
+  "category": "type-1",
+  "question": "我现在还在学法语吗",
+  "answer": "不学了：九月底法语课退了，因为公司明年派用户去墨西哥，现在改学西班牙语（以前学了快两年法语）",
+  "question_date": "2026/10/29 (Thu) 21:00",
+  "haystack_dates": [
+   "2026/08/06 (Thu) 22:00",
+   "2026/08/27 (Thu) 21:30",
+   "2026/09/24 (Thu) 20:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "法语的小舌音还是发不出来 练得嗓子疼",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "小舌音要慢慢找感觉"
+    },
+    {
+     "role": "user",
+     "content": "在学法语第二年了 每周两节课",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "两年 已经能聊几句了吧"
+    },
+    {
+     "role": "user",
+     "content": "今天公司发了月饼券",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "月饼券最后都去哪了"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "法语动词变位快把我逼疯了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "变位确实反人类"
+    },
+    {
+     "role": "user",
+     "content": "老师让我们背一篇法语短文 下周默写",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "默写有点狠"
+    },
+    {
+     "role": "user",
+     "content": "晚上去游泳了 人好多",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "暑假泳池都是小孩"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "跟你说 我不学法语了 公司明年要派我去墨西哥 现在改学西班牙语",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "墨西哥！好突然"
+    },
+    {
+     "role": "user",
+     "content": "法语课退了 报了西语的课 从字母开始",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "两种语言有点像 应该上手快"
+    },
+    {
+     "role": "user",
+     "content": "大舌音也发不出来 我跟弹舌有仇",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 慢慢练"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp1-dorm-state",
+  "question_type": "implicit-state",
+  "category": "type-1",
+  "question": "我现在还住在学校宿舍吗",
+  "answer": "不住了：十月初搬出宿舍，在学校旁边租了单间，一个人住，没有门禁（以前住四人间宿舍，十一点门禁）",
+  "question_date": "2026/11/06 (Fri) 18:30",
+  "haystack_dates": [
+   "2026/08/30 (Sun) 23:20",
+   "2026/09/10 (Thu) 22:40",
+   "2026/10/03 (Sat) 19:30",
+   "2026/10/20 (Tue) 21:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "差点被关在宿舍外面 十一点门禁 我十点五十九冲进去的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "这也太极限了"
+    },
+    {
+     "role": "user",
+     "content": "宿管阿姨在门口盯着 一秒都不让",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "宿管阿姨都这样"
+    },
+    {
+     "role": "user",
+     "content": "今晚吃了学校后街的炸串",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "后街炸串是大学的灵魂"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "宿舍四个人 有一个打呼噜 我天天戴耳塞",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "戴耳塞会不会不舒服"
+    },
+    {
+     "role": "user",
+     "content": "习惯了 不然睡不着 而且十一点就锁门 也不好出去躲",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那确实没地方躲"
+    },
+    {
+     "role": "user",
+     "content": "这周开始上专业课了 好难",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "第一周最难熬"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "我搬出宿舍了 在学校旁边租了个单间",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "终于自由了"
+    },
+    {
+     "role": "user",
+     "content": "一个人住 没门禁 也不用听呼噜了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "太舒服了"
+    },
+    {
+     "role": "user",
+     "content": "就是每个月房租一千五 得去做兼职了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "自由是要钱的"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天上课被老师点名回答问题 卡住了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "下次就熟了"
+    },
+    {
+     "role": "user",
+     "content": "全班都在看我",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "大家很快就会忘的"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp1-swim-state",
+  "question_type": "implicit-state",
+  "category": "type-1",
+  "question": "我现在还每天早上去晨跑吗",
+  "answer": "不跑了：九月膝盖半月板受伤，医生让停跑，改成下班后去游泳（以前每天早上六点沿河晨跑五公里）",
+  "question_date": "2026/10/31 (Sat) 10:00",
+  "haystack_dates": [
+   "2026/08/05 (Wed) 07:30",
+   "2026/08/23 (Sun) 08:00",
+   "2026/09/18 (Fri) 20:40",
+   "2026/10/06 (Tue) 19:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "晨跑五公里打卡 今天配速快了十秒",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "每天早上都跑吗"
+    },
+    {
+     "role": "user",
+     "content": "对 雷打不动 六点出门 沿着河边跑",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "河边空气好"
+    },
+    {
+     "role": "user",
+     "content": "早饭是豆浆油条",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "跑完吃油条 很快乐"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天晨跑碰到下雨 跑了一半回家",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "淋湿没"
+    },
+    {
+     "role": "user",
+     "content": "湿透了 但跑步这件事不能断",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "坚持得很好"
+    },
+    {
+     "role": "user",
+     "content": "周末打算去看个画展",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "看什么画"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "膝盖半月板伤了 医生说不能再跑步了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 严重吗"
+    },
+    {
+     "role": "user",
+     "content": "不用手术 但得停跑 医生让我改游泳 我已经办了游泳卡",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "游泳对膝盖友好"
+    },
+    {
+     "role": "user",
+     "content": "现在下班后去游一千米",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "一千米很可以了"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "最近在追一部美食纪录片",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "看饿了吧"
+    },
+    {
+     "role": "user",
+     "content": "每集都看饿",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "看完记得别吃宵夜"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp2-guppy-state",
+  "question_type": "implicit-state",
+  "category": "type-2",
+  "question": "我现在下班回家还要先喂鱼吗",
+  "answer": "不用了：10月下旬客厅鱼缸半夜裂了，孔雀鱼一条都没救回来，已经清理掉，对方说不想再弄了（以前养了二十多条孔雀鱼，每天下班先喂）",
+  "question_date": "2026/10/27 (Tue) 19:30",
+  "haystack_dates": [
+   "2026/08/13 (Thu) 20:00",
+   "2026/09/17 (Thu) 21:00",
+   "2026/10/21 (Wed) 08:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "下班回来第一件事喂孔雀鱼 它们一看到我就围过来",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "认人了"
+    },
+    {
+     "role": "user",
+     "content": "养了二十多条 每天定时喂一次",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "挺有成就感"
+    },
+    {
+     "role": "user",
+     "content": "今天公司停电 提前下班",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "赚到了"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "孔雀鱼又生了一窝小的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "越来越多了"
+    },
+    {
+     "role": "user",
+     "content": "每天喂的时候数都数不过来",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈"
+    },
+    {
+     "role": "user",
+     "content": "晚上吃的饺子 韭菜馅",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "香"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "崩溃 客厅那个缸半夜裂了 水淌了一地",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 鱼呢"
+    },
+    {
+     "role": "user",
+     "content": "一条都没救回来 早上全清理了 不想再弄了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "抱抱"
+    },
+    {
+     "role": "user",
+     "content": "楼下邻居还上来问漏水没",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "还好没漏下去"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp2-choir-state",
+  "question_type": "implicit-state",
+  "category": "type-2",
+  "question": "今天周二 我晚上还去排练吗",
+  "answer": "大概去不了：10月初刚做了声带息肉手术，医生说三个月不能大声、最好少开口，这阵子不能唱歌排练（以前每周二晚上去社区合唱团排练，高声部，还有领唱）",
+  "question_date": "2026/10/20 (Tue) 18:30",
+  "haystack_dates": [
+   "2026/08/04 (Tue) 22:00",
+   "2026/09/08 (Tue) 22:10",
+   "2026/10/09 (Fri) 18:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "刚排练完 今天把那首新歌的高音唱上去了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "你是高声部吗"
+    },
+    {
+     "role": "user",
+     "content": "对 社区合唱团 每周二晚上排练",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "不错"
+    },
+    {
+     "role": "user",
+     "content": "晚饭在排练前随便啃了个面包",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "饿坏了吧"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "下个月合唱团要去区里比赛 今晚多练了一个小时",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "加油"
+    },
+    {
+     "role": "user",
+     "content": "每周二都去 这次我还有一段领唱",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "厉害"
+    },
+    {
+     "role": "user",
+     "content": "明天要早起送我妈去医院复查",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "早点睡"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "嗓子哑了一个月 今天去做了声带息肉手术",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 手术顺利吗"
+    },
+    {
+     "role": "user",
+     "content": "顺利 医生说三个月不能大声 最好少开口",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那好好养着"
+    },
+    {
+     "role": "user",
+     "content": "所以只能打字跟你聊 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "打字也挺好"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp2-cook-state",
+  "question_type": "implicit-state",
+  "category": "type-2",
+  "question": "我现在晚上还自己做第二天的饭吗",
+  "answer": "大概没有了：10月中退租搬进了公司宿舍，宿舍不让用明火、电磁炉都查，没法自己做饭带饭（以前每天晚上自己做第二天带去公司的饭）",
+  "question_date": "2026/10/21 (Wed) 20:30",
+  "haystack_dates": [
+   "2026/08/17 (Mon) 21:00",
+   "2026/09/15 (Tue) 21:30",
+   "2026/10/12 (Mon) 22:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "刚做完明天的饭 番茄炒蛋加青椒肉丝",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "带饭吗"
+    },
+    {
+     "role": "user",
+     "content": "嗯 每天晚上自己做 第二天带去公司 省钱",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "健康又省"
+    },
+    {
+     "role": "user",
+     "content": "今天被老板夸了 开心",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "夸啥了"
+    },
+    {
+     "role": "user",
+     "content": "说我报表做得清楚",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "实至名归"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今晚做了个可乐鸡翅 明天的午饭有了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "香"
+    },
+    {
+     "role": "user",
+     "content": "天天自己做 外卖都戒了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "厉害"
+    },
+    {
+     "role": "user",
+     "content": "最近在追一个综艺 每期都笑死",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "啥综艺"
+    },
+    {
+     "role": "user",
+     "content": "一个旅行的",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "轻松"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "退租了 搬进公司宿舍",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "宿舍怎么样"
+    },
+    {
+     "role": "user",
+     "content": "四人间 不让用明火 宿管连电磁炉都查",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "管得挺严"
+    },
+    {
+     "role": "user",
+     "content": "好处是离公司走路五分钟",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "能多睡会儿"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp2-ward-state",
+  "question_type": "implicit-state",
+  "category": "type-2",
+  "question": "我今天下班还得去医院陪外婆吗",
+  "answer": "不用了：外婆10月中已经出院，舅舅接回老家休养了（以前外婆住院期间，每天下班去医院陪床到九点）",
+  "question_date": "2026/10/22 (Thu) 17:30",
+  "haystack_dates": [
+   "2026/08/25 (Tue) 21:30",
+   "2026/09/22 (Tue) 21:40",
+   "2026/10/15 (Thu) 20:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "刚从医院出来 外婆今天精神好点了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那就好"
+    },
+    {
+     "role": "user",
+     "content": "她住院这段时间我每天下班去陪床 待到九点",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "辛苦你了"
+    },
+    {
+     "role": "user",
+     "content": "晚饭在医院食堂对付了一口",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "别饿着"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天在医院陪外婆看了一集戏曲频道",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "她喜欢听戏吗"
+    },
+    {
+     "role": "user",
+     "content": "超喜欢 每天下班过去就陪她看",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "暖"
+    },
+    {
+     "role": "user",
+     "content": "工作上那个项目终于上线了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "恭喜"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "外婆今天能回家了 舅舅开车接回老家休养",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "太好了"
+    },
+    {
+     "role": "user",
+     "content": "医生说恢复得不错 让她多走动",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "老人家回家心情也好"
+    },
+    {
+     "role": "user",
+     "content": "晚上点了个烤鸭犒劳自己",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "应该的"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp1-office-premise",
+  "question_type": "stale-premise",
+  "category": "type-1",
+  "question": "在家办公老是分心 有什么能提高专注的办法",
+  "answer": "好的回答要指出用户十月起已经回办公室坐班、不再在家办公，可以问是不是指周末在家处理工作，或按办公室环境给专注建议；直接当用户还在家办公给建议是错的。",
+  "question_date": "2026/10/27 (Tue) 22:30",
+  "haystack_dates": [
+   "2026/08/12 (Wed) 10:30",
+   "2026/09/02 (Wed) 13:10",
+   "2026/09/30 (Wed) 21:00",
+   "2026/10/14 (Wed) 20:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "在家办公第二年了 今天穿着睡衣开了三个会",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "镜头只拍到上半身就行"
+    },
+    {
+     "role": "user",
+     "content": "对 上面衬衫下面睡裤 标准装备",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "远程人的基本修养"
+    },
+    {
+     "role": "user",
+     "content": "早上煮了个溏心蛋 成功了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "溏心蛋很难掐准"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "在家办公最爽的就是午饭可以自己煮",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "今天煮了啥"
+    },
+    {
+     "role": "user",
+     "content": "西红柿鸡蛋面 吃完还能午睡二十分钟",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "这是坐班的人羡慕不来的"
+    },
+    {
+     "role": "user",
+     "content": "楼下有只小狗天天叫",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "可能是主人不在家"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "公司要求全员回办公室坐班了 下周一开始",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 远程结束了"
+    },
+    {
+     "role": "user",
+     "content": "单程四十分钟 早上要七点半出门",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那得早起了"
+    },
+    {
+     "role": "user",
+     "content": "睡衣开会的日子没了 哭",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "可以买几件舒服的通勤衣服"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "最近迷上做手账 买了一堆贴纸",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "手账最费贴纸"
+    },
+    {
+     "role": "user",
+     "content": "已经用掉一半了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那就是真的在用"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp1-spanish-premise",
+  "question_type": "stale-premise",
+  "category": "type-1",
+  "question": "法语动词变位老记混 有啥好的记忆方法",
+  "answer": "好的回答要指出用户已经不学法语、改学西班牙语了，可以问是不是想捡回法语，或改说西语动词变位怎么记；直接当用户还在学法语给变位方法是错的。",
+  "question_date": "2026/10/29 (Thu) 21:00",
+  "haystack_dates": [
+   "2026/08/06 (Thu) 22:00",
+   "2026/08/27 (Thu) 21:30",
+   "2026/09/24 (Thu) 20:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "法语的小舌音还是发不出来 练得嗓子疼",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "小舌音要慢慢找感觉"
+    },
+    {
+     "role": "user",
+     "content": "在学法语第二年了 每周两节课",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "两年 已经能聊几句了吧"
+    },
+    {
+     "role": "user",
+     "content": "今天公司发了月饼券",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "月饼券最后都去哪了"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "法语动词变位快把我逼疯了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "变位确实反人类"
+    },
+    {
+     "role": "user",
+     "content": "老师让我们背一篇法语短文 下周默写",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "默写有点狠"
+    },
+    {
+     "role": "user",
+     "content": "晚上去游泳了 人好多",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "暑假泳池都是小孩"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "跟你说 我不学法语了 公司明年要派我去墨西哥 现在改学西班牙语",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "墨西哥！好突然"
+    },
+    {
+     "role": "user",
+     "content": "法语课退了 报了西语的课 从字母开始",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "两种语言有点像 应该上手快"
+    },
+    {
+     "role": "user",
+     "content": "大舌音也发不出来 我跟弹舌有仇",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 慢慢练"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp1-dorm-premise",
+  "question_type": "stale-premise",
+  "category": "type-1",
+  "question": "宿舍十一点就锁门 周末想跟朋友看夜场电影 怎么跟宿管请假",
+  "answer": "好的回答要指出用户已经搬出宿舍、在外面租房住，没有门禁了，可以问是不是又搬回去了；直接当用户还住宿舍给请假晚归的建议是错的。",
+  "question_date": "2026/11/06 (Fri) 18:30",
+  "haystack_dates": [
+   "2026/08/30 (Sun) 23:20",
+   "2026/09/10 (Thu) 22:40",
+   "2026/10/03 (Sat) 19:30",
+   "2026/10/20 (Tue) 21:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "差点被关在宿舍外面 十一点门禁 我十点五十九冲进去的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "这也太极限了"
+    },
+    {
+     "role": "user",
+     "content": "宿管阿姨在门口盯着 一秒都不让",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "宿管阿姨都这样"
+    },
+    {
+     "role": "user",
+     "content": "今晚吃了学校后街的炸串",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "后街炸串是大学的灵魂"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "宿舍四个人 有一个打呼噜 我天天戴耳塞",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "戴耳塞会不会不舒服"
+    },
+    {
+     "role": "user",
+     "content": "习惯了 不然睡不着 而且十一点就锁门 也不好出去躲",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那确实没地方躲"
+    },
+    {
+     "role": "user",
+     "content": "这周开始上专业课了 好难",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "第一周最难熬"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "我搬出宿舍了 在学校旁边租了个单间",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "终于自由了"
+    },
+    {
+     "role": "user",
+     "content": "一个人住 没门禁 也不用听呼噜了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "太舒服了"
+    },
+    {
+     "role": "user",
+     "content": "就是每个月房租一千五 得去做兼职了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "自由是要钱的"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天上课被老师点名回答问题 卡住了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "下次就熟了"
+    },
+    {
+     "role": "user",
+     "content": "全班都在看我",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "大家很快就会忘的"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp1-swim-premise",
+  "question_type": "stale-premise",
+  "category": "type-1",
+  "question": "每天早上晨跑 最近膝盖有点不舒服 要换双跑鞋吗",
+  "answer": "好的回答要指出用户九月因为半月板受伤已经停跑、改游泳了，不该再建议晨跑或换跑鞋了事，可以问是不是又开始跑了，并提醒膝盖不舒服要遵医嘱；照用户每天晨跑给跑鞋建议是错的。",
+  "question_date": "2026/10/31 (Sat) 10:00",
+  "haystack_dates": [
+   "2026/08/05 (Wed) 07:30",
+   "2026/08/23 (Sun) 08:00",
+   "2026/09/18 (Fri) 20:40",
+   "2026/10/06 (Tue) 19:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "晨跑五公里打卡 今天配速快了十秒",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "每天早上都跑吗"
+    },
+    {
+     "role": "user",
+     "content": "对 雷打不动 六点出门 沿着河边跑",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "河边空气好"
+    },
+    {
+     "role": "user",
+     "content": "早饭是豆浆油条",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "跑完吃油条 很快乐"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天晨跑碰到下雨 跑了一半回家",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "淋湿没"
+    },
+    {
+     "role": "user",
+     "content": "湿透了 但跑步这件事不能断",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "坚持得很好"
+    },
+    {
+     "role": "user",
+     "content": "周末打算去看个画展",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "看什么画"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "膝盖半月板伤了 医生说不能再跑步了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 严重吗"
+    },
+    {
+     "role": "user",
+     "content": "不用手术 但得停跑 医生让我改游泳 我已经办了游泳卡",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "游泳对膝盖友好"
+    },
+    {
+     "role": "user",
+     "content": "现在下班后去游一千米",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "一千米很可以了"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "最近在追一部美食纪录片",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "看饿了吧"
+    },
+    {
+     "role": "user",
+     "content": "每集都看饿",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "看完记得别吃宵夜"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp2-guppy-premise",
+  "question_type": "stale-premise",
+  "category": "type-2",
+  "question": "孔雀鱼生的那些小的 要不要分出来单独放",
+  "answer": "好的回答要指出：10月下旬鱼缸裂了，孔雀鱼（包括小鱼）一条都没救回来，已经清理了；照常讨论要不要把小鱼分开养，算错",
+  "question_date": "2026/10/27 (Tue) 19:30",
+  "haystack_dates": [
+   "2026/08/13 (Thu) 20:00",
+   "2026/09/17 (Thu) 21:00",
+   "2026/10/21 (Wed) 08:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "下班回来第一件事喂孔雀鱼 它们一看到我就围过来",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "认人了"
+    },
+    {
+     "role": "user",
+     "content": "养了二十多条 每天定时喂一次",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "挺有成就感"
+    },
+    {
+     "role": "user",
+     "content": "今天公司停电 提前下班",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "赚到了"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "孔雀鱼又生了一窝小的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "越来越多了"
+    },
+    {
+     "role": "user",
+     "content": "每天喂的时候数都数不过来",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈"
+    },
+    {
+     "role": "user",
+     "content": "晚上吃的饺子 韭菜馅",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "香"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "崩溃 客厅那个缸半夜裂了 水淌了一地",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 鱼呢"
+    },
+    {
+     "role": "user",
+     "content": "一条都没救回来 早上全清理了 不想再弄了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "抱抱"
+    },
+    {
+     "role": "user",
+     "content": "楼下邻居还上来问漏水没",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "还好没漏下去"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp2-choir-premise",
+  "question_type": "stale-premise",
+  "category": "type-2",
+  "question": "今晚排练我那段领唱老破音 有啥练高音的办法",
+  "answer": "好的回答要指出：对方10月初刚做了声带息肉手术，医生说三个月不能大声，这阵子不该排练、更不该练高音；照常教练高音的方法，算错",
+  "question_date": "2026/10/20 (Tue) 18:30",
+  "haystack_dates": [
+   "2026/08/04 (Tue) 22:00",
+   "2026/09/08 (Tue) 22:10",
+   "2026/10/09 (Fri) 18:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "刚排练完 今天把那首新歌的高音唱上去了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "你是高声部吗"
+    },
+    {
+     "role": "user",
+     "content": "对 社区合唱团 每周二晚上排练",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "不错"
+    },
+    {
+     "role": "user",
+     "content": "晚饭在排练前随便啃了个面包",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "饿坏了吧"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "下个月合唱团要去区里比赛 今晚多练了一个小时",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "加油"
+    },
+    {
+     "role": "user",
+     "content": "每周二都去 这次我还有一段领唱",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "厉害"
+    },
+    {
+     "role": "user",
+     "content": "明天要早起送我妈去医院复查",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "早点睡"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "嗓子哑了一个月 今天去做了声带息肉手术",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 手术顺利吗"
+    },
+    {
+     "role": "user",
+     "content": "顺利 医生说三个月不能大声 最好少开口",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那好好养着"
+    },
+    {
+     "role": "user",
+     "content": "所以只能打字跟你聊 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "打字也挺好"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp2-cook-premise",
+  "question_type": "stale-premise",
+  "category": "type-2",
+  "question": "明天想带饭 今晚做个啥菜第二天热了还好吃",
+  "answer": "好的回答要指出或问到：对方10月中搬进公司宿舍，宿舍不让用明火、电磁炉都查，今晚大概没法做饭；照常推荐适合带饭的菜，算错",
+  "question_date": "2026/10/21 (Wed) 20:30",
+  "haystack_dates": [
+   "2026/08/17 (Mon) 21:00",
+   "2026/09/15 (Tue) 21:30",
+   "2026/10/12 (Mon) 22:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "刚做完明天的饭 番茄炒蛋加青椒肉丝",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "带饭吗"
+    },
+    {
+     "role": "user",
+     "content": "嗯 每天晚上自己做 第二天带去公司 省钱",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "健康又省"
+    },
+    {
+     "role": "user",
+     "content": "今天被老板夸了 开心",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "夸啥了"
+    },
+    {
+     "role": "user",
+     "content": "说我报表做得清楚",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "实至名归"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今晚做了个可乐鸡翅 明天的午饭有了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "香"
+    },
+    {
+     "role": "user",
+     "content": "天天自己做 外卖都戒了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "厉害"
+    },
+    {
+     "role": "user",
+     "content": "最近在追一个综艺 每期都笑死",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "啥综艺"
+    },
+    {
+     "role": "user",
+     "content": "一个旅行的",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "轻松"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "退租了 搬进公司宿舍",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "宿舍怎么样"
+    },
+    {
+     "role": "user",
+     "content": "四人间 不让用明火 宿管连电磁炉都查",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "管得挺严"
+    },
+    {
+     "role": "user",
+     "content": "好处是离公司走路五分钟",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "能多睡会儿"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp2-ward-premise",
+  "question_type": "stale-premise",
+  "category": "type-2",
+  "question": "下班去医院陪外婆前 顺路买点啥给她",
+  "answer": "好的回答要指出：外婆10月中已经出院、被舅舅接回老家休养了，不在医院；可以建议打电话或寄东西回老家；照常建议买什么带去医院，算错",
+  "question_date": "2026/10/22 (Thu) 17:30",
+  "haystack_dates": [
+   "2026/08/25 (Tue) 21:30",
+   "2026/09/22 (Tue) 21:40",
+   "2026/10/15 (Thu) 20:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "刚从医院出来 外婆今天精神好点了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那就好"
+    },
+    {
+     "role": "user",
+     "content": "她住院这段时间我每天下班去陪床 待到九点",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "辛苦你了"
+    },
+    {
+     "role": "user",
+     "content": "晚饭在医院食堂对付了一口",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "别饿着"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天在医院陪外婆看了一集戏曲频道",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "她喜欢听戏吗"
+    },
+    {
+     "role": "user",
+     "content": "超喜欢 每天下班过去就陪她看",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "暖"
+    },
+    {
+     "role": "user",
+     "content": "工作上那个项目终于上线了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "恭喜"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "外婆今天能回家了 舅舅开车接回老家休养",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "太好了"
+    },
+    {
+     "role": "user",
+     "content": "医生说恢复得不错 让她多走动",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "老人家回家心情也好"
+    },
+    {
+     "role": "user",
+     "content": "晚上点了个烤鸭犒劳自己",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "应该的"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp1-office-use",
+  "question_type": "implicit-use",
+  "category": "type-1",
+  "question": "明早九点有个会 我几点起床比较合适",
+  "answer": "要按用户现在去办公室坐班考虑：通勤单程约四十分钟，要留出路上的时间（七点半左右出门），按这个推算起床时间；按在家办公、起床就能开会来建议算错。",
+  "question_date": "2026/10/27 (Tue) 22:30",
+  "haystack_dates": [
+   "2026/08/12 (Wed) 10:30",
+   "2026/09/02 (Wed) 13:10",
+   "2026/09/30 (Wed) 21:00",
+   "2026/10/14 (Wed) 20:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "在家办公第二年了 今天穿着睡衣开了三个会",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "镜头只拍到上半身就行"
+    },
+    {
+     "role": "user",
+     "content": "对 上面衬衫下面睡裤 标准装备",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "远程人的基本修养"
+    },
+    {
+     "role": "user",
+     "content": "早上煮了个溏心蛋 成功了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "溏心蛋很难掐准"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "在家办公最爽的就是午饭可以自己煮",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "今天煮了啥"
+    },
+    {
+     "role": "user",
+     "content": "西红柿鸡蛋面 吃完还能午睡二十分钟",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "这是坐班的人羡慕不来的"
+    },
+    {
+     "role": "user",
+     "content": "楼下有只小狗天天叫",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "可能是主人不在家"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "公司要求全员回办公室坐班了 下周一开始",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 远程结束了"
+    },
+    {
+     "role": "user",
+     "content": "单程四十分钟 早上要七点半出门",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那得早起了"
+    },
+    {
+     "role": "user",
+     "content": "睡衣开会的日子没了 哭",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "可以买几件舒服的通勤衣服"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "最近迷上做手账 买了一堆贴纸",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "手账最费贴纸"
+    },
+    {
+     "role": "user",
+     "content": "已经用掉一半了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那就是真的在用"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp1-spanish-use",
+  "question_type": "implicit-use",
+  "category": "type-1",
+  "question": "帮我推荐几部适合练听力的电影",
+  "answer": "要按用户现在在学西班牙语（准备去墨西哥）考虑：推荐西班牙语电影，最好是墨西哥或拉美的片子；推荐法语电影算错。",
+  "question_date": "2026/10/29 (Thu) 21:00",
+  "haystack_dates": [
+   "2026/08/06 (Thu) 22:00",
+   "2026/08/27 (Thu) 21:30",
+   "2026/09/24 (Thu) 20:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "法语的小舌音还是发不出来 练得嗓子疼",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "小舌音要慢慢找感觉"
+    },
+    {
+     "role": "user",
+     "content": "在学法语第二年了 每周两节课",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "两年 已经能聊几句了吧"
+    },
+    {
+     "role": "user",
+     "content": "今天公司发了月饼券",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "月饼券最后都去哪了"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "法语动词变位快把我逼疯了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "变位确实反人类"
+    },
+    {
+     "role": "user",
+     "content": "老师让我们背一篇法语短文 下周默写",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "默写有点狠"
+    },
+    {
+     "role": "user",
+     "content": "晚上去游泳了 人好多",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "暑假泳池都是小孩"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "跟你说 我不学法语了 公司明年要派我去墨西哥 现在改学西班牙语",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "墨西哥！好突然"
+    },
+    {
+     "role": "user",
+     "content": "法语课退了 报了西语的课 从字母开始",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "两种语言有点像 应该上手快"
+    },
+    {
+     "role": "user",
+     "content": "大舌音也发不出来 我跟弹舌有仇",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 慢慢练"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp1-dorm-use",
+  "question_type": "implicit-use",
+  "category": "type-1",
+  "question": "周五同学聚会可能要到十一点半 回去会不会进不了门",
+  "answer": "要按用户现在一个人在学校旁边租单间考虑：没有门禁，不会被关在外面，注意晚归路上安全即可；以宿舍十一点门禁为由让用户提前走或请假算错。",
+  "question_date": "2026/11/06 (Fri) 18:30",
+  "haystack_dates": [
+   "2026/08/30 (Sun) 23:20",
+   "2026/09/10 (Thu) 22:40",
+   "2026/10/03 (Sat) 19:30",
+   "2026/10/20 (Tue) 21:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "差点被关在宿舍外面 十一点门禁 我十点五十九冲进去的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "这也太极限了"
+    },
+    {
+     "role": "user",
+     "content": "宿管阿姨在门口盯着 一秒都不让",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "宿管阿姨都这样"
+    },
+    {
+     "role": "user",
+     "content": "今晚吃了学校后街的炸串",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "后街炸串是大学的灵魂"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "宿舍四个人 有一个打呼噜 我天天戴耳塞",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "戴耳塞会不会不舒服"
+    },
+    {
+     "role": "user",
+     "content": "习惯了 不然睡不着 而且十一点就锁门 也不好出去躲",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那确实没地方躲"
+    },
+    {
+     "role": "user",
+     "content": "这周开始上专业课了 好难",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "第一周最难熬"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "我搬出宿舍了 在学校旁边租了个单间",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "终于自由了"
+    },
+    {
+     "role": "user",
+     "content": "一个人住 没门禁 也不用听呼噜了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "太舒服了"
+    },
+    {
+     "role": "user",
+     "content": "就是每个月房租一千五 得去做兼职了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "自由是要钱的"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天上课被老师点名回答问题 卡住了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "下次就熟了"
+    },
+    {
+     "role": "user",
+     "content": "全班都在看我",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "大家很快就会忘的"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp1-swim-use",
+  "question_type": "implicit-use",
+  "category": "type-1",
+  "question": "周末天气不错 想动一动 去干点啥好",
+  "answer": "要按用户膝盖受伤、现在改游泳考虑：建议去游泳或其他对膝盖友好的运动；建议去跑步、爬山、跳绳这类伤膝盖的运动算错。",
+  "question_date": "2026/10/31 (Sat) 10:00",
+  "haystack_dates": [
+   "2026/08/05 (Wed) 07:30",
+   "2026/08/23 (Sun) 08:00",
+   "2026/09/18 (Fri) 20:40",
+   "2026/10/06 (Tue) 19:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "晨跑五公里打卡 今天配速快了十秒",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "每天早上都跑吗"
+    },
+    {
+     "role": "user",
+     "content": "对 雷打不动 六点出门 沿着河边跑",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "河边空气好"
+    },
+    {
+     "role": "user",
+     "content": "早饭是豆浆油条",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "跑完吃油条 很快乐"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天晨跑碰到下雨 跑了一半回家",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "淋湿没"
+    },
+    {
+     "role": "user",
+     "content": "湿透了 但跑步这件事不能断",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "坚持得很好"
+    },
+    {
+     "role": "user",
+     "content": "周末打算去看个画展",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "看什么画"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "膝盖半月板伤了 医生说不能再跑步了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 严重吗"
+    },
+    {
+     "role": "user",
+     "content": "不用手术 但得停跑 医生让我改游泳 我已经办了游泳卡",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "游泳对膝盖友好"
+    },
+    {
+     "role": "user",
+     "content": "现在下班后去游一千米",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "一千米很可以了"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "最近在追一部美食纪录片",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "看饿了吧"
+    },
+    {
+     "role": "user",
+     "content": "每集都看饿",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "看完记得别吃宵夜"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp2-guppy-use",
+  "question_type": "implicit-use",
+  "category": "type-2",
+  "question": "下周要出差三天 走之前家里要安排点啥",
+  "answer": "回答不该提醒找人喂鱼或买自动喂食器（孔雀鱼10月下旬已经没了、缸也清理了）；可以提醒关水电、收快递等；建议安排喂鱼，算错",
+  "question_date": "2026/10/27 (Tue) 19:30",
+  "haystack_dates": [
+   "2026/08/13 (Thu) 20:00",
+   "2026/09/17 (Thu) 21:00",
+   "2026/10/21 (Wed) 08:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "下班回来第一件事喂孔雀鱼 它们一看到我就围过来",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "认人了"
+    },
+    {
+     "role": "user",
+     "content": "养了二十多条 每天定时喂一次",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "挺有成就感"
+    },
+    {
+     "role": "user",
+     "content": "今天公司停电 提前下班",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "赚到了"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "孔雀鱼又生了一窝小的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "越来越多了"
+    },
+    {
+     "role": "user",
+     "content": "每天喂的时候数都数不过来",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈"
+    },
+    {
+     "role": "user",
+     "content": "晚上吃的饺子 韭菜馅",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "香"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "崩溃 客厅那个缸半夜裂了 水淌了一地",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 鱼呢"
+    },
+    {
+     "role": "user",
+     "content": "一条都没救回来 早上全清理了 不想再弄了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "抱抱"
+    },
+    {
+     "role": "user",
+     "content": "楼下邻居还上来问漏水没",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "还好没漏下去"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp2-choir-use",
+  "question_type": "implicit-use",
+  "category": "type-2",
+  "question": "周末朋友约我去ktv 你说去不去",
+  "answer": "回答要顾及对方10月初刚做了声带息肉手术、三个月不能大声：应劝别去，或去了也不唱、不大声说话；照常鼓励去唱个痛快，算错",
+  "question_date": "2026/10/20 (Tue) 18:30",
+  "haystack_dates": [
+   "2026/08/04 (Tue) 22:00",
+   "2026/09/08 (Tue) 22:10",
+   "2026/10/09 (Fri) 18:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "刚排练完 今天把那首新歌的高音唱上去了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "你是高声部吗"
+    },
+    {
+     "role": "user",
+     "content": "对 社区合唱团 每周二晚上排练",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "不错"
+    },
+    {
+     "role": "user",
+     "content": "晚饭在排练前随便啃了个面包",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "饿坏了吧"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "下个月合唱团要去区里比赛 今晚多练了一个小时",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "加油"
+    },
+    {
+     "role": "user",
+     "content": "每周二都去 这次我还有一段领唱",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "厉害"
+    },
+    {
+     "role": "user",
+     "content": "明天要早起送我妈去医院复查",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "早点睡"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "嗓子哑了一个月 今天去做了声带息肉手术",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 手术顺利吗"
+    },
+    {
+     "role": "user",
+     "content": "顺利 医生说三个月不能大声 最好少开口",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那好好养着"
+    },
+    {
+     "role": "user",
+     "content": "所以只能打字跟你聊 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "打字也挺好"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp2-cook-use",
+  "question_type": "implicit-use",
+  "category": "type-2",
+  "question": "最近想省点钱 吃饭上有啥办法",
+  "answer": "回答要顾及对方住公司宿舍、不能开火做饭：可以建议吃公司食堂、便宜快餐、不用开火的吃法等；建议自己做饭带饭，算错",
+  "question_date": "2026/10/21 (Wed) 20:30",
+  "haystack_dates": [
+   "2026/08/17 (Mon) 21:00",
+   "2026/09/15 (Tue) 21:30",
+   "2026/10/12 (Mon) 22:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "刚做完明天的饭 番茄炒蛋加青椒肉丝",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "带饭吗"
+    },
+    {
+     "role": "user",
+     "content": "嗯 每天晚上自己做 第二天带去公司 省钱",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "健康又省"
+    },
+    {
+     "role": "user",
+     "content": "今天被老板夸了 开心",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "夸啥了"
+    },
+    {
+     "role": "user",
+     "content": "说我报表做得清楚",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "实至名归"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今晚做了个可乐鸡翅 明天的午饭有了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "香"
+    },
+    {
+     "role": "user",
+     "content": "天天自己做 外卖都戒了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "厉害"
+    },
+    {
+     "role": "user",
+     "content": "最近在追一个综艺 每期都笑死",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "啥综艺"
+    },
+    {
+     "role": "user",
+     "content": "一个旅行的",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "轻松"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "退租了 搬进公司宿舍",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "宿舍怎么样"
+    },
+    {
+     "role": "user",
+     "content": "四人间 不让用明火 宿管连电磁炉都查",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "管得挺严"
+    },
+    {
+     "role": "user",
+     "content": "好处是离公司走路五分钟",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "能多睡会儿"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-imp2-ward-use",
+  "question_type": "implicit-use",
+  "category": "type-2",
+  "question": "朋友约我这周四晚上七点吃饭 我能去吗",
+  "answer": "回答应说可以去：外婆10月中已经出院回老家，对方不用再每天下班去医院陪床；以晚上要去医院陪外婆为由劝不去或改期，算错",
+  "question_date": "2026/10/22 (Thu) 17:30",
+  "haystack_dates": [
+   "2026/08/25 (Tue) 21:30",
+   "2026/09/22 (Tue) 21:40",
+   "2026/10/15 (Thu) 20:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "刚从医院出来 外婆今天精神好点了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那就好"
+    },
+    {
+     "role": "user",
+     "content": "她住院这段时间我每天下班去陪床 待到九点",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "辛苦你了"
+    },
+    {
+     "role": "user",
+     "content": "晚饭在医院食堂对付了一口",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "别饿着"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天在医院陪外婆看了一集戏曲频道",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "她喜欢听戏吗"
+    },
+    {
+     "role": "user",
+     "content": "超喜欢 每天下班过去就陪她看",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "暖"
+    },
+    {
+     "role": "user",
+     "content": "工作上那个项目终于上线了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "恭喜"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "外婆今天能回家了 舅舅开车接回老家休养",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "太好了"
+    },
+    {
+     "role": "user",
+     "content": "医生说恢复得不错 让她多走动",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "老人家回家心情也好"
+    },
+    {
+     "role": "user",
+     "content": "晚上点了个烤鸭犒劳自己",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "应该的"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-feel-thesis",
+  "question_type": "feeling-cause",
+  "question": "焦虑得睡不着",
+  "answer": "好的回答要想起可能的原因：论文被导师多次打回、担心延毕，并用问句问对方（如「是论文的事吗」），而不是断言原因；只安慰不提原因，或把原因说成确定的事实（如「是论文又被打回了吧」），都算错。",
+  "question_date": "2026/11/06 (Fri) 01:30",
+  "haystack_dates": [
+   "2026/09/19 (Sat) 23:00",
+   "2026/10/17 (Sat) 23:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "论文第三稿又被导师打回来了 说框架不行 要重写 我真的绷不住",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "第三稿…"
+    },
+    {
+     "role": "user",
+     "content": "离答辩只剩两个月",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "时间还够"
+    },
+    {
+     "role": "user",
+     "content": "晚上食堂的糖醋里脊不错",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "难得"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天实验室停电了半天",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "正好歇会儿"
+    },
+    {
+     "role": "user",
+     "content": "导师说再不行就延毕 我一晚上都在改",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "先睡 明天再改"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-feel-landlord",
+  "question_type": "feeling-cause",
+  "question": "烦 不想说话",
+  "answer": "好的回答要想起可能的原因：房东要涨租五百、一直催他决定续不续租，并用问句问对方（如「房东又催你了吗」），而不是断言原因；只安慰不提原因，或把原因说成确定的事实（如「房东又来催了吧」），都算错。",
+  "question_date": "2026/10/11 (Sun) 21:00",
+  "haystack_dates": [
+   "2026/08/11 (Tue) 21:00",
+   "2026/09/30 (Wed) 21:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "房东又发消息说下季度要涨租五百 不涨就搬 好烦",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "五百不少"
+    },
+    {
+     "role": "user",
+     "content": "住得挺习惯的 不想搬",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "搬家确实折腾"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "中午吃了份烧鹅饭",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "烧鹅好"
+    },
+    {
+     "role": "user",
+     "content": "房东又打电话来催 问我到底续不续 我还没想好",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "先拖一拖"
+    },
+    {
+     "role": "user",
+     "content": "晚上看了个讲深海的纪录片",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "深海很神奇"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-feel-hair-loss",
+  "question_type": "feeling-cause",
+  "question": "越想越慌 怎么办啊",
+  "answer": "好的回答要想起可能的原因：他最近掉发严重、担心发际线，并用问句问对方（如「是又掉头发了吗」），而不是断言原因；只安慰不提原因，或把原因说成确定的事实（如「你是在愁掉头发吧」），都算错。",
+  "question_date": "2026/11/08 (Sun) 22:00",
+  "haystack_dates": [
+   "2026/09/15 (Tue) 22:00",
+   "2026/10/20 (Tue) 22:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "最近洗头掉一大把 地漏都堵了 我才二十六啊",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "压力大也会掉"
+    },
+    {
+     "role": "user",
+     "content": "可能最近熬夜太多",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "早点睡"
+    },
+    {
+     "role": "user",
+     "content": "晚上吃了碗馄饨",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "暖胃"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天公司发水果了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "啥水果"
+    },
+    {
+     "role": "user",
+     "content": "苹果 一人两个",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "实在"
+    },
+    {
+     "role": "user",
+     "content": "又掉了一把 我对着镜子看发际线看了半天",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "先别盯着看"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-still-asthma",
+  "question_type": "still-true",
+  "question": "明天去爬山 包里要带啥",
+  "answer": "好的回答会提醒带哮喘喷雾：用户从小有哮喘、要随身带喷雾，上次忘带爬楼都差点喘不上来；单位体检肺功能正常只说明控制得好，不是哮喘好了。说用户哮喘好了不用带算错；说成「可能已经不是这样了」也算错。",
+  "question_date": "2026/10/20 (Tue) 08:00",
+  "haystack_dates": [
+   "2026/08/13 (Thu) 22:00",
+   "2026/09/29 (Tue) 19:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "包里永远揣着哮喘喷雾 从小就有 换季最容易犯",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那得随身带"
+    },
+    {
+     "role": "user",
+     "content": "上次忘带 爬个楼梯差点喘不上来",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "吓人"
+    },
+    {
+     "role": "user",
+     "content": "今天吃了份咖喱饭",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "辣不辣"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天单位体检 肺功能那项居然正常 医生说控制得不错",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "好消息"
+    },
+    {
+     "role": "user",
+     "content": "晚上奖励自己一杯椰子水",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "清爽"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-still-nap",
+  "question_type": "still-true",
+  "question": "中午躺那半小时总睡不踏实 有啥办法",
+  "answer": "用户仍每天午睡半小时（工位底下放折叠床，吃完饭就躺）；有一天中午被临时会占了没睡成只是一次。应给午睡更踏实的建议（眼罩、耳塞、定闹钟等）。说用户已经不午睡了算错；说成「可能已经不是这样了」也算错。",
+  "question_date": "2026/10/14 (Wed) 11:30",
+  "haystack_dates": [
+   "2026/08/26 (Wed) 14:00",
+   "2026/09/23 (Wed) 18:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "刚午睡醒 每天中午不睡半小时 下午就跟丢了魂一样",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "午睡续命"
+    },
+    {
+     "role": "user",
+     "content": "工位底下放了个折叠床 吃完饭就躺",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "装备齐全"
+    },
+    {
+     "role": "user",
+     "content": "中午吃的黄焖鸡",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "米饭管够吗"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天中午被拉去开了个临时会 没睡成 下午困成狗",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "喝点茶顶一下"
+    },
+    {
+     "role": "user",
+     "content": "灌了两杯浓茶 晚上怕是睡不着了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那今晚早点躺"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-still-calico",
+  "question_type": "still-true",
+  "question": "家里想摆几盆绿植 有啥推荐的",
+  "answer": "好的回答会想到用户家仍养着三花猫豆包（爱趴桌上、打翻东西），推荐要避开对猫有毒的植物（如百合等）、选猫安全的；豆包出差时送去宠物店寄养了几天，已接回来。说猫已经不在家或送走了算错；说成「可能已经不是这样了」也算错。",
+  "question_date": "2026/10/25 (Sun) 15:00",
+  "haystack_dates": [
+   "2026/08/16 (Sun) 20:30",
+   "2026/09/30 (Wed) 22:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "我家三花豆包今天打翻了我的水杯 键盘进水了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "猫主子日常"
+    },
+    {
+     "role": "user",
+     "content": "她就喜欢趴我桌上 赶都赶不走",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "桌上暖和"
+    },
+    {
+     "role": "user",
+     "content": "下午去逛了个市集",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "买到啥了"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "这两天出差 把豆包送去宠物店寄养了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "她习惯吗"
+    },
+    {
+     "role": "user",
+     "content": "今天接回来了 一到家就钻柜子里生闷气 哈哈",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "记仇了"
+    },
+    {
+     "role": "user",
+     "content": "出差回来累瘫",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "早点休息"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-still-married",
+  "question_type": "still-true",
+  "question": "周末想跟他出去过个二人世界 去哪好",
+  "answer": "用户仍和老公在一起（结婚三年）；吵架后回娘家住了一晚，第二天老公就来接她回去了。应给夫妻周末出游的建议。说两人分居、离婚或关系可能破裂算错。",
+  "question_date": "2026/10/22 (Thu) 22:00",
+  "haystack_dates": [
+   "2026/08/08 (Sat) 21:00",
+   "2026/09/17 (Thu) 23:30",
+   "2026/09/18 (Fri) 21:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天结婚三周年 老公订了家西餐",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "周年快乐"
+    },
+    {
+     "role": "user",
+     "content": "三年了 还是天天吵谁洗碗 哈哈",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "过日子就这样"
+    },
+    {
+     "role": "user",
+     "content": "今天做了个美甲 闪闪的",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "好看"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "跟老公吵架了 我收拾东西回我妈家住一晚",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 怎么了"
+    },
+    {
+     "role": "user",
+     "content": "为他妈要来住的事 算了不想说",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "抱抱"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "他今天来接我回去了 买了我爱吃的榴莲",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "有诚意"
+    },
+    {
+     "role": "user",
+     "content": "公司发了月饼 五仁的",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "五仁有人爱"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-still-kindergarten",
+  "question_type": "still-true",
+  "question": "我现在是干哪行的来着",
+  "answer": "仍在那家幼儿园当老师（第五年，带小班）；园长退休换了个年轻男园长，只是领导变了、开会多了，用户没换工作。说用户换了工作或离职算错；说成「可能已经不是这样了」也算错。",
+  "question_date": "2026/10/29 (Thu) 21:00",
+  "haystack_dates": [
+   "2026/08/30 (Sun) 20:00",
+   "2026/10/10 (Sat) 19:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "明天开学 又要带小班了 一群刚离开家的崽 哭成一片",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "太难了"
+    },
+    {
+     "role": "user",
+     "content": "我在这家幼儿园干第五年了 习惯了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "老手了"
+    },
+    {
+     "role": "user",
+     "content": "晚上包了顿馄饨",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "什么馅"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "我们园长退休了 新来的园长是个年轻男的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "新官上任三把火"
+    },
+    {
+     "role": "user",
+     "content": "天天开会 改教案模板 烦",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "熬一熬"
+    },
+    {
+     "role": "user",
+     "content": "今天下雨 一天没出门",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "宅着也好"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-still-saturday-parents",
+  "question_type": "still-true",
+  "question": "明天晚上朋友约我去看演唱会 你觉得去不去",
+  "answer": "好的回答会想到明天是周六，用户照例每周六晚上开车回爸妈家吃饭（妈妈盼着这一顿），提醒和演唱会冲突、得跟家里说一声或调整；上次回家路上堵车晚到两小时，不改变这个习惯。说用户不再每周回家算错；说成「可能已经不是这样了」也算错。",
+  "question_date": "2026/10/16 (Fri) 20:00",
+  "haystack_dates": [
+   "2026/08/15 (Sat) 21:30",
+   "2026/09/12 (Sat) 22:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "每周六回爸妈家吃晚饭 开车四十分钟 我妈每次做一桌",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "幸福"
+    },
+    {
+     "role": "user",
+     "content": "她说一周就盼这一顿 不回去她要念",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "妈妈都这样"
+    },
+    {
+     "role": "user",
+     "content": "今天在高速上看到彩虹",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "好兆头"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天回去路上大堵车 晚了两个小时才到 菜热了三遍",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "惨"
+    },
+    {
+     "role": "user",
+     "content": "我妈还怪我不早点出门 哈哈",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "下次早点走"
+    },
+    {
+     "role": "user",
+     "content": "明天想睡懒觉",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "睡到自然醒"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-still-pottery",
+  "question_type": "still-true",
+  "question": "我周末那个手作的事 还在搞吗",
+  "answer": "还在，用户仍每周六下午去陶艺工作室拉坯（去了小半年）；工作室因为租金搬到了楼上、换了新窑，不影响用户去。说用户不去了或可能停了算错。",
+  "question_date": "2026/11/01 (Sun) 21:00",
+  "haystack_dates": [
+   "2026/08/22 (Sat) 18:30",
+   "2026/10/17 (Sat) 20:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "每周六下午去陶艺工作室拉坯 去了小半年了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "做出啥了"
+    },
+    {
+     "role": "user",
+     "content": "一堆歪碗 但我自己用得很开心",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "自己做的最香"
+    },
+    {
+     "role": "user",
+     "content": "今天还买了杯新出的柠檬茶",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "好喝吗"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "陶艺工作室搬到楼上去了 原来那层租金涨了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "搬家麻烦"
+    },
+    {
+     "role": "user",
+     "content": "新地方更大 窑也换了个新的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "升级了"
+    },
+    {
+     "role": "user",
+     "content": "晚上吃了顿烤串",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "配啤酒了吗"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-still-full-repay",
+  "question_type": "still-true",
+  "question": "我刷卡是一次还清还是分期来着",
+  "answer": "一次全额还清，从不分期（账单日设了提醒就还清）；银行打电话推分期被用户直接挂了，这个月刷了九千多照样一次还了。说用户开始分期了算错；说成「可能已经不是这样了」也算错。",
+  "question_date": "2026/11/03 (Tue) 22:00",
+  "haystack_dates": [
+   "2026/09/01 (Tue) 21:00",
+   "2026/10/12 (Mon) 20:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "我信用卡从来都是每月全额还 一分钱利息不想给银行",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "好习惯"
+    },
+    {
+     "role": "user",
+     "content": "账单日一到就还清 设了提醒",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "稳"
+    },
+    {
+     "role": "user",
+     "content": "今天吃了个超大的烤红薯",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "冬天要来了"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "银行又打电话推分期 说手续费打折 我直接挂了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "果断"
+    },
+    {
+     "role": "user",
+     "content": "这个月刷得有点多 九千多 照样一次还了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那就好"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-known-gelato",
+  "question_type": "associated",
+  "category": "model-known",
+  "question": "商场新开了家意式冰淇淋 gelato 排老长的队 你说我要去排吗",
+  "answer": "应联系到他乳糖不耐（喝牛奶就闹肚子）：gelato 是奶做的，提醒吃了可能会不舒服，可以选水果雪芭那类不含奶的，或者别吃太多；只说好吃快去排、不提乳糖不耐的算错",
+  "question_date": "2026/10/04 (Sun) 16:00",
+  "haystack_dates": [
+   "2026/08/25 (Tue) 22:00",
+   "2026/09/12 (Sat) 20:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "早上喝了一盒纯牛奶 现在肚子还在闹",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "吃坏了？"
+    },
+    {
+     "role": "user",
+     "content": "不是 我乳糖不耐 一喝就这样 又忘了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那得长记性了"
+    },
+    {
+     "role": "user",
+     "content": "今天还被领导点名 双重暴击",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "今天不太顺啊"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "最近在追一部日剧 讲便利店店员的",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "好看吗"
+    },
+    {
+     "role": "user",
+     "content": "节奏慢 但挺治愈的",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "适合下班看"
+    },
+    {
+     "role": "user",
+     "content": "周末打算把阳台的花换盆",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "记得换大一号的"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-known-road-trip",
+  "question_type": "associated",
+  "category": "model-known",
+  "question": "元旦想跟对象去川西 租辆车一路开过去 你觉得怎么样",
+  "answer": "应联系到他驾照还没考下来（科目二挂了两次，估计年底都拿不到）：租车自驾需要驾照，要么让对象开、要么报团或包车；只聊川西路线风景、不提驾照的算错",
+  "question_date": "2026/10/26 (Mon) 22:00",
+  "haystack_dates": [
+   "2026/08/30 (Sun) 20:30",
+   "2026/09/21 (Mon) 12:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "科目二又挂了 第二次了 倒车入库压线",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 好可惜"
+    },
+    {
+     "role": "user",
+     "content": "教练说我方向感感人 驾照估计年底都拿不到",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "慢慢来 多练几次"
+    },
+    {
+     "role": "user",
+     "content": "今晚吃顿好的安慰下自己 点了烤鱼",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "该吃"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "楼下奶茶店倒闭了 难过",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "你常去那家？"
+    },
+    {
+     "role": "user",
+     "content": "每周两杯 老板人很好",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那确实可惜"
+    },
+    {
+     "role": "user",
+     "content": "下午还要开个复盘会 好困",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "会前喝点茶"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-private-orange-scent",
+  "question_type": "associated",
+  "category": "private-link",
+  "question": "我妈给我寄了瓶新沐浴露 橙子味的 刚洗完澡 一屋子都是这味",
+  "answer": "应联系到他闻到柑橘香会想起分手快两年的前女友（她以前常喷柑橘味香水，地铁上闻到同样的味道他愣了一站）：好回答会轻轻问一句会不会又想起她、还好吗；只聊沐浴露好不好用的算错",
+  "question_date": "2026/10/17 (Sat) 21:50",
+  "haystack_dates": [
+   "2026/08/26 (Wed) 23:30",
+   "2026/09/20 (Sun) 11:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天地铁上旁边一个人身上的香水味 我愣了一站",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "怎么啦"
+    },
+    {
+     "role": "user",
+     "content": "柑橘那种 跟我前女友以前常喷的一模一样 分了快两年了 一闻到还是会想起她",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那一下肯定挺恍惚的"
+    },
+    {
+     "role": "user",
+     "content": "嗯 我还以为我早放下了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "放下也不代表会忘"
+    },
+    {
+     "role": "user",
+     "content": "算了不说了 明天还要交周报",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "早点写完早点睡"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "周末去爬了个小山 腿酸到现在",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "多高的山"
+    },
+    {
+     "role": "user",
+     "content": "就七百米 我太菜了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "能爬上去就不菜"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-private-first-snow",
+  "question_type": "associated",
+  "category": "private-link",
+  "question": "天气预报说周末北京开始飘白的了 今年来得好早",
+  "answer": "应联系到他和大学室友小葵的约定：上学时每年第一场雪那天一定一起去学校后门吃烤串，她去深圳后就断了，她说今年冬天要是能回北京就补上；好回答会提起要不要问问小葵、把这个约定补上；只说注意保暖、出门穿厚点的算错",
+  "question_date": "2026/11/12 (Thu) 08:00",
+  "haystack_dates": [
+   "2026/08/31 (Mon) 21:10",
+   "2026/09/25 (Fri) 18:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天跟大学室友小葵视频 她在深圳热死了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "深圳现在确实热"
+    },
+    {
+     "role": "user",
+     "content": "我们上学那会儿有个规矩 每年第一场雪那天一定一起去学校后门吃烤串 雷打不动 她去深圳以后就断了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "这个规矩好可爱"
+    },
+    {
+     "role": "user",
+     "content": "她说今年冬天要是能回北京 就补上",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那就等她回来"
+    },
+    {
+     "role": "user",
+     "content": "聊完饿了 点了份麻辣烫",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "深夜放毒"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "下班地铁挤成照片了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "周五都这样"
+    },
+    {
+     "role": "user",
+     "content": "还有人在车厢里吃韭菜盒子",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "太狠了"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-meme-butterfly",
+  "question_type": "associated",
+  "category": "searchable-meme",
+  "question": "新同事说我一看就是小蝴蝶 这算夸我吗",
+  "answer": "应理解「小蝴蝶」是网上对 MBTI 里 INFP 的昵称，并联系到他测出来就是 INFP（敏感、爱幻想、开会被点名就想原地消失）：好回答会说同事是在说他像 INFP、而且确实挺准；当成真蝴蝶或看不懂这个说法的算错",
+  "question_date": "2026/10/19 (Mon) 21:30",
+  "haystack_dates": [
+   "2026/08/21 (Fri) 23:00",
+   "2026/09/22 (Tue) 20:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天公司培训让做MBTI 我测出来是INFP",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "准吗"
+    },
+    {
+     "role": "user",
+     "content": "挺准的 敏感 爱幻想 开会被点名发言就想原地消失",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 能想象"
+    },
+    {
+     "role": "user",
+     "content": "晚上吃了碗馄饨 皮薄馅大",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "听着就香"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "最近在学吉他 手指头磨出茧了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "能弹整首了吗"
+    },
+    {
+     "role": "user",
+     "content": "就会四个和弦 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "四个和弦能弹好多歌了"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-meme-zhacai",
+  "question_type": "associated",
+  "category": "searchable-meme",
+  "question": "外卖到了 我的电子榨菜呢 你猜我今天配啥",
+  "answer": "应理解「电子榨菜」指吃饭时开着下饭的视频或剧，并联系到他吃饭必开《甄嬛传》（已经刷到第八遍、台词都能背）：好回答会猜甄嬛传；看不懂这个说法、或去聊真的榨菜的算错",
+  "question_date": "2026/10/23 (Fri) 12:10",
+  "haystack_dates": [
+   "2026/08/17 (Mon) 12:30",
+   "2026/09/24 (Thu) 21:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "吃饭必须开着甄嬛传 不然吃不下去",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "看了几遍了"
+    },
+    {
+     "role": "user",
+     "content": "第八遍了 台词都能背 一边吃一边跟着念",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "这是真爱"
+    },
+    {
+     "role": "user",
+     "content": "今天下午还要去见客户 有点慌",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "准备好资料就行"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "我家楼下装修 电钻声从早到晚",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "周末也钻吗"
+    },
+    {
+     "role": "user",
+     "content": "周末更勤快",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "太难了"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-group-stall",
+  "question_type": "associated",
+  "category": "group-meme",
+  "question": "下周末天气好 出摊不 算我一个",
+  "answer": "应按这个群里的用法把「出摊」理解为去露营，并联系到他的帐篷借给了小周、说十月底才还：好回答会提醒他帐篷还在小周那、要么先催回来要么借一顶；当成去摆摊做生意、或直接说好啊的算错",
+  "question_date": "2026/10/10 (Sat) 09:30",
+  "question_venue": "group:qq:22360679",
+  "haystack_dates": [
+   "2026/08/09 (Sun) 20:00",
+   "2026/08/30 (Sun) 22:10",
+   "2026/09/18 (Fri) 18:00"
+  ],
+  "haystack_venues": [
+   "group:qq:22360679",
+   "group:qq:22360679",
+   "group:qq:22360679"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "这周末出摊 安吉那边 营地订好了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "天气怎么样"
+    },
+    {
+     "role": "user",
+     "content": "晴 带了天幕和炉子 准备烤串",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "听着就舒服"
+    },
+    {
+     "role": "user",
+     "content": "今天还顺手把车洗了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "出发前洗车 讲究"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "出摊回来了 半夜下雨 天幕差点被吹跑",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "人没事吧"
+    },
+    {
+     "role": "user",
+     "content": "没事 就是睡袋湿了一半 哈哈",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "下次选个背风的位置"
+    },
+    {
+     "role": "user",
+     "content": "明天还要回公司补方案 头疼",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "加油"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "帐篷借给小周了 他说带女朋友去山里过纪念日",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "他什么时候还"
+    },
+    {
+     "role": "user",
+     "content": "说十月底还我 估计又要拖",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那你记得催"
+    },
+    {
+     "role": "user",
+     "content": "今晚食堂居然有小龙虾",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "运气不错"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-group-tea",
+  "question_type": "associated",
+  "category": "group-meme",
+  "question": "完了 老板刚私信我 下午三点 喝茶",
+  "answer": "应按这个群里的用法把「喝茶」理解为被老板叫去单独谈话、挨训，并联系到他这季度KPI只完成六成、HR上周已经提醒过一次、再这样可能进改进计划：好回答会结合KPI帮他想想谈话怎么应对；当成老板真请他喝茶、或只说好好享受的算错",
+  "question_date": "2026/10/14 (Wed) 14:20",
+  "question_venue": "group:qq:26457513",
+  "haystack_dates": [
+   "2026/08/21 (Fri) 18:30",
+   "2026/09/09 (Wed) 17:40",
+   "2026/09/29 (Tue) 20:10"
+  ],
+  "haystack_venues": [
+   "group:qq:26457513",
+   "group:qq:26457513",
+   "group:qq:26457513"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "隔壁组小李今天被叫去喝茶了 出来脸都白了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "被说了什么"
+    },
+    {
+     "role": "user",
+     "content": "项目延期 老板关上门训了半小时",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那可不是好茶"
+    },
+    {
+     "role": "user",
+     "content": "晚上部门聚餐 烤鸭",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "好吃吗"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "求保佑 这周别被叫去喝茶",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "你做了什么"
+    },
+    {
+     "role": "user",
+     "content": "周报写得太水了 估计被看出来了 哈哈",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那这周好好写一篇"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "这季度我的KPI差了一大截 上周HR已经找我提醒过一次了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "差多少"
+    },
+    {
+     "role": "user",
+     "content": "完成了六成 下季度要是还这样估计要进改进计划",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那这段时间得冲一冲"
+    },
+    {
+     "role": "user",
+     "content": "今晚先吃顿麻辣香锅压压惊",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "吃完再说"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-later-piano",
+  "question_type": "associated",
+  "category": "learned-later",
+  "question": "楼下小音符在招成人学员 一周一节课 我有点心动",
+  "answer": "应联系到他小时候的钢琴老师林老师（他十岁差点放弃是她一直拉着他，后来搬家断了联系、一直遗憾），并想起他后来知道小音符琴行的老板就是林老师的女儿、林老师退休住在城西：好回答会提到这层缘分，比如报了说不定能再见到林老师；只聊学费和时间安排的算错",
+  "question_date": "2026/11/05 (Thu) 21:00",
+  "haystack_dates": [
+   "2026/08/18 (Tue) 22:00",
+   "2026/09/16 (Wed) 18:20",
+   "2026/10/07 (Wed) 20:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天翻到小时候的琴谱 想起林老师了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "林老师是？"
+    },
+    {
+     "role": "user",
+     "content": "我小时候的钢琴老师 我十岁差点放弃 是她一直拉着我 对我影响特别大",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "好老师"
+    },
+    {
+     "role": "user",
+     "content": "后来搬家就断了联系 一直挺遗憾",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "说不定以后还能联系上"
+    },
+    {
+     "role": "user",
+     "content": "收拾的时候还翻出一堆旧照片",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那可以慢慢看"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天加班到八点 外卖都凉了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "热一下再吃"
+    },
+    {
+     "role": "user",
+     "content": "公司微波炉排队 算了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "辛苦"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "才知道楼下那家小音符琴行 老板就是林老师的女儿 她说林老师退休了 住在城西",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "这也太巧了"
+    },
+    {
+     "role": "user",
+     "content": "我还加了她微信",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "说不定能见到林老师"
+    },
+    {
+     "role": "user",
+     "content": "今晚炖了排骨汤",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "香"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-later-hay",
+  "question_type": "associated",
+  "category": "learned-later",
+  "question": "宠物店老板推荐我试试青禾 说新到的货 比平时便宜一半",
+  "answer": "应联系到他家垂耳兔可颂一吃绿野牌的提摩西草就拉肚子（折腾一个月才发现），并想起他后来知道青禾和绿野是同一个厂代工、配方差不多：好回答会提醒可颂吃了多半一样拉肚子、别贪便宜；只说便宜可以试试的算错",
+  "question_date": "2026/11/01 (Sun) 11:00",
+  "haystack_dates": [
+   "2026/08/28 (Fri) 20:00",
+   "2026/09/26 (Sat) 16:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "可颂又拉稀了 换回原来的草就好了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "可颂是？"
+    },
+    {
+     "role": "user",
+     "content": "我家垂耳兔 一吃绿野牌的提摩西草就拉肚子 折腾了一个月才发现",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那以后别买那个了"
+    },
+    {
+     "role": "user",
+     "content": "今天上班路上看到一只白鹭",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "城里也有？"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "跟兔友聊天才知道 青禾跟绿野其实是同一个厂代工的 配方差不多 就换了个包装",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "原来是一家"
+    },
+    {
+     "role": "user",
+     "content": "嗯 群里好几个人都这么说",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那挺有参考价值"
+    },
+    {
+     "role": "user",
+     "content": "今天在超市抢到半价榴莲",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "运气不错"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-pair-wedding-recall",
+  "question_type": "associated",
+  "category": "paired",
+  "pair": "wedding",
+  "question": "阿杰今天突然发微信 问我能不能借他五千",
+  "answer": "应想到阿杰结婚没请他（大学上下铺四年，他一直为此膈应），结合这层关系帮他想要不要借、问问他怎么想；只当普通借钱问题来答算没想起。",
+  "question_date": "2026/10/18 (Sun) 20:40",
+  "haystack_dates": [
+   "2026/08/24 (Mon) 22:30",
+   "2026/09/12 (Sat) 21:10"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "阿杰结婚了 我是刷朋友圈才知道的 没请我",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊？你俩不是挺铁的吗"
+    },
+    {
+     "role": "user",
+     "content": "我一直以为是 大学睡上下铺四年 结果人家请了一堆同事 就没叫我",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那确实挺伤的"
+    },
+    {
+     "role": "user",
+     "content": "晚上一个人去吃了碗牛肉面",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "牛肉面治百病"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天开会被领导点名表扬了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哟 难得"
+    },
+    {
+     "role": "user",
+     "content": "写了半个月的方案 总算没白干",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "值了"
+    },
+    {
+     "role": "user",
+     "content": "阿杰那事我想通了一点 但还是有点膈应",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "慢慢来"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-pair-wedding-hold",
+  "question_type": "associated",
+  "category": "paired",
+  "pair": "wedding",
+  "question": "下个月表姐结婚 我们这边随礼一般随多少合适",
+  "answer": "正常给随礼金额的建议即可（看关系远近、当地行情）；不应提起阿杰结婚没请他的事。",
+  "question_date": "2026/10/19 (Mon) 21:00",
+  "haystack_dates": [
+   "2026/08/24 (Mon) 22:30",
+   "2026/09/12 (Sat) 21:10"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "阿杰结婚了 我是刷朋友圈才知道的 没请我",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊？你俩不是挺铁的吗"
+    },
+    {
+     "role": "user",
+     "content": "我一直以为是 大学睡上下铺四年 结果人家请了一堆同事 就没叫我",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那确实挺伤的"
+    },
+    {
+     "role": "user",
+     "content": "晚上一个人去吃了碗牛肉面",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "牛肉面治百病"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天开会被领导点名表扬了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哟 难得"
+    },
+    {
+     "role": "user",
+     "content": "写了半个月的方案 总算没白干",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "值了"
+    },
+    {
+     "role": "user",
+     "content": "阿杰那事我想通了一点 但还是有点膈应",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "慢慢来"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-pair-weight-recall",
+  "question_type": "associated",
+  "category": "paired",
+  "pair": "weight",
+  "question": "下周六家族聚餐 我妈又喊我去",
+  "answer": "应想到中秋聚餐时大姨当众说他胖、他一直很在意，体贴地问他是不是有压力或不太想见大姨；只当普通聚餐来聊算没想起。",
+  "question_date": "2026/11/01 (Sun) 21:00",
+  "haystack_dates": [
+   "2026/09/27 (Sun) 22:00",
+   "2026/10/10 (Sat) 21:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "中秋家里聚餐 我大姨当着一桌人说我胖成球了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "当着一桌人说这个 太过分了"
+    },
+    {
+     "role": "user",
+     "content": "我笑着没吭声 回家越想越难受 开始减肥了 晚饭都不吃了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "别饿坏 慢慢来"
+    },
+    {
+     "role": "user",
+     "content": "我妈还给我塞了一盒月饼带回来",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "月饼…先放着吧"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "楼下新开了家奶茶店 排老长",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "你去了吗"
+    },
+    {
+     "role": "user",
+     "content": "没有 忍住了 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "了不起"
+    },
+    {
+     "role": "user",
+     "content": "还是挺在意大姨那句话 上秤都不敢看",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "数字没那么重要"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-pair-weight-hold",
+  "question_type": "associated",
+  "category": "paired",
+  "pair": "weight",
+  "question": "周末想吃烤肉 推荐点好吃的部位",
+  "answer": "正常推荐烤肉部位即可；不应提起他被说胖、在减肥的事（不要劝他少吃或提热量）。",
+  "question_date": "2026/11/02 (Mon) 19:40",
+  "haystack_dates": [
+   "2026/09/27 (Sun) 22:00",
+   "2026/10/10 (Sat) 21:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "中秋家里聚餐 我大姨当着一桌人说我胖成球了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "当着一桌人说这个 太过分了"
+    },
+    {
+     "role": "user",
+     "content": "我笑着没吭声 回家越想越难受 开始减肥了 晚饭都不吃了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "别饿坏 慢慢来"
+    },
+    {
+     "role": "user",
+     "content": "我妈还给我塞了一盒月饼带回来",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "月饼…先放着吧"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "楼下新开了家奶茶店 排老长",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "你去了吗"
+    },
+    {
+     "role": "user",
+     "content": "没有 忍住了 哈哈",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "了不起"
+    },
+    {
+     "role": "user",
+     "content": "还是挺在意大姨那句话 上秤都不敢看",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "数字没那么重要"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-detail-parking",
+  "question_type": "associated",
+  "category": "in-detail",
+  "question": "物业让我在表上填自己的车位号 我脑子一片空白",
+  "answer": "B2-147（八月底看新房装修时车位抽签抽到的，离电梯远）。",
+  "question_date": "2026/10/24 (Sat) 10:30",
+  "haystack_dates": [
+   "2026/08/30 (Sun) 17:00",
+   "2026/09/19 (Sat) 21:20"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "带爸妈去看了新房装修进度",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "弄到哪一步了"
+    },
+    {
+     "role": "user",
+     "content": "水电走完了 在铺砖",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "快了"
+    },
+    {
+     "role": "user",
+     "content": "车位抽签也抽了 抽到B2的147 离电梯老远",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "走两步就当锻炼"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "今天楼下奶茶第二杯半价",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "喝了两杯？"
+    },
+    {
+     "role": "user",
+     "content": "跟同事一人一杯",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "合理"
+    },
+    {
+     "role": "user",
+     "content": "周末要去参加大学同学聚会",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "好多年没见了吧"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-detail-debt",
+  "question_type": "associated",
+  "category": "in-detail",
+  "question": "月底了 想把账都清一清 我还有没给的吗",
+  "answer": "还欠老刘两百块（九月去小周婚礼随份子现金不够，老刘帮他垫的）。",
+  "question_date": "2026/10/30 (Fri) 21:00",
+  "haystack_dates": [
+   "2026/09/13 (Sun) 22:10",
+   "2026/10/05 (Mon) 20:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "今天去了小周的婚礼 新娘超好看",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "你哭了没"
+    },
+    {
+     "role": "user",
+     "content": "差点 主要是饭真好吃",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "婚宴饭好吃难得"
+    },
+    {
+     "role": "user",
+     "content": "随份子我现金带少了 同去的老刘帮我垫了两百 说回头再给他",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "记得还"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "假期去爬了趟山 腿要废",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哪座山"
+    },
+    {
+     "role": "user",
+     "content": "就城郊那座 不高 但台阶多",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "台阶最磨人"
+    },
+    {
+     "role": "user",
+     "content": "晚上回来嗦了碗酸辣粉",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "爬完山来碗粉 舒服"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-cross-veg-client",
+  "question_type": "associated",
+  "category": "cross-topic",
+  "question": "请客那顿订哪儿合适 帮我想想",
+  "answer": "要合起来：客户是潮汕人、爱吃牛肉 → 可订潮汕牛肉火锅这类店；同时他自己吃素（肉蛋都不吃），要提醒挑素菜够多、有清汤锅底或能单点素菜的店，让他自己也能吃；只推荐牛肉店不顾他吃素，或只推荐素食店不顾客户口味，都算错（两条都要用上才算对）。",
+  "question_date": "2026/10/15 (Thu) 21:00",
+  "haystack_dates": [
+   "2026/08/28 (Fri) 21:00",
+   "2026/10/13 (Tue) 22:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "我吃素三年了 肉蛋都不碰 主要是自己舒服",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "三年很坚持"
+    },
+    {
+     "role": "user",
+     "content": "一开始也馋 现在完全不想",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "习惯了就好"
+    },
+    {
+     "role": "user",
+     "content": "今天加班到九点 脑子木了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "早点歇"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "下周要请一个潮汕来的客户吃饭 听说他超爱吃牛肉",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "投其所好"
+    },
+    {
+     "role": "user",
+     "content": "领导让我全权安排 压力山大",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "你能行"
+    },
+    {
+     "role": "user",
+     "content": "晚上看了部老港片 好怀旧",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哪部"
+    },
+    {
+     "role": "user",
+     "content": "讲卧底的 名字忘了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那类片都好看"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-cross-allergy-drive",
+  "question_type": "associated",
+  "category": "cross-topic",
+  "question": "明天一早就出发了 路上要注意点啥",
+  "answer": "要合起来：明天他要自己开三个多小时高速回老家 + 他在吃会让人很困的抗过敏药 → 提醒开车前别吃那药（或按医生说的改到晚上吃、确保开车时不犯困），困了就进服务区休息；只给一般的行车建议、不提这药犯困，算没用上记忆。",
+  "question_date": "2026/10/23 (Fri) 22:00",
+  "haystack_dates": [
+   "2026/09/08 (Tue) 22:00",
+   "2026/10/21 (Wed) 21:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "换季鼻炎又犯了 医生开了个抗过敏药 吃完困得要命 上班一直点头",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那类药确实容易犯困"
+    },
+    {
+     "role": "user",
+     "content": "医生说一天一片 晚上吃也行",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那就晚上吃"
+    },
+    {
+     "role": "user",
+     "content": "今天食堂有红烧排骨",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "抢到了吗"
+    },
+    {
+     "role": "user",
+     "content": "抢到最后两块",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "运气好"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "周六要开车回老家 三个多小时高速",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "自己开吗"
+    },
+    {
+     "role": "user",
+     "content": "嗯 爸妈让带点特产回去",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "后备箱塞满"
+    },
+    {
+     "role": "user",
+     "content": "在追的那个综艺又鸽了一周",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "鸽王"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-reminded-alcohol",
+  "question_type": "associated",
+  "category": "reminded",
+  "question": "周五部门团建 让我负责订地方 订啥好",
+  "answer": "推荐地方要顾及他酒精过敏、一滴不沾（之前推荐酒吧被纠正过）：别订酒吧或以喝酒为主的地方，或至少提醒备好无酒精饮品；推荐酒吧、精酿算错。",
+  "question_date": "2026/11/04 (Wed) 21:00",
+  "haystack_dates": [
+   "2026/08/19 (Wed) 21:00",
+   "2026/09/22 (Tue) 21:30",
+   "2026/10/14 (Wed) 22:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "我酒精过敏 一口啤酒就满脸通红起疹子 所以一滴不沾",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那得小心"
+    },
+    {
+     "role": "user",
+     "content": "每次聚餐都要解释半天",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "辛苦"
+    },
+    {
+     "role": "user",
+     "content": "中午吃的酸菜鱼",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "酸菜鱼下饭"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "周末想放松一下",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "去那家精酿酒吧坐坐？他们的白啤不错"
+    },
+    {
+     "role": "user",
+     "content": "我酒精过敏啊 喝不了的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "抱歉 忘了 那去那家安静的书店咖啡馆？"
+    },
+    {
+     "role": "user",
+     "content": "这个可以",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "嗯"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "新买的空气炸锅到了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "先烤个鸡翅"
+    },
+    {
+     "role": "user",
+     "content": "烤了 外酥里嫩",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "成功"
+    },
+    {
+     "role": "user",
+     "content": "楼上又在拖椅子 吱吱响",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "那声音受不了"
+    }
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-assoc-reminded-heights",
+  "question_type": "associated",
+  "category": "reminded",
+  "question": "下个月去广州玩两天 有啥值得去的",
+  "answer": "推荐广州的去处要顾及他恐高（之前推荐玻璃观景台被纠正过）：不推荐广州塔高空项目（摩天轮、跳楼机等）、玻璃栈道之类，可推荐地面上的去处（老城区、早茶、珠江夜游等）；把高空项目当重点推荐算错。",
+  "question_date": "2026/11/05 (Thu) 20:30",
+  "haystack_dates": [
+   "2026/08/31 (Mon) 21:00",
+   "2026/09/29 (Tue) 22:00",
+   "2026/10/19 (Mon) 21:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "我恐高 站三楼阳台往下看腿都软",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那高的地方都不去？"
+    },
+    {
+     "role": "user",
+     "content": "玻璃栈道那种想都别想",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "不去就不去"
+    },
+    {
+     "role": "user",
+     "content": "今天开了一天会 嗓子都哑了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "多喝水"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "国庆想去杭州",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "去山顶那个玻璃观景台看西湖吧 超美"
+    },
+    {
+     "role": "user",
+     "content": "我恐高啊 你忘啦",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊对 抱歉 那就湖边走走 坐船游湖"
+    },
+    {
+     "role": "user",
+     "content": "坐船可以",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "嗯"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "公司今天才发月饼券 节都过了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "这时间点绝了"
+    },
+    {
+     "role": "user",
+     "content": "拿去换了酸奶",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "机智"
+    },
+    {
+     "role": "user",
+     "content": "晚上补了集动漫",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哪部"
+    }
+   ]
+  ]
+ }
+]

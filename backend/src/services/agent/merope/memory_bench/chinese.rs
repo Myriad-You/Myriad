@@ -245,3 +245,184 @@ async fn with_cues(lines: &[String]) -> Vec<String> {
     }
     cued
 }
+
+/// The set on what changed without being asked about
+/// (tests/merope/memory-implicit-zh.json), and the held-out one beside it
+/// (tests/merope/holdout/, not read while working on her memory): each
+/// type with a rule of its own, the kinds of each counted, both sides of a
+/// pair on the same talk, the talk in order before the question, and
+/// nothing of the held-out set in the other.
+#[test]
+pub(super) fn the_implicit_memory_set_reads_as_the_bench_needs() {
+    let read = |text: &str| -> Vec<Question> { serde_json::from_str(text).unwrap() };
+    let set = read(include_str!(
+        "../../../../../../tests/merope/memory-implicit-zh.json"
+    ));
+    let held_out = read(include_str!(
+        "../../../../../../tests/merope/holdout/memory-implicit-zh.json"
+    ));
+    let counted = |questions: &[Question]| {
+        let mut counted: BTreeMap<String, usize> = BTreeMap::new();
+        for question in questions {
+            let kind = match (&question.category, &question.pair) {
+                // A pair is one question of the set, asked two ways.
+                (_, Some(pair)) if question.question_id.ends_with("-hold") => {
+                    assert!(
+                        questions
+                            .iter()
+                            .any(|other| other.pair.as_ref() == Some(pair)
+                                && other.question_id.ends_with("-recall")),
+                        "{pair}"
+                    );
+                    continue;
+                }
+                (Some(category), _) => format!("{}/{category}", question.question_type),
+                (None, _) => question.question_type.clone(),
+            };
+            *counted.entry(kind).or_default() += 1;
+        }
+        counted
+    };
+    let mut expected: BTreeMap<String, usize> = [("feeling-cause", 10), ("still-true", 40)]
+        .into_iter()
+        .map(|(kind, count)| (kind.to_string(), count))
+        .collect();
+    for kind in ["implicit-state", "stale-premise", "implicit-use"] {
+        for category in ["type-1", "type-2"] {
+            expected.insert(format!("{kind}/{category}"), 20);
+        }
+    }
+    for category in ASSOCIATED {
+        expected.insert(format!("associated/{category}"), 5);
+    }
+    assert_eq!(counted(&set), expected);
+    // The held-out set has every kind, fewer of each.
+    assert_eq!(
+        counted(&held_out).keys().collect::<Vec<_>>(),
+        expected.keys().collect::<Vec<_>>()
+    );
+    for questions in [&set, &held_out] {
+        reads_as_implicit(questions);
+    }
+    let asked: std::collections::BTreeSet<&str> = set
+        .iter()
+        .map(|question| question.question.as_str())
+        .collect();
+    for question in &held_out {
+        assert!(
+            !set.iter()
+                .any(|other| other.question_id == question.question_id),
+            "{}",
+            question.question_id
+        );
+        assert!(
+            !asked.contains(question.question.as_str()),
+            "{}",
+            question.question_id
+        );
+    }
+}
+
+/// The ways one thing is linked to another that `associated` asks.
+const ASSOCIATED: [&str; 9] = [
+    "model-known",
+    "private-link",
+    "searchable-meme",
+    "group-meme",
+    "learned-later",
+    "paired",
+    "in-detail",
+    "cross-topic",
+    "reminded",
+];
+
+fn reads_as_implicit(questions: &[Question]) {
+    let mut ids = std::collections::BTreeSet::new();
+    for question in questions {
+        let id = question.question_id.as_str();
+        assert!(ids.insert(id), "{id}");
+        // Graded by its type's own rule, not the default.
+        assert_eq!(rule_key(question), question.question_type, "{id}");
+        assert!(
+            prompts()["grade"]["rules"][rule_key(question)].is_string(),
+            "{id}"
+        );
+        let categories: &[&str] = match question.question_type.as_str() {
+            "implicit-state" | "stale-premise" | "implicit-use" => &["type-1", "type-2"],
+            "associated" => &ASSOCIATED,
+            "feeling-cause" | "still-true" => &[],
+            other => panic!("{id}: {other}"),
+        };
+        match &question.category {
+            Some(category) => assert!(categories.contains(&category.as_str()), "{id}"),
+            None => assert!(categories.is_empty(), "{id}"),
+        }
+        assert_eq!(
+            question.pair.is_some(),
+            question.category.as_deref() == Some("paired"),
+            "{id}"
+        );
+        if let Some(pair) = &question.pair {
+            let sides: Vec<&Question> = questions
+                .iter()
+                .filter(|other| other.pair.as_ref() == Some(pair))
+                .collect();
+            assert_eq!(sides.len(), 2, "{id}");
+            assert_eq!(
+                serde_json::to_string(&sides[0].haystack_dates).unwrap(),
+                serde_json::to_string(&sides[1].haystack_dates).unwrap(),
+                "{id}"
+            );
+            assert_eq!(
+                sides[0].haystack_sessions.len(),
+                sides[1].haystack_sessions.len(),
+                "{id}"
+            );
+        }
+        assert!(question.memories.is_empty(), "{id}");
+        assert!(!question.haystack_sessions.is_empty(), "{id}");
+        assert_eq!(
+            question.haystack_dates.len(),
+            question.haystack_sessions.len(),
+            "{id}"
+        );
+        let dates: Vec<_> = question
+            .haystack_dates
+            .iter()
+            .map(|date| date_of(date))
+            .collect();
+        assert!(dates.windows(2).all(|pair| pair[0] <= pair[1]), "{id}");
+        assert!(
+            dates.last().unwrap() < &date_of(&question.question_date),
+            "{id}"
+        );
+        assert!(
+            question.haystack_venues.is_empty()
+                || question.haystack_venues.len() == question.haystack_sessions.len(),
+            "{id}"
+        );
+        for venue in question
+            .haystack_venues
+            .iter()
+            .chain(question.question_venue.iter())
+        {
+            assert!(venue == "private" || venue.starts_with("group:"), "{id}");
+        }
+        // What answers it was said, and said by them.
+        assert!(
+            question
+                .haystack_sessions
+                .iter()
+                .flatten()
+                .any(|turn| turn.has_answer && turn.role == "user"),
+            "{id}"
+        );
+        for session in &question.haystack_sessions {
+            assert_eq!(
+                session.first().map(|turn| turn.role.as_str()),
+                Some("user"),
+                "{id}"
+            );
+        }
+    }
+}
