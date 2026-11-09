@@ -164,6 +164,7 @@ pub async fn own_rows<C: ConnectionTrait>(
 
 /// Let what she did on her own longer ago than `older_than` fade: the views
 /// it grew into stay. Faded rows are deleted once they are `purge_after` old.
+/// Only what the site wrote: what another end wrote is that end's to let go.
 pub async fn fade_own_experiences<C: ConnectionTrait>(
     db: &C,
     older_than: chrono::Duration,
@@ -180,6 +181,7 @@ pub async fn fade_own_experiences<C: ConnectionTrait>(
         .filter(agent_memories::Column::UserId.is_null())
         .filter(agent_memories::Column::Venue.eq(OWN_VENUE))
         .filter(agent_memories::Column::Source.eq(OWN_EXPERIENCE))
+        .filter(agent_memories::Column::Origin.eq(super::ORIGIN_SITE))
         .filter(agent_memories::Column::InvalidAt.is_null())
         .filter(agent_memories::Column::CreatedAt.lt(now - older_than))
         .exec(db)
@@ -189,6 +191,7 @@ pub async fn fade_own_experiences<C: ConnectionTrait>(
         .filter(agent_memories::Column::UserId.is_null())
         .filter(agent_memories::Column::Venue.eq(OWN_VENUE))
         .filter(agent_memories::Column::Source.eq(OWN_EXPERIENCE))
+        .filter(agent_memories::Column::Origin.eq(super::ORIGIN_SITE))
         .filter(agent_memories::Column::InvalidAt.lt(now - purge_after))
         .exec(db)
         .await?

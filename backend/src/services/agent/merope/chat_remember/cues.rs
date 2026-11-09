@@ -11,8 +11,10 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use super::super::call::{self, Voice};
 use crate::services::agent::memory::unified;
 
-/// What she knows for good of someone.
-const SOURCES: &[&str] = &["chat"];
+/// What she knows for good of someone: kept from a talk here, or by another
+/// end of hers, which leaves when it would come to mind for each end to
+/// find (`unified::SYNC_SOURCE`).
+const SOURCES: &[&str] = &["chat", unified::SYNC_SOURCE];
 /// People gone over in one upkeep, and how many asks each.
 const PEOPLE: i64 = 10;
 const ASKS: usize = 3;

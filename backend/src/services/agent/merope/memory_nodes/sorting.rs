@@ -21,7 +21,9 @@ use myriad_nodes::entries::{self, FactIn, Placement, SortInput, SortReadInput, T
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 
 use super::{Error, audience, facts, known, placements};
-use crate::services::agent::memory::unified::{Audience, MemoryKind, MemoryRecord, active_in};
+use crate::services::agent::memory::unified::{
+    Audience, MemoryKind, MemoryRecord, SYNC_SOURCE, active_in,
+};
 use crate::services::agent::merope::call::{Ask, Voice};
 
 /// People gone over in one upkeep, and how many batches each: today's
@@ -32,9 +34,10 @@ const TIMEOUT: Duration = Duration::from_secs(90);
 const OPERATION: &str = "memory_node_sort";
 /// The answer's schema, by the name the old topics were sorted under.
 const SCHEMA_NAME: &str = "topic_sort";
-/// What she knows for good of someone, which she sorts: and what she found
-/// out herself in their talk (`lookup`), put as an ordinary fact is.
-pub(crate) const SORTED: &[&str] = &["chat", "import", "lookup"];
+/// What she knows for good of someone, which she sorts: what she found out
+/// herself in their talk (`lookup`), put as an ordinary fact is, and what
+/// another end of hers kept of them ([`SYNC_SOURCE`]).
+pub(crate) const SORTED: &[&str] = &["chat", "import", "lookup", SYNC_SOURCE];
 /// The kinds of those.
 pub(crate) const KINDS: [MemoryKind; 3] = [
     MemoryKind::Fact,
@@ -52,6 +55,8 @@ async fn with_unplaced<C: ConnectionTrait>(db: &C, at_most: i64) -> Result<Vec<i
                AND m.source = ANY($1) AND m.kind IN ('fact', 'preference', 'knowledge') \
                AND m.invalid_at IS NULL AND m.superseded_by IS NULL \
                AND NOT EXISTS (SELECT 1 FROM agent_node_placements p WHERE p.memory_id = m.id) \
+               AND NOT EXISTS (SELECT 1 FROM agent_node_rows r WHERE r.kind = 'node.entry' \
+                               AND r.body <> '' AND (r.body::jsonb -> 'refs') ? ('memory:' || m.id)) \
              LIMIT $2",
             [
                 SORTED

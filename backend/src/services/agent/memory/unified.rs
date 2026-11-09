@@ -354,6 +354,15 @@ fn audience_of(model: &agent_memories::Model) -> Vec<i32> {
 /// `chat` (see `merope::chat_remember`).
 pub const SHORT_NOTE_SOURCE: &str = "chat_note";
 
+/// Where a memory another end of hers kept for good is kept, when the site
+/// has no source of its own by the name that end gave it (see
+/// `her_log::memories`). An ordinary memory: not a short note, not kept
+/// apart ([`KEPT_APART`]), not a bit; in a private talk it is sorted onto
+/// her nodes and given when it would come to mind, as what she kept from a
+/// talk here is. Going over a stretch of talk leaves it be, and the site
+/// never fades it: that end decides, as it wrote it.
+pub const SYNC_SOURCE: &str = "sync";
+
 /// Where a Work lesson or pattern the extraction drew from one run is kept
 /// until it holds: recalled by Work alone, until a run it was shown in is
 /// done or the admin confirms it, and then kept under `work` (see
@@ -694,9 +703,13 @@ pub async fn retire_in_favor_of<C: ConnectionTrait>(
     Ok(result.rows_affected)
 }
 
+/// Fades the least of what the site kept of `user_id` beyond
+/// [`MAX_ACTIVE_PER_USER`]. Only what the site wrote counts and fades: a
+/// memory another end wrote is that end's to let go.
 async fn fade_excess<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<(), DbErr> {
     let mut rows = agent_memories::Entity::find()
         .filter(agent_memories::Column::UserId.eq(user_id))
+        .filter(agent_memories::Column::Origin.eq(ORIGIN_SITE))
         .filter(agent_memories::Column::InvalidAt.is_null())
         .all(db)
         .await?;

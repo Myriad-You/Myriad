@@ -568,3 +568,82 @@ async fn the_mind_wanders_only_over_their_own_and_not_back_to_a_recent_thought()
         .is_none()
     );
 }
+
+#[tokio::test]
+async fn the_site_fades_only_what_it_wrote() {
+    let Some(db) = temp_db().await else {
+        return;
+    };
+    let first = remember(&db, fact(7, "养了一只猫")).await.unwrap().unwrap();
+    // As many as the site keeps, and three another end wrote, least
+    // important of all: the first to go, were they the site's.
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_memories \
+         SELECT (jsonb_populate_record(NULL::agent_memories, to_jsonb(m) \
+           || jsonb_build_object('id', 'site_' || g, 'content', 'SITE ' || g))).* \
+         FROM agent_memories m, generate_series(1, {MAX_ACTIVE_PER_USER}) g WHERE m.id = '{first}'; \
+         INSERT INTO agent_memories \
+         SELECT (jsonb_populate_record(NULL::agent_memories, to_jsonb(m) \
+           || jsonb_build_object('id', 'mac_' || g, 'content', 'MAC ' || g, 'origin', 'mac', \
+                                 'source', '{SYNC_SOURCE}', 'importance', 0))).* \
+         FROM agent_memories m, generate_series(1, 3) g WHERE m.id = '{first}'"
+    ))
+    .await
+    .unwrap();
+    fade_excess(&db, 7).await.unwrap();
+    let count = |sql: &str| {
+        let db = &db;
+        let sql = sql.to_string();
+        async move {
+            db.query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                sql,
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get::<i64>("", "n")
+            .unwrap()
+        }
+    };
+    assert_eq!(
+        count(
+            "SELECT count(*) AS n FROM agent_memories WHERE origin = 'mac' AND invalid_at IS NULL"
+        )
+        .await,
+        3,
+        "what another end wrote is that end's to let go"
+    );
+    assert_eq!(
+        count(
+            "SELECT count(*) AS n FROM agent_memories WHERE origin = 'site' AND invalid_at IS NULL"
+        )
+        .await,
+        MAX_ACTIVE_PER_USER as i64
+    );
+    // Her own doings fade with time: only those the site wrote.
+    for (id, origin) in [("own_site", "site"), ("own_mac", "mac")] {
+        let written = remember_own(&db, id, "{}", Vec::new(), OWN_EXPERIENCE)
+            .await
+            .unwrap()
+            .unwrap();
+        db.execute_unprepared(&format!(
+            "UPDATE agent_memories SET id = '{id}', origin = '{origin}', \
+             created_at = now() - interval '30 days' WHERE id = '{written}'"
+        ))
+        .await
+        .unwrap();
+    }
+    let (faded, _) =
+        fade_own_experiences(&db, chrono::Duration::days(7), chrono::Duration::days(365))
+            .await
+            .unwrap();
+    assert_eq!(faded, 1);
+    assert_eq!(
+        count(
+            "SELECT count(*) AS n FROM agent_memories WHERE id = 'own_mac' AND invalid_at IS NULL"
+        )
+        .await,
+        1
+    );
+}

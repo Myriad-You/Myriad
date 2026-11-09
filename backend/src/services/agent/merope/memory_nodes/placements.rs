@@ -111,7 +111,8 @@ pub(crate) async fn placement<C: ConnectionTrait>(
 /// most `limit`; only those of `sources` when any are given. A private
 /// talk's are its account's private ones; a group's, those kept in that
 /// group; her own, hers. Retired rows (replaced, forgotten, faded) are not
-/// among them.
+/// among them, nor one an entry names already: another end of hers put it
+/// on a node (`logged::take_in`), and it has no placement here.
 pub(crate) async fn unplaced<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
@@ -136,6 +137,8 @@ pub(crate) async fn unplaced<C: ConnectionTrait>(
                AND m.invalid_at IS NULL AND m.superseded_by IS NULL \
                AND (cardinality($3::text[]) = 0 OR m.source = ANY($3)) \
                AND NOT EXISTS (SELECT 1 FROM agent_node_placements p WHERE p.memory_id = m.id) \
+               AND NOT EXISTS (SELECT 1 FROM agent_node_rows r WHERE r.kind = 'node.entry' \
+                               AND r.body <> '' AND (r.body::jsonb -> 'refs') ? ('memory:' || m.id)) \
              ORDER BY m.created_at, m.id LIMIT $4",
             [
                 venue.into(),
