@@ -3393,10 +3393,17 @@ async fn her_memories_go_into_her_log_by_comparing() {
     let again = super::state::sync(db, &root, OWNER).await.unwrap();
     assert_eq!(again.memories, super::memories::Compared::default());
 
-    // m4 takes m1's place.
+    // m4 takes m1's place: hers, and kept for two moments.
     db.execute_unprepared(&memory("m4", "preference", "喜欢绿茶", "private"))
         .await
         .unwrap();
+    db.execute_unprepared(
+        "UPDATE agent_memories SET speaker = 'agent' WHERE id = 'm4'; \
+         INSERT INTO agent_memory_cues (memory_id, cues, created_at) \
+         VALUES ('m4', E'有人问喝什么时\\n说起绿茶时', now())",
+    )
+    .await
+    .unwrap();
     db.execute_unprepared(
         "UPDATE agent_memories SET invalid_at = now(), invalid_reason = 'superseded', \
          superseded_by = 'm4' WHERE id = 'm1'",
@@ -3427,6 +3434,19 @@ async fn her_memories_go_into_her_log_by_comparing() {
     assert_eq!(
         body_of("memory:m4", "memory.write")["cues"],
         json!(["茶", "tea"])
+    );
+    let m4 = body_of("memory:m4", "memory.write");
+    assert_eq!(
+        (&m4["speaker"], &m4["source"], &m4["when"]),
+        (
+            &json!("her"),
+            &json!("chat"),
+            &json!(["有人问喝什么时", "说起绿茶时"])
+        )
+    );
+    assert_eq!(
+        body_of("memory:m1", "memory.write")["speaker"],
+        json!("partner")
     );
     assert_eq!(
         body_of("memory:m1", "memory.retire"),
@@ -3489,17 +3509,72 @@ async fn her_memories_from_another_end_go_into_the_sites_table() {
             })
         }
     };
+    let kept_as = |id: &'static str| {
+        let db = db.clone();
+        async move {
+            db.query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                format!(
+                    "SELECT m.source, m.speaker, c.cues FROM agent_memories m \
+                     LEFT JOIN agent_memory_cues c ON c.memory_id = m.id WHERE m.id = '{id}'"
+                ),
+            ))
+            .await
+            .unwrap()
+            .map(|row| {
+                (
+                    row.try_get::<String>("", "source").unwrap(),
+                    row.try_get::<String>("", "speaker").unwrap(),
+                    row.try_get::<Option<String>>("", "cues").unwrap(),
+                )
+            })
+        }
+    };
+    // The site writes under `chat` itself (in a group, which her log never
+    // keeps); the Mac's own word it has none of.
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, valid_from, \
+         created_at, updated_at) VALUES ('here', {OWNER}, 'fact', '站点记下的', 'chat', \
+         'group:telegram:-100', now(), now(), now())"
+    ))
+    .await
+    .unwrap();
     mac.write_body(
         PERSONAL,
         "memory:tea",
         "memory.write",
         Author::Owner,
-        Some(
-            json!({ "at": T0 / 1000, "kind": "preference", "text": "likes tea", "cues": ["tea"] }),
-        ),
+        Some(json!({
+            "at": T0 / 1000, "kind": "preference", "text": "likes tea", "cues": ["tea"],
+            "speaker": "her", "source": "mac_glance", "when": ["有人问喝什么时"],
+        })),
         T0,
     );
+    mac.write_body(
+        PERSONAL,
+        "memory:walk",
+        "memory.write",
+        Author::Owner,
+        Some(json!({
+            "at": T0 / 1000, "kind": "fact", "text": "walks after dinner",
+            "speaker": "partner", "source": "chat",
+        })),
+        T0 + 1,
+    );
     sync(db, &mut mac, PERSONAL, T0).await;
+    assert_eq!(
+        kept_as("tea").await,
+        Some((
+            crate::services::agent::memory::unified::SYNC_SOURCE.to_string(),
+            "agent".to_string(),
+            Some("有人问喝什么时".to_string())
+        )),
+        "a word the site has none of is one another end kept; when it comes to mind, kept"
+    );
+    assert_eq!(
+        kept_as("walk").await,
+        Some(("chat".to_string(), "user".to_string(), None))
+    );
     let (content, venue, origin, concepts, why, _) = memory(db).await.expect("taken in");
     assert_eq!(
         (content.as_str(), venue.as_str(), origin.as_str()),
@@ -3566,6 +3641,52 @@ async fn her_memories_from_another_end_go_into_the_sites_table() {
         .unwrap()
         .map(|row| row.try_get::<String>("", "content").unwrap());
     assert_eq!(kept.as_deref(), Some("群里说的"));
+
+    // One the site wrote, written again there by someone else's account of
+    // it: the site keeps its own speaker and source, and its digest is of
+    // what it keeps, so nothing goes back.
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, audience, \
+         speaker, valid_from, created_at, updated_at) VALUES ('mine', {OWNER}, 'fact', \
+         '站点记下的', 'chat', 'private', '[{OWNER}]'::jsonb, 'agent', now(), now(), now())"
+    ))
+    .await
+    .unwrap();
+    let written = super::state::sync(db, &root, OWNER).await.unwrap();
+    // After the site's own row of it.
+    let later = crate::clock::now_micros() + MINUTE;
+    assert_eq!(written.memories.written, 1);
+    mac.write_body(
+        PERSONAL,
+        "memory:mine",
+        "memory.write",
+        Author::Owner,
+        Some(json!({
+            "at": T0 / 1000, "kind": "fact", "text": "改过的",
+            "speaker": "partner", "source": "mac_glance",
+        })),
+        later,
+    );
+    sync(db, &mut mac, PERSONAL, later).await;
+    let taken = db
+        .query_one_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT content FROM agent_memories WHERE id = 'mine'",
+        ))
+        .await
+        .unwrap()
+        .map(|row| row.try_get::<String>("", "content").unwrap());
+    assert_eq!(taken.as_deref(), Some("改过的"), "taken in");
+    assert_eq!(
+        kept_as("mine").await,
+        Some(("chat".to_string(), "agent".to_string(), None))
+    );
+    let compared = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(
+        compared.memories,
+        super::memories::Compared::default(),
+        "not written back"
+    );
 }
 
 /// Her nodes the Mac wrote while her mind was there are kept on the site

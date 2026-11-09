@@ -5,8 +5,10 @@
 //! `memory:<id>` (`agent_her_state_rows`):
 //!
 //! - new, or its words changed: `memory.write`, with what it took the place
-//!   of (`replaces`) and the words it is found by as the site made them
-//!   (`cues`, its concepts);
+//!   of (`replaces`), the words it is found by as the site made them
+//!   (`cues`, its concepts), who it came from (`speaker`), the site's word
+//!   for where it learned it (`source`) and when it would come to mind
+//!   (`when`, its `agent_memory_cues`);
 //! - retired since: `memory.retire`, why (`superseded`, `deleted`, `faded`,
 //!   as the site says it) and the memory that holds it now (`by`);
 //! - in use again: `memory.restore`;
@@ -19,8 +21,13 @@
 //! The other way ([`take_in`]): a memory whose newest row another end
 //! wrote is folded from its rows (the last write, then whether a retire or
 //! a restore came after) into the site's table under its own id, from that
-//! end (`origin`), its cues as its concepts. Its digest is kept, so the
-//! next comparison does not write it back. One whose rows are all forgotten
+//! end (`origin`), its cues as its concepts, who it came from as its
+//! speaker, and when it would come to mind as its `agent_memory_cues` (no
+//! model asked again). Where that end learned it is kept under the same
+//! word when the site has written memories under it itself, else as one
+//! another end kept (`unified::SYNC_SOURCE`); one already here keeps its
+//! own speaker and source. Its digest, of what the site keeps, is kept, so
+//! the next comparison does not write it back. One whose rows are all forgotten
 //! goes. Its vector is made here as any memory's is, when recall first
 //! comes to it.
 
@@ -28,7 +35,10 @@ use std::collections::BTreeMap;
 
 use myriad_persona_log::{
     Row,
-    payloads::{MemoryRestore, MemoryRetire, MemoryWrite},
+    payloads::{
+        MAX_MEMORY_SOURCE, MAX_MEMORY_WHEN, MEMORY_WHEN_CHARS, MemoryRestore, MemoryRetire,
+        MemorySpeaker, MemoryWrite,
+    },
 };
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, DatabaseTransaction, Statement,
@@ -37,7 +47,7 @@ use sea_orm::{
 use serde_json::{Value, json};
 
 use super::{Error, NODE, Owner, keys, state, store};
-use crate::services::agent::memory::unified::OWN_VENUE;
+use crate::services::agent::memory::unified::{self, ORIGIN_SITE, OWN_VENUE, SYNC_SOURCE};
 
 /// What a comparison of her memories wrote.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +67,10 @@ struct Memory {
     kind: String,
     text: String,
     cues: Vec<String>,
+    speaker: Option<MemorySpeaker>,
+    /// The site's word for where it learned it, as it goes out.
+    source: Option<String>,
+    when: Vec<String>,
     retired: Option<(i64, String, Option<String>)>,
     written_at: i64,
 }
@@ -66,13 +80,25 @@ impl Memory {
         object(&self.id)
     }
 
-    /// Its words, as a digest.
+    /// Its words, as a digest. Who it came from, where it was learned and
+    /// when it comes to mind count only once it has them: one without keeps
+    /// the digest it had before they went out.
     fn words(&self) -> String {
-        myriad_persona_sync::digest(&serde_json::json!({
+        let mut words = json!({
             "kind": self.kind,
             "text": self.text,
             "cues": self.cues,
-        }))
+        });
+        if let Some(speaker) = self.speaker {
+            words["speaker"] = json!(speaker);
+        }
+        if let Some(source) = &self.source {
+            words["source"] = json!(source);
+        }
+        if !self.when.is_empty() {
+            words["when"] = json!(self.when);
+        }
+        myriad_persona_sync::digest(&words)
     }
 
     /// What the log should have of it: its words, and whether it is in use.
@@ -105,15 +131,97 @@ fn object(id: &str) -> String {
     format!("memory:{id}")
 }
 
+/// Who a memory came from, as the core says it: the site's `agent` is
+/// hers, `user` the person's; an import says neither.
+fn speaker_of(speaker: &str) -> Option<MemorySpeaker> {
+    match speaker {
+        "agent" => Some(MemorySpeaker::Her),
+        "user" => Some(MemorySpeaker::Partner),
+        _ => None,
+    }
+}
+
+/// The site's speaker for one another end wrote: as that end says, else
+/// hers for her own and the person's in their talk.
+fn speaker_here(speaker: Option<MemorySpeaker>, own: bool) -> &'static str {
+    match speaker {
+        Some(MemorySpeaker::Her) => "agent",
+        Some(MemorySpeaker::Partner) => "user",
+        None if own => "agent",
+        None => "user",
+    }
+}
+
+/// Where the site learned a memory, as it goes out: none for one another
+/// end kept ([`SYNC_SOURCE`]: that end's word did not stay) or for a word
+/// the core does not take.
+fn source_out(source: &str) -> Option<String> {
+    (source != SYNC_SOURCE
+        && !source.is_empty()
+        && source.len() <= MAX_MEMORY_SOURCE
+        && source
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'))
+    .then(|| source.to_string())
+}
+
+/// When a memory comes to mind, from its `agent_memory_cues` (one a line,
+/// kept to the same bounds as the core's), within the core's bounds.
+fn when_of(cues: Option<&str>) -> Vec<String> {
+    let mut when: Vec<String> = cues
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && line.chars().count() <= MEMORY_WHEN_CHARS)
+        .map(str::to_string)
+        .collect();
+    when.truncate(MAX_MEMORY_WHEN);
+    when
+}
+
+/// Whether the site has a meaning of its own for `source`: it has written
+/// memories under that word itself.
+async fn site_source<C: ConnectionTrait>(db: &C, source: &str) -> Result<bool, Error> {
+    if source == SYNC_SOURCE {
+        return Ok(false);
+    }
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT EXISTS (SELECT 1 FROM agent_memories WHERE source = $1 AND origin = $2) AS known",
+            [source.into(), ORIGIN_SITE.into()],
+        ))
+        .await?;
+    Ok(row
+        .map(|row| row.try_get::<bool>("", "known"))
+        .transpose()?
+        .unwrap_or(false))
+}
+
+/// The `agent_memory_cues` of the memory `id`.
+async fn cues_kept<C: ConnectionTrait>(db: &C, id: &str) -> Result<Option<String>, Error> {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT cues FROM agent_memory_cues WHERE memory_id = $1",
+            [id.into()],
+        ))
+        .await?;
+    Ok(row
+        .map(|row| row.try_get::<String>("", "cues"))
+        .transpose()?)
+}
+
 /// The site owner's memories her log keeps.
 async fn memories<C: ConnectionTrait>(db: &C, owner: &Owner) -> Result<Vec<Memory>, Error> {
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT id, kind, content, venue, audience, concepts, invalid_at, invalid_reason, \
-             superseded_by, created_at FROM agent_memories \
-             WHERE (user_id = $1 AND venue NOT LIKE 'group:%' AND venue <> $2) OR venue = $2 \
-             ORDER BY created_at, id",
+            "SELECT m.id, m.kind, m.content, m.venue, m.audience, m.concepts, m.invalid_at, \
+             m.invalid_reason, m.superseded_by, m.created_at, m.speaker, m.source, c.cues AS when_for \
+             FROM agent_memories m LEFT JOIN agent_memory_cues c ON c.memory_id = m.id \
+             WHERE (m.user_id = $1 AND m.venue NOT LIKE 'group:%' AND m.venue <> $2) OR m.venue = $2 \
+             ORDER BY m.created_at, m.id",
             [owner.user.into(), OWN_VENUE.into()],
         ))
         .await?;
@@ -139,6 +247,9 @@ async fn memories<C: ConnectionTrait>(db: &C, owner: &Owner) -> Result<Vec<Memor
         let reason: Option<String> = row.try_get("", "invalid_reason")?;
         let by: Option<String> = row.try_get("", "superseded_by")?;
         let content: String = row.try_get("", "content")?;
+        let speaker: Option<String> = row.try_get("", "speaker")?;
+        let source: Option<String> = row.try_get("", "source")?;
+        let when_for: Option<String> = row.try_get("", "when_for")?;
         out.push(Memory {
             id: row.try_get("", "id")?,
             audience: if venue == OWN_VENUE {
@@ -149,6 +260,9 @@ async fn memories<C: ConnectionTrait>(db: &C, owner: &Owner) -> Result<Vec<Memor
             kind: row.try_get("", "kind")?,
             text: content.trim().to_string(),
             cues: cues_of(&concepts),
+            speaker: speaker.as_deref().and_then(speaker_of),
+            source: source.as_deref().and_then(source_out),
+            when: when_of(when_for.as_deref()),
             retired: invalid_at.map(|at| {
                 (
                     at.timestamp_millis(),
@@ -216,11 +330,9 @@ pub(super) async fn compare(
                         .cloned()
                         .unwrap_or_default(),
                     cues: memory.cues.clone(),
-                    // Who it came from, where it was learned and when it
-                    // comes to mind go out once every end reads them.
-                    speaker: None,
-                    source: None,
-                    when: Vec::new(),
+                    speaker: memory.speaker,
+                    source: memory.source.clone(),
+                    when: memory.when.clone(),
                 })
                 .unwrap_or_default(),
             ));
@@ -413,12 +525,21 @@ pub async fn take_in(
                 // Its words have not come yet: taken when they do.
                 continue;
             };
-            let memory = Memory {
+            let own = audience == Owner::OWN;
+            let source = match folded.write.source.as_deref() {
+                Some(word) if site_source(&txn, word).await? => word.to_string(),
+                _ => SYNC_SOURCE.to_string(),
+            };
+            let speaker = speaker_here(folded.write.speaker, own);
+            let mut memory = Memory {
                 id: id.to_string(),
                 audience: audience.clone(),
                 kind: folded.write.kind.chars().take(16).collect(),
                 text: folded.write.text.trim().to_string(),
                 cues: folded.write.cues.clone(),
+                speaker: speaker_of(speaker),
+                source: source_out(&source),
+                when: Vec::new(),
                 retired: folded.retired.as_ref().map(|retired| {
                     (
                         retired.at,
@@ -431,7 +552,6 @@ pub async fn take_in(
                 }),
                 written_at: folded.write.at,
             };
-            let own = audience == Owner::OWN;
             let concepts: Vec<Value> = memory
                 .cues
                 .iter()
@@ -441,18 +561,21 @@ pub async fn take_in(
                 Some((ms, why, by)) => (Some(at(*ms)), Some(why.clone()), by.clone()),
                 None => (None, None, None),
             };
-            txn.execute_raw(Statement::from_sql_and_values(
+            // A row already here keeps its own speaker and source: what is
+            // kept, as it comes back, is what its digest is made of.
+            let kept = txn.query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, audience, \
                  concepts, valid_from, invalid_at, invalid_reason, superseded_by, created_at, \
                  updated_at, origin, speaker) \
-                 VALUES ($1, $2, $3, $4, 'sync', $5, $6, $7, $8, $9, $10, $11, $8, $12, $13, $14) \
+                 VALUES ($1, $2, $3, $4, $15, $5, $6, $7, $8, $9, $10, $11, $8, $12, $13, $14) \
                  ON CONFLICT (id) DO UPDATE SET kind = EXCLUDED.kind, content = EXCLUDED.content, \
                  concepts = EXCLUDED.concepts, invalid_at = EXCLUDED.invalid_at, \
                  invalid_reason = EXCLUDED.invalid_reason, superseded_by = EXCLUDED.superseded_by, \
                  updated_at = EXCLUDED.updated_at \
                  WHERE agent_memories.user_id IS NOT DISTINCT FROM EXCLUDED.user_id \
-                   AND agent_memories.venue = EXCLUDED.venue",
+                   AND agent_memories.venue = EXCLUDED.venue \
+                 RETURNING speaker, source",
                 [
                     id.into(),
                     // Her own are kept with no account, as `unified::own` writes them.
@@ -468,13 +591,23 @@ pub async fn take_in(
                     by.into(),
                     crate::clock::now().fixed_offset().into(),
                     newest.origin.chars().take(64).collect::<String>().into(),
-                    // Her own are hers, as `unified::own` writes them. In a
-                    // private talk who said it does not travel yet: the
-                    // person, as the site takes what it is told.
-                    if own { "agent" } else { "user" }.into(),
+                    speaker.into(),
+                    source.into(),
                 ],
             ))
             .await?;
+            // When it comes to mind, as that end's extraction gave it: kept
+            // with it unless the site has some for it already. Never for a
+            // row under the same id that is not this one (another person's,
+            // a group's).
+            if let Some(kept) = kept {
+                let speaker: Option<String> = kept.try_get("", "speaker")?;
+                let source: Option<String> = kept.try_get("", "source")?;
+                memory.speaker = speaker.as_deref().and_then(speaker_of);
+                memory.source = source.as_deref().and_then(source_out);
+                unified::keep_cues(&txn, id, &folded.write.when).await?;
+                memory.when = when_of(cues_kept(&txn, id).await?.as_deref());
+            }
             state::taken_in(&txn, owner.user, &object, &memory.digest(), &newest.id).await?;
             txn.commit().await?;
             taken += 1;
