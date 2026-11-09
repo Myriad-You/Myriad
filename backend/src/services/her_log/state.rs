@@ -442,7 +442,7 @@ pub(super) async fn keep<C: ConnectionTrait>(
 }
 
 /// The log has `object` at `digest` now, taken in from `row` another end wrote.
-async fn taken_in<C: ConnectionTrait>(
+pub(super) async fn taken_in<C: ConnectionTrait>(
     db: &C,
     user: i32,
     object: &str,
@@ -460,7 +460,10 @@ async fn taken_in<C: ConnectionTrait>(
 }
 
 /// The row from another end last taken in of each object.
-async fn took<C: ConnectionTrait>(db: &C, user: i32) -> Result<BTreeMap<String, String>, Error> {
+pub(super) async fn took<C: ConnectionTrait>(
+    db: &C,
+    user: i32,
+) -> Result<BTreeMap<String, String>, Error> {
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             db.get_database_backend(),
@@ -478,7 +481,11 @@ async fn took<C: ConnectionTrait>(db: &C, user: i32) -> Result<BTreeMap<String, 
     Ok(out)
 }
 
-async fn drop_known<C: ConnectionTrait>(db: &C, user: i32, object: &str) -> Result<(), Error> {
+pub(super) async fn drop_known<C: ConnectionTrait>(
+    db: &C,
+    user: i32,
+    object: &str,
+) -> Result<(), Error> {
     db.execute_raw(Statement::from_sql_and_values(
         db.get_database_backend(),
         "DELETE FROM agent_her_state_rows WHERE user_id = $1 AND object = $2",

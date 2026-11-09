@@ -15,14 +15,28 @@
 //! Only while the site holds the pen: her memories are hers, and while her
 //! mind is on another end that end writes them. Comparing again writes
 //! nothing new.
+//!
+//! The other way ([`take_in`]): a memory whose newest row another end
+//! wrote is folded from its rows (the last write, then whether a retire or
+//! a restore came after) into the site's table under its own id, from that
+//! end (`origin`), its cues as its concepts. Its digest is kept, so the
+//! next comparison does not write it back. One whose rows are all forgotten
+//! goes. Its vector is made here as any memory's is, when recall first
+//! comes to it.
 
 use std::collections::BTreeMap;
 
-use myriad_persona_log::payloads::{MemoryRestore, MemoryRetire, MemoryWrite};
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseTransaction, Statement};
-use serde_json::Value;
+use myriad_persona_log::{
+    Row,
+    payloads::{MemoryRestore, MemoryRetire, MemoryWrite},
+};
+use sea_orm::{
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, DatabaseTransaction, Statement,
+    TransactionTrait,
+};
+use serde_json::{Value, json};
 
-use super::{Error, Owner, keys, state, store};
+use super::{Error, NODE, Owner, keys, state, store};
 use crate::services::agent::memory::unified::OWN_VENUE;
 
 /// What a comparison of her memories wrote.
@@ -52,18 +66,39 @@ impl Memory {
         object(&self.id)
     }
 
-    /// What the log should have of it: its words, and whether it is in use.
-    fn digest(&self) -> String {
-        let words = myriad_persona_sync::digest(&serde_json::json!({
+    /// Its words, as a digest.
+    fn words(&self) -> String {
+        myriad_persona_sync::digest(&serde_json::json!({
             "kind": self.kind,
             "text": self.text,
             "cues": self.cues,
-        }));
+        }))
+    }
+
+    /// What the log should have of it: its words, and whether it is in use.
+    fn digest(&self) -> String {
+        let words = self.words();
         match self.retired {
             None => format!("memory:{words}"),
             Some(_) => format!("retired:{words}"),
         }
     }
+}
+
+/// The words a memory is found by: each of its concepts' names, the
+/// canonical one first, once each.
+fn cues_of(concepts: &Value) -> Vec<String> {
+    let mut cues: Vec<String> = Vec::new();
+    for concept in concepts.as_array().into_iter().flatten() {
+        let names = std::iter::once(&concept["name"])
+            .chain(concept["aliases"].as_array().into_iter().flatten());
+        for name in names.filter_map(Value::as_str).map(str::trim) {
+            if !name.is_empty() && !cues.iter().any(|cue| cue == name) {
+                cues.push(name.to_string());
+            }
+        }
+    }
+    cues
 }
 
 fn object(id: &str) -> String {
@@ -75,15 +110,28 @@ async fn memories<C: ConnectionTrait>(db: &C, owner: &Owner) -> Result<Vec<Memor
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT id, kind, content, venue, concepts, invalid_at, invalid_reason, superseded_by, \
-             created_at FROM agent_memories \
-             WHERE user_id = $1 AND venue NOT LIKE 'group:%' ORDER BY created_at, id",
-            [owner.user.into()],
+            "SELECT id, kind, content, venue, audience, concepts, invalid_at, invalid_reason, \
+             superseded_by, created_at FROM agent_memories \
+             WHERE (user_id = $1 AND venue NOT LIKE 'group:%' AND venue <> $2) OR venue = $2 \
+             ORDER BY created_at, id",
+            [owner.user.into(), OWN_VENUE.into()],
         ))
         .await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
         let venue: String = row.try_get("", "venue")?;
+        // Her own are kept with no account (`unified::own`); a private one
+        // only the owner was in: another account's talk never goes in.
+        let members: Value = row.try_get("", "audience")?;
+        if venue != OWN_VENUE
+            && members
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|member| member.as_i64() != Some(i64::from(owner.user)))
+        {
+            continue;
+        }
         let concepts: Value = row.try_get("", "concepts")?;
         let invalid_at: Option<chrono::DateTime<chrono::FixedOffset>> =
             row.try_get("", "invalid_at")?;
@@ -100,15 +148,7 @@ async fn memories<C: ConnectionTrait>(db: &C, owner: &Owner) -> Result<Vec<Memor
             },
             kind: row.try_get("", "kind")?,
             text: content.trim().to_string(),
-            cues: concepts
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .map(str::trim)
-                .filter(|cue| !cue.is_empty())
-                .map(str::to_string)
-                .collect(),
+            cues: cues_of(&concepts),
             retired: invalid_at.map(|at| {
                 (
                     at.timestamp_millis(),
@@ -153,11 +193,15 @@ pub(super) async fn compare(
         here.insert(object.clone());
         let digest = memory.digest();
         let had = known.get(&object);
-        if had == Some(&digest) {
+        let skipped = format!("skipped:{}", memory.words());
+        if had == Some(&digest) || had == Some(&skipped) {
             continue;
         }
+        // Words the log was never given (they did not check) are not known.
         let words_known = had.is_some_and(|had| {
-            had.split_once(':').map(|(_, words)| words) == digest.split_once(':').map(|(_, w)| w)
+            !had.starts_with("skipped:")
+                && had.split_once(':').map(|(_, words)| words)
+                    == digest.split_once(':').map(|(_, w)| w)
         });
         let mut rows: Vec<(&'static str, Value)> = Vec::new();
         if !words_known {
@@ -198,6 +242,8 @@ pub(super) async fn compare(
             .iter()
             .any(|(kind, payload)| myriad_persona_log::payloads::check(kind, payload).is_err())
         {
+            // Kept as looked at: counted once, until its words change.
+            state::keep(txn, owner.user, &object, &skipped).await?;
             compared.skipped += 1;
             continue;
         }
@@ -224,7 +270,10 @@ pub(super) async fn compare(
     }
     // Gone from the site's table: retired as the owner's taking it back.
     for (object, digest) in known {
-        if !object.starts_with("memory:") || here.contains(object) || digest.starts_with("retired:")
+        if !object.starts_with("memory:")
+            || here.contains(object)
+            || digest.starts_with("retired:")
+            || digest.starts_with("skipped:")
         {
             continue;
         }
@@ -270,4 +319,157 @@ async fn audience_in_log<C: ConnectionTrait>(
         ))
         .await?;
     Ok(row.map(|row| row.try_get("", "audience")).transpose()?)
+}
+
+/// A memory as its rows from another end leave it.
+struct Folded {
+    write: MemoryWrite,
+    retired: Option<MemoryRetire>,
+}
+
+/// `rows` of one memory, in log order, with their `bodies`: none while the
+/// body of its last write has not come.
+fn fold(rows: &[&Row], bodies: &BTreeMap<String, Value>) -> Option<Folded> {
+    let mut folded: Option<Folded> = None;
+    for row in rows {
+        let body = bodies.get(&row.id);
+        match (row.kind.as_str(), body) {
+            ("memory.write", Some(body)) => {
+                folded = Some(Folded {
+                    write: serde_json::from_value(body.clone()).ok()?,
+                    retired: None,
+                });
+            }
+            ("memory.write", None) => return None,
+            ("memory.retire", Some(body)) => {
+                if let Some(folded) = &mut folded {
+                    folded.retired = serde_json::from_value(body.clone()).ok();
+                }
+            }
+            ("memory.restore", _) => {
+                if let Some(folded) = &mut folded {
+                    folded.retired = None;
+                }
+            }
+            _ => {}
+        }
+    }
+    folded
+}
+
+fn at(ms: i64) -> chrono::DateTime<chrono::FixedOffset> {
+    chrono::DateTime::from_timestamp_millis(ms)
+        .unwrap_or_else(crate::clock::now)
+        .fixed_offset()
+}
+
+/// Her memories another end wrote, into the site's table ([module docs](self)).
+/// How many were taken in or went.
+pub async fn take_in(
+    db: &DatabaseConnection,
+    root: &dyn keys::Root,
+    owner: &Owner,
+) -> Result<usize, Error> {
+    let took = state::took(db, owner.user).await?;
+    let mut taken = 0;
+    for audience in [owner.personal(), Owner::OWN.to_string()] {
+        let mut objects: BTreeMap<String, Vec<Row>> = BTreeMap::new();
+        for row in store::rows(db, owner.user, &audience).await? {
+            if row.object.starts_with("memory:") && row.kind.starts_with("memory.") {
+                objects.entry(row.object.clone()).or_default().push(row);
+            }
+        }
+        for (object, mut rows) in objects {
+            myriad_persona_log::row::sort(&mut rows);
+            let Some(newest) = rows.last() else {
+                continue;
+            };
+            if newest.origin == NODE || took.get(&object) == Some(&newest.id) {
+                continue;
+            }
+            let id = object.trim_start_matches("memory:");
+            let txn = db.begin().await?;
+            if rows.iter().all(|row| row.forgotten) {
+                txn.execute_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "DELETE FROM agent_memories WHERE id = $2 \
+                     AND (user_id = $1 OR (user_id IS NULL AND venue = $3))",
+                    [owner.user.into(), id.into(), OWN_VENUE.into()],
+                ))
+                .await?;
+                state::drop_known(&txn, owner.user, &object).await?;
+                txn.commit().await?;
+                taken += 1;
+                continue;
+            }
+            let whole: Vec<&Row> = rows.iter().filter(|row| !row.forgotten).collect();
+            let bodies = store::bodies(&txn, root, owner.user, &audience, &whole).await?;
+            let Some(folded) = fold(&whole, &bodies) else {
+                // Its words have not come yet: taken when they do.
+                continue;
+            };
+            let memory = Memory {
+                id: id.to_string(),
+                audience: audience.clone(),
+                kind: folded.write.kind.chars().take(16).collect(),
+                text: folded.write.text.trim().to_string(),
+                cues: folded.write.cues.clone(),
+                retired: folded.retired.as_ref().map(|retired| {
+                    (
+                        retired.at,
+                        retired.why.chars().take(16).collect(),
+                        retired
+                            .by
+                            .as_deref()
+                            .map(|by| by.trim_start_matches("memory:").to_string()),
+                    )
+                }),
+                written_at: folded.write.at,
+            };
+            let own = audience == Owner::OWN;
+            let concepts: Vec<Value> = memory
+                .cues
+                .iter()
+                .map(|cue| json!({ "name": cue, "aliases": [] }))
+                .collect();
+            let (invalid_at, why, by) = match &memory.retired {
+                Some((ms, why, by)) => (Some(at(*ms)), Some(why.clone()), by.clone()),
+                None => (None, None, None),
+            };
+            txn.execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, audience, \
+                 concepts, valid_from, invalid_at, invalid_reason, superseded_by, created_at, \
+                 updated_at, origin) \
+                 VALUES ($1, $2, $3, $4, 'sync', $5, $6, $7, $8, $9, $10, $11, $8, $12, $13) \
+                 ON CONFLICT (id) DO UPDATE SET kind = EXCLUDED.kind, content = EXCLUDED.content, \
+                 concepts = EXCLUDED.concepts, invalid_at = EXCLUDED.invalid_at, \
+                 invalid_reason = EXCLUDED.invalid_reason, superseded_by = EXCLUDED.superseded_by, \
+                 updated_at = EXCLUDED.updated_at \
+                 WHERE agent_memories.user_id IS NOT DISTINCT FROM EXCLUDED.user_id \
+                   AND agent_memories.venue = EXCLUDED.venue",
+                [
+                    id.into(),
+                    // Her own are kept with no account, as `unified::own` writes them.
+                    (!own).then_some(owner.user).into(),
+                    memory.kind.clone().into(),
+                    memory.text.clone().into(),
+                    if own { OWN_VENUE } else { "private" }.into(),
+                    if own { json!([]) } else { json!([owner.user]) }.into(),
+                    Value::from(concepts).into(),
+                    at(memory.written_at).into(),
+                    invalid_at.into(),
+                    why.into(),
+                    by.into(),
+                    crate::clock::now().fixed_offset().into(),
+                    newest.origin.chars().take(64).collect::<String>().into(),
+                ],
+            ))
+            .await?;
+            state::taken_in(&txn, owner.user, &object, &memory.digest(), &newest.id).await?;
+            txn.commit().await?;
+            taken += 1;
+        }
+    }
+    Ok(taken)
 }

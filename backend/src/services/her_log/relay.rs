@@ -565,6 +565,13 @@ async fn rows(
     {
         tracing::warn!(%error, "[her-log] her records from another end were not taken in here");
     }
+    // And her memories (b2).
+    if (audience == owner.personal() || audience == Owner::OWN)
+        && !taken.added.is_empty()
+        && let Err(error) = super::memories::take_in(db, root, owner).await
+    {
+        tracing::warn!(%error, "[her-log] her memories from another end were not taken in here");
+    }
     // A catch-up waiting on these rows may be over: she thinks here again.
     if !taken.added.is_empty()
         && matches!(super::pen::current(), super::pen::Pen::CatchingUp { .. })

@@ -3331,17 +3331,31 @@ async fn her_memories_go_into_her_log_by_comparing() {
     };
     let db = &schema.db;
     let root = root();
+    // Her own are kept with no account, as `unified::own` writes them; a
+    // private one with its people.
     let memory = |id: &str, kind: &str, content: &str, venue: &str| {
+        let (user, members) = match venue {
+            "own" => ("NULL".to_string(), "[]".to_string()),
+            _ => (OWNER.to_string(), format!("[{OWNER}]")),
+        };
         format!(
-            "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, concepts, \
-             valid_from, created_at, updated_at) VALUES ('{id}', {OWNER}, '{kind}', '{content}', \
-             'chat', '{venue}', '[\"茶\"]'::jsonb, now(), now(), now())"
+            "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, audience, \
+             concepts, valid_from, created_at, updated_at) VALUES ('{id}', {user}, '{kind}', \
+             '{content}', 'chat', '{venue}', '{members}'::jsonb, \
+             '[{{\"name\": \"茶\", \"aliases\": [\"tea\"]}}]'::jsonb, now(), now(), now())"
         )
     };
     for sql in [
         memory("m1", "preference", "喜欢茶", "private"),
         memory("m2", "narrative", "第一次一起看雨", "own"),
         memory("m3", "fact", "群里有人养蜂", "group:telegram:-100"),
+        // Another account was in it: not the owner's talk alone.
+        memory("m5", "fact", "和别人一起说的", "private").replace(
+            &format!("'[{OWNER}]'::jsonb"),
+            &format!("'[{OWNER}, 99]'::jsonb"),
+        ),
+        // Words her log does not take.
+        memory("m6", "fact", " ", "private"),
     ] {
         db.execute_unprepared(&sql).await.unwrap();
     }
@@ -3360,6 +3374,7 @@ async fn her_memories_go_into_her_log_by_comparing() {
 
     let first = super::state::sync(db, &root, OWNER).await.unwrap();
     assert_eq!(counts(first.memories), (2, 0, 0));
+    assert_eq!(first.memories.skipped, 1, "the empty one, looked at once");
     assert_eq!(
         memory_rows(store::rows(db, OWNER, PERSONAL).await.unwrap()),
         vec![("memory.write".into(), "memory:m1".into())]
@@ -3376,7 +3391,7 @@ async fn her_memories_go_into_her_log_by_comparing() {
             .all(|audience| !audience.starts_with("group:"))
     );
     let again = super::state::sync(db, &root, OWNER).await.unwrap();
-    assert_eq!(counts(again.memories), (0, 0, 0));
+    assert_eq!(again.memories, super::memories::Compared::default());
 
     // m4 takes m1's place.
     db.execute_unprepared(&memory("m4", "preference", "喜欢绿茶", "private"))
@@ -3409,7 +3424,10 @@ async fn her_memories_go_into_her_log_by_comparing() {
         body_of("memory:m4", "memory.write")["replaces"],
         json!(["memory:m1"])
     );
-    assert_eq!(body_of("memory:m4", "memory.write")["cues"], json!(["茶"]));
+    assert_eq!(
+        body_of("memory:m4", "memory.write")["cues"],
+        json!(["茶", "tea"])
+    );
     assert_eq!(
         body_of("memory:m1", "memory.retire"),
         json!({ "at": body_of("memory:m1", "memory.retire")["at"], "why": "superseded", "by": "memory:m4" })
@@ -3436,6 +3454,82 @@ async fn her_memories_go_into_her_log_by_comparing() {
     );
     let still = super::state::sync(db, &root, OWNER).await.unwrap();
     assert_eq!(counts(still.memories), (0, 0, 0));
+}
+
+/// Her memories the Mac wrote go into the site's table under their own id
+/// (b2): written, then retired; and comparing on the site afterwards writes
+/// none of it back.
+#[tokio::test]
+async fn her_memories_from_another_end_go_into_the_sites_table() {
+    let Some(schema) = schema("her_log_memories_in").await else {
+        return;
+    };
+    let db = &schema.db;
+    let root = root();
+    let mut mac = Side::new("dev_mac");
+    let memory = |db: &DatabaseConnection| {
+        let db = db.clone();
+        async move {
+            db.query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT content, venue, origin, concepts, invalid_reason, superseded_by \
+                 FROM agent_memories WHERE id = 'tea'",
+            ))
+            .await
+            .unwrap()
+            .map(|row| {
+                (
+                    row.try_get::<String>("", "content").unwrap(),
+                    row.try_get::<String>("", "venue").unwrap(),
+                    row.try_get::<String>("", "origin").unwrap(),
+                    row.try_get::<Value>("", "concepts").unwrap(),
+                    row.try_get::<Option<String>>("", "invalid_reason").unwrap(),
+                    row.try_get::<Option<String>>("", "superseded_by").unwrap(),
+                )
+            })
+        }
+    };
+    mac.write_body(
+        PERSONAL,
+        "memory:tea",
+        "memory.write",
+        Author::Owner,
+        Some(
+            json!({ "at": T0 / 1000, "kind": "preference", "text": "likes tea", "cues": ["tea"] }),
+        ),
+        T0,
+    );
+    sync(db, &mut mac, PERSONAL, T0).await;
+    let (content, venue, origin, concepts, why, _) = memory(db).await.expect("taken in");
+    assert_eq!(
+        (content.as_str(), venue.as_str(), origin.as_str()),
+        ("likes tea", "private", "dev_mac")
+    );
+    assert_eq!(concepts, json!([{ "name": "tea", "aliases": [] }]));
+    assert_eq!(why, None);
+    let compared = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(
+        compared.memories,
+        super::memories::Compared::default(),
+        "not written back"
+    );
+
+    mac.write_body(
+        PERSONAL,
+        "memory:tea",
+        "memory.retire",
+        Author::Owner,
+        Some(json!({ "at": T0 / 1000 + 1, "why": "superseded", "by": "memory:green" })),
+        T0 + MINUTE,
+    );
+    sync(db, &mut mac, PERSONAL, T0 + MINUTE).await;
+    let (_, _, _, _, why, by) = memory(db).await.unwrap();
+    assert_eq!(
+        (why.as_deref(), by.as_deref()),
+        (Some("superseded"), Some("green"))
+    );
+    let compared = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(compared.memories, super::memories::Compared::default());
 }
 
 /// Her records the Mac wrote while her mind was there go into the site's
