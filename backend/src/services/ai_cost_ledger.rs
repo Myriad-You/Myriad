@@ -371,6 +371,8 @@ pub(crate) mod spent {
     static SPENT: Mutex<Spent> = Mutex::new(BTreeMap::new());
     /// The same, by what each call was for.
     static BY_STEP: Mutex<Spent> = Mutex::new(BTreeMap::new());
+    /// Failed calls by model and why, where the caller said why.
+    static BECAUSE: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
 
     tokio::task_local! {
         static STEP: String;
@@ -423,12 +425,52 @@ pub(crate) mod spent {
         count(&BY_STEP, step, input_tokens, output_tokens, failed);
     }
 
+    /// Why a call to `model` failed, said and counted: a timeout, which
+    /// recall waiting on meaning meets now and then, or the status the
+    /// source answered with (402 is out of credit), or the error's start.
+    pub(crate) fn because(model: &str, error: &anyhow::Error) {
+        let why = reason(error);
+        eprintln!("model call failed because: {model}: {why}");
+        *BECAUSE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .entry(format!("{model}: {why}"))
+            .or_default() += 1;
+    }
+
+    pub(super) fn reason(error: &anyhow::Error) -> String {
+        let text = format!("{error:#}");
+        let timed_out = error.chain().any(|cause| {
+            cause
+                .downcast_ref::<reqwest::Error>()
+                .is_some_and(reqwest::Error::is_timeout)
+        });
+        if timed_out || text.contains("timed out") {
+            return "timeout".to_string();
+        }
+        // "OpenAI-compatible API error 402 Payment Required (endpoint: …"
+        let status = text
+            .split("API error ")
+            .nth(1)
+            .and_then(|rest| rest.get(..3))
+            .filter(|code| code.bytes().all(|byte| byte.is_ascii_digit()));
+        match status {
+            Some(code) => format!("HTTP {code}"),
+            None => text.chars().take(80).collect(),
+        }
+    }
+
     /// What was spent since the last call, by model, by step, and in all.
     pub(crate) fn take() -> serde_json::Value {
         let taken = |from: &Mutex<Spent>| {
             std::mem::take(&mut *from.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))
         };
         let (spent, by_step) = (taken(&SPENT), taken(&BY_STEP));
+        let because = std::mem::take(
+            &mut *BECAUSE
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        );
         let total = spent.values().fold((0, 0, 0, 0), |sum, one| {
             (sum.0 + one.0, sum.1 + one.1, sum.2 + one.2, sum.3 + one.3)
         });
@@ -447,6 +489,7 @@ pub(crate) mod spent {
             "by_model": lines(spent),
             "by_step": lines(by_step),
             "total": line(total),
+            "failedBecause": because,
         })
     }
 }
@@ -460,6 +503,40 @@ mod tests {
         with_ai_usage_meter, with_site_ai_ledger,
     };
     use super::{record_ai_tokens_from_attribution, with_work_usage_meter};
+
+    #[tokio::test]
+    async fn a_failed_call_says_whether_it_timed_out_or_what_the_source_answered() {
+        let refused = anyhow::anyhow!(
+            "OpenAI-compatible API error 402 Payment Required (endpoint: https://x/v1, model: m)"
+        )
+        .context("embeddings");
+        assert_eq!(super::spent::reason(&refused), "HTTP 402");
+
+        // A source that takes the request and never answers.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let held = tokio::spawn(async move {
+            let (_socket, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        let sent = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(100))
+            .build()
+            .unwrap()
+            .get(format!("http://{address}/"))
+            .send()
+            .await
+            .unwrap_err();
+        let waited = anyhow::Error::new(sent).context("Failed to send embeddings request");
+        assert_eq!(super::spent::reason(&waited), "timeout");
+        held.abort();
+
+        let other = anyhow::anyhow!("embeddings response is missing an input");
+        assert_eq!(
+            super::spent::reason(&other),
+            "embeddings response is missing an input"
+        );
+    }
 
     #[tokio::test]
     async fn meter_accumulates_across_nested_calls() {

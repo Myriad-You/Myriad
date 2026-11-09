@@ -508,7 +508,11 @@ impl AiAnalyzer {
                 )
                 .await;
             }
-            Err(_) => {
+            Err(error) => {
+                #[cfg(test)]
+                crate::services::ai_cost_ledger::spent::because(&self.model, error);
+                #[cfg(not(test))]
+                let _ = error;
                 crate::services::ai_cost_ledger::record_ai_call_from_attribution(
                     self.provider.as_str(),
                     &self.model,

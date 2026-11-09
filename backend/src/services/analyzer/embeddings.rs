@@ -78,6 +78,10 @@ impl AiAnalyzer {
             ordered(parsed.data, inputs.len())
         }
         .await;
+        #[cfg(test)]
+        if let Err(error) = &result {
+            crate::services::ai_cost_ledger::spent::because(&self.model, error);
+        }
         crate::services::ai_cost_ledger::record_ai_call_from_attribution(
             self.provider.as_str(),
             &self.model,
