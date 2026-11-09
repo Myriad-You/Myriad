@@ -416,19 +416,22 @@ pub(super) async fn her_memory_after_a_long_background() {
                     .iter()
                     .flat_map(|index| left.get(index).cloned().unwrap_or_default())
                     .collect();
-                let outcome = run_for(
-                    &copy.db,
-                    (judge, lite, None),
-                    &question,
-                    &format!("long-{}-{round}", question.question_id),
-                    (user_id, PERSON),
-                    answering,
-                )
-                .await;
+                let (mut outcome, failed) =
+                    crate::services::ai_cost_ledger::spent::failures_in(run_for(
+                        &copy.db,
+                        (judge, lite, None),
+                        &question,
+                        &format!("long-{}-{round}", question.question_id),
+                        (user_id, PERSON),
+                        answering,
+                    ))
+                    .await;
+                outcome.failed = failed;
                 copy.drop().await;
                 println!(
-                    "long {} #{round} wide={:?} wider={:?}",
+                    "long {} #{round} void={} wide={:?} wider={:?}",
                     question.question_id,
+                    outcome.void(),
                     outcome.wide.correct,
                     outcome.wider.as_ref().map(|wider| wider.correct)
                 );
@@ -447,10 +450,17 @@ pub(super) async fn her_memory_after_a_long_background() {
                     (isolated.db.clone(), &judge, &lite, &background);
                 async move {
                     let small = question.small(background);
-                    let outcome = run_one(&db, judge, lite, None, &small, round).await;
+                    let (mut outcome, failed) =
+                        crate::services::ai_cost_ledger::spent::failures_in(run_one(
+                            &db, judge, lite, None, &small, round,
+                        ))
+                        .await;
+                    outcome.failed = failed;
                     println!(
-                        "small {} #{round} wide={:?}",
-                        question.question_id, outcome.wide.correct
+                        "small {} #{round} void={} wide={:?}",
+                        question.question_id,
+                        outcome.void(),
+                        outcome.wide.correct
                     );
                     (question, round, outcome)
                 }

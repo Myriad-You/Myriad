@@ -296,6 +296,19 @@ struct Outcome {
     /// never decided.
     nodes: Vec<Option<String>>,
     kept: usize,
+    /// Model calls that failed while the question ran, as `model: why`.
+    failed: Vec<String>,
+}
+
+impl Outcome {
+    /// A run the network cost: some call failed other than an embedding
+    /// running past the two seconds recall waits, which production meets
+    /// too. Not counted as wrong; run again.
+    fn void(&self) -> bool {
+        self.failed
+            .iter()
+            .any(|failed| !(failed.contains("embed") && failed.ends_with(": timeout")))
+    }
 }
 
 /// A session of the question: when, its turns, and who was present.
@@ -677,5 +690,6 @@ async fn run_for(
         memories,
         concepts,
         nodes,
+        failed: Vec::new(),
     }
 }

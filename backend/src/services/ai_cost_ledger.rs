@@ -376,6 +376,18 @@ pub(crate) mod spent {
 
     tokio::task_local! {
         static STEP: String;
+        /// The failures said inside one `failures_in`.
+        static HERE: std::sync::Arc<Mutex<Vec<String>>>;
+    }
+
+    /// `fut`, and every failure said while it ran, as `model: why`: one
+    /// question's run knows whether the network, not her, cost it.
+    pub(crate) async fn failures_in<F: std::future::Future>(fut: F) -> (F::Output, Vec<String>) {
+        let here = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let out = HERE.scope(here.clone(), fut).await;
+        let failed =
+            std::mem::take(&mut *here.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
+        (out, failed)
     }
 
     /// `fut`, its calls counted as `step` unless an outer step is set.
@@ -431,6 +443,11 @@ pub(crate) mod spent {
     pub(crate) fn because(model: &str, error: &anyhow::Error) {
         let why = reason(error);
         eprintln!("model call failed because: {model}: {why}");
+        let _ = HERE.try_with(|here| {
+            here.lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(format!("{model}: {why}"));
+        });
         *BECAUSE
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -503,6 +520,18 @@ mod tests {
         with_ai_usage_meter, with_site_ai_ledger,
     };
     use super::{record_ai_tokens_from_attribution, with_work_usage_meter};
+
+    #[tokio::test]
+    async fn a_run_knows_the_failures_said_while_it_ran_and_no_others() {
+        super::spent::because("outside", &anyhow::anyhow!("before"));
+        let ((), failed) = super::spent::failures_in(async {
+            super::spent::because("m", &anyhow::anyhow!("API error 503 Service Unavailable"));
+            tokio::task::yield_now().await;
+            super::spent::because("e", &anyhow::anyhow!("operation timed out"));
+        })
+        .await;
+        assert_eq!(failed, ["m: HTTP 503", "e: timeout"]);
+    }
 
     #[tokio::test]
     async fn a_failed_call_says_whether_it_timed_out_or_what_the_source_answered() {

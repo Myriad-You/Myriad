@@ -68,11 +68,16 @@ pub(super) async fn her_memory_on_longmemeval() {
         .map(|(question, round)| {
             let (db, judge, lite, reader) = (db.clone(), &judge, &lite, reader.as_ref());
             async move {
-                let outcome = run_one(&db, judge, lite, reader, &question, round).await;
+                let (mut outcome, failed) = crate::services::ai_cost_ledger::spent::failures_in(
+                    run_one(&db, judge, lite, reader, &question, round),
+                )
+                .await;
+                outcome.failed = failed;
                 println!(
-                    "{} {} #{round} written={} plain={:?} cued={:?} wide={:?} read={:?}",
+                    "{} {} #{round} void={} written={} plain={:?} cued={:?} wide={:?} read={:?}",
                     question.question_type,
                     question.question_id,
+                    outcome.void(),
                     outcome.written,
                     outcome.plain.correct,
                     outcome.cued.correct,
@@ -346,11 +351,15 @@ pub(super) fn report(
             "read":outcome.read.as_ref().map(answered),
             "bare":outcome.bare.as_ref().map(answered),"inPrivate":outcome.in_private,
             "memories":outcome.memories,"concepts":outcome.concepts,
-            "nodes":outcome.nodes})
+            "nodes":outcome.nodes,"failed":outcome.failed,"void":outcome.void()})
         })
         .collect();
+    let voided = outcomes
+        .iter()
+        .filter(|(_, _, outcome)| outcome.void())
+        .count();
     json!({"times": times, "wider": wider(), "widerArm": wider_arm(), "scores": scores,
-        "rows": rows})
+        "voided": voided, "rows": rows})
 }
 
 #[test]
