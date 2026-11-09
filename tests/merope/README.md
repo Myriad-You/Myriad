@@ -172,3 +172,9 @@ MYRIAD_MEDIA_TEST_DATABASE_URL=… cargo test -p myriad-backend --bin myriad-bac
 - `MEROPE_MEMORY_BENCH_WIDER_ARM=<n>`：在同一轮里多作答一次，召回放大 n 倍。记忆完全相同，不用另写聊天，结果是报告里的 `wider` 这一路。
 - `offTopic`：背景里每条记忆在它不负责回答的题里被想起的次数，`most` 列出出现最多的几条。
 - 和 `full_size.rs` 的区别：那边直接把旧报告里的记忆塞进去量召回，不走写入；这里从对话开始全程照生产的路径走。
+
+## 换模型时
+
+- `MEROPE_MEMORY_BENCH_LITE=<来源>:<模型>`（例如 `openrouter:anthropic/claude-haiku-5.5`）：只在这次评测里把 Lite 换到这个来源和模型，站点配置不动。三个入口（`her_memory_on_longmemeval`、`her_memory_over_weeks`、`her_memory_after_a_long_background`）都认这个变量。不设就用站点配置的 Lite。站点换了模型之后，用它把跑到一半的那套接着在原模型上跑完。
+- 报告顶层的 `lite` 记着这次说话用的模型（`model`）、来源（`source`），以及判分用的模型（`judgedBy`）。不同模型跑出来的结果不能合在一起算 pass^k。
+- `spent.by_model` 下每个模型的 `failed` 是失败的调用次数，每次失败还会在 stderr 打一行 `model call failed: <模型>`。嵌入失败（包括超过 2 秒）时，召回会静默退回只按字面，这时就记在嵌入模型名下。只要这个数不为 0，这一轮的召回就没有完全按意思走。

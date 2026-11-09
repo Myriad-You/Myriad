@@ -265,7 +265,7 @@ pub async fn record_ai_tokens_from_attribution(
     let output_tokens = output_tokens.max(0);
 
     #[cfg(test)]
-    spent::add(model, input_tokens, output_tokens);
+    spent::add(model, input_tokens, output_tokens, status);
 
     // Metered even without attribution: planner / nested work must still settle.
     let _ = AI_USAGE_METER.try_with(|meter| {
@@ -366,8 +366,8 @@ pub(crate) mod spent {
     use std::collections::BTreeMap;
     use std::sync::Mutex;
 
-    /// Calls, input tokens, output tokens.
-    type Spent = BTreeMap<String, (u64, u64, u64)>;
+    /// Calls, input tokens, output tokens, calls that failed.
+    type Spent = BTreeMap<String, (u64, u64, u64, u64)>;
     static SPENT: Mutex<Spent> = Mutex::new(BTreeMap::new());
     /// The same, by what each call was for.
     static BY_STEP: Mutex<Spent> = Mutex::new(BTreeMap::new());
@@ -385,22 +385,42 @@ pub(crate) mod spent {
         }
     }
 
-    fn count(into: &Mutex<Spent>, key: String, input_tokens: i32, output_tokens: i32) {
+    fn count(
+        into: &Mutex<Spent>,
+        key: String,
+        input_tokens: i32,
+        output_tokens: i32,
+        failed: bool,
+    ) {
         let mut spent = into.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let entry = spent.entry(key).or_default();
         entry.0 += 1;
         entry.1 += input_tokens as u64;
         entry.2 += output_tokens as u64;
+        entry.3 += u64::from(failed);
     }
 
-    pub(super) fn add(model: &str, input_tokens: i32, output_tokens: i32) {
-        count(&SPENT, model.to_string(), input_tokens, output_tokens);
+    /// A call that failed is counted and said: an embedding that fails sends
+    /// recall back to words alone without a word in the log, and a run
+    /// watched only for its own failures would not know.
+    pub(super) fn add(model: &str, input_tokens: i32, output_tokens: i32, status: &str) {
+        let failed = status == "failed";
+        if failed {
+            eprintln!("model call failed: {model}");
+        }
+        count(
+            &SPENT,
+            model.to_string(),
+            input_tokens,
+            output_tokens,
+            failed,
+        );
         let step = STEP
             .try_with(|step| step.clone())
             .ok()
             .or_else(|| super::current_ai_attribution().map(|attribution| attribution.operation))
             .unwrap_or_else(|| "unlabeled".to_string());
-        count(&BY_STEP, step, input_tokens, output_tokens);
+        count(&BY_STEP, step, input_tokens, output_tokens, failed);
     }
 
     /// What was spent since the last call, by model, by step, and in all.
@@ -409,11 +429,12 @@ pub(crate) mod spent {
             std::mem::take(&mut *from.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))
         };
         let (spent, by_step) = (taken(&SPENT), taken(&BY_STEP));
-        let total = spent
-            .values()
-            .fold((0, 0, 0), |sum, one| (sum.0 + one.0, sum.1 + one.1, sum.2 + one.2));
-        let line = |(calls, input, output): (u64, u64, u64)| {
-            serde_json::json!({"calls": calls, "input_tokens": input, "output_tokens": output})
+        let total = spent.values().fold((0, 0, 0, 0), |sum, one| {
+            (sum.0 + one.0, sum.1 + one.1, sum.2 + one.2, sum.3 + one.3)
+        });
+        let line = |(calls, input, output, failed): (u64, u64, u64, u64)| {
+            serde_json::json!({"calls": calls, "input_tokens": input, "output_tokens": output,
+                "failed": failed})
         };
         let lines = |spent: Spent| {
             spent
@@ -597,10 +618,7 @@ mod tests {
             super::current_attribution().map(|a| (a.subject_id, a.source, a.tapp_id))
         })
         .await;
-        assert_eq!(
-            seen,
-            Some((3, "playground".into(), None))
-        );
+        assert_eq!(seen, Some((3, "playground".into(), None)));
     }
 
     #[test]
@@ -614,7 +632,10 @@ mod tests {
                 .unwrap_err()
                 .contains("not configured")
         );
-        assert_ne!(super::site_owner_id_from_lookup(Err("db down".into())).ok(), Some(1));
+        assert_ne!(
+            super::site_owner_id_from_lookup(Err("db down".into())).ok(),
+            Some(1)
+        );
         assert_ne!(super::site_owner_id_from_lookup(Ok(None)).ok(), Some(1));
         assert_eq!(super::site_owner_id_from_lookup(Ok(Some(42))).unwrap(), 42);
     }

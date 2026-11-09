@@ -88,6 +88,7 @@ pub(super) async fn her_memory_on_longmemeval() {
     isolated.drop().await;
     let mut report = report(&questions, times, &outcomes);
     report["spent"] = crate::services::ai_cost_ledger::spent::take();
+    report["lite"] = lite_in_use().await;
     println!("{}", report["scores"]);
     std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
 }
@@ -100,6 +101,10 @@ pub(super) async fn the_models() -> (
 ) {
     let config_db = super::super::super::semantic_eval::load_configured_lite().await;
     config_db.close().await.ok();
+    lite_as_asked(
+        &mut *crate::GLOBAL_DYNAMIC_CONFIG.write().await,
+        std::env::var("MEROPE_MEMORY_BENCH_LITE").ok().as_deref(),
+    );
     embedding_as_asked().await;
     let judge = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(
         Duration::from_secs(60),
@@ -113,6 +118,37 @@ pub(super) async fn the_models() -> (
     .expect("Lite model")
     .with_light_thinking();
     (judge, lite)
+}
+
+/// `MEROPE_MEMORY_BENCH_LITE=<source>:<model>` (say
+/// `openrouter:anthropic/claude-haiku-5.5`): Lite for this run only, on that
+/// source, whatever the site has set; unset, the site's. A run begun on one
+/// model goes on on it after the site moves to another, and the site's own
+/// settings are never touched.
+pub(super) fn lite_as_asked(config: &mut crate::config::DynamicConfig, asked: Option<&str>) {
+    let Some(asked) = asked.map(str::trim).filter(|asked| !asked.is_empty()) else {
+        return;
+    };
+    let (source, model) = asked
+        .split_once(':')
+        .map(|(source, model)| (source.trim(), model.trim()))
+        .filter(|(source, model)| !source.is_empty() && !model.is_empty())
+        .expect("MEROPE_MEMORY_BENCH_LITE is <source>:<model>");
+    config.lite_ai_source = source.to_string();
+    config.lite_ai_model = model.to_string();
+}
+
+/// Which Lite the run spoke with, and judged by, for its report.
+pub(super) async fn lite_in_use() -> Value {
+    let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
+    let judged = config
+        .resolve_lite_judge_ai_config()
+        .map(|judge| judge.model);
+    json!({
+        "source": config.tier_source(crate::config::ModelTier::Lite),
+        "model": config.resolve_strict_lite_ai_config().map(|lite| lite.model),
+        "judgedBy": judged,
+    })
 }
 
 /// `MEROPE_MEMORY_BENCH_TIMES` (default 1): how many times each question
@@ -315,4 +351,47 @@ pub(super) fn report(
         .collect();
     json!({"times": times, "wider": wider(), "widerArm": wider_arm(), "scores": scores,
         "rows": rows})
+}
+
+#[test]
+fn a_run_asked_for_another_lite_speaks_and_judges_with_it() {
+    let mut config = crate::config::DynamicConfig::default();
+    config.lite_ai_source = "openai".into();
+    config.lite_ai_model = "gpt-6-luna".into();
+    config.aux_judge_model = String::new();
+    let site = |config: &crate::config::DynamicConfig| {
+        config.resolve_strict_lite_ai_config().unwrap().model
+    };
+    lite_as_asked(&mut config, None);
+    lite_as_asked(&mut config, Some("  "));
+    assert_eq!(site(&config), "gpt-6-luna");
+
+    lite_as_asked(
+        &mut config,
+        Some(" openrouter : anthropic/claude-haiku-5.5 "),
+    );
+    assert_eq!(
+        config.tier_source(crate::config::ModelTier::Lite),
+        "openrouter"
+    );
+    let lite = config.resolve_strict_lite_ai_config().unwrap();
+    assert_eq!(lite.model, "anthropic/claude-haiku-5.5");
+    assert_eq!(lite.base_url, "https://openrouter.ai/api/v1");
+    assert_eq!(
+        config.resolve_lite_judge_ai_config().unwrap().model,
+        "anthropic/claude-haiku-5.5"
+    );
+
+    // Only the first colon parts source from model.
+    lite_as_asked(&mut config, Some("openrouter:vendor/model:free"));
+    assert_eq!(site(&config), "vendor/model:free");
+}
+
+#[test]
+#[should_panic(expected = "<source>:<model>")]
+fn a_lite_asked_for_without_its_source_is_refused() {
+    lite_as_asked(
+        &mut crate::config::DynamicConfig::default(),
+        Some("anthropic/claude-haiku-5.5"),
+    );
 }

@@ -249,20 +249,7 @@ async fn her_memory_over_weeks() {
         "report must not exist"
     );
     let weeks = weeks();
-    let config_db = super::super::super::semantic_eval::load_configured_lite().await;
-    config_db.close().await.ok();
-    embedding_as_asked().await;
-    let judge = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(
-        Duration::from_secs(60),
-    ))
-    .await
-    .expect("judgment model");
-    let lite = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
-        Duration::from_secs(60),
-    ))
-    .await
-    .expect("Lite model")
-    .with_light_thinking();
+    let (judge, lite) = longmemeval::the_models().await;
     let url = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL").expect("test database");
     let isolated = crate::db::IsolatedSchema::migrated(&url, "memory_weeks").await;
     let db = isolated.db.clone();
@@ -277,6 +264,7 @@ async fn her_memory_over_weeks() {
     let kept: Vec<Kept> = kept.into_iter().flatten().collect();
     let mut report = report(&weeks, times, &asked, &kept);
     report["spent"] = crate::services::ai_cost_ledger::spent::take();
+    report["lite"] = longmemeval::lite_in_use().await;
     for line in report["weeks"].as_array().unwrap() {
         println!("{line}");
     }

@@ -483,6 +483,7 @@ pub(super) async fn her_memory_after_a_long_background() {
         "bySize": small_report.as_ref().map(|small| by_size(&long_report, small)),
         "offTopic": off_topic(&memories, &long),
         "spent": {"long": long_spent, "small": crate::services::ai_cost_ledger::spent::take()},
+        "lite": longmemeval::lite_in_use().await,
     });
     println!("{}", report["long"]["scores"]);
     std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
