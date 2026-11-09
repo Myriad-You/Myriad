@@ -65,6 +65,13 @@ const KEEP: &str = "Edit this exact illustration. Keep the canvas size, framing,
 character's size and position, the face, expression, eyes, hair, outfit, accessories, colors, \
 line style and shading exactly the same, on the same background. The arm on the viewer's right \
 side stays exactly as drawn. Change only the arm on the viewer's left side";
+/// The 3D arm wears the portrait's sleeve on the upper arm and the gesture's on
+/// the forearm, so a band or cuff the drawing moves down the arm shows twice
+/// while the hand rises. Without this sentence the model moved a short sleeve's
+/// cuff to the wrist (b00); with it, 2 of 2 kept it where the portrait has it.
+const SLEEVE: &str = " That sleeve keeps exactly the length it has in the original: every \
+band, cuff and hem on it stays on the same part of the arm, as far from the shoulder as it is \
+now, and none of them moves down toward the wrist.";
 const TAIL: &str = " The hand has five fingers with correct anatomy, drawn in the original's \
 style. The sleeve keeps its exact design and moves with the arm. Clean finished art.";
 
@@ -79,7 +86,7 @@ fn arm_prompt(gesture: &str) -> Option<String> {
     GESTURES
         .iter()
         .find(|(name, _, _)| *name == gesture)
-        .map(|(_, change, _)| format!("{KEEP}{change}{TAIL}"))
+        .map(|(_, change, _)| format!("{KEEP}{change}{SLEEVE}{TAIL}"))
 }
 
 /// `wave-left` → ("wave", "left"), for the gestures and sides there are.
@@ -499,6 +506,7 @@ mod tests {
             let (gesture, _) = parse_key(key).expect(key);
             let prompt = arm_prompt(gesture).unwrap();
             assert!(prompt.starts_with(KEEP) && prompt.ends_with(TAIL));
+            assert!(prompt.contains(SLEEVE));
         }
         assert!(parse_key("juggle-left").is_none() && parse_key("wave-up").is_none());
         assert!(parse_key("wave").is_none());
