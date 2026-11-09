@@ -1,0 +1,9 @@
+{
+  "search": "Search",
+  "searchPlaceholder": "Search posts",
+  "searchHint": "Enter a keyword to search published posts.",
+  "searchNoResults": "No posts found for {q}.",
+  "searchResults": "Found {n} post(s) about {q}.",
+  "searchResultsMore": "Found {n}+ posts about {q}.",
+  "siteFallbackTitle": "Blog"
+}

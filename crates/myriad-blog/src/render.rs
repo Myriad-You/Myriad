@@ -11,13 +11,20 @@ use crate::slug::{fallback_slug, validate_slug};
 use crate::summary::summarize;
 use crate::urlutil::{escape_html, is_javascript_url};
 
-/// `content/posts/{slug}/index.html`。slug 不合法时改用 `n{item_id}`，避免路径跑出 `posts/`。
-pub fn render_post_file(site: &BlogSite, post: &BlogPost, theme_id: &str) -> (String, String) {
-    let slug = if validate_slug(&post.slug) {
+/// 这篇笔记在博客里的 slug：手改过的 slug 不合法时退回 `n{item_id}`，避免路径跑出 `posts/`。
+///
+/// 导出的内容文件和站内搜索的结果链接必须用同一份，否则文章搜得到、点进去是 404。
+pub fn post_slug(post: &BlogPost) -> String {
+    if validate_slug(&post.slug) {
         post.slug.clone()
     } else {
         fallback_slug(post.item_id)
-    };
+    }
+}
+
+/// `content/posts/{slug}/index.html`。slug 不合法时改用 `n{item_id}`，避免路径跑出 `posts/`。
+pub fn render_post_file(site: &BlogSite, post: &BlogPost, theme_id: &str) -> (String, String) {
+    let slug = post_slug(post);
     let page_locale = if post.locale.trim().is_empty() {
         site.locale.as_str()
     } else {
@@ -267,4 +274,40 @@ fn is_blocked_scheme(url: &str) -> bool {
     let compact: String = url.chars().filter(|ch| !ch.is_ascii_whitespace()).collect();
     let lower = compact.to_ascii_lowercase();
     lower.starts_with("data:") || lower.starts_with("vbscript:")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn post(slug: &str, item_id: i32) -> BlogPost {
+        BlogPost {
+            item_id,
+            slug: slug.to_string(),
+            title: String::new(),
+            published_at: String::new(),
+            updated_at: String::new(),
+            content_html: String::new(),
+            summary_source: String::new(),
+            category: None,
+            authors: Vec::new(),
+            cover: None,
+            locale: String::new(),
+        }
+    }
+
+    #[test]
+    fn post_slug_matches_the_exported_path() {
+        assert_eq!(post_slug(&post("hello-world", 7)), "hello-world");
+        assert_eq!(
+            post_slug(&post("", 7)),
+            "n7",
+            "空的 slug 要退回 n{{item_id}}"
+        );
+        assert_eq!(
+            post_slug(&post("../etc/passwd", 8)),
+            "n8",
+            "坏 slug 不能跑出 posts/"
+        );
+    }
 }

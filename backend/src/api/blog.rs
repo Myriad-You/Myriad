@@ -193,6 +193,9 @@ async fn post_rebuild(_admin: AdminClaims) -> Json<Value> {
 }
 
 /// 代理问的旧地址查询。和 `proxy/src/main.rs` 的 `OLD_PATH_REDIRECT_PATH` 同一条。
+/// 搜索关键词最长多少字符。超过就截断，避免匿名查询被超长串拖慢。
+const SEARCH_QUERY_MAX_CHARS: usize = 100;
+
 const OLD_PATH_REDIRECT_PATH: &str = "/api/blog/redirect";
 
 #[derive(Deserialize)]
@@ -285,6 +288,68 @@ async fn serve_blog(
             None
         },
     };
+    // 站内搜索：纯服务端渲染，主题有没有 JS 都一样。放在 chrome 建好之后，
+    // 这样导航岛和深浅色跟其它博客页一致。
+    if matches!(path.as_str(), "/blog/search" | "/blog/search/") {
+        let keyword: String = query
+            .as_deref()
+            .and_then(|query| {
+                url::form_urlencoded::parse(query.as_bytes())
+                    .find(|(key, _)| key == "q")
+                    .map(|(_, value)| value.into_owned())
+            })
+            .unwrap_or_default()
+            // 匿名接口：每个不同的 q 都会绕过缓存、在标题/摘要/正文上各查一次，
+            // 长度卡在 SEARCH_QUERY_MAX_CHARS 以内，别让超长串把查询拖重。
+            .chars()
+            .take(SEARCH_QUERY_MAX_CHARS)
+            .collect();
+        let locale = crate::api::reports::locale::host_locale_from_headers(request.headers());
+        let settings = crate::services::blog::load_settings(&db).await;
+        let results = crate::services::blog::search_posts(
+            &db,
+            &keyword,
+            crate::services::blog::SEARCH_PAGE_LIMIT,
+        )
+        .await
+        .map_err(|message| blog_error(500, message))?;
+        let copy = crate::services::blog::SearchCopy {
+            title: crate::i18n::blog(&locale, "search"),
+            placeholder: crate::i18n::blog(&locale, "searchPlaceholder"),
+            hint: crate::i18n::blog(&locale, "searchHint"),
+            no_results: crate::i18n::blog(&locale, "searchNoResults"),
+            results: crate::i18n::blog(&locale, "searchResults"),
+            results_more: crate::i18n::blog(&locale, "searchResultsMore"),
+            site_fallback: crate::i18n::blog(&locale, "siteFallbackTitle"),
+        };
+        let html = crate::services::blog::render_search_page(
+            &settings.site_title,
+            &locale,
+            keyword.trim(),
+            &results.hits,
+            results.more,
+            &copy,
+        );
+        let html = chrome
+            .dark
+            .and_then(|dark| myriad_blog::apply_page_scheme(&html, dark))
+            .unwrap_or(html);
+        let html = myriad_blog::decorate_page(
+            &html,
+            myriad_blog::nav_island_head(),
+            &chrome.nav,
+            chrome.studio.as_deref(),
+        );
+        let cache = if anonymous && !chrome.personal {
+            "public, max-age=60"
+        } else {
+            "private, max-age=60"
+        };
+        let mut response = html_response(StatusCode::OK, html, cache);
+        finish_blog_response(&mut response, request.method());
+        return Ok(response);
+    }
+
     let response = match target {
         BlogTarget::Redirect(location) => {
             let location = match &query {
@@ -441,7 +506,7 @@ fn blog_nav(
     locale: &str,
     site: Option<&myriad_blog::SiteChrome>,
 ) -> String {
-    myriad_blog::nav_island_html(
+    myriad_blog::blog_nav_island_html(
         |module| {
             crate::api::phantasi::phantasi_access_allowed(
                 preferences.module_visibility(module),
@@ -450,6 +515,7 @@ fn blog_nav(
             )
         },
         |key| crate::i18n::nav(locale, key),
+        &crate::i18n::blog(locale, "search"),
         site,
     )
 }

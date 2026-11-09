@@ -3,6 +3,7 @@
 mod build;
 mod content;
 mod layout;
+mod search;
 mod serve;
 mod themes;
 
@@ -19,6 +20,8 @@ use tokio::sync::{Mutex, mpsc};
 
 use crate::services::config_service::ConfigService;
 
+pub use content::{load_settings, search_posts};
+pub use search::{SEARCH_PAGE_LIMIT, SearchCopy, render_search_page};
 pub use serve::{BlogTarget, content_type_for, resolve_blog_target, theme_not_found_page};
 pub use themes::ThemeRecord;
 
