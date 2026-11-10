@@ -70,6 +70,7 @@ use drawing::{
 };
 #[cfg(test)]
 use figure::alongside;
+pub(super) use figure::{enlarged_figure, super_resolved};
 use figure::{fit, plain, put_back, run_figure};
 #[cfg(test)]
 use served::missing_job;
@@ -360,37 +361,6 @@ pub async fn start_full_body_turn_keyforms(
         return Err(bad_request("A set is split plain by keying neither part"));
     }
     start(db, &claims, Some(outfit_id), payload).await
-}
-
-/// A full body's master enlarged as its decomposition is (made and kept now
-/// if it was not yet), for a gesture arm drawn on it.
-pub(super) async fn enlarged_figure(
-    master: &image_generation::ImageReference,
-) -> ApiResult<image_generation::ImageReference> {
-    if let Some(kept) = figure_picture::read(&master.bytes).await {
-        return Ok(image_generation::ImageReference {
-            bytes: axum::body::Bytes::from(kept),
-            media_type: "image/png".to_string(),
-        });
-    }
-    let (client, _) = space_client().await?;
-    Ok(figure::enlarged(&client, master).await)
-}
-
-/// A picture enlarged by the same super-resolution as a full body's; None when
-/// the Space cannot (not configured, no such endpoint, failed).
-pub(super) async fn super_resolved(picture: &[u8]) -> Option<Vec<u8>> {
-    let (client, _) = space_client().await.ok()?;
-    match client
-        .upscale((picture.to_vec(), "image/png".to_string()))
-        .await
-    {
-        Ok(found) => found,
-        Err(error) => {
-            tracing::warn!(%error, "picture could not be super-resolved");
-            None
-        }
-    }
 }
 
 /// A full-body set's picture as its tiles were cut from (enlarged), for the

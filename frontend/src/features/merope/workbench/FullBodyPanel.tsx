@@ -21,9 +21,9 @@ import { decomposeWithTurnKeyforms, resumeTurnKeyforms } from '../turnKeyformsAp
 import { FaceTabs } from './FaceTabs'
 import { RigImportPanel, RigModeTags } from './RigImportPanel'
 import { activeRigMode } from './rigMode'
-import { useArmVariants } from './useArmVariants'
 import { requestUprightCheck, useUprightRequested } from './uprightRequests'
 import { UprightSuggestion } from './UprightSuggestion'
+import { useArmVariants } from './useArmVariants'
 import { useRigImport } from './useRigImport'
 import { useServerGeneration } from './useServerGeneration'
 

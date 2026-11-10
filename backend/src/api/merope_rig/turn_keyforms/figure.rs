@@ -359,3 +359,34 @@ pub(super) async fn fit(
         }
     }
 }
+
+/// A full body's master enlarged as its decomposition is (made and kept now
+/// if it was not yet), for a gesture arm drawn on it.
+pub(in crate::api::merope_rig) async fn enlarged_figure(
+    master: &image_generation::ImageReference,
+) -> ApiResult<image_generation::ImageReference> {
+    if let Some(kept) = figure_picture::read(&master.bytes).await {
+        return Ok(image_generation::ImageReference {
+            bytes: axum::body::Bytes::from(kept),
+            media_type: "image/png".to_string(),
+        });
+    }
+    let (client, _) = space_client().await?;
+    Ok(enlarged(&client, master).await)
+}
+
+/// A picture enlarged by the same super-resolution as a full body's; None when
+/// the Space cannot (not configured, no such endpoint, failed).
+pub(in crate::api::merope_rig) async fn super_resolved(picture: &[u8]) -> Option<Vec<u8>> {
+    let (client, _) = space_client().await.ok()?;
+    match client
+        .upscale((picture.to_vec(), "image/png".to_string()))
+        .await
+    {
+        Ok(found) => found,
+        Err(error) => {
+            tracing::warn!(%error, "picture could not be super-resolved");
+            None
+        }
+    }
+}
