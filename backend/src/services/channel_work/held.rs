@@ -205,6 +205,7 @@ async fn lend(
     // Only someone paired with an account here is lent a chat: a member.
     let about = her::About {
         who: Some(json!({ "kind": "member", "user_id": user_id, "bound": true })),
+        through: her::through(db, &device, &audience).await,
         ..Default::default()
     };
     // Their line goes into the chat once her mind takes it, as a turn here

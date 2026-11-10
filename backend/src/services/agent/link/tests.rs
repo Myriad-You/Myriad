@@ -1000,6 +1000,65 @@ async fn her_log_goes_over_the_link_while_she_syncs() {
 /// link never acked comes back to the site when the link closes: a private
 /// message is held again. Once her mind is on another computer, only that
 /// one is lent to.
+/// A lend tells the PC the highest count of its rows the site holds in a
+/// place it does not keep (past a gap too), so its rows there go on from
+/// it; never for the partner's own talk, which the PC keeps itself.
+#[tokio::test]
+async fn a_lend_says_where_the_pcs_rows_there_go_on_from() {
+    use crate::services::her_log::lend;
+    let Some(site) = site().await else {
+        return;
+    };
+    crate::services::her_log::store::start(&site.db, OWNER)
+        .await
+        .unwrap();
+    let personal = crate::services::her_log::owner(&site.db, OWNER)
+        .await
+        .unwrap()
+        .personal();
+    for (n, (origin, audience, dseq)) in [
+        ("dev_x", "group:onebot:1", 1),
+        ("dev_x", "group:onebot:1", 2),
+        ("dev_x", "group:onebot:1", 5),
+        ("dev_y", "group:onebot:1", 9),
+        ("dev_x", personal.as_str(), 3),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        site.db
+            .execute_raw(sea_orm::Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "INSERT INTO agent_log_rows (user_id, id, audience, origin, dseq, hlc, object, \
+                 kind, envelope, received_from, received_at) \
+                 VALUES ($1, $2, $3, $4, $5, '1-0-x', 'speech:s', 'speech.said', '{}'::jsonb, $4, NOW())",
+                [
+                    OWNER.into(),
+                    format!("row_{n}").into(),
+                    audience.into(),
+                    origin.into(),
+                    (dseq as i64).into(),
+                ],
+            ))
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        lend::through(&site.db, "dev_x", "group:onebot:1").await,
+        Some(5)
+    );
+    assert_eq!(
+        lend::through(&site.db, "dev_y", "group:onebot:1").await,
+        Some(9)
+    );
+    assert_eq!(
+        lend::through(&site.db, "dev_x", "group:onebot:2").await,
+        None
+    );
+    assert_eq!(lend::through(&site.db, "dev_x", "personal:7").await, None);
+    assert_eq!(lend::through(&site.db, "dev_x", &personal).await, None);
+}
+
 #[tokio::test]
 async fn what_she_is_lent_goes_to_the_computer_holding_her() {
     use crate::services::her_log::lend::{self, About, ChatLent, Message as Line, Place};

@@ -103,9 +103,11 @@ pub(super) async fn lend(message: &GroupLine) -> bool {
         who: senders.who(&message.from).await,
     };
     let name = title(&venue).await;
+    let audience = her::group_audience(&venue);
+    let through = her::through(&db, &device, &audience).await;
     her::lend(
         &device,
-        &her::group_audience(&venue),
+        &audience,
         Place::Group {
             venue,
             thread: message.thread,
@@ -114,6 +116,7 @@ pub(super) async fn lend(message: &GroupLine) -> bool {
             name: name.as_deref(),
             owner: senders.owner,
             who: None,
+            through,
         },
         &[one],
         &recent,

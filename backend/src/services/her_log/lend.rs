@@ -247,13 +247,15 @@ pub struct Message {
 }
 
 /// What the site knows of a lend besides its lines: what the place is
-/// called, the site's owner (groups: who hosts her there) and who she
-/// talks with (private chats), in the `identified` answer's shape.
+/// called, the site's owner (groups: who hosts her there), who she talks
+/// with (private chats), in the `identified` answer's shape, and the
+/// highest count of the PC's rows the site holds there ([`through`]).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct About<'a> {
     pub name: Option<&'a str>,
     pub owner: Option<i32>,
     pub who: Option<Value>,
+    pub through: Option<u64>,
 }
 
 impl Message {
@@ -306,12 +308,47 @@ fn lend_frame(
     if !recent.is_empty() {
         body["recent"] = json!(cap(recent));
     }
+    if let Some(through) = about.through {
+        body["through"] = json!(through);
+    }
     Outgoing {
         to: To::Sender,
         t,
         id: Some(lend_id()),
         body,
     }
+}
+
+/// The highest `dseq` of `device`'s rows the site holds in `audience`,
+/// past any gap too, for a lend there: the PC keeps none of an audience it
+/// does not hold on disk, so its rows there go on from this without a
+/// number used twice (the site keeps one row a place). None for an
+/// audience the PC holds (its own count is on its disk) or where the site
+/// holds none of its rows.
+pub async fn through(db: &DatabaseConnection, device: &str, audience: &str) -> Option<u64> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let site_owner = crate::services::site_owner::site_owner_user_id(db)
+        .await
+        .ok()?;
+    let owner = super::owner(db, site_owner).await.ok()?;
+    let pc = myriad_persona_log::Holder {
+        core: myriad_persona_log::Core::Pc,
+        owner: owner.partner,
+    };
+    if pc.holds(audience) {
+        return None;
+    }
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT MAX(dseq) AS through FROM agent_log_rows \
+             WHERE user_id = $1 AND origin = $2 AND audience = $3",
+            [site_owner.into(), device.into(), audience.into()],
+        ))
+        .await
+        .ok()??;
+    let through: Option<i64> = row.try_get("", "through").ok()?;
+    through.and_then(|through| u64::try_from(through).ok())
 }
 
 /// Lend `messages` of `place` to `device`, her mind; whether it went (the
@@ -729,6 +766,7 @@ mod tests {
                 name: Some("小林"),
                 owner: Some(1),
                 who: Some(json!({ "kind": "member", "user_id": 7, "bound": true })),
+                through: Some(4),
             },
             &[message("m_1", "在吗")],
             &recent,
@@ -745,6 +783,7 @@ mod tests {
         // Who she talks with goes on the lend; the owner is a group's.
         assert_eq!(frame.body["who"]["user_id"], 7);
         assert!(frame.body.get("owner").is_none());
+        assert_eq!(frame.body["through"], 4);
         let lend_id = frame.id.unwrap();
 
         let kept = Kept::default();
@@ -854,6 +893,7 @@ mod tests {
                 name: Some("读书会"),
                 owner: Some(1),
                 who: Some(json!({ "kind": "stranger" })),
+                through: None,
             },
             &[line],
             &[before],
