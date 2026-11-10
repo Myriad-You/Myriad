@@ -447,12 +447,15 @@ fn place_for(
 /// keeps what a lent private message leaves. `Sync`, so a link's task may
 /// hold it across a send.
 pub trait Sender: Sync {
+    /// `line` is the say's own name, `<device>/<say id>`: the `speech.said`
+    /// row the mind writes of it names the same say (its `line`).
     fn send<'a>(
         &'a self,
         db: &'a DatabaseConnection,
         place: &'a Place,
         text: &'a str,
         reply_to: Option<&'a str>,
+        line: &'a str,
     ) -> futures::future::BoxFuture<'a, Result<(), &'static str>>;
 
     /// Her mind took `chat`: their message goes into the chat's history.
@@ -480,6 +483,7 @@ impl Sender for Platforms {
         place: &'a Place,
         text: &'a str,
         reply_to: Option<&'a str>,
+        line: &'a str,
     ) -> futures::future::BoxFuture<'a, Result<(), &'static str>> {
         Box::pin(async move {
             match place {
@@ -487,8 +491,14 @@ impl Sender for Platforms {
                     crate::services::channel_group::say_lent(venue, *thread, reply_to, text).await
                 }
                 Place::Chat { user, session_key } => {
-                    crate::services::channel_work::held::say_lent(db, *user, session_key, text)
-                        .await
+                    crate::services::channel_work::held::say_lent(
+                        db,
+                        *user,
+                        session_key,
+                        text,
+                        line,
+                    )
+                    .await
                 }
             }
         })
@@ -579,8 +589,9 @@ pub async fn say(
     if text.is_empty() {
         return answer(false, Some("unavailable"));
     }
+    let line = format!("{device}/{say_id}");
     match sender
-        .send(db, &place, text, body["replyTo"].as_str())
+        .send(db, &place, text, body["replyTo"].as_str(), &line)
         .await
     {
         Ok(()) => answer(true, None),
@@ -623,6 +634,7 @@ mod tests {
             place: &'a Place,
             text: &'a str,
             reply_to: Option<&'a str>,
+            _line: &'a str,
         ) -> futures::future::BoxFuture<'a, Result<(), &'static str>> {
             self.0.lock().unwrap().push((
                 place.clone(),

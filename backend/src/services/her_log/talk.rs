@@ -253,6 +253,10 @@ pub async fn fold(
                 let Ok(said) = serde_json::from_value::<SpeechSaid>(body.clone()) else {
                     continue;
                 };
+                // Said here for her mind on a PC: the line is here already.
+                if bound_to_lent(db, site_owner, row, said.line.as_deref()).await? {
+                    continue;
+                }
                 let session = match last_talked(db, site_owner, at, true).await? {
                     Some(session) => session,
                     None => new_private_chat(db, site_owner).await?,
@@ -284,6 +288,43 @@ pub async fn fold(
         copied += copy.write(db, row, at).await? as usize;
     }
     Ok(copied)
+}
+
+/// The metadata key of a line the site sent for her mind on a PC
+/// (`channel_work::held::say_lent`): `<device>/<say id>`.
+pub const LENT_SAY: &str = "lentSay";
+
+/// Whether `row`, her `speech.said` of a say `line` she sent through the
+/// site from her mind on a PC, is the line the site kept of that say: it
+/// becomes that line's row (so forgetting either takes the other), and no
+/// copy is made. Only a line of the site owner's, from the row's own device,
+/// not yet any row's.
+async fn bound_to_lent(
+    db: &DatabaseConnection,
+    site_owner: i32,
+    row: &Row,
+    line: Option<&str>,
+) -> Result<bool, Error> {
+    let Some(line) = line.filter(|line| !line.is_empty()) else {
+        return Ok(false);
+    };
+    let bound = db
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE agent_messages m SET log_row = $1 \
+             FROM agent_sessions s \
+             WHERE m.session_id = s.id AND s.user_id = $2 AND m.role = 'assistant' \
+               AND m.log_row IS NULL AND (m.metadata->>$3) = $4",
+            [
+                row.id.clone().into(),
+                site_owner.into(),
+                LENT_SAY.into(),
+                format!("{}/{line}", row.origin).into(),
+            ],
+        ))
+        .await?
+        .rows_affected();
+    Ok(bound > 0)
 }
 
 /// Has her forget, on her log, the lines of the site owner's private talk

@@ -1408,6 +1408,87 @@ async fn the_partners_private_lines_are_theirs_in_her_log_wherever_her_mind_is()
     schema.drop().await;
 }
 
+/// Her line said through the site for her mind on the Mac, in the
+/// partner's chat on a chat app, is kept there when it is sent; her
+/// `speech.said` row of that say then becomes that line's row, and no
+/// second copy is made. A line marked with another device's say is not
+/// taken for it.
+#[tokio::test]
+async fn her_line_sent_for_the_mac_is_not_copied_again() {
+    let Some(schema) = schema("her_log_lent_line_bound").await else {
+        return;
+    };
+    let db = &schema.db;
+    let at = |micros: i64| format!("to_timestamp({}::double precision / 1000000)", micros);
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_sync_devices (id, user_id, name, token_hash, token_hint, created_at) \
+         VALUES ('dev_mac', {OWNER}, 'Mac', 'h', 'x', NOW()); \
+         INSERT INTO agent_sessions (id, user_id, title, context, message_count, archived, \
+         created_at, last_active_at) VALUES \
+         ('ses_qq', {OWNER}, 'qq', '{{\"mode\":\"chat\"}}', 2, false, {t}, {t}); \
+         INSERT INTO agent_messages (session_id, role, content, metadata, created_at) VALUES \
+         ('ses_qq', 'user', '在吗', NULL, {t}), \
+         ('ses_qq', 'assistant', '在呢', '{{\"lentSay\":\"dev_mac/say_9\"}}', {t}), \
+         ('ses_qq', 'assistant', '别的电脑', '{{\"lentSay\":\"dev_other/say_10\"}}', {t})",
+        t = at(T0 + MINUTE)
+    ))
+    .await
+    .unwrap();
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], T0).await;
+    assert!(mac.epoch.is_some(), "her mind is on the Mac");
+    for (object, text, line) in [
+        ("speech:say_9", "在呢", "say_9"),
+        ("speech:say_10", "别的电脑", "say_10"),
+    ] {
+        let mut body = said(text, (T0 + MINUTE) / 1000);
+        body["place"] = json!("qq");
+        body["exit"] = json!("chat");
+        body["line"] = json!(line);
+        mac.write_body(
+            PERSONAL,
+            object,
+            "speech.said",
+            Author::Her,
+            Some(body),
+            T0 + 2 * MINUTE,
+        );
+    }
+    sync(db, &mut mac, PERSONAL, T0 + 3 * MINUTE).await;
+
+    let lines = db
+        .query_all_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT content, log_row FROM agent_messages WHERE session_id = 'ses_qq' \
+             AND role = 'assistant' ORDER BY content",
+        ))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| {
+            (
+                row.try_get::<String>("", "content").unwrap(),
+                row.try_get::<Option<String>>("", "log_row")
+                    .unwrap()
+                    .is_some(),
+            )
+        })
+        .collect::<Vec<_>>();
+    // The Mac's own line is bound, not copied; the other device's mark is
+    // not this row's, so that say's row is copied as any line said there.
+    assert_eq!(
+        lines,
+        vec![
+            ("别的电脑".to_string(), false),
+            ("别的电脑".to_string(), true),
+            ("在呢".to_string(), true),
+        ]
+    );
+    assert_eq!(super::talk::fold(db, &root(), OWNER).await.unwrap(), 0);
+    schema.drop().await;
+}
+
 /// What the partner and she said in private on the Mac shows in the site's
 /// conversations as copies (D6-e): a segment goes on with the conversation
 /// last talked in within six hours before it, or opens a new one, and her

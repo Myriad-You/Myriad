@@ -271,12 +271,16 @@ pub(crate) async fn hold_lent(
 }
 
 /// Her line from her mind on a PC, sent in the chat `session_key` with
-/// `user_id` as she sends her own, and kept there as hers.
+/// `user_id` as she sends her own, and kept there as hers, marked with the
+/// say it came from (`line`, `<device>/<say id>`): in the partner's own
+/// talk the mind also writes it as a `speech.said` row, which takes this
+/// line as its copy instead of being copied again (`her_log::talk::fold`).
 pub(crate) async fn say_lent(
     db: &DatabaseConnection,
     user_id: i32,
     session_key: &str,
     text: &str,
+    line: &str,
 ) -> Result<(), &'static str> {
     let sink = super::chat_waiting::sink_for(db, user_id, session_key)
         .await
@@ -291,7 +295,7 @@ pub(crate) async fn say_lent(
             &chat_session,
             None,
             text,
-            None,
+            Some(serde_json::json!({ crate::services::her_log::talk::LENT_SAY: line })),
         )
         .await;
     }
