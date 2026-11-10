@@ -3,9 +3,15 @@
 //! 画好的图先过两道检查：姿态模型在图上找得到这只手，视觉模型认为除了这条手臂
 //! 的姿势什么都没改（袖子、护甲最容易被改掉）。不过关就重画，最多三次，仍不过
 //! 就不提供这个手势。结果按立绘归档成私有媒体，换了立绘自然失效；手的关键点存
-//! 在旁边，前端抠层时用它找到哪一块是手臂。
+//! 在旁边，前端抠层时用它找到哪一块是手臂。全身形象的手太小，在放大图上取一扇
+//! 窗口画，画完超分贴回放大图（`figure`）。
 
-use std::{collections::BTreeSet, io::Cursor, sync::Mutex};
+use std::{
+    collections::BTreeSet,
+    future::Future,
+    io::Cursor,
+    sync::{Arc, Mutex},
+};
 
 use axum::{
     Json,
@@ -16,11 +22,15 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOr
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+mod figure;
+
 use super::{
     ApiResult,
     expressions::{current_portrait, portrait_required},
-    internal_error, portrait_generation_config_error, portrait_generation_provider_error,
-    require_merope_enabled, require_owner,
+    internal_error,
+    master::{MasterSlot, current_master},
+    portrait_generation_config_error, portrait_generation_provider_error, require_merope_enabled,
+    require_owner,
 };
 use crate::{
     middleware::auth::Claims,
@@ -196,18 +206,50 @@ pub async fn list_arm_variants(
     require_merope_enabled().await?;
     require_owner(&claims, &db).await?;
     let portrait = current_portrait(&db).await?;
+    listed(&db, &portrait, "").await
+}
+
+/// A full-body set's gesture arms, drawn on its own picture.
+pub async fn list_full_body_arm_variants(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(outfit_id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    require_merope_enabled().await?;
+    require_owner(&claims, &db).await?;
+    let master = figure_master(&db, &outfit_id).await?;
+    listed(&db, &master, &in_flight_scope(Some(&outfit_id))).await
+}
+
+/// The newest drawing of each gesture on `picture`, and the gestures being drawn in `scope`.
+async fn listed(db: &DatabaseConnection, picture: &str, scope: &str) -> ApiResult<Json<Value>> {
     let mut variants = serde_json::Map::new();
     for key in keys() {
-        let found = latest_variant(&db, &portrait, &key).await?;
+        let found = latest_variant(db, picture, &key).await?;
         variants.insert(key, found.unwrap_or(Value::Null));
     }
     let drawing: Vec<String> = IN_FLIGHT
         .lock()
         .unwrap_or_else(|error| error.into_inner())
         .iter()
-        .cloned()
+        .filter_map(|claimed| claimed.strip_prefix(scope))
+        .filter(|key| !key.contains('/'))
+        .map(str::to_string)
         .collect();
     Ok(Json(json!({ "variants": variants, "drawing": drawing })))
+}
+
+/// What the gestures being drawn for a set are claimed under: none for the worn bust.
+fn in_flight_scope(outfit_id: Option<&str>) -> String {
+    outfit_id.map(|id| format!("{id}/")).unwrap_or_default()
+}
+
+/// A full-body set's current master picture (its asset id).
+async fn figure_master(db: &DatabaseConnection, outfit_id: &str) -> ApiResult<String> {
+    Ok(current_master(db, MasterSlot::FullBody(outfit_id))
+        .await?
+        .ok_or_else(portrait_required)?
+        .asset_id)
 }
 
 pub async fn generate_arm_variant(
@@ -218,23 +260,134 @@ pub async fn generate_arm_variant(
     require_merope_enabled().await?;
     let user_id = require_owner(&claims, &db).await?;
     let Some((gesture, side)) = parse_key(&key) else {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": "Unknown gesture", "code": "unknown_arm_variant" })),
-        ));
+        return Err(unknown_gesture());
     };
     let portrait = current_portrait(&db).await?;
-    let reference = image_generation::load_local_reference(&portrait)
+    let reference = load_picture(&portrait).await?;
+    let (width, height) = dimensions(&reference.bytes).ok_or_else(portrait_required)?;
+    let sheet = Sheet {
+        reference,
+        drawn: (width, height),
+        figure: None,
+    };
+    let sheet = std::future::ready(Ok(sheet));
+    drawn_in_turn(db, user_id, (gesture, side, portrait), sheet, &key).await
+}
+
+/// Draws one gesture arm on a full-body set's picture: on a window of it
+/// enlarged, laid back on the enlarged picture its decomposition was cut from.
+pub async fn generate_full_body_arm_variant(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path((outfit_id, key)): Path<(String, String)>,
+) -> ApiResult<Json<Value>> {
+    require_merope_enabled().await?;
+    let user_id = require_owner(&claims, &db).await?;
+    let Some((gesture, side)) = parse_key(&key) else {
+        return Err(unknown_gesture());
+    };
+    let master = figure_master(&db, &outfit_id).await?;
+    let picture = load_picture(&master).await?;
+    // Made once the gesture is claimed: the picture may have to be enlarged first, and a second ask for the
+    // same gesture is turned away before it pays for that.
+    let sheet = async move { figure_sheet(&picture).await };
+    let scope = format!("{}{key}", in_flight_scope(Some(&outfit_id)));
+    drawn_in_turn(db, user_id, (gesture, side, master), sheet, &scope).await
+}
+
+fn unknown_gesture() -> super::ApiError {
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({ "error": "Unknown gesture", "code": "unknown_arm_variant" })),
+    )
+}
+
+async fn load_picture(asset_id: &str) -> ApiResult<image_generation::ImageReference> {
+    image_generation::load_local_reference(asset_id)
         .await
         .map_err(|error| {
-            tracing::error!(%error, "stored master portrait is unusable for an arm variant");
+            tracing::error!(%error, "stored master picture is unusable for an arm variant");
             portrait_required()
+        })
+}
+
+/// A full body's window, enlarged as its decomposition was, at about a bust's size.
+async fn figure_sheet(master: &image_generation::ImageReference) -> ApiResult<Sheet> {
+    let enlarged = super::turn_keyforms::enlarged_figure(master).await?;
+    let enlarged = off_runtime(move || image::load_from_memory(&enlarged.bytes).ok())
+        .await?
+        .ok_or_else(portrait_required)?;
+    figure_sheet_on(master, enlarged).await
+}
+
+/// The window of `enlarged` (the master enlarged) the pose model's arms on the master call for.
+async fn figure_sheet_on(
+    master: &image_generation::ImageReference,
+    enlarged: image::DynamicImage,
+) -> ApiResult<Sheet> {
+    let pose = pose_estimation::estimate(&master.bytes)
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "full-body arm variant: the pose model could not look");
+            no_figure()
         })?;
-    let (width, height) = dimensions(&reference.bytes).ok_or_else(portrait_required)?;
+    let size = (enlarged.width(), enlarged.height());
+    let keypoints = in_portrait(&pose.keypoints, (pose.width, pose.height), size);
+    let found = figure::window(&keypoints, size).ok_or_else(no_figure)?;
+    let drawn = figure::drawn_size(found);
+    let window = figure::shaped(found, drawn, size);
+    let enlarged = Arc::new(enlarged);
+    let whole = enlarged.clone();
+    let crop = off_runtime(move || figure::crop(&whole, window, drawn))
+        .await?
+        .ok_or_else(portrait_required)?;
+    Ok(Sheet {
+        reference: image_generation::ImageReference::new(crop, "image/png")
+            .map_err(portrait_generation_provider_error)?,
+        drawn,
+        figure: Some((window, enlarged)),
+    })
+}
+
+/// Picture work (a full body's enlarged picture is some 2304×4096) done off the threads requests are answered on.
+async fn off_runtime<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> ApiResult<T> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| internal_error(error.to_string()))
+}
+
+fn no_figure() -> super::ApiError {
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Json(json!({
+            "error": "No arms were found on the full-body picture",
+            "code": "skeleton_not_found"
+        })),
+    )
+}
+
+/// What a gesture is drawn on: the picture handed to the image model at the
+/// size it is drawn at, and for a full body where that goes back.
+struct Sheet {
+    reference: image_generation::ImageReference,
+    drawn: (u32, u32),
+    /// A full body's window of its enlarged picture, and that picture.
+    figure: Option<(figure::Window, Arc<image::DynamicImage>)>,
+}
+
+/// Draws a gesture once at a time under `claim` (in the background: a page reloaded meanwhile does not lose it),
+/// on the sheet `sheet` makes once it is claimed.
+async fn drawn_in_turn(
+    db: DatabaseConnection,
+    user_id: i32,
+    (gesture, side, picture): (&'static str, &'static str, String),
+    sheet: impl Future<Output = ApiResult<Sheet>> + Send + 'static,
+    claim: &str,
+) -> ApiResult<Json<Value>> {
     let dynamic = crate::GLOBAL_DYNAMIC_CONFIG.read().await.clone();
     let config = image_generation::config_from_dynamic(&dynamic)
         .map_err(portrait_generation_config_error)?;
-    let Some(running) = InFlight::claim(&key) else {
+    let Some(running) = InFlight::claim(claim) else {
         return Err((
             StatusCode::CONFLICT,
             Json(json!({
@@ -247,26 +400,23 @@ pub async fn generate_arm_variant(
     // Drawn and kept on its own: a page reloaded meanwhile does not throw it away.
     tokio::spawn(async move {
         let _running = running;
+        let sheet = sheet.await?;
         let asked = Asked {
             gesture,
             side,
-            portrait: &portrait,
-            width,
-            height,
+            portrait: &picture,
         };
-        draw_arm_variant(&db, user_id, asked, &config, &reference).await
+        draw_arm_variant(&db, user_id, asked, &config, &sheet).await
     })
     .await
     .map_err(|error| internal_error(error.to_string()))?
 }
 
-/// The gesture asked for: which, on which arm, of which portrait, at its size.
+/// The gesture asked for: which, on which arm, of which picture.
 struct Asked<'a> {
     gesture: &'static str,
     side: &'static str,
     portrait: &'a str,
-    width: u32,
-    height: u32,
 }
 
 async fn draw_arm_variant(
@@ -274,15 +424,27 @@ async fn draw_arm_variant(
     user_id: i32,
     asked: Asked<'_>,
     config: &image_generation::ImageGenerationConfig,
-    reference: &image_generation::ImageReference,
+    sheet: &Sheet,
 ) -> ApiResult<Json<Value>> {
     let Asked {
         gesture,
         side,
         portrait,
-        width,
-        height,
     } = asked;
+    let (png, found) = drawn(user_id, (gesture, side), config, sheet).await?;
+    keep(db, user_id, (gesture, side, portrait), png, found).await
+}
+
+/// One gesture drawn and checked, up to ATTEMPTS times: the picture (a full body's laid back on its enlarged
+/// picture) and what the pose model found on it, in that picture's pixels.
+async fn drawn(
+    user_id: i32,
+    (gesture, side): (&'static str, &'static str),
+    config: &image_generation::ImageGenerationConfig,
+    sheet: &Sheet,
+) -> ApiResult<(Vec<u8>, Found)> {
+    let reference = &sheet.reference;
+    let (width, height) = sheet.drawn;
     let prompt = arm_prompt(gesture).ok_or_else(|| internal_error("arm prompt missing"))?;
     let words = GESTURES
         .iter()
@@ -318,7 +480,8 @@ async fn draw_arm_variant(
             notes.push("unreadable picture".into());
             continue;
         };
-        let Some(found) = find_pose(&png, (width, height)).await else {
+        let raised = sheet.figure.is_some().then_some(side);
+        let Some(found) = find_pose(&png, (width, height), raised).await else {
             tracing::info!(
                 gesture,
                 side,
@@ -350,7 +513,12 @@ async fn draw_arm_variant(
             // The check is a guard, not the drawing: without a vision model the drawing stands.
             Err(error) => tracing::warn!(%error, gesture, side, "arm variant check unavailable"),
         }
-        return keep(db, user_id, (gesture, side, portrait), png, found).await;
+        return match &sheet.figure {
+            None => Ok((png, found)),
+            Some((window, enlarged)) => {
+                laid_back(enlarged, *window, sheet.drawn, &png, found).await
+            }
+        };
     }
     Err((
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -359,6 +527,34 @@ async fn draw_arm_variant(
             "code": "arm_variant_rejected",
             "differences": notes,
         })),
+    ))
+}
+
+/// A full body's drawn window super-resolved as its picture was and laid back on
+/// the enlarged picture, its points with it. Not super-resolved when the Space
+/// cannot: stretched, softer than the figure about it.
+async fn laid_back(
+    enlarged: &Arc<image::DynamicImage>,
+    window: figure::Window,
+    drawn: (u32, u32),
+    png: &[u8],
+    found: Found,
+) -> ApiResult<(Vec<u8>, Found)> {
+    let sharper = super::turn_keyforms::super_resolved(png).await;
+    let (whole, drawing) = (enlarged.clone(), sharper.unwrap_or_else(|| png.to_vec()));
+    let composite = off_runtime(move || figure::lay_back(&whole, window, &drawing))
+        .await?
+        .ok_or_else(|| internal_error("full-body arm variant could not be laid back"))?;
+    let hand: Vec<[f32; 3]> = found.hand.iter().map(|&[x, y]| [x, y, 1.0]).collect();
+    Ok((
+        composite,
+        Found {
+            hand: figure::on_picture(&hand, window, drawn)
+                .into_iter()
+                .map(|[x, y, _]| [x, y])
+                .collect(),
+            keypoints: figure::on_picture(&found.keypoints, window, drawn),
+        },
     ))
 }
 
@@ -442,7 +638,9 @@ struct Found {
 }
 
 /// None when no hand is drawn well enough to find.
-async fn find_pose(png: &[u8], size: (u32, u32)) -> Option<Found> {
+/// `raised` names a full body's gesturing side: both its hands are drawn, and the surer may be the hanging one
+/// (a bust's hanging hand is off the picture).
+async fn find_pose(png: &[u8], size: (u32, u32), raised: Option<&str>) -> Option<Found> {
     let pose = match pose_estimation::estimate(png).await {
         Ok(pose) => pose,
         Err(error) => {
@@ -452,7 +650,10 @@ async fn find_pose(png: &[u8], size: (u32, u32)) -> Option<Found> {
     };
     let drawn = (pose.width, pose.height);
     Some(Found {
-        hand: surest_hand(&pose.keypoints, drawn, size)?,
+        hand: match raised {
+            Some(side) => sided_hand(&pose.keypoints, side, drawn, size)?,
+            None => surest_hand(&pose.keypoints, drawn, size)?,
+        },
         keypoints: in_portrait(&pose.keypoints, drawn, size),
     })
 }
@@ -482,6 +683,29 @@ fn surest_hand(
     } else {
         hands[1]
     };
+    hand_on_portrait(best, drawn, size)
+}
+
+/// The hand on the picture's `side` of a figure facing the viewer: its own right (112–132) on the left.
+fn sided_hand(
+    keypoints: &[[f32; 3]],
+    side: &str,
+    drawn: (u32, u32),
+    size: (u32, u32),
+) -> Option<Vec<[f32; 2]>> {
+    let hand = if side == "left" {
+        keypoints.get(112..133)?
+    } else {
+        keypoints.get(91..112)?
+    };
+    hand_on_portrait(hand, drawn, size)
+}
+
+fn hand_on_portrait(
+    best: &[[f32; 3]],
+    drawn: (u32, u32),
+    size: (u32, u32),
+) -> Option<Vec<[f32; 2]>> {
     let scale = (
         size.0 as f32 / drawn.0.max(1) as f32,
         size.1 as f32 / drawn.1.max(1) as f32,
@@ -553,6 +777,22 @@ mod tests {
             *point = [10.0, 10.0, 0.95];
         }
         assert!(surest_hand(&few, (500, 500), (1000, 1000)).is_none());
+    }
+
+    #[test]
+    fn a_figure_s_gesture_hand_is_the_one_on_its_side_however_sure_the_other() {
+        let mut keypoints = vec![[0.0, 0.0, 0.0]; 133];
+        // Its own left hand, hanging on the picture's right, found surer than the raised one.
+        for point in &mut keypoints[91..112] {
+            *point = [400.0, 450.0, 0.95];
+        }
+        for point in &mut keypoints[112..133] {
+            *point = [100.0, 50.0, 0.6];
+        }
+        let left = sided_hand(&keypoints, "left", (500, 500), (1000, 1000)).unwrap();
+        assert_eq!(left[0], [200.0, 100.0]);
+        let right = sided_hand(&keypoints, "right", (500, 500), (1000, 1000)).unwrap();
+        assert_eq!(right[0], [800.0, 900.0]);
     }
 
     #[test]

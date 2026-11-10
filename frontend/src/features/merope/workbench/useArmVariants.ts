@@ -6,8 +6,8 @@ import { useServerGeneration } from './useServerGeneration'
 
 const keyOf = (variant: ArmVariantSource): ArmVariantKey => `${variant.gesture}-${variant.side}`
 
-/** Gesture arms: the current portrait redrawn with one arm raised, kept per portrait. */
-export function useArmVariants(portraitUrl: string | null) {
+/** Gesture arms: the current portrait (a full-body set's picture with `outfitId`) redrawn with one arm raised, kept per portrait. */
+export function useArmVariants(portraitUrl: string | null, outfitId?: string) {
   const [variants, setVariants] = useState<ArmVariantSource[]>([])
   // Preflight reads the latest ones, even right after drawing them.
   const variantsRef = useRef<ArmVariantSource[]>([])
@@ -19,6 +19,9 @@ export function useArmVariants(portraitUrl: string | null) {
   drawingRef.current = drawing
   const listedRef = useRef<Promise<void>>(Promise.resolve())
   const waitersRef = useRef<Array<() => void>>([])
+  // The picture the lists above are of: gestures still being drawn for another one are not taken into them.
+  const pictureRef = useRef('')
+  pictureRef.current = `${outfitId ?? ''}|${portraitUrl ?? ''}`
 
   const take = useCallback((listed: Awaited<ReturnType<typeof listSiteArmVariants>>) => {
     variantsRef.current = listed.variants
@@ -29,12 +32,13 @@ export function useArmVariants(portraitUrl: string | null) {
 
   useEffect(() => {
     let cancelled = false
-    if (!portraitUrl) {
-      setVariants([])
-      setDrawing([])
-      return
-    }
-    listedRef.current = listSiteArmVariants()
+    // Another picture's gestures are not this one's, not even until its own are listed.
+    variantsRef.current = []
+    drawingRef.current = []
+    setVariants([])
+    setDrawing([])
+    if (!portraitUrl) return
+    listedRef.current = listSiteArmVariants(outfitId)
       .then((listed) => {
         if (!cancelled) take(listed)
       })
@@ -44,9 +48,9 @@ export function useArmVariants(portraitUrl: string | null) {
     return () => {
       cancelled = true
     }
-  }, [portraitUrl, take])
+  }, [outfitId, portraitUrl, take])
 
-  const reread = useCallback(async () => take(await listSiteArmVariants()), [take])
+  const reread = useCallback(async () => take(await listSiteArmVariants(outfitId)), [outfitId, take])
   // Once nothing is drawn any more, the list read last has the new ones.
   const busy = useServerGeneration(drawing.length > 0, reread, () => {
     for (const resolve of waitersRef.current.splice(0)) resolve()
@@ -64,12 +68,17 @@ export function useArmVariants(portraitUrl: string | null) {
    * that fails its check is left out; the rest are kept.
    */
   const generate = useCallback(async (again = false) => {
+    // What this picture has kept is known first, or ones it has would be drawn (and paid for) again.
+    await listedRef.current
+    const picture = pictureRef.current
     const kept = new Set(variantsRef.current.map(keyOf))
     // Ones the server is drawing already are waited for, not asked again.
     const already = drawingRef.current
     const asked = ARM_VARIANT_KEYS.filter((key) => !already.includes(key) && (again || !kept.has(key)))
-    const results = await Promise.allSettled(asked.map((key) => generateSiteArmVariant(key)))
+    const results = await Promise.allSettled(asked.map((key) => generateSiteArmVariant(key, outfitId)))
     if (already.length > 0) await settled()
+    // The panel shows another picture by now: these stay on the server for the one they were drawn for.
+    if (pictureRef.current !== picture) return
     const drawn = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
     const replaced = new Set(drawn.map(keyOf))
     const next = [...variantsRef.current.filter((variant) => !replaced.has(keyOf(variant))), ...drawn]
@@ -78,7 +87,7 @@ export function useArmVariants(portraitUrl: string | null) {
     // Some drawn is enough to go on with; none at all is a failure.
     const failure = results.find((result) => result.status === 'rejected')
     if (failure && drawn.length === 0 && next.length === 0) throw failure.reason
-  }, [settled])
+  }, [outfitId, settled])
 
   /** What an import should cut into gesture arms right now. */
   const references = useCallback(() => variantsRef.current, [])

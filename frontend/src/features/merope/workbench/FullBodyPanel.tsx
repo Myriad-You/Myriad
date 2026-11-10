@@ -21,6 +21,7 @@ import { decomposeWithTurnKeyforms, resumeTurnKeyforms } from '../turnKeyformsAp
 import { FaceTabs } from './FaceTabs'
 import { RigImportPanel, RigModeTags } from './RigImportPanel'
 import { activeRigMode } from './rigMode'
+import { useArmVariants } from './useArmVariants'
 import { requestUprightCheck, useUprightRequested } from './uprightRequests'
 import { UprightSuggestion } from './UprightSuggestion'
 import { useRigImport } from './useRigImport'
@@ -98,6 +99,8 @@ export function FullBodyPanel({
   const uprightAsked = useUprightRequested(outfitId)
   const fingerprint = face?.generationFingerprint ?? undefined
   const activeMode = activeRigMode(face?.manifest, portrait)
+  // Gesture arms drawn on this set's own picture, for the enhanced rig.
+  const armVariants = useArmVariants(portrait, outfitId)
   const rig = useRigImport({
     sourceMasterAssetId: portrait ?? '',
     sourceGenerationFingerprint: fingerprint,
@@ -117,6 +120,7 @@ export function FullBodyPanel({
       file: File,
       onStage: (event: RigAssetCompileEvent) => void,
       signal?: AbortSignal,
+      options?: { armVariants?: boolean },
     ) =>
       preflightFullBodyPsdAsset(
         outfitId,
@@ -125,7 +129,12 @@ export function FullBodyPanel({
         fingerprint,
         onStage,
         signal,
+        options?.armVariants ? armVariants.references() : [],
       ),
+    onGenerateArmVariants: portrait ? armVariants.generate : undefined,
+    armVariantsReady: armVariants.ready,
+    armVariantsDrawing: armVariants.drawing,
+    awaitArmVariants: armVariants.settled,
     onCommitRigPsd: async (preflight, onStage) => {
       const imported = await commitFullBodyPsdAsset(outfitId, preflight, onStage)
       await reload()

@@ -221,6 +221,26 @@ pub(super) async fn enlarged(
     if let Some(kept) = figure_picture::read(&reference.bytes).await {
         return png(kept);
     }
+    // One at a time: a set's gestures are asked for together with its decomposition, and the first to come
+    // enlarges the picture for all of them. A picture that could not be enlarged just now is not tried again
+    // by the ones that waited behind it: they go on with it as drawn.
+    const RETRIED_AFTER: std::time::Duration = std::time::Duration::from_secs(120);
+    static ENLARGING: tokio::sync::Mutex<Option<(u64, std::time::Instant)>> =
+        tokio::sync::Mutex::const_new(None);
+    let mut enlarging = ENLARGING.lock().await;
+    if let Some(kept) = figure_picture::read(&reference.bytes).await {
+        return png(kept);
+    }
+    let master = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        reference.bytes.hash(&mut hasher);
+        hasher.finish()
+    };
+    if matches!(*enlarging, Some((failed, at)) if failed == master && at.elapsed() < RETRIED_AFTER)
+    {
+        return reference.clone();
+    }
     match client
         .upscale((reference.bytes.to_vec(), reference.media_type.clone()))
         .await
@@ -229,9 +249,13 @@ pub(super) async fn enlarged(
             figure_picture::write(&reference.bytes, &bytes).await;
             png(bytes)
         }
-        Ok(None) => reference.clone(),
+        Ok(None) => {
+            *enlarging = Some((master, std::time::Instant::now()));
+            reference.clone()
+        }
         Err(error) => {
             tracing::warn!(%error, "figure picture could not be enlarged; decomposed as drawn");
+            *enlarging = Some((master, std::time::Instant::now()));
             reference.clone()
         }
     }
