@@ -394,6 +394,60 @@ fn then_question(question: &Question, then: &Then) -> Question {
     }
 }
 
+/// `MEROPE_MEMORY_BENCH_ASK_AGAIN=plain|topics`, with
+/// `MEROPE_MEMORY_BENCH_FROM_WRITTEN`: what to look for is asked again
+/// rather than taken as it was answered then. `plain` asks as production
+/// does (the control: asking again moves the cues by itself); `topics` also
+/// shows the names of every topic she keeps of them, a trial production
+/// does not run.
+fn ask_again() -> Option<AskAgain> {
+    match std::env::var("MEROPE_MEMORY_BENCH_ASK_AGAIN").ok()?.trim() {
+        "plain" => Some(AskAgain::Plain),
+        "topics" => Some(AskAgain::Topics),
+        other => panic!("MEROPE_MEMORY_BENCH_ASK_AGAIN={other}: plain or topics"),
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum AskAgain {
+    Plain,
+    Topics,
+}
+
+/// The names of the topics she keeps of them in private, still kept (not
+/// gone into another or dropped), in order.
+async fn topic_names(db: &sea_orm::DatabaseConnection, user_id: i32) -> Vec<String> {
+    db.query_all_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT name FROM agent_node_heads WHERE kind = 'topic' AND audience = $1 \
+         AND status NOT IN ('absorbed', 'dropped', 'gone') ORDER BY name",
+        [format!("personal:{user_id}").into()],
+    ))
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .filter_map(|row| row.try_get::<String>("", "name").ok())
+    .collect()
+}
+
+/// What to look for, asked with `topics` beside the message: production's
+/// question and one more line on them.
+fn with_topics(question: &Question, topics: &[String]) -> (String, String) {
+    let system = format!(
+        "{} topics: the names of the topics your memories of them are kept under; a cue may be \
+         one of these names as it is, when the answer may rest on what is under it.",
+        myriad_merope::remembering::system()
+    );
+    let mut input: Value = serde_json::from_str(&myriad_merope::remembering::input(
+        &question.question,
+        None,
+        &question.question_date,
+    ))
+    .expect("the question as asked");
+    input["topics"] = json!(topics);
+    (system, input.to_string())
+}
+
 /// The snapshot's tables, as copies take them.
 async fn tables(db: &sea_orm::DatabaseConnection, schema: &str) -> Vec<String> {
     db.query_all_raw(Statement::from_sql_and_values(
@@ -696,6 +750,11 @@ pub(super) async fn her_memory_after_a_long_background() {
             .collect()
     };
     let (keeping, from_written, thens) = (keep_written(), from_written(), then_sessions());
+    let asking_again = ask_again();
+    assert!(
+        asking_again.is_none() || from_written.is_some(),
+        "MEROPE_MEMORY_BENCH_ASK_AGAIN asks again from what was kept"
+    );
     let (from_written, thens) = (&from_written, &thens);
     let long: Vec<(Question, usize, Outcome)> = futures::stream::iter(long_runs)
         .map(|(question, round)| {
@@ -747,7 +806,30 @@ pub(super) async fn her_memory_after_a_long_background() {
                             }
                             None => keeping.then(|| earlier.schema.clone()),
                         };
-                        (copy, written, failed, kept_as, earlier.asked.clone())
+                        let asked = match asking_again {
+                            None => earlier.asked.clone(),
+                            Some(AskAgain::Plain) => None,
+                            Some(AskAgain::Topics) => {
+                                let topics = topic_names(&copy.db, user_id).await;
+                                let (system, input) = with_topics(&question, &topics);
+                                let (answer, more_failed) =
+                                    crate::services::ai_cost_ledger::spent::failures_in(async {
+                                        judge
+                                            .analyze_json(
+                                                &system,
+                                                &input,
+                                                myriad_merope::remembering::SCHEMA_NAME,
+                                                Some(&myriad_merope::remembering::schema()),
+                                            )
+                                            .await
+                                            .ok()
+                                    })
+                                    .await;
+                                failed.extend(more_failed);
+                                answer
+                            }
+                        };
+                        (copy, written, failed, kept_as, asked)
                     }
                     None => {
                         let copy = restore(url, name).await;
@@ -1206,6 +1288,37 @@ fn what_comes_next_is_written_alone_and_before_asking() {
         std::panic::catch_unwind(|| then_question(&question, &late)).is_err(),
         "nothing is written after the question is asked"
     );
+}
+
+/// Asked again with her topics, the question is production's own with the
+/// names beside the message, every one and as they are.
+#[test]
+fn asked_with_topics_is_the_question_with_every_name_beside_it() {
+    let question: Question = serde_json::from_value(json!({
+        "question_id": "zl-chg-lens-use",
+        "question_type": "implicit-use",
+        "question": "周末想去游泳 要准备点啥",
+        "answer": "",
+        "question_date": "2026/10/26 (Mon) 22:20",
+        "haystack_dates": [],
+        "haystack_sessions": [],
+    }))
+    .unwrap();
+    let topics = ["全飞秒近视手术".to_string(), "游泳".to_string()];
+    let (system, input) = with_topics(&question, &topics);
+    assert!(system.starts_with(&myriad_merope::remembering::system()));
+    assert!(system.ends_with("when the answer may rest on what is under it."));
+    let input: Value = serde_json::from_str(&input).unwrap();
+    let plain: Value = serde_json::from_str(&myriad_merope::remembering::input(
+        &question.question,
+        None,
+        &question.question_date,
+    ))
+    .unwrap();
+    for key in ["message", "before", "today"] {
+        assert_eq!(input[key], plain[key], "{key}");
+    }
+    assert_eq!(input["topics"], json!(["全飞秒近视手术", "游泳"]));
 }
 
 /// One fact kept as the bench keeps what someone already told her.
