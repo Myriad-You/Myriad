@@ -2,7 +2,7 @@ import type { ArmVariantGesture, ArmVariantSource } from '@myriad/figure/rig'
 import { ARM_VARIANT_GESTURES } from '@myriad/figure/rig'
 import { currentCopy } from '../../i18n/localeCopy'
 import { apiService } from '../../services/api'
-import { MeropeApiError, meropeError, PREFIX } from './api'
+import { fullBodyPath, MeropeApiError, meropeError, PREFIX } from './api'
 
 /** A drawing takes as long as a portrait drawn from scratch, and is checked after. */
 const ARM_VARIANT_TIMEOUT_MS = 15 * 60 * 1000
@@ -14,14 +14,20 @@ export const ARM_VARIANT_KEYS: readonly ArmVariantKey[] = ARM_VARIANT_GESTURES.f
   (['left', 'right'] as const).map((side) => `${gesture}-${side}` as const),
 )
 
+/** Where a picture's gesture arms are kept: the worn bust's, or a full-body set's (`outfitId`). */
+function armVariantsPath(outfitId?: string | null): string {
+  return `${PREFIX}${outfitId ? fullBodyPath(outfitId) : ''}/arm-variants`
+}
+
 /**
- * Gesture arms drawn for the current master portrait, ready to cut into the
- * rig at import, and the ones being drawn now (begun before a reload, or in another tab).
+ * Gesture arms drawn for the current master portrait (a full-body set's
+ * picture with `outfitId`), ready to cut into the rig at import, and the ones
+ * being drawn now (begun before a reload, or in another tab).
  */
-export async function listSiteArmVariants(): Promise<{ variants: ArmVariantSource[]; drawing: ArmVariantKey[] }> {
+export async function listSiteArmVariants(outfitId?: string | null): Promise<{ variants: ArmVariantSource[]; drawing: ArmVariantKey[] }> {
   try {
     const data = await apiService.get<{ variants?: Record<string, unknown>; drawing?: unknown }>(
-      `${PREFIX}/arm-variants`,
+      armVariantsPath(outfitId),
     )
     const drawing = Array.isArray(data.drawing) ? data.drawing : []
     return {
@@ -36,11 +42,11 @@ export async function listSiteArmVariants(): Promise<{ variants: ArmVariantSourc
   }
 }
 
-/** Draws one gesture arm on the current master portrait; resolves once it is kept. */
-export async function generateSiteArmVariant(key: ArmVariantKey): Promise<ArmVariantSource> {
+/** Draws one gesture arm on the current master portrait (a full-body set's picture with `outfitId`); resolves once it is kept. */
+export async function generateSiteArmVariant(key: ArmVariantKey, outfitId?: string | null): Promise<ArmVariantSource> {
   try {
     const data = await apiService.post<Record<string, unknown>>(
-      `${PREFIX}/arm-variants/${key}`,
+      `${armVariantsPath(outfitId)}/${key}`,
       {},
       { timeout: ARM_VARIANT_TIMEOUT_MS },
     )
