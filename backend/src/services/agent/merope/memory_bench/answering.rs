@@ -1,5 +1,7 @@
 //! Recall, answering and grading for the memory bench.
 
+use std::collections::HashMap;
+
 use super::super::remembering;
 use super::*;
 
@@ -113,6 +115,66 @@ fn widened(
     lines.extend(left_out);
 }
 
+/// `MEROPE_MEMORY_BENCH_RECALL_CHARS_OF=<report>`: the wide way of each
+/// question is recalled at most as long, in characters, as the same
+/// question and round recalled the wide way in that run (its
+/// `.partial.jsonl` or its report), so two ways are compared at the same
+/// length of what she answers on, not one answering on more.
+fn chars_of(id: &str, round: usize) -> Option<usize> {
+    static OF: std::sync::OnceLock<HashMap<(String, usize), usize>> = std::sync::OnceLock::new();
+    OF.get_or_init(|| {
+        let Ok(path) = std::env::var("MEROPE_MEMORY_BENCH_RECALL_CHARS_OF") else {
+            return HashMap::new();
+        };
+        let text = std::fs::read_to_string(&path).expect("the run to match in length");
+        let rows: Vec<Value> = if path.ends_with(".jsonl") {
+            text.lines()
+                .filter_map(|line| serde_json::from_str(line).ok())
+                .collect()
+        } else {
+            serde_json::from_str::<Value>(&text).expect("a report")["rows"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+        };
+        rows.iter()
+            .filter(|row| !row["void"].as_bool().unwrap_or(false))
+            .filter_map(|row| {
+                let recalled = row["wide"]["recalled"].as_array()?;
+                let chars = recalled
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(|line| line.chars().count())
+                    .sum();
+                Some((
+                    (
+                        row["id"].as_str()?.to_string(),
+                        row["round"].as_u64()? as usize,
+                    ),
+                    chars,
+                ))
+            })
+            .collect()
+    })
+    .get(&(id.to_string(), round))
+    .copied()
+}
+
+/// `lines` kept whole, in order, while they fit in `most` characters.
+fn cut_to(lines: &mut Vec<String>, most: usize) {
+    let mut used = 0;
+    let mut kept = 0;
+    for line in lines.iter() {
+        let chars = line.chars().count();
+        if used + chars > most {
+            break;
+        }
+        used += chars;
+        kept += 1;
+    }
+    lines.truncate(kept);
+}
+
 pub(super) struct Answered {
     pub(super) retrieved: bool,
     pub(super) correct: Option<bool>,
@@ -143,7 +205,15 @@ pub(super) async fn answer_one(
     back_when_thorough: bool,
     answering: &[String],
 ) -> Answered {
-    let (recalled, listed) = recalled_for(db, question, user_id, present, cues, thorough).await;
+    let (mut recalled, listed) = recalled_for(db, question, user_id, present, cues, thorough).await;
+    // The way production answers is held to the length another run
+    // answered on, when asked (`MEROPE_MEMORY_BENCH_RECALL_CHARS_OF`).
+    if back_when_thorough
+        && wider() == 1
+        && let Some(most) = chars_of(&question.question_id, round())
+    {
+        cut_to(&mut recalled, most);
+    }
     let retrieved = answering.iter().any(|fact| {
         recalled.iter().any(|line| line.contains(fact.as_str()))
             || listed

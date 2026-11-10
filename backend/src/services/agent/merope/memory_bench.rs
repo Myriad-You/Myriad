@@ -154,7 +154,21 @@ fn wider() -> usize {
     })
 }
 
+/// `MEROPE_MEMORY_BENCH_WIDE_ONLY=1`: each question is answered only the
+/// way production answers (wide, and the wider control when asked for):
+/// recalling from their words alone and with the cues alone is not asked,
+/// which saves two answers and their grading a question.
+fn wide_only() -> bool {
+    std::env::var("MEROPE_MEMORY_BENCH_WIDE_ONLY").is_ok_and(|value| value.trim() == "1")
+}
+
+/// Which round of a question is being run (0 when none was said).
+fn round() -> usize {
+    ROUND.try_with(|round| *round).unwrap_or(0)
+}
+
 tokio::task_local! {
+    static ROUND: usize;
     /// The wider control as one more way of answering in the same run
     /// (`MEROPE_MEMORY_BENCH_WIDER_ARM`), over what the run would recall.
     static WIDER: usize;
@@ -270,8 +284,10 @@ fn grade_schema(question: &Question) -> Value {
 
 struct Outcome {
     written: bool,
-    plain: Answered,
-    cued: Answered,
+    /// Recalled from their words alone, and with the cues: not asked when
+    /// only the wide way is (`MEROPE_MEMORY_BENCH_WIDE_ONLY=1`).
+    plain: Option<Answered>,
+    cued: Option<Answered>,
     wide: Answered,
     /// Asked with nothing kept of them (noise questions): what the noise
     /// changed.
@@ -485,23 +501,28 @@ async fn run_for(
         .and_then(|raw| myriad_merope::remembering::parse(&raw));
     // The same memories, recalled once from their words alone and once
     // with the cues: the difference is recall's, not writing's.
-    let plain = answer_one(
-        db, judge, lite, question, user_id, &present, None, THOROUGH, false, &answering,
-    )
-    .await;
-    let cued = answer_one(
-        db,
-        judge,
-        lite,
-        question,
-        user_id,
-        &present,
-        cues.as_ref(),
-        THOROUGH,
-        false,
-        &answering,
-    )
-    .await;
+    let (plain, cued) = if wide_only() {
+        (None, None)
+    } else {
+        let plain = answer_one(
+            db, judge, lite, question, user_id, &present, None, THOROUGH, false, &answering,
+        )
+        .await;
+        let cued = answer_one(
+            db,
+            judge,
+            lite,
+            question,
+            user_id,
+            &present,
+            cues.as_ref(),
+            THOROUGH,
+            false,
+            &answering,
+        )
+        .await;
+        (Some(plain), Some(cued))
+    };
     // The same, also scrolling back through the chat when answering needs
     // all of it, as production does.
     let wide = answer_one(

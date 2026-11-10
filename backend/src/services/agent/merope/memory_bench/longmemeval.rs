@@ -67,9 +67,10 @@ pub(super) async fn her_memory_on_longmemeval() {
     let outcomes: Vec<(Question, usize, Outcome)> = futures::stream::iter(runs)
         .map(|(question, round)| {
             let (db, judge, lite, reader) = (db.clone(), &judge, &lite, reader.as_ref());
+            let report_path = &report_path;
             async move {
                 let (mut outcome, failed) = crate::services::ai_cost_ledger::spent::failures_in(
-                    run_one(&db, judge, lite, reader, &question, round),
+                    ROUND.scope(round, run_one(&db, judge, lite, reader, &question, round)),
                 )
                 .await;
                 outcome.failed = failed;
@@ -79,11 +80,14 @@ pub(super) async fn her_memory_on_longmemeval() {
                     question.question_id,
                     outcome.void(),
                     outcome.written,
-                    outcome.plain.correct,
-                    outcome.cued.correct,
+                    outcome.plain.as_ref().map(|plain| plain.correct),
+                    outcome.cued.as_ref().map(|cued| cued.correct),
                     outcome.wide.correct,
                     outcome.read.as_ref().map(|read| read.correct)
                 );
+                // Kept as it is done, so a run stopped partway keeps what it
+                // finished (the full report is written only at the end).
+                keep_partial(report_path, &partial_row("", &question, round, &outcome));
                 (question, round, outcome)
             }
         })
@@ -174,8 +178,8 @@ pub(super) fn report(
     outcomes: &[(Question, usize, Outcome)],
 ) -> Value {
     let arms: [(&str, fn(&Outcome) -> Option<&Answered>); 5] = [
-        ("plain", |outcome| Some(&outcome.plain)),
-        ("cued", |outcome| Some(&outcome.cued)),
+        ("plain", |outcome| outcome.plain.as_ref()),
+        ("cued", |outcome| outcome.cued.as_ref()),
         ("wide", |outcome| Some(&outcome.wide)),
         ("wider", |outcome| outcome.wider.as_ref()),
         ("read", |outcome| outcome.read.as_ref()),
@@ -286,9 +290,7 @@ pub(super) fn report(
                     "right": format!("{pair_right}/{}", pairs.len() * times),
                     format!("pass^{times}"): pair_every})),
                 "recalledLines": per_answer(|answered| answered.recalled.len()),
-                "recalledChars": per_answer(|answered| {
-                    answered.recalled.iter().map(|line| line.chars().count()).sum()
-                }),
+                "recalledChars": per_answer(recalled_chars),
             }),
         );
     }
@@ -346,7 +348,7 @@ pub(super) fn report(
             "category":question.category,"pair":question.pair,"round":round,
             "question":question.question,"answer":question.answer,
             "written":outcome.written,"kept":outcome.kept,
-            "plain":answered(&outcome.plain),"cued":answered(&outcome.cued),
+            "plain":outcome.plain.as_ref().map(answered),"cued":outcome.cued.as_ref().map(answered),
             "wide":answered(&outcome.wide),"wider":outcome.wider.as_ref().map(answered),
             "read":outcome.read.as_ref().map(answered),
             "bare":outcome.bare.as_ref().map(answered),"inPrivate":outcome.in_private,
@@ -403,4 +405,66 @@ fn a_lite_asked_for_without_its_source_is_refused() {
         &mut crate::config::DynamicConfig::default(),
         Some("anthropic/claude-haiku-5.5"),
     );
+}
+
+/// How long what she answered on was: the lines recalled, in characters.
+pub(super) fn recalled_chars(answered: &Answered) -> usize {
+    answered
+        .recalled
+        .iter()
+        .map(|line| line.chars().count())
+        .sum()
+}
+
+/// One finished run of a question as the partial report keeps it: enough
+/// to score it and to tell its way (`arm`) apart, and to start again past
+/// it.
+pub(super) fn partial_row(
+    arm: &str,
+    question: &Question,
+    round: usize,
+    outcome: &Outcome,
+) -> Value {
+    json!({"arm": arm, "id": question.question_id, "type": question.question_type,
+        "round": round, "void": outcome.void(), "written": outcome.written,
+        "failed": outcome.failed,
+        "answering": outcome.answering,
+        "wide": {"correct": outcome.wide.correct, "retrieved": outcome.wide.retrieved,
+            "response": outcome.wide.answer, "why": outcome.wide.why,
+            "recalled": outcome.wide.recalled,
+            "recalledChars": recalled_chars(&outcome.wide)},
+        "wider": outcome.wider.as_ref().map(|wider| json!({"correct": wider.correct,
+            "retrieved": wider.retrieved, "recalled": wider.recalled,
+            "recalledChars": recalled_chars(wider)}))})
+}
+
+/// `row` added to `{report}.partial.jsonl` as soon as it is done.
+pub(super) fn keep_partial(report_path: &str, row: &Value) {
+    use std::io::Write;
+    if let Ok(mut done) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(format!("{report_path}.partial.jsonl"))
+    {
+        let _ = writeln!(done, "{row}");
+    }
+}
+
+/// What an earlier run under the same report already finished, as
+/// (way, question, round): started again, a run goes on past them instead
+/// of paying for them twice. A run made void is finished too: it is kept
+/// as void, not run again.
+pub(super) fn finished(report_path: &str) -> std::collections::HashSet<(String, String, usize)> {
+    std::fs::read_to_string(format!("{report_path}.partial.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter_map(|row| {
+            Some((
+                row["arm"].as_str().unwrap_or("").to_string(),
+                row["id"].as_str()?.to_string(),
+                row["round"].as_u64()? as usize,
+            ))
+        })
+        .collect()
 }

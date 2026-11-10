@@ -23,10 +23,16 @@
 //! file> MYRIAD_MEDIA_TEST_DATABASE_URL=… cargo test -p myriad-backend --bin
 //! myriad-backend -- --ignored her_memory_after_a_long_background
 //! --nocapture`, with `MEROPE_MEMORY_BENCH_TIMES`, `_PER_TYPE`, `_ONLY` and
-//! `_WIDER_ARM` as for the other sets. The snapshot is dropped at the end
-//! unless `MEROPE_MEMORY_BENCH_KEEP_SNAPSHOT=1`, which prints its name;
+//! `_WIDER_ARM` as for the other sets. The snapshot is kept, never dropped
+//! by the run (its name is printed);
 //! `MEROPE_MEMORY_BENCH_SNAPSHOT=<name>` starts from one kept earlier
-//! instead of writing the background again (and leaves it). Copying needs
+//! instead of writing the background again (and leaves it). Writing keeps
+//! a copy of what is written every `UPKEEP_EVERY` sessions and prints its
+//! name; `MEROPE_MEMORY_BENCH_RESUME=<name>` goes on writing from that copy
+//! after a run stopped partway, so what was paid for is not paid again.
+//! Questions finished under the same report (its `.partial.jsonl`) are not
+//! run again; `MEROPE_MEMORY_BENCH_SMALL_ONLY=1` asks only the small way.
+//! Copying needs
 //! a role that may set `session_replication_role` (the test database's
 //! owner): the rows go in as they are, constraints and all.
 //!
@@ -74,26 +80,64 @@ const PERSON: &str = "background";
 /// Her nodes kept up after this many sessions, as a day's upkeep would.
 const UPKEEP_EVERY: usize = 10;
 /// Beside the snapshot's own tables: what each background session left
-/// her, never copied.
+/// her, never copied into a question's copy.
 const LEFT: &str = "bench_background_left";
+/// Beside them too: the last background session written in full.
+const DONE: &str = "bench_background_done";
 
-/// The background written into a schema of its own, the settle way.
+/// What is written is kept apart to go on from after this many sessions
+/// (`MEROPE_MEMORY_BENCH_KEEP_EVERY`, as often as her nodes are kept up
+/// when not said).
+fn keep_every() -> usize {
+    std::env::var("MEROPE_MEMORY_BENCH_KEEP_EVERY")
+        .ok()
+        .and_then(|every| every.parse().ok())
+        .filter(|every| *every > 0)
+        .unwrap_or(UPKEEP_EVERY)
+}
+
+/// The background written into a schema of its own, the settle way; from
+/// `resume` (a copy kept while writing) on, when given.
 async fn write_snapshot(
     url: &str,
     judge: &crate::services::analyzer::AiAnalyzer,
     background: &Background,
+    resume: Option<&str>,
 ) -> crate::db::IsolatedSchema {
-    let snapshot = crate::db::IsolatedSchema::migrated(url, "memory_background").await;
+    let (snapshot, user_id, start) = match resume {
+        Some(kept) => {
+            let snapshot = copy_whole(url, kept).await;
+            let (user_id, _) = read_snapshot(&snapshot.db).await;
+            let done = done_upto(&snapshot.db).await;
+            println!("background resumed from {kept} after session {done:?}");
+            (snapshot, user_id, done.map_or(0, |done| done + 1))
+        }
+        None => {
+            let snapshot = crate::db::IsolatedSchema::migrated(url, "memory_background").await;
+            let user_id = new_user(&snapshot.db, PERSON).await;
+            snapshot
+                .db
+                .execute_unprepared(&format!(
+                    "CREATE TABLE {LEFT} (session INTEGER NOT NULL, fact TEXT NOT NULL); \
+                     CREATE TABLE {DONE} (upto INTEGER NOT NULL)"
+                ))
+                .await
+                .unwrap();
+            (snapshot, user_id, 0)
+        }
+    };
     let db = &snapshot.db;
-    let user_id = new_user(db, PERSON).await;
-    db.execute_unprepared(&format!(
-        "CREATE TABLE {LEFT} (session INTEGER NOT NULL, fact TEXT NOT NULL)"
-    ))
-    .await
-    .unwrap();
+    let mut checkpoint: Option<String> = resume.map(str::to_string);
     // Short notes still fresh at the end stay, as on the day after.
     let end = &background.sessions.last().expect("a background").date;
-    for (index, day) in background.sessions.iter().enumerate() {
+    for (index, day) in background.sessions.iter().enumerate().skip(start) {
+        if let Some(why) = crate::services::ai_cost_ledger::spent::stop_starting() {
+            panic!(
+                "background stopped before session {index}: {why}; \
+                 MEROPE_MEMORY_BENCH_RESUME={}",
+                checkpoint.as_deref().unwrap_or("(none yet)")
+            );
+        }
         let at = date_of(&day.date);
         let here = audience_at(day.venue(), user_id, PERSON);
         let turns = day.marked();
@@ -118,13 +162,89 @@ async fn write_snapshot(
             .await
             .unwrap();
         }
+        println!(
+            "background session {index}: {} left, charged ${:.4}",
+            left.len(),
+            crate::services::ai_cost_ledger::spent::charged_so_far()
+        );
         if (index + 1) % UPKEEP_EVERY == 0 {
             settle::keep_up_nodes(db, user_id).await;
         }
-        println!("background session {index}: {} left", left.len());
+        if (index + 1) % keep_every() == 0 {
+            mark_done(db, index).await;
+            // What is written so far kept apart, to go on from; the copy
+            // before it is no longer needed.
+            let kept = copy_whole(url, snapshot.name()).await.keep().await;
+            println!("background kept after session {index}: MEROPE_MEMORY_BENCH_RESUME={kept}");
+            if let Some(before) = checkpoint.replace(kept) {
+                crate::db::IsolatedSchema::existing(url, &before)
+                    .await
+                    .drop()
+                    .await;
+            }
+        }
+        // To try going on from a kept copy without paying for a whole run.
+        if std::env::var("MEROPE_MEMORY_BENCH_STOP_AFTER")
+            .ok()
+            .and_then(|after| after.parse::<usize>().ok())
+            == Some(index)
+        {
+            panic!(
+                "background stopped after session {index} as asked; \
+                 MEROPE_MEMORY_BENCH_RESUME={}",
+                checkpoint.as_deref().unwrap_or("(none yet)")
+            );
+        }
     }
     settle::keep_up_nodes(db, user_id).await;
+    mark_done(db, background.sessions.len() - 1).await;
+    if let Some(before) = checkpoint {
+        crate::db::IsolatedSchema::existing(url, &before)
+            .await
+            .drop()
+            .await;
+    }
     snapshot
+}
+
+/// The last background session written in full, as the snapshot says.
+async fn done_upto(db: &sea_orm::DatabaseConnection) -> Option<usize> {
+    db.query_one_raw(Statement::from_string(
+        DatabaseBackend::Postgres,
+        format!("SELECT MAX(upto) AS upto FROM {DONE}"),
+    ))
+    .await
+    .unwrap()
+    .and_then(|row| row.try_get::<Option<i32>>("", "upto").unwrap())
+    .map(|upto| upto as usize)
+}
+
+async fn mark_done(db: &sea_orm::DatabaseConnection, index: usize) {
+    db.execute_unprepared(&format!("DELETE FROM {DONE}"))
+        .await
+        .unwrap();
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        &format!("INSERT INTO {DONE} (upto) VALUES ($1)"),
+        [(index as i32).into()],
+    ))
+    .await
+    .unwrap();
+}
+
+/// A copy of `snapshot` with what is kept beside it: to write on from.
+async fn copy_whole(url: &str, snapshot: &str) -> crate::db::IsolatedSchema {
+    let copy = restore(url, snapshot).await;
+    let to = copy.name().to_string();
+    for side in [LEFT, DONE] {
+        copy.db
+            .execute_unprepared(&format!(
+                "CREATE TABLE \"{to}\".{side} AS SELECT * FROM \"{snapshot}\".{side}"
+            ))
+            .await
+            .unwrap();
+    }
+    copy
 }
 
 /// What the snapshot holds of the person: their id, and what each
@@ -163,8 +283,8 @@ async fn tables(db: &sea_orm::DatabaseConnection, schema: &str) -> Vec<String> {
         DatabaseBackend::Postgres,
         "SELECT table_name::text AS name FROM information_schema.tables \
          WHERE table_schema = $1 AND table_type = 'BASE TABLE' \
-           AND table_name NOT IN ('seaql_migrations', $2) ORDER BY 1",
-        [schema.into(), LEFT.into()],
+           AND table_name NOT IN ('seaql_migrations', $2, $3) ORDER BY 1",
+        [schema.into(), LEFT.into(), DONE.into()],
     ))
     .await
     .unwrap()
@@ -370,11 +490,36 @@ pub(super) async fn her_memory_after_a_long_background() {
         .collect();
     let (judge, lite) = longmemeval::the_models().await;
     let url = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL").expect("test database");
+    let small_only =
+        std::env::var("MEROPE_MEMORY_BENCH_SMALL_ONLY").is_ok_and(|only| only.trim() == "1");
     let kept = std::env::var("MEROPE_MEMORY_BENCH_SNAPSHOT").ok();
+    let resume = std::env::var("MEROPE_MEMORY_BENCH_RESUME").ok();
     let snapshot = match &kept {
         Some(name) => crate::db::IsolatedSchema::existing(&url, name).await,
-        None => write_snapshot(&url, &judge, &background).await,
+        None if small_only => panic!("asking only the small way runs from a kept snapshot"),
+        None => write_snapshot(&url, &judge, &background, resume.as_deref()).await,
     };
+    // A snapshot just written is kept before anything else is asked, so
+    // a question that fails cannot cost it.
+    let (kept, snapshot) = match kept {
+        Some(name) => (Some(name), snapshot),
+        None => {
+            let name = snapshot.keep().await;
+            println!("snapshot kept: MEROPE_MEMORY_BENCH_SNAPSHOT={name}");
+            (
+                Some(name.clone()),
+                crate::db::IsolatedSchema::existing(&url, &name).await,
+            )
+        }
+    };
+    // Runs this one did not start, having been told to stop.
+    let not_started = std::sync::atomic::AtomicUsize::new(0);
+    let not_started = &not_started;
+    // What an earlier run under this report finished is not run again.
+    let finished = longmemeval::finished(&report_path);
+    if !finished.is_empty() {
+        println!("{} runs finished earlier are not run again", finished.len());
+    }
     let (user_id, left) = read_snapshot(&snapshot.db).await;
     let background_spent = crate::services::ai_cost_ledger::spent::take();
     let mut memories: Vec<String> = Vec::new();
@@ -400,16 +545,49 @@ pub(super) async fn her_memory_after_a_long_background() {
             }
         }
     }
-    println!("background: {} memories", memories.len());
+    // How much she holds: rows past the cap fade.
+    let count = |sql: String| {
+        let db = &snapshot.db;
+        async move {
+            db.query_one_raw(Statement::from_string(DatabaseBackend::Postgres, sql))
+                .await
+                .unwrap()
+                .unwrap()
+                .try_get::<i64>("", "n")
+                .unwrap()
+        }
+    };
+    let held = json!({
+        "active": count("SELECT COUNT(*) AS n FROM agent_memories WHERE invalid_at IS NULL".into()).await,
+        "faded": count("SELECT COUNT(*) AS n FROM agent_memories WHERE invalid_reason = 'faded'".into()).await,
+        "cap": crate::services::agent::memory::unified::MAX_ACTIVE_PER_USER,
+    });
+    println!("background: {} memories, held {held}", memories.len());
     let times = longmemeval::times();
     let runs: Vec<(Question, usize)> = (0..times)
         .flat_map(|round| questions.iter().cloned().map(move |q| (q, round)))
         .collect();
     let name = snapshot.name().to_string();
-    let long: Vec<(Question, usize, Outcome)> = futures::stream::iter(runs.clone())
+    let long_runs: Vec<(Question, usize)> = if small_only {
+        Vec::new()
+    } else {
+        runs.iter()
+            .filter(|(question, round)| {
+                !finished.contains(&("long".to_string(), question.question_id.clone(), *round))
+            })
+            .cloned()
+            .collect()
+    };
+    let long: Vec<(Question, usize, Outcome)> = futures::stream::iter(long_runs)
         .map(|(question, round)| {
             let (url, name, judge, lite, left) = (&url, &name, &judge, &lite, &left);
+            let report_path = &report_path;
             async move {
+                if let Some(why) = crate::services::ai_cost_ledger::spent::stop_starting() {
+                    println!("long {} #{round} not started: {why}", question.question_id);
+                    not_started.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    return None;
+                }
                 let copy = restore(url, name).await;
                 let answering: Vec<String> = question
                     .background_sessions
@@ -429,26 +607,45 @@ pub(super) async fn her_memory_after_a_long_background() {
                 outcome.failed = failed;
                 copy.drop().await;
                 println!(
-                    "long {} #{round} void={} wide={:?} wider={:?}",
+                    "long {} #{round} void={} wide={:?} wider={:?} chars={} charged=${:.4}",
                     question.question_id,
                     outcome.void(),
                     outcome.wide.correct,
-                    outcome.wider.as_ref().map(|wider| wider.correct)
+                    outcome.wider.as_ref().map(|wider| wider.correct),
+                    longmemeval::recalled_chars(&outcome.wide),
+                    crate::services::ai_cost_ledger::spent::charged_so_far()
                 );
-                (question, round, outcome)
+                longmemeval::keep_partial(
+                    report_path,
+                    &longmemeval::partial_row("long", &question, round, &outcome),
+                );
+                Some((question, round, outcome))
             }
         })
         .buffer_unordered(at_once())
+        .filter_map(std::future::ready)
         .collect()
         .await;
     let long_spent = crate::services::ai_cost_ledger::spent::take();
-    let small = if std::env::var_os("MEROPE_MEMORY_BENCH_SMALL").is_some() {
+    let small = if small_only || std::env::var_os("MEROPE_MEMORY_BENCH_SMALL").is_some() {
         let isolated = crate::db::IsolatedSchema::migrated(&url, "memory_small").await;
-        let small: Vec<(Question, usize, Outcome)> = futures::stream::iter(runs)
+        let small_runs: Vec<(Question, usize)> = runs
+            .into_iter()
+            .filter(|(question, round)| {
+                !finished.contains(&("small".to_string(), question.question_id.clone(), *round))
+            })
+            .collect();
+        let small: Vec<(Question, usize, Outcome)> = futures::stream::iter(small_runs)
             .map(|(question, round)| {
                 let (db, judge, lite, background) =
                     (isolated.db.clone(), &judge, &lite, &background);
+                let report_path = &report_path;
                 async move {
+                    if let Some(why) = crate::services::ai_cost_ledger::spent::stop_starting() {
+                        println!("small {} #{round} not started: {why}", question.question_id);
+                        not_started.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        return None;
+                    }
                     let small = question.small(background);
                     let (mut outcome, failed) =
                         crate::services::ai_cost_ledger::spent::failures_in(run_one(
@@ -457,15 +654,22 @@ pub(super) async fn her_memory_after_a_long_background() {
                         .await;
                     outcome.failed = failed;
                     println!(
-                        "small {} #{round} void={} wide={:?}",
+                        "small {} #{round} void={} wide={:?} chars={} charged=${:.4}",
                         question.question_id,
                         outcome.void(),
-                        outcome.wide.correct
+                        outcome.wide.correct,
+                        longmemeval::recalled_chars(&outcome.wide),
+                        crate::services::ai_cost_ledger::spent::charged_so_far()
                     );
-                    (question, round, outcome)
+                    longmemeval::keep_partial(
+                        report_path,
+                        &longmemeval::partial_row("small", &question, round, &outcome),
+                    );
+                    Some((question, round, outcome))
                 }
             })
             .buffer_unordered(at_once())
+            .filter_map(std::future::ready)
             .collect()
             .await;
         isolated.drop().await;
@@ -473,13 +677,26 @@ pub(super) async fn her_memory_after_a_long_background() {
     } else {
         None
     };
-    if kept.is_some() || std::env::var_os("MEROPE_MEMORY_BENCH_KEEP_SNAPSHOT").is_some() {
+    // The snapshot is never dropped here: it is written once and kept to
+    // be used again, and dropped by hand when no longer needed.
+    println!(
+        "snapshot kept: MEROPE_MEMORY_BENCH_SNAPSHOT={}",
+        kept.unwrap_or_else(|| snapshot.name().to_string())
+    );
+    let _ = snapshot.keep().await;
+    // A run stopped before all it was to ask writes no report: run again
+    // under the same report, it goes on past what it finished.
+    let skipped = not_started.load(std::sync::atomic::Ordering::Relaxed);
+    if skipped > 0 {
         println!(
-            "snapshot kept: MEROPE_MEMORY_BENCH_SNAPSHOT={}",
-            snapshot.keep().await
+            "stopped ({}): {skipped} not started, {} long and {} small finished this time; \
+             run again with the same report to go on",
+            crate::services::ai_cost_ledger::spent::stop_starting().unwrap_or_default(),
+            long.len(),
+            small.as_ref().map_or(0, Vec::len)
         );
-    } else {
-        snapshot.drop().await;
+        println!("spent: {}", crate::services::ai_cost_ledger::spent::take());
+        return;
     }
     let long_report = longmemeval::report(&questions, times, &long);
     let small_report = small
@@ -487,13 +704,15 @@ pub(super) async fn her_memory_after_a_long_background() {
         .map(|small| longmemeval::report(&questions, times, small));
     let report = json!({
         "background": {"sessions": background.sessions.len(), "memories": memories.len(),
-            "spent": background_spent},
+            "held": held, "spent": background_spent},
         "long": long_report,
         "small": small_report,
         "bySize": small_report.as_ref().map(|small| by_size(&long_report, small)),
         "offTopic": off_topic(&memories, &long),
         "spent": {"long": long_spent, "small": crate::services::ai_cost_ledger::spent::take()},
         "lite": longmemeval::lite_in_use().await,
+        "finishedEarlier": finished.len(),
+        "matchedLengthOf": std::env::var("MEROPE_MEMORY_BENCH_RECALL_CHARS_OF").ok(),
     });
     println!("{}", report["long"]["scores"]);
     std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
