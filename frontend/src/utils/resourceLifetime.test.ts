@@ -38,14 +38,18 @@ test('delayed tasks acquire at most three slots', async () => {
 })
 
 test('cancelled delayed tasks never run', async () => {
-  const { globalResourceLoader: loader, LoadPriority } = loadModule('./resourceLoader.ts')
+  // The loader's clock is held still between adding and cancelling: on the real one, a pause of the delay's
+  // length between those two lines made the task due at once, and it ran before it could be cancelled.
+  let now = 1000
+  const { globalResourceLoader: loader, LoadPriority } = loadModule('./resourceLoader.ts', { Date: { now: () => now } })
   loader.config.lowPriorityDelay = 5
-  let ran = false
-  loader.addTask({ id: 'cancelled', priority: LoadPriority.LOW, loader: async () => { ran = true } })
+  const ran: string[] = []
+  loader.addTask({ id: 'cancelled', priority: LoadPriority.LOW, loader: async () => { ran.push('cancelled') } })
   loader.cancelTask('cancelled')
+  now += 1000
+  loader.addTask({ id: 'later', priority: LoadPriority.HIGH, loader: async () => { ran.push('later') } })
   await sleep(25)
-  assert.equal(ran, false)
-  loader.clear()
+  try { assert.deepEqual(ran, ['later']) } finally { loader.clear() }
 })
 
 test('cancelling running tasks aborts without freeing occupied slots early', async () => {
