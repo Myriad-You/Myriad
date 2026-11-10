@@ -4,8 +4,8 @@
 //! Kept on the site in `agent_speech_said`, the rows as her log keeps them
 //! (`audience`, `payload`), so the core reads them as they are
 //! (`Said::from_row`). While her log on the server is on and her mind is
-//! here, each row is written into her log as well; across sides it travels
-//! once her link speaks protocol 2.
+//! here, each row is written into her log as well, and travels to her
+//! other sides as her log syncs.
 //!
 //! Migration, without touching what is there: before the ledger, what she
 //! said unasked in private was kept only in `agent_proactive_messages`, and

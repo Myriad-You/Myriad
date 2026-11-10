@@ -1414,6 +1414,14 @@ pub fn adopt(lease: Option<Lease>) {
     if let Some(lease) = &lease {
         crate::services::agent::link::lease_changed(lease);
     }
+    // Her mind left a device: what was lent to it and not taken is the
+    // site's again (groups for the group mind once she is back, private
+    // messages held again).
+    let given_back = match &before {
+        Where::MindOn(device) => crate::services::her_log::lend::let_go(device),
+        _ => Vec::new(),
+    };
+    let mut given_back = Some(given_back).filter(|back| !back.is_empty());
     match after {
         Where::Moving
         | Where::Elsewhere(_)
@@ -1439,10 +1447,35 @@ pub fn adopt(lease: Option<Lease>) {
                 } else {
                     crate::services::channel_group::back_from_away();
                 }
-                tokio::spawn(crate::services::channel_work::held::replay(db.clone()));
+                // What was given back is held first, then read with the rest.
+                let back = given_back.take().unwrap_or_default();
+                let held = db.clone();
+                tokio::spawn(async move {
+                    crate::services::her_log::lend::give_back(
+                        &held,
+                        &crate::services::her_log::lend::Platforms,
+                        back,
+                    )
+                    .await;
+                    crate::services::channel_work::held::replay(held).await;
+                });
                 tokio::spawn(crate::services::agent::merope::replay_kept_for_her(db));
             }
         }
+    }
+    // She is not back here: what was given back is held until she is.
+    if let Some(back) = given_back
+        && let Ok(db) = crate::services::process_db::database()
+        && tokio::runtime::Handle::try_current().is_ok()
+    {
+        tokio::spawn(async move {
+            crate::services::her_log::lend::give_back(
+                &db,
+                &crate::services::her_log::lend::Platforms,
+                back,
+            )
+            .await;
+        });
     }
 }
 

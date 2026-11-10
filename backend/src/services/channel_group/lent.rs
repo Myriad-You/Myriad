@@ -117,11 +117,13 @@ pub(super) async fn lend(message: &GroupLine) -> bool {
         },
         &[one],
         &recent,
+        None,
     )
 }
 
 /// Her line from her mind on a PC, sent in `venue` (in `thread`) as she
-/// sends her own, quoting `reply_to` when it names a line there.
+/// sends her own, quoting `reply_to` when it names a line there, and kept
+/// in the ledger of what she said like them.
 pub(crate) async fn say_lent(
     venue: &str,
     thread: Option<i64>,
@@ -138,7 +140,9 @@ pub(crate) async fn say_lent(
     .ok_or("no such platform")?;
     line.thread = thread;
     let pieces = [myriad_agent_rules::mentions::Piece::Text(text.to_string())];
-    send_reply(&line, &token(venue), &pieces, reply_to.is_some())
-        .await
-        .map_err(|_| "not sent")
+    let sent = send_reply(&line, &token(venue), &pieces, reply_to.is_some()).await;
+    // Kept in the ledger of what she said, as her own lines here are (her
+    // log's row of it is her mind's to write, there: it holds the lease).
+    super::said::sent(venue, None, text, sent.is_ok()).await;
+    sent.map_err(|_| "not sent")
 }

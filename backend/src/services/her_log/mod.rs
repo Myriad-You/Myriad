@@ -44,15 +44,17 @@
 //! On a link whose welcome said sync on, every frame of the sync families
 //! (`log.*`, `lease.*`, `group.say`, `chat.say`) goes to [`relay::take`],
 //! and what it answers goes where it says: back, to one device, or to the
-//! owner's other computers. Besides the link, the log moves in files: the
+//! owner's other computers. Such a link whose hello listed `lend` is also
+//! registered for what a group or a private chat lends her mind while that
+//! device holds her ([`lend::open`]). Besides the link, the log moves in
+//! files: the
 //! export, a move to a device, and taking such a file in.
 //!
 //! No key, token or secret is in a row, a frame, an answer or an error:
 //! errors say what was refused, never with what.
 
 pub mod assets;
-// Nothing outside the tests reaches the relay until her link speaks
-// protocol 2: the connection still speaks 1 and does not hand it frames.
+// Parts of these the relay does not reach yet outside the tests.
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod full;
 #[cfg_attr(not(test), allow(dead_code))]

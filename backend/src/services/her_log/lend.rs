@@ -3,25 +3,40 @@
 //! says there, sent out by the site as her.
 //!
 //! While she is not on the site and the lease is held by a PC whose link
-//! speaks protocol 2, the site does not answer anyone itself: a group's new
-//! line goes to that PC as `group.lend`, a private message as `chat.lend`
-//! (the bots stay here; her mind is there). When her mind there says
-//! something (`group.say`, `chat.say`), the site sends it where the lend came
-//! from, the way it sends her own lines, and answers with `group.said` or
-//! `chat.said`. Only the holder is taken (`not_holder` otherwise), and only a
-//! place the site lent (`group_unknown`, `chat_unknown`).
+//! syncs her, the site does not answer anyone itself: a group's new line
+//! goes to that PC as `group.lend`, a private message as `chat.lend` (the
+//! bots stay here; her mind is there). When her mind there says something
+//! (`group.say`, `chat.say`), the site sends it where the lend came from,
+//! the way it sends her own lines, and answers with `group.said` or
+//! `chat.said`. Only the holder is taken (from another core the relay's
+//! frame check refuses it first: `error` `bad_frame`), and only for a place
+//! the site lent it (`group_unknown`, `chat_unknown`).
 //!
-//! Closed until her link speaks protocol 2: a link is registered here
-//! ([`open`]) only once it has negotiated protocol 2, and the site's link
-//! still speaks 1, so none is. Until one is, [`mind_on_a_pc`] is `None` and
-//! what comes is held (a private chat) or waits for her (a group), as
-//! before.
+//! A link is registered here ([`open`]) once its welcome said sync on and
+//! its hello listed `lend` (its mind thinks with what is lent it): it is a
+//! host core that keeps her log, and only one may hold her lease. A link
+//! that did not list it is lent nothing: a group's lines stay with the
+//! group mind here, a private message is held. What
+//! is lent goes only to the link of the device holding the lease
+//! ([`mind_on_a_pc`] reads it for every lend), so a device that hands her
+//! over is lent nothing more.
 //!
-//! What was lent is kept here in memory only: a lend not answered when the
-//! process restarts or the lease moves is not sent again (the group mind or
-//! the held mail takes it up once she is back).
+//! A lend is her mind's once that link acked it (the envelope's `ack`
+//! covers the frame) or once she said something for it: whether she says
+//! anything is hers to choose there. A lend not acked when its link closes
+//! or her mind leaves that device is the site's again ([`close`],
+//! [`let_go`]): a group's line is taken up by the group mind here once she
+//! is back ([`untaken_groups`]), a private message is held again as if it
+//! had never been lent. Each lend goes once, on the link it was made for:
+//! the link does not send it again, and a new link of the device is not
+//! sent the old one.
+//!
+//! What was lent is kept here in memory only: a lend not acked when the
+//! process restarts is let go with it (the group mind or the held mail
+//! takes up what comes after once she is back).
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 use sea_orm::DatabaseConnection;
@@ -31,48 +46,101 @@ use tokio::sync::mpsc::UnboundedSender;
 use super::relay::{Outgoing, To};
 use super::{Error, NODE};
 
-/// The links that speak protocol 2 now, by device: where their frames go.
-static LINKS: LazyLock<Mutex<HashMap<String, UnboundedSender<Outgoing>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-/// A link from `device` negotiated protocol 2: frames for it go to `send`.
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn open(device: &str, send: UnboundedSender<Outgoing>) {
-    if let Ok(mut links) = LINKS.lock() {
-        links.insert(device.to_string(), send);
-    }
+/// A link registered to be lent to: which one it is, and where its frames go.
+struct Link {
+    token: u64,
+    send: UnboundedSender<Outgoing>,
 }
 
-/// The link from `device` closed: what was lent to it is the site's again.
-pub fn close(device: &str) {
+/// The links that may be lent to now, by device.
+static LINKS: LazyLock<Mutex<HashMap<String, Link>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+static TOKENS: AtomicU64 = AtomicU64::new(1);
+
+/// A link from `device` syncs her (its welcome said sync on): frames lent
+/// to it go to `send`. The token names this link, for [`close`]: a newer
+/// link of the device takes its place.
+pub fn open(device: &str, send: UnboundedSender<Outgoing>) -> u64 {
+    let token = TOKENS.fetch_add(1, Ordering::Relaxed);
     if let Ok(mut links) = LINKS.lock() {
+        links.insert(device.to_string(), Link { token, send });
+    }
+    token
+}
+
+/// The link `token` of `device` closed: it is lent nothing more, and what
+/// was lent on it and not acked is the site's again. The private messages
+/// among them, for [`give_back`].
+pub fn close(device: &str, token: u64) -> Vec<ChatLent> {
+    if let Ok(mut links) = LINKS.lock()
+        && links.get(device).is_some_and(|link| link.token == token)
+    {
         links.remove(device);
     }
-    if let Ok(mut lent) = LENT.lock() {
-        lent.retain(|_, place| place.device != device);
-    }
+    let_go_where(|one| one.device == device && one.link == token)
 }
 
-/// Whether any link speaks protocol 2 now (none does until her link
-/// negotiates it): nothing can be lent without one.
+/// Her mind left `device` (the lease moved, or syncing stopped): what was
+/// lent to it and not acked is the site's again. The private messages
+/// among them, for [`give_back`].
+pub fn let_go(device: &str) -> Vec<ChatLent> {
+    let_go_where(|one| one.device == device)
+}
+
+fn let_go_where(which: impl Fn(&Lent) -> bool) -> Vec<ChatLent> {
+    let mut chats = Vec::new();
+    let Ok(mut lent) = LENT.lock() else {
+        return chats;
+    };
+    let ids: Vec<String> = lent
+        .iter()
+        .filter(|(_, one)| which(one))
+        .map(|(id, _)| id.clone())
+        .collect();
+    for id in &ids {
+        let Some(one) = lent.remove(id) else {
+            continue;
+        };
+        if one.taken {
+            continue;
+        }
+        match one.place {
+            Place::Group { venue, .. } => {
+                if let Ok(mut back) = RETURNED.lock() {
+                    back.insert(venue);
+                }
+            }
+            Place::Chat { .. } => chats.extend(one.chat),
+        }
+    }
+    if let Ok(mut latest) = LATEST.lock() {
+        latest.retain(|_, id| !ids.contains(id));
+    }
+    chats
+}
+
+/// Whether any link may be lent to now (none until one syncs her).
 pub fn any_link() -> bool {
     LINKS.lock().is_ok_and(|links| !links.is_empty())
 }
 
-/// Whether anything may be lent now: her log is on and some link speaks
-/// protocol 2. A cheap check, before [`mind_on_a_pc`] reads the lease.
+/// Whether anything may be lent now: her log is on and some link syncs
+/// her. A cheap check, before [`mind_on_a_pc`] reads the lease.
 pub fn may_lend() -> bool {
     super::enabled() && any_link()
 }
 
-fn link(device: &str) -> Option<UnboundedSender<Outgoing>> {
-    LINKS.lock().ok()?.get(device).cloned()
+fn link(device: &str) -> Option<(u64, UnboundedSender<Outgoing>)> {
+    LINKS
+        .lock()
+        .ok()?
+        .get(device)
+        .map(|link| (link.token, link.send.clone()))
 }
 
-/// The PC her mind is on, when it holds the lease and its link speaks
-/// protocol 2: what she is lent goes there. `None` while her log is off,
-/// while no link speaks protocol 2, or while the server or another end
-/// holds her.
+/// The PC her mind is on, when it holds the lease and its link syncs her:
+/// what she is lent goes there. `None` while her log is off, while no link
+/// syncs her, or while the server or another end holds her.
 pub async fn mind_on_a_pc(db: &DatabaseConnection) -> Option<String> {
     mind_on_a_pc_if(db, super::enabled()).await
 }
@@ -95,14 +163,34 @@ pub enum Place {
     Chat { user: i32, session_key: String },
 }
 
+/// A private message as it was lent: what the site keeps of it once her
+/// mind takes it (it goes into the chat's history there), or holds again
+/// when it is given back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatLent {
+    /// The chat app, by its slug.
+    pub platform: String,
+    pub session_key: String,
+    pub user: i32,
+    /// The platform message it is known by, so it is held once.
+    pub inbound: String,
+    pub text: String,
+    /// The chat's session here, when it has one.
+    pub chat_session: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 struct Lent {
     device: String,
+    /// The link it was lent on ([`open`]'s token).
+    link: u64,
     audience: String,
     place: Place,
-    /// Her mind there took it: she said something for it. One not taken
-    /// when her mind comes back is the site's again.
+    /// Her mind there took it: its link acked it, or she said something for
+    /// it. One not taken when her mind leaves is the site's again.
     taken: bool,
+    /// A private message's own, for when it is taken or given back.
+    chat: Option<ChatLent>,
 }
 
 /// What was lent and not yet let go, by lend id; and, by audience, the
@@ -110,8 +198,11 @@ struct Lent {
 static LENT: LazyLock<Mutex<HashMap<String, Lent>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 static LATEST: LazyLock<Mutex<HashMap<String, String>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Groups (by venue) with a line given back untaken: the group mind here
+/// takes them up once she is back.
+static RETURNED: LazyLock<Mutex<BTreeSet<String>>> = LazyLock::new(|| Mutex::new(BTreeSet::new()));
 
-/// Lends kept at once: past this, the oldest are let go.
+/// Lends kept at once: past this, the taken ones are let go, then all.
 const KEPT: usize = 256;
 
 fn lend_id() -> String {
@@ -224,7 +315,9 @@ fn lend_frame(
 }
 
 /// Lend `messages` of `place` to `device`, her mind; whether it went (the
-/// link may have closed meanwhile: then nothing was lent).
+/// link may have closed meanwhile: then nothing was lent). `chat` is a
+/// private message's own, kept for when it is taken or given back.
+#[allow(clippy::too_many_arguments)]
 pub fn lend(
     device: &str,
     audience: &str,
@@ -232,17 +325,21 @@ pub fn lend(
     about: About<'_>,
     messages: &[Message],
     recent: &[Message],
+    chat: Option<ChatLent>,
 ) -> bool {
     if messages.is_empty() {
         return false;
     }
-    let Some(send) = link(device) else {
+    let Some((token, send)) = link(device) else {
         return false;
     };
     let mut frame = lend_frame(audience, &place, &about, messages, recent);
     frame.to = To::Device(device.to_string());
     let id = frame.id.clone().unwrap_or_default();
     if let (Ok(mut lent), Ok(mut latest)) = (LENT.lock(), LATEST.lock()) {
+        if lent.len() >= KEPT {
+            lent.retain(|_, one| !one.taken);
+        }
         if lent.len() >= KEPT {
             lent.clear();
             latest.clear();
@@ -251,15 +348,25 @@ pub fn lend(
             id.clone(),
             Lent {
                 device: device.to_string(),
+                link: token,
                 audience: audience.to_string(),
                 place,
                 taken: false,
+                chat,
             },
         );
-        latest.insert(audience.to_string(), id);
+        latest.insert(audience.to_string(), id.clone());
     }
     if send.send(frame).is_err() {
-        close(device);
+        // The link went meanwhile: nothing was lent.
+        if let Ok(mut lent) = LENT.lock() {
+            lent.remove(&id);
+        }
+        if let Ok(mut links) = LINKS.lock()
+            && links.get(device).is_some_and(|link| link.token == token)
+        {
+            links.remove(device);
+        }
         return false;
     }
     tracing::info!(
@@ -269,14 +376,33 @@ pub fn lend(
     true
 }
 
+/// The link of `device` acked the reliable frame `id`: when it is a lend,
+/// her mind there took it. A private message taken now, for [`keep`].
+pub fn acked(device: &str, id: &str) -> Option<ChatLent> {
+    let mut lent = LENT.lock().ok()?;
+    let one = lent
+        .get_mut(id)
+        .filter(|one| one.device == device && !one.taken)?;
+    one.taken = true;
+    one.chat.clone()
+}
+
+/// Whether the lend `id` to `device` waits for its link's ack.
+pub fn waiting(device: &str, id: &str) -> bool {
+    LENT.lock().is_ok_and(|lent| {
+        lent.get(id)
+            .is_some_and(|one| one.device == device && !one.taken)
+    })
+}
+
 /// The groups (by venue) with lines lent that her mind never took: when
 /// she is back on the site, these are hers to take up here; the others she
-/// answered (or chose not to) there. What was lent is let go.
+/// took there (and answered, or chose not to). What was lent is let go.
 pub fn untaken_groups() -> Vec<String> {
     let Ok(mut lent) = LENT.lock() else {
         return Vec::new();
     };
-    let mut venues: Vec<String> = lent
+    let mut venues: BTreeSet<String> = lent
         .values()
         .filter(|one| !one.taken)
         .filter_map(|one| match &one.place {
@@ -284,18 +410,25 @@ pub fn untaken_groups() -> Vec<String> {
             Place::Chat { .. } => None,
         })
         .collect();
-    venues.sort();
-    venues.dedup();
+    if let Ok(mut back) = RETURNED.lock() {
+        venues.append(&mut back);
+    }
     lent.clear();
     if let Ok(mut latest) = LATEST.lock() {
         latest.clear();
     }
-    venues
+    venues.into_iter().collect()
 }
 
 /// Where a `say` from `device` for `audience` (naming `lend`, maybe) goes:
-/// the lend it names, else the latest one there; only one lent to it.
-fn place_for(device: &str, audience: &str, lend: Option<&str>) -> Option<Place> {
+/// the lend it names, else the latest one there; only one lent to it. With
+/// it, a private message taken only now (no ack had come for it), for
+/// [`keep`].
+fn place_for(
+    device: &str,
+    audience: &str,
+    lend: Option<&str>,
+) -> Option<(Place, Option<ChatLent>)> {
     let mut lent = LENT.lock().ok()?;
     let id = match lend {
         Some(id) => id.to_string(),
@@ -304,13 +437,15 @@ fn place_for(device: &str, audience: &str, lend: Option<&str>) -> Option<Place> 
     lent.get_mut(&id)
         .filter(|one| one.device == device && one.audience == audience)
         .map(|one| {
+            let newly = (!one.taken).then(|| one.chat.clone()).flatten();
             one.taken = true;
-            one.place.clone()
+            (one.place.clone(), newly)
         })
 }
 
-/// Sends her line to a place the site lent: how it failed, if it did.
-/// `Sync`, so a link's task may hold it across a send.
+/// Sends her line to a place the site lent, how it failed if it did; and
+/// keeps what a lent private message leaves. `Sync`, so a link's task may
+/// hold it across a send.
 pub trait Sender: Sync {
     fn send<'a>(
         &'a self,
@@ -319,6 +454,20 @@ pub trait Sender: Sync {
         text: &'a str,
         reply_to: Option<&'a str>,
     ) -> futures::future::BoxFuture<'a, Result<(), &'static str>>;
+
+    /// Her mind took `chat`: their message goes into the chat's history.
+    fn keep<'a>(
+        &'a self,
+        db: &'a DatabaseConnection,
+        chat: &'a ChatLent,
+    ) -> futures::future::BoxFuture<'a, ()>;
+
+    /// `chat` was given back untaken: it is held until she is back.
+    fn hold<'a>(
+        &'a self,
+        db: &'a DatabaseConnection,
+        chat: &'a ChatLent,
+    ) -> futures::future::BoxFuture<'a, ()>;
 }
 
 /// The chat apps, as the site reaches them.
@@ -344,11 +493,50 @@ impl Sender for Platforms {
             }
         })
     }
+
+    fn keep<'a>(
+        &'a self,
+        db: &'a DatabaseConnection,
+        chat: &'a ChatLent,
+    ) -> futures::future::BoxFuture<'a, ()> {
+        Box::pin(crate::services::channel_work::held::keep_lent(db, chat))
+    }
+
+    fn hold<'a>(
+        &'a self,
+        db: &'a DatabaseConnection,
+        chat: &'a ChatLent,
+    ) -> futures::future::BoxFuture<'a, ()> {
+        Box::pin(crate::services::channel_work::held::hold_lent(db, chat))
+    }
+}
+
+/// What her mind took of the private messages lent: each goes into its
+/// chat's history.
+pub async fn keep(db: &DatabaseConnection, sender: &dyn Sender, chats: Vec<ChatLent>) {
+    for chat in &chats {
+        sender.keep(db, chat).await;
+    }
+}
+
+/// Private messages given back untaken: each is held until she is back.
+pub async fn give_back(db: &DatabaseConnection, sender: &dyn Sender, chats: Vec<ChatLent>) {
+    for chat in &chats {
+        sender.hold(db, chat).await;
+    }
+    if !chats.is_empty() {
+        tracing::info!(
+            count = chats.len(),
+            "[her-log] private messages lent and not taken are held again"
+        );
+    }
 }
 
 /// Takes a `group.say` or `chat.say` from `device`: her line goes out where
 /// it was lent from, answered with `group.said` or `chat.said`. `mine` is
-/// whether `device` holds the lease (the relay checked the frame as hers).
+/// whether `device` holds the lease (the relay checked the frame as hers, so
+/// from the relay it always does; `not_holder` stays for a caller that has
+/// not).
 pub async fn say(
     db: &DatabaseConnection,
     sender: &dyn Sender,
@@ -380,9 +568,13 @@ pub async fn say(
         return answer(false, Some("not_holder"));
     }
     let audience = body[field].as_str().unwrap_or_default();
-    let Some(place) = place_for(device, audience, body["lend"].as_str()) else {
+    let Some((place, newly)) = place_for(device, audience, body["lend"].as_str()) else {
         return answer(false, Some(unknown));
     };
+    // Their message goes into the chat's history before her line.
+    if let Some(chat) = &newly {
+        sender.keep(db, chat).await;
+    }
     let text = body["text"].as_str().unwrap_or_default().trim();
     if text.is_empty() {
         return answer(false, Some("unavailable"));
@@ -399,13 +591,30 @@ pub async fn say(
     }
 }
 
+/// Whether the lend `id` is still kept, and taken (tests).
+#[cfg(test)]
+pub(crate) fn taken(id: &str) -> Option<bool> {
+    LENT.lock().ok()?.get(id).map(|one| one.taken)
+}
+
+/// The lend tests share these statics (and `untaken_groups` lets go of
+/// all of them): they take turns.
+#[cfg(test)]
+pub(crate) static SERIAL: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Stands in for the chat apps: what it was asked to send.
+    /// Stands in for the chat apps: what it was asked to send, and the lent
+    /// private messages it was asked to keep and to hold again.
     #[derive(Default)]
-    struct Kept(Mutex<Vec<(Place, String, Option<String>)>>);
+    struct Kept(
+        Mutex<Vec<(Place, String, Option<String>)>>,
+        Mutex<Vec<String>>,
+        Mutex<Vec<String>>,
+    );
 
     impl Sender for Kept {
         fn send<'a>(
@@ -421,6 +630,35 @@ mod tests {
                 reply_to.map(str::to_string),
             ));
             Box::pin(async { Ok(()) })
+        }
+
+        fn keep<'a>(
+            &'a self,
+            _db: &'a DatabaseConnection,
+            chat: &'a ChatLent,
+        ) -> futures::future::BoxFuture<'a, ()> {
+            self.1.lock().unwrap().push(chat.inbound.clone());
+            Box::pin(async {})
+        }
+
+        fn hold<'a>(
+            &'a self,
+            _db: &'a DatabaseConnection,
+            chat: &'a ChatLent,
+        ) -> futures::future::BoxFuture<'a, ()> {
+            self.2.lock().unwrap().push(chat.inbound.clone());
+            Box::pin(async {})
+        }
+    }
+
+    fn chat_lent(inbound: &str, user: i32) -> ChatLent {
+        ChatLent {
+            platform: "onebot".into(),
+            session_key: format!("onebot:{user}"),
+            user,
+            inbound: inbound.into(),
+            text: "在吗".into(),
+            chat_session: None,
         }
     }
 
@@ -449,9 +687,10 @@ mod tests {
     /// goes to that chat, only from that PC, only for a chat it was lent.
     #[tokio::test]
     async fn a_lent_chat_is_answered_where_it_came_from() {
+        let _turn = SERIAL.lock().await;
         let db = DatabaseConnection::default();
         let (send, mut lent) = tokio::sync::mpsc::unbounded_channel();
-        open("dev_lend_unit", send);
+        let link = open("dev_lend_unit", send);
         let place = Place::Chat {
             user: 7,
             session_key: "onebot:20002".into(),
@@ -467,7 +706,8 @@ mod tests {
             place.clone(),
             About::default(),
             &[],
-            &[]
+            &[],
+            None,
         ));
         assert!(lend(
             "dev_lend_unit",
@@ -480,6 +720,7 @@ mod tests {
             },
             &[message("m_1", "在吗")],
             &recent,
+            Some(chat_lent("m_1", 7)),
         ));
         let frame = lent.try_recv().unwrap();
         assert_eq!(frame.t, "chat.lend");
@@ -543,8 +784,12 @@ mod tests {
             kept.0.lock().unwrap()[0],
             (place.clone(), "嗯，在的。".into(), Some("m_1".into()))
         );
-        // The link closed: what was lent to it is the site's again.
-        close("dev_lend_unit");
+        // Their message went into the chat once, before her first line (no
+        // ack had come for it).
+        assert_eq!(*kept.1.lock().unwrap(), vec!["m_1".to_string()]);
+        // The link closed: it is lent nothing more, and what she took is
+        // not given back.
+        assert!(close("dev_lend_unit", link).is_empty());
         let said = say(
             &db,
             &kept,
@@ -561,6 +806,7 @@ mod tests {
             About::default(),
             &[message("m_2", "人呢")],
             &[],
+            None,
         ));
     }
 
@@ -568,9 +814,10 @@ mod tests {
     /// group goes back to it, in its topic.
     #[tokio::test]
     async fn a_lent_group_is_a_contract_frame_and_answered_there() {
+        let _turn = SERIAL.lock().await;
         let db = DatabaseConnection::default();
         let (send, mut lent) = tokio::sync::mpsc::unbounded_channel();
-        open("dev_lend_group", send);
+        let link = open("dev_lend_group", send);
         let place = Place::Group {
             venue: "telegram:-100".into(),
             thread: Some(9),
@@ -598,6 +845,7 @@ mod tests {
             },
             &[line],
             &[before],
+            None,
         ));
         let frame = lent.try_recv().unwrap();
         assert_eq!(frame.t, "group.lend");
@@ -623,6 +871,126 @@ mod tests {
         assert_eq!(said[0].body["sent"], true);
         super::super::relay::encode(&said[0], 2, 0, 1_760_140_800_000).unwrap();
         assert_eq!(kept.0.lock().unwrap()[0].0, place);
-        close("dev_lend_group");
+        close("dev_lend_group", link);
+    }
+
+    fn lend_chat(device: &str, user: i32, inbound: &str) -> bool {
+        lend(
+            device,
+            &format!("personal:{user}"),
+            Place::Chat {
+                user,
+                session_key: format!("onebot:{user}"),
+            },
+            About::default(),
+            &[message(inbound, "在吗")],
+            &[],
+            Some(chat_lent(inbound, user)),
+        )
+    }
+
+    fn lend_group(device: &str, venue: &str, id: &str) -> bool {
+        lend(
+            device,
+            &group_audience(venue),
+            Place::Group {
+                venue: venue.into(),
+                thread: None,
+            },
+            About::default(),
+            &[message(id, "有人吗")],
+            &[],
+            None,
+        )
+    }
+
+    /// A lend its link acked is her mind's: whether she says anything is
+    /// hers, and nothing of it comes back to the site. One not acked when
+    /// the link closes is the site's again: the group's line for the group
+    /// mind once she is back, the private message held again. Each lend
+    /// goes once.
+    #[tokio::test]
+    async fn an_acked_lend_is_hers_and_one_not_acked_comes_back() {
+        let _turn = SERIAL.lock().await;
+        let db = DatabaseConnection::default();
+        untaken_groups();
+        let (send, mut lent) = tokio::sync::mpsc::unbounded_channel();
+        let link = open("dev_lend_ack", send);
+        assert!(lend_group("dev_lend_ack", "onebot:701", "g_1"));
+        assert!(lend_chat("dev_lend_ack", 71, "c_1"));
+        assert!(lend_group("dev_lend_ack", "onebot:702", "g_2"));
+        assert!(lend_chat("dev_lend_ack", 72, "c_2"));
+        let ids: Vec<String> = (0..4)
+            .map(|_| lent.try_recv().unwrap().id.unwrap())
+            .collect();
+        // Each went once: nothing more is waiting on the link.
+        assert!(lent.try_recv().is_err());
+        assert!(ids.iter().all(|id| waiting("dev_lend_ack", id)));
+
+        // The first two acked: hers. The private one goes into its chat.
+        assert_eq!(acked("dev_lend_ack", &ids[0]), None);
+        assert_eq!(acked("dev_lend_ack", &ids[1]), Some(chat_lent("c_1", 71)));
+        // Acked again, or by another device: nothing more.
+        assert_eq!(acked("dev_lend_ack", &ids[1]), None);
+        assert_eq!(acked("dev_other", &ids[3]), None);
+        assert_eq!(taken(&ids[0]), Some(true));
+        assert_eq!(taken(&ids[3]), Some(false));
+        assert!(!waiting("dev_lend_ack", &ids[1]));
+
+        // The link closed with the last two not acked: they come back.
+        let back = close("dev_lend_ack", link);
+        assert_eq!(back, vec![chat_lent("c_2", 72)]);
+        let kept = Kept::default();
+        give_back(&db, &kept, back).await;
+        assert_eq!(*kept.2.lock().unwrap(), vec!["c_2".to_string()]);
+        assert_eq!(taken(&ids[3]), None);
+        // A say for a lend given back finds nothing.
+        let said = say(
+            &db,
+            &kept,
+            "dev_lend_ack",
+            true,
+            &say_frame("chat.say", "chat", "personal:72", Some(&ids[3])),
+        )
+        .await;
+        assert_eq!(said[0].body["code"], "chat_unknown");
+        // She is back: only the group whose line she never took is hers to
+        // take up here.
+        assert_eq!(untaken_groups(), vec!["onebot:702".to_string()]);
+        assert!(untaken_groups().is_empty());
+    }
+
+    /// A newer link of the device takes the old one's place: what was lent
+    /// on the old one and not acked comes back when it closes, what is lent
+    /// on the new one stays its own; and when her mind leaves the device,
+    /// what is left there comes back too.
+    #[tokio::test]
+    async fn each_link_gives_back_only_its_own_lends() {
+        let _turn = SERIAL.lock().await;
+        untaken_groups();
+        let (old_send, mut old) = tokio::sync::mpsc::unbounded_channel();
+        let old_link = open("dev_lend_two", old_send);
+        assert!(lend_chat("dev_lend_two", 81, "c_old"));
+        let old_id = old.try_recv().unwrap().id.unwrap();
+        let (new_send, mut new) = tokio::sync::mpsc::unbounded_channel();
+        let new_link = open("dev_lend_two", new_send);
+        assert!(lend_chat("dev_lend_two", 82, "c_new"));
+        // The new lend went on the new link only.
+        assert!(old.try_recv().is_err());
+        let new_id = new.try_recv().unwrap().id.unwrap();
+        assert_eq!(
+            close("dev_lend_two", old_link),
+            vec![chat_lent("c_old", 81)]
+        );
+        assert_eq!(taken(&old_id), None);
+        assert_eq!(taken(&new_id), Some(false));
+        // The newer link is still lent to.
+        assert!(lend_group("dev_lend_two", "onebot:803", "g_3"));
+        assert!(new.try_recv().is_ok());
+        // Her mind left the device: what is left there comes back.
+        assert_eq!(let_go("dev_lend_two"), vec![chat_lent("c_new", 82)]);
+        assert_eq!(untaken_groups(), vec!["onebot:803".to_string()]);
+        assert!(close("dev_lend_two", new_link).is_empty());
+        assert!(!lend_chat("dev_lend_two", 82, "c_late"));
     }
 }

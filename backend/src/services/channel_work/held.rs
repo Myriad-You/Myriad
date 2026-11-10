@@ -11,10 +11,11 @@
 //! its pairing is gone, or when the owner clears what is held (D3-4).
 //!
 //! Held while she lives on another end too (D3-6), unless her mind is on a
-//! PC that can think with it (its link speaks protocol 2): then it is lent
-//! there (`chat.lend`), the site answers nothing itself, and what she says
-//! back is sent here as her ([`say_lent`], `her_log::lend`). No link speaks
-//! protocol 2 yet, so for now it is always held.
+//! PC that can think with it (its link syncs her): then it is lent there
+//! (`chat.lend`), the site answers nothing itself, and what she says back is
+//! sent here as her ([`say_lent`], `her_log::lend`). Their message goes into
+//! the chat's history once her mind there takes it ([`keep_lent`]); one it
+//! never took is held again ([`hold_lent`]).
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex as StdMutex};
@@ -206,20 +207,67 @@ async fn lend(
         who: Some(json!({ "kind": "member", "user_id": user_id, "bound": true })),
         ..Default::default()
     };
-    if !her::lend(&device, &audience, place, about, &[one], &recent) {
-        return false;
-    }
-    // Their line is kept in the chat, as a turn here keeps it.
-    if let Some(chat_session) = &chat_session {
+    // Their line goes into the chat once her mind takes it, as a turn here
+    // keeps it; given back untaken, it is held as if never lent.
+    let chat = her::ChatLent {
+        platform: platform.slug().to_string(),
+        session_key: session_key.to_string(),
+        user: user_id,
+        inbound: inbound.to_string(),
+        text: text.to_string(),
+        chat_session,
+    };
+    her::lend(
+        &device,
+        &audience,
+        place,
+        about,
+        &[one],
+        &recent,
+        Some(chat),
+    )
+}
+
+/// Her mind on a PC took a private message lent to it: their line is kept
+/// in the chat, as a turn here keeps it.
+pub(crate) async fn keep_lent(
+    db: &DatabaseConnection,
+    chat: &crate::services::her_log::lend::ChatLent,
+) {
+    if let Some(chat_session) = &chat.chat_session {
         let _ = crate::services::agent::sessions::persist_user_message_from(
             db,
             chat_session,
-            text,
-            platform.slug(),
+            &chat.text,
+            &chat.platform,
         )
         .await;
     }
-    true
+}
+
+/// A private message lent and never taken is the site's again: held until
+/// she is back, as if it had never been lent.
+pub(crate) async fn hold_lent(
+    db: &DatabaseConnection,
+    chat: &crate::services::her_log::lend::ChatLent,
+) {
+    let result = db
+        .execute_raw(statement(
+            "INSERT INTO agent_channel_held \
+             (platform, session_key, inbound_id, user_id, text, images) \
+             VALUES ($1, $2, $3, $4, $5, '[]'::jsonb) ON CONFLICT (platform, inbound_id) DO NOTHING",
+            vec![
+                chat.platform.clone().into(),
+                chat.session_key.clone().into(),
+                chat.inbound.clone().into(),
+                chat.user.into(),
+                chat.text.clone().into(),
+            ],
+        ))
+        .await;
+    if let Err(error) = result {
+        tracing::warn!(%error, platform = %chat.platform, "[Channel] could not hold again what was lent");
+    }
 }
 
 /// Her line from her mind on a PC, sent in the chat `session_key` with

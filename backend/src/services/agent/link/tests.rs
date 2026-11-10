@@ -939,6 +939,9 @@ async fn her_log_goes_over_the_link_while_she_syncs() {
     let Some(site) = site().await else {
         return;
     };
+    // Her lease is told to every link of the owner's: the tests that sync
+    // her take turns.
+    let _turn = crate::services::her_log::lend::SERIAL.lock().await;
     crate::services::her_log::test_settings::set(crate::services::her_log::Settings {
         enabled: true,
         ..crate::services::her_log::Settings::default()
@@ -988,6 +991,200 @@ async fn her_log_goes_over_the_link_while_she_syncs() {
     assert_eq!(refused["body"]["ref"], seq);
     mac.send("ping", None, json!({})).await;
     mac.expect("pong").await;
+    site.close().await;
+}
+
+/// While she syncs, what a group or a private chat says is lent on the
+/// link of the computer holding her, when its hello listed `lend`. Its ack makes a lend her mind's there,
+/// and her line for it is answered (here no chat app takes it). A lend the
+/// link never acked comes back to the site when the link closes: a private
+/// message is held again. Once her mind is on another computer, only that
+/// one is lent to.
+#[tokio::test]
+async fn what_she_is_lent_goes_to_the_computer_holding_her() {
+    use crate::services::her_log::lend::{self, About, ChatLent, Message as Line, Place};
+    let Some(site) = site().await else {
+        return;
+    };
+    let _turn = lend::SERIAL.lock().await;
+    crate::services::her_log::test_settings::set(crate::services::her_log::Settings {
+        enabled: true,
+        ..crate::services::her_log::Settings::default()
+    });
+    crate::services::her_log::store::start(&site.db, OWNER)
+        .await
+        .unwrap();
+    let (mac_device, mac) = device(&site.db, "MacBook").await;
+    let (mini_device, mini) = device(&site.db, "Mac mini").await;
+    let (studio_device, studio) = device(&site.db, "Mac Studio").await;
+    let mut mac = Child::open(&site, &mac).await;
+    assert_eq!(
+        mac.hello_with(&["partner", "log2", "lend"]).await["body"]["sync"],
+        "on"
+    );
+    let mut mini = Child::open(&site, &mini).await;
+    assert_eq!(
+        mini.hello_with(&["partner", "log2", "lend"]).await["body"]["sync"],
+        "on"
+    );
+    // One that does not think with lends is not lent to.
+    let mut studio = Child::open(&site, &studio).await;
+    assert_eq!(
+        studio.hello_with(&["partner", "log2"]).await["body"]["sync"],
+        "on"
+    );
+    // Registered, but nobody holds her: nothing is lent.
+    assert_eq!(lend::mind_on_a_pc_if(&site.db, true).await, None);
+    mac.send("lease.ask", None, json!({ "why": "talk" })).await;
+    let grant = until(&mut mac, "lease.grant").await;
+    until(&mut mini, "lease.epoch").await;
+    until(&mut studio, "lease.epoch").await;
+    assert_eq!(
+        lend::mind_on_a_pc_if(&site.db, true).await.as_deref(),
+        Some(mac_device.id.as_str())
+    );
+
+    let line = |id: &str, text: &str| Line {
+        id: id.into(),
+        from: Some("m7".into()),
+        name: Some("小林".into()),
+        text: text.into(),
+        at_ms: 1_760_140_800_000,
+        to_her: true,
+        mine: false,
+        who: None,
+    };
+    let chat = |inbound: &str| ChatLent {
+        platform: "onebot".into(),
+        session_key: "onebot:20002".into(),
+        user: OWNER,
+        inbound: inbound.into(),
+        text: "在吗".into(),
+        chat_session: None,
+    };
+    let chat_place = Place::Chat {
+        user: OWNER,
+        session_key: "onebot:20002".into(),
+    };
+
+    assert!(!lend::lend(
+        &studio_device.id,
+        "group:onebot:901",
+        Place::Group {
+            venue: "onebot:901".into(),
+            thread: None,
+        },
+        About::default(),
+        &[line("m_0", "有人吗")],
+        &[],
+        None,
+    ));
+
+    // A group: lent, acked, answered.
+    assert!(lend::lend(
+        &mac_device.id,
+        "group:onebot:901",
+        Place::Group {
+            venue: "onebot:901".into(),
+            thread: None,
+        },
+        About {
+            name: Some("读书会"),
+            ..About::default()
+        },
+        &[line("m_1", "有人吗")],
+        &[],
+        None,
+    ));
+    let lent = until(&mut mac, "group.lend").await;
+    assert_eq!(lent["body"]["group"], "group:onebot:901");
+    assert_eq!(lent["body"]["messages"][0]["from"], "m7");
+    let group_lend = lent["id"].as_str().unwrap().to_string();
+    assert_eq!(lend::taken(&group_lend), Some(false));
+    mac.send("ping", None, json!({})).await;
+    until(&mut mac, "pong").await;
+    assert_eq!(lend::taken(&group_lend), Some(true));
+    mac.send(
+        "group.say",
+        Some("gsay_1"),
+        json!({ "group": "group:onebot:901", "text": "在的", "lend": group_lend }),
+    )
+    .await;
+    let said = until(&mut mac, "group.said").await;
+    assert_eq!(
+        said["body"],
+        json!({ "sayId": "gsay_1", "sent": false, "code": "unavailable" })
+    );
+
+    // A private chat: the same.
+    let personal = format!("personal:{OWNER}");
+    assert!(lend::lend(
+        &mac_device.id,
+        &personal,
+        chat_place.clone(),
+        About::default(),
+        &[line("c_1", "在吗")],
+        &[],
+        Some(chat("c_1")),
+    ));
+    let lent = until(&mut mac, "chat.lend").await;
+    assert_eq!(lent["body"]["chat"], personal.as_str());
+    let chat_lend = lent["id"].as_str().unwrap().to_string();
+    mac.send(
+        "chat.say",
+        Some("csay_1"),
+        json!({ "chat": personal, "text": "在的", "lend": chat_lend }),
+    )
+    .await;
+    let said = until(&mut mac, "chat.said").await;
+    assert_eq!(said["body"]["sayId"], "csay_1");
+    assert_eq!(said["body"]["code"], "unavailable");
+    assert_eq!(lend::taken(&chat_lend), Some(true));
+
+    // Her mind moves to the mini: only it is lent to now.
+    let epoch = grant["body"]["grant"]["epoch"].clone();
+    mac.send(
+        "lease.yield",
+        Some("yield_1"),
+        json!({ "epoch": epoch, "through": {} }),
+    )
+    .await;
+    until(&mut mini, "lease.epoch").await;
+    mini.send("lease.ask", None, json!({ "why": "talk" })).await;
+    until(&mut mini, "lease.grant").await;
+    assert_eq!(
+        lend::mind_on_a_pc_if(&site.db, true).await.as_deref(),
+        Some(mini_device.id.as_str())
+    );
+    // A private message lent to the mini, which closes before it acks it:
+    // it is held again on the site.
+    assert!(lend::lend(
+        &mini_device.id,
+        &personal,
+        chat_place,
+        About::default(),
+        &[line("c_2", "还在吗")],
+        &[],
+        Some(chat("c_2")),
+    ));
+    let lent = until(&mut mini, "chat.lend").await;
+    let unacked = lent["id"].as_str().unwrap().to_string();
+    drop(mini);
+    let by = tokio::time::Instant::now() + WAIT;
+    while crate::services::channel_work::held::count(&site.db)
+        .await
+        .unwrap()
+        == 0
+    {
+        assert!(tokio::time::Instant::now() < by, "held again in time");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(lend::taken(&unacked), None);
+    // The mini's link is gone: nothing more is lent to it.
+    assert_eq!(lend::mind_on_a_pc_if(&site.db, true).await, None);
+    lend::untaken_groups();
+    drop(mac);
+    drop(studio);
     site.close().await;
 }
 

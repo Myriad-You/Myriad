@@ -226,6 +226,7 @@ pub(super) async fn serve_with(
         host: false,
         sync: false,
         relay: None,
+        lends: None,
         core_refused: HashSet::new(),
     };
     tracing::info!(device = %link.device.id, "[link] opened");
@@ -318,6 +319,8 @@ struct Link {
     sync: bool,
     /// While it syncs: what her log's relay remembers of this link session.
     relay: Option<crate::services::her_log::relay::Session>,
+    /// While it syncs: this link as her lends know it (`her_log::lend::open`).
+    lends: Option<u64>,
     /// What the shared core refused of the child's frames on this link and
     /// was logged: `t code`, a frame type outside the contract as `?`.
     core_refused: HashSet<String>,
@@ -557,7 +560,15 @@ impl Link {
             return None;
         };
         self.heard = self.heard.max(inbound.seq);
-        self.acked(inbound.ack);
+        let kept = self.acked(inbound.ack);
+        if !kept.is_empty() {
+            crate::services::her_log::lend::keep(
+                &self.db,
+                &crate::services::her_log::lend::Platforms,
+                kept,
+            )
+            .await;
+        }
         if inbound.v != Some(CONTRACT.encoding.frame_version) {
             if !self.hello {
                 // An end on another protocol (protocol 1 sent no v) is told
@@ -757,6 +768,30 @@ impl Link {
                 crate::services::her_log::relay::peer_abi(&capabilities),
             ));
             super::takes_log(&self.device.id, self.registered, self.tx.clone());
+            // What a group or a private chat says may be lent to her mind
+            // here while this device holds her (`her_log::lend`), when it
+            // said it thinks with lends (`lend`). Each lend goes once, as a
+            // reliable frame; its ack makes it her mind's.
+            if capabilities.iter().any(|capability| capability == "lend") {
+                let (lend_tx, mut lent) = tokio::sync::mpsc::unbounded_channel();
+                self.lends = Some(crate::services::her_log::lend::open(
+                    &self.device.id,
+                    lend_tx,
+                ));
+                let tx = self.tx.clone();
+                tokio::spawn(async move {
+                    while let Some(one) = lent.recv().await {
+                        let outgoing = Outgoing {
+                            t: one.t,
+                            id: one.id,
+                            body: one.body,
+                        };
+                        if tx.send(outgoing).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
             // Where her mind is, and to a holder coming back after the
             // server took her over, the takeover.
             match crate::services::her_log::relay::welcome(&self.db, &settings, &self.device.id)
@@ -1702,9 +1737,12 @@ impl Link {
             // Lines that could not be queued when said, and none that expired.
             let pending = super::say::pending(&self.device.id);
             let asked = super::act::pending(&self.device.id);
+            let device = &self.device.id;
             self.unacked.retain(|(_, id)| {
                 pending.iter().any(|(waiting, _)| waiting == id)
                     || asked.iter().any(|(waiting, _)| waiting == id)
+                    // A lend waits for its ack too, which makes it her mind's.
+                    || crate::services::her_log::lend::waiting(device, id)
             });
             for (id, body) in pending {
                 if !self.said.contains(&id) {
@@ -1724,17 +1762,21 @@ impl Link {
     }
 
     /// The child's ack covers everything up to `ack` on this connection.
-    fn acked(&mut self, ack: u64) {
+    /// The private messages lent that her mind took with it, to keep.
+    fn acked(&mut self, ack: u64) -> Vec<crate::services::her_log::lend::ChatLent> {
         let device = &self.device.id;
+        let mut kept = Vec::new();
         self.unacked.retain(|(seq, id)| {
             if *seq <= ack {
                 super::say::acked(device, id);
                 super::act::acked(device, id);
+                kept.extend(crate::services::her_log::lend::acked(device, id));
                 false
             } else {
                 true
             }
         });
+        kept
     }
 
     /// The link is closed: stop sending, and the person is not there now
@@ -1751,6 +1793,22 @@ impl Link {
                 self.owner,
                 &self.device.id,
             );
+        }
+        // Lent nothing more; what was lent here and not acked is the
+        // site's again.
+        if let Some(token) = self.lends.take() {
+            let back = crate::services::her_log::lend::close(&self.device.id, token);
+            if !back.is_empty() {
+                let db = self.db.clone();
+                tokio::spawn(async move {
+                    crate::services::her_log::lend::give_back(
+                        &db,
+                        &crate::services::her_log::lend::Platforms,
+                        back,
+                    )
+                    .await;
+                });
+            }
         }
     }
 }

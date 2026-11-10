@@ -997,8 +997,8 @@ async fn a_groups_rows_go_to_no_computer_and_come_back_only_from_her_mind() {
 }
 
 /// What a group or a private chat says is lent only to the PC her mind is
-/// on, and only once its link speaks protocol 2 (none does yet): until then
-/// the site holds it as before. A say for a place never lent is answered
+/// on, and only once its link syncs her (`lend::open`): until then the site
+/// holds it as before. A say for a place never lent is answered
 /// with its code and nothing is sent; one from a device her mind is not on
 /// is refused by the contract.
 #[tokio::test]
@@ -1016,7 +1016,7 @@ async fn chats_are_lent_only_to_her_mind_on_a_pc_whose_link_speaks_protocol_two(
     // The Mac holds her, but its link does not speak protocol 2.
     assert_eq!(lend::mind_on_a_pc_if(db, true).await, None);
     let (send, _lent) = tokio::sync::mpsc::unbounded_channel();
-    lend::open("dev_mac", send);
+    let link = lend::open("dev_mac", send);
     assert_eq!(
         lend::mind_on_a_pc_if(db, true).await.as_deref(),
         Some("dev_mac")
@@ -1068,7 +1068,7 @@ async fn chats_are_lent_only_to_her_mind_on_a_pc_whose_link_speaks_protocol_two(
     .await
     .unwrap();
     assert_eq!(delivered(&outs[0])["body"]["code"], "bad_frame");
-    lend::close("dev_mac");
+    lend::close("dev_mac", link);
     assert_eq!(lend::mind_on_a_pc_if(db, true).await, None);
     schema.drop().await;
 }
