@@ -43,6 +43,11 @@ impl Known {
         self.kind.as_deref() == Some("person")
     }
 
+    /// Its newest entry or span (else when it was made), Unix microseconds.
+    pub(crate) fn latest(&self) -> i64 {
+        self.latest
+    }
+
     pub(crate) fn topic(&self) -> myriad_merope::topics::Topic<'_> {
         myriad_merope::topics::Topic {
             name: &self.name,

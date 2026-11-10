@@ -260,6 +260,17 @@ pub struct ConsciousnessDecision {
     pub question: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work_proposal: Option<WorkProposal>,
+    /// A look at their screen only (`agent.merope.screen`): what she took
+    /// away from it, in her words; none when it only passed by.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub took_in: Option<String>,
+    /// With `took_in`: how she was as she took it in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mood: Option<String>,
+    /// With `took_in`: the label (`n1`…) of the note offered her it
+    /// belongs with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

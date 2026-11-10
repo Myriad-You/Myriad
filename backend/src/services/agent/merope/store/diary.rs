@@ -159,6 +159,19 @@ pub(crate) async fn insert_remembered_from(
     evidence: Option<&str>,
     origin: &str,
 ) -> Result<bool, anyhow::Error> {
+    insert_remembered_as(db, user_id, candidate, evidence, origin, "event").await
+}
+
+/// [`insert_remembered_from`] kept as from `source` (`event`, or `screen`
+/// for a look at their screen she only knew of).
+pub(crate) async fn insert_remembered_as(
+    db: &DatabaseConnection,
+    user_id: i32,
+    candidate: &str,
+    evidence: Option<&str>,
+    origin: &str,
+    source: &'static str,
+) -> Result<bool, anyhow::Error> {
     use crate::services::agent::memory::unified;
     let fact = super::super::ingest::compact_summary(candidate);
     if user_id <= 0 || fact.is_empty() {
@@ -183,7 +196,7 @@ pub(crate) async fn insert_remembered_from(
                 .map(super::super::ingest::compact_summary)
                 .filter(|evidence| !evidence.is_empty()),
             speaker: unified::Speaker::Agent,
-            source: "event",
+            source,
             audience: unified::Audience::private(user_id),
             importance: 0.5,
             concepts: Vec::new(),

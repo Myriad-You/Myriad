@@ -131,6 +131,9 @@ mod tests {
             speech: None,
             question: None,
             work_proposal: None,
+            took_in: None,
+            mood: None,
+            note: None,
         }
     }
 

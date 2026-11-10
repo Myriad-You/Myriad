@@ -235,6 +235,9 @@ mod tests {
             speech: speech.map(Into::into),
             question: None,
             work_proposal: None,
+            took_in: None,
+            mood: None,
+            note: None,
         };
         let speak = decision(ConsciousnessAction::Speak, Some("x"), Some(" 它在等你。 "));
         let kept = filed(&event, &speak, &told);

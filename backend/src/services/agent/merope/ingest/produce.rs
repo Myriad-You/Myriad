@@ -184,7 +184,10 @@ pub(super) async fn take_in(
     // What a child end saw: said while it is about now, kept where it may be.
     let keeps_memory = told.is_some_and(|told| told.keeps_memory && keeps_memory_of(event_key));
     let sayable = told.is_none_or(Told::sayable);
-    if !sayable && !keeps_memory {
+    // A look at their screen may still be taken in when it is no longer
+    // about now; it is only not said.
+    let screen = event_key == super::super::gates::SCREEN_EVENT;
+    if !sayable && !keeps_memory && !screen {
         log_skip(user_id, event_key, "stale");
         return Ok(());
     }
@@ -265,6 +268,17 @@ pub(super) async fn take_in(
     if let Some(told) = told {
         super::told::shape(db, user_id, event_key, told, &mut conscious_event).await;
     }
+    // A look that may become memory: the notes she is offered with it,
+    // after what it showed.
+    let look = told.filter(|_| screen).and_then(super::screen::Look::of);
+    let mut offered = super::screen::Offered::default();
+    if let Some(look) = &look {
+        let (notes, section) = super::screen::offer(db, user_id, look).await;
+        offered = notes;
+        if let Some(section) = section {
+            conscious_event.summary = format!("{}\n\n{section}", conscious_event.summary);
+        }
+    }
     let origin = told.map(|told| told.origin.as_str());
     let consideration = match consider_event(db, &conscious_event).await {
         Ok(value) => value,
@@ -283,6 +297,22 @@ pub(super) async fn take_in(
             &value.decision,
         )
         .await;
+    }
+    // What a look became of hers: by whether she took it in, never by what
+    // it showed (the window's text she was shown is never kept as hers).
+    if let (Some(look), Some(value)) = (&look, consideration.as_ref()) {
+        let kept = super::screen::keep(
+            db,
+            user_id,
+            &conscious_event,
+            look,
+            &offered,
+            &value.decision,
+            &summary,
+            origin.unwrap_or_default(),
+        )
+        .await;
+        tracing::debug!(?kept, "[Merope] a look at their screen");
     }
     // Of what a child end saw, only what may become a memory becomes one.
     let memory = consideration

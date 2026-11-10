@@ -37,8 +37,8 @@ pub struct IngestDecision {
 #[cfg(test)]
 pub use myriad_merope::notify::TOLD_EVENTS;
 pub use myriad_merope::notify::{
-    AI_CHAT_EVENT, PEER_AGENT_EVENT, SITUATION_EVENT, is_task_outcome, said_only_in_person,
-    worth_notifying,
+    AI_CHAT_EVENT, PEER_AGENT_EVENT, SCREEN_EVENT, SITUATION_EVENT, is_task_outcome,
+    said_only_in_person, worth_notifying,
 };
 
 /// Worth her interrupting someone who is away for: the catalogued keys the
