@@ -363,6 +363,15 @@ pub(crate) fn disconnect(device_id: &str, why: Close) {
     }
 }
 
+/// The owner turned syncing her on or off: the link of each of their
+/// `devices` is closed with `unavailable` and says hello again, its welcome
+/// telling it which (a link learns sync only in its welcome).
+pub(crate) fn sync_changed(devices: &[String]) {
+    for device in devices {
+        disconnect(device, Close::Unavailable);
+    }
+}
+
 /// Closes every open link: the host is stopping.
 pub(crate) fn disconnect_all(why: Close) {
     let open: Vec<Open> = OPEN

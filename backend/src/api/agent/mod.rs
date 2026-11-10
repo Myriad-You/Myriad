@@ -54,7 +54,7 @@ mod intentions;
 mod link;
 mod memory_migration;
 mod memory_nodes;
-mod mind;
+pub(crate) mod mind;
 mod notifications;
 mod onebot_pairing;
 mod onebot_status;

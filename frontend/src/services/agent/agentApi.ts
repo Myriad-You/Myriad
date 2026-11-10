@@ -47,6 +47,17 @@ export type AgentIntentionStatus =
   | 'abandoned'
   | 'expired'
 
+/** Whether the site owner syncs her (`/api/agent/mind/sync`). */
+export interface HerSync {
+  /** Her log is on on this site (HER_LOG_ENABLED): only then can it be turned on. */
+  available: boolean
+  on: boolean
+  /** When the owner last turned it off. */
+  stoppedAt: string | null
+  /** How long the site keeps her log after it is turned off. */
+  retentionDays: number
+}
+
 /** A device that syncs her with this site (`/api/agent/devices`). */
 export interface SyncDevice {
   id: string
@@ -723,6 +734,16 @@ class AgentService {
     leaves?: boolean
   }> {
     return apiService.get(`${this.baseUrl}/mind/where`)
+  }
+
+  /** Whether the owner syncs her (owner only). */
+  async getHerSync(): Promise<HerSync> {
+    return apiService.get(`${this.baseUrl}/mind/sync`)
+  }
+
+  /** The owner turns syncing her on or off; off brings her mind back here. */
+  async setHerSync(on: boolean): Promise<HerSync> {
+    return apiService.put(`${this.baseUrl}/mind/sync`, { on })
   }
 
   /** Calls a move off before its commit (or turns down one a device asked for): she is back as she was. */

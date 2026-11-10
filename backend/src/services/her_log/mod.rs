@@ -273,6 +273,11 @@ pub fn current_settings() -> Settings {
     settings().clone()
 }
 
+/// [`enabled`], as [`current_settings`] has it: in a test, its own.
+pub fn currently_enabled() -> bool {
+    current_settings().enabled && !REFUSED.load(Ordering::Relaxed)
+}
+
 /// A test's own settings of her log, for what runs on its thread.
 #[cfg(test)]
 pub(crate) mod test_settings {

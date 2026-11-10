@@ -1188,6 +1188,115 @@ async fn what_she_is_lent_goes_to_the_computer_holding_her() {
     site.close().await;
 }
 
+/// Syncing her is the owner's to turn on and off, on the site only. Off by
+/// default: a link's welcome says sync off. On, every link of theirs is
+/// closed to say hello again, and its welcome says on. Off, her mind comes
+/// back here from the computer holding it, and the links say hello again to
+/// a welcome that says off. Nobody else may turn it either way.
+#[tokio::test]
+async fn the_owner_turns_syncing_her_on_and_off() {
+    use crate::api::agent::mind::{SyncRequest, get_sync, put_sync};
+    use axum::{Extension, Json, extract::State, http::StatusCode, response::IntoResponse};
+    let Some(site) = site().await else {
+        return;
+    };
+    let _turn = crate::services::her_log::lend::SERIAL.lock().await;
+    crate::services::her_log::test_settings::set(crate::services::her_log::Settings {
+        enabled: true,
+        ..crate::services::her_log::Settings::default()
+    });
+    site.db
+        .execute_unprepared("INSERT INTO users (id, username) VALUES (42, 'someone42')")
+        .await
+        .unwrap();
+    let claims = |user: i32| crate::middleware::auth::Claims {
+        sub: user.to_string(),
+        username: format!("user-{user}"),
+        is_admin: user == OWNER,
+        is_owner: user == OWNER,
+        exp: i64::MAX,
+        iat: 0,
+        tv: 0,
+        subject: crate::middleware::auth::AuthSubject::from_test_sub(&user.to_string()),
+    };
+    let turn = |user: i32, on: bool| {
+        let db = site.db.clone();
+        async move {
+            let request: SyncRequest = serde_json::from_value(json!({ "on": on })).unwrap();
+            match put_sync(State(db), Extension(claims(user)), Json(request)).await {
+                Ok(Json(shown)) => Ok(shown),
+                Err(error) => Err(error.into_response().status()),
+            }
+        }
+    };
+    let (_, mac_token) = device(&site.db, "MacBook").await;
+
+    // Off until the owner turns it on.
+    let shown = match get_sync(State(site.db.clone()), Extension(claims(OWNER))).await {
+        Ok(Json(shown)) => shown,
+        Err(_) => panic!("the owner reads it"),
+    };
+    assert_eq!(
+        (shown["available"].clone(), shown["on"].clone()),
+        (json!(true), json!(false))
+    );
+    let mut mac = Child::open(&site, &mac_token).await;
+    assert_eq!(
+        mac.hello_with(&["partner", "log2"]).await["body"]["sync"],
+        "off"
+    );
+    // Nobody else turns it, nor reads it.
+    assert_eq!(turn(42, true).await.unwrap_err(), StatusCode::FORBIDDEN);
+    assert!(
+        get_sync(State(site.db.clone()), Extension(claims(42)))
+            .await
+            .is_err()
+    );
+
+    // On: the link says hello again, to a welcome that says on.
+    assert_eq!(turn(OWNER, true).await.unwrap()["on"], true);
+    assert_eq!(mac.closed().await.1, "unavailable");
+    let mut mac = Child::open(&site, &mac_token).await;
+    assert_eq!(
+        mac.hello_with(&["partner", "log2"]).await["body"]["sync"],
+        "on"
+    );
+    mac.send("lease.ask", None, json!({ "why": "talk" })).await;
+    until(&mut mac, "lease.grant").await;
+    let standing = crate::services::her_log::lease::standing(&site.db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(
+        standing.holder.as_deref(),
+        Some(crate::services::her_log::NODE)
+    );
+
+    // Off: her mind comes back here, and the welcome says off.
+    let shown = turn(OWNER, false).await.unwrap();
+    assert_eq!(shown["on"], false);
+    assert!(shown["stoppedAt"].is_string());
+    let standing = crate::services::her_log::lease::standing(&site.db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        standing.holder.as_deref(),
+        Some(crate::services::her_log::NODE)
+    );
+    assert_eq!(mac.closed().await.1, "unavailable");
+    let mut mac = Child::open(&site, &mac_token).await;
+    assert_eq!(
+        mac.hello_with(&["partner", "log2"]).await["body"]["sync"],
+        "off"
+    );
+    // Her log off on the server: nobody turns it on.
+    crate::services::her_log::test_settings::set(crate::services::her_log::Settings::default());
+    assert_eq!(turn(OWNER, true).await.unwrap_err(), StatusCode::CONFLICT);
+    drop(mac);
+    site.close().await;
+}
+
 #[tokio::test]
 async fn hello_welcome_and_what_the_link_will_not_take() {
     let Some(site) = site().await else {

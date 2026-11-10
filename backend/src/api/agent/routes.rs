@@ -737,6 +737,16 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 middleware::auth::auth_middleware,
             )),
         )
+        // 站长是否同步她：打开 / 关闭（会话凭据，只限站长；关掉时把心智收回站点）
+        .route(
+            "/mind/sync",
+            get(super::mind::get_sync)
+                .put(super::mind::put_sync)
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::auth_middleware,
+                )),
+        )
         // 她的主机租约：她住在哪、开始 / 确认 / 取消一次搬家（会话凭据，只限站长；
         // 写站点的搬家只能在这里确认，设备令牌不行）
         .route(
