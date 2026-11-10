@@ -126,7 +126,86 @@ pub(super) async fn the_models() -> (
     .await
     .expect("Lite model")
     .with_light_thinking();
+    // First in its log: which models answer and judge this run.
+    println!("bench models: {}", lite_in_use().await);
+    if let Some(why) = judged_unlike_asked(
+        &*crate::GLOBAL_DYNAMIC_CONFIG.read().await,
+        std::env::var("MEROPE_MEMORY_BENCH_JUDGED_BY")
+            .ok()
+            .as_deref(),
+    ) {
+        panic!("not run: {why}");
+    }
     (judge, lite)
+}
+
+/// Why a run would not be judged as meant, if so. The site's judgment
+/// model is used as chat unless its source said in time that it answers
+/// decisions (`learn_judge_model_kind`, two seconds): unlearned, a
+/// decisions model would be sent every judgment and fail them all. With
+/// `expected` (`MEROPE_MEMORY_BENCH_JUDGED_BY=<model>`), judged by another
+/// model is not run either.
+fn judged_unlike_asked(
+    config: &crate::config::DynamicConfig,
+    expected: Option<&str>,
+) -> Option<String> {
+    let configured = config.aux_judge_model.trim();
+    if !configured.is_empty()
+        && !configured.starts_with('~')
+        && !crate::config::is_decisions_model(configured)
+        && crate::config::model_kind(configured).is_none()
+    {
+        return Some(format!(
+            "whether the judgment model {configured} answers decisions was not learned; \
+             judged by it as chat every judgment may fail"
+        ));
+    }
+    let judged = config
+        .resolve_lite_judge_ai_config()
+        .map(|judge| judge.model);
+    match expected
+        .map(str::trim)
+        .filter(|expected| !expected.is_empty())
+    {
+        Some(expected) if judged.as_deref() != Some(expected) => {
+            Some(format!("judged by {judged:?}, not {expected} as asked"))
+        }
+        _ => None,
+    }
+}
+
+/// A run is judged by the model asked for, and not at all while the site's
+/// judgment model is of a kind not yet learned.
+#[test]
+fn a_run_judged_otherwise_than_asked_is_not_run() {
+    let mut config = crate::config::DynamicConfig {
+        lite_ai_model: "anthropic/claude-haiku-5.5".to_string(),
+        aux_judge_model: "acme/bench-kind-unknown-1".to_string(),
+        ..crate::config::DynamicConfig::default()
+    };
+    assert!(
+        judged_unlike_asked(&config, None).is_some(),
+        "a model whose kind its source never said"
+    );
+    // Its source said it answers decisions: text judgments stay on Lite.
+    crate::config::remember_model_kind("acme/bench-kind-unknown-1", true);
+    assert_eq!(judged_unlike_asked(&config, None), None);
+    assert_eq!(
+        judged_unlike_asked(&config, Some("anthropic/claude-haiku-5.5")),
+        None
+    );
+    config.aux_judge_model = "acme/bench-chat-1".to_string();
+    crate::config::remember_model_kind("acme/bench-chat-1", false);
+    assert!(
+        judged_unlike_asked(&config, Some("anthropic/claude-haiku-5.5")).is_some(),
+        "a chat judgment model judges itself, not the one asked for"
+    );
+    config.aux_judge_model = String::new();
+    assert_eq!(
+        judged_unlike_asked(&config, Some(" anthropic/claude-haiku-5.5 ")),
+        None,
+        "none set: Lite judges"
+    );
 }
 
 /// `MEROPE_MEMORY_BENCH_LITE=<source>:<model>` (say
