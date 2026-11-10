@@ -91,6 +91,47 @@ pub(super) async fn recalled_for(
     (named, None)
 }
 
+/// How far down the ranking by line [`ranks_of_needs`] looks.
+pub(super) const RANKS_LOOKED_AT: usize = 200;
+
+/// Where, in the ranking by line that recall starts from (not what her
+/// nodes then show), the first line holding each thing `question` needs
+/// comes: 1 for the first, `None` past [`RANKS_LOOKED_AT`] or nowhere. To
+/// tell a fact that ranked just past what is shown from one recall never
+/// came near.
+pub(super) async fn ranks_of_needs(
+    db: &sea_orm::DatabaseConnection,
+    question: &Question,
+    user_id: i32,
+    present: &Audience,
+    cues: Option<&myriad_merope::remembering::Cues>,
+) -> Vec<Option<usize>> {
+    let Ok((recalled, _)) = remembering::ranked_with(
+        db,
+        user_id,
+        present,
+        &question.question,
+        cues,
+        RANKS_LOOKED_AT,
+        RANKS_LOOKED_AT,
+        &Priming::default(),
+        1.0,
+    )
+    .await
+    else {
+        return vec![None; question.needs.len()];
+    };
+    (0..question.needs.len())
+        .map(|fact| {
+            recalled
+                .named
+                .iter()
+                .position(|line| question.holds(fact, line))
+                .map(|at| at + 1)
+        })
+        .collect()
+}
+
 /// The wider control on her nodes: after what they brought, the ranked
 /// lines they left out, in their order, up to `more` (`thorough_more` when
 /// answering needs all of it); a line only filling as recent talk does not

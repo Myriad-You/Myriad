@@ -338,6 +338,10 @@ struct Outcome {
     kept: usize,
     /// Model calls that failed while the question ran, as `model: why`.
     failed: Vec<String>,
+    /// For each thing the question needs, where the first line holding it
+    /// came in the ranking by line (1 the first), within the first
+    /// `answering::RANKS_LOOKED_AT`; `None` past them or nowhere.
+    need_ranks: Vec<Option<usize>>,
 }
 
 impl Outcome {
@@ -392,17 +396,34 @@ type Models<'a> = (
 /// `name` keeps this run's rows apart.
 async fn run_for(
     db: &sea_orm::DatabaseConnection,
-    (judge, lite, reader): Models<'_>,
+    models: Models<'_>,
+    question: &Question,
+    name: &str,
+    who: (i32, &str),
+    answering: Vec<String>,
+) -> Outcome {
+    let written = write_for(db, models.0, question, name, who, answering).await;
+    answer_for(db, models, question, name, who, written).await
+}
+
+/// What writing a question's own sessions left: what of it answers the
+/// question, and how much was kept.
+#[derive(Clone, Debug, Default)]
+struct Written {
+    answering: Vec<String>,
+    kept: usize,
+}
+
+/// The writing half of [`run_for`]: the question's own sessions kept as
+/// the site keeps chat and written as she would, after `answering`.
+async fn write_for(
+    db: &sea_orm::DatabaseConnection,
+    judge: &crate::services::analyzer::AiAnalyzer,
     question: &Question,
     name: &str,
     (user_id, tag): (i32, &str),
     mut answering: Vec<String>,
-) -> Outcome {
-    let present = audience_at(
-        question.question_venue.as_deref().unwrap_or("private"),
-        user_id,
-        tag,
-    );
+) -> Written {
     let mut kept = 0;
     let mut sessions: Vec<Session> = question
         .haystack_dates
@@ -512,6 +533,25 @@ async fn run_for(
     if settle {
         settle::keep_up_nodes(db, user_id).await;
     }
+    Written { answering, kept }
+}
+
+/// The asking half of [`run_for`]: what was `written` asked of, in each
+/// way the bench asks.
+async fn answer_for(
+    db: &sea_orm::DatabaseConnection,
+    (judge, lite, reader): Models<'_>,
+    question: &Question,
+    name: &str,
+    (user_id, tag): (i32, &str),
+    written: Written,
+) -> Outcome {
+    let present = audience_at(
+        question.question_venue.as_deref().unwrap_or("private"),
+        user_id,
+        tag,
+    );
+    let Written { answering, kept } = written;
     // As a chat turn does: think what to look for, then recall with it.
     let cues = judge
         .analyze_json(
@@ -643,10 +683,18 @@ async fn run_for(
     };
     // Everything she kept, to tell unwritten from unfound afterwards: in
     // each place she kept something.
+    let mut sessions: Vec<_> = question
+        .haystack_dates
+        .iter()
+        .map(|date| date_of(date))
+        .zip(0..question.haystack_sessions.len())
+        .collect();
+    sessions.sort_by_key(|(at, _)| *at);
     let mut places: Vec<Audience> = Vec::new();
-    for (_, _, here) in &sessions {
-        if !places.contains(here) {
-            places.push(here.clone());
+    for (_, number) in sessions {
+        let here = audience_at(question.venue(number), user_id, tag);
+        if !places.contains(&here) {
+            places.push(here);
         }
     }
     if places.is_empty() {
@@ -721,6 +769,13 @@ async fn run_for(
             (row.content, concepts)
         })
         .unzip();
+    // Last, once every answer is in: looking further down the ranking
+    // touches nothing they were recalled from.
+    let need_ranks = if question.needs.is_empty() || !settle::on_nodes(&present) {
+        Vec::new()
+    } else {
+        answering::ranks_of_needs(db, question, user_id, &present, cues.as_ref()).await
+    };
     Outcome {
         written: !answering.is_empty(),
         plain,
@@ -736,5 +791,6 @@ async fn run_for(
         concepts,
         nodes,
         failed: Vec::new(),
+        need_ranks,
     }
 }

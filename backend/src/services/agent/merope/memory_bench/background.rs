@@ -32,6 +32,12 @@
 //! after a run stopped partway, so what was paid for is not paid again.
 //! Questions finished under the same report (its `.partial.jsonl`) are not
 //! run again; `MEROPE_MEMORY_BENCH_SMALL_ONLY=1` asks only the small way.
+//! `MEROPE_MEMORY_BENCH_KEEP_WRITTEN=1` keeps what each long question wrote
+//! of its own sessions as a schema of its own (named in its row,
+//! `keptWritten`; dropped by hand when done with), and
+//! `MEROPE_MEMORY_BENCH_FROM_WRITTEN=<that run's .partial.jsonl>` asks each
+//! from it instead of writing again: a change to recall or answering is
+//! measured on the same writing, for what asking costs.
 //! Copying needs
 //! a role that may set `session_replication_role` (the test database's
 //! owner): the rows go in as they are, constraints and all.
@@ -275,6 +281,68 @@ async fn read_snapshot(db: &sea_orm::DatabaseConnection) -> (i32, BTreeMap<usize
             .push(row.try_get("", "fact").unwrap());
     }
     (user_id, left)
+}
+
+/// `MEROPE_MEMORY_BENCH_KEEP_WRITTEN=1`: what each long question wrote of
+/// its own sessions is kept as a schema of its own, before it is asked, and
+/// named in its row (`keptWritten`): a later run that changes only how she
+/// recalls or answers asks from these instead of writing again.
+fn keep_written() -> bool {
+    std::env::var("MEROPE_MEMORY_BENCH_KEEP_WRITTEN").is_ok_and(|value| value.trim() == "1")
+}
+
+/// What a question wrote, as kept: its schema, what of it answers the
+/// question, and the calls that failed while writing it (a run asking from
+/// it is void where the writing was).
+struct KeptWritten {
+    schema: String,
+    written: Written,
+    failed: Vec<String>,
+}
+
+fn kept_written_row(schema: &str, written: &Written, failed: &[String]) -> Value {
+    json!({"schema": schema, "answering": written.answering, "kept": written.kept,
+        "failed": failed})
+}
+
+/// `MEROPE_MEMORY_BENCH_FROM_WRITTEN=<.partial.jsonl>`: each long question
+/// asked from what a run with `MEROPE_MEMORY_BENCH_KEEP_WRITTEN=1` kept of
+/// its writing, by question and round; nothing is written again.
+fn from_written() -> Option<std::collections::HashMap<(String, usize), KeptWritten>> {
+    let path = std::env::var("MEROPE_MEMORY_BENCH_FROM_WRITTEN").ok()?;
+    let text = std::fs::read_to_string(&path).expect("the run whose writing was kept");
+    Some(read_kept_written(&text))
+}
+
+fn read_kept_written(text: &str) -> std::collections::HashMap<(String, usize), KeptWritten> {
+    let strings = |value: &Value| -> Vec<String> {
+        value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|one| one.as_str().map(str::to_string))
+            .collect()
+    };
+    text.lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter_map(|row| {
+            let kept = &row["keptWritten"];
+            Some((
+                (
+                    row["id"].as_str()?.to_string(),
+                    row["round"].as_u64()? as usize,
+                ),
+                KeptWritten {
+                    schema: kept["schema"].as_str()?.to_string(),
+                    written: Written {
+                        answering: strings(&kept["answering"]),
+                        kept: kept["kept"].as_u64().unwrap_or(0) as usize,
+                    },
+                    failed: strings(&kept["failed"]),
+                },
+            ))
+        })
+        .collect()
 }
 
 /// The snapshot's tables, as copies take them.
@@ -578,6 +646,8 @@ pub(super) async fn her_memory_after_a_long_background() {
             .cloned()
             .collect()
     };
+    let (keeping, from_written) = (keep_written(), from_written());
+    let from_written = &from_written;
     let long: Vec<(Question, usize, Outcome)> = futures::stream::iter(long_runs)
         .map(|(question, round)| {
             let (url, name, judge, lite, left) = (&url, &name, &judge, &lite, &left);
@@ -588,23 +658,57 @@ pub(super) async fn her_memory_after_a_long_background() {
                     not_started.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     return None;
                 }
-                let copy = restore(url, name).await;
-                let answering: Vec<String> = question
-                    .background_sessions
-                    .iter()
-                    .flat_map(|index| left.get(index).cloned().unwrap_or_default())
-                    .collect();
+                let id = format!("long-{}-{round}", question.question_id);
+                // What it wrote: written now, or as an earlier run kept it.
+                let (copy, written, write_failed, kept_as) = match &from_written {
+                    Some(earlier) => {
+                        let Some(earlier) = earlier.get(&(question.question_id.clone(), round))
+                        else {
+                            println!(
+                                "long {} #{round} not started: nothing it wrote was kept",
+                                question.question_id
+                            );
+                            not_started.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            return None;
+                        };
+                        let copy = restore(url, &earlier.schema).await;
+                        (copy, earlier.written.clone(), earlier.failed.clone(), None)
+                    }
+                    None => {
+                        let copy = restore(url, name).await;
+                        let answering: Vec<String> = question
+                            .background_sessions
+                            .iter()
+                            .flat_map(|index| left.get(index).cloned().unwrap_or_default())
+                            .collect();
+                        let (written, failed) =
+                            crate::services::ai_cost_ledger::spent::failures_in(write_for(
+                                &copy.db,
+                                judge,
+                                &question,
+                                &id,
+                                (user_id, PERSON),
+                                answering,
+                            ))
+                            .await;
+                        let kept_as = match keeping {
+                            true => Some(restore(url, copy.name()).await.keep().await),
+                            false => None,
+                        };
+                        (copy, written, failed, kept_as)
+                    }
+                };
                 let (mut outcome, failed) =
-                    crate::services::ai_cost_ledger::spent::failures_in(run_for(
+                    crate::services::ai_cost_ledger::spent::failures_in(answer_for(
                         &copy.db,
                         (judge, lite, None),
                         &question,
-                        &format!("long-{}-{round}", question.question_id),
+                        &id,
                         (user_id, PERSON),
-                        answering,
+                        written.clone(),
                     ))
                     .await;
-                outcome.failed = failed;
+                outcome.failed = write_failed.iter().cloned().chain(failed).collect();
                 copy.drop().await;
                 println!(
                     "long {} #{round} void={} wide={:?} wider={:?} chars={} charged=${:.4}",
@@ -615,10 +719,11 @@ pub(super) async fn her_memory_after_a_long_background() {
                     longmemeval::recalled_chars(&outcome.wide),
                     crate::services::ai_cost_ledger::spent::charged_so_far()
                 );
-                longmemeval::keep_partial(
-                    report_path,
-                    &longmemeval::partial_row("long", &question, round, &outcome),
-                );
+                let mut row = longmemeval::partial_row("long", &question, round, &outcome);
+                if let Some(schema) = kept_as {
+                    row["keptWritten"] = kept_written_row(&schema, &written, &write_failed);
+                }
+                longmemeval::keep_partial(report_path, &row);
                 Some((question, round, outcome))
             }
         })
@@ -713,6 +818,8 @@ pub(super) async fn her_memory_after_a_long_background() {
         "lite": longmemeval::lite_in_use().await,
         "finishedEarlier": finished.len(),
         "matchedLengthOf": std::env::var("MEROPE_MEMORY_BENCH_RECALL_CHARS_OF").ok(),
+        "keptWritten": keep_written(),
+        "fromWritten": std::env::var("MEROPE_MEMORY_BENCH_FROM_WRITTEN").ok(),
     });
     println!("{}", report["long"]["scores"]);
     std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
@@ -837,6 +944,114 @@ async fn a_restored_snapshot_is_the_snapshot_and_copies_are_apart() {
     for schema in [a, b, snapshot] {
         schema.drop().await;
     }
+}
+
+/// What a question wrote, kept and copied back to ask from, is what it
+/// wrote, row for row; and what one question wrote is not in another's.
+#[tokio::test]
+async fn what_a_question_wrote_comes_back_row_for_row_and_apart() {
+    let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        return;
+    };
+    let snapshot = crate::db::IsolatedSchema::migrated(&url, "bench_snapshot").await;
+    let user_id = new_user(&snapshot.db, PERSON).await;
+    let at = date_of("2026/10/01 (Thu) 21:00");
+    remember(&snapshot.db, user_id, at, "每天骑电动车上班").await;
+    let (a, b) = futures::join!(
+        restore(&url, snapshot.name()),
+        restore(&url, snapshot.name())
+    );
+    let later = date_of("2026/10/19 (Mon) 21:00");
+    remember(&a.db, user_id, later, "电动车卖了，改坐地铁上班").await;
+    remember(&b.db, user_id, later, "膝盖半月板磨损，三个月内不能跑步").await;
+    let kept_a = restore(&url, a.name()).await.keep().await;
+    let kept_b = restore(&url, b.name()).await.keep().await;
+    // As a later run reads them back: by question and round.
+    let rows = [
+        json!({"id": "a", "round": 0, "keptWritten": kept_written_row(
+            &kept_a, &Written { answering: vec!["电动车卖了".into()], kept: 1 }, &[])}),
+        json!({"id": "b", "round": 0, "keptWritten": kept_written_row(
+            &kept_b, &Written { answering: vec!["半月板".into()], kept: 1 },
+            &["model: timeout".to_string()])}),
+        json!({"id": "c", "round": 0}),
+    ];
+    let text: String = rows.iter().map(|row| format!("{row}\n")).collect();
+    let read = read_kept_written(&text);
+    assert_eq!(read.len(), 2, "a row with nothing kept is not read as kept");
+    let (from_a, from_b) = (&read[&("a".to_string(), 0)], &read[&("b".to_string(), 0)]);
+    assert_eq!(from_a.written.answering, ["电动车卖了"]);
+    assert_eq!(from_a.written.kept, 1);
+    assert!(from_a.failed.is_empty());
+    assert_eq!(
+        from_b.failed,
+        ["model: timeout"],
+        "a failed writing stays void"
+    );
+    let (back_a, back_b) =
+        futures::join!(restore(&url, &from_a.schema), restore(&url, &from_b.schema));
+    let hash = |db: &sea_orm::DatabaseConnection, schema: String, table: String| {
+        let db = db.clone();
+        async move {
+            db.query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                format!(
+                    "SELECT md5(COALESCE(string_agg(x::text, '|' ORDER BY x::text), '')) AS h \
+                     FROM \"{schema}\".\"{table}\" x"
+                ),
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get::<String>("", "h")
+            .unwrap()
+        }
+    };
+    for table in tables(&a.db, a.name()).await {
+        for (written, back) in [(&a, &back_a), (&b, &back_b)] {
+            assert_eq!(
+                hash(&a.db, written.name().to_string(), table.clone()).await,
+                hash(&a.db, back.name().to_string(), table.clone()).await,
+                "{table}"
+            );
+        }
+    }
+    let holds = |db: &sea_orm::DatabaseConnection, fact: &'static str| {
+        let db = db.clone();
+        async move {
+            db.query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT count(*) AS n FROM agent_memories WHERE content = $1",
+                [fact.into()],
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get::<i64>("", "n")
+            .unwrap()
+        }
+    };
+    assert_eq!(holds(&back_a.db, "电动车卖了，改坐地铁上班").await, 1);
+    assert_eq!(
+        holds(&back_a.db, "膝盖半月板磨损，三个月内不能跑步").await,
+        0
+    );
+    assert_eq!(
+        holds(&back_b.db, "膝盖半月板磨损，三个月内不能跑步").await,
+        1
+    );
+    assert_eq!(holds(&back_b.db, "电动车卖了，改坐地铁上班").await, 0);
+    assert_eq!(holds(&back_a.db, "每天骑电动车上班").await, 1);
+    // Asking from a copy leaves what was kept as it was.
+    remember(&back_a.db, user_id, later, "问的时候又写了一条").await;
+    let kept_again = crate::db::IsolatedSchema::existing(&url, &kept_a).await;
+    assert_eq!(holds(&kept_again.db, "问的时候又写了一条").await, 0);
+    for schema in [back_a, back_b, a, b, kept_again, snapshot] {
+        schema.drop().await;
+    }
+    crate::db::IsolatedSchema::existing(&url, &kept_b)
+        .await
+        .drop()
+        .await;
 }
 
 /// One fact kept as the bench keeps what someone already told her.

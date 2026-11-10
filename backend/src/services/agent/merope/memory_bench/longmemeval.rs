@@ -448,6 +448,7 @@ pub(super) fn partial_row(
             "written": outcome.answering.iter().any(|row| question.holds(fact, row)),
             "wide": question.met_in(&outcome.wide.recalled)[fact],
             "wider": outcome.wider.as_ref().map(|wider| question.met_in(&wider.recalled)[fact]),
+            "rank": outcome.need_ranks.get(fact).copied().flatten(),
         })).collect::<Vec<_>>(),
         "wide": {"correct": outcome.wide.correct, "retrieved": outcome.wide.retrieved,
             "response": outcome.wide.answer, "why": outcome.wide.why,
