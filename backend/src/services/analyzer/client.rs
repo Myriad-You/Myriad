@@ -780,11 +780,12 @@ impl AiAnalyzer {
 
                 // A memory bench asks again what the network dropped
                 // (`ai_cost_ledger::once_or_again`); everything else asks once.
+                let (url, request_body) = (&url, &request_body);
                 let result = crate::services::ai_cost_ledger::once_or_again(
                     &self.model,
-                    async || -> Result<Result<String>> {
+                    move || async move {
                         let response = self
-                            .authenticate(self.client.post(&url))
+                            .authenticate(self.client.post(url))
                             .header("Content-Type", "application/json")
                             .json(&self.prepare_body(&request_body)?)
                             .send()
@@ -820,7 +821,7 @@ impl AiAnalyzer {
                             Err(e) => Err(e),
                         })
                     },
-                    |outcome| match outcome {
+                    |outcome: &Result<Result<String>>| match outcome {
                         Ok(Err(error)) => Some((None, error)),
                         _ => None,
                     },
@@ -1202,10 +1203,7 @@ impl AiAnalyzer {
         // (`ai_cost_ledger::once_or_again`); everything else asks once.
         crate::services::ai_cost_ledger::once_or_again(
             &self.model,
-            async || {
-                self.analyze_json_inner_once(system, prompt, schema_name, mode, budget)
-                    .await
-            },
+            move || self.analyze_json_inner_once(system, prompt, schema_name, mode, budget),
             |result| {
                 result
                     .as_ref()

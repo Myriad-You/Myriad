@@ -363,9 +363,9 @@ pub async fn record_ai_cost(db: &DatabaseConnection, entry: AiCostLedgerEntry<'_
 /// (`failed` reads a result's status and error, `None` when it is not a
 /// failure). Outside tests the choice is made when it is compiled: one call,
 /// nothing else.
-pub(crate) async fn once_or_again<R>(
+pub(crate) async fn once_or_again<R, F: std::future::Future<Output = R>>(
     model: &str,
-    mut call: impl AsyncFnMut() -> R,
+    mut call: impl FnMut() -> F,
     failed: impl Fn(&R) -> Option<(Option<u16>, &anyhow::Error)>,
 ) -> R {
     #[cfg(not(test))]

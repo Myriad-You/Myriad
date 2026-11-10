@@ -49,11 +49,12 @@ impl AiAnalyzer {
         let input_chars = inputs.iter().map(String::len).sum::<usize>();
         // A memory bench asks again what the network dropped
         // (`ai_cost_ledger::once_or_again`); everything else asks once.
+        let (url, body) = (&url, &body);
         let result = crate::services::ai_cost_ledger::once_or_again(
             &self.model,
-            async || {
+            move || async move {
                 let response = self
-                    .authenticate(self.client.post(&url))
+                    .authenticate(self.client.post(url))
                     .header("Content-Type", "application/json")
                     .json(&body)
                     .send()
