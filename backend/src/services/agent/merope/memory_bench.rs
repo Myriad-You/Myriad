@@ -341,7 +341,7 @@ struct Outcome {
     /// For each thing the question needs, where the first line holding it
     /// came in the ranking by line (1 the first), within the first
     /// `answering::RANKS_LOOKED_AT`; `None` past them or nowhere.
-    need_ranks: Vec<Option<usize>>,
+    need_ranks: Vec<(Option<usize>, Option<usize>)>,
     /// What the judge answered when asked what to look for, as it came:
     /// asking again on a kept copy reuses it, so recall differs only by
     /// what changed.
@@ -787,7 +787,7 @@ async fn answer_for(
     let need_ranks = if question.needs.is_empty() || !settle::on_nodes(&present) {
         Vec::new()
     } else {
-        answering::ranks_of_needs(db, question, user_id, &present, cues.as_ref()).await
+        answering::ranks_of_needs(db, question, user_id, &present, cues.as_ref(), THOROUGH).await
     };
     Outcome {
         written: !answering.is_empty(),
