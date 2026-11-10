@@ -189,6 +189,82 @@ async fn her_nodes_go_into_her_log_under_its_counts() {
     schema.drop().await;
 }
 
+/// A kept row whose envelope is not whole stays out of her log, under the
+/// site's own count and taking none of the log's; the rows after it go in.
+/// Mended, it goes in on the next catch-up.
+#[tokio::test]
+async fn a_row_not_whole_stays_out_and_the_rest_go_in() {
+    let Some(schema) = schema("memory_nodes_not_whole").await else {
+        return;
+    };
+    let db = &schema.db;
+    test_settings::set(Settings {
+        enabled: true,
+        ..Settings::default()
+    });
+    keys::test_root::use_here(keys::test_root::TestRoot([9; 32]));
+    her_log::test_partner::give(db, OWNER, PARTNER).await;
+    partner::remember(Some(PARTNER));
+    let talk = audience::owners_talk();
+    let thought = pen::think().expect("her mind is here in tests");
+    // Written while the log is off: the site's own counts 1 and 2.
+    let (_, rows) = topic(&talk, "m1", "has a snake plant");
+    write::write(db, OWNER, &talk, &rows, Some(&thought))
+        .await
+        .unwrap();
+    let kept = placed(db, NODE_ROWS, &talk).await;
+    assert_eq!(kept.len(), 2);
+    let (broken, count_before, _) = kept[0].clone();
+    let set_epoch = |epoch: &str| {
+        format!(
+            "UPDATE agent_node_rows SET envelope = jsonb_set(envelope, '{{epoch}}', '{epoch}') \
+             WHERE row_id = '{broken}'"
+        )
+    };
+    let epoch = kept[0].2["epoch"].to_string();
+    db.execute_unprepared(&set_epoch("null")).await.unwrap();
+
+    store::start(db, OWNER).await.unwrap();
+    let owner = her_log::owner(db, OWNER).await.unwrap();
+    assert_eq!(
+        logged::catch_up_all(db, keys::root(), &owner)
+            .await
+            .unwrap(),
+        1
+    );
+    let logged_rows = placed(db, LOG_ROWS, &talk).await;
+    assert_eq!(logged_rows.len(), 1);
+    assert_eq!(logged_rows[0].0, kept[1].0);
+    assert_eq!(logged_rows[0].1, 1, "no count taken by the one left out");
+    let after = placed(db, NODE_ROWS, &talk).await;
+    let left = after.iter().find(|(id, _, _)| *id == broken).unwrap();
+    assert_eq!(left.1, count_before, "under the site's own count");
+    // Again: still out, nothing else to put in.
+    assert_eq!(
+        logged::catch_up_all(db, keys::root(), &owner)
+            .await
+            .unwrap(),
+        0
+    );
+
+    db.execute_unprepared(&set_epoch(&epoch)).await.unwrap();
+    assert_eq!(
+        logged::catch_up_all(db, keys::root(), &owner)
+            .await
+            .unwrap(),
+        1
+    );
+    let logged_rows = placed(db, LOG_ROWS, &talk).await;
+    assert_eq!(
+        logged_rows
+            .iter()
+            .map(|(id, dseq, _)| (id.clone(), *dseq))
+            .collect::<Vec<_>>(),
+        vec![(kept[1].0.clone(), 1), (broken, 2)]
+    );
+    schema.drop().await;
+}
+
 /// Her own rows wait for the partner id: until the owner's talk is under
 /// it a move may still rewrite them, and a row in her log never changes.
 #[tokio::test]

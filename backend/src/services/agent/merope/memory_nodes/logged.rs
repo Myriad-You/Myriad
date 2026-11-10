@@ -97,7 +97,23 @@ pub(super) async fn catch_up<C: ConnectionTrait>(
         rows.push((row, body));
     }
     rows.sort_by(|(a, _), (b, _)| a.log_order(b));
+    let mut put = 0;
     for (mut row, body) in rows.iter().cloned() {
+        // One whose envelope is not whole would stop every row of its
+        // audience from going to another end: it stays out, under the site's
+        // own count (taking none of the log's), and is told of once.
+        if let Err(error) = row.check() {
+            if not_whole_told(user_id, &row.id) {
+                tracing::warn!(
+                    %error,
+                    row = %row.id,
+                    audience,
+                    kind = %row.kind,
+                    "[her-log] a node row's envelope is not whole: it stays out of her log"
+                );
+            }
+            continue;
+        }
         row.dseq = Some(her_log::store::own_count(db, user_id, audience).await?);
         db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -112,8 +128,19 @@ pub(super) async fn catch_up<C: ConnectionTrait>(
         .await?;
         let body = (!body.is_empty()).then_some(body.as_bytes());
         her_log::store::keep_own(db, root, owner, &row, body).await?;
+        put += 1;
     }
-    Ok(rows.len())
+    Ok(put)
+}
+
+/// Whether a row left out of her log ([`catch_up`]) is to be told of now:
+/// once per row in a process, not each time she catches up.
+fn not_whole_told(user_id: i32, row: &str) -> bool {
+    static TOLD: std::sync::LazyLock<std::sync::Mutex<std::collections::BTreeSet<(i32, String)>>> =
+        std::sync::LazyLock::new(Default::default);
+    TOLD.lock()
+        .map(|mut told| told.insert((user_id, row.to_string())))
+        .unwrap_or(true)
 }
 
 /// [`catch_up`] for each audience of the site owner's her log keeps, each in
