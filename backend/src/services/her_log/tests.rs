@@ -3476,6 +3476,120 @@ async fn her_memories_go_into_her_log_by_comparing() {
     assert_eq!(counts(still.memories), (0, 0, 0));
 }
 
+/// A memory the owner has her forget goes from her log as a forget, never a
+/// retire (b2): an owner's forget with no epoch, the words of every row of it
+/// gone, its digest gone with it, so comparing after it left the table writes
+/// nothing; a forget rolled back leaves nothing; one only retired is retired.
+#[tokio::test]
+async fn a_memory_forgotten_here_is_forgotten_in_her_log() {
+    use sea_orm::TransactionTrait;
+    let Some(schema) = schema("her_log_memory_forget").await else {
+        return;
+    };
+    let db = &schema.db;
+    let root = root();
+    for (id, content) in [("m1", "喜欢茶"), ("m2", "喜欢咖啡")] {
+        db.execute_unprepared(&format!(
+            "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, audience, \
+             concepts, valid_from, created_at, updated_at) VALUES ('{id}', {OWNER}, 'preference', \
+             '{content}', 'chat', 'private', '[{OWNER}]'::jsonb, '[]'::jsonb, now(), now(), now())"
+        ))
+        .await
+        .unwrap();
+    }
+    let counts = |compared: super::memories::Compared| {
+        (compared.written, compared.retired, compared.restored)
+    };
+    let first = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(counts(first.memories), (2, 0, 0));
+    let words_of = |object: &str| {
+        format!(
+            "SELECT COUNT(*) FROM agent_log_payloads p JOIN agent_log_rows r ON r.id = p.row_id \
+             WHERE r.object = '{object}'"
+        )
+    };
+    assert_eq!(count(db, &words_of("memory:m1")).await, 1);
+
+    // m1 forgotten: the forget, then the row, then the digest, in one go.
+    // A memory her log never had is no forget.
+    let txn = db.begin().await.unwrap();
+    let forgotten = super::memories::forget_in(&txn, OWNER, &["m1".into(), "m9".into()])
+        .await
+        .unwrap();
+    assert_eq!(forgotten.len(), 1);
+    txn.execute_unprepared("DELETE FROM agent_memories WHERE id = 'm1'")
+        .await
+        .unwrap();
+    forgotten.let_go(&txn).await.unwrap();
+    txn.commit().await.unwrap();
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    let m1: Vec<&Row> = rows
+        .iter()
+        .filter(|row| row.object == "memory:m1")
+        .collect();
+    let forgets: Vec<&&Row> = m1.iter().filter(|row| row.kind == "forget").collect();
+    assert_eq!(forgets.len(), 1);
+    assert_eq!((forgets[0].author, forgets[0].epoch), (Author::Owner, None));
+    assert!(
+        m1.iter()
+            .filter(|row| row.kind != "forget")
+            .all(|row| row.forgotten)
+    );
+    assert_eq!(count(db, &words_of("memory:m1")).await, 0);
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*) FROM agent_her_state_rows WHERE object = 'memory:m1'"
+        )
+        .await,
+        0
+    );
+    let after = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(counts(after.memories), (0, 0, 0));
+    assert!(
+        !store::rows(db, OWNER, PERSONAL)
+            .await
+            .unwrap()
+            .iter()
+            .any(|row| row.object == "memory:m1" && row.kind == "memory.retire")
+    );
+
+    // Rolled back: no forget is left, and m2 is as it was.
+    let txn = db.begin().await.unwrap();
+    let rolled = super::memories::forget_in(&txn, OWNER, &["m2".into()])
+        .await
+        .unwrap();
+    assert_eq!(rolled.len(), 1);
+    txn.rollback().await.unwrap();
+    assert!(
+        !store::rows(db, OWNER, PERSONAL)
+            .await
+            .unwrap()
+            .iter()
+            .any(|row| row.object == "memory:m2" && (row.kind == "forget" || row.forgotten))
+    );
+    assert_eq!(count(db, &words_of("memory:m2")).await, 1);
+
+    // m2 only retired: a retire, its words kept.
+    db.execute_unprepared(
+        "UPDATE agent_memories SET invalid_at = now(), invalid_reason = 'faded' WHERE id = 'm2'",
+    )
+    .await
+    .unwrap();
+    let retired = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(counts(retired.memories), (0, 1, 0));
+    let mut m2: Vec<String> = store::rows(db, OWNER, PERSONAL)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|row| row.object == "memory:m2")
+        .map(|row| row.kind)
+        .collect();
+    m2.sort();
+    assert_eq!(m2, vec!["memory.retire", "memory.write"]);
+    assert_eq!(count(db, &words_of("memory:m2")).await, 2);
+}
+
 /// Her memories the Mac wrote go into the site's table under their own id
 /// (b2): written, then retired; and comparing on the site afterwards writes
 /// none of it back.

@@ -438,6 +438,94 @@ async fn audience_in_log<C: ConnectionTrait>(
     Ok(row.map(|row| row.try_get("", "audience")).transpose()?)
 }
 
+/// Memories the site owner's log holds rows of that she is made to forget
+/// here ([`forget_on`]), so their digests go once the memories have
+/// ([`Forgotten::let_go`]).
+#[derive(Debug, Default)]
+pub struct Forgotten {
+    user: i32,
+    objects: Vec<String>,
+}
+
+impl Forgotten {
+    /// How many memories were forgotten in her log.
+    pub fn len(&self) -> usize {
+        self.objects.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.objects.is_empty()
+    }
+
+    /// The log no longer has these memories: comparing writes nothing for
+    /// them (no `memory.retire` of one gone from the table). In the same
+    /// transaction, after the memories' rows went.
+    pub async fn let_go(self, txn: &DatabaseTransaction) -> Result<(), Error> {
+        for object in &self.objects {
+            state::drop_known(txn, self.user, object).await?;
+        }
+        Ok(())
+    }
+}
+
+/// The owner has her forget memories `ids` (`memory::manage::forget_any`):
+/// each one her log holds a row of that is not forgotten yet is forgotten
+/// there too, an owner's `forget` of `memory:<id>` ([`store::forget_on`]),
+/// so every end lets it go and the words of every version of it go from the
+/// log. Only for the site owner (`site_owner`) while her log is on and they
+/// sync it; no pen needed. In the caller's transaction, before the
+/// memories' rows go: a rollback takes the forgets with it. A memory only
+/// retired, or gone from the table another way (she moved off the site,
+/// a reset, a purge), is no forget: comparing retires it.
+pub async fn forget_on(
+    txn: &DatabaseTransaction,
+    site_owner: Option<i32>,
+    ids: &[String],
+) -> Result<Forgotten, Error> {
+    match site_owner {
+        Some(user) if super::enabled() => forget_in(txn, user, ids).await,
+        _ => Ok(Forgotten::default()),
+    }
+}
+
+/// [`forget_on`], her log on: in `user`'s log, while they sync it.
+pub(super) async fn forget_in(
+    txn: &DatabaseTransaction,
+    user: i32,
+    ids: &[String],
+) -> Result<Forgotten, Error> {
+    if ids.is_empty()
+        || !store::account(txn, user)
+            .await?
+            .is_some_and(|account| account.on())
+    {
+        return Ok(Forgotten::default());
+    }
+    let owner = super::owner(txn, user).await?;
+    let mut forgotten = Forgotten {
+        user,
+        objects: Vec::new(),
+    };
+    for id in ids {
+        let object = object(id);
+        let held = txn
+            .query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT audience FROM agent_log_rows \
+                 WHERE user_id = $1 AND object = $2 AND NOT forgotten LIMIT 1",
+                [user.into(), object.clone().into()],
+            ))
+            .await?;
+        let Some(held) = held else {
+            continue;
+        };
+        let audience: String = held.try_get("", "audience")?;
+        store::forget_on(txn, &owner, &audience, &object).await?;
+        forgotten.objects.push(object);
+    }
+    Ok(forgotten)
+}
+
 /// A memory as its rows from another end leave it.
 struct Folded {
     write: MemoryWrite,
