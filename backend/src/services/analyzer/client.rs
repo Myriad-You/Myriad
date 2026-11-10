@@ -264,6 +264,8 @@ impl AiAnalyzer {
         let bytes = crate::services::outbound_security::read_limited_body(response, max_bytes)
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
+        #[cfg(test)]
+        crate::services::ai_cost_ledger::spent::charged(&bytes);
         serde_json::from_slice(&bytes).context("Failed to parse Gemini JSON")
     }
 
@@ -366,6 +368,16 @@ impl AiAnalyzer {
             && let Some(object) = body.as_object_mut()
         {
             object.insert("max_tokens".into(), serde_json::json!(cap));
+        }
+        // A memory bench keeps what OpenRouter says each call cost.
+        #[cfg(test)]
+        if self
+            .base_url
+            .as_deref()
+            .is_some_and(|url| url.contains("openrouter.ai"))
+            && let Some(object) = body.as_object_mut()
+        {
+            object.insert("usage".into(), serde_json::json!({"include": true}));
         }
         Ok(body)
     }
@@ -766,42 +778,54 @@ impl AiAnalyzer {
 
                 let url = openai_chat_completions_url(self.base_url.as_deref());
 
-                let response = self
-                    .authenticate(self.client.post(&url))
-                    .header("Content-Type", "application/json")
-                    .json(&self.prepare_body(&request_body)?)
-                    .send()
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "Failed to send request to OpenAI-compatible API (endpoint: {url}, model: {})",
-                            self.model
-                        )
-                    });
+                // A memory bench asks again what the network dropped
+                // (`ai_cost_ledger::once_or_again`); everything else asks once.
+                let result = crate::services::ai_cost_ledger::once_or_again(
+                    &self.model,
+                    async || -> Result<Result<String>> {
+                        let response = self
+                            .authenticate(self.client.post(&url))
+                            .header("Content-Type", "application/json")
+                            .json(&self.prepare_body(&request_body)?)
+                            .send()
+                            .await
+                            .with_context(|| {
+                                format!(
+                                    "Failed to send request to OpenAI-compatible API (endpoint: {url}, model: {})",
+                                    self.model
+                                )
+                            });
 
-                let result = match response {
-                    Ok(response) => {
-                        if !response.status().is_success() {
-                            let status = response.status();
-                            let error_text = Self::read_limited_error_text(response).await;
-                            Err(ProviderCallFailure::http(
-                                status,
-                                anyhow::anyhow!(format_openai_compatible_http_error(
-                                    status,
-                                    &url,
-                                    &self.model,
-                                    &error_text,
-                                )),
-                            )
-                            .into_error())
-                        } else {
-                            let openai_response: OpenAIResponse =
-                                Self::read_limited_json(response, 2 * 1024 * 1024).await?;
-                            extract_openai_completion_text(&openai_response)
-                        }
-                    }
-                    Err(e) => Err(e),
-                };
+                        Ok(match response {
+                            Ok(response) => {
+                                if !response.status().is_success() {
+                                    let status = response.status();
+                                    let error_text = Self::read_limited_error_text(response).await;
+                                    Err(ProviderCallFailure::http(
+                                        status,
+                                        anyhow::anyhow!(format_openai_compatible_http_error(
+                                            status,
+                                            &url,
+                                            &self.model,
+                                            &error_text,
+                                        )),
+                                    )
+                                    .into_error())
+                                } else {
+                                    let openai_response: OpenAIResponse =
+                                        Self::read_limited_json(response, 2 * 1024 * 1024).await?;
+                                    extract_openai_completion_text(&openai_response)
+                                }
+                            }
+                            Err(e) => Err(e),
+                        })
+                    },
+                    |outcome| match outcome {
+                        Ok(Err(error)) => Some((None, error)),
+                        _ => None,
+                    },
+                )
+                .await?;
                 self.note_ledger(input_chars, &result).await;
                 result
             }
@@ -1167,6 +1191,32 @@ impl AiAnalyzer {
     }
 
     async fn analyze_json_inner(
+        &self,
+        system: &str,
+        prompt: &str,
+        schema_name: &str,
+        mode: JsonMode<'_>,
+        budget: Option<OutputBudget>,
+    ) -> std::result::Result<String, ProviderCallFailure> {
+        // A memory bench asks again what the network dropped
+        // (`ai_cost_ledger::once_or_again`); everything else asks once.
+        crate::services::ai_cost_ledger::once_or_again(
+            &self.model,
+            async || {
+                self.analyze_json_inner_once(system, prompt, schema_name, mode, budget)
+                    .await
+            },
+            |result| {
+                result
+                    .as_ref()
+                    .err()
+                    .map(|failure| (failure.status.map(|status| status.as_u16()), &failure.error))
+            },
+        )
+        .await
+    }
+
+    async fn analyze_json_inner_once(
         &self,
         system: &str,
         prompt: &str,

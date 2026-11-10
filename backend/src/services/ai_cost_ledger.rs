@@ -358,6 +358,37 @@ pub async fn record_ai_cost(db: &DatabaseConnection, entry: AiCostLedgerEntry<'_
     }
 }
 
+/// `call` once; in a memory bench (a test build), again as long as
+/// `spent::again_after` says to wait for what the network dropped
+/// (`failed` reads a result's status and error, `None` when it is not a
+/// failure). Outside tests the choice is made when it is compiled: one call,
+/// nothing else.
+pub(crate) async fn once_or_again<R>(
+    model: &str,
+    mut call: impl AsyncFnMut() -> R,
+    failed: impl Fn(&R) -> Option<(Option<u16>, &anyhow::Error)>,
+) -> R {
+    #[cfg(not(test))]
+    {
+        let _ = (model, failed);
+        call().await
+    }
+    #[cfg(test)]
+    {
+        let mut attempt = 0;
+        loop {
+            let result = call().await;
+            let Some(wait) = failed(&result)
+                .and_then(|(status, error)| spent::again_after(model, status, error, attempt))
+            else {
+                return result;
+            };
+            tokio::time::sleep(wait).await;
+            attempt += 1;
+        }
+    }
+}
+
 /// What every model call in this test process spent, by model, with the
 /// same estimates the ledger keeps: the memory benches report it, so what a
 /// run costs is known from the last run instead of guessed.
@@ -373,6 +404,56 @@ pub(crate) mod spent {
     static BY_STEP: Mutex<Spent> = Mutex::new(BTreeMap::new());
     /// Failed calls by model and why, where the caller said why.
     static BECAUSE: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
+    /// What the source said the calls cost (OpenRouter's `usage.cost`, in
+    /// dollars), and how many answers said it and how many did not.
+    static CHARGED: Mutex<(f64, u64, u64)> = Mutex::new((0.0, 0, 0));
+    /// The same dollars over the whole process: never taken.
+    static CHARGED_ALL: Mutex<f64> = Mutex::new(0.0);
+
+    /// A successful answer's body: what it says it cost, kept.
+    pub(crate) fn charged(body: &[u8]) {
+        let cost = serde_json::from_slice::<serde_json::Value>(body)
+            .ok()
+            .and_then(|body| body["usage"]["cost"].as_f64());
+        let mut charged = CHARGED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match cost {
+            Some(cost) => {
+                charged.0 += cost;
+                charged.1 += 1;
+                *CHARGED_ALL
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) += cost;
+            }
+            None => charged.2 += 1,
+        }
+    }
+
+    /// What the source has said the calls cost so far in this process, in
+    /// dollars.
+    pub(crate) fn charged_so_far() -> f64 {
+        *CHARGED_ALL
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The account said it is out of credit (402) in this process.
+    static OUT_OF_CREDIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    /// Whether a run is to start nothing more: the account is out of
+    /// credit, or what the source said the calls cost has passed
+    /// `MEROPE_BENCH_SPEND_LIMIT` (dollars). What is under way finishes.
+    pub(crate) fn stop_starting() -> Option<String> {
+        if OUT_OF_CREDIT.load(std::sync::atomic::Ordering::Relaxed) {
+            return Some("out of credit (402)".to_string());
+        }
+        let limit: f64 = std::env::var("MEROPE_BENCH_SPEND_LIMIT")
+            .ok()
+            .and_then(|limit| limit.parse().ok())?;
+        let spent = charged_so_far();
+        (spent > limit).then(|| format!("charged ${spent:.4} past the limit ${limit}"))
+    }
 
     tokio::task_local! {
         static STEP: String;
@@ -442,6 +523,9 @@ pub(crate) mod spent {
     /// source answered with (402 is out of credit), or the error's start.
     pub(crate) fn because(model: &str, error: &anyhow::Error) {
         let why = reason(error);
+        if why == "HTTP 402" {
+            OUT_OF_CREDIT.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
         eprintln!("model call failed because: {model}: {why}");
         let _ = HERE.try_with(|here| {
             here.lock()
@@ -453,6 +537,61 @@ pub(crate) mod spent {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .entry(format!("{model}: {why}"))
             .or_default() += 1;
+    }
+
+    /// How long to wait before making a call again that failed on its
+    /// `attempt`th try (from 0), when the run asks for it
+    /// (`MEROPE_BENCH_RETRY_CALLS=<n>`, at most n more tries) and the
+    /// network failed it: a timeout, no connection or name lookup, or the
+    /// source busy (5xx, 429). What the account refuses (402 out of credit,
+    /// the rest of 4xx) and whatever came back are never asked again. A try
+    /// made again is counted as retried, not as a failure of the run: one
+    /// dropped call does not cost a whole question.
+    pub(crate) fn again_after(
+        model: &str,
+        status: Option<u16>,
+        error: &anyhow::Error,
+        attempt: usize,
+    ) -> Option<std::time::Duration> {
+        let most: usize = std::env::var("MEROPE_BENCH_RETRY_CALLS")
+            .ok()
+            .and_then(|most| most.parse().ok())
+            .unwrap_or(0);
+        if attempt >= most || OUT_OF_CREDIT.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
+        let why = reason(error);
+        let code = status.or_else(|| why.strip_prefix("HTTP ").and_then(|code| code.parse().ok()));
+        let network = match code {
+            Some(code) => code == 429 || (500..600).contains(&code),
+            None => {
+                let text = format!("{error:#}").to_lowercase();
+                why == "timeout"
+                    || [
+                        "send request",
+                        "send embeddings request",
+                        "dns",
+                        "lookup",
+                        "connect",
+                        "connection",
+                        "broken pipe",
+                        "decoding response body",
+                        "unexpected eof",
+                    ]
+                    .iter()
+                    .any(|word| text.contains(word))
+            }
+        };
+        if !network {
+            return None;
+        }
+        eprintln!("model call retried: {model}: {why}");
+        *BECAUSE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .entry(format!("retried: {model}: {why}"))
+            .or_default() += 1;
+        Some(std::time::Duration::from_secs([3, 10, 30][attempt.min(2)]))
     }
 
     pub(super) fn reason(error: &anyhow::Error) -> String {
@@ -488,6 +627,11 @@ pub(crate) mod spent {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()),
         );
+        let charged = std::mem::take(
+            &mut *CHARGED
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        );
         let total = spent.values().fold((0, 0, 0, 0), |sum, one| {
             (sum.0 + one.0, sum.1 + one.1, sum.2 + one.2, sum.3 + one.3)
         });
@@ -507,6 +651,8 @@ pub(crate) mod spent {
             "by_step": lines(by_step),
             "total": line(total),
             "failedBecause": because,
+            "charged": {"usd": charged.0, "answersWithCost": charged.1,
+                "answersWithoutCost": charged.2},
         })
     }
 }
