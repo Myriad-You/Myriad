@@ -69,8 +69,10 @@ export function useArmVariants(portraitUrl: string | null, outfitId?: string) {
    */
   const generate = useCallback(async (again = false) => {
     // What this picture has kept is known first, or ones it has would be drawn (and paid for) again.
-    await listedRef.current
     const picture = pictureRef.current
+    await listedRef.current
+    // Asked for a picture the panel no longer shows: nothing is drawn for it.
+    if (pictureRef.current !== picture) return
     const kept = new Set(variantsRef.current.map(keyOf))
     // Ones the server is drawing already are waited for, not asked again.
     const already = drawingRef.current
