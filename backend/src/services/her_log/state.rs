@@ -406,7 +406,10 @@ async fn gone(
 }
 
 /// What her log last has of each object written here, by its digest.
-async fn known<C: ConnectionTrait>(db: &C, user: i32) -> Result<BTreeMap<String, String>, Error> {
+pub(super) async fn known<C: ConnectionTrait>(
+    db: &C,
+    user: i32,
+) -> Result<BTreeMap<String, String>, Error> {
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             db.get_database_backend(),

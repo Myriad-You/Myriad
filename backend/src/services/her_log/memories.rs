@@ -449,12 +449,9 @@ pub struct Forgotten {
 
 impl Forgotten {
     /// How many memories were forgotten in her log.
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.objects.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.objects.is_empty()
     }
 
     /// The log no longer has these memories: comparing writes nothing for
@@ -576,6 +573,7 @@ pub async fn take_in(
     owner: &Owner,
 ) -> Result<usize, Error> {
     let took = state::took(db, owner.user).await?;
+    let known = state::known(db, owner.user).await?;
     let mut taken = 0;
     for audience in [owner.personal(), Owner::OWN.to_string()] {
         let mut objects: BTreeMap<String, Vec<Row>> = BTreeMap::new();
@@ -589,12 +587,19 @@ pub async fn take_in(
             let Some(newest) = rows.last() else {
                 continue;
             };
-            if newest.origin == NODE || took.get(&object) == Some(&newest.id) {
+            // All its rows forgotten (a forget is a row of its own, not one of
+            // these): it goes, whoever wrote it and whatever was taken in of it
+            // before, once, while the log still has a digest of it.
+            let forgotten = rows.iter().all(|row| row.forgotten);
+            if forgotten && !known.contains_key(&object) {
+                continue;
+            }
+            if !forgotten && (newest.origin == NODE || took.get(&object) == Some(&newest.id)) {
                 continue;
             }
             let id = object.trim_start_matches("memory:");
             let txn = db.begin().await?;
-            if rows.iter().all(|row| row.forgotten) {
+            if forgotten {
                 txn.execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "DELETE FROM agent_memories WHERE id = $2 AND venue NOT LIKE 'group:%' \

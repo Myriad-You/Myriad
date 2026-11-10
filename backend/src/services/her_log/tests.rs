@@ -3801,6 +3801,44 @@ async fn her_memories_from_another_end_go_into_the_sites_table() {
         super::memories::Compared::default(),
         "not written back"
     );
+
+    // Forgotten on the Mac after it was taken in here, and one the site
+    // wrote itself: a forget is a row of its own, so each goes from the table
+    // though its newest memory row was taken in or is the site's, and
+    // comparing then writes no retire of it.
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, audience, \
+         valid_from, created_at, updated_at) VALUES ('ours', {OWNER}, 'fact', '站点自己的', \
+         'chat', 'private', '[{OWNER}]'::jsonb, now(), now(), now())"
+    ))
+    .await
+    .unwrap();
+    let ours = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(ours.memories.written, 1);
+    let gone_at = crate::clock::now_micros() + 2 * MINUTE;
+    sync(db, &mut mac, PERSONAL, gone_at).await;
+    for (object, at) in [("memory:mine", gone_at), ("memory:ours", gone_at + 1)] {
+        mac.write(PERSONAL, object, "forget", Author::Owner, None, at);
+    }
+    sync(db, &mut mac, PERSONAL, gone_at + 2).await;
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*) FROM agent_memories WHERE id IN ('mine', 'ours')"
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*) FROM agent_her_state_rows WHERE object IN ('memory:mine', 'memory:ours')"
+        )
+        .await,
+        0
+    );
+    let after = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(after.memories, super::memories::Compared::default());
 }
 
 /// Her nodes the Mac wrote while her mind was there are kept on the site
