@@ -38,6 +38,8 @@
 //! `MEROPE_MEMORY_BENCH_FROM_WRITTEN=<that run's .partial.jsonl>` asks each
 //! from it instead of writing again: a change to recall or answering is
 //! measured on the same writing, for what asking costs.
+//! `MEROPE_MEMORY_BENCH_THEN=<file>` with it writes one more session onto
+//! the questions it names first, paying only for that session.
 //! Copying needs
 //! a role that may set `session_replication_role` (the test database's
 //! owner): the rows go in as they are, constraints and all.
@@ -348,6 +350,50 @@ fn read_kept_written(text: &str) -> std::collections::HashMap<(String, usize), K
         .collect()
 }
 
+/// `MEROPE_MEMORY_BENCH_THEN=<file>`, with `MEROPE_MEMORY_BENCH_FROM_WRITTEN`:
+/// one more session for each question it names (question id to `{date,
+/// venue, turns}`), written onto what was kept as its own sessions were,
+/// before it is asked. With `MEROPE_MEMORY_BENCH_KEEP_WRITTEN=1` the copy
+/// with it is kept apart from the one it went on from; a question it does
+/// not name keeps pointing at its copy as it was.
+fn then_sessions() -> std::collections::HashMap<String, Then> {
+    std::env::var("MEROPE_MEMORY_BENCH_THEN")
+        .map(|path| read_then(&std::fs::read_to_string(&path).expect("what is written next")))
+        .unwrap_or_default()
+}
+
+/// A session written after what a question kept.
+#[derive(Deserialize, Clone)]
+struct Then {
+    date: String,
+    /// `private` when not given.
+    #[serde(default)]
+    venue: Option<String>,
+    turns: Vec<Turn>,
+}
+
+fn read_then(text: &str) -> std::collections::HashMap<String, Then> {
+    serde_json::from_str(text).expect("question ids, each to the session written next")
+}
+
+/// `question` with only `then` left to write: its date, place and turns,
+/// and nothing she already keeps (that went in with the rest).
+fn then_question(question: &Question, then: &Then) -> Question {
+    assert!(
+        date_of(&then.date) < date_of(&question.question_date),
+        "{} is asked before {}",
+        question.question_id,
+        then.date
+    );
+    Question {
+        haystack_dates: vec![then.date.clone()],
+        haystack_sessions: vec![then.turns.clone()],
+        haystack_venues: vec![then.venue.clone().unwrap_or_else(|| "private".into())],
+        memories: Vec::new(),
+        ..question.clone()
+    }
+}
+
 /// The snapshot's tables, as copies take them.
 async fn tables(db: &sea_orm::DatabaseConnection, schema: &str) -> Vec<String> {
     db.query_all_raw(Statement::from_sql_and_values(
@@ -649,8 +695,8 @@ pub(super) async fn her_memory_after_a_long_background() {
             .cloned()
             .collect()
     };
-    let (keeping, from_written) = (keep_written(), from_written());
-    let from_written = &from_written;
+    let (keeping, from_written, thens) = (keep_written(), from_written(), then_sessions());
+    let (from_written, thens) = (&from_written, &thens);
     let long: Vec<(Question, usize, Outcome)> = futures::stream::iter(long_runs)
         .map(|(question, round)| {
             let (url, name, judge, lite, left) = (&url, &name, &judge, &lite, &left);
@@ -675,13 +721,33 @@ pub(super) async fn her_memory_after_a_long_background() {
                             return None;
                         };
                         let copy = restore(url, &earlier.schema).await;
-                        (
-                            copy,
-                            earlier.written.clone(),
-                            earlier.failed.clone(),
-                            None,
-                            earlier.asked.clone(),
-                        )
+                        let (mut written, mut failed) =
+                            (earlier.written.clone(), earlier.failed.clone());
+                        let kept_as = match thens.get(&question.question_id) {
+                            Some(then) => {
+                                let (more, more_failed) =
+                                    crate::services::ai_cost_ledger::spent::failures_in(write_for(
+                                        &copy.db,
+                                        judge,
+                                        &then_question(&question, then),
+                                        &format!("{id}-then"),
+                                        (user_id, PERSON),
+                                        written.answering.clone(),
+                                    ))
+                                    .await;
+                                written = Written {
+                                    answering: more.answering,
+                                    kept: written.kept + more.kept,
+                                };
+                                failed.extend(more_failed);
+                                match keeping {
+                                    true => Some(restore(url, copy.name()).await.keep().await),
+                                    false => None,
+                                }
+                            }
+                            None => keeping.then(|| earlier.schema.clone()),
+                        };
+                        (copy, written, failed, kept_as, earlier.asked.clone())
                     }
                     None => {
                         let copy = restore(url, name).await;
@@ -1065,6 +1131,81 @@ async fn what_a_question_wrote_comes_back_row_for_row_and_apart() {
         .await
         .drop()
         .await;
+}
+
+/// What is written next onto a kept question is that one session alone, at
+/// its own date and place, and must come before the question is asked.
+#[test]
+fn what_comes_next_is_written_alone_and_before_asking() {
+    let question: Question = serde_json::from_value(json!({
+        "question_id": "zl-chg-commute-use",
+        "question_type": "implicit-use",
+        "question": "明早九点有个会 我几点出门比较稳",
+        "answer": "按坐地铁四十分钟算",
+        "question_date": "2026/10/27 (Tue) 22:10",
+        "haystack_dates": ["2026/10/19 (Mon) 21:00"],
+        "haystack_sessions": [[{"role": "user", "content": "今天开始坐地铁上班了", "has_answer": true}]],
+        "haystack_venues": ["group:g1"],
+        "memories": ["已经记着的一条"],
+        "needs": [["地铁"]],
+    }))
+    .unwrap();
+    let thens = read_then(
+        &json!({
+            "zl-chg-commute-use": {"date": "2026/10/23 (Fri) 21:00", "turns": [
+                {"role": "user", "content": "今天上班路上碰到隔壁组的小周"},
+                {"role": "assistant", "content": "这么巧"},
+            ]},
+            "zl-still-run": {"date": "2026/10/24 (Sat) 21:00", "venue": "group:g2", "turns": []},
+        })
+        .to_string(),
+    );
+    assert_eq!(thens.len(), 2);
+    assert_eq!(thens["zl-still-run"].venue.as_deref(), Some("group:g2"));
+    let next = then_question(&question, &thens["zl-chg-commute-use"]);
+    assert_eq!(next.haystack_dates, ["2026/10/23 (Fri) 21:00"]);
+    assert_eq!(next.haystack_venues, ["private"], "private when not given");
+    let turns: Vec<(&str, &str, bool)> = next.haystack_sessions[0]
+        .iter()
+        .map(|turn| (turn.role.as_str(), turn.content.as_str(), turn.has_answer))
+        .collect();
+    assert_eq!(
+        turns,
+        [
+            ("user", "今天上班路上碰到隔壁组的小周", false),
+            ("assistant", "这么巧", false)
+        ]
+    );
+    assert_eq!(
+        next.haystack_sessions.len(),
+        1,
+        "its own sessions are not written again"
+    );
+    assert!(
+        next.memories.is_empty(),
+        "what she kept went in with the rest"
+    );
+    assert_eq!(
+        (
+            next.question_id.as_str(),
+            next.question_date.as_str(),
+            &next.needs
+        ),
+        (
+            "zl-chg-commute-use",
+            "2026/10/27 (Tue) 22:10",
+            &question.needs
+        )
+    );
+    let late = Then {
+        date: "2026/10/28 (Wed) 21:00".into(),
+        venue: None,
+        turns: Vec::new(),
+    };
+    assert!(
+        std::panic::catch_unwind(|| then_question(&question, &late)).is_err(),
+        "nothing is written after the question is asked"
+    );
 }
 
 /// One fact kept as the bench keeps what someone already told her.
