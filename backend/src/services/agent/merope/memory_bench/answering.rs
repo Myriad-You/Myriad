@@ -39,12 +39,15 @@ pub(super) async fn recalled_for(
         let nodes = super::super::memory_nodes::context::load(db, user_id, now).await;
         match (ranked, nodes) {
             (Ok((recalled, _)), Ok(nodes)) => {
-                let recollection = super::super::memory_nodes::recall::recollect(
+                // Wider, her nodes bring as many times more too: else the
+                // nodes, three of three entries, hold it near what it was.
+                let recollection = super::super::memory_nodes::recall::recollect_times(
                     &nodes.shown,
                     &nodes.own,
                     &recalled,
                     cues,
                     now,
+                    wider,
                 );
                 let mut lines: Vec<String> = recollection
                     .named

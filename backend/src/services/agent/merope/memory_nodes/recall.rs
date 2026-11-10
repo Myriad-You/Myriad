@@ -185,6 +185,27 @@ pub(crate) fn recollect(
     recollect_here(shown, own, None, recalled, cues, now)
 }
 
+/// [`recollect`] with `times` the budget of nodes and entries (and of
+/// heard): the memory bench's control that only recalls more.
+#[cfg(test)]
+pub(crate) fn recollect_times(
+    shown: &Shown,
+    own: &Own,
+    recalled: &Recalled,
+    cues: Option<&Cues>,
+    now: DateTime<Utc>,
+    times: usize,
+) -> Recollection {
+    let base = recall::Budget::default();
+    let budget = recall::Budget {
+        picked: base.picked * times,
+        entries: base.entries * times,
+        about_them: base.about_them * times,
+        together: base.together * times,
+    };
+    recollect_within(shown, own, None, recalled, cues, now, budget, HEARD * times)
+}
+
 /// [`recollect`]; `here` in a group.
 pub(crate) fn recollect_here(
     shown: &Shown,
@@ -193,6 +214,29 @@ pub(crate) fn recollect_here(
     recalled: &Recalled,
     cues: Option<&Cues>,
     now: DateTime<Utc>,
+) -> Recollection {
+    recollect_within(
+        shown,
+        own,
+        here,
+        recalled,
+        cues,
+        now,
+        Default::default(),
+        HEARD,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn recollect_within(
+    shown: &Shown,
+    own: &Own,
+    here: Option<&Here>,
+    recalled: &Recalled,
+    cues: Option<&Cues>,
+    now: DateTime<Utc>,
+    budget: recall::Budget,
+    heard_most: usize,
 ) -> Recollection {
     let thorough = cues.is_some_and(|cues| cues.thorough);
     let (mut ranked, lines) = ranking(recalled);
@@ -229,7 +273,7 @@ pub(crate) fn recollect_here(
         about_them: own.about.clone(),
         her: own.her.clone(),
         thorough,
-        budget: Default::default(),
+        budget,
     }) else {
         // Ids the core will not take: what was ranked, as before.
         return Recollection {
@@ -287,7 +331,7 @@ pub(crate) fn recollect_here(
             });
             heard
                 .into_iter()
-                .take(HEARD)
+                .take(heard_most)
                 .map(|entry| lines.of(&entry.id, &entry.text, entry.at).1)
                 .collect()
         })
