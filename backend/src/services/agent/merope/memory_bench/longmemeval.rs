@@ -214,7 +214,7 @@ pub(super) fn report(
         }
         let right_of =
             |outcome: &Outcome| answered(outcome).is_some_and(|a| a.correct == Some(true));
-        let mut by_kind: BTreeMap<String, [usize; 6]> = BTreeMap::new();
+        let mut by_kind: BTreeMap<String, [usize; 8]> = BTreeMap::new();
         let mut per_round = vec![0usize; times];
         let (mut right, mut every) = (0, 0);
         for question in questions {
@@ -231,6 +231,17 @@ pub(super) fn report(
                 .iter()
                 .filter(|outcome| answered(outcome).is_some_and(|a| a.retrieved))
                 .count();
+            // Checked line by line: every fact it needs in what she recalled.
+            if !question.needs.is_empty() {
+                slot[6] += runs.len();
+                slot[7] += runs
+                    .iter()
+                    .filter(|outcome| {
+                        answered(outcome)
+                            .is_some_and(|a| question.met_in(&a.recalled).iter().all(|met| *met))
+                    })
+                    .count();
+            }
             every += usize::from(all);
             right += rights.iter().filter(|right| **right).count();
             for (round, outcome) in runs.iter().enumerate() {
@@ -270,13 +281,16 @@ pub(super) fn report(
         };
         let kinds: serde_json::Map<String, Value> = by_kind
             .into_iter()
-            .map(|(kind, [n, right, run, every, written, retrieved])| {
-                (
-                    kind,
-                    json!({"questions": n, "runs": run, "written": written,
-                        "retrieved": retrieved, "right": right, "every": every}),
-                )
-            })
+            .map(
+                |(kind, [n, right, run, every, written, retrieved, needing, recalled])| {
+                    (
+                        kind,
+                        json!({"questions": n, "runs": run, "written": written,
+                            "retrieved": retrieved, "right": right, "every": every,
+                            "needing": needing, "recalledNeeded": recalled}),
+                    )
+                },
+            )
             .collect();
         scores.insert(
             arm.to_string(),
@@ -429,6 +443,12 @@ pub(super) fn partial_row(
         "round": round, "void": outcome.void(), "written": outcome.written,
         "failed": outcome.failed,
         "answering": outcome.answering,
+        "needs": question.needs.iter().enumerate().map(|(fact, words)| json!({
+            "any": words,
+            "written": outcome.answering.iter().any(|row| question.holds(fact, row)),
+            "wide": question.met_in(&outcome.wide.recalled)[fact],
+            "wider": outcome.wider.as_ref().map(|wider| question.met_in(&wider.recalled)[fact]),
+        })).collect::<Vec<_>>(),
         "wide": {"correct": outcome.wide.correct, "retrieved": outcome.wide.retrieved,
             "response": outcome.wide.answer, "why": outcome.wide.why,
             "recalled": outcome.wide.recalled,

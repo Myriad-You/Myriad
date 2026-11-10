@@ -95,6 +95,29 @@ struct Question {
     /// asked with these alone it is the same question at a small size.
     #[serde(default)]
     background_sessions: Vec<usize>,
+    /// What answering it needs, each fact as the words a line of it holds
+    /// (any one of them; `a&b` a line holding both): recalled is checked
+    /// line by line against these, not by the grader's word.
+    #[serde(default)]
+    needs: Vec<Vec<String>>,
+}
+
+impl Question {
+    /// Whether `line` holds the `fact`-th thing it needs.
+    fn holds(&self, fact: usize, line: &str) -> bool {
+        self.needs.get(fact).is_some_and(|words| {
+            words
+                .iter()
+                .any(|word| word.split('&').all(|part| line.contains(part)))
+        })
+    }
+
+    /// For each thing it needs: whether any of `lines` holds it.
+    fn met_in(&self, lines: &[String]) -> Vec<bool> {
+        (0..self.needs.len())
+            .map(|fact| lines.iter().any(|line| self.holds(fact, line)))
+            .collect()
+    }
 }
 
 impl Question {

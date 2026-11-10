@@ -966,6 +966,20 @@ fn the_long_background_reads_as_the_bench_needs() {
     }
     let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
     for question in &long {
+        // What it needs is named, but for a question where nothing should
+        // come up; each fact by words a line of it holds. (The held-out
+        // questions are left as they are.)
+        let id = &question.question_id;
+        assert_eq!(question.needs.is_empty(), id.ends_with("-hold"), "{id}");
+        assert!(
+            question.needs.iter().all(|words| {
+                !words.is_empty()
+                    && words
+                        .iter()
+                        .all(|word| word.split('&').all(|part| !part.is_empty()))
+            }),
+            "{id}"
+        );
         if question.question_id.ends_with("-hold") {
             continue;
         }

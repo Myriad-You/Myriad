@@ -98,6 +98,7 @@ impl Probe {
             category: None,
             pair: None,
             background_sessions: Vec::new(),
+            needs: Vec::new(),
         }
     }
 }
