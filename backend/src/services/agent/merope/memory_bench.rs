@@ -47,6 +47,7 @@ mod memes;
 mod probes;
 mod settle;
 mod since_up;
+mod speaking_check;
 mod weeks;
 mod wishing;
 mod writing;
