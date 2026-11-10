@@ -342,6 +342,10 @@ struct Outcome {
     /// came in the ranking by line (1 the first), within the first
     /// `answering::RANKS_LOOKED_AT`; `None` past them or nowhere.
     need_ranks: Vec<Option<usize>>,
+    /// What the judge answered when asked what to look for, as it came:
+    /// asking again on a kept copy reuses it, so recall differs only by
+    /// what changed.
+    asked: Option<String>,
 }
 
 impl Outcome {
@@ -403,7 +407,7 @@ async fn run_for(
     answering: Vec<String>,
 ) -> Outcome {
     let written = write_for(db, models.0, question, name, who, answering).await;
-    answer_for(db, models, question, name, who, written).await
+    answer_for(db, models, question, name, who, written, None).await
 }
 
 /// What writing a question's own sessions left: what of it answers the
@@ -537,7 +541,8 @@ async fn write_for(
 }
 
 /// The asking half of [`run_for`]: what was `written` asked of, in each
-/// way the bench asks.
+/// way the bench asks. `asked`, an earlier answer to what to look for, is
+/// used instead of asking the judge again.
 async fn answer_for(
     db: &sea_orm::DatabaseConnection,
     (judge, lite, reader): Models<'_>,
@@ -545,6 +550,7 @@ async fn answer_for(
     name: &str,
     (user_id, tag): (i32, &str),
     written: Written,
+    asked: Option<String>,
 ) -> Outcome {
     let present = audience_at(
         question.question_venue.as_deref().unwrap_or("private"),
@@ -553,16 +559,23 @@ async fn answer_for(
     );
     let Written { answering, kept } = written;
     // As a chat turn does: think what to look for, then recall with it.
-    let cues = judge
-        .analyze_json(
-            &myriad_merope::remembering::system(),
-            &myriad_merope::remembering::input(&question.question, None, &question.question_date),
-            myriad_merope::remembering::SCHEMA_NAME,
-            Some(&myriad_merope::remembering::schema()),
-        )
-        .await
-        .ok()
-        .and_then(|raw| myriad_merope::remembering::parse(&raw));
+    let asked = match asked {
+        Some(asked) => Some(asked),
+        None => judge
+            .analyze_json(
+                &myriad_merope::remembering::system(),
+                &myriad_merope::remembering::input(
+                    &question.question,
+                    None,
+                    &question.question_date,
+                ),
+                myriad_merope::remembering::SCHEMA_NAME,
+                Some(&myriad_merope::remembering::schema()),
+            )
+            .await
+            .ok(),
+    };
+    let cues = asked.as_deref().and_then(myriad_merope::remembering::parse);
     // The same memories, recalled once from their words alone and once
     // with the cues: the difference is recall's, not writing's.
     let (plain, cued) = if wide_only() {
@@ -792,5 +805,6 @@ async fn answer_for(
         nodes,
         failed: Vec::new(),
         need_ranks,
+        asked,
     }
 }

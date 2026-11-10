@@ -442,7 +442,7 @@ pub(super) fn partial_row(
     json!({"arm": arm, "id": question.question_id, "type": question.question_type,
         "round": round, "void": outcome.void(), "written": outcome.written,
         "failed": outcome.failed,
-        "answering": outcome.answering,
+        "answering": outcome.answering, "asked": outcome.asked,
         "needs": question.needs.iter().enumerate().map(|(fact, words)| json!({
             "any": words,
             "written": outcome.answering.iter().any(|row| question.holds(fact, row)),

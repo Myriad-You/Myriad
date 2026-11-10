@@ -298,6 +298,8 @@ struct KeptWritten {
     schema: String,
     written: Written,
     failed: Vec<String>,
+    /// What the judge answered then when asked what to look for.
+    asked: Option<String>,
 }
 
 fn kept_written_row(schema: &str, written: &Written, failed: &[String]) -> Value {
@@ -339,6 +341,7 @@ fn read_kept_written(text: &str) -> std::collections::HashMap<(String, usize), K
                         kept: kept["kept"].as_u64().unwrap_or(0) as usize,
                     },
                     failed: strings(&kept["failed"]),
+                    asked: row["asked"].as_str().map(str::to_string),
                 },
             ))
         })
@@ -660,7 +663,7 @@ pub(super) async fn her_memory_after_a_long_background() {
                 }
                 let id = format!("long-{}-{round}", question.question_id);
                 // What it wrote: written now, or as an earlier run kept it.
-                let (copy, written, write_failed, kept_as) = match &from_written {
+                let (copy, written, write_failed, kept_as, asked) = match &from_written {
                     Some(earlier) => {
                         let Some(earlier) = earlier.get(&(question.question_id.clone(), round))
                         else {
@@ -672,7 +675,13 @@ pub(super) async fn her_memory_after_a_long_background() {
                             return None;
                         };
                         let copy = restore(url, &earlier.schema).await;
-                        (copy, earlier.written.clone(), earlier.failed.clone(), None)
+                        (
+                            copy,
+                            earlier.written.clone(),
+                            earlier.failed.clone(),
+                            None,
+                            earlier.asked.clone(),
+                        )
                     }
                     None => {
                         let copy = restore(url, name).await;
@@ -695,7 +704,7 @@ pub(super) async fn her_memory_after_a_long_background() {
                             true => Some(restore(url, copy.name()).await.keep().await),
                             false => None,
                         };
-                        (copy, written, failed, kept_as)
+                        (copy, written, failed, kept_as, None)
                     }
                 };
                 let (mut outcome, failed) =
@@ -706,6 +715,7 @@ pub(super) async fn her_memory_after_a_long_background() {
                         &id,
                         (user_id, PERSON),
                         written.clone(),
+                        asked,
                     ))
                     .await;
                 outcome.failed = write_failed.iter().cloned().chain(failed).collect();
@@ -968,7 +978,7 @@ async fn what_a_question_wrote_comes_back_row_for_row_and_apart() {
     let kept_b = restore(&url, b.name()).await.keep().await;
     // As a later run reads them back: by question and round.
     let rows = [
-        json!({"id": "a", "round": 0, "keptWritten": kept_written_row(
+        json!({"id": "a", "round": 0, "asked": "{\"cues\":[]}", "keptWritten": kept_written_row(
             &kept_a, &Written { answering: vec!["电动车卖了".into()], kept: 1 }, &[])}),
         json!({"id": "b", "round": 0, "keptWritten": kept_written_row(
             &kept_b, &Written { answering: vec!["半月板".into()], kept: 1 },
@@ -982,6 +992,9 @@ async fn what_a_question_wrote_comes_back_row_for_row_and_apart() {
     assert_eq!(from_a.written.answering, ["电动车卖了"]);
     assert_eq!(from_a.written.kept, 1);
     assert!(from_a.failed.is_empty());
+    // What to look for is asked again only where nothing was kept of it.
+    assert_eq!(from_a.asked.as_deref(), Some("{\"cues\":[]}"));
+    assert_eq!(from_b.asked, None);
     assert_eq!(
         from_b.failed,
         ["model: timeout"],
