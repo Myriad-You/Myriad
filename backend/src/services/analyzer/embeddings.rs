@@ -81,7 +81,7 @@ impl AiAnalyzer {
                     ));
                 }
                 #[cfg(test)]
-                crate::services::ai_cost_ledger::spent::charged(&bytes);
+                crate::services::ai_cost_ledger::spent::charged(&bytes, Some(&self.model));
                 let parsed: EmbeddingsResponse =
                     serde_json::from_slice(&bytes).context("Failed to parse embeddings JSON")?;
                 ordered(parsed.data, inputs.len())

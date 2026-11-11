@@ -128,6 +128,17 @@ pub(super) async fn the_models() -> (
     .with_light_thinking();
     // First in its log: which models answer and judge this run.
     println!("bench models: {}", lite_in_use().await);
+    if std::env::var_os("MEROPE_BENCH_SPEND_LIMIT").is_some() {
+        for model in [&judge, &lite] {
+            if !model.cost_known() {
+                panic!(
+                    "not run: a spend limit is set, and what {} costs is not known \
+                     (its source says no cost and it has no list price)",
+                    model.model_name()
+                );
+            }
+        }
+    }
     if let Some(why) = judged_unlike_asked(
         &*crate::GLOBAL_DYNAMIC_CONFIG.read().await,
         std::env::var("MEROPE_MEMORY_BENCH_JUDGED_BY")

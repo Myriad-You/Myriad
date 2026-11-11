@@ -256,6 +256,23 @@ impl AiAnalyzer {
         }
     }
 
+    /// The model it asks for.
+    #[cfg(test)]
+    pub(crate) fn model_name(&self) -> &str {
+        &self.model
+    }
+
+    /// Whether what its answers cost will be known: its source says so in
+    /// each answer (OpenRouter's `usage.cost`), or the model has a list
+    /// price ([`crate::services::ai_pricing::PRICES`]).
+    #[cfg(test)]
+    pub(crate) fn cost_known(&self) -> bool {
+        self.base_url
+            .as_deref()
+            .is_some_and(|url| url.contains("openrouter.ai"))
+            || crate::services::ai_pricing::price_of(&self.model).is_some()
+    }
+
     /// Cap success JSON to `max_bytes`, then deserialize.
     async fn read_limited_json<T: serde::de::DeserializeOwned>(
         response: reqwest::Response,
@@ -265,7 +282,7 @@ impl AiAnalyzer {
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
         #[cfg(test)]
-        crate::services::ai_cost_ledger::spent::charged(&bytes);
+        crate::services::ai_cost_ledger::spent::charged(&bytes, None);
         serde_json::from_slice(&bytes).context("Failed to parse Gemini JSON")
     }
 

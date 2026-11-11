@@ -8,6 +8,7 @@ pub mod agora_rtc_token; // Agora AccessToken2
 pub mod ai;
 pub mod ai_config; // Cached AI provider config (text tiers + image)
 pub mod ai_cost_ledger; // Append-only AI cost ledger writes
+pub mod ai_pricing; // What an answer cost, from its own usage
 pub mod ai_quota; // Daily quota reserve/settle/usage ledger
 pub mod ai_task_context; // Context refs resolve (platform/report/profile/custom)
 pub mod ai_task_execute; // Run loop (provider + quota + ledger)

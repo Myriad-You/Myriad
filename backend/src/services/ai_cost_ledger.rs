@@ -404,17 +404,37 @@ pub(crate) mod spent {
     static BY_STEP: Mutex<Spent> = Mutex::new(BTreeMap::new());
     /// Failed calls by model and why, where the caller said why.
     static BECAUSE: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
-    /// What the source said the calls cost (OpenRouter's `usage.cost`, in
-    /// dollars), and how many answers said it and how many did not.
+    /// What the calls cost in dollars (the source's `usage.cost`, else
+    /// the usage the answer reported at the list price,
+    /// [`crate::services::ai_pricing`]), and how many answers had a cost
+    /// and how many did not.
     static CHARGED: Mutex<(f64, u64, u64)> = Mutex::new((0.0, 0, 0));
     /// The same dollars over the whole process: never taken.
     static CHARGED_ALL: Mutex<f64> = Mutex::new(0.0);
+    /// The models of answers that had no cost (no price, or no usage):
+    /// a capped run starts nothing more once there is one, since what it
+    /// spends is no longer known. Never taken.
+    static UNPRICED: Mutex<std::collections::BTreeSet<String>> =
+        Mutex::new(std::collections::BTreeSet::new());
 
-    /// A successful answer's body: what it says it cost, kept.
-    pub(crate) fn charged(body: &[u8]) {
-        let cost = serde_json::from_slice::<serde_json::Value>(body)
-            .ok()
-            .and_then(|body| body["usage"]["cost"].as_f64());
+    /// A successful answer's body: what it cost, kept. `asked` is the
+    /// model the call named, for an answer that does not say.
+    pub(crate) fn charged(body: &[u8], asked: Option<&str>) {
+        let answered = serde_json::from_slice::<serde_json::Value>(body)
+            .map(|body| crate::services::ai_pricing::answered(&body, asked))
+            .unwrap_or_default();
+        let cost = answered.cost_usd;
+        if cost.is_none() {
+            let model = if answered.model.is_empty() {
+                "a model the answer did not name".to_string()
+            } else {
+                answered.model
+            };
+            UNPRICED
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .insert(model);
+        }
         let mut charged = CHARGED
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -451,6 +471,18 @@ pub(crate) mod spent {
         let limit: f64 = std::env::var("MEROPE_BENCH_SPEND_LIMIT")
             .ok()
             .and_then(|limit| limit.parse().ok())?;
+        let unpriced = UNPRICED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        if !unpriced.is_empty() {
+            return Some(format!(
+                "an answer had no cost (no price or no usage): {}",
+                unpriced.join(", ")
+            ));
+        }
         let spent = charged_so_far();
         (spent > limit).then(|| format!("charged ${spent:.4} past the limit ${limit}"))
     }
