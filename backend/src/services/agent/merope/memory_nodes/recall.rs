@@ -23,7 +23,7 @@ use chrono::{DateTime, Utc};
 use myriad_merope::remembering::Cues;
 use myriad_nodes::{
     listing::{self, ListEntry, ListInput, ListNode, RangeInput},
-    recall::{self, PickEntry, PickInput, PickNode, Ranked},
+    recall::{self, PickEntry, PickInput, PickNode, PickStanding, Ranked},
 };
 
 use super::shown::{Entry, Shown, cited};
@@ -150,6 +150,52 @@ impl Lines<'_> {
         };
         (line, shown)
     }
+
+    /// How one thing on `node` stands now (`node.standing` `item`), dated
+    /// the day it was written; what a rule wrote from what a device told
+    /// says so, for it is only seen, not known.
+    fn standing(&self, node: &super::shown::Node, item: &str) -> Option<(String, String)> {
+        let standing = node.head.get("standing")?.get(item)?;
+        let text = standing.get("value")?.get("text")?.as_str()?.trim();
+        if text.is_empty() {
+            return None;
+        }
+        let day = DateTime::from_timestamp_micros(standing.get("at")?.as_i64()?)
+            .unwrap_or_default()
+            .with_timezone(&self.zone);
+        let line = match standing.get("author").and_then(|author| author.as_str()) {
+            Some("rule") => format!(
+                "[{}] now: {text} (as their computer told it)",
+                day.format("%m-%d")
+            ),
+            _ => format!("[{}] now: {text}", day.format("%m-%d")),
+        };
+        Some((line.clone(), line))
+    }
+}
+
+/// What stands now on a node as the fold gave it: each item of its
+/// `standing`, when it was written, and whether the whole of it ended.
+fn standing_of(head: &serde_json::Value) -> Vec<PickStanding> {
+    head.get("standing")
+        .and_then(|standing| standing.as_object())
+        .map(|standing| {
+            standing
+                .iter()
+                .filter_map(|(item, version)| {
+                    Some(PickStanding {
+                        item: item.clone(),
+                        at: version.get("at")?.as_i64()?,
+                        ended: version
+                            .get("value")
+                            .and_then(|value| value.get("ended"))
+                            .and_then(|ended| ended.as_bool())
+                            .unwrap_or(false),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn pick_node(shown: &Shown, node: &super::shown::Node) -> PickNode {
@@ -166,6 +212,7 @@ fn pick_node(shown: &Shown, node: &super::shown::Node) -> PickNode {
                 at: shown.learned(entry),
             })
             .collect(),
+        standing: standing_of(&node.head),
     }
 }
 
@@ -295,10 +342,16 @@ fn recollect_within(
         }
     };
     for picked in &pick.picked {
-        let name = shown
-            .node(&picked.node)
+        let node = shown.node(&picked.node);
+        let name = node
             .and_then(|node| node.name.as_deref())
             .unwrap_or_default();
+        // How it stands now comes before what happened on it.
+        for item in &picked.standing {
+            if let Some(line) = node.and_then(|node| lines.standing(node, item)) {
+                push(line, name);
+            }
+        }
         for id in &picked.entries {
             if let Some(entry) = find(shown, &picked.node, id) {
                 push(lines.of(id, &entry.text, entry.at), name);
@@ -311,6 +364,13 @@ fn recollect_within(
         }
     }
     if let Some(about) = &own.about {
+        if let Some(node) = shown.node(about) {
+            for item in &pick.about_them_standing {
+                if let Some(line) = lines.standing(node, item) {
+                    push(line, "");
+                }
+            }
+        }
         for id in &pick.about_them {
             if let Some(entry) = find(shown, about, id) {
                 push(lines.of(id, &entry.text, entry.at), "");
