@@ -283,6 +283,9 @@ impl AiAnalyzer {
             .map_err(|e| anyhow::anyhow!(e))?;
         #[cfg(test)]
         crate::services::ai_cost_ledger::spent::charged(&bytes, None);
+        if let Ok(answer) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+            crate::services::ai_cost_ledger::note_answer(&answer, None);
+        }
         serde_json::from_slice(&bytes).context("Failed to parse Gemini JSON")
     }
 
@@ -510,28 +513,42 @@ impl AiAnalyzer {
         let input_chars = serde_json::to_string(profile_data)
             .map(|s| s.len())
             .unwrap_or(0);
-        let result = match self.provider {
-            AiProvider::Gemini => self.analyze_with_gemini(prompt).await,
-            AiProvider::OpenAI => self.analyze_with_openai(prompt).await,
-            AiProvider::OpenAIResponses | AiProvider::Anthropic => {
-                self.analyze_with_text_protocol("", &[ChatMessage::user(prompt)])
-                    .await
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(async {
+            match self.provider {
+                AiProvider::Gemini => self.analyze_with_gemini(prompt).await,
+                AiProvider::OpenAI => self.analyze_with_openai(prompt).await,
+                AiProvider::OpenAIResponses | AiProvider::Anthropic => {
+                    self.analyze_with_text_protocol("", &[ChatMessage::user(prompt)])
+                        .await
+                }
             }
-        };
-        self.note_ledger(input_chars, &result).await;
+        })
+        .await;
+        self.note_ledger(input_chars, &result, reported.as_ref())
+            .await;
         result
     }
 
     /// Best-effort site-wide cost ledger. Writes even without attribution
     /// (`source=internal`). Governed Tapp+scheduler paths suppress this hook.
-    async fn note_ledger(&self, input_chars: usize, result: &Result<String, anyhow::Error>) {
+    ///
+    /// `reported` is what the call's answers said they used
+    /// ([`crate::services::ai_cost_ledger::reporting`]): real tokens and
+    /// cost when there is one, else the length/4 estimate.
+    async fn note_ledger(
+        &self,
+        input_chars: usize,
+        result: &Result<String, anyhow::Error>,
+        reported: Option<&crate::services::ai_cost_ledger::Reported>,
+    ) {
         match result {
             Ok(text) => {
-                crate::services::ai_cost_ledger::record_ai_call_from_attribution(
+                crate::services::ai_cost_ledger::record_ai_call_reported(
                     self.provider.as_str(),
                     &self.model,
                     input_chars,
                     text.len(),
+                    reported,
                     "completed",
                     None,
                 )
@@ -542,11 +559,12 @@ impl AiAnalyzer {
                 crate::services::ai_cost_ledger::spent::because(&self.model, error);
                 #[cfg(not(test))]
                 let _ = error;
-                crate::services::ai_cost_ledger::record_ai_call_from_attribution(
+                crate::services::ai_cost_ledger::record_ai_call_reported(
                     self.provider.as_str(),
                     &self.model,
                     input_chars,
                     0,
+                    reported,
                     "failed",
                     Some("AI_PROVIDER_ERROR"),
                 )
@@ -798,7 +816,7 @@ impl AiAnalyzer {
                 // A memory bench asks again what the network dropped
                 // (`ai_cost_ledger::once_or_again`); everything else asks once.
                 let (url, request_body) = (&url, &request_body);
-                let result = crate::services::ai_cost_ledger::once_or_again(
+                let (result, reported) = crate::services::ai_cost_ledger::reporting(crate::services::ai_cost_ledger::once_or_again(
                     &self.model,
                     move || async move {
                         let response = self
@@ -842,16 +860,22 @@ impl AiAnalyzer {
                         Ok(Err(error)) => Some((None, error)),
                         _ => None,
                     },
-                )
-                .await?;
-                self.note_ledger(input_chars, &result).await;
+                ))
+                .await;
+                let result = result?;
+                self.note_ledger(input_chars, &result, reported.as_ref())
+                    .await;
                 result
             }
             AiProvider::OpenAIResponses | AiProvider::Anthropic => {
                 let input_chars =
                     system.len() + messages.iter().map(|m| m.content.len()).sum::<usize>();
-                let result = self.analyze_with_text_protocol(system, &messages).await;
-                self.note_ledger(input_chars, &result).await;
+                let (result, reported) = crate::services::ai_cost_ledger::reporting(
+                    self.analyze_with_text_protocol(system, &messages),
+                )
+                .await;
+                self.note_ledger(input_chars, &result, reported.as_ref())
+                    .await;
                 result
             }
         }
@@ -893,63 +917,65 @@ impl AiAnalyzer {
         } else {
             JsonMode::Structured(schema)
         };
-        let deep = self.deep_thinking_param().is_some();
-        let light = self.light_thinking_param().is_some();
-        let mut result = self
-            .analyze_json_inner(system, prompt, schema_name, mode, None)
-            .await;
-
-        // Drop a refused thinking parameter before trying without JSON
-        // enforcement: rejecting one says nothing about the other.
-        if deep
-            && result
-                .as_ref()
-                .is_err_and(ProviderCallFailure::rejected_request)
-        {
-            self.remember_refusal(RequestShape::DeepThinking);
-            result = self
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(async {
+            let deep = self.deep_thinking_param().is_some();
+            let light = self.light_thinking_param().is_some();
+            let mut result = self
                 .analyze_json_inner(system, prompt, schema_name, mode, None)
                 .await;
-        }
 
-        // The think-little parameter goes first: a refusal of it says
-        // nothing about structured output.
-        if light
-            && result
-                .as_ref()
-                .is_err_and(ProviderCallFailure::rejected_request)
-        {
-            self.remember_refusal(RequestShape::LightThinking);
-            result = self
-                .analyze_json_inner(system, prompt, schema_name, mode, None)
-                .await;
-        }
-
-        if let Err(ref failure) = result {
-            if matches!(mode, JsonMode::Structured(_)) && failure.rejected_request() {
-                self.remember_refusal(RequestShape::StructuredOutput);
-                tracing::warn!(
-                    provider = self.provider.as_str(),
-                    model = %self.model,
-                    status = ?failure.status,
-                    "[AiAnalyzer] Endpoint rejected structured output; retrying prompt-only"
-                );
+            // Drop a refused thinking parameter before trying without JSON
+            // enforcement: rejecting one says nothing about the other.
+            if deep
+                && result
+                    .as_ref()
+                    .is_err_and(ProviderCallFailure::rejected_request)
+            {
+                self.remember_refusal(RequestShape::DeepThinking);
                 result = self
-                    .analyze_json_inner(
-                        system,
-                        prompt,
-                        schema_name,
-                        JsonMode::PromptOnly(schema),
-                        None,
-                    )
+                    .analyze_json_inner(system, prompt, schema_name, mode, None)
                     .await;
             }
-        }
 
-        let result = result.map_err(ProviderCallFailure::into_error);
+            // The think-little parameter goes first: a refusal of it says
+            // nothing about structured output.
+            if light
+                && result
+                    .as_ref()
+                    .is_err_and(ProviderCallFailure::rejected_request)
+            {
+                self.remember_refusal(RequestShape::LightThinking);
+                result = self
+                    .analyze_json_inner(system, prompt, schema_name, mode, None)
+                    .await;
+            }
+
+            if let Err(ref failure) = result {
+                if matches!(mode, JsonMode::Structured(_)) && failure.rejected_request() {
+                    self.remember_refusal(RequestShape::StructuredOutput);
+                    tracing::warn!(
+                        provider = self.provider.as_str(),
+                        model = %self.model,
+                        status = ?failure.status,
+                        "[AiAnalyzer] Endpoint rejected structured output; retrying prompt-only"
+                    );
+                    result = self
+                        .analyze_json_inner(
+                            system,
+                            prompt,
+                            schema_name,
+                            JsonMode::PromptOnly(schema),
+                            None,
+                        )
+                        .await;
+                }
+            }
+            result.map_err(ProviderCallFailure::into_error)
+        })
+        .await;
         crate::services::ai_cost_ledger::as_step(
             schema_name,
-            self.note_ledger(input_chars, &result),
+            self.note_ledger(input_chars, &result, reported.as_ref()),
         )
         .await;
         result
@@ -989,46 +1015,48 @@ impl AiAnalyzer {
             Some(budget)
         };
 
-        let mut result = self
-            .analyze_json_inner(system, prompt, schema_name, mode, extras)
-            .await;
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(async {
+            let mut result = self
+                .analyze_json_inner(system, prompt, schema_name, mode, extras)
+                .await;
 
-        if extras.is_some()
-            && result
-                .as_ref()
-                .is_err_and(ProviderCallFailure::rejected_request)
-        {
-            self.remember_refusal(RequestShape::Extras);
-            // The same parameter would ride again without the budget.
-            if self.light_thinking {
-                self.remember_refusal(RequestShape::LightThinking);
+            if extras.is_some()
+                && result
+                    .as_ref()
+                    .is_err_and(ProviderCallFailure::rejected_request)
+            {
+                self.remember_refusal(RequestShape::Extras);
+                // The same parameter would ride again without the budget.
+                if self.light_thinking {
+                    self.remember_refusal(RequestShape::LightThinking);
+                }
+                result = self
+                    .analyze_json_inner(system, prompt, schema_name, mode, None)
+                    .await;
             }
-            result = self
-                .analyze_json_inner(system, prompt, schema_name, mode, None)
-                .await;
-        }
 
-        if matches!(mode, JsonMode::Structured(_))
-            && result
-                .as_ref()
-                .is_err_and(ProviderCallFailure::rejected_request)
-        {
-            self.remember_refusal(RequestShape::StructuredOutput);
-            result = self
-                .analyze_json_inner(
-                    system,
-                    prompt,
-                    schema_name,
-                    JsonMode::PromptOnly(schema),
-                    None,
-                )
-                .await;
-        }
-
-        let result = result.map_err(ProviderCallFailure::into_error);
+            if matches!(mode, JsonMode::Structured(_))
+                && result
+                    .as_ref()
+                    .is_err_and(ProviderCallFailure::rejected_request)
+            {
+                self.remember_refusal(RequestShape::StructuredOutput);
+                result = self
+                    .analyze_json_inner(
+                        system,
+                        prompt,
+                        schema_name,
+                        JsonMode::PromptOnly(schema),
+                        None,
+                    )
+                    .await;
+            }
+            result.map_err(ProviderCallFailure::into_error)
+        })
+        .await;
         crate::services::ai_cost_ledger::as_step(
             schema_name,
-            self.note_ledger(input_chars, &result),
+            self.note_ledger(input_chars, &result, reported.as_ref()),
         )
         .await;
         result
@@ -1055,17 +1083,21 @@ impl AiAnalyzer {
         }
 
         let input_chars = system.len() + prompt.len();
-        let streamed = if self.provider == AiProvider::OpenAI {
-            self.analyze_json_streaming_openai(system, prompt, schema_name, schema, on_delta)
-                .await
-        } else {
-            self.analyze_json_streaming_protocol(system, prompt, schema_name, schema, on_delta)
-                .await
-        };
+        let (streamed, reported) = crate::services::ai_cost_ledger::reporting(async {
+            if self.provider == AiProvider::OpenAI {
+                self.analyze_json_streaming_openai(system, prompt, schema_name, schema, on_delta)
+                    .await
+            } else {
+                self.analyze_json_streaming_protocol(system, prompt, schema_name, schema, on_delta)
+                    .await
+            }
+        })
+        .await;
         match streamed {
             Ok(text) => {
                 let result = Ok(text);
-                self.note_ledger(input_chars, &result).await;
+                self.note_ledger(input_chars, &result, reported.as_ref())
+                    .await;
                 result
             }
             Err(failure) if failure.rejected_request() => {
@@ -1424,8 +1456,11 @@ impl AiAnalyzer {
         Fut: Future<Output = bool> + Send,
     {
         let input_chars = prompt.len();
-        let result = self.analyze_stream_inner(prompt, on_delta).await;
-        self.note_ledger(input_chars, &result).await;
+        let (result, reported) =
+            crate::services::ai_cost_ledger::reporting(self.analyze_stream_inner(prompt, on_delta))
+                .await;
+        self.note_ledger(input_chars, &result, reported.as_ref())
+            .await;
         result
     }
 
@@ -1459,8 +1494,12 @@ impl AiAnalyzer {
             return self.analyze_stream_parts(prompt, on_delta).await;
         }
         let input_chars = prompt.len() + images.len() * IMAGE_INPUT_CHARS;
-        let result = self.analyze_stream_images(prompt, images, on_delta).await;
-        self.note_ledger(input_chars, &result).await;
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(
+            self.analyze_stream_images(prompt, images, on_delta),
+        )
+        .await;
+        self.note_ledger(input_chars, &result, reported.as_ref())
+            .await;
         result
     }
 
@@ -1507,10 +1546,12 @@ impl AiAnalyzer {
                 .map(|message| message.content.len())
                 .sum::<usize>()
             + images.len() * IMAGE_INPUT_CHARS;
-        let result = self
-            .analyze_stream_messages(system, messages, images, on_delta)
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(
+            self.analyze_stream_messages(system, messages, images, on_delta),
+        )
+        .await;
+        self.note_ledger(input_chars, &result, reported.as_ref())
             .await;
-        self.note_ledger(input_chars, &result).await;
         result
     }
 

@@ -99,6 +99,39 @@ impl SseLines {
     }
 }
 
+/// The usage a stream reports, field by field the largest seen: Anthropic
+/// says the prompt in `message_start` (under `message`) and the output so
+/// far in each `message_delta`; OpenAI-compatible streams say both in a
+/// last chunk. Noted for the call's ledger row when the stream is dropped.
+#[derive(Default)]
+struct StreamUsage {
+    usage: Option<crate::services::ai_pricing::Usage>,
+    model: Option<String>,
+}
+
+impl StreamUsage {
+    fn read(&mut self, event: &serde_json::Value) {
+        let event = event.get("message").unwrap_or(event);
+        if let Some(model) = event.get("model").and_then(serde_json::Value::as_str) {
+            self.model = Some(model.to_string());
+        }
+        if let Some(usage) = crate::services::ai_pricing::usage_of(event) {
+            self.usage.get_or_insert_default().widen(usage);
+        }
+    }
+}
+
+impl Drop for StreamUsage {
+    fn drop(&mut self) {
+        if let Some(usage) = self.usage {
+            crate::services::ai_cost_ledger::note_usage(
+                self.model.as_deref().unwrap_or_default(),
+                usage,
+            );
+        }
+    }
+}
+
 pub(super) async fn consume_text_sse<F, Fut>(
     mut response: reqwest::Response,
     mut on_delta: F,
@@ -112,6 +145,9 @@ where
     let mut full_text = String::new();
     let mut decoded_bytes = 0usize;
     let mut finished = false;
+    // What the stream said it used, kept for the call's ledger row however
+    // the stream ends.
+    let mut used = StreamUsage::default();
     while let Some(chunk) = response.chunk().await.context("Stream read error")? {
         lines.push(&chunk)?;
         while let Some(line) = lines.next_line() {
@@ -125,6 +161,7 @@ where
             let Ok(json) = serde_json::from_slice::<serde_json::Value>(data) else {
                 continue;
             };
+            used.read(&json);
             match stream_end(&json) {
                 Some(Err(message)) => bail!("AI stream reported an error: {message}"),
                 // The last event may still carry text: take it, then finish.
