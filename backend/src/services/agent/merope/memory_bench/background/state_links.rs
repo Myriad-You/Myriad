@@ -36,13 +36,6 @@ async fn which_known_things_a_new_fact_ends() {
     let report = std::env::var("MEROPE_MEMORY_BENCH_REPORT").expect("report path");
     let url = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL").expect("test database");
     let (judge, _) = longmemeval::the_models().await;
-    let holds = |any: &Value, line: &str| {
-        any.as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .any(|word| word.split('&').all(|part| line.contains(part)))
-    };
     for row in rows
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
@@ -58,62 +51,10 @@ async fn which_known_things_a_new_fact_ends() {
         let Some(schema) = row["keptWritten"]["schema"].as_str() else {
             continue;
         };
-        let copy = restore(&url, schema).await;
-        // A kept copy has their rows but not the background's bookkeeping.
-        let user_id = copy
-            .db
-            .query_one_raw(Statement::from_string(
-                DatabaseBackend::Postgres,
-                "SELECT user_id FROM agent_memories GROUP BY user_id ORDER BY count(*) DESC LIMIT 1",
-            ))
-            .await
-            .unwrap()
-            .expect("someone she keeps memories of")
-            .try_get::<i32>("", "user_id")
-            .unwrap();
-        // The question's own, written after the background.
-        let own: Vec<String> = copy
-            .db
-            .query_all_raw(Statement::from_string(
-                DatabaseBackend::Postgres,
-                "SELECT content FROM agent_memories WHERE invalid_at IS NULL \
-                 AND created_at >= '2026-10-16T00:00:00+09:00' ORDER BY created_at, id",
-            ))
-            .await
-            .unwrap()
-            .into_iter()
-            .filter_map(|row| row.try_get::<String>("", "content").ok())
-            .collect();
-        let Some(fact) = own
-            .iter()
-            .find(|line| holds(&row["needs"][0]["any"], line))
-            .cloned()
-        else {
+        let Some(NewFact { copy, fact, known }) = new_fact(&url, schema, &row).await else {
             longmemeval::keep_partial(&report, &json!({"id": id, "written": false}));
-            copy.drop().await;
             continue;
         };
-        let (found, _) = super::super::super::store::recall_remembered_primed(
-            &copy.db,
-            user_id,
-            &crate::services::agent::memory::unified::Audience::private(user_id),
-            Some(&fact),
-            16,
-            &Priming::default(),
-            1.0,
-        )
-        .await
-        .unwrap_or_default();
-        let known: Vec<String> = found
-            .into_iter()
-            .filter(|line| {
-                !own.iter().any(|mine| {
-                    let head: String = mine.chars().take(16).collect();
-                    line.contains(&head)
-                })
-            })
-            .take(8)
-            .collect();
         let input = json!({
             "fact": fact,
             "known": known.iter().enumerate()
@@ -159,4 +100,86 @@ async fn which_known_things_a_new_fact_ends() {
         );
         copy.drop().await;
     }
+}
+
+/// Whether `line` holds one of the words of `any` (`a&b`: both).
+pub(super) fn holds(any: &Value, line: &str) -> bool {
+    any.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .any(|word| word.split('&').all(|part| line.contains(part)))
+}
+
+/// What a question's kept copy is asked about: the new fact its own
+/// sessions left (the first of them that holds what the question needs
+/// first), and the eight known things from before that meaning brings to it.
+pub(super) struct NewFact {
+    pub(super) copy: crate::db::IsolatedSchema,
+    pub(super) fact: String,
+    pub(super) known: Vec<String>,
+}
+
+/// The new fact of the question of `row`, read from a copy of `schema`;
+/// None, the copy dropped, when its own sessions left none.
+pub(super) async fn new_fact(url: &str, schema: &str, row: &Value) -> Option<NewFact> {
+    let copy = restore(url, schema).await;
+    let user_id = person_in(&copy.db).await;
+    // The question's own, written after the background.
+    let own: Vec<String> = copy
+        .db
+        .query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT content FROM agent_memories WHERE invalid_at IS NULL \
+             AND created_at >= '2026-10-16T00:00:00+09:00' ORDER BY created_at, id",
+        ))
+        .await
+        .unwrap()
+        .into_iter()
+        .filter_map(|row| row.try_get::<String>("", "content").ok())
+        .collect();
+    let Some(fact) = own
+        .iter()
+        .find(|line| holds(&row["needs"][0]["any"], line))
+        .cloned()
+    else {
+        copy.drop().await;
+        return None;
+    };
+    let (found, _) = super::super::super::store::recall_remembered_primed(
+        &copy.db,
+        user_id,
+        &crate::services::agent::memory::unified::Audience::private(user_id),
+        Some(&fact),
+        16,
+        &Priming::default(),
+        1.0,
+    )
+    .await
+    .unwrap_or_default();
+    let known: Vec<String> = found
+        .into_iter()
+        .filter(|line| {
+            !own.iter().any(|mine| {
+                let head: String = mine.chars().take(16).collect();
+                line.contains(&head)
+            })
+        })
+        .take(8)
+        .collect();
+    Some(NewFact { copy, fact, known })
+}
+
+/// The person a kept copy keeps memories of: a kept copy has their rows
+/// but not the background's bookkeeping.
+pub(super) async fn person_in(db: &sea_orm::DatabaseConnection) -> i32 {
+    db.query_one_raw(Statement::from_string(
+        DatabaseBackend::Postgres,
+        "SELECT user_id FROM agent_memories GROUP BY user_id ORDER BY count(*) DESC LIMIT 1",
+    ))
+    .await
+    .unwrap()
+    .expect("someone she keeps memories of")
+    .try_get::<i32>("", "user_id")
+    .unwrap()
 }
