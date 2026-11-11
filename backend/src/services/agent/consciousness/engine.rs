@@ -166,7 +166,13 @@ pub async fn consider_event(
     {
         Ok(Ok(raw)) => raw,
         Ok(Err(error)) => {
-            tracing::warn!(%error, event_id = event.id, "[Consciousness] Lite decision failed");
+            // The whole chain: "error sending request" alone does not say
+            // whether the connection was refused, reset or never made.
+            tracing::warn!(
+                error = %format_args!("{error:#}"),
+                event_id = event.id,
+                "[Consciousness] Lite decision failed"
+            );
             return Ok(None);
         }
         Err(_) => {
