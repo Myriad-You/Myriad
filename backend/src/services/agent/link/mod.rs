@@ -56,6 +56,7 @@ mod contract;
 mod conversations;
 mod experience;
 mod moment;
+mod moment_repeats;
 mod nodes;
 mod notices;
 mod outfit;

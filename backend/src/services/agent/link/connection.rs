@@ -1425,9 +1425,17 @@ impl Link {
         let written = super::moment::write(&self.db, self.owner, &self.device.id, &id).await;
         super::moment::end(&self.device.id, &id);
         match written {
+            // Taken either way; it reaches her only when it is news.
             Ok(()) => {
-                tracing::info!(device = %self.device.id, kind = %moment.kind, "[link] moment taken");
-                super::moment::hand_over(self.owner, &self.device.id, &id, moment);
+                match super::moment_repeats::pass(&self.device.id, &moment) {
+                    super::moment_repeats::Passing::Reaches => {
+                        tracing::info!(device = %self.device.id, kind = %moment.kind, "[link] moment taken");
+                        super::moment::hand_over(self.owner, &self.device.id, &id, moment);
+                    }
+                    held => {
+                        tracing::debug!(device = %self.device.id, kind = %moment.kind, ?held, "[link] moment taken, not handed to her");
+                    }
+                }
                 self.reply(super::moment::taken_frame(&id));
             }
             // Not taken: the child keeps it and sends it again on its next link.

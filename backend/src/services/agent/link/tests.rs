@@ -3036,6 +3036,22 @@ async fn what_the_app_saw_reaches_her_once() {
     child.expect("moment.taken").await;
     assert!(handed("mom_2")[0].2.keeps_memory);
 
+    // The same thing told again under another id: taken, but it is no news
+    // to her, so it does not reach her.
+    child
+        .send(
+            "moment",
+            Some("mom_1b"),
+            moment_body(gates::PEER_AGENT_EVENT),
+        )
+        .await;
+    assert_eq!(
+        child.expect("moment.taken").await["body"],
+        json!({ "id": "mom_1b" })
+    );
+    assert!(super::moment::was_taken(&site.db, &mac.id, "mom_1b").await);
+    assert!(handed("mom_1b").is_empty());
+
     // Not one: what it cannot read is said so, and nothing is taken.
     let mut unknown = moment_body(gates::PEER_AGENT_EVENT);
     unknown["kind"] = "agent.merope.thought".into();
