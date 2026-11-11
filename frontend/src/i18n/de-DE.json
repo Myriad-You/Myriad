@@ -748,6 +748,12 @@
       "kicker": "Stimmung"
     },
     "send": "Senden",
+    "search": {
+      "label": "Suche auf der Website",
+      "placeholder": "Auf der Website suchen…",
+      "posts": "Beiträge",
+      "library": "Bibliothek"
+    },
     "attach": {
       "kind": "Datei",
       "add": "Anhang hinzufügen",
@@ -782,7 +788,6 @@
     "executionFailed": "Ausführung fehlgeschlagen",
     "failReason": "Fehler: {reason}",
     "interrupted": "Unterbrochen",
-    "loginRequiredHint": "Anmelden, um mit Agent zu chatten. Als Gast nur ansehen.",
     "requestTimeout": "Anfrage abgelaufen oder unterbrochen",
     "streamError": "Antwortstrom ließ sich nicht lesen",
     "taskCompleted": "Aufgabe erledigt",

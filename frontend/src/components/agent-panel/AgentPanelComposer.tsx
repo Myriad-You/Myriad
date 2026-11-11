@@ -11,7 +11,7 @@ import React, {
   useRef,
   useState,
 } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
 import { figureChannel } from '../../features/merope/figureChannel'
@@ -25,6 +25,11 @@ import { AGENT_ATTACH_ACCEPT, collectAttachments } from './agentAttachments'
 import { dispatchAgentPanelCommand } from './agentPanelEvents'
 import { AgentPanelFace } from './AgentPanelFace'
 import { setAgentPanelMode, useAgentPanelMode } from './agentPanelMode'
+import {
+  AgentPanelSearchResults,
+  firstSiteResult,
+  LIBRARY_PATH,
+} from './AgentPanelSearchResults'
 import { AGENT_SWAP_MS } from './agentPresenceState'
 import { agentStatusForLane } from './agentStatus'
 import {
@@ -46,10 +51,14 @@ import { useAddresseeMoodBand } from './useAddresseeMood'
 import { useAgentPanelContext } from './useAgentPanelContext'
 import { AgentPresence, AgentPresenceList, AgentSwap } from './useAgentPresence'
 import { LONG_PRESS_DURATION } from './useLongPress'
+import { hasSiteResults, useSiteSearch } from './useSiteSearch'
 import { useTagStripScroll } from './useTagStripScroll'
 import { useVoiceRecording } from './useVoiceRecording'
 
 const FIELD_MAX_PX = 168
+
+/** A visitor cannot ask her anything: what would be sent goes nowhere. */
+const IGNORE_SUBMIT: AgentPanelComposerProps['onSubmit'] = () => {}
 
 function fitComposerField(el: HTMLTextAreaElement | null): void {
   if (!el) return
@@ -473,7 +482,8 @@ const ComposerTags = React.memo(({
       stop()
     }
   }, [isAuthenticated, resident])
-  const shortcuts = !resident
+  // Shortcuts send to her; a visitor cannot ask.
+  const shortcuts = !resident && isAuthenticated
 
   return (
     <div className="agent-panel-composer-tags" data-resident={resident ? 'true' : undefined}>
@@ -731,6 +741,10 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
   resident = false,
 }) => {
   const { t, locale } = useI18n()
+  const { isAuthenticated } = useAuth()
+  // Visitors search the site in the same field; only signed-in people ask her.
+  const canAsk = isAuthenticated
+  const navigate = useNavigate()
   const mode = useAgentPanelMode()
   const chatting = mode === 'chat'
   const fieldRef = useRef<HTMLTextAreaElement>(null)
@@ -754,6 +768,7 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
 
   const submit = useCallback(
     (text: string) => {
+      if (!canAsk) return
       const files = attachmentsRef.current
       if (!text.trim() && files.length === 0) return
       setValue('')
@@ -765,8 +780,18 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
       setFlung(true)
       onSubmit(text, files.length ? files : undefined)
     },
-    [onSubmit],
+    [canAsk, onSubmit],
   )
+
+  const searchResults = useSiteSearch(value, !resident)
+  const shownResults = hasSiteResults(searchResults) ? searchResults : null
+
+  const openFirstResult = useCallback(() => {
+    const href = shownResults ? firstSiteResult(shownResults) : null
+    if (!href) return
+    if (href === LIBRARY_PATH) navigate(href)
+    else window.location.assign(href)
+  }, [navigate, shownResults])
 
   const {
     speechAvailable,
@@ -797,6 +822,7 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
   }, [attachError])
 
   const addFiles = useCallback(async (list: Iterable<File>) => {
+    if (!canAsk) return
     const { attachments: next, error } = await collectAttachments(
       list,
       attachmentsRef.current,
@@ -804,7 +830,7 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
     attachmentsRef.current = next
     setAttachments(next)
     setAttachError(error)
-  }, [])
+  }, [canAsk])
 
   const removeAttachment = useCallback((id: string) => {
     setAttachments((prev) => {
@@ -820,19 +846,20 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
         return
       }
       event.preventDefault()
-      submit(value)
+      if (canAsk) submit(value)
+      else openFirstResult()
     },
-    [submit, value],
+    [canAsk, openFirstResult, submit, value],
   )
 
   const handlePaste = useCallback(
     (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
       const files = Iterator.from(event.clipboardData.files).toArray()
-      if (!files.length) return
+      if (!files.length || !canAsk) return
       event.preventDefault()
       void addFiles(files)
     },
-    [addFiles],
+    [addFiles, canAsk],
   )
 
   const handleDrop = useCallback(
@@ -855,18 +882,21 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
 
   const placeholder = resident
     ? t.agentPanel.residentPlaceholder
-    : mode === 'chat'
+    : !canAsk
+      ? t.agentPanel.search.placeholder
+      : mode === 'chat'
       ? t.agentPanel.chatPlaceholder
       : t.agentPanel.inputPlaceholder
 
   return (
     <div className="agent-panel-composer" data-mode={mode}>
+      {shownResults ? <AgentPanelSearchResults results={shownResults} /> : null}
       <ComposerTags
         mode={mode}
         resident={resident}
         leading={leading}
         trailing={trailing}
-        onSubmit={onSubmit}
+        onSubmit={canAsk ? onSubmit : IGNORE_SUBMIT}
         attachments={attachments}
         removeAttachment={removeAttachment}
         attachErrorLabel={attachErrorLabel}
@@ -899,7 +929,9 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
             }}
             onDrop={handleDrop}
           >
-            <ComposerAttach fileRef={fileRef} errorLabel={attachErrorLabel} />
+            {canAsk ? (
+              <ComposerAttach fileRef={fileRef} errorLabel={attachErrorLabel} />
+            ) : null}
             <textarea
               ref={fieldRef}
               className="agent-panel-field"
@@ -932,7 +964,7 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
           </div>
         </div>
 
-        <ComposerAction
+        {canAsk ? <ComposerAction
           hasText={hasText}
           hasAttachments={hasAttachments}
           value={value}
@@ -946,7 +978,7 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
           conversation={conversation}
           toggleRecording={toggleRecording}
           enterConversation={enterConversation}
-        />
+                  /> : null}
       </div>
     </div>
   )

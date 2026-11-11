@@ -1405,27 +1405,9 @@ export const AgentEngine: React.FC = () => {
         },
       )
 
-      // guest can open the panel; Agent still requires JWT
-      if (!isAuthenticated) {
-        const loginHint = t.agentPanel.loginRequiredHint
-        setMessages(
-          (prev) => [
-            ...prev,
-            {
-              id: `msg_guest_hint_${Date.now()}`,
-              sessionId: modeSessionId || '',
-              role: 'assistant',
-              content: loginHint,
-              createdAt: new Date(),
-            },
-          ],
-          mode,
-        )
-        window.setTimeout(() => {
-          navigate(`/login?redirect=${encodeURIComponent(location.pathname)}`)
-        }, 600)
-        return
-      }
+      // Visitors open the panel to search the site; only signed-in people ask
+      // her. The composer sends nothing for them, and nothing goes out here either.
+      if (!isAuthenticated) return
 
       if (mode === 'work' && pendingAnswerMsg && answerQuestionRef.current) {
         answerQuestionRef.current(pendingAnswerMsg.id, requestText)

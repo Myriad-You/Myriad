@@ -4039,3 +4039,69 @@ html.dark .agent-panel-aurora[data-status='error']::after {
   color: inherit;
   font: inherit;
 }
+
+/* 输入框上方的站内搜索结果：边输边出，访客也能用。 */
+.agent-panel-search {
+  max-height: min(40dvh, 320px);
+  overflow-y: auto;
+  margin: 0 0 8px;
+  padding: 6px;
+  border-radius: 16px;
+}
+
+.agent-panel-search ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-panel-search-heading {
+  margin: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.6;
+}
+
+.agent-panel-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.agent-panel-search-row[data-kind='library']:has(> .agent-panel-search-cover) {
+  grid-template-columns: 36px minmax(0, 1fr);
+  column-gap: 10px;
+}
+
+.agent-panel-search-row:hover,
+.agent-panel-search-row:focus-visible {
+  background: color-mix(in srgb, currentcolor 8%, transparent);
+}
+
+.agent-panel-search-cover {
+  grid-row: span 2;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.agent-panel-search-title,
+.agent-panel-search-excerpt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-panel-search-title {
+  font-size: 14px;
+}
+
+.agent-panel-search-excerpt {
+  font-size: 12px;
+  opacity: 0.65;
+}

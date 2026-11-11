@@ -748,6 +748,12 @@
       "kicker": "心情"
     },
     "send": "傳送",
+    "search": {
+      "label": "站內搜尋",
+      "placeholder": "搜尋站內內容…",
+      "posts": "文章",
+      "library": "收藏庫"
+    },
     "attach": {
       "kind": "附件",
       "add": "新增附件",
@@ -782,7 +788,6 @@
     "executionFailed": "執行失敗",
     "failReason": "失敗原因: {reason}",
     "interrupted": "已中斷",
-    "loginRequiredHint": "登入後即可與 Agent 對話。遊客模式僅可瀏覽。",
     "requestTimeout": "請求超時或已中斷",
     "streamError": "無法讀取響應流",
     "taskCompleted": "任務已完成",

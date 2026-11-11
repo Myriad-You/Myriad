@@ -331,6 +331,14 @@ pub(super) fn build_authenticated_router(
         // Library — 公开读站长资料库
         .route("/api/library", get(api::profile::get_library_data))
         .route("/api/library/lookup", get(api::profile::lookup_library_data))
+        // 站内搜索：访客也能用，按各模块的可见性过滤
+        .route(
+            "/api/search",
+            get(api::site_search::site_search).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::optional_auth_middleware,
+            )),
+        )
         .route(
             "/api/library/preferences",
             get(api::profile::get_library_source_preferences),

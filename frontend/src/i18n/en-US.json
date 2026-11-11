@@ -748,6 +748,12 @@
       "kicker": "Mood"
     },
     "send": "Send",
+    "search": {
+      "label": "Site search",
+      "placeholder": "Search this site…",
+      "posts": "Posts",
+      "library": "Library"
+    },
     "attach": {
       "kind": "File",
       "add": "Add attachment",
@@ -782,7 +788,6 @@
     "executionFailed": "Execution failed",
     "failReason": "Failure: {reason}",
     "interrupted": "Interrupted",
-    "loginRequiredHint": "Sign in to chat with Agent. Guest mode is view-only.",
     "requestTimeout": "Request timed out or interrupted",
     "streamError": "Unable to read response stream",
     "taskCompleted": "Task completed",
