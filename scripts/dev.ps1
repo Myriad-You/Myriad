@@ -1,4 +1,4 @@
-# ============================================
+﻿# ============================================
 # Myriad Development Script (Windows)
 # ============================================
 # Unified script for all development operations
@@ -145,7 +145,7 @@ function Get-DevDatabaseUrl {
     $dbUrl = "postgres://myriad:myriad_dev_password@localhost:5432/myriad"
     $envFile = Join-Path $projectRoot "backend\.env"
     if (Test-Path $envFile) {
-        $line = Select-String -Path $envFile -Pattern '^\s*DATABASE_URL\s*=' | Select-Object -Last 1
+        $line = Select-String -Path $envFile -Pattern '^\s*DATABASE_URL\s*=' -Encoding UTF8 | Select-Object -Last 1
         if ($line) {
             $dbUrl = ($line.Line -replace '^\s*DATABASE_URL\s*=\s*', '').Trim('"').Trim("'")
         }
@@ -309,7 +309,9 @@ UPDATE_TOKEN=$(Get-DevUpdaterToken)
 CHANNEL=stable
 CHECK_INTERVAL_SECS=0
 "@
-    Set-Content -Path (Join-Path $devUpdaterDir ".env") -Value $envText -Encoding UTF8
+    # 显式 UTF-8 无 BOM：PS5.1 的 Set-Content -Encoding UTF8 写 BOM、pwsh7 不写，
+    # .env / docker-compose.yml 不吃 BOM，必须固定为无 BOM（NewCosmos 同款写法）。
+    [System.IO.File]::WriteAllText((Join-Path $devUpdaterDir ".env"), $envText + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
 
     $guardEnvText = @"
 DOCKER_GUARD_IMAGE=myriad-updater-dev:v0.0.0-dev
@@ -319,7 +321,7 @@ GUARD_MYRIAD_ADMIN_NETWORK=myriad-dev-admin-net
 GUARD_MYRIAD_DOCKER_GUARD_NETWORK=myriad-dev-docker-guard-net
 MYRIAD_GUARD_ENV_FILE=guard-policy/docker-guard.env
 "@
-    Set-Content -Path (Join-Path $devUpdaterDir "guard-policy/docker-guard.env") -Value $guardEnvText -Encoding UTF8
+    [System.IO.File]::WriteAllText((Join-Path $devUpdaterDir "guard-policy/docker-guard.env"), $guardEnvText + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
 
     $composeText = @"
 services:
@@ -334,7 +336,7 @@ services:
   updater:
     image: example/myriad-updater:`${UPDATER_TAG}
 "@
-    Set-Content -Path (Join-Path $devUpdaterDir "docker-compose.yml") -Value $composeText -Encoding UTF8
+    [System.IO.File]::WriteAllText((Join-Path $devUpdaterDir "docker-compose.yml"), $composeText + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
 }
 
 function Start-Updater {
