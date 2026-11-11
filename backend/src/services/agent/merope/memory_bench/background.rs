@@ -504,7 +504,18 @@ async fn which_known_things_a_new_fact_ends() {
             continue;
         };
         let copy = restore(&url, schema).await;
-        let (user_id, _) = read_snapshot(&copy.db).await;
+        // A kept copy has their rows but not the background's bookkeeping.
+        let user_id = copy
+            .db
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT user_id FROM agent_memories GROUP BY user_id ORDER BY count(*) DESC LIMIT 1",
+            ))
+            .await
+            .unwrap()
+            .expect("someone she keeps memories of")
+            .try_get::<i32>("", "user_id")
+            .unwrap();
         // The question's own, written after the background.
         let own: Vec<String> = copy
             .db
