@@ -7,6 +7,7 @@ use serde_json::json;
 
 use crate::services::agent::AgentInteractionMode;
 
+use super::snapshot::Standing;
 use super::{
     AcceptSource, AutonomyGrantStore, ConsciousnessAction, ConsciousnessDecision,
     ConsciousnessEvent, IntentRecord, IntentStatus, IntentStore, SelfSnapshot,
@@ -32,16 +33,22 @@ pub struct Consideration {
 
 /// Cheap deterministic gate before any model call.
 pub fn pre_gate(event: &ConsciousnessEvent, snapshot: &SelfSnapshot) -> ConsciousnessGate {
-    if event.addressee_user_id <= 0
-        || event.kind.trim().is_empty()
-        || event.summary.trim().is_empty()
-    {
+    pre_gate_on(event, Standing::of(snapshot))
+}
+
+fn malformed(event: &ConsciousnessEvent) -> bool {
+    event.addressee_user_id <= 0 || event.kind.trim().is_empty() || event.summary.trim().is_empty()
+}
+
+/// The gate on what is read before anything that costs.
+fn pre_gate_on(event: &ConsciousnessEvent, standing: Standing) -> ConsciousnessGate {
+    if malformed(event) {
         return ConsciousnessGate::Drop;
     }
-    if snapshot.do_not_disturb {
+    if standing.do_not_disturb {
         return ConsciousnessGate::RememberOnly;
     }
-    if snapshot.has_active_work && !is_work_outcome(&event.kind) {
+    if standing.has_active_work && !is_work_outcome(&event.kind) {
         return ConsciousnessGate::RememberOnly;
     }
     ConsciousnessGate::Decide
@@ -58,11 +65,36 @@ pub async fn consider_event(
     let Some(_thought) = crate::services::her_log::pen::think() else {
         return Ok(None);
     };
-    let mut snapshot = capture_self_snapshot(
-        db,
+    if malformed(event) {
+        return Ok(None);
+    }
+    // What keeps her from judging it is read first: nothing is recalled (an
+    // embedding) for what she does not judge.
+    let standing = Standing::now(db, event.addressee_user_id).await?;
+    match pre_gate_on(event, standing) {
+        ConsciousnessGate::Drop => return Ok(None),
+        ConsciousnessGate::RememberOnly => {
+            record_attention(event, &event.summary);
+            // No model judged this to be a personal fact. The ingest caller
+            // retains the event ledger; do not promote it to persona memory.
+            return Ok(None);
+        }
+        ConsciousnessGate::Decide => {}
+    }
+    if !super::judging::may_judge(event).await {
+        return Ok(None);
+    }
+    // Her memories recalled for it are part of judging it, and paid as such.
+    let mut snapshot = crate::services::ai_cost_ledger::with_site_ai_ledger(
         event.addressee_user_id,
-        AgentInteractionMode::Chat,
-        &event.summary,
+        "consciousness",
+        "decide_event_recall",
+        capture_self_snapshot(
+            db,
+            event.addressee_user_id,
+            AgentInteractionMode::Chat,
+            &event.summary,
+        ),
     )
     .await?;
     // Whether to speak up is hers to judge from what the shared core tells
@@ -72,16 +104,6 @@ pub async fn consider_event(
     {
         snapshot.speaking = facts;
         snapshot.said_unasked_lately.clear();
-    }
-    match pre_gate(event, &snapshot) {
-        ConsciousnessGate::Drop => return Ok(None),
-        ConsciousnessGate::RememberOnly => {
-            record_attention(event, &event.summary);
-            // No model judged this to be a personal fact. The ingest caller
-            // retains the event ledger; do not promote it to persona memory.
-            return Ok(None);
-        }
-        ConsciousnessGate::Decide => {}
     }
 
     // A touch decision's speech plays as she wrote it: her own voice. Every
@@ -588,7 +610,7 @@ mod tests {
             .next()
             .unwrap();
         let gate = production
-            .split("match pre_gate(event, &snapshot)")
+            .split("match pre_gate_on(event, standing)")
             .nth(1)
             .unwrap()
             .split("ConsciousnessGate::Decide =>")
@@ -601,6 +623,27 @@ mod tests {
         let ingest = include_str!("../merope/ingest/produce.rs");
         // What she let pass is not written to a diary nobody reads.
         assert!(!ingest.contains("DIARY_SOURCE_EVENT"));
+    }
+
+    /// Her memories are recalled for an event (an embedding) only once she
+    /// will judge it, and that recall is paid as part of judging it.
+    #[test]
+    fn nothing_is_recalled_for_what_she_does_not_judge() {
+        let production = include_str!("engine.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let considered = production
+            .split("pub async fn consider_event(")
+            .nth(1)
+            .unwrap();
+        let at = |needle: &str| considered.find(needle).expect(needle);
+        assert!(at("Standing::now(") < at("match pre_gate_on(event, standing)"));
+        assert!(at("match pre_gate_on(event, standing)") < at("judging::may_judge(event)"));
+        assert!(at("judging::may_judge(event)") < at("capture_self_snapshot("));
+        let recall = &considered[..at("capture_self_snapshot(")];
+        assert!(recall.contains("with_site_ai_ledger("));
+        assert!(recall.contains("\"consciousness\""));
     }
 
     #[test]

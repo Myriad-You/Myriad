@@ -11,6 +11,7 @@ mod dispatch;
 mod engine;
 mod grant;
 mod grant_store;
+mod judging;
 mod policy;
 mod presence;
 mod snapshot;

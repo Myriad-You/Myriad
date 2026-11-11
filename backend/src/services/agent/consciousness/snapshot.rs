@@ -25,6 +25,31 @@ pub(crate) async fn said_unasked_lately(db: &DatabaseConnection, user_id: i32) -
         .collect()
 }
 
+/// What keeps her from judging an event at all, read before anything that
+/// costs: before her memories are recalled for it (an embedding).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct Standing {
+    pub(super) do_not_disturb: bool,
+    pub(super) has_active_work: bool,
+}
+
+impl Standing {
+    pub(super) fn of(snapshot: &SelfSnapshot) -> Self {
+        Self {
+            do_not_disturb: snapshot.do_not_disturb,
+            has_active_work: snapshot.has_active_work,
+        }
+    }
+
+    pub(super) async fn now(db: &DatabaseConnection, user_id: i32) -> Result<Self, anyhow::Error> {
+        let state = merope::get_or_create_state(db, user_id).await?;
+        Ok(Self {
+            do_not_disturb: merope::effective_do_not_disturb(&state),
+            has_active_work: run_hub::user_has_executing_run(user_id).await,
+        })
+    }
+}
+
 /// Capture trusted state immediately before an autonomy decision.
 ///
 /// Permission names come only from the runtime grant filter. No host secret,
