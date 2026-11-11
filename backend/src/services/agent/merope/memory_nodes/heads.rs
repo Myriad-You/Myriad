@@ -73,6 +73,22 @@ pub(crate) async fn rows_of<C: ConnectionTrait>(
         .collect()
 }
 
+/// A node a rule made that holds nothing and has no part standing: a
+/// repository whose sessions' grants were all dropped. Its name stays for
+/// the sessions of a later grant (a node forgotten whole never comes back
+/// under its key), and it is shown nowhere: not recalled, not in what she
+/// is told, not on the page.
+fn empty_by_rule(node: &Node) -> bool {
+    node.created_by == Some(myriad_persona_log::row::Author::Rule)
+        && node.entries.is_empty()
+        && node.spans.is_empty()
+        && node.views.is_empty()
+        && node.open.is_empty()
+        && node.standing.is_empty()
+        && node.intents.is_empty()
+        && node.parts.is_none_or(|parts| parts.total == 0)
+}
+
 fn word<T: serde::Serialize>(value: &T) -> Option<String> {
     serde_json::to_value(value)
         .ok()
@@ -80,10 +96,14 @@ fn word<T: serde::Serialize>(value: &T) -> Option<String> {
 }
 
 /// Where a node stands, in one word: gone (`forgotten`, `retracted`,
-/// `absorbed`), or its status (absent reads as `active`).
+/// `absorbed`), a bare name a rule made that holds nothing now (`dormant`),
+/// or its status (absent reads as `active`).
 pub(crate) fn status_of(node: &Node) -> String {
     if node.forgotten {
         return "forgotten".into();
+    }
+    if empty_by_rule(node) {
+        return "dormant".into();
     }
     if !node.retracted.is_empty() {
         return "retracted".into();

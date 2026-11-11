@@ -113,6 +113,20 @@ async fn looked(db: &DatabaseConnection) -> Value {
     panic!("no look was kept");
 }
 
+/// Where a node stands, as every reader of her nodes sees it.
+async fn head_status(db: &DatabaseConnection, node: &str) -> String {
+    db.query_one_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT status FROM agent_node_heads WHERE node_id = $1",
+        [node.into()],
+    ))
+    .await
+    .unwrap()
+    .unwrap()
+    .try_get::<String>("", "status")
+    .unwrap()
+}
+
 /// Every word of every row the site keeps of her nodes, wherever.
 async fn rows_say(db: &DatabaseConnection, words: &str) -> i64 {
     count(
@@ -256,6 +270,10 @@ async fn a_dropped_grant_is_forgotten_for_good() {
         .unwrap()
         .unwrap();
     assert!(bare["entries"].as_array().is_none_or(Vec::is_empty));
+    // The bare name is shown nowhere: not recalled, not in what she is
+    // told, not on the page.
+    assert!(left.node(&repo).is_none());
+    assert_eq!(head_status(db, &repo).await, "dormant");
 
     // A later grant: the same repository, a new task under it.
     let later = "g_9876543210";
@@ -300,5 +318,36 @@ async fn a_dropped_grant_is_forgotten_for_good() {
     let gone = shown::shown(db, OWNER, &owners(), None).await.unwrap();
     assert!(gone.node(&task).is_none());
     assert!(gone.node(&scratch).is_none());
-    assert!(gone.node(&repo).is_some());
+    assert!(gone.node(&repo).is_none());
+    assert_eq!(head_status(db, &repo).await, "dormant");
+}
+
+/// A grant dropped stays dropped across a restart: a change told late under
+/// it (the device sent it before it heard of the drop) is never taken.
+#[tokio::test]
+async fn a_late_change_under_a_dropped_grant_is_refused_after_a_restart() {
+    let Some(schema) = schema().await else {
+        return;
+    };
+    let db = &schema.db;
+    let grant = "g_2222222222";
+    take(
+        db,
+        OWNER,
+        DEVICE,
+        under(grant, "started", 1_760_000_000_000),
+    )
+    .await
+    .unwrap();
+    assert!(rows_say(db, OWNERS_WORDS).await > 0);
+    forget_grant(db, OWNER, DEVICE, grant).await.unwrap();
+    assert_eq!(rows_say(db, OWNERS_WORDS).await, 0);
+    look::restarted();
+    take(db, OWNER, DEVICE, under(grant, "asked", 1_760_000_100_000))
+        .await
+        .unwrap();
+    assert_eq!(rows_say(db, OWNERS_WORDS).await, 0);
+    assert!(pictures(db, OWNER).await.is_empty());
+    let left = shown::shown(db, OWNER, &owners(), None).await.unwrap();
+    assert!(left.node(&task_of(grant)).is_none());
 }

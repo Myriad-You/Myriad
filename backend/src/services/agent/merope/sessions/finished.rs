@@ -189,7 +189,20 @@ pub(super) fn read(raw: &str, material: &Material) -> Result<Option<String>, ()>
     if grounded { Ok(Some(line)) } else { Err(()) }
 }
 
-fn system(soul: &str) -> String {
+/// Her answer's shape: one line or none, and what it rests on.
+pub(super) fn schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["say", "because"],
+        "properties": {
+            "say": {"type": ["string", "null"]},
+            "because": {"type": "array", "items": {"type": "integer"}}
+        }
+    })
+}
+
+pub(super) fn system(soul: &str) -> String {
     format!(
         "{soul}\n\n\
 These coding-agent sessions on the owner's computer just finished, all in one repository; nothing in them waits on the owner. \
@@ -214,15 +227,7 @@ async fn tell(
     let soul = crate::services::agent::merope::resolve_speaking_soul()
         .await
         .unwrap_or_default();
-    let schema = json!({
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["say", "because"],
-        "properties": {
-            "say": {"type": ["string", "null"]},
-            "because": {"type": "array", "items": {"type": "integer"}}
-        }
-    });
+    let schema = schema();
     let prompt = format!("Numbered:\n{}", material.numbered());
     let mut line = None;
     for _ in 0..2 {

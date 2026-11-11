@@ -157,8 +157,14 @@ mod tests {
         withdraw_speak_intents(906, "grant:g1");
         assert!(withdrawn(&queued) && withdrawn(&taken));
         assert!(!withdrawn(&other));
-        let drained = drain_speak_intents(crate::clock::now());
-        assert!(drained.iter().all(|left| left.user_id != 906));
+        // Gone from the queue (read, not drained: other tests share it).
+        assert!(
+            QUEUE
+                .read()
+                .unwrap()
+                .get(&906)
+                .is_none_or(|queue| queue.is_empty())
+        );
         std::thread::sleep(std::time::Duration::from_millis(2));
         assert!(!withdrawn(&intent("grant:g1/task:look-d")));
     }

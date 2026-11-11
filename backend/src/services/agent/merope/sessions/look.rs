@@ -127,6 +127,17 @@ pub(super) fn dropped(owner: i32, picture: &Picture) -> bool {
     grant_dropped(owner, &picture.device, &picture.session.grant)
 }
 
+/// As a restart leaves it: nothing dropped in memory.
+#[cfg(test)]
+pub(super) fn restarted() {
+    if let Ok(mut dropped) = DROPPED.lock() {
+        dropped.clear();
+    }
+    if let Ok(mut looked) = LOOKED.lock() {
+        looked.clear();
+    }
+}
+
 /// Whether the owner dropped `device`'s `grant` (in this process).
 pub(super) fn grant_dropped(owner: i32, device: &str, grant: &str) -> bool {
     DROPPED

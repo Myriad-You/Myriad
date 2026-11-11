@@ -49,6 +49,9 @@ const GRANT_SECS: i64 = 100 * 365 * 24 * 60 * 60;
 /// The repository nodes of each device's folders with no remote, which
 /// go with the device. Holds no words.
 const FOLDERS: &str = "agent_session_folder";
+/// The grants the owner dropped, kept across restarts: a change told late
+/// under one of them is never taken again. Holds no words.
+const DROPS: &str = "agent_session_dropped";
 
 /// One session as it last changed, and the device that told it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,7 +106,7 @@ pub(crate) async fn take(
         tracing::warn!(%error, "[Merope] a removed device's sessions are not forgotten yet");
     }
     // A device removed, or a grant it dropped: nothing more is kept of it.
-    if !active(db, owner, device).await? || look::grant_dropped(owner, device, &session.grant) {
+    if !active(db, owner, device).await? || dropped(db, owner, device, &session.grant).await? {
         return Ok(());
     }
     let id = picture_id(device, &session.grant, &session.session);
@@ -199,7 +202,7 @@ pub(crate) async fn take(
         forget_grant(db, owner, device, &picture.session.grant).await?;
         return forget_device(db, owner, device).await;
     }
-    if look::dropped(owner, &picture) {
+    if dropped(db, owner, device, &picture.session.grant).await? {
         return forget_grant(db, owner, device, &picture.session.grant).await;
     }
     match picture.session.change {
@@ -283,6 +286,20 @@ pub(crate) async fn forget_grant<C: ConnectionTrait + TransactionTrait>(
     device: &str,
     grant: &str,
 ) -> Result<(), Error> {
+    // Dropped for good first: what comes of it late is refused, restarted
+    // or not.
+    registry::put(
+        db,
+        DROPS,
+        &format!("{device}/{grant}"),
+        identity(owner, device),
+        &Grant {
+            device: device.to_string(),
+            grant: grant.to_string(),
+        },
+        crate::clock::now().timestamp() + GRANT_SECS,
+    )
+    .await?;
     look::cancel(owner, device, grant);
     finished::cancel(owner, device, grant);
     // What was to be said of it and is not yet.
@@ -303,6 +320,20 @@ pub(crate) async fn forget_grant<C: ConnectionTrait + TransactionTrait>(
     }
     registry::delete(db, GRANTS, &format!("{device}/{grant}")).await?;
     Ok(())
+}
+
+/// Whether the owner dropped `device`'s `grant`: in this process, or kept
+/// from before it started.
+async fn dropped<C: ConnectionTrait>(
+    db: &C,
+    owner: i32,
+    device: &str,
+    grant: &str,
+) -> Result<bool, Error> {
+    Ok(look::grant_dropped(owner, device, grant)
+        || registry::get::<Grant>(db, DROPS, &format!("{device}/{grant}"))
+            .await?
+            .is_some())
 }
 
 /// [`forget_grant`] for every grant `device` was given: the device was
@@ -342,3 +373,5 @@ pub(crate) async fn forget_device<C: ConnectionTrait + TransactionTrait>(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod trial;
