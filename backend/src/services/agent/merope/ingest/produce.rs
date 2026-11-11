@@ -197,15 +197,15 @@ pub(super) async fn take_in(
     let decision = decide_ingest(event_key, &sight);
     let touch = event_key == "agent.merope.touch";
     // A passing thought, or something she found out: said live to someone
-    // who can see her, or let go.
+    // who can see her, or let go. A look at their screen is still decided
+    // (and taken in) while she is not there; it is only not said.
     let thought = super::super::gates::said_only_in_person(event_key);
+    let mut present = true;
     if thought {
         // Her face where they are using her: a page's, or the app's.
         let live = crate::services::agent::consciousness::face_presence(user_id);
-        if !crate::services::agent::consciousness::can_speak_to(&live)
-            || live.speaking
-            || !decision.allow_model
-        {
+        present = crate::services::agent::consciousness::can_speak_to(&live) && !live.speaking;
+        if !decision.allow_model || (!present && super::super::gates::needs_presence(event_key)) {
             return Ok(());
         }
     }
@@ -349,7 +349,7 @@ pub(super) async fn take_in(
             ConsciousnessAction::Ignore | ConsciousnessAction::Remember => None,
         })
         .filter(|text| !is_trivial_line(text))
-        .filter(|_| sayable);
+        .filter(|_| sayable && present);
     if let Some(gist) = gist {
         let work_intent_id = consideration
             .as_ref()

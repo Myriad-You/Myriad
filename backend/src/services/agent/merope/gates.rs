@@ -38,7 +38,7 @@ pub struct IngestDecision {
 pub use myriad_merope::notify::TOLD_EVENTS;
 pub use myriad_merope::notify::{
     AI_CHAT_EVENT, PEER_AGENT_EVENT, SCREEN_EVENT, SITUATION_EVENT, is_task_outcome,
-    said_only_in_person, worth_notifying,
+    needs_presence, said_only_in_person, worth_notifying,
 };
 
 /// Worth her interrupting someone who is away for: the catalogued keys the
@@ -76,7 +76,9 @@ pub fn decide_ingest(event_key: &str, sight: &IngestSight) -> IngestDecision {
             reason: "touch_not_present",
         };
     }
-    if said_only_in_person(event_key) && !sight.on_page {
+    // Decided only while she is there, but for a look at their screen
+    // (the owner decided so on 2026-11-11): taken in or let go either way.
+    if needs_presence(event_key) && !sight.on_page {
         return IngestDecision {
             allow_model: false,
             notify: false,
@@ -130,6 +132,29 @@ pub fn decide_ingest(event_key: &str, sight: &IngestSight) -> IngestDecision {
 mod tests {
     use super::*;
 
+    /// A look at their screen is decided while she is not on the page (the
+    /// owner decided so on 2026-11-11), never a notification; every other
+    /// kind said only in person waits for her to be there.
+    #[test]
+    fn a_look_at_their_screen_is_decided_while_she_is_away() {
+        let away = IngestSight {
+            on_page: false,
+            panel_open: false,
+            executing: false,
+            working: false,
+            do_not_disturb: false,
+        };
+        let screen = decide_ingest(SCREEN_EVENT, &away);
+        assert!(screen.allow_model && !screen.notify && !screen.live);
+        for kind in [SITUATION_EVENT, PEER_AGENT_EVENT, "agent.merope.thought"] {
+            assert_eq!(
+                decide_ingest(kind, &away).reason,
+                "thought_not_present",
+                "{kind}"
+            );
+        }
+    }
+
     /// The shared cases (`core/crates/conformance/v1/notify/notify.kind.json`)
     /// through the site's own gates and catalog: every key answers as the
     /// core does.
@@ -148,6 +173,7 @@ mod tests {
             };
             let got = serde_json::json!({
                 "inPerson": said_only_in_person(kind),
+                "needsPresence": needs_presence(kind),
                 "taskOutcome": is_task_outcome(kind),
                 "interruptsWhenAway": is_valuable_event(kind),
                 "worthNotifying": worth_notifying(kind),
