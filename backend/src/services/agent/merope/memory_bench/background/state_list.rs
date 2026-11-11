@@ -255,7 +255,13 @@ async fn what_a_new_fact_does_to_the_list() {
             known_topics.push(topics_of(&copy.db, line).await);
         }
         copy.drop().await;
-        let at = on_topics(&list, &topics);
+        // What it may change: the items on its own topics and on those of
+        // what it brought to mind (`memory_nodes::standing`).
+        let reaches = crate::services::agent::merope::memory_nodes::standing::nodes_it_may_change(
+            &topics,
+            &known_topics,
+        );
+        let at = on_topics(&list, &reaches);
         let shown: Vec<Value> = at
             .iter()
             .enumerate()
@@ -300,13 +306,27 @@ async fn what_a_new_fact_does_to_the_list() {
             })
             .collect();
         let end: Vec<&Item> = numbers("end").iter().filter_map(item).collect();
-        // Only on its own topics: an add elsewhere, or retiring a known
-        // thing kept elsewhere, is set aside.
-        let (add, add_set_aside): (Vec<Value>, Vec<Value>) =
-            numbers("add").into_iter().partition(|one| {
-                topics
-                    .iter()
-                    .any(|topic| one["topic"].as_str() == Some(topic))
+        // What it starts stands on its own topic, whatever name the answer
+        // gave (none when the fact is kept nowhere: set aside); retiring a
+        // known thing kept off its own topics is set aside.
+        let (add, add_set_aside): (Vec<Value>, Vec<Value>) = numbers("add")
+            .into_iter()
+            .map(
+                |one| match crate::services::agent::merope::memory_nodes::standing::where_it_starts(
+                    one["topic"].as_str().unwrap_or_default(),
+                    &topics,
+                ) {
+                    Some(topic) => Ok(json!({"topic": topic, "text": one["text"],
+                        "asked": one["topic"]})),
+                    None => Err(one),
+                },
+            )
+            .fold((Vec::new(), Vec::new()), |(mut add, mut aside), one| {
+                match one {
+                    Ok(one) => add.push(one),
+                    Err(one) => aside.push(one),
+                }
+                (add, aside)
             });
         let (retire, retire_set_aside): (Vec<usize>, Vec<usize>) = numbers("retire")
             .iter()
@@ -328,7 +348,7 @@ async fn what_a_new_fact_does_to_the_list() {
         longmemeval::keep_partial(
             &report,
             &json!({"id": id, "written": true, "fact": fact, "known": known, "topics": topics,
-                "shown": at.iter().map(|at| &list[*at].id).collect::<Vec<_>>(),
+                "reaches": reaches, "shown": at.iter().map(|at| &list[*at].id).collect::<Vec<_>>(),
                 "set": set, "end": end, "add": add, "retire": retire,
                 "setAside": {"add": add_set_aside, "retire": retire_set_aside},
                 "answer": answer, "void": answer.is_none()}),
@@ -336,7 +356,7 @@ async fn what_a_new_fact_does_to_the_list() {
     }
 }
 
-/// The step is shown only the items on the fact's own topics.
+/// The step is shown only the items on the topics given.
 #[test]
 fn the_step_sees_only_the_facts_own_topics() {
     let item = |id: &str, topic: &str| Item {

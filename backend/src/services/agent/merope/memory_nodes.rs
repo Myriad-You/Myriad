@@ -123,6 +123,9 @@ pub(crate) mod read;
 pub(crate) mod recall;
 pub(crate) mod shown;
 pub(crate) mod sorting;
+// Used by the memory bench until going over a stretch writes 「现在」.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) mod standing;
 pub(crate) mod upkeep;
 pub(crate) mod write;
 
