@@ -192,10 +192,10 @@ async fn post_rebuild(_admin: AdminClaims) -> Json<Value> {
     Json(json!({ "build": build }))
 }
 
-/// 代理问的旧地址查询。和 `proxy/src/main.rs` 的 `OLD_PATH_REDIRECT_PATH` 同一条。
 /// 搜索关键词最长多少字符。超过就截断，避免匿名查询被超长串拖慢。
 const SEARCH_QUERY_MAX_CHARS: usize = 100;
 
+/// 代理问的旧地址查询。和 `proxy/src/main.rs` 的 `OLD_PATH_REDIRECT_PATH` 同一条。
 const OLD_PATH_REDIRECT_PATH: &str = "/api/blog/redirect";
 
 #[derive(Deserialize)]
@@ -516,6 +516,7 @@ fn blog_nav(
         },
         |key| crate::i18n::nav(locale, key),
         &crate::i18n::blog(locale, "search"),
+        locale,
         site,
     )
 }
