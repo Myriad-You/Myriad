@@ -14,6 +14,8 @@ use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use myriad_her_link::now::AskedBy;
+
 use super::Picture;
 use super::judge::Material;
 use crate::services::agent::merope::call::{Ask, Failure, Voice};
@@ -141,6 +143,16 @@ pub(super) fn material(pictures: &[Picture]) -> Material {
             .title
             .clone()
             .unwrap_or_else(|| format!("a {} session", session.tool));
+        // Who it answers to: what it did goes back there.
+        match (session.asked_by, &session.asked_by_title) {
+            (Some(AskedBy::Session), Some(sender)) => text.push_str(&format!(
+                " — another of the owner's sessions, «{sender}», sent it on; it reports back there"
+            )),
+            (Some(AskedBy::Session), None) => text
+                .push_str(" — another of the owner's sessions sent it on; it reports back there"),
+            (Some(AskedBy::Owner), _) => text.push_str(" — the owner gave it this work in person"),
+            (Some(AskedBy::None) | None, _) => {}
+        }
         if let Some(words) = &session.from_agent {
             let words: String = words.chars().take(600).collect();
             text.push_str(&format!(" — it said last: {words}"));

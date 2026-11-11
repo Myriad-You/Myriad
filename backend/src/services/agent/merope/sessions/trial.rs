@@ -19,8 +19,8 @@ use super::*;
 
 const DEVICE: &str = "dev_mac";
 const GRANT: &str = "g_0123456789";
-const SITE: &str = "github.com/Myriad-You/Myriad";
-const NATIVE: &str = "github.com/Myriad-You/MyriadNative";
+const SITE: &str = "github.com/myriad-you/myriad";
+const NATIVE: &str = "github.com/myriad-you/myriadnative";
 const MANAGER: &str = "工程管理项目进度";
 
 fn frame(body: Value) -> Picture {
@@ -28,13 +28,6 @@ fn frame(body: Value) -> Picture {
         device: DEVICE.into(),
         session: myriad_her_link::now::read_session(&body).expect("a frame the rules take"),
     }
-}
-
-fn manager_working(at: i64) -> Picture {
-    frame(json!({
-        "grant": GRANT, "session": "s-manager", "change": "started", "occurredAt": at,
-        "tool": "claude-code", "remote": SITE, "title": MANAGER, "askedBy": "owner",
-    }))
 }
 
 /// A: the memory session reported back to 工程管理 at 13:37 (finished)
@@ -200,7 +193,7 @@ async fn the_four_sessions_tried_by_hand() {
     println!("quiet: {} | rows: {:?}", route(&quiet), rules(&quiet));
     let done = a("finished", 1_794_371_820_000);
     println!("finished: {} | rows: {:?}", route(&done), rules(&done));
-    let (raw, read) = finished_say(&soul, &[done, manager_working(1_794_370_800_000)]).await;
+    let (raw, read) = finished_say(&soul, &[done]).await;
     println!("raw: {raw}\nread: {read:?}");
     passed.push(("A", read == Ok(None)));
 
