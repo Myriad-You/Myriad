@@ -91,6 +91,50 @@ pub(super) async fn recalled_for(
     (named, None)
 }
 
+/// `MEROPE_MEMORY_BENCH_STANDING=<file>` (question id to lines): how things
+/// stand with them now, as a list she would always have, shown first among
+/// what she remembers when she answers. A trial: not recalled, and not
+/// counted as recalled.
+fn standing_of(id: &str) -> Vec<String> {
+    static STANDING: std::sync::OnceLock<std::collections::HashMap<String, Vec<String>>> =
+        std::sync::OnceLock::new();
+    STANDING
+        .get_or_init(|| {
+            std::env::var("MEROPE_MEMORY_BENCH_STANDING")
+                .map(|path| {
+                    serde_json::from_str(&std::fs::read_to_string(&path).expect("the list"))
+                        .expect("question ids, each to its lines")
+                })
+                .unwrap_or_default()
+        })
+        .get(id)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// What she has in mind when she answers: the list of how things stand
+/// now, then what she recalled.
+fn with_standing(standing: &[String], recalled: &[String]) -> Vec<String> {
+    standing
+        .iter()
+        .map(|line| format!("现在: {line}"))
+        .chain(recalled.iter().cloned())
+        .collect()
+}
+
+#[test]
+fn how_things_stand_comes_first_and_is_not_recalled() {
+    let recalled = vec!["跑步: [07-03] 每周三和周五跑五公里".to_string()];
+    assert_eq!(
+        with_standing(&["膝盖坏了，夜跑停了".to_string()], &recalled),
+        [
+            "现在: 膝盖坏了，夜跑停了",
+            "跑步: [07-03] 每周三和周五跑五公里"
+        ]
+    );
+    assert_eq!(with_standing(&[], &recalled), recalled);
+}
+
 /// `MEROPE_MEMORY_BENCH_RECALL_ONLY=1`: recall each way and ask nothing,
 /// to see what a change to recall changes before paying for answers.
 fn recall_only() -> bool {
@@ -411,7 +455,14 @@ pub(super) async fn answer_one(
     let mut answer = String::new();
     for _ in 0..3 {
         answer = lite
-            .analyze_with_system(&answer_system(question, present, &recalled), &input)
+            .analyze_with_system(
+                &answer_system(
+                    question,
+                    present,
+                    &with_standing(&standing_of(&question.question_id), &recalled),
+                ),
+                &input,
+            )
             .await
             .inspect_err(|error| eprintln!("bench call failed: answering: {error:#}"))
             .unwrap_or_default();
