@@ -19,3 +19,10 @@ indent_size = 2
 
 [*.md]
 trim_trailing_whitespace = false
+
+# PowerShell 例外：必须 UTF-8 with BOM——Windows PowerShell 5.1 对无 BOM 脚本按系统
+# ANSI(GBK) 解析，中文/emoji 字符串静默乱码且不报语法错（2026-11 实测 scripts\dev.ps1 8 处损坏）。
+# charset 让 JetBrains 系编辑器保存时带 BOM；VS Code 见 .vscode/settings.json 的 [powershell] 段。
+# 闸门：powershell -File scripts\check_encoding.ps1（ENC1 命中退出码 1）。
+[*.{ps1,psm1,psd1}]
+charset = utf-8-bom
