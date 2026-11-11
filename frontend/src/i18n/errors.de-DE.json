@@ -384,6 +384,8 @@
   "fileTooLarge": "Diese Datei ist zu groß.",
   "payloadTooLarge": "Diese Nachricht ist zu groß.",
   "byCode": {
+    "her_log_off": "Das Synchronisieren ist auf dieser Seite nicht freigegeben.",
+    "her_sync_change_failed": "Die Synchronisierung konnte nicht geändert werden. Bitte später erneut versuchen.",
     "agent_work_budget": "Diese Aufgabe hat ihr Budget aufgebraucht, bevor sie fertig wurde. Bereits Gespeichertes bleibt erhalten; sag, wie es weitergeht.",
     "agent_work_context": "Der Kontext dieser Aufgabe ist zu lang geworden. Bereits Gespeichertes bleibt erhalten; mach in einer neuen Unterhaltung weiter.",
     "agent_work_turns": "Diese Aufgabe hat ihr Limit an Runden erreicht. Bereits Gespeichertes bleibt erhalten; sag, wie es weitergeht.",

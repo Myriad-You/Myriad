@@ -477,6 +477,7 @@
     "Failed to begin admin setup": "account_save_failed",
     "Failed to lock admin setup": "account_save_failed",
     "Failed to change password": "password_change_failed",
+    "Failed to change syncing": "her_sync_change_failed",
     "Failed to set password": "password_change_failed",
     "Failed to update local login": "local_login_save_failed",
     "Failed to check owner": "users_load_failed",
@@ -1340,6 +1341,7 @@
     "Nothing is playing": "music_not_playing"
   },
   "explicit": [
+    "her_log_off",
     "sticker_pack_full",
     "note_too_long",
     "note_too_many_attachments",

@@ -384,6 +384,8 @@
   "fileTooLarge": "Ce fichier est trop grand.",
   "payloadTooLarge": "Ce message est trop grand.",
   "byCode": {
+    "her_log_off": "La synchronisation n’est pas ouverte sur ce site.",
+    "her_sync_change_failed": "Impossible de modifier la synchronisation. Réessayez plus tard.",
     "agent_work_budget": "Cette tâche a épuisé son budget avant de finir. Ce qui est déjà enregistré le reste ; dites-lui quoi faire ensuite.",
     "agent_work_context": "Le contexte de cette tâche est devenu trop long. Ce qui est déjà enregistré le reste ; continuez dans une nouvelle conversation.",
     "agent_work_turns": "Cette tâche a atteint sa limite d’allers-retours. Ce qui est déjà enregistré le reste ; dites-lui quoi faire ensuite.",

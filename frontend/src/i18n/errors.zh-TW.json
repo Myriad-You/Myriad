@@ -384,6 +384,8 @@
   "fileTooLarge": "這個檔案太大了。",
   "payloadTooLarge": "這條訊息太大了。",
   "byCode": {
+    "her_log_off": "這個站點還沒有開啟「同步她」。",
+    "her_sync_change_failed": "同步設定沒能改好，請稍後再試。",
     "agent_work_budget": "這次任務的額度用完了，沒來得及收尾。已完成並儲存的修改不受影響，可以接著說下一步。",
     "agent_work_context": "這次任務的上下文太長了，沒辦法繼續。已儲存的修改不受影響，可以開一段新對話接著做。",
     "agent_work_turns": "這次任務來回的次數到上限了。已儲存的修改不受影響，可以接著說下一步。",
