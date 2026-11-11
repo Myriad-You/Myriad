@@ -22,16 +22,22 @@ use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use chrono::{DateTime, Utc};
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
+#[cfg(test)]
+use sea_orm::TransactionTrait;
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
 
 use super::gates::AI_CHAT_EVENT;
 
-/// The most notes, references and log-worthy lines a node keeps (as on the Mac).
+/// The most notes, references and log-worthy lines a node kept (as on the Mac).
+#[cfg(test)]
 const NOTES_AT_MOST: usize = 64;
+#[cfg(test)]
 const REFS_AT_MOST: usize = 200;
 /// Her notes that come with the next moment about the node, newest last.
 const NOTES_TOLD: usize = 6;
@@ -49,6 +55,7 @@ pub(crate) enum Form {
 }
 
 impl Form {
+    #[cfg(test)]
     fn as_str(self) -> &'static str {
         match self {
             Form::Repo => "repo",
@@ -104,6 +111,7 @@ pub(crate) struct Note {
     pub(crate) said: bool,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Ref {
@@ -111,7 +119,9 @@ struct Ref {
     at: DateTime<Utc>,
 }
 
-/// What she decided about a moment, as it is kept on its node.
+/// What she decided about a moment, as it was kept on its node. The table
+/// is no longer written; tests make old nodes with it.
+#[cfg(test)]
 #[derive(Debug, Clone)]
 pub(crate) struct Decided<'a> {
     pub(crate) event: &'a str,
@@ -161,6 +171,7 @@ fn json_list<T: for<'de> Deserialize<'de>>(value: Option<Value>) -> Vec<T> {
 }
 
 /// Appends a line to the node's log, after `logged` lines.
+#[cfg(test)]
 async fn log<C: ConnectionTrait>(
     db: &C,
     node: &str,
@@ -232,7 +243,9 @@ pub(crate) fn told(notes: &[Note]) -> Option<String> {
 
 /// Files what she decided about a moment on its node: the node made the
 /// first time, the event kept as a reference, her line or note kept, each
-/// change logged. Only the owner's own.
+/// change logged. Only the owner's own. No longer written but by tests,
+/// which make the nodes kept from before.
+#[cfg(test)]
 pub(crate) async fn decided(
     db: &DatabaseConnection,
     user_id: i32,
@@ -343,6 +356,7 @@ pub(crate) async fn decided(
 
 /// Her line about `event` was said to the owner: its note on the node says
 /// so. Nothing when no node of theirs holds it.
+#[cfg(test)]
 pub(crate) async fn said(
     db: &DatabaseConnection,
     user_id: i32,
