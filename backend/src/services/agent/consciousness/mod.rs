@@ -7,6 +7,7 @@
 
 mod attention;
 mod authorize;
+mod decision_prompt;
 mod dispatch;
 mod engine;
 mod grant;
@@ -22,7 +23,7 @@ mod types;
 #[cfg(test)]
 pub(crate) fn semantic_probe_contract(soul: &str, kind: &str) -> (String, serde_json::Value) {
     (
-        engine::decision_system_prompt(soul),
+        decision_prompt::decision_system_prompt(soul, kind),
         engine::decision_schema_for_event(kind),
     )
 }
