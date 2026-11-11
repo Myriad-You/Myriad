@@ -220,7 +220,7 @@ pub async fn list<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<Vec<Device
 
 /// Removes a live device of the owner's, closing its link if one is open.
 /// `None` when there is no such live device.
-pub async fn revoke<C: ConnectionTrait>(
+pub async fn revoke<C: ConnectionTrait + TransactionTrait>(
     db: &C,
     user_id: i32,
     id: &str,
@@ -254,6 +254,15 @@ pub async fn revoke<C: ConnectionTrait>(
             RevokeReason::ByOwner | RevokeReason::DeviceLeft => Close::Revoked,
         };
         disconnect(&device.id, close);
+        // What it told of the owner's coding-agent sessions goes for good:
+        // the reason it was kept (the device watching for them) is gone.
+        // Not now: again when the owner forgets the device ([`forget`]) or
+        // any of their devices tells a session.
+        if let Err(error) =
+            crate::services::agent::merope::sessions::forget_device(db, user_id, &device.id).await
+        {
+            tracing::warn!(%error, device = %device.id, "[devices] a removed device's sessions are not forgotten yet");
+        }
     }
     Ok(removed)
 }
@@ -263,7 +272,25 @@ pub async fn revoke<C: ConnectionTrait>(
 /// which is what closes its link and settles her lease. Its backups stay
 /// (they are how she is taken back). `false` when there is no such removed
 /// device.
-pub async fn forget<C: ConnectionTrait>(db: &C, user_id: i32, id: &str) -> Result<bool, DbErr> {
+pub async fn forget<C: ConnectionTrait + TransactionTrait>(
+    db: &C,
+    user_id: i32,
+    id: &str,
+) -> Result<bool, DbErr> {
+    // What it told of their sessions, if removing it did not forget it.
+    let removed = db
+        .query_one_raw(statement(
+            "SELECT 1 AS one FROM agent_sync_devices \
+             WHERE id = $1 AND user_id = $2 AND revoked_at IS NOT NULL",
+            vec![id.into(), user_id.into()],
+        ))
+        .await?
+        .is_some();
+    if removed {
+        crate::services::agent::merope::sessions::forget_device(db, user_id, id)
+            .await
+            .map_err(|error| DbErr::Custom(format!("a removed device's sessions: {error}")))?;
+    }
     let gone = db
         .execute_raw(statement(
             "DELETE FROM agent_sync_devices WHERE id = $1 AND user_id = $2 AND revoked_at IS NOT NULL",
@@ -294,7 +321,7 @@ impl From<DbErr> for Refused {
 
 /// The device holding `token`, while it is one and belongs to the site's
 /// owner `owner`. A device of a previous owner is revoked on sight.
-pub async fn authenticate<C: ConnectionTrait>(
+pub async fn authenticate<C: ConnectionTrait + TransactionTrait>(
     db: &C,
     token: &str,
     owner: Option<i32>,
@@ -329,7 +356,7 @@ pub async fn authenticate<C: ConnectionTrait>(
 /// The device `id` while it still is one and still belongs to the site's
 /// owner `owner`: what a connection that stays open checks now and then, as
 /// [`authenticate`] checked it when it opened.
-pub async fn recheck<C: ConnectionTrait>(
+pub async fn recheck<C: ConnectionTrait + TransactionTrait>(
     db: &C,
     id: &str,
     owner: Option<i32>,

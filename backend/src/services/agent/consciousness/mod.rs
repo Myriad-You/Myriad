@@ -53,7 +53,10 @@ pub use presence::{
 };
 pub use snapshot::capture_self_snapshot;
 pub(crate) use snapshot::said_unasked_lately;
-pub use speak_intent::{SpeakIntent, drain_speak_intents, enqueue_speak_intent, new_speak_intent};
+pub use speak_intent::{
+    SpeakIntent, drain_speak_intents, enqueue_speak_intent, new_speak_intent,
+    withdraw_speak_intents, withdrawn,
+};
 pub use store::IntentStore;
 pub use types::{
     AcceptSource, ConsciousnessAction, ConsciousnessDecision, ConsciousnessEvent, EventUrgency,

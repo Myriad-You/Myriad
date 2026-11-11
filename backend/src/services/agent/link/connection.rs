@@ -217,6 +217,7 @@ pub(super) async fn serve_with(
         senses: Default::default(),
         experience: false,
         moments: false,
+        now_sessions: false,
         images: false,
         nodes: false,
         proposals: None,
@@ -296,6 +297,9 @@ struct Link {
     experience: bool,
     /// The child said it sends `moment`: what its senses saw for her.
     moments: bool,
+    /// The child said it tells the owner's coding-agent sessions as they
+    /// change (`now.sessions`): `now.session` and `now.drop`.
+    now_sessions: bool,
     /// The child said it sends `images`: what the owner shows her, with their input.
     images: bool,
     /// The child said it takes `nodes`: it is kept current with her nodes.
@@ -613,6 +617,8 @@ impl Link {
             "work.recall" if self.experience => self.recall(inbound),
             "experience" if self.experience => self.experienced(inbound).await,
             "moment" if self.moments => self.moment(inbound).await,
+            "now.session" if self.now_sessions => self.now_session(inbound).await,
+            "now.drop" if self.now_sessions => self.now_drop(inbound).await,
             "node.forget" if self.nodes => self.forget_node(inbound).await,
             "proposal.answer" if self.proposals.is_some() => self.answer_proposal(inbound).await,
             // Taken whatever this link said: a run's end may come after its
@@ -821,6 +827,9 @@ impl Link {
             .iter()
             .any(|capability| capability == "moments");
         self.images = capabilities.iter().any(|capability| capability == "images");
+        self.now_sessions = capabilities
+            .iter()
+            .any(|capability| capability == "now.sessions");
         if capabilities.iter().any(|capability| capability == "nodes") {
             self.nodes = true;
             self.tell_nodes().await;
@@ -1425,6 +1434,13 @@ impl Link {
         let written = super::moment::write(&self.db, self.owner, &self.device.id, &id).await;
         super::moment::end(&self.device.id, &id);
         match written {
+            // Another agent's session is told by her link's `now` family and
+            // kept by rules (`merope::sessions`): one an app that does not
+            // tell sessions yet sends is taken, never judged one by one.
+            Ok(()) if moment.kind == crate::services::agent::merope::gates::PEER_AGENT_EVENT => {
+                tracing::debug!(device = %self.device.id, "[link] another agent's moment taken, not handed to her");
+                self.reply(super::moment::taken_frame(&id));
+            }
             // Taken either way; it reaches her only when it is news.
             Ok(()) => {
                 match super::moment_repeats::pass(&self.device.id, &moment) {
@@ -1441,6 +1457,87 @@ impl Link {
             // Not taken: the child keeps it and sends it again on its next link.
             Err(error) => {
                 tracing::warn!(%error, device = %self.device.id, "[link] could not write a moment");
+            }
+        }
+    }
+
+    /// One of the owner's coding-agent sessions on this device changed: read
+    /// by the core's rules, kept on her nodes, answered `now.taken`. Not
+    /// kept: the device sends it again on its next link.
+    async fn now_session(&mut self, inbound: Inbound) {
+        let seq = inbound.seq;
+        let Some(id) = inbound
+            .id
+            .filter(|id| id.starts_with("ns_") && valid_id(id))
+        else {
+            self.error("bad_id", Some(seq));
+            return;
+        };
+        let session = match myriad_her_link::now::read_session(&inbound.body) {
+            Ok(session) => session,
+            Err(refusal) => {
+                tracing::debug!(device = %self.device.id, detail = %refusal.detail, "[link] now.session refused");
+                self.error("bad_frame", Some(seq));
+                return;
+            }
+        };
+        if super::now::was_taken(&self.db, &self.device.id, &id).await {
+            self.reply(super::now::taken_frame(&id));
+            return;
+        }
+        let kept = crate::services::agent::merope::sessions::take(
+            &self.db,
+            self.owner,
+            &self.device.id,
+            session,
+        )
+        .await;
+        match kept {
+            Ok(()) => match super::now::record(&self.db, self.owner, &self.device.id, &id).await {
+                Ok(()) => self.reply(super::now::taken_frame(&id)),
+                Err(error) => {
+                    tracing::warn!(%error, device = %self.device.id, "[link] a session's change was kept, its id was not")
+                }
+            },
+            Err(error) => {
+                tracing::warn!(%error, device = %self.device.id, "[link] could not keep a session's change")
+            }
+        }
+    }
+
+    /// The owner stopped this device watching their sessions: what was kept
+    /// of that grant is forgotten for good, then answered `now.taken`.
+    async fn now_drop(&mut self, inbound: Inbound) {
+        let seq = inbound.seq;
+        let Some(id) = inbound
+            .id
+            .filter(|id| id.starts_with("nd_") && valid_id(id))
+        else {
+            self.error("bad_id", Some(seq));
+            return;
+        };
+        let Ok(drop) = myriad_her_link::now::read_drop(&inbound.body) else {
+            self.error("bad_frame", Some(seq));
+            return;
+        };
+        match crate::services::agent::merope::sessions::forget_grant(
+            &self.db,
+            self.owner,
+            &self.device.id,
+            &drop.grant,
+        )
+        .await
+        {
+            Ok(()) => {
+                if let Err(error) =
+                    super::now::record(&self.db, self.owner, &self.device.id, &id).await
+                {
+                    tracing::warn!(%error, device = %self.device.id, "[link] a dropped grant's id was not kept");
+                }
+                self.reply(super::now::taken_frame(&id));
+            }
+            Err(error) => {
+                tracing::warn!(%error, device = %self.device.id, "[link] could not forget a dropped grant")
             }
         }
     }

@@ -55,6 +55,7 @@ pub(in crate::services::agent) mod self_state;
 pub(in crate::services::agent) mod self_story;
 mod senses;
 pub(in crate::services::agent) mod serial;
+pub(crate) mod sessions;
 pub(in crate::services::agent) mod sharing;
 pub(in crate::services::agent) mod sore;
 pub(in crate::services::agent) mod soup;

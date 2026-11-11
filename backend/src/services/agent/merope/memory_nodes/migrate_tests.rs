@@ -301,11 +301,11 @@ pub(super) async fn seed(db: &DatabaseConnection) -> i32 {
     )
     .await;
     // A child's note.
-    let facts = std::collections::BTreeMap::from([(
-        "repo".to_string(),
-        "git@github.com:Me/Repo.git".to_string(),
-    )]);
-    let place = nodes::place(myriad_merope::notify::PEER_AGENT_EVENT, &facts).unwrap();
+    let place = nodes::Place {
+        form: nodes::Form::Repo,
+        key: "git@github.com:Me/Repo.git".into(),
+        title: "git@github.com:Me/Repo.git".into(),
+    };
     let note = nodes::Note {
         event: "evt_a".into(),
         happened: "waiting".into(),

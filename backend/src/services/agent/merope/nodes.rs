@@ -28,7 +28,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
 
-use super::gates::{AI_CHAT_EVENT, PEER_AGENT_EVENT};
+use super::gates::AI_CHAT_EVENT;
 
 /// The most notes, references and log-worthy lines a node keeps (as on the Mac).
 const NOTES_AT_MOST: usize = 64;
@@ -66,16 +66,11 @@ pub(crate) struct Place {
 }
 
 /// Where a moment of `event_key` with these facts files, if anywhere.
-pub(crate) fn place(event_key: &str, facts: &BTreeMap<String, String>) -> Option<Place> {
+/// Another agent's session files nowhere here any more: her link's `now`
+/// family puts it on her nodes by rules (`merope::sessions`); the
+/// repository nodes kept from before are still listed and forgotten.
+pub(crate) fn place(event_key: &str, _facts: &BTreeMap<String, String>) -> Option<Place> {
     match event_key {
-        PEER_AGENT_EVENT => {
-            let repo = facts.get("repo").map(|repo| repo.trim()).unwrap_or("");
-            (!repo.is_empty()).then(|| Place {
-                form: Form::Repo,
-                key: repo.to_string(),
-                title: repo.to_string(),
-            })
-        }
         // The child names this one in its own language.
         AI_CHAT_EVENT => Some(Place {
             form: Form::Together,
@@ -490,13 +485,22 @@ mod tests {
             .collect()
     }
 
+    /// A repository node kept from before the `now` family.
+    pub(crate) fn repo_place(key: &str) -> Place {
+        Place {
+            form: Form::Repo,
+            key: key.to_string(),
+            title: key.to_string(),
+        }
+    }
+
     #[test]
-    fn a_moment_files_under_its_repository_or_the_talks_with_other_ais() {
-        let repo = place(PEER_AGENT_EVENT, &facts(&[("repo", "sample-repo")])).unwrap();
-        assert_eq!((repo.form, repo.key.as_str()), (Form::Repo, "sample-repo"));
-        assert_eq!(repo.title, "sample-repo");
-        assert_eq!(place(PEER_AGENT_EVENT, &facts(&[("repo", "  ")])), None);
-        assert_eq!(place(PEER_AGENT_EVENT, &facts(&[])), None);
+    fn a_moment_files_under_the_talks_with_other_ais_only() {
+        use crate::services::agent::merope::gates::PEER_AGENT_EVENT;
+        assert_eq!(
+            place(PEER_AGENT_EVENT, &facts(&[("repo", "sample-repo")])),
+            None
+        );
         let chats = place(AI_CHAT_EVENT, &facts(&[("service", "Chat")])).unwrap();
         assert_eq!(
             (chats.form, chats.key.as_str()),
@@ -557,7 +561,7 @@ mod tests {
             .unwrap();
         }
         let mut heard = subscribe();
-        let repo = place(PEER_AGENT_EVENT, &facts(&[("repo", "sample-repo")])).unwrap();
+        let repo = repo_place("sample-repo");
         let line = |event: &str, action: &str, said: bool| Note {
             event: event.into(),
             happened: "waiting".into(),

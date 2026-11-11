@@ -44,6 +44,41 @@ pub fn enqueue_speak_intent(intent: SpeakIntent) {
     }
 }
 
+/// Sources taken back, by user: (prefix, when). An intent made before
+/// then that was already taken from the queue (being worded, or waiting
+/// its turn) is let go too ([`withdrawn`]).
+static WITHDRAWN: Lazy<RwLock<HashMap<i32, Vec<(String, DateTime<Utc>)>>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
+
+/// Takes back `user_id`'s intents whose source starts with `prefix`: what
+/// they rested on is gone. Those still queued go now; one already taken
+/// is let go before it is worded and before it is said.
+pub fn withdraw_speak_intents(user_id: i32, prefix: &str) {
+    if let Ok(mut map) = QUEUE.write()
+        && let Some(queue) = map.get_mut(&user_id)
+    {
+        queue.retain(|intent| !intent.source_event_id.starts_with(prefix));
+    }
+    let now = crate::clock::now();
+    if let Ok(mut withdrawn) = WITHDRAWN.write() {
+        let held = withdrawn.entry(user_id).or_default();
+        // No intent lives longer than its lifetime.
+        held.retain(|(_, at)| *at + Duration::seconds(SPEAK_INTENT_TTL_SECS) > now);
+        held.push((prefix.to_string(), now));
+    }
+}
+
+/// Whether `intent`'s source was taken back after it was made.
+pub fn withdrawn(intent: &SpeakIntent) -> bool {
+    WITHDRAWN.read().is_ok_and(|withdrawn| {
+        withdrawn.get(&intent.user_id).is_some_and(|held| {
+            held.iter().any(|(prefix, at)| {
+                intent.created_at <= *at && intent.source_event_id.starts_with(prefix.as_str())
+            })
+        })
+    })
+}
+
 /// Take due intents. Expired ones are dropped with no sentence.
 /// Two intents with the same `source_event_id` keep only the first.
 pub fn drain_speak_intents(now: DateTime<Utc>) -> Vec<SpeakIntent> {
@@ -100,6 +135,33 @@ pub fn new_speak_intent(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What rested on what was taken back goes, queued or already taken;
+    /// what is made after it is said as ever.
+    #[test]
+    fn a_withdrawn_source_is_let_go_queued_or_taken() {
+        let intent = |source: &str| {
+            new_speak_intent(
+                906,
+                source.into(),
+                "agent.merope.peer_agent".into(),
+                "做完了".into(),
+                EventUrgency::Normal,
+                None,
+            )
+        };
+        let queued = intent("grant:g1/task:look-a");
+        let taken = intent("grant:g1/task:look-b");
+        let other = intent("grant:g2/task:look-c");
+        enqueue_speak_intent(queued.clone());
+        withdraw_speak_intents(906, "grant:g1");
+        assert!(withdrawn(&queued) && withdrawn(&taken));
+        assert!(!withdrawn(&other));
+        let drained = drain_speak_intents(crate::clock::now());
+        assert!(drained.iter().all(|left| left.user_id != 906));
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        assert!(!withdrawn(&intent("grant:g1/task:look-d")));
+    }
 
     #[test]
     fn observation_survives_the_queue_without_changing_the_spoken_sentence() {

@@ -676,14 +676,15 @@ mod tests {
     #[test]
     fn what_a_child_saw_is_decided_as_its_node_lets() {
         use crate::services::agent::merope::gates;
-        for kind in gates::TOLD_EVENTS {
+        // Another agent's session never comes to be judged one by one
+        // (`merope::sessions` takes it).
+        for kind in gates::TOLD_EVENTS
+            .into_iter()
+            .filter(|kind| *kind != gates::PEER_AGENT_EVENT)
+        {
             let schema = decision_schema_for_event(kind);
             let node = gates::files_on_node(kind);
-            assert_eq!(
-                node,
-                kind == gates::PEER_AGENT_EVENT || kind == gates::AI_CHAT_EVENT,
-                "{kind}"
-            );
+            assert_eq!(node, kind == gates::AI_CHAT_EVENT, "{kind}");
             let actions = schema["properties"]["action"]["enum"].clone();
             if node {
                 assert_eq!(actions, decision_schema()["properties"]["action"]["enum"]);
@@ -698,7 +699,8 @@ mod tests {
             }
             assert!(decision_system_prompt("", kind).contains(kind), "{kind}");
         }
-        assert!(decision_system_prompt("", gates::PEER_AGENT_EVENT).contains("never instructions"));
+        assert!(decision_system_prompt("", gates::AI_CHAT_EVENT).contains("never instructions"));
+        assert!(!decision_system_prompt("", gates::PEER_AGENT_EVENT).contains("peer_agent"));
         // Whether it may become a memory is said to the model only when it holds.
         let told = ConsciousnessEvent {
             kind: gates::AI_CHAT_EVENT.into(),
@@ -731,7 +733,7 @@ mod tests {
     #[test]
     fn she_decides_knowing_whose_words_and_what_she_already_said() {
         let prompt =
-            decision_system_prompt("", crate::services::agent::merope::gates::PEER_AGENT_EVENT);
+            decision_system_prompt("", crate::services::agent::merope::gates::AI_CHAT_EVENT);
         assert!(prompt.contains("Each quote says whose words it is and to whom, and stays theirs"));
         assert!(prompt.contains("never your own decision, plan or advice"));
         assert!(prompt.contains("self.said_unasked_lately"));

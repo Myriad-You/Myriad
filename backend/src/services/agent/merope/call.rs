@@ -32,6 +32,9 @@ pub(super) enum Voice {
     /// The stronger model, thinking it through: reading a stretch of a
     /// group's talk once, which everything she keeps of it rests on.
     Reading,
+    /// The model the chat answers with (the Standard tier): a careful look
+    /// at what the owner's own sessions ask of them, which they may act on.
+    Chat,
 }
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(45);
@@ -194,6 +197,12 @@ impl Ask {
             .await
             .ok_or_else(|| self.failed(Failure::Unavailable))?
             .with_deep_thinking(),
+            Voice::Chat => crate::services::ai::create_ai_analyzer_for_tier_with_timeout(
+                crate::config::ModelTier::Standard,
+                Some(self.timeout),
+            )
+            .await
+            .ok_or_else(|| self.failed(Failure::Unavailable))?,
         };
         Ok(Model {
             analyzer,
