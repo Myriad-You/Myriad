@@ -496,6 +496,109 @@ async fn the_ledger_looks_again_with_what_they_lacked() {
     println!("\n=== said: {said:?}");
 }
 
+/// The same four looks again, each with the card it puts before the owner
+/// (`nodes.look_card`, in `MYRIAD_SESSION_LOOK_LANGUAGE`, zh-CN by
+/// default) beside her line: the card is of what she judged, its facts the
+/// session's as the device told them, her view her judgment's, and her
+/// line, when she would say one, carries that card. Two calls a look at
+/// most.
+#[tokio::test]
+#[ignore = "spends on the site's model; see the module docs"]
+async fn the_four_looks_with_their_cards() {
+    let path = std::env::var("MYRIAD_SESSION_LOOK_REPLAY").expect("the exported looks");
+    let language =
+        std::env::var("MYRIAD_SESSION_LOOK_LANGUAGE").unwrap_or_else(|_| "zh-CN".to_string());
+    let owner_said: std::collections::HashMap<&str, i64> = [
+        ("15:59:17", 16),
+        ("16:08:33", 0),
+        ("16:09:09", 0),
+        ("16:12:38", 4),
+    ]
+    .into_iter()
+    .collect();
+    let soul = crate::services::agent::semantic_eval::configured_soul().await;
+    let looks_kept: Vec<Value> = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let mut shown = Vec::new();
+    for kept in looks_kept {
+        let at = kept["at"].as_str().unwrap_or_default().to_string();
+        let Some(minutes) = owner_said.get(at.as_str()) else {
+            continue;
+        };
+        println!("\n=== {at}");
+        let material = with_what_it_lacked(
+            kept["look"]["material"].as_str().unwrap_or_default(),
+            *minutes,
+        );
+        let told = told_of(&material);
+        let Some(answer) = ask_of(&soul, material.clone(), vec![true]).await else {
+            shown.push((at, "no answer".to_string(), None));
+            continue;
+        };
+        let Some(judgment) = answer.judgments[0].clone() else {
+            shown.push((at, "no judgment".to_string(), None));
+            continue;
+        };
+        let card = myriad_nodes::look_cards::decision(myriad_nodes::look_cards::DecisionInput {
+            task: "n_trial_video".into(),
+            told,
+            judgment: judgment.clone(),
+            material,
+            change: 1,
+            at: 1_794_470_000_000,
+            language: language.clone(),
+        });
+        match &card {
+            Ok(card) => {
+                myriad_nodes::cards::check_call(myriad_nodes::cards::CardCheckInput {
+                    card: serde_json::to_value(card).unwrap(),
+                })
+                .expect("the wire takes it");
+                println!("card: {}", serde_json::to_string_pretty(card).unwrap());
+                let kind_matches = matches!(
+                    (judgment.verdict, card.kind.as_str()),
+                    (Verdict::Decide, "decide") | (Verdict::Nod, "nod")
+                );
+                assert!(kind_matches, "{:?} {}", judgment.verdict, card.kind);
+            }
+            Err(error) => println!("no card: {error}"),
+        }
+        let line = answer.line.map(|line| {
+            assert_eq!(line.change, 1, "her line is of the change the card is");
+            line.text
+        });
+        println!("says (carrying the card): {line:?}");
+        shown.push((at, format!("{:?}", judgment.verdict), line));
+    }
+    println!("\n=== the four: {shown:#?}");
+}
+
+/// The session a kept material was of, as the device told it: its title,
+/// what the owner last told it and what it asked, waiting on the owner.
+fn told_of(material: &Material) -> Told {
+    let piece = |what: &str| {
+        material
+            .pieces
+            .iter()
+            .find(|piece| piece.change == Some(1) && piece.what == what)
+            .map(|piece| piece.text.clone())
+    };
+    let title = piece("the session")
+        .and_then(|text| text.split(" (").next().map(str::to_string))
+        .unwrap_or_default();
+    Told {
+        device: DEVICE.into(),
+        session: myriad_her_link::now::read_session(&json!({
+            "grant": GRANT, "session": "s-video", "change": "asked",
+            "occurredAt": 1_794_470_000_000_i64, "tool": "claude_code", "folder": "myriad",
+            "title": title, "askedBy": "owner",
+            "fromOwner": piece("what the owner last told it").unwrap_or_default(),
+            "fromAgent": piece("what it last said or asked").unwrap_or_default(),
+            "waitingOn": "owner",
+        }))
+        .expect("a question"),
+    }
+}
+
 /// One kept look (`MYRIAD_SESSION_LOOK_AT`, its time `HH:MM:SS`; the
 /// owner spoke `MYRIAD_SESSION_LOOK_OWNER_SAID` minutes before it, 16 by
 /// default) asked five times as she is asked now: for each, why the model

@@ -24,6 +24,11 @@ const SHARING: &str = "g_3333333333";
 /// The grant of the hollow-answer test alone: one question is looked at
 /// once in this process (`look::LOOKED`).
 const HOLLOW: &str = "g_4444444444";
+/// The grant of the card test alone.
+const CARDS: &str = "g_5555555555";
+/// The grant of the test of what comes together alone: it drops its grant
+/// at the end, which every test in this process then sees dropped.
+const TOGETHER: &str = "g_6666666666";
 /// What the owner said to it: theirs alone.
 const OWNERS_WORDS: &str = "把存储拆开然后提交";
 /// What another session sent it, with someone else's name in it.
@@ -583,7 +588,7 @@ async fn what_comes_together_is_looked_at_once_and_kept_word_for_word() {
     answering(&[
         r#"{"changes":[{"change":1,"verdict":"decide","about":"它问要不要推送","suggestion":"推，测试都过了","because":[4],"missing":null,"ownerMustSay":true},{"change":2,"verdict":"no_need","about":"写完了","suggestion":null,"because":[],"missing":null,"ownerMustSay":false}],"say":null}"#,
     ]);
-    let grant = "g_4444444444";
+    let grant = TOGETHER;
     let at = 1_760_000_000_000;
     take(db, OWNER, DEVICE, under(grant, "asked", at))
         .await
@@ -623,4 +628,189 @@ async fn what_comes_together_is_looked_at_once_and_kept_word_for_word() {
     assert!(ledger[0].material.contains("Change 2 of 2"));
     forget_grant(db, OWNER, DEVICE, grant).await.unwrap();
     assert!(keep::ledger_of(db, OWNER).await.is_empty());
+}
+
+/// The cards of `owner`'s private talk, by role: (role, card id, whole).
+async fn card_lines(db: &DatabaseConnection) -> Vec<(String, String, bool)> {
+    db.query_all_raw(Statement::from_string(
+        DatabaseBackend::Postgres,
+        format!(
+            "SELECT role, metadata FROM agent_proactive_messages \
+             WHERE user_id = {OWNER} AND metadata->>'cardId' IS NOT NULL ORDER BY id"
+        ),
+    ))
+    .await
+    .unwrap()
+    .iter()
+    .map(|row| {
+        let metadata: Value = row.try_get("", "metadata").unwrap();
+        (
+            row.try_get("", "role").unwrap(),
+            metadata["cardId"].as_str().unwrap().to_string(),
+            metadata.get("card").is_some(),
+        )
+    })
+    .collect()
+}
+
+/// What she makes of a question that is the owner's to decide comes into
+/// their private talk at once as a card, in their language, without
+/// waiting for her line; her line about it, once said, carries it; their
+/// answer is kept, told to her as a fact, and is in what she knows she told
+/// them; the session going on settles it, and its end has its own card.
+#[tokio::test]
+async fn her_card_comes_at_once_moves_to_her_line_and_settles_as_the_session_goes_on() {
+    use crate::services::agent::merope::cards;
+    let Some(schema) = schema().await else {
+        return;
+    };
+    let db = &schema.db;
+    db.execute_unprepared(&format!(
+        "UPDATE users SET locale = 'zh-CN' WHERE id = {OWNER}"
+    ))
+    .await
+    .unwrap();
+    answering(&[
+        r#"{"changes":[{"change":1,"verdict":"decide","about":"它问现在推送还是先等","suggestion":"我倾向先等测试跑完再推","because":[1],"missing":null,"ownerMustSay":true}],"say":{"change":1,"text":"推送那件事要你定一下。","because":[1]}}"#,
+        r#"{"changes":[{"change":1,"verdict":"decide","about":"它又问推到哪个分支","suggestion":"我倾向推到 preview","because":[1],"missing":null,"ownerMustSay":true}],"say":null}"#,
+    ]);
+    take(db, OWNER, DEVICE, under(CARDS, "asked", 1_760_000_000_000))
+        .await
+        .unwrap();
+    looked_under(db, CARDS).await;
+    // At once, on a line of its own: her line has not been said.
+    let mut lines = Vec::new();
+    for _ in 0..100 {
+        lines = card_lines(db).await;
+        if !lines.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!((lines[0].0.as_str(), lines[0].2), ("card", true));
+    let id = lines[0].1.clone();
+    let held = cards::now(db, OWNER, &id).await.unwrap().unwrap();
+    assert_eq!(held.card.kind, "decide");
+    assert!(held.waiting);
+    assert!(
+        held.card.title.contains("Split the store"),
+        "{}",
+        held.card.title
+    );
+    // The program's words on it are the owner's language.
+    assert!(
+        held.card.facts.iter().any(|fact| fact.text == "测试通过"),
+        "{:?}",
+        held.card.facts
+    );
+    assert!(
+        held.card
+            .view
+            .as_ref()
+            .is_some_and(|view| view.text.contains("它问现在推送还是先等"))
+    );
+
+    // Her line goes out and carries it.
+    let to = crate::services::agent::speech::private(OWNER);
+    use crate::services::agent::speech::ledger::{self, Line, Out, Transcript};
+    ledger::write(
+        db,
+        Line {
+            to: &to,
+            source: myriad_merope::speech::Source::Event,
+            called: false,
+            thing: None,
+            text: "推送那件事要你定一下。",
+        },
+        Out::full("web", "face").line(Some("spk_cards".into())),
+        Some(Transcript {
+            event_key: crate::services::agent::merope::gates::PEER_AGENT_EVENT,
+            notified: false,
+            say_id: None,
+            card: Some(&id),
+        }),
+    )
+    .await
+    .unwrap();
+    let lines = card_lines(db).await;
+    assert_eq!(
+        lines,
+        [
+            ("card".to_string(), id.clone(), false),
+            ("assistant".to_string(), id.clone(), true)
+        ]
+    );
+
+    // The owner answers on the site: kept, and told to her as a fact.
+    let answer = held.card.actions[0].clone();
+    let answered = cards::answer(db, OWNER, &id, &held.version, &answer.id)
+        .await
+        .unwrap();
+    assert!(answered.kept && answered.code.is_none());
+    let told = crate::services::agent::consciousness::drain_speak_intents(crate::clock::now());
+    assert!(
+        told.iter().any(|intent| intent.user_id == OWNER
+            && intent.gist == format!("站长在卡片「{}」上选了：{}", held.card.title, answer.label)),
+        "{told:?}"
+    );
+    // What she told them of their sessions holds the card and the answer.
+    let said = super::said_lately(db, OWNER).await;
+    assert!(
+        said.iter().any(|line| line.id == format!("card:{id}")
+            && line.text.contains(&format!("站长选了「{}」", answer.label))),
+        "{said:?}"
+    );
+
+    // It asks them again: the card asks anew, on a line of its own.
+    let mut again = under(CARDS, "asked", 1_760_000_100_000);
+    again.from_agent = Some("Pushed to which branch? (preview / main)".into());
+    take(db, OWNER, DEVICE, again).await.unwrap();
+    let mut lines = Vec::new();
+    for _ in 0..100 {
+        lines = card_lines(db).await;
+        if lines.len() == 3 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    assert_eq!(lines[2], ("card".to_string(), id.clone(), true));
+    let asks = cards::now(db, OWNER, &id).await.unwrap().unwrap();
+    assert!(asks.waiting && asks.answered.is_none());
+
+    // Answered in the session instead: it went on, and the card settles.
+    take(
+        db,
+        OWNER,
+        DEVICE,
+        under(CARDS, "started", 1_760_000_150_000),
+    )
+    .await
+    .unwrap();
+    let settled = cards::now(db, OWNER, &id).await.unwrap().unwrap();
+    assert!(!settled.waiting);
+    assert!(
+        settled
+            .card
+            .actions
+            .iter()
+            .all(|action| action.id == "open")
+    );
+    // Its end: a card of where it came to, asking nothing.
+    take(
+        db,
+        OWNER,
+        DEVICE,
+        under(CARDS, "finished", 1_760_000_200_000),
+    )
+    .await
+    .unwrap();
+    let status = cards::lately(db, OWNER, 10)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|card| card.kind == "status")
+        .expect("a status card");
+    assert!(!status.waiting);
 }

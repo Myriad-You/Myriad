@@ -4754,3 +4754,166 @@ fn what_the_owner_shows_her_on_a_child_comes_as_the_chats_attached_images() {
     assert_eq!(with_images(None, Vec::new()), None);
     assert_eq!(with_images(Some(senses.clone()), Vec::new()), Some(senses));
 }
+
+/// A card of hers asking the owner, about one node.
+fn asking_card(title: &str) -> myriad_persona_log::payloads::CardVersion {
+    use myriad_persona_log::payloads::{CardAction, CardFact, CardVersion};
+    let subject = "node:n_card_link".to_string();
+    CardVersion {
+        at: crate::clock::now().timestamp_millis(),
+        id: myriad_nodes::cards::card_id("agents", "decide", &subject).unwrap(),
+        kind: "decide".into(),
+        scene: "agents".into(),
+        subject: Some(subject),
+        title: title.into(),
+        state: None,
+        facts: vec![CardFact {
+            text: "会话：拆分存储".into(),
+            reference: None,
+        }],
+        view: None,
+        actions: [("agree", "照这样"), ("open", "打开")]
+            .iter()
+            .map(|(id, label)| CardAction {
+                id: (*id).into(),
+                label: (*label).into(),
+            })
+            .collect(),
+    }
+}
+
+/// Her card comes with the owner's conversation to a child that listed
+/// cards: first on a line of its own, then on her line about it, whole
+/// only there. The owner answers it on the child: kept once however often
+/// it comes, and the conversation comes again with the answer. What is
+/// not an answer is refused by its code; a child that did not list cards
+/// sees neither the card nor its line.
+#[tokio::test]
+async fn her_card_comes_with_the_conversation_and_is_answered_on_the_child() {
+    use crate::services::agent::merope::cards;
+    let Some(site) = site().await else {
+        return;
+    };
+    conversations_checked_every(Duration::from_secs(1));
+    let (_, token) = device(&site.db, "Mac").await;
+    chat_session(
+        &site.db,
+        "ses_card",
+        OWNER,
+        r#"{"mode":"chat"}"#,
+        false,
+        120,
+        &[("user", "在吗"), ("assistant", "在")],
+    )
+    .await;
+    let card = asking_card("要不要先回滚");
+    cards::put(&site.db, OWNER, card.clone()).await.unwrap();
+
+    // Without cards: her conversation as ever.
+    let mut plain = Child::open(&site, &token).await;
+    plain
+        .hello_with(&["conversations", "conversations.live"])
+        .await;
+    let shown = until(&mut plain, "conversations").await;
+    assert!(
+        shown["body"]["sessions"][0]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|line| line.get("cardId").is_none()),
+        "{shown}"
+    );
+    drop(plain);
+
+    let mut child = Child::open(&site, &token).await;
+    child
+        .hello_with(&["conversations", "conversations.live", "cards"])
+        .await;
+    let shown = until(&mut child, "conversations").await;
+    let lines = shown["body"]["sessions"][0]["messages"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let only = lines.last().unwrap();
+    assert_eq!(only["cardId"], card.id.as_str(), "{shown}");
+    assert_eq!(only["text"], "");
+    assert_eq!(only["card"]["waiting"], true);
+    let version = only["card"]["version"].as_str().unwrap().to_string();
+
+    // Her line about it carries it now.
+    let said = crate::services::agent::merope::store::insert_proactive(
+        &site.db,
+        OWNER,
+        "回滚那件事要你定一下。",
+        Some("agent.merope.peer_agent"),
+        false,
+        None,
+    )
+    .await
+    .unwrap();
+    cards::carry(&site.db, OWNER, said.id, &card.id, "spk_card")
+        .await
+        .unwrap();
+    let carried = conversation_of(&mut child, "ses_card").await;
+    let lines = carried["messages"].as_array().unwrap().clone();
+    let (before, last) = (&lines[lines.len() - 2], &lines[lines.len() - 1]);
+    assert_eq!(before["cardId"], card.id.as_str(), "{carried}");
+    assert!(before.get("card").is_none(), "{carried}");
+    assert_eq!(last["text"], "回滚那件事要你定一下。");
+    assert_eq!(last["line"], "spk_card");
+    assert_eq!(last["card"]["version"], version.as_str());
+
+    // Answered on the child, twice: kept once.
+    for _ in 0..2 {
+        child
+            .send(
+                "card.answer",
+                Some("ca_0123456789abcdef0123456789abcdef"),
+                json!({ "card": card.id, "action": "agree", "version": version }),
+            )
+            .await;
+        let answered = until(&mut child, "card.answered").await;
+        assert_eq!(
+            answered["body"],
+            json!({ "card": card.id, "kept": true }),
+            "{answered}"
+        );
+        let after = conversation_of(&mut child, "ses_card").await;
+        let last = after["messages"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()
+            .clone();
+        assert_eq!(last["card"]["answered"]["action"], "agree", "{after}");
+        assert_eq!(last["card"]["waiting"], false);
+    }
+    let held = cards::now(&site.db, OWNER, &card.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!held.waiting);
+
+    // Not an answer: refused by its code.
+    for (action, version, code) in [
+        ("nope", version.as_str(), "card_action_unknown"),
+        ("open", version.as_str(), "card_action_unknown"),
+        ("agree", "v_nope", "card_unknown"),
+    ] {
+        child
+            .send(
+                "card.answer",
+                Some("ca_1123456789abcdef0123456789abcdef"),
+                json!({ "card": card.id, "action": action, "version": version }),
+            )
+            .await;
+        let refused = until(&mut child, "card.answered").await;
+        assert_eq!(
+            refused["body"],
+            json!({ "card": card.id, "kept": false, "code": code }),
+            "{refused}"
+        );
+    }
+    drop(child);
+    site.close().await;
+}
