@@ -71,6 +71,17 @@ fn under(grant: &str, change: &str, at: i64) -> Session {
     .unwrap()
 }
 
+/// A change told as it happened, on a link open since before it.
+async fn take(
+    db: &DatabaseConnection,
+    owner: i32,
+    device: &str,
+    session: Session,
+) -> Result<(), Error> {
+    let at = session.occurred_at;
+    super::take(db, owner, device, session, Arrival { linked_at: 0, at }).await
+}
+
 /// A model that answers each look with `answers`, in order.
 fn answering(answers: &[&str]) {
     let mut world = g0::World::new(0.5);
@@ -98,8 +109,12 @@ fn task_of(grant: &str) -> String {
 
 /// Waits for the look under way to keep what it made of it.
 async fn looked(db: &DatabaseConnection) -> Value {
+    looked_under(db, ASKING).await
+}
+
+async fn looked_under(db: &DatabaseConnection, grant: &str) -> Value {
     for _ in 0..100 {
-        if let Some(node) = read::node(db, OWNER, &owners(), &task_of(ASKING))
+        if let Some(node) = read::node(db, OWNER, &owners(), &task_of(grant))
             .await
             .unwrap()
             && node["views"]
@@ -149,14 +164,19 @@ async fn an_asking_session_is_kept_for_the_owner_alone_and_looked_at_once() {
     // Her first answer cites what is not there; the second holds, and says
     // nothing is needed of them, which an asking session never gets.
     answering(&[
-        r#"{"verdict":"nod","about":"push","suggestion":"push","because":[99],"missing":null,"say":null,"ownerMustSay":false}"#,
-        r#"{"verdict":"no_need","about":"它问要不要推送","suggestion":null,"because":[1],"missing":null,"say":null,"ownerMustSay":false}"#,
+        r#"{"changes":[{"change":1,"verdict":"nod","about":"push","suggestion":"push","because":[99],"missing":null,"ownerMustSay":false}],"say":null}"#,
+        r#"{"changes":[{"change":1,"verdict":"no_need","about":"它问要不要推送","suggestion":null,"because":[1],"missing":null,"ownerMustSay":false}],"say":null}"#,
     ]);
     take(db, OWNER, DEVICE, under(ASKING, "asked", 1_760_000_000_000))
         .await
         .unwrap();
     let node = looked(db).await;
     assert_eq!(g0::leave().unwrap().models["session_look"].len(), 0);
+    // Both answers are in the owner's ledger, word for word.
+    let ledger = keep::ledger_of(db, OWNER).await;
+    assert_eq!(ledger.len(), 1);
+    assert_eq!(ledger[0].answers.len(), 2);
+    assert!(ledger[0].answers[0].contains("[99]"));
     // Waiting on them: an open item, and how it stands now, by rule.
     let open = node["open"].as_object().unwrap();
     assert_eq!(open.len(), 1);
@@ -350,4 +370,132 @@ async fn a_late_change_under_a_dropped_grant_is_refused_after_a_restart() {
     assert!(pictures(db, OWNER).await.is_empty());
     let left = shown::shown(db, OWNER, &owners(), None).await.unwrap();
     assert!(left.node(&task_of(grant)).is_none());
+}
+
+/// A change told late is late whichever way: held on the device while its
+/// link was away, or long ago when it came.
+#[test]
+fn a_change_is_late_when_held_away_or_long_ago() {
+    let arrival = Arrival {
+        linked_at: 1_000_000,
+        at: 1_000_000 + 60_000,
+    };
+    assert!(!arrival.late(1_000_000 + 1_000), "told on this link");
+    assert!(arrival.late(1_000_000 - 1), "held while the link was away");
+    let long = Arrival {
+        linked_at: 0,
+        at: 1_000_000 + 10 * 60 * 1000 + 1,
+    };
+    assert!(long.late(1_000_000), "more than ten minutes ago");
+    assert!(!long.late(1_000_001), "ten minutes is not late yet");
+}
+
+/// A question told late keeps its card by the rules, waiting on the owner,
+/// and is not looked at: what it asked may be answered by now.
+#[tokio::test]
+async fn a_question_told_late_keeps_its_card_and_is_not_looked_at() {
+    let Some(schema) = schema().await else {
+        return;
+    };
+    let db = &schema.db;
+    answering(&[
+        r#"{"changes":[{"change":1,"verdict":"nod","about":"push","suggestion":"push","because":[1],"missing":null,"ownerMustSay":false}],"say":{"change":1,"text":"推吧","because":[1]}}"#,
+    ]);
+    let late = "g_3333333333";
+    let at = 1_760_000_000_000;
+    super::take(
+        db,
+        OWNER,
+        DEVICE,
+        under(late, "asked", at),
+        Arrival {
+            linked_at: at + 5 * 60 * 1000,
+            at: at + 5 * 60 * 1000 + 1_000,
+        },
+    )
+    .await
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        g0::leave().unwrap().models["session_look"].len(),
+        1,
+        "no look was asked"
+    );
+    let node = read::node(db, OWNER, &owners(), &task_of(late))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        node["views"]
+            .as_object()
+            .is_none_or(|views| views.is_empty()),
+        "{node}"
+    );
+    assert_eq!(
+        count(
+            db,
+            &format!(
+                "SELECT count(*) AS n FROM agent_node_rows WHERE node_id = '{}' AND kind = 'node.open_item'",
+                task_of(late)
+            ),
+        )
+        .await,
+        1,
+        "its question waits on the owner"
+    );
+}
+
+/// What comes together is looked at once: one answer for all of it, a card
+/// for what is theirs, none for what is not (what she says of it is
+/// `judge`'s to test: saying drains the speaking queue tests share); the look is kept word for word
+/// in the owner's ledger until the grant is dropped.
+#[tokio::test]
+async fn what_comes_together_is_looked_at_once_and_kept_word_for_word() {
+    let Some(schema) = schema().await else {
+        return;
+    };
+    let db = &schema.db;
+    answering(&[
+        r#"{"changes":[{"change":1,"verdict":"decide","about":"它问要不要推送","suggestion":"推，测试都过了","because":[4],"missing":null,"ownerMustSay":true},{"change":2,"verdict":"no_need","about":"写完了","suggestion":null,"because":[],"missing":null,"ownerMustSay":false}],"say":null}"#,
+    ]);
+    let grant = "g_4444444444";
+    let at = 1_760_000_000_000;
+    take(db, OWNER, DEVICE, under(grant, "asked", at))
+        .await
+        .unwrap();
+    let mut done = under(grant, "finished", at + 1);
+    done.session = "s-2".into();
+    take(db, OWNER, DEVICE, done).await.unwrap();
+    let node = looked_under(db, grant).await;
+    assert_eq!(
+        g0::leave().unwrap().models["session_look"].len(),
+        0,
+        "one look for both"
+    );
+    let view = node["views"].as_object().unwrap().values().next().unwrap();
+    assert!(
+        view["value"]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("要你定：它问要不要推送")
+    );
+    let finished =
+        myriad_nodes::node_id(&owners(), &sessions::task_key(DEVICE, grant, "s-2")).unwrap();
+    let finished = read::node(db, OWNER, &owners(), &finished)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        finished["views"]
+            .as_object()
+            .is_none_or(|views| views.is_empty()),
+        "nothing for them: no card"
+    );
+    let ledger = keep::ledger_of(db, OWNER).await;
+    assert_eq!(ledger.len(), 1);
+    assert_eq!(ledger[0].grants, vec![format!("{DEVICE}/{grant}")]);
+    assert_eq!(ledger[0].answers.len(), 1);
+    assert!(ledger[0].material.contains("Change 2 of 2"));
+    forget_grant(db, OWNER, DEVICE, grant).await.unwrap();
+    assert!(keep::ledger_of(db, OWNER).await.is_empty());
 }

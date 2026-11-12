@@ -1,20 +1,29 @@
 //! The four sessions 工程管理 tried by hand (11-11), told as `now.session`
 //! frames with the same content and looked at the site's own way, on the
 //! site's own model: what each change is routed to, the rows the rules
-//! write, and the model's raw answer where a change is looked at.
+//! write, and the model's raw answer where a change is looked at (each on
+//! its own, as they came hours apart).
 //!
 //! Expected before running: A, B, C nothing for the owner and nothing said
-//! (A quiet and B started are not looked at; A's and C's finished say
-//! nothing); D at least 「你点头就行」 with a pending item.
+//! (A quiet and B started are not looked at; A's and C's finished are
+//! no_need); D at least 「你点头就行」 with a pending item.
 //!
 //! `cargo test -p myriad-backend sessions::trial -- --ignored --nocapture`,
 //! with the host's `DATABASE_URL` (read only) for its model settings.
+//!
+//! The second: the five changes behind the five lines she said in the four
+//! minutes after the Mac linked again (11-12, 12:55), as they came, with
+//! their words shortened. Expected: the four held while the Mac was away
+//! are kept by the rules only; the one told on the new link is looked at,
+//! and at most it is said. Then, to see how she weighs several at once,
+//! the four looked at together as if they had come fresh: at most one line.
 
 use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::judge::{self, Read, Verdict};
+use super::judge::{self, Answer, Read, Verdict};
+use super::shown::{self, Shown};
 use super::*;
 
 const DEVICE: &str = "dev_mac";
@@ -115,11 +124,10 @@ fn d_memories() -> Vec<(String, String)> {
     .collect()
 }
 
-/// Where `take` sends a change of this kind.
+/// Where `take` sends a change of this kind, told on time.
 fn route(picture: &Picture) -> &'static str {
     match picture.session.change {
-        Change::Asked | Change::Failed => "looked at once",
-        Change::Finished => "batched with its repository's finished ones",
+        Change::Asked | Change::Failed | Change::Finished => "looked at with what comes with it",
         Change::Started | Change::Quiet => "kept by the rules only",
     }
 }
@@ -163,23 +171,69 @@ async fn model() -> crate::services::analyzer::AiAnalyzer {
     .expect("the Standard model")
 }
 
-/// The finished ones of a repository, as `finished::tell` asks of them.
-async fn finished_say(soul: &str, pictures: &[Picture]) -> (String, Result<Option<String>, ()>) {
-    let material = finished::material(pictures);
-    let prompt = format!("Numbered:\n{}", material.numbered());
+/// One look at `pictures` together, as `look` asks it, printed raw; her
+/// settled answer, or none.
+async fn look_at(
+    soul: &str,
+    pictures: &[&Picture],
+    memories: &[(String, String)],
+) -> Option<Answer> {
+    let shown: Vec<Shown> = pictures
+        .iter()
+        .map(|picture| Shown {
+            picture,
+            others: &[],
+            memories: memories.to_vec(),
+            before: None,
+        })
+        .collect();
+    let material = shown::material(&shown, &[]);
     println!("--- material\n{}", material.numbered());
-    let raw = model()
-        .await
-        .analyze_json(
-            &finished::system(soul),
-            &prompt,
-            "sessions_finished",
-            Some(&finished::schema()),
-        )
-        .await
-        .unwrap_or_else(|error| format!("error: {error:#}"));
-    let read = finished::read(&raw, &material);
-    (raw, read)
+    let waits: Vec<bool> = pictures
+        .iter()
+        .map(|picture| keep::waits_on_owner(&picture.session))
+        .collect();
+    let analyzer = model().await;
+    let mut prompt = judge::prompt(&material);
+    for attempt in 1..=2 {
+        let raw = analyzer
+            .analyze_json(
+                &judge::system(soul),
+                &prompt,
+                "session_look",
+                Some(&judge::schema()),
+            )
+            .await
+            .unwrap_or_else(|error| format!("error: {error:#}"));
+        println!("raw (try {attempt}): {raw}");
+        match judge::read(&raw, &material) {
+            Read::Good(answer) => {
+                let answer = judge::settle(answer, &waits);
+                for (at, judgment) in answer.judgments.iter().enumerate() {
+                    match judgment {
+                        Some(judgment) => {
+                            println!("card {}: {}", at + 1, judge::card_text(judgment))
+                        }
+                        None => println!("card {}: none given", at + 1),
+                    }
+                }
+                println!("says: {:?}", answer.line);
+                return Some(answer);
+            }
+            Read::BadGrounds => prompt = judge::again(&material),
+            Read::Unreadable => {}
+        }
+    }
+    None
+}
+
+fn verdict(answer: &Option<Answer>, change: usize) -> Option<Verdict> {
+    answer
+        .as_ref()?
+        .judgments
+        .get(change)?
+        .as_ref()
+        .map(|judgment| judgment.verdict)
 }
 
 #[tokio::test]
@@ -193,9 +247,12 @@ async fn the_four_sessions_tried_by_hand() {
     println!("quiet: {} | rows: {:?}", route(&quiet), rules(&quiet));
     let done = a("finished", 1_794_371_820_000);
     println!("finished: {} | rows: {:?}", route(&done), rules(&done));
-    let (raw, read) = finished_say(&soul, &[done]).await;
-    println!("raw: {raw}\nread: {read:?}");
-    passed.push(("A", read == Ok(None)));
+    let answer = look_at(&soul, &[&done], &[]).await;
+    passed.push((
+        "A",
+        verdict(&answer, 0) == Some(Verdict::NoNeed)
+            && answer.as_ref().is_some_and(|answer| answer.line.is_none()),
+    ));
 
     println!("\n=== B (17:07 two sessions working on one branch)");
     for picture in b() {
@@ -212,51 +269,169 @@ async fn the_four_sessions_tried_by_hand() {
     println!("\n=== C (20:53 finished, its test running)");
     let native = c();
     println!("{} | rows: {:?}", route(&native), rules(&native));
-    let (raw, read) = finished_say(&soul, &[native]).await;
-    println!("raw: {raw}\nread: {read:?}");
-    passed.push(("C", read == Ok(None)));
+    let answer = look_at(&soul, &[&native], &[]).await;
+    passed.push((
+        "C",
+        verdict(&answer, 0) == Some(Verdict::NoNeed)
+            && answer.as_ref().is_some_and(|answer| answer.line.is_none()),
+    ));
 
     println!("\n=== D (22:40 asks the owner to say deploy)");
     let asking = d();
     let rows = rules(&asking);
     println!("{} | rows: {rows:?}", route(&asking));
     let pending = rows.iter().any(|row| row.starts_with("node.open_item"));
-    let material = look::material(&asking, &[], &d_memories(), None);
-    println!("--- material\n{}", material.numbered());
-    let analyzer = model().await;
-    let mut prompt = judge::prompt(&material);
-    let mut verdict = None;
-    for attempt in 1..=2 {
-        let raw = analyzer
-            .analyze_json(
-                &judge::system(&soul),
-                &prompt,
-                "session_look",
-                Some(&judge::schema()),
-            )
-            .await
-            .unwrap_or_else(|error| format!("error: {error:#}"));
-        println!("raw (try {attempt}): {raw}");
-        match judge::read(&raw, &material) {
-            Read::Good(judgment) => {
-                let judgment = judge::settle(judgment, true);
-                println!(
-                    "card: {}\nsays: {:?}",
-                    judge::card_text(&judgment),
-                    judgment.line
-                );
-                verdict = Some(judgment.verdict);
-                break;
-            }
-            Read::BadGrounds => prompt = judge::again(&material),
-            Read::Unreadable => {}
-        }
-    }
+    let answer = look_at(&soul, &[&asking], &d_memories()).await;
     println!("pending item by the rules: {pending}");
     passed.push((
         "D",
-        pending && matches!(verdict, Some(Verdict::Nod | Verdict::Decide)),
+        pending && matches!(verdict(&answer, 0), Some(Verdict::Nod | Verdict::Decide)),
     ));
 
     println!("\n=== as expected: {passed:?}");
+}
+
+/// When the Mac linked again on 11-12: 12:55:23.982 JST.
+const LINKED_AT: i64 = 1_794_455_723_982;
+
+fn changed(session: &str, change: &str, at: i64, words: Value) -> Picture {
+    let mut body = json!({
+        "grant": GRANT, "session": session, "change": change, "occurredAt": at,
+        "tool": "claude-code", "remote": SITE,
+    });
+    for (key, value) in words.as_object().unwrap() {
+        body[key] = value.clone();
+    }
+    frame(body)
+}
+
+/// The five, in the order they came, with when each came.
+fn after_the_reconnect() -> Vec<(&'static str, Picture, i64)> {
+    let came = LINKED_AT + 150;
+    let long = format!(
+        "部署已经开始，还没换掉线上的后端。记忆改进的进度：{}有一处要你知道：「建一遍」这段代码排在这次部署版本的后面，这次不会带上它。",
+        "已经做完的几件和第六轮的结果，一条一条写在这里。".repeat(26)
+    );
+    vec![
+        (
+            "96 the deploy question",
+            changed(
+                "s-deploy",
+                "asked",
+                1_794_455_395_808,
+                json!({
+                    "title": "协议 2 打开：账跨设备同步、bot 跟着主机",
+                    "askedBy": "session", "askedByTitle": MANAGER,
+                    "fromPeer": "在 252a848d7 上补跑相关测试，过了告诉我，然后等站长在你这里说部署。",
+                    "fromAgent": "Q: Deploy 252a848d7 to the live site now? (Deploy now / Not yet)",
+                    "checks": [{"kind": "test", "state": "passed", "at": 1_794_455_300_000_i64}],
+                    "waitingOn": "owner",
+                }),
+            ),
+            came,
+        ),
+        (
+            "97 the video script",
+            changed(
+                "s-video",
+                "asked",
+                1_794_447_708_758,
+                json!({
+                    "title": "2.5D Rig 运行时介绍视频脚本", "askedBy": "owner",
+                    "fromOwner": "不太对 但也没更差",
+                    "fromAgent": "Q: 这样的开头对了吗？ (对了 / 还不对，我来说)",
+                    "waitingOn": "owner",
+                }),
+            ),
+            came,
+        ),
+        (
+            "98 the app's three things",
+            changed(
+                "s-app",
+                "finished",
+                1_794_452_870_201,
+                json!({
+                    "title": "App体验重塑:感知、情景、思维导图",
+                    "askedBy": "session", "askedByTitle": MANAGER,
+                    "fromAgent": "三件都办好了：新版已装好并在运行，会话的变化改成会话上报；真实连上之后报没报上来还没看到。",
+                    "checks": [{"kind": "build", "state": "passed", "at": 1_794_452_800_000_i64}],
+                    "waitingOn": "session",
+                }),
+            ),
+            came,
+        ),
+        (
+            "99 the manager's progress",
+            changed(
+                "s-manager",
+                "finished",
+                1_794_455_633_882,
+                json!({
+                    "title": MANAGER, "askedBy": "owner",
+                    "fromOwner": "好了啊 另外 记忆系统的改进进度怎样",
+                    "fromAgent": long,
+                }),
+            ),
+            came,
+        ),
+        (
+            "100 the manager's question",
+            changed(
+                "s-manager",
+                "asked",
+                1_794_455_929_915,
+                json!({
+                    "title": MANAGER, "askedBy": "owner",
+                    "fromOwner": "好 记忆这边还有多少todo",
+                    "fromAgent": "Q: 第七轮之后要不要补跑计划要求的同预算对照？ (补跑对照 / 先不跑)",
+                    "waitingOn": "owner",
+                }),
+            ),
+            1_794_455_943_312,
+        ),
+    ]
+}
+
+#[tokio::test]
+#[ignore = "spends on the site's model; see the module docs"]
+async fn the_five_lines_after_the_reconnect() {
+    let soul = crate::services::agent::semantic_eval::configured_soul().await;
+    let five = after_the_reconnect();
+    let mut said = Vec::new();
+    let mut held = Vec::new();
+    for (name, picture, came) in &five {
+        let arrival = Arrival {
+            linked_at: LINKED_AT,
+            at: *came,
+        };
+        let late = arrival.late(picture.session.occurred_at);
+        println!("\n=== {name}: {:?}, late {late}", picture.session.change);
+        println!("rows: {:?}", rules(picture));
+        if late {
+            println!("kept by the rules only");
+            held.push(picture);
+            continue;
+        }
+        if let Some(answer) = look_at(&soul, &[picture], &[]).await
+            && let Some(line) = answer.line
+        {
+            said.push((*name, line.text));
+        }
+    }
+    println!("\n=== said: {said:?}");
+    assert!(said.len() <= 1, "{said:?}");
+    assert!(
+        said.iter().all(|(name, _)| name.starts_with("100")),
+        "{said:?}"
+    );
+
+    println!("\n=== the four held, as if they had come fresh, together");
+    let together = look_at(&soul, &held, &[]).await;
+    let lines = together
+        .iter()
+        .filter(|answer| answer.line.is_some())
+        .count();
+    println!("lines: {lines}");
+    assert!(lines <= 1);
 }

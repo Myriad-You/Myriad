@@ -196,6 +196,7 @@ pub(super) async fn serve_with(
         db,
         owner: device.user_id,
         device,
+        linked_at: crate::clock::now().timestamp_millis(),
         timing,
         tx,
         queue: Vec::new(),
@@ -257,6 +258,9 @@ struct Link {
     db: DatabaseConnection,
     owner: i32,
     device: Device,
+    /// When this link opened, milliseconds since the epoch: what changed
+    /// before it was held on the device while it was away.
+    linked_at: i64,
     timing: Timing,
     /// For the run and mood followers.
     tx: mpsc::Sender<Outgoing>,
@@ -1490,6 +1494,10 @@ impl Link {
             self.owner,
             &self.device.id,
             session,
+            crate::services::agent::merope::sessions::Arrival {
+                linked_at: self.linked_at,
+                at: crate::clock::now().timestamp_millis(),
+            },
         )
         .await;
         match kept {

@@ -4,11 +4,13 @@
 //! session a task under it; what a session said and did is written by the
 //! rule, never as hers.
 //!
-//! Only two changes are thought over: a session that asks the owner, and
-//! one that failed. She looks at it once, carefully ([`judge`]); a finished
-//! one waits a little with the others of its repository and they are
-//! looked at together ([`finished`]). Starting and going quiet are only
-//! kept.
+//! Three changes are thought over: a session that asks the owner, one that
+//! failed, and one that finished. Those that come together are looked at
+//! together, once and carefully ([`look`], [`judge`]). Starting and going
+//! quiet are only kept. A change told late (held on the device while its
+//! link was away, or older than [`LATE_AFTER_MS`] when it came) is only
+//! kept too: what it says may be over by now, and its question keeps its
+//! card by the rules.
 //!
 //! The latest picture of each session (what it said, up to 2000
 //! characters) is kept beside the nodes for that look ([`Picture`]), a
@@ -19,9 +21,10 @@
 //! forgotten whole never comes back under its key), except a device's own
 //! folder, which goes with the device.
 
-mod finished;
 mod judge;
+mod keep;
 mod look;
+mod shown;
 
 use myriad_her_link::now::{Change, Session};
 use myriad_nodes::sessions::{self, SessionInput};
@@ -52,6 +55,25 @@ const FOLDERS: &str = "agent_session_folder";
 /// The grants the owner dropped, kept across restarts: a change told late
 /// under one of them is never taken again. Holds no words.
 const DROPS: &str = "agent_session_dropped";
+
+/// A change that comes this long after it happened is told late.
+const LATE_AFTER_MS: i64 = 10 * 60 * 1000;
+
+/// When a change came: when its link opened, and now (milliseconds since
+/// the epoch).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Arrival {
+    pub linked_at: i64,
+    pub at: i64,
+}
+
+impl Arrival {
+    /// Whether a change that happened at `occurred_at` is told late: before
+    /// its link opened (held while the device was away), or long ago.
+    fn late(self, occurred_at: i64) -> bool {
+        occurred_at < self.linked_at || self.at - occurred_at > LATE_AFTER_MS
+    }
+}
 
 /// One session as it last changed, and the device that told it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,14 +111,15 @@ fn identity(owner: i32, device: &str) -> RegistryIdentity<'_> {
 }
 
 /// Takes one change of a session the owner's `device` told: kept on her
-/// nodes by the rules, then looked at when it asks them or failed. A change
-/// older than the one kept changes nothing. While her mind is on another
-/// end the site keeps none of it: that end does.
+/// nodes by the rules, then looked at when it asks them, failed or
+/// finished, unless it came late. A change older than the one kept changes nothing. While
+/// her mind is on another end the site keeps none of it: that end does.
 pub(crate) async fn take(
     db: &DatabaseConnection,
     owner: i32,
     device: &str,
     session: Session,
+    arrival: Arrival,
 ) -> Result<(), Error> {
     if crate::services::persona_sync::lease::paused("a session's change") {
         return Ok(());
@@ -205,18 +228,20 @@ pub(crate) async fn take(
     if dropped(db, owner, device, &picture.session.grant).await? {
         return forget_grant(db, owner, device, &picture.session.grant).await;
     }
+    let late = arrival.late(picture.session.occurred_at);
     match picture.session.change {
-        Change::Asked | Change::Failed => look::spawn(db.clone(), owner, picture),
-        Change::Finished => {
+        Change::Asked | Change::Failed if !late => look::add(db.clone(), owner, picture),
+        Change::Finished if !late => {
             look::moved_on(
                 owner,
                 device,
                 &picture.session.grant,
                 &picture.session.session,
             );
-            finished::add(db.clone(), owner, picture)
+            look::add(db.clone(), owner, picture)
         }
-        Change::Started | Change::Quiet => look::moved_on(
+        // Started, quiet, or told late: it moved on from what it asked.
+        _ => look::moved_on(
             owner,
             device,
             &picture.session.grant,
@@ -224,6 +249,38 @@ pub(crate) async fn take(
         ),
     }
     Ok(())
+}
+
+/// How many of her latest lines about their sessions she is shown.
+const SAID: u64 = 5;
+
+/// Her latest lines to the owner about their sessions, newest first.
+pub(super) async fn said_lately(db: &DatabaseConnection, owner: i32) -> Vec<judge::Said> {
+    use crate::models::entities::agent_proactive_messages as lines;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+    let found = lines::Entity::find()
+        .filter(lines::Column::UserId.eq(owner))
+        .filter(lines::Column::EventKey.eq(super::gates::PEER_AGENT_EVENT))
+        .filter(lines::Column::Role.eq("assistant"))
+        .order_by_desc(lines::Column::CreatedAt)
+        .limit(SAID)
+        .all(db)
+        .await;
+    let now = crate::clock::now();
+    match found {
+        Ok(found) => found
+            .into_iter()
+            .map(|line| judge::Said {
+                id: line.id,
+                minutes_ago: (now - line.created_at.with_timezone(&chrono::Utc)).num_minutes(),
+                text: line.content,
+            })
+            .collect(),
+        Err(error) => {
+            tracing::warn!(%error, "[Merope] her lines about sessions could not be read");
+            Vec::new()
+        }
+    }
 }
 
 /// Whether `device` is one of the owner's, not removed.
@@ -301,11 +358,10 @@ pub(crate) async fn forget_grant<C: ConnectionTrait + TransactionTrait>(
     )
     .await?;
     look::cancel(owner, device, grant);
-    finished::cancel(owner, device, grant);
     // What was to be said of it and is not yet.
     let grant_ref = sessions::grant_ref(device, grant);
     crate::services::agent::consciousness::withdraw_speak_intents(owner, &grant_ref);
-    crate::services::agent::consciousness::withdraw_speak_intents(owner, finished::FINISHED);
+    keep::forget_ledger(db, owner, device, grant).await?;
     let audience = audience::private_talk(owner, Some(owner));
     // Under the audience's lock, as every forget.
     let txn = db.begin().await?;
@@ -371,6 +427,8 @@ pub(crate) async fn forget_device<C: ConnectionTrait + TransactionTrait>(
     Ok(())
 }
 
+#[cfg(test)]
+mod judge_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
