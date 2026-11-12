@@ -635,3 +635,61 @@ async fn what_a_kept_fact_does_to_how_their_life_stands_is_written_where_it_stan
     assert!(super::standing::shown_on(&node.node_id, &head).is_empty());
     schema.drop().await;
 }
+
+#[tokio::test]
+async fn what_she_knew_before_stands_first_and_a_new_fact_ends_it() {
+    let Some(schema) = schema("memory_nodes_standing_built").await else {
+        return;
+    };
+    let db = &schema.db;
+    let running = || {
+        Some(GoesUnder::New {
+            name: "跑步".into(),
+            aliases: Vec::new(),
+        })
+    };
+    // Kept before anything stood: nothing to build from but itself, and
+    // the step starts nothing.
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[],"add":[]}"#,
+    )]);
+    settle(db, vec![update("每周三晚上夜跑", &[], running())]).await;
+    assert_eq!(asked("memory_standing_build"), 0);
+    assert!(standing_rows(db).await.is_empty());
+    // The next stretch: first how things stood (from what she knew, not
+    // from what it kept), then what it does to that.
+    answering(&[
+        (
+            "memory_standing_build",
+            r#"{"items":[{"whose":"them","text":"每周三晚上夜跑","because":[1]}]}"#,
+        ),
+        (
+            "memory_standing_step",
+            r#"{"whose":"them","set":[],"end":[1],"add":[]}"#,
+        ),
+    ]);
+    settle(db, vec![update("膝盖伤了，不夜跑了", &[], running())]).await;
+    let world = g0::leave().expect("a world");
+    let built: Vec<&Value> = world
+        .log
+        .iter()
+        .filter(|line| {
+            line["kind"] == "model" && line["what"]["operation"] == "memory_standing_build"
+        })
+        .collect();
+    assert_eq!(built.len(), 1);
+    let input = built[0]["what"]["input"].as_str().unwrap();
+    assert!(input.contains("每周三晚上夜跑") && !input.contains("膝盖"));
+    let rows = standing_rows(db).await;
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].1, "每周三晚上夜跑");
+    assert_eq!(rows[0].4, json!([]));
+    assert_eq!(rows[1].0, rows[0].0, "the same item, ended");
+    assert_eq!(
+        (rows[1].1.as_str(), rows[1].2),
+        ("膝盖伤了，不夜跑了", true)
+    );
+    assert_eq!(rows[1].4.as_array().map(Vec::len), Some(1));
+    schema.drop().await;
+}
