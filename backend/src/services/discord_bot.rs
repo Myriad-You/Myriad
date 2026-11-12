@@ -20,11 +20,10 @@ use futures::{SinkExt, StreamExt};
 use myriad_agent_rules::channel::{
     ConnectFailureKind, DISCORD_CHANNEL_TYPE_DM, DISCORD_DISALLOWED_INTENTS, DISCORD_TEXT_LIMIT,
     DiscordBotIdentity, WorkerIntent, classify_discord_rest, classify_gateway_close,
-    discord_channel_type, discord_group_message_from_create_with_bots,
-    discord_identify_intents, discord_private_component_from_create,
-    discord_private_text_from_create, discord_retry_after, discord_session_starts_remaining,
-    discord_worker_intent, is_discord_dm_channel, parse_discord_bot_identity,
-    parse_discord_channel_type, parse_discord_gateway_url,
+    discord_channel_type, discord_group_message_from_create_with_bots, discord_identify_intents,
+    discord_private_component_from_create, discord_private_text_from_create, discord_retry_after,
+    discord_session_starts_remaining, discord_worker_intent, is_discord_dm_channel,
+    parse_discord_bot_identity, parse_discord_channel_type, parse_discord_gateway_url,
 };
 use myriad_error::redact_secrets;
 use serde::Serialize;
