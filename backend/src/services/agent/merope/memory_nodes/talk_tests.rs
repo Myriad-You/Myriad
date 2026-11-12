@@ -654,7 +654,13 @@ async fn what_she_knew_before_stands_first_and_a_new_fact_ends_it() {
         "memory_standing_step",
         r#"{"whose":"them","set":[],"end":[],"add":[]}"#,
     )]);
-    settle(db, vec![update("每周三晚上夜跑", &[], running())]).await;
+    let mut first = update("每周三晚上夜跑", &[], running());
+    first.standing.happened = Some(myriad_merope::happened::Happened {
+        from: "2026-08-21".into(),
+        to: None,
+        about: false,
+    });
+    settle(db, vec![first]).await;
     assert_eq!(asked("memory_standing_build"), 0);
     assert!(standing_rows(db).await.is_empty());
     // The next stretch: first how things stood (from what she knew, not
@@ -681,6 +687,8 @@ async fn what_she_knew_before_stands_first_and_a_new_fact_ends_it() {
     assert_eq!(built.len(), 1);
     let input = built[0]["what"]["input"].as_str().unwrap();
     assert!(input.contains("每周三晚上夜跑") && !input.contains("膝盖"));
+    // Each memory with when it happened, not when it was put on the node.
+    assert!(input.contains("2026-08-21"), "{input}");
     let rows = standing_rows(db).await;
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].1, "每周三晚上夜跑");
@@ -691,5 +699,26 @@ async fn what_she_knew_before_stands_first_and_a_new_fact_ends_it() {
         ("膝盖伤了，不夜跑了", true)
     );
     assert_eq!(rows[1].4.as_array().map(Vec::len), Some(1));
+    // Since: what it rests on happened then; the news, with no day of its
+    // own, the day she was told.
+    let sinces: Vec<Value> = db
+        .query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT body FROM agent_node_rows WHERE kind = 'node.standing' ORDER BY at, hlc",
+        ))
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| {
+            serde_json::from_str::<Value>(&row.try_get::<String>("", "body").unwrap()).unwrap()
+                ["since"]
+                .clone()
+        })
+        .collect();
+    let today = crate::clock::now()
+        .with_timezone(&crate::services::agent::merope::clock::zone())
+        .format("%Y-%m-%d")
+        .to_string();
+    assert_eq!(sinces, vec![json!("2026-08-21"), json!(today)]);
     schema.drop().await;
 }
