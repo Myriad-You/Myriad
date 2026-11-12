@@ -1058,7 +1058,9 @@ impl AiAnalyzer {
             .await
     }
 
-    async fn analyze_json_as(
+    /// [`Self::analyze_json`], or [`Self::analyze_json_strict`] when
+    /// `strict`.
+    pub(crate) async fn analyze_json_as(
         &self,
         system: &str,
         prompt: &str,

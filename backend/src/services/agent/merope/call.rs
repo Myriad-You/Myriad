@@ -313,18 +313,15 @@ impl Model {
         schema_name: &str,
         schema: &Value,
     ) -> Result<String, Failure> {
-        if self.ask.strict {
-            return self
-                .billed(
-                    self.analyzer
-                        .analyze_json_strict(system, input, schema_name, schema),
-                )
-                .await;
-        }
-        self.billed(
-            self.analyzer
-                .analyze_json(system, input, schema_name, Some(schema)),
-        )
+        // One future either way: two arms each holding their own call nest
+        // her chat's future past the compiler's layout depth.
+        self.billed(self.analyzer.analyze_json_as(
+            system,
+            input,
+            schema_name,
+            Some(schema),
+            self.ask.strict,
+        ))
         .await
     }
 
