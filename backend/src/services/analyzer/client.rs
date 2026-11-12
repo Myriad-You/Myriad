@@ -174,6 +174,43 @@ impl ProviderCallFailure {
     }
 }
 
+/// Puts `key` into the body's `output_config`, beside what it holds.
+fn merge_output_config(body: &mut serde_json::Value, key: &str, value: serde_json::Value) {
+    let Some(object) = body.as_object_mut() else {
+        return;
+    };
+    let config = object
+        .entry("output_config")
+        .or_insert_with(|| serde_json::json!({}));
+    if !config.is_object() {
+        *config = serde_json::json!({});
+    }
+    if let Some(config) = config.as_object_mut() {
+        config.insert(key.to_string(), value);
+    }
+}
+
+/// Takes `key` out of the body's `output_config`, and the config with it
+/// once nothing is left in it.
+fn take_output_config(body: &mut serde_json::Value, key: &str) {
+    let Some(object) = body.as_object_mut() else {
+        return;
+    };
+    let empty = match object
+        .get_mut("output_config")
+        .and_then(|c| c.as_object_mut())
+    {
+        Some(config) => {
+            config.remove(key);
+            config.is_empty()
+        }
+        None => false,
+    };
+    if empty {
+        object.remove("output_config");
+    }
+}
+
 impl AiAnalyzer {
     pub(super) async fn gemini_url(&self, stream: bool) -> String {
         if let Some(base) = self
@@ -430,12 +467,21 @@ impl AiAnalyzer {
         if self.provider != AiProvider::Anthropic || self.deep_thinking_param().is_some() {
             return false;
         }
-        match (body.as_object_mut(), self.light_thinking_param()) {
-            (Some(object), Some((key, value))) => {
-                object.insert(key.to_string(), value);
+        match self.light_thinking_param() {
+            Some(("output_config", serde_json::Value::Object(config))) => {
+                for (key, value) in config {
+                    merge_output_config(body, &key, value);
+                }
                 true
             }
-            _ => false,
+            Some((key, value)) => match body.as_object_mut() {
+                Some(object) => {
+                    object.insert(key.to_string(), value);
+                    true
+                }
+                None => false,
+            },
+            None => false,
         }
     }
 
@@ -470,9 +516,7 @@ impl AiAnalyzer {
             && ProviderCallFailure::http(response.status(), anyhow::anyhow!("refused"))
                 .rejected_request()
         {
-            if let Some(object) = body.as_object_mut() {
-                object.remove("output_config");
-            }
+            take_output_config(&mut body, "effort");
             response = send(&body).await?;
             if response.status().is_success() {
                 self.remember_refusal(RequestShape::LightThinking);
@@ -759,6 +803,7 @@ impl AiAnalyzer {
         system: &str,
         messages: &[ChatMessage],
         response_format: Option<serde_json::Value>,
+        anthropic_format: Option<serde_json::Value>,
         max_tokens: Option<u32>,
     ) -> std::result::Result<String, ProviderCallFailure> {
         let url = text_protocol::endpoint(self.provider, self.base_url.as_deref());
@@ -781,6 +826,9 @@ impl AiAnalyzer {
             // Haiku 5.5 already thinks adaptively by default; models such
             // as Sonnet 4.6 require it to be enabled explicitly.
             object.insert("thinking".into(), serde_json::json!({ "type": "adaptive" }));
+        }
+        if let Some(format) = anthropic_format {
+            merge_output_config(&mut body, "format", format);
         }
         let light = self.put_anthropic_light(&mut body);
         let send = |body: &serde_json::Value| {
@@ -805,9 +853,7 @@ impl AiAnalyzer {
             && ProviderCallFailure::http(response.status(), anyhow::anyhow!("refused"))
                 .rejected_request()
         {
-            if let Some(object) = body.as_object_mut() {
-                object.remove("output_config");
-            }
+            take_output_config(&mut body, "effort");
             response = send(&body).await?;
             if response.status().is_success() {
                 self.remember_refusal(RequestShape::LightThinking);
@@ -831,7 +877,7 @@ impl AiAnalyzer {
         system: &str,
         messages: &[ChatMessage],
     ) -> Result<String> {
-        self.send_text_protocol(system, messages, None, None)
+        self.send_text_protocol(system, messages, None, None, None)
             .await
             .map_err(ProviderCallFailure::into_error)
     }
@@ -991,9 +1037,38 @@ impl AiAnalyzer {
         schema_name: &str,
         schema: Option<&serde_json::Value>,
     ) -> Result<String> {
+        self.analyze_json_as(system, prompt, schema_name, schema, false)
+            .await
+    }
+
+    /// [`Self::analyze_json`], held to `schema` by Anthropic's own API as
+    /// well (`output_config.format`, a JSON schema every object of which
+    /// says `additionalProperties: false`), where every other call to it
+    /// only restates the schema in the prompt. An endpoint that rejects it
+    /// is remembered and asked prompt-only, as structured output is
+    /// everywhere.
+    pub async fn analyze_json_strict(
+        &self,
+        system: &str,
+        prompt: &str,
+        schema_name: &str,
+        schema: &serde_json::Value,
+    ) -> Result<String> {
+        self.analyze_json_as(system, prompt, schema_name, Some(schema), true)
+            .await
+    }
+
+    async fn analyze_json_as(
+        &self,
+        system: &str,
+        prompt: &str,
+        schema_name: &str,
+        schema: Option<&serde_json::Value>,
+        strict: bool,
+    ) -> Result<String> {
         let input_chars = system.len() + prompt.len();
 
-        let mode = if self.provider == AiProvider::Anthropic
+        let mode = if (self.provider == AiProvider::Anthropic && !strict)
             || self.refused(RequestShape::StructuredOutput)
         {
             JsonMode::PromptOnly(schema)
@@ -1483,7 +1558,20 @@ impl AiAnalyzer {
                     .map_err(ProviderCallFailure::transport)
             }
             AiProvider::OpenAIResponses | AiProvider::Anthropic => {
+                // Anthropic's own API is asked structured only by
+                // [`Self::analyze_json_strict`]: its answer held to the schema.
+                let anthropic_format = match mode {
+                    JsonMode::Structured(Some(schema))
+                        if self.provider == AiProvider::Anthropic =>
+                    {
+                        Some(serde_json::json!({ "type": "json_schema", "schema": schema }))
+                    }
+                    _ => None,
+                };
                 let (prompt, response_format) = match mode {
+                    JsonMode::Structured(Some(_)) if anthropic_format.is_some() => {
+                        (prompt.to_string(), None)
+                    }
                     JsonMode::Structured(schema)
                         if self.provider == AiProvider::OpenAIResponses =>
                     {
@@ -1503,6 +1591,7 @@ impl AiAnalyzer {
                     system,
                     &[ChatMessage::user(prompt)],
                     response_format,
+                    anthropic_format,
                     budget.map(|value| value.max_tokens),
                 )
                 .await

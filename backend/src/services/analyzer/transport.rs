@@ -510,4 +510,89 @@ mod tests {
         );
         server.abort();
     }
+
+    /// A strict JSON ask holds Anthropic's own API to the schema
+    /// (`output_config.format`), beside the effort it is asked to think
+    /// with; an endpoint that rejects the format is asked prompt-only, and
+    /// remembered.
+    #[tokio::test]
+    async fn a_strict_ask_holds_anthropic_to_the_schema() {
+        use super::super::{AiAnalyzer, AiProvider};
+        use axum::{Json, Router, http::StatusCode, routing::post};
+        use serde_json::{Value, json};
+        use std::sync::Arc;
+
+        let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let observed = requests.clone();
+        let router = Router::new().route(
+            "/v1/messages",
+            post(move |Json(body): Json<Value>| {
+                let observed = observed.clone();
+                async move {
+                    observed.lock().unwrap().push(body.clone());
+                    if body["model"] == "formless" && body["output_config"].get("format").is_some()
+                    {
+                        return (StatusCode::BAD_REQUEST, Json(json!({"error":"no format"})));
+                    }
+                    (
+                        StatusCode::OK,
+                        Json(json!({"content":[{"type":"text","text":"{\"read\":true}"}]})),
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let analyzer = |model: &str| {
+            AiAnalyzer::new_with_timeout(
+                AiProvider::Anthropic,
+                String::new(),
+                model.to_string(),
+                Some(format!("http://{address}/v1")),
+                Duration::from_secs(2),
+            )
+        };
+        let schema = json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["read"],
+            "properties": {"read": {"type": "boolean"}}
+        });
+
+        let held = analyzer("held").await.with_light_thinking();
+        held.analyze_json_strict("read", "hello", "read", &schema)
+            .await
+            .unwrap();
+        held.analyze_json("read", "hello", "read", Some(&schema))
+            .await
+            .unwrap();
+        {
+            let bodies = requests.lock().unwrap();
+            assert_eq!(bodies[0]["output_config"]["format"]["type"], "json_schema");
+            assert_eq!(bodies[0]["output_config"]["format"]["schema"], schema);
+            assert_eq!(bodies[0]["output_config"]["effort"], "low");
+            assert_eq!(bodies[0]["messages"][0]["content"], "hello");
+            // Every other ask only restates it in the prompt.
+            assert!(bodies[1]["output_config"].get("format").is_none());
+            assert_ne!(bodies[1]["messages"][0]["content"], "hello");
+        }
+
+        requests.lock().unwrap().clear();
+        let formless = analyzer("formless").await;
+        for _ in 0..2 {
+            formless
+                .analyze_json_strict("read", "hello", "read", &schema)
+                .await
+                .unwrap();
+        }
+        {
+            let bodies = requests.lock().unwrap();
+            assert_eq!(bodies.len(), 3, "one refusal, then prompt-only twice");
+            for body in &bodies[1..] {
+                assert!(body.get("output_config").is_none());
+            }
+        }
+        server.abort();
+    }
 }

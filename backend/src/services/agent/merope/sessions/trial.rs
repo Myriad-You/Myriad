@@ -22,8 +22,10 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::judge::{self, Answer, Read, Verdict};
-use super::shown::{self, Shown};
+use myriad_nodes::session_look::{
+    self as looks, Answer, LookInput, Material, Piece, Read, Recalled, Shown, Told, Verdict,
+};
+
 use super::*;
 
 const DEVICE: &str = "dev_mac";
@@ -109,7 +111,7 @@ fn d() -> Picture {
 }
 
 /// What she knows of D from before, as her memories would bring it.
-fn d_memories() -> Vec<(String, String)> {
+fn d_memories() -> Vec<Recalled> {
     [
         "今天这台 Mac 上报了两千多次会话状态，站点每条判断一次，其中一半以上失败；模型余额一度用到拒付。",
         "站长 20:46 把判断换到另一家模型直连；之后站长说「我先关闭感知了」，上报已经停了。",
@@ -120,7 +122,10 @@ fn d_memories() -> Vec<(String, String)> {
     ]
     .iter()
     .enumerate()
-    .map(|(n, text)| (format!("mem_trial_d{n}"), text.to_string()))
+    .map(|(n, text)| Recalled {
+        id: format!("mem_trial_d{n}"),
+        text: text.to_string(),
+    })
     .collect()
 }
 
@@ -171,48 +176,30 @@ async fn model() -> crate::services::analyzer::AiAnalyzer {
     .expect("the Standard model")
 }
 
-/// One look at `pictures` together, as `look` asks it, printed raw; her
-/// settled answer, or none.
-async fn look_at(
-    soul: &str,
-    pictures: &[&Picture],
-    memories: &[(String, String)],
-) -> Option<Answer> {
-    let shown: Vec<Shown> = pictures
-        .iter()
-        .map(|picture| Shown {
-            picture,
-            others: &[],
-            memories: memories.to_vec(),
-            before: None,
-        })
-        .collect();
-    let material = shown::material(&shown, &[]);
+/// Asks the model once more when her grounds named what was not there;
+/// prints every answer raw, and her settled answer.
+async fn ask_of(soul: &str, material: Material, waits: Vec<bool>) -> Option<Answer> {
     println!("--- material\n{}", material.numbered());
-    let waits: Vec<bool> = pictures
-        .iter()
-        .map(|picture| keep::waits_on_owner(&picture.session))
-        .collect();
     let analyzer = model().await;
-    let mut prompt = judge::prompt(&material);
+    let mut prompt = looks::prompt(&material);
     for attempt in 1..=2 {
         let raw = analyzer
-            .analyze_json(
-                &judge::system(soul),
+            .analyze_json_strict(
+                &looks::system(soul),
                 &prompt,
                 "session_look",
-                Some(&judge::schema()),
+                &looks::schema(),
             )
             .await
             .unwrap_or_else(|error| format!("error: {error:#}"));
         println!("raw (try {attempt}): {raw}");
-        match judge::read(&raw, &material) {
+        match looks::read(&raw, &material) {
             Read::Good(answer) => {
-                let answer = judge::settle(answer, &waits);
+                let answer = looks::settle(answer, &waits);
                 for (at, judgment) in answer.judgments.iter().enumerate() {
                     match judgment {
                         Some(judgment) => {
-                            println!("card {}: {}", at + 1, judge::card_text(judgment))
+                            println!("card {}: {}", at + 1, looks::card_text(judgment))
                         }
                         None => println!("card {}: none given", at + 1),
                     }
@@ -220,11 +207,39 @@ async fn look_at(
                 println!("says: {:?}", answer.line);
                 return Some(answer);
             }
-            Read::BadGrounds => prompt = judge::again(&material),
+            Read::BadGrounds => prompt = looks::again(&material),
             Read::Unreadable => {}
         }
     }
     None
+}
+
+/// One look at `pictures` together, as `look` asks it.
+async fn look_at(soul: &str, pictures: &[&Picture], memories: &[Recalled]) -> Option<Answer> {
+    let changes: Vec<Shown> = pictures
+        .iter()
+        .map(|picture| Shown {
+            told: Told {
+                device: picture.device.clone(),
+                session: picture.session.clone(),
+            },
+            memories: memories.to_vec(),
+            before: None,
+        })
+        .collect();
+    let asked = looks::look_input(LookInput {
+        changes,
+        others: Vec::new(),
+        said: Vec::new(),
+        at: pictures
+            .iter()
+            .map(|picture| picture.session.occurred_at)
+            .max()
+            .unwrap_or_default(),
+        soul: soul.to_string(),
+    })
+    .unwrap();
+    ask_of(soul, asked.material, asked.waits).await
 }
 
 fn verdict(answer: &Option<Answer>, change: usize) -> Option<Verdict> {
@@ -405,7 +420,7 @@ async fn the_five_lines_after_the_reconnect() {
             linked_at: LINKED_AT,
             at: *came,
         };
-        let late = arrival.late(picture.session.occurred_at);
+        let late = looks::route(&picture.session, arrival) == looks::Route::Kept;
         println!("\n=== {name}: {:?}, late {late}", picture.session.change);
         println!("rows: {:?}", rules(picture));
         if late {
@@ -434,4 +449,165 @@ async fn the_five_lines_after_the_reconnect() {
         .count();
     println!("lines: {lines}");
     assert!(lines <= 1);
+}
+
+/// The looks the site kept in the owner's ledger on 11-12 after 15:27
+/// (`agent_session_look`, exported as `[{at, look: {material, answers,
+/// …}}]` to the file `MYRIAD_SESSION_LOOK_REPLAY` names: kept out of the
+/// repository), each looked at again with the two facts it lacked: when the
+/// owner last spoke to the session themselves (`owner_said`, minutes before
+/// the look, by the look's time `HH:MM:SS`), and that its choices are not in
+/// the material.
+#[tokio::test]
+#[ignore = "spends on the site's model; see the module docs"]
+async fn the_ledger_looks_again_with_what_they_lacked() {
+    let Ok(path) = std::env::var("MYRIAD_SESSION_LOOK_REPLAY") else {
+        panic!("MYRIAD_SESSION_LOOK_REPLAY names the exported looks");
+    };
+    // When the owner last spoke to the video script's session, by look.
+    let owner_said: std::collections::HashMap<&str, i64> = [
+        ("15:59:17", 16),
+        ("16:08:33", 0),
+        ("16:09:09", 0),
+        ("16:12:38", 4),
+    ]
+    .into_iter()
+    .collect();
+    let soul = crate::services::agent::semantic_eval::configured_soul().await;
+    let looks_kept: Vec<Value> = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let mut said = Vec::new();
+    for kept in looks_kept {
+        let at = kept["at"].as_str().unwrap_or_default().to_string();
+        let Some(minutes) = owner_said.get(at.as_str()) else {
+            continue;
+        };
+        println!("\n=== {at} (said then: {})", kept["look"]["answers"][0]);
+        let material = with_what_it_lacked(
+            kept["look"]["material"].as_str().unwrap_or_default(),
+            *minutes,
+        );
+        let waits = vec![true; material.changes.len()];
+        if let Some(answer) = ask_of(&soul, material, waits).await
+            && let Some(line) = answer.line
+        {
+            said.push((at, line.text));
+        }
+    }
+    println!("\n=== said: {said:?}");
+}
+
+/// One kept look (`MYRIAD_SESSION_LOOK_AT`, its time `HH:MM:SS`; the
+/// owner spoke `MYRIAD_SESSION_LOOK_OWNER_SAID` minutes before it, 16 by
+/// default) asked five times as she is asked now: for each, why the model
+/// stopped, how many tokens it wrote, and whether what it gave was empty.
+/// Five calls.
+#[tokio::test]
+#[ignore = "spends on the site's model; see the module docs"]
+async fn one_look_five_times() {
+    let path = std::env::var("MYRIAD_SESSION_LOOK_REPLAY").expect("the exported looks");
+    let at = std::env::var("MYRIAD_SESSION_LOOK_AT").expect("which look, HH:MM:SS");
+    let minutes: i64 = std::env::var("MYRIAD_SESSION_LOOK_OWNER_SAID")
+        .ok()
+        .and_then(|minutes| minutes.parse().ok())
+        .unwrap_or(16);
+    let looks_kept: Vec<Value> = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let kept = looks_kept
+        .iter()
+        .find(|kept| kept["at"] == at.as_str())
+        .expect("that look is in the export");
+    let material = with_what_it_lacked(
+        kept["look"]["material"].as_str().unwrap_or_default(),
+        minutes,
+    );
+    let soul = crate::services::agent::semantic_eval::configured_soul().await;
+    let system = looks::system(&soul);
+    let analyzer = model().await;
+    let prompt = looks::prompt(&material);
+    for time in 1..=5 {
+        let (raw, reported) = crate::services::ai_cost_ledger::reporting(
+            analyzer.analyze_json_strict(&system, &prompt, "session_look", &looks::schema()),
+        )
+        .await;
+        let raw = raw.unwrap_or_else(|error| format!("error: {error:#}"));
+        let answer: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
+        let first = &answer["changes"][0];
+        println!(
+            "{time}: stop={:?} output={:?} about_empty={} because_empty={} say={} read={:?}",
+            reported.as_ref().map(|reported| reported.stops.clone()),
+            reported.as_ref().map(|reported| reported.usage.output),
+            first["about"]
+                .as_str()
+                .is_none_or(|about| about.trim().is_empty()),
+            first["because"].as_array().is_none_or(Vec::is_empty),
+            !answer["say"].is_null(),
+            match looks::read(&raw, &material) {
+                Read::Good(_) => "good",
+                Read::BadGrounds => "bad_grounds",
+                Read::Unreadable => "unreadable",
+            },
+        );
+        println!("{time} raw: {raw}");
+    }
+}
+
+/// A kept material read back, with the owner's last word and that the
+/// choices are not here added to its first change.
+fn with_what_it_lacked(numbered: &str, minutes: i64) -> Material {
+    let mut material = Material::default();
+    let mut change = None;
+    for line in numbered.lines() {
+        if let Some(rest) = line.strip_prefix("Change ") {
+            let heading = rest.split_once(": ").map_or("", |(_, heading)| heading);
+            material.changes.push(heading.to_string());
+            change = Some(material.changes.len());
+            continue;
+        }
+        if line == "Around them:" {
+            change = None;
+            continue;
+        }
+        let Some((_, piece)) = line.split_once("] ") else {
+            if let Some(last) = material.pieces.last_mut() {
+                last.text.push('\n');
+                last.text.push_str(line);
+            }
+            continue;
+        };
+        let (what, text) = piece.split_once(": ").unwrap_or((piece, ""));
+        material.pieces.push(Piece {
+            change,
+            what: what.to_string(),
+            text: text.to_string(),
+            evidence: "session:replayed".into(),
+        });
+        if change == Some(1) && what == "what the owner last told it" {
+            material.pieces.push(Piece {
+                change,
+                what: "when the owner last spoke to it themselves".into(),
+                // In each of these the question came after the owner spoke
+                // (the session's own history says so): they spoke `minutes`
+                // and a half before the look, the question came as the look
+                // waited its quiet.
+                text: {
+                    let at = 1_760_000_000_000_i64;
+                    let asked = myriad_her_link::now::read_session(&serde_json::json!({
+                        "grant": "g_0123456789", "session": "s-1", "change": "asked",
+                        "occurredAt": at - 20_000, "tool": "claude_code", "folder": "myriad",
+                    }))
+                    .expect("a question");
+                    looks::owner_said(at - minutes * 60_000 - 30_000, &asked, at)
+                },
+                evidence: "session:replayed".into(),
+            });
+        }
+        if change == Some(1) && what == "what it last said or asked" {
+            material.pieces.push(Piece {
+                change,
+                what: "what its choices hold".into(),
+                text: "only its question and the names of its choices come up from the device; what each choice is (written in a file, or earlier in its conversation with the owner) is not in this material".into(),
+                evidence: "session:replayed".into(),
+            });
+        }
+    }
+    material
 }

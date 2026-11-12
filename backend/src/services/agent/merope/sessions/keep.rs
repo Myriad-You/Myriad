@@ -2,13 +2,12 @@
 //! line she would say, and the look itself (what she was shown and what the
 //! model answered, word for word) in the owner's ledger for a week.
 
-use myriad_her_link::now::{Change, Session};
+use myriad_her_link::now::Session;
 use myriad_nodes::sessions;
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::judge::{self, Judgment, Material, Verdict};
 use super::{Picture, audience};
 use crate::services::agent::merope::memory_nodes::{
     Error,
@@ -16,6 +15,7 @@ use crate::services::agent::merope::memory_nodes::{
     read, write,
 };
 use crate::services::runtime_registry::{self as registry, RegistryIdentity};
+use myriad_nodes::session_look::{Judgment, Material, Verdict, card_text};
 
 /// Her looks, word for word, by owner.
 const LEDGER: &str = "agent_session_look";
@@ -43,13 +43,6 @@ pub(super) fn asking(session: &Session) -> String {
 fn view_id(session: &Session) -> String {
     let digest = myriad_persona_sync::canonical::sha256_hex(asking(session).as_bytes());
     format!("look-{}", &digest[..16])
-}
-
-/// Whether a change waits on the owner: it asks them, or says its next step
-/// is theirs. Such a one is never let be.
-pub(super) fn waits_on_owner(session: &Session) -> bool {
-    session.change == Change::Asked
-        || session.waiting_on == Some(myriad_her_link::now::WaitingOn::Owner)
 }
 
 /// What she made of this session last time, if anything.
@@ -152,7 +145,7 @@ pub(super) async fn card(
         kind: "node.view_changed".into(),
         body: json!({
             "version": myriad_nodes::BODY_VERSION, "sync": sync, "saidBy": ["her"],
-            "base": base, "view": view, "text": judge::card_text(judgment), "because": because,
+            "base": base, "view": view, "text": card_text(judgment), "because": because,
         }),
         author: Author::Her,
     };
@@ -201,7 +194,7 @@ pub(super) fn say(
 }
 
 /// One look as it went: the grants of what she was shown, the material,
-/// and each answer the model gave, word for word.
+/// and each answer the model gave, word for word, with how it came.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Looked {
@@ -209,6 +202,35 @@ pub(super) struct Looked {
     pub grants: Vec<String>,
     pub material: String,
     pub answers: Vec<String>,
+    /// One for each of `answers`, in the same order.
+    #[serde(default)]
+    pub replies: Vec<Reply>,
+}
+
+/// How one answer came, as its source said: why the model stopped and how
+/// many tokens it wrote (neither when it did not say, or no answer came);
+/// and how it read (`good`, `bad_grounds`, `unreadable`, `hollow`; none
+/// when no answer came).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Reply {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read: Option<String>,
+}
+
+impl Reply {
+    /// What the answers read inside one ask reported.
+    pub fn of(reported: Option<&crate::services::ai_cost_ledger::Reported>) -> Self {
+        Self {
+            stop: reported.and_then(|reported| reported.stops.last().cloned()),
+            output: reported.map(|reported| reported.usage.output),
+            read: None,
+        }
+    }
 }
 
 fn grant_name(device: &str, grant: &str) -> String {
@@ -222,6 +244,7 @@ pub(super) async fn ledger(
     pictures: &[Picture],
     material: &Material,
     answers: Vec<String>,
+    replies: Vec<Reply>,
 ) {
     let Some(first) = pictures.first() else {
         return;
@@ -236,6 +259,7 @@ pub(super) async fn ledger(
         grants,
         material: material.numbered(),
         answers,
+        replies,
     };
     let id = format!("{owner}/{}", uuid::Uuid::new_v4().simple());
     if let Err(error) = registry::put(

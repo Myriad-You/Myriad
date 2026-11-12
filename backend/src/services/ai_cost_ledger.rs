@@ -100,6 +100,9 @@ pub struct Reported {
     pub cost_usd: f64,
     /// An answer reported usage but no cost (no price for its model).
     pub unpriced: bool,
+    /// Why each answer that said so stopped (`end_turn`, `max_tokens`,
+    /// `refusal`, `stop`, `length`…), in the order they were read.
+    pub stops: Vec<String>,
 }
 
 impl Reported {
@@ -111,6 +114,7 @@ impl Reported {
             answers: 1,
             cost_usd: cost.unwrap_or(0.0),
             unpriced: cost.is_none(),
+            stops: Vec::new(),
         }
     }
 
@@ -119,6 +123,7 @@ impl Reported {
         self.answers += other.answers;
         self.cost_usd += other.cost_usd;
         self.unpriced |= other.unpriced;
+        self.stops.extend(other.stops.iter().cloned());
     }
 
     /// Prompt and output tokens, as the ledger keeps them.
@@ -167,8 +172,20 @@ pub(crate) fn note_answer(answer: &serde_json::Value, asked: Option<&str>) {
             answers: 1,
             cost_usd: answered.cost_usd.unwrap_or(0.0),
             unpriced: answered.cost_usd.is_none(),
+            stops: stop_of(answer).into_iter().collect(),
         });
     }
+}
+
+/// Why an answer stopped, as its source says it: Anthropic's
+/// `stop_reason`, an OpenAI-shaped `finish_reason`, Gemini's
+/// `finishReason`.
+fn stop_of(answer: &serde_json::Value) -> Option<String> {
+    answer["stop_reason"]
+        .as_str()
+        .or_else(|| answer["choices"][0]["finish_reason"].as_str())
+        .or_else(|| answer["candidates"][0]["finishReason"].as_str())
+        .map(str::to_string)
 }
 
 /// A streamed answer's usage, gathered by its reader: kept in the current
@@ -918,7 +935,7 @@ mod tests {
         let (((), inner), outer) = super::reporting(async {
             let inner = super::reporting(async {
                 super::note_answer(
-                    &json!({"model": "claude-haiku-5-5",
+                    &json!({"model": "claude-haiku-5-5", "stop_reason": "refusal",
                         "usage": {"input_tokens": 2000, "output_tokens": 100}}),
                     None,
                 );
@@ -932,6 +949,9 @@ mod tests {
         assert_eq!(inner.tokens(), (2000, 100));
         assert_eq!(inner.cost_micro_usd(), Some(250));
         assert_eq!(outer.as_ref().unwrap().tokens(), (2000, 100));
+        // Why each answer stopped goes with it, to the call around it too.
+        assert_eq!(inner.stops, ["refusal"]);
+        assert_eq!(outer.as_ref().unwrap().stops, ["refusal"]);
         // An answer of a model with no price: real tokens, no cost.
         let ((), unpriced) = super::reporting(async {
             super::note_answer(

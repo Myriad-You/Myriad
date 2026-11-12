@@ -139,14 +139,86 @@ impl Default for Session {
     }
 }
 
-/// The core ABI of the other side of a link: 2 when its `hello` (or
-/// `welcome`) listed `log2`, 1 when not (`nodes.wire_send` `peerAbi`).
+/// The core ABI of the other side of a link (`nodes.wire_send` `peerAbi`):
+/// 3 when its `hello` (or `welcome`) listed `log3`, 2 when `log2`, 1 when
+/// neither.
 pub fn peer_abi(capabilities: &[String]) -> u32 {
-    if capabilities.iter().any(|capability| capability == "log2") {
+    let listed = |name: &str| capabilities.iter().any(|capability| capability == name);
+    if listed("log3") {
+        3
+    } else if listed("log2") {
         2
     } else {
         1
     }
+}
+
+/// The core ABI each of the owner's devices last synced her log with, by
+/// device: a side of hers is a device that synced, until it is removed.
+const SIDES: &str = "her_log_side_abi";
+const SIDE_SECS: i64 = 100 * 365 * 24 * 60 * 60;
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Side {
+    abi: u32,
+}
+
+/// Keeps that `device` syncs her log with a core of `abi`.
+pub async fn remember_side<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    owner: i32,
+    device: &str,
+    abi: u32,
+) -> Result<(), sea_orm::DbErr> {
+    crate::services::runtime_registry::put(
+        db,
+        SIDES,
+        &format!("{owner}/{device}"),
+        crate::services::runtime_registry::RegistryIdentity {
+            subject_id: Some(owner),
+            owner_id: Some(owner),
+            tapp_id: None,
+            runtime_id: Some(device),
+        },
+        &Side { abi },
+        crate::clock::now().timestamp() + SIDE_SECS,
+    )
+    .await
+}
+
+/// Whether every side of the owner's that syncs her log reads `abi`: there
+/// is one, and each device of theirs that synced and is not removed last
+/// synced with a core of `abi` or later. A row only such a core reads may
+/// then be written to go to all of them (`myriad_nodes::wire`: a side
+/// below it gets nothing while one is to go).
+pub async fn every_side_reads<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    owner: i32,
+    abi: u32,
+) -> Result<bool, sea_orm::DbErr> {
+    let rows = crate::services::runtime_registry::list(db, SIDES, Some(owner), None).await?;
+    let removed = db
+        .query_all_raw(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT id FROM agent_sync_devices WHERE user_id = $1 AND revoked_at IS NOT NULL",
+            [owner.into()],
+        ))
+        .await?
+        .into_iter()
+        .filter_map(|row| row.try_get::<String>("", "id").ok())
+        .collect::<BTreeSet<String>>();
+    let sides: Vec<_> = rows
+        .into_iter()
+        .filter(|row| {
+            !row.runtime_id
+                .as_deref()
+                .is_some_and(|device| removed.contains(device))
+        })
+        .collect();
+    Ok(!sides.is_empty()
+        && sides.into_iter().all(|row| {
+            serde_json::from_value::<Side>(row.payload).is_ok_and(|side| side.abi >= abi)
+        }))
 }
 
 /// The roles the server speaks in.

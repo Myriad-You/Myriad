@@ -219,6 +219,7 @@ pub(super) async fn serve_with(
         experience: false,
         moments: false,
         now_sessions: false,
+        now_sessions2: false,
         images: false,
         nodes: false,
         proposals: None,
@@ -304,6 +305,9 @@ struct Link {
     /// The child said it tells the owner's coding-agent sessions as they
     /// change (`now.sessions`): `now.session` and `now.drop`.
     now_sessions: bool,
+    /// Its welcome listed `now.sessions2`: a `now.session` may hold
+    /// `ownerSaidAt`, `errors` and `overwrote`.
+    now_sessions2: bool,
     /// The child said it sends `images`: what the owner shows her, with their input.
     images: bool,
     /// The child said it takes `nodes`: it is kept current with her nodes.
@@ -774,9 +778,44 @@ impl Link {
         }
         self.reply(frame("welcome", welcome));
         if sync {
-            self.relay = Some(crate::services::her_log::relay::Session::new(
-                crate::services::her_log::relay::peer_abi(&capabilities),
-            ));
+            let abi = crate::services::her_log::relay::peer_abi(&capabilities);
+            self.relay = Some(crate::services::her_log::relay::Session::new(abi));
+            // Which core this side of hers reads; once every side reads a
+            // rule's rows and `node.standing`, what the site kept of them
+            // on its side goes too.
+            match crate::services::her_log::relay::remember_side(
+                &self.db,
+                self.owner,
+                &self.device.id,
+                abi,
+            )
+            .await
+            {
+                Ok(()) => {
+                    let db = self.db.clone();
+                    let owner = self.owner;
+                    tokio::spawn(async move {
+                        match crate::services::agent::merope::memory_nodes::share::share_kept(
+                            &db, owner,
+                        )
+                        .await
+                        {
+                            Ok(0) => {}
+                            Ok(shared) => tracing::info!(
+                                shared,
+                                "[link] what was kept on the site's side is shared now"
+                            ),
+                            Err(error) => tracing::warn!(
+                                %error,
+                                "[link] what was kept on the site's side is not shared yet"
+                            ),
+                        }
+                    });
+                }
+                Err(error) => {
+                    tracing::warn!(%error, device = %self.device.id, "[link] which core this side reads is not kept");
+                }
+            }
             super::takes_log(&self.device.id, self.registered, self.tx.clone());
             // What a group or a private chat says may be lent to her mind
             // here while this device holds her (`her_log::lend`), when it
@@ -834,6 +873,9 @@ impl Link {
         self.now_sessions = capabilities
             .iter()
             .any(|capability| capability == "now.sessions");
+        self.now_sessions2 = capabilities
+            .iter()
+            .any(|capability| capability == "now.sessions2");
         if capabilities.iter().any(|capability| capability == "nodes") {
             self.nodes = true;
             self.tell_nodes().await;
@@ -1477,7 +1519,7 @@ impl Link {
             self.error("bad_id", Some(seq));
             return;
         };
-        let session = match myriad_her_link::now::read_session(&inbound.body) {
+        let session = match myriad_her_link::now::read_told(&inbound.body, self.now_sessions2) {
             Ok(session) => session,
             Err(refusal) => {
                 tracing::debug!(device = %self.device.id, detail = %refusal.detail, "[link] now.session refused");

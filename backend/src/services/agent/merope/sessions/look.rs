@@ -1,10 +1,11 @@
 //! Her careful look at the changes that came together: a session that asks
 //! the owner, failed, or finished waits a little with the others that come
-//! (until none has come for [`QUIET`], or [`AT_MOST`] after the first),
-//! and then she is shown all of them at once, numbered ([`super::shown`]),
+//! (until none has come for a while, or the first waited long enough: the
+//! contract's `sessions.look`), and then she is shown all of them at once,
 //! asked of the model the chat uses with time to think, and her answer held
-//! to itself ([`super::judge`]): a card for each that is theirs, and at most
-//! one thing said, of the one she chooses ([`super::keep`]).
+//! to itself, all by the shared core's rules
+//! ([`myriad_nodes::session_look`]): a card for each that is theirs, and at
+//! most one thing said, of the one she chooses ([`super::keep`]).
 //!
 //! One look per question: the same session asking the same again is not
 //! looked at twice. A look fails over once (the model was slow or erred,
@@ -15,13 +16,14 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-use myriad_her_link::now::Change;
+use myriad_her_link::now::{Change, Session, WaitingOn, rules};
+use myriad_nodes::session_look::{
+    self as looks, Answer, Judgment, LookAsk, LookInput, Read, Recalled, Shown, Told, Verdict,
+};
 use sea_orm::DatabaseConnection;
 
 use super::Picture;
-use super::judge::{self, Answer, Material, Read};
 use super::keep;
-use super::shown::{self, Shown};
 use crate::services::agent::merope::call::{Ask, Failure, Voice};
 
 /// The look, as the model call and its bill are named.
@@ -30,18 +32,26 @@ const LOOK: &str = "session_look";
 const LOOK_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long before the one try again.
 const RETRY_AFTER: Duration = Duration::from_secs(5);
-/// How long none has come before what came is looked at.
-const QUIET: Duration = if cfg!(test) {
-    Duration::from_millis(300)
-} else {
-    Duration::from_secs(20)
-};
+/// What she recalls of the owner for each change.
+const MEMORIES: usize = looks::MEMORIES;
+
+/// How long none has come before what came is looked at (shorter in tests).
+fn quiet() -> Duration {
+    if cfg!(test) {
+        Duration::from_millis(300)
+    } else {
+        Duration::from_millis(rules().look.quiet_ms.max(0) as u64)
+    }
+}
+
 /// How long after the first they are looked at, at the latest.
-const AT_MOST: Duration = if cfg!(test) {
-    Duration::from_millis(1500)
-} else {
-    Duration::from_secs(60)
-};
+fn at_most() -> Duration {
+    if cfg!(test) {
+        Duration::from_millis(1500)
+    } else {
+        Duration::from_millis(rules().look.at_most_ms.max(0) as u64)
+    }
+}
 
 type Question = (i32, String, String, String, String);
 
@@ -77,7 +87,7 @@ fn waiting_key(owner: i32) -> (i32, String) {
 /// When what waits is looked at: none came for a while, or the first came
 /// long enough ago.
 fn due(waiting: &Waiting, now: Instant) -> Option<Instant> {
-    let at = (waiting.last + QUIET).min(waiting.first + AT_MOST);
+    let at = (waiting.last + quiet()).min(waiting.first + at_most());
     (at > now).then_some(at)
 }
 
@@ -233,30 +243,113 @@ pub(super) fn grant_dropped(owner: i32, device: &str, grant: &str) -> bool {
         .is_ok_and(|dropped| dropped.contains(&(owner, device.to_string(), grant.to_string())))
 }
 
+/// What she recalls of the owner for this session.
+async fn memories(db: &DatabaseConnection, owner: i32, session: &Session) -> Vec<Recalled> {
+    let query = format!(
+        "{} {}",
+        session.title.as_deref().unwrap_or_default(),
+        session.from_agent.as_deref().unwrap_or_default()
+    );
+    let present = crate::services::agent::memory::unified::Audience::private(owner);
+    match crate::services::agent::memory::unified::recall_primed(
+        db,
+        owner,
+        &present,
+        Some(query.trim()).filter(|query| !query.is_empty()),
+        &crate::services::agent::memory::unified::MemoryKind::ABOUT_PERSON,
+        MEMORIES,
+        &Default::default(),
+        1.0,
+    )
+    .await
+    {
+        Ok((recalled, _)) => recalled
+            .iter()
+            .map(|record| Recalled {
+                id: record.id.clone(),
+                text: crate::services::agent::merope::store::as_known(record),
+            })
+            .filter(|recalled| !recalled.text.is_empty())
+            .collect(),
+        Err(error) => {
+            tracing::warn!(%error, "[Merope] no memories for a session's look");
+            Vec::new()
+        }
+    }
+}
+
+fn told(picture: &Picture) -> Told {
+    Told {
+        device: picture.device.clone(),
+        session: picture.session.clone(),
+    }
+}
+
+/// What she is asked of `pictures` together, now.
+async fn asking_of(
+    db: &DatabaseConnection,
+    owner: i32,
+    pictures: &[Picture],
+) -> Result<LookAsk, anyhow::Error> {
+    let others: Vec<Told> = super::pictures(db, owner).await.iter().map(told).collect();
+    let mut changes = Vec::new();
+    for picture in pictures {
+        changes.push(Shown {
+            told: told(picture),
+            memories: memories(db, owner, &picture.session).await,
+            before: keep::before(db, owner, picture).await?,
+        });
+    }
+    let soul = crate::services::agent::merope::resolve_speaking_soul()
+        .await
+        .unwrap_or_default();
+    Ok(looks::look_input(LookInput {
+        changes,
+        others,
+        said: super::said_lately(db, owner).await,
+        at: crate::clock::now().timestamp_millis(),
+        soul,
+    })?)
+}
+
 /// Her answer, asked once more when the first did not come or did not
 /// hold; none when neither did. Every answer the model gave comes back as
-/// it gave it.
-async fn ask(owner: i32, soul: &str, material: &Material) -> (Option<Answer>, Vec<String>) {
+/// it gave it, with how it came.
+async fn ask(owner: i32, asking: &LookAsk) -> (Option<Answer>, Vec<String>, Vec<keep::Reply>) {
     let call = Ask::new(Voice::Chat, owner, LOOK)
         .within(LOOK_TIMEOUT)
-        .billed_as("sessions");
-    let system = judge::system(soul);
-    let schema = judge::schema();
-    let mut prompt = judge::prompt(material);
+        .billed_as("sessions")
+        .strict();
+    let mut prompt = &asking.prompt;
     let mut answers = Vec::new();
+    let mut replies = Vec::new();
     for attempt in 0..2 {
-        match call.json_raw(&system, &prompt, LOOK, &schema).await {
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(call.json_raw(
+            &asking.system,
+            prompt,
+            LOOK,
+            &asking.schema,
+        ))
+        .await;
+        replies.push(keep::Reply::of(reported.as_ref()));
+        match result {
             Ok(raw) => {
-                let read = judge::read(&raw, material);
+                let read = looks::read(&raw, &asking.material);
+                if let Some(reply) = replies.last_mut() {
+                    reply.read = Some(read_word(&raw, &read).to_string());
+                }
                 answers.push(raw);
                 match read {
-                    Read::Good(answer) => return (Some(answer), answers),
-                    Read::BadGrounds => prompt = judge::again(material),
+                    Read::Good(answer) => return (Some(answer), answers, replies),
+                    Read::BadGrounds => prompt = &asking.again,
                     Read::Unreadable => {}
                 }
             }
             // Not while her mind is elsewhere, nor with no model: no retry.
-            Err(Failure::Unavailable) => return (None, answers),
+            Err(Failure::Unavailable) => {
+                replies.pop();
+                return (None, answers, replies);
+            }
             Err(error) => {
                 tracing::info!(%error, attempt, "[Merope] a look at sessions did not come");
                 answers.push(format!("(no answer: {error})"));
@@ -266,7 +359,42 @@ async fn ask(owner: i32, soul: &str, material: &Material) -> (Option<Answer>, Ve
             }
         }
     }
-    (None, answers)
+    (None, answers, replies)
+}
+
+/// How an answer read, for the ledger: `good`, `bad_grounds`,
+/// `unreadable`, or `hollow` (it holds to the schema, but every change in
+/// it says nothing of what it is about: the form with nothing in it).
+fn read_word(raw: &str, read: &Read) -> &'static str {
+    let hollow = serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|answer| answer["changes"].as_array().cloned())
+        .is_some_and(|changes| {
+            !changes.is_empty()
+                && changes.iter().all(|change| {
+                    change["about"]
+                        .as_str()
+                        .is_none_or(|about| about.trim().is_empty())
+                })
+        });
+    match read {
+        _ if hollow => "hollow",
+        Read::Good(_) => "good",
+        Read::BadGrounds => "bad_grounds",
+        Read::Unreadable => "unreadable",
+    }
+}
+
+/// Her card when no answer with grounds came for a change that waits on
+/// them, or failed: as the core makes it, but one that waits on the
+/// owner's own answer (`waitingOn: owner`, whoever gave the work) is
+/// theirs to decide, never a nod. That much the program knows without her.
+fn card_without_her(heading: &str, waits: bool, session: &Session) -> Judgment {
+    let mut judgment = looks::card_only(heading, waits);
+    if session.waiting_on == Some(WaitingOn::Owner) {
+        judgment.verdict = Verdict::Decide;
+    }
+    judgment
 }
 
 /// Looks at `pictures` together; for each, whether what she made of it
@@ -280,31 +408,13 @@ async fn look(
     if pictures.is_empty() || crate::services::persona_sync::lease::paused("a look at sessions") {
         return Ok(kept);
     }
-    let others = super::pictures(db, owner).await;
-    let mut shown = Vec::new();
-    for picture in pictures {
-        shown.push(Shown {
-            picture,
-            others: &others,
-            memories: shown::memories(db, owner, &picture.session).await,
-            before: keep::before(db, owner, picture).await?,
-        });
-    }
-    let said = super::said_lately(db, owner).await;
-    let material = shown::material(&shown, &said);
-    let waits: Vec<bool> = pictures
-        .iter()
-        .map(|picture| keep::waits_on_owner(&picture.session))
-        .collect();
-    let soul = crate::services::agent::merope::resolve_speaking_soul()
-        .await
-        .unwrap_or_default();
-    let (answer, answers) = ask(owner, &soul, &material).await;
+    let asking = asking_of(db, owner, pictures).await?;
+    let (answer, answers, replies) = ask(owner, &asking).await;
     if !answers.is_empty() {
-        keep::ledger(db, owner, pictures, &material, answers).await;
+        keep::ledger(db, owner, pictures, &asking.material, answers, replies).await;
     }
     let answer = match answer {
-        Some(answer) => judge::settle(answer, &waits),
+        Some(answer) => looks::settle(answer, &asking.waits),
         None => Answer {
             judgments: vec![None; pictures.len()],
             line: None,
@@ -318,11 +428,15 @@ async fn look(
         // its card.
         let judgment = match &answer.judgments[at] {
             Some(judgment) => judgment.clone(),
-            None if waits[at] => judge::card_only(&shown::now_line(&picture.session)),
+            None if asking.waits[at] || asking.failed[at] => card_without_her(
+                &asking.material.changes[at],
+                asking.waits[at],
+                &picture.session,
+            ),
             None => continue,
         };
-        if judge::has_card(&judgment) || picture.session.change == Change::Failed {
-            kept[at] = keep::card(db, owner, picture, &judgment, &material).await?;
+        if looks::keeps_card(&judgment, asking.failed[at]) {
+            kept[at] = keep::card(db, owner, picture, &judgment, &asking.material).await?;
             // Dropped while it was written: it goes with the rest of the grant.
             if dropped(owner, picture) {
                 super::forget_grant(db, owner, &picture.device, &picture.session.grant).await?;
@@ -362,15 +476,15 @@ mod tests {
             last: start,
             pictures: Vec::new(),
         };
-        assert_eq!(due(&waiting, start), Some(start + QUIET));
-        assert_eq!(due(&waiting, start + QUIET), None);
+        assert_eq!(due(&waiting, start), Some(start + quiet()));
+        assert_eq!(due(&waiting, start + quiet()), None);
         // Kept coming: it goes once the first waited long enough.
         let busy = Waiting {
             first: start,
-            last: start + AT_MOST,
+            last: start + at_most(),
             pictures: Vec::new(),
         };
-        assert_eq!(due(&busy, start + QUIET), Some(start + AT_MOST));
-        assert_eq!(due(&busy, start + AT_MOST), None);
+        assert_eq!(due(&busy, start + quiet()), Some(start + at_most()));
+        assert_eq!(due(&busy, start + at_most()), None);
     }
 }

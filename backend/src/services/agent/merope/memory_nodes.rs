@@ -123,6 +123,7 @@ pub(crate) mod placing;
 pub(crate) mod prepare;
 pub(crate) mod read;
 pub(crate) mod recall;
+pub(crate) mod share;
 pub(crate) mod shown;
 pub(crate) mod sorting;
 pub(crate) mod standing;

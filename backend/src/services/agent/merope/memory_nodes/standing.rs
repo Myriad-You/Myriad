@@ -24,7 +24,8 @@
 //!   the memories on it. So a new fact can change or end what was, not only
 //!   start something.
 //! - **Kept on the site's side** (`Sync::Local`) until every side of hers
-//!   reads it: none of them reads `node.standing` before log3.
+//!   reads it: none of them reads `node.standing` before log3. Then shared
+//!   ([`super::share`]), and what was kept before is shared too.
 //!
 //! The memory bench's trial of a kept list
 //! (`memory_bench::background::state_list`) asks through the same rules.
@@ -37,7 +38,7 @@ use serde_json::{Value, json};
 
 use super::{Author, Error, RowIn, facts::Fact, placements, read, write};
 use crate::services::agent::memory::unified::{self, Audience, MemoryKind};
-use crate::services::her_log::{NODE, pen::Thought};
+use crate::services::her_log::pen::Thought;
 
 const KIND: &str = "node.standing";
 
@@ -330,9 +331,14 @@ pub(crate) fn decide(
 }
 
 /// The rows of `changes`, each because of `memory`, since a change's own
-/// `since`, else `since` (a day, a month or a year) when known. Hers, kept
-/// on the site's side.
-pub(crate) fn rows(changes: &[Change], memory: &str, since: Option<&str>) -> Vec<RowIn> {
+/// `since`, else `since` (a day, a month or a year) when known. Hers,
+/// written as `sync` ([`super::share::sync_for`]).
+pub(crate) fn rows(
+    changes: &[Change],
+    memory: &str,
+    since: Option<&str>,
+    sync: &myriad_nodes::Sync,
+) -> Vec<RowIn> {
     changes
         .iter()
         .map(|change| {
@@ -343,7 +349,7 @@ pub(crate) fn rows(changes: &[Change], memory: &str, since: Option<&str>) -> Vec
                 .filter(|since| is_day(since));
             let mut body = json!({
                 "version": myriad_nodes::BODY_VERSION,
-                "sync": myriad_nodes::Sync::Local(NODE.to_string()),
+                "sync": sync,
                 "saidBy": ["her"],
                 "base": change.base,
                 "item": change.item,
@@ -596,6 +602,7 @@ pub(crate) async fn build(
             &built(&answer, &head.node_id, &memories, &days),
             "built",
             None,
+            &super::share::sync_for(db, owner).await,
         );
         if rows.is_empty() {
             continue;
@@ -755,7 +762,8 @@ pub(crate) async fn after_settled(
                         .to_string()
                 }),
         };
-        let rows = rows(&decided.changes, &fact.memory, since.as_deref());
+        let sync = super::share::sync_for(db, owner).await;
+        let rows = rows(&decided.changes, &fact.memory, since.as_deref(), &sync);
         if rows.is_empty() {
             continue;
         }
@@ -783,6 +791,7 @@ pub(crate) async fn after_settled(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::her_log::NODE;
 
     fn names(names: &[&str]) -> Vec<String> {
         names.iter().map(|name| name.to_string()).collect()
@@ -962,7 +971,12 @@ mod tests {
                 .all(|change| change.node == "run" && change.base.is_empty())
         );
         // Its rows pass the core's rules.
-        let rows = rows(&built, "built", None);
+        let rows = rows(
+            &built,
+            "built",
+            None,
+            &myriad_nodes::Sync::Local(NODE.to_string()),
+        );
         for row in &rows {
             myriad_nodes::Body::read(&row.kind, &row.body).unwrap();
         }
@@ -992,7 +1006,12 @@ mod tests {
                 since: Some("2026-10-18".into()),
             },
         ];
-        let rows = rows(&changes, "mem1", Some("2026-10"));
+        let rows = rows(
+            &changes,
+            "mem1",
+            Some("2026-10"),
+            &myriad_nodes::Sync::Local(NODE.to_string()),
+        );
         assert_eq!(rows.len(), 2);
         for row in &rows {
             let body = myriad_nodes::Body::read(&row.kind, &row.body).unwrap();
@@ -1008,13 +1027,27 @@ mod tests {
         // What it rests on, typed, sorted, once.
         assert_eq!(rows[1].body["because"], json!(["memory:m2", "memory:m9"]));
         // A row is made the same twice: written once.
-        assert_eq!(rows[0].id, super::rows(&changes, "mem1", None)[0].id);
+        assert_eq!(
+            rows[0].id,
+            super::rows(
+                &changes,
+                "mem1",
+                None,
+                &myriad_nodes::Sync::Local(NODE.to_string())
+            )[0]
+            .id
+        );
         // A moment's words are not a day.
         assert!(
-            super::rows(&changes, "mem1", Some("上周"))[0]
-                .body
-                .get("since")
-                .is_none()
+            super::rows(
+                &changes,
+                "mem1",
+                Some("上周"),
+                &myriad_nodes::Sync::Local(NODE.to_string())
+            )[0]
+            .body
+            .get("since")
+            .is_none()
         );
         assert!(is_day("2026") && is_day("2026-10-18") && !is_day("2026-1") && !is_day(""));
     }

@@ -133,6 +133,9 @@ pub(super) struct Ask {
     operation: &'static str,
     source: &'static str,
     timeout: Duration,
+    /// Its JSON answer held to its schema by the provider where it can
+    /// ([`AiAnalyzer::analyze_json_strict`]).
+    strict: bool,
 }
 
 impl Ask {
@@ -144,6 +147,17 @@ impl Ask {
             operation,
             source: "merope",
             timeout: DEFAULT_TIMEOUT,
+            strict: false,
+        }
+    }
+
+    /// Its JSON answer held to the schema by the provider itself, where the
+    /// provider can (a schema every object of which says
+    /// `additionalProperties: false`).
+    pub(super) fn strict(self) -> Self {
+        Self {
+            strict: true,
+            ..self
         }
     }
 
@@ -299,6 +313,14 @@ impl Model {
         schema_name: &str,
         schema: &Value,
     ) -> Result<String, Failure> {
+        if self.ask.strict {
+            return self
+                .billed(
+                    self.analyzer
+                        .analyze_json_strict(system, input, schema_name, schema),
+                )
+                .await;
+        }
         self.billed(
             self.analyzer
                 .analyze_json(system, input, schema_name, Some(schema)),

@@ -21,10 +21,8 @@
 //! forgotten whole never comes back under its key), except a device's own
 //! folder, which goes with the device.
 
-mod judge;
 mod keep;
 mod look;
-mod shown;
 
 use myriad_her_link::now::{Change, Session};
 use myriad_nodes::sessions::{self, SessionInput};
@@ -56,24 +54,9 @@ const FOLDERS: &str = "agent_session_folder";
 /// under one of them is never taken again. Holds no words.
 const DROPS: &str = "agent_session_dropped";
 
-/// A change that comes this long after it happened is told late.
-const LATE_AFTER_MS: i64 = 10 * 60 * 1000;
-
-/// When a change came: when its link opened, and now (milliseconds since
-/// the epoch).
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Arrival {
-    pub linked_at: i64,
-    pub at: i64,
-}
-
-impl Arrival {
-    /// Whether a change that happened at `occurred_at` is told late: before
-    /// its link opened (held while the device was away), or long ago.
-    fn late(self, occurred_at: i64) -> bool {
-        occurred_at < self.linked_at || self.at - occurred_at > LATE_AFTER_MS
-    }
-}
+/// When a change came: when its link opened, and now.
+pub(crate) use myriad_nodes::session_look::Arrival;
+use myriad_nodes::session_look::{self as looks, Route};
 
 /// One session as it last changed, and the device that told it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -163,7 +146,7 @@ pub(crate) async fn take(
         task: task_known,
         // Kept on the site's side until every side it syncs with reads
         // rows a rule wrote (log3).
-        sync: myriad_nodes::Sync::Local(crate::services::her_log::NODE.to_string()),
+        sync: super::memory_nodes::share::sync_for(db, owner).await,
     })?;
     let rows: Vec<RowIn> = rows
         .rows
@@ -228,10 +211,12 @@ pub(crate) async fn take(
     if dropped(db, owner, device, &picture.session.grant).await? {
         return forget_grant(db, owner, device, &picture.session.grant).await;
     }
-    let late = arrival.late(picture.session.occurred_at);
-    match picture.session.change {
-        Change::Asked | Change::Failed if !late => look::add(db.clone(), owner, picture),
-        Change::Finished if !late => {
+    match (
+        looks::route(&picture.session, arrival),
+        picture.session.change,
+    ) {
+        (Route::Look, Change::Asked | Change::Failed) => look::add(db.clone(), owner, picture),
+        (Route::Look, _) => {
             look::moved_on(
                 owner,
                 device,
@@ -241,7 +226,7 @@ pub(crate) async fn take(
             look::add(db.clone(), owner, picture)
         }
         // Started, quiet, or told late: it moved on from what it asked.
-        _ => look::moved_on(
+        (Route::Kept, _) => look::moved_on(
             owner,
             device,
             &picture.session.grant,
@@ -251,11 +236,8 @@ pub(crate) async fn take(
     Ok(())
 }
 
-/// How many of her latest lines about their sessions she is shown.
-const SAID: u64 = 5;
-
 /// Her latest lines to the owner about their sessions, newest first.
-pub(super) async fn said_lately(db: &DatabaseConnection, owner: i32) -> Vec<judge::Said> {
+pub(super) async fn said_lately(db: &DatabaseConnection, owner: i32) -> Vec<looks::Said> {
     use crate::models::entities::agent_proactive_messages as lines;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
     let found = lines::Entity::find()
@@ -263,16 +245,15 @@ pub(super) async fn said_lately(db: &DatabaseConnection, owner: i32) -> Vec<judg
         .filter(lines::Column::EventKey.eq(super::gates::PEER_AGENT_EVENT))
         .filter(lines::Column::Role.eq("assistant"))
         .order_by_desc(lines::Column::CreatedAt)
-        .limit(SAID)
+        .limit(looks::SAID as u64)
         .all(db)
         .await;
-    let now = crate::clock::now();
     match found {
         Ok(found) => found
             .into_iter()
-            .map(|line| judge::Said {
-                id: line.id,
-                minutes_ago: (now - line.created_at.with_timezone(&chrono::Utc)).num_minutes(),
+            .map(|line| looks::Said {
+                id: line.id.to_string(),
+                at: line.created_at.timestamp_millis(),
                 text: line.content,
             })
             .collect(),
@@ -427,8 +408,6 @@ pub(crate) async fn forget_device<C: ConnectionTrait + TransactionTrait>(
     Ok(())
 }
 
-#[cfg(test)]
-mod judge_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

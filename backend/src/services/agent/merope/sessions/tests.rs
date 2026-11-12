@@ -18,6 +18,12 @@ const DEVICE: &str = "dev_mac";
 const GRANT: &str = "g_0123456789";
 /// Another grant: what a drop leaves behind in this process is by grant.
 const ASKING: &str = "g_1111111111";
+/// The grant of the sharing test alone: what another test drops is
+/// dropped for every test in this process (`look::grant_dropped`).
+const SHARING: &str = "g_3333333333";
+/// The grant of the hollow-answer test alone: one question is looked at
+/// once in this process (`look::LOOKED`).
+const HOLLOW: &str = "g_4444444444";
 /// What the owner said to it: theirs alone.
 const OWNERS_WORDS: &str = "把存储拆开然后提交";
 /// What another session sent it, with someone else's name in it.
@@ -177,6 +183,8 @@ async fn an_asking_session_is_kept_for_the_owner_alone_and_looked_at_once() {
     assert_eq!(ledger.len(), 1);
     assert_eq!(ledger[0].answers.len(), 2);
     assert!(ledger[0].answers[0].contains("[99]"));
+    // How each came beside it: why it stopped and what it wrote, as said.
+    assert_eq!(ledger[0].replies.len(), 2);
     // Waiting on them: an open item, and how it stands now, by rule.
     let open = node["open"].as_object().unwrap();
     assert_eq!(open.len(), 1);
@@ -250,6 +258,52 @@ async fn an_asking_session_is_kept_for_the_owner_alone_and_looked_at_once() {
         .unwrap()
         .unwrap();
     assert_eq!(again["views"], node["views"]);
+}
+
+/// Neither answer holds (the form with nothing in it, twice): a question
+/// that waits on the owner's own answer still comes to them to decide,
+/// never as a nod, with no word of hers, whoever gave the work (here
+/// another session); both empty answers are in the ledger as such.
+#[tokio::test]
+async fn what_waits_on_the_owners_answer_is_theirs_to_decide_when_her_answers_are_hollow() {
+    let Some(schema) = schema().await else {
+        return;
+    };
+    let db = &schema.db;
+    let hollow = r#"{"changes":[{"change":1,"verdict":"decide","about":"","suggestion":null,"because":[],"missing":null,"ownerMustSay":false}],"say":null}"#;
+    answering(&[hollow, hollow]);
+    let asked = myriad_her_link::now::read_session(&json!({
+        "grant": HOLLOW,
+        "session": "s-1",
+        "change": "asked",
+        "occurredAt": 1_760_000_000_000_i64,
+        "tool": "coding-agent",
+        "remote": "github.com/me/repo",
+        "title": "Split the store",
+        "askedBy": "session",
+        "askedByTitle": "Plan the release",
+        "waitingOn": "owner",
+        "fromOwner": OWNERS_WORDS,
+        "fromAgent": "Committed locally. Push now? (push / wait)",
+    }))
+    .unwrap();
+    take(db, OWNER, DEVICE, asked).await.unwrap();
+    let node = looked_under(db, HOLLOW).await;
+    let view = node["views"].as_object().unwrap().values().next().unwrap();
+    assert!(
+        view["value"]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("要你定"),
+        "{view}"
+    );
+    let ledger = keep::ledger_of(db, OWNER).await;
+    let reads: Vec<Option<&str>> = ledger[0]
+        .replies
+        .iter()
+        .map(|reply| reply.read.as_deref())
+        .collect();
+    assert_eq!(reads, [Some("hollow"), Some("hollow")]);
 }
 
 /// A grant the owner ends is forgotten for good: the task, every row that
@@ -342,6 +396,95 @@ async fn a_dropped_grant_is_forgotten_for_good() {
     assert_eq!(head_status(db, &repo).await, "dormant");
 }
 
+/// Kept on the site's side while no side of hers is known to read a
+/// rule's rows, or one reads less; once every side reads them, what was
+/// kept goes as shared, each row once under its own id, the nodes as they
+/// were, and what comes later is written shared. A drop still forgets it.
+#[tokio::test]
+async fn kept_rows_go_shared_once_every_side_reads_them() {
+    let Some(schema) = schema().await else {
+        return;
+    };
+    let db = &schema.db;
+    use crate::services::agent::merope::memory_nodes::share;
+    use crate::services::her_log::relay;
+    take(
+        db,
+        OWNER,
+        DEVICE,
+        under(SHARING, "started", 1_760_000_000_000),
+    )
+    .await
+    .unwrap();
+    take(
+        db,
+        OWNER,
+        DEVICE,
+        under(SHARING, "quiet", 1_760_000_100_000),
+    )
+    .await
+    .unwrap();
+    let all = "SELECT count(*) AS n FROM agent_node_rows";
+    let local = "SELECT count(*) AS n FROM agent_node_rows WHERE dseq IS NULL";
+    let kept = count(db, all).await;
+    assert!(kept > 0);
+    assert_eq!(count(db, local).await, kept);
+    let before = read::node(db, OWNER, &owners(), &task_of(SHARING))
+        .await
+        .unwrap()
+        .unwrap();
+    // A side on an older core: still kept here.
+    relay::remember_side(db, OWNER, DEVICE, 2).await.unwrap();
+    assert_eq!(share::share_kept(db, OWNER).await.unwrap(), 0);
+    assert_eq!(count(db, local).await, kept);
+
+    relay::remember_side(db, OWNER, DEVICE, 3).await.unwrap();
+    assert_eq!(share::share_kept(db, OWNER).await.unwrap() as i64, kept);
+    assert_eq!(count(db, all).await, kept);
+    assert_eq!(count(db, local).await, 0);
+    assert_eq!(
+        count(
+            db,
+            "SELECT count(DISTINCT dseq) AS n FROM agent_node_rows WHERE body LIKE '%\"sync\":\"shared\"%'"
+        )
+        .await,
+        kept
+    );
+    let after = read::node(db, OWNER, &owners(), &task_of(SHARING))
+        .await
+        .unwrap()
+        .unwrap();
+    for part in ["entries", "open"] {
+        assert_eq!(
+            before[part].as_array().map(Vec::len),
+            after[part].as_array().map(Vec::len),
+            "{part}"
+        );
+    }
+    assert_eq!(
+        before["standing"]["now"]["value"],
+        after["standing"]["now"]["value"]
+    );
+    // Once is all.
+    assert_eq!(share::share_kept(db, OWNER).await.unwrap(), 0);
+    // What comes later is shared from the first.
+    take(
+        db,
+        OWNER,
+        DEVICE,
+        under(SHARING, "quiet", 1_760_000_200_000),
+    )
+    .await
+    .unwrap();
+    assert!(count(db, all).await > kept);
+    assert_eq!(count(db, local).await, 0);
+
+    forget_grant(db, OWNER, DEVICE, SHARING).await.unwrap();
+    for words in [OWNERS_WORDS, PEERS_WORDS, "Split the store"] {
+        assert_eq!(rows_say(db, words).await, 0, "{words}");
+    }
+}
+
 /// A grant dropped stays dropped across a restart: a change told late under
 /// it (the device sent it before it heard of the drop) is never taken.
 #[tokio::test]
@@ -370,24 +513,6 @@ async fn a_late_change_under_a_dropped_grant_is_refused_after_a_restart() {
     assert!(pictures(db, OWNER).await.is_empty());
     let left = shown::shown(db, OWNER, &owners(), None).await.unwrap();
     assert!(left.node(&task_of(grant)).is_none());
-}
-
-/// A change told late is late whichever way: held on the device while its
-/// link was away, or long ago when it came.
-#[test]
-fn a_change_is_late_when_held_away_or_long_ago() {
-    let arrival = Arrival {
-        linked_at: 1_000_000,
-        at: 1_000_000 + 60_000,
-    };
-    assert!(!arrival.late(1_000_000 + 1_000), "told on this link");
-    assert!(arrival.late(1_000_000 - 1), "held while the link was away");
-    let long = Arrival {
-        linked_at: 0,
-        at: 1_000_000 + 10 * 60 * 1000 + 1,
-    };
-    assert!(long.late(1_000_000), "more than ten minutes ago");
-    assert!(!long.late(1_000_001), "ten minutes is not late yet");
 }
 
 /// A question told late keeps its card by the rules, waiting on the owner,
