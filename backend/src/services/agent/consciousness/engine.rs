@@ -804,4 +804,82 @@ mod tests {
         state.granted_permissions = vec!["agent.execute".into()];
         assert_eq!(pre_gate(&event(), &state), ConsciousnessGate::RememberOnly);
     }
+
+    /// One decision of hers on the site's own model route, asked as
+    /// production asks (a short typed judgment, its output budget, its
+    /// timeout): thinking little, and told nothing about thinking (as
+    /// before the effort was sent). Each three times, with how long it took,
+    /// whether it came back, and what the ledger counted. Opt-in and
+    /// spends: `MYRIAD_DECISION_PROBE=1 MEROPE_BENCH_SPEND_LIMIT=<usd>`
+    /// with the host's `DATABASE_URL`, for `MYRIAD_DECISION_PROBE_LITE` =
+    /// `<source>:<model>` (default `anthropic:claude-haiku-5-5`).
+    #[tokio::test]
+    #[ignore]
+    async fn a_decision_on_the_direct_route_thinks_little() {
+        if std::env::var("MYRIAD_DECISION_PROBE").as_deref() != Ok("1") {
+            return;
+        }
+        let db = crate::services::agent::semantic_eval::load_configured_lite().await;
+        db.close().await.ok();
+        let lite = std::env::var("MYRIAD_DECISION_PROBE_LITE")
+            .unwrap_or_else(|_| "anthropic:claude-haiku-5-5".into());
+        let (source, model) = lite.split_once(':').expect("<source>:<model>");
+        {
+            let mut config = crate::GLOBAL_DYNAMIC_CONFIG.write().await;
+            config.lite_ai_source = source.into();
+            config.lite_ai_model = model.into();
+        }
+        let kind = crate::services::agent::merope::wander::THOUGHT_EVENT;
+        let system = super::decision_system_prompt("你是 Merope，住在这个网站上。", kind);
+        let schema = super::decision_schema_for_event(kind);
+        let input = serde_json::json!({
+            "event": {"kind": kind, "payload": {"thought": "想起站长说周末要去爬凤凰山，不知道天气怎么样"}},
+            "self": {},
+        })
+        .to_string();
+        let thinking_little = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(
+            Some(super::DECISION_REQUEST_TIMEOUT),
+        )
+        .await
+        .expect("the judgment model");
+        let told_nothing = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
+            super::DECISION_REQUEST_TIMEOUT,
+        ))
+        .await
+        .expect("Lite");
+        println!(
+            "models: little={} nothing={}",
+            thinking_little.model_name(),
+            told_nothing.model_name()
+        );
+        crate::services::ai_cost_ledger::spent::take();
+        for (arm, analyzer) in [("little", &thinking_little), ("nothing", &told_nothing)] {
+            for round in 0..3 {
+                let started = std::time::Instant::now();
+                let answer = analyzer
+                    .analyze_json_short(
+                        &system,
+                        &input,
+                        super::DECISION_SCHEMA_NAME,
+                        Some(&schema),
+                        crate::services::analyzer::OutputBudget {
+                            max_tokens: super::DECISION_OUTPUT_TOKENS,
+                        },
+                    )
+                    .await;
+                println!(
+                    "{arm} #{round}: {} ms, {}",
+                    started.elapsed().as_millis(),
+                    match &answer {
+                        Ok(raw) => format!("answered ({} chars)", raw.len()),
+                        Err(error) => format!("failed: {error:#}"),
+                    }
+                );
+            }
+            println!(
+                "{arm} ledger: {}",
+                crate::services::ai_cost_ledger::spent::take()
+            );
+        }
+    }
 }

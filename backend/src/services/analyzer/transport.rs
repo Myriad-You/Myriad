@@ -181,6 +181,138 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn light_thinking_asks_anthropic_for_low_effort_and_drops_it_once_refused() {
+        use super::super::{AiAnalyzer, AiProvider};
+        use axum::{Json, Router, http::StatusCode, routing::post};
+        use serde_json::{Value, json};
+        use std::sync::Arc;
+
+        let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let observed = requests.clone();
+        let router = Router::new().route(
+            "/v1/messages",
+            post(move |Json(body): Json<Value>| {
+                let observed = observed.clone();
+                async move {
+                    observed.lock().unwrap().push(body.clone());
+                    let status = match body["model"].as_str().unwrap() {
+                        model
+                            if model.starts_with("legacy")
+                                && body.get("output_config").is_some() =>
+                        {
+                            StatusCode::BAD_REQUEST
+                        }
+                        "limited" => StatusCode::TOO_MANY_REQUESTS,
+                        _ => StatusCode::OK,
+                    };
+                    if status != StatusCode::OK {
+                        return (status, Json(json!({"error":"fixture failure"})));
+                    }
+                    (
+                        status,
+                        Json(json!({"content":[{"type":"text","text":"{\"read\":true}"}]})),
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let analyzer = |model: &str| {
+            AiAnalyzer::new_with_timeout(
+                AiProvider::Anthropic,
+                String::new(),
+                model.to_string(),
+                Some(format!("http://{address}/v1")),
+                Duration::from_secs(2),
+            )
+        };
+        let bodies = || std::mem::take(&mut *requests.lock().unwrap());
+
+        // Asked to think little: effort low, in a typed judgment, a reply,
+        // and a stream; not otherwise, and deep thinking keeps its own.
+        let light = analyzer("supported").await.with_light_thinking();
+        light
+            .analyze_json("read", "hello", "read", None)
+            .await
+            .unwrap();
+        light.analyze_with_system("read", "hello").await.unwrap();
+        let _ = light.analyze_stream("hello", |_| true).await;
+        analyzer("supported")
+            .await
+            .analyze_json("read", "hello", "read", None)
+            .await
+            .unwrap();
+        analyzer("supported")
+            .await
+            .with_light_thinking()
+            .with_deep_thinking()
+            .analyze_json("read", "hello", "read", None)
+            .await
+            .unwrap();
+        {
+            let sent = bodies();
+            assert_eq!(sent.len(), 5);
+            for body in &sent[..3] {
+                assert_eq!(body["output_config"], json!({"effort": "low"}));
+                assert!(body.get("thinking").is_none());
+            }
+            assert_eq!(sent[2]["stream"], true);
+            assert!(sent[3].get("output_config").is_none());
+            assert_eq!(sent[4]["output_config"]["effort"], "high");
+        }
+
+        // Refused: asked once more without it, and never again.
+        let legacy = analyzer("legacy").await.with_light_thinking();
+        for _ in 0..2 {
+            legacy
+                .analyze_json("read", "hello", "read", None)
+                .await
+                .unwrap();
+        }
+        let _ = legacy.analyze_stream("hello", |_| true).await;
+        {
+            let sent = bodies();
+            assert_eq!(sent.len(), 4, "one refusal, then three ordinary requests");
+            assert!(sent[0].get("output_config").is_some());
+            assert!(
+                sent[1..]
+                    .iter()
+                    .all(|body| body.get("output_config").is_none())
+            );
+        }
+        // Remembered per endpoint and model: another model's stream is
+        // refused once on its own.
+        let legacy_stream = analyzer("legacy-stream").await.with_light_thinking();
+        let _ = legacy_stream.analyze_stream("hello", |_| true).await;
+        {
+            let sent = bodies();
+            assert_eq!(sent.len(), 2, "a stream drops it the same way");
+            assert!(sent[1].get("output_config").is_none());
+        }
+
+        // Any other failure is not a refusal of it.
+        let limited = analyzer("limited").await.with_light_thinking();
+        for _ in 0..2 {
+            assert!(
+                limited
+                    .analyze_json("read", "hello", "read", None)
+                    .await
+                    .is_err()
+            );
+        }
+        {
+            let sent = bodies();
+            assert!(!sent.is_empty());
+            assert!(
+                sent.iter()
+                    .all(|body| body["output_config"]["effort"] == "low")
+            );
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn configured_text_protocol_controls_shape_and_optional_auth() {
         use axum::{Json, Router, http::HeaderMap, routing::post};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

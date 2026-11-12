@@ -416,7 +416,69 @@ impl AiAnalyzer {
         if !self.light_thinking || self.refused(RequestShape::LightThinking) {
             return None;
         }
+        // Anthropic's own API thinks adaptively at `medium` when told
+        // nothing (Haiku 5.5): little is its effort `low` (GA, no beta).
+        if self.provider == AiProvider::Anthropic {
+            return Some(("output_config", serde_json::json!({ "effort": "low" })));
+        }
         self.gateway().light_thinking()
+    }
+
+    /// Anthropic's own API asked to think little: the effort on `body`.
+    /// Whether it was put there.
+    fn put_anthropic_light(&self, body: &mut serde_json::Value) -> bool {
+        if self.provider != AiProvider::Anthropic || self.deep_thinking_param().is_some() {
+            return false;
+        }
+        match (body.as_object_mut(), self.light_thinking_param()) {
+            (Some(object), Some((key, value))) => {
+                object.insert(key.to_string(), value);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// A text-protocol stream (Anthropic's own API or OpenAI Responses),
+    /// asked to think little where it can be: an endpoint that refuses the
+    /// effort is remembered and asked once more without it. The response
+    /// as it came, success or not.
+    async fn send_text_stream(
+        &self,
+        url: &str,
+        mut body: serde_json::Value,
+    ) -> Result<reqwest::Response> {
+        let light = self.put_anthropic_light(&mut body);
+        let send = |body: &serde_json::Value| {
+            let mut request = self.authenticate(self.client.post(url));
+            if self.provider == AiProvider::Anthropic {
+                request = request.header("anthropic-version", "2023-06-01");
+            }
+            let prepared = self.prepare_body(body);
+            async move {
+                Ok::<_, anyhow::Error>(
+                    request
+                        .header("Content-Type", "application/json")
+                        .json(&prepared?)
+                        .send()
+                        .await?,
+                )
+            }
+        };
+        let mut response = send(&body).await?;
+        if light
+            && ProviderCallFailure::http(response.status(), anyhow::anyhow!("refused"))
+                .rejected_request()
+        {
+            if let Some(object) = body.as_object_mut() {
+                object.remove("output_config");
+            }
+            response = send(&body).await?;
+            if response.status().is_success() {
+                self.remember_refusal(RequestShape::LightThinking);
+            }
+        }
+        Ok(response)
     }
 
     /// For calls where getting it right is worth the wait: reading what
@@ -720,16 +782,37 @@ impl AiAnalyzer {
             // as Sonnet 4.6 require it to be enabled explicitly.
             object.insert("thinking".into(), serde_json::json!({ "type": "adaptive" }));
         }
-        let mut request = self.authenticate(self.client.post(&url));
-        if self.provider == AiProvider::Anthropic {
-            request = request.header("anthropic-version", "2023-06-01");
+        let light = self.put_anthropic_light(&mut body);
+        let send = |body: &serde_json::Value| {
+            let mut request = self.authenticate(self.client.post(&url));
+            if self.provider == AiProvider::Anthropic {
+                request = request.header("anthropic-version", "2023-06-01");
+            }
+            let prepared = self.prepare_body(body);
+            async move {
+                request
+                    .header("Content-Type", "application/json")
+                    .json(&prepared.map_err(ProviderCallFailure::transport)?)
+                    .send()
+                    .await
+                    .map_err(|error| ProviderCallFailure::transport(error.into()))
+            }
+        };
+        let mut response = send(&body).await?;
+        // A refused think-little effort: remembered, and asked once more
+        // without it (`RequestShape::LightThinking`).
+        if light
+            && ProviderCallFailure::http(response.status(), anyhow::anyhow!("refused"))
+                .rejected_request()
+        {
+            if let Some(object) = body.as_object_mut() {
+                object.remove("output_config");
+            }
+            response = send(&body).await?;
+            if response.status().is_success() {
+                self.remember_refusal(RequestShape::LightThinking);
+            }
         }
-        let response = request
-            .header("Content-Type", "application/json")
-            .json(&self.prepare_body(&body)?)
-            .send()
-            .await
-            .map_err(|error| ProviderCallFailure::transport(error.into()))?;
         if !response.status().is_success() {
             let status = response.status();
             return Err(ProviderCallFailure::http(
@@ -919,7 +1002,9 @@ impl AiAnalyzer {
         };
         let (result, reported) = crate::services::ai_cost_ledger::reporting(async {
             let deep = self.deep_thinking_param().is_some();
-            let light = self.light_thinking_param().is_some();
+            // Anthropic's own API drops a refused effort where it sends it.
+            let light =
+                self.light_thinking_param().is_some() && self.provider != AiProvider::Anthropic;
             let mut result = self
                 .analyze_json_inner(system, prompt, schema_name, mode, None)
                 .await;
@@ -1208,16 +1293,10 @@ impl AiAnalyzer {
             None,
             true,
         );
-        let mut request = self.authenticate(self.client.post(&url));
-        if self.provider == AiProvider::Anthropic {
-            request = request.header("anthropic-version", "2023-06-01");
-        }
-        let response = request
-            .header("Content-Type", "application/json")
-            .json(&self.prepare_body(&body)?)
-            .send()
+        let response = self
+            .send_text_stream(&url, body)
             .await
-            .map_err(|error| ProviderCallFailure::transport(error.into()))?;
+            .map_err(ProviderCallFailure::transport)?;
         if !response.status().is_success() {
             let status = response.status();
             return Err(ProviderCallFailure::http(
@@ -1612,11 +1691,7 @@ impl AiAnalyzer {
                 if !images.is_empty() {
                     anthropic_images_on_last(&mut body, images);
                 }
-                let mut request = self.authenticate(self.client.post(url));
-                if self.provider == AiProvider::Anthropic {
-                    request = request.header("anthropic-version", "2023-06-01");
-                }
-                let response = request.json(&self.prepare_body(&body)?).send().await?;
+                let response = self.send_text_stream(&url, body).await?;
                 if !response.status().is_success() {
                     let status = response.status();
                     return Err(ProviderCallFailure::http(
@@ -1762,11 +1837,7 @@ impl AiAnalyzer {
                     None,
                     true,
                 );
-                let mut request = self.authenticate(self.client.post(url));
-                if self.provider == AiProvider::Anthropic {
-                    request = request.header("anthropic-version", "2023-06-01");
-                }
-                let response = request.json(&self.prepare_body(&body)?).send().await?;
+                let response = self.send_text_stream(&url, body).await?;
                 if !response.status().is_success() {
                     let status = response.status();
                     return Err(ProviderCallFailure::http(
