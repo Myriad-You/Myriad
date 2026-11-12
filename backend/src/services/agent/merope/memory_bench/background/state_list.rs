@@ -306,14 +306,16 @@ async fn what_a_new_fact_does_to_the_list() {
             })
             .collect();
         let end: Vec<&Item> = numbers("end").iter().filter_map(item).collect();
-        // What it starts stands on its own topic, whatever name the answer
-        // gave (none when the fact is kept nowhere: set aside); retiring a
-        // known thing kept off its own topics is set aside.
+        // What it starts stands where the answer asked when that is a topic
+        // it reaches, else on its own topic (none when the fact is kept
+        // nowhere: set aside); retiring a known thing kept off its own
+        // topics is set aside.
         let (add, add_set_aside): (Vec<Value>, Vec<Value>) = numbers("add")
             .into_iter()
             .map(
                 |one| match crate::services::agent::merope::memory_nodes::standing::where_it_starts(
                     one["topic"].as_str().unwrap_or_default(),
+                    &reaches,
                     &topics,
                 ) {
                     Some(topic) => Ok(json!({"topic": topic, "text": one["text"],

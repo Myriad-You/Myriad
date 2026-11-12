@@ -547,3 +547,91 @@ async fn when_it_happened_and_where_it_stands_go_on_its_entry() {
     assert!(coat.get("happened").is_none() && coat.get("state").is_none());
     schema.drop().await;
 }
+
+/// The node.standing rows of the talk, oldest first: item, text, whether
+/// it ended, its sync, and its base.
+async fn standing_rows(db: &DatabaseConnection) -> Vec<(String, String, bool, Value, Value)> {
+    db.query_all_raw(Statement::from_string(
+        DatabaseBackend::Postgres,
+        "SELECT body FROM agent_node_rows WHERE kind = 'node.standing' ORDER BY at, hlc",
+    ))
+    .await
+    .unwrap()
+    .iter()
+    .map(|row| {
+        let body: Value =
+            serde_json::from_str(&row.try_get::<String>("", "body").unwrap()).unwrap();
+        (
+            body["item"].as_str().unwrap().to_string(),
+            body["text"].as_str().unwrap().to_string(),
+            body["ended"] == true,
+            body["sync"].clone(),
+            body["base"].clone(),
+        )
+    })
+    .collect()
+}
+
+#[tokio::test]
+async fn what_a_kept_fact_does_to_how_their_life_stands_is_written_where_it_stands() {
+    let Some(schema) = schema("memory_nodes_standing_step").await else {
+        return;
+    };
+    let db = &schema.db;
+    let running = || {
+        Some(GoesUnder::New {
+            name: "跑步".into(),
+            aliases: Vec::new(),
+        })
+    };
+    // Something it starts: on the topic asked, theirs, kept on the site.
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[],"add":[{"topic":"跑步","text":"每周三晚上夜跑"}]}"#,
+    )]);
+    settle(db, vec![update("每周三晚上夜跑", &[], running())]).await;
+    assert_eq!(asked("memory_standing_step"), 1);
+    let rows = standing_rows(db).await;
+    assert_eq!(rows.len(), 1);
+    let (item, text, ended, sync, base) = rows[0].clone();
+    assert!(item.starts_with("them-"));
+    assert_eq!((text.as_str(), ended), ("每周三晚上夜跑", false));
+    assert_eq!(sync, json!({"local": crate::services::her_log::NODE}));
+    assert_eq!(base, json!([]));
+    // Someone else's news never ends their own item.
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"男朋友","set":[{"item":1,"text":"男朋友不跑了"}],"end":[1],"add":[]}"#,
+    )]);
+    settle(db, vec![update("男朋友说他不跑步了", &[], running())]).await;
+    assert_eq!(asked("memory_standing_step"), 1);
+    assert_eq!(standing_rows(db).await.len(), 1);
+    // Theirs ending: in the fact's own words, on the row it stood on.
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[1],"add":[]}"#,
+    )]);
+    settle(db, vec![update("膝盖伤了，不夜跑了", &[], running())]).await;
+    assert_eq!(asked("memory_standing_step"), 1);
+    let rows = standing_rows(db).await;
+    assert_eq!(rows.len(), 2);
+    let (ended_item, text, ended, _, base) = rows[1].clone();
+    assert_eq!(ended_item, item);
+    assert_eq!((text.as_str(), ended), ("膝盖伤了，不夜跑了", true));
+    assert_eq!(base.as_array().map(Vec::len), Some(1));
+    let heads = read::heads(db, OTHER, &talk(), None).await.unwrap();
+    let node = heads
+        .iter()
+        .find(|head| head.name.as_deref() == Some("跑步"))
+        .unwrap();
+    let head = read::node(db, OTHER, &talk(), &node.node_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let now = &head["standing"][&item];
+    assert_eq!(now["value"]["ended"], true);
+    assert!(now.get("bothChanged").is_none());
+    // An ended item is not shown again.
+    assert!(super::standing::shown_on(&node.node_id, &head).is_empty());
+    schema.drop().await;
+}

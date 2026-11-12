@@ -174,6 +174,23 @@ impl Lines<'_> {
     }
 }
 
+/// The words `items` of `node`'s 「现在」 stand on, trimmed.
+fn standing_texts(node: &super::shown::Node, items: &[String]) -> HashSet<String> {
+    items
+        .iter()
+        .filter_map(|item| {
+            let text = node
+                .head
+                .get("standing")?
+                .get(item)?
+                .get("value")?
+                .get("text")?;
+            Some(text.as_str()?.trim().to_string())
+        })
+        .filter(|text| !text.is_empty())
+        .collect()
+}
+
 /// What stands now on a node as the fold gave it: each item of its
 /// `standing`, when it was written, and whether the whole of it ended.
 fn standing_of(head: &serde_json::Value) -> Vec<PickStanding> {
@@ -346,14 +363,20 @@ fn recollect_within(
         let name = node
             .and_then(|node| node.name.as_deref())
             .unwrap_or_default();
-        // How it stands now comes before what happened on it.
+        // How it stands now comes before what happened on it, and an entry
+        // that says the very words it stands on is not said again.
+        let standing = node
+            .map(|node| standing_texts(node, &picked.standing))
+            .unwrap_or_default();
         for item in &picked.standing {
             if let Some(line) = node.and_then(|node| lines.standing(node, item)) {
                 push(line, name);
             }
         }
         for id in &picked.entries {
-            if let Some(entry) = find(shown, &picked.node, id) {
+            if let Some(entry) = find(shown, &picked.node, id)
+                && !standing.contains(entry.text.trim())
+            {
                 push(lines.of(id, &entry.text, entry.at), name);
             }
         }
@@ -364,6 +387,10 @@ fn recollect_within(
         }
     }
     if let Some(about) = &own.about {
+        let standing = shown
+            .node(about)
+            .map(|node| standing_texts(node, &pick.about_them_standing))
+            .unwrap_or_default();
         if let Some(node) = shown.node(about) {
             for item in &pick.about_them_standing {
                 if let Some(line) = lines.standing(node, item) {
@@ -372,7 +399,9 @@ fn recollect_within(
             }
         }
         for id in &pick.about_them {
-            if let Some(entry) = find(shown, about, id) {
+            if let Some(entry) = find(shown, about, id)
+                && !standing.contains(entry.text.trim())
+            {
                 push(lines.of(id, &entry.text, entry.at), "");
             }
         }

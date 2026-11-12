@@ -36,6 +36,8 @@
 //! - **What she keeps for good** ([`facts`]): every memory going over the
 //!   stretch keeps, an entry on the node it is of, on 「关于你」, or nowhere;
 //!   what she knew before, sorted onto them at upkeep ([`sorting`]).
+//! - **How their life stands now** ([`standing`]): what each of those
+//!   facts changes, ends or starts of it, as 「现在」 on the node it stands on.
 //! - **Her upkeep** ([`upkeep`]): the nodes due, gone over through the
 //!   core, with a budget per account.
 //! - **Forgetting** ([`forget`]): a forgotten memory's entries, the spans
@@ -123,8 +125,6 @@ pub(crate) mod read;
 pub(crate) mod recall;
 pub(crate) mod shown;
 pub(crate) mod sorting;
-// Used by the memory bench until going over a stretch writes 「现在」.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) mod standing;
 pub(crate) mod upkeep;
 pub(crate) mod write;
