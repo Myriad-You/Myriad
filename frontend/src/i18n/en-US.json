@@ -803,6 +803,26 @@
     "pictures": "(sent {count} pictures)",
     "forgetLine": "Forget",
     "confirmForgetLine": "She forgets this line and what she took from it; while syncing, it goes on every end.",
+    "card": {
+      "moved": "This card was updated — see further down",
+      "chose": "Chose “{label}”",
+      "answered": "Already answered",
+      "failed": "Couldn't send. Try again.",
+      "closed": "This card is closed",
+      "stale": "The card just changed; this is the latest",
+      "because": "Based on fact {n}",
+      "view": "View",
+      "states": {
+        "working": "Working",
+        "waiting_owner": "Waiting on you",
+        "finished": "Finished",
+        "stuck": "Stuck",
+        "waiting_checks": "Waiting on checks",
+        "waiting_program": "Waiting on another program",
+        "waiting_session": "Waiting to report back",
+        "quiet": "Quiet for a while"
+      }
+    },
     "closeImage": "Close",
     "newSession": "New topic",
     "stop": "Stop",

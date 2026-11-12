@@ -803,6 +803,26 @@
     "pictures": "（发了 {count} 张图）",
     "forgetLine": "忘掉",
     "confirmForgetLine": "她会忘掉这句话和由它记下的事；同步着的话，两端都会删掉。",
+    "card": {
+      "moved": "这张卡已更新，在下面",
+      "chose": "选了「{label}」",
+      "answered": "已经回答过了",
+      "failed": "没送出去，再试一次",
+      "closed": "这张卡已经结束了",
+      "stale": "卡刚更新过，这是最新的",
+      "because": "依据第 {n} 条",
+      "view": "看法",
+      "states": {
+        "working": "进行中",
+        "waiting_owner": "等你决定",
+        "finished": "已完成",
+        "stuck": "卡住了",
+        "waiting_checks": "等检查跑完",
+        "waiting_program": "等别的程序",
+        "waiting_session": "等着回报",
+        "quiet": "很久没动静"
+      }
+    },
     "closeImage": "关掉",
     "newSession": "换个话题",
     "stop": "停下",

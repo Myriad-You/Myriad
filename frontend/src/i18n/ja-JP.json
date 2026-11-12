@@ -803,6 +803,26 @@
     "pictures": "（画像 {count} 枚）",
     "forgetLine": "忘れる",
     "confirmForgetLine": "この一言と、そこから覚えたことを彼女は忘れます。同期中なら両方の端末から消えます。",
+    "card": {
+      "moved": "このカードは更新されました（下にあります）",
+      "chose": "「{label}」を選びました",
+      "answered": "回答済み",
+      "failed": "送れませんでした。もう一度お試しください",
+      "closed": "このカードは終了しています",
+      "stale": "カードが更新されました。これが最新です",
+      "because": "{n} 番目の事実に基づく",
+      "view": "見立て",
+      "states": {
+        "working": "進行中",
+        "waiting_owner": "あなたの判断待ち",
+        "finished": "完了",
+        "stuck": "行き詰まり",
+        "waiting_checks": "チェック待ち",
+        "waiting_program": "別のプログラム待ち",
+        "waiting_session": "報告待ち",
+        "quiet": "しばらく動きなし"
+      }
+    },
     "closeImage": "閉じる",
     "newSession": "新しい話題",
     "stop": "止める",

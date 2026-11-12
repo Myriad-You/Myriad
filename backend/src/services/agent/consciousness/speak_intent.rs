@@ -30,6 +30,10 @@ pub struct SpeakIntent {
     pub expires_at: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work_intent_id: Option<String>,
+    /// The card her line is about (its id), when it is one of hers before
+    /// the owner: the line, once said, carries it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card: Option<String>,
 }
 
 static QUEUE: Lazy<RwLock<HashMap<i32, Vec<SpeakIntent>>>> =
@@ -129,6 +133,7 @@ pub fn new_speak_intent(
         created_at: now,
         expires_at: now + Duration::seconds(ttl),
         work_intent_id,
+        card: None,
     }
 }
 
@@ -221,6 +226,7 @@ mod tests {
             created_at: now,
             expires_at: now + Duration::seconds(expires_in_secs),
             work_intent_id: None,
+            card: None,
         }
     }
 

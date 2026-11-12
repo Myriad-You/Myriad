@@ -220,6 +220,7 @@ pub(super) async fn serve_with(
         moments: false,
         now_sessions: false,
         now_sessions2: false,
+        cards: false,
         images: false,
         nodes: false,
         proposals: None,
@@ -308,6 +309,9 @@ struct Link {
     /// Its welcome listed `now.sessions2`: a `now.session` may hold
     /// `ownerSaidAt`, `errors` and `overwrote`.
     now_sessions2: bool,
+    /// It listed `cards` with `conversations.live`: its conversations show
+    /// her cards, and the owner answers them there (`card.answer`).
+    cards: bool,
     /// The child said it sends `images`: what the owner shows her, with their input.
     images: bool,
     /// The child said it takes `nodes`: it is kept current with her nodes.
@@ -629,6 +633,7 @@ impl Link {
             "now.drop" if self.now_sessions => self.now_drop(inbound).await,
             "node.forget" if self.nodes => self.forget_node(inbound).await,
             "proposal.answer" if self.proposals.is_some() => self.answer_proposal(inbound).await,
+            "card.answer" if self.cards => self.answer_card(inbound).await,
             // Taken whatever this link said: a run's end may come after its
             // owner turned the switch off (the request must be this device's).
             "act.result" => self.act_result(inbound).await,
@@ -876,6 +881,10 @@ impl Link {
         self.now_sessions2 = capabilities
             .iter()
             .any(|capability| capability == "now.sessions2");
+        self.cards = capabilities.iter().any(|capability| capability == "cards")
+            && capabilities
+                .iter()
+                .any(|capability| capability == "conversations.live");
         if capabilities.iter().any(|capability| capability == "nodes") {
             self.nodes = true;
             self.tell_nodes().await;
@@ -935,7 +944,7 @@ impl Link {
             } else {
                 String::new()
             };
-            match super::conversations::recent_with(&self.db, self.owner, live).await {
+            match super::conversations::recent_with(&self.db, self.owner, live, self.cards).await {
                 Ok(sessions) => {
                     if live {
                         self.live = Some(Live {
@@ -1706,6 +1715,97 @@ impl Link {
         self.tell_proposals(false).await;
     }
 
+    /// `card.answer`: the owner answered one of her cards on the app. Kept
+    /// once however often it comes (by its id, and by card, version and
+    /// action); then the conversation as it now stands.
+    async fn answer_card(&mut self, inbound: Inbound) {
+        #[derive(Deserialize)]
+        struct Answer {
+            card: String,
+            action: String,
+            version: String,
+        }
+        let seq = inbound.seq;
+        // Sent again until acked, and kept once by what it answers: no
+        // id needs remembering.
+        if !inbound
+            .id
+            .as_deref()
+            .is_some_and(|id| valid_id(id) && id.starts_with("ca_"))
+        {
+            self.error("bad_id", Some(seq));
+            return;
+        }
+        let Ok(answer) = serde_json::from_value::<Answer>(inbound.body) else {
+            self.error("bad_frame", Some(seq));
+            return;
+        };
+        let answered = if !myriad_nodes::cards::id_ok(&answer.card)
+            || !myriad_nodes::cards::word(&answer.action)
+            || !valid_id(&answer.version)
+        {
+            crate::services::agent::merope::cards::Answered {
+                kept: false,
+                code: Some("card_unknown"),
+                now: None,
+            }
+        } else {
+            match crate::services::agent::merope::cards::answer(
+                &self.db,
+                self.owner,
+                &answer.card,
+                &answer.version,
+                &answer.action,
+            )
+            .await
+            {
+                Ok(answered) => answered,
+                Err(error) => {
+                    tracing::warn!(%error, device = %self.device.id, "[link] an answer to a card was not kept");
+                    crate::services::agent::merope::cards::Answered {
+                        kept: false,
+                        code: Some("internal_error"),
+                        now: None,
+                    }
+                }
+            }
+        };
+        let mut body = json!({ "card": answer.card, "kept": answered.kept });
+        if let Some(code) = answered.code {
+            body["code"] = code.into();
+        }
+        self.reply(Outgoing::latest("card.answered", body));
+        // The conversation it is on, as it now stands: sent even when the
+        // answer changed nothing (kept before, or to an older version).
+        let before = self.live.as_ref().map(|live| live.changes.clone());
+        self.keep_conversations().await;
+        let after = self.live.as_ref().map(|live| live.changes.clone());
+        if answered.kept && before == after {
+            self.tell_card(&answer.card).await;
+        }
+    }
+
+    /// The conversation whose lines hold `card` whole, as it stands now.
+    async fn tell_card(&mut self, card: &str) {
+        let read = super::conversations::recent_with(&self.db, self.owner, true, true).await;
+        let Ok(sessions) = read else {
+            return;
+        };
+        let holds = |session: &Value| {
+            session["messages"].as_array().is_some_and(|lines| {
+                lines
+                    .iter()
+                    .any(|line| line["cardId"] == card && line.get("card").is_some())
+            })
+        };
+        if let Some(session) = sessions.into_iter().find(holds)
+            && let Some(frame) =
+                super::conversations::one_frame(session, CONTRACT.limits.max_frame_bytes)
+        {
+            self.reply(frame);
+        }
+    }
+
     /// `act.result`: what became of a request to act.
     async fn act_result(&mut self, inbound: Inbound) {
         let seq = inbound.seq;
@@ -1817,7 +1917,8 @@ impl Link {
         if changes == live.changes {
             return;
         }
-        let sessions = match super::conversations::recent_with(&self.db, self.owner, true).await {
+        let read = super::conversations::recent_with(&self.db, self.owner, true, self.cards).await;
+        let sessions = match read {
             Ok(sessions) => sessions,
             Err(error) => {
                 tracing::warn!(%error, device = %self.device.id, "[link] could not read recent conversations");

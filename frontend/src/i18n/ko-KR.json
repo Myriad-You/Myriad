@@ -803,6 +803,26 @@
     "pictures": "(사진 {count}장)",
     "forgetLine": "잊기",
     "confirmForgetLine": "그녀는 이 말과 거기서 기억한 것을 잊어요. 동기화 중이면 양쪽 모두에서 지워져요.",
+    "card": {
+      "moved": "이 카드는 업데이트됐어요. 아래에 있어요",
+      "chose": "'{label}' 선택함",
+      "answered": "이미 답했어요",
+      "failed": "보내지 못했어요. 다시 시도해 주세요",
+      "closed": "이 카드는 끝났어요",
+      "stale": "카드가 방금 바뀌었어요. 이게 최신이에요",
+      "because": "{n}번 사실 근거",
+      "view": "견해",
+      "states": {
+        "working": "진행 중",
+        "waiting_owner": "결정 대기",
+        "finished": "완료",
+        "stuck": "막힘",
+        "waiting_checks": "검사 대기",
+        "waiting_program": "다른 프로그램 대기",
+        "waiting_session": "보고 대기",
+        "quiet": "한동안 조용함"
+      }
+    },
     "closeImage": "닫기",
     "newSession": "새 주제",
     "stop": "중지",

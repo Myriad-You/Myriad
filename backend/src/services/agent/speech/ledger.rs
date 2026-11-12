@@ -87,6 +87,9 @@ pub struct Transcript<'a> {
     pub event_key: &'a str,
     pub notified: bool,
     pub say_id: Option<&'a str>,
+    /// The card it carries (its id): one of hers before the owner, which
+    /// moves to this line (`merope::cards`).
+    pub card: Option<&'a str>,
 }
 
 /// The ledger's audience for `to`: `personal:<user id>` or `group:<venue>`.
@@ -169,7 +172,8 @@ pub async fn write(
     }
     if let (Some(user), Some(transcript)) = (user, transcript)
         && out.extent.reached()
-        && let Err(error) = crate::services::agent::merope::store::insert_proactive(
+    {
+        match crate::services::agent::merope::store::insert_proactive(
             db,
             user,
             text,
@@ -178,8 +182,25 @@ pub async fn write(
             transcript.say_id,
         )
         .await
-    {
-        tracing::warn!(%error, user, "[Speech] her line was not kept in her transcript");
+        {
+            Ok(kept) => {
+                if let Some(card) = transcript.card
+                    && let Err(error) = crate::services::agent::merope::cards::carry(
+                        db,
+                        user,
+                        kept.id,
+                        card,
+                        out.line.as_deref().unwrap_or(&id),
+                    )
+                    .await
+                {
+                    tracing::warn!(%error, user, "[Speech] the card did not move to her line");
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, user, "[Speech] her line was not kept in her transcript");
+            }
+        }
     }
     if crate::services::her_log::enabled() {
         into_her_log(db, line.to, &id, &payload).await;

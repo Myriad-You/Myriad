@@ -1,6 +1,8 @@
 import type {
   AgentResponse,
   Capability,
+  CardAnswerReply,
+  CardLine,
   CreatePresetRequest,
   ExecutionTrace,
   HeartbeatTask,
@@ -17,6 +19,7 @@ import type {
   RigStateSummary,
   SessionInfo,
   SessionMessage,
+  SessionPage,
   SkillInfo,
   TaskDetail,
   TaskInfo,
@@ -1742,11 +1745,36 @@ class AgentService {
     limit: number = 50,
     signal = authSubject.signal,
   ): Promise<SessionMessage[]> {
-    const response = await apiService.get<{ messages: SessionMessage[] }>(
+    return (await this.getSessionPage(sessionId, page, limit, signal)).messages
+  }
+
+  /** A page of a session, with the site owner's card lines of that chat (oldest first). */
+  async getSessionPage(
+    sessionId: string,
+    page: number = 1,
+    limit: number = 50,
+    signal = authSubject.signal,
+  ): Promise<SessionPage> {
+    const response = await apiService.get<{ messages: SessionMessage[]; cards?: CardLine[] }>(
       `${this.baseUrl}/sessions/${sessionId}/messages?page=${page}&limit=${limit}`,
       { signal },
     )
-    return response.messages
+    return {
+      messages: response.messages,
+      cards: Array.isArray(response.cards) ? response.cards : [],
+    }
+  }
+
+  /** The owner's answer to the version of a card they saw. */
+  async answerCard(
+    cardId: string,
+    version: string,
+    action: string,
+  ): Promise<CardAnswerReply> {
+    return apiService.post<CardAnswerReply>(
+      `${this.baseUrl}/cards/${encodeURIComponent(cardId)}/answer`,
+      { version, action },
+    )
   }
 
   /** The run still writing a reply in this session, for a page opened or reloaded meanwhile; null when none. */

@@ -211,6 +211,7 @@ pub(crate) async fn take(
     if dropped(db, owner, device, &picture.session.grant).await? {
         return forget_grant(db, owner, device, &picture.session.grant).await;
     }
+    keep::session_cards(db, owner, &picture).await;
     match (
         looks::route(&picture.session, arrival),
         picture.session.change,
@@ -248,7 +249,7 @@ pub(super) async fn said_lately(db: &DatabaseConnection, owner: i32) -> Vec<look
         .limit(looks::SAID as u64)
         .all(db)
         .await;
-    match found {
+    let mut said: Vec<looks::Said> = match found {
         Ok(found) => found
             .into_iter()
             .map(|line| looks::Said {
@@ -261,7 +262,24 @@ pub(super) async fn said_lately(db: &DatabaseConnection, owner: i32) -> Vec<look
             tracing::warn!(%error, "[Merope] her lines about sessions could not be read");
             Vec::new()
         }
+    };
+    // The cards she put before them, and what they answered: what she
+    // told them as much as her lines.
+    match super::cards::lately(db, owner, looks::SAID as i64).await {
+        Ok(cards) => {
+            for card in cards.into_iter().filter(|card| card.kind != "status") {
+                said.push(looks::Said {
+                    id: format!("card:{}", card.id),
+                    at: card.at,
+                    text: card.told(),
+                });
+            }
+        }
+        Err(error) => tracing::warn!(%error, "[Merope] her cards could not be read"),
     }
+    said.sort_by(|one, other| other.at.cmp(&one.at));
+    said.truncate(looks::SAID);
+    said
 }
 
 /// Whether `device` is one of the owner's, not removed.

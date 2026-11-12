@@ -803,6 +803,26 @@
     "pictures": "(hat {count} Bilder geschickt)",
     "forgetLine": "Vergessen",
     "confirmForgetLine": "Sie vergisst diesen Satz und was sie daraus behalten hat; beim Synchronisieren auf allen Geräten.",
+    "card": {
+      "moved": "Diese Karte wurde aktualisiert – siehe weiter unten",
+      "chose": "„{label}“ gewählt",
+      "answered": "Bereits beantwortet",
+      "failed": "Nicht gesendet. Versuch es noch einmal.",
+      "closed": "Diese Karte ist abgeschlossen",
+      "stale": "Die Karte hat sich gerade geändert; das ist die neueste",
+      "because": "Gestützt auf Fakt {n}",
+      "view": "Einschätzung",
+      "states": {
+        "working": "Läuft",
+        "waiting_owner": "Wartet auf dich",
+        "finished": "Fertig",
+        "stuck": "Festgefahren",
+        "waiting_checks": "Wartet auf Prüfungen",
+        "waiting_program": "Wartet auf ein anderes Programm",
+        "waiting_session": "Wartet auf Rückmeldung",
+        "quiet": "Länger ruhig"
+      }
+    },
     "closeImage": "Schließen",
     "newSession": "Neues Thema",
     "stop": "Stopp",

@@ -5,6 +5,7 @@ mod appraisal;
 pub(in crate::services::agent) mod background;
 pub(in crate::services::agent) mod bits;
 mod call;
+pub(crate) mod cards;
 pub(in crate::services::agent) mod chat_days;
 pub mod clock;
 pub(in crate::services::agent) mod chat_remember;

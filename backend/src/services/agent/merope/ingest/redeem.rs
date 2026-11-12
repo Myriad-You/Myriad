@@ -347,6 +347,7 @@ async fn redeem_speak_intent(
             event_key: &intent.topic,
             notified,
             say_id: said_on_app.as_deref(),
+            card: intent.card.as_deref(),
         }),
     )
     .await;

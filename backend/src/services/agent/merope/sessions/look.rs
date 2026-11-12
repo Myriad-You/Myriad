@@ -382,6 +382,7 @@ async fn look(
     pictures: &[Picture],
 ) -> Result<Vec<bool>, anyhow::Error> {
     let mut kept = vec![false; pictures.len()];
+    let mut cards: Vec<Option<String>> = vec![None; pictures.len()];
     if pictures.is_empty() || crate::services::persona_sync::lease::paused("a look at sessions") {
         return Ok(kept);
     }
@@ -414,6 +415,11 @@ async fn look(
         };
         if looks::keeps_card(&judgment, asking.failed[at]) {
             kept[at] = keep::card(db, owner, picture, &judgment, &asking.material).await?;
+            // Before the owner too, in their talk with her, at once.
+            if kept[at] {
+                cards[at] =
+                    keep::put_card(db, owner, picture, &judgment, &asking.material, at + 1).await;
+            }
             // Dropped while it was written: it goes with the rest of the grant.
             if dropped(owner, picture) {
                 super::forget_grant(db, owner, &picture.device, &picture.session.grant).await?;
@@ -428,7 +434,14 @@ async fn look(
     {
         let picture = &pictures[line.change - 1];
         if kept[line.change - 1] && !dropped(owner, picture) {
-            keep::say(db, owner, picture, &line.text, judgment);
+            keep::say(
+                db,
+                owner,
+                picture,
+                &line.text,
+                judgment,
+                cards[line.change - 1].clone(),
+            );
             // Dropped as it was made: taken back, wherever it is by now.
             if dropped(owner, picture) {
                 crate::services::agent::consciousness::withdraw_speak_intents(

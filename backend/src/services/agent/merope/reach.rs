@@ -274,6 +274,7 @@ async fn reach_out(db: &DatabaseConnection, user_id: i32, _was: Route) -> bool {
             event_key: EVENT_KEY,
             notified: true,
             say_id: said.as_deref(),
+            card: None,
         }),
     )
     .await;
@@ -348,6 +349,7 @@ pub(super) async fn say_now(
             event_key: EVENT_KEY,
             notified: true,
             say_id: said.as_deref(),
+            card: None,
         }),
     )
     .await;

@@ -207,7 +207,17 @@ pub async fn get_session_messages(
         })
         .collect();
 
-    Ok(Json(json!({ "messages": messages_json })))
+    // Her cards before the site owner, where the chat stood when each came
+    // (the lines that are a card or carry one), for the page to put among
+    // the messages by time.
+    let mut body = json!({ "messages": messages_json });
+    if crate::services::site_owner::site_owner_user_id(&db).await == Ok(user_id)
+        && let Ok(cards) =
+            crate::services::agent::merope::cards::lines_in(&db, user_id, &session_id).await
+    {
+        body["cards"] = cards.into();
+    }
+    Ok(Json(body))
 }
 
 /// Has her forget one line of a conversation (D6-g): the line, what it

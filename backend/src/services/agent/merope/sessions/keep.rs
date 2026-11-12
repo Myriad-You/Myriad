@@ -153,6 +153,161 @@ pub(super) async fn card(
     Ok(true)
 }
 
+/// The owner's language as they chose it on the site (`users.locale`),
+/// as the program says a card's facts in it; one the core does not know
+/// is said in English there.
+async fn language(db: &DatabaseConnection, owner: i32) -> String {
+    let found = db
+        .query_one_raw(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT locale FROM users WHERE id = $1",
+            [owner.into()],
+        ))
+        .await
+        .ok()
+        .flatten()
+        .and_then(|row| row.try_get::<Option<String>>("", "locale").ok().flatten());
+    found
+        .map(|locale| locale.trim().to_string())
+        .filter(|locale| !locale.is_empty())
+        .unwrap_or_else(|| "en-US".to_string())
+}
+
+fn told(picture: &Picture) -> myriad_nodes::session_look::Told {
+    myriad_nodes::session_look::Told {
+        device: picture.device.clone(),
+        session: picture.session.clone(),
+    }
+}
+
+/// The card of `kind` on `task`, by its id.
+fn card_of(task: &str, kind: &str) -> Option<String> {
+    myriad_nodes::cards::card_id(
+        myriad_nodes::look_cards::SCENE,
+        kind,
+        &format!("node:{task}"),
+    )
+    .ok()
+}
+
+/// Puts the card of her judgment of change `change` (from 1) before the
+/// owner, when it needs them (`decide`, `nod`); the card of the other of
+/// the two on the same task, if it still waits, is settled. Its id, when
+/// it is before them.
+pub(super) async fn put_card(
+    db: &DatabaseConnection,
+    owner: i32,
+    picture: &Picture,
+    judgment: &Judgment,
+    material: &Material,
+    change: usize,
+) -> Option<String> {
+    let other = match judgment.verdict {
+        Verdict::Decide => "nod",
+        Verdict::Nod => "decide",
+        Verdict::NoNeed => return None,
+    };
+    let task = task_id(owner, picture).ok()?;
+    let language = language(db, owner).await;
+    let at = crate::clock::now().timestamp_millis();
+    let card = match myriad_nodes::look_cards::decision(myriad_nodes::look_cards::DecisionInput {
+        task: task.clone(),
+        told: told(picture),
+        judgment: judgment.clone(),
+        material: material.clone(),
+        change,
+        at,
+        language: language.clone(),
+    }) {
+        Ok(card) => card,
+        Err(error) => {
+            tracing::warn!(%error, "[Merope] her card of a session was not made");
+            return None;
+        }
+    };
+    let id = card.id.clone();
+    if let Err(error) = crate::services::agent::merope::cards::put(db, owner, card).await {
+        tracing::warn!(%error, "[Merope] her card of a session was not put before the owner");
+        return None;
+    }
+    if let Some(other) = card_of(&task, other) {
+        settle(db, owner, picture, &other, &language).await;
+    }
+    Some(id)
+}
+
+/// The card `card`, if it still waits on the owner, settled as its session
+/// now stands.
+async fn settle(
+    db: &DatabaseConnection,
+    owner: i32,
+    picture: &Picture,
+    card: &str,
+    language: &str,
+) {
+    let Ok(Some(now)) = crate::services::agent::merope::cards::now(db, owner, card).await else {
+        return;
+    };
+    if !now.waiting {
+        return;
+    }
+    let settled = myriad_nodes::look_cards::settled(myriad_nodes::look_cards::SettledInput {
+        card: now.card,
+        told: told(picture),
+        at: crate::clock::now().timestamp_millis(),
+        language: language.to_string(),
+    });
+    match settled {
+        Ok(card) => {
+            if let Err(error) = crate::services::agent::merope::cards::put(db, owner, card).await {
+                tracing::warn!(%error, "[Merope] a settled card was not put");
+            }
+        }
+        Err(error) => tracing::warn!(%error, "[Merope] a card was not settled"),
+    }
+}
+
+/// The cards of `picture`'s session as it changed: where it came to when
+/// it finished or failed (`status`), and her cards on it settled once it
+/// went on or ended without waiting on the owner (they answered it there).
+pub(super) async fn session_cards(db: &DatabaseConnection, owner: i32, picture: &Picture) {
+    use myriad_her_link::now::{Change, WaitingOn};
+    let Ok(task) = task_id(owner, picture) else {
+        return;
+    };
+    let language = language(db, owner).await;
+    let session = &picture.session;
+    if matches!(session.change, Change::Finished | Change::Failed) {
+        match myriad_nodes::look_cards::status(myriad_nodes::look_cards::StatusInput {
+            task: task.clone(),
+            told: told(picture),
+            at: crate::clock::now().timestamp_millis(),
+            language: language.clone(),
+        }) {
+            Ok(Some(card)) => {
+                if let Err(error) =
+                    crate::services::agent::merope::cards::put(db, owner, card).await
+                {
+                    tracing::warn!(%error, "[Merope] a session's status card was not put");
+                }
+            }
+            Ok(None) => {}
+            Err(error) => tracing::warn!(%error, "[Merope] a session's status card was not made"),
+        }
+    }
+    // It went on (or ended) without them: going quiet is not going on,
+    // and a session that still waits on them keeps their card.
+    let went_on = matches!(session.change, Change::Started | Change::Finished)
+        && session.waiting_on != Some(WaitingOn::Owner);
+    if went_on {
+        for kind in ["decide", "nod"] {
+            if let Some(card) = card_of(&task, kind) {
+                settle(db, owner, picture, &card, &language).await;
+            }
+        }
+    }
+}
+
 /// What she would tell them of `picture`'s change, to be said in person
 /// when it fits; under its grant, for a drop to take back what is not said
 /// yet.
@@ -162,6 +317,7 @@ pub(super) fn say(
     picture: &Picture,
     line: &str,
     judgment: &Judgment,
+    card: Option<String>,
 ) {
     use crate::services::agent::consciousness::{
         EventUrgency, enqueue_speak_intent, new_speak_intent,
@@ -186,6 +342,7 @@ pub(super) fn say(
         happened.push_str(&format!("\n{}", judgment.suggestion));
     }
     intent.happened = Some(happened);
+    intent.card = card;
     enqueue_speak_intent(intent);
     let db = db.clone();
     crate::services::agent::merope::background::spawn("speak intents", async move {
