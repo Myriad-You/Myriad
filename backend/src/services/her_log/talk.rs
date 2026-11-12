@@ -119,6 +119,7 @@ pub(crate) async fn keep(
         line: Some(message.to_string()),
         reply_to: None,
         pictures: (pictures > 0).then_some(pictures),
+        card: None,
     };
     let row = store::write_owners(
         db,

@@ -140,17 +140,17 @@ impl Default for Session {
 }
 
 /// The core ABI of the other side of a link (`nodes.wire_send` `peerAbi`):
-/// 3 when its `hello` (or `welcome`) listed `log3`, 2 when `log2`, 1 when
-/// neither.
+/// the highest N for which its `hello` (or `welcome`) listed `logN`, 1 when
+/// none. `capabilities` is the list as accepted, so it holds only the `logN`
+/// the contract of the core this site is built with has, none above what
+/// that core reads.
 pub fn peer_abi(capabilities: &[String]) -> u32 {
-    let listed = |name: &str| capabilities.iter().any(|capability| capability == name);
-    if listed("log3") {
-        3
-    } else if listed("log2") {
-        2
-    } else {
-        1
-    }
+    capabilities
+        .iter()
+        .filter_map(|capability| capability.strip_prefix("log")?.parse::<u32>().ok())
+        .filter(|abi| *abi >= 2)
+        .max()
+        .unwrap_or(1)
 }
 
 /// The core ABI each of the owner's devices last synced her log with, by

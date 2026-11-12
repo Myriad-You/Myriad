@@ -4201,3 +4201,17 @@ async fn a_record_waits_for_its_picture() {
     assert_eq!(sticker().await.as_deref(), Some("/media/her/rain.png"));
     assert_eq!(super::state::take_in(db, &root, OWNER).await.unwrap(), 0);
 }
+
+/// A link's side is of the highest log ABI its hello listed, so a side that
+/// listed log4 is sent card rows and one that stopped at log3 is not.
+#[test]
+fn a_side_is_of_the_highest_log_abi_it_listed() {
+    let of = |listed: &[&str]| {
+        relay::peer_abi(&listed.iter().map(|c| c.to_string()).collect::<Vec<_>>())
+    };
+    assert_eq!(of(&["log2", "log4", "log3"]), 4);
+    assert_eq!(of(&["nodes", "log3", "log2"]), 3);
+    assert_eq!(of(&["log2"]), 2);
+    assert_eq!(of(&["nodes", "logs", "log1"]), 1);
+    assert_eq!(of(&[]), 1);
+}

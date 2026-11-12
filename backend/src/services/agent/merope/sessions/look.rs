@@ -16,9 +16,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-use myriad_her_link::now::{Change, Session, WaitingOn, rules};
+use myriad_her_link::now::{Change, Session, rules};
 use myriad_nodes::session_look::{
-    self as looks, Answer, Judgment, LookAsk, LookInput, Read, Recalled, Shown, Told, Verdict,
+    self as looks, Answer, LookAsk, LookInput, Read, Recalled, Shown, Told,
 };
 use sea_orm::DatabaseConnection;
 
@@ -366,35 +366,12 @@ async fn ask(owner: i32, asking: &LookAsk) -> (Option<Answer>, Vec<String>, Vec<
 /// `unreadable`, or `hollow` (it holds to the schema, but every change in
 /// it says nothing of what it is about: the form with nothing in it).
 fn read_word(raw: &str, read: &Read) -> &'static str {
-    let hollow = serde_json::from_str::<serde_json::Value>(raw)
-        .ok()
-        .and_then(|answer| answer["changes"].as_array().cloned())
-        .is_some_and(|changes| {
-            !changes.is_empty()
-                && changes.iter().all(|change| {
-                    change["about"]
-                        .as_str()
-                        .is_none_or(|about| about.trim().is_empty())
-                })
-        });
     match read {
-        _ if hollow => "hollow",
+        _ if looks::hollow(raw) => "hollow",
         Read::Good(_) => "good",
         Read::BadGrounds => "bad_grounds",
         Read::Unreadable => "unreadable",
     }
-}
-
-/// Her card when no answer with grounds came for a change that waits on
-/// them, or failed: as the core makes it, but one that waits on the
-/// owner's own answer (`waitingOn: owner`, whoever gave the work) is
-/// theirs to decide, never a nod. That much the program knows without her.
-fn card_without_her(heading: &str, waits: bool, session: &Session) -> Judgment {
-    let mut judgment = looks::card_only(heading, waits);
-    if session.waiting_on == Some(WaitingOn::Owner) {
-        judgment.verdict = Verdict::Decide;
-    }
-    judgment
 }
 
 /// Looks at `pictures` together; for each, whether what she made of it
@@ -428,10 +405,10 @@ async fn look(
         // its card.
         let judgment = match &answer.judgments[at] {
             Some(judgment) => judgment.clone(),
-            None if asking.waits[at] || asking.failed[at] => card_without_her(
+            None if asking.waits[at] || asking.failed[at] => looks::card_only(
                 &asking.material.changes[at],
                 asking.waits[at],
-                &picture.session,
+                asking.decides[at],
             ),
             None => continue,
         };
