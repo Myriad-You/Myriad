@@ -663,6 +663,41 @@ async fn what_she_knew_before_stands_first_and_a_new_fact_ends_it() {
     settle(db, vec![first]).await;
     assert_eq!(asked("memory_standing_build"), 0);
     assert!(standing_rows(db).await.is_empty());
+    // A rule's 「现在」 (where a session is now) in the same talk is not
+    // hers: it does not count as built.
+    let node = read::heads(db, OTHER, &talk(), None)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|head| head.name.as_deref() == Some("跑步"))
+        .unwrap()
+        .node_id;
+    let session = json!({
+        "version": myriad_nodes::BODY_VERSION,
+        "sync": myriad_nodes::Sync::Local(crate::services::her_log::NODE.to_string()),
+        "saidBy": ["third_party"],
+        "base": [],
+        "item": "now",
+        "text": "quiet for long, its tests still running",
+        "because": ["session:s0123456789abcdef01234567"],
+    });
+    write::write(
+        db,
+        OTHER,
+        &talk(),
+        &[RowIn {
+            id: myriad_nodes::entries::row_id_from("node.standing", &node, "now", "rule"),
+            node,
+            kind: "node.standing".into(),
+            body: session,
+            author: Author::Rule,
+        }],
+        None,
+    )
+    .await
+    .unwrap();
+    let rule_rows = standing_rows(db).await.len();
+    assert_eq!(rule_rows, 1);
     // The next stretch: first how things stood (from what she knew, not
     // from what it kept), then what it does to that.
     answering(&[
@@ -689,7 +724,11 @@ async fn what_she_knew_before_stands_first_and_a_new_fact_ends_it() {
     assert!(input.contains("每周三晚上夜跑") && !input.contains("膝盖"));
     // Each memory with when it happened, not when it was put on the node.
     assert!(input.contains("2026-08-21"), "{input}");
-    let rows = standing_rows(db).await;
+    let rows: Vec<_> = standing_rows(db)
+        .await
+        .into_iter()
+        .filter(|row| row.0 != "now")
+        .collect();
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].1, "每周三晚上夜跑");
     assert_eq!(rows[0].4, json!([]));
@@ -704,7 +743,8 @@ async fn what_she_knew_before_stands_first_and_a_new_fact_ends_it() {
     let sinces: Vec<Value> = db
         .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
-            "SELECT body FROM agent_node_rows WHERE kind = 'node.standing' ORDER BY at, hlc",
+            "SELECT body FROM agent_node_rows WHERE kind = 'node.standing' AND author = 'her' \
+             ORDER BY at, hlc",
         ))
         .await
         .unwrap()

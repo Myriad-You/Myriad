@@ -485,15 +485,22 @@ pub(crate) fn built(
     changes
 }
 
-/// Whether `owner`'s `audience` holds any 「现在」 at all.
+/// Whether `owner`'s `audience` holds any 「现在」 of hers: a rule's (where a
+/// session is `now`) is not what she knows of them, and the site owner's
+/// talk holds those from the start.
 async fn any_standing(db: &DatabaseConnection, owner: i32, audience: &str) -> Result<bool, Error> {
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
     Ok(db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT 1 AS one FROM agent_node_rows \
-             WHERE user_id = $1 AND audience = $2 AND kind = $3 LIMIT 1",
-            [owner.into(), audience.into(), KIND.into()],
+             WHERE user_id = $1 AND audience = $2 AND kind = $3 AND author = $4 LIMIT 1",
+            [
+                owner.into(),
+                audience.into(),
+                KIND.into(),
+                Author::Her.as_str().into(),
+            ],
         ))
         .await?
         .is_some())
