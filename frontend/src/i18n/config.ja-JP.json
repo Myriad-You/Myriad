@@ -2026,6 +2026,8 @@
   "discordBotDesc": "個チャットの用事ボット。オンにして Developer Portal の bot token を入れると、バックグラウンドで Gateway に接続して DM を受けます。",
   "discordBotToken": "Discord bot token",
   "discordBotHint": "token は書き込み専用。読み返すとマスク。空にすると消去。オフまたは無効な資格情報ではボットはオフラインです。データ基盤 OAuth の access token は使わないでください。",
+  "discordBotHearOtherBots": "グループでも他の bot と webhook の行を聞く",
+  "discordBotHearOtherBotsHint": "既定はオフ。オンにすると他の bot と webhook のテキストと画像が彼女のグループ文脈に入ります。これらの行は彼女への呼びかけとしては扱わず、話すかどうかは従来のタイミング判断に任せます。",
   "discordBotPhaseOffline": "オフライン",
   "discordBotPhaseConnecting": "接続中",
   "discordBotPhaseOnline": "オンライン",

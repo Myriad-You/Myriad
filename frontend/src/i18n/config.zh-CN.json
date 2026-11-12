@@ -2128,6 +2128,8 @@
   "discordBotDesc": "私聊办事 Bot。打开并填好 Developer Portal 的 bot token 后，后台连 Gateway 收私聊。",
   "discordBotToken": "Discord bot token",
   "discordBotHint": "密钥只写，读回是掩码。空值清除。关掉或凭证无效时机器人不在线。不要填数据平台 OAuth 的 access token。",
+  "discordBotHearOtherBots": "群聊里也听见其他 bot 和 webhook",
+  "discordBotHearOtherBotsHint": "默认关闭。打开后其他 bot 与 webhook 发的文本和图片会进入她的群聊上下文；这些行不会被当作点名她，要不要接话仍按原来的节奏判断。",
   "discordBotPhaseOffline": "离线",
   "discordBotPhaseConnecting": "连接中",
   "discordBotPhaseOnline": "在线",

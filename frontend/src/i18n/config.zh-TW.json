@@ -2128,6 +2128,8 @@
   "discordBotDesc": "私聊辦事 Bot。打開並填好 Developer Portal 的 bot token 後，後臺連 Gateway 收私聊。",
   "discordBotToken": "Discord bot token",
   "discordBotHint": "The token is write-only; reads come back masked. Empty clears it. Off or a bad token keeps the bot offline. Do not paste the data-platform OAuth access token.",
+  "discordBotHearOtherBots": "群組裡也聽見其他 bot 和 webhook",
+  "discordBotHearOtherBotsHint": "預設關閉。打開後其他 bot 與 webhook 發的文字和圖片會進入她的群組上下文；這些行不會被當作點名她，要不要接話仍按原本的節奏判斷。",
   "discordBotPhaseOffline": "Offline",
   "discordBotPhaseConnecting": "Connecting",
   "discordBotPhaseOnline": "Online",

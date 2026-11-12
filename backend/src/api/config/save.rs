@@ -482,6 +482,10 @@ pub(crate) fn collect_database_updates_with_vendor(
                 JsonValue::Bool(field.value == "true" || field.value == "1"),
             ),
             "discord_bot_token" => ("discord_bot_token", JsonValue::String(field.value.clone())),
+            "discord_bot_hear_other_bots" => (
+                "discord_bot_hear_other_bots",
+                JsonValue::Bool(field.value == "true" || field.value == "1"),
+            ),
             "feishu_bot_enabled" => (
                 "feishu_bot_enabled",
                 JsonValue::Bool(field.value == "true" || field.value == "1"),
@@ -550,6 +554,7 @@ pub(crate) fn collect_database_updates_with_vendor(
                 | "qq_bot_app_id"
                 | "telegram_bot_enabled"
                 | "discord_bot_enabled"
+                | "discord_bot_hear_other_bots"
                 | "feishu_bot_enabled"
                 | "feishu_bot_app_id"
                 | "onebot_bot_enabled"

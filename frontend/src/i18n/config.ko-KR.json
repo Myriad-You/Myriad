@@ -2039,6 +2039,8 @@
   "discordBotDesc": "1:1 업무 봇. 켜고 Developer Portal 봇 토큰을 넣으면 백그라운드에서 Gateway에 연결되어 DM을 받습니다.",
   "discordBotToken": "Discord bot token",
   "discordBotHint": "The token is write-only; reads come back masked. Empty clears it. Off or a bad token keeps the bot offline. Do not paste the data-platform OAuth access token.",
+  "discordBotHearOtherBots": "그룹에서 다른 bot과 webhook의 줄도 듣기",
+  "discordBotHearOtherBotsHint": "기본은 꺼짐. 켜면 다른 bot과 webhook이 보낸 텍스트와 이미지가 그녀의 그룹 맥락에 들어갑니다. 이 줄은 그녀를 부르는 것으로 보지 않고, 말할지는 기존 타이밍 판단을 따릅니다.",
   "discordBotPhaseOffline": "Offline",
   "discordBotPhaseConnecting": "Connecting",
   "discordBotPhaseOnline": "Online",
