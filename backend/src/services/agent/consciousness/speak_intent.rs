@@ -181,9 +181,12 @@ mod tests {
         );
         value.observation = Some("最后呈现的反应：躲避".into());
         enqueue_speak_intent(value);
-        let queued = drain_speak_intents(crate::clock::now())
-            .into_iter()
-            .find(|v| v.user_id == 905)
+        // Read as queued, not drained: other tests running beside this one
+        // drain the queue they share.
+        let queued = QUEUE.read().unwrap()[&905]
+            .iter()
+            .find(|v| v.source_event_id == "touch-observation")
+            .cloned()
             .unwrap();
         assert_eq!(queued.gist, "先别摸啦。");
         assert_eq!(queued.observation.as_deref(), Some("最后呈现的反应：躲避"));
