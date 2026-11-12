@@ -205,6 +205,94 @@ async fn how_their_life_stands_after_the_background() {
     .unwrap();
 }
 
+/// The background again, with how their life stands built on it the way
+/// the site builds it for someone she knew before 「现在」 was written
+/// (`memory_nodes::standing::build`), kept as a snapshot of its own for a
+/// run to write each question onto. Opt-in and spends on the site's
+/// judgment model: `MEROPE_MEMORY_BENCH_STANDING_FROM=<a kept snapshot>
+/// MEROPE_MEMORY_BENCH_REPORT=<new .json>`.
+#[tokio::test]
+#[ignore]
+async fn how_their_life_stands_is_built_on_the_background() {
+    let snapshot = std::env::var("MEROPE_MEMORY_BENCH_STANDING_FROM").expect("a kept snapshot");
+    let report = std::env::var("MEROPE_MEMORY_BENCH_REPORT").expect("report path");
+    assert!(
+        !std::path::Path::new(&report).exists(),
+        "report must not exist"
+    );
+    let url = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL").expect("test database");
+    let _ = longmemeval::the_models().await;
+    let copy = restore(&url, &snapshot).await;
+    // Its bookkeeping too, so that it serves as a snapshot.
+    let to = copy.name().to_string();
+    for row in copy
+        .db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT table_name::text AS name FROM information_schema.tables \
+             WHERE table_schema = $1 AND table_name LIKE 'bench\\_background\\_%'",
+            [snapshot.clone().into()],
+        ))
+        .await
+        .unwrap()
+    {
+        let table: String = row.try_get("", "name").unwrap();
+        copy.db
+            .execute_unprepared(&format!(
+                "CREATE TABLE \"{to}\".\"{table}\" AS TABLE \"{snapshot}\".\"{table}\""
+            ))
+            .await
+            .unwrap();
+    }
+    let user_id = person_in(&copy.db).await;
+    let pen = crate::services::her_log::pen::think().expect("her mind is here");
+    let present = crate::services::agent::memory::unified::Audience::private(user_id);
+    let home =
+        crate::services::agent::merope::memory_nodes::audience::of_talk(&present, user_id, None)
+            .expect("their talk");
+    let written = crate::services::agent::merope::memory_nodes::standing::build(
+        &copy.db,
+        user_id,
+        home.user_id,
+        &home.audience,
+        &[],
+        &pen,
+    )
+    .await
+    .expect("how their life stands, built");
+    let stands: Vec<Value> = copy
+        .db
+        .query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT h.name, r.body FROM agent_node_rows r JOIN agent_node_heads h \
+             USING (user_id, audience, node_id) WHERE r.kind = 'node.standing' \
+             ORDER BY h.name, r.row_id",
+        ))
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| {
+            let body: Value =
+                serde_json::from_str(&row.try_get::<String>("", "body").unwrap()).unwrap();
+            json!({"node": row.try_get::<String>("", "name").unwrap(),
+                "item": body["item"], "text": body["text"], "because": body["because"]})
+        })
+        .collect();
+    let charged = crate::services::ai_cost_ledger::spent::charged_so_far();
+    let name = copy.keep().await;
+    println!(
+        "built snapshot: MEROPE_MEMORY_BENCH_SNAPSHOT={name} rows={written} charged=${charged:.4}"
+    );
+    std::fs::write(
+        &report,
+        serde_json::to_string_pretty(&json!({"from": snapshot, "snapshot": name,
+            "written": written, "charged": charged, "spent": crate::services::ai_cost_ledger::spent::take(),
+            "stands": stands}))
+        .unwrap(),
+    )
+    .unwrap();
+}
+
 /// What each change and still-true question's new fact does to the list
 /// made from the background, as a trial of keeping how their life stands
 /// when writing. Opt-in and spends on the site's judgment model:
