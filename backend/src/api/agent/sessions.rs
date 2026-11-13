@@ -488,10 +488,15 @@ mod title_endpoint_tests {
         };
         let schema = format!("title_test_{}", uuid::Uuid::new_v4().simple());
         let admin = Database::connect(&url).await.unwrap();
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
             .await
             .unwrap();
+        drop(turn);
         let mut options = ConnectOptions::new(url);
         options.set_schema_search_path(&schema).sqlx_logging(false);
         let db = Database::connect(options).await.unwrap();
@@ -544,10 +549,15 @@ mod title_endpoint_tests {
                 .unwrap();
         assert_eq!(response["title"], "A title");
         db.close().await.unwrap();
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("DROP SCHEMA {schema} CASCADE"))
             .await
             .unwrap();
+        drop(turn);
         admin.close().await.unwrap();
     }
 }

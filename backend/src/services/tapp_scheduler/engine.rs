@@ -2127,10 +2127,15 @@ mod frontend_finalizer_tests {
         let url = std::env::var("MYRIAD_RUNTIME_ISOLATION_TEST_DB").unwrap();
         let admin = Database::connect(&url).await.unwrap();
         let schema_name = format!("finalizer_{}", uuid::Uuid::new_v4().simple());
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("CREATE SCHEMA {schema_name}"))
             .await
             .unwrap();
+        drop(turn);
         let mut options = ConnectOptions::new(url);
         options.max_connections(4).map_sqlx_postgres_opts({
             let schema_name = schema_name.clone();
@@ -2213,10 +2218,15 @@ mod frontend_finalizer_tests {
         let stats: TaskStats = serde_json::from_value(task.stats).unwrap();
         assert_eq!(stats.total_runs, 1);
         assert_eq!(stats.success_runs + stats.failed_runs, 1);
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("DROP SCHEMA {schema_name} CASCADE"))
             .await
             .unwrap();
+        drop(turn);
     }
 }
 
@@ -2266,10 +2276,15 @@ mod frontend_recipient_db_tests {
         let url = std::env::var("MYRIAD_RUNTIME_ISOLATION_TEST_DB").unwrap();
         let admin = Database::connect(&url).await.unwrap();
         let schema_name = format!("{prefix}_{}", uuid::Uuid::new_v4().simple());
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("CREATE SCHEMA {schema_name}"))
             .await
             .unwrap();
+        drop(turn);
         let mut options = ConnectOptions::new(url);
         options.max_connections(2).map_sqlx_postgres_opts({
             let schema_name = schema_name.clone();
@@ -2298,10 +2313,15 @@ mod frontend_recipient_db_tests {
 
     async fn drop_schema(admin: &sea_orm::DatabaseConnection, schema_name: &str) {
         use sea_orm::ConnectionTrait;
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("DROP SCHEMA {schema_name} CASCADE"))
             .await
             .unwrap();
+        drop(turn);
     }
 
     fn task(scope: TaskScope, tapp_id: &str, user_id: i32) -> tapp_scheduled_tasks::Model {
