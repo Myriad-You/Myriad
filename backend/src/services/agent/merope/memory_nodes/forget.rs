@@ -1,7 +1,9 @@
 //! Forgetting on her nodes what goes with a forgotten memory (decision D7):
 //! its entries, the spans and inbox items whose words were forgotten with
-//! it (the lines `memory::origins` deletes), the versions of her views and
-//! of what is not wrapped up that rest on either, and a topic she started that
+//! it (the lines `memory::origins` deletes), the versions of her views,
+//! of what is not wrapped up and of how their life stands (「现在」) that
+//! rest on either (one resting on several goes when any of them does: its
+//! words may carry what was forgotten), and a topic she started that
 //! holds no entry any more, for its name can say as much as what was on it
 //! (the rule the old topic tables keep, `migrations/topic_nodes.sql`). An
 //! intent resting on a forgotten line goes too, with what the site kept of
@@ -32,8 +34,9 @@ use super::{Error, heads, inbox, logged, write};
 use crate::services::her_log::{self, NODE};
 
 /// The rows citing any of `refs`: entries and spans by their references,
-/// her views and what is not wrapped up by what they rest on (`because`);
-/// each with its account, audience and node.
+/// her views, what is not wrapped up and how their life stands (「现在」)
+/// by what they rest on (`because`); each with its account, audience and
+/// node.
 async fn citing<C: ConnectionTrait>(
     db: &C,
     refs: &[String],
@@ -45,9 +48,9 @@ async fn citing<C: ConnectionTrait>(
              CROSS JOIN LATERAL jsonb_array_elements_text( \
                CASE WHEN r.body = '' THEN '[]'::jsonb \
                     ELSE COALESCE((r.body::jsonb)->(CASE \
-                      WHEN r.kind IN ('node.view_changed', 'node.open_item') THEN 'because' \
+                      WHEN r.kind IN ('node.view_changed', 'node.open_item', 'node.standing') THEN 'because' \
                       ELSE 'refs' END), '[]'::jsonb) END) AS cited(ref) \
-             WHERE r.kind IN ('node.entry', 'node.span', 'node.view_changed', 'node.open_item') \
+             WHERE r.kind IN ('node.entry', 'node.span', 'node.view_changed', 'node.open_item', 'node.standing') \
                AND cited.ref = ANY($1)",
             [refs.to_vec().into()],
         ))

@@ -636,6 +636,64 @@ async fn what_a_kept_fact_does_to_how_their_life_stands_is_written_where_it_stan
     schema.drop().await;
 }
 
+/// How things stand on 「跑步」 in account 7's talk, as shown.
+async fn running_stands(db: &DatabaseConnection) -> Vec<String> {
+    let heads = read::heads(db, OTHER, &talk(), None).await.unwrap();
+    let Some(node) = heads
+        .iter()
+        .find(|head| head.name.as_deref() == Some("跑步"))
+    else {
+        return Vec::new();
+    };
+    let Some(head) = read::node(db, OTHER, &talk(), &node.node_id).await.unwrap() else {
+        return Vec::new();
+    };
+    myriad_nodes::stands::shown_on(&node.node_id, &head)
+        .into_iter()
+        .map(|item| item.text)
+        .collect()
+}
+
+#[tokio::test]
+async fn how_their_life_stands_goes_with_the_memory_it_rests_on() {
+    let Some(schema) = schema("memory_nodes_standing_forget").await else {
+        return;
+    };
+    let db = &schema.db;
+    let running = || {
+        Some(GoesUnder::New {
+            name: "跑步".into(),
+            aliases: Vec::new(),
+        })
+    };
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[],"add":[{"topic":"跑步","text":"每周三晚上夜跑"}]}"#,
+    )]);
+    settle(db, vec![update("每周三晚上夜跑", &[], running())]).await;
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[{"item":1,"text":"每周五晚上夜跑"}],"end":[],"add":[]}"#,
+    )]);
+    settle(db, vec![update("夜跑改到周五了", &[], running())]).await;
+    assert_eq!(running_stands(db).await, vec!["每周五晚上夜跑".to_string()]);
+    // The change forgotten: it stands as it did before it.
+    let changed = memory_id(db, "夜跑改到周五了").await;
+    forget::forget(db, &[changed], &[]).await.unwrap();
+    assert_eq!(running_stands(db).await, vec!["每周三晚上夜跑".to_string()]);
+    // What it began with forgotten too: nothing of it stands.
+    let began = memory_id(db, "每周三晚上夜跑").await;
+    forget::forget(db, &[began], &[]).await.unwrap();
+    assert!(running_stands(db).await.is_empty());
+    let left = count(
+        db,
+        "SELECT count(*) AS n FROM agent_node_rows WHERE kind = 'node.standing' AND body <> ''",
+    )
+    .await;
+    assert_eq!(left, 0);
+    schema.drop().await;
+}
+
 #[tokio::test]
 async fn what_she_knew_before_stands_first_and_a_new_fact_ends_it() {
     let Some(schema) = schema("memory_nodes_standing_built").await else {
