@@ -517,6 +517,15 @@ async fn vector(
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
     let ours = store::holdings(db, owner.user, audience).await?;
+    // How far a side has her log, by origin: counts only, no rows. What a
+    // check after a forget reads to see the side has the forget row.
+    tracing::debug!(
+        device,
+        audience,
+        theirs = ?theirs,
+        ours = ?ours.vector,
+        "[her-log] a side's vector"
+    );
     let mut out = Vec::new();
     let held: u64 = ours.vector.values().sum();
     if theirs.is_empty() && held as usize > FULL_AFTER_ROWS {
