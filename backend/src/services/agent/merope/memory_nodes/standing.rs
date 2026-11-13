@@ -12,8 +12,10 @@
 //!   her nodes there with none of hers on it, once. A rule's 「现在」 (where
 //!   a session is `now`) is not hers, and the site owner's talk holds those
 //!   from the start.
-//! - **Kept on the site's side** (`Sync::Local`) until every side of hers
-//!   reads it and the log carries it.
+//! - **Kept on the site's side** (`Sync::Local`) while a side of the
+//!   owner's would refuse it, written to go once every side reads it
+//!   (`share::sync_for`); what was kept before goes then too
+//!   (`share::share_kept`, when a side comes).
 //!
 //! The memory bench's trial of a kept list
 //! (`memory_bench::background::state_list`) builds through [`build`] too.
@@ -28,12 +30,7 @@ use sea_orm::DatabaseConnection;
 
 use super::{Author, Error, RowIn, facts::Fact, placements, read, write};
 use crate::services::agent::memory::unified::{self, Audience, MemoryKind};
-use crate::services::her_log::{NODE, pen::Thought};
-
-/// How her rows of 「现在」 are tagged on the site.
-fn site() -> myriad_nodes::Sync {
-    myriad_nodes::Sync::Local(NODE.to_string())
-}
+use crate::services::her_log::pen::Thought;
 
 /// The day of `micros` in her zone, as the core takes a day.
 fn day_of(micros: i64) -> Option<String> {
@@ -192,7 +189,7 @@ pub(crate) async fn build(
         };
         let read = stands::build_read(BuildReadInput {
             output,
-            sync: site(),
+            sync: super::share::sync_for(db, owner).await,
             node: input.node,
             held: input.held,
             learned: input.learned,
@@ -253,7 +250,7 @@ pub(crate) async fn after_settled(
         };
         let read = stands::step_read(StepReadInput {
             output,
-            sync: site(),
+            sync: super::share::sync_for(db, owner).await,
             fact: step.fact,
             known: step.known,
             nodes: step.nodes,

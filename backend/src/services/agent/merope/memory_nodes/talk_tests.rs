@@ -636,6 +636,58 @@ async fn what_a_kept_fact_does_to_how_their_life_stands_is_written_where_it_stan
     schema.drop().await;
 }
 
+/// Kept on the site's side while a side of theirs would refuse it; written
+/// to go once every side reads it, and what was kept before goes then too
+/// (`share_kept`, as when a side comes), under its own id.
+#[tokio::test]
+async fn how_their_life_stands_goes_to_their_sides_once_every_side_reads_it() {
+    let Some(schema) = schema("memory_nodes_standing_shared").await else {
+        return;
+    };
+    let db = &schema.db;
+    let topic = |name: &str| {
+        Some(GoesUnder::New {
+            name: name.into(),
+            aliases: Vec::new(),
+        })
+    };
+    let local = json!({"local": crate::services::her_log::NODE});
+    // A side of theirs still on log2: kept on the site.
+    crate::services::her_log::relay::remember_side(db, OTHER, "dev_mac", 2)
+        .await
+        .unwrap();
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[],"add":[{"topic":"跑步","text":"每周三晚上夜跑"}]}"#,
+    )]);
+    settle(db, vec![update("每周三晚上夜跑", &[], topic("跑步"))]).await;
+    let rows = standing_rows(db).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].3, local);
+    // Every side reads log3: written to go.
+    crate::services::her_log::relay::remember_side(db, OTHER, "dev_mac", 3)
+        .await
+        .unwrap();
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[],"add":[{"topic":"游泳","text":"周末去游泳"}]}"#,
+    )]);
+    settle(db, vec![update("周末去游泳", &[], topic("游泳"))]).await;
+    let rows = standing_rows(db).await;
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        (rows[0].3.clone(), rows[1].3.clone()),
+        (local, json!("shared"))
+    );
+    // The one kept before goes too, once.
+    let shared = super::share::share_kept(db, OTHER).await.unwrap();
+    assert_eq!(shared, 1);
+    let rows = standing_rows(db).await;
+    assert!(rows.iter().all(|row| row.3 == json!("shared")), "{rows:?}");
+    assert_eq!(super::share::share_kept(db, OTHER).await.unwrap(), 0);
+    schema.drop().await;
+}
+
 /// How things stand on 「跑步」 in account 7's talk, as shown.
 async fn running_stands(db: &DatabaseConnection) -> Vec<String> {
     let heads = read::heads(db, OTHER, &talk(), None).await.unwrap();
