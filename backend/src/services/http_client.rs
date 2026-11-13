@@ -720,29 +720,6 @@ mod tests {
         }
     }
 
-    struct BufferWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
-
-    impl std::io::Write for BufferWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(buf);
-            Ok(buf.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for BufferWriter {
-        type Writer = BufferWriter;
-        fn make_writer(&'a self) -> Self::Writer {
-            BufferWriter(self.0.clone())
-        }
-    }
-
-    fn captured_logs(buf: &std::sync::Arc<std::sync::Mutex<Vec<u8>>>) -> String {
-        String::from_utf8_lossy(&buf.lock().unwrap()).into_owned()
-    }
-
     #[test]
     fn proxy_log_target_strips_userinfo() {
         assert_eq!(
@@ -755,39 +732,35 @@ mod tests {
         );
     }
 
+    /// What `apply_proxy` logs is its message, `proxy_log_target` of the URL and,
+    /// when the URL is refused, the error. Checked on those values rather than by
+    /// capturing log output: a captured subscriber saw nothing when other tests
+    /// ran at the same time, and then the check passed on an empty log.
     #[test]
     fn apply_proxy_logs_never_include_proxy_password() {
         const SECRET: &str = "super-secret-proxy-pass";
-        let buf = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(BufferWriter(buf.clone()))
-            .with_max_level(tracing::Level::INFO)
-            .with_ansi(false)
-            .finish();
-        let _guard = tracing::subscriber::set_default(subscriber);
-
+        let ok = format!("http://user:{SECRET}@127.0.0.1:8080");
+        assert_eq!(proxy_log_target(&ok), "http://127.0.0.1:8080");
         let ok = ProxyConfig {
             enabled: true,
-            proxy_url: Some(format!("http://user:{SECRET}@127.0.0.1:8080")),
+            proxy_url: Some(ok),
             bypass_list: vec![],
         };
         let _ok_builder = apply_proxy(reqwest::Client::builder(), &ok).expect("valid proxy");
 
+        let bad = format!("http://user:{SECRET}@%");
+        assert_eq!(proxy_log_target(&bad), "invalid-proxy-url");
         let bad = ProxyConfig {
             enabled: true,
-            proxy_url: Some(format!("http://user:{SECRET}@%")),
+            proxy_url: Some(bad),
             bypass_list: vec![],
         };
-        assert!(apply_proxy(reqwest::Client::builder(), &bad).is_err());
-
-        let logs = captured_logs(&buf);
-        assert!(
-            !logs.contains(SECRET),
-            "proxy password leaked into logs: {logs}"
-        );
-        assert!(
-            logs.contains("proxy_enabled") || logs.contains("127.0.0.1"),
-            "expected enabled/redacted proxy log, got: {logs}"
-        );
+        let error = apply_proxy(reqwest::Client::builder(), &bad).expect_err("invalid proxy");
+        for logged in [error.to_string(), format!("{error:?}")] {
+            assert!(
+                !logged.contains(SECRET),
+                "proxy password leaked into the logged error: {logged}"
+            );
+        }
     }
 }
