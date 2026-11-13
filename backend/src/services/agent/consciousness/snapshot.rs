@@ -34,6 +34,7 @@ pub(super) struct Standing {
 }
 
 impl Standing {
+    #[cfg(test)]
     pub(super) fn of(snapshot: &SelfSnapshot) -> Self {
         Self {
             do_not_disturb: snapshot.do_not_disturb,

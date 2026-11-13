@@ -1047,6 +1047,7 @@ impl AiAnalyzer {
     /// only restates the schema in the prompt. An endpoint that rejects it
     /// is remembered and asked prompt-only, as structured output is
     /// everywhere.
+    #[cfg(test)]
     pub async fn analyze_json_strict(
         &self,
         system: &str,

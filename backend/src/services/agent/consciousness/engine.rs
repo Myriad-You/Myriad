@@ -11,8 +11,8 @@ use super::decision_prompt::decision_system_prompt;
 use super::snapshot::Standing;
 use super::{
     AcceptSource, AutonomyGrantStore, ConsciousnessAction, ConsciousnessDecision,
-    ConsciousnessEvent, IntentRecord, IntentStatus, IntentStore, SelfSnapshot,
-    capture_self_snapshot, evaluate_autonomy_grant, skips_user_review, validate_decision,
+    ConsciousnessEvent, IntentRecord, IntentStatus, IntentStore, capture_self_snapshot,
+    evaluate_autonomy_grant, skips_user_review, validate_decision,
 };
 
 const DECISION_REQUEST_TIMEOUT: Duration = Duration::from_secs(4);
@@ -35,11 +35,6 @@ pub enum ConsciousnessGate {
 pub struct Consideration {
     pub decision: ConsciousnessDecision,
     pub intent: Option<IntentRecord>,
-}
-
-/// Cheap deterministic gate before any model call.
-pub fn pre_gate(event: &ConsciousnessEvent, snapshot: &SelfSnapshot) -> ConsciousnessGate {
-    pre_gate_on(event, Standing::of(snapshot))
 }
 
 fn malformed(event: &ConsciousnessEvent) -> bool {
@@ -442,6 +437,15 @@ fn decision_schema() -> serde_json::Value {
     })
 }
 
+/// Cheap deterministic gate before any model call, read off a whole
+/// snapshot (the evals and tests; the runtime reads [`Standing::now`]).
+/// Kept after all runtime code: tests read this file up to its first
+/// test-only item as the runtime.
+#[cfg(test)]
+pub fn pre_gate(event: &ConsciousnessEvent, snapshot: &super::SelfSnapshot) -> ConsciousnessGate {
+    pre_gate_on(event, Standing::of(snapshot))
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -539,7 +543,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::services::agent::consciousness::{EventUrgency, RecentIntent};
+    use crate::services::agent::consciousness::{EventUrgency, RecentIntent, SelfSnapshot};
 
     fn event() -> ConsciousnessEvent {
         ConsciousnessEvent {
