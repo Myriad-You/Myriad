@@ -384,7 +384,7 @@
   "fileTooLarge": "That file is too large.",
   "payloadTooLarge": "That message is too large.",
   "byCode": {
-    "her_log_off": "Syncing her is not open on this site.",
+    "her_log_off": "Sync with Computer is not open on this site.",
     "her_sync_change_failed": "Couldn't change syncing. Please try again later.",
     "agent_work_budget": "This task used up its budget before it could wrap up. Anything already saved stays saved; tell it what to do next.",
     "agent_work_context": "This task's context grew too long to continue. Anything already saved stays saved; start a new conversation to carry on.",
