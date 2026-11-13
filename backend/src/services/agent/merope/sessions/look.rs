@@ -396,6 +396,7 @@ async fn look(
         None => Answer {
             judgments: vec![None; pictures.len()],
             line: None,
+            repos: Vec::new(),
         },
     };
     for (at, picture) in pictures.iter().enumerate() {
@@ -429,19 +430,19 @@ async fn look(
             kept[at] = true;
         }
     }
+    // Where each repository stands now, as she sees it.
+    keep::progress(db, owner, &asking.material, &answer.repos).await;
     if let Some(line) = &answer.line
         && let Some(judgment) = &answer.judgments[line.change - 1]
     {
         let picture = &pictures[line.change - 1];
         if kept[line.change - 1] && !dropped(owner, picture) {
-            keep::say(
-                db,
-                owner,
-                picture,
-                &line.text,
-                judgment,
-                cards[line.change - 1].clone(),
-            );
+            // Her card on it; else, of a session that ended, where it came to.
+            let card = match cards[line.change - 1].clone() {
+                Some(card) => Some(card),
+                None => keep::status_card(db, owner, picture).await,
+            };
+            keep::say(db, owner, picture, &line.text, judgment, card);
             // Dropped as it was made: taken back, wherever it is by now.
             if dropped(owner, picture) {
                 crate::services::agent::consciousness::withdraw_speak_intents(

@@ -97,7 +97,7 @@ async fn the_four_looks_with_their_cards() {
             task: "n_trial_video".into(),
             told,
             judgment: judgment.clone(),
-            material,
+            material: material.clone(),
             change: 1,
             at: 1_794_470_000_000,
             language: language.clone(),
@@ -131,6 +131,34 @@ async fn the_four_looks_with_their_cards() {
             line.text
         });
         println!("says (carrying the card): {line:?}");
+        // Her line on the repository, and its progress card.
+        for said in &answer.repos {
+            let repo = &material.repos[said.repo - 1];
+            let made =
+                myriad_nodes::look_progress::progress(myriad_nodes::look_progress::ProgressInput {
+                    audience: "personal:1".into(),
+                    key: repo.key.clone(),
+                    name: repo.name.clone(),
+                    text: said.text.clone(),
+                    base: Vec::new(),
+                    sync: myriad_nodes::Sync::Shared,
+                    told: vec![told_of(&material)],
+                    since: 1_794_400_000_000,
+                    at: 1_794_470_000_000,
+                    language: language.clone(),
+                })
+                .expect("her line on the repository");
+            println!(
+                "progress {}: {} | {:?}",
+                made.card.title,
+                said.text,
+                made.card
+                    .facts
+                    .iter()
+                    .map(|fact| fact.text.as_str())
+                    .collect::<Vec<_>>()
+            );
+        }
         shown.push((at, format!("{:?}", judgment.verdict), line));
     }
     println!("\n=== the four: {shown:#?}");
@@ -311,5 +339,11 @@ fn with_what_it_lacked(numbered: &str, minutes: i64) -> Material {
             });
         }
     }
+    // The repository it was in, as the device told it.
+    material.repos = vec![myriad_nodes::session_look::RepoOf {
+        key: myriad_nodes::sessions::folder_key(DEVICE, "myriad"),
+        name: "myriad".into(),
+        changes: (1..=material.changes.len()).collect(),
+    }];
     material
 }

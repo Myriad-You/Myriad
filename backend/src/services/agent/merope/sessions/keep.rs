@@ -153,6 +153,103 @@ pub(super) async fn card(
     Ok(true)
 }
 
+/// Her line on each repository of the look (`repos`): written on the
+/// repository's node as hers, while her mind is here, and its progress
+/// card put before the owner, the day's counts its facts. A repository the
+/// rules have not made a node of yet is passed by.
+pub(super) async fn progress(
+    db: &DatabaseConnection,
+    owner: i32,
+    material: &Material,
+    repos: &[myriad_nodes::session_look::RepoNow],
+) {
+    if repos.is_empty() {
+        return;
+    }
+    let Some(pen) = crate::services::her_log::pen::think() else {
+        return;
+    };
+    let audience = audience::private_talk(owner, Some(owner));
+    let language = language(db, owner).await;
+    let told: Vec<_> = super::pictures(db, owner).await.iter().map(told).collect();
+    let since = {
+        use crate::services::agent::merope::clock;
+        clock::day_start(clock::today()).map_or(0, |start| start.timestamp_millis())
+    };
+    for said in repos {
+        let Some(repo) = said
+            .repo
+            .checked_sub(1)
+            .and_then(|at| material.repos.get(at))
+        else {
+            continue;
+        };
+        let Ok(node_id) = myriad_nodes::node_id(&audience, &repo.key) else {
+            continue;
+        };
+        let Ok(Some(node)) = read::node(db, owner, &audience, &node_id).await else {
+            continue;
+        };
+        let standing = &node["standing"][myriad_nodes::look_progress::ITEM];
+        let base: Vec<String> = standing["base"]
+            .as_array()
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| id.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let sync = sessions::created_sync(&node).unwrap_or_else(|| {
+            myriad_nodes::Sync::Local(crate::services::her_log::NODE.to_string())
+        });
+        let made = match myriad_nodes::look_progress::progress(
+            myriad_nodes::look_progress::ProgressInput {
+                audience: audience.clone(),
+                key: repo.key.clone(),
+                name: repo.name.clone(),
+                text: said.text.clone(),
+                base,
+                sync,
+                told: told.clone(),
+                since,
+                at: crate::clock::now().timestamp_millis(),
+                language: language.clone(),
+            },
+        ) {
+            Ok(made) => made,
+            Err(error) => {
+                tracing::warn!(%error, "[Merope] her line on a repository was not made");
+                continue;
+            }
+        };
+        // The same line of hers again, on nothing it did not rest on
+        // already, is not a new one: only its card's counts may have moved.
+        let held: Vec<&Value> = standing["value"]["because"]
+            .as_array()
+            .map(|ids| ids.iter().collect())
+            .unwrap_or_default();
+        let again = standing["author"] == "her"
+            && standing["value"]["text"] == made.row.body["text"]
+            && made.row.body["because"]
+                .as_array()
+                .is_some_and(|ids| ids.iter().all(|id| held.contains(&id)));
+        let row = RowIn {
+            id: made.row.id,
+            node: made.node,
+            kind: made.row.kind,
+            body: made.row.body,
+            author: Author::Her,
+        };
+        if !again && let Err(error) = write::write(db, owner, &audience, &[row], Some(&pen)).await {
+            tracing::warn!(%error, "[Merope] her line on a repository was not written");
+            continue;
+        }
+        if let Err(error) = crate::services::agent::merope::cards::put(db, owner, made.card).await {
+            tracing::warn!(%error, "[Merope] a repository's progress card was not put");
+        }
+    }
+}
+
 /// The owner's language as they chose it on the site (`users.locale`),
 /// as the program says a card's facts in it; one the core does not know
 /// is said in English there.
@@ -274,6 +371,26 @@ async fn settle(
         }
         Err(error) => tracing::warn!(%error, "[Merope] a card was not settled"),
     }
+}
+
+/// The card of where `picture`'s session came to, when it finished or
+/// failed and the owner has that card: her line about that end is about
+/// it, so it carries it.
+pub(super) async fn status_card(
+    db: &DatabaseConnection,
+    owner: i32,
+    picture: &Picture,
+) -> Option<String> {
+    use myriad_her_link::now::Change;
+    if !matches!(picture.session.change, Change::Finished | Change::Failed) {
+        return None;
+    }
+    let card = card_of(&task_id(owner, picture).ok()?, "status")?;
+    crate::services::agent::merope::cards::now(db, owner, &card)
+        .await
+        .ok()
+        .flatten()
+        .map(|_| card)
 }
 
 /// The cards of `picture`'s session as it changed: where it came to when

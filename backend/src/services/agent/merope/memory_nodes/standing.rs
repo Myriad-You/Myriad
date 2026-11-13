@@ -44,7 +44,10 @@ fn day_of(micros: i64) -> Option<String> {
     })
 }
 
-/// The authors of `owner`'s `audience`'s 「现在」 rows, each once.
+/// The authors and items of `owner`'s `audience`'s 「现在」 rows, each
+/// once: her line on a repository is hers but no one's life, and only the
+/// core tells them apart. A forgotten row (a stub, its body gone) stands
+/// for nothing.
 async fn standing_authors(
     db: &DatabaseConnection,
     owner: i32,
@@ -54,8 +57,9 @@ async fn standing_authors(
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT DISTINCT author FROM agent_node_rows \
-             WHERE user_id = $1 AND audience = $2 AND kind = $3",
+            "SELECT DISTINCT author, \
+             CASE WHEN body LIKE '{%' THEN body::jsonb->>'item' END AS item FROM agent_node_rows \
+             WHERE user_id = $1 AND audience = $2 AND kind = $3 AND body <> ''",
             [owner.into(), audience.into(), stands::KIND.into()],
         ))
         .await?;
@@ -63,6 +67,7 @@ async fn standing_authors(
         .map(|row| {
             Ok(StandingRowIn {
                 author: row.try_get("", "author")?,
+                item: row.try_get("", "item")?,
             })
         })
         .collect()

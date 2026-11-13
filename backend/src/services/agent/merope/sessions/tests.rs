@@ -29,6 +29,10 @@ const CARDS: &str = "g_5555555555";
 /// The grant of the test of what comes together alone: it drops its grant
 /// at the end, which every test in this process then sees dropped.
 const TOGETHER: &str = "g_6666666666";
+/// The grant of the progress test alone.
+const PROGRESS: &str = "g_7777777777";
+/// The grant of the status-card test alone.
+const ENDED: &str = "g_8888888888";
 /// What the owner said to it: theirs alone.
 const OWNERS_WORDS: &str = "把存储拆开然后提交";
 /// What another session sent it, with someone else's name in it.
@@ -847,4 +851,109 @@ async fn her_card_comes_at_once_moves_to_her_line_and_settles_as_the_session_goe
     let went_on = cards::now(db, OWNER, &id).await.unwrap().unwrap();
     assert_ne!(went_on.version, open.version);
     assert_ne!(went_on.card.state, open.card.state);
+}
+
+/// Her line on the repository of what she looked at goes on its node as
+/// hers, and its progress card comes before the owner at once: the day's
+/// counts its facts, her line its view, asking nothing.
+#[tokio::test]
+async fn her_line_on_the_repository_is_hers_on_its_node_and_a_progress_card() {
+    use crate::services::agent::merope::cards;
+    let Some(schema) = schema().await else {
+        return;
+    };
+    let db = &schema.db;
+    db.execute_unprepared(&format!(
+        "UPDATE users SET locale = 'zh-CN' WHERE id = {OWNER}"
+    ))
+    .await
+    .unwrap();
+    answering(&[
+        r#"{"changes":[{"change":1,"verdict":"decide","about":"它问现在推送还是先等","suggestion":"我倾向先等","because":[1],"missing":null,"ownerMustSay":true,"leans":null,"answers":true}],"say":null,"repos":[{"repo":1,"now":"拆仓库做到一半，在等你定推不推"}]}"#,
+    ]);
+    take(
+        db,
+        OWNER,
+        DEVICE,
+        under(PROGRESS, "asked", 1_760_000_000_000),
+    )
+    .await
+    .unwrap();
+    looked_under(db, PROGRESS).await;
+    let mut progress = None;
+    for _ in 0..100 {
+        progress = cards::lately(db, OWNER, 10)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|card| card.kind == "progress");
+        if progress.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let progress = progress.expect("a progress card");
+    assert!(!progress.waiting);
+    let repo = myriad_nodes::node_id(&owners(), "repo:github.com/me/repo").unwrap();
+    let node = read::node(db, OWNER, &owners(), &repo)
+        .await
+        .unwrap()
+        .expect("the repository");
+    let held = &node["standing"][myriad_nodes::look_progress::ITEM];
+    assert_eq!(held["author"], "her", "{held}");
+    assert_eq!(held["value"]["text"], "拆仓库做到一半，在等你定推不推");
+
+    // The grant dropped: her line and its card go with what they rested on.
+    forget_grant(db, OWNER, DEVICE, PROGRESS).await.unwrap();
+    let left = cards::lately(db, OWNER, 10).await.unwrap();
+    assert!(left.is_empty(), "{left:?}");
+    let node = read::node(db, OWNER, &owners(), &repo).await.unwrap();
+    assert!(
+        node.as_ref()
+            .is_none_or(|node| node["standing"][myriad_nodes::look_progress::ITEM].is_null()),
+        "{node:?}"
+    );
+}
+
+/// Her line about a session that ended carries the card of where it came
+/// to, when the owner has it; one still going has none to carry.
+#[tokio::test]
+async fn her_line_on_a_session_that_ended_carries_its_status_card() {
+    use crate::services::agent::merope::cards;
+    let Some(schema) = schema().await else {
+        return;
+    };
+    let db = &schema.db;
+    take(
+        db,
+        OWNER,
+        DEVICE,
+        under(ENDED, "started", 1_760_000_000_000),
+    )
+    .await
+    .unwrap();
+    let going = pictures(db, OWNER)
+        .await
+        .into_iter()
+        .find(|picture| picture.session.grant == ENDED)
+        .unwrap();
+    assert_eq!(keep::status_card(db, OWNER, &going).await, None);
+    take(
+        db,
+        OWNER,
+        DEVICE,
+        under(ENDED, "finished", 1_760_000_100_000),
+    )
+    .await
+    .unwrap();
+    let ended = pictures(db, OWNER)
+        .await
+        .into_iter()
+        .find(|picture| picture.session.grant == ENDED)
+        .unwrap();
+    let card = keep::status_card(db, OWNER, &ended)
+        .await
+        .expect("the status card");
+    let held = cards::now(db, OWNER, &card).await.unwrap().unwrap();
+    assert_eq!(held.card.kind, "status");
 }

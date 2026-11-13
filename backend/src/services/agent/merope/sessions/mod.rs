@@ -366,13 +366,32 @@ pub(crate) async fn forget_grant<C: ConnectionTrait + TransactionTrait>(
     let txn = db.begin().await?;
     forget::forget_named(&txn, owner, &audience, &grant_ref, "minted:s").await?;
     txn.commit().await?;
+    // Her cards on its tasks, and on the repositories they were in: her
+    // line on a repository rested on them too.
+    let mut about = Vec::new();
     for row in registry::list(db, PICTURES, Some(owner), None).await? {
-        if serde_json::from_value::<Picture>(row.payload)
-            .is_ok_and(|picture| picture.device == device && picture.session.grant == grant)
-        {
-            registry::delete(db, PICTURES, &row.record_id).await?;
+        let Ok(picture) = serde_json::from_value::<Picture>(row.payload) else {
+            continue;
+        };
+        if picture.device != device || picture.session.grant != grant {
+            continue;
         }
+        let task = sessions::task_key(device, grant, &picture.session.session);
+        let repo = myriad_nodes::session_look::repo_of(&myriad_nodes::session_look::Told {
+            device: picture.device.clone(),
+            session: picture.session.clone(),
+        })
+        .map(|repo| repo.key);
+        for key in std::iter::once(task).chain(repo) {
+            if let Ok(node) = myriad_nodes::node_id(&audience, &key) {
+                about.push(format!("node:{node}"));
+            }
+        }
+        registry::delete(db, PICTURES, &row.record_id).await?;
     }
+    about.sort();
+    about.dedup();
+    crate::services::agent::merope::cards::forget_about(db, owner, &about).await?;
     registry::delete(db, GRANTS, &format!("{device}/{grant}")).await?;
     Ok(())
 }
