@@ -1343,6 +1343,32 @@ mod settings_backup_tests {
     }
 
     #[test]
+    fn saves_qq_group_switch_and_normalized_allowlist() {
+        let mut config = empty_config();
+        config.ai_config.config_fields = vec![
+            ui_field("qq_bot_groups_enabled", "true"),
+            ui_field("qq_bot_group_ids", " group-b，group-a group-b "),
+        ];
+        let set = collect_database_updates(&config).expect("valid config");
+        assert_eq!(set.get("qq_bot_groups_enabled"), Some(&json!(true)));
+        assert_eq!(set.get("qq_bot_group_ids"), Some(&json!("group-a,group-b")));
+
+        config.ai_config.config_fields = vec![ui_field("qq_bot_group_ids", "group-a,<bad>")];
+        assert!(
+            collect_database_updates(&config).is_err(),
+            "a malformed group id must not save as a list that silently misses a group"
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("qq_bot_groups_enabled", "false"),
+            ui_field("qq_bot_group_ids", ""),
+        ];
+        let cleared = collect_database_updates(&config).expect("valid config");
+        assert_eq!(cleared.get("qq_bot_groups_enabled"), Some(&json!(false)));
+        assert_eq!(cleared.get("qq_bot_group_ids"), Some(&json!("")));
+    }
+
+    #[test]
     fn saves_feishu_bot_write_only_credentials() {
         let mut config = empty_config();
         config.ai_config.config_fields = vec![

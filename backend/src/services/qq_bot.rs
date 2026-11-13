@@ -1,18 +1,21 @@
-//! QQ C2C Gateway worker.
+//! QQ Gateway worker: C2C private chat and allowlisted groups.
 //!
 //! Unified-platform auth and Gateway loop follow EasyBot's QQ adapter:
 //! `POST /app/getAppAccessToken`, `Authorization: QQBot <token>`,
 //! `GET /gateway/bot`, Hello / Identify / Heartbeat.
 //! Close-code permanence follows the official Node SDK table.
 //! Pairing codes bind C2C openid onto `user_identities`. Paired text starts Work.
+//! `GROUP_AT_MESSAGE_CREATE` only arrives when a member @s the bot; those lines
+//! go to the shared group mind, and replies go back to the group.
 
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use futures::{SinkExt, StreamExt};
 use myriad_agent_rules::channel::{
-    ConnectFailureKind, GROUP_AND_C2C_EVENT, InboundC2cText, WorkerIntent, classify_gateway_close,
-    parse_access_token_response, parse_gateway_url_response, worker_intent,
+    ConnectFailureKind, GROUP_AND_C2C_EVENT, GroupImage, ImageFetch, InboundC2cText, QQ_TEXT_LIMIT,
+    WorkerIntent, classify_gateway_close, parse_access_token_response, parse_gateway_url_response,
+    split_channel_text, worker_intent,
 };
 use myriad_error::redact_secrets;
 use serde::{Deserialize, Serialize};
@@ -24,6 +27,8 @@ use tracing::{info, warn};
 use crate::GLOBAL_DYNAMIC_CONFIG;
 use crate::config::DynamicConfig;
 use crate::services::bot_supervisor::{BotWorker, SessionResult, SupervisorPhase, supervise};
+use crate::services::channel_group::{self, GroupLine};
+use crate::services::channel_platform::ChannelPlatform;
 use crate::services::http_client;
 
 const AUTH_URL: &str = "https://bots.qq.com/app/getAppAccessToken";
@@ -36,6 +41,8 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 const WS_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// Identify succeeded but READY never arrived — treat as transient and reconnect.
 const READY_TIMEOUT: Duration = Duration::from_secs(20);
+/// Group events arrive only when a member @s the bot.
+const GROUP_AT_MESSAGE_CREATE: &str = "GROUP_AT_MESSAGE_CREATE";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -330,7 +337,7 @@ async fn gateway_session(
             msg = read.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        if let Some(kind) = handle_payload(&text, &mut seq, token.auth_header()) {
+                        if let Some(kind) = handle_payload(&text, &mut seq, token.auth_header()).await {
                             return Err(kind);
                         }
                     }
@@ -438,7 +445,7 @@ where
                         if payload_is_ready(&text, seq) {
                             return Ok(true);
                         }
-                        if let Some(kind) = handle_payload(&text, seq, auth_header) {
+                        if let Some(kind) = handle_payload(&text, seq, auth_header).await {
                             return Err(kind);
                         }
                     }
@@ -468,13 +475,28 @@ fn payload_is_ready(text: &str, seq: &mut u64) -> bool {
     payload.op == 0 && payload.t.as_deref() == Some("READY")
 }
 
-fn handle_payload(text: &str, seq: &mut u64, auth_header: &str) -> Option<ConnectFailureKind> {
+async fn handle_payload(
+    text: &str,
+    seq: &mut u64,
+    auth_header: &str,
+) -> Option<ConnectFailureKind> {
     if text.len() > crate::services::bot_ingress::MAX_GATEWAY_MESSAGE_BYTES {
         warn!("Bot Gateway payload too large; reconnecting before accepting sequence");
         return Some(ConnectFailureKind::Transient);
     }
     let payload: GatewayPayload = serde_json::from_str(text).ok()?;
-    let ingress = if payload.op == 0 && payload.t.as_deref() == Some("C2C_MESSAGE_CREATE") {
+    let is_c2c = payload.op == 0 && payload.t.as_deref() == Some("C2C_MESSAGE_CREATE");
+    let is_group = payload.op == 0 && payload.t.as_deref() == Some(GROUP_AT_MESSAGE_CREATE);
+    let group_line = if is_group {
+        inbound_group_from_dispatch(payload.d.as_ref())
+    } else {
+        None
+    };
+    let group_ok = match &group_line {
+        Some(line) => qq_group_accepts(&line.chat).await,
+        None => false,
+    };
+    let ingress = if is_c2c || group_ok {
         match crate::services::bot_ingress::try_acquire(
             crate::services::bot_ingress::Channel::Qq,
             payload
@@ -501,7 +523,7 @@ fn handle_payload(text: &str, seq: &mut u64, auth_header: &str) -> Option<Connec
     match payload.op {
         0 => {
             // READY is handled by wait_ready before the event loop starts.
-            if payload.t.as_deref() == Some("C2C_MESSAGE_CREATE") {
+            if is_c2c {
                 if let Some(event) = inbound_c2c_from_dispatch(payload.d.as_ref()) {
                     let auth = auth_header.to_string();
                     tokio::spawn(async move {
@@ -510,6 +532,12 @@ fn handle_payload(text: &str, seq: &mut u64, auth_header: &str) -> Option<Connec
                         crate::services::qq_pairing::handle_inbound_c2c(event, &auth).await;
                     });
                 }
+            } else if is_group && let (Some(line), Some(permit)) = (group_line, ingress) {
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    mark_inbound().await;
+                    handle_group_line(line).await;
+                });
             }
             None
         }
@@ -518,6 +546,157 @@ fn handle_payload(text: &str, seq: &mut u64, auth_header: &str) -> Option<Connec
         11 => None,
         _ => None,
     }
+}
+
+async fn handle_group_line(line: GroupLine) {
+    if !channel_group::record(&line).await {
+        return;
+    }
+    channel_group::handle(line, String::new()).await;
+}
+
+/// Groups are opt-in twice: the switch is on, and the `group_openid` is in the
+/// allowlist. An empty allowlist lets no group in, so a bot pulled into an
+/// arbitrary group does not answer there.
+async fn qq_group_accepts(group_openid: &str) -> bool {
+    let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+    config.qq_bot_enabled
+        && config.qq_bot_groups_enabled
+        && group_allowed(&config.qq_bot_group_ids, group_openid)
+}
+
+pub(crate) fn group_allowed(ids: &str, group_openid: &str) -> bool {
+    let group_openid = group_openid.trim();
+    !group_openid.is_empty() && ids.split(',').any(|allowed| allowed.trim() == group_openid)
+}
+
+/// Store the allowlist normalized: comma separated, no blanks, sorted, unique.
+/// Group ids are opaque strings; keep them to the characters QQ uses.
+pub fn normalize_group_ids(raw: &str) -> Result<String, String> {
+    let mut ids: Vec<&str> = Vec::new();
+    for part in raw
+        .split(|ch: char| ch == ',' || ch == '，' || ch == ';' || ch == '；' || ch.is_whitespace())
+    {
+        let id = part.trim();
+        if id.is_empty() {
+            continue;
+        }
+        if id.len() > 128
+            || !id
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+        {
+            return Err(format!("invalid group id `{id}`"));
+        }
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    ids.sort_unstable();
+    Ok(ids.join(","))
+}
+
+fn inbound_group_from_dispatch(data: Option<&Value>) -> Option<GroupLine> {
+    let data = data?;
+    let msg_id = data.get("id")?.as_str()?.trim();
+    if msg_id.is_empty() {
+        return None;
+    }
+    let group_openid = data.get("group_openid")?.as_str()?.trim();
+    if group_openid.is_empty() {
+        return None;
+    }
+    let author = data.get("author")?;
+    let member_openid = author
+        .get("member_openid")
+        .or_else(|| author.get("id"))?
+        .as_str()?
+        .trim();
+    if member_openid.is_empty() {
+        return None;
+    }
+    let text = strip_qq_mentions(data.get("content").and_then(Value::as_str).unwrap_or(""));
+    let images = qq_group_images(data);
+    if text.is_empty() && images.is_empty() {
+        return None;
+    }
+    Some(GroupLine {
+        platform: ChannelPlatform::Qq,
+        chat: group_openid.to_string(),
+        message_id: msg_id.to_string(),
+        thread: None,
+        from: member_openid.to_string(),
+        display_name: group_display_name(author, member_openid),
+        text,
+        // The Gateway only delivers this event when the bot is @-ed.
+        addressed: true,
+        reply_to: None,
+        images,
+        shown_as: None,
+    })
+}
+
+/// QQ puts the mention in the content as `<@!openid>`; she reads the words.
+fn strip_qq_mentions(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("<@") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        let Some(end) = after.find('>') else {
+            out.push_str(&rest[start..]);
+            rest = "";
+            break;
+        };
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    let text = out.split_whitespace().collect::<Vec<_>>().join(" ");
+    split_channel_text(&text, QQ_TEXT_LIMIT)
+        .into_iter()
+        .next()
+        .unwrap_or_default()
+}
+
+fn group_display_name(author: &Value, member_openid: &str) -> String {
+    let raw = author
+        .get("nickname")
+        .or_else(|| author.get("name"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(member_openid);
+    let name: String = raw
+        .chars()
+        .filter(|ch| !ch.is_control() && !matches!(ch, '<' | '>' | '：'))
+        .take(40)
+        .collect();
+    if name.trim().is_empty() {
+        "群成员".to_string()
+    } else {
+        name
+    }
+}
+
+fn qq_group_images(data: &Value) -> Vec<GroupImage> {
+    let mut images = Vec::new();
+    for image in myriad_agent_rules::channel::parse_qq_c2c_images(data) {
+        let key = if image.name.is_empty() {
+            format!("qq-group:{}", image.url)
+        } else {
+            format!("qq-group:{}:{}", image.name, image.size)
+        };
+        images.push(GroupImage {
+            key,
+            fetch: ImageFetch::Url { url: image.url },
+            hint: None,
+            sticker: false,
+        });
+        if images.len() >= myriad_agent_rules::channel::GROUP_IMAGES {
+            break;
+        }
+    }
+    images
 }
 
 fn inbound_c2c_from_dispatch(data: Option<&Value>) -> Option<InboundC2cText> {
@@ -736,7 +915,78 @@ mod tests {
     }
 
     #[test]
-    fn identify_intents_are_c2c_only() {
+    fn group_dispatch_uses_group_and_member_openids() {
+        let line = inbound_group_from_dispatch(Some(&json!({
+            "id": "gm1",
+            "content": "<@!bot-openid> 帮我查天气",
+            "group_openid": "group-a",
+            "author": { "member_openid": "member-a", "nickname": "小明" },
+            "timestamp": "2026-11-14T12:00:00+08:00"
+        })))
+        .expect("group line");
+        assert_eq!(line.platform, ChannelPlatform::Qq);
+        assert_eq!(line.chat, "group-a");
+        assert_eq!(line.message_id, "gm1");
+        assert_eq!(line.from, "member-a");
+        assert_eq!(line.display_name, "小明");
+        assert_eq!(line.text, "帮我查天气");
+        assert!(line.addressed);
+        assert_eq!(line.venue(), "qq:group-a");
+    }
+
+    #[test]
+    fn group_dispatch_drops_mentions_only_and_empty_lines() {
+        assert!(
+            inbound_group_from_dispatch(Some(&json!({
+                "id": "gm2",
+                "content": "<@!bot-openid>",
+                "group_openid": "group-a",
+                "author": { "member_openid": "member-a" }
+            })))
+            .is_none()
+        );
+        assert!(
+            inbound_group_from_dispatch(Some(&json!({
+                "id": "gm3",
+                "content": "没有组",
+                "group_openid": "",
+                "author": { "member_openid": "member-a" }
+            })))
+            .is_none()
+        );
+        let line = inbound_group_from_dispatch(Some(&json!({
+            "id": "gm4",
+            "content": "<@!bot-openid> 看 <@!someone> 这个",
+            "group_openid": "group-a",
+            "author": { "member_openid": "member-a" }
+        })))
+        .expect("group line");
+        assert_eq!(line.text, "看 这个");
+        assert_eq!(line.display_name, "member-a");
+    }
+
+    #[test]
+    fn group_allowlist_is_exact_and_empty_lets_nobody_in() {
+        assert!(!group_allowed("", "group-a"));
+        assert!(group_allowed("group-a,group-b", "group-a"));
+        assert!(group_allowed(" group-a , group-b ", "group-a"));
+        assert!(!group_allowed("group-a", "group"));
+        assert!(!group_allowed("group-a", "group-a2"));
+    }
+
+    #[test]
+    fn group_ids_normalize_sorted_unique() {
+        assert_eq!(
+            normalize_group_ids(" group-b，group-a group-b ").unwrap(),
+            "group-a,group-b"
+        );
+        assert_eq!(normalize_group_ids("  ").unwrap(), "");
+        assert!(normalize_group_ids("group-a,bad!group").is_err());
+        assert!(normalize_group_ids("group-a,<bad>").is_err());
+    }
+
+    #[test]
+    fn identify_intents_cover_group_and_c2c_only() {
         assert_eq!(GROUP_AND_C2C_EVENT, 1 << 25);
         assert_eq!(GROUP_AND_C2C_EVENT & (1 << 9), 0);
         assert_eq!(GROUP_AND_C2C_EVENT & (1 << 30), 0);
@@ -792,15 +1042,15 @@ pub(crate) async fn outbound_auth_header() -> Result<String, ConnectFailureKind>
 mod ingress_tests {
     use super::*;
 
-    #[test]
-    fn rejected_ingress_keeps_qq_sequence() {
+    #[tokio::test]
+    async fn rejected_ingress_keeps_qq_sequence() {
         let text = serde_json::json!({"op": 0, "t": "C2C_MESSAGE_CREATE", "s": 99,
             "d": {"dense": vec![0; 300_000]}})
         .to_string();
         assert!(text.len() < crate::services::bot_ingress::MAX_GATEWAY_MESSAGE_BYTES);
         let mut seq = 7;
         assert!(matches!(
-            handle_payload(&text, &mut seq, "token"),
+            handle_payload(&text, &mut seq, "token").await,
             Some(ConnectFailureKind::Transient)
         ));
         assert_eq!(seq, 7);

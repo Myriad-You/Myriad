@@ -502,6 +502,25 @@ function QqChannelCard({
         layout="vertical"
         {...bindGuide('agent.qqBot', g.agent.qqBot)}
       />
+      <CheckboxCard
+        label={t.config.qqBotGroups}
+        checked={getFieldValue('qq_bot_groups_enabled') === 'true'}
+        onChange={(value) =>
+          updateValue('qq_bot_groups_enabled', value ? 'true' : 'false')
+        }
+        description={t.config.qqBotGroupsHint}
+      />
+      {getFieldValue('qq_bot_groups_enabled') === 'true' && (
+        <InputItem
+          itemKey="qq_bot_group_ids"
+          label={t.config.qqBotGroupIds}
+          value={getFieldValue('qq_bot_group_ids')}
+          onChange={(value) => updateValue('qq_bot_group_ids', value)}
+          placeholder="GROUP_OPENID_1, GROUP_OPENID_2"
+          hint={t.config.qqBotGroupIdsHint}
+          layout="vertical"
+        />
+      )}
       <SettingsButton
         size="sm"
         loading={testing}

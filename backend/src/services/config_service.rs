@@ -578,6 +578,15 @@ impl ConfigService {
         if let Some(v) = map.get("qq_bot_app_id") {
             config.qq_bot_app_id = v.as_str().map(str::trim).unwrap_or("").to_string();
         }
+        if let Some(v) = map.get("qq_bot_groups_enabled") {
+            config.qq_bot_groups_enabled = v
+                .as_bool()
+                .or_else(|| v.as_str().map(|s| s == "true" || s == "1"))
+                .unwrap_or(config.qq_bot_groups_enabled);
+        }
+        if let Some(v) = map.get("qq_bot_group_ids") {
+            config.qq_bot_group_ids = v.as_str().map(str::trim).unwrap_or("").to_string();
+        }
         if let Some(v) = map.get("telegram_bot_enabled") {
             config.telegram_bot_enabled = v
                 .as_bool()
@@ -1655,6 +1664,8 @@ mod tests {
             ("qq_bot_enabled".into(), json!(true)),
             ("qq_bot_app_id".into(), json!("102123456")),
             ("qq_bot_app_secret".into(), json!("qq-secret-value")),
+            ("qq_bot_groups_enabled".into(), json!(true)),
+            ("qq_bot_group_ids".into(), json!(" group-a,group-b ")),
         ]));
         assert!(configured.qq_bot_enabled);
         assert_eq!(configured.qq_bot_app_id, "102123456");
@@ -1662,21 +1673,29 @@ mod tests {
             configured.qq_bot_app_secret.as_deref(),
             Some("qq-secret-value")
         );
+        assert!(configured.qq_bot_groups_enabled);
+        assert_eq!(configured.qq_bot_group_ids, "group-a,group-b");
 
         let from_str = ConfigService::parse_config(HashMap::from([
             ("qq_bot_enabled".into(), json!("true")),
             ("qq_bot_app_id".into(), json!("  ")),
             ("qq_bot_app_secret".into(), json!("  ")),
+            ("qq_bot_groups_enabled".into(), json!("true")),
+            ("qq_bot_group_ids".into(), json!("  ")),
         ]));
         assert!(from_str.qq_bot_enabled);
         assert_eq!(from_str.qq_bot_app_id, "");
         assert_eq!(from_str.qq_bot_app_secret, None);
+        assert!(from_str.qq_bot_groups_enabled);
+        assert_eq!(from_str.qq_bot_group_ids, "");
 
         let off =
             ConfigService::parse_config(HashMap::from([("qq_bot_enabled".into(), json!(false))]));
         assert!(!off.qq_bot_enabled);
         assert!(off.qq_bot_app_id.is_empty());
         assert_eq!(off.qq_bot_app_secret, None);
+        assert!(!off.qq_bot_groups_enabled);
+        assert!(off.qq_bot_group_ids.is_empty());
     }
 
     #[test]
