@@ -75,6 +75,9 @@ pub(crate) struct Recollection {
     pub listed: Option<String>,
     /// The nodes picked, by id.
     pub picked: Vec<String>,
+    /// How their life stands, shown every time in a private talk: each
+    /// `node name：text`, as the core chose them. None in a group.
+    pub resident: Vec<String>,
 }
 
 /// The ranking as the core takes it: each memory once, most relevant
@@ -200,14 +203,20 @@ fn standing_of(head: &serde_json::Value) -> Vec<PickStanding> {
             standing
                 .iter()
                 .filter_map(|(item, version)| {
+                    let value = version.get("value");
                     Some(PickStanding {
                         item: item.clone(),
                         at: version.get("at")?.as_i64()?,
-                        ended: version
-                            .get("value")
+                        ended: value
                             .and_then(|value| value.get("ended"))
                             .and_then(|ended| ended.as_bool())
                             .unwrap_or(false),
+                        text: value
+                            .and_then(|value| value.get("text"))
+                            .and_then(|text| text.as_str())
+                            .unwrap_or_default()
+                            .trim()
+                            .to_string(),
                     })
                 })
                 .collect()
@@ -218,6 +227,7 @@ fn standing_of(head: &serde_json::Value) -> Vec<PickStanding> {
 fn pick_node(shown: &Shown, node: &super::shown::Node) -> PickNode {
     PickNode {
         id: node.id.clone(),
+        name: node.name.clone(),
         status: node.status,
         gone: node.gone,
         entries: node
@@ -266,6 +276,7 @@ pub(crate) fn recollect_times(
         entries: base.entries * times,
         about_them: base.about_them * times,
         together: base.together * times,
+        ..base
     };
     recollect_within(shown, own, None, recalled, cues, now, budget, HEARD * times)
 }
@@ -435,6 +446,22 @@ fn recollect_within(
             listed(shown, &kind, cues?, now, &lines)
         })
         .flatten();
+    // How their life stands, every time: in a private talk only, each
+    // under its node's name, as the core counted it.
+    let resident = if here.is_some() {
+        Vec::new()
+    } else {
+        pick.resident
+            .iter()
+            .filter_map(|one| {
+                let node = shown.node(&one.node)?;
+                let text = node.head.get("standing")?.get(&one.item)?.get("value")?;
+                let text = text.get("text")?.as_str()?.trim();
+                let name = node.name.as_deref().unwrap_or_default().trim();
+                Some(format!("{name}：{text}"))
+            })
+            .collect()
+    };
     Recollection {
         named,
         heard,
@@ -444,6 +471,7 @@ fn recollect_within(
             .iter()
             .map(|picked| picked.node.clone())
             .collect(),
+        resident,
     }
 }
 

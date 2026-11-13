@@ -16,6 +16,21 @@ pub(super) async fn recalled_for(
     cues: Option<&myriad_merope::remembering::Cues>,
     thorough: usize,
 ) -> (Vec<String>, Option<String>) {
+    let (recalled, listed, _) =
+        recalled_and_resident(db, question, user_id, present, cues, thorough).await;
+    (recalled, listed)
+}
+
+/// [`recalled_for`], with how their life stands as production shows it
+/// every time in a private talk (`Recollection::resident`): not recalled.
+async fn recalled_and_resident(
+    db: &sea_orm::DatabaseConnection,
+    question: &Question,
+    user_id: i32,
+    present: &Audience,
+    cues: Option<&myriad_merope::remembering::Cues>,
+    thorough: usize,
+) -> (Vec<String>, Option<String>, Vec<String>) {
     // The control that only recalls more, when asked for.
     let wider = wider();
     let (more, thorough_more) = ((wider - 1) * RECALLED, (wider - 1) * thorough);
@@ -56,7 +71,7 @@ pub(super) async fn recalled_for(
                     .chain(recalled.brought_to_mind.iter().cloned())
                     .collect();
                 widened(&mut lines, &recalled, cues, more, thorough_more);
-                return (lines, recollection.listed);
+                return (lines, recollection.listed, recollection.resident);
             }
             (_, Err(error)) => eprintln!("bench call failed: reading her nodes: {error:#}"),
             _ => {}
@@ -88,14 +103,14 @@ pub(super) async fn recalled_for(
             .collect::<Vec<_>>()
     })
     .unwrap_or_default();
-    (named, None)
+    (named, None, Vec::new())
 }
 
 /// `MEROPE_MEMORY_BENCH_STANDING=<file>` (question id to lines): how things
 /// stand with them now, as a list she would always have, shown first among
 /// what she remembers when she answers. A trial: not recalled, and not
-/// counted as recalled.
-fn standing_of(id: &str) -> Vec<String> {
+/// counted as recalled. Without the file, the list production shows.
+fn standing_of(id: &str) -> Option<Vec<String>> {
     static STANDING: std::sync::OnceLock<std::collections::HashMap<String, Vec<String>>> =
         std::sync::OnceLock::new();
     STANDING
@@ -109,7 +124,6 @@ fn standing_of(id: &str) -> Vec<String> {
         })
         .get(id)
         .cloned()
-        .unwrap_or_default()
 }
 
 /// What she has in mind when she answers: the list of how things stand
@@ -364,7 +378,9 @@ pub(super) async fn answer_one(
     back_when_thorough: bool,
     answering: &[String],
 ) -> Answered {
-    let (mut recalled, listed) = recalled_for(db, question, user_id, present, cues, thorough).await;
+    let (mut recalled, listed, resident) =
+        recalled_and_resident(db, question, user_id, present, cues, thorough).await;
+    let standing = standing_of(&question.question_id).unwrap_or(resident);
     // The way production answers is held to the length another run
     // answered on, when asked (`MEROPE_MEMORY_BENCH_RECALL_CHARS_OF`).
     if back_when_thorough
@@ -456,11 +472,7 @@ pub(super) async fn answer_one(
     for _ in 0..3 {
         answer = lite
             .analyze_with_system(
-                &answer_system(
-                    question,
-                    present,
-                    &with_standing(&standing_of(&question.question_id), &recalled),
-                ),
+                &answer_system(question, present, &with_standing(&standing, &recalled)),
                 &input,
             )
             .await

@@ -198,6 +198,16 @@ pub(crate) async fn build(
             tracing::info!("[memory-nodes] how things stand on a node not built: no answer");
             continue;
         }
+        // Items of the answer the core left out: how many, and why; never
+        // the words.
+        if !read.dropped.is_empty() {
+            tracing::info!(
+                node = %head.node_id,
+                kept = read.rows.len(),
+                dropped = ?read.dropped,
+                "[memory-nodes] how things stand on a node: items left out"
+            );
+        }
         written += write_rows(db, owner, audience, read, pen).await;
     }
     Ok(written)
