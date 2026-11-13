@@ -153,7 +153,7 @@ ChannelAdapter
 
 官方 API v2。[消息收发概述](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/overview.html)
 
-QQ 是三种场景三套接口。第一版只认 **单聊（C2C）**。
+QQ 是三种场景三套接口。现在接 **单聊（C2C）** 与 **白名单群聊**（`GROUP_AT_MESSAGE_CREATE`）；频道仍未接入。
 群被动窗口 5 分钟、默认只收 @；频道 Markdown/按钮要内邀。长任务撑不住。
 
 | | 单聊 | 群 | 频道 |
@@ -222,6 +222,15 @@ QQ 是三种场景三套接口。第一版只认 **单聊（C2C）**。
 Easybot 只对照 C2C 收发、被动序号、401/403 与网络抖动；不要整文件搬适配器，不要引进网关进程。能力矩阵、会话键防冒号、文件上传、Markdown 键盘不在这一刀。
 
 可推迟：独立 Channel crate、完整 `capabilities()`、配对码产品面、测试按钮、流式草稿、图、Markdown、按钮回程、通知目录第五个位置。
+
+### 群聊（官方通道）
+
+官方 QQ 机器人只在群成员 **@ 机器人** 时下发 `GROUP_AT_MESSAGE_CREATE`；没 @ 的群聊不会到达。群事件里 `group_openid` 是群标识，`author.member_openid` 是群内独立身份，与 C2C 的 `user_openid` 不是同一套 ID，因此群成员按群内身份进入「群」这条路，不绑定私聊账号。
+
+- 开关与白名单：`qq_bot_groups_enabled` + `qq_bot_group_ids`（逗号分隔 `group_openid`）。默认关闭；打开后名单为空不参与任何群。
+- 入站：剥掉正文里的 `<@!...>` / `<@...>` 标记，正文与图片进入共享群聊心智；同一个 `msg_id` 只处理一次。
+- 出站：`POST /v2/groups/{group_openid}/messages`，回复带原消息 `msg_id` 与递增 `msg_seq`。群 `msg_seq` 与 C2C 分开计数；没有原消息时按主动消息发，额度或频率错误只返回失败，不重试。
+- 私聊不受影响：C2C 仍走 `/v2/users/{openid}/messages` 与原来的配对 / Work 路径。
 
 ## 不要做
 

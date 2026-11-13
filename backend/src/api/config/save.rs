@@ -472,6 +472,17 @@ pub(crate) fn collect_database_updates_with_vendor(
             ),
             "qq_bot_app_id" => ("qq_bot_app_id", JsonValue::String(field.value.clone())),
             "qq_bot_app_secret" => ("qq_bot_app_secret", JsonValue::String(field.value.clone())),
+            "qq_bot_groups_enabled" => (
+                "qq_bot_groups_enabled",
+                JsonValue::Bool(field.value == "true" || field.value == "1"),
+            ),
+            "qq_bot_group_ids" => (
+                "qq_bot_group_ids",
+                JsonValue::String(
+                    crate::services::qq_bot::normalize_group_ids(&field.value)
+                        .map_err(|error| format!("invalid qq_bot_group_ids: {error}"))?,
+                ),
+            ),
             "telegram_bot_enabled" => (
                 "telegram_bot_enabled",
                 JsonValue::Bool(field.value == "true" || field.value == "1"),
@@ -548,6 +559,8 @@ pub(crate) fn collect_database_updates_with_vendor(
                 | "ai_vendor_sources"
                 | "qq_bot_enabled"
                 | "qq_bot_app_id"
+                | "qq_bot_groups_enabled"
+                | "qq_bot_group_ids"
                 | "telegram_bot_enabled"
                 | "discord_bot_enabled"
                 | "feishu_bot_enabled"

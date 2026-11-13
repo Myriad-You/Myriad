@@ -54,11 +54,16 @@ pub(super) async fn claim(db: &DatabaseConnection, platform: ChannelPlatform, id
     crate::services::channel_work::claim_inbound(db, platform, None, id).await
 }
 
-/// Who wrote `line`, as pairing knows them.
+/// Who wrote `line`, as pairing knows them. The official QQ bot's group
+/// `member_openid` is scoped to that group and is not the C2C `user_openid`,
+/// so it never resolves a private pairing; the member stays a stranger here.
 pub(super) async fn lookup(db: &DatabaseConnection, line: &GroupLine) -> Option<PairingLookup> {
     #[cfg(test)]
     if g0::on() {
         return g0::lookup(&line.from);
+    }
+    if line.platform == ChannelPlatform::Qq {
+        return Some(PairingLookup::Unpaired);
     }
     crate::services::channel_pairing::lookup_openid(
         db,
