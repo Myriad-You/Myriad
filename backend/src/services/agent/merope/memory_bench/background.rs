@@ -87,7 +87,8 @@ impl Day {
 const PERSON: &str = "background";
 
 mod kept;
-mod set;
+#[cfg(test)]
+mod set_tests;
 mod snapshot;
 mod state_links;
 mod state_list;

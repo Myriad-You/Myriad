@@ -345,10 +345,7 @@ async fn what_a_new_fact_does_to_the_list() {
         copy.drop().await;
         // What it may change: the items on its own topics and on those of
         // what it brought to mind (`memory_nodes::standing`).
-        let reaches = crate::services::agent::merope::memory_nodes::standing::nodes_it_may_change(
-            &topics,
-            &known_topics,
-        );
+        let reaches = myriad_nodes::stands::nodes_it_may_change(&topics, &known_topics);
         let at = on_topics(&list, &reaches);
         let shown: Vec<Value> = at
             .iter()
@@ -400,8 +397,8 @@ async fn what_a_new_fact_does_to_the_list() {
         // topics is set aside.
         let (add, add_set_aside): (Vec<Value>, Vec<Value>) = numbers("add")
             .into_iter()
-            .map(
-                |one| match crate::services::agent::merope::memory_nodes::standing::where_it_starts(
+            .map(|one| {
+                match myriad_nodes::stands::where_it_starts(
                     one["topic"].as_str().unwrap_or_default(),
                     &reaches,
                     &topics,
@@ -409,8 +406,8 @@ async fn what_a_new_fact_does_to_the_list() {
                     Some(topic) => Ok(json!({"topic": topic, "text": one["text"],
                         "asked": one["topic"]})),
                     None => Err(one),
-                },
-            )
+                }
+            })
             .fold((Vec::new(), Vec::new()), |(mut add, mut aside), one| {
                 match one {
                     Ok(one) => add.push(one),

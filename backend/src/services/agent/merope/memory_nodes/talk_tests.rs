@@ -632,7 +632,7 @@ async fn what_a_kept_fact_does_to_how_their_life_stands_is_written_where_it_stan
     assert_eq!(now["value"]["ended"], true);
     assert!(now.get("bothChanged").is_none());
     // An ended item is not shown again.
-    assert!(super::standing::shown_on(&node.node_id, &head).is_empty());
+    assert!(myriad_nodes::stands::shown_on(&node.node_id, &head).is_empty());
     schema.drop().await;
 }
 
