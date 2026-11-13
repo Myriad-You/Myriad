@@ -630,6 +630,13 @@ async fn rows(
     {
         tracing::warn!(%error, "[her-log] lines said on another end were not copied here");
     }
+    // The owner's answers to her cards there are answers here too.
+    if audience == owner.personal()
+        && !taken.added.is_empty()
+        && let Err(error) = super::cards::fold(db, root, owner.user).await
+    {
+        tracing::warn!(%error, "[her-log] answers to her cards on another end were not taken here");
+    }
     // Her records another end wrote go into the site's tables (b1).
     if (audience == owner.personal() || audience == Owner::OWN)
         && !taken.added.is_empty()

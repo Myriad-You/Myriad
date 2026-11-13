@@ -32,6 +32,8 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::services::her_log;
+
 mod forget;
 mod lately;
 pub(crate) use forget::forget_about;
@@ -52,6 +54,9 @@ pub(crate) struct Version {
     pub id: String,
     #[serde(default)]
     pub actions: Vec<CardAction>,
+    /// It went into her log as its row, under this id.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub logged: bool,
 }
 
 /// One answer of the owner's.
@@ -274,18 +279,35 @@ pub(crate) async fn put(
     })
     .map_err(|error| anyhow::anyhow!("{error}"))?
     .card;
-    in_one(db, move |txn| Box::pin(put_in(txn, owner, card))).await
+    let log = her_log::cards::into_log(db, owner)
+        .await
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, "[cards] whether cards go into her log is not known");
+            None
+        });
+    let (id, logged) = (card.id.clone(), log.is_some());
+    let put = in_one(db, move |txn| Box::pin(put_in(txn, owner, card, logged))).await?;
+    if let Some(log) = log
+        && put != Put::Same
+        && let Some(now) = now(db, owner, &id).await?
+        && let Err(error) = her_log::cards::version(db, &log, &now.card, &now.version).await
+    {
+        tracing::warn!(%error, "[cards] a card's version is not in her log");
+    }
+    Ok(put)
 }
 
 async fn put_in(
     txn: &DatabaseTransaction,
     owner: i32,
     card: CardVersion,
+    logged: bool,
 ) -> Result<Put, anyhow::Error> {
     lock(txn, owner, &card.id).await?;
     let version = Version {
         id: new_id("v"),
         actions: card.actions.clone(),
+        logged,
     };
     let asks = myriad_nodes::cards::asks(&card);
     let now = Now {
@@ -410,7 +432,8 @@ impl Answered {
 }
 
 /// The owner answered `card`'s `version` with `action` (on the site, or on
-/// a child). Kept once however often it comes; told to her once.
+/// a child). Kept once however often it comes; told to her once; written
+/// into her log when the version is there.
 pub(crate) async fn answer(
     db: &DatabaseConnection,
     owner: i32,
@@ -418,20 +441,53 @@ pub(crate) async fn answer(
     version: &str,
     action: &str,
 ) -> Result<Answered, DbErr> {
+    answer_as(db, owner, card, version, action, true).await
+}
+
+/// [`answer`]; `write` false for an answer that came from her log.
+pub(crate) async fn answer_as(
+    db: &DatabaseConnection,
+    owner: i32,
+    card: &str,
+    version: &str,
+    action: &str,
+    write: bool,
+) -> Result<Answered, DbErr> {
+    let id = card.to_string();
     let (card, version, action) = (card.to_string(), version.to_string(), action.to_string());
     let (answered, told) = in_one(db, move |txn| {
         Box::pin(answer_in(txn, owner, card, version, action))
     })
     .await?;
-    if let (Some((chosen, latest, version)), Some(now)) = (told, &answered.now) {
+    if let (Some((chosen, latest, version, logged)), Some(now)) = (told, &answered.now) {
+        if write && logged {
+            log_answer(db, owner, &id, &chosen.id, &version).await;
+        }
         tell_her(db, owner, &now.card, &chosen, latest, &version);
     }
     Ok(answered)
 }
 
+async fn log_answer(db: &DatabaseConnection, owner: i32, card: &str, action: &str, version: &str) {
+    let answer = CardAnswered {
+        at: crate::clock::now().timestamp_millis(),
+        action: action.to_string(),
+        version: version.to_string(),
+    };
+    let written = match her_log::cards::into_log(db, owner).await {
+        Ok(Some(log)) => her_log::cards::answered(db, &log, card, &answer).await,
+        Ok(None) => Ok(()),
+        Err(error) => Err(error),
+    };
+    if let Err(error) = written {
+        tracing::warn!(%error, "[cards] an answer is not in her log");
+    }
+}
+
 /// The answer kept, and what to tell her of it when it is new: what they
-/// chose, whether on the latest version, and which version.
-type Kept = (Answered, Option<(CardAction, bool, String)>);
+/// chose, whether on the latest version, which version, and whether that
+/// version is in her log.
+type Kept = (Answered, Option<(CardAction, bool, String, bool)>);
 
 async fn answer_in(
     txn: &DatabaseTransaction,
@@ -510,7 +566,7 @@ async fn answer_in(
             code,
             now: Some(now),
         },
-        Some((chosen, latest, version.to_string())),
+        Some((chosen, latest, version.to_string(), answered.logged)),
     ))
 }
 

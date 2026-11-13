@@ -2,7 +2,8 @@
 //! forgotten for good (the owner dropped the grant its sessions came under),
 //! the card is forgotten with it: its lines of its own go, and her lines that
 //! carried it keep her words and lose the card. Nothing of it is told to her
-//! as an answer, and a child kept current reads the talk again.
+//! as an answer, and a child kept current reads the talk again. What of it
+//! went into her log is forgotten there too, so every side lets it go.
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, Statement};
 
@@ -48,5 +49,10 @@ pub(crate) async fn forget_about<C: ConnectionTrait + sea_orm::TransactionTrait>
     ))
     .await?;
     announce(db, owner).await?;
+    for card in &ids {
+        if let Err(error) = crate::services::her_log::cards::forget(db, owner, card).await {
+            tracing::warn!(%error, "[cards] a forgotten card is not forgotten in her log yet");
+        }
+    }
     Ok(ids.len())
 }

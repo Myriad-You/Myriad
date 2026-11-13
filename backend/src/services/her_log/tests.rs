@@ -133,6 +133,8 @@ struct Side {
     now: i64,
     /// Its link session with the server, as the server keeps it.
     link: relay::Session,
+    /// The server's core ABI as this side sends to it.
+    server_abi: u32,
 }
 
 impl Side {
@@ -157,6 +159,7 @@ impl Side {
             now: T0,
             // A computer whose core reads every row (its hello lists log2).
             link: relay::Session::new(relay::peer_abi(&["log2".to_string()])),
+            server_abi: 2,
         }
     }
 
@@ -337,7 +340,7 @@ impl Side {
                 owner: self.partner.clone(),
             },
             here: self.partner.clone(),
-            peer_abi: 2,
+            peer_abi: self.server_abi,
             ledger: self.ledger.clone(),
             elsewhere: Vec::new(),
         })
@@ -4214,4 +4217,145 @@ fn a_side_is_of_the_highest_log_abi_it_listed() {
     assert_eq!(of(&["log2"]), 2);
     assert_eq!(of(&["nodes", "logs", "log1"]), 1);
     assert_eq!(of(&[]), 1);
+}
+
+/// Her cards in her log: a version goes in only once every side reads
+/// log4, under the site's own name for that version (hers when her view is
+/// on it, else the program's); an answer given here goes in as the owner's;
+/// an answer written on the Mac is an answer here, kept once; a card
+/// forgotten here is forgotten in her log.
+#[tokio::test]
+async fn her_cards_go_into_her_log_and_answers_from_the_mac_count_here() {
+    use crate::services::agent::merope::cards;
+    use myriad_persona_log::payloads::{CardAction, CardFact, CardVersion, CardView};
+    let Some(schema) = schema("her_log_cards").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::test_settings::set(on());
+    super::keys::test_root::use_here(root());
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_sync_devices (id, user_id, name, token_hash, token_hint, created_at) \
+         VALUES ('dev_mac', {OWNER}, 'Mac', 'h', 'x', NOW())"
+    ))
+    .await
+    .unwrap();
+    let card = |task: &str, title: &str, view: Option<&str>| {
+        let subject = format!("node:{task}");
+        CardVersion {
+            at: T0 / 1000,
+            id: myriad_nodes::cards::card_id("agents", "decide", &subject).unwrap(),
+            kind: "decide".into(),
+            scene: "agents".into(),
+            subject: Some(subject),
+            title: title.into(),
+            state: None,
+            facts: vec![CardFact {
+                text: "Session: Split the store".into(),
+                reference: None,
+            }],
+            view: view.map(|text| CardView {
+                text: text.into(),
+                because: Vec::new(),
+                leans: None,
+            }),
+            actions: [("agree", "照这样"), ("open", "打开")]
+                .iter()
+                .map(|(id, label)| CardAction {
+                    id: (*id).into(),
+                    label: (*label).into(),
+                })
+                .collect(),
+        }
+    };
+    let card_rows = "SELECT count(*) FROM agent_log_rows WHERE kind LIKE 'card.%'";
+
+    // A side still on log3: the card stays on the site.
+    relay::remember_side(db, OWNER, "dev_mac", 3).await.unwrap();
+    let first = card("n_task_1", "推送吗", None);
+    cards::put(db, OWNER, first.clone()).await.unwrap();
+    assert_eq!(count(db, card_rows).await, 0);
+    let unlogged = cards::now(db, OWNER, &first.id).await.unwrap().unwrap();
+    cards::answer(db, OWNER, &first.id, &unlogged.version, "agree")
+        .await
+        .unwrap();
+    assert_eq!(count(db, card_rows).await, 0);
+
+    // Every side reads log4: the program's card, under the site's name.
+    relay::remember_side(db, OWNER, "dev_mac", 4).await.unwrap();
+    let second = card("n_task_2", "推到哪个分支", None);
+    cards::put(db, OWNER, second.clone()).await.unwrap();
+    let now = cards::now(db, OWNER, &second.id).await.unwrap().unwrap();
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    let version = rows.iter().find(|row| row.kind == "card.version").unwrap();
+    assert_eq!(version.id, now.version);
+    assert_eq!(version.author, Author::Rule);
+    assert_eq!(version.object, format!("card:{}", second.id));
+    // Answered here: the owner's row, on that version.
+    cards::answer(db, OWNER, &second.id, &now.version, "agree")
+        .await
+        .unwrap();
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    let answered = rows.iter().find(|row| row.kind == "card.answered").unwrap();
+    assert_eq!(answered.author, Author::Owner);
+    let held: Vec<&Row> = vec![answered];
+    let bodies = store::bodies(db, &root(), OWNER, PERSONAL, &held)
+        .await
+        .unwrap();
+    assert_eq!(bodies[&answered.id]["version"], json!(now.version));
+    assert_eq!(bodies[&answered.id]["action"], json!("agree"));
+
+    // Her card (her view on it) is hers.
+    let third = card("n_task_3", "下一步做什么", Some("我倾向先等测试跑完"));
+    cards::put(db, OWNER, third.clone()).await.unwrap();
+    let asked = cards::now(db, OWNER, &third.id).await.unwrap().unwrap();
+    assert!(asked.waiting);
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    let hers = rows.iter().find(|row| row.id == asked.version).unwrap();
+    assert_eq!(hers.author, Author::Her);
+
+    // Answered on the Mac: an answer here too, once however often it comes.
+    // The server's rows are of its own clock: the Mac's is the same.
+    let now = crate::clock::now_micros();
+    let mut mac = Side::new("dev_mac");
+    mac.link = relay::Session::new(relay::peer_abi(&["log4".to_string()]));
+    mac.server_abi = super::cards::READS;
+    let body = json!({ "at": now / 1000, "action": "agree", "version": asked.version });
+    mac.write_body(
+        PERSONAL,
+        &format!("card:{}", third.id),
+        "card.answered",
+        Author::Owner,
+        Some(body),
+        now,
+    );
+    sync(db, &mut mac, PERSONAL, now + MINUTE).await;
+    let theirs = super::cards::theirs(db, &root(), OWNER).await.unwrap();
+    assert_eq!(theirs.len(), 1, "{:?}", store::rows(db, OWNER, PERSONAL).await.unwrap());
+    let after = cards::now(db, OWNER, &third.id).await.unwrap().unwrap();
+    assert!(!after.waiting);
+    assert_eq!(after.answered.as_ref().unwrap().action, "agree");
+    assert_eq!(super::cards::fold(db, &root(), OWNER).await.unwrap(), 0);
+    // Not written back: the only answer to it in the log is the Mac's.
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row.kind == "card.answered"
+                && row.object == format!("card:{}", third.id))
+            .count(),
+        1
+    );
+
+    // Forgotten here: forgotten in her log.
+    cards::forget_about(db, OWNER, &["node:n_task_2".to_string()])
+        .await
+        .unwrap();
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    assert!(
+        rows.iter()
+            .filter(|row| row.object == format!("card:{}", second.id))
+            .all(|row| row.forgotten || row.kind == "forget"),
+        "{rows:?}"
+    );
+    schema.drop().await;
 }

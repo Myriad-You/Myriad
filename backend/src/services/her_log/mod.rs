@@ -54,6 +54,7 @@
 //! errors say what was refused, never with what.
 
 pub mod assets;
+pub mod cards;
 // Parts of these the relay does not reach yet outside the tests.
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod full;

@@ -949,8 +949,8 @@ pub async fn forget(
 }
 
 /// [`forget`] inside the caller's transaction.
-pub(super) async fn forget_on(
-    txn: &DatabaseTransaction,
+pub(super) async fn forget_on<C: ConnectionTrait>(
+    txn: &C,
     owner: &Owner,
     audience: &str,
     target: &str,
@@ -1094,13 +1094,47 @@ pub(super) async fn write_row_on(
     payload: &Value,
     (author, epoch): (Author, Option<u64>),
 ) -> Result<Row, Error> {
+    let id = format!("site_{}", uuid::Uuid::new_v4().simple());
+    let address = Address {
+        audience,
+        subject,
+        object,
+        kind,
+    };
+    write_row_as(txn, root, owner, address, payload, (author, epoch), id).await
+}
+
+/// Where a row goes and what it is.
+pub(super) struct Address<'a> {
+    pub audience: &'a str,
+    pub subject: Option<&'a str>,
+    pub object: &'a str,
+    pub kind: &'a str,
+}
+
+/// [`write_row_on`] under an id the caller gave: one the site already
+/// names the thing by (a card's version), so an answer to it from another
+/// side finds it here by that name.
+pub(super) async fn write_row_as(
+    txn: &DatabaseTransaction,
+    root: &dyn keys::Root,
+    owner: &Owner,
+    Address {
+        audience,
+        subject,
+        object,
+        kind,
+    }: Address<'_>,
+    payload: &Value,
+    (author, epoch): (Author, Option<u64>),
+    id: String,
+) -> Result<Row, Error> {
     Audience::parse(audience)?;
     myriad_persona_log::payloads::check(kind, payload)?;
     let user = owner.user;
     lock(txn, user, audience).await?;
     let hlc = next_rev(txn).await?;
     let dseq = next_dseq(txn, user, audience).await?;
-    let id = format!("site_{}", uuid::Uuid::new_v4().simple());
     let row = Row {
         version: LOG_VERSION,
         id: id.clone(),
