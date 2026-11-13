@@ -143,6 +143,7 @@ async fn the_four_looks_with_their_cards() {
                     base: Vec::new(),
                     sync: myriad_nodes::Sync::Shared,
                     told: vec![told_of(&material)],
+                    asking: Vec::new(),
                     since: 1_794_400_000_000,
                     at: 1_794_470_000_000,
                     language: language.clone(),

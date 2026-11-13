@@ -70,7 +70,7 @@ pub(super) async fn before(
         .map(|(_, text)| text))
 }
 
-fn task_id(owner: i32, picture: &Picture) -> Result<String, Error> {
+pub(super) fn task_id(owner: i32, picture: &Picture) -> Result<String, Error> {
     let audience = audience::private_talk(owner, Some(owner));
     let session = &picture.session;
     let task_key = sessions::task_key(&picture.device, &session.grant, &session.session);
@@ -171,7 +171,9 @@ pub(super) async fn progress(
     };
     let audience = audience::private_talk(owner, Some(owner));
     let language = language(db, owner).await;
-    let told: Vec<_> = super::pictures(db, owner).await.iter().map(told).collect();
+    let pictures = super::pictures(db, owner).await;
+    let told: Vec<_> = pictures.iter().map(told).collect();
+    let asking = tasks_asking(db, owner, &pictures).await;
     let since = {
         use crate::services::agent::merope::clock;
         clock::day_start(clock::today()).map_or(0, |start| start.timestamp_millis())
@@ -211,6 +213,7 @@ pub(super) async fn progress(
                 base,
                 sync,
                 told: told.clone(),
+                asking: asking.clone(),
                 since,
                 at: crate::clock::now().timestamp_millis(),
                 language: language.clone(),
@@ -277,8 +280,37 @@ fn told(picture: &Picture) -> myriad_nodes::session_look::Told {
     }
 }
 
+/// The tasks of `pictures` her card about still waits on the owner: one she
+/// judged needs them (`decide`, `nod`), neither answered nor put away. A
+/// session that finished a turn on one still waits on them.
+pub(super) async fn tasks_asking(
+    db: &DatabaseConnection,
+    owner: i32,
+    pictures: &[Picture],
+) -> Vec<String> {
+    let mut tasks = Vec::new();
+    for picture in pictures {
+        let Ok(task) = task_id(owner, picture) else {
+            continue;
+        };
+        for kind in ["decide", "nod"] {
+            let Some(card) = card_of(&task, kind) else {
+                continue;
+            };
+            if let Ok(Some(now)) =
+                crate::services::agent::merope::cards::now(db, owner, &card).await
+                && now.waiting
+            {
+                tasks.push(task);
+                break;
+            }
+        }
+    }
+    tasks
+}
+
 /// The card of `kind` on `task`, by its id.
-fn card_of(task: &str, kind: &str) -> Option<String> {
+pub(super) fn card_of(task: &str, kind: &str) -> Option<String> {
     myriad_nodes::cards::card_id(
         myriad_nodes::look_cards::SCENE,
         kind,

@@ -903,6 +903,29 @@ async fn her_line_on_the_repository_is_hers_on_its_node_and_a_progress_card() {
     assert_eq!(held["author"], "her", "{held}");
     assert_eq!(held["value"]["text"], "拆仓库做到一半，在等你定推不推");
 
+    // Her card that it needs them (`decide`) still waits: its task is one
+    // the progress counts take as waiting on them, until they answer it.
+    let pictures = pictures(db, OWNER).await;
+    let picture = pictures
+        .iter()
+        .find(|picture| picture.session.grant == PROGRESS)
+        .unwrap();
+    let task = keep::task_id(OWNER, picture).unwrap();
+    assert_eq!(
+        keep::tasks_asking(db, OWNER, &pictures).await,
+        [task.clone()]
+    );
+    let decide = keep::card_of(&task, "decide").unwrap();
+    let held = cards::now(db, OWNER, &decide)
+        .await
+        .unwrap()
+        .expect("her decide card");
+    assert!(held.waiting);
+    cards::answer(db, OWNER, &decide, &held.version, &held.card.actions[0].id)
+        .await
+        .unwrap();
+    assert!(keep::tasks_asking(db, OWNER, &pictures).await.is_empty());
+
     // The grant dropped: her line and its card go with what they rested on.
     forget_grant(db, OWNER, DEVICE, PROGRESS).await.unwrap();
     let left = cards::lately(db, OWNER, 10).await.unwrap();
