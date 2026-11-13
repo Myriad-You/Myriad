@@ -3157,6 +3157,8 @@ async fn a_session_change_is_taken_once_and_its_grant_dropped_for_good() {
     let mut finished_waiting = body.clone();
     finished_waiting["change"] = "finished".into();
     finished_waiting["waitingOn"] = "owner".into();
+    let mut choosing = body.clone();
+    choosing["choices"] = json!(["push", "wait"]);
     let mut spaced = body.clone();
     spaced.as_object_mut().unwrap().remove("remote");
     spaced["folder"] = " repo".into();
@@ -3173,6 +3175,12 @@ async fn a_session_change_is_taken_once_and_its_grant_dropped_for_good() {
             json!({ "grant": "g_0123456789" }),
             "bad_frame",
         ),
+        // Its choices only to a child whose welcome listed now.choices.
+        (
+            "ns_0123456789abcdef0123456789abcde4",
+            choosing.clone(),
+            "bad_frame",
+        ),
     ] {
         let seq = child.send("now.session", Some(id), body).await;
         assert_eq!(
@@ -3181,6 +3189,21 @@ async fn a_session_change_is_taken_once_and_its_grant_dropped_for_good() {
             "{id}"
         );
     }
+
+    drop(child);
+    let mut child = Child::open(&site, &token).await;
+    assert_eq!(
+        child
+            .hello_with(&["rig", "now.sessions", "now.choices"])
+            .await["body"]["capabilities"],
+        json!(["rig", "now.sessions", "now.choices"])
+    );
+    let chosen = "ns_0123456789abcdef0123456789abcde5";
+    child.send("now.session", Some(chosen), choosing).await;
+    assert_eq!(
+        child.expect("now.taken").await["body"],
+        json!({ "id": chosen })
+    );
 
     // The owner stops it watching: the grant goes for good.
     let dropped = "nd_0123456789abcdef0123456789abcdef";

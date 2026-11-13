@@ -671,8 +671,9 @@ async fn her_card_comes_at_once_moves_to_her_line_and_settles_as_the_session_goe
     .await
     .unwrap();
     answering(&[
-        r#"{"changes":[{"change":1,"verdict":"decide","about":"它问现在推送还是先等","suggestion":"我倾向先等测试跑完再推","because":[1],"missing":null,"ownerMustSay":true}],"say":{"change":1,"text":"推送那件事要你定一下。","because":[1]}}"#,
-        r#"{"changes":[{"change":1,"verdict":"decide","about":"它又问推到哪个分支","suggestion":"我倾向推到 preview","because":[1],"missing":null,"ownerMustSay":true}],"say":null}"#,
+        r#"{"changes":[{"change":1,"verdict":"decide","about":"它问现在推送还是先等","suggestion":"我倾向先等测试跑完再推","because":[1],"missing":null,"ownerMustSay":true,"leans":null,"answers":true}],"say":{"change":1,"text":"推送那件事要你定一下。","because":[1]}}"#,
+        r#"{"changes":[{"change":1,"verdict":"decide","about":"它又问推到哪个分支","suggestion":"我倾向推到 preview","because":[1],"missing":null,"ownerMustSay":true,"leans":null,"answers":true}],"say":null}"#,
+        r#"{"changes":[{"change":1,"verdict":"decide","about":"它问下一步做什么","suggestion":"","because":[1],"missing":"它没说有哪几条路","ownerMustSay":false,"leans":null,"answers":false}],"say":null}"#,
     ]);
     take(db, OWNER, DEVICE, under(CARDS, "asked", 1_760_000_000_000))
         .await
@@ -813,4 +814,37 @@ async fn her_card_comes_at_once_moves_to_her_line_and_settles_as_the_session_goe
         .find(|card| card.kind == "status")
         .expect("a status card");
     assert!(!status.waiting);
+
+    // An open question she has no answer to: only going to the session,
+    // so it waits on nobody here; the session going on still settles it.
+    let mut open_question = under(CARDS, "asked", 1_760_000_250_000);
+    open_question.from_agent = Some("What next?".into());
+    take(db, OWNER, DEVICE, open_question).await.unwrap();
+    let mut open = None;
+    for _ in 0..100 {
+        open = cards::now(db, OWNER, &id).await.unwrap().filter(|held| {
+            held.card
+                .view
+                .as_ref()
+                .is_some_and(|view| view.text.contains("它问下一步做什么"))
+        });
+        if open.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let open = open.expect("her card on the open question");
+    assert!(!open.waiting);
+    assert_eq!(open.card.actions.len(), 1);
+    take(
+        db,
+        OWNER,
+        DEVICE,
+        under(CARDS, "started", 1_760_000_300_000),
+    )
+    .await
+    .unwrap();
+    let went_on = cards::now(db, OWNER, &id).await.unwrap().unwrap();
+    assert_ne!(went_on.version, open.version);
+    assert_ne!(went_on.card.state, open.card.state);
 }

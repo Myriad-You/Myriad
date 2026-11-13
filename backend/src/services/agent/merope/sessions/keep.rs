@@ -236,8 +236,11 @@ pub(super) async fn put_card(
     Some(id)
 }
 
-/// The card `card`, if it still waits on the owner, settled as its session
-/// now stands.
+/// The card `card` settled as its session now stands: one that still
+/// waits on the owner, or one that never asked them anything (an open
+/// question she had no answer to: only going to the session) whose state
+/// or facts the session has moved past. One already settled to this is
+/// left as it is.
 async fn settle(
     db: &DatabaseConnection,
     owner: i32,
@@ -248,15 +251,21 @@ async fn settle(
     let Ok(Some(now)) = crate::services::agent::merope::cards::now(db, owner, card).await else {
         return;
     };
-    if !now.waiting {
-        return;
-    }
+    let waiting = now.waiting;
+    let before = now.card.clone();
     let settled = myriad_nodes::look_cards::settled(myriad_nodes::look_cards::SettledInput {
         card: now.card,
         told: told(picture),
         at: crate::clock::now().timestamp_millis(),
         language: language.to_string(),
     });
+    if let Ok(card) = &settled
+        && !waiting
+        && card.state == before.state
+        && card.facts == before.facts
+    {
+        return;
+    }
     match settled {
         Ok(card) => {
             if let Err(error) = crate::services::agent::merope::cards::put(db, owner, card).await {

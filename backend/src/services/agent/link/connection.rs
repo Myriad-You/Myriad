@@ -220,6 +220,7 @@ pub(super) async fn serve_with(
         moments: false,
         now_sessions: false,
         now_sessions2: false,
+        now_choices: false,
         cards: false,
         images: false,
         nodes: false,
@@ -309,6 +310,9 @@ struct Link {
     /// Its welcome listed `now.sessions2`: a `now.session` may hold
     /// `ownerSaidAt`, `errors` and `overwrote`.
     now_sessions2: bool,
+    /// Its welcome listed `now.choices`: a `now.session` that asks may
+    /// hold the choices its question came with.
+    now_choices: bool,
     /// It listed `cards` with `conversations.live`: its conversations show
     /// her cards, and the owner answers them there (`card.answer`).
     cards: bool,
@@ -881,6 +885,9 @@ impl Link {
         self.now_sessions2 = capabilities
             .iter()
             .any(|capability| capability == "now.sessions2");
+        self.now_choices = capabilities
+            .iter()
+            .any(|capability| capability == "now.choices");
         self.cards = capabilities.iter().any(|capability| capability == "cards")
             && capabilities
                 .iter()
@@ -1528,7 +1535,11 @@ impl Link {
             self.error("bad_id", Some(seq));
             return;
         };
-        let session = match myriad_her_link::now::read_told(&inbound.body, self.now_sessions2) {
+        let listed = myriad_her_link::now::Listed {
+            sessions2: self.now_sessions2,
+            choices: self.now_choices,
+        };
+        let session = match myriad_her_link::now::read_listed(&inbound.body, listed) {
             Ok(session) => session,
             Err(refusal) => {
                 tracing::debug!(device = %self.device.id, detail = %refusal.detail, "[link] now.session refused");
