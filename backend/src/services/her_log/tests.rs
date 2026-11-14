@@ -4359,3 +4359,226 @@ async fn her_cards_go_into_her_log_and_answers_from_the_mac_count_here() {
     );
     schema.drop().await;
 }
+
+/// A frame from `side` taken at `now`, what the server answers dropped: a
+/// Mac that never takes what it is sent back (a first-sync link it does
+/// not fetch, rows it does not apply).
+async fn told(db: &DatabaseConnection, side: &mut Side, frame: Value, now: i64) {
+    let device = side.id.clone();
+    relay::take(
+        db,
+        &root(),
+        &on(),
+        side.user,
+        &device,
+        Core::Pc,
+        &mut side.link,
+        &frame,
+        now,
+    )
+    .await
+    .unwrap();
+}
+
+/// `side`'s `log.vector` of `audience` saying it holds `vector`.
+fn holding(side: &mut Side, audience: &str, vector: Value) -> Value {
+    side.frame(
+        "log.vector",
+        None,
+        json!({ "audience": audience, "vector": vector }),
+    )
+}
+
+/// The server writes `lines` of hers in the partner's talk, then the Mac
+/// asks for her mind and is handed it. The Mac, and how far into the
+/// partner's talk it was handed her (`through`).
+async fn handed_to_the_mac(db: &DatabaseConnection, lines: i64) -> (Side, u64) {
+    super::pen::reset_for_test();
+    settled(db).await;
+    let owner = owner(db).await;
+    for line in 0..lines {
+        store::write_hers(
+            db,
+            &root(),
+            &owner,
+            PERSONAL,
+            None,
+            &format!("speech:web{line}"),
+            "speech.said",
+            &said("我在网页这边。", line),
+        )
+        .await
+        .unwrap();
+    }
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    told(db, &mut mac, ask, T0).await;
+    let standing = lease::standing(db).await.unwrap().unwrap();
+    assert!(standing.held_by("dev_mac"));
+    let through = standing.through.expect("handed with what the server wrote")[PERSONAL];
+    assert!(through >= lines as u64);
+    (mac, through)
+}
+
+/// Who holds her lease now.
+async fn holder_now(db: &DatabaseConnection) -> String {
+    lease::standing(db)
+        .await
+        .unwrap()
+        .and_then(|grant| grant.holder)
+        .unwrap_or_default()
+}
+
+/// The check for a holder that never caught up, at `now`.
+async fn taken_back(db: &DatabaseConnection, now: i64) -> Option<Grant> {
+    super::stuck::check(db, &on(), now).await.unwrap()
+}
+
+/// The Mac holds her mind but never takes the server's rows: it stays
+/// connected, saying it has none of them. Five minutes after with no step
+/// forward the server takes her back by a force: she thinks here again.
+/// Still behind, the Mac asking for a talk is not handed her again.
+#[tokio::test]
+async fn a_holder_that_never_catches_up_gives_her_back_after_five_minutes() {
+    let Some(schema) = schema("her_log_stuck_back").await else {
+        return;
+    };
+    let db = &schema.db;
+    let (mut mac, _) = handed_to_the_mac(db, 2).await;
+    assert!(super::pen::think().is_none());
+    let none = holding(&mut mac, PERSONAL, json!({}));
+    told(db, &mut mac, none, T0).await;
+    assert!(super::stuck::held_back("dev_mac"));
+    let same = holding(&mut mac, PERSONAL, json!({}));
+    told(db, &mut mac, same, T0 + 3 * MINUTE).await;
+    let after = T0 + super::stuck::AFTER_MICROS;
+    assert_eq!(taken_back(db, after - 1).await, None);
+    assert_eq!(holder_now(db).await, "dev_mac");
+
+    let grant = taken_back(db, after).await.expect("taken back");
+    assert_eq!(
+        (grant.holder.as_deref(), grant.how),
+        (Some(NODE), myriad_persona_log::How::Force)
+    );
+    assert_eq!(super::pen::current(), super::pen::Pen::Here);
+    assert!(super::pen::think().is_some());
+
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    told(db, &mut mac, ask, after + MINUTE).await;
+    assert_eq!(holder_now(db).await, NODE);
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// The Mac is slow but takes the server's rows: each vector a step forward
+/// starts the five minutes again, and it keeps her.
+#[tokio::test]
+async fn a_holder_still_catching_up_keeps_her() {
+    let Some(schema) = schema("her_log_stuck_moving").await else {
+        return;
+    };
+    let db = &schema.db;
+    let (mut mac, through) = handed_to_the_mac(db, 3).await;
+    assert!(through >= 3);
+    let none = holding(&mut mac, PERSONAL, json!({}));
+    told(db, &mut mac, none, T0).await;
+    let one = holding(&mut mac, PERSONAL, json!({ NODE: 1 }));
+    told(db, &mut mac, one, T0 + 4 * MINUTE).await;
+    for at in [T0 + 5 * MINUTE, T0 + 8 * MINUTE] {
+        assert_eq!(taken_back(db, at).await, None);
+    }
+    let two = holding(&mut mac, PERSONAL, json!({ NODE: 2 }));
+    told(db, &mut mac, two, T0 + 8 * MINUTE).await;
+    assert_eq!(taken_back(db, T0 + 12 * MINUTE).await, None);
+    assert!(super::stuck::held_back("dev_mac"));
+    assert_eq!(holder_now(db).await, "dev_mac");
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// Once the Mac's vector covers what it was handed, the mark is gone: no
+/// take-back however long after.
+#[tokio::test]
+async fn a_holder_that_caught_up_is_no_longer_marked() {
+    let Some(schema) = schema("her_log_stuck_caught_up").await else {
+        return;
+    };
+    let db = &schema.db;
+    let (mut mac, through) = handed_to_the_mac(db, 2).await;
+    let none = holding(&mut mac, PERSONAL, json!({}));
+    told(db, &mut mac, none, T0).await;
+    assert!(super::stuck::held_back("dev_mac"));
+    let all = holding(&mut mac, PERSONAL, json!({ NODE: through }));
+    told(db, &mut mac, all, T0 + MINUTE).await;
+    assert!(!super::stuck::held_back("dev_mac"));
+    assert_eq!(taken_back(db, T0 + 30 * MINUTE).await, None);
+    assert_eq!(holder_now(db).await, "dev_mac");
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// As on 11-14 19:06: the Mac, starting over empty, says it has nothing
+/// while the server still holds her, is handed her a moment later, and
+/// never says anything again (it waits for a download it cannot fetch).
+/// The server reads it from the vector it had: five minutes after it first
+/// looks with the Mac holding her, she is taken back.
+#[tokio::test]
+async fn a_holder_silent_since_before_the_grant_gives_her_back_too() {
+    let Some(schema) = schema("her_log_stuck_silent").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    settled(db).await;
+    let owner = owner(db).await;
+    for line in 0..2 {
+        store::write_hers(
+            db,
+            &root(),
+            &owner,
+            PERSONAL,
+            None,
+            &format!("speech:web{line}"),
+            "speech.said",
+            &said("我在网页这边。", line),
+        )
+        .await
+        .unwrap();
+    }
+    let mut mac = Side::new("dev_mac");
+    let none = holding(&mut mac, PERSONAL, json!({}));
+    told(db, &mut mac, none, T0).await;
+    assert!(!super::stuck::held_back("dev_mac"));
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    told(db, &mut mac, ask, T0 + 1).await;
+    assert_eq!(holder_now(db).await, "dev_mac");
+
+    let first = T0 + 15_000_000;
+    assert_eq!(taken_back(db, first).await, None);
+    assert!(super::stuck::held_back("dev_mac"));
+    let after = first + super::stuck::AFTER_MICROS;
+    assert_eq!(taken_back(db, after - 1).await, None);
+    let grant = taken_back(db, after).await.expect("taken back");
+    assert_eq!(
+        (grant.holder.as_deref(), grant.how),
+        (Some(NODE), myriad_persona_log::How::Force)
+    );
+    assert_eq!(super::pen::current(), super::pen::Pen::Here);
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// A Mac the server has heard no vector from is not judged: no take-back
+/// however long it holds her.
+#[tokio::test]
+async fn a_holder_never_heard_from_is_not_taken_back() {
+    let Some(schema) = schema("her_log_stuck_unheard").await else {
+        return;
+    };
+    let db = &schema.db;
+    let (_mac, _) = handed_to_the_mac(db, 2).await;
+    assert_eq!(taken_back(db, T0 + 30 * MINUTE).await, None);
+    assert_eq!(holder_now(db).await, "dev_mac");
+    super::pen::reset_for_test();
+    schema.drop().await;
+}

@@ -224,6 +224,13 @@ fn send_log_all(owner: i32, except: &str, outgoing: connection::Outgoing) {
     }
 }
 
+/// A frame of her log to every link of `owner` that syncs her now, sent
+/// by the server itself rather than as an answer on a link (her mind taken
+/// back from a holder that never caught up: `her_log::stuck`).
+pub(crate) fn tell_log_links(owner: i32, t: &'static str, body: serde_json::Value) {
+    send_log_all(owner, "", connection::frame(t, body));
+}
+
 /// Where she lives changed: each child is told she is not here (frozen or
 /// moved) and reconnects to the refusal; the device she lives on is told on
 /// its own link that she is frozen there for a move, or thawed, and a device

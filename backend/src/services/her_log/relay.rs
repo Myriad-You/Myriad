@@ -386,6 +386,17 @@ pub async fn take(
                 None => Vec::new(),
             };
             lease::heard(db, device, Some(Seen::Host), now).await?;
+            // How far a host core is: the holder on what it was handed, a
+            // device marked behind until it catches up, anyone's for when
+            // it is handed her later (`stuck`).
+            if host {
+                let standing = if mine || super::stuck::held_back(device) {
+                    lease::standing(db).await?
+                } else {
+                    None
+                };
+                super::stuck::heard(device, standing.as_ref(), &audience, &theirs, now);
+            }
             vector(
                 db, root, &owner, device, &side, session, &audience, &theirs, ask, now,
             )
@@ -427,6 +438,11 @@ pub async fn take(
                     Request::Force {
                         to: device.to_string(),
                     }
+                }
+                // Taken back from it for never catching up, and still
+                // behind: it would hold her and stop again (`stuck`).
+                Some("talk" | "place") if holder == NODE && super::stuck::held_back(device) => {
+                    return Ok(Vec::new());
                 }
                 Some("talk" | "place") if holder == NODE => {
                     let standing = lease::current(db).await?;

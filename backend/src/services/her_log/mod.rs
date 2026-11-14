@@ -71,6 +71,7 @@ pub mod retention;
 pub mod state;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod store;
+pub mod stuck;
 pub mod talk;
 
 #[cfg(test)]

@@ -68,7 +68,7 @@ pub(super) struct Outgoing {
     pub(super) body: Value,
 }
 
-fn frame(t: &'static str, body: Value) -> Outgoing {
+pub(super) fn frame(t: &'static str, body: Value) -> Outgoing {
     Outgoing { t, id: None, body }
 }
 
