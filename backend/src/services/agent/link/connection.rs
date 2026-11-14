@@ -788,7 +788,7 @@ impl Link {
         self.reply(frame("welcome", welcome));
         if sync {
             let abi = crate::services::her_log::relay::peer_abi(&capabilities);
-            self.relay = Some(crate::services::her_log::relay::Session::new(abi));
+            self.relay = Some(crate::services::her_log::relay::Session::of(&capabilities));
             // Which core this side of hers reads; once every side reads a
             // rule's rows and `node.standing`, what the site kept of them
             // on its side goes too.

@@ -4582,3 +4582,71 @@ async fn a_holder_never_heard_from_is_not_taken_back() {
     super::pen::reset_for_test();
     schema.drop().await;
 }
+
+/// An empty host core with more than [`relay::FULL_AFTER_ROWS`] rows to take
+/// asks with an empty vector: what it gets back, by frame type.
+async fn first_sync_answer(db: &DatabaseConnection, session: relay::Session) -> Vec<&'static str> {
+    let mut mac = Side::new("dev_new_mac");
+    mac.link = session;
+    let frame = holding(&mut mac, PERSONAL, json!({}));
+    let device = mac.id.clone();
+    relay::take(
+        db,
+        &root(),
+        &on(),
+        mac.user,
+        &device,
+        Core::Pc,
+        &mut mac.link,
+        &frame,
+        T0,
+    )
+    .await
+    .unwrap()
+    .iter()
+    .map(|out| out.t)
+    .collect()
+}
+
+/// The download link goes only to a core whose hello listed `log.full`;
+/// one that did not gets the rows over the link, so a core that cannot
+/// download still catches up.
+#[tokio::test]
+async fn a_first_full_sync_link_goes_only_to_a_core_that_downloads() {
+    let Some(schema) = schema("her_log_full_capability").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    settled(db).await;
+    let owner = owner(db).await;
+    for line in 0..=relay::FULL_AFTER_ROWS as i64 {
+        store::write_hers(
+            db,
+            &root(),
+            &owner,
+            PERSONAL,
+            None,
+            &format!("speech:full{line}"),
+            "speech.said",
+            &said("我在网页这边。", line),
+        )
+        .await
+        .unwrap();
+    }
+    let listed = relay::Session::of(&["log2".to_string(), relay::FULL.to_string()]);
+    // Each answer ends with the server's own vector.
+    assert_eq!(
+        first_sync_answer(db, listed).await,
+        vec!["log.full", "log.vector"]
+    );
+    let unlisted = relay::Session::of(&["log2".to_string()]);
+    let frames = first_sync_answer(db, unlisted).await;
+    let (last, rows) = frames.split_last().unwrap();
+    assert_eq!(*last, "log.vector");
+    assert!(
+        !rows.is_empty() && rows.iter().all(|t| *t == "log.rows"),
+        "{frames:?}"
+    );
+    schema.drop().await;
+}

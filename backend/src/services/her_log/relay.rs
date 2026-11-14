@@ -108,26 +108,42 @@ impl Outgoing {
     }
 }
 
-/// A core that holds nothing of an audience with more rows than this gets
-/// the HTTPS download instead of rows over the link.
+/// A core that holds nothing of an audience with more rows than this, and
+/// listed [`FULL`], gets the HTTPS download instead of rows over the link.
 pub const FULL_AFTER_ROWS: usize = 2 * myriad_nodes::wire::BATCH_ROWS;
 
 /// What the server remembers of one link session with one device: its
-/// core's ABI as its `hello` said ([`peer_abi`]), and the rows it asked
-/// that device for again, so it asks for each at most once (`log.vector`
-/// `ask`). The connection keeps one per link and drops it when the link
-/// closes.
+/// core's ABI as its `hello` said ([`peer_abi`]), whether it downloads a
+/// first full sync by a link ([`FULL`]), and the rows it asked that device
+/// for again, so it asks for each at most once (`log.vector` `ask`). The
+/// connection keeps one per link and drops it when the link closes.
 #[derive(Debug, Clone)]
 pub struct Session {
     peer_abi: u32,
+    full: bool,
     asked: BTreeSet<String>,
 }
+
+/// The capability a host core lists when it downloads a first full sync by
+/// the link `log.full` gives: only such a link is given one; another gets
+/// the rows over the link in `log.rows` batches, as any increment.
+pub const FULL: &str = "log.full";
 
 impl Session {
     pub fn new(peer_abi: u32) -> Self {
         Self {
             peer_abi,
+            full: false,
             asked: BTreeSet::new(),
+        }
+    }
+
+    /// The session of a link whose `hello` listed `capabilities`, as
+    /// accepted.
+    pub fn of(capabilities: &[String]) -> Self {
+        Self {
+            full: capabilities.iter().any(|capability| capability == FULL),
+            ..Self::new(peer_abi(capabilities))
         }
     }
 }
@@ -565,7 +581,9 @@ async fn vector(
     );
     let mut out = Vec::new();
     let held: u64 = ours.vector.values().sum();
-    if theirs.is_empty() && held as usize > FULL_AFTER_ROWS {
+    // A link is given only to one that said it downloads by it: one that
+    // did not would drop it and never catch up (a Mac did, 2026-11-14).
+    if theirs.is_empty() && session.full && held as usize > FULL_AFTER_ROWS {
         let link = full::issue(db, device, audience, session.peer_abi, now).await?;
         out.push(Outgoing::back(
             "log.full",
