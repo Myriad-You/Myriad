@@ -4650,3 +4650,110 @@ async fn a_first_full_sync_link_goes_only_to_a_core_that_downloads() {
     );
     schema.drop().await;
 }
+
+/// Her rows a device of the site wrote at an epoch it never held her (0 here:
+/// a migration run before it knew another end holds her) are kept as stubs:
+/// their place counts, what they say does not come in. Her rows it wrote
+/// holding her come whole, so do rows of a side id the site never issued
+/// (written there before it was linked), and so does a row already here,
+/// even when the device is revoked since.
+#[tokio::test]
+async fn her_rows_from_a_device_without_her_mind_are_kept_as_stubs() {
+    let Some(schema) = schema("her_log_unheld_stubs").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    settled(db).await;
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], T0).await;
+    let held = mac.epoch.expect("her mind is on the Mac");
+    assert!(held > 0);
+    // A line from before the Mac was linked, under its own side id then.
+    let mut before = Side::new("loc_5f2a9c40-6a1e-4b8e-9d3c-7e21a0b4c911");
+    before.epoch = Some(0);
+    before.write_body(
+        PERSONAL,
+        "speech:before",
+        "speech.said",
+        Author::Her,
+        Some(said("链接以前说的。", T0 / 1000)),
+        T0 + MINUTE,
+    );
+    mac.payloads.extend(before.payloads.clone());
+    mac.merge(PERSONAL, before.log(PERSONAL));
+    // Two rows a migration wrote without her mind, then one she said there.
+    mac.epoch = Some(0);
+    let first = mac.write_body(
+        PERSONAL,
+        "speech:first",
+        "speech.said",
+        Author::Her,
+        Some(said("迁移写的第一句。", T0 / 1000)),
+        T0 + 2 * MINUTE,
+    );
+    let second = mac.write_body(
+        PERSONAL,
+        "speech:second",
+        "speech.said",
+        Author::Her,
+        Some(said("迁移写的第二句。", T0 / 1000)),
+        T0 + 3 * MINUTE,
+    );
+    mac.epoch = Some(held);
+    let hers = mac.write_body(
+        PERSONAL,
+        "speech:hers",
+        "speech.said",
+        Author::Her,
+        Some(said("拿着笔说的。", T0 / 1000)),
+        T0 + 4 * MINUTE,
+    );
+    // The first came while the site had issued no such id: taken whole.
+    let frame = mac.rows_frame(PERSONAL, vec![first.clone()]);
+    told(db, &mut mac, frame, T0 + 5 * MINUTE).await;
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_sync_devices (id, user_id, name, token_hash, token_hint, created_at, \
+         revoked_at, revoked_reason) VALUES ('dev_mac', {OWNER}, 'Mac', 'h', 'x', NOW(), NOW(), \
+         'owner_revoked')"
+    ))
+    .await
+    .unwrap();
+    let frame = mac.rows_frame(PERSONAL, mac.log(PERSONAL));
+    told(db, &mut mac, frame, T0 + 6 * MINUTE).await;
+
+    let kept = db
+        .query_all_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT r.id, r.forgotten, p.row_id IS NOT NULL AS body FROM agent_log_rows r \
+             LEFT JOIN agent_log_payloads p ON p.row_id = r.id \
+             WHERE r.origin <> 'site' ORDER BY r.id",
+        ))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| {
+            (
+                row.try_get::<String>("", "id").unwrap(),
+                row.try_get::<bool>("", "forgotten").unwrap(),
+                row.try_get::<bool>("", "body").unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let before_id = before.log(PERSONAL)[0].id.clone();
+    let mut want = vec![
+        (first.id.clone(), false, true),
+        (second.id.clone(), true, false),
+        (hers.id.clone(), false, true),
+        (before_id, false, true),
+    ];
+    want.sort();
+    assert_eq!(kept, want);
+    // The stub still fills the Mac's count here.
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    let holdings = vector::holdings(&rows).unwrap();
+    assert_eq!(holdings.vector.get("dev_mac"), Some(&3));
+    assert!(holdings.beyond.is_empty(), "{:?}", holdings.beyond);
+    schema.drop().await;
+}

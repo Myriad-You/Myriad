@@ -49,7 +49,7 @@
 //! sends what comes back where [`To`] says. What is not here yet: asking a
 //! holder to give her up when another core asks for her.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use myriad_nodes::wire::{ASK_ROWS, Batch};
 use myriad_persona_log::{
@@ -57,7 +57,7 @@ use myriad_persona_log::{
     lease::{Refusal as MoveRefusal, Request, Through},
     row::Author,
 };
-use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::{Value, json};
 
 use super::{
@@ -646,6 +646,127 @@ async fn held_then(db: &DatabaseConnection, device: &str, batch: &Batch) -> Resu
     }))
 }
 
+/// The warn line [`unheld_as_stubs`] writes, the same each time so it can
+/// be searched for; it carries counts, sides and kinds only.
+pub const UNHELD: &str = "[her-log] rows of hers from a device without her mind were kept as stubs";
+
+/// Her rows a site-issued device wrote at an epoch it never held her (the
+/// alone epoch 0 included, which no grant has) are taken as stubs: their
+/// place in that device's count is kept, so the vectors still meet, but not
+/// what they say, since no mind of hers was there to say it. A device with
+/// her mind writes at its grant's epoch; one without writes 0 (a migration
+/// or a rewrite run before it learned another end holds her). Rows the site
+/// already has are left to merge as they are, and so are rows of a side id
+/// the site never issued (`loc_…`: written before that end was linked, by
+/// the only mind of hers it had then) and the site's own.
+async fn unheld_as_stubs(
+    db: &DatabaseConnection,
+    owner: &Owner,
+    device: &str,
+    mut batch: Batch,
+) -> Result<Batch, Error> {
+    let suspect = |row: &myriad_persona_log::Row| {
+        row.author == Author::Her && !row.forgotten && row.origin != NODE
+    };
+    let ids: Vec<String> = batch
+        .rows
+        .iter()
+        .filter(|row| suspect(row))
+        .map(|row| row.id.clone())
+        .collect();
+    if ids.is_empty() {
+        return Ok(batch);
+    }
+    let origins: Vec<String> = batch
+        .rows
+        .iter()
+        .filter(|row| suspect(row))
+        .map(|row| row.origin.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let issued: BTreeSet<String> = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT id FROM agent_sync_devices WHERE id = ANY($1)",
+            [origins.into()],
+        ))
+        .await?
+        .into_iter()
+        .map(|row| row.try_get::<String>("", "id"))
+        .collect::<Result<_, _>>()?;
+    if issued.is_empty() {
+        return Ok(batch);
+    }
+    let here: BTreeSet<String> = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT id FROM agent_log_rows WHERE user_id = $1 AND id = ANY($2)",
+            [owner.user.into(), ids.into()],
+        ))
+        .await?
+        .into_iter()
+        .map(|row| row.try_get::<String>("", "id"))
+        .collect::<Result<_, _>>()?;
+    let history = lease::history(db).await?;
+    let mut stubbed: BTreeSet<String> = BTreeSet::new();
+    let mut bodies: BTreeSet<String> = BTreeSet::new();
+    let mut origins: BTreeMap<String, usize> = BTreeMap::new();
+    let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
+    for row in &mut batch.rows {
+        if !suspect(row) || !issued.contains(&row.origin) || here.contains(&row.id) {
+            continue;
+        }
+        let held = row.epoch.is_some_and(|epoch| {
+            history
+                .iter()
+                .any(|grant| grant.epoch == epoch && grant.held_by(&row.origin))
+        });
+        if held {
+            continue;
+        }
+        // A forget is never a stub: it goes as it is, and the log's rules
+        // take or refuse it.
+        let stub = row.stub();
+        if stub.check().is_err() {
+            continue;
+        }
+        *origins.entry(row.origin.clone()).or_default() += 1;
+        *kinds.entry(row.kind.clone()).or_default() += 1;
+        stubbed.insert(row.id.clone());
+        bodies.extend(
+            row.payload
+                .as_ref()
+                .map(|payload| payload.reference.clone()),
+        );
+        *row = stub;
+    }
+    if stubbed.is_empty() {
+        return Ok(batch);
+    }
+    // Bodies only stubbed rows pointed at do not come in either.
+    for row in &batch.rows {
+        if let Some(payload) = &row.payload {
+            bodies.remove(&payload.reference);
+        }
+    }
+    batch
+        .payloads
+        .retain(|carried| !bodies.contains(&carried.reference));
+    batch
+        .withheld
+        .retain(|withheld| !stubbed.contains(&withheld.id));
+    tracing::warn!(
+        device,
+        audience = %batch.audience,
+        stubbed = stubbed.len(),
+        origins = ?origins,
+        kinds = ?kinds,
+        "{UNHELD}"
+    );
+    Ok(batch)
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn rows(
     db: &DatabaseConnection,
@@ -658,6 +779,7 @@ async fn rows(
     seq: Option<u64>,
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
+    let batch = unheld_as_stubs(db, owner, device, batch).await?;
     let audience = batch.audience.clone();
     let taken = match store::take(db, root, owner, device, batch, &session.asked, now).await {
         Ok(taken) => taken,
