@@ -465,6 +465,27 @@ pub async fn take(
         }
         "lease.ask" => {
             lease::heard(db, device, Some(Seen::Host), now).await?;
+            // Its holder asking: the grant it was sent did not reach it (the
+            // link it went out on closed as it went, the device opening
+            // another), though `lease.epoch` did. It gets the grant again,
+            // as it stands; nothing moves.
+            if holder == device
+                && let Some(standing) = lease::standing(db)
+                    .await?
+                    .filter(|grant| grant.held_by(device))
+            {
+                tracing::info!(
+                    device,
+                    epoch = standing.epoch,
+                    "[her-log] her holder asked again: its grant was sent again"
+                );
+                return Ok(vec![Outgoing {
+                    to: To::Sender,
+                    t: "lease.grant",
+                    id: Some(standing.epoch.to_string()),
+                    body: lease::grant_body(&standing, settings),
+                }]);
+            }
             let request = match body["why"].as_str() {
                 Some("force") => {
                     // Taken from here by force: her records as they are now

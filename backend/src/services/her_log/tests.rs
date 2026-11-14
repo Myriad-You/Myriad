@@ -4683,3 +4683,31 @@ fn a_holder_is_marked_short_of_an_audience_it_has_said_nothing_of() {
     super::stuck::heard(device, Some(&grant), OWN, &at(2), T0 + 3);
     assert!(!super::stuck::held_back(device));
 }
+
+/// As in the rehearsal on 11-15: the grant went out on a link the Mac was
+/// closing as it opened another, and only `lease.epoch` reached it. It asks
+/// again, holding her by the server's history but with no grant in hand:
+/// it is sent the same grant again, and nothing moves.
+#[tokio::test]
+async fn her_holder_asking_again_is_sent_its_grant_again() {
+    let Some(schema) = schema("her_log_grant_again").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    settled(db).await;
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], T0).await;
+    let epoch = mac.epoch.expect("her mind is on the Mac");
+    let grants = lease::history(db).await.unwrap().len();
+    // The grant never came.
+    mac.epoch = None;
+    let again = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![again], T0 + MINUTE).await;
+    assert_eq!(mac.epoch, Some(epoch));
+    assert_eq!(lease::history(db).await.unwrap().len(), grants);
+    assert_eq!(holder_now(db).await, "dev_mac");
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
