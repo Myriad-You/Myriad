@@ -367,6 +367,17 @@ pub async fn take(
     };
     let body = &frame["body"];
     let mine = host && holder == device;
+    // Which lease frame came from whom and when, with the epoch it names:
+    // no reasons, places or anything else in the body.
+    if checked.t.starts_with("lease.") {
+        tracing::info!(
+            device,
+            t = %checked.t,
+            epoch = ?body.get("epoch").and_then(serde_json::Value::as_u64),
+            holder = %holder,
+            "[her-log] a lease frame"
+        );
+    }
     let side = Holder {
         core,
         owner: owner.partner.clone(),
@@ -385,6 +396,16 @@ pub async fn take(
                 }
                 None => Vec::new(),
             };
+            // The counts it holds past a gap, by origin: not in its vector,
+            // so a side that took rows after a refused one shows them here.
+            if let Some(beyond) = body.get("beyond") {
+                tracing::debug!(
+                    device,
+                    audience,
+                    beyond = %beyond,
+                    "[her-log] a side's rows past a gap"
+                );
+            }
             lease::heard(db, device, Some(Seen::Host), now).await?;
             // How far a host core is: the holder on what it was handed, a
             // device marked behind until it catches up, anyone's for when
