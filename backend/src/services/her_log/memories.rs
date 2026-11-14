@@ -28,7 +28,8 @@
 //! another end kept (`unified::SYNC_SOURCE`); one already here keeps its
 //! own speaker and source. Its digest, of what the site keeps, is kept, so
 //! the next comparison does not write it back. One whose rows are all forgotten
-//! goes. Its vector is made here as any memory's is, when recall first
+//! goes, and with it what rests on it on her nodes, as when it is forgotten
+//! here. Its vector is made here as any memory's is, when recall first
 //! comes to it.
 
 use std::collections::BTreeMap;
@@ -41,7 +42,7 @@ use myriad_persona_log::{
     },
 };
 use sea_orm::{
-    ConnectionTrait, DatabaseBackend, DatabaseConnection, DatabaseTransaction, Statement,
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, DatabaseTransaction, DbErr, Statement,
     TransactionTrait,
 };
 use serde_json::{Value, json};
@@ -600,6 +601,19 @@ pub async fn take_in(
             let id = object.trim_start_matches("memory:");
             let txn = db.begin().await?;
             if forgotten {
+                // What rests on it goes with it, as when it is forgotten here
+                // (`memory::manage`): the entries naming it, and the versions
+                // of her views, of what is open and of how their life stands
+                // (「现在」) resting on it become stubs. In this transaction:
+                // if that fails, nothing here goes and the next batch tries
+                // again (the caller logs why).
+                crate::services::agent::merope::memory_nodes::forget::forget(
+                    &txn,
+                    &[id.to_string()],
+                    &[],
+                )
+                .await
+                .map_err(|error| Error::Db(DbErr::Custom(error.to_string())))?;
                 txn.execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "DELETE FROM agent_memories WHERE id = $2 AND venue NOT LIKE 'group:%' \

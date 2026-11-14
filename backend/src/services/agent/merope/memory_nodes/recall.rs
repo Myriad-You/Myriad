@@ -451,7 +451,8 @@ fn recollect_within(
     let resident = if here.is_some() {
         Vec::new()
     } else {
-        pick.resident
+        let resident: Vec<String> = pick
+            .resident
             .iter()
             .filter_map(|one| {
                 let node = shown.node(&one.node)?;
@@ -460,7 +461,16 @@ fn recollect_within(
                 let name = node.name.as_deref().unwrap_or_default().trim();
                 Some(format!("{name}：{text}"))
             })
-            .collect()
+            .collect();
+        // Counts only: how many went with the talk, and how many the core
+        // picked that the heads did not hold (what its limits left out it
+        // does not say).
+        tracing::info!(
+            shown = resident.len(),
+            unread = pick.resident.len() - resident.len(),
+            "[memory-nodes] how their life stands went with the private talk"
+        );
+        resident
     };
     Recollection {
         named,

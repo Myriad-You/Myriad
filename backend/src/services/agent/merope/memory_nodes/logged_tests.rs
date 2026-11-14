@@ -4,7 +4,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::{Value, json};
 
 use super::forget::{self, Forgets};
-use super::{Author, RowIn, audience, logged, partner, write};
+use super::{Author, RowIn, audience, logged, partner, read, write};
 use crate::services::her_log::{
     self, Settings, keys, pen, store, test_partner::PARTNER, test_settings,
 };
@@ -298,5 +298,117 @@ async fn her_own_rows_wait_for_the_partner_id() {
         placed(db, NODE_ROWS, own).await
     );
     assert_eq!(placed(db, LOG_ROWS, own).await.len(), 3);
+    schema.drop().await;
+}
+
+/// A memory forgotten on another end comes as its rows in her log all
+/// forgotten; taken in here, it goes from the site's table with what rests
+/// on it on her nodes, as when it is forgotten here: how their life stands
+/// resting on it becomes a stub, so it no longer stands and no longer goes
+/// into her private talk's standing list (`recall`, read off the node's
+/// head), while what else the topic holds stays.
+#[tokio::test]
+async fn a_memory_forgotten_on_another_end_takes_what_stands_on_it() {
+    let Some(schema) = schema("memory_nodes_logged_forgotten").await else {
+        return;
+    };
+    let db = &schema.db;
+    test_settings::set(Settings {
+        enabled: true,
+        ..Settings::default()
+    });
+    keys::test_root::use_here(keys::test_root::TestRoot([9; 32]));
+    let root = keys::test_root::TestRoot([9; 32]);
+    her_log::test_partner::give(db, OWNER, PARTNER).await;
+    partner::remember(Some(PARTNER));
+    let talk = audience::owners_talk();
+    let thought = pen::think().expect("her mind is here in tests");
+    store::start(db, OWNER).await.unwrap();
+    let owner = her_log::owner(db, OWNER).await.unwrap();
+    db.execute_unprepared(
+        "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, audience, \
+         valid_from, created_at, updated_at) VALUES \
+         ('m1', 1, 'fact', 'trying a blue flask this week', 'chat', 'private', '[1]'::jsonb, \
+          now(), now(), now()), \
+         ('m2', 1, 'fact', 'has a snake plant', 'chat', 'private', '[1]'::jsonb, \
+          now(), now(), now())",
+    )
+    .await
+    .unwrap();
+    let (node, rows) = topic(&talk, "m2", "has a snake plant");
+    write::write(db, OWNER, &talk, &rows, Some(&thought))
+        .await
+        .unwrap();
+    let standing = RowIn {
+        id: myriad_nodes::entries::row_id_from("node.standing", &node, "them-0a1b2c3d4e", "her"),
+        node: node.clone(),
+        kind: "node.standing".into(),
+        body: json!({
+            "version": myriad_nodes::BODY_VERSION,
+            "sync": "shared",
+            "saidBy": ["her"],
+            "base": [],
+            "item": "them-0a1b2c3d4e",
+            "text": "trying a blue flask this week",
+            "because": ["memory:m1"],
+        }),
+        author: Author::Her,
+    };
+    write::write(db, OWNER, &talk, &[standing], Some(&thought))
+        .await
+        .unwrap();
+    let stands = || async {
+        let head = read::node(db, OWNER, &talk, &node).await.unwrap().unwrap();
+        myriad_nodes::stands::shown_on(&node, &head)
+            .into_iter()
+            .map(|item| item.text)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        stands().await,
+        vec!["trying a blue flask this week".to_string()]
+    );
+    // Both memories in her log, as the site compares them.
+    her_log::state::sync(db, &root, OWNER).await.unwrap();
+
+    // Forgotten on another end: what reaches the site is the forget row.
+    store::forget(db, &owner, &talk, "memory:m1").await.unwrap();
+    assert!(her_log::memories::take_in(db, &root, &owner).await.unwrap() >= 1);
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*) AS n FROM agent_memories WHERE id = 'm1'"
+        )
+        .await,
+        0
+    );
+    assert!(stands().await.is_empty(), "it no longer stands");
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*) AS n FROM agent_node_rows \
+             WHERE kind = 'node.standing' AND body <> ''"
+        )
+        .await,
+        0,
+        "no word of it is kept"
+    );
+    // The topic and its other fact stay.
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*) AS n FROM agent_node_rows WHERE kind = 'node.entry' AND body <> ''"
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*) AS n FROM agent_memories WHERE id = 'm2'"
+        )
+        .await,
+        1
+    );
     schema.drop().await;
 }
