@@ -412,3 +412,100 @@ async fn a_memory_forgotten_on_another_end_takes_what_stands_on_it() {
     );
     schema.drop().await;
 }
+
+/// Her log first turned on over her own nodes written while it was off:
+/// her memories go in first under the epoch that stands, then her older
+/// nodes under none held (0). So her own audience holds rows whose count
+/// comes after rows of a higher epoch while their time comes before. That
+/// is the log as it is meant to be, not a fault to mend here: a count is a
+/// row's place for good, and a vector counts places without a gap, so the
+/// site sends by count. The core checks a row's epoch against the rows
+/// before it in time (`admit` sorts by log order), so a side that takes
+/// the whole lot accepts every row. A side that takes it page by page must
+/// take its floor from the rows it holds from before the page's earliest
+/// row in time, not from every row it holds: with the highest it holds, as
+/// below, the older nodes are refused as `epoch_back` and it never catches
+/// up (what a Mac did on 2026-11-14).
+#[tokio::test]
+async fn her_old_nodes_come_after_her_memories_with_an_older_epoch() {
+    use myriad_persona_log::admit::{AdmitInput, Reason, admit};
+
+    let Some(schema) = schema("memory_nodes_logged_order").await else {
+        return;
+    };
+    let db = &schema.db;
+    test_settings::set(Settings {
+        enabled: true,
+        ..Settings::default()
+    });
+    keys::test_root::use_here(keys::test_root::TestRoot([9; 32]));
+    her_log::test_partner::give(db, OWNER, PARTNER).await;
+    partner::remember(Some(PARTNER));
+    let thought = pen::think().expect("her mind is here in tests");
+    let own = audience::OWN;
+
+    // While the log is off and no grant was ever issued.
+    let (_, before) = topic(own, "m1", "likes rain");
+    write::write(db, OWNER, own, &before, Some(&thought))
+        .await
+        .unwrap();
+    assert!(placed(db, LOG_ROWS, own).await.is_empty());
+
+    // On: her memories go in under the first grant, then her nodes.
+    store::start(db, OWNER).await.unwrap();
+    let epoch = her_log::lease::current(db).await.unwrap().epoch;
+    assert_eq!(epoch, 1);
+    let owner = her_log::owner(db, OWNER).await.unwrap();
+    let root = keys::root();
+    for n in 0..2 {
+        store::write_hers(
+            db,
+            root,
+            &owner,
+            own,
+            None,
+            &format!("memory:m{n}x"),
+            "memory.write",
+            &json!({"at": 1, "text": "she likes walks", "kind": "fact"}),
+        )
+        .await
+        .unwrap();
+    }
+    assert_eq!(logged::catch_up_all(db, root, &owner).await.unwrap(), 2);
+
+    let mut rows = store::rows(db, OWNER, own).await.unwrap();
+    rows.sort_by_key(|row| row.dseq);
+    let epochs: Vec<Option<u64>> = rows.iter().map(|row| row.epoch).collect();
+    assert_eq!(epochs, vec![Some(1), Some(1), Some(0), Some(0)]);
+    assert!(rows[2].hlc < rows[0].hlc && rows[3].hlc < rows[0].hlc);
+
+    let take = |rows: Vec<myriad_persona_log::Row>, epochs| {
+        admit(AdmitInput {
+            rows,
+            now: her_log::now(),
+            known: Default::default(),
+            members: Default::default(),
+            ledger: Some(Vec::new()),
+            epochs,
+            holder: owner.pc(),
+            peer: PARTNER.to_string(),
+        })
+        .unwrap()
+    };
+    // The whole lot: every row taken.
+    let whole = take(rows.clone(), Default::default());
+    assert!(whole.refused.is_empty(), "{:?}", whole.refused);
+    assert_eq!(whole.accepted.len(), 4);
+    // Page by page by count, the floor the highest epoch held: refused.
+    let first = take(rows[..2].to_vec(), Default::default());
+    let second = take(rows[2..].to_vec(), first.epochs);
+    assert_eq!(
+        second
+            .refused
+            .iter()
+            .map(|refusal| refusal.reason)
+            .collect::<Vec<_>>(),
+        vec![Reason::EpochBack; 2]
+    );
+    schema.drop().await;
+}

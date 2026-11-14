@@ -4383,6 +4383,19 @@ async fn conversation_of(child: &mut Child, session: &str) -> Value {
     }
 }
 
+/// [`conversation_of`] once its last line is `text`: a frame of the same
+/// conversation sent before the change (another change it was read with)
+/// is passed over, within the wait.
+async fn conversation_ending(child: &mut Child, session: &str, text: &str) -> Value {
+    loop {
+        let one = conversation_of(child, session).await;
+        let last = one["messages"].as_array().and_then(|lines| lines.last());
+        if last.is_some_and(|line| line["text"] == text) {
+            return one;
+        }
+    }
+}
+
 /// The test database's address, as the schema fixtures read it.
 fn test_database_url() -> Option<String> {
     std::env::var("FEDERATION_TEST_DATABASE_URL")
@@ -4520,14 +4533,7 @@ async fn her_wardrobe_and_conversations_stay_current_on_the_app() {
         )
         .await
         .unwrap();
-    let again = conversation_of(&mut child, "ses_one").await;
-    let last = again["messages"]
-        .as_array()
-        .unwrap()
-        .last()
-        .unwrap()
-        .clone();
-    assert_eq!(last["text"], "还有一句");
+    conversation_ending(&mut child, "ses_one", "还有一句").await;
     // Her line said outside a chat now: in the latest conversation.
     crate::services::agent::merope::store::insert_proactive(
         &site.db,
@@ -4539,12 +4545,9 @@ async fn her_wardrobe_and_conversations_stay_current_on_the_app() {
     )
     .await
     .unwrap();
-    let said = conversation_of(&mut child, "ses_one").await;
+    let said = conversation_ending(&mut child, "ses_one", "下雨了。").await;
     let last = said["messages"].as_array().unwrap().last().unwrap().clone();
-    assert_eq!(
-        (last["text"].as_str(), last["kind"].as_str()),
-        (Some("下雨了。"), Some("proactive"))
-    );
+    assert_eq!(last["kind"], "proactive");
     assert!(last["id"].as_str().is_some_and(|id| id.starts_with("pro_")));
     drop(child);
     forwarder.abort();
