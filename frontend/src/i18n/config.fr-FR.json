@@ -2043,6 +2043,8 @@
   "discordBotDesc": "Bot de travail en message privé. Activez, collez le jeton bot du Developer Portal, et le worker se connecte à la passerelle pour les DM.",
   "discordBotToken": "Discord bot token",
   "discordBotHint": "The token is write-only; reads come back masked. Empty clears it. Off or a bad token keeps the bot offline. Do not paste the data-platform OAuth access token.",
+  "discordBotHearOtherBots": "Entendre aussi les autres bots et webhooks dans les groupes",
+  "discordBotHearOtherBotsHint": "Désactivé par défaut. Une fois activé, les textes et images des autres bots et des webhooks entrent dans le contexte de groupe ; ces lignes ne comptent pas comme un appel à elle, et le moment de parler reste celui du jugement habituel.",
   "discordBotPhaseOffline": "Offline",
   "discordBotPhaseConnecting": "Connecting",
   "discordBotPhaseOnline": "Online",

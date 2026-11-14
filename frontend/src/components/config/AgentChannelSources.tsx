@@ -809,6 +809,14 @@ function DiscordChannelCard({
         layout="vertical"
         {...bindGuide('agent.discordBot', g.agent.discordBot)}
       />
+      <CheckboxCard
+        label={t.config.discordBotHearOtherBots}
+        checked={getFieldValue('discord_bot_hear_other_bots') === 'true'}
+        onChange={(value) =>
+          updateValue('discord_bot_hear_other_bots', value ? 'true' : 'false')
+        }
+        description={t.config.discordBotHearOtherBotsHint}
+      />
       <SettingsButton
         size="sm"
         loading={testing}

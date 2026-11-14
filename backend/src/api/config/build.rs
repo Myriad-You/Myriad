@@ -337,6 +337,14 @@ pub(crate) async fn build_config(
                     required: false,
                 },
                 ConfigField {
+                    key: "discord_bot_hear_other_bots".to_string(),
+                    label: "Discord groups hear other bots".to_string(),
+                    field_type: "boolean".to_string(),
+                    value: stored.discord_bot_hear_other_bots.to_string(),
+                    placeholder: "false".to_string(),
+                    required: false,
+                },
+                ConfigField {
                     key: "feishu_bot_enabled".to_string(),
                     label: "Feishu bot".to_string(),
                     field_type: "boolean".to_string(),

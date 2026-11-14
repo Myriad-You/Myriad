@@ -2095,6 +2095,8 @@
   "discordBotDesc": "Privatchat-Arbeitsbot. Einschalten, Developer-Portal-Bot-Token einfügen; der Worker verbindet das Gateway für DMs.",
   "discordBotToken": "Discord bot token",
   "discordBotHint": "The token is write-only; reads come back masked. Empty clears it. Off or a bad token keeps the bot offline. Do not paste the data-platform OAuth access token.",
+  "discordBotHearOtherBots": "Auch andere Bots und Webhooks in Gruppen hören",
+  "discordBotHearOtherBotsHint": "Standardmäßig aus. Wenn an, gehen Texte und Bilder anderer Bots und Webhooks in ihren Gruppenkontext ein; diese Zeilen gelten nicht als Ruf an sie, und ob sie mitspricht, bleibt der bisherigen Zeitpunkt-Entscheidung überlassen.",
   "discordBotPhaseOffline": "Offline",
   "discordBotPhaseConnecting": "Connecting",
   "discordBotPhaseOnline": "Online",

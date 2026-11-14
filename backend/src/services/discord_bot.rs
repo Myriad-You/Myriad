@@ -20,7 +20,7 @@ use futures::{SinkExt, StreamExt};
 use myriad_agent_rules::channel::{
     ConnectFailureKind, DISCORD_CHANNEL_TYPE_DM, DISCORD_DISALLOWED_INTENTS, DISCORD_TEXT_LIMIT,
     DiscordBotIdentity, WorkerIntent, classify_discord_rest, classify_gateway_close,
-    discord_channel_type, discord_group_message_from_create, discord_identify_intents,
+    discord_channel_type, discord_group_message_from_create_with_bots, discord_identify_intents,
     discord_private_component_from_create, discord_private_text_from_create, discord_retry_after,
     discord_session_starts_remaining, discord_worker_intent, is_discord_dm_channel,
     parse_discord_bot_identity, parse_discord_channel_type, parse_discord_gateway_url,
@@ -555,9 +555,15 @@ where
                         let _permit = permit;
                         // A server channel: the persona's group chat.
                         if data.get("guild_id").is_some() {
-                            if let Some(line) =
-                                discord_group_message_from_create(&data, &bot_user_id)
-                            {
+                            let hear_other_bots = crate::GLOBAL_DYNAMIC_CONFIG
+                                .read()
+                                .await
+                                .discord_bot_hear_other_bots;
+                            if let Some(line) = discord_group_message_from_create_with_bots(
+                                &data,
+                                &bot_user_id,
+                                hear_other_bots,
+                            ) {
                                 mark_inbound().await;
                                 hear_group_line(line.into(), token, _permit).await;
                             }

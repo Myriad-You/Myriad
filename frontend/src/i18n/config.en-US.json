@@ -2042,6 +2042,8 @@
   "discordBotDesc": "Private-chat Work bot. Turn on, paste the Developer Portal bot token, and the worker connects to the Gateway for DMs.",
   "discordBotToken": "Discord bot token",
   "discordBotHint": "The token is write-only; reads come back masked. Empty clears it. Off or a bad token keeps the bot offline. Do not paste the data-platform OAuth access token.",
+  "discordBotHearOtherBots": "Hear other bots and webhooks in groups",
+  "discordBotHearOtherBotsHint": "Off by default. When on, texts and images from other bots and webhooks enter her group context; these lines never count as calling her, and whether she joins in stays with the usual timing.",
   "discordBotPhaseOffline": "Offline",
   "discordBotPhaseConnecting": "Connecting",
   "discordBotPhaseOnline": "Online",

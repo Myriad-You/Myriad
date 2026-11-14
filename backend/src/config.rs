@@ -537,6 +537,10 @@ pub struct DynamicConfig {
     /// Discord 机器人办事通道。默认关；bot token 只写，不复用数据平台 OAuth。
     pub discord_bot_enabled: bool,
     pub discord_bot_token: Option<String>,
+    /// 群聊里是否也听见其他 bot 与 webhook 发的行。默认关；打开后只进上下文，
+    /// 不当作点名她。
+    #[serde(default)]
+    pub discord_bot_hear_other_bots: bool,
 
     /// 飞书机器人办事通道。默认关；app_secret 只写。企业自建应用 + 长连接。
     pub feishu_bot_enabled: bool,
@@ -890,6 +894,7 @@ impl Default for DynamicConfig {
             telegram_bot_token: None,
             discord_bot_enabled: false,
             discord_bot_token: None,
+            discord_bot_hear_other_bots: false,
             feishu_bot_enabled: false,
             feishu_bot_app_id: String::new(),
             feishu_bot_app_secret: None,
