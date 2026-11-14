@@ -78,14 +78,20 @@ fn with_known<T>(act: impl FnOnce(&mut Known) -> T) -> T {
 }
 
 /// Where `grant`'s holder is short of what it was handed, by the vectors
-/// `last` known of it: none when it is not, or nothing is known.
+/// `last` known of it: none when it is not, or nothing is known. An
+/// audience it has said nothing of yet is one it has none of (its vectors
+/// come one audience at a time, in no set order).
 fn short_of(grant: &Grant, last: Option<&BTreeMap<String, Vector>>) -> Option<Mark> {
     let (through, last) = (grant.through.as_ref()?, last?);
     let from = grant.from.clone().unwrap_or_else(|| NODE.to_string());
     let short: BTreeMap<String, (u64, u64)> = through
         .iter()
         .filter_map(|(audience, &want)| {
-            let have = last.get(audience)?.get(&from).copied().unwrap_or(0);
+            let have = last
+                .get(audience)
+                .and_then(|vector| vector.get(&from))
+                .copied()
+                .unwrap_or(0);
             (have < want).then(|| (audience.clone(), (want, have)))
         })
         .collect();

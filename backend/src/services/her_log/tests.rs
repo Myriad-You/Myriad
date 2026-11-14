@@ -4650,3 +4650,36 @@ async fn a_first_full_sync_link_goes_only_to_a_core_that_downloads() {
     );
     schema.drop().await;
 }
+
+/// As in run-6 on 11-15: the Mac, handed her with two audiences, says its
+/// vector of one before it has said anything of the other. The other is
+/// still what it was handed and none of it held: the mark keeps it, and is
+/// gone only once both are covered.
+#[test]
+fn a_holder_is_marked_short_of_an_audience_it_has_said_nothing_of() {
+    let device = "dev_order";
+    let grant = Grant {
+        epoch: 10,
+        holder: Some(device.to_string()),
+        issued: myriad_persona_log::clock::next(None, T0, 0, NODE).unwrap(),
+        how: myriad_persona_log::How::Handover,
+        from: Some(NODE.to_string()),
+        through: Some(BTreeMap::from([
+            (OWN.to_string(), 2),
+            (PERSONAL.to_string(), 3),
+        ])),
+        moving: None,
+    };
+    let at = |count: u64| Vector::from([(NODE.to_string(), count)]);
+    super::stuck::heard(device, Some(&grant), PERSONAL, &Vector::new(), T0);
+    assert!(super::stuck::held_back(device));
+    super::stuck::heard(device, Some(&grant), PERSONAL, &at(3), T0 + 1);
+    assert!(
+        super::stuck::held_back(device),
+        "nothing heard of own: is none of it"
+    );
+    super::stuck::heard(device, Some(&grant), OWN, &at(1), T0 + 2);
+    assert!(super::stuck::held_back(device), "own: is one short");
+    super::stuck::heard(device, Some(&grant), OWN, &at(2), T0 + 3);
+    assert!(!super::stuck::held_back(device));
+}
