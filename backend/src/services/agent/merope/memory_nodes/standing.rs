@@ -33,7 +33,7 @@ use crate::services::agent::memory::unified::{self, Audience, MemoryKind};
 use crate::services::her_log::pen::Thought;
 
 /// The day of `micros` in her zone, as the core takes a day.
-fn day_of(micros: i64) -> Option<String> {
+pub(super) fn day_of(micros: i64) -> Option<String> {
     chrono::DateTime::from_timestamp_micros(micros).map(|at| {
         at.with_timezone(&crate::services::agent::merope::clock::zone())
             .format("%Y-%m-%d")
@@ -70,8 +70,14 @@ async fn standing_authors(
         .collect()
 }
 
+/// Times the fast model is asked before what it was asked goes unanswered:
+/// a call that failed (the provider, the network) is asked again, since
+/// what it would have written is otherwise never written until the same
+/// thing comes up again. An answer, even one that reads as nothing, is not.
+const ASKED: usize = 3;
+
 /// Asks the fast model what `prepared` asks: its answer as it came, or none
-/// (nothing to ask, or no answer).
+/// (nothing to ask, or no answer after [`ASKED`] calls).
 async fn ask(
     user_id: i32,
     operation: &'static str,
@@ -81,15 +87,36 @@ async fn ask(
     if prepared.skip {
         return None;
     }
-    super::super::call::Ask::new(super::super::call::Voice::Judge, user_id, operation)
-        .json_raw(
-            &prepared.system,
-            &prepared.input,
-            schema_name,
-            &prepared.schema,
-        )
-        .await
-        .ok()
+    for asked in 1..=ASKED {
+        let answer =
+            super::super::call::Ask::new(super::super::call::Voice::Judge, user_id, operation)
+                .json_raw(
+                    &prepared.system,
+                    &prepared.input,
+                    schema_name,
+                    &prepared.schema,
+                )
+                .await;
+        match answer {
+            Ok(answer) => return Some(answer),
+            // What failed, not what was asked: no words of theirs.
+            Err(_) if asked < ASKED => {
+                tracing::info!(
+                    operation,
+                    asked,
+                    "[memory-nodes] how things stand: asked again"
+                );
+            }
+            Err(_) => {
+                tracing::warn!(
+                    operation,
+                    asked,
+                    "[memory-nodes] how things stand: no answer"
+                );
+            }
+        }
+    }
+    None
 }
 
 /// Writes `read`'s rows, a node at a time: a node that cannot take its rows

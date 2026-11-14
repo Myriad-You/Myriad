@@ -24,6 +24,7 @@ use myriad_merope::remembering::Cues;
 use myriad_nodes::{
     listing::{self, ListEntry, ListInput, ListNode, RangeInput},
     recall::{self, PickEntry, PickInput, PickNode, PickStanding, Ranked},
+    stands,
 };
 
 use super::shown::{Entry, Shown, cited};
@@ -194,10 +195,35 @@ fn standing_texts(node: &super::shown::Node, items: &[String]) -> HashSet<String
         .collect()
 }
 
-/// What stands now on a node as the fold gave it: each item of its
-/// `standing`, when it was written, and whether the whole of it ended.
-fn standing_of(head: &serde_json::Value) -> Vec<PickStanding> {
-    head.get("standing")
+/// What stands now on `node` as the fold gave it: each item of its
+/// `standing`, when it was written, whether the whole of it ended, and the
+/// days of the memories its version rests on (what it tells of, from the
+/// entry on the node; when she learned it), by which the core says when it
+/// is due. A memory not on the node, or not held, has no days.
+fn standing_of(shown: &Shown, node: &super::shown::Node) -> Vec<PickStanding> {
+    let rests_on = |value: Option<&serde_json::Value>| -> Vec<stands::RestsOn> {
+        cited(
+            value
+                .and_then(|value| value.get("because"))
+                .unwrap_or(&serde_json::Value::Null),
+        )
+        .into_iter()
+        .map(|id| {
+            let happened = node
+                .facts
+                .iter()
+                .find(|entry| entry.memory.as_deref() == Some(id.as_str()))
+                .and_then(|entry| entry.happened.as_ref());
+            stands::RestsOn {
+                from: happened.map(|happened| happened.from.clone()),
+                to: happened.and_then(|happened| happened.to.clone()),
+                learned: shown.learned_of(&id).and_then(super::standing::day_of),
+            }
+        })
+        .collect()
+    };
+    node.head
+        .get("standing")
         .and_then(|standing| standing.as_object())
         .map(|standing| {
             standing
@@ -217,6 +243,7 @@ fn standing_of(head: &serde_json::Value) -> Vec<PickStanding> {
                             .unwrap_or_default()
                             .trim()
                             .to_string(),
+                        rests_on: rests_on(value),
                     })
                 })
                 .collect()
@@ -239,7 +266,7 @@ fn pick_node(shown: &Shown, node: &super::shown::Node) -> PickNode {
                 at: shown.learned(entry),
             })
             .collect(),
-        standing: standing_of(&node.head),
+        standing: standing_of(shown, node),
     }
 }
 
@@ -349,6 +376,7 @@ fn recollect_within(
         her: own.her.clone(),
         thorough,
         budget,
+        today: super::standing::day_of(now.timestamp_micros()),
     }) else {
         // Ids the core will not take: what was ranked, as before.
         return Recollection {
@@ -456,18 +484,18 @@ fn recollect_within(
             .iter()
             .filter_map(|one| {
                 let node = shown.node(&one.node)?;
-                let text = node.head.get("standing")?.get(&one.item)?.get("value")?;
-                let text = text.get("text")?.as_str()?.trim();
                 let name = node.name.as_deref().unwrap_or_default().trim();
-                Some(format!("{name}：{text}"))
+                Some(format!("{name}：{}", one.text))
             })
             .collect();
-        // Counts only: how many went with the talk, and how many the core
-        // picked that the heads did not hold (what its limits left out it
-        // does not say).
+        // Counts only: how many went with the talk, how many the core
+        // picked that the heads did not hold, and how many its room left
+        // out or cut short.
         tracing::info!(
             shown = resident.len(),
             unread = pick.resident.len() - resident.len(),
+            left_out = pick.resident_left_out,
+            cut = pick.resident_cut,
             "[memory-nodes] how their life stands went with the private talk"
         );
         resident
