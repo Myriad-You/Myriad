@@ -49,7 +49,7 @@
 //! sends what comes back where [`To`] says. What is not here yet: asking a
 //! holder to give her up when another core asks for her.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use myriad_nodes::wire::{ASK_ROWS, Batch};
 use myriad_persona_log::{
@@ -57,7 +57,7 @@ use myriad_persona_log::{
     lease::{Refusal as MoveRefusal, Request, Through},
     row::Author,
 };
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 
 use super::{
@@ -646,173 +646,6 @@ async fn held_then(db: &DatabaseConnection, device: &str, batch: &Batch) -> Resu
     }))
 }
 
-/// The warn line [`unheld_as_stubs`] writes, the same each time so it can
-/// be searched for; it carries counts, sides and kinds only.
-pub const UNHELD: &str = "[her-log] rows of hers from a device without her mind were kept as stubs";
-
-/// Her rows a device the site issued wrote without her mind are taken as
-/// stubs: their place in that device's count is kept, so the vectors still
-/// meet, but not what they say, since no mind of hers was there to say it.
-/// Which rows those are is the log's own reading of the lease
-/// ([`myriad_persona_log::lease::standing`]): one at an epoch whose grant
-/// names another holder, or one written alone (epoch 0) while the last
-/// grant before it stood elsewhere (a migration or a rewrite run on a linked
-/// end before it learned another end holds her). An epoch the history does
-/// not have (it is emptied when syncing stays off past the retention
-/// period) passes, and so does a row alone with no grant before it, or with
-/// its own side's grant last (a host she moved to that never heard its
-/// grant), or just before its own side's grant ([`landing`]). Rows the
-/// site already holds whole merge as they are; so do rows of a side id the
-/// site never issued its owner (`loc_…`: written before that end was
-/// linked, by the only mind of hers it had then), the site's own, and
-/// forgets (never stubs).
-async fn unheld_as_stubs(
-    db: &DatabaseConnection,
-    owner: &Owner,
-    device: &str,
-    batch: Batch,
-) -> Result<Batch, Error> {
-    let suspects: Vec<&myriad_persona_log::Row> =
-        batch.rows.iter().filter(|row| suspect(row)).collect();
-    if suspects.is_empty() {
-        return Ok(batch);
-    }
-    let ids: Vec<String> = suspects.iter().map(|row| row.id.clone()).collect();
-    let origins: Vec<String> = suspects
-        .iter()
-        .map(|row| row.origin.clone())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect();
-    let issued: BTreeSet<String> = db
-        .query_all_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT id FROM agent_sync_devices WHERE user_id = $1 AND id = ANY($2)",
-            [owner.user.into(), origins.into()],
-        ))
-        .await?
-        .into_iter()
-        .map(|row| row.try_get::<String>("", "id"))
-        .collect::<Result<_, _>>()?;
-    if issued.is_empty() {
-        return Ok(batch);
-    }
-    // Held whole: a stub here stays one when the row comes again whole.
-    let here: BTreeSet<String> = db
-        .query_all_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT id FROM agent_log_rows WHERE user_id = $1 AND id = ANY($2) AND NOT forgotten",
-            [owner.user.into(), ids.into()],
-        ))
-        .await?
-        .into_iter()
-        .map(|row| row.try_get::<String>("", "id"))
-        .collect::<Result<_, _>>()?;
-    let history = lease::history(db).await?;
-    let (batch, unheld) = stub_unheld(batch, &issued, &here, &history);
-    if unheld.stubbed > 0 {
-        tracing::warn!(
-            device,
-            audience = %batch.audience,
-            stubbed = unheld.stubbed,
-            origins = ?unheld.origins,
-            kinds = ?unheld.kinds,
-            "{UNHELD}"
-        );
-    }
-    Ok(batch)
-}
-
-/// What [`stub_unheld`] made stubs of, for its warn line: counts, the sides
-/// they are of and their kinds, never what they said.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub(super) struct Unheld {
-    pub stubbed: usize,
-    pub origins: BTreeMap<String, usize>,
-    pub kinds: BTreeMap<String, usize>,
-}
-
-/// How long before its own grant a row written alone may be: an end's clock
-/// is set by the server's at each hello, short of half a round trip and the
-/// drift since, and it may not have seen the grant's clock before it wrote
-/// (a move lands without one).
-const LANDING_MS: u64 = 2_000;
-
-/// `row`, written alone, is just before a grant to its own side: her mind
-/// had landed there, its clock a little behind the server's.
-fn landing(row: &myriad_persona_log::Row, history: &[myriad_persona_log::Grant]) -> bool {
-    history.iter().any(|grant| {
-        grant.held_by(&row.origin)
-            && grant.issued > row.hlc
-            && grant.issued.wall_ms <= row.hlc.wall_ms + LANDING_MS
-    })
-}
-
-/// A row [`unheld_as_stubs`] looks at: hers, whole, of another side.
-fn suspect(row: &myriad_persona_log::Row) -> bool {
-    row.author == Author::Her && !row.forgotten && row.origin != NODE
-}
-
-/// [`unheld_as_stubs`] on what the database told it: the side ids the site
-/// issued its owner, the rows it holds whole, the grants.
-pub(super) fn stub_unheld(
-    mut batch: Batch,
-    issued: &BTreeSet<String>,
-    here: &BTreeSet<String>,
-    history: &[myriad_persona_log::Grant],
-) -> (Batch, Unheld) {
-    use myriad_persona_log::lease::{ALONE, Stand, standing};
-    let mut unheld = Unheld::default();
-    let mut stubbed: BTreeSet<String> = BTreeSet::new();
-    let mut bodies: BTreeSet<String> = BTreeSet::new();
-    for row in &mut batch.rows {
-        if !suspect(row) || !issued.contains(&row.origin) || here.contains(&row.id) {
-            continue;
-        }
-        let without_her = match standing(row, history) {
-            Stand::NotHolder => true,
-            Stand::Concurrent => row.epoch == Some(ALONE) && !landing(row, history),
-            Stand::Normal | Stand::AfterHandover => false,
-        };
-        if !without_her {
-            continue;
-        }
-        // A forget is never a stub: it goes as it is, and the log's rules
-        // take or refuse it.
-        let stub = row.stub();
-        if stub.check().is_err() {
-            continue;
-        }
-        unheld.stubbed += 1;
-        *unheld.origins.entry(row.origin.clone()).or_default() += 1;
-        *unheld.kinds.entry(row.kind.clone()).or_default() += 1;
-        stubbed.insert(row.id.clone());
-        bodies.extend(
-            row.payload
-                .as_ref()
-                .map(|payload| payload.reference.clone()),
-        );
-        *row = stub;
-    }
-    if stubbed.is_empty() {
-        return (batch, unheld);
-    }
-    // Bodies only stubbed rows pointed at do not come in either, and what
-    // the sender said of a stubbed row's body no longer names a body.
-    for row in &batch.rows {
-        if let Some(payload) = &row.payload {
-            bodies.remove(&payload.reference);
-        }
-    }
-    batch
-        .payloads
-        .retain(|carried| !bodies.contains(&carried.reference));
-    batch
-        .withheld
-        .retain(|withheld| !stubbed.contains(&withheld.id));
-    (batch, unheld)
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn rows(
     db: &DatabaseConnection,
@@ -825,7 +658,6 @@ async fn rows(
     seq: Option<u64>,
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
-    let batch = unheld_as_stubs(db, owner, device, batch).await?;
     let audience = batch.audience.clone();
     let taken = match store::take(db, root, owner, device, batch, &session.asked, now).await {
         Ok(taken) => taken,
