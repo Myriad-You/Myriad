@@ -64,8 +64,11 @@ pub(super) async fn her_memory_on_longmemeval() {
                 .map(move |question| (question, round))
         })
         .collect();
-    let outcomes: Vec<(Question, usize, Outcome)> = futures::stream::iter(runs)
-        .map(|(question, round)| {
+    let (outcomes, not_started) = started_while_allowed(
+        runs,
+        at_once(),
+        crate::services::ai_cost_ledger::spent::stop_starting,
+        |(question, round)| {
             let (db, judge, lite, reader) = (db.clone(), &judge, &lite, reader.as_ref());
             let report_path = &report_path;
             async move {
@@ -90,16 +93,127 @@ pub(super) async fn her_memory_on_longmemeval() {
                 keep_partial(report_path, &partial_row("", &question, round, &outcome));
                 (question, round, outcome)
             }
-        })
-        .buffer_unordered(at_once())
-        .collect()
-        .await;
+        },
+    )
+    .await;
     isolated.drop().await;
+    // Scored over what was run: a question past the limit is not in it.
+    let questions: Vec<Question> = questions
+        .into_iter()
+        .filter(|question| {
+            outcomes
+                .iter()
+                .any(|(done, _, _)| done.question_id == question.question_id)
+        })
+        .collect();
     let mut report = report(&questions, times, &outcomes);
+    report["notStarted"] = json!(not_started);
     report["spent"] = crate::services::ai_cost_ledger::spent::take();
     report["lite"] = lite_in_use().await;
     println!("{}", report["scores"]);
     std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
+}
+
+/// `runs`, `at_once` at a time; each one asks `stop` first and is not
+/// started once it says why (the spend is past the limit, or the account
+/// is out of credit). What is under way finishes. Also what was not
+/// started, as `id #round: why`.
+pub(super) async fn started_while_allowed<Run, Done, Fut>(
+    runs: Vec<Run>,
+    at_once: usize,
+    stop: impl Fn() -> Option<String>,
+    run: impl Fn(Run) -> Fut,
+) -> (Vec<Done>, Vec<String>)
+where
+    Run: Named,
+    Fut: std::future::Future<Output = Done>,
+{
+    let not_started = std::sync::Mutex::new(Vec::new());
+    let (stop, run, not_started_ref) = (&stop, &run, &not_started);
+    let done: Vec<Done> = futures::stream::iter(runs)
+        .map(|each| async move {
+            if let Some(why) = stop() {
+                let line = format!("{} not started: {why}", each.name());
+                println!("{line}");
+                not_started_ref
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .push(line);
+                return None;
+            }
+            Some(run(each).await)
+        })
+        .buffer_unordered(at_once)
+        .filter_map(|done| async move { done })
+        .collect()
+        .await;
+    (
+        done,
+        not_started
+            .into_inner()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()),
+    )
+}
+
+/// What a run is called where it is said not to have started.
+pub(super) trait Named {
+    fn name(&self) -> String;
+}
+
+impl Named for (Question, usize) {
+    fn name(&self) -> String {
+        format!("{} #{}", self.0.question_id, self.1)
+    }
+}
+
+impl Named for &str {
+    fn name(&self) -> String {
+        self.to_string()
+    }
+}
+
+/// With a limit far under what one question spends, the first question
+/// runs and the next ones are not started; what was under way finishes.
+#[tokio::test]
+async fn past_the_spend_limit_the_next_question_is_not_started() {
+    let spent = std::sync::Mutex::new(0.0_f64);
+    let limit = 0.01;
+    let over = || {
+        let spent = *spent.lock().unwrap();
+        (spent > limit).then(|| format!("charged ${spent:.4} past the limit ${limit}"))
+    };
+    let (done, not_started) = started_while_allowed(vec!["a", "b", "c"], 1, over, |name| {
+        let spent = &spent;
+        async move {
+            *spent.lock().unwrap() += 0.2;
+            name
+        }
+    })
+    .await;
+    assert_eq!(done, ["a"]);
+    assert_eq!(not_started.len(), 2);
+    assert!(not_started[0].starts_with("b not started: charged $0.2000 past the limit"));
+
+    // Two at once: both start before either has spent, and both finish.
+    *spent.lock().unwrap() = 0.0;
+    let (mut done, not_started) =
+        started_while_allowed(vec!["a", "b", "c", "d"], 2, over, |name| {
+            let spent = &spent;
+            async move {
+                tokio::task::yield_now().await;
+                *spent.lock().unwrap() += 0.2;
+                name
+            }
+        })
+        .await;
+    done.sort();
+    assert_eq!(done, ["a", "b"]);
+    assert_eq!(not_started.len(), 2);
+
+    // No limit: everything runs.
+    let (done, not_started) =
+        started_while_allowed(vec!["a", "b"], 1, || None, |name| async move { name }).await;
+    assert_eq!((done.len(), not_started.len()), (2, 0));
 }
 
 /// The site's models as the bench uses them: the judgment model, and her
