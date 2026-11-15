@@ -4711,3 +4711,286 @@ async fn her_holder_asking_again_is_sent_its_grant_again() {
     super::pen::reset_for_test();
     schema.drop().await;
 }
+
+/// What a holder that gave her back promised and had not sent yet still
+/// comes in whole when it comes late, after the server stopped waiting for
+/// it and wrote her rows at its own, higher epoch: a row written before the
+/// handover (its clock before the server's rows) and one written after it
+/// (its clock later). Neither is refused for its epoch nor kept as a stub,
+/// the Mac's count fills, and she stays on the server.
+#[tokio::test]
+async fn rows_promised_at_a_handover_come_in_whole_when_late() {
+    let Some(schema) = schema("her_log_late_promised").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    settled(db).await;
+    let base = super::now();
+    let mut mac = Side::new("dev_mac");
+    mac.now = base;
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], base).await;
+    let held = mac.epoch.expect("her mind is on the Mac");
+    let first = mac.write_body(
+        PERSONAL,
+        "speech:m1",
+        "speech.said",
+        Author::Her,
+        Some(said("我在 Mac 这边。", base / 1000)),
+        base,
+    );
+    let frame = mac.rows_frame(PERSONAL, vec![first]);
+    told(db, &mut mac, frame, base).await;
+    // Written before it gave her back, not sent.
+    let before = mac.write_body(
+        PERSONAL,
+        "speech:m2",
+        "speech.said",
+        Author::Her,
+        Some(said("先睡了", base / 1000)),
+        base + 1,
+    );
+    let yielded = mac.frame(
+        "lease.yield",
+        Some("yield_late"),
+        json!({ "epoch": held, "through": { PERSONAL: 2 } }),
+    );
+    exchange(db, &mut mac, vec![yielded], base + 2).await;
+    assert!(matches!(
+        super::pen::current(),
+        super::pen::Pen::CatchingUp { .. }
+    ));
+    // Nothing comes: the server stops waiting, and writes her rows at its
+    // own epoch before the Mac's come.
+    let settings = on();
+    let given_up = granted_at(db).await + super::pen::CATCH_UP_WAIT_MICROS;
+    assert_eq!(
+        super::pen::settle_for_at(db, &settings, Some(OWNER), given_up)
+            .await
+            .unwrap(),
+        super::pen::Pen::Here
+    );
+    let owner = owner(db).await;
+    let site = store::write_hers(
+        db,
+        &root(),
+        &owner,
+        PERSONAL,
+        None,
+        "speech:web1",
+        "speech.said",
+        &said("我在网页这边。", base / 1000),
+    )
+    .await
+    .unwrap();
+    assert!(site.epoch.is_some_and(|epoch| epoch > held));
+    // And one the Mac wrote after it had given her back, at its old epoch.
+    mac.epoch = Some(held);
+    let after = mac.write_body(
+        PERSONAL,
+        "speech:m3",
+        "speech.said",
+        Author::Her,
+        Some(said("还没睡着", base / 1000)),
+        site.hlc.wall_ms as i64 * 1000 + 1_000,
+    );
+    assert!(before.hlc < site.hlc && site.hlc < after.hlc);
+    let frame = mac.rows_frame(PERSONAL, vec![before.clone(), after.clone()]);
+    told(db, &mut mac, frame, after.hlc.wall_ms as i64 * 1000).await;
+
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    for late in [&before, &after] {
+        let row = rows.iter().find(|row| row.id == late.id).expect("taken");
+        assert!(!row.forgotten, "{} whole", late.object);
+        assert_eq!(row.epoch, Some(held));
+    }
+    let bodies = count(
+        db,
+        &format!(
+            "SELECT COUNT(*) FROM agent_log_payloads WHERE row_id IN ('{}', '{}')",
+            before.id, after.id
+        ),
+    )
+    .await;
+    assert_eq!(bodies, 2);
+    let holdings = vector::holdings(&rows).unwrap();
+    assert_eq!(holdings.vector.get("dev_mac"), Some(&3));
+    assert!(holdings.beyond.is_empty(), "{:?}", holdings.beyond);
+    assert_eq!(super::pen::current(), super::pen::Pen::Here);
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// When the standing grant was kept, the server's clock in microseconds.
+async fn granted_at(db: &DatabaseConnection) -> i64 {
+    count(
+        db,
+        "SELECT (EXTRACT(EPOCH FROM created_at) * 1000000)::BIGINT FROM agent_lease_grants \
+         ORDER BY epoch DESC LIMIT 1",
+    )
+    .await
+}
+
+/// Sets when the server took row `id`, the server's clock in microseconds.
+async fn received_at(db: &DatabaseConnection, id: &str, micros: i64) {
+    db.execute_unprepared(&format!(
+        "UPDATE agent_log_rows SET received_at = to_timestamp({micros}::double precision / 1000000) \
+         WHERE id = '{id}'"
+    ))
+    .await
+    .unwrap();
+}
+
+/// The Mac gives her back saying it wrote four lines here, and sends one of
+/// the three it had not: each that lands starts the wait again, what the
+/// owner says on the Mac after does not, and with nothing more for two
+/// minutes she thinks on the server without the rest. A line that comes
+/// later still comes in whole, and she stays here, after a restart too.
+#[tokio::test]
+async fn a_catch_up_that_stops_going_forward_ends_after_two_minutes() {
+    let Some(schema) = schema("her_log_catch_up_ends").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    settled(db).await;
+    let base = super::now();
+    let mut mac = Side::new("dev_mac");
+    mac.now = base;
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], base).await;
+    let held = mac.epoch.expect("her mind is on the Mac");
+    let mut lines = Vec::new();
+    for (line, text) in ["我在 Mac 这边。", "先睡了", "还没睡着", "晚安"]
+        .into_iter()
+        .enumerate()
+    {
+        lines.push(mac.write_body(
+            PERSONAL,
+            &format!("speech:m{line}"),
+            "speech.said",
+            Author::Her,
+            Some(said(text, base / 1000)),
+            base + line as i64,
+        ));
+    }
+    let frame = mac.rows_frame(PERSONAL, vec![lines[0].clone()]);
+    told(db, &mut mac, frame, base).await;
+    let yielded = mac.frame(
+        "lease.yield",
+        Some("yield_short"),
+        json!({ "epoch": held, "through": { PERSONAL: 4 } }),
+    );
+    exchange(db, &mut mac, vec![yielded], base + 10).await;
+    let granted = granted_at(db).await;
+    let owner = Some(OWNER);
+    let settings = on();
+    let at = |micros: i64| super::pen::settle_for_at(db, &settings, owner, micros);
+    let waiting = |pen: &super::pen::Pen| matches!(pen, super::pen::Pen::CatchingUp { .. });
+    assert!(waiting(&at(granted + MINUTE).await.unwrap()));
+    assert!(super::pen::think().is_none());
+
+    // The second line lands 90 seconds after the grant; the owner says
+    // something on the Mac a minute after that, past what it promised.
+    let frame = mac.rows_frame(PERSONAL, vec![lines[1].clone()]);
+    told(db, &mut mac, frame, super::now()).await;
+    received_at(db, &lines[1].id, granted + 90_000_000).await;
+    let said_after = mac.write_body(
+        PERSONAL,
+        "persona:mood",
+        "persona.field",
+        Author::Owner,
+        Some(json!("困")),
+        base + 20,
+    );
+    let frame = mac.rows_frame(PERSONAL, vec![said_after.clone()]);
+    told(db, &mut mac, frame, super::now()).await;
+    received_at(db, &said_after.id, granted + 150_000_000).await;
+    // Two and a half minutes after the grant, one after that line: still.
+    assert!(waiting(&at(granted + 150_000_000).await.unwrap()));
+    let given_up = granted + 90_000_000 + super::pen::CATCH_UP_WAIT_MICROS;
+    assert!(waiting(&at(given_up - 1).await.unwrap()));
+    assert_eq!(at(given_up).await.unwrap(), super::pen::Pen::Here);
+    assert!(super::pen::think().is_some());
+
+    // The third line comes late, the fourth not yet: whole, and she stays
+    // here, read again after a restart as well.
+    let frame = mac.rows_frame(PERSONAL, vec![lines[2].clone()]);
+    told(db, &mut mac, frame, super::now()).await;
+    received_at(db, &lines[2].id, given_up + 30_000_000).await;
+    super::pen::reset_for_test();
+    assert_eq!(
+        at(given_up + 31_000_000).await.unwrap(),
+        super::pen::Pen::Here
+    );
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    let late = rows
+        .iter()
+        .find(|row| row.id == lines[2].id)
+        .expect("taken");
+    assert!(!late.forgotten);
+    assert_eq!(
+        vector::holdings(&rows).unwrap().vector.get("dev_mac"),
+        Some(&3)
+    );
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// The Mac gives her back promising rows of two audiences and sends one of
+/// them slowly, then nothing of the other: each line of the first keeps her
+/// waiting, though that audience is no longer short, and the wait runs out
+/// two minutes after the last of it.
+#[tokio::test]
+async fn a_catch_up_going_forward_in_one_audience_waits_for_the_other() {
+    let Some(schema) = schema("her_log_catch_up_two").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    settled(db).await;
+    let base = super::now();
+    let mut mac = Side::new("dev_mac");
+    mac.now = base;
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], base).await;
+    let held = mac.epoch.expect("her mind is on the Mac");
+    let lines: Vec<Row> = ["先睡了", "还没睡着"]
+        .into_iter()
+        .enumerate()
+        .map(|(line, text)| {
+            mac.write_body(
+                PERSONAL,
+                &format!("speech:m{line}"),
+                "speech.said",
+                Author::Her,
+                Some(said(text, base / 1000)),
+                base + line as i64,
+            )
+        })
+        .collect();
+    // Its own audience it promises one row of and never sends.
+    let yielded = mac.frame(
+        "lease.yield",
+        Some("yield_two"),
+        json!({ "epoch": held, "through": { PERSONAL: 2, OWN: 1 } }),
+    );
+    exchange(db, &mut mac, vec![yielded], base + 10).await;
+    let granted = granted_at(db).await;
+    let settings = on();
+    let at = |micros: i64| super::pen::settle_for_at(db, &settings, Some(OWNER), micros);
+    let waiting = |pen: &super::pen::Pen| matches!(pen, super::pen::Pen::CatchingUp { .. });
+    for (line, landed) in [(0, 90_000_000), (1, 180_000_000)] {
+        let frame = mac.rows_frame(PERSONAL, vec![lines[line].clone()]);
+        told(db, &mut mac, frame, super::now()).await;
+        received_at(db, &lines[line].id, granted + landed).await;
+    }
+    // Personal is whole; her own audience is still short.
+    assert!(waiting(&at(granted + 200_000_000).await.unwrap()));
+    let given_up = granted + 180_000_000 + super::pen::CATCH_UP_WAIT_MICROS;
+    assert!(waiting(&at(given_up - 1).await.unwrap()));
+    assert_eq!(at(given_up).await.unwrap(), super::pen::Pen::Here);
+    super::pen::reset_for_test();
+    schema.drop().await;
+}

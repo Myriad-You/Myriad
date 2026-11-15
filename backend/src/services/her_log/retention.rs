@@ -163,6 +163,13 @@ async fn run(db: DatabaseConnection, settings: &Settings) {
         if let Err(error) = super::stuck::check(&db, settings, now).await {
             tracing::warn!(%error, "[her-log] the check for a holder that never caught up failed");
         }
+        // Handed back and still catching up: read again, so a catch-up that
+        // stopped going forward ends (`pen::CATCH_UP_WAIT_MICROS`).
+        if matches!(super::pen::current(), super::pen::Pen::CatchingUp { .. })
+            && let Err(error) = super::pen::settle(&db, settings).await
+        {
+            tracing::warn!(%error, "[her-log] reading where her mind is again failed");
+        }
         // Her records into her log once a minute, while her mind is here.
         if ticks % 4 == 0 && super::pen::here() {
             super::state::sync_now(&db).await;
