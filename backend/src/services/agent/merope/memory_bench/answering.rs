@@ -363,6 +363,10 @@ pub(super) struct Answered {
     /// What she went through when needing all of it: from her nodes, the
     /// list code made.
     pub(super) through: Option<String>,
+    /// What she read scrolling back through the chat before answering, as
+    /// it was put in front of her: not recalled, but what she answered on
+    /// too, so what judges recall can be shown it.
+    pub(super) scrolled: Option<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -407,6 +411,7 @@ pub(super) async fn answer_one(
             recalled,
             cues: cues.map(|cues| format!("{cues:?}")),
             through: None,
+            scrolled: None,
         }
     };
     if recall_only() {
@@ -492,6 +497,7 @@ pub(super) async fn answer_one(
             recalled,
             cues: cues.map(|cues| format!("{cues:?}")),
             through: going_through,
+            scrolled,
         };
     }
     let mut graded = json!({"question": question.question, "correctAnswer": question.answer,
@@ -525,6 +531,7 @@ pub(super) async fn answer_one(
         recalled,
         cues: cues.map(|cues| format!("{cues:?}")),
         through: going_through,
+        scrolled,
     }
 }
 

@@ -557,7 +557,8 @@ pub(super) fn report(
         json!({"retrieved":answered.retrieved,"correct":answered.correct,
             "dragged":answered.dragged,"why":answered.why,"recalled":answered.recalled,
             "response":answered.answer,
-            "cues":answered.cues,"through":answered.through})
+            "cues":answered.cues,"through":answered.through,
+            "scrolled":answered.scrolled})
     };
     let rows: Vec<Value> = outcomes
         .iter()
@@ -658,7 +659,8 @@ pub(super) fn partial_row(
         "wide": {"correct": outcome.wide.correct, "retrieved": outcome.wide.retrieved,
             "response": outcome.wide.answer, "why": outcome.wide.why,
             "recalled": outcome.wide.recalled,
-            "recalledChars": recalled_chars(&outcome.wide)},
+            "recalledChars": recalled_chars(&outcome.wide),
+            "scrolled": outcome.wide.scrolled},
         "wider": outcome.wider.as_ref().map(|wider| json!({"correct": wider.correct,
             "retrieved": wider.retrieved, "recalled": wider.recalled,
             "recalledChars": recalled_chars(wider)}))})
