@@ -821,6 +821,13 @@ async fn what_she_knew_before_stands_first_and_a_new_fact_ends_it() {
         ),
     ]);
     settle(db, vec![update("膝盖伤了，不夜跑了", &[], running())]).await;
+    // The day she was told, read in the zone it was written in: the world's
+    // (+08:00), not the site's after it is left (an hour apart in Tokyo, so
+    // they differ from midnight to one there).
+    let today = crate::clock::now()
+        .with_timezone(&crate::services::agent::merope::clock::zone())
+        .format("%Y-%m-%d")
+        .to_string();
     let world = g0::leave().expect("a world");
     let built: Vec<&Value> = world
         .log
@@ -865,10 +872,6 @@ async fn what_she_knew_before_stands_first_and_a_new_fact_ends_it() {
                 .clone()
         })
         .collect();
-    let today = crate::clock::now()
-        .with_timezone(&crate::services::agent::merope::clock::zone())
-        .format("%Y-%m-%d")
-        .to_string();
     assert_eq!(sinces, vec![json!("2026-08-21"), json!(today)]);
     schema.drop().await;
 }
