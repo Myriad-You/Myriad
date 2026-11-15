@@ -431,7 +431,7 @@ pub(super) async fn answer_one(
     // does. Never in a group: what she scrolls through is the private chat.
     let reaching_back =
         back_when_thorough && myriad_merope::remembering::reaches_back(&question.question);
-    let scrolled = match cues
+    let found = match cues
         .filter(|_| !present.is_group())
         .filter(|cues| cues.look_back || (back_when_thorough && cues.thorough) || reaching_back)
     {
@@ -440,7 +440,7 @@ pub(super) async fn answer_one(
                 .chain(cues.cues.iter().map(String::as_str))
                 .collect::<Vec<_>>()
                 .join(" ");
-            let found = remembering::look_back(
+            remembering::look_back(
                 db,
                 user_id,
                 &query,
@@ -451,11 +451,17 @@ pub(super) async fn answer_one(
                     remembering::LOOK_BACK
                 },
             )
-            .await;
-            myriad_merope::remembering::looked_back_section(&found)
+            .await
         }
-        None => None,
+        None => Vec::new(),
     };
+    // The raw-chat arm: the raw chat searched every time as well, whatever
+    // the cues said, beside what the look back found.
+    let found = match super::raw_back::raw_way().filter(|_| !present.is_group()) {
+        Some(way) => super::raw_back::with_raw(db, user_id, &question.question, way, found).await,
+        None => found,
+    };
+    let scrolled = myriad_merope::remembering::looked_back_section(&found);
     // Needing all of it, she goes through it as production has her do.
     // From her nodes, the list code made stands for it, as production shows.
     let going_through = cues

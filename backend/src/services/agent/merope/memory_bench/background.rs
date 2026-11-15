@@ -93,11 +93,11 @@ mod snapshot;
 mod state_links;
 mod state_list;
 
-use kept::{
-    AskAgain, ask_again, from_written, keep_written, kept_written_row, then_question,
-    then_sessions, topic_names, with_topics,
-};
-use snapshot::{read_snapshot, restore, write_snapshot};
+// Kept writing and its copies serve LongMemEval's questions too.
+use kept::{AskAgain, ask_again, then_question, then_sessions, topic_names, with_topics};
+pub(super) use kept::{KeptWritten, from_written, keep_written, kept_written_row};
+pub(super) use snapshot::restore;
+use snapshot::{read_snapshot, write_snapshot};
 
 impl Question {
     /// The same question at a small size: the background sessions it rests

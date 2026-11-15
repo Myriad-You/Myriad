@@ -45,6 +45,7 @@ mod longmemeval;
 mod making;
 mod memes;
 mod probes;
+mod raw_back;
 mod settle;
 mod since_up;
 mod speaking_check;
@@ -318,6 +319,9 @@ struct Outcome {
     bare: Option<Answered>,
     /// The wide way recalling more (`MEROPE_MEMORY_BENCH_WIDER_ARM`).
     wider: Option<Answered>,
+    /// The wide way also scrolling back through the raw chat every time
+    /// (`MEROPE_MEMORY_BENCH_RAW_ARM`), from the same memories.
+    raw: Option<Answered>,
     /// What she kept that answers it.
     answering: Vec<String>,
     /// The wide way answered and graded by `MEROPE_MEMORY_BENCH_READER`
@@ -507,6 +511,28 @@ async fn answer_for(
         ),
         None => None,
     };
+    let raw = match raw_back::raw_arm() {
+        Some(way) => Some(
+            raw_back::RAW
+                .scope(
+                    way,
+                    answer_one(
+                        db,
+                        judge,
+                        lite,
+                        question,
+                        user_id,
+                        &present,
+                        cues.as_ref(),
+                        THOROUGH,
+                        true,
+                        &answering,
+                    ),
+                )
+                .await,
+        ),
+        None => None,
+    };
     let read = match reader {
         Some(reader) => Some(
             answer_one(
@@ -666,6 +692,7 @@ async fn answer_for(
         wide,
         bare,
         wider,
+        raw,
         answering,
         read,
         in_private,

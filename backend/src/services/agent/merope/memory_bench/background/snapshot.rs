@@ -223,7 +223,7 @@ pub(super) async fn tables(db: &sea_orm::DatabaseConnection, schema: &str) -> Ve
 
 /// A fresh schema holding what the snapshot holds, row for row, its
 /// sequences going on from there.
-pub(super) async fn restore(url: &str, snapshot: &str) -> crate::db::IsolatedSchema {
+pub(in super::super) async fn restore(url: &str, snapshot: &str) -> crate::db::IsolatedSchema {
     use sea_orm::TransactionTrait;
     let copy = crate::db::IsolatedSchema::migrated(url, "memory_long").await;
     let db = &copy.db;

@@ -56,6 +56,13 @@ pub(super) async fn her_memory_on_longmemeval() {
     let isolated = crate::db::IsolatedSchema::migrated(&url, "memory_bench").await;
     let db = isolated.db.clone();
     let times = times();
+    // `MEROPE_MEMORY_BENCH_KEEP_WRITTEN=1`: each question written into a
+    // schema of its own and kept; `MEROPE_MEMORY_BENCH_FROM_WRITTEN`: asked
+    // from what an earlier run kept, nothing written again.
+    let (keeping, from_written) = (
+        super::background::keep_written(),
+        super::background::from_written(),
+    );
     let runs: Vec<(Question, usize)> = (0..times)
         .flat_map(|round| {
             questions
@@ -63,7 +70,18 @@ pub(super) async fn her_memory_on_longmemeval() {
                 .cloned()
                 .map(move |question| (question, round))
         })
+        .filter(|(question, round)| match &from_written {
+            Some(kept) if !kept.contains_key(&(question.question_id.clone(), *round)) => {
+                println!(
+                    "{} #{round} not started: nothing it wrote was kept",
+                    question.question_id
+                );
+                false
+            }
+            _ => true,
+        })
         .collect();
+    let (url, from_written) = (&url, &from_written);
     let (outcomes, not_started) = started_while_allowed(
         runs,
         at_once(),
@@ -72,10 +90,26 @@ pub(super) async fn her_memory_on_longmemeval() {
             let (db, judge, lite, reader) = (db.clone(), &judge, &lite, reader.as_ref());
             let report_path = &report_path;
             async move {
-                let (mut outcome, failed) = crate::services::ai_cost_ledger::spent::failures_in(
-                    ROUND.scope(round, run_one(&db, judge, lite, reader, &question, round)),
-                )
-                .await;
+                let (mut outcome, failed, kept) = if keeping || from_written.is_some() {
+                    let earlier = from_written
+                        .as_ref()
+                        .and_then(|kept| kept.get(&(question.question_id.clone(), round)));
+                    on_its_own(
+                        url,
+                        (judge, lite, reader),
+                        &question,
+                        round,
+                        keeping,
+                        earlier,
+                    )
+                    .await
+                } else {
+                    let (outcome, failed) = crate::services::ai_cost_ledger::spent::failures_in(
+                        ROUND.scope(round, run_one(&db, judge, lite, reader, &question, round)),
+                    )
+                    .await;
+                    (outcome, failed, None)
+                };
                 outcome.failed = failed;
                 println!(
                     "{} {} #{round} void={} written={} plain={:?} cued={:?} wide={:?} read={:?}",
@@ -90,7 +124,12 @@ pub(super) async fn her_memory_on_longmemeval() {
                 );
                 // Kept as it is done, so a run stopped partway keeps what it
                 // finished (the full report is written only at the end).
-                keep_partial(report_path, &partial_row("", &question, round, &outcome));
+                let mut row = partial_row("", &question, round, &outcome);
+                if let Some((schema, written, write_failed)) = kept {
+                    row["keptWritten"] =
+                        super::background::kept_written_row(&schema, &written, &write_failed);
+                }
+                keep_partial(report_path, &row);
                 (question, round, outcome)
             }
         },
@@ -112,6 +151,110 @@ pub(super) async fn her_memory_on_longmemeval() {
     report["lite"] = lite_in_use().await;
     println!("{}", report["scores"]);
     std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
+}
+
+/// A question in a schema of its own: written there and, when `keeping`,
+/// a copy of what it wrote kept (`memory_long_…`, as the long questions'
+/// are) before it is asked; or, from what an `earlier` run kept, only
+/// asked, on a copy, so what was kept stays as it was. Also every failure
+/// said, writing's included, and what was kept: its schema, what of it
+/// answers the question, and the failures writing it.
+async fn on_its_own(
+    url: &str,
+    models: Models<'_>,
+    question: &Question,
+    round: usize,
+    keeping: bool,
+    earlier: Option<&super::background::KeptWritten>,
+) -> (Outcome, Vec<String>, Option<(String, Written, Vec<String>)>) {
+    use crate::services::ai_cost_ledger::spent::failures_in;
+    let name = format!("lme-{}-{round}", question.question_id);
+    match earlier {
+        Some(earlier) => {
+            let copy = super::background::restore(url, &earlier.schema).await;
+            let user_id = user_named(&copy.db, &name).await;
+            let (outcome, failed) = failures_in(ROUND.scope(
+                round,
+                answer_for(
+                    &copy.db,
+                    models,
+                    question,
+                    &name,
+                    (user_id, &name),
+                    earlier.written.clone(),
+                    earlier.asked.clone(),
+                ),
+            ))
+            .await;
+            copy.drop().await;
+            let failed = earlier.failed.iter().cloned().chain(failed).collect();
+            let kept = (
+                earlier.schema.clone(),
+                earlier.written.clone(),
+                earlier.failed.clone(),
+            );
+            (outcome, failed, Some(kept))
+        }
+        None => {
+            let own = crate::db::IsolatedSchema::migrated(url, "memory_bench").await;
+            let user_id = new_user(&own.db, &name).await;
+            let (written, write_failed) = failures_in(ROUND.scope(
+                round,
+                write_for(
+                    &own.db,
+                    models.0,
+                    question,
+                    &name,
+                    (user_id, &name),
+                    Vec::new(),
+                ),
+            ))
+            .await;
+            let kept = match keeping {
+                true => Some(
+                    super::background::restore(url, own.name())
+                        .await
+                        .keep()
+                        .await,
+                ),
+                false => None,
+            };
+            let (outcome, failed) = failures_in(ROUND.scope(
+                round,
+                answer_for(
+                    &own.db,
+                    models,
+                    question,
+                    &name,
+                    (user_id, &name),
+                    written.clone(),
+                    None,
+                ),
+            ))
+            .await;
+            own.drop().await;
+            let failed = write_failed.iter().cloned().chain(failed).collect();
+            (
+                outcome,
+                failed,
+                kept.map(|schema| (schema, written, write_failed)),
+            )
+        }
+    }
+}
+
+/// The id of the one named `name`, in a copy of what was kept.
+async fn user_named(db: &sea_orm::DatabaseConnection, name: &str) -> i32 {
+    db.query_one_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT id FROM users WHERE username = $1",
+        [name.into()],
+    ))
+    .await
+    .unwrap()
+    .expect("the one the question was written for")
+    .try_get::<i32>("", "id")
+    .unwrap()
 }
 
 /// `runs`, `at_once` at a time; each one asks `stop` first and is not
@@ -663,7 +806,10 @@ pub(super) fn partial_row(
             "scrolled": outcome.wide.scrolled},
         "wider": outcome.wider.as_ref().map(|wider| json!({"correct": wider.correct,
             "retrieved": wider.retrieved, "recalled": wider.recalled,
-            "recalledChars": recalled_chars(wider)}))})
+            "recalledChars": recalled_chars(wider)})),
+        "raw": outcome.raw.as_ref().map(|raw| json!({"correct": raw.correct,
+            "response": raw.answer, "why": raw.why, "scrolled": raw.scrolled,
+            "scrolledChars": raw.scrolled.as_ref().map_or(0, |scrolled| scrolled.chars().count())}))})
 }
 
 /// `row` added to `{report}.partial.jsonl` as soon as it is done.
