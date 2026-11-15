@@ -668,7 +668,8 @@
       "mindElsewhere": "她現在在「{name}」那邊。",
       "mindElsewhereUnknown": "她現在在你的另一台裝置上。",
       "mindElsewhereLeave": "她現在在「{name}」那邊，在這裡說的話她在那邊看得到。",
-      "mindElsewhereLeaveUnknown": "她現在在你的另一台裝置上，在這裡說的話她在那邊看得到。"
+      "mindElsewhereLeaveUnknown": "她現在在你的另一台裝置上，在這裡說的話她在那邊看得到。",
+      "mindBack": "她剛回到這裡，正在接上另一台裝置那邊寫下的內容，一會兒就好。"
     },
     "status": {
       "idle": "待命",

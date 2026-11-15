@@ -668,7 +668,8 @@
       "mindElsewhere": "She is on “{name}” right now.",
       "mindElsewhereUnknown": "She is on another of your devices right now.",
       "mindElsewhereLeave": "She is on “{name}” right now; what you say here, she sees there.",
-      "mindElsewhereLeaveUnknown": "She is on another of your devices right now; what you say here, she sees there."
+      "mindElsewhereLeaveUnknown": "She is on another of your devices right now; what you say here, she sees there.",
+      "mindBack": "She has just come back here and is still taking in what she wrote on your other device; it won't be long."
     },
     "status": {
       "idle": "Idle",

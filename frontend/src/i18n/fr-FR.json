@@ -668,7 +668,8 @@
       "mindElsewhere": "Elle est sur « {name} » en ce moment.",
       "mindElsewhereUnknown": "Elle est sur un autre de vos appareils en ce moment.",
       "mindElsewhereLeave": "Elle est sur « {name} » en ce moment ; ce que vous dites ici, elle le voit là-bas.",
-      "mindElsewhereLeaveUnknown": "Elle est sur un autre de vos appareils en ce moment ; ce que vous dites ici, elle le voit là-bas."
+      "mindElsewhereLeaveUnknown": "Elle est sur un autre de vos appareils en ce moment ; ce que vous dites ici, elle le voit là-bas.",
+      "mindBack": "Elle vient de revenir ici et récupère encore ce qu'elle a écrit sur votre autre appareil ; ce ne sera pas long."
     },
     "status": {
       "idle": "En attente",
