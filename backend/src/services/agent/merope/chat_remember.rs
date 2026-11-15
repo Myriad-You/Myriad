@@ -375,6 +375,27 @@ async fn queue_chat_words(
     }
 }
 
+/// Her reply as the extraction reads it: compacted as a line is, and a long
+/// one whole, as long as one of their messages may be ([`memory_user_text`]),
+/// so what she gave far into a long answer (the fifth bottle, the shop near
+/// the end of a list) can be kept as hers. Only this call, in the background,
+/// reads it; what she says next is not made any longer by it.
+fn reply_read(reply: &str) -> String {
+    let whole = super::ingest::redact_event_text(reply)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if whole.chars().count() <= REPLY_SHORT {
+        return compact_summary(reply);
+    }
+    whole.chars().take(REPLY_READ).collect()
+}
+
+/// A reply this long reads as `compact_summary` keeps a line.
+const REPLY_SHORT: usize = 240;
+/// A longer one is read up to this much: what one of their messages may be.
+const REPLY_READ: usize = 2_000;
+
 /// What the extraction reads: their words, her reply, and what surrounded
 /// them. Only what they said in `userText` may become a fact.
 pub(super) fn extract_input(
@@ -385,7 +406,7 @@ pub(super) fn extract_input(
 ) -> String {
     let mut input = json!({
         "userText": user_text,
-        "reply": compact_summary(reply),
+        "reply": reply_read(reply),
         "today": now.format("%Y-%m-%d (%A)").to_string(),
     });
     if let Some(before) = &turn.before {
@@ -708,6 +729,25 @@ pub(crate) fn settle_probe(
 
 #[cfg(test)]
 mod tests {
+    /// A short reply is read as before; a long one whole, up to what one of
+    /// their messages may be, its end and all.
+    #[test]
+    fn a_long_reply_is_read_whole_for_what_she_said_in_it() {
+        let short = "我推荐你试试「夜航」这首歌";
+        assert_eq!(reply_read(short), compact_summary(short));
+        let list: String = (1..=40)
+            .map(|n| format!("{n}. item number {n}\n"))
+            .collect::<String>()
+            + "5. Absinthe, for the Sazerac";
+        assert!(compact_summary(&list).chars().count() <= 240);
+        assert!(!compact_summary(&list).contains("Absinthe"));
+        let read = reply_read(&list);
+        assert!(read.contains("Absinthe"), "the end of a long reply is read");
+        assert!(!read.contains('\n'), "compacted as a line is");
+        let long = "很".repeat(3_000);
+        assert_eq!(reply_read(&long).chars().count(), REPLY_READ);
+    }
+
     use super::{ChatMemoryUpdate, Unshown, alike_unshown, settle_already};
     use crate::services::agent::memory::unified::Concept;
     use myriad_merope::chat_remember::Already;
