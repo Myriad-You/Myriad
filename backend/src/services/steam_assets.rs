@@ -524,7 +524,7 @@ async fn run_claimed(client: &reqwest::Client, claim: Claim, budget: Duration) {
     let (merged, generation) = {
         let mut cache = lock_cache();
         let merged = merge_pass(&mut cache, &mut lock(&RETRY_HOLDS), &claim.ids, state, now);
-        let changed = merged.resolved + merged.not_on_store > 0;
+        let changed = merged.resolved + merged.not_on_store + merged.kept > 0;
         (
             merged,
             changed.then(|| GENERATION.fetch_add(1, Ordering::Relaxed) + 1),
@@ -565,6 +565,8 @@ struct PassState {
 struct Merged {
     resolved: usize,
     not_on_store: usize,
+    /// Known art the store no longer lists: kept, re-dated.
+    kept: usize,
     no_answer: usize,
 }
 
@@ -592,8 +594,13 @@ fn merge_pass(
     let resolved = found.len();
     cache.extend(found);
     let mut written_off = 0usize;
+    let mut kept = 0usize;
     for appid in not_on_store {
-        if !cache.get(&appid).is_some_and(|art| art.header.is_some()) {
+        if let Some(art) = cache.get_mut(&appid).filter(|art| art.header.is_some()) {
+            // Keep the art; just wait a full cycle before asking again.
+            art.updated_at = now;
+            kept += 1;
+        } else {
             cache.insert(
                 appid,
                 SteamArt {
@@ -608,6 +615,7 @@ fn merge_pass(
     Merged {
         resolved,
         not_on_store: written_off,
+        kept,
         no_answer,
     }
 }
@@ -1087,8 +1095,9 @@ mod tests {
             ..PassState::default()
         };
         let merged = merge_pass(&mut cache, &mut Holds::default(), &[7], state, now);
-        assert_eq!(merged.not_on_store, 0);
+        assert_eq!((merged.not_on_store, merged.kept), (0, 1));
         assert_eq!(cache[&7].header.as_deref(), Some("old/header.jpg"));
+        assert!(!needs_resolution(cache.get(&7), now));
     }
 
     #[test]

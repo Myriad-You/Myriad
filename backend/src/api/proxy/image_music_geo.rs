@@ -343,7 +343,7 @@ pub async fn proxy_image(Query(params): Query<ImageProxyQuery>) -> Response {
         Ok(response) => response,
         Err(failure) => {
             // 新上架、换过图或锁区的 Steam 游戏，老封面地址 404，换成商店里的真实地址再取一次。
-            // 先查已解析的缓存，没有再按区查一次。
+            // 先查已解析的缓存，没有再去美区商店查一次。
             let fallback = match crate::services::steam_assets::legacy_app_art(&url) {
                 Some((appid, file)) => {
                     crate::services::steam_assets::resolve_legacy(appid, &file).await

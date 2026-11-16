@@ -919,8 +919,9 @@ mod tests {
 
     #[test]
     fn steam_playtime_becomes_semantic_change() {
-        let old = json!({"games": [{"appid": 10, "name": "Example", "playtime_forever": 60}]});
-        let new = json!({"games": [{"appid": 10, "name": "Example", "playtime_forever": 135}]});
+        // An appid no store lists, so a cover cache on this machine can't answer for it.
+        let old = json!({"games": [{"appid": 2_000_000_001i64, "name": "Example", "playtime_forever": 60}]});
+        let new = json!({"games": [{"appid": 2_000_000_001i64, "name": "Example", "playtime_forever": 135}]});
         let payload = build_activity_payload("steam", Some(&old), &new, 1);
 
         assert_eq!(payload.event_type, "updated");
@@ -932,7 +933,9 @@ mod tests {
         assert_eq!(payload.changes[0].delta, Some(json!(75)));
         assert_eq!(
             payload.changes[0].subject_image.as_deref(),
-            Some("https://cdn.cloudflare.steamstatic.com/steam/apps/10/library_600x900.jpg")
+            Some(
+                "https://cdn.cloudflare.steamstatic.com/steam/apps/2000000001/library_600x900.jpg"
+            )
         );
     }
 
