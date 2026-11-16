@@ -44,15 +44,18 @@
 //! On a link whose welcome said sync on, every frame of the sync families
 //! (`log.*`, `lease.*`, `group.say`, `chat.say`) goes to [`relay::take`],
 //! and what it answers goes where it says: back, to one device, or to the
-//! owner's other computers. Besides the link, the log moves in files: the
+//! owner's other computers. Such a link whose hello listed `lend` is also
+//! registered for what a group or a private chat lends her mind while that
+//! device holds her ([`lend::open`]). Besides the link, the log moves in
+//! files: the
 //! export, a move to a device, and taking such a file in.
 //!
 //! No key, token or secret is in a row, a frame, an answer or an error:
 //! errors say what was refused, never with what.
 
 pub mod assets;
-// Nothing outside the tests reaches the relay until her link speaks
-// protocol 2: the connection still speaks 1 and does not hand it frames.
+pub mod cards;
+// Parts of these the relay does not reach yet outside the tests.
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod full;
 #[cfg_attr(not(test), allow(dead_code))]
@@ -60,6 +63,7 @@ pub mod keys;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod lease;
 pub mod lend;
+pub mod memories;
 pub mod pen;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod relay;
@@ -67,6 +71,7 @@ pub mod retention;
 pub mod state;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod store;
+pub mod stuck;
 pub mod talk;
 
 #[cfg(test)]
@@ -268,6 +273,11 @@ pub fn current_settings() -> Settings {
         return settings;
     }
     settings().clone()
+}
+
+/// [`enabled`], as [`current_settings`] has it: in a test, its own.
+pub fn currently_enabled() -> bool {
+    current_settings().enabled && !REFUSED.load(Ordering::Relaxed)
 }
 
 /// A test's own settings of her log, for what runs on its thread.

@@ -23,7 +23,8 @@ use chrono::{DateTime, Utc};
 use myriad_merope::remembering::Cues;
 use myriad_nodes::{
     listing::{self, ListEntry, ListInput, ListNode, RangeInput},
-    recall::{self, PickEntry, PickInput, PickNode, Ranked},
+    recall::{self, PickEntry, PickInput, PickNode, PickStanding, Ranked},
+    stands,
 };
 
 use super::shown::{Entry, Shown, cited};
@@ -75,6 +76,9 @@ pub(crate) struct Recollection {
     pub listed: Option<String>,
     /// The nodes picked, by id.
     pub picked: Vec<String>,
+    /// How their life stands, shown every time in a private talk: each
+    /// `node name：text`, as the core chose them. None in a group.
+    pub resident: Vec<String>,
 }
 
 /// The ranking as the core takes it: each memory once, most relevant
@@ -150,11 +154,107 @@ impl Lines<'_> {
         };
         (line, shown)
     }
+
+    /// How one thing on `node` stands now (`node.standing` `item`), dated
+    /// the day it was written; what a rule wrote from what a device told
+    /// says so, for it is only seen, not known.
+    fn standing(&self, node: &super::shown::Node, item: &str) -> Option<(String, String)> {
+        let standing = node.head.get("standing")?.get(item)?;
+        let text = standing.get("value")?.get("text")?.as_str()?.trim();
+        if text.is_empty() {
+            return None;
+        }
+        let day = DateTime::from_timestamp_micros(standing.get("at")?.as_i64()?)
+            .unwrap_or_default()
+            .with_timezone(&self.zone);
+        let line = match standing.get("author").and_then(|author| author.as_str()) {
+            Some("rule") => format!(
+                "[{}] now: {text} (as their computer told it)",
+                day.format("%m-%d")
+            ),
+            _ => format!("[{}] now: {text}", day.format("%m-%d")),
+        };
+        Some((line.clone(), line))
+    }
+}
+
+/// The words `items` of `node`'s 「现在」 stand on, trimmed.
+fn standing_texts(node: &super::shown::Node, items: &[String]) -> HashSet<String> {
+    items
+        .iter()
+        .filter_map(|item| {
+            let text = node
+                .head
+                .get("standing")?
+                .get(item)?
+                .get("value")?
+                .get("text")?;
+            Some(text.as_str()?.trim().to_string())
+        })
+        .filter(|text| !text.is_empty())
+        .collect()
+}
+
+/// What stands now on `node` as the fold gave it: each item of its
+/// `standing`, when it was written, whether the whole of it ended, and the
+/// days of the memories its version rests on (what it tells of, from the
+/// entry on the node; when she learned it), by which the core says when it
+/// is due. A memory not on the node, or not held, has no days.
+fn standing_of(shown: &Shown, node: &super::shown::Node) -> Vec<PickStanding> {
+    let rests_on = |value: Option<&serde_json::Value>| -> Vec<stands::RestsOn> {
+        cited(
+            value
+                .and_then(|value| value.get("because"))
+                .unwrap_or(&serde_json::Value::Null),
+        )
+        .into_iter()
+        .map(|id| {
+            let happened = node
+                .facts
+                .iter()
+                .find(|entry| entry.memory.as_deref() == Some(id.as_str()))
+                .and_then(|entry| entry.happened.as_ref());
+            stands::RestsOn {
+                from: happened.map(|happened| happened.from.clone()),
+                to: happened.and_then(|happened| happened.to.clone()),
+                learned: shown.learned_of(&id).and_then(super::standing::day_of),
+            }
+        })
+        .collect()
+    };
+    node.head
+        .get("standing")
+        .and_then(|standing| standing.as_object())
+        .map(|standing| {
+            standing
+                .iter()
+                .filter_map(|(item, version)| {
+                    let value = version.get("value");
+                    Some(PickStanding {
+                        item: item.clone(),
+                        at: version.get("at")?.as_i64()?,
+                        ended: value
+                            .and_then(|value| value.get("ended"))
+                            .and_then(|ended| ended.as_bool())
+                            .unwrap_or(false),
+                        text: value
+                            .and_then(|value| value.get("text"))
+                            .and_then(|text| text.as_str())
+                            .unwrap_or_default()
+                            .trim()
+                            .to_string(),
+                        rests_on: rests_on(value),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn pick_node(shown: &Shown, node: &super::shown::Node) -> PickNode {
     PickNode {
         id: node.id.clone(),
+        name: node.name.clone(),
         status: node.status,
         gone: node.gone,
         entries: node
@@ -166,6 +266,7 @@ fn pick_node(shown: &Shown, node: &super::shown::Node) -> PickNode {
                 at: shown.learned(entry),
             })
             .collect(),
+        standing: standing_of(shown, node),
     }
 }
 
@@ -185,6 +286,28 @@ pub(crate) fn recollect(
     recollect_here(shown, own, None, recalled, cues, now)
 }
 
+/// [`recollect`] with `times` the budget of nodes and entries (and of
+/// heard): the memory bench's control that only recalls more.
+#[cfg(test)]
+pub(crate) fn recollect_times(
+    shown: &Shown,
+    own: &Own,
+    recalled: &Recalled,
+    cues: Option<&Cues>,
+    now: DateTime<Utc>,
+    times: usize,
+) -> Recollection {
+    let base = recall::Budget::default();
+    let budget = recall::Budget {
+        picked: base.picked * times,
+        entries: base.entries * times,
+        about_them: base.about_them * times,
+        together: base.together * times,
+        ..base
+    };
+    recollect_within(shown, own, None, recalled, cues, now, budget, HEARD * times)
+}
+
 /// [`recollect`]; `here` in a group.
 pub(crate) fn recollect_here(
     shown: &Shown,
@@ -193,6 +316,29 @@ pub(crate) fn recollect_here(
     recalled: &Recalled,
     cues: Option<&Cues>,
     now: DateTime<Utc>,
+) -> Recollection {
+    recollect_within(
+        shown,
+        own,
+        here,
+        recalled,
+        cues,
+        now,
+        Default::default(),
+        HEARD,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn recollect_within(
+    shown: &Shown,
+    own: &Own,
+    here: Option<&Here>,
+    recalled: &Recalled,
+    cues: Option<&Cues>,
+    now: DateTime<Utc>,
+    budget: recall::Budget,
+    heard_most: usize,
 ) -> Recollection {
     let thorough = cues.is_some_and(|cues| cues.thorough);
     let (mut ranked, lines) = ranking(recalled);
@@ -229,7 +375,8 @@ pub(crate) fn recollect_here(
         about_them: own.about.clone(),
         her: own.her.clone(),
         thorough,
-        budget: Default::default(),
+        budget,
+        today: super::standing::day_of(now.timestamp_micros()),
     }) else {
         // Ids the core will not take: what was ranked, as before.
         return Recollection {
@@ -251,12 +398,24 @@ pub(crate) fn recollect_here(
         }
     };
     for picked in &pick.picked {
-        let name = shown
-            .node(&picked.node)
+        let node = shown.node(&picked.node);
+        let name = node
             .and_then(|node| node.name.as_deref())
             .unwrap_or_default();
+        // How it stands now comes before what happened on it, and an entry
+        // that says the very words it stands on is not said again.
+        let standing = node
+            .map(|node| standing_texts(node, &picked.standing))
+            .unwrap_or_default();
+        for item in &picked.standing {
+            if let Some(line) = node.and_then(|node| lines.standing(node, item)) {
+                push(line, name);
+            }
+        }
         for id in &picked.entries {
-            if let Some(entry) = find(shown, &picked.node, id) {
+            if let Some(entry) = find(shown, &picked.node, id)
+                && !standing.contains(entry.text.trim())
+            {
                 push(lines.of(id, &entry.text, entry.at), name);
             }
         }
@@ -267,8 +426,21 @@ pub(crate) fn recollect_here(
         }
     }
     if let Some(about) = &own.about {
+        let standing = shown
+            .node(about)
+            .map(|node| standing_texts(node, &pick.about_them_standing))
+            .unwrap_or_default();
+        if let Some(node) = shown.node(about) {
+            for item in &pick.about_them_standing {
+                if let Some(line) = lines.standing(node, item) {
+                    push(line, "");
+                }
+            }
+        }
         for id in &pick.about_them {
-            if let Some(entry) = find(shown, about, id) {
+            if let Some(entry) = find(shown, about, id)
+                && !standing.contains(entry.text.trim())
+            {
                 push(lines.of(id, &entry.text, entry.at), "");
             }
         }
@@ -287,7 +459,7 @@ pub(crate) fn recollect_here(
             });
             heard
                 .into_iter()
-                .take(HEARD)
+                .take(heard_most)
                 .map(|entry| lines.of(&entry.id, &entry.text, entry.at).1)
                 .collect()
         })
@@ -302,6 +474,32 @@ pub(crate) fn recollect_here(
             listed(shown, &kind, cues?, now, &lines)
         })
         .flatten();
+    // How their life stands, every time: in a private talk only, each
+    // under its node's name, as the core counted it.
+    let resident = if here.is_some() {
+        Vec::new()
+    } else {
+        let resident: Vec<String> = pick
+            .resident
+            .iter()
+            .filter_map(|one| {
+                let node = shown.node(&one.node)?;
+                let name = node.name.as_deref().unwrap_or_default().trim();
+                Some(format!("{name}：{}", one.text))
+            })
+            .collect();
+        // Counts only: how many went with the talk, how many the core
+        // picked that the heads did not hold, and how many its room left
+        // out or cut short.
+        tracing::info!(
+            shown = resident.len(),
+            unread = pick.resident.len() - resident.len(),
+            left_out = pick.resident_left_out,
+            cut = pick.resident_cut,
+            "[memory-nodes] how their life stands went with the private talk"
+        );
+        resident
+    };
     Recollection {
         named,
         heard,
@@ -311,6 +509,7 @@ pub(crate) fn recollect_here(
             .iter()
             .map(|picked| picked.node.clone())
             .collect(),
+        resident,
     }
 }
 

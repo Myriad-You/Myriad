@@ -11,12 +11,14 @@
 //! The server thinks when `myriad_persona_log::lease::here` says so for
 //! [`NODE`] and, after a handover to it, once it holds everything the
 //! previous holder wrote up to the handover (`lease::behind`): she catches
-//! up first, then thinks. The grants are always there (her moves house sign
-//! theirs too), so this holds with her log off as well; only the catching
-//! up needs her log on and the owner syncing it ([`in_play`]): without it
-//! there is nothing to catch up on. While the site's copy of her is not the
-//! live one (she lives on a device, or is not here) the site is not her at
-//! all, and the pen stays here: `persona_sync::lease` keeps her out.
+//! up first, then thinks, unless nothing of it arrives for
+//! [`CATCH_UP_WAIT_MICROS`]; then she thinks with what came. The grants
+//! are always there (her moves house sign theirs too), so this holds with
+//! her log off as well; only the catching up needs her log on and the owner
+//! syncing it ([`in_play`]): without it there is nothing to catch up on.
+//! While the site's copy of her is not the live one (she lives on a device,
+//! or is not here) the site is not her at all, and the pen stays here:
+//! `persona_sync::lease` keeps her out.
 //!
 //! A handover away from the server waits for what is being thought here to
 //! end ([`Thought`]): from the moment it is asked nothing new starts, and the
@@ -34,13 +36,23 @@ use std::sync::{LazyLock, RwLock};
 use std::time::Duration;
 
 use myriad_persona_log::{Grant, How, Through, lease as rules};
-use sea_orm::{ConnectionTrait, DatabaseConnection};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use tokio::sync::Notify;
 
 use super::{Error, NODE, Settings, lease, store};
 
 /// The longest a handover away from the server waits for thoughts in hand.
 pub const HANDOVER_WAIT: Duration = Duration::from_secs(120);
+
+/// How long the server waits, with nothing of it arriving, for what the
+/// holder that gave her back said it had written: past it she thinks here
+/// with what came. Each row of it that lands starts the wait again, so a
+/// slow upload is never cut short; one that will not come (its end gone,
+/// asleep, or never sending those rows) no longer leaves her nowhere. What
+/// comes later merges as any late row of that end, and she stays here: a
+/// wait that once ran out stays run out. Rows of that end past what it
+/// promised do not count, so its owner talking on there does not hold her.
+pub const CATCH_UP_WAIT_MICROS: i64 = 2 * 60 * 1_000_000;
 
 /// Where her mind is, as the server sees it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -262,16 +274,108 @@ async fn of_grant<C: ConnectionTrait>(
     let Some(from) = from_of(history, grant) else {
         return Ok(Pen::Here);
     };
-    let behind = rules::behind(Some(through), &from, &held(db, owner, through).await?);
-    Ok(if behind.is_empty() {
-        Pen::Here
-    } else {
-        Pen::CatchingUp {
-            epoch: grant.epoch,
-            from,
-            through: through.clone(),
-            behind,
+    let held = held(db, owner, through).await?;
+    let behind = rules::behind(Some(through), &from, &held);
+    if behind.is_empty() {
+        return Ok(Pen::Here);
+    }
+    let wait = wait(db, owner, &from, through, grant).await?;
+    if wait.longest >= CATCH_UP_WAIT_MICROS {
+        return Ok(Pen::Here);
+    }
+    if now - wait.last >= CATCH_UP_WAIT_MICROS {
+        // Said once, by the process that was waiting: counts and audiences
+        // only.
+        if matches!(current(), Pen::CatchingUp { epoch, .. } if epoch == grant.epoch) {
+            let short: Vec<String> = behind
+                .iter()
+                .map(|(audience, want)| {
+                    let have = held
+                        .get(audience)
+                        .and_then(|vector| vector.get(&from))
+                        .copied()
+                        .unwrap_or(0);
+                    format!("{audience} {}", want.saturating_sub(have))
+                })
+                .collect();
+            tracing::warn!(
+                device = %from,
+                epoch = grant.epoch,
+                short = ?short,
+                waited_secs = (now - wait.last) / 1_000_000,
+                "[her-log] what her last holder wrote did not all come: she thinks here without it"
+            );
         }
+        return Ok(Pen::Here);
+    }
+    Ok(Pen::CatchingUp {
+        epoch: grant.epoch,
+        from,
+        through: through.clone(),
+        behind,
+    })
+}
+
+/// How the catch-up under `grant` has gone, on the server's clock in
+/// microseconds: when it last went forward (`last`: the last row the server
+/// took from `from` within what it promised, in any audience it promised
+/// rows of, or the grant itself) and the longest it ever stood still
+/// (`longest`). Every audience of `through` counts, not only those still
+/// short: a device sending one audience after another is going forward
+/// while the next waits. Read from the log alone, so a restart and every
+/// process read it the same.
+struct Wait {
+    last: i64,
+    longest: i64,
+}
+
+async fn wait<C: ConnectionTrait>(
+    db: &C,
+    owner: i32,
+    from: &str,
+    through: &Through,
+    grant: &Grant,
+) -> Result<Wait, Error> {
+    let (audiences, promised): (Vec<String>, Vec<i64>) = through
+        .iter()
+        .map(|(audience, upto)| (audience.clone(), i64::try_from(*upto).unwrap_or(i64::MAX)))
+        .unzip();
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "WITH start AS (SELECT created_at AS at FROM agent_lease_grants WHERE epoch = $3), \
+             came AS ( \
+                 SELECT at FROM start \
+                 UNION ALL \
+                 SELECT r.received_at FROM agent_log_rows r \
+                 JOIN unnest($4::text[], $5::bigint[]) AS promised(audience, upto) \
+                   ON r.audience = promised.audience AND r.dseq <= promised.upto \
+                 WHERE r.user_id = $1 AND r.origin = $2 AND r.received_at > (SELECT at FROM start) \
+             ), \
+             apart AS (SELECT at, at - LAG(at) OVER (ORDER BY at) AS still FROM came) \
+             SELECT (EXTRACT(EPOCH FROM MAX(at)) * 1000000)::BIGINT AS last, \
+                    COALESCE((EXTRACT(EPOCH FROM MAX(still)) * 1000000)::BIGINT, 0) AS longest \
+             FROM apart",
+            [
+                owner.into(),
+                from.into(),
+                (grant.epoch as i64).into(),
+                audiences.into(),
+                promised.into(),
+            ],
+        ))
+        .await?;
+    let issued = grant.issued.wall_ms as i64 * 1000;
+    let (last, longest) = match row {
+        Some(row) => (
+            row.try_get::<Option<i64>>("", "last")?,
+            row.try_get::<i64>("", "longest")?,
+        ),
+        None => (None, 0),
+    };
+    Ok(Wait {
+        last: last.unwrap_or(issued),
+        longest,
     })
 }
 
@@ -307,6 +411,16 @@ pub async fn settle_for(
     settings: &Settings,
     owner: Option<i32>,
 ) -> Result<Pen, Error> {
+    settle_for_at(db, settings, owner, super::now()).await
+}
+
+/// [`settle_for`] at the server's time `now`.
+pub(crate) async fn settle_for_at(
+    db: &DatabaseConnection,
+    settings: &Settings,
+    owner: Option<i32>,
+    now: i64,
+) -> Result<Pen, Error> {
     let pen = if copy_live(db).await? {
         let catching = match owner {
             Some(owner) if in_play(db, settings, Some(owner)).await? => Some(owner),
@@ -315,7 +429,7 @@ pub async fn settle_for(
         let history = lease::history(db).await?;
         match history.last() {
             None => Pen::Here,
-            Some(grant) => of_grant(db, catching, &history, grant, settings, super::now()).await?,
+            Some(grant) => of_grant(db, catching, &history, grant, settings, now).await?,
         }
     } else {
         Pen::Here

@@ -607,23 +607,46 @@ impl AiAnalyzer {
                 .unwrap_or_else(|_| acc.produced_chars())
                 .div_ceil(4) as u64
         });
-        crate::services::ai_cost_ledger::record_ai_tokens_from_attribution(
-            self.provider.as_str(),
-            &self.model,
-            input_tokens.min(i32::MAX as u64) as i32,
-            output_tokens.min(i32::MAX as u64) as i32,
-            if result.is_ok() {
-                "completed"
-            } else {
-                "failed"
-            },
-            if result.is_ok() {
-                None
-            } else {
-                Some("AI_PROVIDER_ERROR")
-            },
-        )
-        .await;
+        let status = if result.is_ok() {
+            "completed"
+        } else {
+            "failed"
+        };
+        let error_code = result.is_err().then_some("AI_PROVIDER_ERROR");
+        match &reported_usage {
+            // What the provider counted: real tokens, priced.
+            Some(usage) => {
+                let reported = crate::services::ai_cost_ledger::Reported::of(
+                    &self.model,
+                    crate::services::ai_pricing::Usage {
+                        input: usage.input_tokens,
+                        output: usage.output_tokens,
+                        ..Default::default()
+                    },
+                );
+                crate::services::ai_cost_ledger::record_ai_call_reported(
+                    self.provider.as_str(),
+                    &self.model,
+                    0,
+                    0,
+                    Some(&reported),
+                    status,
+                    error_code,
+                )
+                .await;
+            }
+            None => {
+                crate::services::ai_cost_ledger::record_ai_tokens_from_attribution(
+                    self.provider.as_str(),
+                    &self.model,
+                    input_tokens.min(i32::MAX as u64) as i32,
+                    output_tokens.min(i32::MAX as u64) as i32,
+                    status,
+                    error_code,
+                )
+                .await;
+            }
+        }
         result.map_err(|source| {
             ToolTurnFailure {
                 source,

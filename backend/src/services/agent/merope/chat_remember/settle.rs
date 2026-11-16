@@ -42,6 +42,8 @@ pub(in crate::services::agent::merope) async fn settle(
         return Ok(Effect::NoChange);
     }
     notes.sort_by_key(|row| row.created_at);
+    // What she kept from talks here: what another end kept
+    // (`unified::SYNC_SOURCE`) is that end's, and going over leaves it be.
     let mut known: Vec<&unified::MemoryRecord> =
         rows.iter().filter(|row| row.source == "chat").collect();
     known.sort_by_key(|row| std::cmp::Reverse(row.created_at));

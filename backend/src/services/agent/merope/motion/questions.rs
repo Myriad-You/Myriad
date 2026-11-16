@@ -107,8 +107,12 @@ async fn decide(
         .send()
         .await?;
     let status = response.status();
-    let mut value: Value = response.json().await?;
-    let usage = &value["usage"];
+    let text = response.text().await?;
+    let parsed = serde_json::from_str::<Value>(&text);
+    let usage = parsed
+        .as_ref()
+        .map(|value| value["usage"].clone())
+        .unwrap_or_default();
     crate::services::ai_cost_ledger::record_ai_tokens_from_attribution(
         &source.provider,
         &source.model,
@@ -122,8 +126,66 @@ async fn decide(
         (!status.is_success()).then_some(status.as_str()),
     )
     .await;
-    anyhow::ensure!(status.is_success(), "decisions call failed: {status}");
-    Ok(value["answers"].take())
+    anyhow::ensure!(
+        status.is_success(),
+        "decisions call failed: {status}; {}",
+        refusal_shape(&text, key)
+    );
+    Ok(parsed?["answers"].take())
+}
+
+/// What a refused call says about why, fit for the log: the error's type,
+/// code, field path and message, cut to a few hundred characters. Fields that
+/// echo what was sent (`input`, `value`, the body: her words, the persona)
+/// are never kept, and neither is the key or anything shaped like one.
+fn refusal_shape(text: &str, key: &str) -> String {
+    const KEPT: [&str; 11] = [
+        "error", "errors", "detail", "issues", "type", "code", "loc", "path", "param", "msg",
+        "message",
+    ];
+    fn keep(value: &Value, depth: usize) -> Option<Value> {
+        match value {
+            _ if depth > 6 => None,
+            Value::Object(map) => {
+                let kept: serde_json::Map<String, Value> = map
+                    .iter()
+                    .filter(|(name, _)| KEPT.contains(&name.as_str()))
+                    .filter_map(|(name, field)| Some((name.clone(), keep(field, depth + 1)?)))
+                    .collect();
+                (!kept.is_empty()).then_some(Value::Object(kept))
+            }
+            Value::Array(items) => {
+                let kept: Vec<Value> = items
+                    .iter()
+                    .take(5)
+                    .filter_map(|item| keep(item, depth + 1))
+                    .collect();
+                (!kept.is_empty()).then_some(Value::Array(kept))
+            }
+            Value::String(text) => Some(Value::String(text.chars().take(160).collect())),
+            Value::Number(_) | Value::Bool(_) => Some(value.clone()),
+            Value::Null => None,
+        }
+    }
+    static SECRET: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i)bearer\s+\S+|\b(?:sk|pk|rk)-[\w-]{6,}|[\w-]{32,}").unwrap()
+    });
+    let Ok(body) = serde_json::from_str::<Value>(text) else {
+        return format!("a body of {} bytes that is not JSON", text.len());
+    };
+    let Some(shape) = keep(&body, 0) else {
+        return "no error fields in the body".into();
+    };
+    let mut shape = shape.to_string();
+    if !key.trim().is_empty() {
+        shape = shape.replace(key.trim(), "[key]");
+    }
+    let shape = SECRET.replace_all(&shape, "[redacted]");
+    let mut cut: String = shape.chars().take(400).collect();
+    if cut.len() < shape.len() {
+        cut.push('…');
+    }
+    cut
 }
 
 /// What the director is asked about a moment, as the semantic eval records it.
@@ -234,5 +296,60 @@ mod tests {
         )
         .await;
         assert!(plan["baseline"]["via"].is_null());
+    }
+
+    #[test]
+    fn a_refusal_keeps_its_shape_and_never_what_was_sent() {
+        let said = "今天你特别可爱，我想一直看着你";
+        let key = "or-v1-0123456789abcdef0123456789abcdef";
+        // A validation refusal that echoes the request back.
+        let refused = json!({"detail": [{
+            "type": "string_too_long",
+            "loc": ["body", "state", "responseText"],
+            "msg": "String should have at most 500 characters",
+            "input": said,
+            "ctx": {"max_length": 500, "given": said},
+            "url": "https://errors.example/string_too_long",
+        }], "body": {"state": {"responseText": said}}})
+        .to_string();
+        let shape = refusal_shape(&refused, key);
+        assert!(shape.contains("string_too_long"), "{shape}");
+        assert!(shape.contains("responseText"), "{shape}");
+        assert!(shape.contains("at most 500"), "{shape}");
+        assert!(!shape.contains(said), "{shape}");
+        assert!(
+            !shape.contains("input") && !shape.contains("ctx"),
+            "{shape}"
+        );
+
+        // An error object that names the key or a bearer header.
+        let named = json!({"error": {
+            "type": "invalid_request_error",
+            "code": 422,
+            "param": "questions[3].options",
+            "message": format!("bad request with Authorization: Bearer {key} and sk-live-abcdef123456"),
+            "value": said,
+        }})
+        .to_string();
+        let shape = refusal_shape(&named, key);
+        assert!(shape.contains("questions[3].options"), "{shape}");
+        assert!(shape.contains("invalid_request_error"), "{shape}");
+        assert!(
+            !shape.contains(key) && !shape.contains("0123456789abcdef"),
+            "{shape}"
+        );
+        assert!(!shape.contains("sk-live"), "{shape}");
+        assert!(!shape.contains(said), "{shape}");
+
+        // Long messages are cut; a body that is not JSON is only measured.
+        let long = json!({"error": {"message": "x ".repeat(2000)}}).to_string();
+        assert!(refusal_shape(&long, key).chars().count() <= 401);
+        let html = format!("<html>{said}</html>");
+        let shape = refusal_shape(&html, key);
+        assert!(
+            !shape.contains(said) && shape.contains("not JSON"),
+            "{shape}"
+        );
+        assert_eq!(refusal_shape("{}", key), "no error fields in the body");
     }
 }

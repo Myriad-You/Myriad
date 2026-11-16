@@ -3069,6 +3069,7 @@ dependencies = [
  "base64 0.23.1",
  "chrono",
  "chrono-tz",
+ "myriad-her-link",
  "myriad-merope",
  "myriad-perception-filter",
  "myriad-persona-log",

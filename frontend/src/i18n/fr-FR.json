@@ -668,7 +668,8 @@
       "mindElsewhere": "Elle est sur « {name} » en ce moment.",
       "mindElsewhereUnknown": "Elle est sur un autre de vos appareils en ce moment.",
       "mindElsewhereLeave": "Elle est sur « {name} » en ce moment ; ce que vous dites ici, elle le voit là-bas.",
-      "mindElsewhereLeaveUnknown": "Elle est sur un autre de vos appareils en ce moment ; ce que vous dites ici, elle le voit là-bas."
+      "mindElsewhereLeaveUnknown": "Elle est sur un autre de vos appareils en ce moment ; ce que vous dites ici, elle le voit là-bas.",
+      "mindBack": "Elle vient de revenir ici et récupère encore ce qu'elle a écrit sur votre autre appareil ; ce ne sera pas long."
     },
     "status": {
       "idle": "En attente",
@@ -803,6 +804,26 @@
     "pictures": "(a envoyé {count} images)",
     "forgetLine": "Oublier",
     "confirmForgetLine": "Elle oublie cette phrase et ce qu’elle en a retenu ; en synchronisation, partout.",
+    "card": {
+      "moved": "Cette carte a été mise à jour : voir plus bas",
+      "chose": "Choisi : « {label} »",
+      "answered": "Déjà répondu",
+      "failed": "Envoi impossible. Réessayez.",
+      "closed": "Cette carte est close",
+      "stale": "La carte vient de changer ; voici la dernière version",
+      "because": "D’après le fait {n}",
+      "view": "Avis",
+      "states": {
+        "working": "En cours",
+        "waiting_owner": "Attend votre décision",
+        "finished": "Terminé",
+        "stuck": "Bloqué",
+        "waiting_checks": "Attend les vérifications",
+        "waiting_program": "Attend un autre programme",
+        "waiting_session": "Attend de rendre compte",
+        "quiet": "Calme depuis un moment"
+      }
+    },
     "closeImage": "Fermer",
     "newSession": "Nouveau sujet",
     "stop": "Arrêter",

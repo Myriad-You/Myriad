@@ -47,42 +47,63 @@ impl AiAnalyzer {
             "encoding_format": "float",
         });
         let input_chars = inputs.iter().map(String::len).sum::<usize>();
-        let result = async {
-            let response = self
-                .authenticate(self.client.post(&url))
-                .header("Content-Type", "application/json")
-                .json(&body)
-                .send()
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to send embeddings request (endpoint: {url}, model: {})",
-                        self.model
+        // A memory bench asks again what the network dropped
+        // (`ai_cost_ledger::once_or_again`); everything else asks once.
+        let (url, body) = (&url, &body);
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(
+            crate::services::ai_cost_ledger::once_or_again(
+                &self.model,
+                move || async move {
+                    let response = self
+                        .authenticate(self.client.post(url))
+                        .header("Content-Type", "application/json")
+                        .json(&body)
+                        .send()
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "Failed to send embeddings request (endpoint: {url}, model: {})",
+                                self.model
+                            )
+                        })?;
+                    let status = response.status();
+                    let bytes = crate::services::outbound_security::read_limited_body(
+                        response,
+                        MAX_RESPONSE_BYTES,
                     )
-                })?;
-            let status = response.status();
-            let bytes =
-                crate::services::outbound_security::read_limited_body(response, MAX_RESPONSE_BYTES)
                     .await
                     .map_err(|error| anyhow::anyhow!(error))?;
-            if !status.is_success() {
-                anyhow::bail!(super::openai::format_openai_compatible_http_error(
-                    status,
-                    &url,
-                    &self.model,
-                    &String::from_utf8_lossy(&bytes[..bytes.len().min(64 * 1024)]),
-                ));
-            }
-            let parsed: EmbeddingsResponse =
-                serde_json::from_slice(&bytes).context("Failed to parse embeddings JSON")?;
-            ordered(parsed.data, inputs.len())
-        }
+                    if !status.is_success() {
+                        anyhow::bail!(super::openai::format_openai_compatible_http_error(
+                            status,
+                            &url,
+                            &self.model,
+                            &String::from_utf8_lossy(&bytes[..bytes.len().min(64 * 1024)]),
+                        ));
+                    }
+                    #[cfg(test)]
+                    crate::services::ai_cost_ledger::spent::charged(&bytes, Some(&self.model));
+                    if let Ok(answer) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                        crate::services::ai_cost_ledger::note_answer(&answer, Some(&self.model));
+                    }
+                    let parsed: EmbeddingsResponse = serde_json::from_slice(&bytes)
+                        .context("Failed to parse embeddings JSON")?;
+                    ordered(parsed.data, inputs.len())
+                },
+                |result: &Result<_>| result.as_ref().err().map(|error| (None, error)),
+            ),
+        )
         .await;
-        crate::services::ai_cost_ledger::record_ai_call_from_attribution(
+        #[cfg(test)]
+        if let Err(error) = &result {
+            crate::services::ai_cost_ledger::spent::because(&self.model, error);
+        }
+        crate::services::ai_cost_ledger::record_ai_call_reported(
             self.provider.as_str(),
             &self.model,
             input_chars,
             0,
+            reported.as_ref(),
             if result.is_ok() {
                 "completed"
             } else {

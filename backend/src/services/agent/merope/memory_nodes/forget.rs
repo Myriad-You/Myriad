@@ -1,7 +1,9 @@
 //! Forgetting on her nodes what goes with a forgotten memory (decision D7):
 //! its entries, the spans and inbox items whose words were forgotten with
-//! it (the lines `memory::origins` deletes), the versions of her views and
-//! of what is not wrapped up that rest on either, and a topic she started that
+//! it (the lines `memory::origins` deletes), the versions of her views,
+//! of what is not wrapped up and of how their life stands (「现在」) that
+//! rest on either (one resting on several goes when any of them does: its
+//! words may carry what was forgotten), and a topic she started that
 //! holds no entry any more, for its name can say as much as what was on it
 //! (the rule the old topic tables keep, `migrations/topic_nodes.sql`). An
 //! intent resting on a forgotten line goes too, with what the site kept of
@@ -32,8 +34,9 @@ use super::{Error, heads, inbox, logged, write};
 use crate::services::her_log::{self, NODE};
 
 /// The rows citing any of `refs`: entries and spans by their references,
-/// her views and what is not wrapped up by what they rest on (`because`);
-/// each with its account, audience and node.
+/// her views, what is not wrapped up and how their life stands (「现在」)
+/// by what they rest on (`because`); each with its account, audience and
+/// node.
 async fn citing<C: ConnectionTrait>(
     db: &C,
     refs: &[String],
@@ -45,9 +48,9 @@ async fn citing<C: ConnectionTrait>(
              CROSS JOIN LATERAL jsonb_array_elements_text( \
                CASE WHEN r.body = '' THEN '[]'::jsonb \
                     ELSE COALESCE((r.body::jsonb)->(CASE \
-                      WHEN r.kind IN ('node.view_changed', 'node.open_item') THEN 'because' \
+                      WHEN r.kind IN ('node.view_changed', 'node.open_item', 'node.standing') THEN 'because' \
                       ELSE 'refs' END), '[]'::jsonb) END) AS cited(ref) \
-             WHERE r.kind IN ('node.entry', 'node.span', 'node.view_changed', 'node.open_item') \
+             WHERE r.kind IN ('node.entry', 'node.span', 'node.view_changed', 'node.open_item', 'node.standing') \
                AND cited.ref = ANY($1)",
             [refs.to_vec().into()],
         ))
@@ -109,6 +112,8 @@ pub(super) async fn forget_one<C: ConnectionTrait>(
     };
     let id = myriad_nodes::entries::row_id_from("forget", node, &source, "");
     // The same forget again: kept already, and no count is taken for it.
+    // Asked under the audience's lock, so two at once do not both write.
+    write::lock(db, user_id, audience).await?;
     let known = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -269,4 +274,100 @@ pub(super) fn row_node(row: &Row) -> String {
         .strip_prefix("node:")
         .unwrap_or(&row.object)
         .to_string()
+}
+
+/// Whether a kept row's body names `reference` in `because` or `refs`.
+fn names(kept: &heads::KeptRow, reference: &str) -> bool {
+    kept.body
+        .as_deref()
+        .and_then(|body| serde_json::from_str::<serde_json::Value>(body).ok())
+        .is_some_and(|body| myriad_nodes::sessions::names_session(&body, reference))
+}
+
+/// Forgets for good, in `user_id`'s `audience`, everything that names
+/// `reference` (a device's grant to tell her of its sessions): a node whose
+/// key starts with `whole` that such a row is on goes whole, every other
+/// row that names it goes alone. A node it only added to stays, with what
+/// it holds of anything else: a forgotten node never comes back under its
+/// key, and a repository is one whole for every grant. The person's own
+/// act, as any forget: no pen.
+pub(crate) async fn forget_named<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    audience: &str,
+    reference: &str,
+    whole: &str,
+) -> Result<(), Error> {
+    write::lock(db, user_id, audience).await?;
+    let kept = heads::rows_of(db, user_id, audience).await?;
+    let folded = heads::fold_rows(&kept)?;
+    let key_of = |node: &str| {
+        folded
+            .nodes
+            .iter()
+            .find(|folded| folded.id == node)
+            .and_then(|folded| folded.key.clone())
+            .unwrap_or_default()
+    };
+    let mut wholes: BTreeSet<String> = BTreeSet::new();
+    let mut alone: Vec<Row> = Vec::new();
+    for kept in kept
+        .iter()
+        .filter(|kept| !kept.row.forgotten && names(kept, reference))
+    {
+        let node = row_node(&kept.row);
+        if key_of(&node).starts_with(whole) {
+            wholes.insert(node);
+        } else {
+            alone.push(kept.row.clone());
+        }
+    }
+    for row in &alone {
+        forget_one(db, user_id, audience, &row_node(row), Forgets::Row(&row.id)).await?;
+    }
+    stub(db, user_id, &alone).await?;
+    forget_wholes(db, user_id, audience, &wholes).await?;
+    let folded = heads::fold_rows(&heads::rows_of(db, user_id, audience).await?)?;
+    heads::refresh(db, user_id, audience, &folded).await?;
+    Ok(())
+}
+
+/// Forgets for good, in `user_id`'s `audience`, each of `nodes` whole: for
+/// nodes whose key can never come again (a removed device's folders).
+pub(crate) async fn forget_nodes<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    audience: &str,
+    nodes: &BTreeSet<String>,
+) -> Result<(), Error> {
+    if nodes.is_empty() {
+        return Ok(());
+    }
+    write::lock(db, user_id, audience).await?;
+    forget_wholes(db, user_id, audience, nodes).await?;
+    let folded = heads::fold_rows(&heads::rows_of(db, user_id, audience).await?)?;
+    heads::refresh(db, user_id, audience, &folded).await?;
+    Ok(())
+}
+
+/// Forgets each of `nodes` whole: a forget of the node, its rows stubs.
+async fn forget_wholes<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    audience: &str,
+    nodes: &BTreeSet<String>,
+) -> Result<(), Error> {
+    if nodes.is_empty() {
+        return Ok(());
+    }
+    for node in nodes {
+        forget_one(db, user_id, audience, node, Forgets::Node).await?;
+    }
+    let gone: Vec<Row> = heads::rows_of(db, user_id, audience)
+        .await?
+        .into_iter()
+        .filter(|kept| nodes.contains(&row_node(&kept.row)))
+        .map(|kept| kept.row)
+        .collect();
+    stub(db, user_id, &gone).await
 }

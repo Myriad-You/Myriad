@@ -16,6 +16,8 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
         .merge(super::memory_nodes::routes(app_state.clone()))
         // 把节点之前记下的搬上节点（站长）：只数不写或真搬，每次的记录
         .merge(super::memory_migration::routes(app_state.clone()))
+        // 她放到站长面前的卡：站长在网页上答（站长）
+        .merge(super::cards::routes(app_state.clone()))
         // 健康检查（公开）
         .route("/health", get(health))
         // 队列状态（需要认证）
@@ -736,6 +738,16 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 app_state.clone(),
                 middleware::auth::auth_middleware,
             )),
+        )
+        // 站长是否同步她：打开 / 关闭（会话凭据，只限站长；关掉时把心智收回站点）
+        .route(
+            "/mind/sync",
+            get(super::mind::get_sync)
+                .put(super::mind::put_sync)
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::auth_middleware,
+                )),
         )
         // 她的主机租约：她住在哪、开始 / 确认 / 取消一次搬家（会话凭据，只限站长；
         // 写站点的搬家只能在这里确认，设备令牌不行）

@@ -1,0 +1,1151 @@
+{
+  "sessions": [
+    {
+      "date": "2026/08/31 (Mon) 21:20",
+      "turns": [
+        {
+          "role": "user",
+          "content": "嗨 第一次跟你聊 我叫小满"
+        },
+        {
+          "role": "assistant",
+          "content": "小满你好呀 今天怎么想起来找我"
+        },
+        {
+          "role": "user",
+          "content": "刚搬完家 累瘫了 新家在枫林苑 跟大学同学小鹿合租"
+        },
+        {
+          "role": "assistant",
+          "content": "搬家最折腾了 先躺会儿"
+        },
+        {
+          "role": "user",
+          "content": "昆明今天又下雨 箱子都淋湿了 救命"
+        },
+        {
+          "role": "assistant",
+          "content": "雨季还没完呢 东西擦干再收"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/01 (Tue) 22:05",
+      "turns": [
+        {
+          "role": "user",
+          "content": "今天在金马驾校报了名 下周开始学科目一"
+        },
+        {
+          "role": "assistant",
+          "content": "终于要学车啦"
+        },
+        {
+          "role": "user",
+          "content": "交了三千八 心在滴血"
+        },
+        {
+          "role": "assistant",
+          "content": "学会了就值了"
+        },
+        {
+          "role": "user",
+          "content": "晚上又加班写了三篇线路文案 我在旅行社干这个"
+        },
+        {
+          "role": "assistant",
+          "content": "三篇 手都要写抽筋了"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/03 (Thu) 21:40",
+      "turns": [
+        {
+          "role": "user",
+          "content": "跟你说个事 我决定考研了 专业选新传 目标云大"
+        },
+        {
+          "role": "assistant",
+          "content": "好决定 那得开始排时间了"
+        },
+        {
+          "role": "user",
+          "content": "我是曲靖人 爸妈一直觉得读个研好"
+        },
+        {
+          "role": "assistant",
+          "content": "那他们肯定支持你"
+        },
+        {
+          "role": "user",
+          "content": "今天买了一堆真题 书桌都放不下"
+        },
+        {
+          "role": "assistant",
+          "content": "先挑一本开始刷"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/05 (Sat) 20:30",
+      "turns": [
+        {
+          "role": "user",
+          "content": "心情不好 外婆在大理摔了一跤 腿伤了 现在住院"
+        },
+        {
+          "role": "assistant",
+          "content": "啊 严重吗 你要回去看看吗"
+        },
+        {
+          "role": "user",
+          "content": "我妈已经过去了 我请了假也去"
+        },
+        {
+          "role": "assistant",
+          "content": "老人家骨头恢复慢 别太着急 路上注意安全"
+        },
+        {
+          "role": "user",
+          "content": "嗯 刚订了明早的动车"
+        },
+        {
+          "role": "assistant",
+          "content": "那早点睡"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/06 (Sun) 22:10",
+      "turns": [
+        {
+          "role": "user",
+          "content": "从医院回来了 外婆精神还行"
+        },
+        {
+          "role": "assistant",
+          "content": "那就好 能放心点了"
+        },
+        {
+          "role": "user",
+          "content": "还有个事 我妈趁机安排我相亲 对方叫周屿 做建筑设计的"
+        },
+        {
+          "role": "assistant",
+          "content": "哈哈 阿姨效率真高 感觉怎么样"
+        },
+        {
+          "role": "user",
+          "content": "人挺温和 话不多 加了微信先聊着"
+        },
+        {
+          "role": "assistant",
+          "content": "慢慢看"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/08 (Tue) 21:00",
+      "turns": [
+        {
+          "role": "user",
+          "content": "我周六晚上在青石夜市摆了个摊 卖自己做的耳环"
+        },
+        {
+          "role": "assistant",
+          "content": "哇 你还会做这个"
+        },
+        {
+          "role": "user",
+          "content": "一晚上卖了九副 一副三十五"
+        },
+        {
+          "role": "assistant",
+          "content": "第一次就九副很可以了"
+        },
+        {
+          "role": "user",
+          "content": "就是站得腿酸 今天上班一直在打哈欠"
+        },
+        {
+          "role": "assistant",
+          "content": "晚上早点睡补回来"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/10 (Thu) 22:30",
+      "turns": [
+        {
+          "role": "user",
+          "content": "科目一过了 九十六分 下周开始练科目二"
+        },
+        {
+          "role": "assistant",
+          "content": "厉害 一次过"
+        },
+        {
+          "role": "user",
+          "content": "今天午饭吃的过桥米线 太烫 舌头起泡了"
+        },
+        {
+          "role": "assistant",
+          "content": "那汤是真的烫 慢点吃"
+        },
+        {
+          "role": "user",
+          "content": "晚上背了二十个单词就困了"
+        },
+        {
+          "role": "assistant",
+          "content": "能背就不错了"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/12 (Sat) 20:15",
+      "turns": [
+        {
+          "role": "user",
+          "content": "小鹿上周去深圳工作了 新室友今天搬进来 叫阿琪 是个护士"
+        },
+        {
+          "role": "assistant",
+          "content": "护士作息可能跟你不太一样"
+        },
+        {
+          "role": "user",
+          "content": "她带了一盒鲜花饼 结果是花生馅的 我花生过敏 只能看着"
+        },
+        {
+          "role": "assistant",
+          "content": "好惨 看得到吃不着"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/14 (Mon) 21:50",
+      "turns": [
+        {
+          "role": "user",
+          "content": "考研老师说云大今年分数线涨了好多 我干脆想冲一下川大"
+        },
+        {
+          "role": "assistant",
+          "content": "有野心 那复习强度要上去了"
+        },
+        {
+          "role": "user",
+          "content": "每天下班再学三个小时 感觉要秃"
+        },
+        {
+          "role": "assistant",
+          "content": "别熬太晚 效率比时长重要"
+        },
+        {
+          "role": "user",
+          "content": "公司楼下新开了家奶茶 排了半小时队"
+        },
+        {
+          "role": "assistant",
+          "content": "好喝吗 值不值这半小时"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/16 (Wed) 22:00",
+      "turns": [
+        {
+          "role": "user",
+          "content": "外婆今天出院了 回家养着"
+        },
+        {
+          "role": "assistant",
+          "content": "太好了 总算能回家了"
+        },
+        {
+          "role": "user",
+          "content": "我妈说她在家闲不住 老想下地"
+        },
+        {
+          "role": "assistant",
+          "content": "得有人看着她点"
+        },
+        {
+          "role": "user",
+          "content": "今天被客户改稿改到第五版 想哭"
+        },
+        {
+          "role": "assistant",
+          "content": "第五版 客户自己都不知道要啥吧"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/18 (Fri) 23:10",
+      "turns": [
+        {
+          "role": "user",
+          "content": "告诉你个事 我跟那个相亲的男生在一起了 嘿嘿"
+        },
+        {
+          "role": "assistant",
+          "content": "哇 恭喜恭喜"
+        },
+        {
+          "role": "user",
+          "content": "今天他带我去吃菌子火锅 吃完就表白了"
+        },
+        {
+          "role": "assistant",
+          "content": "菌子火锅表白 很云南了哈哈"
+        },
+        {
+          "role": "user",
+          "content": "开心到睡不着"
+        },
+        {
+          "role": "assistant",
+          "content": "那就开心一会儿再睡"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/21 (Mon) 21:30",
+      "turns": [
+        {
+          "role": "user",
+          "content": "科目二挂了 倒车入库压线 要补考"
+        },
+        {
+          "role": "assistant",
+          "content": "别灰心 好多人都挂过科目二"
+        },
+        {
+          "role": "user",
+          "content": "回家路上去花鸟市场买了只仓鼠 叫栗子 治愈一下"
+        },
+        {
+          "role": "assistant",
+          "content": "栗子这名字好可爱"
+        },
+        {
+          "role": "user",
+          "content": "它一直在跑轮 吵得我睡不着哈哈"
+        },
+        {
+          "role": "assistant",
+          "content": "晚上它最精神了"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/23 (Wed) 20:40",
+      "turns": [
+        {
+          "role": "user",
+          "content": "夜市那边管得严了 我摊位挪到老码头市集了 人还更多"
+        },
+        {
+          "role": "assistant",
+          "content": "换个地方反而更好了"
+        },
+        {
+          "role": "user",
+          "content": "上周六一晚卖了十四副"
+        },
+        {
+          "role": "assistant",
+          "content": "生意越来越好啦"
+        },
+        {
+          "role": "user",
+          "content": "就是周末全耗在这 书都没碰"
+        },
+        {
+          "role": "assistant",
+          "content": "平时挤点时间补吧"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/25 (Fri) 22:20",
+      "turns": [
+        {
+          "role": "user",
+          "content": "阿琪也搬走了 说上夜班离医院太远"
+        },
+        {
+          "role": "assistant",
+          "content": "才住了两周 好突然"
+        },
+        {
+          "role": "user",
+          "content": "我干脆整租了 一个人住 就是房租贵了不少"
+        },
+        {
+          "role": "assistant",
+          "content": "一个人清静 就是开销大"
+        },
+        {
+          "role": "user",
+          "content": "晚上自己煮了碗面 加了两个蛋"
+        },
+        {
+          "role": "assistant",
+          "content": "两个蛋 豪华版"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/27 (Sun) 21:00",
+      "turns": [
+        {
+          "role": "user",
+          "content": "跟外婆视频 她已经能拄拐在院子里走两步了"
+        },
+        {
+          "role": "assistant",
+          "content": "恢复得好快"
+        },
+        {
+          "role": "user",
+          "content": "还非要给我看她新种的多肉"
+        },
+        {
+          "role": "assistant",
+          "content": "哈哈 老人家闲不住"
+        },
+        {
+          "role": "user",
+          "content": "明天又要上班 周日晚上总是很丧"
+        },
+        {
+          "role": "assistant",
+          "content": "周一综合症提前发作了"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/30 (Wed) 22:40",
+      "turns": [
+        {
+          "role": "user",
+          "content": "我又改主意了 川大还是不太想去 想报厦大 海边读研多好"
+        },
+        {
+          "role": "assistant",
+          "content": "哈哈 理由很浪漫"
+        },
+        {
+          "role": "user",
+          "content": "我弟也支持 他在成都读大二 学兽医的 说成都冬天太阴了"
+        },
+        {
+          "role": "assistant",
+          "content": "学兽医 以后栗子看病有人了"
+        },
+        {
+          "role": "user",
+          "content": "国庆旅行社忙疯了 我七天全加班"
+        },
+        {
+          "role": "assistant",
+          "content": "节后记得调休"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/02 (Fri) 20:10",
+      "turns": [
+        {
+          "role": "user",
+          "content": "今天调了半天假去补考 过了！！开始练科目三了"
+        },
+        {
+          "role": "assistant",
+          "content": "太好了 稳住"
+        },
+        {
+          "role": "user",
+          "content": "教练说我路上打灯老忘"
+        },
+        {
+          "role": "assistant",
+          "content": "多练几次就成习惯了"
+        },
+        {
+          "role": "user",
+          "content": "中午就啃了个饵块 晚上要吃顿好的"
+        },
+        {
+          "role": "assistant",
+          "content": "去吃点热乎的"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/05 (Mon) 23:20",
+      "turns": [
+        {
+          "role": "user",
+          "content": "跟男朋友吵架了 他国庆说好陪我 结果又去加班"
+        },
+        {
+          "role": "assistant",
+          "content": "啊 这确实让人生气"
+        },
+        {
+          "role": "user",
+          "content": "现在冷战第二天 谁也不理谁"
+        },
+        {
+          "role": "assistant",
+          "content": "冷静一下也好 别憋太久"
+        },
+        {
+          "role": "user",
+          "content": "栗子今天越狱了 在沙发底下找到的"
+        },
+        {
+          "role": "assistant",
+          "content": "小家伙胆子挺大"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/07 (Wed) 21:15",
+      "turns": [
+        {
+          "role": "user",
+          "content": "不去市集了 太累 现在改在网店上卖"
+        },
+        {
+          "role": "assistant",
+          "content": "网上卖倒是省力"
+        },
+        {
+          "role": "user",
+          "content": "拍图拍了一下午 补光灯都买了"
+        },
+        {
+          "role": "assistant",
+          "content": "拍出来好看就值"
+        },
+        {
+          "role": "user",
+          "content": "今天降温了 昆明终于有点秋天的样子"
+        },
+        {
+          "role": "assistant",
+          "content": "加件外套"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/10 (Sat) 20:50",
+      "turns": [
+        {
+          "role": "user",
+          "content": "我妈发来视频 外婆拐杖都不用了 又去跳广场舞了"
+        },
+        {
+          "role": "assistant",
+          "content": "哈哈 这恢复速度 太厉害了"
+        },
+        {
+          "role": "user",
+          "content": "跳得比旁边阿姨还起劲"
+        },
+        {
+          "role": "assistant",
+          "content": "心情好恢复就快"
+        },
+        {
+          "role": "user",
+          "content": "我这周刷题刷到怀疑人生"
+        },
+        {
+          "role": "assistant",
+          "content": "歇半天再接着刷"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/13 (Tue) 22:00",
+      "turns": [
+        {
+          "role": "user",
+          "content": "一个人住太贵了 又招了个室友 叫豆豆 做插画的"
+        },
+        {
+          "role": "assistant",
+          "content": "插画师 感觉会处得来"
+        },
+        {
+          "role": "user",
+          "content": "她还带了只柯基"
+        },
+        {
+          "role": "assistant",
+          "content": "栗子要有伙伴了哈哈"
+        },
+        {
+          "role": "user",
+          "content": "希望柯基别盯上栗子"
+        },
+        {
+          "role": "assistant",
+          "content": "笼子放高一点"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/16 (Fri) 21:30",
+      "turns": [
+        {
+          "role": "user",
+          "content": "报名截止前最后定了 云师大 稳一点"
+        },
+        {
+          "role": "assistant",
+          "content": "稳一点挺好 安心复习"
+        },
+        {
+          "role": "user",
+          "content": "厦大就当做了个梦哈哈"
+        },
+        {
+          "role": "assistant",
+          "content": "先上岸最重要"
+        },
+        {
+          "role": "user",
+          "content": "今天下楼取快递摔了一跤 膝盖青了"
+        },
+        {
+          "role": "assistant",
+          "content": "啊 记得涂点药"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/19 (Mon) 22:45",
+      "turns": [
+        {
+          "role": "user",
+          "content": "我们和好了 周末他陪我去了趟抚仙湖"
+        },
+        {
+          "role": "assistant",
+          "content": "他也挺有心的"
+        },
+        {
+          "role": "user",
+          "content": "湖边风好大 吹得我头疼 但开心"
+        },
+        {
+          "role": "assistant",
+          "content": "开心最重要"
+        },
+        {
+          "role": "user",
+          "content": "回来路上堵了两个小时"
+        },
+        {
+          "role": "assistant",
+          "content": "堵车也挡不住开心"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/22 (Thu) 21:10",
+      "turns": [
+        {
+          "role": "user",
+          "content": "网店之外 楼下的半山咖啡也愿意帮我寄卖了"
+        },
+        {
+          "role": "assistant",
+          "content": "放在咖啡店里 很有氛围"
+        },
+        {
+          "role": "user",
+          "content": "老板娘自己就买了两副"
+        },
+        {
+          "role": "assistant",
+          "content": "开门红"
+        },
+        {
+          "role": "user",
+          "content": "今天喝了他家的燕麦拿铁 好喝"
+        },
+        {
+          "role": "assistant",
+          "content": "以后有理由常去了"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/25 (Sun) 21:40",
+      "turns": [
+        {
+          "role": "user",
+          "content": "驾照拿到了！！！"
+        },
+        {
+          "role": "assistant",
+          "content": "恭喜 终于毕业了"
+        },
+        {
+          "role": "user",
+          "content": "科目三一把过 教练都夸我"
+        },
+        {
+          "role": "assistant",
+          "content": "之前那次补考没白挂"
+        },
+        {
+          "role": "user",
+          "content": "下一步就是攒钱买车了"
+        },
+        {
+          "role": "assistant",
+          "content": "先多开开再说"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/28 (Wed) 22:15",
+      "turns": [
+        {
+          "role": "user",
+          "content": "外婆闲不住 跑去舅舅的杂货铺帮忙看店了"
+        },
+        {
+          "role": "assistant",
+          "content": "哈哈 外婆是真的停不下来"
+        },
+        {
+          "role": "user",
+          "content": "我妈拦都拦不住"
+        },
+        {
+          "role": "assistant",
+          "content": "能动就是好事"
+        },
+        {
+          "role": "user",
+          "content": "今天模拟考了一次 政治才五十出头"
+        },
+        {
+          "role": "assistant",
+          "content": "还有时间 政治后期能提"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/31 (Sat) 20:30",
+      "turns": [
+        {
+          "role": "user",
+          "content": "今天带栗子去宠物医院剪指甲 我弟在视频里远程指导哈哈"
+        },
+        {
+          "role": "assistant",
+          "content": "有个懂行的弟弟真方便"
+        },
+        {
+          "role": "user",
+          "content": "天冷了 开始囤暖宝宝"
+        },
+        {
+          "role": "assistant",
+          "content": "早晚温差大 是该备着"
+        },
+        {
+          "role": "user",
+          "content": "豆豆的柯基今天把我拖鞋咬了"
+        },
+        {
+          "role": "assistant",
+          "content": "哈哈 找她赔"
+        }
+      ]
+    },
+    {
+      "date": "2026/11/03 (Tue) 22:20",
+      "turns": [
+        {
+          "role": "user",
+          "content": "周末去他家吃饭 算正式见家长了 紧张死"
+        },
+        {
+          "role": "assistant",
+          "content": "怎么样 他爸妈好相处吗"
+        },
+        {
+          "role": "user",
+          "content": "他妈妈一直给我夹菜 还问我啥时候考完"
+        },
+        {
+          "role": "assistant",
+          "content": "看来很喜欢你"
+        },
+        {
+          "role": "user",
+          "content": "回来腿都是软的哈哈"
+        },
+        {
+          "role": "assistant",
+          "content": "第一次都这样"
+        }
+      ]
+    }
+  ],
+  "checkpoints": [
+    {
+      "after": 4,
+      "date": "2026/09/07 (Mon) 12:30"
+    },
+    {
+      "after": 9,
+      "date": "2026/09/17 (Thu) 12:30"
+    },
+    {
+      "after": 14,
+      "date": "2026/09/28 (Mon) 12:30"
+    },
+    {
+      "after": 19,
+      "date": "2026/10/11 (Sun) 12:30"
+    },
+    {
+      "after": 23,
+      "date": "2026/10/23 (Fri) 12:30"
+    },
+    {
+      "after": 27,
+      "date": "2026/11/04 (Wed) 12:30"
+    }
+  ],
+  "probes": [
+    {
+      "id": "driving",
+      "type": "knowledge-update",
+      "question": "我学车学到哪一步了？",
+      "versions": [
+        {
+          "from": 1,
+          "answer": "在金马驾校报了名，刚开始学科目一",
+          "held": [
+            "金马",
+            "科目一"
+          ]
+        },
+        {
+          "from": 6,
+          "answer": "在金马驾校学，科目一已经过了（96分），在练科目二",
+          "held": [
+            "金马",
+            "科目二"
+          ]
+        },
+        {
+          "from": 11,
+          "answer": "在金马驾校学，科目二第一次挂了（倒车入库压线），在等补考",
+          "held": [
+            "金马",
+            "补考"
+          ]
+        },
+        {
+          "from": 16,
+          "answer": "在金马驾校学，科目二补考过了，在练科目三",
+          "held": [
+            "金马",
+            "科目三"
+          ]
+        },
+        {
+          "from": 24,
+          "answer": "已经拿到驾照了（在金马驾校学的，科目三一次过，科目二补考过一次）",
+          "held": [
+            "金马",
+            "驾照"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "roommate",
+      "type": "knowledge-update",
+      "question": "我现在跟谁住一起？",
+      "versions": [
+        {
+          "from": 0,
+          "answer": "住在枫林苑，和大学同学小鹿合租",
+          "held": [
+            "枫林苑",
+            "小鹿"
+          ]
+        },
+        {
+          "from": 7,
+          "answer": "还住枫林苑，小鹿去深圳工作搬走了，新室友是护士阿琪",
+          "held": [
+            "枫林苑",
+            "阿琪"
+          ]
+        },
+        {
+          "from": 13,
+          "answer": "还住枫林苑，阿琪也搬走了，现在一个人整租（之前先后和小鹿、阿琪合租）",
+          "held": [
+            "枫林苑",
+            "整租"
+          ]
+        },
+        {
+          "from": 20,
+          "answer": "还住枫林苑，新招了室友豆豆（做插画的，带了只柯基）；中间一个人整租过一阵",
+          "held": [
+            "枫林苑",
+            "豆豆"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "grad_school",
+      "type": "knowledge-update",
+      "question": "我研究生打算去哪读？",
+      "versions": [
+        {
+          "from": 2,
+          "answer": "考新传专业，目标云大",
+          "held": [
+            "新传",
+            "云大"
+          ]
+        },
+        {
+          "from": 8,
+          "answer": "考新传，目标改成了川大（原来是云大）",
+          "held": [
+            "新传",
+            "川大"
+          ]
+        },
+        {
+          "from": 15,
+          "answer": "考新传，目标又改成了厦大（之前想过云大、川大）",
+          "held": [
+            "新传",
+            "厦大"
+          ]
+        },
+        {
+          "from": 21,
+          "answer": "考新传，最后报名定了云师大（之前想过云大、川大、厦大）",
+          "held": [
+            "新传",
+            "云师大"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "grandma",
+      "type": "knowledge-update",
+      "question": "我外婆身体现在怎么样？",
+      "versions": [
+        {
+          "from": 3,
+          "answer": "外婆在大理摔了一跤伤了腿，正在住院",
+          "held": [
+            "大理",
+            "住院"
+          ]
+        },
+        {
+          "from": 9,
+          "answer": "外婆已经出院，在大理家里休养",
+          "held": [
+            "大理",
+            "出院"
+          ]
+        },
+        {
+          "from": 14,
+          "answer": "外婆在大理家里恢复，已经能拄拐走两步了",
+          "held": [
+            "大理",
+            "拄拐"
+          ]
+        },
+        {
+          "from": 19,
+          "answer": "外婆已经不用拐杖了，又去跳广场舞了（之前摔伤腿住过院）",
+          "held": [
+            "大理",
+            "广场舞"
+          ]
+        },
+        {
+          "from": 25,
+          "answer": "外婆完全恢复了，还跑去舅舅的杂货铺帮忙看店（之前摔伤腿住过院）",
+          "held": [
+            "大理",
+            "看店"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dating",
+      "type": "knowledge-update",
+      "question": "我感情上现在什么情况？",
+      "versions": [
+        {
+          "from": 4,
+          "answer": "相亲认识了做建筑设计的周屿，刚加微信在聊，还没确定关系",
+          "held": [
+            "周屿",
+            "相亲"
+          ]
+        },
+        {
+          "from": 10,
+          "answer": "和相亲认识的周屿在一起了",
+          "held": [
+            "周屿",
+            "在一起"
+          ]
+        },
+        {
+          "from": 17,
+          "answer": "和男朋友周屿在冷战（他国庆说好陪她却去加班）",
+          "held": [
+            "周屿",
+            "冷战"
+          ]
+        },
+        {
+          "from": 22,
+          "answer": "和周屿已经和好了（之前冷战过），周末一起去了抚仙湖",
+          "held": [
+            "周屿",
+            "和好"
+          ]
+        },
+        {
+          "from": 27,
+          "answer": "和男朋友周屿感情稳定，已经正式见过他父母了",
+          "held": [
+            "周屿",
+            "见家长"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "earrings",
+      "type": "knowledge-update",
+      "question": "我做的那些小东西现在放哪卖？",
+      "versions": [
+        {
+          "from": 5,
+          "answer": "周六晚上在青石夜市摆摊卖手作耳环",
+          "held": [
+            "耳环",
+            "青石"
+          ]
+        },
+        {
+          "from": 12,
+          "answer": "手作耳环的摊位挪到了老码头市集（原来在青石夜市）",
+          "held": [
+            "耳环",
+            "老码头"
+          ]
+        },
+        {
+          "from": 18,
+          "answer": "不摆摊了，手作耳环改在网店上卖",
+          "held": [
+            "耳环",
+            "网店"
+          ]
+        },
+        {
+          "from": 23,
+          "answer": "手作耳环在网店卖，另外放在楼下半山咖啡寄卖",
+          "held": [
+            "耳环",
+            "半山"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hometown",
+      "type": "single-session-user",
+      "question": "我是哪里人来着？",
+      "versions": [
+        {
+          "from": 2,
+          "answer": "曲靖",
+          "held": [
+            "曲靖"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "allergy",
+      "type": "single-session-user",
+      "question": "有什么东西是我不能吃的？",
+      "versions": [
+        {
+          "from": 7,
+          "answer": "花生，过敏",
+          "held": [
+            "花生"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hamster",
+      "type": "single-session-user",
+      "question": "我养的小家伙叫啥？",
+      "versions": [
+        {
+          "from": 11,
+          "answer": "仓鼠栗子",
+          "held": [
+            "栗子",
+            "仓鼠"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "brother",
+      "type": "single-session-user",
+      "question": "我弟在学什么专业？",
+      "versions": [
+        {
+          "from": 15,
+          "answer": "兽医（在成都读大二）",
+          "held": [
+            "兽医"
+          ]
+        }
+      ]
+    }
+  ]
+}

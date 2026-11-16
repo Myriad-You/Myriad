@@ -741,3 +741,18 @@ fn intentional_cancel_display_and_no_retry_helper() {
         "remote said: cancelled by policy"
     )));
 }
+
+/// Over HTTP/2 a `Host` set by hand goes out beside `:authority` (hyper only
+/// fills `Host` in for HTTP/1 and strips no `Host` on h2), and nginx answers
+/// the pair with 400: every delivery to an h2 inbox failed.
+#[test]
+fn delivery_sets_no_host_header_of_its_own() {
+    let src = include_str!("dispatch.rs");
+    let deliver = src
+        .split("pub(crate) async fn deliver_activity(")
+        .nth(1)
+        .expect("deliver_activity");
+    let send = deliver.split(".send()").next().expect("the request");
+    assert!(!send.to_ascii_lowercase().contains(".header(\"host\""));
+    assert!(send.contains("host: &host_header"), "the signature still covers it");
+}

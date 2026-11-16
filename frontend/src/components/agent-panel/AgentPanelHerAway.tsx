@@ -20,18 +20,22 @@ const AWAY: readonly HerAway[] = ['moving', 'elsewhere', 'vacant', 'moved_out', 
  * or that her mind is on (`/agent/mind/where`), and whether they are the
  * owner (`owner`): only they are told which device. `leaves`: her mind is on
  * another device and what the owner says here reaches her there (D6-b), so
- * the composer stays.
+ * the composer stays. `catchingUp`: her mind was just handed back here and
+ * the site is still taking in what that device wrote, so she is not on
+ * another device at all.
  */
 export function useHerAway(open: boolean): {
   away: HerAway | null
   device: string | null
   owner: boolean
   leaves: boolean
+  catchingUp: boolean
 } {
   const [away, setAway] = useState<HerAway | null>(null)
   const [device, setDevice] = useState<string | null>(null)
   const [owner, setOwner] = useState(false)
   const [leaves, setLeaves] = useState(false)
+  const [catchingUp, setCatchingUp] = useState(false)
   useEffect(() => {
     if (!open) return
     let alive = true
@@ -47,10 +51,12 @@ export function useHerAway(open: boolean): {
         setOwner(mind !== null)
         setDevice(mind?.holderName ?? null)
         setLeaves(mind?.leaves === true)
+        setCatchingUp(mind?.catchingUp === true)
         return
       }
       setOwner(false)
       setLeaves(false)
+      setCatchingUp(false)
       if (next !== 'elsewhere') {
         setDevice(null)
         return
@@ -62,7 +68,7 @@ export function useHerAway(open: boolean): {
       alive = false
     }
   }, [open])
-  return { away, device, owner, leaves }
+  return { away, device, owner, leaves, catchingUp }
 }
 
 /**
@@ -74,8 +80,9 @@ export const AgentPanelHerAway: React.FC<{
   device: string | null
   owner?: boolean
   leaves?: boolean
+  catchingUp?: boolean
   mode: AgentPanelMode
-}> = ({ away, device, owner = false, leaves = false, mode }) => {
+}> = ({ away, device, owner = false, leaves = false, catchingUp = false, mode }) => {
   const { t, format } = useI18n()
   if (mode !== 'chat') return null
   const words = t.agentPanel.away
@@ -83,13 +90,15 @@ export const AgentPanelHerAway: React.FC<{
     away === 'mind_elsewhere'
       ? !owner
         ? words.member
-        : leaves
-          ? device
-            ? format(words.mindElsewhereLeave, { name: device })
-            : words.mindElsewhereLeaveUnknown
-          : device
-            ? format(words.mindElsewhere, { name: device })
-            : words.mindElsewhereUnknown
+        : catchingUp
+          ? words.mindBack
+          : leaves
+            ? device
+              ? format(words.mindElsewhereLeave, { name: device })
+              : words.mindElsewhereLeaveUnknown
+            : device
+              ? format(words.mindElsewhere, { name: device })
+              : words.mindElsewhereUnknown
       : away === 'elsewhere'
         ? device
           ? format(words.elsewhere, { name: device })

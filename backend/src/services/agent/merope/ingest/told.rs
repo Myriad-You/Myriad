@@ -7,9 +7,7 @@ use sea_orm::DatabaseConnection;
 use std::collections::BTreeMap;
 
 use super::super::nodes;
-use crate::services::agent::consciousness::{
-    ConsciousnessAction, ConsciousnessDecision, ConsciousnessEvent, EventUrgency,
-};
+use crate::services::agent::consciousness::{ConsciousnessEvent, EventUrgency};
 
 /// What a child end saw for her and told her host (her link's `moment`),
 /// as that end wrote it: an event of its own, said only in person.
@@ -112,67 +110,6 @@ pub(super) async fn shape(
     }
 }
 
-/// What she decided about it, kept on its node: the line she would say (not
-/// said yet) or what she noted; a decision without either is still kept.
-pub(super) async fn file(
-    db: &DatabaseConnection,
-    user_id: i32,
-    event_key: &str,
-    told: &Told,
-    event: &ConsciousnessEvent,
-    decision: &ConsciousnessDecision,
-) {
-    let Some(place) = nodes::place(event_key, &told.safe_facts) else {
-        return;
-    };
-    if let Err(error) = nodes::decided(db, user_id, &place, filed(event, decision, told)).await {
-        tracing::warn!(%error, event_key, "[Merope] could not keep a decision on its node");
-    }
-}
-
-/// The decision as its node keeps it.
-pub(super) fn filed<'a>(
-    event: &'a ConsciousnessEvent,
-    decision: &'a ConsciousnessDecision,
-    told: &'a Told,
-) -> nodes::Decided<'a> {
-    let action = match decision.action {
-        ConsciousnessAction::Ignore => "ignore",
-        ConsciousnessAction::Remember => "remember",
-        ConsciousnessAction::Speak => "speak",
-        ConsciousnessAction::Ask => "ask",
-        ConsciousnessAction::ProposeWork => "propose_work",
-    };
-    let line = match decision.action {
-        ConsciousnessAction::Speak => decision.speech.clone(),
-        ConsciousnessAction::Ask => decision.question.clone(),
-        ConsciousnessAction::Remember => decision.memory.clone(),
-        ConsciousnessAction::Ignore | ConsciousnessAction::ProposeWork => None,
-    }
-    .map(|line| line.trim().to_string())
-    .filter(|line| !line.is_empty());
-    nodes::Decided {
-        event: &event.id,
-        happened: told
-            .safe_facts
-            .get("happened")
-            .map(String::as_str)
-            .unwrap_or(""),
-        action,
-        reason: &decision.reason_code,
-        origin: &told.origin,
-        note: line.map(|line| nodes::Note {
-            event: event.id.clone(),
-            happened: told.safe_facts.get("happened").cloned().unwrap_or_default(),
-            action: action.to_string(),
-            line,
-            at: crate::clock::now(),
-            // What she noted is kept as hers; what she would say waits to be said.
-            said: decision.action == ConsciousnessAction::Remember,
-        }),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,59 +135,5 @@ mod tests {
         };
         assert!(at(0).sayable() && at(-1).sayable() && at(4).sayable());
         assert!(!at(6).sayable());
-    }
-
-    /// What she decided is kept as her line waiting to be said, as what she
-    /// noted, or as the decision alone.
-    #[test]
-    fn a_decision_is_kept_on_its_node_as_she_made_it() {
-        use crate::services::agent::consciousness::{ConsciousnessAction, ConsciousnessDecision};
-        let told = Told {
-            id: "mom_1".into(),
-            headline: String::new(),
-            safe_facts: [("happened".to_string(), "waiting".to_string())].into(),
-            urgency: EventUrgency::Soon,
-            occurred_at: crate::clock::now(),
-            origin: "dev_mac".into(),
-            keeps_memory: false,
-        };
-        let event = ConsciousnessEvent {
-            id: "evt_1_x".into(),
-            source: "dev_mac".into(),
-            kind: "agent.merope.peer_agent".into(),
-            headline: String::new(),
-            summary: "s".into(),
-            addressee_user_id: 1,
-            urgency: EventUrgency::Soon,
-            occurred_at: crate::clock::now(),
-            parent_event_id: None,
-            safe_facts: told.safe_facts.clone(),
-            keeps_memory: false,
-        };
-        let decision = |action, memory: Option<&str>, speech: Option<&str>| ConsciousnessDecision {
-            action,
-            reason_code: "r".into(),
-            confidence: 0.9,
-            memory: memory.map(Into::into),
-            speech: speech.map(Into::into),
-            question: None,
-            work_proposal: None,
-        };
-        let speak = decision(ConsciousnessAction::Speak, Some("x"), Some(" 它在等你。 "));
-        let kept = filed(&event, &speak, &told);
-        assert_eq!(
-            (kept.action, kept.happened, kept.origin),
-            ("speak", "waiting", "dev_mac")
-        );
-        let note = kept.note.unwrap();
-        assert_eq!((note.line.as_str(), note.said), ("它在等你。", false));
-        let remember = decision(ConsciousnessAction::Remember, Some("他们在改测试"), None);
-        let note = filed(&event, &remember, &told).note.unwrap();
-        assert_eq!((note.action.as_str(), note.said), ("remember", true));
-        let ignore = decision(ConsciousnessAction::Ignore, None, None);
-        let kept = filed(&event, &ignore, &told);
-        assert_eq!((kept.action, kept.note.is_none()), ("ignore", true));
-        let empty = decision(ConsciousnessAction::Speak, None, Some("  "));
-        assert!(filed(&event, &empty, &told).note.is_none());
     }
 }

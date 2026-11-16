@@ -56,6 +56,8 @@ mod contract;
 mod conversations;
 mod experience;
 mod moment;
+mod moment_repeats;
+mod now;
 mod nodes;
 mod notices;
 mod outfit;
@@ -222,6 +224,13 @@ fn send_log_all(owner: i32, except: &str, outgoing: connection::Outgoing) {
     }
 }
 
+/// A frame of her log to every link of `owner` that syncs her now, sent
+/// by the server itself rather than as an answer on a link (her mind taken
+/// back from a holder that never caught up: `her_log::stuck`).
+pub(crate) fn tell_log_links(owner: i32, t: &'static str, body: serde_json::Value) {
+    send_log_all(owner, "", connection::frame(t, body));
+}
+
 /// Where she lives changed: each child is told she is not here (frozen or
 /// moved) and reconnects to the refusal; the device she lives on is told on
 /// its own link that she is frozen there for a move, or thawed, and a device
@@ -360,6 +369,15 @@ pub(crate) fn disconnect(device_id: &str, why: Close) {
     let open = OPEN.lock().ok().and_then(|mut open| open.remove(device_id));
     if let Some(open) = open {
         let _ = open.close.send(why);
+    }
+}
+
+/// The owner turned syncing her on or off: the link of each of their
+/// `devices` is closed with `unavailable` and says hello again, its welcome
+/// telling it which (a link learns sync only in its welcome).
+pub(crate) fn sync_changed(devices: &[String]) {
+    for device in devices {
+        disconnect(device, Close::Unavailable);
     }
 }
 

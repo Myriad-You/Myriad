@@ -73,6 +73,10 @@ async fn redeem_speak_intent(
         log_skip(intent.user_id, &intent.topic, "not_admitted");
         return Ok(());
     }
+    if crate::services::agent::consciousness::withdrawn(&intent) {
+        log_skip(intent.user_id, &intent.topic, "withdrawn");
+        return Ok(());
+    }
     let state = get_or_create_state(db, intent.user_id).await?;
     let input_at = state.last_user_message_at;
     let Some(decision) = current_delivery(db, &intent, input_at, false).await else {
@@ -223,6 +227,12 @@ async fn redeem_speak_intent(
     let Some(decision) = current_delivery(db, &intent, input_at, false).await else {
         return Ok(());
     };
+    // What it rested on was taken back while it was worded or waited: the
+    // last look before it goes out.
+    if crate::services::agent::consciousness::withdrawn(&intent) {
+        log_skip(intent.user_id, &intent.topic, "withdrawn");
+        return Ok(());
+    }
     // Merope toasts only what it owns. Task / phantasi / sync already have a
     // producer; sending ours as well would be two notices for one event.
     let mut delivered = false;
@@ -337,20 +347,10 @@ async fn redeem_speak_intent(
             event_key: &intent.topic,
             notified,
             say_id: said_on_app.as_deref(),
+            card: intent.card.as_deref(),
         }),
     )
     .await;
-    if delivered || notified {
-        // What a child end saw: her line on its node is said now.
-        if super::super::gates::files_on_node(&intent.topic) {
-            if let Err(error) =
-                super::super::nodes::said(db, intent.user_id, &intent.source_event_id, &spoken)
-                    .await
-            {
-                tracing::warn!(%error, "[Merope] could not mark a node's line said");
-            }
-        }
-    }
     Ok(())
 }
 

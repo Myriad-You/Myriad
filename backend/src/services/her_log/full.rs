@@ -127,5 +127,14 @@ pub async fn redeem(
     if sent.too_old {
         download["tooOld"] = json!(true);
     }
+    // Counts only: what went, never what is in it.
+    tracing::info!(
+        device,
+        audience,
+        rows = rows.len(),
+        withheld = withheld.len(),
+        too_old = sent.too_old,
+        "[her-log] a first-sync link was used"
+    );
     Ok(Some(download))
 }

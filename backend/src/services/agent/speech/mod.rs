@@ -97,7 +97,7 @@ pub fn source_of_event(event_key: &str) -> Source {
         key if key == wander::THOUGHT_EVENT || key == curiosity::FOUND_OUT_EVENT => Source::Wander,
         key if key == doing::DOING_EVENT => Source::Share,
         key if key == playing::PLAYING_EVENT => Source::GameRemark,
-        gates::SITUATION_EVENT => Source::Screen,
+        gates::SITUATION_EVENT | gates::SCREEN_EVENT => Source::Screen,
         gates::AI_CHAT_EVENT | gates::PEER_AGENT_EVENT => Source::OtherAi,
         key if gates::is_task_outcome(key) => Source::WorkDone,
         _ => Source::Event,

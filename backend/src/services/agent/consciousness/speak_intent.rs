@@ -30,6 +30,10 @@ pub struct SpeakIntent {
     pub expires_at: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work_intent_id: Option<String>,
+    /// The card her line is about (its id), when it is one of hers before
+    /// the owner: the line, once said, carries it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card: Option<String>,
 }
 
 static QUEUE: Lazy<RwLock<HashMap<i32, Vec<SpeakIntent>>>> =
@@ -42,6 +46,41 @@ pub fn enqueue_speak_intent(intent: SpeakIntent) {
     if let Ok(mut map) = QUEUE.write() {
         map.entry(intent.user_id).or_default().push(intent);
     }
+}
+
+/// Sources taken back, by user: (prefix, when). An intent made before
+/// then that was already taken from the queue (being worded, or waiting
+/// its turn) is let go too ([`withdrawn`]).
+static WITHDRAWN: Lazy<RwLock<HashMap<i32, Vec<(String, DateTime<Utc>)>>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
+
+/// Takes back `user_id`'s intents whose source starts with `prefix`: what
+/// they rested on is gone. Those still queued go now; one already taken
+/// is let go before it is worded and before it is said.
+pub fn withdraw_speak_intents(user_id: i32, prefix: &str) {
+    if let Ok(mut map) = QUEUE.write()
+        && let Some(queue) = map.get_mut(&user_id)
+    {
+        queue.retain(|intent| !intent.source_event_id.starts_with(prefix));
+    }
+    let now = crate::clock::now();
+    if let Ok(mut withdrawn) = WITHDRAWN.write() {
+        let held = withdrawn.entry(user_id).or_default();
+        // No intent lives longer than its lifetime.
+        held.retain(|(_, at)| *at + Duration::seconds(SPEAK_INTENT_TTL_SECS) > now);
+        held.push((prefix.to_string(), now));
+    }
+}
+
+/// Whether `intent`'s source was taken back after it was made.
+pub fn withdrawn(intent: &SpeakIntent) -> bool {
+    WITHDRAWN.read().is_ok_and(|withdrawn| {
+        withdrawn.get(&intent.user_id).is_some_and(|held| {
+            held.iter().any(|(prefix, at)| {
+                intent.created_at <= *at && intent.source_event_id.starts_with(prefix.as_str())
+            })
+        })
+    })
 }
 
 /// Take due intents. Expired ones are dropped with no sentence.
@@ -94,12 +133,46 @@ pub fn new_speak_intent(
         created_at: now,
         expires_at: now + Duration::seconds(ttl),
         work_intent_id,
+        card: None,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What rested on what was taken back goes, queued or already taken;
+    /// what is made after it is said as ever.
+    #[test]
+    fn a_withdrawn_source_is_let_go_queued_or_taken() {
+        let intent = |source: &str| {
+            new_speak_intent(
+                906,
+                source.into(),
+                "agent.merope.peer_agent".into(),
+                "做完了".into(),
+                EventUrgency::Normal,
+                None,
+            )
+        };
+        let queued = intent("grant:g1/task:look-a");
+        let taken = intent("grant:g1/task:look-b");
+        let other = intent("grant:g2/task:look-c");
+        enqueue_speak_intent(queued.clone());
+        withdraw_speak_intents(906, "grant:g1");
+        assert!(withdrawn(&queued) && withdrawn(&taken));
+        assert!(!withdrawn(&other));
+        // Gone from the queue (read, not drained: other tests share it).
+        assert!(
+            QUEUE
+                .read()
+                .unwrap()
+                .get(&906)
+                .is_none_or(|queue| queue.is_empty())
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        assert!(!withdrawn(&intent("grant:g1/task:look-d")));
+    }
 
     #[test]
     fn observation_survives_the_queue_without_changing_the_spoken_sentence() {
@@ -113,9 +186,12 @@ mod tests {
         );
         value.observation = Some("最后呈现的反应：躲避".into());
         enqueue_speak_intent(value);
-        let queued = drain_speak_intents(crate::clock::now())
-            .into_iter()
-            .find(|v| v.user_id == 905)
+        // Read as queued, not drained: other tests running beside this one
+        // drain the queue they share.
+        let queued = QUEUE.read().unwrap()[&905]
+            .iter()
+            .find(|v| v.source_event_id == "touch-observation")
+            .cloned()
             .unwrap();
         assert_eq!(queued.gist, "先别摸啦。");
         assert_eq!(queued.observation.as_deref(), Some("最后呈现的反应：躲避"));
@@ -150,6 +226,7 @@ mod tests {
             created_at: now,
             expires_at: now + Duration::seconds(expires_in_secs),
             work_intent_id: None,
+            card: None,
         }
     }
 

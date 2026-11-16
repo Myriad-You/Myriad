@@ -1,6 +1,8 @@
 import type {
   AgentResponse,
   Capability,
+  CardAnswerReply,
+  CardLine,
   CreatePresetRequest,
   ExecutionTrace,
   HeartbeatTask,
@@ -17,6 +19,7 @@ import type {
   RigStateSummary,
   SessionInfo,
   SessionMessage,
+  SessionPage,
   SkillInfo,
   TaskDetail,
   TaskInfo,
@@ -46,6 +49,17 @@ export type AgentIntentionStatus =
   | 'failed'
   | 'abandoned'
   | 'expired'
+
+/** Whether the site owner syncs her (`/api/agent/mind/sync`). */
+export interface HerSync {
+  /** Her log is on on this site (HER_LOG_ENABLED): only then can it be turned on. */
+  available: boolean
+  on: boolean
+  /** When the owner last turned it off. */
+  stoppedAt: string | null
+  /** How long the site keeps her log after it is turned off. */
+  retentionDays: number
+}
 
 /** A device that syncs her with this site (`/api/agent/devices`). */
 export interface SyncDevice {
@@ -723,6 +737,16 @@ class AgentService {
     leaves?: boolean
   }> {
     return apiService.get(`${this.baseUrl}/mind/where`)
+  }
+
+  /** Whether the owner syncs her (owner only). */
+  async getHerSync(): Promise<HerSync> {
+    return apiService.get(`${this.baseUrl}/mind/sync`)
+  }
+
+  /** The owner turns syncing her on or off; off brings her mind back here. */
+  async setHerSync(on: boolean): Promise<HerSync> {
+    return apiService.put(`${this.baseUrl}/mind/sync`, { on })
   }
 
   /** Calls a move off before its commit (or turns down one a device asked for): she is back as she was. */
@@ -1721,11 +1745,36 @@ class AgentService {
     limit: number = 50,
     signal = authSubject.signal,
   ): Promise<SessionMessage[]> {
-    const response = await apiService.get<{ messages: SessionMessage[] }>(
+    return (await this.getSessionPage(sessionId, page, limit, signal)).messages
+  }
+
+  /** A page of a session, with the site owner's card lines of that chat (oldest first). */
+  async getSessionPage(
+    sessionId: string,
+    page: number = 1,
+    limit: number = 50,
+    signal = authSubject.signal,
+  ): Promise<SessionPage> {
+    const response = await apiService.get<{ messages: SessionMessage[]; cards?: CardLine[] }>(
       `${this.baseUrl}/sessions/${sessionId}/messages?page=${page}&limit=${limit}`,
       { signal },
     )
-    return response.messages
+    return {
+      messages: response.messages,
+      cards: Array.isArray(response.cards) ? response.cards : [],
+    }
+  }
+
+  /** The owner's answer to the version of a card they saw. */
+  async answerCard(
+    cardId: string,
+    version: string,
+    action: string,
+  ): Promise<CardAnswerReply> {
+    return apiService.post<CardAnswerReply>(
+      `${this.baseUrl}/cards/${encodeURIComponent(cardId)}/answer`,
+      { version, action },
+    )
   }
 
   /** The run still writing a reply in this session, for a page opened or reloaded meanwhile; null when none. */

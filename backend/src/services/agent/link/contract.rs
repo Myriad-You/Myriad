@@ -202,7 +202,7 @@ impl Close {
 
 /// Frame types the host sends.
 #[cfg(test)]
-pub(super) const HOST_FRAMES: [&str; 28] = [
+pub(super) const HOST_FRAMES: [&str; 29] = [
     "welcome",
     "host.freeze",
     "host.thaw",
@@ -231,11 +231,12 @@ pub(super) const HOST_FRAMES: [&str; 28] = [
     "conversation",
     "moment.taken",
     "nodes",
+    "card.answered",
 ];
 
 /// Frame types the host takes from a child.
 #[cfg(test)]
-pub(super) const CHILD_FRAMES: [&str; 19] = [
+pub(super) const CHILD_FRAMES: [&str; 20] = [
     "hello",
     "input",
     "presence",
@@ -255,12 +256,13 @@ pub(super) const CHILD_FRAMES: [&str; 19] = [
     "act.result",
     "moment",
     "node.forget",
+    "card.answer",
 ];
 
 /// Error codes of the link: what the host sends (run.rejected may also carry
 /// an AI quota code), and the act codes `act.result` and `act.cancel` carry.
 #[cfg(test)]
-pub(super) const HOST_ERROR_CODES: [&str; 25] = [
+pub(super) const HOST_ERROR_CODES: [&str; 30] = [
     "unknown_frame",
     "version_unsupported",
     "bad_frame",
@@ -274,12 +276,17 @@ pub(super) const HOST_ERROR_CODES: [&str; 25] = [
     "agent_access_denied",
     "host_frozen",
     "host_moved",
+    "mind_elsewhere",
     "internal_error",
     "not_this_device",
     "too_large",
     "outfit_unknown",
     "proposal_unknown",
     "place_unknown",
+    "card_unknown",
+    "card_closed",
+    "card_action_unknown",
+    "card_stale",
     "act_off",
     "act_busy",
     "act_unavailable",

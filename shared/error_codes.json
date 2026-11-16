@@ -33,6 +33,7 @@
     "She is moving between her ends; nothing reaches her until the move is done or cancelled": "host_frozen",
     "She does not live on this site now": "host_moved",
     "She is on another of your devices now": "mind_elsewhere",
+    "She has just come back here and is still taking in what she wrote on your other device": "mind_elsewhere",
     "She is on another of your devices now; she sees this there": "left_for_her",
     "An export is sealed with a passphrase": "passphrase_required",
     "The site has no her to export": "her_absent",
@@ -477,6 +478,7 @@
     "Failed to begin admin setup": "account_save_failed",
     "Failed to lock admin setup": "account_save_failed",
     "Failed to change password": "password_change_failed",
+    "Failed to change syncing": "her_sync_change_failed",
     "Failed to set password": "password_change_failed",
     "Failed to update local login": "local_login_save_failed",
     "Failed to check owner": "users_load_failed",
@@ -1340,6 +1342,7 @@
     "Nothing is playing": "music_not_playing"
   },
   "explicit": [
+    "her_log_off",
     "sticker_pack_full",
     "note_too_long",
     "note_too_many_attachments",

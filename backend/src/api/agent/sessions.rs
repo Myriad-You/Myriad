@@ -207,7 +207,17 @@ pub async fn get_session_messages(
         })
         .collect();
 
-    Ok(Json(json!({ "messages": messages_json })))
+    // Her cards before the site owner, where the chat stood when each came
+    // (the lines that are a card or carry one), for the page to put among
+    // the messages by time.
+    let mut body = json!({ "messages": messages_json });
+    if crate::services::site_owner::site_owner_user_id(&db).await == Ok(user_id)
+        && let Ok(cards) =
+            crate::services::agent::merope::cards::lines_in(&db, user_id, &session_id).await
+    {
+        body["cards"] = cards.into();
+    }
+    Ok(Json(body))
 }
 
 /// Has her forget one line of a conversation (D6-g): the line, what it
@@ -478,10 +488,15 @@ mod title_endpoint_tests {
         };
         let schema = format!("title_test_{}", uuid::Uuid::new_v4().simple());
         let admin = Database::connect(&url).await.unwrap();
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
             .await
             .unwrap();
+        drop(turn);
         let mut options = ConnectOptions::new(url);
         options.set_schema_search_path(&schema).sqlx_logging(false);
         let db = Database::connect(options).await.unwrap();
@@ -534,10 +549,15 @@ mod title_endpoint_tests {
                 .unwrap();
         assert_eq!(response["title"], "A title");
         db.close().await.unwrap();
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("DROP SCHEMA {schema} CASCADE"))
             .await
             .unwrap();
+        drop(turn);
         admin.close().await.unwrap();
     }
 }

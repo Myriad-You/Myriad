@@ -65,4 +65,30 @@ impl IsolatedSchema {
             .unwrap();
         admin.close().await.unwrap();
     }
+
+    /// The schema's name, to copy out of it by name.
+    pub(crate) fn name(&self) -> &str {
+        &self.schema
+    }
+
+    /// Left in place for a later run to open again ([`Self::existing`]);
+    /// the connection closes. Its name.
+    pub(crate) async fn keep(self) -> String {
+        self.db.close().await.unwrap();
+        self.schema
+    }
+
+    /// A schema kept earlier, by name: to read, or to drop when done.
+    pub(crate) async fn existing(url: &str, schema: &str) -> Self {
+        let mut options = sea_orm::ConnectOptions::new(url.to_string());
+        options
+            .set_schema_search_path(schema)
+            .max_connections(4)
+            .sqlx_logging(false);
+        Self {
+            db: sea_orm::Database::connect(options).await.unwrap(),
+            url: url.to_string(),
+            schema: schema.to_string(),
+        }
+    }
 }
