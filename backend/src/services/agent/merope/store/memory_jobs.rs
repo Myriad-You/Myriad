@@ -642,7 +642,12 @@ pub(in crate::services::agent::merope) async fn finish(
             .await
             .ok()
             .flatten();
-        super::super::memory_nodes::facts::settled(db, job.owner, owner, &present, &updates).await;
+        // Boxed: in the debug build the site runs, the whole chain down to the
+        // model call would otherwise be laid out in this frame's stack.
+        Box::pin(super::super::memory_nodes::facts::settled(
+            db, job.owner, owner, &present, &updates,
+        ))
+        .await;
     }
     Ok(())
 }

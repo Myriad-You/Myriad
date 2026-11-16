@@ -323,7 +323,9 @@ pub(crate) async fn after_settled(
     };
     if stands::build_due(&due) {
         let kept: Vec<String> = facts.iter().map(|fact| fact.memory.clone()).collect();
-        written += build(db, user_id, owner, audience, &kept, pen).await?;
+        // Boxed, as is `ask` below: in the debug build the site runs, this
+        // frame would otherwise hold room for each of them on the stack.
+        written += Box::pin(build(db, user_id, owner, audience, &kept, pen)).await?;
     }
     let heads: HashMap<String, read::Head> = read::heads(db, owner, audience, None)
         .await?
@@ -336,7 +338,13 @@ pub(crate) async fn after_settled(
         )
         .await?;
         let prepared = stands::step_prepare(step.clone())?;
-        let Some(output) = ask(user_id, "memory_standing_step", "standing_step", &prepared).await
+        let Some(output) = Box::pin(ask(
+            user_id,
+            "memory_standing_step",
+            "standing_step",
+            &prepared,
+        ))
+        .await
         else {
             if !prepared.skip {
                 tracing::info!("[memory-nodes] how things stand not asked: no answer");
