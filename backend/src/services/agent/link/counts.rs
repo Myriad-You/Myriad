@@ -58,7 +58,8 @@ pub(super) fn screen_fact(key: &str) -> bool {
 
 /// A key of a look at the screen was deleted from a frame of type `t`.
 /// Only keys the contract could name are kept as themselves, so a child
-/// cannot grow this with keys of its own making.
+/// cannot grow this with keys of its own making. The first time for a
+/// frame type and key is logged (its name, never its value).
 pub(super) fn screen_key_deleted(t: &'static str, key: &str) {
     let key = if super::contract::valid_id(key) && key.len() <= 40 {
         key
@@ -66,13 +67,16 @@ pub(super) fn screen_key_deleted(t: &'static str, key: &str) {
         UNNAMED
     };
     let now = crate::clock::now();
-    with(|counts| {
-        counts
-            .screen_keys
-            .entry((t, key.to_string()))
-            .or_default()
-            .add(now);
+    let first = with(|counts| {
+        let count = counts.screen_keys.entry((t, key.to_string())).or_default();
+        count.add(now);
+        count.count == 1
     });
+    // Once per frame type and key while the host runs: that it happens, never
+    // the value.
+    if first {
+        tracing::info!(t, key, "[link] a key of a look at the screen was deleted");
+    }
 }
 
 /// A child dropped a frame (`link.dropped`): `t` counted as itself only
