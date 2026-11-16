@@ -43,3 +43,12 @@ test('a visitor cannot ask: every way of sending stops before it', () => {
   const engine = readFileSync(new URL('./AgentEngine.tsx', import.meta.url), 'utf8')
   assert.match(engine, /if \(!isAuthenticated\) return\n/)
 })
+
+test('signing in or out ends the call, the recording and the draft of the one before', () => {
+  const composer = readFileSync(new URL('./AgentPanelComposer.tsx', import.meta.url), 'utf8')
+  const onChange = composer.split('if (subjectRef.current === subject) return')[1]!.split('}, [subject')[0]!
+  assert.match(onChange, /stopConversation\(\)/)
+  assert.match(onChange, /dropClipRef\.current = true\n\s*void stopRecording\(\)/)
+  assert.match(onChange, /setAttachments\(\[\]\)/)
+  assert.match(onChange, /setValue\(''\)/)
+})

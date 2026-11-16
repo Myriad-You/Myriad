@@ -10,6 +10,7 @@ import React, {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
@@ -20,6 +21,7 @@ import {
   subscribeVoicePresence,
 } from '../../features/merope/speech/voicePresence'
 import { agentService } from '../../services/agent'
+import { authSubject } from '../../utils/authSubject'
 import { isImeComposing } from '../../utils/ime'
 import { AGENT_ATTACH_ACCEPT, collectAttachments } from './agentAttachments'
 import { dispatchAgentPanelCommand } from './agentPanelEvents'
@@ -733,6 +735,9 @@ const ComposerTags = React.memo(({
 /** Typing re-renders the composer; the face must not re-render with it. */
 const ComposerFace = React.memo(AgentPanelFace)
 
+const subscribeSubject = (listener: () => void) => authSubject.subscribe(listener)
+const subjectRevision = () => authSubject.revision
+
 export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
   onSubmit,
   autoFocus = true,
@@ -797,17 +802,48 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
     else window.location.assign(href)
   }, [navigate, searchIsCurrent, shownResults])
 
+  const dropClipRef = useRef(false)
   const {
     speechAvailable,
     isRecording,
     isProcessingVoice,
     conversation,
     toggleRecording,
+    stopRecording,
     enterConversation,
     stopConversation,
   } = useVoiceRecording((text: string) => {
+    // A clip recorded before signing in or out was the one before speaking.
+    if (dropClipRef.current) {
+      dropClipRef.current = false
+      return
+    }
     if (text.trim() || attachmentsRef.current.length) submit(text)
   }, locale)
+  useEffect(() => {
+    // Should that clip never come back, it must not swallow the next one.
+    if (isRecording) dropClipRef.current = false
+  }, [isRecording])
+  const voiceRef = useRef({ isRecording, conversation })
+  voiceRef.current = { isRecording, conversation }
+
+  // Signing in or out, or as someone else, ends what the one before was doing
+  // here: the field's words and files are theirs, and a call or a recording
+  // left running would go on speaking to her once its stop button is gone.
+  const subject = useSyncExternalStore(subscribeSubject, subjectRevision, subjectRevision)
+  const subjectRef = useRef(subject)
+  useEffect(() => {
+    if (subjectRef.current === subject) return
+    subjectRef.current = subject
+    if (voiceRef.current.conversation) {
+      stopConversation()
+    } else if (voiceRef.current.isRecording) {
+      dropClipRef.current = true
+      void stopRecording()
+    }
+    setAttachments([])
+    setValue('')
+  }, [subject, stopConversation, stopRecording])
 
   useEffect(() => {
     if (!autoFocus) return
