@@ -496,6 +496,14 @@ async fn handle_payload(
         Some(line) => qq_group_accepts(&line.chat).await,
         None => false,
     };
+    if let (Some(line), false) = (&group_line, group_ok) {
+        // Whether the open platform shows a group's openid is not up to us;
+        // this line lets the owner find the id to put on the allowlist.
+        info!(
+            group_openid = %line.chat,
+            "QQ group message dropped: groups are off or this group is not on the allowlist"
+        );
+    }
     let ingress = if is_c2c || group_ok {
         match crate::services::bot_ingress::try_acquire(
             crate::services::bot_ingress::Channel::Qq,

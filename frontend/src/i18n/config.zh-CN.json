@@ -2143,7 +2143,7 @@
   "qqBotGroups": "接收群消息",
   "qqBotGroupsHint": "默认关闭。打开后只回答下面名单里的群；名单为空不参与任何群。官方 QQ 机器人只在群成员 @ 它时收到消息。",
   "qqBotGroupIds": "群白名单",
-  "qqBotGroupIdsHint": "用逗号分隔的 group_openid。可在 QQ 开放平台的群管理页查看每个群的 openid。",
+  "qqBotGroupIdsHint": "用逗号分隔的 group_openid。把机器人拉进群并 @ 它一次，不在名单里的群会在后台日志里记下它的 group_openid。",
   "telegramBotCredentialLabel": "凭证",
   "telegramBotReceiveLabel": "收发",
   "telegramBotIdentityLabel": "机器人",
