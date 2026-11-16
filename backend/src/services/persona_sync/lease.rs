@@ -1384,8 +1384,10 @@ pub fn refuse_edit_while_away() -> Result<(), AppError> {
 pub fn paused(driver: &'static str) -> bool {
     let place = place();
     if place.here() {
+        crate::services::agent::alive::ran(driver);
         return false;
     }
+    crate::services::agent::alive::skipped(driver, &place);
     if PAUSED.lock().is_ok_and(|mut paused| paused.insert(driver)) {
         tracing::info!(driver, place = ?place, "[host] her own life is paused here: skipped");
     }

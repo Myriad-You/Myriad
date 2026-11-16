@@ -558,6 +558,9 @@ pub(in crate::services::agent::merope) async fn finish(
     save(&tx, &claim.id, &job, now).await?;
     tx.commit().await?;
     tracing::info!(job = claim.id, attempt = claim.job.attempts, %outcome, "[Merope] memory job");
+    if matches!(claim.job.data, Some(Payload::Settle { .. })) {
+        crate::services::agent::alive::settled(&outcome);
+    }
     if let Some((present, updates)) = on_nodes {
         let owner = crate::services::principal::site_owner_id(db)
             .await

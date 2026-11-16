@@ -102,7 +102,7 @@ pub(crate) async fn request(
     proposal: &IntentRecord,
     cap: Option<Vec<String>>,
 ) -> Result<String, &'static str> {
-    ask(db, proposal, cap, false).await
+    counted(ask(db, proposal, cap, false).await)
 }
 
 /// The owner accepted on the site her proposal for their Mac, still open:
@@ -113,7 +113,19 @@ pub(crate) async fn request_accepting(
     db: &DatabaseConnection,
     proposal: &IntentRecord,
 ) -> Result<String, &'static str> {
-    ask(db, proposal, None, true).await
+    counted(ask(db, proposal, None, true).await)
+}
+
+/// The call between ends this is, as `alive` counts them.
+const CALL: &str = "act.request";
+
+/// Counts a request as asked, or as the code why it was not.
+fn counted(asked: Result<String, &'static str>) -> Result<String, &'static str> {
+    crate::services::agent::alive::called(
+        CALL,
+        asked.as_ref().map_or_else(|code| *code, |_| "asked"),
+    );
+    asked
 }
 
 async fn ask(
@@ -328,6 +340,8 @@ pub(super) async fn result(
     let store = IntentStore::new(db.clone());
     if let Some((status, summary)) = finished {
         tracing::info!(device = %device_id, act = %result.act_id, ?status, "[link] the Mac finished what it was asked");
+        // One of the four words `outcome` took.
+        crate::services::agent::alive::called(CALL, result.status.as_deref().unwrap_or("finished"));
         if let Err(error) = store
             .transition(&act.proposal_id, owner, status, None, None, summary)
             .await
@@ -339,6 +353,14 @@ pub(super) async fn result(
     }
     let code = result.code.as_deref().unwrap_or("act_unavailable");
     tracing::info!(device = %device_id, act = %result.act_id, code, "[link] the Mac refused what it was asked");
+    // The device's own word, of the contract's codes or not.
+    crate::services::agent::alive::called(
+        CALL,
+        match code {
+            "act_off" | "act_busy" | "act_unavailable" | "act_timeout" => code,
+            _ => "refused",
+        },
+    );
     if code != "act_busy" {
         if let Ok(mut resting) = RESTING.lock() {
             resting.insert(device_id.to_string());
@@ -421,6 +443,14 @@ pub(crate) async fn sweep(db: &DatabaseConnection) {
     let store = IntentStore::new(db.clone());
     for (id, act, due) in closed {
         tracing::info!(device = %act.device_id, act = %id, ?due, "[link] a request to the Mac is over");
+        crate::services::agent::alive::called(
+            CALL,
+            match due {
+                Due::NotPickedUp => "not_picked_up",
+                Due::RanOver => "ran_over",
+                Due::Revoked => "revoked",
+            },
+        );
         match due {
             Due::NotPickedUp => {
                 if let Ok(mut resting) = RESTING.lock() {

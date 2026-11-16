@@ -228,6 +228,7 @@ impl Ask {
     fn failed(self, failure: Failure) -> Failure {
         tracing::warn!(owner = self.owner, operation = self.operation, source = self.source,
             outcome = %failure, retryable = failure.retryable(), "[Merope] model call failed");
+        crate::services::agent::alive::model_failed(self.operation);
         failure
     }
 

@@ -707,6 +707,14 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 middleware::auth::auth_middleware,
             )),
         )
+        // 她现在是不是在活：只读，只限站长
+        .route(
+            "/alive",
+            get(super::alive::get_alive).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
         // 同步她的设备：站长在站点上添加、列出、移除（会话凭据，只限站长）
         .route(
             "/devices",

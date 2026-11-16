@@ -30,6 +30,8 @@ impl Drivers {
         F: FnMut() -> Fut + Send + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
+        // How often each ticks, for what shows whether she is living.
+        crate::services::agent::alive::ticks_every(name, every);
         let stop = self.stopped();
         self.tasks.spawn(async move {
             periodic(stop, every, delay, work).await;

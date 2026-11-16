@@ -161,6 +161,10 @@ pub(super) struct Hello {
     /// The epoch the end last heard; a host must hold the lease at it.
     #[serde(default)]
     pub(super) host_epoch: Option<i64>,
+    /// `{name, version}` of the app there: read only for what shows which
+    /// ends are linked (`alive`), whatever its shape; never acted on.
+    #[serde(default)]
+    pub(super) app: Option<Value>,
 }
 
 /// What `host.freeze` tells the device she lives on: the move she is frozen
@@ -765,6 +769,16 @@ impl Link {
         }
         self.hello = true;
         self.app_current().await;
+        crate::services::agent::alive::linked(crate::services::agent::alive::Hello {
+            device_id: &self.device.id,
+            name: &self.device.name,
+            protocol: hello.protocol,
+            app: hello.app.as_ref().and_then(|app| {
+                Some((app.get("name")?.as_str()?, app.get("version")?.as_str()?))
+            }),
+            declared: &hello.capabilities,
+            granted: &capabilities,
+        });
         let mut told = Vec::new();
         for turn in turns::recent(&self.device.id, turns::TOLD_IN_WELCOME) {
             let Some(run) = get_live_run_for_user(&turn.run_id, self.owner).await else {

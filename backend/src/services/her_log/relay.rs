@@ -638,6 +638,7 @@ async fn vector(
         ours = ?ours.vector,
         "[her-log] a side's vector"
     );
+    crate::services::agent::alive::log_heard(device, audience, theirs, &ours.vector);
     let mut out = Vec::new();
     let held: u64 = ours.vector.values().sum();
     // A link is given only to one that said it downloads by it: one that

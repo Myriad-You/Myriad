@@ -222,6 +222,66 @@ impl NotificationManager {
         }
     }
 
+    /// Nothing of her own life ran while she should be living on the site
+    /// (`alive::watch`), or she is living again: one notification of the
+    /// site owner's, changed in place, so one stop is told once and its end
+    /// is not another. Only times and counts: `status` and the seconds are
+    /// what the page words it from.
+    pub async fn notify_her_life(
+        &self,
+        owner: i32,
+        said: crate::services::agent::alive::watch::Said,
+    ) {
+        use crate::services::agent::alive::watch::Said;
+        let at = |seconds: i64| {
+            chrono::DateTime::from_timestamp(seconds, 0)
+                .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+                .unwrap_or_default()
+        };
+        let (priority, title, body, metadata) = match said {
+            Said::Stopped { from } => (
+                NotificationPriority::High,
+                "She has stopped living on the site".to_string(),
+                format!(
+                    "None of her own drivers has run since {}. She should be living here: \
+                     her switch is on and the site is her host.",
+                    at(from)
+                ),
+                serde_json::json!({
+                    "action": ACTION_OPEN_AGENT_MANAGE,
+                    "status": "her_life_stopped",
+                    "from": at(from),
+                }),
+            ),
+            Said::Back { from, since } => (
+                NotificationPriority::Normal,
+                "She is living on the site again".to_string(),
+                format!(
+                    "Her own drivers stopped at {} and have run without a gap since {}.",
+                    at(from),
+                    at(since)
+                ),
+                serde_json::json!({
+                    "action": ACTION_OPEN_AGENT_MANAGE,
+                    "status": "her_life_back",
+                    "from": at(from),
+                    "since": at(since),
+                    "stopped_secs": since - from,
+                }),
+            ),
+        };
+        let mut notification = Notification::new(
+            owner,
+            NotificationType::SystemInfo,
+            priority,
+            title,
+            body,
+        )
+        .with_event(NotificationEventKey::SystemInfo, metadata);
+        notification.id = format!("her_life_u{owner}");
+        self.upsert(notification).await;
+    }
+
     /// Skill 自动淘汰 / AI 改进完成时通知管理员
     pub async fn notify_skill_evolution(&self, skill_id: &str, action: &str, detail: &str) {
         let (title, event, priority) = match action {

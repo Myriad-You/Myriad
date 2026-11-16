@@ -52,6 +52,8 @@ pub async fn start(db: DatabaseConnection) -> anyhow::Result<()> {
     agent::heartbeat::init_heartbeat(agent_data_dir.join("HEARTBEAT.md"))
         .await
         .map_err(anyhow::Error::msg)?;
+    // What was kept of whether she is living, before any of her drivers ask.
+    services::agent::alive::recall(&db).await;
     let mut drivers = drivers::Drivers::new();
     let stop = drivers.stopped();
     drivers.continuous(
@@ -227,6 +229,19 @@ pub async fn start(db: DatabaseConnection) -> anyhow::Result<()> {
             }
         }
     });
+    // Whether she is living, and the one alarm when she should be and is
+    // not. Not her own: it looks wherever she is.
+    let alive_db = db.clone();
+    let mut looks = 0u64;
+    drivers.periodic(
+        "whether she is living",
+        Duration::from_secs(services::agent::alive::LOOK_SECS),
+        Duration::from_secs(services::agent::alive::LOOK_SECS),
+        move || {
+            looks = looks.wrapping_add(1);
+            services::agent::alive::look(alive_db.clone(), looks)
+        },
+    );
     let mut ticks = 0u64;
     drivers.periodic(
         "heartbeat",
@@ -269,7 +284,16 @@ fn her_own(
     let skip = services::persona_sync::lease::paused(driver);
     async move {
         if !skip {
-            tick.await;
+            // A tick that breaks off is written down, then breaks off as it
+            // did: the supervisor still sees it.
+            use futures::FutureExt;
+            match std::panic::AssertUnwindSafe(tick).catch_unwind().await {
+                Ok(()) => services::agent::alive::ended(driver),
+                Err(panic) => {
+                    services::agent::alive::failed(driver).await;
+                    std::panic::resume_unwind(panic);
+                }
+            }
         }
     }
 }
