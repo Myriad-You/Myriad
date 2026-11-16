@@ -46,8 +46,15 @@ export function channelIsStored(
   const fields = AGENT_CHANNEL_FIELDS[id]
   if (getFieldValue(fields.enabled) === 'true') return true
   return [...fields.credentials, ...(fields.extras ?? [])].some((key) =>
-    fieldHasStoredValue(getFieldValue(key)),
+    extraIsSwitch(key)
+      ? getFieldValue(key) === 'true'
+      : fieldHasStoredValue(getFieldValue(key)),
   )
+}
+
+/** A switch stores `'false'` when off, which is not something set. */
+function extraIsSwitch(key: string): boolean {
+  return key.endsWith('_enabled')
 }
 
 export function visibleAgentChannels(
@@ -67,6 +74,6 @@ export function clearAgentChannelValues(
   const fields = AGENT_CHANNEL_FIELDS[id]
   updateValue(fields.enabled, 'false')
   for (const key of [...fields.credentials, ...(fields.extras ?? [])]) {
-    updateValue(key, key.endsWith('_enabled') ? 'false' : '')
+    updateValue(key, extraIsSwitch(key) ? 'false' : '')
   }
 }

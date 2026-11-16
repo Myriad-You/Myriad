@@ -43,6 +43,14 @@ describe('agentChannels', () => {
     assert.equal(channelIsStored('qq', get), true)
   })
 
+  it('counts the QQ group switch only when it is on', () => {
+    const values: Record<string, string> = { qq_bot_groups_enabled: 'false' }
+    const get = (key: string) => values[key] ?? ''
+    assert.equal(channelIsStored('qq', get), false)
+    values.qq_bot_groups_enabled = 'true'
+    assert.equal(channelIsStored('qq', get), true)
+  })
+
   it('keeps catalog order and ignores unknown revealed ids', () => {
     const get = () => ''
     assert.deepEqual(visibleAgentChannels(get, ['feishu', 'qq']), ['qq', 'feishu'])
