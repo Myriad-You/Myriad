@@ -207,3 +207,98 @@ async fn every_note_has_somewhere_to_go_once_its_stretch_is_gone_over() {
     assert_eq!(all.len(), 7);
     schema.drop().await;
 }
+
+/// An answer keeping more for good than one stretch keeps
+/// (`chat_remember::MAX_LASTING`): the facts past it are not kept, and the
+/// notes only they were put together from are passed over, so kept as they
+/// are, as going over keeps any note it passes over. None is let go.
+#[tokio::test]
+#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
+async fn notes_of_a_fact_past_the_most_kept_are_kept_as_they_are() {
+    use crate::services::channel_group::g0;
+    let schema = fixture().await;
+    let db = &schema.db;
+    let said = [
+        "我在学吉他",
+        "周末要搬家",
+        "养了一只猫",
+        "下周去大阪出差",
+        "最近在夜跑",
+        "喜欢喝乌龙茶",
+        "妹妹下个月结婚",
+    ];
+    assert_eq!(said.len(), myriad_merope::chat_remember::MAX_LASTING + 1);
+    let began = crate::clock::now().fixed_offset() - chrono::Duration::minutes(10);
+    db.execute_unprepared(
+        "INSERT INTO agent_sessions (id, user_id, title, context, message_count, archived, \
+         created_at, last_active_at) VALUES ('settle-talk', 7, 't', '{\"mode\":\"chat\"}'::jsonb, \
+         0, false, NOW(), NOW())",
+    )
+    .await
+    .unwrap();
+    for text in said {
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO agent_messages (session_id, role, content, metadata, created_at) \
+             VALUES ('settle-talk', 'user', $1, '{}'::jsonb, NOW())",
+            [text.into()],
+        ))
+        .await
+        .unwrap();
+        note(db, text, unified::SHORT_NOTE_SOURCE).await;
+    }
+    // Each fact from one note, said otherwise than the note.
+    let lasting: Vec<serde_json::Value> = said
+        .iter()
+        .enumerate()
+        .map(|(index, text)| {
+            serde_json::json!({
+                "fact": format!("他说{text}"), "evidence": text, "from": [index],
+                "concepts": [], "whenFor": [], "topic": null,
+                "happened": null, "state": null, "open": null,
+            })
+        })
+        .collect();
+    let answer = serde_json::json!({
+        "lasting": lasting, "replaces": [], "moment": [], "known": [],
+    });
+    // The last fact holds on its own: only the most kept leaves it out.
+    let theirs = said.join("\n");
+    let parse = |answer: &serde_json::Value| {
+        myriad_merope::chat_remember::parse_settle(&answer.to_string(), &theirs, &[], said.len(), 0)
+            .expect("read")
+            .0
+    };
+    let alone = serde_json::json!({
+        "lasting": [lasting.last()], "replaces": [], "moment": [], "known": [],
+    });
+    assert_eq!(parse(&alone)[0].from, [said.len() - 1]);
+    let kept = parse(&answer);
+    assert_eq!(kept.len(), myriad_merope::chat_remember::MAX_LASTING);
+    assert_eq!(kept.last().unwrap().from, [said.len() - 2]);
+    let taken = stretch_from(db, "settle", began).await;
+    let mut world = g0::World::new(0.5);
+    world
+        .models
+        .entry("chat_settle".into())
+        .or_default()
+        .push_back(Some(answer.to_string()));
+    g0::enter(world);
+    let effect =
+        crate::services::agent::merope::chat_remember::settle(db, 7, &Audience::private(7), began)
+            .await;
+    g0::leave();
+    let effect = effect.unwrap_or_else(|_| panic!("gone over"));
+    finish(db, &taken, Ok(effect)).await.unwrap();
+    let all = went(db).await;
+    assert_eq!(all.len(), said.len());
+    for text in &said[..myriad_merope::chat_remember::MAX_LASTING] {
+        assert_eq!(all[*text], holds(&format!("他说{text}")), "{text}");
+    }
+    assert_eq!(
+        all["妹妹下个月结婚"],
+        holds("妹妹下个月结婚"),
+        "past the most kept: kept as it is"
+    );
+    schema.drop().await;
+}
