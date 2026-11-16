@@ -11,14 +11,18 @@
 //! Resolution happens once per platform refresh; results land in
 //! `CACHE_DIR/platforms/steam_assets.json` and in a process cache so every cover
 //! consumer (`platform_items`, `library_items`, activity, reports, smart filter)
-//! can read them synchronously without network access.
+//! can read them synchronously without network access. The game being played
+//! right now is resolved in the background when the presence is read, and the
+//! image proxy asks here when an old-path cover 404s.
 
 use futures::StreamExt;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 /// `IStoreBrowseService/GetItems` appid cap per request.
 const STORE_ITEMS_LIMIT: usize = 100;
@@ -33,6 +37,12 @@ const APP_DETAILS_URL: &str = "https://store.steampowered.com/api/appdetails";
 
 /// Legacy host: still serves the old unhashed path for most games.
 const LEGACY_CDN_BASE: &str = "https://cdn.cloudflare.steamstatic.com";
+/// Host for resolved (hashed) store art.
+const CDN_BASE: &str = "https://shared.akamai.steamstatic.com";
+
+/// Store answers are small (100 items with assets is ~150 KiB; one appdetails
+/// entry rarely passes 200 KiB). Anything far past that is not what we asked for.
+const STORE_BODY_LIMIT: usize = 2 * 1024 * 1024;
 
 /// Fallback lookup budget per pass. Anything still missing after the region walk
 /// is rare (delisted everywhere); do not hammer the appdetails endpoint.
@@ -43,7 +53,13 @@ const ART_TTL_SECS: i64 = 30 * 24 * 60 * 60;
 /// Ids the store never answers for are retried this often, not every refresh.
 const MISS_TTL_SECS: i64 = 7 * 24 * 60 * 60;
 /// Wall-clock budget for one pass; a hung store must not stall the refresh arm.
-const REFRESH_BUDGET: std::time::Duration = std::time::Duration::from_secs(60);
+const REFRESH_BUDGET: Duration = Duration::from_secs(60);
+/// Budget when the image proxy asks while a viewer waits for the picture.
+const PROXY_LOOKUP_BUDGET: Duration = Duration::from_secs(10);
+/// The image proxy is public: past this many cached appids it stops adding new
+/// ones on its own, so made-up appids cannot grow the cache file without end.
+/// Platform refreshes are not capped (a whole library is far below this).
+const PROXY_LOOKUP_CAP: usize = 20_000;
 
 /// One game's resolved art paths, relative to `{cdn}/store_item_assets/`.
 /// The `?t=` cache-buster from `asset_url_format` is kept inside the path.
@@ -67,7 +83,16 @@ struct SteamAssetFile {
     items: HashMap<String, SteamArt>,
 }
 
+/// `std::sync::Mutex`: short critical sections only, never held across `.await`
+/// or a disk write.
 static CACHE: OnceLock<Mutex<HashMap<i64, SteamArt>>> = OnceLock::new();
+/// Appids some pass is resolving right now, so a second caller does not ask again.
+static IN_FLIGHT: Lazy<Mutex<HashSet<i64>>> = Lazy::new(|| Mutex::new(HashSet::new()));
+/// Bumped under the cache lock on every merge.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Serialises disk writes and holds the generation last written: a pass whose
+/// merge a later write already carried does not write again.
+static WRITE_LOCK: tokio::sync::Mutex<u64> = tokio::sync::Mutex::const_new(0);
 
 fn lock_cache() -> std::sync::MutexGuard<'static, HashMap<i64, SteamArt>> {
     CACHE
@@ -76,31 +101,20 @@ fn lock_cache() -> std::sync::MutexGuard<'static, HashMap<i64, SteamArt>> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// Cover CDN base, overridable with `STEAM_COVER_CDN`:
-/// `akamai` (default) | `fastly` | `cloudflare` | `china`, or any full `https://` base.
-pub fn cdn_base() -> &'static str {
-    static BASE: Lazy<&'static str> = Lazy::new(|| {
-        let raw = std::env::var("STEAM_COVER_CDN").unwrap_or_default();
-        let value = raw.trim().trim_end_matches('/');
-        match value.to_ascii_lowercase().as_str() {
-            "" | "akamai" => "https://shared.akamai.steamstatic.com",
-            "fastly" => "https://shared.fastly.steamstatic.com",
-            "cloudflare" => "https://shared.cloudflare.steamstatic.com",
-            "china" => "https://shared.cdn.steamchina.queniuam.com",
-            _ if value.starts_with("https://") => Box::leak(value.to_string().into_boxed_str()),
-            other => {
-                tracing::warn!("Unknown STEAM_COVER_CDN {:?}; using akamai", other);
-                "https://shared.akamai.steamstatic.com"
-            }
-        }
-    });
-    *BASE
+fn lock_in_flight() -> std::sync::MutexGuard<'static, HashSet<i64>> {
+    IN_FLIGHT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn asset_url(path: &str) -> String {
+    format!("{CDN_BASE}/store_item_assets/{path}")
 }
 
 /// 460×215 header cover; falls back to the legacy unhashed path when unresolved.
 pub fn cover_url(appid: i64) -> String {
     if let Some(path) = art(appid).and_then(|a| a.header) {
-        return format!("{}/store_item_assets/{path}", cdn_base());
+        return asset_url(&path);
     }
     format!("{LEGACY_CDN_BASE}/steam/apps/{appid}/header.jpg")
 }
@@ -108,9 +122,64 @@ pub fn cover_url(appid: i64) -> String {
 /// 600×900 portrait cover; falls back to the legacy unhashed path when unresolved.
 pub fn library_cover_url(appid: i64) -> String {
     if let Some(path) = art(appid).and_then(|a| a.library) {
-        return format!("{}/store_item_assets/{path}", cdn_base());
+        return asset_url(&path);
     }
     format!("{LEGACY_CDN_BASE}/steam/apps/{appid}/library_600x900.jpg")
+}
+
+/// Appid and file name of an old-path cover (`…/steam/apps/{appid}/{file}`);
+/// already hashed paths are not matched.
+pub fn legacy_app_art(url: &str) -> Option<(i64, String)> {
+    let parsed = url::Url::parse(url).ok()?;
+    let host = parsed.host_str()?;
+    if !myriad_image_proxy::host_matches_domain(host, "steamstatic.com") {
+        return None;
+    }
+    let rest: Vec<&str> = parsed.path_segments()?.collect();
+    // `steam/apps/{appid}/{file}`, behind `store_item_assets/` on some CDNs.
+    let start = rest.iter().position(|segment| *segment == "steam")?;
+    match &rest[start..] {
+        ["steam", "apps", appid, file] if file.ends_with(".jpg") => {
+            Some((appid.parse().ok()?, (*file).to_string()))
+        }
+        _ => None,
+    }
+}
+
+/// The resolved path for one old file name; only the two we keep are known.
+fn resolved_path(art: &SteamArt, file: &str) -> Option<String> {
+    match file {
+        "header.jpg" => art.header.clone(),
+        "library_600x900.jpg" => art.library.clone(),
+        _ => None,
+    }
+}
+
+fn knows_file(file: &str) -> bool {
+    matches!(file, "header.jpg" | "library_600x900.jpg")
+}
+
+/// For the image proxy when an old-path cover 404s: the cached real address,
+/// else one region walk for this appid (merged into the cache like any pass).
+/// `None` when the store has nothing, it was asked recently, or another lookup
+/// for this appid is already running.
+pub async fn resolve_legacy(appid: i64, file: &str) -> Option<String> {
+    if !knows_file(file) {
+        return None;
+    }
+    if let Some(path) = art(appid).and_then(|art| resolved_path(&art, file)) {
+        return Some(asset_url(&path));
+    }
+    if lock_cache().len() >= PROXY_LOOKUP_CAP {
+        return None;
+    }
+    let now = now_unix();
+    let claim = claim_pending(&[appid], now)?;
+    let client = crate::services::http_client::get_global_client().await;
+    run_claimed(&client, claim, now, PROXY_LOOKUP_BUDGET).await;
+    art(appid)
+        .and_then(|art| resolved_path(&art, file))
+        .map(|path| asset_url(&path))
 }
 
 /// Resolved art for one appid, if a refresh has seen it.
@@ -140,27 +209,45 @@ fn load_from_disk() -> HashMap<i64, SteamArt> {
     }
 }
 
-fn persist(items: &HashMap<i64, SteamArt>) {
+/// Write the cache as it is now, unless a write since `generation` already did.
+/// The snapshot is copied under the cache lock; the write itself runs on the
+/// blocking pool, so cover reads on the request path never wait on the disk.
+async fn persist_latest(generation: u64) {
+    let mut written = WRITE_LOCK.lock().await;
+    if generation <= *written {
+        return;
+    }
+    let (snapshot, latest) = {
+        let cache = lock_cache();
+        // Merges bump the generation under this lock, so `latest` is exactly this copy.
+        (cache.clone(), GENERATION.load(Ordering::Relaxed))
+    };
+    match tokio::task::spawn_blocking(move || persist(snapshot)).await {
+        Ok(true) => *written = latest,
+        Ok(false) => {}
+        Err(e) => tracing::warn!("Steam cover cache write task failed: {e}"),
+    }
+}
+
+/// Blocking file write; `true` once the file holds `items`.
+fn persist(items: HashMap<i64, SteamArt>) -> bool {
     let path = cache_file();
     let Some(dir) = path.parent() else {
-        return;
+        return false;
     };
     if let Err(e) = std::fs::create_dir_all(dir) {
         tracing::warn!("Cannot create {}: {e}", dir.display());
-        return;
+        return false;
     }
     let file = SteamAssetFile {
         version: 1,
-        items: items
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.clone()))
-            .collect(),
+        items: items.into_iter().map(|(k, v)| (k.to_string(), v)).collect(),
     };
     let json = match serde_json::to_vec_pretty(&file) {
         Ok(json) => json,
         Err(e) => {
             tracing::warn!("Cannot serialize steam assets: {e}");
-            return;
+            return false;
         }
     };
     // Same-directory tmp + rename: a crash mid-write must not truncate a good cache.
@@ -170,9 +257,13 @@ fn persist(items: &HashMap<i64, SteamArt>) {
     ));
     let written = std::fs::write(&temp, &json)
         .and_then(|()| crate::services::platform_refresh::commit_cache_temp_file(&temp, &path));
-    if let Err(e) = written {
-        let _ = std::fs::remove_file(&temp);
-        tracing::warn!("Cannot write {}: {e}", path.display());
+    match written {
+        Ok(()) => true,
+        Err(e) => {
+            let _ = std::fs::remove_file(&temp);
+            tracing::warn!("Cannot write {}: {e}", path.display());
+            false
+        }
     }
 }
 
@@ -180,33 +271,71 @@ fn persist(items: &HashMap<i64, SteamArt>) {
 ///
 /// Ids resolved within their TTL are skipped: positive art is refreshed monthly
 /// (store art and its `?t=` change rarely), ids the store never answers for are
-/// retried weekly instead of on every platform refresh. A pass where no region
-/// answers at all writes nothing — neither art nor backoff — so an outage never
-/// poisons the cache.
+/// retried weekly instead of on every platform refresh. Ids another pass is
+/// already resolving are skipped too. A pass where no region answers at all
+/// writes nothing — neither art nor backoff — so an outage never poisons the
+/// cache.
 pub async fn refresh_steam_assets(client: &reqwest::Client, appids: &[i64]) {
     let now = now_unix();
-    let pending: Vec<i64> = {
-        let cache = lock_cache();
-        appids
-            .iter()
-            .copied()
-            .filter(|id| *id > 0)
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .filter(|id| needs_resolution(cache.get(id), now))
-            .collect()
-    };
-    if pending.is_empty() {
-        return;
+    if let Some(claim) = claim_pending(appids, now) {
+        run_claimed(client, claim, now, REFRESH_BUDGET).await;
     }
+}
 
-    match tokio::time::timeout(REFRESH_BUDGET, resolve_pass(client, &pending)).await {
-        Ok(Some(pass)) => apply_pass(pass, now),
+/// Same as [`refresh_steam_assets`], in the background: for callers that must
+/// not wait on the store (reading the presence). Nothing is spawned when every
+/// id is fresh or already being resolved.
+pub fn spawn_refresh(client: reqwest::Client, appids: &[i64]) {
+    let now = now_unix();
+    if let Some(claim) = claim_pending(appids, now) {
+        tokio::spawn(async move {
+            run_claimed(&client, claim, now, REFRESH_BUDGET).await;
+        });
+    }
+}
+
+/// Ids one pass has taken; released when the pass ends, however it ends.
+struct Claim {
+    ids: Vec<i64>,
+}
+
+impl Drop for Claim {
+    fn drop(&mut self) {
+        let mut in_flight = lock_in_flight();
+        for id in &self.ids {
+            in_flight.remove(id);
+        }
+    }
+}
+
+/// Take the ids that need resolving and nobody is resolving yet.
+fn claim_pending(appids: &[i64], now: i64) -> Option<Claim> {
+    let cache = lock_cache();
+    let mut in_flight = lock_in_flight();
+    let ids: Vec<i64> = appids
+        .iter()
+        .copied()
+        .filter(|id| *id > 0)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|id| needs_resolution(cache.get(id), now) && !in_flight.contains(id))
+        .collect();
+    if ids.is_empty() {
+        return None;
+    }
+    in_flight.extend(ids.iter().copied());
+    Some(Claim { ids })
+}
+
+/// The claim is held until the pass is merged, so the next caller sees the result.
+async fn run_claimed(client: &reqwest::Client, claim: Claim, now: i64, budget: Duration) {
+    match tokio::time::timeout(budget, resolve_pass(client, &claim.ids)).await {
+        Ok(Some(pass)) => apply_pass(pass, now).await,
         Ok(None) => {} // store unreachable: keep every cover we already have
         Err(_) => tracing::warn!(
             "Steam cover resolution exceeded {}s for {} appids",
-            REFRESH_BUDGET.as_secs(),
-            pending.len()
+            budget.as_secs(),
+            claim.ids.len()
         ),
     }
 }
@@ -273,10 +402,11 @@ async fn resolve_pass(client: &reqwest::Client, pending: &[i64]) -> Option<Resol
 }
 
 /// Merge one pass into the cache. Negatives only replace entries that had no art.
-fn apply_pass(pass: ResolvePass, now: i64) {
+/// The cache lock covers the merge only; the disk write happens after it.
+async fn apply_pass(pass: ResolvePass, now: i64) {
     let resolved = pass.found.len();
     let mut deferred = 0usize;
-    {
+    let generation = {
         let mut cache = lock_cache();
         for (appid, art) in pass.found {
             cache.insert(appid, art);
@@ -295,10 +425,9 @@ fn apply_pass(pass: ResolvePass, now: i64) {
                 deferred += 1;
             }
         }
-        // Hold the lock across the write so concurrent passes cannot clobber
-        // each other's freshly resolved ids.
-        persist(&cache);
-    }
+        GENERATION.fetch_add(1, Ordering::Relaxed) + 1
+    };
+    persist_latest(generation).await;
     tracing::info!("✓ Steam covers resolved: {resolved}, deferred: {deferred}");
 }
 
@@ -367,7 +496,9 @@ async fn fetch_items(
     if !response.status().is_success() {
         return Err(format!("status {}", response.status()));
     }
-    let body: Value = response.json().await.map_err(|e| format!("json: {e}"))?;
+    let body =
+        crate::services::outbound_security::read_limited_body(response, STORE_BODY_LIMIT).await?;
+    let body: Value = serde_json::from_slice(&body).map_err(|e| format!("json: {e}"))?;
     let items = body
         .pointer("/response/store_items")
         .and_then(Value::as_array)
@@ -394,7 +525,10 @@ async fn fetch_appdetails_cover(client: &reqwest::Client, appid: i64) -> Option<
     if !response.status().is_success() {
         return None;
     }
-    let body: Value = response.json().await.ok()?;
+    let body = crate::services::outbound_security::read_limited_body(response, STORE_BODY_LIMIT)
+        .await
+        .ok()?;
+    let body: Value = serde_json::from_slice(&body).ok()?;
     let entry = body.get(appid.to_string())?;
     if entry.get("success").and_then(Value::as_bool) != Some(true) {
         return None;
@@ -552,6 +686,75 @@ mod tests {
                 "steam/apps/3557620/56639673818079bf966c8bec85d7c3b26baced24/library_600x900.jpg?t=1779773548"
             )
         );
+    }
+
+    #[test]
+    fn only_legacy_app_art_is_recognised() {
+        assert_eq!(
+            legacy_app_art("https://cdn.cloudflare.steamstatic.com/steam/apps/3527290/header.jpg"),
+            Some((3527290, "header.jpg".to_string()))
+        );
+        assert_eq!(
+            legacy_app_art(
+                "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/10/library_600x900.jpg"
+            ),
+            Some((10, "library_600x900.jpg".to_string()))
+        );
+        // Already hashed paths, avatars and other sites are left alone.
+        assert_eq!(
+            legacy_app_art(
+                "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1/abc/header.jpg"
+            ),
+            None
+        );
+        assert_eq!(
+            legacy_app_art("https://avatars.steamstatic.com/x_full.jpg"),
+            None
+        );
+        assert_eq!(
+            legacy_app_art("https://example.com/steam/apps/1/header.jpg"),
+            None
+        );
+    }
+
+    #[test]
+    fn legacy_files_map_to_the_two_kept_paths() {
+        let art = SteamArt {
+            header: Some("steam/apps/1/a/header.jpg?t=1".into()),
+            library: Some("steam/apps/1/b/library_600x900.jpg?t=1".into()),
+            updated_at: 0,
+        };
+        assert_eq!(
+            resolved_path(&art, "header.jpg")
+                .map(|path| asset_url(&path))
+                .as_deref(),
+            Some(
+                "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1/a/header.jpg?t=1"
+            )
+        );
+        assert!(
+            resolved_path(&art, "library_600x900.jpg")
+                .unwrap()
+                .contains("/b/")
+        );
+        assert!(!knows_file("page_bg.jpg"));
+        assert_eq!(resolved_path(&art, "page_bg.jpg"), None);
+    }
+
+    #[test]
+    fn one_lookup_per_appid_at_a_time() {
+        // Ids no real cache holds, so they always need resolving.
+        let now = 1_800_000_000;
+        let first = claim_pending(&[4_000_000_001, 4_000_000_002], now).expect("claims both");
+        assert_eq!(first.ids, vec![4_000_000_001, 4_000_000_002]);
+        // Overlapping caller only gets what nobody is resolving.
+        let second = claim_pending(&[4_000_000_002, 4_000_000_003], now).expect("claims one");
+        assert_eq!(second.ids, vec![4_000_000_003]);
+        assert!(claim_pending(&[4_000_000_001], now).is_none());
+        drop(first);
+        assert!(claim_pending(&[4_000_000_001], now).is_some());
+        drop(second);
+        assert!(claim_pending(&[0, -5], now).is_none());
     }
 
     #[test]

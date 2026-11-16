@@ -155,14 +155,14 @@ pub(crate) async fn fetch_and_store_presence(
 ) -> anyhow::Result<SteamPresenceResponse> {
     let fetcher = PlatformFetcher::new().await;
     let info = fetcher.fetch_steam_user(api_key, steam_id).await?;
-    // 正在玩的游戏若不在已解析的库里（新买、时长不足 3 小时），补一次封面解析
+    // 正在玩的游戏若不在已解析的库里（新买、时长不足 3 小时），在后台补一次封面解析：
+    // 在线状态不等商店接口，这一次先给老地址（取不到时图片代理会兜底），下一次就是新地址。
     if let Some(appid) = info
         .gameid
         .as_deref()
         .and_then(|id| id.trim().parse::<i64>().ok())
-        && crate::services::steam_assets::art(appid).is_none()
     {
-        crate::services::steam_assets::refresh_steam_assets(&fetcher.client, &[appid]).await;
+        crate::services::steam_assets::spawn_refresh(fetcher.client.clone(), &[appid]);
     }
     let mut presence: SteamPresenceResponse = info.into();
 
