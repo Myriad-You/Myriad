@@ -34,12 +34,20 @@ pub(super) struct Contract {
     pub notice_kinds: Vec<String>,
     pub work_places: Vec<String>,
     pub act_statuses: Vec<String>,
+    pub drop_reasons: Vec<String>,
+    pub screen_fields: ScreenFields,
     pub moments: MomentRules,
     pub cap_names: CapNames,
     pub frames: BTreeMap<String, FrameSpec>,
     pub error_codes: BTreeMap<String, String>,
     pub close_codes: BTreeMap<String, CloseSpec>,
     pub encoding: Encoding,
+}
+
+/// `screenFields`: the one list of what a look at the owner's screen may say.
+#[derive(Debug, Deserialize)]
+pub(super) struct ScreenFields {
+    pub facts: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

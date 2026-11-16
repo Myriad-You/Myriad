@@ -157,10 +157,25 @@ fn the_host_speaks_the_contract() {
         "chat_unknown",
         "sync_off",
     ];
+    // What a call's receiver answers with (calls.failCodes, core #116): the
+    // site takes no calls yet, so it sends none of them.
+    let calls = [
+        "call_unknown",
+        "call_not_granted",
+        "call_unavailable",
+        "call_timeout",
+        "call_cancelled",
+        "wrong_audience",
+        "declined",
+        "not_now",
+    ];
     assert_eq!(
         declared,
         strings(&HOST_ERROR_CODES)
             .union(&strings(&theirs))
+            .cloned()
+            .collect::<BTreeSet<_>>()
+            .union(&strings(&calls))
             .cloned()
             .collect::<BTreeSet<_>>()
     );
@@ -822,6 +837,100 @@ impl Child {
 
 async fn device(db: &DatabaseConnection, name: &str) -> (Device, String) {
     devices::add(db, OWNER, name).await.unwrap()
+}
+
+#[tokio::test]
+async fn a_child_is_told_only_what_the_site_takes_and_its_dropped_frames_are_counted() {
+    let Some(site) = site().await else {
+        return;
+    };
+    let (mac, token) = device(&site.db, "Mac").await;
+    let mut child = Child::open(&site, &token).await;
+    let welcome = child
+        .hello_with(&["calls", "glance", "versions", "streams", "touch"])
+        .await;
+    // Calls, glance and versions are not made on the site yet.
+    assert_eq!(welcome["body"]["capabilities"], json!(["streams", "touch"]));
+    child
+        .send(
+            "stream.event",
+            Some("drop_say_unknown"),
+            json!({ "name": "link.dropped", "version": 1, "at": 1_760_141_100_000_i64,
+                    "body": { "t": "say", "reason": "unknown_frame" } }),
+        )
+        .await;
+    // Not a frame type the host sends: counted as unnamed.
+    child
+        .send(
+            "stream.event",
+            Some("drop_peer_bad"),
+            json!({ "name": "link.dropped", "version": 1, "at": 1_760_141_100_000_i64,
+                    "body": { "t": "peer.offer_of_mine", "reason": "bad_frame" } }),
+        )
+        .await;
+    // An event no one registered is ignored, not refused.
+    child
+        .send(
+            "stream.event",
+            Some("evt_new"),
+            json!({ "name": "example.happened", "version": 1, "at": 1_760_141_100_000_i64,
+                    "body": {} }),
+        )
+        .await;
+    child.send("ping", None, json!({})).await;
+    child.expect("pong").await;
+    let told = super::counts::dropped_by(&mac.id);
+    let of = |t: &str, reason: &str| {
+        told.iter()
+            .find(|(at, why, _)| *at == t && *why == reason)
+            .map(|(_, _, count)| count.count)
+    };
+    assert_eq!(of("say", "unknown_frame"), Some(1));
+    assert_eq!(of("unnamed", "bad_frame"), Some(1));
+    assert_eq!(told.len(), 2);
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn a_line_the_app_acked_but_could_not_read_is_counted_and_not_said_there_again() {
+    let Some(site) = site().await else {
+        return;
+    };
+    let (mac, token) = device(&site.db, "Mac").await;
+    let mut child = Child::open(&site, &token).await;
+    child.hello_with(&["rig", "say", "streams"]).await;
+    let line = |id: &str| super::Say {
+        id: id.into(),
+        kind: SayKind::Proactive,
+        text: "在忙吗？".into(),
+        session_id: None,
+        perform: None,
+        event_key: None,
+    };
+    assert!(super::say(OWNER, &mac.id, line("say_unread_1")));
+    assert_eq!(child.expect("say").await["id"], "say_unread_1");
+    // Its ack covers the line (a cumulative ack), though it could not read it.
+    child.send("ping", None, json!({})).await;
+    child.expect("pong").await;
+    child
+        .send(
+            "stream.event",
+            Some("drop_say_bad"),
+            json!({ "name": "link.dropped", "version": 1, "at": 1_760_141_100_000_i64,
+                    "body": { "t": "say", "reason": "bad_frame" } }),
+        )
+        .await;
+    child.send("ping", None, json!({})).await;
+    child.expect("pong").await;
+    let unread = super::counts::unread_by(&mac.id);
+    assert_eq!(unread.len(), 1);
+    assert_eq!((unread[0].0, unread[0].1.count), ("say", 1));
+    // Her next lines go where they are heard, not to this link.
+    assert!(!super::can_say(OWNER, &mac.id));
+    assert!(!super::say(OWNER, &mac.id, line("say_unread_2")));
+    drop(child);
+    site.close().await;
 }
 
 #[tokio::test]

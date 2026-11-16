@@ -243,6 +243,16 @@ fn standing_of(shown: &Shown, node: &super::shown::Node) -> Vec<PickStanding> {
                             .unwrap_or_default()
                             .trim()
                             .to_string(),
+                        because: value
+                            .and_then(|value| value.get("because"))
+                            .and_then(|because| because.as_array())
+                            .map(|because| {
+                                because
+                                    .iter()
+                                    .filter_map(|reference| reference.as_str().map(str::to_string))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
                         rests_on: rests_on(value),
                     })
                 })

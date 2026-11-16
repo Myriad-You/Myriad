@@ -2961,6 +2961,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "myriad-canonical"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+]
+
+[[package]]
 name = "myriad-data-key"
 version = "0.1.0"
 dependencies = [
@@ -2989,7 +2998,7 @@ name = "myriad-her-link"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
- "myriad-persona-sync",
+ "myriad-canonical",
  "serde",
  "serde_json",
 ]
@@ -3114,6 +3123,7 @@ dependencies = [
  "argon2",
  "chacha20poly1305",
  "chrono",
+ "myriad-canonical",
  "myriad-merope",
  "serde",
  "serde_json",
