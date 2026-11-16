@@ -1,4 +1,5 @@
 pub mod ai_process_pure;
+pub(crate) mod alive;
 pub mod capability;
 pub mod chat_attachments;
 pub mod chat_music;

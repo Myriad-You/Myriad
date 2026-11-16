@@ -439,3 +439,130 @@ async fn a_macs_her_is_merged_into_the_sites() {
     let _ = std::fs::remove_file(&sealed);
     target.close().await;
 }
+
+/// What she was made to forget on the site stays forgotten when a device's
+/// her that still holds it is merged in: a memory the owner forgot, and a
+/// line of theirs forgotten, do not come back with the Mac's copies; what
+/// was not forgotten comes as ever.
+#[tokio::test]
+async fn what_the_site_forgot_does_not_come_back_with_a_merge() {
+    let Some(target) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+        return;
+    };
+    let db = &target.db;
+    seed(db).await;
+    // The Mac's memory and its talk, once on the site too (the same ids,
+    // the same line at the same moment), then forgotten here.
+    for statement in [
+        "INSERT INTO agent_memories (id, user_id, kind, content, evidence, speaker, source, venue, \
+         audience, concepts, valid_from, created_at, updated_at) VALUES \
+         ('m_mac', 41, 'fact', '他周末去爬山。', NULL, 'user', 'chat', 'private', '[41]', '[]', \
+          '2025-10-09Z', '2025-10-09Z', '2025-10-09Z')",
+        "INSERT INTO agent_sessions (id, user_id, title, context, message_count, archived, \
+         created_at, last_active_at) VALUES \
+         ('ses_m', 41, '雨', '{\"mode\":\"chat\"}', 1, false, '2025-10-09Z', '2025-10-09Z')",
+        "INSERT INTO agent_messages (session_id, role, content, created_at) VALUES \
+         ('ses_m', 'user', '外面下雨了', to_timestamp(1760000000))",
+    ] {
+        db.execute_unprepared(statement).await.unwrap();
+    }
+    let line: i32 = one(
+        db,
+        "SELECT id FROM agent_messages WHERE session_id = 'ses_m'",
+        "id",
+    )
+    .await;
+    crate::services::agent::memory::manage::forget_line(db, 41, "ses_m", line)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        crate::services::agent::memory::manage::forget_any(db, "m_mac")
+            .await
+            .unwrap()
+    );
+
+    let (mac, _) = super::super::devices::add(db, 41, "书房的 Mac")
+        .await
+        .unwrap();
+    let page = mac_her("0b1e3f6a-mac-born", &mac.id);
+    let manifest = Manifest::of_envelopes(std::slice::from_ref(&page)).unwrap();
+    let preview: Vec<EntityVersion> = page
+        .entities
+        .iter()
+        .filter(|entity| matches!(entity.kind, Kind::Persona | Kind::Outfit | Kind::Wearing))
+        .cloned()
+        .collect();
+    let asked = propose(
+        db,
+        41,
+        &mac.id,
+        Proposal {
+            lineage: "0b1e3f6a-mac-born".into(),
+            epoch: 1,
+            name: Some("Luna".into()),
+            manifest: manifest.clone(),
+            kind: Some("merge".into()),
+            subject: Some("device".into()),
+            preview,
+        },
+    )
+    .await
+    .unwrap();
+    confirm(db, 41, &asked.id, Some("合并前".into()), false)
+        .await
+        .unwrap();
+    take_page(db, &asked.id, &mac.id, page).await.unwrap();
+    commit(db, 41, &asked.id, &mac.id, &manifest.digest)
+        .await
+        .unwrap();
+
+    let memories: i64 = one(
+        db,
+        "SELECT COUNT(*)::BIGINT AS n FROM agent_memories WHERE id = 'm_mac'",
+        "n",
+    )
+    .await;
+    assert_eq!(memories, 0, "the forgotten memory stays forgotten");
+    let lines: Vec<String> = db
+        .query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT role || ':' || content AS line FROM agent_messages \
+             WHERE session_id = 'ses_m' ORDER BY created_at"
+                .to_string(),
+        ))
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| row.try_get::<String>("", "line").unwrap())
+        .collect();
+    assert_eq!(
+        lines,
+        ["assistant:那你出门记得带伞，我刚才也在看雨"],
+        "the forgotten line stays forgotten; her answer, never forgotten, comes"
+    );
+    let theirs: i64 = one(
+        db,
+        "SELECT COUNT(*)::BIGINT AS n FROM agent_memories WHERE id = 'm_owner'",
+        "n",
+    )
+    .await;
+    assert_eq!(theirs, 1);
+    // What is kept of what was forgotten holds no word of it: a memory's
+    // id, a line's digest.
+    let kept: String = one(
+        db,
+        "SELECT string_agg(what || ' ' || mark, ' | ' ORDER BY what, mark) AS kept \
+         FROM agent_forgotten WHERE user_id = 41",
+        "kept",
+    )
+    .await;
+    assert!(kept.contains("memory m_mac"), "{kept}");
+    for words in ["外面", "下雨", "雨", "爬山", "周末"] {
+        assert!(!kept.contains(words), "{words}: {kept}");
+    }
+    let sealed = super::super::merge::retired_dir()
+        .join(format!("her-before-merge-{}.her-archive", asked.id));
+    let _ = std::fs::remove_file(&sealed);
+    target.close().await;
+}

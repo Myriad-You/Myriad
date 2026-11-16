@@ -236,44 +236,18 @@ pub async fn look_back(
     asked: &str,
     found: usize,
 ) -> Vec<(String, Who, String)> {
-    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value as SeaValue};
-    const LATEST: i32 = 3000;
     const SHOWN_CHARS: usize = 600;
     let in_front = in_front(db, user_id).await;
-    let Ok(rows) = db
-        .query_all_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT m.id, m.role, m.content, m.created_at FROM agent_messages m \
-             JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND (s.context->>'venue') IS NULL \
-               AND m.role IN ('user', 'assistant') AND (m.metadata->>'piece') IS NULL \
-             ORDER BY m.created_at DESC LIMIT $2",
-            vec![SeaValue::Int(Some(user_id)), SeaValue::Int(Some(LATEST))],
-        ))
-        .await
-    else {
-        return Vec::new();
-    };
-    // Oldest first, as the chat reads.
-    let mut chat: Vec<(chrono::DateTime<chrono::FixedOffset>, bool, String)> = rows
-        .iter()
-        .filter_map(|row| {
-            let id = row.try_get::<i32>("", "id").ok()?;
-            if in_front.contains(&id) {
-                return None;
-            }
-            let role = row.try_get::<String>("", "role").ok()?;
-            let content = row
-                .try_get::<String>("", "content")
-                .ok()
-                .filter(|content| content.trim() != asked.trim())?;
-            let at = row
-                .try_get::<chrono::DateTime<chrono::FixedOffset>>("", "created_at")
-                .ok()?;
-            Some((at, role == "assistant", content))
-        })
-        .collect();
-    chat.sort_by_key(|(at, _, _)| *at);
+    // The lines a chat turn may look through (see `chat_lines`): not a
+    // group's, not a piece of work, not an archived talk, nothing they took
+    // back. Oldest first, as the chat reads.
+    let chat: Vec<(chrono::DateTime<chrono::FixedOffset>, bool, String)> =
+        super::chat_lines::private_lines(db, user_id, 3000)
+            .await
+            .into_iter()
+            .filter(|line| !in_front.contains(&line.id) && line.content.trim() != asked.trim())
+            .map(|line| (line.at, line.hers, line.content))
+            .collect();
     let mut named: Vec<(usize, usize)> = chat
         .iter()
         .enumerate()
@@ -293,11 +267,22 @@ pub async fn look_back(
         .collect();
     shown.sort_unstable();
     shown.dedup();
+    // Of what she said, the one that most names it is read whole: asked what
+    // exactly she gave (the fifth bottle, the seventh job), a person reads
+    // their own long message through, not the few lines that matched. Only
+    // that one: the rest are cut as before.
+    let whole = named.first().and_then(|(_, index)| {
+        [*index, index + 1]
+            .into_iter()
+            .find(|index| chat.get(*index).is_some_and(|(_, hers, _)| *hers))
+    });
     let by_words: Vec<(String, Who, String)> = shown
         .into_iter()
         .map(|index| {
             let (at, hers, content) = &chat[index];
-            let text = if myriad_merope::remembering::overlap(query, content) == 0 {
+            let text = if whole == Some(index) {
+                read_whole(content, query, SHOWN_CHARS)
+            } else if myriad_merope::remembering::overlap(query, content) == 0 {
                 content
                     .lines()
                     .map(str::trim)
@@ -327,10 +312,40 @@ pub async fn look_back(
     merge_found(by_words, by_day)
 }
 
+/// One of her messages read through: a long one whole, up to
+/// [`READ_WHOLE_CHARS`]; one no longer than `shown` as any other is cut.
+fn read_whole(content: &str, query: &str, shown: usize) -> String {
+    let whole = content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" / ");
+    if whole.chars().count() <= shown {
+        return if myriad_merope::remembering::overlap(query, content) == 0 {
+            whole
+        } else {
+            myriad_merope::remembering::excerpt(content, query, shown)
+        };
+    }
+    let mut read: String = whole.chars().take(READ_WHOLE_CHARS).collect();
+    if whole.chars().count() > READ_WHOLE_CHARS {
+        read.push_str(" …");
+    }
+    read
+}
+
+/// Her one long message read whole is read this far at most: longer than
+/// nearly every reply (the longest in a long chat test is under 5,000).
+pub(in crate::services::agent::merope) const READ_WHOLE_CHARS: usize = 4_000;
+
 /// Ids of the private chat messages a chat turn has in front of her: the
 /// latest `PRIVATE_CHAT_IN_FRONT` loaded as history, and the message just
 /// kept after that history was read. Nothing when it cannot be read.
-async fn in_front(db: &DatabaseConnection, user_id: i32) -> std::collections::HashSet<i32> {
+pub(in crate::services::agent::merope) async fn in_front(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> std::collections::HashSet<i32> {
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value as SeaValue};
     let shown = crate::services::agent::sessions::PRIVATE_CHAT_IN_FRONT as i64 + 1;
     let Ok(rows) = db
@@ -562,6 +577,26 @@ pub async fn ranked_with(
 
 #[cfg(test)]
 mod tests {
+    /// Her long message is read through to its end; a short one is cut as
+    /// any other; a very long one stops at the most read whole.
+    #[test]
+    fn her_long_message_is_read_whole() {
+        let list: String = (1..=30)
+            .map(|n| format!("{n}. a bottle to buy, number {n}\n"))
+            .collect::<String>()
+            + "31. Absinthe";
+        let cut = myriad_merope::remembering::excerpt(&list, "bottle", 600);
+        assert!(!cut.contains("Absinthe"));
+        assert!(super::read_whole(&list, "bottle", 600).ends_with("31. Absinthe"));
+        let short = "Roscioli, for a quiet dinner";
+        assert_eq!(
+            super::read_whole(short, "dinner", 600),
+            myriad_merope::remembering::excerpt(short, "dinner", 600)
+        );
+        let long = "很长的一句\n".repeat(2_000);
+        assert!(super::read_whole(&long, "长", 600).chars().count() <= super::READ_WHOLE_CHARS + 2);
+    }
+
     use super::*;
 
     fn lines(prefix: &str, n: usize) -> Vec<String> {

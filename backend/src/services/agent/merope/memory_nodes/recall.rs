@@ -195,6 +195,17 @@ fn standing_texts(node: &super::shown::Node, items: &[String]) -> HashSet<String
         .collect()
 }
 
+/// That more stands on a node than she is shown (`left_out`, the core's
+/// count, less those the list of how their life stands shows: `elsewhere`)
+/// said plainly, so she knows not all of it is in front of her.
+fn more_standing(left_out: usize, elsewhere: usize) -> Option<(String, String)> {
+    let left_out = left_out.saturating_sub(elsewhere);
+    (left_out > 0).then(|| {
+        let line = format!("now: {left_out} more about how things stand here, not shown");
+        (line.clone(), line)
+    })
+}
+
 /// What stands now on `node` as the fold gave it: each item of its
 /// `standing`, when it was written, whether the whole of it ended, and the
 /// days of the memories its version rests on (what it tells of, from the
@@ -243,6 +254,16 @@ fn standing_of(shown: &Shown, node: &super::shown::Node) -> Vec<PickStanding> {
                             .unwrap_or_default()
                             .trim()
                             .to_string(),
+                        because: value
+                            .and_then(|value| value.get("because"))
+                            .and_then(|because| because.as_array())
+                            .map(|because| {
+                                because
+                                    .iter()
+                                    .filter_map(|reference| reference.as_str().map(str::to_string))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
                         rests_on: rests_on(value),
                     })
                 })
@@ -397,6 +418,14 @@ fn recollect_within(
             named.push(shown);
         }
     };
+    // How many of a node's stands the list of how their life stands shows,
+    // in a private talk (the only place it is shown; see below).
+    let elsewhere = |node: &str| {
+        if here.is_some() || shown.node(node).is_none() {
+            return 0;
+        }
+        pick.resident.iter().filter(|one| one.node == node).count()
+    };
     for picked in &pick.picked {
         let node = shown.node(&picked.node);
         let name = node
@@ -411,6 +440,9 @@ fn recollect_within(
             if let Some(line) = node.and_then(|node| lines.standing(node, item)) {
                 push(line, name);
             }
+        }
+        if let Some(line) = more_standing(picked.standing_left_out, elsewhere(&picked.node)) {
+            push(line, name);
         }
         for id in &picked.entries {
             if let Some(entry) = find(shown, &picked.node, id)
@@ -435,6 +467,9 @@ fn recollect_within(
                 if let Some(line) = lines.standing(node, item) {
                     push(line, "");
                 }
+            }
+            if let Some(line) = more_standing(pick.about_them_standing_left_out, elsewhere(about)) {
+                push(line, "");
             }
         }
         for id in &pick.about_them {
@@ -585,4 +620,20 @@ fn listed(
     })
     .ok()?
     .section
+}
+
+#[cfg(test)]
+mod more_tests {
+    /// More standing on a node than she is shown is said, with how many;
+    /// nothing is said when all of it is shown.
+    #[test]
+    fn what_is_not_shown_of_how_things_stand_is_said() {
+        assert_eq!(super::more_standing(0, 0), None);
+        let (line, shown) = super::more_standing(3, 0).unwrap();
+        assert_eq!(line, shown);
+        assert!(line.contains("3 more"), "{line}");
+        // Those the list of how their life stands shows are not counted.
+        assert!(super::more_standing(3, 1).unwrap().0.contains("2 more"));
+        assert_eq!(super::more_standing(2, 2), None);
+    }
 }

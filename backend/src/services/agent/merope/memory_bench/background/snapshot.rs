@@ -77,6 +77,7 @@ pub(super) async fn write_snapshot(
             end,
             &mut left,
             &mut kept,
+            &mut super::super::note_trail::Trail::off(),
         )
         .await;
         for fact in &left {
@@ -223,7 +224,7 @@ pub(super) async fn tables(db: &sea_orm::DatabaseConnection, schema: &str) -> Ve
 
 /// A fresh schema holding what the snapshot holds, row for row, its
 /// sequences going on from there.
-pub(super) async fn restore(url: &str, snapshot: &str) -> crate::db::IsolatedSchema {
+pub(in super::super) async fn restore(url: &str, snapshot: &str) -> crate::db::IsolatedSchema {
     use sea_orm::TransactionTrait;
     let copy = crate::db::IsolatedSchema::migrated(url, "memory_long").await;
     let db = &copy.db;
@@ -234,13 +235,15 @@ pub(super) async fn restore(url: &str, snapshot: &str) -> crate::db::IsolatedSch
         .execute_unprepared("SET LOCAL session_replication_role = replica")
         .await
         .unwrap();
-    // What the migrations seeded makes way for what the snapshot has.
+    // What the migrations seeded makes way for what the snapshot has; a
+    // table newer than the snapshot that rests on one of its tables (each
+    // message's vector on the message) goes with it, empty here as yet.
     let all: Vec<String> = tables
         .iter()
         .map(|table| format!("\"{to}\".\"{table}\""))
         .collect();
     transaction
-        .execute_unprepared(&format!("TRUNCATE {}", all.join(", ")))
+        .execute_unprepared(&format!("TRUNCATE {} CASCADE", all.join(", ")))
         .await
         .unwrap();
     for table in &tables {

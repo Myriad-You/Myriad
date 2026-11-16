@@ -9,22 +9,26 @@ use super::*;
 /// its own sessions is kept as a schema of its own, before it is asked, and
 /// named in its row (`keptWritten`): a later run that changes only how she
 /// recalls or answers asks from these instead of writing again.
-pub(super) fn keep_written() -> bool {
+pub(in super::super) fn keep_written() -> bool {
     std::env::var("MEROPE_MEMORY_BENCH_KEEP_WRITTEN").is_ok_and(|value| value.trim() == "1")
 }
 
 /// What a question wrote, as kept: its schema, what of it answers the
 /// question, and the calls that failed while writing it (a run asking from
 /// it is void where the writing was).
-pub(super) struct KeptWritten {
-    pub(super) schema: String,
-    pub(super) written: Written,
-    pub(super) failed: Vec<String>,
+pub(in super::super) struct KeptWritten {
+    pub(in super::super) schema: String,
+    pub(in super::super) written: Written,
+    pub(in super::super) failed: Vec<String>,
     /// What the judge answered then when asked what to look for.
-    pub(super) asked: Option<String>,
+    pub(in super::super) asked: Option<String>,
 }
 
-pub(super) fn kept_written_row(schema: &str, written: &Written, failed: &[String]) -> Value {
+pub(in super::super) fn kept_written_row(
+    schema: &str,
+    written: &Written,
+    failed: &[String],
+) -> Value {
     json!({"schema": schema, "answering": written.answering, "kept": written.kept,
         "failed": failed})
 }
@@ -32,7 +36,8 @@ pub(super) fn kept_written_row(schema: &str, written: &Written, failed: &[String
 /// `MEROPE_MEMORY_BENCH_FROM_WRITTEN=<.partial.jsonl>`: each long question
 /// asked from what a run with `MEROPE_MEMORY_BENCH_KEEP_WRITTEN=1` kept of
 /// its writing, by question and round; nothing is written again.
-pub(super) fn from_written() -> Option<std::collections::HashMap<(String, usize), KeptWritten>> {
+pub(in super::super) fn from_written()
+-> Option<std::collections::HashMap<(String, usize), KeptWritten>> {
     let path = std::env::var("MEROPE_MEMORY_BENCH_FROM_WRITTEN").ok()?;
     let text = std::fs::read_to_string(&path).expect("the run whose writing was kept");
     Some(read_kept_written(&text))

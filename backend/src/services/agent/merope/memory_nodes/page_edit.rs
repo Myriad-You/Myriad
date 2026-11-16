@@ -166,10 +166,38 @@ async fn forget_rows(
     Ok(())
 }
 
-/// Forgets every memory `entries` name, truly.
+/// Forgets every memory `entries` name, truly, and every line of talk they
+/// cite (`message:<id>`) as forgetting that one line does
+/// ([`manage::forget_line`]): its vector, its traces and her log with it.
 async fn forget_memories(db: &DatabaseConnection, entries: &[&Value]) -> Result<(), Refusal> {
     for memory in entries.iter().flat_map(|entry| memories_of(entry)) {
         manage::forget_any(db, &memory).await?;
+    }
+    let lines: Vec<i32> = entries
+        .iter()
+        .flat_map(|entry| entry["refs"].as_array().into_iter().flatten())
+        .filter_map(|reference| reference.as_str()?.strip_prefix("message:")?.parse().ok())
+        .collect();
+    if lines.is_empty() {
+        return Ok(());
+    }
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT m.id, m.session_id, s.user_id FROM agent_messages m \
+             JOIN agent_sessions s ON s.id = m.session_id WHERE m.id = ANY($1)",
+            [lines.into()],
+        ))
+        .await?;
+    for row in &rows {
+        let (Ok(id), Ok(session), Ok(user_id)) = (
+            row.try_get::<i32>("", "id"),
+            row.try_get::<String>("", "session_id"),
+            row.try_get::<i32>("", "user_id"),
+        ) else {
+            continue;
+        };
+        manage::forget_line(db, user_id, &session, id).await?;
     }
     Ok(())
 }

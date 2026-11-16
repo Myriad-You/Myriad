@@ -157,10 +157,25 @@ fn the_host_speaks_the_contract() {
         "chat_unknown",
         "sync_off",
     ];
+    // What a call's receiver answers with (calls.failCodes, core #116): the
+    // site takes no calls yet, so it sends none of them.
+    let calls = [
+        "call_unknown",
+        "call_not_granted",
+        "call_unavailable",
+        "call_timeout",
+        "call_cancelled",
+        "wrong_audience",
+        "declined",
+        "not_now",
+    ];
     assert_eq!(
         declared,
         strings(&HOST_ERROR_CODES)
             .union(&strings(&theirs))
+            .cloned()
+            .collect::<BTreeSet<_>>()
+            .union(&strings(&calls))
             .cloned()
             .collect::<BTreeSet<_>>()
     );
@@ -825,6 +840,100 @@ async fn device(db: &DatabaseConnection, name: &str) -> (Device, String) {
 }
 
 #[tokio::test]
+async fn a_child_is_told_only_what_the_site_takes_and_its_dropped_frames_are_counted() {
+    let Some(site) = site().await else {
+        return;
+    };
+    let (mac, token) = device(&site.db, "Mac").await;
+    let mut child = Child::open(&site, &token).await;
+    let welcome = child
+        .hello_with(&["calls", "glance", "versions", "streams", "touch"])
+        .await;
+    // Calls, glance and versions are not made on the site yet.
+    assert_eq!(welcome["body"]["capabilities"], json!(["streams", "touch"]));
+    child
+        .send(
+            "stream.event",
+            Some("drop_say_unknown"),
+            json!({ "name": "link.dropped", "version": 1, "at": 1_760_141_100_000_i64,
+                    "body": { "t": "say", "reason": "unknown_frame" } }),
+        )
+        .await;
+    // Not a frame type the host sends: counted as unnamed.
+    child
+        .send(
+            "stream.event",
+            Some("drop_peer_bad"),
+            json!({ "name": "link.dropped", "version": 1, "at": 1_760_141_100_000_i64,
+                    "body": { "t": "peer.offer_of_mine", "reason": "bad_frame" } }),
+        )
+        .await;
+    // An event no one registered is ignored, not refused.
+    child
+        .send(
+            "stream.event",
+            Some("evt_new"),
+            json!({ "name": "example.happened", "version": 1, "at": 1_760_141_100_000_i64,
+                    "body": {} }),
+        )
+        .await;
+    child.send("ping", None, json!({})).await;
+    child.expect("pong").await;
+    let told = super::counts::dropped_by(&mac.id);
+    let of = |t: &str, reason: &str| {
+        told.iter()
+            .find(|(at, why, _)| *at == t && *why == reason)
+            .map(|(_, _, count)| count.count)
+    };
+    assert_eq!(of("say", "unknown_frame"), Some(1));
+    assert_eq!(of("unnamed", "bad_frame"), Some(1));
+    assert_eq!(told.len(), 2);
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn a_line_the_app_acked_but_could_not_read_is_counted_and_not_said_there_again() {
+    let Some(site) = site().await else {
+        return;
+    };
+    let (mac, token) = device(&site.db, "Mac").await;
+    let mut child = Child::open(&site, &token).await;
+    child.hello_with(&["rig", "say", "streams"]).await;
+    let line = |id: &str| super::Say {
+        id: id.into(),
+        kind: SayKind::Proactive,
+        text: "在忙吗？".into(),
+        session_id: None,
+        perform: None,
+        event_key: None,
+    };
+    assert!(super::say(OWNER, &mac.id, line("say_unread_1")));
+    assert_eq!(child.expect("say").await["id"], "say_unread_1");
+    // Its ack covers the line (a cumulative ack), though it could not read it.
+    child.send("ping", None, json!({})).await;
+    child.expect("pong").await;
+    child
+        .send(
+            "stream.event",
+            Some("drop_say_bad"),
+            json!({ "name": "link.dropped", "version": 1, "at": 1_760_141_100_000_i64,
+                    "body": { "t": "say", "reason": "bad_frame" } }),
+        )
+        .await;
+    child.send("ping", None, json!({})).await;
+    child.expect("pong").await;
+    let unread = super::counts::unread_by(&mac.id);
+    assert_eq!(unread.len(), 1);
+    assert_eq!((unread[0].0, unread[0].1.count), ("say", 1));
+    // Her next lines go where they are heard, not to this link.
+    assert!(!super::can_say(OWNER, &mac.id));
+    assert!(!super::say(OWNER, &mac.id, line("say_unread_2")));
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
 async fn the_link_takes_only_a_live_device_token() {
     let Some(site) = site().await else {
         return;
@@ -936,6 +1045,7 @@ async fn the_welcome_gives_the_partner_id_only_to_an_end_that_knows_it() {
 /// owner's, the Mac's vector back to it.
 #[tokio::test]
 async fn her_log_goes_over_the_link_while_she_syncs() {
+    let _minds = crate::services::her_log::lease::minds_go_to_devices_in_test(true);
     let Some(site) = site().await else {
         return;
     };
@@ -1061,6 +1171,7 @@ async fn a_lend_says_where_the_pcs_rows_there_go_on_from() {
 
 #[tokio::test]
 async fn what_she_is_lent_goes_to_the_computer_holding_her() {
+    let _minds = crate::services::her_log::lease::minds_go_to_devices_in_test(true);
     use crate::services::her_log::lend::{self, About, ChatLent, Message as Line, Place};
     let Some(site) = site().await else {
         return;
@@ -1254,6 +1365,7 @@ async fn what_she_is_lent_goes_to_the_computer_holding_her() {
 /// a welcome that says off. Nobody else may turn it either way.
 #[tokio::test]
 async fn the_owner_turns_syncing_her_on_and_off() {
+    let _minds = crate::services::her_log::lease::minds_go_to_devices_in_test(true);
     use crate::api::agent::mind::{SyncRequest, get_sync, put_sync};
     use axum::{Extension, Json, extract::State, http::StatusCode, response::IntoResponse};
     let Some(site) = site().await else {
@@ -1849,6 +1961,23 @@ async fn an_input_starts_a_run_for_the_owner_and_streams_it() {
     child.send("ping", None, json!({})).await;
     child.expect("pong").await;
 
+    // Asked for by its turn alone (a child that never read its run.accepted):
+    // its run and the session the host began come again as a resend the
+    // host already had, and nothing streams until it asks with the run id.
+    child
+        .send(
+            "run.resume",
+            None,
+            json!({ "turnId": "t_hi", "afterSeq": 0 }),
+        )
+        .await;
+    let told = child.expect("run.accepted").await;
+    assert_eq!(told["body"]["duplicate"], true);
+    assert_eq!(told["body"]["runId"], run_id.as_str());
+    assert_eq!(told["body"]["sessionId"], accepted["body"]["sessionId"]);
+    child.send("ping", None, json!({})).await;
+    child.expect("pong").await;
+
     // Turns the host does not start.
     for (id, body, code) in [
         (
@@ -1929,7 +2058,7 @@ async fn performing_and_resuming_after_a_reconnect() {
         .send(
             "run.resume",
             None,
-            json!({ "turnId": "t_p", "afterSeq": 0 }),
+            json!({ "turnId": "t_p", "runId": run_id, "afterSeq": 0 }),
         )
         .await;
     let started = child.expect("run.event").await;
@@ -1993,7 +2122,7 @@ async fn performing_and_resuming_after_a_reconnect() {
         .send(
             "run.resume",
             None,
-            json!({ "turnId": "t_p", "afterSeq": 0 }),
+            json!({ "turnId": "t_p", "runId": run_id, "afterSeq": 0 }),
         )
         .await;
     for sequence in 1..=6 {
@@ -2019,7 +2148,7 @@ async fn performing_and_resuming_after_a_reconnect() {
         .send(
             "run.resume",
             None,
-            json!({ "turnId": "t_p", "afterSeq": 5 }),
+            json!({ "turnId": "t_p", "runId": run_id, "afterSeq": 5 }),
         )
         .await;
     assert_eq!(child.expect("run.event").await["body"]["sequence"], 6);
@@ -2289,7 +2418,7 @@ async fn the_app_is_directed_while_it_says_her_reply() {
         .send(
             "run.resume",
             None,
-            json!({ "turnId": "t_body", "afterSeq": 0 }),
+            json!({ "turnId": "t_body", "runId": run_id, "afterSeq": 0 }),
         )
         .await;
     assert_eq!(child.expect("run.event").await["body"]["sequence"], 1);

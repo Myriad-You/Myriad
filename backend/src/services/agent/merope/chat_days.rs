@@ -53,16 +53,19 @@ pub enum Place<'a> {
 
 /// The talk there, by the day it was on the host clock, oldest first.
 async fn by_day(db: &DatabaseConnection, place: Place<'_>) -> BTreeMap<NaiveDate, Vec<Said>> {
+    // In private, the lines a chat turn may look through (see `chat_lines`):
+    // not an archived talk, nothing they took back.
+    if let Place::With(user_id) = place {
+        let mut days: BTreeMap<NaiveDate, Vec<Said>> = BTreeMap::new();
+        for line in super::chat_lines::private_lines(db, user_id, LATEST).await {
+            days.entry(super::clock::date_of(&line.at))
+                .or_default()
+                .push((line.at, line.hers, line.content));
+        }
+        return days;
+    }
     let (sql, value): (&str, sea_orm::Value) = match place {
-        Place::With(user_id) => (
-            "SELECT m.role, m.content, m.created_at, '' AS name FROM agent_messages m \
-             JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
-               AND (s.context->>'venue') IS NULL AND m.role IN ('user', 'assistant') \
-               AND (m.metadata->>'piece') IS NULL \
-             ORDER BY m.created_at DESC LIMIT $2",
-            user_id.into(),
-        ),
+        Place::With(_) => return BTreeMap::new(),
         Place::In(venue) => (
             "SELECT m.role, m.content, m.created_at, \
                coalesce(nullif(u.display_name, ''), u.username, '') AS name \

@@ -549,9 +549,7 @@ impl SmartFilter {
                     if let Some(id) = appid {
                         name_to_appid.insert(name.to_string(), id);
                     }
-                    let image = appid.map(|id| {
-                        format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{id}/header.jpg")
-                    });
+                    let image = appid.map(crate::services::steam_assets::cover_url);
                     recent_games.push(GameItem {
                         name: name.to_string(),
                         playtime,
@@ -582,7 +580,7 @@ impl SmartFilter {
                 metadata.insert("appid".to_string(), appid.to_string());
                 metadata.insert(
                     "image".to_string(),
-                    format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/header.jpg"),
+                    crate::services::steam_assets::cover_url(appid),
                 );
                 metadata.insert("id".to_string(), appid.to_string());
             }

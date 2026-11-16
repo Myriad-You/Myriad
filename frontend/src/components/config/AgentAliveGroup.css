@@ -1,0 +1,102 @@
+/* 「她现在活着吗」：只读的时间、次数、名字、版本。 */
+.agent-alive-part h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--cfg-text-1);
+}
+
+.agent-alive-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.agent-alive-table th {
+  padding: 0.2rem 0.6rem 0.2rem 0;
+  font-weight: 500;
+  text-align: left;
+  color: var(--cfg-text-3);
+  border-bottom: 1px solid var(--cfg-subtle-border);
+}
+
+.agent-alive-table td {
+  padding: 0.25rem 0.6rem 0.25rem 0;
+  color: var(--cfg-text-2);
+  border-bottom: 1px solid var(--cfg-subtle-border);
+  vertical-align: top;
+}
+
+.agent-alive-table td:first-child {
+  color: var(--cfg-text-1);
+}
+
+.agent-alive-table tr[data-late='true'] td:last-child {
+  color: var(--color-danger, #d70015);
+}
+
+.agent-alive-rows {
+  display: grid;
+  grid-template-columns: minmax(6.5rem, max-content) 1fr;
+  gap: 0.25rem 0.9rem;
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.agent-alive-rows dt {
+  color: var(--cfg-text-3);
+}
+
+.agent-alive-rows dd {
+  margin: 0;
+  color: var(--cfg-text-2);
+  overflow-wrap: anywhere;
+}
+
+.agent-alive-call {
+  display: contents;
+}
+
+.agent-alive-ends {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-alive-end {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--cfg-subtle-border);
+  border-radius: 0.6rem;
+  background: var(--cfg-subtle-bg);
+}
+
+.agent-alive-end-head {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  margin-bottom: 0.4rem;
+  font-size: 0.875rem;
+  color: var(--cfg-text-1);
+}
+
+.agent-alive-end-head span {
+  font-size: 0.75rem;
+  color: var(--cfg-text-3);
+}
+
+.agent-alive-end-head span[data-on='true'] {
+  color: var(--cfg-accent-ink);
+}
+
+@media (width <= 640px) {
+  .agent-alive-table th:nth-child(3),
+  .agent-alive-table td:nth-child(3) {
+    display: none;
+  }
+}

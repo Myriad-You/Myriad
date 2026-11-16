@@ -29,6 +29,16 @@ use super::turns::{self, Turn};
 
 /// Frames a run follower or the mood follower may have waiting.
 const QUEUED_FRAMES: usize = 256;
+
+/// Capabilities of the contract the site does not take yet: a child that
+/// lists them is not told they were accepted, so it never sends their
+/// frames to a host that would not read them (calls, glance, versions: core
+/// #116, made on the site later).
+const NOT_YET: [&str; 3] = ["calls", "glance", "versions"];
+
+/// How soon after the ack a child's `link.dropped` still points at the
+/// reliable frame acked last of its type (a child tells it at once).
+const UNREAD_WITHIN: std::time::Duration = std::time::Duration::from_secs(30);
 /// A child kept current (`conversations.live`) is told of a change to her
 /// conversations as the database announces it (D45); this slow check is only
 /// behind it, for an announcement missed.
@@ -50,6 +60,15 @@ fn talk_under_partner(db: DatabaseConnection) {
             tracing::warn!(%error, "[link] the site owner's talk could not move to the partner id");
         }
     });
+}
+
+/// A sync frame's type as a log may name it: one of the sync family's, else
+/// `?` (never other text a side sent).
+fn sync_t(frame: &Value) -> &str {
+    frame["t"]
+        .as_str()
+        .filter(|t| myriad_her_link::needs_sync(t))
+        .unwrap_or("?")
 }
 
 fn conversations_every() -> std::time::Duration {
@@ -142,6 +161,10 @@ pub(super) struct Hello {
     /// The epoch the end last heard; a host must hold the lease at it.
     #[serde(default)]
     pub(super) host_epoch: Option<i64>,
+    /// `{name, version}` of the app there: read only for what shows which
+    /// ends are linked (`alive`), whatever its shape; never acted on.
+    #[serde(default)]
+    pub(super) app: Option<Value>,
 }
 
 /// What `host.freeze` tells the device she lives on: the move she is frozen
@@ -215,9 +238,12 @@ pub(super) async fn serve_with(
         taken: HashSet::new(),
         unacked: Vec::new(),
         said: HashSet::new(),
+        sent_as: HashMap::new(),
+        last_acked: HashMap::new(),
         senses: Default::default(),
         experience: false,
         moments: false,
+        streams: false,
         now_sessions: false,
         now_sessions2: false,
         now_choices: false,
@@ -298,12 +324,21 @@ struct Link {
     unacked: Vec<(u64, String)>,
     /// Reliable ids sent on this connection.
     said: HashSet<String>,
+    /// The frame type each unacked reliable id went out as.
+    sent_as: HashMap<String, &'static str>,
+    /// Per reliable frame type, the last one the child's ack covered, and
+    /// when: an ack is cumulative, so a child that could not read it acked
+    /// it all the same, and tells so only with `link.dropped`.
+    last_acked: HashMap<&'static str, (String, std::time::Instant)>,
     /// What the child said it senses for her.
     senses: super::senses::Senses,
     /// The child said it sends `experience` (and asks `work.recall`).
     experience: bool,
     /// The child said it sends `moment`: what its senses saw for her.
     moments: bool,
+    /// It listed streams: its stream.state and stream.event come up
+    /// (`link.dropped` the one the host reads).
+    streams: bool,
     /// The child said it tells the owner's coding-agent sessions as they
     /// change (`now.sessions`): `now.session` and `now.drop`.
     now_sessions: bool,
@@ -456,6 +491,7 @@ impl Link {
             self.unacked.retain(|(_, sent)| *sent != id);
             self.unacked.push((self.sent, id.clone()));
             self.said.insert(id.clone());
+            self.sent_as.insert(id.clone(), outgoing.t);
             envelope["id"] = id.into();
         }
         // What the host builds is the contract's; one the core refuses is the
@@ -477,6 +513,7 @@ impl Link {
     async fn relayed(&mut self, text: &str, seq: u64) {
         use crate::services::her_log::{self, relay};
         let Ok(frame) = serde_json::from_str::<Value>(text) else {
+            tracing::info!(device = %self.device.id, t = "?", code = "bad_frame", "[link] a frame of her log was answered with an error");
             self.error("bad_frame", Some(seq));
             return;
         };
@@ -497,8 +534,14 @@ impl Link {
         .await;
         match taken {
             Ok(out) => self.deliver(out),
-            Err(her_log::Error::Off) => self.error("sync_off", Some(seq)),
-            Err(her_log::Error::ClockAhead { .. }) => self.error("clock_ahead", Some(seq)),
+            Err(her_log::Error::Off) => {
+                tracing::info!(device = %self.device.id, t = sync_t(&frame), code = "sync_off", "[link] a frame of her log was answered with an error");
+                self.error("sync_off", Some(seq))
+            }
+            Err(her_log::Error::ClockAhead { .. }) => {
+                tracing::info!(device = %self.device.id, t = sync_t(&frame), code = "clock_ahead", "[link] a frame of her log was answered with an error");
+                self.error("clock_ahead", Some(seq))
+            }
             Err(her_log::Error::Refused(why)) => {
                 tracing::info!(device = %self.device.id, why = %why, "[link] a frame of her log was refused");
                 self.error("bad_frame", Some(seq));
@@ -633,6 +676,9 @@ impl Link {
             "work.recall" if self.experience => self.recall(inbound),
             "experience" if self.experience => self.experienced(inbound).await,
             "moment" if self.moments => self.moment(inbound).await,
+            "stream.event" if self.streams => self.stream_event(&inbound),
+            // No state of a child's is registered yet: one is ignored.
+            "stream.state" if self.streams => {}
             "now.session" if self.now_sessions => self.now_session(inbound).await,
             "now.drop" if self.now_sessions => self.now_drop(inbound).await,
             "node.forget" if self.nodes => self.forget_node(inbound).await,
@@ -649,6 +695,7 @@ impl Link {
                 self.relayed(text, inbound.seq).await
             }
             t if !self.sync && myriad_her_link::needs_sync(t) => {
+                tracing::info!(device = %self.device.id, t, code = "sync_off", "[link] a frame of her log was answered with an error");
                 self.error("sync_off", Some(inbound.seq))
             }
             t if CONTRACT.frames.contains_key(t) => self.error("bad_frame", Some(inbound.seq)),
@@ -695,7 +742,10 @@ impl Link {
         };
         let mut capabilities: Vec<String> = Vec::new();
         for capability in &hello.capabilities {
-            if CONTRACT.capabilities.contains(capability) && !capabilities.contains(capability) {
+            if CONTRACT.capabilities.contains(capability)
+                && !NOT_YET.contains(&capability.as_str())
+                && !capabilities.contains(capability)
+            {
                 capabilities.push(capability.clone());
             }
         }
@@ -719,6 +769,16 @@ impl Link {
         }
         self.hello = true;
         self.app_current().await;
+        crate::services::agent::alive::linked(crate::services::agent::alive::Hello {
+            device_id: &self.device.id,
+            name: &self.device.name,
+            protocol: hello.protocol,
+            app: hello.app.as_ref().and_then(|app| {
+                Some((app.get("name")?.as_str()?, app.get("version")?.as_str()?))
+            }),
+            declared: &hello.capabilities,
+            granted: &capabilities,
+        });
         let mut told = Vec::new();
         for turn in turns::recent(&self.device.id, turns::TOLD_IN_WELCOME) {
             let Some(run) = get_live_run_for_user(&turn.run_id, self.owner).await else {
@@ -879,6 +939,9 @@ impl Link {
             .iter()
             .any(|capability| capability == "moments");
         self.images = capabilities.iter().any(|capability| capability == "images");
+        self.streams = capabilities
+            .iter()
+            .any(|capability| capability == "streams");
         self.now_sessions = capabilities
             .iter()
             .any(|capability| capability == "now.sessions");
@@ -1213,6 +1276,11 @@ impl Link {
             return;
         };
         match get_run_for_user(&turn.run_id, self.owner).await {
+            // A child that never read the run's run.accepted (it was answered
+            // with an error, or could not read it) knows neither its run nor
+            // the session the host began: it hears them again as a resend
+            // the host already had, and asks once more with the run id.
+            Ok(Some(_)) if resume.run_id.is_none() => self.reply(accepted(&turn, true)),
             Ok(Some(run)) => self.follow(turn, run, resume.after_seq),
             Ok(None) => self.reject(&resume.turn_id, "turn_unknown"),
             Err(error) => {
@@ -1472,13 +1540,56 @@ impl Link {
     /// `moment`: what the app saw for her, to reach her as her own event.
     /// Taken once it is written; a resend of one already written is told so
     /// again and reaches her no second time.
+    /// A child's event (`streams`): the host reads `link.dropped`, a frame
+    /// it dropped, and counts it; any other it ignores. The core checked
+    /// its fields against the registration.
+    fn stream_event(&mut self, inbound: &Inbound) {
+        if inbound.body["name"] != "link.dropped" || inbound.body["version"] != 1 {
+            return;
+        }
+        let told = &inbound.body["body"];
+        let (Some(t), Some(reason)) = (told["t"].as_str(), told["reason"].as_str()) else {
+            return;
+        };
+        tracing::info!(device = %self.device.id, t, reason, "[link] the child dropped a frame");
+        super::counts::dropped(&self.device.id, t, reason);
+        self.acked_unread(t);
+    }
+
+    /// The child could not read a reliable frame of type `t` its ack
+    /// covered: the last of that type acked, lately, is taken as not read.
+    /// It is counted; a `say` the device cannot read is not sent to it
+    /// again on this connection, so her next lines go where they are heard.
+    fn acked_unread(&mut self, t: &str) {
+        let Some((id, at)) = self.last_acked.get(t) else {
+            return;
+        };
+        if at.elapsed() > UNREAD_WITHIN {
+            return;
+        }
+        let Some(t) = CONTRACT
+            .frames
+            .get_key_value(t)
+            .filter(|(_, spec)| spec.delivery == "reliable")
+            .map(|(name, _)| name.as_str())
+        else {
+            return;
+        };
+        tracing::warn!(device = %self.device.id, t, id = %id, "[link] a reliable frame acked was not read by the child");
+        super::counts::unread(&self.device.id, t);
+        if t == "say" && self.takes_say {
+            self.takes_say = false;
+            super::stops_say(&self.device.id, self.registered);
+        }
+    }
+
     async fn moment(&mut self, inbound: Inbound) {
         let seq = inbound.seq;
         let Some(id) = inbound.id.filter(|id| valid_id(id)) else {
             self.error("bad_id", Some(seq));
             return;
         };
-        let Ok(moment) = serde_json::from_value::<super::moment::Moment>(inbound.body) else {
+        let Ok(mut moment) = serde_json::from_value::<super::moment::Moment>(inbound.body) else {
             self.error("bad_frame", Some(seq));
             return;
         };
@@ -1486,6 +1597,7 @@ impl Link {
             self.error("bad_frame", Some(seq));
             return;
         }
+        moment.keep_screen_fields();
         if super::moment::was_taken(&self.db, &self.device.id, &id).await {
             self.reply(super::moment::taken_frame(&id));
             return;
@@ -2033,8 +2145,12 @@ impl Link {
     fn acked(&mut self, ack: u64) -> Vec<crate::services::her_log::lend::ChatLent> {
         let device = &self.device.id;
         let mut kept = Vec::new();
+        let (sent_as, last_acked) = (&mut self.sent_as, &mut self.last_acked);
         self.unacked.retain(|(seq, id)| {
             if *seq <= ack {
+                if let Some(t) = sent_as.remove(id) {
+                    last_acked.insert(t, (id.clone(), std::time::Instant::now()));
+                }
                 super::say::acked(device, id);
                 super::act::acked(device, id);
                 kept.extend(crate::services::her_log::lend::acked(device, id));

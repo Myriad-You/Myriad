@@ -7,6 +7,8 @@ pub(in crate::services::agent) mod bits;
 mod call;
 pub(crate) mod cards;
 pub(in crate::services::agent) mod chat_days;
+pub(in crate::services::agent) mod chat_lines;
+pub(in crate::services::agent) mod chat_near;
 pub mod clock;
 pub(in crate::services::agent) mod chat_remember;
 pub(crate) mod chat_typing;

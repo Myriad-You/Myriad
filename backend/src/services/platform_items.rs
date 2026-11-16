@@ -54,7 +54,7 @@ pub fn extract_platform_items(data: &Value, platform: &str) -> Vec<Value> {
 
 /// Steam CDN header art from appid (reliable for library picker / share cards).
 fn steam_header_image(appid: i64) -> String {
-    format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/header.jpg")
+    crate::services::steam_assets::cover_url(appid)
 }
 
 fn normalize_item_type(raw: &str, platform: &str) -> String {

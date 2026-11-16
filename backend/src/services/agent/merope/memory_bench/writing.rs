@@ -231,6 +231,7 @@ pub(super) async fn write_for(
         }
     }
     let settle = std::env::var("MEROPE_MEMORY_BENCH_WAY").as_deref() == Ok("settle");
+    let mut trail = super::note_trail::Trail::new();
     if settle {
         settle::go_over(
             db,
@@ -240,6 +241,7 @@ pub(super) async fn write_for(
             &question.question_date,
             &mut answering,
             &mut kept,
+            &mut trail,
         )
         .await;
     }
@@ -285,5 +287,6 @@ pub(super) async fn write_for(
     if settle {
         settle::keep_up_nodes(db, user_id).await;
     }
+    trail.finish(db, user_id, &question.question_id).await;
     Written { answering, kept }
 }

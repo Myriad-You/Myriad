@@ -58,11 +58,47 @@ impl Senses {
                     .and_then(Value::as_str)
                     .is_some_and(|kind| self.senses(kind))
             });
+            for row in rows.iter_mut() {
+                if row.get("kind").and_then(Value::as_str) == Some("screen") {
+                    keep_screen_fields(row);
+                }
+            }
         }
         if !self.music {
             object.remove("musicStatus");
         }
         body
+    }
+}
+
+/// A look at the screen says only what `screenFields` lets it: a fact the
+/// list does not name is deleted (and counted, never its value). A chat
+/// window's row (its facts carry who) keeps only the first line of its
+/// summary and no screen_text: a child from before put others' words there.
+fn keep_screen_fields(row: &mut Value) {
+    let Some(row) = row.as_object_mut() else {
+        return;
+    };
+    let mut chat = false;
+    if let Some(facts) = row.get_mut("safeFacts").and_then(Value::as_object_mut) {
+        facts.retain(|key, _| {
+            let kept = super::counts::screen_fact(key);
+            if !kept {
+                super::counts::screen_key_deleted("presence", key);
+            }
+            kept
+        });
+        chat = facts.contains_key("who");
+        if chat && facts.remove("screen_text").is_some() {
+            super::counts::screen_key_deleted("presence", "screen_text");
+        }
+    }
+    if chat
+        && let Some(Value::String(summary)) = row.get_mut("summary")
+        && let Some((first, _)) = summary.split_once('\n')
+    {
+        *summary = first.to_string();
+        super::counts::screen_key_deleted("presence", "summary");
     }
 }
 
@@ -127,6 +163,46 @@ mod tests {
         .collect();
         // A kind no one knows never passes.
         assert_eq!(sources(&Senses::of(&all).admit(&report())).len(), 7);
+    }
+
+    #[test]
+    fn a_look_at_the_screen_says_only_what_the_contract_lets_it() {
+        let screen: Vec<String> = vec!["perception.screen".into()];
+        let senses = Senses::of(&screen);
+        let body = json!({
+            "presence": { "pageVisible": true },
+            "perception": [
+                { "sourceId": "screen_look", "kind": "screen", "privacy": "consented",
+                  "summary": "Xcode · Pen.swift",
+                  "safeFacts": { "app": "Xcode", "screen_text": "let pen = Pen()",
+                                 "seen_at": "2026-11-16T03:00:00Z", "clipboard": "secret" } },
+                { "sourceId": "screen_chat", "kind": "screen", "privacy": "consented",
+                  "summary": "Bob wrote about dinner\nWhat other people wrote there: see you at 7",
+                  "safeFacts": { "who": "Bob", "topic": "dinner", "category": "chat",
+                                 "others_text": "see you at 7", "screen_text": "see you at 7" } },
+            ],
+        });
+        let kept = senses.admit(&body);
+        let rows = kept["perception"].as_array().unwrap();
+        // Another app: its filtered text stays, a key the list does not name goes.
+        assert_eq!(
+            rows[0]["safeFacts"],
+            json!({ "app": "Xcode", "screen_text": "let pen = Pen()", "seen_at": "2026-11-16T03:00:00Z" })
+        );
+        assert_eq!(rows[0]["summary"], "Xcode · Pen.swift");
+        // A chat window: who and about what, never what anyone else wrote.
+        assert_eq!(
+            rows[1]["safeFacts"],
+            json!({ "who": "Bob", "topic": "dinner", "category": "chat" })
+        );
+        assert_eq!(rows[1]["summary"], "Bob wrote about dinner");
+        let deleted = super::super::counts::screen_keys();
+        for key in ["clipboard", "others_text", "screen_text", "summary"] {
+            assert!(
+                deleted.iter().any(|(t, k, _)| *t == "presence" && k == key),
+                "{key}"
+            );
+        }
     }
 
     #[test]

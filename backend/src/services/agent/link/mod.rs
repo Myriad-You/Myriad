@@ -54,6 +54,7 @@ mod body;
 mod connection;
 mod contract;
 mod conversations;
+pub(crate) mod counts;
 mod experience;
 mod moment;
 mod moment_repeats;
@@ -61,6 +62,7 @@ mod now;
 mod nodes;
 mod notices;
 mod outfit;
+mod pick;
 mod proposals;
 mod say;
 mod senses;
@@ -146,6 +148,16 @@ fn takes_say(device_id: &str, id: u64, sender: mpsc::Sender<connection::Outgoing
         if let Some(link) = open.get_mut(device_id).filter(|link| link.id == id) {
             link.says = Some(sender);
             link.playback = playback;
+        }
+    }
+}
+
+/// The link `id` cannot read `say` (it told `link.dropped`): her lines are
+/// not sent to it again while it lasts.
+fn stops_say(device_id: &str, id: u64) {
+    if let Ok(mut open) = OPEN.lock() {
+        if let Some(link) = open.get_mut(device_id).filter(|link| link.id == id) {
+            link.says = None;
         }
     }
 }

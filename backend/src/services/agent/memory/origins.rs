@@ -120,6 +120,32 @@ pub async fn forget<C: ConnectionTrait>(
     Ok(lines)
 }
 
+/// [`forget`] for one memory of `user_id`'s (or her own, kept under
+/// `own_venue` with no person) that another end forgot, taken in here:
+/// the memory-work lock first, then the row, then the words it came from,
+/// on the caller's transaction. The lines deleted; none when there is no
+/// such row here or it is a group's.
+pub async fn forget_taken_in<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    own_venue: &str,
+    id: &str,
+) -> Result<Vec<Gone>, DbErr> {
+    use sea_orm::EntityTrait;
+    memory_jobs::lock(db)
+        .await
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
+    let row = agent_memories::Entity::find_by_id(id.to_string())
+        .one(db)
+        .await?
+        .filter(|row| {
+            !row.venue.starts_with("group:")
+                && (row.user_id == Some(user_id)
+                    || (row.user_id.is_none() && row.venue == own_venue))
+        });
+    forget(db, row.as_slice()).await
+}
+
 /// The way back from one line: the person's (`user_id`'s) memories in
 /// `place` (`None` private, a group's id) that quote `content`, said at
 /// `at`, and were written within [`QUOTED_WITHIN`] after it, from what they
@@ -226,6 +252,7 @@ async fn delete_quoted<C: ConnectionTrait>(
 ) -> Result<Vec<Gone>, DbErr> {
     delete_messages(
         db,
+        user_id,
         "WITH quoted AS ( \
            SELECT m.id, m.role, m.session_id, m.created_at FROM agent_messages m \
            JOIN agent_sessions s ON s.id = m.session_id \
@@ -242,7 +269,7 @@ async fn delete_quoted<C: ConnectionTrait>(
          ) \
          DELETE FROM agent_messages WHERE id IN ( \
            SELECT id FROM quoted UNION SELECT id FROM answers WHERE id IS NOT NULL \
-         ) RETURNING session_id, id, role, log_row",
+         ) RETURNING session_id, id, role, log_row, content, created_at",
         vec![
             user_id.into(),
             place.map(str::to_string).into(),
@@ -263,21 +290,24 @@ async fn delete_day<C: ConnectionTrait>(
 ) -> Result<Vec<Gone>, DbErr> {
     delete_messages(
         db,
+        user_id,
         "DELETE FROM agent_messages m USING agent_sessions s \
          WHERE s.id = m.session_id AND s.user_id = $1 AND s.context->>'mode' = 'chat' \
            AND (s.context->>'venue') IS NULL \
            AND m.created_at >= $2 AND m.created_at < $3 \
-         RETURNING m.session_id, m.id, m.role, m.log_row",
+         RETURNING m.session_id, m.id, m.role, m.log_row, m.content, m.created_at",
         vec![user_id.into(), start.into(), end.into()],
     )
     .await
 }
 
-/// Runs a delete of lines returning their conversations, ids, roles and
-/// rows, and has each conversation count what is left in it. The lines
-/// deleted.
+/// Runs a delete of `user_id`'s lines returning their conversations, ids,
+/// roles, rows, words and times, keeps each as forgotten
+/// ([`super::forgotten`]), and has each conversation count what is left in
+/// it. The lines deleted.
 async fn delete_messages<C: ConnectionTrait>(
     db: &C,
+    user_id: i32,
     delete: &str,
     values: Vec<sea_orm::Value>,
 ) -> Result<Vec<Gone>, DbErr> {
@@ -288,6 +318,18 @@ async fn delete_messages<C: ConnectionTrait>(
             values,
         ))
         .await?;
+    let marks = deleted
+        .iter()
+        .map(|row| {
+            let at: DateTime<FixedOffset> = row.try_get("", "created_at")?;
+            Ok(super::forgotten::line_mark(
+                &row.try_get::<String>("", "role")?,
+                at.timestamp_micros(),
+                &row.try_get::<String>("", "content")?,
+            ))
+        })
+        .collect::<Result<Vec<_>, DbErr>>()?;
+    super::forgotten::keep(db, user_id, super::forgotten::LINE, &marks).await?;
     let lines = deleted
         .iter()
         .map(|row| {

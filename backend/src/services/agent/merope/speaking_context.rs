@@ -5,6 +5,7 @@
 
 use super::*;
 
+mod between;
 mod sections;
 
 pub fn format_addressee_label(
@@ -672,10 +673,10 @@ async fn speaking_prompt_from_db(
     sections::what_she_found(db, user_id, turn, present, &mut sections).await;
     if !matches!(turn, Turn::Plain) {
         sections::her_own(db, turn, her_life, &mut sections).await;
-        sections::between_them(db, user_id, turn, present, opening, nodes, &mut sections).await;
+        between::between_them(db, user_id, turn, present, opening, nodes, &mut sections).await;
     }
     if matches!(turn, Turn::Chat(_)) {
-        sections::chat_extras(db, user_id, turn, present, &mut sections).await;
+        between::chat_extras(db, user_id, turn, present, &mut sections).await;
     }
     sections.extend(inner_block);
     sections

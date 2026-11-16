@@ -87,6 +87,21 @@ impl Moment {
                 .all(|(key, value)| fact_key(key) && value.chars().count() <= rules.fact_chars)
     }
 
+    /// A look at the screen keeps only the facts `screenFields` names; the
+    /// rest are deleted and counted (never their values).
+    pub(super) fn keep_screen_fields(&mut self) {
+        if self.kind != crate::services::agent::merope::gates::SCREEN_EVENT {
+            return;
+        }
+        self.safe_facts.retain(|key, _| {
+            let kept = super::counts::screen_fact(key);
+            if !kept {
+                super::counts::screen_key_deleted("moment", key);
+            }
+            kept
+        });
+    }
+
     /// What she decides to remember of it may become a memory: only for a
     /// kind that may keep one, whatever the child says of the rest.
     pub(super) fn keeps_memory(&self) -> bool {

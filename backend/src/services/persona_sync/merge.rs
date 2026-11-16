@@ -541,8 +541,23 @@ async fn land(
     // Memories, and the vectors of those that came, when the site's model
     // made them.
     let mut came: BTreeMap<String, String> = BTreeMap::new();
+    // What she was made to forget here stays forgotten: a copy of it the
+    // device kept does not come back (`memory::forgotten`).
+    let ids: Vec<String> = written(Kind::Memory)
+        .map(|write| write.id.clone())
+        .collect();
+    let forgotten = crate::services::agent::memory::forgotten::among(
+        txn,
+        owner,
+        crate::services::agent::memory::forgotten::MEMORY,
+        &ids,
+    )
+    .await?;
     for write in written(Kind::Memory) {
         let entity = entity_of(write)?;
+        if forgotten.contains(&entity.id) {
+            continue;
+        }
         let memory: MemoryBody = entity.body_as().map_err(bad)?;
         let (venue, audience) = match memory.audience.venue {
             MemoryVenue::Own => ("own", json!([])),
@@ -912,7 +927,17 @@ async fn land(
     for write in written(Kind::Conversation) {
         let entity = entity_of(write)?;
         let conversation: ConversationBody = entity.body_as().map_err(bad)?;
-        let had: BTreeSet<(String, i64, String)> = if write.replaces {
+        // One the site still has with every line forgotten is not among
+        // what it hands over, but is here: its lines come into it.
+        let here = write.replaces
+            || txn
+                .query_one_raw(statement(
+                    "SELECT 1 FROM agent_sessions WHERE id = $1 AND user_id = $2",
+                    vec![entity.id.clone().into(), owner.into()],
+                ))
+                .await?
+                .is_some();
+        let had: BTreeSet<(String, i64, String)> = if here {
             txn.query_all_raw(statement(
                 "SELECT role, content, created_at FROM agent_messages WHERE session_id = $1",
                 vec![entity.id.clone().into()],
@@ -950,15 +975,46 @@ async fn land(
             BTreeSet::new()
         };
         let mut added = 0i32;
-        for line in &conversation.lines {
-            let mut content = line.content.clone();
-            for picture in &line.pictures {
-                if let Some(url) = picture_url(Some(&picture.image)) {
-                    content = content.replace(&picture.url, &url);
+        // Each line as the site would keep it (its pictures the site's) and
+        // as it came; a line forgotten here, either way, stays forgotten.
+        let lines: Vec<(&_, String)> = conversation
+            .lines
+            .iter()
+            .map(|line| {
+                let mut content = line.content.clone();
+                for picture in &line.pictures {
+                    if let Some(url) = picture_url(Some(&picture.image)) {
+                        content = content.replace(&picture.url, &url);
+                    }
                 }
-            }
+                (line, content)
+            })
+            .collect();
+        let mark = crate::services::agent::memory::forgotten::line_mark;
+        let marks: Vec<String> = lines
+            .iter()
+            .flat_map(|(line, content)| {
+                [
+                    mark(&line.role, line.at, content),
+                    mark(&line.role, line.at, &line.content),
+                ]
+            })
+            .collect();
+        let forgotten = crate::services::agent::memory::forgotten::among(
+            txn,
+            owner,
+            crate::services::agent::memory::forgotten::LINE,
+            &marks,
+        )
+        .await?;
+        for (line, content) in lines {
             if had.contains(&(line.role.clone(), line.at, content.clone()))
                 || had.contains(&(line.role.clone(), line.at, line.content.clone()))
+            {
+                continue;
+            }
+            if forgotten.contains(&mark(&line.role, line.at, &content))
+                || forgotten.contains(&mark(&line.role, line.at, &line.content))
             {
                 continue;
             }

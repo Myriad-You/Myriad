@@ -601,16 +601,24 @@ pub async fn take_in(
             let id = object.trim_start_matches("memory:");
             let txn = db.begin().await?;
             if forgotten {
+                // The words it came from go with it, as when it is forgotten
+                // here: the lines it quotes and her answers, the same words
+                // in her chat diary and queued work (`memory::origins`).
+                let gone = crate::services::agent::memory::origins::forget_taken_in(
+                    &txn, owner.user, OWN_VENUE, id,
+                )
+                .await?;
+                let lines: Vec<i32> = gone.iter().map(|line| line.id).collect();
                 // What rests on it goes with it, as when it is forgotten here
-                // (`memory::manage`): the entries naming it, and the versions
-                // of her views, of what is open and of how their life stands
-                // (「现在」) resting on it become stubs. In this transaction:
-                // if that fails, nothing here goes and the next batch tries
-                // again (the caller logs why).
+                // (`memory::manage`): the entries naming it or those lines,
+                // and the versions of her views, of what is open and of how
+                // their life stands (「现在」) resting on it become stubs. In
+                // this transaction: if that fails, nothing here goes and the
+                // next batch tries again (the caller logs why).
                 crate::services::agent::merope::memory_nodes::forget::forget(
                     &txn,
                     &[id.to_string()],
-                    &[],
+                    &lines,
                 )
                 .await
                 .map_err(|error| Error::Db(DbErr::Custom(error.to_string())))?;
@@ -622,7 +630,18 @@ pub async fn take_in(
                 ))
                 .await?;
                 state::drop_known(&txn, owner.user, &object).await?;
+                // Kept as forgotten here too, so no copy elsewhere brings it
+                // back (`memory::forgotten`).
+                crate::services::agent::memory::forgotten::keep(
+                    &txn,
+                    owner.user,
+                    crate::services::agent::memory::forgotten::MEMORY,
+                    &[id.to_string()],
+                )
+                .await?;
                 txn.commit().await?;
+                // In her log too: every line that went.
+                crate::services::her_log::talk::forget_lines(db, &gone).await;
                 taken += 1;
                 continue;
             }

@@ -299,6 +299,22 @@ pub(crate) async fn build_config(
                     required: false,
                 },
                 ConfigField {
+                    key: "qq_bot_groups_enabled".to_string(),
+                    label: "QQ bot groups".to_string(),
+                    field_type: "boolean".to_string(),
+                    value: stored.qq_bot_groups_enabled.to_string(),
+                    placeholder: "false".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "qq_bot_group_ids".to_string(),
+                    label: "QQ bot group allowlist".to_string(),
+                    field_type: "text".to_string(),
+                    value: stored.qq_bot_group_ids.clone(),
+                    placeholder: "".to_string(),
+                    required: false,
+                },
+                ConfigField {
                     key: "telegram_bot_enabled".to_string(),
                     label: "Telegram bot".to_string(),
                     field_type: "boolean".to_string(),

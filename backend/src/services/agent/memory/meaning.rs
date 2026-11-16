@@ -459,6 +459,51 @@ pub async fn fill<C: ConnectionTrait>(db: &C, rows: &[agent_memories::Model]) {
     }
 }
 
+/// The model vectors are kept under now; none when no model is set.
+pub(crate) async fn model_in_use() -> Option<String> {
+    #[cfg(test)]
+    if crate::services::channel_group::g0::on() {
+        return Some("g0".to_string());
+    }
+    Meaning::current().await.map(|meaning| meaning.model)
+}
+
+/// `texts` embedded to be kept, under the model in use, with no reply
+/// waiting on them: none when there is no model, it did not answer within
+/// `within`, or it did not answer for each.
+pub(crate) async fn embed_to_keep(
+    texts: &[String],
+    within: Duration,
+) -> Option<(String, Vec<Vec<f32>>)> {
+    #[cfg(test)]
+    if crate::services::channel_group::g0::on() {
+        let vectors: Option<Vec<Vec<f32>>> = texts
+            .iter()
+            .map(|text| crate::services::channel_group::g0::vector(text.trim()))
+            .collect();
+        return vectors.map(|vectors| ("g0".to_string(), vectors));
+    }
+    let analyzer =
+        crate::services::ai::create_lite_embedding_analyzer_with_timeout(Some(within)).await?;
+    let model = model_in_use().await?;
+    match tokio::time::timeout(within, analyzer.embed(texts)).await {
+        Ok(Ok(vectors)) if vectors.len() == texts.len() => Some((model, vectors)),
+        _ => {
+            FAILED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            None
+        }
+    }
+}
+
+/// A vector as it is kept in a `BYTEA` column, and back.
+pub(crate) fn kept_bytes(vector: &[f32]) -> Vec<u8> {
+    to_bytes(vector)
+}
+
+pub(crate) fn from_kept(bytes: &[u8]) -> Option<Vec<f32>> {
+    from_bytes(bytes)
+}
+
 /// How much each memory stands out by meaning from the rest (see
 /// `myriad_agent_rules::memory::rank::standing_out`).
 pub use myriad_agent_rules::memory::rank::standing_out;
