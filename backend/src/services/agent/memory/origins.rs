@@ -120,6 +120,32 @@ pub async fn forget<C: ConnectionTrait>(
     Ok(lines)
 }
 
+/// [`forget`] for one memory of `user_id`'s (or her own, kept under
+/// `own_venue` with no person) that another end forgot, taken in here:
+/// the memory-work lock first, then the row, then the words it came from,
+/// on the caller's transaction. The lines deleted; none when there is no
+/// such row here or it is a group's.
+pub async fn forget_taken_in<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    own_venue: &str,
+    id: &str,
+) -> Result<Vec<Gone>, DbErr> {
+    use sea_orm::EntityTrait;
+    memory_jobs::lock(db)
+        .await
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
+    let row = agent_memories::Entity::find_by_id(id.to_string())
+        .one(db)
+        .await?
+        .filter(|row| {
+            !row.venue.starts_with("group:")
+                && (row.user_id == Some(user_id)
+                    || (row.user_id.is_none() && row.venue == own_venue))
+        });
+    forget(db, row.as_slice()).await
+}
+
 /// The way back from one line: the person's (`user_id`'s) memories in
 /// `place` (`None` private, a group's id) that quote `content`, said at
 /// `at`, and were written within [`QUOTED_WITHIN`] after it, from what they

@@ -407,3 +407,91 @@ async fn an_intent_they_cancel_is_dropped_and_recorded_so() {
     ));
     schema.drop().await;
 }
+
+/// An entry citing a line of their talk (as the topics moved onto nodes
+/// cite the lines their memories came from) takes that line with it when
+/// it is deleted, even where its memory no longer finds the line by its
+/// words: the line goes as forgetting that line does.
+#[tokio::test]
+async fn an_entry_deleted_takes_the_line_it_cites() {
+    let Some(schema) = owned("memory_nodes_page_forget_line").await else {
+        return;
+    };
+    let db = &schema.db;
+    db.execute_unprepared(
+        "INSERT INTO agent_sessions (id, user_id, title, context, message_count, archived, \
+         created_at, last_active_at) VALUES ('s_owner', 1, 't', '{\"mode\":\"chat\"}', 0, false, NOW(), NOW())",
+    )
+    .await
+    .unwrap();
+    let line: i32 = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "INSERT INTO agent_messages (session_id, role, content, created_at) \
+             VALUES ('s_owner', 'user', 'OWNER-LINE 最近在学大提琴', NOW()) RETURNING id",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "id")
+        .unwrap();
+    // A memory with no words of theirs kept as evidence: forgetting it
+    // finds no line by its words.
+    let memory = super::read_tests::memory(
+        db,
+        OWNER,
+        crate::services::agent::memory::unified::Speaker::User,
+        "chat",
+        Audience::private(OWNER),
+        "在学大提琴",
+        None,
+    )
+    .await;
+    let talk = audience::owners_talk();
+    let made = myriad_nodes::entries::fact_rows(myriad_nodes::entries::FactRowsInput {
+        audience: talk.clone(),
+        sync: myriad_nodes::Sync::Shared,
+        start: Some(myriad_nodes::entries::Start {
+            key: None,
+            name: "大提琴".into(),
+            aliases: Vec::new(),
+        }),
+        key: None,
+        facts: vec![myriad_nodes::entries::Fact {
+            memory: memory.clone(),
+            text: "在学大提琴".into(),
+            said_by: vec![SaidBy::Partner],
+            refs: vec![format!("message:{line}")],
+            revision: String::new(),
+            audience: None,
+            happened: None,
+            state: None,
+            open: None,
+        }],
+    })
+    .unwrap();
+    let rows: Vec<RowIn> = made
+        .rows
+        .into_iter()
+        .map(|row| RowIn {
+            id: row.id,
+            node: made.node.clone(),
+            kind: row.kind,
+            body: row.body,
+            author: Author::Her,
+        })
+        .collect();
+    let pen = crate::services::her_log::pen::think().unwrap();
+    write(db, OWNER, &talk, &rows, Some(&pen)).await.unwrap();
+    let shown = page::node(db, OWNER, &talk, &made.node)
+        .await
+        .unwrap()
+        .unwrap();
+    let entry = shown.entries.first().unwrap();
+    page_edit::forget_entry(db, OWNER, &talk, &made.node, &entry.row)
+        .await
+        .unwrap();
+    let lines = format!("SELECT COUNT(*) AS n FROM agent_messages WHERE id = {line}");
+    assert_eq!(count(db, &lines).await, 0, "the line it cites goes");
+    schema.drop().await;
+}
