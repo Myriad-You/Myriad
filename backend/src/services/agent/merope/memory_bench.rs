@@ -46,6 +46,7 @@ mod making;
 mod memes;
 mod probes;
 mod raw_back;
+mod scored;
 mod settle;
 mod since_up;
 mod speaking_check;

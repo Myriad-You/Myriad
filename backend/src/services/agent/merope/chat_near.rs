@@ -310,10 +310,21 @@ pub(crate) fn fill_behind(db: DatabaseConnection, user_id: i32) {
     if FILLING.swap(true, Ordering::AcqRel) {
         return;
     }
-    tokio::spawn(async move {
+    /// Lets the next turn fill again however this one ends (a panic too).
+    struct Done;
+    impl Drop for Done {
+        fn drop(&mut self) {
+            FILLING.store(false, Ordering::Release);
+        }
+    }
+    // On her managed runner: refused (at capacity, or shutting down), the
+    // next turn tries again.
+    if !super::background::spawn("chat lines' vectors", async move {
+        let _done = Done;
         rebuild(&db, user_id).await;
+    }) {
         FILLING.store(false, Ordering::Release);
-    });
+    }
 }
 
 /// What scrolling back found (`found`), with each of `near` added once,
