@@ -1,6 +1,5 @@
 use super::*;
 use crate::models::entities::agent_memories;
-use sea_orm::{Database, Schema};
 use serde_json::json;
 
 async fn seed_fact_at(
@@ -40,49 +39,32 @@ async fn seed_fact(db: &DatabaseConnection, user_id: i32, content: &str) -> agen
     seed_fact_at(db, user_id, content, crate::clock::now().fixed_offset()).await
 }
 
-async fn test_database() -> DatabaseConnection {
-    let url = std::env::var("MEROPE_MEMORY_TEST_DATABASE_URL").expect("disposable DB URL");
-    let db = Database::connect(url).await.unwrap();
-    let name = db
-        .query_one_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            "SELECT current_database() AS name",
-        ))
-        .await
-        .unwrap()
-        .unwrap()
-        .try_get::<String>("", "name")
-        .unwrap();
-    assert_eq!(
-        name, "merope_memory_test",
-        "refuse to write to any other database"
-    );
-    let schema = Schema::new(DatabaseBackend::Postgres);
-    for mut table in [
-        schema.create_table_from_entity(agent_diary::Entity),
-        schema.create_table_from_entity(agent_memories::Entity),
-    ] {
-        table.if_not_exists();
-        db.execute(&table).await.unwrap();
+/// A migrated schema of its own on the test database, for `users`: never
+/// the dev database, never its default schema.
+async fn test_database(users: &[i32]) -> crate::db::IsolatedSchema {
+    let url =
+        std::env::var("MYRIAD_MEROPE_TEST_DATABASE_URL").expect("explicit disposable database");
+    let schema = crate::db::IsolatedSchema::migrated(&url, "store_memory").await;
+    for user in users {
+        schema
+            .db
+            .execute_unprepared(&format!(
+                "INSERT INTO users (id, username) VALUES ({user}, 'memory_{user}')"
+            ))
+            .await
+            .unwrap();
     }
-    // Each change of her affect is recorded beside it.
-    db.execute_unprepared(&super::tests::affect_log_ddl())
-        .await
-        .unwrap();
-    // Where what each person said was last gone over.
-    db.execute_unprepared("CREATE TABLE IF NOT EXISTS runtime_registry (namespace TEXT NOT NULL, record_id TEXT NOT NULL, subject_id INTEGER, owner_id INTEGER, tapp_id TEXT, runtime_id TEXT, payload JSONB NOT NULL, expires_at BIGINT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(namespace,record_id))")
-        .await
-        .unwrap();
-    db
+    schema
 }
 
 /// Exercises real pagination and transaction serialization, never the dev DB.
 #[tokio::test]
-#[ignore = "requires a disposable MEROPE_MEMORY_TEST_DATABASE_URL"]
+#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn recall_and_memory_writes_cover_old_rows_duplicates_and_addressee_isolation() {
-    let db = test_database().await;
     let user_id = (Uuid::new_v4().as_u128() % 1_000_000_000) as i32 + 1;
     let other_user = user_id + 1_000_000_000;
+    let schema = test_database(&[user_id, other_user]).await;
+    let db = schema.db.clone();
 
     // More than two pages, all at the same timestamp, also exercise id cursors.
     let old = seed_fact(&db, user_id, "  prefers   saffron tea  ").await;
@@ -189,23 +171,17 @@ async fn recall_and_memory_writes_cover_old_rows_duplicates_and_addressee_isolat
             .unwrap()
             .is_empty()
     );
+    schema.drop().await;
 }
 
 #[tokio::test]
-#[ignore = "requires a disposable MEROPE_MEMORY_TEST_DATABASE_URL"]
+#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_under_lock() {
     use super::super::chat_remember::ChatMemoryUpdate;
-    let db = test_database().await;
-    let schema = Schema::new(DatabaseBackend::Postgres);
-    for mut table in [
-        schema.create_table_from_entity(agent_persona::Entity),
-        schema.create_table_from_entity(agent_addressee_state::Entity),
-    ] {
-        table.if_not_exists();
-        db.execute(&table).await.unwrap();
-    }
     let user_id = (Uuid::new_v4().as_u128() % 1_000_000_000) as i32 + 1;
     let other_user = user_id + 1_000_000_000;
+    let schema = test_database(&[user_id, other_user]).await;
+    let db = schema.db.clone();
     let (_, state) = update_affect(&db, user_id, true, AffectChange::utterance(0, false, false))
         .await
         .unwrap();
@@ -224,11 +200,63 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         evidence: Some("我不喝咖啡了".into()),
         concepts: vec![],
     };
+    // Said in passing, it is a short note: what she knows for good is not
+    // changed by a line, only once the stretch is gone over.
     assert!(
         apply_chat_memory_update(&db, user_id, input_at, &correction)
             .await
             .unwrap()
     );
+    let mut both = recall_remembered(&db, user_id, Some("咖啡"), 8)
+        .await
+        .unwrap();
+    both.sort();
+    assert_eq!(both, [dated("喜欢咖啡"), dated("现在不喝咖啡")]);
+    let note = agent_memories::Entity::find()
+        .filter(agent_memories::Column::UserId.eq(user_id))
+        .filter(agent_memories::Column::Content.eq("现在不喝咖啡"))
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        note.source,
+        crate::services::agent::memory::unified::SHORT_NOTE_SOURCE
+    );
+    let still = agent_memories::Entity::find_by_id(old.id.clone())
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        still.invalid_at, None,
+        "a line does not change a lasting fact"
+    );
+
+    // Gone over, the stretch keeps it for good in place of the old fact.
+    let settle = |update: &ChatMemoryUpdate, notes: Vec<String>| {
+        let db = db.clone();
+        let updates = super::super::chat_remember::ChatMemoryUpdates {
+            updates: vec![update.clone()],
+            ..Default::default()
+        };
+        async move {
+            let transaction = db.begin().await.unwrap();
+            let kept = settle_chat_memory_on(
+                &transaction,
+                user_id,
+                input_at,
+                &updates,
+                &[notes],
+                &crate::services::agent::memory::unified::Audience::private(user_id),
+            )
+            .await
+            .unwrap();
+            transaction.commit().await.unwrap();
+            kept
+        }
+    };
+    assert!(settle(&correction, vec![note.id.clone()]).await);
     assert_eq!(
         recall_remembered(&db, user_id, Some("咖啡"), 8)
             .await
@@ -242,16 +270,27 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         .unwrap();
     assert_eq!(retired.invalid_reason.as_deref(), Some("superseded"));
     assert_eq!(retired.content, "喜欢咖啡");
-    // The corrected row names what holds the fact now.
+    // The corrected row names what holds the fact now, and so does the note.
     let corrected = agent_memories::Entity::find()
         .filter(agent_memories::Column::UserId.eq(user_id))
         .filter(agent_memories::Column::Content.eq("现在不喝咖啡"))
+        .filter(agent_memories::Column::Source.eq("chat"))
         .one(&db)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(
         retired.superseded_by.as_deref(),
+        Some(corrected.id.as_str())
+    );
+    let settled = agent_memories::Entity::find_by_id(note.id)
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(settled.invalid_reason.as_deref(), Some("settled"));
+    assert_eq!(
+        settled.superseded_by.as_deref(),
         Some(corrected.id.as_str())
     );
     assert_eq!(retired.created_at, old.created_at);
@@ -268,9 +307,7 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         "喜欢咖啡"
     );
     assert!(
-        !apply_chat_memory_update(&db, user_id, input_at, &correction)
-            .await
-            .unwrap(),
+        !settle(&correction, Vec::new()).await,
         "replay cannot reapply retired targets"
     );
     assert!(
@@ -302,6 +339,15 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         2,
         "addition keeps unrelated facts"
     );
+    let tea = agent_memories::Entity::find()
+        .filter(agent_memories::Column::UserId.eq(user_id))
+        .filter(agent_memories::Column::Content.eq("喜欢茶"))
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(settle(&addition, vec![tea.id]).await);
+    // What she knows for good is changed all at once or not at all.
     let invalid = ChatMemoryUpdate {
         standing: Default::default(),
         topic: None,
@@ -311,11 +357,7 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         evidence: Some("更正".into()),
         concepts: vec![],
     };
-    assert!(
-        !apply_chat_memory_update(&db, user_id, input_at, &invalid)
-            .await
-            .unwrap()
-    );
+    assert!(!settle(&invalid, Vec::new()).await);
     assert_eq!(
         recall_remembered(&db, user_id, None, 8)
             .await
@@ -325,6 +367,30 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         "invalid edit is atomic"
     );
 
+    // A line that only takes something back lets it go wherever it is
+    // kept, as a line is gone over.
+    let line = |at, update: &ChatMemoryUpdate| {
+        let db = db.clone();
+        let updates = super::super::chat_remember::ChatMemoryUpdates {
+            updates: vec![update.clone()],
+            ..Default::default()
+        };
+        async move {
+            let transaction = db.begin().await.unwrap();
+            let kept = apply_chat_memory_updates_on(
+                &transaction,
+                user_id,
+                at,
+                &updates,
+                &crate::services::agent::memory::unified::Audience::private(user_id),
+                Keep::Note,
+            )
+            .await
+            .unwrap();
+            transaction.commit().await.unwrap();
+            kept
+        }
+    };
     let withdrawal = ChatMemoryUpdate {
         standing: Default::default(),
         topic: None,
@@ -334,11 +400,7 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         evidence: Some("茶的偏好记错了".into()),
         concepts: vec![],
     };
-    assert!(
-        apply_chat_memory_update(&db, user_id, input_at, &withdrawal)
-            .await
-            .unwrap()
-    );
+    assert!(line(input_at, &withdrawal).await);
     assert_eq!(
         recall_remembered(&db, user_id, None, 8).await.unwrap(),
         vec![dated("现在不喝咖啡")]
@@ -354,9 +416,7 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
             .unwrap()
     );
     assert!(
-        !apply_chat_memory_update(&db, user_id, input_at, &withdrawal)
-            .await
-            .unwrap(),
+        !line(input_at, &withdrawal).await,
         "late old input cannot retract a newer assertion"
     );
 
@@ -404,6 +464,7 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
             .unwrap()
             .contains(&dated("喜欢茶"))
     );
+    schema.drop().await;
 }
 
 /// What they told her today, as she holds it: placed in time.
