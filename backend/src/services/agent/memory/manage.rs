@@ -541,10 +541,12 @@ mod tests {
         let schema = crate::db::IsolatedSchema::migrated(&url, "memory_forget_origins").await;
         let db = &schema.db;
         use sea_orm::ConnectionTrait;
-        let yesterday = crate::services::agent::merope::clock::today()
-            .pred_opt()
+        // The day forgotten is two days back: the lines of the last hour fall
+        // on today or, just past midnight, on yesterday, never on it.
+        let that_day = crate::services::agent::merope::clock::today()
+            .checked_sub_days(chrono::Days::new(2))
             .unwrap();
-        let noon = crate::services::agent::merope::clock::day_start(yesterday).unwrap()
+        let noon = crate::services::agent::merope::clock::day_start(that_day).unwrap()
             + chrono::Duration::hours(12);
         db.execute_unprepared(&format!(
             "INSERT INTO users (id, username) VALUES (34, 'mei'), (35, 'other');
@@ -572,7 +574,7 @@ mod tests {
              VALUES ('n', 34, 'fact', '养了猫', '养了一只猫叫年糕', 'user', 'chat_note', 'private', '[34]', '[]', 0.5, 0, NOW(), NOW(), 'settled', 'k', NOW() - INTERVAL '58 minutes', NOW()),
                     ('k', 34, 'fact', '家里有只猫叫年糕', '养了一只 猫叫年糕', 'user', 'chat', 'private', '[34]', '[]', 0.5, 0, NOW(), NULL, NULL, NULL, NOW() - INTERVAL '40 minutes', NOW()),
                     ('w', 34, 'fact', '今天下雨', '今天下雨了', 'user', 'chat', 'private', '[34]', '[]', 0.5, 0, NOW(), NULL, NULL, NULL, NOW(), NOW()),
-                    ('day', 34, 'fact', '昨天聊了很多', '{{\"day\":\"{yesterday}\"}}', 'agent', 'day_with', 'private', '[34]', '[]', 0.3, 0, NOW(), NULL, NULL, NULL, NOW(), NOW());"
+                    ('day', 34, 'fact', '昨天聊了很多', '{{\"day\":\"{that_day}\"}}', 'agent', 'day_with', 'private', '[34]', '[]', 0.3, 0, NOW(), NULL, NULL, NULL, NOW(), NOW());"
         ))
         .await
         .unwrap();
