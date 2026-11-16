@@ -5,6 +5,8 @@ use sea_orm::{ActiveModelTrait, ActiveValue::Set, IntoActiveModel};
 
 #[path = "memory_jobs_settle_tests.rs"]
 mod settle;
+#[path = "memory_jobs_her_tests.rs"]
+mod her;
 
 async fn fixture() -> crate::db::IsolatedSchema {
     let url =
@@ -154,7 +156,7 @@ async fn durable_memory_claim_fencing_and_atomic_acknowledgement() {
 
 #[tokio::test]
 #[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
-async fn durable_memory_retries_are_finite_and_revalidate_input_persona_and_session() {
+async fn durable_memory_retries_are_finite_and_revalidate_input_her_and_session() {
     let schema = fixture().await;
     let db = &schema.db;
     chat(db, "retry", Audience::private(7)).await;
@@ -190,22 +192,7 @@ async fn durable_memory_retries_are_finite_and_revalidate_input_persona_and_sess
         .unwrap();
     finish(db, &fresh, Ok(fact())).await.unwrap();
     assert_eq!(facts(db).await, 0);
-    chat(db, "old_persona", Audience::private(7)).await;
-    let old = claim(db).await.unwrap().unwrap();
-    let tx = db.begin().await.unwrap();
-    super::super::upsert_persona_on(
-        &tx,
-        "New".into(),
-        "New personality".into(),
-        super::super::PortraitUpdate::Keep,
-        Default::default(),
-        7,
-    )
-    .await
-    .unwrap();
-    tx.commit().await.unwrap();
-    finish(db, &old, Ok(fact())).await.unwrap();
-    assert_eq!(facts(db).await, 0);
+    // Her edited is still her, another her is not: see `her`.
     chat(db, "cleared", Audience::private(7)).await;
     let old = claim(db).await.unwrap().unwrap();
     let tx = db.begin().await.unwrap();

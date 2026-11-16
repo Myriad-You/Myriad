@@ -414,6 +414,13 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Result<Option<Lease>, DbErr> {
     rows::assemble(db, copy).await.map(Some)
 }
 
+/// Which her the site's copy is: her lineage, the same through edits of
+/// her and moves, another once she is born again. None while there is no
+/// copy; only read, a missing copy is not made here.
+pub async fn lineage<C: ConnectionTrait>(db: &C) -> Result<Option<String>, DbErr> {
+    Ok(rows::copy(db, false).await?.map(|copy| copy.lineage))
+}
+
 /// The state of the site's copy of her; None while there is none.
 pub async fn copy_state<C: ConnectionTrait>(db: &C) -> Result<Option<State>, DbErr> {
     Ok(rows::copy(db, false).await?.map(|copy| copy.state))

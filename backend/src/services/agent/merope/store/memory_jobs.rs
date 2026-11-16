@@ -22,7 +22,14 @@ const SETTLES_AT_MOST: i64 = 1200;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(in crate::services::agent::merope) struct Job {
     pub owner: i32,
+    /// When her persona was last written as it was taken up; only what
+    /// fences a job kept before [`Job::her`] was.
     pub persona: Option<chrono::DateTime<chrono::FixedOffset>>,
+    /// Which her it was taken up for. Editing her (name, personality, looks,
+    /// a portrait being drawn) leaves her the same her: only another birth
+    /// lets the job go.
+    #[serde(default)]
+    pub her: Option<Her>,
     pub epoch: i64,
     pub data: Option<Payload>,
     pub ready: i64,
@@ -47,6 +54,33 @@ pub(in crate::services::agent::merope) struct Job {
     #[serde(default)]
     pub brought: Option<settling::Brought>,
 }
+/// Which her a job was taken up for: the site's copy's lineage
+/// (`persona_sync::lease::lineage`), none while there is no copy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(in crate::services::agent::merope) struct Her {
+    lineage: Option<String>,
+}
+
+impl Her {
+    async fn now(db: &impl ConnectionTrait) -> anyhow::Result<Self> {
+        Ok(Self {
+            lineage: crate::services::persona_sync::lease::lineage(db).await?,
+        })
+    }
+}
+
+/// Whether `job` was taken up for the her there is now. Taken up before
+/// there was a copy of her (or before jobs noted which her), it goes by
+/// when her persona was last written.
+fn same_her(job: &Job, her: &Her, persona: Option<chrono::DateTime<chrono::FixedOffset>>) -> bool {
+    match &job.her {
+        Some(Her {
+            lineage: Some(taken),
+        }) => her.lineage.as_ref() == Some(taken),
+        _ => job.persona == persona,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(in crate::services::agent::merope) struct Claim {
     pub id: String,
@@ -163,16 +197,16 @@ pub(in crate::services::agent::merope) async fn enqueue(
         return Ok(());
     };
     let persona = super::get_persona_on(&tx).await?.map(|row| row.updated_at);
+    let her = Her::now(&tx).await?;
     if let Some(event) = event {
         if registry::get::<bool>(&tx, EVENTS, event).await?.is_some() {
             return Ok(());
         }
     }
     let mut existing = registry::get::<Job>(&tx, NAMESPACE, id).await?;
-    if existing
-        .as_ref()
-        .is_some_and(|job| job.persona != persona || job.epoch != epoch || job.owner != owner)
-    {
+    if existing.as_ref().is_some_and(|job| {
+        !same_her(job, &her, persona) || job.epoch != epoch || job.owner != owner
+    }) {
         existing = None;
     }
     if existing.as_ref().is_none_or(|job| job.data.is_none()) {
@@ -192,6 +226,7 @@ pub(in crate::services::agent::merope) async fn enqueue(
         .unwrap_or(Job {
         owner,
         persona,
+        her: None,
         epoch,
         data: None,
         ready: now,
@@ -206,6 +241,11 @@ pub(in crate::services::agent::merope) async fn enqueue(
         unread_times: 0,
         brought: None,
     });
+    // The same her: noted as she is now, should she have been born since.
+    // Not while there is no persona: a copy may be on its way in then.
+    if persona.is_some() {
+        job.her = Some(her);
+    }
     if let (None, Some((from, times))) = (job.unread_from, unread) {
         job.unread_from = Some(from);
         job.unread_times = times;
@@ -397,7 +437,8 @@ pub(in crate::services::agent::merope) async fn current(
         ))
         .await?;
     }
-    if super::get_persona_on(db).await?.map(|row| row.updated_at) != job.persona
+    let persona = super::get_persona_on(db).await?.map(|row| row.updated_at);
+    if !same_her(job, &Her::now(db).await?, persona)
         || epoch(db, job.owner, locked).await? != Some(job.epoch)
     {
         return Ok(false);
@@ -497,6 +538,20 @@ pub(in crate::services::agent::merope) async fn finish(
             job.token = None;
             job.outcome = Some(outcome.clone());
         }
+        Ok(Effect::Paused) => {
+            // Put back as it was, to wait with the rest while she is off:
+            // what it brought along unread again, what came meanwhile with
+            // it, and this try not counted.
+            outcome = "paused".to_string();
+            settling::put_back(&mut job);
+            if let (Some(data), Some(next)) = (&mut job.data, job.next.take()) {
+                data.fold(next);
+            }
+            job.attempts = job.attempts.saturating_sub(1);
+            job.lease = 0;
+            job.token = None;
+            job.outcome = Some(outcome.clone());
+        }
         result => {
             outcome = match result {
                 Ok(Effect::Chat(update)) => {
@@ -558,6 +613,7 @@ pub(in crate::services::agent::merope) async fn finish(
                     "stale".into()
                 }
                 Ok(Effect::NoChange) => "no_change".into(),
+                Ok(Effect::Paused) => unreachable!("put back above"),
                 Err(failure) => {
                     // Its notes stay notes and go with the next stretch.
                     settling::leave_unread(&tx, &mut job).await?;
@@ -576,7 +632,7 @@ pub(in crate::services::agent::merope) async fn finish(
     save(&tx, &claim.id, &job, now).await?;
     tx.commit().await?;
     tracing::info!(job = claim.id, attempt = claim.job.attempts, %outcome, "[Merope] memory job");
-    if matches!(claim.job.data, Some(Payload::Settle { .. })) {
+    if matches!(claim.job.data, Some(Payload::Settle { .. })) && outcome != "paused" {
         crate::services::agent::alive::settled(&outcome);
     }
     if let Some((present, updates)) = on_nodes {

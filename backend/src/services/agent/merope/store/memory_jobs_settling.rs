@@ -7,6 +7,29 @@
 //! keep growing. Kept so, they are not put together with what she already
 //! knows and may say it twice, or say what is no longer so; a stretch that
 //! comes to it later replaces it as it would any fact.
+//!
+//! What a stretch brought along is dropped with it when the job goes stale
+//! (`Effect::Stale`, or the job rebuilt on enqueue). Its notes stay notes and
+//! fade; nothing of theirs is kept for good. Staling is destroying, so it is
+//! only for what the job was taken up under being gone (AGENTS.md: 暂存不是
+//! 销毁). Her switch off is putting by; clearing or retiring her, the login
+//! changing and the person gone are destroying. Each, as the queue has it:
+//! - Her switch turned off, or she is not on the site (moving, living on
+//!   another end, moved out): the queue is not taken up meanwhile, and a job
+//!   being gone over as she goes off is put back as it was
+//!   (`Effect::Paused`). Putting by: it goes on when she is back, while it
+//!   is kept (a day, or [`WAITS`] while it holds notes left unread).
+//! - Her persona cleared or retired (`store::persona`, `clear_on` and
+//!   `retire_her_on`): those run `memory_jobs::forget` and drop every job
+//!   outright; and a her born again after, or brought back from another
+//!   end's backup, is another lineage, which no job taken up before goes on
+//!   for (`memory_jobs::Her`). Destroying.
+//! - `users.token_version` changed (signed out everywhere, password changed),
+//!   or the person is gone: the login it was taken up under is gone.
+//!   Destroying.
+//! - Editing her (name, personality, zone, looks) and portrait or avatar
+//!   generation noting how it goes leave her the same her: nothing is let
+//!   go for them.
 
 use sea_orm::ConnectionTrait;
 
@@ -160,6 +183,19 @@ pub(super) fn bring_along(job: &mut Job) {
         *from = (*from).min(unread);
         counted(&BROUGHT_ALONG, 1);
     }
+}
+
+/// A stretch put back untouched (she went off while it was gone over):
+/// what it brought along is left unread again, as before it was taken up.
+pub(super) fn put_back(job: &mut Job) {
+    let Some(brought) = job.brought.take() else {
+        return;
+    };
+    if let Some(Payload::Settle { from, .. }) = &mut job.data {
+        *from = brought.own;
+    }
+    job.unread_from = Some(brought.since);
+    job.unread_times = brought.times.saturating_sub(1);
 }
 
 /// The notes of `owner` here from `since` until `until`, kept for good as

@@ -235,3 +235,73 @@ async fn notes_are_kept_as_they_are_when_the_last_stretch_never_finished() {
     assert_eq!(loaded(db, "settle").await.unread_from, Some(ago(30)));
     schema.drop().await;
 }
+
+/// Her switch went off while a stretch was being gone over: it is put back
+/// as it was before it was taken up, its notes still notes, what it
+/// brought along left unread again (and so waiting as long as such notes
+/// do), what they said meanwhile kept with it; gone over once she is back.
+#[tokio::test]
+#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
+async fn a_stretch_is_put_back_while_she_is_off() {
+    let schema = fixture().await;
+    let db = &schema.db;
+    note(db, "周末要搬家", unified::SHORT_NOTE_SOURCE).await;
+    let at = |minutes| crate::clock::now().fixed_offset() - chrono::Duration::minutes(minutes);
+    let (unread, began, meanwhile) = (at(120), at(30), at(1));
+    never_read(db, stretch_from(db, "settle", unread).await).await;
+    let taken = stretch_from(db, "settle", began).await;
+    assert_eq!(from_of(&taken.job), Some(unread), "brought along");
+    let line = Payload::Settle {
+        present: Audience::private(7),
+        from: meanwhile,
+        last: meanwhile,
+    };
+    enqueue(db, "settle", 7, line, None).await.unwrap();
+    finish(db, &taken, Ok(Effect::Paused)).await.unwrap();
+    let job = loaded(db, "settle").await;
+    assert_eq!(from_of(&job), Some(began), "begins where it did");
+    assert!(
+        matches!(job.data, Some(Payload::Settle { last, .. }) if last == meanwhile),
+        "what they said meanwhile goes with it"
+    );
+    assert!(job.next.is_none());
+    assert_eq!(
+        (job.unread_from, job.unread_times),
+        (Some(unread), 0),
+        "unread again, not yet brought along"
+    );
+    assert_eq!(job.attempts, 0, "the try does not count");
+    assert_eq!((job.lease, job.token.is_none()), (0, true));
+    assert_eq!(job.outcome.as_deref(), Some("paused"));
+    let waits: bool = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT expires_at > $2 AS waits FROM runtime_registry \
+             WHERE namespace = $1 AND record_id = 'settle'",
+            [
+                NAMESPACE.into(),
+                (crate::clock::now().timestamp() + 30 * 86_400).into(),
+            ],
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "waits")
+        .unwrap();
+    assert!(waits, "kept as long as notes left unread wait");
+    assert_eq!(went(db).await["周末要搬家"], None, "still a note");
+
+    due(db, "settle").await;
+    let again = claim(db).await.unwrap().expect("taken up again");
+    assert_eq!(from_of(&again.job), Some(unread), "brought along again");
+    let moving = vec![vec![id_of(db, "周末要搬家").await]];
+    finish(
+        db,
+        &again,
+        Ok(settled(vec![lasting("周末要搬家", &[])], moving)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(went(db).await["周末要搬家"], holds("周末要搬家"));
+    schema.drop().await;
+}

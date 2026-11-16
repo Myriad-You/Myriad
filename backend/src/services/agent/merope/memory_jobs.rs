@@ -129,6 +129,10 @@ pub(super) enum Effect {
     },
     NoChange,
     Stale,
+    /// Her switch went off while it was being gone over: put back to wait,
+    /// as the queue waits while she is off, never let go (only clearing or
+    /// retiring her, or the login it was taken up under going, lets it go).
+    Paused,
 }
 #[derive(Debug)]
 pub(super) enum Failure {
@@ -205,7 +209,7 @@ pub(crate) async fn tick(db: DatabaseConnection) {
         let result = if super::is_enabled().await {
             result
         } else {
-            Ok(Effect::Stale)
+            Ok(Effect::Paused)
         };
         if queue::finish(db, &claim, result).await.is_err() {
             // Do not acknowledge an uncertain write. Transaction rollback or
@@ -220,10 +224,12 @@ pub(crate) async fn tick(db: DatabaseConnection) {
     .await;
 }
 async fn prepare(db: &DatabaseConnection, claim: &queue::Claim) -> Result<Effect, Failure> {
-    if !super::is_enabled().await
-        || !queue::current(db, &claim.job, false)
-            .await
-            .map_err(|_| Failure::Storage)?
+    if !super::is_enabled().await {
+        return Ok(Effect::Paused);
+    }
+    if !queue::current(db, &claim.job, false)
+        .await
+        .map_err(|_| Failure::Storage)?
     {
         return Ok(Effect::Stale);
     }
