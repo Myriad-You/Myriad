@@ -310,16 +310,20 @@ impl Model {
         &self,
         call: impl std::future::Future<Output = anyhow::Result<String>>,
     ) -> Result<String, Failure> {
-        let (result, reported) = crate::services::ai_cost_ledger::reporting(tokio::time::timeout(
-            self.ask.timeout,
-            crate::services::ai_cost_ledger::with_site_ai_ledger(
-                self.ask.owner,
-                self.ask.source,
-                self.ask.operation,
-                call,
-            ),
-        ))
-        .await;
+        // Boxed: every model call of hers goes through here, and the bookkeeping
+        // around it would otherwise add its depth to every caller's future,
+        // past what the compiler lays out for her longest chains.
+        let (result, reported) =
+            crate::services::ai_cost_ledger::reporting(Box::pin(tokio::time::timeout(
+                self.ask.timeout,
+                crate::services::ai_cost_ledger::with_site_ai_ledger(
+                    self.ask.owner,
+                    self.ask.source,
+                    self.ask.operation,
+                    call,
+                ),
+            )))
+            .await;
         if let Some(reported) = &reported {
             let answered = match &result {
                 Ok(Ok(raw)) => Some(raw.chars().count()),
