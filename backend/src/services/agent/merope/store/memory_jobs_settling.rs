@@ -199,6 +199,28 @@ pub(super) fn over(job: &Job) {
     }
 }
 
+/// A stretch gone over in part: what is left of it is gone over next, from
+/// `rest`, shown its lines from where they began. What it brought along and
+/// has gone over now is over; what it brought along and has not stays
+/// brought along, as many times as it was (a stretch's passes are one
+/// bringing along): left unread, it waits for the next stretch, or is kept
+/// as it is once brought along [`BROUGHT_AT_MOST`] times.
+pub(super) fn go_on(job: &mut Job, rest: chrono::DateTime<chrono::FixedOffset>) {
+    let Some(Payload::Settle { from, .. }) = &mut job.data else {
+        return;
+    };
+    job.said_from = Some(job.said_from.unwrap_or(*from));
+    *from = rest;
+    match &mut job.brought {
+        Some(brought) if rest < brought.own => brought.since = rest,
+        Some(_) => {
+            over(job);
+            job.brought = None;
+        }
+        None => {}
+    }
+}
+
 /// A stretch put back untouched (she went off while it was gone over):
 /// what it brought along is left unread again, as before it was taken up.
 pub(super) fn put_back(job: &mut Job) {

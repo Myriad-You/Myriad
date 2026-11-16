@@ -4,12 +4,19 @@
 use serde_json::json;
 
 use super::super::ingest::compact_summary;
-use super::{ChatMemoryUpdate, ChatMemoryUpdates, EXTRACT_TIMEOUT};
+use super::{ChatMemoryUpdate, ChatMemoryUpdates};
 
 /// Lines of a stretch, at most, shown when it is gone over.
 const SETTLE_LINES: i64 = 80;
 /// What she knows of them for good, at most, shown beside it.
 const SETTLE_KNOWN: usize = 40;
+/// Short notes gone over at once, at most: a stretch with more is gone over
+/// in passes, oldest first (see [`first_pass`]).
+const SETTLE_NOTES: usize = 9;
+/// How long going over a stretch may take. Nobody waits on it (it runs well
+/// after she has answered): generous enough to ride out a slow answer.
+pub(in crate::services::agent::merope) const SETTLE_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(90);
 
 /// Once a stretch of their talk in one place is over: the short notes taken
 /// from it since `from`, gone over with the whole stretch in view. What
@@ -18,11 +25,19 @@ const SETTLE_KNOWN: usize = 40;
 /// its favor; the rest stay notes and fade, but only those it leaves to
 /// the moment or finds already known: a note it passes over is kept for
 /// good as it is. Nothing to go over, no call.
+///
+/// At most [`SETTLE_NOTES`] notes in one pass, the oldest: the rest is gone
+/// over in the next, from where it begins (`Effect::Settle::rest`), once
+/// what this pass keeps is written, so the next sees it among what she
+/// knows and does not keep the same thing twice. Each pass is shown the
+/// stretch's lines from where they begin (`said_from`, when it is gone
+/// over in passes; else `from`) up to where its own notes end.
 pub(in crate::services::agent::merope) async fn settle(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
     present: &crate::services::agent::memory::unified::Audience,
     from: chrono::DateTime<chrono::FixedOffset>,
+    said_from: Option<chrono::DateTime<chrono::FixedOffset>>,
 ) -> Result<super::super::memory_jobs::Effect, super::super::memory_jobs::Failure> {
     use super::super::memory_jobs::{Effect, Failure};
     use crate::services::agent::memory::unified;
@@ -42,6 +57,18 @@ pub(in crate::services::agent::merope) async fn settle(
         return Ok(Effect::NoChange);
     }
     notes.sort_by_key(|row| row.created_at);
+    let this_pass = first_pass(&notes.iter().map(|row| row.created_at).collect::<Vec<_>>());
+    let rest = notes.get(this_pass).map(|row| row.created_at);
+    notes.truncate(this_pass);
+    // A pass that keeps nothing still lets the next go on.
+    let nothing = || match rest {
+        Some(_) => Effect::Settle {
+            updates: ChatMemoryUpdates::default(),
+            settled: Vec::new(),
+            rest,
+        },
+        None => Effect::NoChange,
+    };
     // What she kept from talks here: what another end kept
     // (`unified::SYNC_SOURCE`) is that end's, and going over leaves it be.
     let mut known: Vec<&unified::MemoryRecord> =
@@ -53,7 +80,8 @@ pub(in crate::services::agent::merope) async fn settle(
         .map(|row| compact_summary(&row.content))
         .collect();
     // The stretch as it was said, from its first line (a little before, so
-    // what they answered is there too).
+    // what they answered is there too), up to where the notes gone over now
+    // end.
     let venue = present.group_id();
     let lines = db
         .query_all_raw(Statement::from_sql_and_values(
@@ -63,12 +91,14 @@ pub(in crate::services::agent::merope) async fn settle(
              WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NOT DISTINCT FROM $2 \
                AND m.role IN ('user', 'assistant') AND (m.metadata->>'piece') IS NULL AND m.created_at >= $3 \
+               AND ($5::timestamptz IS NULL OR m.created_at < $5) \
              ORDER BY m.created_at DESC LIMIT $4",
             [
                 user_id.into(),
                 venue.map(str::to_string).into(),
-                (from - chrono::Duration::minutes(2)).into(),
+                (said_from.unwrap_or(from) - chrono::Duration::minutes(2)).into(),
                 SETTLE_LINES.into(),
+                rest.into(),
             ],
         ))
         .await
@@ -114,7 +144,7 @@ pub(in crate::services::agent::merope) async fn settle(
         .collect::<Vec<_>>()
         .join("\n");
     if theirs.is_empty() {
-        return Ok(Effect::NoChange);
+        return Ok(nothing());
     }
     let lately: Vec<String> = notes
         .iter()
@@ -138,7 +168,7 @@ pub(in crate::services::agent::merope) async fn settle(
     );
     let raw =
         super::super::call::Ask::new(super::super::call::Voice::Thorough, user_id, "chat_settle")
-            .within(EXTRACT_TIMEOUT)
+            .within(SETTLE_TIMEOUT)
             .json_raw(
                 &myriad_merope::chat_remember::settle_system_prompt(
                     &known,
@@ -169,7 +199,7 @@ pub(in crate::services::agent::merope) async fn settle(
     }
     let left = myriad_merope::chat_remember::settle_left(&raw, &lasting, notes.len());
     if lasting.is_empty() && replaces.is_empty() && left.is_empty() {
-        return Ok(Effect::NoChange);
+        return Ok(nothing());
     }
     let mut updates = ChatMemoryUpdates::default();
     let mut settled = Vec::new();
@@ -212,7 +242,30 @@ pub(in crate::services::agent::merope) async fn settle(
             cues: Vec::new(),
         });
     }
-    Ok(Effect::Settle { updates, settled })
+    Ok(Effect::Settle {
+        updates,
+        settled,
+        rest,
+    })
+}
+
+/// Of the notes taken at `at` (oldest first), how many are gone over now:
+/// at most [`SETTLE_NOTES`]. Notes taken at the same moment are never
+/// parted, so the next pass, gone over from where its first note was taken,
+/// holds none of these; should more than that share one moment, they are
+/// gone over together.
+fn first_pass(at: &[chrono::DateTime<chrono::FixedOffset>]) -> usize {
+    if at.len() <= SETTLE_NOTES {
+        return at.len();
+    }
+    let mut end = SETTLE_NOTES;
+    while end > 0 && at[end] == at[end - 1] {
+        end -= 1;
+    }
+    if end == 0 {
+        end = at.iter().take_while(|taken| **taken == at[0]).count();
+    }
+    end
 }
 
 /// The topics `offered` as she sees them beside a stretch.
@@ -278,4 +331,37 @@ pub(super) fn input(
         "topics": topics,
     })
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SETTLE_NOTES, first_pass};
+
+    fn at(seconds: &[i64]) -> Vec<chrono::DateTime<chrono::FixedOffset>> {
+        seconds
+            .iter()
+            .map(|second| {
+                chrono::DateTime::from_timestamp(1_700_000_000 + second, 0)
+                    .unwrap()
+                    .fixed_offset()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_long_stretch_is_gone_over_nine_notes_at_a_time_never_parting_a_moment() {
+        assert_eq!(SETTLE_NOTES, 9);
+        // Few enough: all at once.
+        assert_eq!(first_pass(&at(&[])), 0);
+        assert_eq!(first_pass(&at(&[1, 2, 3, 4, 5, 6, 7, 8, 9])), 9);
+        // More: the oldest nine, the rest from the tenth.
+        assert_eq!(first_pass(&at(&(1..=20).collect::<Vec<_>>())), 9);
+        // The ninth and tenth taken at once: both wait for the next pass,
+        // which begins where they were taken.
+        assert_eq!(first_pass(&at(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 10])), 8);
+        assert_eq!(first_pass(&at(&[1, 1, 1, 1, 1, 1, 1, 1, 9, 9, 9, 9])), 8);
+        // More than nine taken at once are gone over together.
+        assert_eq!(first_pass(&at(&[1; 11])), 11);
+        assert_eq!(first_pass(&at(&[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 3])), 10);
+    }
 }

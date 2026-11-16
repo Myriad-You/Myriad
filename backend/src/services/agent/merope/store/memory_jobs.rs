@@ -10,7 +10,11 @@ const EVENTS: &str = "merope_memory_events";
 const RETENTION: i64 = 86_400;
 const CAPACITY: i64 = 2048;
 pub(in crate::services::agent::merope) const MAX_ATTEMPTS: u8 = 3;
-const LEASE: i64 = 60;
+/// How long a claim is held: longer than any job is let run
+/// (`memory_jobs::tick`), so an answer that comes in time is never let go
+/// for coming late. A process that dies holding one, its job waits this long.
+const LEASE: i64 = 120;
+const _: () = assert!(LEASE as u64 > super::super::memory_jobs::SETTLE_LIMIT.as_secs() + 5);
 /// How long words held as they land wait for her answer before they are gone
 /// over without it.
 const HELD_FOR: i64 = 120;
@@ -53,6 +57,11 @@ pub(in crate::services::agent::merope) struct Job {
     /// What the stretch now being gone over brought along.
     #[serde(default)]
     pub brought: Option<settling::Brought>,
+    /// A stretch gone over in passes (more notes than are gone over at
+    /// once): where its lines begin, shown with each pass. Its `from` is
+    /// where the notes not gone over yet begin.
+    #[serde(default)]
+    pub said_from: Option<chrono::DateTime<chrono::FixedOffset>>,
 }
 /// Which her a job was taken up for: the site's copy's lineage
 /// (`persona_sync::lease::lineage`), none while there is no copy.
@@ -240,6 +249,7 @@ pub(in crate::services::agent::merope) async fn enqueue(
         unread_from: None,
         unread_times: 0,
         brought: None,
+        said_from: None,
     });
     // The same her: noted as she is now, should she have been born since.
     // Not while there is no persona: a copy may be on its way in then.
@@ -481,6 +491,7 @@ fn consume(job: &mut Job, count: usize, now: i64, outcome: &str) {
     } else {
         job.data = None;
     }
+    job.said_from = None;
     job.attempts = 0;
     job.token = None;
     job.lease = 0;
@@ -554,7 +565,14 @@ pub(in crate::services::agent::merope) async fn finish(
             job.outcome = Some(outcome.clone());
         }
         result => {
-            settling::over(&job);
+            // More notes than are gone over at once: the rest goes on.
+            let goes_on = match &result {
+                Ok(Effect::Settle { rest, .. }) => *rest,
+                _ => None,
+            };
+            if goes_on.is_none() {
+                settling::over(&job);
+            }
             outcome = match result {
                 Ok(Effect::Chat(update)) => {
                     let Some(Payload::Chat {
@@ -578,7 +596,9 @@ pub(in crate::services::agent::merope) async fn finish(
                         "stale_or_duplicate".into()
                     }
                 }
-                Ok(Effect::Settle { updates, settled }) => {
+                Ok(Effect::Settle {
+                    updates, settled, ..
+                }) => {
                     let Some(Payload::Settle { present, last, .. }) = &job.data else {
                         anyhow::bail!("wrong memory job kind");
                     };
@@ -622,13 +642,30 @@ pub(in crate::services::agent::merope) async fn finish(
                     failure.to_string()
                 }
             };
-            let count = match &claim.job.data {
-                Some(Payload::Stranger { exchanges, .. }) => exchanges.len(),
-                _ => 0,
-            };
-            consume(&mut job, count, now, &outcome);
-            job.brought = None;
-            promote_next(&mut job, now);
+            if let Some(rest) = goes_on {
+                // Gone over next from where the rest begins: at once, or a
+                // while later when they said more meanwhile (as lines put a
+                // stretch off, never past a while after where the rest
+                // begins); with tries of its own.
+                let came = job.next.is_some();
+                if let (Some(data), Some(next)) = (&mut job.data, job.next.take()) {
+                    data.fold(next);
+                }
+                settling::go_on(&mut job, rest);
+                job.attempts = 0;
+                job.token = None;
+                job.lease = 0;
+                job.ready = if came { now + SETTLES_AFTER } else { now };
+                job.outcome = Some(outcome.clone());
+            } else {
+                let count = match &claim.job.data {
+                    Some(Payload::Stranger { exchanges, .. }) => exchanges.len(),
+                    _ => 0,
+                };
+                consume(&mut job, count, now, &outcome);
+                job.brought = None;
+                promote_next(&mut job, now);
+            }
         }
     }
     save(&tx, &claim.id, &job, now).await?;

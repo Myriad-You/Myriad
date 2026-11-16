@@ -5,6 +5,8 @@
 use super::*;
 use crate::services::agent::memory::unified;
 
+#[path = "memory_jobs_passes_tests.rs"]
+mod passes;
 #[path = "memory_jobs_unread_tests.rs"]
 mod unread;
 
@@ -83,6 +85,7 @@ fn settled(updates: Vec<ChatMemoryUpdate>, settled: Vec<Vec<String>>) -> Effect 
             put_onto: vec![],
         },
         settled,
+        rest: None,
     }
 }
 
@@ -286,9 +289,14 @@ async fn notes_of_a_fact_past_the_most_kept_are_kept_as_they_are() {
         .or_default()
         .push_back(Some(answer.to_string()));
     g0::enter(world);
-    let effect =
-        crate::services::agent::merope::chat_remember::settle(db, 7, &Audience::private(7), began)
-            .await;
+    let effect = crate::services::agent::merope::chat_remember::settle(
+        db,
+        7,
+        &Audience::private(7),
+        began,
+        None,
+    )
+    .await;
     g0::leave();
     let effect = effect.unwrap_or_else(|_| panic!("gone over"));
     finish(db, &taken, Ok(effect)).await.unwrap();

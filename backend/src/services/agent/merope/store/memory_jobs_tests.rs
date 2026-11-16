@@ -557,6 +557,7 @@ async fn durable_memory_settles_a_stretch_once_it_is_over() {
         Ok(Effect::Settle {
             updates,
             settled: vec![vec![note.0.clone()]],
+            rest: None,
         }),
     )
     .await

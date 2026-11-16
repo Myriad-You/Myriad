@@ -138,7 +138,7 @@ async fn a_stretch_never_finished_is_left_unread() {
 }
 
 /// Every try of the stretch `claimed` answered unreadably.
-async fn never_read(db: &DatabaseConnection, mut claimed: Claim) {
+pub(super) async fn never_read(db: &DatabaseConnection, mut claimed: Claim) {
     for attempt in 1..=MAX_ATTEMPTS {
         finish(
             db,
@@ -154,7 +154,11 @@ async fn never_read(db: &DatabaseConnection, mut claimed: Claim) {
     }
 }
 
-async fn noted_at(db: &DatabaseConnection, text: &str, at: chrono::DateTime<chrono::FixedOffset>) {
+pub(super) async fn noted_at(
+    db: &DatabaseConnection,
+    text: &str,
+    at: chrono::DateTime<chrono::FixedOffset>,
+) {
     note(db, text, unified::SHORT_NOTE_SOURCE).await;
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,

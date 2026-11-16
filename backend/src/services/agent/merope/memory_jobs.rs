@@ -119,9 +119,12 @@ pub(super) enum Effect {
     Chat(chat_remember::ChatMemoryUpdates),
     /// What a stretch gives to keep for good, and for each of `updates`,
     /// the short notes it was put together from (taken back in its favor).
+    /// `rest`: it had more notes than are gone over at once, and those from
+    /// then on are gone over next (see `chat_remember::settle`).
     Settle {
         updates: chat_remember::ChatMemoryUpdates,
         settled: Vec<Vec<String>>,
+        rest: Option<chrono::DateTime<chrono::FixedOffset>>,
     },
     Stranger {
         previous: Option<String>,
@@ -176,6 +179,14 @@ pub(super) fn key(parts: &[&str]) -> String {
     hex::encode(digest.finalize())
 }
 
+/// How long a stretch is gone over, at most: placed on her nodes first,
+/// then gone over (`chat_remember::settle`), with a little more for what it
+/// reads around the call. A claim is held longer than this
+/// (`store::memory_jobs`), so its answer is not let go as late.
+pub(super) const SETTLE_LIMIT: Duration = chat_remember::settle::SETTLE_TIMEOUT
+    .saturating_add(super::memory_nodes::placing::TIMEOUT)
+    .saturating_add(Duration::from_secs(10));
+
 /// Four bounded attempts at a time. Shutdown cancels this driver; unacknowledged
 /// leases become eligible again, including when the process dies mid-request.
 pub(crate) async fn tick(db: DatabaseConnection) {
@@ -197,9 +208,7 @@ pub(crate) async fn tick(db: DatabaseConnection) {
     futures::future::join_all(claims.into_iter().map(|claim| async move {
         // A stretch placed on her nodes first takes that long more.
         let limit = match claim.job.data {
-            Some(Payload::Settle { .. }) => {
-                Duration::from_secs(45) + super::memory_nodes::placing::TIMEOUT
-            }
+            Some(Payload::Settle { .. }) => SETTLE_LIMIT,
             _ => Duration::from_secs(45),
         };
         let result = match tokio::time::timeout(limit, prepare(db, &claim)).await {
@@ -254,7 +263,7 @@ async fn prepare(db: &DatabaseConnection, claim: &queue::Claim) -> Result<Effect
             .await
         }
         Payload::Settle { present, from, .. } => {
-            chat_remember::settle(db, claim.job.owner, present, *from).await
+            chat_remember::settle(db, claim.job.owner, present, *from, claim.job.said_from).await
         }
         Payload::Stranger {
             venue,

@@ -21,10 +21,6 @@ fn returned3<A, B, C, R>(_: fn(A, B, C) -> R) -> usize {
     size_of::<R>()
 }
 
-fn returned4<A, B, C, D, R>(_: fn(A, B, C, D) -> R) -> usize {
-    size_of::<R>()
-}
-
 fn returned5<A, B, C, D, E, R>(_: fn(A, B, C, D, E) -> R) -> usize {
     size_of::<R>()
 }
@@ -57,9 +53,14 @@ fn her_call_futures_stay_within_their_budgets() {
         ),
         (
             "chat_remember::settle::settle",
-            returned4::<Db, i32, &'static crate::services::agent::memory::unified::Audience, At, _>(
-                super::super::chat_remember::settle::settle,
-            ),
+            returned5::<
+                Db,
+                i32,
+                &'static crate::services::agent::memory::unified::Audience,
+                At,
+                Option<At>,
+                _,
+            >(super::super::chat_remember::settle::settle),
             8 * 1024,
         ),
         (
