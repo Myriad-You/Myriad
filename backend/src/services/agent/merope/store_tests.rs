@@ -549,7 +549,7 @@ fn onboarding_seeds_do_not_invalidate_portrait() {
 
 #[tokio::test]
 async fn portrait_generation_lease_preserves_concurrent_persona_and_rejects_visual_change() {
-    let Ok(database_url) = std::env::var("PORTRAIT_TEST_DATABASE_URL") else {
+    let Some(database_url) = crate::db::test_url(&["PORTRAIT_TEST_DATABASE_URL"]) else {
         return;
     };
     let db = Database::connect(database_url).await.unwrap();
@@ -741,7 +741,7 @@ pub(super) fn affect_log_ddl() -> String {
 async fn her_affect_replayed_from_its_changes_is_what_she_feels() {
     use super::super::clock::as_of;
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-    let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+    let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
         return;
     };
     let isolated = crate::db::IsolatedSchema::migrated(&url, "affect_replay").await;

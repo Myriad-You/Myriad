@@ -377,7 +377,7 @@ mod tests {
     #[tokio::test]
     async fn a_group_keeps_its_own_threads() {
         use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let isolated = crate::db::IsolatedSchema::migrated(&url, "group_threads").await;
@@ -435,7 +435,7 @@ mod tests {
     #[tokio::test]
     async fn a_thread_replaced_points_at_the_new_one_and_crowded_ones_fade() {
         use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let isolated = crate::db::IsolatedSchema::migrated(&url, "thread_edges").await;

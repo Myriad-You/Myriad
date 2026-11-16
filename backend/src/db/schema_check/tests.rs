@@ -408,7 +408,7 @@ fn test_default_config_seeds_include_quota_and_explicit_open_permissions() {
 
 #[tokio::test]
 async fn runtime_config_seed_preserves_existing_values_and_is_idempotent() {
-    let Ok(url) = std::env::var("MYRIAD_CONFIG_SEED_DB") else {
+    let Some(url) = crate::db::test_url(&["MYRIAD_CONFIG_SEED_DB"]) else {
         eprintln!("skipping: set MYRIAD_CONFIG_SEED_DB to run the runtime config seed test");
         return;
     };
@@ -608,7 +608,7 @@ fn platform_metadata_requires_user_platform_unique() {
 /// 这样本地 `cargo test` 不受影响；CI 里由 postgres service 提供该变量。
 #[tokio::test]
 async fn migrations_leave_no_schema_drift() {
-    let Ok(url) = std::env::var("MYRIAD_SCHEMA_DRIFT_DB") else {
+    let Some(url) = crate::db::test_url(&["MYRIAD_SCHEMA_DRIFT_DB"]) else {
         eprintln!("skipping: set MYRIAD_SCHEMA_DRIFT_DB to run the schema drift gate");
         return;
     };
@@ -962,7 +962,7 @@ ALTER TABLE agent_proactive_messages DROP COLUMN say_id, DROP COLUMN metadata;
 /// temp tables shadow production names and the outer transaction rolls back.
 #[tokio::test]
 async fn federation_outbox_and_delivery_lease_db_contracts() {
-    let Ok(url) = std::env::var("MYRIAD_SCHEMA_DRIFT_DB") else {
+    let Some(url) = crate::db::test_url(&["MYRIAD_SCHEMA_DRIFT_DB"]) else {
         eprintln!("skipping: set MYRIAD_SCHEMA_DRIFT_DB to run federation DB contracts");
         return;
     };
@@ -1791,7 +1791,7 @@ VALUES
 /// queries must run cleanly and be repeatable.
 #[tokio::test]
 async fn federation_fk_heal_runs_against_real_catalog() {
-    let Ok(url) = std::env::var("MYRIAD_SCHEMA_DRIFT_DB") else {
+    let Some(url) = crate::db::test_url(&["MYRIAD_SCHEMA_DRIFT_DB"]) else {
         eprintln!("skipping: set MYRIAD_SCHEMA_DRIFT_DB to run the federation FK heal");
         return;
     };
@@ -1814,7 +1814,7 @@ async fn federation_fk_heal_runs_against_real_catalog() {
 #[tokio::test]
 async fn retired_columns_are_dropped_once() {
     use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseBackend, Statement};
-    let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+    let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
         eprintln!("skipping: set MYRIAD_MEDIA_TEST_DATABASE_URL to run the retired column heal");
         return;
     };
@@ -1883,7 +1883,7 @@ async fn retired_columns_are_dropped_once() {
 #[tokio::test]
 async fn the_support_floor_refuses_an_unmarked_old_database() {
     use sea_orm::{ConnectOptions, ConnectionTrait, Database};
-    let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+    let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
         eprintln!("skipping: set MYRIAD_MEDIA_TEST_DATABASE_URL to run the support floor check");
         return;
     };
@@ -1938,7 +1938,7 @@ async fn the_support_floor_refuses_an_unmarked_old_database() {
 #[tokio::test]
 async fn an_unfinished_media_upgrade_is_refused() {
     use sea_orm::{ConnectOptions, ConnectionTrait, Database};
-    let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+    let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
         eprintln!("skipping: set MYRIAD_MEDIA_TEST_DATABASE_URL to run the media upgrade guard");
         return;
     };

@@ -2313,7 +2313,7 @@ async fn recovery_waits_for_activation_commit_and_rereads_generation() {
         ActiveModelTrait, ConnectionTrait, Database, DatabaseBackend, IntoActiveModel, Schema,
         Statement, TransactionTrait,
     };
-    let Ok(url) = std::env::var("TAPP_TEST_DATABASE_URL") else {
+    let Some(url) = crate::db::test_url(&["TAPP_TEST_DATABASE_URL"]) else {
         return;
     };
     let db = Database::connect(url).await.unwrap();

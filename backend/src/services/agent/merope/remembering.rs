@@ -695,7 +695,7 @@ mod tests {
     #[tokio::test]
     async fn looking_back_skips_the_talk_still_in_front_of_her() {
         use sea_orm::ConnectionTrait;
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let schema = crate::db::IsolatedSchema::migrated(&url, "look_back").await;

@@ -160,7 +160,7 @@ fn lines_kept_before_read_back_in_their_shape() {
 /// back from the runtime registry with the first line after it.
 #[tokio::test]
 async fn a_restart_keeps_what_the_group_said() {
-    let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+    let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
         return;
     };
     let schema = crate::db::IsolatedSchema::migrated(&url, "group_lines").await;

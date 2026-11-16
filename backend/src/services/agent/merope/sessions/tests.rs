@@ -39,7 +39,7 @@ const OWNERS_WORDS: &str = "把存储拆开然后提交";
 const PEERS_WORDS: &str = "照小林说的改";
 
 async fn schema() -> Option<crate::db::IsolatedSchema> {
-    let url = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL").ok()?;
+    let url = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"])?;
     let schema = crate::db::IsolatedSchema::migrated(&url, "sessions").await;
     schema
         .db

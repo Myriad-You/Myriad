@@ -575,7 +575,7 @@ mod tests {
 
     async fn isolated_application_db() -> Option<DatabaseConnection> {
         use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseBackend, Schema};
-        let url = std::env::var("PHANTASI_TEST_DATABASE_URL").ok()?;
+        let url = crate::db::test_url(&["PHANTASI_TEST_DATABASE_URL"])?;
         let mut options = ConnectOptions::new(url);
         options
             .max_connections(1)

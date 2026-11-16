@@ -278,7 +278,7 @@ mod tests {
 
     #[tokio::test]
     async fn history_list_omits_bodies_and_single_version_preserves_snapshot() {
-        let Ok(url) = std::env::var("PHANTASI_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["PHANTASI_TEST_DATABASE_URL"]) else {
             eprintln!("skipped PostgreSQL history test: PHANTASI_TEST_DATABASE_URL is unset");
             return;
         };
@@ -366,7 +366,7 @@ mod tests {
     /// Opt-in real Postgres regression, isolated in a unique schema and removed afterward.
     #[tokio::test]
     async fn restore_oldest_with_unsaved_input_is_atomic_and_rejects_stale_writers() {
-        let Ok(url) = std::env::var("NOTE_EDITOR_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["NOTE_EDITOR_TEST_DATABASE_URL"]) else {
             return;
         };
         let admin = sea_orm::Database::connect(&url).await.unwrap();

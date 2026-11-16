@@ -748,7 +748,7 @@ mod platform_read_tests {
 
     #[tokio::test]
     async fn single_platform_read_matches_full_read_when_db_provided() {
-        let Ok(url) = std::env::var("METADATA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["METADATA_TEST_DATABASE_URL"]) else {
             return;
         };
         let isolated = crate::db::IsolatedSchema::migrated(&url, "metadata_read_test").await;

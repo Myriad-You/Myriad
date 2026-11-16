@@ -122,7 +122,7 @@ mod tests {
 
     #[tokio::test]
     async fn api_round_trip_is_scoped_to_authenticated_user_when_database_is_provided() {
-        let Ok(database_url) = std::env::var("NOTIFICATION_TEST_DATABASE_URL") else {
+        let Some(database_url) = crate::db::test_url(&["NOTIFICATION_TEST_DATABASE_URL"]) else {
             return;
         };
         let db = Database::connect(&database_url).await.unwrap();

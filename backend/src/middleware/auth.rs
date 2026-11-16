@@ -1490,7 +1490,7 @@ mod tests {
     #[tokio::test]
     async fn session_epoch_decodes_strictly() {
         use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let db = sea_orm::Database::connect(url).await.unwrap();
@@ -1838,7 +1838,7 @@ mod tests {
     async fn role_read_failures_are_unavailable_and_recover_without_demotion() {
         use crate::services::tapp_ownership::{TappAccessError, subject_is_admin};
         use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseBackend, Statement};
-        let Ok(url) = std::env::var("AUTH_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["AUTH_TEST_DATABASE_URL"]) else {
             return;
         };
         let mut options = ConnectOptions::new(url);
@@ -1928,7 +1928,7 @@ mod tests {
     async fn logout_epoch_update_rejects_stale_and_concurrent_replays() {
         use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseBackend, Statement};
 
-        let Ok(url) = std::env::var("AUTH_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["AUTH_TEST_DATABASE_URL"]) else {
             return;
         };
         let mut options = ConnectOptions::new(url);

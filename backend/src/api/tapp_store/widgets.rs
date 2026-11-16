@@ -445,7 +445,7 @@ mod reconcile_tests {
 
     #[tokio::test]
     async fn reconcile_upserts_prunes_and_clears_runtime_conflicts_when_db_provided() {
-        let Ok(url) = std::env::var("TAPP_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["TAPP_TEST_DATABASE_URL"]) else {
             return;
         };
         let isolated = crate::db::IsolatedSchema::migrated(&url, "widget_reconcile_test").await;

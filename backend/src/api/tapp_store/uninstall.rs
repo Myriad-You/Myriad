@@ -609,7 +609,7 @@ mod tests {
     async fn stale_prune_confirms_eligibility_inside_the_delete_transaction() {
         use super::{UninstallScope, prune_stale_private_tapps, uninstall_install};
         use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-        let Ok(url) = std::env::var("TAPP_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["TAPP_TEST_DATABASE_URL"]) else {
             return;
         };
         let isolated = crate::db::IsolatedSchema::migrated(&url, "stale_prune_test").await;

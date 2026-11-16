@@ -775,7 +775,7 @@ mod tests {
 
     #[tokio::test]
     async fn postgres_status_projection_reads_metadata_without_credential_payload() {
-        let Ok(url) = std::env::var("MYRIAD_TAPP_STORAGE_GUARD_DB") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_TAPP_STORAGE_GUARD_DB"]) else {
             eprintln!("skipping: set MYRIAD_TAPP_STORAGE_GUARD_DB for the PostgreSQL guard test");
             return;
         };

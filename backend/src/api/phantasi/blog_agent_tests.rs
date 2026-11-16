@@ -31,7 +31,7 @@ async fn call(
 
 #[tokio::test]
 async fn blog_agent_edits_use_editor_versions_history_and_collaboration() {
-    let Ok(url) = std::env::var("BLOG_AGENT_TEST_DATABASE_URL") else {
+    let Some(url) = crate::db::test_url(&["BLOG_AGENT_TEST_DATABASE_URL"]) else {
         eprintln!("skip: BLOG_AGENT_TEST_DATABASE_URL is unset");
         return;
     };

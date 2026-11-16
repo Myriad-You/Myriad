@@ -420,7 +420,7 @@ mod tests {
     /// The admin sees and manages hers, a person's and a group's alike.
     #[tokio::test]
     async fn the_admin_sees_every_place_and_can_edit_or_retire_any() {
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let schema = crate::db::IsolatedSchema::migrated(&url, "memory_manage").await;
@@ -479,7 +479,7 @@ mod tests {
     /// from them with it; a memory beside it stays.
     #[tokio::test]
     async fn forgetting_a_memory_deletes_its_earlier_versions_and_what_came_of_them() {
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let schema = crate::db::IsolatedSchema::migrated(&url, "memory_forget").await;
@@ -535,7 +535,7 @@ mod tests {
     /// What another place or person said, or was said long before, stays.
     #[tokio::test]
     async fn forgetting_a_memory_deletes_the_words_it_came_from() {
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let schema = crate::db::IsolatedSchema::migrated(&url, "memory_forget_origins").await;
@@ -631,7 +631,7 @@ mod tests {
     /// replaced it, retired rows with why.
     #[tokio::test]
     async fn a_memory_shows_what_it_replaced_and_what_replaced_it() {
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let schema = crate::db::IsolatedSchema::migrated(&url, "memory_lineage").await;

@@ -799,7 +799,7 @@ mod registry_lifecycle_tests {
     #[tokio::test]
     async fn membership_trigger_announces_every_removal() {
         use sea_orm::ConnectionTrait;
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let mut listener = sea_orm::sqlx::postgres::PgListener::connect(&url)

@@ -493,7 +493,7 @@ mod tests {
 
     #[tokio::test]
     async fn one_ledger_pass_matches_filters_and_fails_whole_on_error() {
-        let Ok(url) = std::env::var("ANALYTICS_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["ANALYTICS_TEST_DATABASE_URL"]) else {
             return;
         };
         let isolated = crate::db::IsolatedSchema::migrated(&url, "ai_usage_test").await;

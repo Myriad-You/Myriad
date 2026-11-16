@@ -456,7 +456,7 @@ mod ledger_db_tests {
 
     #[tokio::test]
     async fn user_takeover_and_autonomy_claim_exclude_each_other() {
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let mut options = sea_orm::ConnectOptions::new(url);
@@ -508,7 +508,7 @@ mod ledger_db_tests {
 
     #[tokio::test]
     async fn deferred_skips_let_the_next_batch_reach_a_later_row() {
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let mut options = sea_orm::ConnectOptions::new(url);
@@ -558,10 +558,11 @@ mod ledger_db_tests {
     }
 
     async fn connect() -> Option<(DatabaseConnection, i32)> {
-        let url = std::env::var("AGENT_TEST_DATABASE_URL")
-            .or_else(|_| std::env::var("NOTIFICATION_TEST_DATABASE_URL"))
-            .or_else(|_| std::env::var("MYRIAD_SCHEMA_DRIFT_DB"))
-            .ok()?;
+        let url = crate::db::test_url(&[
+            "AGENT_TEST_DATABASE_URL",
+            "NOTIFICATION_TEST_DATABASE_URL",
+            "MYRIAD_SCHEMA_DRIFT_DB",
+        ])?;
         let db = Database::connect(url).await.ok()?;
         migration::Migrator::up(&db, None).await.ok()?;
         let _ = crate::db::schema_check::ensure_schema(&db).await;

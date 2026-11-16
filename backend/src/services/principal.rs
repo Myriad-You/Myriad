@@ -213,7 +213,7 @@ mod tests {
     }
 
     async fn temp_users_db() -> Option<DatabaseConnection> {
-        let url = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL").ok()?;
+        let url = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"])?;
         let mut options = ConnectOptions::new(url);
         // One connection: TEMP tables below are session-local.
         options.max_connections(1).min_connections(1);

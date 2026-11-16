@@ -6,6 +6,35 @@ pub mod worker_policy;
 // Re-export the Migrator from migrations
 pub use migration::Migrator;
 
+/// Test-only: the test database's address, from the first of `vars` that is
+/// set. None set, the test does not run, and says so where it is seen (straight
+/// to stderr, past the test harness's capture), numbered: a run shows how many
+/// were skipped rather than counting them as passed. With
+/// `MYRIAD_TEST_DB=required` a missing address fails the test instead.
+#[cfg(test)]
+pub(crate) fn test_url(vars: &[&str]) -> Option<String> {
+    if let Some(url) = vars.iter().find_map(|var| std::env::var(var).ok()) {
+        return Some(url);
+    }
+    let wanted = vars.join(" / ");
+    assert!(
+        std::env::var("MYRIAD_TEST_DB").as_deref() != Ok("required"),
+        "{wanted} is not set, and MYRIAD_TEST_DB=required"
+    );
+    static SKIPPED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let number = SKIPPED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    let test = std::thread::current()
+        .name()
+        .unwrap_or("a test")
+        .to_string();
+    use std::io::Write;
+    let _ = writeln!(
+        std::io::stderr(),
+        "db test skipped #{number}: {test} (no {wanted})"
+    );
+    None
+}
+
 /// Test-only: a fresh schema on a caller-supplied database, fully migrated.
 /// Tests never touch the database's default schema, so pointing the env var at a
 /// shared database cannot truncate or leak rows; `drop` removes the schema.

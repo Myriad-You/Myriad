@@ -305,7 +305,7 @@ pub(in super::super) async fn restore(url: &str, snapshot: &str) -> crate::db::I
 /// (`MYRIAD_MEDIA_TEST_DATABASE_URL`), skipped without it.
 #[tokio::test]
 async fn a_restored_snapshot_is_the_snapshot_and_copies_are_apart() {
-    let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+    let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
         return;
     };
     let snapshot = crate::db::IsolatedSchema::migrated(&url, "bench_snapshot").await;

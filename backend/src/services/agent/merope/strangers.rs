@@ -298,7 +298,7 @@ mod tests {
             talks_key("discord:22", "discord:44"),
             "discord:22|discord:44"
         );
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let schema = crate::db::IsolatedSchema::migrated(&url, "stranger_talks").await;
@@ -321,7 +321,7 @@ mod tests {
     async fn pairing_takes_over_what_she_noted_on_that_account_only() {
         use crate::services::channel_platform::ChannelPlatform;
         use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let isolated = crate::db::IsolatedSchema::migrated(&url, "stranger_adopt").await;

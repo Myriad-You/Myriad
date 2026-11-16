@@ -4527,10 +4527,11 @@ async fn conversation_ending(child: &mut Child, session: &str, text: &str) -> Va
 
 /// The test database's address, as the schema fixtures read it.
 fn test_database_url() -> Option<String> {
-    std::env::var("FEDERATION_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("MYRIAD_SCHEMA_DRIFT_DB"))
-        .or_else(|_| std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL"))
-        .ok()
+    crate::db::test_url(&[
+        "FEDERATION_TEST_DATABASE_URL",
+        "MYRIAD_SCHEMA_DRIFT_DB",
+        "MYRIAD_MEDIA_TEST_DATABASE_URL",
+    ])
 }
 
 /// What the notification bridge does in a running site (D45): each

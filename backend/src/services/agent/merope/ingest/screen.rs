@@ -423,7 +423,7 @@ mod tests {
     #[tokio::test]
     async fn a_look_is_kept_by_whether_she_took_it_in() {
         use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let schema = crate::db::IsolatedSchema::migrated(&url, "screen_looks").await;

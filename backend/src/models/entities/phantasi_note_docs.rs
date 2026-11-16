@@ -87,7 +87,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_projection_bounds_markdown_and_preserves_late_covers() {
-        let Ok(url) = std::env::var("PHANTASI_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["PHANTASI_TEST_DATABASE_URL"]) else {
             eprintln!("skipped PostgreSQL projection test: PHANTASI_TEST_DATABASE_URL is unset");
             return;
         };

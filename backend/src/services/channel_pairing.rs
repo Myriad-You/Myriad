@@ -684,7 +684,7 @@ mod tests {
         use myriad_agent_rules::channel::{PairingBindResult, PairingLookup};
         use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
-        let Ok(database_url) = std::env::var("CHANNEL_TEST_DATABASE_URL") else {
+        let Some(database_url) = crate::db::test_url(&["CHANNEL_TEST_DATABASE_URL"]) else {
             return;
         };
         let isolated =

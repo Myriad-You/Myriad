@@ -2,7 +2,7 @@ use super::*;
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 
 async fn temp_db() -> Option<DatabaseConnection> {
-    let url = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL").ok()?;
+    let url = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"])?;
     let mut options = sea_orm::ConnectOptions::new(url);
     options.max_connections(1).sqlx_logging(false);
     let db = sea_orm::Database::connect(options).await.unwrap();

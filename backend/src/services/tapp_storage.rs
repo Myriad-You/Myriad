@@ -614,7 +614,7 @@ mod tests {
 
     #[tokio::test]
     async fn postgres_sandbox_queries_exclude_and_preserve_host_rows() {
-        let Ok(url) = std::env::var("MYRIAD_TAPP_STORAGE_GUARD_DB") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_TAPP_STORAGE_GUARD_DB"]) else {
             eprintln!("skipping: set MYRIAD_TAPP_STORAGE_GUARD_DB for the PostgreSQL guard test");
             return;
         };
@@ -785,7 +785,7 @@ mod media_reference_tests {
 
     #[tokio::test]
     async fn stored_app_values_protect_media_until_the_row_is_gone() {
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let isolated = crate::db::IsolatedSchema::migrated(&url, "tapp_storage_media").await;

@@ -274,7 +274,7 @@ mod tests {
     async fn old_addresses_store_conflict_lookup_and_follow_the_slug() {
         use crate::models::entities::{phantasi_items, phantasi_note_docs, phantasi_sources};
         use sea_orm::{ActiveModelTrait, ConnectionTrait, EntityTrait, Set, TransactionTrait};
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let isolated = crate::db::IsolatedSchema::migrated(&url, "note_old_paths_test").await;

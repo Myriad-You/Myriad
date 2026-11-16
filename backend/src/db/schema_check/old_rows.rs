@@ -366,7 +366,7 @@ mod tests {
     #[tokio::test]
     async fn old_rows_are_rewritten_on_a_migrated_schema() {
         use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             eprintln!("skipping: set MYRIAD_MEDIA_TEST_DATABASE_URL to run the old row rewrites");
             return;
         };

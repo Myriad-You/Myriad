@@ -986,7 +986,7 @@ mod tests {
 
     async fn isolated_note_db() -> Option<DatabaseConnection> {
         use sea_orm::{ConnectOptions, Database};
-        let url = std::env::var("PHANTASI_TEST_DATABASE_URL").ok()?;
+        let url = crate::db::test_url(&["PHANTASI_TEST_DATABASE_URL"])?;
         let mut options = ConnectOptions::new(url);
         options
             .max_connections(1)
@@ -1109,7 +1109,7 @@ mod tests {
     #[tokio::test]
     async fn concurrent_note_count_writes_follow_committed_item_changes() {
         use sea_orm::{ConnectOptions, Database, QuerySelect};
-        let Ok(url) = std::env::var("PHANTASI_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["PHANTASI_TEST_DATABASE_URL"]) else {
             return;
         };
         let admin = Database::connect(&url).await.unwrap();
@@ -1616,7 +1616,7 @@ mod tests {
     }
 
     async fn migrated_note_db() -> Option<crate::db::IsolatedSchema> {
-        let url = std::env::var("PHANTASI_TEST_DATABASE_URL").ok()?;
+        let url = crate::db::test_url(&["PHANTASI_TEST_DATABASE_URL"])?;
         let isolated = crate::db::IsolatedSchema::migrated(&url, "note_schedule_test").await;
         isolated
             .db

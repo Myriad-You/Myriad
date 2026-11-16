@@ -627,7 +627,7 @@ mod live {
     #[tokio::test]
     async fn a_groups_day_written_again_replaces_its_keepers_line() {
         use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let isolated = crate::db::IsolatedSchema::migrated(&url, "group_days").await;

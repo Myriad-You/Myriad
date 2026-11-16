@@ -13,9 +13,7 @@ pub(crate) struct SchemaDb {
 
 impl SchemaDb {
     pub async fn new() -> Option<Self> {
-        let url = std::env::var("FEDERATION_TEST_DATABASE_URL")
-            .or_else(|_| std::env::var("MYRIAD_SCHEMA_DRIFT_DB"))
-            .ok()?;
+        let url = crate::db::test_url(&["FEDERATION_TEST_DATABASE_URL", "MYRIAD_SCHEMA_DRIFT_DB"])?;
         Self::at(url).await
     }
 
@@ -23,10 +21,11 @@ impl SchemaDb {
     /// `MYRIAD_MEDIA_TEST_DATABASE_URL`, so tests that opt in run under the
     /// standard local test command. Each fixture still migrates its own schema.
     pub async fn new_or_media() -> Option<Self> {
-        let url = std::env::var("FEDERATION_TEST_DATABASE_URL")
-            .or_else(|_| std::env::var("MYRIAD_SCHEMA_DRIFT_DB"))
-            .or_else(|_| std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL"))
-            .ok()?;
+        let url = crate::db::test_url(&[
+            "FEDERATION_TEST_DATABASE_URL",
+            "MYRIAD_SCHEMA_DRIFT_DB",
+            "MYRIAD_MEDIA_TEST_DATABASE_URL",
+        ])?;
         Self::at(url).await
     }
 

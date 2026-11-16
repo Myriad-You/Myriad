@@ -1158,7 +1158,7 @@ mod tests {
     #[tokio::test]
     async fn postgres_source_previews_and_pulses_are_bounded_index_reads() {
         use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let mut options = sea_orm::ConnectOptions::new(url);

@@ -79,10 +79,11 @@ mod list_smoke_tests {
 
     #[tokio::test]
     async fn list_channels_empty_for_new_user_when_db_provided() {
-        let database_url = std::env::var("CHANNEL_TEST_DATABASE_URL")
-            .or_else(|_| std::env::var("NOTIFICATION_TEST_DATABASE_URL"))
-            .or_else(|_| std::env::var("MYRIAD_SCHEMA_DRIFT_DB"));
-        let Ok(database_url) = database_url else {
+        let Some(database_url) = crate::db::test_url(&[
+            "CHANNEL_TEST_DATABASE_URL",
+            "NOTIFICATION_TEST_DATABASE_URL",
+            "MYRIAD_SCHEMA_DRIFT_DB",
+        ]) else {
             return;
         };
         let db = Database::connect(&database_url)

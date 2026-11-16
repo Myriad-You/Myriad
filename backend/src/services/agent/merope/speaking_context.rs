@@ -785,7 +785,7 @@ mod tests {
     /// the group she is in, and what came before she got up are left out.
     #[tokio::test]
     async fn how_a_talk_went_crosses_and_nothing_said_in_it_does() {
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let isolated = crate::db::IsolatedSchema::migrated(&url, "since_she_got_up").await;
@@ -923,7 +923,7 @@ mod tests {
     /// real database (an isolated schema; skipped without a test database).
     #[tokio::test]
     async fn how_often_they_talk_comes_from_the_days_they_wrote() {
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let isolated = crate::db::IsolatedSchema::migrated(&url, "talk_rhythm").await;

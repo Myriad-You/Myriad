@@ -21,7 +21,7 @@ use crate::services::her_log::pen;
 pub(super) const OTHER: i32 = 7;
 
 pub(super) async fn schema(prefix: &str) -> Option<crate::db::IsolatedSchema> {
-    let url = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL").ok()?;
+    let url = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"])?;
     let schema = crate::db::IsolatedSchema::migrated(&url, prefix).await;
     schema
         .db

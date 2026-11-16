@@ -483,7 +483,7 @@ mod title_endpoint_tests {
 
     #[tokio::test]
     async fn title_endpoint_propagates_query_and_write_failures() {
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let schema = format!("title_test_{}", uuid::Uuid::new_v4().simple());
@@ -603,7 +603,7 @@ mod message_media_tests {
 
     #[tokio::test]
     async fn stored_messages_protect_the_owners_media_only() {
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let isolated = crate::db::IsolatedSchema::migrated(&url, "message_media").await;
@@ -644,7 +644,7 @@ mod venue_tests {
     /// request never continues it, and nothing private picks it up.
     #[tokio::test]
     async fn a_group_session_never_turns_private() {
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let schema = crate::db::IsolatedSchema::migrated(&url, "session_venue").await;

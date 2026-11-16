@@ -517,7 +517,7 @@ fn content_is_collapsed_and_capped() {
 #[tokio::test]
 async fn a_memory_in_place_of_others_names_what_took_their_place() {
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-    let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+    let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
         return;
     };
     let isolated = crate::db::IsolatedSchema::migrated(&url, "in_place_of").await;

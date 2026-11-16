@@ -35,10 +35,11 @@ mod integration_tests {
     /// Set `PHANTASI_TEST_DATABASE_URL` or `NOTIFICATION_TEST_DATABASE_URL` to run.
     #[tokio::test]
     async fn list_sources_empty_after_migrator_when_db_provided() {
-        let database_url = std::env::var("PHANTASI_TEST_DATABASE_URL")
-            .or_else(|_| std::env::var("NOTIFICATION_TEST_DATABASE_URL"))
-            .or_else(|_| std::env::var("MYRIAD_SCHEMA_DRIFT_DB"));
-        let Ok(database_url) = database_url else {
+        let Some(database_url) = crate::db::test_url(&[
+            "PHANTASI_TEST_DATABASE_URL",
+            "NOTIFICATION_TEST_DATABASE_URL",
+            "MYRIAD_SCHEMA_DRIFT_DB",
+        ]) else {
             return;
         };
         let db = Database::connect(&database_url)
@@ -66,10 +67,11 @@ mod integration_tests {
     async fn pulses_sql_and_topic_column_when_db_provided() {
         use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
-        let database_url = std::env::var("PHANTASI_TEST_DATABASE_URL")
-            .or_else(|_| std::env::var("NOTIFICATION_TEST_DATABASE_URL"))
-            .or_else(|_| std::env::var("MYRIAD_SCHEMA_DRIFT_DB"));
-        let Ok(database_url) = database_url else {
+        let Some(database_url) = crate::db::test_url(&[
+            "PHANTASI_TEST_DATABASE_URL",
+            "NOTIFICATION_TEST_DATABASE_URL",
+            "MYRIAD_SCHEMA_DRIFT_DB",
+        ]) else {
             return;
         };
         let db = Database::connect(&database_url)
@@ -122,10 +124,11 @@ mod integration_tests {
     async fn phantasi_note_docs_table_when_db_provided() {
         use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
-        let database_url = std::env::var("PHANTASI_TEST_DATABASE_URL")
-            .or_else(|_| std::env::var("NOTIFICATION_TEST_DATABASE_URL"))
-            .or_else(|_| std::env::var("MYRIAD_SCHEMA_DRIFT_DB"));
-        let Ok(database_url) = database_url else {
+        let Some(database_url) = crate::db::test_url(&[
+            "PHANTASI_TEST_DATABASE_URL",
+            "NOTIFICATION_TEST_DATABASE_URL",
+            "MYRIAD_SCHEMA_DRIFT_DB",
+        ]) else {
             return;
         };
         let db = Database::connect(&database_url)
@@ -157,10 +160,11 @@ mod integration_tests {
     async fn phantasi_source_applications_table_when_db_provided() {
         use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
-        let database_url = std::env::var("PHANTASI_TEST_DATABASE_URL")
-            .or_else(|_| std::env::var("NOTIFICATION_TEST_DATABASE_URL"))
-            .or_else(|_| std::env::var("MYRIAD_SCHEMA_DRIFT_DB"));
-        let Ok(database_url) = database_url else {
+        let Some(database_url) = crate::db::test_url(&[
+            "PHANTASI_TEST_DATABASE_URL",
+            "NOTIFICATION_TEST_DATABASE_URL",
+            "MYRIAD_SCHEMA_DRIFT_DB",
+        ]) else {
             return;
         };
         let db = Database::connect(&database_url)

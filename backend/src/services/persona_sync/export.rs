@@ -598,7 +598,7 @@ mod tests {
         };
         use myriad_persona_log::Row;
         use sea_orm::ConnectionTrait;
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let from = crate::db::IsolatedSchema::migrated(&url, "export_logs_from").await;

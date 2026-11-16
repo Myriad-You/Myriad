@@ -23,7 +23,7 @@ mod tests {
 
     #[tokio::test]
     async fn owner_tier_wins_then_lowest_admin_then_unconfigured() {
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let mut options = sea_orm::ConnectOptions::new(url);

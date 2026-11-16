@@ -11,7 +11,7 @@ pub(super) struct Fixture {
 }
 impl Fixture {
     pub async fn new() -> Option<Self> {
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             eprintln!("skipping media integration test: MYRIAD_MEDIA_TEST_DATABASE_URL is unset");
             return None;
         };

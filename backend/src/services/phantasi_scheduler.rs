@@ -1261,7 +1261,7 @@ mod tests {
             DatabaseBackend, Schema,
         };
 
-        let Ok(url) = std::env::var("PHANTASI_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["PHANTASI_TEST_DATABASE_URL"]) else {
             return;
         };
         let mut options = ConnectOptions::new(url);

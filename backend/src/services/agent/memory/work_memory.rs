@@ -718,7 +718,7 @@ mod tests {
 
     async fn tried_schema(name: &str) -> Option<crate::db::IsolatedSchema> {
         use sea_orm::ConnectionTrait;
-        let url = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL").ok()?;
+        let url = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"])?;
         let schema = crate::db::IsolatedSchema::migrated(&url, name).await;
         schema
             .db
@@ -965,7 +965,7 @@ mod tests {
     #[tokio::test]
     async fn a_lesson_no_run_proved_is_let_go() {
         use sea_orm::ConnectionTrait;
-        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
             return;
         };
         let schema = crate::db::IsolatedSchema::migrated(&url, "work_tried_old").await;

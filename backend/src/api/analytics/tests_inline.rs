@@ -277,7 +277,7 @@ fn backup_format_constants_stable() {
 async fn sealed_import_replace_then_merge_applies_table_semantics() {
     use super::backup_integrity::{content_hash, seal_integrity};
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-    let Ok(url) = std::env::var("ANALYTICS_TEST_DATABASE_URL") else {
+    let Some(url) = crate::db::test_url(&["ANALYTICS_TEST_DATABASE_URL"]) else {
         return;
     };
     // `replace` truncates every analytics table: only ever run it in a private schema.
@@ -371,7 +371,7 @@ async fn import_batch_chunks_splits_repeated_keys_and_counts_rows() {
     use sea_orm::{
         ConnectOptions, ConnectionTrait, Database, DatabaseBackend, Statement, Value as SeaValue,
     };
-    let Ok(url) = std::env::var("ANALYTICS_TEST_DATABASE_URL") else {
+    let Some(url) = crate::db::test_url(&["ANALYTICS_TEST_DATABASE_URL"]) else {
         return;
     };
     let mut options = ConnectOptions::new(url);
@@ -459,7 +459,7 @@ async fn import_batch_chunks_splits_repeated_keys_and_counts_rows() {
 #[tokio::test]
 async fn summary_cache_miss_aggregates_in_one_wave_and_fails_whole_on_error() {
     use sea_orm::ConnectionTrait;
-    let Ok(url) = std::env::var("ANALYTICS_TEST_DATABASE_URL") else {
+    let Some(url) = crate::db::test_url(&["ANALYTICS_TEST_DATABASE_URL"]) else {
         return;
     };
     let isolated = crate::db::IsolatedSchema::migrated(&url, "analytics_summary_test").await;
@@ -564,7 +564,7 @@ async fn analytics_scalar(db: &sea_orm::DatabaseConnection, sql: &str) -> i64 {
 #[tokio::test]
 async fn failed_counter_write_leaves_no_seen_row() {
     use sea_orm::ConnectionTrait;
-    let Ok(url) = std::env::var("ANALYTICS_TEST_DATABASE_URL") else {
+    let Some(url) = crate::db::test_url(&["ANALYTICS_TEST_DATABASE_URL"]) else {
         return;
     };
     let isolated = crate::db::IsolatedSchema::migrated(&url, "analytics_atomic_test").await;
@@ -646,7 +646,7 @@ CREATE TRIGGER fail_country BEFORE INSERT OR UPDATE ON analytics_country_daily
 
 #[tokio::test]
 async fn concurrent_duplicate_visits_count_once() {
-    let Ok(url) = std::env::var("ANALYTICS_TEST_DATABASE_URL") else {
+    let Some(url) = crate::db::test_url(&["ANALYTICS_TEST_DATABASE_URL"]) else {
         return;
     };
     let isolated = crate::db::IsolatedSchema::migrated(&url, "analytics_race_test").await;

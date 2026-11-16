@@ -897,8 +897,8 @@ mod tests {
             ConnectOptions, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection,
             Statement, TransactionTrait,
         };
-        let Ok(url) = std::env::var("AUTH_TEST_DATABASE_URL")
-            .or_else(|_| std::env::var("PHANTASI_TEST_DATABASE_URL"))
+        let Some(url) =
+            crate::db::test_url(&["AUTH_TEST_DATABASE_URL", "PHANTASI_TEST_DATABASE_URL"])
         else {
             return;
         };
@@ -985,7 +985,7 @@ mod tests {
     #[tokio::test]
     async fn user_delete_is_owned_by_schema_lifecycle() {
         use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-        let Ok(url) = std::env::var("AUTH_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["AUTH_TEST_DATABASE_URL"]) else {
             return;
         };
         let isolated = crate::db::IsolatedSchema::migrated(&url, "user_lifecycle_test").await;

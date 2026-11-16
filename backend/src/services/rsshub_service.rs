@@ -675,7 +675,7 @@ mod stats_and_unique_tests {
             Database, DatabaseBackend, EntityTrait, QueryFilter, Schema,
         };
 
-        let Ok(url) = std::env::var("PHANTASI_TEST_DATABASE_URL") else {
+        let Some(url) = crate::db::test_url(&["PHANTASI_TEST_DATABASE_URL"]) else {
             return;
         };
         let admin = Database::connect(&url).await.unwrap();
