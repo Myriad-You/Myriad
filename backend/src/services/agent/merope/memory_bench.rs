@@ -44,6 +44,7 @@ mod full_size;
 mod longmemeval;
 mod making;
 mod memes;
+mod note_trail;
 mod probes;
 mod raw_back;
 mod scored;

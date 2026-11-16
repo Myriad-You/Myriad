@@ -69,6 +69,7 @@ async fn settle_session(
     turns: &[Turn],
     notes: &[super::super::chat_remember::ChatMemoryUpdate],
     at: chrono::DateTime<chrono::FixedOffset>,
+    trail: &mut super::note_trail::Trail,
 ) -> (Vec<(String, String)>, Vec<String>, Vec<usize>) {
     // What she knows of them for good, newest first, as many as production
     // shows beside a stretch.
@@ -148,6 +149,7 @@ async fn settle_session(
         .await
         .inspect_err(|error| eprintln!("bench call failed: settling: {error:#}"))
     else {
+        trail.all_went("going over failed");
         return (Vec::new(), Vec::new(), Vec::new());
     };
     let Some((kept, replaces)) = myriad_merope::chat_remember::parse_settle(
@@ -157,9 +159,11 @@ async fn settle_session(
         notes.len(),
         offered.len(),
     ) else {
+        trail.all_went("going over not read");
         return (Vec::new(), Vec::new(), Vec::new());
     };
     let left = myriad_merope::chat_remember::settle_left(&raw, &kept, notes.len());
+    trail_went(trail, &raw, &kept, &left, notes);
     let mut settled: Vec<usize> = kept.iter().flat_map(|item| item.from.clone()).collect();
     settled.extend(&left);
     let mut lasting = Vec::new();
@@ -214,6 +218,36 @@ async fn settle_session(
         super::super::memory_nodes::facts::settled(db, user_id, None, present, &updates).await;
     }
     (lasting, passed_over, settled)
+}
+
+/// Where going over put each note (`raw` its answer), on `trail`.
+fn trail_went(
+    trail: &mut super::note_trail::Trail,
+    raw: &str,
+    kept: &[myriad_merope::chat_remember::Lasting],
+    left: &[usize],
+    notes: &[super::super::chat_remember::ChatMemoryUpdate],
+) {
+    let answer: Value = serde_json::from_str(myriad_merope::chat_remember::strip_json_fence(raw))
+        .unwrap_or_default();
+    for went in ["moment", "known"] {
+        for index in answer[went].as_array().into_iter().flatten() {
+            if let Some(index) = index.as_u64() {
+                trail.went(index as usize, went, None);
+            }
+        }
+    }
+    for item in kept {
+        let fact = super::super::ingest::compact_summary(&item.fact);
+        for index in &item.from {
+            trail.went(*index, "lasting", Some(&fact));
+        }
+    }
+    for index in left {
+        let fact =
+            super::super::ingest::compact_summary(notes[*index].fact.as_deref().unwrap_or(""));
+        trail.went(*index, "passed over, kept as it was", Some(&fact));
+    }
 }
 
 /// Whether what she goes over is put on her nodes: a private talk only, as
@@ -299,8 +333,17 @@ pub(super) async fn over_time(
         return (Vec::new(), Vec::new(), Vec::new());
     }
     let over_at = session_at + chrono::Duration::minutes(turns.len() as i64);
-    let (lasting, passed_over, _) =
-        settle_session(db, judge, user_id, present, turns, &notes, over_at).await;
+    let (lasting, passed_over, _) = settle_session(
+        db,
+        judge,
+        user_id,
+        present,
+        turns,
+        &notes,
+        over_at,
+        &mut super::note_trail::Trail::off(),
+    )
+    .await;
     let notes = notes.into_iter().filter_map(|note| note.fact).collect();
     (notes, lasting, passed_over)
 }
@@ -325,11 +368,13 @@ pub(super) async fn go_over(
     question_date: &str,
     answering: &mut Vec<String>,
     kept: &mut usize,
+    trail: &mut super::note_trail::Trail,
 ) {
     let asked_at = date_of(question_date);
     for (session_at, turns, present) in sessions {
         let (session_at, present) = (*session_at, present);
         let mut notes: Vec<super::super::chat_remember::ChatMemoryUpdate> = Vec::new();
+        let mut noted: Vec<(String, bool)> = Vec::new();
         let mut short: Vec<(
             chrono::DateTime<chrono::FixedOffset>,
             super::super::chat_remember::ChatMemoryUpdates,
@@ -350,22 +395,36 @@ pub(super) async fn go_over(
                 .split_whitespace()
                 .collect::<Vec<_>>()
                 .join(" ");
+            let answer_here =
+                turn.has_answer || turns.get(index + 1).is_some_and(|next| next.has_answer);
             if text.chars().count() > 2_000 {
+                if answer_here {
+                    trail.answer_line(&text, 0, true);
+                }
                 continue;
             }
             let Some(updates) = note_turn(db, user_id, present, &text, reply, at).await else {
+                if answer_here {
+                    trail.answer_line(&text, 0, false);
+                }
                 continue;
             };
             let_go(db, user_id, present, at, &updates).await;
-            notes.extend(
-                updates
-                    .updates
+            let taken: Vec<_> = updates
+                .updates
+                .iter()
+                .filter(|update| update.fact.is_some())
+                .cloned()
+                .collect();
+            if answer_here {
+                trail.answer_line(&text, taken.len(), false);
+            }
+            noted.extend(
+                taken
                     .iter()
-                    .filter(|update| update.fact.is_some())
-                    .cloned(),
+                    .map(|note| (note.fact.clone().unwrap_or_default(), answer_here)),
             );
-            let answer_here =
-                turn.has_answer || turns.get(index + 1).is_some_and(|next| next.has_answer);
+            notes.extend(taken);
             short.push((at, updates, answer_here));
         }
         let over_at = session_at + chrono::Duration::minutes(turns.len() as i64);
@@ -402,8 +461,9 @@ pub(super) async fn go_over(
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
+            trail.notes(&noted);
             let (lasting, _, put_away) =
-                settle_session(db, judge, user_id, present, turns, &notes, over_at).await;
+                settle_session(db, judge, user_id, present, turns, &notes, over_at, trail).await;
             settled = put_away;
             for (fact, evidence) in lasting {
                 *kept += 1;
@@ -430,7 +490,11 @@ pub(super) async fn go_over(
                                 return true;
                             }
                             note += 1;
-                            !settled.contains(&(note - 1))
+                            let fresh = !settled.contains(&(note - 1));
+                            if fresh {
+                                trail.fresh(note - 1);
+                            }
+                            fresh
                         })
                         .cloned()
                         .collect(),
@@ -453,5 +517,6 @@ pub(super) async fn go_over(
                 }
             }
         }
+        trail.close(db, user_id, present).await;
     }
 }

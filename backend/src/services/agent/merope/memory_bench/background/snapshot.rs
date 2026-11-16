@@ -77,6 +77,7 @@ pub(super) async fn write_snapshot(
             end,
             &mut left,
             &mut kept,
+            &mut super::super::note_trail::Trail::off(),
         )
         .await;
         for fact in &left {
