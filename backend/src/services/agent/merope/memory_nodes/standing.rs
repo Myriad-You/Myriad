@@ -74,7 +74,53 @@ async fn standing_authors(
 /// a call that failed (the provider, the network) is asked again, since
 /// what it would have written is otherwise never written until the same
 /// thing comes up again. An answer, even one that reads as nothing, is not.
+///
+/// Asked again here, after a wait, rather than kept to ask at the next
+/// stretch: a fact kept for later would be one more copy for forgetting to
+/// reach, and this runs behind her reply, where a wait costs nobody.
 const ASKED: usize = 3;
+
+/// How long before each ask again: the second after 2 s, the third after
+/// 8 s, so a provider down for a moment is past it.
+#[cfg(not(test))]
+const WAIT_BEFORE: [std::time::Duration; ASKED - 1] = [
+    std::time::Duration::from_secs(2),
+    std::time::Duration::from_secs(8),
+];
+#[cfg(test)]
+const WAIT_BEFORE: [std::time::Duration; ASKED - 1] = [std::time::Duration::ZERO; ASKED - 1];
+
+/// How writing 「现在」 went wrong since the site started, for its status:
+/// calls asked again, asks that got no answer at all (what they would have
+/// written is lost), answers that read as nothing, and nodes that could not
+/// take their rows. Counts only, never what was asked.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct Failures {
+    pub(crate) asked_again: u64,
+    pub(crate) unanswered: u64,
+    pub(crate) unreadable: u64,
+    pub(crate) not_written: u64,
+}
+
+static ASKED_AGAIN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static UNANSWERED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static UNREADABLE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static NOT_WRITTEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// [`Failures`] so far.
+pub(crate) fn failures() -> Failures {
+    use std::sync::atomic::Ordering::Relaxed;
+    Failures {
+        asked_again: ASKED_AGAIN.load(Relaxed),
+        unanswered: UNANSWERED.load(Relaxed),
+        unreadable: UNREADABLE.load(Relaxed),
+        not_written: NOT_WRITTEN.load(Relaxed),
+    }
+}
+
+fn counted(counter: &std::sync::atomic::AtomicU64) -> u64 {
+    counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+}
 
 /// Asks the fast model what `prepared` asks: its answer as it came, or none
 /// (nothing to ask, or no answer after [`ASKED`] calls).
@@ -88,6 +134,9 @@ async fn ask(
         return None;
     }
     for asked in 1..=ASKED {
+        if asked > 1 {
+            tokio::time::sleep(WAIT_BEFORE[asked - 2]).await;
+        }
         let answer =
             super::super::call::Ask::new(super::super::call::Voice::Judge, user_id, operation)
                 .json_raw(
@@ -101,17 +150,21 @@ async fn ask(
             Ok(answer) => return Some(answer),
             // What failed, not what was asked: no words of theirs.
             Err(_) if asked < ASKED => {
+                let total = counted(&ASKED_AGAIN);
                 tracing::info!(
                     operation,
                     asked,
+                    total,
                     "[memory-nodes] how things stand: asked again"
                 );
             }
             Err(_) => {
+                let total = counted(&UNANSWERED);
                 tracing::warn!(
                     operation,
                     asked,
-                    "[memory-nodes] how things stand: no answer"
+                    total,
+                    "[memory-nodes] how things stand: no answer, not written"
                 );
             }
         }
@@ -147,7 +200,8 @@ async fn write_rows(
         match write::write(db, owner, audience, &rows, Some(pen)).await {
             Ok(_) => written += rows.len(),
             Err(error) => {
-                tracing::warn!(%error, node, "[memory-nodes] how things stand not written")
+                let total = counted(&NOT_WRITTEN);
+                tracing::warn!(%error, node, total, "[memory-nodes] how things stand not written")
             }
         }
     }
@@ -222,7 +276,11 @@ pub(crate) async fn build(
             learned: input.learned,
         })?;
         if read.unreadable {
-            tracing::info!("[memory-nodes] how things stand on a node not built: no answer");
+            let total = counted(&UNREADABLE);
+            tracing::info!(
+                total,
+                "[memory-nodes] how things stand on a node not built: the answer read as nothing"
+            );
             continue;
         }
         // Items of the answer the core left out: how many, and why; never
@@ -293,7 +351,11 @@ pub(crate) async fn after_settled(
             nodes: step.nodes,
         })?;
         if read.unreadable {
-            tracing::info!("[memory-nodes] how things stand not asked: no answer");
+            let total = counted(&UNREADABLE);
+            tracing::info!(
+                total,
+                "[memory-nodes] how things stand not written: the answer read as nothing"
+            );
             continue;
         }
         // Each item left as another person's: which, and whose on each
@@ -397,4 +459,64 @@ async fn step_of(
         known,
         nodes,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn prepared() -> StepPrepared {
+        StepPrepared {
+            skip: false,
+            system: "how things stand".into(),
+            schema: serde_json::json!({"type": "object"}),
+            input: "{}".into(),
+        }
+    }
+
+    /// The counts are the site's, shared by every test thread: one test
+    /// of them at a time.
+    static COUNTING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// The model, as the scene answers it: `answers` in turn, `None` a
+    /// call that failed.
+    fn answering(answers: Vec<Option<&str>>) {
+        let mut world = crate::services::channel_group::g0::World::new(0.0);
+        world.models.insert(
+            "memory_standing_step".into(),
+            answers
+                .into_iter()
+                .map(|answer| answer.map(str::to_string))
+                .collect(),
+        );
+        crate::services::channel_group::g0::enter(world);
+    }
+
+    /// A call that fails is asked again, and every one counted: two asks
+    /// again and then none answered is one lost, for the status to show.
+    #[tokio::test]
+    async fn a_call_that_keeps_failing_is_asked_again_and_counted() {
+        let _one = COUNTING.lock().await;
+        let before = failures();
+        answering(vec![None, None, None]);
+        let answer = ask(7, "memory_standing_step", "standing_step", &prepared()).await;
+        crate::services::channel_group::g0::leave();
+        assert_eq!(answer, None);
+        let after = failures();
+        assert_eq!(after.asked_again - before.asked_again, 2);
+        assert_eq!(after.unanswered - before.unanswered, 1);
+    }
+
+    #[tokio::test]
+    async fn a_call_answered_the_second_time_is_not_lost() {
+        let _one = COUNTING.lock().await;
+        let before = failures();
+        answering(vec![None, Some("{\"items\":[]}")]);
+        let answer = ask(7, "memory_standing_step", "standing_step", &prepared()).await;
+        crate::services::channel_group::g0::leave();
+        assert_eq!(answer.as_deref(), Some("{\"items\":[]}"));
+        let after = failures();
+        assert_eq!(after.asked_again - before.asked_again, 1);
+        assert_eq!(after.unanswered, before.unanswered);
+    }
 }
