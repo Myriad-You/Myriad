@@ -457,6 +457,8 @@ pub(super) async fn extract(
     );
     let raw = super::call::Ask::new(super::call::Voice::Thorough, user_id, "chat_remember")
         .within(EXTRACT_TIMEOUT)
+        // At most 2,483 measured, thinking included.
+        .output_at_most(6000)
         .json_raw(
             &extract_system_prompt(&existing, Examples::for_words(user_text)),
             &input,
@@ -524,6 +526,8 @@ async fn check_against_unshown(
         .collect();
     let Ok(raw) = super::call::Ask::new(super::call::Voice::Judge, user_id, "chat_already")
         .within(ALREADY_TIMEOUT)
+        // At most 410 measured, thinking included.
+        .output_at_most(1024)
         .json_raw(
             &already_system(),
             &already_input(&texts),

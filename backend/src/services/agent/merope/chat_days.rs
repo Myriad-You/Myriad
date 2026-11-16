@@ -329,6 +329,8 @@ pub async fn turn_back(
     // Even among a few days, she turns only to those it could be.
     let Ok(raw) = call::Ask::new(Voice::Judge, payer, PICK_SCHEMA_NAME)
         .within(PICK_TIMEOUT)
+        // At most 406 measured, thinking included.
+        .output_at_most(1024)
         .json_raw(
             &pick_system(),
             &pick_input(asked, looking_for, today, &table),

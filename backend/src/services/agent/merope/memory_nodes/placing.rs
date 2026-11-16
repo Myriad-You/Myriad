@@ -226,6 +226,8 @@ async fn place_in(
     .to_string();
     let Ok(raw) = Ask::new(Voice::Judge, user_id, OPERATION)
         .within(TIMEOUT)
+        // At most 675 measured, thinking included.
+        .output_at_most(1536)
         .json_raw(&system_prompt(), &input, SCHEMA_NAME, &schema())
         .await
     else {

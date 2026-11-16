@@ -136,6 +136,8 @@ pub(super) struct Ask {
     /// Its JSON answer held to its schema by the provider where it can
     /// ([`AiAnalyzer::analyze_json_strict`]).
     strict: bool,
+    /// The output limit it names, thinking included; see [`Ask::output_at_most`].
+    output: Option<u32>,
 }
 
 impl Ask {
@@ -148,6 +150,7 @@ impl Ask {
             source: "merope",
             timeout: DEFAULT_TIMEOUT,
             strict: false,
+            output: None,
         }
     }
 
@@ -157,6 +160,17 @@ impl Ask {
     pub(super) fn strict(self) -> Self {
         Self {
             strict: true,
+            ..self
+        }
+    }
+
+    /// For a call whose answers were measured: at most `tokens` of output,
+    /// thinking included, in place of the default it would be let have
+    /// (4096, or 16000 thinking it through). Set well above what was
+    /// measured: an answer cut off is lost.
+    pub(super) fn output_at_most(self, tokens: u32) -> Self {
+        Self {
+            output: Some(tokens),
             ..self
         }
     }
@@ -217,6 +231,10 @@ impl Ask {
             )
             .await
             .ok_or_else(|| self.failed(Failure::Unavailable))?,
+        };
+        let analyzer = match self.output {
+            Some(tokens) => analyzer.with_output_limit(tokens),
+            None => analyzer,
         };
         Ok(Model {
             analyzer,
@@ -491,6 +509,17 @@ mod tests {
         assert_eq!(ask.timeout, DEFAULT_TIMEOUT);
         let ask = ask.billed_as("touch").within(Duration::from_secs(2));
         assert_eq!((ask.source, ask.timeout), ("touch", Duration::from_secs(2)));
+    }
+
+    #[test]
+    fn a_call_names_no_output_limit_unless_told_one() {
+        let ask = Ask::new(Voice::Judge, 7, "chat_already");
+        assert_eq!(ask.output, None);
+        let ask = ask.within(Duration::from_secs(2)).output_at_most(1024);
+        assert_eq!(
+            (ask.output, ask.timeout),
+            (Some(1024), Duration::from_secs(2))
+        );
     }
 }
 

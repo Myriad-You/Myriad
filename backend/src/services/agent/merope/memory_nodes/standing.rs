@@ -122,12 +122,21 @@ fn counted(counter: &std::sync::atomic::AtomicU64) -> u64 {
     counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
 }
 
-/// Asks the fast model what `prepared` asks: its answer as it came, or none
-/// (nothing to ask, or no answer after [`ASKED`] calls).
+/// Output a step's answer may take, thinking included: at most 1,002
+/// measured.
+const STEP_OUTPUT: u32 = 2048;
+/// Output a node's first building may take, thinking included: at most
+/// 1,332 measured.
+const BUILD_OUTPUT: u32 = 3072;
+
+/// Asks the fast model what `prepared` asks, its answer at most `output`
+/// tokens: its answer as it came, or none (nothing to ask, or no answer
+/// after [`ASKED`] calls).
 async fn ask(
     user_id: i32,
     operation: &'static str,
     schema_name: &str,
+    output: u32,
     prepared: &StepPrepared,
 ) -> Option<String> {
     if prepared.skip {
@@ -139,6 +148,7 @@ async fn ask(
         }
         let answer =
             super::super::call::Ask::new(super::super::call::Voice::Judge, user_id, operation)
+                .output_at_most(output)
                 .json_raw(
                     &prepared.system,
                     &prepared.input,
@@ -261,6 +271,7 @@ pub(crate) async fn build(
             user_id,
             "memory_standing_build",
             "standing_build",
+            BUILD_OUTPUT,
             &prepared,
         )
         .await
@@ -342,6 +353,7 @@ pub(crate) async fn after_settled(
             user_id,
             "memory_standing_step",
             "standing_step",
+            STEP_OUTPUT,
             &prepared,
         ))
         .await
@@ -507,7 +519,14 @@ mod tests {
         let _one = COUNTING.lock().await;
         let before = failures();
         answering(vec![None, None, None]);
-        let answer = ask(7, "memory_standing_step", "standing_step", &prepared()).await;
+        let answer = ask(
+            7,
+            "memory_standing_step",
+            "standing_step",
+            STEP_OUTPUT,
+            &prepared(),
+        )
+        .await;
         crate::services::channel_group::g0::leave();
         assert_eq!(answer, None);
         let after = failures();
@@ -520,7 +539,14 @@ mod tests {
         let _one = COUNTING.lock().await;
         let before = failures();
         answering(vec![None, Some("{\"items\":[]}")]);
-        let answer = ask(7, "memory_standing_step", "standing_step", &prepared()).await;
+        let answer = ask(
+            7,
+            "memory_standing_step",
+            "standing_step",
+            STEP_OUTPUT,
+            &prepared(),
+        )
+        .await;
         crate::services::channel_group::g0::leave();
         assert_eq!(answer.as_deref(), Some("{\"items\":[]}"));
         let after = failures();

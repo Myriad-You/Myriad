@@ -37,6 +37,9 @@ pub struct AiAnalyzer {
     /// Most output a request asks for when it names none; see
     /// [`AiAnalyzer::with_output_cap`].
     pub(super) output_cap: Option<u32>,
+    /// The output limit a request names when its call names none, on every
+    /// protocol; see [`AiAnalyzer::with_output_limit`].
+    pub(super) output_limit: Option<u32>,
 }
 
 /// The output limit of a deep-thinking ask that names none: the answer is
@@ -397,6 +400,7 @@ impl AiAnalyzer {
             light_thinking: false,
             deep_thinking: false,
             output_cap: None,
+            output_limit: None,
         }
     }
 
@@ -411,10 +415,63 @@ impl AiAnalyzer {
         self
     }
 
-    /// A request body as sent: within the handler's allowance, and capped
-    /// as [`AiAnalyzer::with_output_cap`] says where it names no limit.
+    /// For a call measured to need far less output than it is let have when
+    /// it names none (Anthropic's own 4096, a deep-thinking ask's 16000):
+    /// the limit, thinking included, a request names when its call names
+    /// none. On every protocol, and before [`AiAnalyzer::with_output_cap`],
+    /// though never past that cap where it holds: a gateway reserves credit
+    /// for the whole limit.
+    pub fn with_output_limit(mut self, tokens: u32) -> Self {
+        self.output_limit = Some(tokens);
+        self
+    }
+
+    /// The output limit a text-protocol request names: its call's, else
+    /// [`AiAnalyzer::with_output_limit`]'s, else room for deep thinking when
+    /// Anthropic's own API is asked to think it through.
+    fn text_protocol_limit(&self, named: Option<u32>, deep: bool) -> Option<u32> {
+        named
+            .or(self.output_limit)
+            .or(deep.then_some(DEEP_THINKING_MAX_TOKENS))
+    }
+
+    /// A request body as sent: limited as [`AiAnalyzer::with_output_limit`]
+    /// says where it names no limit, within the handler's allowance, and
+    /// capped as [`AiAnalyzer::with_output_cap`] says where it still names
+    /// none.
     fn prepare_body(&self, body: &impl serde::Serialize) -> anyhow::Result<serde_json::Value> {
-        let mut body = super::request_budget::prepare(body, self.provider)?;
+        let mut body = serde_json::to_value(body)?;
+        if let Some(limit) = self.output_limit
+            && let Some(object) = body.as_object_mut()
+        {
+            let unnamed = |key: &str| object.get(key).is_none_or(serde_json::Value::is_null);
+            match self.provider {
+                AiProvider::OpenAI if unnamed("max_tokens") && unnamed("max_completion_tokens") => {
+                    let limit = self.output_cap.map_or(limit, |cap| limit.min(cap));
+                    object.insert("max_tokens".into(), serde_json::json!(limit));
+                }
+                AiProvider::OpenAIResponses if unnamed("max_output_tokens") => {
+                    object.insert("max_output_tokens".into(), serde_json::json!(limit));
+                }
+                AiProvider::Gemini if object.contains_key("contents") => {
+                    let config = object
+                        .entry("generationConfig")
+                        .or_insert_with(|| serde_json::json!({}));
+                    if config.is_null() {
+                        *config = serde_json::json!({});
+                    }
+                    if let Some(config) = config.as_object_mut() {
+                        config
+                            .entry("maxOutputTokens")
+                            .or_insert_with(|| serde_json::json!(limit));
+                    }
+                }
+                // Anthropic's own API: every body names one
+                // (`text_protocol_limit`).
+                _ => {}
+            }
+        }
+        let mut body = super::request_budget::prepare(&body, self.provider)?;
         if let (Some(cap), AiProvider::OpenAI) = (self.output_cap, self.provider)
             && body
                 .get("max_tokens")
@@ -811,7 +868,7 @@ impl AiAnalyzer {
             .deep_thinking_param()
             .filter(|_| self.provider == AiProvider::Anthropic);
         // Thinking counts against the output limit: room for it.
-        let max_tokens = max_tokens.or(deep.as_ref().map(|_| DEEP_THINKING_MAX_TOKENS));
+        let max_tokens = self.text_protocol_limit(max_tokens, deep.is_some());
         let mut body = text_protocol::request_body(
             self.provider,
             &self.model,
@@ -2286,6 +2343,61 @@ mod tests {
                 .get("max_tokens")
                 .is_none()
         );
+    }
+
+    /// 调用量过、显式给的输出上限：每种协议都写上，调用自己写了的不动，
+    /// 也压过「没写才补」的上限和深想时的默认额度。
+    #[tokio::test]
+    async fn the_output_limit_is_named_on_every_protocol_unless_the_call_names_one() {
+        use super::{AiAnalyzer, AiProvider, DEEP_THINKING_MAX_TOKENS};
+        let analyzer = |provider| async move {
+            AiAnalyzer::new(provider, "fixture".into(), "fixture".into(), None)
+                .await
+                .with_output_cap(8192)
+                .with_output_limit(1024)
+        };
+        let openai = analyzer(AiProvider::OpenAI).await;
+        let unnamed = json!({"model":"fixture","messages":[]});
+        assert_eq!(openai.prepare_body(&unnamed).unwrap()["max_tokens"], 1024);
+        let named = json!({"model":"fixture","messages":[],"max_tokens":300});
+        assert_eq!(openai.prepare_body(&named).unwrap()["max_tokens"], 300);
+        let nulled = json!({"model":"fixture","messages":[],"max_tokens":null});
+        assert_eq!(openai.prepare_body(&nulled).unwrap()["max_tokens"], 1024);
+        // Never past the cap that keeps a gateway from reserving more.
+        let past = AiAnalyzer::new(AiProvider::OpenAI, "fixture".into(), "fixture".into(), None)
+            .await
+            .with_output_cap(8192)
+            .with_output_limit(10_000);
+        assert_eq!(past.prepare_body(&unnamed).unwrap()["max_tokens"], 8192);
+        let responses = analyzer(AiProvider::OpenAIResponses).await;
+        assert_eq!(
+            responses.prepare_body(&json!({"input":[]})).unwrap()["max_output_tokens"],
+            1024
+        );
+        let gemini = analyzer(AiProvider::Gemini).await;
+        for body in [
+            json!({"contents":[]}),
+            json!({"contents":[],"generationConfig":null}),
+            json!({"contents":[],"generationConfig":{"responseMimeType":"application/json"}}),
+        ] {
+            let prepared = gemini.prepare_body(&body).unwrap();
+            assert_eq!(prepared["generationConfig"]["maxOutputTokens"], 1024);
+        }
+        let anthropic = analyzer(AiProvider::Anthropic).await;
+        assert_eq!(anthropic.text_protocol_limit(None, true), Some(1024));
+        assert_eq!(anthropic.text_protocol_limit(Some(300), true), Some(300));
+        let unlimited = AiAnalyzer::new(
+            AiProvider::Anthropic,
+            "fixture".into(),
+            "fixture".into(),
+            None,
+        )
+        .await;
+        assert_eq!(
+            unlimited.text_protocol_limit(None, true),
+            Some(DEEP_THINKING_MAX_TOKENS)
+        );
+        assert_eq!(unlimited.text_protocol_limit(None, false), None);
     }
 
     /// 预算被拒 → 去掉预算重试 → 还被拒 → prompt-only。三级，不能少。
