@@ -824,8 +824,8 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
     // Should that clip never come back, it must not swallow the next one.
     if (isRecording) dropClipRef.current = false
   }, [isRecording])
-  const voiceRef = useRef({ isRecording, conversation })
-  voiceRef.current = { isRecording, conversation }
+  const conversationRef = useRef(conversation)
+  conversationRef.current = conversation
 
   // Signing in or out, or as someone else, ends what the one before was doing
   // here: the field's words and files are theirs, and a call or a recording
@@ -835,9 +835,11 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
   useEffect(() => {
     if (subjectRef.current === subject) return
     subjectRef.current = subject
-    if (voiceRef.current.conversation) {
+    if (conversationRef.current) {
       stopConversation()
-    } else if (voiceRef.current.isRecording) {
+    } else {
+      // Also when idle: a microphone still opening is cancelled, and a clip
+      // still being heard is dropped rather than sent as whoever comes next.
       dropClipRef.current = true
       void stopRecording()
     }
