@@ -287,6 +287,20 @@ export function AgentAliveGroup() {
                 ))
               : c.agentAliveNone}
           </dd>
+          <dt>{c.agentAliveUnread}</dt>
+          <dd>
+            {device.unread.length
+              ? device.unread.map((kind) => (
+                  <div key={kind.t}>
+                    {format(c.agentAliveUnreadItem, {
+                      t: kind.t,
+                      n: String(kind.count),
+                      ago: ago(kind.lastAt),
+                    })}
+                  </div>
+                ))
+              : c.agentAliveNone}
+          </dd>
         </dl>
       </li>
     )
@@ -315,6 +329,12 @@ export function AgentAliveGroup() {
                 span: span(life.gaps.secs),
               })}`
             : ` ${c.agentAliveNoGaps}`}
+          {life.hostStops.count > 0
+            ? ` ${format(c.agentAliveHostStops, {
+                count: String(life.hostStops.count),
+                span: span(life.hostStops.secs),
+              })}`
+            : null}
         </p>
       </InfoActionCard>
 

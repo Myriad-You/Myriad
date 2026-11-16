@@ -27,6 +27,7 @@ function alive(change: (shown: HerAlive) => void = () => {}): HerAlive {
       alarmedFrom: null,
       quietAfterSecs: 600,
       gaps: { count: 0, secs: 0 },
+      hostStops: { count: 1, secs: 3600 },
       drivers: [
         { name: 'her own time', everySecs: 60, ranAt: '2026-11-16T03:59:50Z', runs: 180, endedAt: '2026-11-16T03:59:51Z', running: false, failedAt: null, failures: 0, skippedAt: null, skippedWhy: null, skips: 0, overdue: false },
       ],
@@ -45,6 +46,7 @@ function alive(change: (shown: HerAlive) => void = () => {}): HerAlive {
         capabilities: { declared: ['log3', 'act', 'extra'], approved: null, granted: ['log3', 'act'] },
         log: { behindRows: 12, audiencesBehind: 1, heardAt: '2026-11-16T03:59:00Z' },
         dropped: [],
+        unread: [{ t: 'say', count: 2, lastAt: '2026-11-16T03:30:00Z' }],
       },
     ],
     calls: [{ kind: 'act.request', outcomes: { asked: 3, completed: 2, act_busy: 1 } }],
@@ -93,6 +95,7 @@ test('shows whether she is living, with the three capability layers apart', asyn
     assert.equal(verdict().getAttribute('data-verdict'), 'success')
     assert.match(verdict().textContent, /她在活，上次有动静是10 秒前/)
     assert.match(text(), /近一天没有停过/)
+    assert.match(text(), /这台主机自己睡了或停了 1 次，共 60 分钟，不算她停/)
     // Declared, approved, granted: three rows, the middle one said to be absent.
     const rows = [...dom.window.document.querySelectorAll('.agent-alive-end dt')].map(dt => [dt.textContent, dt.nextElementSibling.textContent])
     assert.deepEqual(rows.slice(2, 5), [
@@ -102,6 +105,11 @@ test('shows whether she is living, with the three capability layers apart', asyn
     ])
     assert.match(text(), /MyriadNative 0\.9\.1 · 连接契约 2 · 核心 3/)
     assert.match(text(), /落后 12 行/)
+    // What it told of frames: none dropped; two of hers acked and not read.
+    assert.deepEqual(rows.slice(6, 8), [
+      ['它接不了的帧', '没有'],
+      ['站点以为送到了、它其实没读到', 'say：2 次，最近 30 分钟前'],
+    ])
     assert.match(text(), /让 Mac 办事发出 3 · 办完 2 · 那边在忙 1/)
 
     // Stopped past the alarm's ten minutes, every driver passed over.

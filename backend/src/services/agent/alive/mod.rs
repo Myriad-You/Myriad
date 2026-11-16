@@ -526,6 +526,7 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
     };
     let quiet_secs = (now - state.watch.quiet_from(&seen)).max(0);
     let (gaps, gap_secs) = state.watch.gaps_of_the_day(now);
+    let (host_stops, host_stop_secs) = state.watch.host_stops_of_the_day();
     let drivers: Vec<Value> = state
         .drivers
         .iter()
@@ -596,6 +597,16 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
                         "lastAt": told.last_at.map(|at| at.to_rfc3339()),
                     }))
                     .collect::<Vec<_>>(),
+                // Her reliable frames its ack covered that it then said it
+                // could not read: the site took them for delivered.
+                "unread": crate::services::agent::link::counts::unread_by(&device.id)
+                    .into_iter()
+                    .map(|(t, told)| json!({
+                        "t": t,
+                        "count": told.count,
+                        "lastAt": told.last_at.map(|at| at.to_rfc3339()),
+                    }))
+                    .collect::<Vec<_>>(),
             })
         })
         .collect();
@@ -628,6 +639,8 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
             "alarmedFrom": at(state.watch.alarmed_from),
             "quietAfterSecs": watch::QUIET_SECS,
             "gaps": { "count": gaps, "secs": gap_secs },
+            // The host itself asleep or this process down: not hers.
+            "hostStops": { "count": host_stops, "secs": host_stop_secs },
             "drivers": drivers,
         },
         "memory": {

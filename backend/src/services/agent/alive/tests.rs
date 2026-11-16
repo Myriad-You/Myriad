@@ -130,6 +130,65 @@ fn a_restart_is_given_ten_minutes() {
     );
 }
 
+/// The host asleep is not her stopping. The site's machine sleeps: its
+/// drivers' clocks stand still and the wall clock does not, so the first
+/// look after it wakes sees an hour with nothing of hers. That look says
+/// nothing and keeps the hour apart, as the host's; her ten minutes start
+/// from it, and ring if nothing of hers runs in them.
+#[test]
+fn a_host_that_slept_is_not_her_stopping() {
+    let slept = 3600;
+    let mut watch = Watch::default();
+    assert_eq!(looks(&mut watch, 0, 900, Some), []);
+    // The lid closed at 900; an hour on, the look comes before her drivers.
+    let woke = 900 + slept;
+    assert_eq!(watch.look(seen(woke, Some(900))), None);
+    assert_eq!(watch.host_stops, [(900, woke)]);
+    assert_eq!(watch.host_stops_of_the_day(), (1, slept));
+    assert_eq!(watch.gaps_of_the_day(woke), (0, 0));
+    assert_eq!(watch.alarmed_from, None);
+    // Her drivers come back with the host: nothing to say, nothing counted.
+    let mut living = watch.clone();
+    assert_eq!(looks(&mut living, woke + LOOK, woke + 7200, Some), []);
+    assert_eq!(living.gaps_of_the_day(woke + 7200), (0, 0));
+    // They do not: ten minutes from the look that found the host awake.
+    let said = looks(&mut watch, woke + LOOK, woke + 3600, |_| Some(900));
+    assert_eq!(said, [(woke + QUIET_SECS, Said::Stopped { from: woke })]);
+    assert_eq!(watch.host_stops.len(), 1);
+}
+
+/// A stretch of hers that was open when the host stopped ends there, and
+/// the hour she has to be well for after an alarm does not run while the
+/// host is asleep.
+#[test]
+fn the_host_asleep_neither_lengthens_her_stop_nor_counts_as_her_being_well() {
+    let mut watch = Watch::default();
+    // Stopped at 900, said at 1500, back at 2100.
+    let lived = |now: i64| Some(if now < 2100 { now.min(900) } else { now });
+    let said = looks(&mut watch, 0, 2100 + 1800, lived);
+    assert_eq!(said, [(900 + QUIET_SECS, Said::Stopped { from: 900 })]);
+    // Half an hour well, then the host sleeps two hours.
+    let slept_at = 2100 + 1800;
+    let woke = slept_at + 7200;
+    assert_eq!(watch.look(seen(woke, Some(slept_at))), None);
+    // Back is said once she has been well an hour of the host's waking.
+    let said = looks(&mut watch, woke + LOOK, woke + 3600, Some);
+    let back_at = woke + WELL_SECS - 1800;
+    let back = Said::Back {
+        from: 900,
+        since: 2100,
+    };
+    assert_eq!(said, [(back_at, back)]);
+
+    // Stopped four minutes when the lid closed: her stretch is those four.
+    let mut watch = Watch::default();
+    assert_eq!(looks(&mut watch, 0, 1140, |now| Some(now.min(900))), []);
+    let woke = 1140 + 3600;
+    assert_eq!(watch.look(seen(woke, Some(900))), None);
+    assert_eq!(watch.gaps, [(900, 1140)]);
+    assert_eq!(watch.host_stops, [(1140, woke)]);
+}
+
 /// Her switch off, or the site not her host: nothing is counted, and the
 /// count starts when she should live here again.
 #[test]
@@ -144,7 +203,12 @@ fn nothing_is_counted_while_she_should_not_live_here() {
     for now in (0..7200).step_by(LOOK as usize) {
         assert_eq!(watch.look(off(now)), None);
     }
-    assert_eq!(watch, Watch::default());
+    // Nothing but when it last looked.
+    let looked = Watch {
+        looked_at: Some(7185),
+        ..Watch::default()
+    };
+    assert_eq!(watch, looked);
     // Turned on at 7200 with nothing running: ten minutes from then.
     let said = looks(&mut watch, 7200, 7200 + 2 * QUIET_SECS, |_| None);
     assert_eq!(said, [(7200 + QUIET_SECS, Said::Stopped { from: 7200 })]);
@@ -463,7 +527,10 @@ async fn what_is_kept_comes_back_after_a_restart() {
     assert_eq!(report["memory"]["settledOutcome"], "applied");
     // The memory line's own counts, by kind.
     for kind in ["asked_again", "unanswered", "unreadable", "not_written"] {
-        assert!(report["memory"]["standingFailures"][kind].is_u64(), "{kind}");
+        assert!(
+            report["memory"]["standingFailures"][kind].is_u64(),
+            "{kind}"
+        );
     }
     assert_eq!(report["calls"][0]["kind"], "act.request");
     assert_eq!(report["calls"][0]["outcomes"]["completed"], 1);

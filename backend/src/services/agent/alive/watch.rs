@@ -13,6 +13,14 @@
 //! would have rung ten minutes into the first of those that lasted that
 //! long, and once that day (`tests::the_fifteenth_rings_once`); the
 //! shorter ones before it are on the page as times she stopped.
+//!
+//! The host itself stopping is not her stopping. The site runs on a machine
+//! that sleeps: the drivers' clocks stand still while it does and the wall
+//! clock does not, so the first look after it wakes would see an hour with
+//! nothing of hers. A look that comes [`SLEPT_SECS`] or more after the one
+//! before it knows the host (or this process) was not running in between:
+//! that stretch is kept apart, as one the host stopped for, and her ten
+//! minutes start over from the look that found it.
 
 use serde::{Deserialize, Serialize};
 
@@ -24,6 +32,11 @@ pub const GAP_SECS: i64 = 2 * 60;
 /// Living this long without such a stretch after an alarm: she is well
 /// again, and the next time is said anew.
 pub const WELL_SECS: i64 = 60 * 60;
+/// Looks come every `LOOK_SECS` (15): one this long after the last means
+/// nothing ran in between, the watch included (the host slept, or this
+/// process was down). Four looks missed in a row; a slow tick does not
+/// hold the look's own clock back that long.
+pub const SLEPT_SECS: i64 = 60;
 /// How long the stretches she stopped for are kept.
 pub const GAPS_KEPT_SECS: i64 = 24 * 60 * 60;
 
@@ -38,10 +51,21 @@ pub struct Watch {
     pub alarmed_from: Option<i64>,
     /// After an alarm: since when she has been living without a gap.
     pub well_from: Option<i64>,
+    /// Of the time since `well_from`, the seconds the host was stopped:
+    /// not time she was well for.
+    pub well_slept: i64,
     /// A stretch she is stopped for now, from when.
     pub gap_from: Option<i64>,
     /// The stretches she stopped for, (from, to), the last day's.
     pub gaps: Vec<(i64, i64)>,
+    /// When the watch last looked.
+    pub looked_at: Option<i64>,
+    /// The look that found the host had stopped: what came before it is not
+    /// counted against her.
+    pub woke_at: Option<i64>,
+    /// The stretches the host itself stopped for (asleep, or this process
+    /// down), (from, to), the last day's. Not hers.
+    pub host_stops: Vec<(i64, i64)>,
 }
 
 /// What one look sees.
@@ -73,15 +97,35 @@ impl Watch {
             .unwrap_or(i64::MIN)
             .max(seen.started_at)
             .max(self.should_since.unwrap_or(i64::MIN))
+            .max(self.woke_at.unwrap_or(i64::MIN))
     }
 
     /// One look. While she should not live here nothing is counted and an
     /// alarm that stood is let go: it is not one any more.
     pub fn look(&mut self, seen: Seen) -> Option<Said> {
         self.gaps.retain(|(_, to)| seen.now - *to < GAPS_KEPT_SECS);
+        self.host_stops
+            .retain(|(_, to)| seen.now - *to < GAPS_KEPT_SECS);
+        if let Some(last) = self.looked_at.replace(seen.now)
+            && seen.now - last >= SLEPT_SECS
+        {
+            // The host stopped from `last` to now. A stretch of hers that
+            // was open ends where the host stopped; the hour she has to be
+            // well for does not run while the host does not.
+            self.host_stops.push((last, seen.now));
+            self.woke_at = Some(seen.now);
+            if let Some(from) = self.gap_from.take() {
+                self.gaps.push((from, last));
+            }
+            if self.well_from.is_some() {
+                self.well_slept += seen.now - last;
+            }
+        }
         if !seen.should_live {
             *self = Self {
                 gaps: std::mem::take(&mut self.gaps),
+                looked_at: self.looked_at,
+                host_stops: std::mem::take(&mut self.host_stops),
                 ..Self::default()
             };
             return None;
@@ -92,6 +136,7 @@ impl Watch {
         if quiet >= GAP_SECS {
             self.gap_from.get_or_insert(quiet_from);
             self.well_from = None;
+            self.well_slept = 0;
         } else if let Some(from) = self.gap_from.take() {
             self.gaps.push((from, quiet_from));
         }
@@ -102,9 +147,10 @@ impl Watch {
             }
             Some(from) if quiet < GAP_SECS => {
                 let since = *self.well_from.get_or_insert(quiet_from.max(from));
-                if seen.now - since >= WELL_SECS {
+                if seen.now - since - self.well_slept >= WELL_SECS {
                     self.alarmed_from = None;
                     self.well_from = None;
+                    self.well_slept = 0;
                     Some(Said::Back { from, since })
                 } else {
                     None
@@ -119,6 +165,15 @@ impl Watch {
     pub fn gaps_of_the_day(&self, now: i64) -> (usize, i64) {
         let open = self.gap_from.map(|from| (from, now));
         let all = self.gaps.iter().copied().chain(open);
+        all.fold((0, 0), |(count, seconds), (from, to)| {
+            (count + 1, seconds + (to - from).max(0))
+        })
+    }
+
+    /// How many stretches the host itself stopped for in the last day, and
+    /// their seconds together.
+    pub fn host_stops_of_the_day(&self) -> (usize, i64) {
+        let all = self.host_stops.iter();
         all.fold((0, 0), |(count, seconds), (from, to)| {
             (count + 1, seconds + (to - from).max(0))
         })

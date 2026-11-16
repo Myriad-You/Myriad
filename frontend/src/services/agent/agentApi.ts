@@ -219,6 +219,11 @@ export interface HerAliveEnd {
    * is how many links met it (each says it once), not frames lost.
    */
   dropped: { t: string; reason: string; links: number; lastAt: string | null }[]
+  /**
+   * Her reliable frames it acked and then said it could not read: the site
+   * took them for delivered. By frame type.
+   */
+  unread: { t: string; count: number; lastAt: string | null }[]
 }
 
 /** Whether she is living now: times, counts, names and versions only. */
@@ -240,6 +245,8 @@ export interface HerAlive {
     alarmedFrom: string | null
     quietAfterSecs: number
     gaps: { count: number; secs: number }
+    /** The host itself asleep or the site down, the last day: not her stopping. */
+    hostStops: { count: number; secs: number }
     drivers: {
       name: string
       everySecs: number | null
