@@ -23,6 +23,11 @@
 //! moves (no end holds her), then a thaw or the commit. The rest moves it
 //! only while her log on the server is on, and never while the site's copy
 //! of her is not the live one ([`request`]).
+//!
+//! While she lives on the site her mind stays on it ([`minds_go_to_devices`]):
+//! a computer linked to it is a child, asked for what it can do, and none
+//! is handed her mind for being where the owner is. To live on one is a
+//! move. The grants, the takeover and the moves stay as they are.
 
 use myriad_persona_log::lease::{
     self as rules, Grant, How, MoveInput, Moved, OwnerPlace, Refusal, Request, Through,
@@ -33,6 +38,45 @@ use sea_orm::{
 use serde_json::{Value, json};
 
 use super::{Error, NODE, Settings, store};
+
+/// Whether her mind may go to a device while she lives on the site (a
+/// handover or a force to it: the owner there, a talk there, its 「让她来
+/// 这里」). Not since 2026-11-16: she lives on the site and stays on it;
+/// a device asking is answered with nothing ([`super::relay`]), and one
+/// holding her now has her brought back ([`watch`]). The one place that
+/// says so: true again gives the old way back unchanged.
+pub fn minds_go_to_devices() -> bool {
+    #[cfg(test)]
+    if MINDS_GO_TO_DEVICES_IN_TEST.with(std::cell::Cell::get) {
+        return true;
+    }
+    false
+}
+
+#[cfg(test)]
+thread_local! {
+    static MINDS_GO_TO_DEVICES_IN_TEST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// For a test of how her mind moves between host cores, on this thread (a
+/// test's current-thread runtime): `true` the old way, a device handed her
+/// mind. Back to how it is when the guard goes.
+#[cfg(test)]
+#[must_use = "the old way lasts only while the guard is kept"]
+pub fn minds_go_to_devices_in_test(on: bool) -> MindsGoToDevicesInTest {
+    MINDS_GO_TO_DEVICES_IN_TEST.with(|cell| cell.set(on));
+    MindsGoToDevicesInTest(())
+}
+
+#[cfg(test)]
+pub struct MindsGoToDevicesInTest(());
+
+#[cfg(test)]
+impl Drop for MindsGoToDevicesInTest {
+    fn drop(&mut self) {
+        MINDS_GO_TO_DEVICES_IN_TEST.with(|cell| cell.set(false));
+    }
+}
 
 fn how_name(how: How) -> &'static str {
     match how {
@@ -400,6 +444,13 @@ pub(super) async fn request_issued(
             txn.commit().await?;
             return Ok(Outcome::NotAHost);
         }
+        // Her mind stays on the site ([`minds_go_to_devices`]).
+        Request::Handover { to, .. } | Request::Force { to }
+            if to != NODE && !minds_go_to_devices() =>
+        {
+            txn.commit().await?;
+            return Ok(Outcome::NotAHost);
+        }
         // She lives on a device the site let its copy go to, or is not
         // here: no host core may take her mind but by a move.
         Request::Handover { .. } | Request::Force { .. } | Request::Takeover { .. }
@@ -457,9 +508,42 @@ pub async fn watch(
     settings: &Settings,
     now: i64,
 ) -> Result<Option<Grant>, Error> {
-    match standing(db).await? {
-        Some(grant) if !grant.held_by(NODE) => {}
+    let held = match standing(db).await? {
+        Some(grant) if !grant.held_by(NODE) => grant,
         _ => return Ok(None),
+    };
+    // A device holding her mind from before it stayed on the site: brought
+    // back now, as when the owner turns syncing off. Not a freeze (no
+    // holder: she is moving), and not while she lives on a device
+    // ([`request`] refuses a force then).
+    if !minds_go_to_devices() && held.holder.is_some() {
+        let Outcome::Granted(grant) = request(
+            db,
+            settings,
+            Request::Force {
+                to: NODE.to_string(),
+            },
+            now,
+        )
+        .await?
+        else {
+            return Ok(None);
+        };
+        tracing::info!(
+            device = ?held.holder,
+            epoch = grant.epoch,
+            "[her-log] her mind was brought back from a device: it stays on the site now"
+        );
+        let owner = crate::services::principal::site_owner_id(db).await?;
+        super::pen::settle_for(db, settings, owner).await?;
+        if let Some(owner) = owner {
+            crate::services::agent::link::tell_log_links(
+                owner,
+                "lease.epoch",
+                epoch_body(&grant, settings),
+            );
+        }
+        return Ok(Some(grant));
     }
     match request(
         db,

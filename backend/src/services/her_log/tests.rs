@@ -521,6 +521,7 @@ async fn count(db: &DatabaseConnection, sql: &str) -> i64 {
 /// gone everywhere, its key on the server too.
 #[tokio::test]
 async fn two_devices_fold_the_same_after_pushing_and_pulling_through_the_server() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_two").await else {
         return;
     };
@@ -840,6 +841,7 @@ async fn a_forget_on_the_server_deletes_the_key_and_is_answered_first() {
 /// and only her mind may add to it.
 #[tokio::test]
 async fn a_groups_rows_go_to_no_computer_and_come_back_only_from_her_mind() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_group").await else {
         return;
     };
@@ -1006,6 +1008,7 @@ async fn a_groups_rows_go_to_no_computer_and_come_back_only_from_her_mind() {
 /// is refused by the contract.
 #[tokio::test]
 async fn chats_are_lent_only_to_her_mind_on_a_pc_whose_link_speaks_protocol_two() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_lend").await else {
         return;
     };
@@ -1129,6 +1132,7 @@ async fn while_off_no_frame_is_taken() {
 /// devices with the stop time, and tells the old holder on its return.
 #[tokio::test]
 async fn the_server_takes_over_only_when_the_holder_has_stopped() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_takeover").await else {
         return;
     };
@@ -1203,6 +1207,7 @@ async fn the_server_takes_over_only_when_the_holder_has_stopped() {
 /// it.
 #[tokio::test]
 async fn what_her_mind_wrote_before_a_takeover_is_taken_when_it_comes_back() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_takeover_late").await else {
         return;
     };
@@ -1329,6 +1334,7 @@ async fn what_her_mind_wrote_before_a_takeover_is_taken_when_it_comes_back() {
 /// are not written. The Mac her mind is on takes them as the owner's.
 #[tokio::test]
 async fn the_partners_private_lines_are_theirs_in_her_log_wherever_her_mind_is() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_partner_lines").await else {
         return;
     };
@@ -1418,6 +1424,7 @@ async fn the_partners_private_lines_are_theirs_in_her_log_wherever_her_mind_is()
 /// taken for it.
 #[tokio::test]
 async fn her_line_sent_for_the_mac_is_not_copied_again() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_lent_line_bound").await else {
         return;
     };
@@ -1500,6 +1507,7 @@ async fn her_line_sent_for_the_mac_is_not_copied_again() {
 /// never written to the log again, and go when their row is forgotten.
 #[tokio::test]
 async fn lines_said_on_the_mac_show_in_the_sites_conversations() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_partner_copies").await else {
         return;
     };
@@ -1804,6 +1812,7 @@ async fn forgetting_a_line_forgets_it_on_every_end_with_what_it_taught_her() {
 /// to, nothing moves.
 #[tokio::test]
 async fn syncing_off_brings_her_mind_back_from_a_device() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_sync_off").await else {
         return;
     };
@@ -1856,6 +1865,7 @@ async fn syncing_off_brings_her_mind_back_from_a_device() {
 /// asks it. Every case answers as recorded.
 #[tokio::test]
 async fn the_lease_conformance_cases_pass_through_the_servers_wiring() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_lease_cases").await else {
         return;
     };
@@ -2136,6 +2146,7 @@ async fn a_body_that_did_not_come_is_asked_for_once_and_taken_when_it_comes() {
 /// it.
 #[tokio::test]
 async fn a_partners_computer_never_gets_anyone_elses_talk() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_holder").await else {
         return;
     };
@@ -3013,6 +3024,7 @@ fn said(text: &str, at: i64) -> Value {
 /// a row of hers; a run is refused as her being on another device.
 #[tokio::test]
 async fn while_her_mind_is_on_the_mac_the_server_does_not_think() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_pen_away").await else {
         return;
     };
@@ -3100,6 +3112,7 @@ async fn while_she_lives_on_a_device_only_a_move_moves_her() {
 /// nothing new starts, and the grant goes out only once that thought ends.
 #[tokio::test]
 async fn asking_for_her_waits_for_the_servers_thought_in_hand() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_pen_quiet").await else {
         return;
     };
@@ -3153,6 +3166,7 @@ async fn asking_for_her_waits_for_the_servers_thought_in_hand() {
 /// then is a row of hers at the server's epoch, which the Mac reads.
 #[tokio::test]
 async fn handed_back_she_catches_up_before_she_thinks() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_pen_back").await else {
         return;
     };
@@ -3233,6 +3247,7 @@ async fn handed_back_she_catches_up_before_she_thinks() {
 /// moves; past it the server takes her and thinks again.
 #[tokio::test]
 async fn the_server_takes_her_back_from_a_mac_cut_off_with_the_owner_elsewhere() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_pen_takeover").await else {
         return;
     };
@@ -3312,6 +3327,7 @@ async fn the_server_takes_her_back_from_a_mac_cut_off_with_the_owner_elsewhere()
 /// the pen; then only what the owner edits here (her persona, her wardrobe).
 #[tokio::test]
 async fn her_records_go_into_her_log_by_comparing() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_state").await else {
         return;
     };
@@ -3930,6 +3946,7 @@ async fn her_memories_from_another_end_go_into_the_sites_table() {
 /// node there makes them stubs here.
 #[tokio::test]
 async fn her_nodes_from_another_end_are_kept_on_the_site() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_nodes_in").await else {
         return;
     };
@@ -4009,6 +4026,7 @@ async fn her_nodes_from_another_end_are_kept_on_the_site() {
 /// comparing afterwards writes none of it back.
 #[tokio::test]
 async fn her_records_from_another_end_go_into_the_sites_tables() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_state_in").await else {
         return;
     };
@@ -4129,6 +4147,7 @@ async fn her_records_from_another_end_go_into_the_sites_tables() {
 /// refused.
 #[tokio::test]
 async fn a_record_waits_for_its_picture() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_state_asset").await else {
         return;
     };
@@ -4440,6 +4459,7 @@ async fn taken_back(db: &DatabaseConnection, now: i64) -> Option<Grant> {
 /// Still behind, the Mac asking for a talk is not handed her again.
 #[tokio::test]
 async fn a_holder_that_never_catches_up_gives_her_back_after_five_minutes() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_stuck_back").await else {
         return;
     };
@@ -4474,6 +4494,7 @@ async fn a_holder_that_never_catches_up_gives_her_back_after_five_minutes() {
 /// starts the five minutes again, and it keeps her.
 #[tokio::test]
 async fn a_holder_still_catching_up_keeps_her() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_stuck_moving").await else {
         return;
     };
@@ -4500,6 +4521,7 @@ async fn a_holder_still_catching_up_keeps_her() {
 /// take-back however long after.
 #[tokio::test]
 async fn a_holder_that_caught_up_is_no_longer_marked() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_stuck_caught_up").await else {
         return;
     };
@@ -4524,6 +4546,7 @@ async fn a_holder_that_caught_up_is_no_longer_marked() {
 /// looks with the Mac holding her, she is taken back.
 #[tokio::test]
 async fn a_holder_silent_since_before_the_grant_gives_her_back_too() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_stuck_silent").await else {
         return;
     };
@@ -4572,6 +4595,7 @@ async fn a_holder_silent_since_before_the_grant_gives_her_back_too() {
 /// however long it holds her.
 #[tokio::test]
 async fn a_holder_never_heard_from_is_not_taken_back() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_stuck_unheard").await else {
         return;
     };
@@ -4690,6 +4714,7 @@ fn a_holder_is_marked_short_of_an_audience_it_has_said_nothing_of() {
 /// it is sent the same grant again, and nothing moves.
 #[tokio::test]
 async fn her_holder_asking_again_is_sent_its_grant_again() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_grant_again").await else {
         return;
     };
@@ -4720,6 +4745,7 @@ async fn her_holder_asking_again_is_sent_its_grant_again() {
 /// the Mac's count fills, and she stays on the server.
 #[tokio::test]
 async fn rows_promised_at_a_handover_come_in_whole_when_late() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_late_promised").await else {
         return;
     };
@@ -4971,6 +4997,7 @@ async fn received_at(db: &DatabaseConnection, id: &str, micros: i64) {
 /// later still comes in whole, and she stays here, after a restart too.
 #[tokio::test]
 async fn a_catch_up_that_stops_going_forward_ends_after_two_minutes() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_catch_up_ends").await else {
         return;
     };
@@ -5066,6 +5093,7 @@ async fn a_catch_up_that_stops_going_forward_ends_after_two_minutes() {
 /// two minutes after the last of it.
 #[tokio::test]
 async fn a_catch_up_going_forward_in_one_audience_waits_for_the_other() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
     let Some(schema) = schema("her_log_catch_up_two").await else {
         return;
     };
@@ -5113,6 +5141,111 @@ async fn a_catch_up_going_forward_in_one_audience_waits_for_the_other() {
     let given_up = granted + 180_000_000 + super::pen::CATCH_UP_WAIT_MICROS;
     assert!(waiting(&at(given_up - 1).await.unwrap()));
     assert_eq!(at(given_up).await.unwrap(), super::pen::Pen::Here);
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// Her mind stays on the site: a computer asking for it, the owner being
+/// there (`place`), talking there or saying 「让她来这里」(`force`), is
+/// answered with nothing, and nothing here stops thinking for it.
+#[tokio::test]
+async fn a_device_asking_for_her_mind_is_not_handed_it() {
+    let Some(schema) = schema("her_log_mind_stays").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    assert_eq!(settled(db).await, super::pen::Pen::Here);
+    let base = super::now();
+    let mut mac = Side::new("dev_mac");
+    mac.now = base;
+    let grants = count(db, "SELECT COUNT(*) FROM agent_lease_grants").await;
+    for why in ["place", "talk", "force"] {
+        let ask = mac.frame("lease.ask", None, json!({ "why": why, "epoch": 1 }));
+        let outs = relay::take(
+            db,
+            &root(),
+            &on(),
+            mac.user,
+            "dev_mac",
+            Core::Pc,
+            &mut mac.link,
+            &ask,
+            base,
+        )
+        .await
+        .unwrap();
+        assert!(outs.is_empty(), "{why}: {outs:?}");
+        assert_eq!(super::pen::current(), super::pen::Pen::Here, "{why}");
+        assert_eq!(super::pen::thinking(), 0, "{why}");
+        assert!(
+            super::pen::think().is_some(),
+            "{why}: she still thinks here"
+        );
+    }
+    assert_eq!(
+        count(db, "SELECT COUNT(*) FROM agent_lease_grants").await,
+        grants
+    );
+    assert!(
+        lease::standing(db)
+            .await
+            .unwrap()
+            .is_none_or(|grant| grant.held_by(NODE))
+    );
+    // Nor does anything else on the site that asks the rule to move her.
+    let outcome = lease::request(
+        db,
+        &on(),
+        myriad_persona_log::Request::Force {
+            to: "dev_mac".into(),
+        },
+        base,
+    )
+    .await
+    .unwrap();
+    assert!(matches!(outcome, lease::Outcome::NotAHost), "{outcome:?}");
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// A device that held her mind from before it stayed on the site is made
+/// to give it back by the next check (`lease::watch`), the way syncing off
+/// takes it back: she thinks on the site again.
+#[tokio::test]
+async fn a_device_holding_her_mind_from_before_gives_it_back() {
+    let Some(schema) = schema("her_log_mind_comes_home").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    settled(db).await;
+    let base = super::now();
+    let mut mac = Side::new("dev_mac");
+    mac.now = base;
+    // Before: the owner at the Mac, her mind handed there.
+    let old_way = lease::minds_go_to_devices_in_test(true);
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], base).await;
+    let held = mac.epoch.expect("her mind is on the Mac");
+    assert!(
+        lease::standing(db)
+            .await
+            .unwrap()
+            .unwrap()
+            .held_by("dev_mac")
+    );
+    // Now: it stays on the site.
+    drop(old_way);
+    let grant = lease::watch(db, &on(), base + 1)
+        .await
+        .unwrap()
+        .expect("brought back");
+    assert!(grant.held_by(NODE) && grant.epoch > held, "{grant:?}");
+    assert_eq!(grant.how, myriad_persona_log::How::Force);
+    assert_eq!(settled(db).await, super::pen::Pen::Here);
+    // Nothing more to do on the next check.
+    assert!(lease::watch(db, &on(), base + 2).await.unwrap().is_none());
     super::pen::reset_for_test();
     schema.drop().await;
 }

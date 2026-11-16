@@ -124,9 +124,50 @@ pub async fn confirm_to_device(
     id: &str,
     passphrase: String,
 ) -> Result<Lease, MoveError> {
+    confirm_to_device_with(
+        db,
+        crate::services::her_log::settings(),
+        owner,
+        id,
+        passphrase,
+    )
+    .await
+}
+
+/// Whether a move to a device may go on: opened (H4 Q8,
+/// [`lease::device_host_open`] at the requests) and one that lets the
+/// site's copy of her go. While her log syncs, a move to a device keeps
+/// the site's copy and only hands that device her mind
+/// (`committed_to_device(.., true)`), and her mind stays on the site now
+/// (`her_log::lease::minds_go_to_devices`): refused as not open yet
+/// (`device_host_later`) before anything moves, at the start, the
+/// confirmation and the commit (syncing may be turned on between them).
+/// With her log off she goes to live on the device, as before.
+pub async fn to_device_allowed<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    settings: &crate::services::her_log::Settings,
+    owner: i32,
+) -> Result<(), MoveError> {
+    let syncing = crate::services::her_log::pen::in_play(db, settings, Some(owner))
+        .await
+        .map_err(|error| MoveError::Failed(error.to_string()))?;
+    if syncing && !crate::services::her_log::lease::minds_go_to_devices() {
+        return Err(MoveError::Later);
+    }
+    Ok(())
+}
+
+pub(crate) async fn confirm_to_device_with(
+    db: &DatabaseConnection,
+    settings: &crate::services::her_log::Settings,
+    owner: i32,
+    id: &str,
+    passphrase: String,
+) -> Result<Lease, MoveError> {
     if passphrase.is_empty() {
         return Err(MoveError::Failed("passphrase".into()));
     }
+    to_device_allowed(db, settings, owner).await?;
     let moving = lease::read(db)
         .await?
         .and_then(|lease| lease.moving)
@@ -262,7 +303,9 @@ pub async fn applied(
 /// it went through, it answers the lease. Only once the device's first
 /// daily backup is here, so the site has a copy to take her back from.
 ///
-/// With her log synced (C2-a) the site keeps its copy of her: her mind is
+/// With her log synced (C2-a) it is refused while her mind stays on the
+/// site ([`to_device_allowed`]). Were minds to go to devices, the site
+/// would keep its copy of her: her mind is
 /// on the device ([`lease::Where::MindOn`]), the device is one of her host
 /// cores from now, and the server takes her mind back if it goes out of
 /// reach ([`crate::services::her_log::lease::watch`]). What the log does not
@@ -298,6 +341,11 @@ pub(crate) async fn commit_to_device_with(
     let keep = crate::services::her_log::pen::in_play(db, settings, Some(owner))
         .await
         .map_err(|error| MoveError::Failed(error.to_string()))?;
+    // Syncing turned on since she was confirmed: she stays frozen for the
+    // owner to call the move off ([`to_device_allowed`]).
+    if keep {
+        to_device_allowed(db, settings, owner).await?;
+    }
     let txn = db.begin().await?;
     let lease = lease::hold(&txn).await?.ok_or(MoveError::Unknown)?;
     if lease.done.as_ref().is_some_and(|done| done.id == id) && lease.holder == device {

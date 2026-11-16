@@ -304,6 +304,7 @@ async fn she_moves_to_a_device_and_back_and_finds_others_as_she_left_them() {
 /// (isolated schemas; skipped without a database).
 #[tokio::test]
 async fn with_her_log_synced_a_move_to_a_device_keeps_her_here_and_her_mind_comes_back() {
+    let _minds = crate::services::her_log::lease::minds_go_to_devices_in_test(true);
     let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
         return;
     };
@@ -411,6 +412,97 @@ async fn with_her_log_synced_a_move_to_a_device_keeps_her_here_and_her_mind_come
     assert_eq!(
         lease::read(db).await.unwrap().unwrap().place(),
         lease::Where::Here
+    );
+    fixture.close().await;
+}
+
+/// With her log synced and her mind staying on the site (since
+/// 2026-11-16), a move to a device is refused with a reason, at each step
+/// it could be taken, and the site is left as it was; with her log off the
+/// move is offered as before (isolated schemas; skipped without a database).
+#[tokio::test]
+async fn with_her_log_synced_a_move_to_a_device_is_refused_and_she_stays() {
+    let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+        return;
+    };
+    let db = &fixture.db;
+    seed(db).await;
+    use crate::services::her_log;
+    let synced = her_log::Settings {
+        enabled: true,
+        ..her_log::Settings::default()
+    };
+    let off = her_log::Settings::default();
+    her_log::store::start(db, 41).await.unwrap();
+    let (mac, _) = super::super::devices::add(db, 41, "Mac").await.unwrap();
+    let here = |lease: lease::Lease| lease.json(|_| None);
+
+    // At the start.
+    assert!(matches!(
+        to_device_allowed(db, &synced, 41).await,
+        Err(MoveError::Later)
+    ));
+    assert!(to_device_allowed(db, &off, 41).await.is_ok());
+
+    // At the confirm, for a move started before.
+    let started = lease::start(db, lease::Kind::Move, &mac.id, lease::Starter::Owner)
+        .await
+        .unwrap();
+    let id = started.moving.unwrap().id;
+    lease::agree(db, &id, &mac.id).await.unwrap();
+    let before = here(lease::read(db).await.unwrap().unwrap());
+    assert!(matches!(
+        confirm_to_device_with(db, &synced, 41, &id, "留在站点的".into()).await,
+        Err(MoveError::Later)
+    ));
+    assert_eq!(here(lease::read(db).await.unwrap().unwrap()), before);
+
+    // At the commit, for a move confirmed before: she stays frozen here for
+    // the owner to cancel, nothing handed to the Mac.
+    let sealed = {
+        let _old_way = her_log::lease::minds_go_to_devices_in_test(true);
+        confirm_to_device_with(db, &synced, 41, &id, "留在站点的".into())
+            .await
+            .unwrap()
+    };
+    let digest = sealed.moving.as_ref().unwrap().digest.clone().unwrap();
+    let born = lease::read(db).await.unwrap().unwrap();
+    let bytes = whole_file(db, &id, &mac.id).await;
+    applied(db, &id, &mac.id, &digest).await.unwrap();
+    backups::take_piece(
+        db,
+        &mac.id,
+        "2026-10-14",
+        backups::PieceQuery {
+            offset: 0,
+            total: bytes.len() as u64,
+            lineage: born.lineage.clone(),
+            epoch: 2,
+            digest: digest.clone(),
+        },
+        bytes,
+    )
+    .await
+    .unwrap();
+    let before = here(lease::read(db).await.unwrap().unwrap());
+    assert!(matches!(
+        commit_to_device_with(db, &synced, 41, &id, &mac.id, &digest).await,
+        Err(MoveError::Later)
+    ));
+    let after = lease::read(db).await.unwrap().unwrap();
+    assert!(!after.lives_on(&mac.id));
+    assert_eq!(here(after), before);
+    assert_eq!(
+        count(
+            db,
+            &format!(
+                "SELECT COUNT(*)::BIGINT AS n FROM agent_lease_ends WHERE device_id = '{}'",
+                mac.id
+            )
+        )
+        .await,
+        0,
+        "the Mac is not one of her host cores"
     );
     fixture.close().await;
 }

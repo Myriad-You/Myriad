@@ -166,8 +166,17 @@ pub async fn start_move(
             }
         }
     };
-    if kind == lease::Kind::Move && !back && !lease::device_host_open() {
-        return Err(super::sync::move_refused(lease::MoveError::Later));
+    if kind == lease::Kind::Move && !back {
+        if !lease::device_host_open() {
+            return Err(super::sync::move_refused(lease::MoveError::Later));
+        }
+        crate::services::persona_sync::moves::to_device_allowed(
+            &db,
+            crate::services::her_log::settings(),
+            owner,
+        )
+        .await
+        .map_err(super::sync::move_refused)?;
     }
     let live = devices::list(&db, owner)
         .await

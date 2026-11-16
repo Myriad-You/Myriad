@@ -496,6 +496,13 @@ async fn answer(
         }
         "lease.ask" => {
             lease::heard(db, device, Some(Seen::Host), now).await?;
+            // Her mind stays on the site (`lease::minds_go_to_devices`): no
+            // answer, as to one held back below, and nothing here stops
+            // thinking for it. One holding her from before is brought back
+            // (`lease::watch`), not handed its grant again.
+            if !lease::minds_go_to_devices() {
+                return Ok(Vec::new());
+            }
             // Its holder asking: the grant it was sent did not reach it (the
             // link it went out on closed as it went, the device opening
             // another), though `lease.epoch` did. It gets the grant again,

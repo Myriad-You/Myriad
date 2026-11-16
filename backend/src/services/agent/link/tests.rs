@@ -936,6 +936,7 @@ async fn the_welcome_gives_the_partner_id_only_to_an_end_that_knows_it() {
 /// owner's, the Mac's vector back to it.
 #[tokio::test]
 async fn her_log_goes_over_the_link_while_she_syncs() {
+    let _minds = crate::services::her_log::lease::minds_go_to_devices_in_test(true);
     let Some(site) = site().await else {
         return;
     };
@@ -1061,6 +1062,7 @@ async fn a_lend_says_where_the_pcs_rows_there_go_on_from() {
 
 #[tokio::test]
 async fn what_she_is_lent_goes_to_the_computer_holding_her() {
+    let _minds = crate::services::her_log::lease::minds_go_to_devices_in_test(true);
     use crate::services::her_log::lend::{self, About, ChatLent, Message as Line, Place};
     let Some(site) = site().await else {
         return;
@@ -1254,6 +1256,7 @@ async fn what_she_is_lent_goes_to_the_computer_holding_her() {
 /// a welcome that says off. Nobody else may turn it either way.
 #[tokio::test]
 async fn the_owner_turns_syncing_her_on_and_off() {
+    let _minds = crate::services::her_log::lease::minds_go_to_devices_in_test(true);
     use crate::api::agent::mind::{SyncRequest, get_sync, put_sync};
     use axum::{Extension, Json, extract::State, http::StatusCode, response::IntoResponse};
     let Some(site) = site().await else {

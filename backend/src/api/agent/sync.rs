@@ -154,8 +154,17 @@ pub async fn sync_propose_move(
             }
         };
         // Her living on a device opens with H4 (Q8): the acceptance entry only.
-        if kind == lease::Kind::Move && !lease::device_host_open() {
-            return Err(move_refused(lease::MoveError::Later));
+        if kind == lease::Kind::Move {
+            if !lease::device_host_open() {
+                return Err(move_refused(lease::MoveError::Later));
+            }
+            crate::services::persona_sync::moves::to_device_allowed(
+                &db,
+                crate::services::her_log::settings(),
+                device.0.user_id,
+            )
+            .await
+            .map_err(move_refused)?;
         }
         lease::start(&db, kind, &device.0.id, lease::Starter::Device)
             .await
