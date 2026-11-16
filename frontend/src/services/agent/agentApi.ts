@@ -196,6 +196,84 @@ export interface HostImportLanded {
   herOn: boolean
 }
 
+/** One device in `HerAlive`: what it said of itself and how far it is. */
+export interface HerAliveEnd {
+  id: string
+  name: string
+  connected: boolean
+  linkedAt: string | null
+  lastSeenAt: string | null
+  /** Null until it has said hello since the site last forgot. */
+  protocol: number | null
+  app: { name: string; version: string } | null
+  coreAbi: number | null
+  /** Three layers, apart. `approved` is null: no one approves these yet. */
+  capabilities: {
+    declared: string[] | null
+    approved: string[] | null
+    granted: string[] | null
+  }
+  log: { behindRows: number; audiencesBehind: number; heardAt: string } | null
+  /**
+   * Kinds of frame it said it could not take, by type and reason. `links`
+   * is how many links met it (each says it once), not frames lost.
+   */
+  dropped: { t: string; reason: string; links: number; lastAt: string | null }[]
+}
+
+/** Whether she is living now: times, counts, names and versions only. */
+export interface HerAlive {
+  now: string
+  startedAt: string
+  host: {
+    holder: 'site' | 'device' | null
+    moving: boolean
+    since: string | null
+    temporary: boolean
+  }
+  life: {
+    personaOn: boolean
+    shouldLive: boolean
+    background: 'running' | 'failed' | 'stopped'
+    livedAt: string | null
+    quietSecs: number | null
+    alarmedFrom: string | null
+    quietAfterSecs: number
+    gaps: { count: number; secs: number }
+    drivers: {
+      name: string
+      everySecs: number | null
+      ranAt: string | null
+      runs: number
+      endedAt: string | null
+      /** Let through and not ended yet. */
+      running: boolean
+      failedAt: string | null
+      failures: number
+      skippedAt: string | null
+      skippedWhy: string | null
+      skips: number
+      overdue: boolean
+    }[]
+  }
+  memory: {
+    settledAt: string | null
+    settledOutcome: string | null
+    standingWrittenAt: string | null
+    /** By kind, once the memory line counts them; null until then. */
+    standingFailures: {
+      asked_again: number
+      unanswered: number
+      unreadable: number
+      not_written: number
+    } | null
+    standingFailed: number
+    standingFailedAt: string | null
+  }
+  ends: HerAliveEnd[]
+  calls: { kind: string; outcomes: Record<string, number> }[]
+}
+
 export interface SyncDeviceList {
   devices: SyncDevice[]
   /** Null while the site has no her. */
@@ -631,6 +709,10 @@ class AgentService {
     pairing: QqPairingStatus
   }> {
     return apiService.post(`${this.baseUrl}/qq/pairing`)
+  }
+
+  async getHerAlive(): Promise<HerAlive> {
+    return apiService.get(`${this.baseUrl}/alive`)
   }
 
   async listSyncDevices(): Promise<SyncDeviceList> {

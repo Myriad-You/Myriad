@@ -43,6 +43,7 @@ import {
   SettingTitleTag,
   useSettingGuide,
 } from '../settings'
+import { AgentAliveGroup } from './AgentAliveGroup'
 import { clearAgentChannelValues, visibleAgentChannels } from './agentChannels'
 import {
   AgentChannelAddTrigger,
@@ -586,6 +587,7 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
         // 来一局总是跟她聊天，不是让 Agent 办事。
         <HerRecent onPlay={(text) => askAgentPanel(text, 'chat')} />
       ) : null}
+      {user?.is_owner ? <AgentAliveGroup /> : null}
       {meropeOn && user?.is_owner ? <AgentDevicesGroup /> : null}
       {meropeOn && user?.is_owner ? <AgentHerSyncGroup /> : null}
       <SettingGroup
