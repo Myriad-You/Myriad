@@ -10,11 +10,12 @@ export type AgentChannelId = (typeof AGENT_CHANNEL_IDS)[number]
 
 export const AGENT_CHANNEL_FIELDS: Record<
   AgentChannelId,
-  { enabled: string; credentials: readonly string[] }
+  { enabled: string; credentials: readonly string[]; extras?: readonly string[] }
 > = {
   qq: {
     enabled: 'qq_bot_enabled',
     credentials: ['qq_bot_app_id', 'qq_bot_app_secret'],
+    extras: ['qq_bot_groups_enabled', 'qq_bot_group_ids'],
   },
   telegram: {
     enabled: 'telegram_bot_enabled',
@@ -44,7 +45,16 @@ export function channelIsStored(
 ): boolean {
   const fields = AGENT_CHANNEL_FIELDS[id]
   if (getFieldValue(fields.enabled) === 'true') return true
-  return fields.credentials.some((key) => fieldHasStoredValue(getFieldValue(key)))
+  return [...fields.credentials, ...(fields.extras ?? [])].some((key) =>
+    extraIsSwitch(key)
+      ? getFieldValue(key) === 'true'
+      : fieldHasStoredValue(getFieldValue(key)),
+  )
+}
+
+/** A switch stores `'false'` when off, which is not something set. */
+function extraIsSwitch(key: string): boolean {
+  return key.endsWith('_enabled')
 }
 
 export function visibleAgentChannels(
@@ -63,5 +73,7 @@ export function clearAgentChannelValues(
 ): void {
   const fields = AGENT_CHANNEL_FIELDS[id]
   updateValue(fields.enabled, 'false')
-  for (const key of fields.credentials) updateValue(key, '')
+  for (const key of [...fields.credentials, ...(fields.extras ?? [])]) {
+    updateValue(key, extraIsSwitch(key) ? 'false' : '')
+  }
 }
