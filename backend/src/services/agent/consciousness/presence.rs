@@ -26,10 +26,16 @@ use super::{LiveSurface, SelfLivePresence};
 
 const MAX_LIVE_USERS: usize = 4096;
 const MAX_USER_PAGES: usize = 16;
+const MAX_APP_BODIES: usize = 256;
 
 #[derive(Default)]
 struct LivePresenceStore {
     users: HashMap<i32, HashMap<String, SelfLivePresence>>,
+    /// The body each app last reported her in, by person and app. While its
+    /// window does not show her the app reports no body at all (no face of
+    /// hers is live there), yet it plays her acting on that body once the
+    /// window is back (D16): her acting is directed for the body it last had.
+    app_bodies: HashMap<(i32, String), Vec<String>>,
 }
 
 impl LivePresenceStore {
@@ -45,8 +51,26 @@ impl LivePresenceStore {
         }
         let was_present = self.here(user_id, now).present;
         let mut live = live;
-        let pages = self.users.entry(user_id).or_default();
         let key = live.instance_id.clone().unwrap_or_default();
+        if live.surface == LiveSurface::Native {
+            if let Some(rig) = live.rig_state.as_mut() {
+                let app = (user_id, key.clone());
+                if rig.capabilities.is_empty() {
+                    if let Some(body) = self.app_bodies.get(&app) {
+                        tracing::debug!(app = %key, "[presence] the app shows no body: her acting is directed for the one it last had");
+                        rig.capabilities = body.clone();
+                    }
+                } else {
+                    if !self.app_bodies.contains_key(&app)
+                        && self.app_bodies.len() >= MAX_APP_BODIES
+                    {
+                        self.app_bodies.clear();
+                    }
+                    self.app_bodies.insert(app, rig.capabilities.clone());
+                }
+            }
+        }
+        let pages = self.users.entry(user_id).or_default();
         let before = pages
             .get(&key)
             .filter(|before| presence_is_fresh_at(before, now));
@@ -212,7 +236,8 @@ pub fn can_speak_to(live: &SelfLivePresence) -> bool {
 
 /// The rig she acts with where they are using her. The app plays her acting
 /// once its window is on screen again (D16), so its summary is taken as that
-/// body seen; the page's is taken as it is.
+/// body seen, with the body it last showed her in while it shows none
+/// (`LivePresenceStore::app_bodies`); the page's is taken as it is.
 pub fn acting_rig_state(user_id: i32) -> Option<myriad_merope::RigStateSummary> {
     let live = face_presence(user_id);
     let mut rig = live.rig_state?;
@@ -627,6 +652,57 @@ mod tests {
         }));
         live.captured_at = Some(now);
         live
+    }
+
+    fn app(device: &str, capabilities: &[&str], now: DateTime<Utc>) -> SelfLivePresence {
+        let mut live = live_presence_from_custom_data(&serde_json::json!({
+            "presence": { "pageVisible": true, "panelVisible": true,
+                "rigState": { "capabilities": capabilities } }
+        }));
+        live.instance_id = Some(native_instance(device));
+        live.surface = LiveSurface::Native;
+        live.captured_at = Some(now);
+        live
+    }
+
+    #[test]
+    fn an_app_not_showing_her_is_directed_for_the_body_it_last_had() {
+        let mut store = LivePresenceStore::default();
+        let now = crate::clock::now();
+        let caps = |store: &LivePresenceStore, user: i32| {
+            store.users[&user][&native_instance("dev_mac")]
+                .rig_state
+                .as_ref()
+                .unwrap()
+                .capabilities
+                .clone()
+        };
+        // Not shown yet since it started: it has no body to give.
+        store.remember(1, app("dev_mac", &[], now), now);
+        assert!(caps(&store, 1).is_empty());
+        // Shown, then its window goes: the body it showed her in stays.
+        store.remember(1, app("dev_mac", &["head-body", "mouth-shapes"], now), now);
+        store.remember(1, app("dev_mac", &[], now), now);
+        assert_eq!(caps(&store, 1), ["head-body", "mouth-shapes"]);
+        // A new body when it is shown again replaces it.
+        store.remember(1, app("dev_mac", &["head-body", "left-arm"], now), now);
+        store.remember(1, app("dev_mac", &[], now), now);
+        assert_eq!(caps(&store, 1), ["head-body", "left-arm"]);
+        // Only that person's app: another's is not lent it.
+        store.remember(2, app("dev_mac", &[], now), now);
+        assert!(caps(&store, 2).is_empty());
+        // A page is taken as it reports.
+        let mut bare = page("tab", true, true, now);
+        bare.rig_state.as_mut().unwrap().capabilities.clear();
+        store.remember(1, bare, now);
+        assert!(
+            store.users[&1]["tab"]
+                .rig_state
+                .as_ref()
+                .unwrap()
+                .capabilities
+                .is_empty()
+        );
     }
 
     #[test]

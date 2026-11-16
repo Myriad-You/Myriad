@@ -133,6 +133,8 @@ struct Side {
     now: i64,
     /// Its link session with the server, as the server keeps it.
     link: relay::Session,
+    /// The server's core ABI as this side sends to it.
+    server_abi: u32,
 }
 
 impl Side {
@@ -157,6 +159,7 @@ impl Side {
             now: T0,
             // A computer whose core reads every row (its hello lists log2).
             link: relay::Session::new(relay::peer_abi(&["log2".to_string()])),
+            server_abi: 2,
         }
     }
 
@@ -337,7 +340,7 @@ impl Side {
                 owner: self.partner.clone(),
             },
             here: self.partner.clone(),
-            peer_abi: 2,
+            peer_abi: self.server_abi,
             ledger: self.ledger.clone(),
             elsewhere: Vec::new(),
         })
@@ -997,8 +1000,8 @@ async fn a_groups_rows_go_to_no_computer_and_come_back_only_from_her_mind() {
 }
 
 /// What a group or a private chat says is lent only to the PC her mind is
-/// on, and only once its link speaks protocol 2 (none does yet): until then
-/// the site holds it as before. A say for a place never lent is answered
+/// on, and only once its link syncs her (`lend::open`): until then the site
+/// holds it as before. A say for a place never lent is answered
 /// with its code and nothing is sent; one from a device her mind is not on
 /// is refused by the contract.
 #[tokio::test]
@@ -1016,7 +1019,7 @@ async fn chats_are_lent_only_to_her_mind_on_a_pc_whose_link_speaks_protocol_two(
     // The Mac holds her, but its link does not speak protocol 2.
     assert_eq!(lend::mind_on_a_pc_if(db, true).await, None);
     let (send, _lent) = tokio::sync::mpsc::unbounded_channel();
-    lend::open("dev_mac", send);
+    let link = lend::open("dev_mac", send);
     assert_eq!(
         lend::mind_on_a_pc_if(db, true).await.as_deref(),
         Some("dev_mac")
@@ -1068,7 +1071,7 @@ async fn chats_are_lent_only_to_her_mind_on_a_pc_whose_link_speaks_protocol_two(
     .await
     .unwrap();
     assert_eq!(delivered(&outs[0])["body"]["code"], "bad_frame");
-    lend::close("dev_mac");
+    lend::close("dev_mac", link);
     assert_eq!(lend::mind_on_a_pc_if(db, true).await, None);
     schema.drop().await;
 }
@@ -1405,6 +1408,87 @@ async fn the_partners_private_lines_are_theirs_in_her_log_wherever_her_mind_is()
             .values()
             .all(|data| !says(data, "/api/media/1"))
     );
+    schema.drop().await;
+}
+
+/// Her line said through the site for her mind on the Mac, in the
+/// partner's chat on a chat app, is kept there when it is sent; her
+/// `speech.said` row of that say then becomes that line's row, and no
+/// second copy is made. A line marked with another device's say is not
+/// taken for it.
+#[tokio::test]
+async fn her_line_sent_for_the_mac_is_not_copied_again() {
+    let Some(schema) = schema("her_log_lent_line_bound").await else {
+        return;
+    };
+    let db = &schema.db;
+    let at = |micros: i64| format!("to_timestamp({}::double precision / 1000000)", micros);
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_sync_devices (id, user_id, name, token_hash, token_hint, created_at) \
+         VALUES ('dev_mac', {OWNER}, 'Mac', 'h', 'x', NOW()); \
+         INSERT INTO agent_sessions (id, user_id, title, context, message_count, archived, \
+         created_at, last_active_at) VALUES \
+         ('ses_qq', {OWNER}, 'qq', '{{\"mode\":\"chat\"}}', 2, false, {t}, {t}); \
+         INSERT INTO agent_messages (session_id, role, content, metadata, created_at) VALUES \
+         ('ses_qq', 'user', '在吗', NULL, {t}), \
+         ('ses_qq', 'assistant', '在呢', '{{\"lentSay\":\"dev_mac/say_9\"}}', {t}), \
+         ('ses_qq', 'assistant', '别的电脑', '{{\"lentSay\":\"dev_other/say_10\"}}', {t})",
+        t = at(T0 + MINUTE)
+    ))
+    .await
+    .unwrap();
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], T0).await;
+    assert!(mac.epoch.is_some(), "her mind is on the Mac");
+    for (object, text, line) in [
+        ("speech:say_9", "在呢", "say_9"),
+        ("speech:say_10", "别的电脑", "say_10"),
+    ] {
+        let mut body = said(text, (T0 + MINUTE) / 1000);
+        body["place"] = json!("qq");
+        body["exit"] = json!("chat");
+        body["line"] = json!(line);
+        mac.write_body(
+            PERSONAL,
+            object,
+            "speech.said",
+            Author::Her,
+            Some(body),
+            T0 + 2 * MINUTE,
+        );
+    }
+    sync(db, &mut mac, PERSONAL, T0 + 3 * MINUTE).await;
+
+    let lines = db
+        .query_all_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT content, log_row FROM agent_messages WHERE session_id = 'ses_qq' \
+             AND role = 'assistant' ORDER BY content",
+        ))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| {
+            (
+                row.try_get::<String>("", "content").unwrap(),
+                row.try_get::<Option<String>>("", "log_row")
+                    .unwrap()
+                    .is_some(),
+            )
+        })
+        .collect::<Vec<_>>();
+    // The Mac's own line is bound, not copied; the other device's mark is
+    // not this row's, so that say's row is copied as any line said there.
+    assert_eq!(
+        lines,
+        vec![
+            ("别的电脑".to_string(), false),
+            ("别的电脑".to_string(), true),
+            ("在呢".to_string(), true),
+        ]
+    );
+    assert_eq!(super::talk::fold(db, &root(), OWNER).await.unwrap(), 0);
     schema.drop().await;
 }
 
@@ -3319,6 +3403,606 @@ async fn her_records_go_into_her_log_by_comparing() {
     assert_eq!((elsewhere.written, elsewhere.gone), (0, 0));
 }
 
+/// Her memories go into her log by comparing (b2): one said in the owner's
+/// talk and one of her own are written, a group's never; one taking
+/// another's place is written with what it replaces and the other retired
+/// by it; one in use again is restored; one gone from the site's table is
+/// retired as deleted; and comparing again writes nothing.
+#[tokio::test]
+async fn her_memories_go_into_her_log_by_comparing() {
+    let Some(schema) = schema("her_log_memories").await else {
+        return;
+    };
+    let db = &schema.db;
+    let root = root();
+    // Her own are kept with no account, as `unified::own` writes them; a
+    // private one with its people.
+    let memory = |id: &str, kind: &str, content: &str, venue: &str| {
+        let (user, members) = match venue {
+            "own" => ("NULL".to_string(), "[]".to_string()),
+            _ => (OWNER.to_string(), format!("[{OWNER}]")),
+        };
+        format!(
+            "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, audience, \
+             concepts, valid_from, created_at, updated_at) VALUES ('{id}', {user}, '{kind}', \
+             '{content}', 'chat', '{venue}', '{members}'::jsonb, \
+             '[{{\"name\": \"茶\", \"aliases\": [\"tea\"]}}]'::jsonb, now(), now(), now())"
+        )
+    };
+    for sql in [
+        memory("m1", "preference", "喜欢茶", "private"),
+        memory("m2", "narrative", "第一次一起看雨", "own"),
+        memory("m3", "fact", "群里有人养蜂", "group:telegram:-100"),
+        // Another account was in it: not the owner's talk alone.
+        memory("m5", "fact", "和别人一起说的", "private").replace(
+            &format!("'[{OWNER}]'::jsonb"),
+            &format!("'[{OWNER}, 99]'::jsonb"),
+        ),
+        // Words her log does not take.
+        memory("m6", "fact", " ", "private"),
+    ] {
+        db.execute_unprepared(&sql).await.unwrap();
+    }
+    let memory_rows = |rows: Vec<Row>| {
+        let mut rows: Vec<(String, String)> = rows
+            .into_iter()
+            .filter(|row| row.object.starts_with("memory:"))
+            .map(|row| (row.kind, row.object))
+            .collect();
+        rows.sort();
+        rows
+    };
+    let counts = |compared: super::memories::Compared| {
+        (compared.written, compared.retired, compared.restored)
+    };
+
+    let first = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(counts(first.memories), (2, 0, 0));
+    assert_eq!(first.memories.skipped, 1, "the empty one, looked at once");
+    assert_eq!(
+        memory_rows(store::rows(db, OWNER, PERSONAL).await.unwrap()),
+        vec![("memory.write".into(), "memory:m1".into())]
+    );
+    assert_eq!(
+        memory_rows(store::rows(db, OWNER, OWN).await.unwrap()),
+        vec![("memory.write".into(), "memory:m2".into())]
+    );
+    assert!(
+        store::audiences(db, OWNER)
+            .await
+            .unwrap()
+            .iter()
+            .all(|audience| !audience.starts_with("group:"))
+    );
+    let again = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(again.memories, super::memories::Compared::default());
+
+    // m4 takes m1's place: hers, and kept for two moments.
+    db.execute_unprepared(&memory("m4", "preference", "喜欢绿茶", "private"))
+        .await
+        .unwrap();
+    db.execute_unprepared(
+        "UPDATE agent_memories SET speaker = 'agent' WHERE id = 'm4'; \
+         INSERT INTO agent_memory_cues (memory_id, cues, created_at) \
+         VALUES ('m4', E'有人问喝什么时\\n说起绿茶时', now())",
+    )
+    .await
+    .unwrap();
+    db.execute_unprepared(
+        "UPDATE agent_memories SET invalid_at = now(), invalid_reason = 'superseded', \
+         superseded_by = 'm4' WHERE id = 'm1'",
+    )
+    .await
+    .unwrap();
+    let replaced = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(counts(replaced.memories), (1, 1, 0));
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    let mine: Vec<&Row> = rows
+        .iter()
+        .filter(|row| row.object.starts_with("memory:"))
+        .collect();
+    let bodies = store::bodies(db, &root, OWNER, PERSONAL, &mine)
+        .await
+        .unwrap();
+    let body_of = |object: &str, kind: &str| {
+        let row = mine
+            .iter()
+            .find(|row| row.object == object && row.kind == kind)
+            .unwrap();
+        bodies[&row.id].clone()
+    };
+    assert_eq!(
+        body_of("memory:m4", "memory.write")["replaces"],
+        json!(["memory:m1"])
+    );
+    assert_eq!(
+        body_of("memory:m4", "memory.write")["cues"],
+        json!(["茶", "tea"])
+    );
+    let m4 = body_of("memory:m4", "memory.write");
+    assert_eq!(
+        (&m4["speaker"], &m4["source"], &m4["when"]),
+        (
+            &json!("her"),
+            &json!("chat"),
+            &json!(["有人问喝什么时", "说起绿茶时"])
+        )
+    );
+    assert_eq!(
+        body_of("memory:m1", "memory.write")["speaker"],
+        json!("partner")
+    );
+    assert_eq!(
+        body_of("memory:m1", "memory.retire"),
+        json!({ "at": body_of("memory:m1", "memory.retire")["at"], "why": "superseded", "by": "memory:m4" })
+    );
+
+    // m1 in use again; m2 gone from the table.
+    db.execute_unprepared(
+        "UPDATE agent_memories SET invalid_at = NULL, invalid_reason = NULL, superseded_by = NULL \
+         WHERE id = 'm1'",
+    )
+    .await
+    .unwrap();
+    db.execute_unprepared("DELETE FROM agent_memories WHERE id = 'm2'")
+        .await
+        .unwrap();
+    let back = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(counts(back.memories), (0, 1, 1));
+    assert_eq!(
+        memory_rows(store::rows(db, OWNER, OWN).await.unwrap()),
+        vec![
+            ("memory.retire".into(), "memory:m2".into()),
+            ("memory.write".into(), "memory:m2".into()),
+        ]
+    );
+    let still = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(counts(still.memories), (0, 0, 0));
+}
+
+/// A memory the owner has her forget goes from her log as a forget, never a
+/// retire (b2): an owner's forget with no epoch, the words of every row of it
+/// gone, its digest gone with it, so comparing after it left the table writes
+/// nothing; a forget rolled back leaves nothing; one only retired is retired.
+#[tokio::test]
+async fn a_memory_forgotten_here_is_forgotten_in_her_log() {
+    use sea_orm::TransactionTrait;
+    let Some(schema) = schema("her_log_memory_forget").await else {
+        return;
+    };
+    let db = &schema.db;
+    let root = root();
+    for (id, content) in [("m1", "喜欢茶"), ("m2", "喜欢咖啡")] {
+        db.execute_unprepared(&format!(
+            "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, audience, \
+             concepts, valid_from, created_at, updated_at) VALUES ('{id}', {OWNER}, 'preference', \
+             '{content}', 'chat', 'private', '[{OWNER}]'::jsonb, '[]'::jsonb, now(), now(), now())"
+        ))
+        .await
+        .unwrap();
+    }
+    let counts = |compared: super::memories::Compared| {
+        (compared.written, compared.retired, compared.restored)
+    };
+    let first = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(counts(first.memories), (2, 0, 0));
+    let words_of = |object: &str| {
+        format!(
+            "SELECT COUNT(*) FROM agent_log_payloads p JOIN agent_log_rows r ON r.id = p.row_id \
+             WHERE r.object = '{object}'"
+        )
+    };
+    assert_eq!(count(db, &words_of("memory:m1")).await, 1);
+
+    // m1 forgotten: the forget, then the row, then the digest, in one go.
+    // A memory her log never had is no forget.
+    let txn = db.begin().await.unwrap();
+    let forgotten = super::memories::forget_in(&txn, OWNER, &["m1".into(), "m9".into()])
+        .await
+        .unwrap();
+    assert_eq!(forgotten.len(), 1);
+    txn.execute_unprepared("DELETE FROM agent_memories WHERE id = 'm1'")
+        .await
+        .unwrap();
+    forgotten.let_go(&txn).await.unwrap();
+    txn.commit().await.unwrap();
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    let m1: Vec<&Row> = rows
+        .iter()
+        .filter(|row| row.object == "memory:m1")
+        .collect();
+    let forgets: Vec<&&Row> = m1.iter().filter(|row| row.kind == "forget").collect();
+    assert_eq!(forgets.len(), 1);
+    assert_eq!((forgets[0].author, forgets[0].epoch), (Author::Owner, None));
+    assert!(
+        m1.iter()
+            .filter(|row| row.kind != "forget")
+            .all(|row| row.forgotten)
+    );
+    assert_eq!(count(db, &words_of("memory:m1")).await, 0);
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*) FROM agent_her_state_rows WHERE object = 'memory:m1'"
+        )
+        .await,
+        0
+    );
+    let after = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(counts(after.memories), (0, 0, 0));
+    assert!(
+        !store::rows(db, OWNER, PERSONAL)
+            .await
+            .unwrap()
+            .iter()
+            .any(|row| row.object == "memory:m1" && row.kind == "memory.retire")
+    );
+
+    // Rolled back: no forget is left, and m2 is as it was.
+    let txn = db.begin().await.unwrap();
+    let rolled = super::memories::forget_in(&txn, OWNER, &["m2".into()])
+        .await
+        .unwrap();
+    assert_eq!(rolled.len(), 1);
+    txn.rollback().await.unwrap();
+    assert!(
+        !store::rows(db, OWNER, PERSONAL)
+            .await
+            .unwrap()
+            .iter()
+            .any(|row| row.object == "memory:m2" && (row.kind == "forget" || row.forgotten))
+    );
+    assert_eq!(count(db, &words_of("memory:m2")).await, 1);
+
+    // m2 only retired: a retire, its words kept.
+    db.execute_unprepared(
+        "UPDATE agent_memories SET invalid_at = now(), invalid_reason = 'faded' WHERE id = 'm2'",
+    )
+    .await
+    .unwrap();
+    let retired = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(counts(retired.memories), (0, 1, 0));
+    let mut m2: Vec<String> = store::rows(db, OWNER, PERSONAL)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|row| row.object == "memory:m2")
+        .map(|row| row.kind)
+        .collect();
+    m2.sort();
+    assert_eq!(m2, vec!["memory.retire", "memory.write"]);
+    assert_eq!(count(db, &words_of("memory:m2")).await, 2);
+}
+
+/// Her memories the Mac wrote go into the site's table under their own id
+/// (b2): written, then retired; and comparing on the site afterwards writes
+/// none of it back.
+#[tokio::test]
+async fn her_memories_from_another_end_go_into_the_sites_table() {
+    let Some(schema) = schema("her_log_memories_in").await else {
+        return;
+    };
+    let db = &schema.db;
+    let root = root();
+    let mut mac = Side::new("dev_mac");
+    let memory = |db: &DatabaseConnection| {
+        let db = db.clone();
+        async move {
+            db.query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT content, venue, origin, concepts, invalid_reason, superseded_by \
+                 FROM agent_memories WHERE id = 'tea'",
+            ))
+            .await
+            .unwrap()
+            .map(|row| {
+                (
+                    row.try_get::<String>("", "content").unwrap(),
+                    row.try_get::<String>("", "venue").unwrap(),
+                    row.try_get::<String>("", "origin").unwrap(),
+                    row.try_get::<Value>("", "concepts").unwrap(),
+                    row.try_get::<Option<String>>("", "invalid_reason").unwrap(),
+                    row.try_get::<Option<String>>("", "superseded_by").unwrap(),
+                )
+            })
+        }
+    };
+    let kept_as = |id: &'static str| {
+        let db = db.clone();
+        async move {
+            db.query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                format!(
+                    "SELECT m.source, m.speaker, c.cues FROM agent_memories m \
+                     LEFT JOIN agent_memory_cues c ON c.memory_id = m.id WHERE m.id = '{id}'"
+                ),
+            ))
+            .await
+            .unwrap()
+            .map(|row| {
+                (
+                    row.try_get::<String>("", "source").unwrap(),
+                    row.try_get::<String>("", "speaker").unwrap(),
+                    row.try_get::<Option<String>>("", "cues").unwrap(),
+                )
+            })
+        }
+    };
+    // The site writes under `chat` itself (in a group, which her log never
+    // keeps); the Mac's own word it has none of.
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, valid_from, \
+         created_at, updated_at) VALUES ('here', {OWNER}, 'fact', '站点记下的', 'chat', \
+         'group:telegram:-100', now(), now(), now())"
+    ))
+    .await
+    .unwrap();
+    mac.write_body(
+        PERSONAL,
+        "memory:tea",
+        "memory.write",
+        Author::Owner,
+        Some(json!({
+            "at": T0 / 1000, "kind": "preference", "text": "likes tea", "cues": ["tea"],
+            "speaker": "her", "source": "mac_glance", "when": ["有人问喝什么时"],
+        })),
+        T0,
+    );
+    mac.write_body(
+        PERSONAL,
+        "memory:walk",
+        "memory.write",
+        Author::Owner,
+        Some(json!({
+            "at": T0 / 1000, "kind": "fact", "text": "walks after dinner",
+            "speaker": "partner", "source": "chat",
+        })),
+        T0 + 1,
+    );
+    sync(db, &mut mac, PERSONAL, T0).await;
+    assert_eq!(
+        kept_as("tea").await,
+        Some((
+            crate::services::agent::memory::unified::SYNC_SOURCE.to_string(),
+            "agent".to_string(),
+            Some("有人问喝什么时".to_string())
+        )),
+        "a word the site has none of is one another end kept; when it comes to mind, kept"
+    );
+    assert_eq!(
+        kept_as("walk").await,
+        Some(("chat".to_string(), "user".to_string(), None))
+    );
+    let (content, venue, origin, concepts, why, _) = memory(db).await.expect("taken in");
+    assert_eq!(
+        (content.as_str(), venue.as_str(), origin.as_str()),
+        ("likes tea", "private", "dev_mac")
+    );
+    assert_eq!(concepts, json!([{ "name": "tea", "aliases": [] }]));
+    assert_eq!(why, None);
+    let compared = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(
+        compared.memories,
+        super::memories::Compared::default(),
+        "not written back"
+    );
+
+    mac.write_body(
+        PERSONAL,
+        "memory:tea",
+        "memory.retire",
+        Author::Owner,
+        Some(json!({ "at": T0 / 1000 + 1, "why": "superseded", "by": "memory:green" })),
+        T0 + MINUTE,
+    );
+    sync(db, &mut mac, PERSONAL, T0 + MINUTE).await;
+    let (_, _, _, _, why, by) = memory(db).await.unwrap();
+    assert_eq!(
+        (why.as_deref(), by.as_deref()),
+        (Some("superseded"), Some("green"))
+    );
+    let compared = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(compared.memories, super::memories::Compared::default());
+
+    // A group's memory under the same id is the group's: a forget from the
+    // owner's talk never takes it.
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, valid_from, \
+         created_at, updated_at) VALUES ('grp', {OWNER}, 'fact', '群里说的', 'chat', \
+         'group:telegram:-100', now(), now(), now())"
+    ))
+    .await
+    .unwrap();
+    mac.write_body(
+        PERSONAL,
+        "memory:grp",
+        "memory.write",
+        Author::Owner,
+        Some(json!({ "at": T0 / 1000, "kind": "fact", "text": "on the Mac" })),
+        T0 + 2 * MINUTE,
+    );
+    mac.write(
+        PERSONAL,
+        "memory:grp",
+        "forget",
+        Author::Owner,
+        None,
+        T0 + 3 * MINUTE,
+    );
+    sync(db, &mut mac, PERSONAL, T0 + 3 * MINUTE).await;
+    let kept = db
+        .query_one_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT content FROM agent_memories WHERE id = 'grp'",
+        ))
+        .await
+        .unwrap()
+        .map(|row| row.try_get::<String>("", "content").unwrap());
+    assert_eq!(kept.as_deref(), Some("群里说的"));
+
+    // One the site wrote, written again there by someone else's account of
+    // it: the site keeps its own speaker and source, and its digest is of
+    // what it keeps, so nothing goes back.
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, audience, \
+         speaker, valid_from, created_at, updated_at) VALUES ('mine', {OWNER}, 'fact', \
+         '站点记下的', 'chat', 'private', '[{OWNER}]'::jsonb, 'agent', now(), now(), now())"
+    ))
+    .await
+    .unwrap();
+    let written = super::state::sync(db, &root, OWNER).await.unwrap();
+    // After the site's own row of it.
+    let later = crate::clock::now_micros() + MINUTE;
+    assert_eq!(written.memories.written, 1);
+    mac.write_body(
+        PERSONAL,
+        "memory:mine",
+        "memory.write",
+        Author::Owner,
+        Some(json!({
+            "at": T0 / 1000, "kind": "fact", "text": "改过的",
+            "speaker": "partner", "source": "mac_glance",
+        })),
+        later,
+    );
+    sync(db, &mut mac, PERSONAL, later).await;
+    let taken = db
+        .query_one_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT content FROM agent_memories WHERE id = 'mine'",
+        ))
+        .await
+        .unwrap()
+        .map(|row| row.try_get::<String>("", "content").unwrap());
+    assert_eq!(taken.as_deref(), Some("改过的"), "taken in");
+    assert_eq!(
+        kept_as("mine").await,
+        Some(("chat".to_string(), "agent".to_string(), None))
+    );
+    let compared = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(
+        compared.memories,
+        super::memories::Compared::default(),
+        "not written back"
+    );
+
+    // Forgotten on the Mac after it was taken in here, and one the site
+    // wrote itself: a forget is a row of its own, so each goes from the table
+    // though its newest memory row was taken in or is the site's, and
+    // comparing then writes no retire of it.
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, audience, \
+         valid_from, created_at, updated_at) VALUES ('ours', {OWNER}, 'fact', '站点自己的', \
+         'chat', 'private', '[{OWNER}]'::jsonb, now(), now(), now())"
+    ))
+    .await
+    .unwrap();
+    let ours = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(ours.memories.written, 1);
+    let gone_at = crate::clock::now_micros() + 2 * MINUTE;
+    sync(db, &mut mac, PERSONAL, gone_at).await;
+    for (object, at) in [("memory:mine", gone_at), ("memory:ours", gone_at + 1)] {
+        mac.write(PERSONAL, object, "forget", Author::Owner, None, at);
+    }
+    sync(db, &mut mac, PERSONAL, gone_at + 2).await;
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*) FROM agent_memories WHERE id IN ('mine', 'ours')"
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*) FROM agent_her_state_rows WHERE object IN ('memory:mine', 'memory:ours')"
+        )
+        .await,
+        0
+    );
+    let after = super::state::sync(db, &root, OWNER).await.unwrap();
+    assert_eq!(after.memories, super::memories::Compared::default());
+}
+
+/// Her nodes the Mac wrote while her mind was there are kept on the site
+/// (b2) as they came, folded into its heads, once each; and a forget of the
+/// node there makes them stubs here.
+#[tokio::test]
+async fn her_nodes_from_another_end_are_kept_on_the_site() {
+    let Some(schema) = schema("her_log_nodes_in").await else {
+        return;
+    };
+    let db = &schema.db;
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], T0).await;
+    let node = myriad_nodes::node_id(PERSONAL, "minted:lamp").unwrap();
+    let object = format!("node:{node}");
+    mac.write_body(
+        PERSONAL,
+        &object,
+        "node.created",
+        Author::Her,
+        Some(json!({
+            "key": "minted:lamp", "kind": "task", "name": "a lamp",
+            "saidBy": ["her"], "sync": "shared", "version": 1,
+        })),
+        T0,
+    );
+    mac.write(
+        PERSONAL,
+        &object,
+        "node.span",
+        Author::Her,
+        Some("too bright"),
+        T0 + 1,
+    );
+    sync(db, &mut mac, PERSONAL, T0 + MINUTE).await;
+    let count = |sql: &'static str| {
+        let db = db.clone();
+        async move {
+            db.query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                sql,
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get::<i64>("", "n")
+            .unwrap()
+        }
+    };
+    assert_eq!(
+        count("SELECT COUNT(*) AS n FROM agent_node_rows WHERE origin = 'dev_mac' AND body <> ''")
+            .await,
+        2
+    );
+    assert_eq!(count("SELECT COUNT(*) AS n FROM agent_node_heads").await, 1);
+    sync(db, &mut mac, PERSONAL, T0 + 2 * MINUTE).await;
+    assert_eq!(
+        count("SELECT COUNT(*) AS n FROM agent_node_rows").await,
+        2,
+        "once each"
+    );
+
+    // Forgotten there: no word of it kept here.
+    mac.write(
+        PERSONAL,
+        &object,
+        "forget",
+        Author::Owner,
+        None,
+        T0 + 3 * MINUTE,
+    );
+    sync(db, &mut mac, PERSONAL, T0 + 3 * MINUTE).await;
+    assert_eq!(count("SELECT COUNT(*) AS n FROM agent_node_rows").await, 3);
+    assert_eq!(
+        count("SELECT COUNT(*) AS n FROM agent_node_rows WHERE body <> ''").await,
+        0
+    );
+}
+
 /// Her records the Mac wrote while her mind was there go into the site's
 /// tables (b1): a new one is added, a changed one written over, one gone
 /// there (deleted) goes here, and so does one the owner had her forget; and
@@ -3519,4 +4203,794 @@ async fn a_record_waits_for_its_picture() {
     assert_eq!(super::state::take_in(db, &root, OWNER).await.unwrap(), 1);
     assert_eq!(sticker().await.as_deref(), Some("/media/her/rain.png"));
     assert_eq!(super::state::take_in(db, &root, OWNER).await.unwrap(), 0);
+}
+
+/// A link's side is of the highest log ABI its hello listed, so a side that
+/// listed log4 is sent card rows and one that stopped at log3 is not.
+#[test]
+fn a_side_is_of_the_highest_log_abi_it_listed() {
+    let of = |listed: &[&str]| {
+        relay::peer_abi(&listed.iter().map(|c| c.to_string()).collect::<Vec<_>>())
+    };
+    assert_eq!(of(&["log2", "log4", "log3"]), 4);
+    assert_eq!(of(&["nodes", "log3", "log2"]), 3);
+    assert_eq!(of(&["log2"]), 2);
+    assert_eq!(of(&["nodes", "logs", "log1"]), 1);
+    assert_eq!(of(&[]), 1);
+}
+
+/// Her cards in her log: a version goes in only once every side reads
+/// log4, under the site's own name for that version (hers when her view is
+/// on it, else the program's); an answer given here goes in as the owner's;
+/// an answer written on the Mac is an answer here, kept once; a card
+/// forgotten here is forgotten in her log.
+#[tokio::test]
+async fn her_cards_go_into_her_log_and_answers_from_the_mac_count_here() {
+    use crate::services::agent::merope::cards;
+    use myriad_persona_log::payloads::{CardAction, CardFact, CardVersion, CardView};
+    let Some(schema) = schema("her_log_cards").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::test_settings::set(on());
+    super::keys::test_root::use_here(root());
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_sync_devices (id, user_id, name, token_hash, token_hint, created_at) \
+         VALUES ('dev_mac', {OWNER}, 'Mac', 'h', 'x', NOW())"
+    ))
+    .await
+    .unwrap();
+    let card = |task: &str, title: &str, view: Option<&str>| {
+        let subject = format!("node:{task}");
+        CardVersion {
+            at: T0 / 1000,
+            id: myriad_nodes::cards::card_id("agents", "decide", &subject).unwrap(),
+            kind: "decide".into(),
+            scene: "agents".into(),
+            subject: Some(subject),
+            title: title.into(),
+            state: None,
+            facts: vec![CardFact {
+                text: "Session: Split the store".into(),
+                reference: None,
+            }],
+            view: view.map(|text| CardView {
+                text: text.into(),
+                because: Vec::new(),
+                leans: None,
+            }),
+            actions: [("agree", "照这样"), ("open", "打开")]
+                .iter()
+                .map(|(id, label)| CardAction {
+                    id: (*id).into(),
+                    label: (*label).into(),
+                })
+                .collect(),
+        }
+    };
+    let card_rows = "SELECT count(*) FROM agent_log_rows WHERE kind LIKE 'card.%'";
+
+    // A side still on log3: the card stays on the site.
+    relay::remember_side(db, OWNER, "dev_mac", 3).await.unwrap();
+    let first = card("n_task_1", "推送吗", None);
+    cards::put(db, OWNER, first.clone()).await.unwrap();
+    assert_eq!(count(db, card_rows).await, 0);
+    let unlogged = cards::now(db, OWNER, &first.id).await.unwrap().unwrap();
+    cards::answer(db, OWNER, &first.id, &unlogged.version, "agree")
+        .await
+        .unwrap();
+    assert_eq!(count(db, card_rows).await, 0);
+
+    // Every side reads log4: the program's card, under the site's name.
+    relay::remember_side(db, OWNER, "dev_mac", 4).await.unwrap();
+    let second = card("n_task_2", "推到哪个分支", None);
+    cards::put(db, OWNER, second.clone()).await.unwrap();
+    let now = cards::now(db, OWNER, &second.id).await.unwrap().unwrap();
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    let version = rows.iter().find(|row| row.kind == "card.version").unwrap();
+    assert_eq!(version.id, now.version);
+    assert_eq!(version.author, Author::Rule);
+    assert_eq!(version.object, format!("card:{}", second.id));
+    // Answered here: the owner's row, on that version.
+    cards::answer(db, OWNER, &second.id, &now.version, "agree")
+        .await
+        .unwrap();
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    let answered = rows.iter().find(|row| row.kind == "card.answered").unwrap();
+    assert_eq!(answered.author, Author::Owner);
+    let held: Vec<&Row> = vec![answered];
+    let bodies = store::bodies(db, &root(), OWNER, PERSONAL, &held)
+        .await
+        .unwrap();
+    assert_eq!(bodies[&answered.id]["version"], json!(now.version));
+    assert_eq!(bodies[&answered.id]["action"], json!("agree"));
+
+    // Her card (her view on it) is hers.
+    let third = card("n_task_3", "下一步做什么", Some("我倾向先等测试跑完"));
+    cards::put(db, OWNER, third.clone()).await.unwrap();
+    let asked = cards::now(db, OWNER, &third.id).await.unwrap().unwrap();
+    assert!(asked.waiting);
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    let hers = rows.iter().find(|row| row.id == asked.version).unwrap();
+    assert_eq!(hers.author, Author::Her);
+
+    // Answered on the Mac: an answer here too, once however often it comes.
+    // The server's rows are of its own clock: the Mac's is the same.
+    let now = crate::clock::now_micros();
+    let mut mac = Side::new("dev_mac");
+    mac.link = relay::Session::new(relay::peer_abi(&["log4".to_string()]));
+    mac.server_abi = super::cards::READS;
+    let body = json!({ "at": now / 1000, "action": "agree", "version": asked.version });
+    mac.write_body(
+        PERSONAL,
+        &format!("card:{}", third.id),
+        "card.answered",
+        Author::Owner,
+        Some(body),
+        now,
+    );
+    sync(db, &mut mac, PERSONAL, now + MINUTE).await;
+    let theirs = super::cards::theirs(db, &root(), OWNER).await.unwrap();
+    assert_eq!(theirs.len(), 1, "{:?}", store::rows(db, OWNER, PERSONAL).await.unwrap());
+    let after = cards::now(db, OWNER, &third.id).await.unwrap().unwrap();
+    assert!(!after.waiting);
+    assert_eq!(after.answered.as_ref().unwrap().action, "agree");
+    assert_eq!(super::cards::fold(db, &root(), OWNER).await.unwrap(), 0);
+    // Not written back: the only answer to it in the log is the Mac's.
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row.kind == "card.answered"
+                && row.object == format!("card:{}", third.id))
+            .count(),
+        1
+    );
+
+    // Forgotten here: forgotten in her log.
+    cards::forget_about(db, OWNER, &["node:n_task_2".to_string()])
+        .await
+        .unwrap();
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    assert!(
+        rows.iter()
+            .filter(|row| row.object == format!("card:{}", second.id))
+            .all(|row| row.forgotten || row.kind == "forget"),
+        "{rows:?}"
+    );
+    schema.drop().await;
+}
+
+/// A frame from `side` taken at `now`, what the server answers dropped: a
+/// Mac that never takes what it is sent back (a first-sync link it does
+/// not fetch, rows it does not apply).
+async fn told(db: &DatabaseConnection, side: &mut Side, frame: Value, now: i64) {
+    let device = side.id.clone();
+    relay::take(
+        db,
+        &root(),
+        &on(),
+        side.user,
+        &device,
+        Core::Pc,
+        &mut side.link,
+        &frame,
+        now,
+    )
+    .await
+    .unwrap();
+}
+
+/// `side`'s `log.vector` of `audience` saying it holds `vector`.
+fn holding(side: &mut Side, audience: &str, vector: Value) -> Value {
+    side.frame(
+        "log.vector",
+        None,
+        json!({ "audience": audience, "vector": vector }),
+    )
+}
+
+/// The server writes `lines` of hers in the partner's talk, then the Mac
+/// asks for her mind and is handed it. The Mac, and how far into the
+/// partner's talk it was handed her (`through`).
+async fn handed_to_the_mac(db: &DatabaseConnection, lines: i64) -> (Side, u64) {
+    super::pen::reset_for_test();
+    settled(db).await;
+    let owner = owner(db).await;
+    for line in 0..lines {
+        store::write_hers(
+            db,
+            &root(),
+            &owner,
+            PERSONAL,
+            None,
+            &format!("speech:web{line}"),
+            "speech.said",
+            &said("我在网页这边。", line),
+        )
+        .await
+        .unwrap();
+    }
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    told(db, &mut mac, ask, T0).await;
+    let standing = lease::standing(db).await.unwrap().unwrap();
+    assert!(standing.held_by("dev_mac"));
+    let through = standing.through.expect("handed with what the server wrote")[PERSONAL];
+    assert!(through >= lines as u64);
+    (mac, through)
+}
+
+/// Who holds her lease now.
+async fn holder_now(db: &DatabaseConnection) -> String {
+    lease::standing(db)
+        .await
+        .unwrap()
+        .and_then(|grant| grant.holder)
+        .unwrap_or_default()
+}
+
+/// The check for a holder that never caught up, at `now`.
+async fn taken_back(db: &DatabaseConnection, now: i64) -> Option<Grant> {
+    super::stuck::check(db, &on(), now).await.unwrap()
+}
+
+/// The Mac holds her mind but never takes the server's rows: it stays
+/// connected, saying it has none of them. Five minutes after with no step
+/// forward the server takes her back by a force: she thinks here again.
+/// Still behind, the Mac asking for a talk is not handed her again.
+#[tokio::test]
+async fn a_holder_that_never_catches_up_gives_her_back_after_five_minutes() {
+    let Some(schema) = schema("her_log_stuck_back").await else {
+        return;
+    };
+    let db = &schema.db;
+    let (mut mac, _) = handed_to_the_mac(db, 2).await;
+    assert!(super::pen::think().is_none());
+    let none = holding(&mut mac, PERSONAL, json!({}));
+    told(db, &mut mac, none, T0).await;
+    assert!(super::stuck::held_back("dev_mac"));
+    let same = holding(&mut mac, PERSONAL, json!({}));
+    told(db, &mut mac, same, T0 + 3 * MINUTE).await;
+    let after = T0 + super::stuck::AFTER_MICROS;
+    assert_eq!(taken_back(db, after - 1).await, None);
+    assert_eq!(holder_now(db).await, "dev_mac");
+
+    let grant = taken_back(db, after).await.expect("taken back");
+    assert_eq!(
+        (grant.holder.as_deref(), grant.how),
+        (Some(NODE), myriad_persona_log::How::Force)
+    );
+    assert_eq!(super::pen::current(), super::pen::Pen::Here);
+    assert!(super::pen::think().is_some());
+
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    told(db, &mut mac, ask, after + MINUTE).await;
+    assert_eq!(holder_now(db).await, NODE);
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// The Mac is slow but takes the server's rows: each vector a step forward
+/// starts the five minutes again, and it keeps her.
+#[tokio::test]
+async fn a_holder_still_catching_up_keeps_her() {
+    let Some(schema) = schema("her_log_stuck_moving").await else {
+        return;
+    };
+    let db = &schema.db;
+    let (mut mac, through) = handed_to_the_mac(db, 3).await;
+    assert!(through >= 3);
+    let none = holding(&mut mac, PERSONAL, json!({}));
+    told(db, &mut mac, none, T0).await;
+    let one = holding(&mut mac, PERSONAL, json!({ NODE: 1 }));
+    told(db, &mut mac, one, T0 + 4 * MINUTE).await;
+    for at in [T0 + 5 * MINUTE, T0 + 8 * MINUTE] {
+        assert_eq!(taken_back(db, at).await, None);
+    }
+    let two = holding(&mut mac, PERSONAL, json!({ NODE: 2 }));
+    told(db, &mut mac, two, T0 + 8 * MINUTE).await;
+    assert_eq!(taken_back(db, T0 + 12 * MINUTE).await, None);
+    assert!(super::stuck::held_back("dev_mac"));
+    assert_eq!(holder_now(db).await, "dev_mac");
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// Once the Mac's vector covers what it was handed, the mark is gone: no
+/// take-back however long after.
+#[tokio::test]
+async fn a_holder_that_caught_up_is_no_longer_marked() {
+    let Some(schema) = schema("her_log_stuck_caught_up").await else {
+        return;
+    };
+    let db = &schema.db;
+    let (mut mac, through) = handed_to_the_mac(db, 2).await;
+    let none = holding(&mut mac, PERSONAL, json!({}));
+    told(db, &mut mac, none, T0).await;
+    assert!(super::stuck::held_back("dev_mac"));
+    let all = holding(&mut mac, PERSONAL, json!({ NODE: through }));
+    told(db, &mut mac, all, T0 + MINUTE).await;
+    assert!(!super::stuck::held_back("dev_mac"));
+    assert_eq!(taken_back(db, T0 + 30 * MINUTE).await, None);
+    assert_eq!(holder_now(db).await, "dev_mac");
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// As on 11-14 19:06: the Mac, starting over empty, says it has nothing
+/// while the server still holds her, is handed her a moment later, and
+/// never says anything again (it waits for a download it cannot fetch).
+/// The server reads it from the vector it had: five minutes after it first
+/// looks with the Mac holding her, she is taken back.
+#[tokio::test]
+async fn a_holder_silent_since_before_the_grant_gives_her_back_too() {
+    let Some(schema) = schema("her_log_stuck_silent").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    settled(db).await;
+    let owner = owner(db).await;
+    for line in 0..2 {
+        store::write_hers(
+            db,
+            &root(),
+            &owner,
+            PERSONAL,
+            None,
+            &format!("speech:web{line}"),
+            "speech.said",
+            &said("我在网页这边。", line),
+        )
+        .await
+        .unwrap();
+    }
+    let mut mac = Side::new("dev_mac");
+    let none = holding(&mut mac, PERSONAL, json!({}));
+    told(db, &mut mac, none, T0).await;
+    assert!(!super::stuck::held_back("dev_mac"));
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    told(db, &mut mac, ask, T0 + 1).await;
+    assert_eq!(holder_now(db).await, "dev_mac");
+
+    let first = T0 + 15_000_000;
+    assert_eq!(taken_back(db, first).await, None);
+    assert!(super::stuck::held_back("dev_mac"));
+    let after = first + super::stuck::AFTER_MICROS;
+    assert_eq!(taken_back(db, after - 1).await, None);
+    let grant = taken_back(db, after).await.expect("taken back");
+    assert_eq!(
+        (grant.holder.as_deref(), grant.how),
+        (Some(NODE), myriad_persona_log::How::Force)
+    );
+    assert_eq!(super::pen::current(), super::pen::Pen::Here);
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// A Mac the server has heard no vector from is not judged: no take-back
+/// however long it holds her.
+#[tokio::test]
+async fn a_holder_never_heard_from_is_not_taken_back() {
+    let Some(schema) = schema("her_log_stuck_unheard").await else {
+        return;
+    };
+    let db = &schema.db;
+    let (_mac, _) = handed_to_the_mac(db, 2).await;
+    assert_eq!(taken_back(db, T0 + 30 * MINUTE).await, None);
+    assert_eq!(holder_now(db).await, "dev_mac");
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// An empty host core with more than [`relay::FULL_AFTER_ROWS`] rows to take
+/// asks with an empty vector: what it gets back, by frame type.
+async fn first_sync_answer(db: &DatabaseConnection, session: relay::Session) -> Vec<&'static str> {
+    let mut mac = Side::new("dev_new_mac");
+    mac.link = session;
+    let frame = holding(&mut mac, PERSONAL, json!({}));
+    let device = mac.id.clone();
+    relay::take(
+        db,
+        &root(),
+        &on(),
+        mac.user,
+        &device,
+        Core::Pc,
+        &mut mac.link,
+        &frame,
+        T0,
+    )
+    .await
+    .unwrap()
+    .iter()
+    .map(|out| out.t)
+    .collect()
+}
+
+/// The download link goes only to a core whose hello listed `log.full`;
+/// one that did not gets the rows over the link, so a core that cannot
+/// download still catches up.
+#[tokio::test]
+async fn a_first_full_sync_link_goes_only_to_a_core_that_downloads() {
+    let Some(schema) = schema("her_log_full_capability").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    settled(db).await;
+    let owner = owner(db).await;
+    for line in 0..=relay::FULL_AFTER_ROWS as i64 {
+        store::write_hers(
+            db,
+            &root(),
+            &owner,
+            PERSONAL,
+            None,
+            &format!("speech:full{line}"),
+            "speech.said",
+            &said("我在网页这边。", line),
+        )
+        .await
+        .unwrap();
+    }
+    let listed = relay::Session::of(&["log2".to_string(), relay::FULL.to_string()]);
+    // Each answer ends with the server's own vector.
+    assert_eq!(
+        first_sync_answer(db, listed).await,
+        vec!["log.full", "log.vector"]
+    );
+    let unlisted = relay::Session::of(&["log2".to_string()]);
+    let frames = first_sync_answer(db, unlisted).await;
+    let (last, rows) = frames.split_last().unwrap();
+    assert_eq!(*last, "log.vector");
+    assert!(
+        !rows.is_empty() && rows.iter().all(|t| *t == "log.rows"),
+        "{frames:?}"
+    );
+    schema.drop().await;
+}
+
+/// As in run-6 on 11-15: the Mac, handed her with two audiences, says its
+/// vector of one before it has said anything of the other. The other is
+/// still what it was handed and none of it held: the mark keeps it, and is
+/// gone only once both are covered.
+#[test]
+fn a_holder_is_marked_short_of_an_audience_it_has_said_nothing_of() {
+    let device = "dev_order";
+    let grant = Grant {
+        epoch: 10,
+        holder: Some(device.to_string()),
+        issued: myriad_persona_log::clock::next(None, T0, 0, NODE).unwrap(),
+        how: myriad_persona_log::How::Handover,
+        from: Some(NODE.to_string()),
+        through: Some(BTreeMap::from([
+            (OWN.to_string(), 2),
+            (PERSONAL.to_string(), 3),
+        ])),
+        moving: None,
+    };
+    let at = |count: u64| Vector::from([(NODE.to_string(), count)]);
+    super::stuck::heard(device, Some(&grant), PERSONAL, &Vector::new(), T0);
+    assert!(super::stuck::held_back(device));
+    super::stuck::heard(device, Some(&grant), PERSONAL, &at(3), T0 + 1);
+    assert!(
+        super::stuck::held_back(device),
+        "nothing heard of own: is none of it"
+    );
+    super::stuck::heard(device, Some(&grant), OWN, &at(1), T0 + 2);
+    assert!(super::stuck::held_back(device), "own: is one short");
+    super::stuck::heard(device, Some(&grant), OWN, &at(2), T0 + 3);
+    assert!(!super::stuck::held_back(device));
+}
+
+/// As in the rehearsal on 11-15: the grant went out on a link the Mac was
+/// closing as it opened another, and only `lease.epoch` reached it. It asks
+/// again, holding her by the server's history but with no grant in hand:
+/// it is sent the same grant again, and nothing moves.
+#[tokio::test]
+async fn her_holder_asking_again_is_sent_its_grant_again() {
+    let Some(schema) = schema("her_log_grant_again").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    settled(db).await;
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], T0).await;
+    let epoch = mac.epoch.expect("her mind is on the Mac");
+    let grants = lease::history(db).await.unwrap().len();
+    // The grant never came.
+    mac.epoch = None;
+    let again = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![again], T0 + MINUTE).await;
+    assert_eq!(mac.epoch, Some(epoch));
+    assert_eq!(lease::history(db).await.unwrap().len(), grants);
+    assert_eq!(holder_now(db).await, "dev_mac");
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// What a holder that gave her back promised and had not sent yet still
+/// comes in whole when it comes late, after the server stopped waiting for
+/// it and wrote her rows at its own, higher epoch: a row written before the
+/// handover (its clock before the server's rows) and one written after it
+/// (its clock later). Neither is refused for its epoch nor kept as a stub,
+/// the Mac's count fills, and she stays on the server.
+#[tokio::test]
+async fn rows_promised_at_a_handover_come_in_whole_when_late() {
+    let Some(schema) = schema("her_log_late_promised").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    settled(db).await;
+    let base = super::now();
+    let mut mac = Side::new("dev_mac");
+    mac.now = base;
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], base).await;
+    let held = mac.epoch.expect("her mind is on the Mac");
+    let first = mac.write_body(
+        PERSONAL,
+        "speech:m1",
+        "speech.said",
+        Author::Her,
+        Some(said("我在 Mac 这边。", base / 1000)),
+        base,
+    );
+    let frame = mac.rows_frame(PERSONAL, vec![first]);
+    told(db, &mut mac, frame, base).await;
+    // Written before it gave her back, not sent.
+    let before = mac.write_body(
+        PERSONAL,
+        "speech:m2",
+        "speech.said",
+        Author::Her,
+        Some(said("先睡了", base / 1000)),
+        base + 1,
+    );
+    let yielded = mac.frame(
+        "lease.yield",
+        Some("yield_late"),
+        json!({ "epoch": held, "through": { PERSONAL: 2 } }),
+    );
+    exchange(db, &mut mac, vec![yielded], base + 2).await;
+    assert!(matches!(
+        super::pen::current(),
+        super::pen::Pen::CatchingUp { .. }
+    ));
+    // Nothing comes: the server stops waiting, and writes her rows at its
+    // own epoch before the Mac's come.
+    let settings = on();
+    let given_up = granted_at(db).await + super::pen::CATCH_UP_WAIT_MICROS;
+    assert_eq!(
+        super::pen::settle_for_at(db, &settings, Some(OWNER), given_up)
+            .await
+            .unwrap(),
+        super::pen::Pen::Here
+    );
+    let owner = owner(db).await;
+    let site = store::write_hers(
+        db,
+        &root(),
+        &owner,
+        PERSONAL,
+        None,
+        "speech:web1",
+        "speech.said",
+        &said("我在网页这边。", base / 1000),
+    )
+    .await
+    .unwrap();
+    assert!(site.epoch.is_some_and(|epoch| epoch > held));
+    // And one the Mac wrote after it had given her back, at its old epoch.
+    mac.epoch = Some(held);
+    let after = mac.write_body(
+        PERSONAL,
+        "speech:m3",
+        "speech.said",
+        Author::Her,
+        Some(said("还没睡着", base / 1000)),
+        site.hlc.wall_ms as i64 * 1000 + 1_000,
+    );
+    assert!(before.hlc < site.hlc && site.hlc < after.hlc);
+    let frame = mac.rows_frame(PERSONAL, vec![before.clone(), after.clone()]);
+    told(db, &mut mac, frame, after.hlc.wall_ms as i64 * 1000).await;
+
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    for late in [&before, &after] {
+        let row = rows.iter().find(|row| row.id == late.id).expect("taken");
+        assert!(!row.forgotten, "{} whole", late.object);
+        assert_eq!(row.epoch, Some(held));
+    }
+    let bodies = count(
+        db,
+        &format!(
+            "SELECT COUNT(*) FROM agent_log_payloads WHERE row_id IN ('{}', '{}')",
+            before.id, after.id
+        ),
+    )
+    .await;
+    assert_eq!(bodies, 2);
+    let holdings = vector::holdings(&rows).unwrap();
+    assert_eq!(holdings.vector.get("dev_mac"), Some(&3));
+    assert!(holdings.beyond.is_empty(), "{:?}", holdings.beyond);
+    assert_eq!(super::pen::current(), super::pen::Pen::Here);
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// When the standing grant was kept, the server's clock in microseconds.
+async fn granted_at(db: &DatabaseConnection) -> i64 {
+    count(
+        db,
+        "SELECT (EXTRACT(EPOCH FROM created_at) * 1000000)::BIGINT FROM agent_lease_grants \
+         ORDER BY epoch DESC LIMIT 1",
+    )
+    .await
+}
+
+/// Sets when the server took row `id`, the server's clock in microseconds.
+async fn received_at(db: &DatabaseConnection, id: &str, micros: i64) {
+    db.execute_unprepared(&format!(
+        "UPDATE agent_log_rows SET received_at = to_timestamp({micros}::double precision / 1000000) \
+         WHERE id = '{id}'"
+    ))
+    .await
+    .unwrap();
+}
+
+/// The Mac gives her back saying it wrote four lines here, and sends one of
+/// the three it had not: each that lands starts the wait again, what the
+/// owner says on the Mac after does not, and with nothing more for two
+/// minutes she thinks on the server without the rest. A line that comes
+/// later still comes in whole, and she stays here, after a restart too.
+#[tokio::test]
+async fn a_catch_up_that_stops_going_forward_ends_after_two_minutes() {
+    let Some(schema) = schema("her_log_catch_up_ends").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    settled(db).await;
+    let base = super::now();
+    let mut mac = Side::new("dev_mac");
+    mac.now = base;
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], base).await;
+    let held = mac.epoch.expect("her mind is on the Mac");
+    let mut lines = Vec::new();
+    for (line, text) in ["我在 Mac 这边。", "先睡了", "还没睡着", "晚安"]
+        .into_iter()
+        .enumerate()
+    {
+        lines.push(mac.write_body(
+            PERSONAL,
+            &format!("speech:m{line}"),
+            "speech.said",
+            Author::Her,
+            Some(said(text, base / 1000)),
+            base + line as i64,
+        ));
+    }
+    let frame = mac.rows_frame(PERSONAL, vec![lines[0].clone()]);
+    told(db, &mut mac, frame, base).await;
+    let yielded = mac.frame(
+        "lease.yield",
+        Some("yield_short"),
+        json!({ "epoch": held, "through": { PERSONAL: 4 } }),
+    );
+    exchange(db, &mut mac, vec![yielded], base + 10).await;
+    let granted = granted_at(db).await;
+    let owner = Some(OWNER);
+    let settings = on();
+    let at = |micros: i64| super::pen::settle_for_at(db, &settings, owner, micros);
+    let waiting = |pen: &super::pen::Pen| matches!(pen, super::pen::Pen::CatchingUp { .. });
+    assert!(waiting(&at(granted + MINUTE).await.unwrap()));
+    assert!(super::pen::think().is_none());
+
+    // The second line lands 90 seconds after the grant; the owner says
+    // something on the Mac a minute after that, past what it promised.
+    let frame = mac.rows_frame(PERSONAL, vec![lines[1].clone()]);
+    told(db, &mut mac, frame, super::now()).await;
+    received_at(db, &lines[1].id, granted + 90_000_000).await;
+    let said_after = mac.write_body(
+        PERSONAL,
+        "persona:mood",
+        "persona.field",
+        Author::Owner,
+        Some(json!("困")),
+        base + 20,
+    );
+    let frame = mac.rows_frame(PERSONAL, vec![said_after.clone()]);
+    told(db, &mut mac, frame, super::now()).await;
+    received_at(db, &said_after.id, granted + 150_000_000).await;
+    // Two and a half minutes after the grant, one after that line: still.
+    assert!(waiting(&at(granted + 150_000_000).await.unwrap()));
+    let given_up = granted + 90_000_000 + super::pen::CATCH_UP_WAIT_MICROS;
+    assert!(waiting(&at(given_up - 1).await.unwrap()));
+    assert_eq!(at(given_up).await.unwrap(), super::pen::Pen::Here);
+    assert!(super::pen::think().is_some());
+
+    // The third line comes late, the fourth not yet: whole, and she stays
+    // here, read again after a restart as well.
+    let frame = mac.rows_frame(PERSONAL, vec![lines[2].clone()]);
+    told(db, &mut mac, frame, super::now()).await;
+    received_at(db, &lines[2].id, given_up + 30_000_000).await;
+    super::pen::reset_for_test();
+    assert_eq!(
+        at(given_up + 31_000_000).await.unwrap(),
+        super::pen::Pen::Here
+    );
+    let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
+    let late = rows
+        .iter()
+        .find(|row| row.id == lines[2].id)
+        .expect("taken");
+    assert!(!late.forgotten);
+    assert_eq!(
+        vector::holdings(&rows).unwrap().vector.get("dev_mac"),
+        Some(&3)
+    );
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// The Mac gives her back promising rows of two audiences and sends one of
+/// them slowly, then nothing of the other: each line of the first keeps her
+/// waiting, though that audience is no longer short, and the wait runs out
+/// two minutes after the last of it.
+#[tokio::test]
+async fn a_catch_up_going_forward_in_one_audience_waits_for_the_other() {
+    let Some(schema) = schema("her_log_catch_up_two").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    settled(db).await;
+    let base = super::now();
+    let mut mac = Side::new("dev_mac");
+    mac.now = base;
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], base).await;
+    let held = mac.epoch.expect("her mind is on the Mac");
+    let lines: Vec<Row> = ["先睡了", "还没睡着"]
+        .into_iter()
+        .enumerate()
+        .map(|(line, text)| {
+            mac.write_body(
+                PERSONAL,
+                &format!("speech:m{line}"),
+                "speech.said",
+                Author::Her,
+                Some(said(text, base / 1000)),
+                base + line as i64,
+            )
+        })
+        .collect();
+    // Its own audience it promises one row of and never sends.
+    let yielded = mac.frame(
+        "lease.yield",
+        Some("yield_two"),
+        json!({ "epoch": held, "through": { PERSONAL: 2, OWN: 1 } }),
+    );
+    exchange(db, &mut mac, vec![yielded], base + 10).await;
+    let granted = granted_at(db).await;
+    let settings = on();
+    let at = |micros: i64| super::pen::settle_for_at(db, &settings, Some(OWNER), micros);
+    let waiting = |pen: &super::pen::Pen| matches!(pen, super::pen::Pen::CatchingUp { .. });
+    for (line, landed) in [(0, 90_000_000), (1, 180_000_000)] {
+        let frame = mac.rows_frame(PERSONAL, vec![lines[line].clone()]);
+        told(db, &mut mac, frame, super::now()).await;
+        received_at(db, &lines[line].id, granted + landed).await;
+    }
+    // Personal is whole; her own audience is still short.
+    assert!(waiting(&at(granted + 200_000_000).await.unwrap()));
+    let given_up = granted + 180_000_000 + super::pen::CATCH_UP_WAIT_MICROS;
+    assert!(waiting(&at(given_up - 1).await.unwrap()));
+    assert_eq!(at(given_up).await.unwrap(), super::pen::Pen::Here);
+    super::pen::reset_for_test();
+    schema.drop().await;
 }

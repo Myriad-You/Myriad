@@ -76,6 +76,14 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
             "/arm-variants/{key}",
             post(arm_variants::generate_arm_variant),
         )
+        .route(
+            "/full-body/{outfit_id}/arm-variants",
+            get(arm_variants::list_full_body_arm_variants),
+        )
+        .route(
+            "/full-body/{outfit_id}/arm-variants/{key}",
+            post(arm_variants::generate_full_body_arm_variant),
+        )
         .route("/expressions", get(expressions::list_expressions))
         .route(
             "/expressions/{kind}",

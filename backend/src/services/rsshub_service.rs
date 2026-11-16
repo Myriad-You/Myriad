@@ -680,10 +680,15 @@ mod stats_and_unique_tests {
         };
         let admin = Database::connect(&url).await.unwrap();
         let scope = format!("rsshub_stats_{}", uuid::Uuid::new_v4().simple());
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("CREATE SCHEMA {scope}"))
             .await
             .unwrap();
+        drop(turn);
         let connect = || {
             let mut options = ConnectOptions::new(url.clone());
             options
@@ -749,10 +754,15 @@ mod stats_and_unique_tests {
             .all(&db)
             .await
             .unwrap();
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("DROP SCHEMA {scope} CASCADE"))
             .await
             .ok();
+        drop(turn);
         assert_eq!(globals.len(), 1);
     }
 }

@@ -94,6 +94,8 @@ export interface ChatMessage {
   pictures?: number
   /** Typed a message at a time: whether she is at her next one. */
   typing?: boolean
+  /** A line of the owner's chat that is a card or carries one. */
+  cardLine?: import('../../services/agent/types').CardLine
 }
 
 export interface TaskExecution {

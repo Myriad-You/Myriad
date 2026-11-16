@@ -348,7 +348,7 @@ export function MotionPanel({
       </SettingGroup>
       {motionEnabled && correctionPlayback && correctionAssetId && onSavePoseCorrections ? (
         <PoseCorrectionEditor
-          key={correctionAssetId}
+          key={`pose-${correctionAssetId}`}
           playback={correctionPlayback}
           characterRef={characterRef}
           driver={driver}
@@ -358,7 +358,7 @@ export function MotionPanel({
         />
       ) : null}
       {correctionPlayback && movingParts ? (
-        <MovingPartsPanel key={correctionAssetId ?? ''} playback={correctionPlayback} target={correctionTarget} search={movingParts} />
+        <MovingPartsPanel key={`parts-${correctionAssetId ?? ''}`} playback={correctionPlayback} target={correctionTarget} search={movingParts} />
       ) : null}
     </>
   )

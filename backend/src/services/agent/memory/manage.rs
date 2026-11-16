@@ -123,8 +123,9 @@ pub async fn update_any<C: ConnectionTrait>(
 /// to stop it being learned again: what would teach it again goes instead.
 /// The lines it came from that are in her log (the owner's private talk
 /// while it syncs) are forgotten there too, so on every end
-/// ([`crate::services::her_log::talk::forget_lines`]). Returns whether there
-/// was such a memory.
+/// ([`crate::services::her_log::talk::forget_lines`]), and so is the memory,
+/// every version of it ([`crate::services::her_log::memories::forget_on`]).
+/// Returns whether there was such a memory.
 ///
 /// The database frees the deleted rows' space at its next vacuum; its write-
 /// ahead log and the deployment's backups are outside what this reaches.
@@ -142,6 +143,7 @@ async fn forget_memory(
     db: &sea_orm::DatabaseConnection,
     id: &str,
 ) -> Result<Option<Vec<super::origins::Gone>>, DbErr> {
+    let site_owner = crate::services::principal::site_owner_id(db).await?;
     let txn = db.begin().await?;
     // Before any row: queued memory work takes this lock, then writes rows.
     crate::services::agent::merope::store::memory_jobs::lock(&txn)
@@ -182,10 +184,19 @@ async fn forget_memory(
     crate::services::agent::merope::memory_nodes::forget::forget(&txn, &doomed, &ids)
         .await
         .map_err(|error| DbErr::Custom(error.to_string()))?;
+    // In her log too, before the rows go and in this transaction: a forget,
+    // never a retire, so every end lets every version go.
+    let forgotten = crate::services::her_log::memories::forget_on(&txn, site_owner, &doomed)
+        .await
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
     agent_memories::Entity::delete_many()
         .filter(agent_memories::Column::Id.is_in(doomed))
         .exec(&txn)
         .await?;
+    forgotten
+        .let_go(&txn)
+        .await
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
     txn.commit().await?;
     Ok(Some(lines))
 }

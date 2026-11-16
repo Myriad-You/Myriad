@@ -37,6 +37,7 @@ use crate::services::agent::memory::unified::{Audience, Priming};
 
 mod answering;
 mod apart;
+mod background;
 mod chinese;
 mod days;
 mod full_size;
@@ -46,12 +47,13 @@ mod memes;
 mod probes;
 mod settle;
 mod since_up;
+mod speaking_check;
 mod weeks;
 mod wishing;
 mod writing;
 
 pub(super) use writing::remember_turn;
-use writing::{apply_at, keep_chat, new_user};
+use writing::{Written, apply_at, keep_chat, new_user, write_for};
 
 use answering::{Answered, answer_one, recalled_for};
 use probes::*;
@@ -79,6 +81,43 @@ struct Question {
     /// noise questions): kept as written, nothing extracted.
     #[serde(default)]
     memories: Vec<String>,
+    /// Which kind of its type it is (tests/merope/memory-implicit-zh.json:
+    /// a change said outright or only implied, which way something is
+    /// linked): reported apart.
+    #[serde(default)]
+    category: Option<String>,
+    /// Two questions on the same talk, one where it should come up and one
+    /// where it should not: the pair counts only when both are right.
+    #[serde(default)]
+    pair: Option<String>,
+    /// The sessions of a long background (tests/merope/memory-long-zh.json)
+    /// it rests on, by index: what answers it is what those left her, and
+    /// asked with these alone it is the same question at a small size.
+    #[serde(default)]
+    background_sessions: Vec<usize>,
+    /// What answering it needs, each fact as the words a line of it holds
+    /// (any one of them; `a&b` a line holding both): recalled is checked
+    /// line by line against these, not by the grader's word.
+    #[serde(default)]
+    needs: Vec<Vec<String>>,
+}
+
+impl Question {
+    /// Whether `line` holds the `fact`-th thing it needs.
+    fn holds(&self, fact: usize, line: &str) -> bool {
+        self.needs.get(fact).is_some_and(|words| {
+            words
+                .iter()
+                .any(|word| word.split('&').all(|part| line.contains(part)))
+        })
+    }
+
+    /// For each thing it needs: whether any of `lines` holds it.
+    fn met_in(&self, lines: &[String]) -> Vec<bool> {
+        (0..self.needs.len())
+            .map(|fact| lines.iter().any(|line| self.holds(fact, line)))
+            .collect()
+    }
 }
 
 impl Question {
@@ -122,6 +161,52 @@ struct Turn {
 const RECALLED: usize = 8;
 const THOROUGH: usize = super::remembering::THOROUGH;
 const AT_ONCE: usize = 6;
+
+/// `MEROPE_MEMORY_BENCH_WIDER=<n>` (default 1, as production): the
+/// control that only recalls more. Recall ranks `n` times as many lines,
+/// and in a private talk the ranked lines her nodes left out are added
+/// after what they brought, up to `n - 1` times as many again; writing,
+/// cues and answering stay as they are. A change to how she recalls is
+/// kept only if it beats this at the same length of what she answers on.
+fn wider() -> usize {
+    WIDER.try_with(|wider| *wider).unwrap_or_else(|_| {
+        std::env::var("MEROPE_MEMORY_BENCH_WIDER")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .filter(|wider| *wider > 0)
+            .unwrap_or(1)
+    })
+}
+
+/// `MEROPE_MEMORY_BENCH_WIDE_ONLY=1`: each question is answered only the
+/// way production answers (wide, and the wider control when asked for):
+/// recalling from their words alone and with the cues alone is not asked,
+/// which saves two answers and their grading a question.
+fn wide_only() -> bool {
+    std::env::var("MEROPE_MEMORY_BENCH_WIDE_ONLY").is_ok_and(|value| value.trim() == "1")
+}
+
+/// Which round of a question is being run (0 when none was said).
+fn round() -> usize {
+    ROUND.try_with(|round| *round).unwrap_or(0)
+}
+
+tokio::task_local! {
+    static ROUND: usize;
+    /// The wider control as one more way of answering in the same run
+    /// (`MEROPE_MEMORY_BENCH_WIDER_ARM`), over what the run would recall.
+    static WIDER: usize;
+}
+
+/// `MEROPE_MEMORY_BENCH_WIDER_ARM=<n>`: each question is also answered the
+/// wide way recalling `n` times as much, from the same memories (`wider`
+/// in the report), so the control costs no writing of its own.
+fn wider_arm() -> Option<usize> {
+    std::env::var("MEROPE_MEMORY_BENCH_WIDER_ARM")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|wider| *wider > 1)
+}
 
 /// `MEROPE_MEMORY_BENCH_AT_ONCE` when set: with little credit left, the
 /// gateway refuses calls whose held-back output together exceeds it.
@@ -223,12 +308,18 @@ fn grade_schema(question: &Question) -> Value {
 
 struct Outcome {
     written: bool,
-    plain: Answered,
-    cued: Answered,
+    /// Recalled from their words alone, and with the cues: not asked when
+    /// only the wide way is (`MEROPE_MEMORY_BENCH_WIDE_ONLY=1`).
+    plain: Option<Answered>,
+    cued: Option<Answered>,
     wide: Answered,
     /// Asked with nothing kept of them (noise questions): what the noise
     /// changed.
     bare: Option<Answered>,
+    /// The wide way recalling more (`MEROPE_MEMORY_BENCH_WIDER_ARM`).
+    wider: Option<Answered>,
+    /// What she kept that answers it.
+    answering: Vec<String>,
     /// The wide way answered and graded by `MEROPE_MEMORY_BENCH_READER`
     /// instead, from the same memories: comparable with results published
     /// with that reader and judge.
@@ -245,6 +336,27 @@ struct Outcome {
     /// never decided.
     nodes: Vec<Option<String>>,
     kept: usize,
+    /// Model calls that failed while the question ran, as `model: why`.
+    failed: Vec<String>,
+    /// For each thing the question needs, where the first line holding it
+    /// came in the ranking by line (1 the first), within the first
+    /// `answering::RANKS_LOOKED_AT`; `None` past them or nowhere.
+    need_ranks: Vec<(Option<usize>, Option<usize>)>,
+    /// What the judge answered when asked what to look for, as it came:
+    /// asking again on a kept copy reuses it, so recall differs only by
+    /// what changed.
+    asked: Option<String>,
+}
+
+impl Outcome {
+    /// A run the network cost: some call failed other than an embedding
+    /// running past the two seconds recall waits, which production meets
+    /// too. Not counted as wrong; run again.
+    fn void(&self) -> bool {
+        self.failed
+            .iter()
+            .any(|failed| !(failed.contains("embed") && failed.ends_with(": timeout")))
+    }
 }
 
 /// A session of the question: when, its turns, and who was present.
@@ -264,151 +376,100 @@ async fn run_one(
 ) -> Outcome {
     let name = format!("lme-{}-{round}", question.question_id);
     let user_id = new_user(db, &name).await;
+    run_for(
+        db,
+        (judge, lite, reader),
+        question,
+        &name,
+        (user_id, &name),
+        Vec::new(),
+    )
+    .await
+}
+
+/// The judgment model, her voice, and the reader when there is one.
+type Models<'a> = (
+    &'a crate::services::analyzer::AiAnalyzer,
+    &'a crate::services::analyzer::AiAnalyzer,
+    Option<&'a crate::services::analyzer::AiAnalyzer>,
+);
+
+/// [`run_one`] for someone already there (`who`: their id, and the tag of
+/// the groups they were in), from what of theirs already answers it: the
+/// question's own sessions written after what they had, then asked.
+/// `name` keeps this run's rows apart.
+async fn run_for(
+    db: &sea_orm::DatabaseConnection,
+    models: Models<'_>,
+    question: &Question,
+    name: &str,
+    who: (i32, &str),
+    answering: Vec<String>,
+) -> Outcome {
+    let written = write_for(db, models.0, question, name, who, answering).await;
+    answer_for(db, models, question, name, who, written, None).await
+}
+
+/// The asking half of [`run_for`]: what was `written` asked of, in each
+/// way the bench asks. `asked`, an earlier answer to what to look for, is
+/// used instead of asking the judge again.
+async fn answer_for(
+    db: &sea_orm::DatabaseConnection,
+    (judge, lite, reader): Models<'_>,
+    question: &Question,
+    name: &str,
+    (user_id, tag): (i32, &str),
+    written: Written,
+    asked: Option<String>,
+) -> Outcome {
     let present = audience_at(
         question.question_venue.as_deref().unwrap_or("private"),
         user_id,
-        &name,
+        tag,
     );
-    let mut answering: Vec<String> = Vec::new();
-    let mut kept = 0;
-    let mut sessions: Vec<Session> = question
-        .haystack_dates
-        .iter()
-        .map(|date| date_of(date))
-        .zip(question.haystack_sessions.iter())
-        .enumerate()
-        .map(|(number, (at, turns))| {
-            (
-                at,
-                turns,
-                audience_at(question.venue(number), user_id, &name),
-            )
-        })
-        .collect();
-    sessions.sort_by_key(|(at, _, _)| *at);
-    // The chat itself, as the site keeps it, for scrolling back through.
-    for (number, (session_at, turns, here)) in sessions.iter().enumerate() {
-        keep_chat(
-            db,
-            &format!("{name}-{number}"),
-            user_id,
-            *session_at,
-            turns,
-            here,
-        )
-        .await;
-    }
-    // What she already keeps of them, a week before they ask.
-    if !question.memories.is_empty() {
-        let updates = super::chat_remember::ChatMemoryUpdates {
-            updates: question
-                .memories
-                .iter()
-                .map(|fact| super::chat_remember::ChatMemoryUpdate {
-                    standing: Default::default(),
-                    fact: Some(fact.clone()),
-                    supersedes: Vec::new(),
-                    evidence: Some(fact.clone()),
-                    concepts: Vec::new(),
-                    topic: None,
-                    cues: Vec::new(),
-                })
-                .collect(),
-            ..Default::default()
-        };
-        let at = date_of(&question.question_date) - chrono::Duration::days(7);
-        if apply_at(db, user_id, &Audience::private(user_id), at, &updates)
-            .await
-            .is_some()
-        {
-            kept += question.memories.len();
-        }
-    }
-    let settle = std::env::var("MEROPE_MEMORY_BENCH_WAY").as_deref() == Ok("settle");
-    if settle {
-        settle::go_over(
-            db,
-            judge,
-            user_id,
-            &sessions,
-            &question.question_date,
-            &mut answering,
-            &mut kept,
-        )
-        .await;
-    }
-    for (session_at, turns, here) in sessions.iter().filter(|_| !settle) {
-        for (index, turn) in turns.iter().enumerate() {
-            if turn.role != "user" {
-                continue;
-            }
-            let reply = turns
-                .get(index + 1)
-                .filter(|next| next.role == "assistant")
-                .map(|next| next.content.as_str())
-                .unwrap_or("");
-            let at = *session_at + chrono::Duration::minutes(index as i64);
-            let text: String = turn
-                .content
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ");
-            if text.chars().count() > 2_000 {
-                continue;
-            }
-            let Some(updates) = remember_turn(db, judge, user_id, here, &text, reply, at).await
-            else {
-                continue;
-            };
-            kept += 1;
-            // What answers the question may be in their words or hers.
-            let answer_here =
-                turn.has_answer || turns.get(index + 1).is_some_and(|next| next.has_answer);
-            if answer_here {
-                answering.extend(
-                    updates
-                        .updates
-                        .iter()
-                        .filter_map(|update| update.fact.as_deref())
-                        .chain(updates.said.iter().map(|said| said.said.as_str()))
-                        .map(super::ingest::compact_summary),
-                );
-            }
-        }
-    }
-    if settle {
-        settle::keep_up_nodes(db, user_id).await;
-    }
+    let Written { answering, kept } = written;
     // As a chat turn does: think what to look for, then recall with it.
-    let cues = judge
-        .analyze_json(
-            &myriad_merope::remembering::system(),
-            &myriad_merope::remembering::input(&question.question, None, &question.question_date),
-            myriad_merope::remembering::SCHEMA_NAME,
-            Some(&myriad_merope::remembering::schema()),
-        )
-        .await
-        .ok()
-        .and_then(|raw| myriad_merope::remembering::parse(&raw));
+    let asked = match asked {
+        Some(asked) => Some(asked),
+        None => judge
+            .analyze_json(
+                &myriad_merope::remembering::system(),
+                &myriad_merope::remembering::input(
+                    &question.question,
+                    None,
+                    &question.question_date,
+                ),
+                myriad_merope::remembering::SCHEMA_NAME,
+                Some(&myriad_merope::remembering::schema()),
+            )
+            .await
+            .ok(),
+    };
+    let cues = asked.as_deref().and_then(myriad_merope::remembering::parse);
     // The same memories, recalled once from their words alone and once
     // with the cues: the difference is recall's, not writing's.
-    let plain = answer_one(
-        db, judge, lite, question, user_id, &present, None, THOROUGH, false, &answering,
-    )
-    .await;
-    let cued = answer_one(
-        db,
-        judge,
-        lite,
-        question,
-        user_id,
-        &present,
-        cues.as_ref(),
-        THOROUGH,
-        false,
-        &answering,
-    )
-    .await;
+    let (plain, cued) = if wide_only() {
+        (None, None)
+    } else {
+        let plain = answer_one(
+            db, judge, lite, question, user_id, &present, None, THOROUGH, false, &answering,
+        )
+        .await;
+        let cued = answer_one(
+            db,
+            judge,
+            lite,
+            question,
+            user_id,
+            &present,
+            cues.as_ref(),
+            THOROUGH,
+            false,
+            &answering,
+        )
+        .await;
+        (Some(plain), Some(cued))
+    };
     // The same, also scrolling back through the chat when answering needs
     // all of it, as production does.
     let wide = answer_one(
@@ -424,6 +485,28 @@ async fn run_one(
         &answering,
     )
     .await;
+    let wider = match wider_arm() {
+        Some(more) => Some(
+            WIDER
+                .scope(
+                    more,
+                    answer_one(
+                        db,
+                        judge,
+                        lite,
+                        question,
+                        user_id,
+                        &present,
+                        cues.as_ref(),
+                        THOROUGH,
+                        true,
+                        &answering,
+                    ),
+                )
+                .await,
+        ),
+        None => None,
+    };
     let read = match reader {
         Some(reader) => Some(
             answer_one(
@@ -483,10 +566,18 @@ async fn run_one(
     };
     // Everything she kept, to tell unwritten from unfound afterwards: in
     // each place she kept something.
+    let mut sessions: Vec<_> = question
+        .haystack_dates
+        .iter()
+        .map(|date| date_of(date))
+        .zip(0..question.haystack_sessions.len())
+        .collect();
+    sessions.sort_by_key(|(at, _)| *at);
     let mut places: Vec<Audience> = Vec::new();
-    for (_, _, here) in &sessions {
-        if !places.contains(here) {
-            places.push(here.clone());
+    for (_, number) in sessions {
+        let here = audience_at(question.venue(number), user_id, tag);
+        if !places.contains(&here) {
+            places.push(here);
         }
     }
     if places.is_empty() {
@@ -561,17 +652,29 @@ async fn run_one(
             (row.content, concepts)
         })
         .unzip();
+    // Last, once every answer is in: looking further down the ranking
+    // touches nothing they were recalled from.
+    let need_ranks = if question.needs.is_empty() || !settle::on_nodes(&present) {
+        Vec::new()
+    } else {
+        answering::ranks_of_needs(db, question, user_id, &present, cues.as_ref(), THOROUGH).await
+    };
     Outcome {
         written: !answering.is_empty(),
         plain,
         cued,
         wide,
         bare,
+        wider,
+        answering,
         read,
         in_private,
         kept,
         memories,
         concepts,
         nodes,
+        failed: Vec::new(),
+        need_ranks,
+        asked,
     }
 }

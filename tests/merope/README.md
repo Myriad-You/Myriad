@@ -114,3 +114,67 @@ MYRIAD_MEDIA_TEST_DATABASE_URL=… cargo test -p myriad-backend --bin myriad-bac
 ```
 
 会花站点模型的钱。写入只进每次新建、跑完删除的独立 schema。题目全部是编的：闲聊、私事和数字都不来自真实用户。报告的 `scores` 给出每种召回方式的单次准确率、每轮答对数和 `pass^n`（n 次都答对的题数）。`wide` 是生产的召回方式。
+
+### 变了没说的事
+
+`memory-implicit-zh.json` 用同一个入口跑（`MEROPE_MEMORY_BENCH=tests/merope/memory-implicit-zh.json`），考对方的情况变了以后，她是否还照着旧记忆说话：
+
+| 题型 | 数量 | 考什么 |
+|---|---|---|
+| `implicit-state` | 40 | 直接问旧状态还成立吗；`category` 分 `type-1`（对方明说变了）和 `type-2`（只说了另一件事，能推出旧状态不成立），各 20 |
+| `stale-premise` | 40 | 问题带着已经不成立的前提；场景与上一行一一对应 |
+| `implicit-use` | 40 | 不提这件事，但回答要顾及新情况；场景同上 |
+| `feeling-cause` | 10 | 只说感受，要想起以前说过的原因，并用问句问 |
+| `still-true` | 40 | 对照：后来的事看似相关，其实旧状态仍成立；量误伤 |
+| `associated` | 45 | 9 类关联各 5 道，见 `category`；`paired` 一道是两问（`-recall` 该想起、`-hold` 不该提），同一 `pair` 两问都对才算对 |
+
+前三种题型的同一场景三问共用同一段聊天，可以直接比「直接问对、带前提问错」。`associated` 的 `searchable-meme` 考的是她本来懂不懂这个梗：评测不走查梗；`group-meme` 的聊天和提问都在同一个群，群里每句都算提问的人说的。报告 `byKind` 按 `题型/category` 分开，`pairs` 给成对题的结果，`recalledLines`、`recalledChars` 是每次作答平均摆在她面前的记忆条数和字数，用来在同样长度下比较召回方式。
+
+`holdout/memory-implicit-zh.json` 是同样题型、数量更少的保留集，给以后的技术报告用：**改进她的记忆期间不要打开、不要拿它调提示词**，只在定稿时跑一次。格式由 `the_implicit_memory_set_reads_as_the_bench_needs` 检查。
+
+### 只召回更多（对照组）
+
+`MEROPE_MEMORY_BENCH_WIDER=<n>`（默认 1，即生产）对两个入口都生效：召回排出 n 倍的条数；私聊里在节点带出的内容之后，补上排名里被节点漏掉的条目，最多再加 (n−1) 倍。记下、线索和作答都不变。改召回结构的方案，要在 `recalledChars` 相近时赢过它才保留。报告顶层的 `wider` 记着这次用了几倍。
+
+### 几周里反复整理
+
+`her_memory_over_weeks` 默认跑 `memory-weeks-zh.json`（六周）。`MEROPE_MEMORY_WEEKS=tests/merope/memory-chain-zh.json` 换成改写链：几件事各被改口三次以上，每个版本的 `held` 同时含「一直没变的细节」（只说过一次）和「现在的值」，看一条记忆被反复取代以后，旧条目里仍成立的部分还在不在。不要往 `memory-weeks-zh.json` 里加题，它要和以前的结果可比。
+
+```sh
+MEROPE_MEMORY_WEEKS=tests/merope/memory-chain-zh.json MEROPE_MEMORY_BENCH_TIMES=3 \
+MEROPE_MEMORY_WEEKS_REPORT=/absolute/new/file.json \
+MYRIAD_MEDIA_TEST_DATABASE_URL=… cargo test -p myriad-backend --bin myriad-backend \
+  -- --ignored her_memory_over_weeks --nocapture
+```
+
+每周一行里的 `offTopic` 是她记着的事在与它无关的提问里被想起的次数（无关＝这条记忆不含该题任何 `held` 词），`most` 列出最常这样出现的几条，用来看召回是不是总集中在少数记忆上。
+
+### 长背景
+
+`memory-implicit-zh.json` 每题只有几段聊天，她只记得十几条，回想时几乎全摆在面前，考不到「几百条里找出那一条」。`memory-long-background-zh.json` 补的是这一块：一个人（周以宁）2026/07/01–10/15 和她的 300 段聊天，私聊为主，有 30 段在两个群里，全部是编的。里面埋了 20 个一直成立的状态、几件反复提起的事（苏禾、团子各约 60 段）、名字相近的人和店（两个「小林」、春山和青山），还有只顺带说过一次的细节。
+
+`memory-long-zh.json`（126 条）的题型和变了没说的事那一套相同，另加 10 道 `single-session-user`/`needle`，直接问一个细节。每道题的 `background_sessions` 是它依赖的背景段，`haystack_sessions` 是它自己接在背景之后的几段，可以为空。`holdout/memory-long-zh.json` 是 30 条保留集，规矩同上。
+
+```sh
+MEROPE_MEMORY_BENCH=tests/merope/memory-long-zh.json \
+MEROPE_MEMORY_BENCH_BACKGROUND=tests/merope/memory-long-background-zh.json \
+MEROPE_MEMORY_BENCH_TIMES=3 MEROPE_MEMORY_BENCH_SMALL=1 MEROPE_MEMORY_BENCH_WIDER_ARM=2 \
+MEROPE_MEMORY_BENCH_REPORT=/absolute/new/file.json \
+MYRIAD_MEDIA_TEST_DATABASE_URL=… cargo test -p myriad-backend --bin myriad-backend \
+  -- --ignored her_memory_after_a_long_background --nocapture
+```
+
+- 背景按生产的 settle 方式写一次，每 10 段做一次节点维护，写进测试库里一个单独的 schema，作为快照。每道题、每一轮都从快照的一份副本出发，只接上自己的几段，所以题与题互不干扰，背景只花一次钱。
+- 三轮用的是同一份快照，所以只量得到回想和作答的波动，量不到写入的波动。
+- `MEROPE_MEMORY_BENCH_KEEP_SNAPSHOT=1` 跑完留下快照并打印它的名字；`MEROPE_MEMORY_BENCH_SNAPSHOT=<名字>` 直接用留下的快照，不再重写背景。
+- 复制快照要用能设置 `session_replication_role` 的角色，测试库的所有者就可以。
+- `MEROPE_MEMORY_BENCH_SMALL=1`：每道题再跑一次，只带它依赖的背景段和自己的几段，从头写起。同一道题在小背景下的结果见报告里的 `small`，两种规模按题型并排在 `bySize`。
+- `MEROPE_MEMORY_BENCH_WIDER_ARM=<n>`：在同一轮里多作答一次，召回放大 n 倍。记忆完全相同，不用另写聊天，结果是报告里的 `wider` 这一路。
+- `offTopic`：背景里每条记忆在它不负责回答的题里被想起的次数，`most` 列出出现最多的几条。
+- 和 `full_size.rs` 的区别：那边直接把旧报告里的记忆塞进去量召回，不走写入；这里从对话开始全程照生产的路径走。
+
+## 换模型时
+
+- `MEROPE_MEMORY_BENCH_LITE=<来源>:<模型>`（例如 `openrouter:anthropic/claude-haiku-5.5`）：只在这次评测里把 Lite 换到这个来源和模型，站点配置不动。三个入口（`her_memory_on_longmemeval`、`her_memory_over_weeks`、`her_memory_after_a_long_background`）都认这个变量。不设就用站点配置的 Lite。站点换了模型之后，用它把跑到一半的那套接着在原模型上跑完。
+- 报告顶层的 `lite` 记着这次说话用的模型（`model`）、来源（`source`），以及判分用的模型（`judgedBy`）。不同模型跑出来的结果不能合在一起算 pass^k。
+- `spent.by_model` 下每个模型的 `failed` 是失败的调用次数，每次失败还会在 stderr 打一行 `model call failed: <模型>`。嵌入失败（包括超过 2 秒）时，召回会静默退回只按字面，这时就记在嵌入模型名下。只要这个数不为 0，这一轮的召回就没有完全按意思走。

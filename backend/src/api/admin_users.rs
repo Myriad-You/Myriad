@@ -904,10 +904,15 @@ mod tests {
         };
         let admin = Database::connect(&url).await.unwrap();
         let scope = format!("last_admin_{}", uuid::Uuid::new_v4().simple());
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("CREATE SCHEMA {scope}"))
             .await
             .unwrap();
+        drop(turn);
         let connect = || {
             let mut options = ConnectOptions::new(url.clone());
             options
@@ -957,10 +962,15 @@ mod tests {
             .unwrap()
             .and_then(|row| row.try_get::<i64>("", "n").ok())
             .unwrap_or(0);
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("DROP SCHEMA {scope} CASCADE"))
             .await
             .ok();
+        drop(turn);
         assert!(
             left ^ right,
             "exactly one concurrent last-admin demote may commit"

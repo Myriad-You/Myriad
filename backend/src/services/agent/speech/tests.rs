@@ -64,6 +64,7 @@ async fn what_she_said_is_read_back_and_not_said_again() {
             event_key: "phantasi.digest",
             notified: true,
             say_id: None,
+            card: None,
         }),
     )
     .await;

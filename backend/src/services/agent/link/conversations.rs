@@ -79,6 +79,10 @@ const CHANGES: &str = "SELECT coalesce((SELECT string_agg(s.id || ':' || s.messa
          AND NOT archived AND message_count > 0 \
        ORDER BY last_active_at DESC, id LIMIT $2) s), '') || '|' || \
    coalesce((SELECT max(id) FROM agent_proactive_messages WHERE user_id = $1), 0) || '|' || \
+   coalesce((SELECT string_agg(c.id || ':' || coalesce(c.metadata->'card'->>'version', '') || ':' || \
+       coalesce(c.metadata->'card'->'answered'->>'at', ''), ',' ORDER BY c.id) \
+     FROM (SELECT id, metadata FROM agent_proactive_messages \
+       WHERE user_id = $1 AND metadata->'card' IS NOT NULL ORDER BY id DESC LIMIT $3) c), '') || '|' || \
    coalesce((SELECT max(m.id) FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
      WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL), 0) AS changes";
 
@@ -89,7 +93,7 @@ pub(super) async fn recent(
     db: &DatabaseConnection,
     owner: i32,
 ) -> Result<Vec<Value>, sea_orm::DbErr> {
-    recent_with(db, owner, false).await
+    recent_with(db, owner, false, false).await
 }
 
 /// What the recent conversations are now, as cheaply as it can be told:
@@ -99,7 +103,7 @@ pub(super) async fn changes(db: &DatabaseConnection, owner: i32) -> Result<Strin
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             CHANGES,
-            [owner.into(), SESSIONS.into()],
+            [owner.into(), SESSIONS.into(), SAID.into()],
         ))
         .await?;
     Ok(row
@@ -107,56 +111,71 @@ pub(super) async fn changes(db: &DatabaseConnection, owner: i32) -> Result<Strin
         .unwrap_or_default())
 }
 
-/// Her lines said unprompted, newest first: (id, text, at, say id).
-async fn said(
-    db: &DatabaseConnection,
+/// One of her lines said unprompted, or a line that is only one of her
+/// cards.
+pub(crate) struct Said {
+    pub id: i64,
+    pub content: String,
+    pub at: chrono::DateTime<chrono::FixedOffset>,
+    pub say_id: Option<String>,
+    /// The card it is or carries, as a conversation shows it.
+    pub card: Option<Value>,
+}
+
+/// Her lines said unprompted, newest first; with `cards`, the lines that
+/// are only a card too, and the card each carries.
+pub(crate) async fn said(
+    db: &impl ConnectionTrait,
     owner: i32,
-) -> Result<
-    Vec<(
-        i64,
-        String,
-        chrono::DateTime<chrono::FixedOffset>,
-        Option<String>,
-    )>,
-    sea_orm::DbErr,
-> {
+    cards: bool,
+) -> Result<Vec<Said>, sea_orm::DbErr> {
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT id, content, created_at, say_id FROM agent_proactive_messages \
-             WHERE user_id = $1 AND role = 'assistant' ORDER BY created_at DESC, id DESC LIMIT $2",
-            [owner.into(), SAID.into()],
+            "SELECT id, content, created_at, say_id, metadata FROM agent_proactive_messages \
+             WHERE user_id = $1 AND (role = 'assistant' OR ($3 AND role = 'card')) \
+             ORDER BY created_at DESC, id DESC LIMIT $2",
+            [owner.into(), SAID.into(), cards.into()],
         ))
         .await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in &rows {
         let content: String = row.try_get("", "content")?;
-        if content.trim().is_empty() {
+        let metadata: Option<Value> = row.try_get("", "metadata")?;
+        let card = cards
+            .then(|| crate::services::agent::merope::cards::shown(metadata.as_ref()))
+            .flatten();
+        if content.trim().is_empty() && card.is_none() {
             continue;
         }
-        out.push((
-            row.try_get("", "id")?,
+        out.push(Said {
+            id: row.try_get("", "id")?,
             content,
-            row.try_get("", "created_at")?,
-            row.try_get("", "say_id")?,
-        ));
+            at: row.try_get("", "created_at")?,
+            say_id: row.try_get("", "say_id")?,
+            card,
+        });
     }
     Ok(out)
 }
 
 /// Her line said unprompted, as a line of a conversation.
-fn said_line(
-    id: i64,
-    content: &str,
-    at: chrono::DateTime<chrono::FixedOffset>,
-    say_id: Option<&str>,
-) -> Value {
-    let id = say_id
+fn said_line(said: &Said) -> Value {
+    let id = said
+        .say_id
+        .as_deref()
         .map(|say| format!("say_{say}"))
         .filter(|id| super::contract::valid_id(id))
-        .unwrap_or_else(|| format!("pro_{id}"));
-    let text: String = content.chars().take(TEXT_CHARS).collect();
-    json!({ "id": id, "role": "assistant", "text": text, "at": at.timestamp_millis(), "kind": "proactive" })
+        .unwrap_or_else(|| format!("pro_{}", said.id));
+    let text: String = said.content.chars().take(TEXT_CHARS).collect();
+    let mut line = json!({
+        "id": id, "role": "assistant", "text": text,
+        "at": said.at.timestamp_millis(), "kind": "proactive",
+    });
+    if let (Some(fields), Some(Value::Object(card))) = (line.as_object_mut(), &said.card) {
+        fields.extend(card.clone());
+    }
+    line
 }
 
 /// Puts each of her lines into the conversation that was the latest when
@@ -209,11 +228,13 @@ pub(super) fn place_said(sessions: &mut [Value], said: Vec<Value>) {
     }
 }
 
-/// The recent conversations; with `said`, her lines said unprompted placed in them.
+/// The recent conversations; with `said`, her lines said unprompted placed
+/// in them, and with `cards` too, her cards on them.
 pub(super) async fn recent_with(
     db: &DatabaseConnection,
     owner: i32,
     with_said: bool,
+    cards: bool,
 ) -> Result<Vec<Value>, sea_orm::DbErr> {
     let sessions = db
         .query_all_raw(Statement::from_sql_and_values(
@@ -267,11 +288,11 @@ pub(super) async fn recent_with(
         out.push(entry);
     }
     if with_said {
-        let lines = said(db, owner)
+        let lines = said(db, owner, cards)
             .await?
-            .into_iter()
+            .iter()
             .rev()
-            .map(|(id, content, at, say_id)| said_line(id, &content, at, say_id.as_deref()))
+            .map(said_line)
             .collect();
         place_said(&mut out, lines);
     }

@@ -36,6 +36,8 @@ export interface AgentMessage {
   pictures?: number
   /** Typed a message at a time: whether she is at her next one. */
   typing?: boolean
+  /** A line of the owner's chat that is a card or carries one. */
+  cardLine?: import('../../services/agent/types').CardLine
 }
 
 const EMPTY: readonly AgentMessage[] = Object.freeze([])
@@ -80,6 +82,7 @@ function sameMessage(x: AgentMessage, y: AgentMessage): boolean {
     x.thoughtBody?.id === y.thoughtBody?.id && x.thoughtBody?.chars === y.thoughtBody?.chars &&
     x.state === y.state &&
     x.typing === y.typing &&
+    x.cardLine === y.cardLine &&
     x.imageUrls?.length === y.imageUrls?.length &&
     x.saidOn?.name === y.saidOn?.name &&
     x.pictures === y.pictures &&
