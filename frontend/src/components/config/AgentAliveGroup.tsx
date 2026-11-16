@@ -430,6 +430,23 @@ export function AgentAliveGroup() {
         ) : (
           <ul className="agent-alive-ends">{alive.ends.map(end)}</ul>
         )}
+        <dl className="agent-alive-rows">
+          <dt>{c.agentAliveScreenKeys}</dt>
+          <dd>
+            {alive.screenKeys.length
+              ? alive.screenKeys.map((deleted) => (
+                  <div key={`${deleted.t} ${deleted.key}`}>
+                    {format(c.agentAliveScreenKeyItem, {
+                      t: deleted.t,
+                      key: deleted.key,
+                      n: String(deleted.count),
+                      ago: ago(deleted.lastAt),
+                    })}
+                  </div>
+                ))
+              : c.agentAliveNone}
+          </dd>
+        </dl>
       </section>
 
       <section className="agent-alive-part">

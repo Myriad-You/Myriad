@@ -999,6 +999,8 @@
   "agentAliveDroppedItem": "{t}（{reason}）：{n} 本の接続で発生、最後は{ago}",
   "agentAliveUnread": "サイトは届いたと見なしたが、実際は読めていない",
   "agentAliveUnreadItem": "{t}：{n} 回、最後は{ago}",
+  "agentAliveScreenKeys": "画面の内容からサイトが削除した項目",
+  "agentAliveScreenKeyItem": "{t} · {key}：{n} 回、最後は{ago}",
   "agentAliveCapRig": "彼女の姿",
   "agentAliveCapVoiceOut": "声で話す",
   "agentAliveCapVoiceIn": "声を聞く",

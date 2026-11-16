@@ -999,6 +999,8 @@
   "agentAliveDroppedItem": "{t}（{reason}）：{n} 條連線遇到過，最近 {ago}",
   "agentAliveUnread": "站點以為送到了、它其實沒讀到",
   "agentAliveUnreadItem": "{t}：{n} 次，最近 {ago}",
+  "agentAliveScreenKeys": "螢幕內容裡被站點刪掉的欄位",
+  "agentAliveScreenKeyItem": "{t} · {key}：{n} 次，最近 {ago}",
   "agentAliveCapRig": "她的形象",
   "agentAliveCapVoiceOut": "出聲說話",
   "agentAliveCapVoiceIn": "聽人說話",

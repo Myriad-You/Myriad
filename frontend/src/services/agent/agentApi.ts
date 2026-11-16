@@ -278,6 +278,11 @@ export interface HerAlive {
     standingFailedAt: string | null
   }
   ends: HerAliveEnd[]
+  /**
+   * Keys of a look at the screen the site deleted before reading it, per
+   * frame type and key, all devices together: names and counts, no value.
+   */
+  screenKeys: { t: string; key: string; count: number; lastAt: string | null }[]
   calls: { kind: string; outcomes: Record<string, number> }[]
 }
 

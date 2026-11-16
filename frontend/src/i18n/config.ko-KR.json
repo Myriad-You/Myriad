@@ -999,6 +999,8 @@
   "agentAliveDroppedItem": "{t}({reason}): 연결 {n}개에서 발생, 마지막 {ago}",
   "agentAliveUnread": "사이트는 전달됐다고 봤지만 실제로는 읽지 못함",
   "agentAliveUnreadItem": "{t}: {n}회, 마지막 {ago}",
+  "agentAliveScreenKeys": "화면 내용에서 사이트가 지운 필드",
+  "agentAliveScreenKeyItem": "{t} · {key}: {n}회, 마지막 {ago}",
   "agentAliveCapRig": "그녀의 모습",
   "agentAliveCapVoiceOut": "소리 내어 말하기",
   "agentAliveCapVoiceIn": "말소리 듣기",

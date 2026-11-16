@@ -49,6 +49,7 @@ function alive(change: (shown: HerAlive) => void = () => {}): HerAlive {
         unread: [{ t: 'say', count: 2, lastAt: '2026-11-16T03:30:00Z' }],
       },
     ],
+    screenKeys: [{ t: 'presence', key: 'others_text', count: 4, lastAt: '2026-11-16T03:58:00Z' }],
     calls: [{ kind: 'act.request', outcomes: { asked: 3, completed: 2, act_busy: 1 } }],
   }
   change(shown)
@@ -110,6 +111,7 @@ test('shows whether she is living, with the three capability layers apart', asyn
       ['它接不了的帧', '没有'],
       ['站点以为送到了、它其实没读到', 'say：2 次，最近 30 分钟前'],
     ])
+    assert.match(text(), /屏幕内容里被站点删掉的字段presence · others_text：4 次，最近 2 分钟前/)
     assert.match(text(), /让 Mac 办事发出 3 · 办完 2 · 那边在忙 1/)
 
     // Stopped past the alarm's ten minutes, every driver passed over.

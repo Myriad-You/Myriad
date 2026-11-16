@@ -653,6 +653,18 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
             "standingFailedAt": at(state.memory.standing_failed_at),
         },
         "ends": ends,
+        // Keys of a look at the screen the site deleted before reading it
+        // (not ones the contract lets through), per frame type and key,
+        // all devices together: names and counts, never a value.
+        "screenKeys": crate::services::agent::link::counts::screen_keys()
+            .into_iter()
+            .map(|(t, key, deleted)| json!({
+                "t": t,
+                "key": key,
+                "count": deleted.count,
+                "lastAt": deleted.last_at.map(|at| at.to_rfc3339()),
+            }))
+            .collect::<Vec<_>>(),
         "calls": calls,
     })
 }

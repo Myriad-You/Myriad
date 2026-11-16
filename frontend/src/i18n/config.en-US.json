@@ -999,6 +999,8 @@
   "agentAliveDroppedItem": "{t} ({reason}): met on {n} links, last {ago}",
   "agentAliveUnread": "Taken as delivered, not read by it",
   "agentAliveUnreadItem": "{t}: {n} times, last {ago}",
+  "agentAliveScreenKeys": "Fields the site deleted from what the screen showed",
+  "agentAliveScreenKeyItem": "{t} · {key}: {n} times, last {ago}",
   "agentAliveCapRig": "Her figure",
   "agentAliveCapVoiceOut": "Speaking aloud",
   "agentAliveCapVoiceIn": "Hearing speech",

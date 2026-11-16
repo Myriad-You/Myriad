@@ -999,6 +999,8 @@
   "agentAliveDroppedItem": "{t} ({reason}) : sur {n} connexions, dernière {ago}",
   "agentAliveUnread": "Tenu pour remis, mais non lu",
   "agentAliveUnreadItem": "{t} : {n} fois, dernière {ago}",
+  "agentAliveScreenKeys": "Champs que le site a supprimés du contenu de l’écran",
+  "agentAliveScreenKeyItem": "{t} · {key} : {n} fois, dernière {ago}",
   "agentAliveCapRig": "Sa figure",
   "agentAliveCapVoiceOut": "Parler à voix haute",
   "agentAliveCapVoiceIn": "Entendre la voix",

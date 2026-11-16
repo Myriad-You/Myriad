@@ -999,6 +999,8 @@
   "agentAliveDroppedItem": "{t} ({reason}): bei {n} Verbindungen, zuletzt {ago}",
   "agentAliveUnread": "Galt als zugestellt, wurde aber nicht gelesen",
   "agentAliveUnreadItem": "{t}: {n}-mal, zuletzt {ago}",
+  "agentAliveScreenKeys": "Felder, die die Site aus dem Bildschirminhalt gelöscht hat",
+  "agentAliveScreenKeyItem": "{t} · {key}: {n}-mal, zuletzt {ago}",
   "agentAliveCapRig": "Ihre Figur",
   "agentAliveCapVoiceOut": "Laut sprechen",
   "agentAliveCapVoiceIn": "Sprache hören",

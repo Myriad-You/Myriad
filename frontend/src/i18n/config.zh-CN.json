@@ -999,6 +999,8 @@
   "agentAliveDroppedItem": "{t}（{reason}）：{n} 条连接遇到过，最近 {ago}",
   "agentAliveUnread": "站点以为送到了、它其实没读到",
   "agentAliveUnreadItem": "{t}：{n} 次，最近 {ago}",
+  "agentAliveScreenKeys": "屏幕内容里被站点删掉的字段",
+  "agentAliveScreenKeyItem": "{t} · {key}：{n} 次，最近 {ago}",
   "agentAliveCapRig": "她的形象",
   "agentAliveCapVoiceOut": "出声说话",
   "agentAliveCapVoiceIn": "听人说话",

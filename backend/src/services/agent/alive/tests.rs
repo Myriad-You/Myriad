@@ -535,6 +535,7 @@ async fn what_is_kept_comes_back_after_a_restart() {
     assert_eq!(report["calls"][0]["kind"], "act.request");
     assert_eq!(report["calls"][0]["outcomes"]["completed"], 1);
     assert_eq!(report["ends"], json!([]));
+    assert!(report["screenKeys"].is_array());
     let names: Vec<&str> = report["life"]["drivers"]
         .as_array()
         .unwrap()
