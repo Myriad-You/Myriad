@@ -129,7 +129,16 @@ fn after_a_restart_she_says_something_only_where_she_still_may() {
         Some("tg-token")
     );
     config.qq_bot_enabled = true;
-    assert_eq!(token_for(ChannelPlatform::Qq, "1", &config), None);
+    assert_eq!(token_for(ChannelPlatform::Qq, "group-a", &config), None);
+    config.qq_bot_groups_enabled = true;
+    // An empty allowlist lets no group in.
+    assert_eq!(token_for(ChannelPlatform::Qq, "group-a", &config), None);
+    config.qq_bot_group_ids = "group-a".into();
+    assert_eq!(
+        token_for(ChannelPlatform::Qq, "group-a", &config).as_deref(),
+        Some("")
+    );
+    assert_eq!(token_for(ChannelPlatform::Qq, "group-b", &config), None);
     let kept = serde_json::to_value(StoredReach {
         thread: Some(7),
         seen_at: crate::clock::now(),

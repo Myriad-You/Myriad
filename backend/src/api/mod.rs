@@ -44,6 +44,7 @@ pub use crate::services::seo_policy;
 pub mod seo_review;
 pub mod setup;
 pub mod setup_bootstrap;
+pub mod site_search; // Agent 面板输入框边输边查的站内内容
 pub mod site_domain; // BASE_URL / FRONTEND_URL / CORS — not federation Move
 pub mod speech; // TTS/ASR (Tencent / OpenAI / OpenRouter / Gemini / MiniMax)
 pub mod speech_conversation;

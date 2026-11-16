@@ -20,7 +20,7 @@ use futures::{SinkExt, StreamExt};
 use myriad_agent_rules::channel::{
     ConnectFailureKind, DISCORD_CHANNEL_TYPE_DM, DISCORD_DISALLOWED_INTENTS, DISCORD_TEXT_LIMIT,
     DiscordBotIdentity, WorkerIntent, classify_discord_rest, classify_gateway_close,
-    discord_channel_type, discord_group_message_from_create, discord_identify_intents,
+    discord_channel_type, discord_group_message_from_create_with_bots, discord_identify_intents,
     discord_private_component_from_create, discord_private_text_from_create, discord_retry_after,
     discord_session_starts_remaining, discord_worker_intent, is_discord_dm_channel,
     parse_discord_bot_identity, parse_discord_channel_type, parse_discord_gateway_url,
@@ -555,9 +555,15 @@ where
                         let _permit = permit;
                         // A server channel: the persona's group chat.
                         if data.get("guild_id").is_some() {
-                            if let Some(line) =
-                                discord_group_message_from_create(&data, &bot_user_id)
-                            {
+                            let hear_other_bots = crate::GLOBAL_DYNAMIC_CONFIG
+                                .read()
+                                .await
+                                .discord_bot_hear_other_bots;
+                            if let Some(line) = discord_group_message_from_create_with_bots(
+                                &data,
+                                &bot_user_id,
+                                hear_other_bots,
+                            ) {
                                 mark_inbound().await;
                                 hear_group_line(line.into(), token, _permit).await;
                             }
@@ -865,7 +871,8 @@ pub async fn send_photo(
 
 /// Her reply in a server channel, as a reply to the line she answers. Nobody
 /// is pinged but the one she replies to: whatever the text says, `@everyone`,
-/// roles and users are not mentions.
+/// roles and users are not mentions. With the bot off the line is refused
+/// (`Permanent`), so it is not kept as said.
 pub async fn send_group_reply(
     token: &str,
     channel_id: &str,
@@ -873,8 +880,11 @@ pub async fn send_group_reply(
     mentioned: &[String],
     reply_to: Option<&str>,
 ) -> Result<(), ConnectFailureKind> {
-    if channel_id.is_empty() || text.is_empty() || !bot_enabled().await {
+    if channel_id.is_empty() || text.is_empty() {
         return Ok(());
+    }
+    if !bot_enabled().await {
+        return Err(ConnectFailureKind::Permanent);
     }
     let content: String = text.chars().take(DISCORD_TEXT_LIMIT).collect();
     let payload = group_reply_payload(&content, mentioned, reply_to);
@@ -1205,6 +1215,19 @@ mod tests {
             "content": "hi"
         });
         assert!(discord_private_text_from_create(&missing, "99").is_none());
+    }
+
+    /// With the bot off a group line is refused before any request, so it
+    /// is not kept as said; an empty line is nothing to send.
+    #[tokio::test]
+    async fn a_group_line_with_the_bot_off_is_refused() {
+        // The bot is off by default.
+        assert_eq!(
+            send_group_reply("", "22", "hi", &[], Some("1")).await,
+            Err(ConnectFailureKind::Permanent)
+        );
+        assert_eq!(send_group_reply("", "22", "", &[], None).await, Ok(()));
+        assert_eq!(send_group_reply("", "", "hi", &[], None).await, Ok(()));
     }
 
     #[tokio::test]

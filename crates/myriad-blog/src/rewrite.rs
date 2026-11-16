@@ -9,6 +9,7 @@ use lol_html::html_content::ContentType;
 use lol_html::{ElementContentHandlers, RewriteStrSettings, Selector, element, rewrite_str, text};
 use std::borrow::Cow;
 
+use crate::embed::embed_bare_links;
 use crate::labels::labels;
 use crate::urlutil::{absolutize_root_url, encode_query_value, escape_html, rewrite_srcset};
 
@@ -19,7 +20,8 @@ const FRAG_CLOSE: &str = "</myriad-frag>";
 /// `locale` 是这一页的语言，定 iframe 标题用哪种说法。
 pub fn prepare_content_html(html: &str, origin: &str, item_id: i32, locale: &str) -> String {
     let widget_title = escape_html(labels(locale).widget);
-    let rewritten = map_fragment(html, |wrapped| {
+    let html = embed_bare_links(html);
+    let rewritten = map_fragment(&html, |wrapped| {
         rewrite_str(
             wrapped,
             with_handlers(vec![

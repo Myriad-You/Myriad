@@ -607,6 +607,7 @@ pub async fn clear_all_caches(State(_db): State<DatabaseConnection>) -> (StatusC
     let mut errors = Vec::new();
 
     if !cache_dir.exists() {
+        crate::services::steam_assets::forget_all();
         return (
             StatusCode::OK,
             Json(json!({
@@ -657,6 +658,9 @@ pub async fn clear_all_caches(State(_db): State<DatabaseConnection>) -> (StatusC
             );
         }
     }
+
+    // steam_assets.json is among the removed files; its in-memory copy would write it back.
+    crate::services::steam_assets::forget_all();
 
     (
         StatusCode::OK,

@@ -213,8 +213,9 @@ pub(super) async fn speak_first(db: &DatabaseConnection, venue: &str, reason: St
 }
 
 /// What sends into a group with, while it still may: the bot is on, the
-/// group is let in (OneBot's allowlist), and it has a token (OneBot needs
-/// none). None for a platform she does not send to groups on.
+/// group is let in (OneBot's or the official QQ bot's allowlist), and it has
+/// a token (OneBot and QQ groups need none here). None for a platform she
+/// does not send to groups on.
 pub(super) fn token_for(
     platform: ChannelPlatform,
     chat: &str,
@@ -239,6 +240,9 @@ pub(super) fn token_for(
             .map(str::trim)
             .filter(|token| !token.is_empty())
             .map(str::to_string),
-        ChannelPlatform::Qq | ChannelPlatform::Feishu => None,
+        ChannelPlatform::Qq => (config.qq_bot_groups_enabled
+            && crate::services::qq_bot::group_allowed(&config.qq_bot_group_ids, chat))
+        .then(String::new),
+        ChannelPlatform::Feishu => None,
     }
 }
