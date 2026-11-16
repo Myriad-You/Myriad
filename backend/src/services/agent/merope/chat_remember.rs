@@ -476,8 +476,11 @@ pub(super) async fn extract(
         turn,
         input_at.with_timezone(&super::clock::zone()),
     );
+    // Held to the schema by the provider where it can: the answer always
+    // parses, and the schema need not be restated after what they said.
     let raw = super::call::Ask::new(super::call::Voice::Thorough, user_id, "chat_remember")
         .within(EXTRACT_TIMEOUT)
+        .strict()
         .json_raw(
             &extract_system_prompt(&existing, Examples::for_words(user_text)),
             &input,
@@ -729,6 +732,55 @@ pub(crate) fn settle_probe(
 
 #[cfg(test)]
 mod tests {
+    /// Live (`--ignored`, the site's configured models): what she keeps of a
+    /// turn asked held to the schema, as production now asks it, against
+    /// the same turn with the schema restated in the prompt. Both answers
+    /// parse as kept facts; the input each took is printed.
+    #[tokio::test]
+    #[ignore = "asks the configured model"]
+    async fn kept_facts_are_asked_held_to_the_schema_live() {
+        let config_db = crate::services::agent::semantic_eval::load_configured_lite().await;
+        config_db.close().await.ok();
+        let analyzer = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
+            std::time::Duration::from_secs(90),
+        ))
+        .await
+        .expect("Lite model")
+        .with_deep_thinking();
+        let user_text = "I finally booked the trip to Lisbon for March, and I'm taking my sister Ana since she's never been abroad.";
+        let reply = "That sounds wonderful! Lisbon in March is mild. Try the pastéis de nata at Manteigaria.";
+        let existing = vec!["Has a sister named Ana".to_string()];
+        let system = extract_system_prompt(&existing, Examples::for_words(user_text));
+        let input = extract_input(
+            user_text,
+            reply,
+            &super::super::TurnContext::default(),
+            crate::clock::now().with_timezone(&super::super::clock::zone()),
+        );
+        println!("model: {}", analyzer.model_name());
+        for strict in [true, false] {
+            let (raw, reported) =
+                crate::services::ai_cost_ledger::reporting(analyzer.analyze_json_as(
+                    &system,
+                    &input,
+                    EXTRACT_SCHEMA_NAME,
+                    Some(&extract_schema()),
+                    strict,
+                ))
+                .await;
+            let raw = raw.expect("an answer");
+            let updates = parse_chat_memory_updates(&raw, user_text, reply, &existing)
+                .expect("kept facts that parse");
+            let usage = reported.map(|reported| reported.usage);
+            println!(
+                "strict {strict}: input {:?} output {:?}, {} facts: {raw}",
+                usage.as_ref().map(|usage| usage.input),
+                usage.as_ref().map(|usage| usage.output),
+                updates.updates.len()
+            );
+        }
+    }
+
     /// A short reply is read as before; a long one whole, up to what one of
     /// their messages may be, its end and all.
     #[test]

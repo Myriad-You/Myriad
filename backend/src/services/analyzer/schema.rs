@@ -126,9 +126,66 @@ fn gemini_response_schema(schema: &serde_json::Value) -> Option<serde_json::Valu
     Some(serde_json::Value::Object(translated))
 }
 
+/// Keys Anthropic's own structured output (`output_config.format`) does
+/// not take: limits on a string's length, an array's length past one, and
+/// a number's range. The schema keeps them for every other provider and
+/// for the answer's own checks; the format leaves them out, as Anthropic's
+/// own SDKs do, rather than have the request refused.
+const ANTHROPIC_UNSUPPORTED_KEYS: &[&str] = &[
+    "minLength",
+    "maxLength",
+    "maxItems",
+    "minimum",
+    "maximum",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+    "multipleOf",
+];
+
+/// `schema` as Anthropic's structured output takes it: the same schema,
+/// without the keys it does not support ([`ANTHROPIC_UNSUPPORTED_KEYS`],
+/// and a `minItems` above one), at any depth.
+pub(super) fn anthropic_output_schema(schema: &serde_json::Value) -> serde_json::Value {
+    match schema {
+        serde_json::Value::Object(map) => serde_json::Value::Object(
+            map.iter()
+                .filter(|(key, value)| {
+                    !ANTHROPIC_UNSUPPORTED_KEYS.contains(&key.as_str())
+                        && !(key.as_str() == "minItems"
+                            && value.as_u64().is_none_or(|least| least > 1))
+                })
+                .map(|(key, value)| {
+                    let value = match key.as_str() {
+                        // A property is named, not a schema keyword: a
+                        // property called `maxLength` stays.
+                        "properties" | "$defs" | "definitions" => match value {
+                            serde_json::Value::Object(named) => serde_json::Value::Object(
+                                named
+                                    .iter()
+                                    .map(|(name, inner)| {
+                                        (name.clone(), anthropic_output_schema(inner))
+                                    })
+                                    .collect(),
+                            ),
+                            other => other.clone(),
+                        },
+                        "enum" | "const" | "required" => value.clone(),
+                        _ => anthropic_output_schema(value),
+                    };
+                    (key.clone(), value)
+                })
+                .collect(),
+        ),
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.iter().map(anthropic_output_schema).collect())
+        }
+        other => other.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{JsonMode, gemini_response_schema};
+    use super::{JsonMode, anthropic_output_schema, gemini_response_schema};
     use crate::services::analyzer::types::{OpenAIMessage, OpenAIRequest, OutputBudget};
     use serde_json::json;
 
@@ -212,6 +269,106 @@ mod tests {
     }
 
     // Structured output — Gemini schema dialect
+
+    #[test]
+    fn anthropic_format_leaves_out_only_the_limits_it_does_not_take() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "facts": {
+                    "type": "array",
+                    "maxItems": 6,
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "fact": {"type": "string", "maxLength": 240, "minLength": 2},
+                            "maxLength": {"type": ["integer", "null"], "minimum": 0, "maximum": 9}
+                        },
+                        "required": ["fact", "maxLength"],
+                        "additionalProperties": false
+                    }
+                },
+                "kind": {"type": "string", "enum": ["a", "b"]},
+                "some": {"type": "array", "minItems": 3, "items": {"type": "string"}}
+            },
+            "required": ["facts", "kind", "some"],
+            "additionalProperties": false
+        });
+        assert_eq!(
+            anthropic_output_schema(&schema),
+            json!({
+                "type": "object",
+                "properties": {
+                    "facts": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "fact": {"type": "string"},
+                                "maxLength": {"type": ["integer", "null"]}
+                            },
+                            "required": ["fact", "maxLength"],
+                            "additionalProperties": false
+                        }
+                    },
+                    "kind": {"type": "string", "enum": ["a", "b"]},
+                    "some": {"type": "array", "items": {"type": "string"}}
+                },
+                "required": ["facts", "kind", "some"],
+                "additionalProperties": false
+            })
+        );
+        // A schema with none of them goes as it is.
+        let plain = json!({
+            "type": "object",
+            "properties": {
+                "summary": {"type": ["string", "null"]},
+                "tags": {"type": "array", "items": {"type": "string"}}
+            },
+            "required": ["summary", "tags"],
+            "additionalProperties": false
+        });
+        assert_eq!(anthropic_output_schema(&plain), plain);
+    }
+
+    /// Every object in `schema` closed, and none of the keys Anthropic does
+    /// not take used as a keyword; where one is, its path.
+    fn not_taken(schema: &serde_json::Value, at: &str, found: &mut Vec<String>) {
+        let Some(map) = schema.as_object() else {
+            return;
+        };
+        if map.contains_key("properties") && map.get("additionalProperties") != Some(&json!(false))
+        {
+            found.push(format!("{at}: open object"));
+        }
+        for (key, value) in map {
+            match key.as_str() {
+                "properties" => {
+                    for (name, inner) in value.as_object().into_iter().flatten() {
+                        not_taken(inner, &format!("{at}.{name}"), found);
+                    }
+                }
+                "enum" | "const" | "required" => {}
+                _ if super::ANTHROPIC_UNSUPPORTED_KEYS.contains(&key.as_str()) => {
+                    found.push(format!("{at}: {key}"));
+                }
+                _ => not_taken(value, &format!("{at}/{key}"), found),
+            }
+        }
+    }
+
+    #[test]
+    fn the_kept_facts_schema_goes_to_anthropic_as_it_takes_it() {
+        let schema = myriad_merope::chat_remember::extract_schema();
+        let mut before = Vec::new();
+        not_taken(&schema, "", &mut before);
+        assert!(!before.is_empty(), "the schema itself keeps its limits");
+        let mut after = Vec::new();
+        not_taken(&anthropic_output_schema(&schema), "", &mut after);
+        assert_eq!(after, Vec::<String>::new());
+    }
 
     #[test]
     fn gemini_schema_uppercases_types_and_drops_unsupported_keys() {

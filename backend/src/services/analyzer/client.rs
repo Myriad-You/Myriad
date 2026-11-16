@@ -1567,7 +1567,10 @@ impl AiAnalyzer {
                     JsonMode::Structured(Some(schema))
                         if self.provider == AiProvider::Anthropic =>
                     {
-                        Some(serde_json::json!({ "type": "json_schema", "schema": schema }))
+                        Some(serde_json::json!({
+                            "type": "json_schema",
+                            "schema": super::schema::anthropic_output_schema(schema),
+                        }))
                     }
                     _ => None,
                 };
