@@ -123,7 +123,8 @@ pub async fn send_c2c(
 }
 
 /// Send plain text to an allowlisted group. Turning groups off or taking the
-/// group off the allowlist stops delivery. The group's passive reply window
+/// group off the allowlist stops delivery: the line is refused
+/// (`Permanent`), so it is not kept as said. The group's passive reply window
 /// is short, so a line always carries the inbound `msg_id` when there is one;
 /// without one QQ treats it as an active message and the daily quota applies.
 /// There is no active fallback after a rejected passive send: the group mind
@@ -145,7 +146,7 @@ pub async fn send_group(
             && crate::services::qq_bot::group_allowed(&config.qq_bot_group_ids, group_openid)
     };
     if !allowed {
-        return Ok(());
+        return Err(ConnectFailureKind::Permanent);
     }
     let msg_id = inbound_msg_id.filter(|id| !id.is_empty());
     let seq = match msg_id {
@@ -374,5 +375,19 @@ mod tests {
         let active = group_body("你好", None, None);
         assert!(active.get("msg_id").is_none());
         assert!(active.get("msg_seq").is_none());
+    }
+
+    /// A group she may not send to refuses the line before any request, so
+    /// it is not kept as said; an empty line is nothing to send.
+    #[tokio::test]
+    async fn a_group_off_or_not_allowlisted_refuses_the_line() {
+        let db = DatabaseConnection::default();
+        // Groups are off by default, and no group is allowlisted.
+        assert_eq!(
+            send_group(&db, "", "group-a", "你好", Some("m1")).await,
+            Err(ConnectFailureKind::Permanent)
+        );
+        assert_eq!(send_group(&db, "", "group-a", "", None).await, Ok(()));
+        assert_eq!(send_group(&db, "", "", "你好", None).await, Ok(()));
     }
 }
