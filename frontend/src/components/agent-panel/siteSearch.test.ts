@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { firstSiteResult, LIBRARY_PATH } from './AgentPanelSearchResults'
-import { hasSiteResults } from './useSiteSearch'
+import { hasSiteResults, siteSearchFor } from './useSiteSearch'
 
 const post = { title: 'A', href: '/blog/posts/a/', excerpt: '', published_at: '', category: null }
 const item = { title: 'B', item_type: 'game', platform: 'Steam', cover: null }
@@ -11,6 +11,14 @@ test('an empty search shows nothing', () => {
   assert.equal(hasSiteResults(null), false)
   assert.equal(hasSiteResults({ posts: [], library: [] }), false)
   assert.equal(hasSiteResults({ posts: [], library: [item] }), true)
+})
+
+test('results for an earlier word stay shown but are not current', () => {
+  const results = { posts: [post], library: [] }
+  assert.deepEqual(siteSearchFor(null, 'ab'), { results: null, current: false })
+  assert.deepEqual(siteSearchFor({ query: 'ab', results }, '  '), { results: null, current: false })
+  assert.deepEqual(siteSearchFor({ query: 'ab', results }, ' ab '), { results, current: true })
+  assert.deepEqual(siteSearchFor({ query: 'ab', results }, 'abc'), { results, current: false })
 })
 
 test('enter opens the first post, else the library', () => {

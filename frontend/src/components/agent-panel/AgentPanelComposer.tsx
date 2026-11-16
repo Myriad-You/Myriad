@@ -783,15 +783,19 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
     [canAsk, onSubmit],
   )
 
-  const searchResults = useSiteSearch(value, !resident)
-  const shownResults = hasSiteResults(searchResults) ? searchResults : null
+  const search = useSiteSearch(value, !resident)
+  const shownResults = hasSiteResults(search.results) ? search.results : null
+  const searchIsCurrent = search.current
 
   const openFirstResult = useCallback(() => {
+    // Results for an earlier word are still on screen while the new one is
+    // searched; Enter waits for the new word's results.
+    if (!searchIsCurrent) return
     const href = shownResults ? firstSiteResult(shownResults) : null
     if (!href) return
     if (href === LIBRARY_PATH) navigate(href)
     else window.location.assign(href)
-  }, [navigate, shownResults])
+  }, [navigate, searchIsCurrent, shownResults])
 
   const {
     speechAvailable,

@@ -336,7 +336,7 @@ pub(super) fn build_authenticated_router(
             "/api/search",
             get(api::site_search::site_search).route_layer(from_fn_with_state(
                 app_state.clone(),
-                middleware::auth::optional_auth_middleware,
+                middleware::auth::optional_current_admin_auth_middleware,
             )),
         )
         .route(

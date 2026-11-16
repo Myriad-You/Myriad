@@ -142,8 +142,12 @@ mod tests {
         assert!(!title_matches("Blue Archive", "zelda"));
     }
 
-    /// Visitors search too, and `OptionalViewer` needs the optional auth layer
-    /// to tell who they are: without it every search answers 500.
+    /// Visitors search too. `OptionalViewer` only reads what
+    /// `optional_current_admin_auth_middleware` leaves on the request; the
+    /// guest-session `optional_auth_middleware` leaves something else, and
+    /// under it every search answers 500. Reading its guest `Claims` instead
+    /// would count a visitor as signed in and open modules shown only to
+    /// signed-in people.
     #[test]
     fn the_route_is_open_to_visitors_through_optional_auth() {
         let src = include_str!("../router/authenticated.rs");
@@ -152,7 +156,8 @@ mod tests {
             .nth(1)
             .and_then(|rest| rest.split(".route(").next())
             .expect("the route");
-        assert!(route.contains("optional_auth_middleware"));
+        assert!(route.contains("optional_current_admin_auth_middleware"));
+        assert!(!route.contains("::optional_auth_middleware"));
         assert!(!route.contains("middleware::auth::auth_middleware"));
     }
 }
