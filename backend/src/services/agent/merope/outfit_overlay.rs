@@ -144,10 +144,11 @@ async fn live_overlay(
 #[cfg(test)]
 mod tests {
     #[tokio::test]
-    #[ignore = "requires MYRIAD_MEMORY_TEST_DATABASE_URL pointing to a disposable PostgreSQL database"]
     async fn durable_overlay_survives_session_churn_and_preserves_ownership_and_context() {
         use super::*;
-        let url = std::env::var("MYRIAD_MEMORY_TEST_DATABASE_URL").expect("disposable test DB");
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEMORY_TEST_DATABASE_URL"]) else {
+            return;
+        };
         let mut options = sea_orm::ConnectOptions::new(url);
         options.max_connections(1);
         let db = sea_orm::Database::connect(options).await.unwrap();

@@ -411,7 +411,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires a disposable MYRIAD_NOTIFICATION_BRIDGE_TEST_DB"]
+    #[ignore = "LISTEN/NOTIFY channels are shared by the whole database, not per schema: run alone on a disposable MYRIAD_NOTIFICATION_BRIDGE_TEST_DB so no other test notifies on them"]
     async fn a_mood_change_crosses_connections() {
         let url = std::env::var("MYRIAD_NOTIFICATION_BRIDGE_TEST_DB").unwrap();
         let db = Database::connect(url).await.unwrap();
@@ -442,7 +442,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires a disposable MYRIAD_NOTIFICATION_BRIDGE_TEST_DB"]
+    #[ignore = "LISTEN/NOTIFY channels are shared by the whole database, not per schema: run alone on a disposable MYRIAD_NOTIFICATION_BRIDGE_TEST_DB so no other test notifies on them"]
     async fn persona_observation_crosses_connections_without_notification_preferences() {
         let url = std::env::var("MYRIAD_NOTIFICATION_BRIDGE_TEST_DB").unwrap();
         let db = Database::connect(url).await.unwrap();
@@ -473,7 +473,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires a disposable MYRIAD_NOTIFICATION_BRIDGE_TEST_DB"]
+    #[ignore = "LISTEN/NOTIFY channels are shared by the whole database, not per schema: run alone on a disposable MYRIAD_NOTIFICATION_BRIDGE_TEST_DB so no other test notifies on them"]
     async fn committed_changes_cross_connections_without_reassigning_owners() {
         let url = std::env::var("MYRIAD_NOTIFICATION_BRIDGE_TEST_DB")
             .expect("disposable test DB required");

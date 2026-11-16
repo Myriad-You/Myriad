@@ -821,9 +821,10 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore = "requires MYRIAD_MEMORY_TEST_DATABASE_URL pointing to a disposable PostgreSQL database"]
     async fn durable_retention_only_deletes_expired_terminal_rows_in_bounded_batches() {
-        let url = std::env::var("MYRIAD_MEMORY_TEST_DATABASE_URL").expect("disposable test DB");
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEMORY_TEST_DATABASE_URL"]) else {
+            return;
+        };
         let mut options = sea_orm::ConnectOptions::new(url);
         options.max_connections(1);
         let db = sea_orm::Database::connect(options).await.unwrap();

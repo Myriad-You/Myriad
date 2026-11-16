@@ -1139,11 +1139,12 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires a disposable MYRIAD_RUNTIME_ISOLATION_TEST_DB"]
     async fn permission_policy_observes_commits_without_worker_cache_refresh() {
         use crate::services::permission_service::{TappPermissionService, UserRole};
         use sea_orm::{ConnectOptions, ConnectionTrait, Database, TransactionTrait};
-        let url = std::env::var("MYRIAD_RUNTIME_ISOLATION_TEST_DB").unwrap();
+        let Some(url) = crate::db::test_url(&["MYRIAD_RUNTIME_ISOLATION_TEST_DB"]) else {
+            return;
+        };
         let admin = Database::connect(&url).await.unwrap();
         let schema = format!("permission_policy_{}", uuid::Uuid::new_v4().simple());
         let turn = crate::db::SCHEMA_WORK
@@ -1229,12 +1230,13 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires a disposable MYRIAD_RUNTIME_ISOLATION_TEST_DB"]
     async fn update_configs_is_transactional_and_rejects_unsealed_vendor_objects() {
         use sea_orm::{ConnectOptions, ConnectionTrait, Database};
         use serde_json::json;
         use std::collections::HashMap;
-        let url = std::env::var("MYRIAD_RUNTIME_ISOLATION_TEST_DB").unwrap();
+        let Some(url) = crate::db::test_url(&["MYRIAD_RUNTIME_ISOLATION_TEST_DB"]) else {
+            return;
+        };
         let admin = Database::connect(&url).await.unwrap();
         let schema = format!("config_txn_{}", uuid::Uuid::new_v4().simple());
         let turn = crate::db::SCHEMA_WORK

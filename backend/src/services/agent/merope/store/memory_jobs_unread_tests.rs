@@ -13,9 +13,10 @@ fn from_of(job: &Job) -> Option<chrono::DateTime<chrono::FixedOffset>> {
 
 /// Unreadable once, read the next time: what it keeps is kept.
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn an_unreadable_stretch_is_tried_again() {
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     note(db, "周末要搬家", unified::SHORT_NOTE_SOURCE).await;
     let before = settling::failures();
@@ -49,9 +50,10 @@ async fn an_unreadable_stretch_is_tried_again() {
 /// Unreadable on every try: its notes stay notes, and the next stretch is
 /// gone over from where it began, so they are kept for good then.
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn notes_of_a_stretch_never_read_go_with_the_next() {
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     note(db, "周末要搬家", unified::SHORT_NOTE_SOURCE).await;
     let before = settling::failures();
@@ -116,9 +118,10 @@ async fn notes_of_a_stretch_never_read_go_with_the_next() {
 
 /// A stretch whose process went away on every try is let go unread too.
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn a_stretch_never_finished_is_left_unread() {
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     let began = crate::clock::now().fixed_offset() - chrono::Duration::hours(2);
     stretch_from(db, "settle", began).await;
@@ -166,9 +169,10 @@ async fn noted_at(db: &DatabaseConnection, text: &str, at: chrono::DateTime<chro
 /// its notes are kept for good as they are, each pointing at what keeps it;
 /// what came after is gone over on its own, from where it began.
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn notes_never_read_are_kept_as_they_are_after_two_more_stretches() {
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     let now = crate::clock::now().fixed_offset();
     let ago = |minutes| now - chrono::Duration::minutes(minutes);
@@ -215,9 +219,10 @@ async fn notes_never_read_are_kept_as_they_are_after_two_more_stretches() {
 /// The same when the last stretch to bring them along never finished: its
 /// process went away on every try.
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn notes_are_kept_as_they_are_when_the_last_stretch_never_finished() {
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     let now = crate::clock::now().fixed_offset();
     let ago = |minutes| now - chrono::Duration::minutes(minutes);
@@ -241,9 +246,10 @@ async fn notes_are_kept_as_they_are_when_the_last_stretch_never_finished() {
 /// brought along left unread again (and so waiting as long as such notes
 /// do), what they said meanwhile kept with it; gone over once she is back.
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn a_stretch_is_put_back_while_she_is_off() {
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     note(db, "周末要搬家", unified::SHORT_NOTE_SOURCE).await;
     let at = |minutes| crate::clock::now().fixed_offset() - chrono::Duration::minutes(minutes);

@@ -1,6 +1,6 @@
-//! Run with AI_QUOTA_TEST_DATABASE_URL pointing to a disposable PostgreSQL database:
-//! cargo test -p myriad-backend services::ai_quota::database_tests -- --ignored
-//! Each test creates and removes its own schema; no application tables are used.
+//! Run with AI_QUOTA_TEST_DATABASE_URL pointing to a test database (unset, they
+//! are skipped: `crate::db::test_url`). Each test creates and removes its own
+//! schema; no application tables are used.
 use super::*;
 use sea_orm::{ConnectOptions, Database};
 use std::sync::{Arc, Mutex};
@@ -12,9 +12,8 @@ struct TestDb {
 }
 
 impl TestDb {
-    async fn new() -> Self {
-        let url = std::env::var("AI_QUOTA_TEST_DATABASE_URL")
-            .expect("set AI_QUOTA_TEST_DATABASE_URL to a disposable PostgreSQL database");
+    async fn new() -> Option<Self> {
+        let url = crate::db::test_url(&["AI_QUOTA_TEST_DATABASE_URL"])?;
         let schema = format!("quota_test_{}", uuid::Uuid::new_v4().simple());
         let admin = Database::connect(url.clone()).await.unwrap();
         let turn = crate::db::SCHEMA_WORK
@@ -51,11 +50,11 @@ impl TestDb {
         db.set_metric_callback(move |info| {
             captured.lock().unwrap().push(info.statement.sql.clone())
         });
-        Self {
+        Some(Self {
             db,
             schema,
             statements,
-        }
+        })
     }
 
     fn reset_count(&self) {
@@ -116,9 +115,10 @@ async fn reserve(
 }
 
 #[tokio::test]
-#[ignore = "requires disposable PostgreSQL via AI_QUOTA_TEST_DATABASE_URL"]
 async fn batch_counts_and_lifecycle() {
-    let test = TestDb::new().await;
+    let Some(test) = TestDb::new().await else {
+        return;
+    };
     // Exercise the public wrapper for the unlimited path as well.
     test.reset_count();
     let admin = reserve_ai_quota(&test.db, UserRole::Admin, 1, 1, "app", 50, None)
@@ -180,9 +180,10 @@ async fn batch_counts_and_lifecycle() {
 }
 
 #[tokio::test]
-#[ignore = "requires disposable PostgreSQL via AI_QUOTA_TEST_DATABASE_URL"]
 async fn rejections_and_sql_failures_are_atomic() {
-    let test = TestDb::new().await;
+    let Some(test) = TestDb::new().await else {
+        return;
+    };
     let first = reserve(&test.db, buckets(-1, "ip", 10, 1000), 100)
         .await
         .unwrap();
@@ -298,9 +299,10 @@ async fn rejections_and_sql_failures_are_atomic() {
 }
 
 #[tokio::test]
-#[ignore = "requires disposable PostgreSQL via AI_QUOTA_TEST_DATABASE_URL"]
 async fn finalizers_keep_the_reserved_period_and_reject_underflow() {
-    let test = TestDb::new().await;
+    let Some(test) = TestDb::new().await else {
+        return;
+    };
     let mut old = reserve(&test.db, buckets(-1, "ip", 10, 1000), 100)
         .await
         .unwrap();
@@ -331,9 +333,10 @@ async fn finalizers_keep_the_reserved_period_and_reject_underflow() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires disposable PostgreSQL via AI_QUOTA_TEST_DATABASE_URL"]
 async fn concurrent_shared_buckets_never_overspend_or_deadlock() {
-    let test = TestDb::new().await;
+    let Some(test) = TestDb::new().await else {
+        return;
+    };
     // Contend on the same subject, same IP across subjects, and site across IPs.
     for (scope, token_limited) in (0..3).flat_map(|scope| [(scope, false), (scope, true)]) {
         test.exec("TRUNCATE ai_quota_usage").await;

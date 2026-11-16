@@ -2,10 +2,10 @@
 use super::*;
 
 #[tokio::test]
-#[ignore = "requires a dedicated AVATAR_PROFILE_TEST_DATABASE_URL PostgreSQL database"]
 async fn profile_projection_preserves_shapes_precedence_and_database_presence() {
-    let url =
-        std::env::var("AVATAR_PROFILE_TEST_DATABASE_URL").expect("use a dedicated test database");
+    let Some(url) = crate::db::test_url(&["AVATAR_PROFILE_TEST_DATABASE_URL"]) else {
+        return;
+    };
     let db = sea_orm::Database::connect(url).await.unwrap();
     async fn project_typed(
         db: &DatabaseConnection,
@@ -110,11 +110,11 @@ async fn profile_projection_preserves_shapes_precedence_and_database_presence() 
 }
 
 #[tokio::test]
-#[ignore = "requires a dedicated AVATAR_PROFILE_TEST_DATABASE_URL PostgreSQL database"]
 async fn profile_request_shares_profiles_without_cross_request_or_user_staleness() {
     use crate::services::profile_text::{resolve_profile_text, resolve_profile_text_with_context};
-    let url =
-        std::env::var("AVATAR_PROFILE_TEST_DATABASE_URL").expect("use a dedicated test database");
+    let Some(url) = crate::db::test_url(&["AVATAR_PROFILE_TEST_DATABASE_URL"]) else {
+        return;
+    };
     let mut options = sea_orm::ConnectOptions::new(url);
     options.max_connections(1).min_connections(1);
     let db = sea_orm::Database::connect(options).await.unwrap();

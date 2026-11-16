@@ -2121,10 +2121,11 @@ mod frontend_finalizer_tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore = "requires a disposable MYRIAD_RUNTIME_ISOLATION_TEST_DB"]
     async fn frontend_finalizer_rolls_back_stats_failure_and_counts_one_winner() {
         use sea_orm::{ConnectOptions, Database, DbBackend, Schema};
-        let url = std::env::var("MYRIAD_RUNTIME_ISOLATION_TEST_DB").unwrap();
+        let Some(url) = crate::db::test_url(&["MYRIAD_RUNTIME_ISOLATION_TEST_DB"]) else {
+            return;
+        };
         let admin = Database::connect(&url).await.unwrap();
         let schema_name = format!("finalizer_{}", uuid::Uuid::new_v4().simple());
         let turn = crate::db::SCHEMA_WORK
@@ -2267,13 +2268,13 @@ mod frontend_recipient_db_tests {
     /// Connect to `MYRIAD_RUNTIME_ISOLATION_TEST_DB` inside a fresh UUID schema.
     async fn isolated_db(
         prefix: &str,
-    ) -> (
+    ) -> Option<(
         sea_orm::DatabaseConnection,
         sea_orm::DatabaseConnection,
         String,
-    ) {
+    )> {
         use sea_orm::{ConnectOptions, ConnectionTrait, Database};
-        let url = std::env::var("MYRIAD_RUNTIME_ISOLATION_TEST_DB").unwrap();
+        let url = crate::db::test_url(&["MYRIAD_RUNTIME_ISOLATION_TEST_DB"])?;
         let admin = Database::connect(&url).await.unwrap();
         let schema_name = format!("{prefix}_{}", uuid::Uuid::new_v4().simple());
         let turn = crate::db::SCHEMA_WORK
@@ -2308,7 +2309,7 @@ mod frontend_recipient_db_tests {
         )
         .await
         .unwrap();
-        (admin, db, schema_name)
+        Some((admin, db, schema_name))
     }
 
     async fn drop_schema(admin: &sea_orm::DatabaseConnection, schema_name: &str) {
@@ -2366,9 +2367,10 @@ mod frontend_recipient_db_tests {
     /// calls, so it is the delivery authorization boundary: check it against
     /// explicit expectations and against the per-subject predicate itself.
     #[tokio::test]
-    #[ignore = "requires a disposable MYRIAD_RUNTIME_ISOLATION_TEST_DB"]
     async fn fan_out_sql_matches_scope_audience_and_targets() {
-        let (admin, db, schema_name) = isolated_db("fanout").await;
+        let Some((admin, db, schema_name)) = isolated_db("fanout").await else {
+            return;
+        };
         forget_principals(&[1, 2, 3, 4]);
         // 1 = first admin (site owner), 4 = later admin, 2/3 = ordinary users.
         db.execute_unprepared(
@@ -2480,9 +2482,10 @@ mod frontend_recipient_db_tests {
     /// The site owner is the durable `is_owner` row, not the lowest admin id,
     /// and a failed role read stops delivery instead of excluding the subject.
     #[tokio::test]
-    #[ignore = "requires a disposable MYRIAD_RUNTIME_ISOLATION_TEST_DB"]
     async fn tapp_audience_follows_durable_owner_and_role_errors_surface() {
-        let (admin, db, schema_name) = isolated_db("audience_owner").await;
+        let Some((admin, db, schema_name)) = isolated_db("audience_owner").await else {
+            return;
+        };
         forget_principals(&[1, 2, 5]);
         db.execute_unprepared(
             "INSERT INTO users (id, is_admin, is_owner) VALUES
@@ -2519,9 +2522,10 @@ mod frontend_recipient_db_tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires a disposable MYRIAD_RUNTIME_ISOLATION_TEST_DB"]
     async fn fan_out_reports_database_failure_instead_of_broadcasting() {
-        let (admin, db, schema_name) = isolated_db("fanout_err").await;
+        let Some((admin, db, schema_name)) = isolated_db("fanout_err").await else {
+            return;
+        };
         db.execute_unprepared("DROP TABLE users").await.unwrap();
         let global = task(TaskScope::Global, "shared.app", 1);
         assert!(
@@ -2536,12 +2540,13 @@ mod frontend_recipient_db_tests {
     /// just the recipient query. Offline must not repeat successful backend
     /// actions; once tasks must finish even on the first of several attempts.
     #[tokio::test]
-    #[ignore = "requires a disposable MYRIAD_RUNTIME_ISOLATION_TEST_DB"]
     async fn no_audience_skips_occurrences_but_live_dispatch_and_errors_still_work() {
         use crate::models::entities::tapps;
         use sea_orm::Schema;
 
-        let (admin, db, schema_name) = isolated_db("offline_scheduler").await;
+        let Some((admin, db, schema_name)) = isolated_db("offline_scheduler").await else {
+            return;
+        };
         forget_principals(&[1]);
         db.execute_unprepared(
             "INSERT INTO users (id, is_admin, is_owner) VALUES (1, true, true);

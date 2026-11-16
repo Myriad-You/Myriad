@@ -8,16 +8,15 @@ mod settle;
 #[path = "memory_jobs_her_tests.rs"]
 mod her;
 
-async fn fixture() -> crate::db::IsolatedSchema {
-    let url =
-        std::env::var("MYRIAD_MEROPE_TEST_DATABASE_URL").expect("explicit disposable database");
+async fn fixture() -> Option<crate::db::IsolatedSchema> {
+    let url = crate::db::test_url(&["MYRIAD_MEROPE_TEST_DATABASE_URL"])?;
     let schema = crate::db::IsolatedSchema::migrated(&url, "memory_jobs").await;
     schema
         .db
         .execute_unprepared("INSERT INTO users (id, username) VALUES (7, 'memory_test')")
         .await
         .unwrap();
-    schema
+    Some(schema)
 }
 async fn chat(db: &DatabaseConnection, id: &str, audience: Audience) {
     let mut state = super::super::get_or_create_state(db, 7)
@@ -104,9 +103,10 @@ async fn facts(db: &DatabaseConnection) -> i64 {
 }
 
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn durable_memory_claim_fencing_and_atomic_acknowledgement() {
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     chat(db, "one", Audience::group("telegram:1", 7)).await;
     let claims = futures::future::join_all((0..8).map(|_| claim(db))).await;
@@ -155,9 +155,10 @@ async fn durable_memory_claim_fencing_and_atomic_acknowledgement() {
 }
 
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn durable_memory_retries_are_finite_and_revalidate_input_her_and_session() {
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     chat(db, "retry", Audience::private(7)).await;
     for attempt in 1..=3 {
@@ -251,9 +252,10 @@ async fn durable_memory_retries_are_finite_and_revalidate_input_her_and_session(
 }
 
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn durable_memory_folds_a_persons_lines_and_keeps_those_said_meanwhile() {
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     let at = |minutes: i64| crate::clock::now().fixed_offset() - chrono::Duration::minutes(minutes);
     let line = |text: &str, reply: &str, at| Payload::Chat {
@@ -337,9 +339,10 @@ async fn stranger(db: &DatabaseConnection, event: usize) {
     .unwrap();
 }
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn durable_memory_stranger_batches_deduplicate_and_keep_arrivals_during_a_lease() {
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     stranger(db, 0).await;
     assert!(claim(db).await.unwrap().is_none(), "wait for quiet period");
@@ -445,9 +448,10 @@ fn durable_memory_keys_do_not_alias_fields_or_audiences() {
 }
 
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn durable_memory_resumes_in_a_fresh_process() {
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     chat(db, "restart", Audience::private(7)).await;
     let abandoned = claim(db).await.unwrap().unwrap();
@@ -489,9 +493,10 @@ async fn durable_memory_resumes_in_a_fresh_process() {
 /// its favor. Each line puts it off until they go quiet, never past a while
 /// after the stretch began.
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn durable_memory_settles_a_stretch_once_it_is_over() {
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     chat(db, "line", Audience::private(7)).await;
     let line = claim(db).await.unwrap().unwrap();
@@ -608,9 +613,10 @@ async fn durable_memory_settles_a_stretch_once_it_is_over() {
 /// for good: a stretch that leaves no note is never gone over. A line that
 /// says how it is now still leaves what she knows for the stretch to change.
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn taking_back_lets_go_of_what_she_knows_for_good() {
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     let known = "受够了组长，想辞职";
     // As a line is read: what it takes back first, on its own, then what
@@ -701,7 +707,7 @@ async fn taking_back_lets_go_of_what_she_knows_for_good() {
 }
 
 #[tokio::test]
-#[ignore = "subprocess fixture; parent supplies isolated schema"]
+#[ignore = "subprocess fixture, not a test: durable_memory_resumes_in_a_fresh_process starts it with its isolated schema"]
 async fn memory_process_fixture() {
     let url = std::env::var("MYRIAD_MEROPE_TEST_DATABASE_URL").unwrap();
     let schema = std::env::var("MYRIAD_MEMORY_PROCESS_SCHEMA").unwrap();

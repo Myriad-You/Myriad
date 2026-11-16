@@ -41,9 +41,8 @@ async fn seed_fact(db: &DatabaseConnection, user_id: i32, content: &str) -> agen
 
 /// A migrated schema of its own on the test database, for `users`: never
 /// the dev database, never its default schema.
-async fn test_database(users: &[i32]) -> crate::db::IsolatedSchema {
-    let url =
-        std::env::var("MYRIAD_MEROPE_TEST_DATABASE_URL").expect("explicit disposable database");
+async fn test_database(users: &[i32]) -> Option<crate::db::IsolatedSchema> {
+    let url = crate::db::test_url(&["MYRIAD_MEROPE_TEST_DATABASE_URL"])?;
     let schema = crate::db::IsolatedSchema::migrated(&url, "store_memory").await;
     for user in users {
         schema
@@ -54,16 +53,17 @@ async fn test_database(users: &[i32]) -> crate::db::IsolatedSchema {
             .await
             .unwrap();
     }
-    schema
+    Some(schema)
 }
 
 /// Exercises real pagination and transaction serialization, never the dev DB.
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn recall_and_memory_writes_cover_old_rows_duplicates_and_addressee_isolation() {
     let user_id = (Uuid::new_v4().as_u128() % 1_000_000_000) as i32 + 1;
     let other_user = user_id + 1_000_000_000;
-    let schema = test_database(&[user_id, other_user]).await;
+    let Some(schema) = test_database(&[user_id, other_user]).await else {
+        return;
+    };
     let db = schema.db.clone();
 
     // More than two pages, all at the same timestamp, also exercise id cursors.
@@ -175,12 +175,13 @@ async fn recall_and_memory_writes_cover_old_rows_duplicates_and_addressee_isolat
 }
 
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_under_lock() {
     use super::super::chat_remember::ChatMemoryUpdate;
     let user_id = (Uuid::new_v4().as_u128() % 1_000_000_000) as i32 + 1;
     let other_user = user_id + 1_000_000_000;
-    let schema = test_database(&[user_id, other_user]).await;
+    let Some(schema) = test_database(&[user_id, other_user]).await else {
+        return;
+    };
     let db = schema.db.clone();
     let (_, state) = update_affect(&db, user_id, true, AffectChange::utterance(0, false, false))
         .await

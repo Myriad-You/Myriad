@@ -203,7 +203,7 @@ mod tests {
         );
     }
     #[tokio::test]
-    #[ignore = "subprocess fixture for the durable curiosity allowance test"]
+    #[ignore = "subprocess fixture, not a test: concurrent_claims_survive_reconnect_and_roll_over_by_day starts it"]
     async fn restarted_process_observes_exhausted_allowance() {
         let day: NaiveDate = std::env::var("MYRIAD_CURIOSITY_PROBE_DAY")
             .expect("parent test required")

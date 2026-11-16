@@ -129,9 +129,10 @@ fn holds(text: &str) -> Option<(String, String)> {
 /// moment, already known, kept in a fact that could not be written, and a
 /// stretch that failed on the way and was gone over again.
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn every_note_has_somewhere_to_go_once_its_stretch_is_gone_over() {
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     note(db, "在学日语", "chat").await;
     for text in [
@@ -213,10 +214,11 @@ async fn every_note_has_somewhere_to_go_once_its_stretch_is_gone_over() {
 /// notes only they were put together from are passed over, so kept as they
 /// are, as going over keeps any note it passes over. None is let go.
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn notes_of_a_fact_past_the_most_kept_are_kept_as_they_are() {
     use crate::services::channel_group::g0;
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     let said = [
         "我在学吉他",

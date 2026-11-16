@@ -700,13 +700,13 @@ mod delivery_db_tests {
     /// Connect to `MYRIAD_RUNTIME_ISOLATION_TEST_DB` inside a fresh UUID schema.
     async fn isolated_db(
         prefix: &str,
-    ) -> (
+    ) -> Option<(
         sea_orm::DatabaseConnection,
         sea_orm::DatabaseConnection,
         String,
-    ) {
+    )> {
         use sea_orm::{ConnectOptions, ConnectionTrait, Database};
-        let url = std::env::var("MYRIAD_RUNTIME_ISOLATION_TEST_DB").unwrap();
+        let url = crate::db::test_url(&["MYRIAD_RUNTIME_ISOLATION_TEST_DB"])?;
         let admin = Database::connect(&url).await.unwrap();
         let schema_name = format!("{prefix}_{}", uuid::Uuid::new_v4().simple());
         let turn = crate::db::SCHEMA_WORK
@@ -739,7 +739,7 @@ mod delivery_db_tests {
         )
         .await
         .unwrap();
-        (admin, db, schema_name)
+        Some((admin, db, schema_name))
     }
 
     async fn drop_schema(admin: &sea_orm::DatabaseConnection, schema_name: &str) {
@@ -794,9 +794,10 @@ mod delivery_db_tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires a disposable MYRIAD_RUNTIME_ISOLATION_TEST_DB"]
     async fn delivery_targets_live_subscribed_presence_only() {
-        let (admin, db, schema_name) = isolated_db("events").await;
+        let Some((admin, db, schema_name)) = isolated_db("events").await else {
+            return;
+        };
         let live = crate::clock::now().timestamp() + 600;
         let topic = "tapp.com.example.events.changed";
         let subscribed = HashSet::from([topic.to_string()]);
@@ -849,9 +850,10 @@ mod delivery_db_tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires a disposable MYRIAD_RUNTIME_ISOLATION_TEST_DB"]
     async fn instance_delivery_surfaces_presence_errors() {
-        let (admin, db, schema_name) = isolated_db("events_err").await;
+        let Some((admin, db, schema_name)) = isolated_db("events_err").await else {
+            return;
+        };
         db.execute_unprepared(&format!(
             "INSERT INTO runtime_registry (namespace, record_id, subject_id, payload, expires_at)
              VALUES ('{EVENT_PRESENCE_NAMESPACE}', 'rt_bad', 7, '\"garbage\"'::jsonb, {})",

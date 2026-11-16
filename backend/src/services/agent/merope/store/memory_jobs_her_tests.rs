@@ -30,9 +30,10 @@ async fn her(db: &DatabaseConnection) {
 /// changed: the same her. What they say after is noted as hers, so her
 /// edited later lets nothing go either.
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn her_copy_born_meanwhile_lets_no_memory_job_go() {
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     persona(db).await;
     chat(db, "line", Audience::private(7)).await;
@@ -72,9 +73,10 @@ async fn her_copy_born_meanwhile_lets_no_memory_job_go() {
 /// drawn noting how it goes): she is the same her, and what the line left
 /// is kept.
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn editing_her_lets_no_memory_job_go() {
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     her(db).await;
     chat(db, "line", Audience::private(7)).await;
@@ -101,9 +103,10 @@ async fn editing_her_lets_no_memory_job_go() {
 /// while a line is being gone over: it is let go. Her cleared: every job
 /// is.
 #[tokio::test]
-#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
 async fn another_her_or_her_cleared_lets_the_jobs_go() {
-    let schema = fixture().await;
+    let Some(schema) = fixture().await else {
+        return;
+    };
     let db = &schema.db;
     her(db).await;
     chat(db, "line", Audience::private(7)).await;
