@@ -18,7 +18,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Get project root (scripts/ -> repo root)
-$projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$projectRoot = Convert-Path (Join-Path $PSScriptRoot "..")
 $devUpdaterDir = Join-Path $projectRoot ".dev-updater"
 $devUpdaterTokenDefault = "9xQ3vN8mP2rT5wY7zA1bC4dF6hJ8kL0n"
 $devUpdaterGatewaySecretDefault = "dev-updater-gateway-secret-32chars!!"
@@ -310,7 +310,7 @@ CHANNEL=stable
 CHECK_INTERVAL_SECS=0
 "@
     # 显式 UTF-8 无 BOM：PS5.1 的 Set-Content -Encoding UTF8 写 BOM、pwsh7 不写，
-    # .env / docker-compose.yml 不吃 BOM，必须固定为无 BOM（NewCosmos 同款写法）。
+    # .env / docker-compose.yml 不吃 BOM，必须固定为无 BOM。
     [System.IO.File]::WriteAllText((Join-Path $devUpdaterDir ".env"), $envText + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
 
     $guardEnvText = @"

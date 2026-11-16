@@ -1,5 +1,5 @@
 ﻿<#
-  编码规范检查脚本（报告式，防回潮；与 check_standards.ps1 同风格）
+  编码规范检查脚本（报告式，防回潮）
 
   背景（根因，勿绕过）：Windows PowerShell 5.1 解析 .ps1 只认 BOM——有 BOM 按 UTF-8，
   无 BOM 一律按系统 ANSI（中文机 GBK/CP936）解码；chcp/$OutputEncoding 救不了，因为
@@ -19,11 +19,10 @@
                 读纯 ASCII 文件属可接受误报）
 
   用法：
-    powershell -File deploy\check_encoding.ps1                 # NewCosmosCode 全量报告
-    powershell -File scripts\check_encoding.ps1                # myriad 全量报告
-    powershell -File deploy\check_encoding.ps1 -Category BOM   # 只查 BOM
-    powershell -File deploy\check_encoding.ps1 -Root D:\some\dir
-  -Root 默认 = 脚本所在目录的上一级（deploy\ / scripts\ → 仓库根）。
+    powershell -File scripts\check_encoding.ps1                 # 全量报告
+    powershell -File scripts\check_encoding.ps1 -Category BOM   # 只查 BOM
+    powershell -File scripts\check_encoding.ps1 -Root D:\some\dir
+  -Root 默认 = 仓库根（脚本所在目录的上一级）；相对路径按当前 PowerShell 位置解析。
   本脚本自身按 UTF-8 with BOM 保存，避免成为自己报的违规。
 #>
 [CmdletBinding()]
@@ -34,12 +33,14 @@ param(
 )
 
 if (-not $Root) { $Root = Split-Path $PSScriptRoot -Parent }
-$Root = [System.IO.Path]::GetFullPath($Root).TrimEnd('\')
 if (-not (Test-Path -LiteralPath $Root)) { Write-Error "Root 不存在: $Root"; exit 2 }
+# Convert-Path 按 PowerShell 的当前位置解析相对路径（.NET 的 GetFullPath 按进程目录）
+$Root = (Convert-Path -LiteralPath $Root).TrimEnd('\')
 
-$excludeRe = '\\(node_modules|\.git|bin|obj|backup|publish|dist|\.opencode)\\'
+# 只看 Root 以下的相对路径：仓库本身放在 D:\backup\ 之类目录下时不会被整个排除
+$excludeRe = '\\(node_modules|target|\.git|bin|obj|backup|publish|dist|\.opencode)\\'
 $files = @(Get-ChildItem -Path $Root -Recurse -File -Include *.ps1,*.psm1,*.psd1 -ErrorAction SilentlyContinue |
-    Where-Object { $_.FullName -notmatch $excludeRe })
+    Where-Object { $_.FullName.Substring($Root.Length) -notmatch $excludeRe })
 
 $bomIssues = [System.Collections.Generic.List[string]]::new()
 $encIssues = [System.Collections.Generic.List[string]]::new()
