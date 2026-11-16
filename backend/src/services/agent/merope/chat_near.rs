@@ -222,39 +222,81 @@ pub(crate) async fn nearest(
         .collect()
 }
 
+/// Requests for vectors one [`rebuild`] makes at most: a whole talk read
+/// back ([`LATEST`]) in requests of [`FILL_PER_ASK`], and a little over.
+const REBUILD_ASKS: usize = LATEST as usize / FILL_PER_ASK + 2;
+
+/// Lines (by model, id and the text embedded) the model in use gave no
+/// vector, so not asked again while the process runs: a line it cannot
+/// embed would otherwise be asked for on every turn.
+static NOT_GIVEN: std::sync::LazyLock<std::sync::Mutex<HashSet<(String, i32, String)>>> =
+    std::sync::LazyLock::new(Default::default);
+
+fn not_given(model: &str, id: i32, digest: &str) -> bool {
+    NOT_GIVEN
+        .lock()
+        .is_ok_and(|not_given| not_given.contains(&(model.to_string(), id, digest.to_string())))
+}
+
+/// What one [`fill`] did: lines given a vector, and how many were still
+/// without one (and not left as given none) before it asked.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Filled {
+    pub(crate) given: usize,
+    pub(crate) missing: usize,
+}
+
 /// Gives a vector to up to [`FILL_PER_ASK`] lines of `user_id`'s private
 /// chat still without one under the model in use, newest first, in one
-/// request. How many were given one.
-pub(crate) async fn fill(db: &DatabaseConnection, user_id: i32) -> usize {
+/// request. A line the model gives no vector (an empty one) is left out
+/// from then on in this process ([`NOT_GIVEN`]).
+pub(crate) async fn fill(db: &DatabaseConnection, user_id: i32) -> Filled {
     let Some(model) = meaning::model_in_use().await else {
-        return 0;
+        return Filled::default();
     };
     let lines = private_lines(db, user_id, LATEST).await;
     let kept = kept(db, &model, &lines).await;
-    let mut missing: Vec<(i32, String)> = Vec::new();
-    let mut chars = 0;
-    for line in lines
+    let without: Vec<(i32, String)> = lines
         .iter()
         .rev()
         .filter(|line| !kept.contains_key(&line.id))
-    {
-        let text = shown(&line.content);
+        .map(|line| (line.id, shown(&line.content)))
+        // Nothing to embed is never asked for (`private_lines` leaves out
+        // what is empty; this holds whatever it becomes as shown).
+        .filter(|(id, text)| {
+            !text.trim().is_empty() && !not_given(&model, *id, &meaning::digest(text))
+        })
+        .collect();
+    let mut filled = Filled {
+        given: 0,
+        missing: without.len(),
+    };
+    let mut missing: Vec<(i32, String)> = Vec::new();
+    let mut chars = 0;
+    for (id, text) in without {
         let length = text.chars().count();
         if missing.len() >= FILL_PER_ASK || (!missing.is_empty() && chars + length > FILL_CHARS) {
             break;
         }
         chars += length;
-        missing.push((line.id, text));
+        missing.push((id, text));
     }
     if missing.is_empty() {
-        return 0;
+        return filled;
     }
     let texts: Vec<String> = missing.iter().map(|(_, text)| text.clone()).collect();
     let Some((model, vectors)) = meaning::embed_to_keep(&texts, FILL_WITHIN).await else {
-        return 0;
+        return filled;
     };
-    let mut given = 0;
     for ((id, text), vector) in missing.iter().zip(vectors) {
+        // No vector (or one that could not be read back) is not kept, and
+        // the line is not asked for again.
+        if vector.is_empty() || vector.iter().any(|value| !value.is_finite()) {
+            if let Ok(mut not_given) = NOT_GIVEN.lock() {
+                not_given.insert((model.clone(), *id, meaning::digest(text)));
+            }
+            continue;
+        }
         // A line deleted meanwhile takes nothing: the row it would rest on
         // is gone.
         let stored = db
@@ -275,27 +317,48 @@ pub(crate) async fn fill(db: &DatabaseConnection, user_id: i32) -> usize {
             ))
             .await;
         match stored {
-            Ok(done) if done.rows_affected() > 0 => given += 1,
+            Ok(done) if done.rows_affected() > 0 => filled.given += 1,
             Ok(_) => {}
             Err(error) => tracing::warn!(%error, "[chat-near] a line's vector not kept"),
         }
     }
-    given
+    filled
 }
 
 /// Gives every line of `user_id`'s private chat a vector, as many
 /// requests as it takes: what an end that becomes where she is runs, the
-/// lines it has being all it needs. How many were given one; it stops at
-/// the first request that gives none.
+/// lines it has being all it needs. How many were given one. It stops when
+/// none is left without, at a request that gives none, at one after which
+/// no fewer are left without (whatever it says it stored), and after
+/// [`REBUILD_ASKS`] requests; stopped short, one line with the counts.
 pub(crate) async fn rebuild(db: &DatabaseConnection, user_id: i32) -> usize {
     let mut given = 0;
-    loop {
-        let more = fill(db, user_id).await;
-        if more == 0 {
+    let mut before: Option<usize> = None;
+    for _ in 0..REBUILD_ASKS {
+        let filled = fill(db, user_id).await;
+        if filled.missing == 0 {
             return given;
         }
-        given += more;
+        if before.is_some_and(|before| filled.missing >= before) {
+            tracing::warn!(
+                missing = filled.missing,
+                given,
+                "[chat-near] lines left without a vector: no fewer after a request"
+            );
+            return given;
+        }
+        given += filled.given;
+        if filled.given == 0 {
+            return given;
+        }
+        before = Some(filled.missing);
     }
+    tracing::warn!(
+        asks = REBUILD_ASKS,
+        given,
+        "[chat-near] lines left without a vector: as many requests as one rebuild makes"
+    );
+    given
 }
 
 /// Whether lines are being given vectors behind a reply now.

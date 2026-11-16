@@ -77,9 +77,9 @@ async fn only_their_own_private_chat_is_found() {
     let read: Vec<&str> = lines.iter().map(|line| line.content.as_str()).collect();
     assert_eq!(read, [said[0], said[1]], "only their private chat is read");
 
-    assert_eq!(fill(db, OWNER).await, 2);
+    assert_eq!(fill(db, OWNER).await.given, 2);
     assert_eq!(
-        fill(db, OWNER).await,
+        fill(db, OWNER).await.given,
         0,
         "a line given a vector is not asked again"
     );
@@ -184,7 +184,7 @@ async fn forgetting_a_line_takes_its_vector() {
         let role = if index % 2 == 0 { "user" } else { "assistant" };
         ids.push(line(db, "mine", role, text, 60 - index as i32 * 5, None).await);
     }
-    assert_eq!(fill(db, OWNER).await, 5);
+    assert_eq!(fill(db, OWNER).await.given, 5);
     let vectors = |id: i32| {
         format!("SELECT COUNT(*) AS n FROM agent_message_embeddings WHERE message_id = {id}")
     };
@@ -231,7 +231,7 @@ async fn forgetting_a_line_takes_its_vector() {
     // The account gone, every vector with it.
     let last = line(db, "mine", "user", "还有一句", 1, None).await;
     g0::with(|world| world.vectors.insert("还有一句".into(), vec![1.0, 0.0, 0.0]));
-    assert_eq!(fill(db, OWNER).await, 1);
+    assert_eq!(fill(db, OWNER).await.given, 1);
     assert_eq!(count(db, &vectors(last)).await, 1);
     db.execute_unprepared("DELETE FROM users WHERE id = 1")
         .await
@@ -272,4 +272,64 @@ fn found_by_meaning_sits_beside_what_words_found() {
     let all = beside(found, near);
     let read: Vec<&str> = all.iter().map(|(_, _, text)| text.as_str()).collect();
     assert_eq!(read, ["更早的一句", "第一步 / 第二步 / 第三步", "好的"]);
+}
+
+/// A line with nothing to embed is never asked for, and a whole rebuild
+/// ends with every other line given a vector.
+#[tokio::test]
+async fn nothing_empty_is_asked_for_and_a_rebuild_ends() {
+    let Some(schema) = schema("chat_near_empty").await else {
+        return;
+    };
+    let db = &schema.db;
+    // Only the line with words has a vector: asked for anything empty, the
+    // model answers none and the whole request comes back without vectors.
+    meaning_alike(&["我在学吉他"], "吉他");
+    session(db, "mine", OWNER, Some(r#"{"mode":"chat"}"#), false).await;
+    line(db, "mine", "user", "我在学吉他", 30, None).await;
+    line(db, "mine", "assistant", "", 25, None).await;
+    line(db, "mine", "user", "  \n ", 20, None).await;
+    let given = tokio::time::timeout(std::time::Duration::from_secs(20), rebuild(db, OWNER))
+        .await
+        .expect("a rebuild ends");
+    assert_eq!(given, 1);
+    assert_eq!(
+        count(db, "SELECT COUNT(*) AS n FROM agent_message_embeddings").await,
+        1
+    );
+    assert_eq!(fill(db, OWNER).await, Filled::default(), "nothing left");
+    g0::leave();
+    schema.drop().await;
+}
+
+/// A line the model gives no vector (an empty one) is not kept, ends the
+/// rebuild rather than being asked for again and again, and is not asked
+/// for again by the next turn.
+#[tokio::test]
+async fn a_line_given_no_vector_ends_the_rebuild() {
+    let Some(schema) = schema("chat_near_no_vector").await else {
+        return;
+    };
+    let db = &schema.db;
+    meaning_alike(&["我的猫叫团子"], "猫");
+    g0::with(|world| world.vectors.insert("哈哈".into(), Vec::new()));
+    session(db, "mine", OWNER, Some(r#"{"mode":"chat"}"#), false).await;
+    line(db, "mine", "user", "我的猫叫团子", 30, None).await;
+    line(db, "mine", "user", "哈哈", 25, None).await;
+    let given = tokio::time::timeout(std::time::Duration::from_secs(20), rebuild(db, OWNER))
+        .await
+        .expect("a rebuild ends");
+    assert_eq!(given, 1);
+    assert_eq!(
+        count(db, "SELECT COUNT(*) AS n FROM agent_message_embeddings").await,
+        1,
+        "no vector is kept for it"
+    );
+    assert_eq!(
+        fill(db, OWNER).await,
+        Filled::default(),
+        "it is not asked for again"
+    );
+    g0::leave();
+    schema.drop().await;
 }
