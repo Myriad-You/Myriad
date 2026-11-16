@@ -145,6 +145,33 @@ impl Trail {
     }
 }
 
+/// An answer going over a stretch that could not be read, kept as it came
+/// with why (`MEROPE_MEMORY_BENCH_UNREAD_SETTLE=<jsonl>`, bench only): not
+/// JSON, or JSON without `lasting` or `replaces` as lists.
+pub(super) fn keep_unread(raw: &str) {
+    let Some(path) = std::env::var_os("MEROPE_MEMORY_BENCH_UNREAD_SETTLE") else {
+        return;
+    };
+    let answer = serde_json::from_str::<Value>(myriad_merope::chat_remember::strip_json_fence(raw));
+    let list = |answer: &Value, field: &str| answer.get(field).is_some_and(Value::is_array);
+    let why = match &answer {
+        Err(_) => "not json",
+        Ok(answer) if !list(answer, "lasting") => "no lasting",
+        Ok(answer) if !list(answer, "replaces") => "no replaces",
+        Ok(_) => "other",
+    };
+    let line = json!({ "why": why, "raw": raw }).to_string() + "\n";
+    use std::io::Write;
+    if let Err(error) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|mut file| file.write_all(line.as_bytes()))
+    {
+        eprintln!("unread answer not kept: {error}");
+    }
+}
+
 /// What she keeps of them for good here now, as going over writes it.
 async fn held(
     db: &sea_orm::DatabaseConnection,

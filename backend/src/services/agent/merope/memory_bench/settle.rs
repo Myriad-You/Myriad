@@ -137,30 +137,46 @@ async fn settle_session(
         "topics": super::super::chat_remember::settle::shown_topics(&offered),
     })
     .to_string();
-    let Ok(raw) = judge
-        .analyze_json(
-            &myriad_merope::chat_remember::settle_system_prompt(
-                &known,
-                myriad_merope::chat_remember::Examples::for_words(&theirs),
-            ),
-            &input,
-            myriad_merope::chat_remember::SETTLE_SCHEMA_NAME,
-            Some(&myriad_merope::chat_remember::settle_schema()),
-        )
-        .await
-        .inspect_err(|error| eprintln!("bench call failed: settling: {error:#}"))
-    else {
-        trail.all_went("going over failed");
-        return (Vec::new(), Vec::new(), Vec::new());
-    };
-    let Some((kept, replaces)) = myriad_merope::chat_remember::parse_settle(
-        &raw,
-        &theirs,
-        &known,
-        notes.len(),
-        offered.len(),
-    ) else {
-        trail.all_went("going over not read");
+    // Tried again as production tries a stretch again, an unreadable answer
+    // too, as many times.
+    let mut read = None;
+    let mut went = "going over failed";
+    for _ in 0..super::super::store::memory_jobs::MAX_ATTEMPTS {
+        let Ok(raw) = judge
+            .analyze_json(
+                &myriad_merope::chat_remember::settle_system_prompt(
+                    &known,
+                    myriad_merope::chat_remember::Examples::for_words(&theirs),
+                ),
+                &input,
+                myriad_merope::chat_remember::SETTLE_SCHEMA_NAME,
+                Some(&myriad_merope::chat_remember::settle_schema()),
+            )
+            .await
+            .inspect_err(|error| eprintln!("bench call failed: settling: {error:#}"))
+        else {
+            went = "going over failed";
+            continue;
+        };
+        match myriad_merope::chat_remember::parse_settle(
+            &raw,
+            &theirs,
+            &known,
+            notes.len(),
+            offered.len(),
+        ) {
+            Some(answer) => {
+                read = Some((raw, answer));
+                break;
+            }
+            None => {
+                super::note_trail::keep_unread(&raw);
+                went = "going over not read";
+            }
+        }
+    }
+    let Some((raw, (kept, replaces))) = read else {
+        trail.all_went(went);
         return (Vec::new(), Vec::new(), Vec::new());
     };
     let left = myriad_merope::chat_remember::settle_left(&raw, &kept, notes.len());
