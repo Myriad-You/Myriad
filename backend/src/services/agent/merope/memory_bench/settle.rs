@@ -4,51 +4,37 @@
 
 use super::*;
 
-/// What one of their lines leaves, taken as production takes it but not
+/// What one of their lines leaves, taken by production's own extraction
+/// (`chat_remember::extract`: what she already has and what they told her
+/// last shown, then checked against what she has but was not shown) but not
 /// kept: a short note, in the settle way.
 async fn note_turn(
     db: &sea_orm::DatabaseConnection,
-    judge: &crate::services::analyzer::AiAnalyzer,
     user_id: i32,
     present: &Audience,
     text: &str,
     reply: &str,
     at: chrono::DateTime<chrono::FixedOffset>,
 ) -> Option<super::super::chat_remember::ChatMemoryUpdates> {
-    let (existing, _) = super::super::store::recall_remembered_primed(
+    use super::super::memory_jobs::Effect;
+    match super::super::chat_remember::extract(
         db,
         user_id,
-        present,
-        Some(text),
-        8,
-        &Priming::default(),
-        1.0,
-    )
-    .await
-    .ok()?;
-    if !super::super::chat_remember::should_extract_chat_remember_against(text, &existing) {
-        return None;
-    }
-    let input = super::super::chat_remember::extract_input(
         text,
         reply,
+        at,
+        present,
         &super::super::TurnContext::default(),
-        at.with_timezone(&super::super::clock::zone()),
-    );
-    let raw = judge
-        .analyze_json(
-            &myriad_merope::chat_remember::extract_system_prompt(
-                &existing,
-                myriad_merope::chat_remember::Examples::for_words(text),
-            ),
-            &input,
-            myriad_merope::chat_remember::EXTRACT_SCHEMA_NAME,
-            Some(&myriad_merope::chat_remember::extract_schema()),
-        )
-        .await
-        .inspect_err(|error| eprintln!("bench call failed: noting: {error:#}"))
-        .ok()?;
-    super::super::chat_remember::parse_chat_memory_updates(&raw, text, reply, &existing)
+    )
+    .await
+    {
+        Ok(Effect::Chat(updates)) => Some(updates),
+        Ok(_) => None,
+        Err(error) => {
+            eprintln!("bench call failed: noting: {error:?}");
+            None
+        }
+    }
 }
 
 /// A line that only takes something back, saying nothing new, let go at
@@ -289,7 +275,7 @@ pub(super) async fn over_time(
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ");
-        let Some(updates) = note_turn(db, judge, user_id, present, &text, reply, at).await else {
+        let Some(updates) = note_turn(db, user_id, present, &text, reply, at).await else {
             continue;
         };
         let_go(db, user_id, present, at, &updates).await;
@@ -367,8 +353,7 @@ pub(super) async fn go_over(
             if text.chars().count() > 2_000 {
                 continue;
             }
-            let Some(updates) = note_turn(db, judge, user_id, present, &text, reply, at).await
-            else {
+            let Some(updates) = note_turn(db, user_id, present, &text, reply, at).await else {
                 continue;
             };
             let_go(db, user_id, present, at, &updates).await;
