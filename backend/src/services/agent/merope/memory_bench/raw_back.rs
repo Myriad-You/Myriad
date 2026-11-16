@@ -7,6 +7,9 @@
 //!
 //! Unlike the look back, the latest talk is not left out: the bench shows
 //! none of it in front of her.
+//!
+//! `MEROPE_MEMORY_BENCH_RAW_WHEN` searches it only when recall was weak
+//! (see [`weak_enough`]).
 
 use myriad_merope::remembering::Who;
 
@@ -29,6 +32,73 @@ pub(super) fn raw_arm() -> Option<usize> {
 /// it, none.
 pub(super) fn raw_way() -> Option<usize> {
     RAW.try_with(|found| *found).ok()
+}
+
+/// `MEROPE_MEMORY_BENCH_RAW_WHEN`: when the raw arm searches the raw chat.
+/// Unset, every time. `none`: only when recall found nothing by what they
+/// said, every line it ranked only filling the room as recent context.
+/// `filling`: also when it found too little to fill the room, so recent
+/// context filled the rest. Both read what recall itself marks
+/// ([`crate::services::agent::merope::store::Recalled::recent`]): no
+/// threshold of the bench's own.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum When {
+    Always,
+    FoundNothing,
+    Filling,
+}
+
+fn when() -> When {
+    match std::env::var("MEROPE_MEMORY_BENCH_RAW_WHEN").as_deref() {
+        Ok("none") => When::FoundNothing,
+        Ok("filling") => When::Filling,
+        Ok("") | Err(_) => When::Always,
+        Ok(other) => panic!("MEROPE_MEMORY_BENCH_RAW_WHEN is none or filling, not {other}"),
+    }
+}
+
+/// Whether the raw arm searches the raw chat this time, by how much
+/// recall found; said in the log, for how often each way would.
+pub(super) fn weak_enough(id: &str, recall: super::answering::Found) -> bool {
+    let weak = weak_by(when(), recall);
+    eprintln!(
+        "raw gate {id}: found {} filling {} | nothing {} | filling {} -> {weak}",
+        recall.found,
+        recall.filling,
+        weak_by(When::FoundNothing, recall),
+        weak_by(When::Filling, recall),
+    );
+    weak
+}
+
+fn weak_by(when: When, recall: super::answering::Found) -> bool {
+    match when {
+        When::Always => true,
+        When::FoundNothing => recall.found == 0,
+        When::Filling => recall.found == 0 || recall.filling > 0,
+    }
+}
+
+#[test]
+fn the_raw_chat_is_searched_as_weak_recall_says() {
+    use super::answering::Found;
+    let nothing = Found {
+        found: 0,
+        filling: 8,
+    };
+    let some = Found {
+        found: 3,
+        filling: 5,
+    };
+    let full = Found {
+        found: 8,
+        filling: 0,
+    };
+    let empty = Found::default();
+    let by = |when| [nothing, some, full, empty].map(|recall| weak_by(when, recall));
+    assert_eq!(by(When::Always), [true, true, true, true]);
+    assert_eq!(by(When::FoundNothing), [true, false, false, true]);
+    assert_eq!(by(When::Filling), [true, true, false, true]);
 }
 
 /// At most this many texts to one embedding call, and about this many

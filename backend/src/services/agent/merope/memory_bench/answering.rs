@@ -16,13 +16,37 @@ pub(super) async fn recalled_for(
     cues: Option<&myriad_merope::remembering::Cues>,
     thorough: usize,
 ) -> (Vec<String>, Option<String>) {
-    let (recalled, listed, _) =
+    let (recalled, listed, _, _) =
         recalled_and_resident(db, question, user_id, present, cues, thorough).await;
     (recalled, listed)
 }
 
+/// Of what recall ranked, how many lines something they said found (by
+/// its words or its meaning), and how many only filled the room as recent
+/// context ([`crate::services::agent::merope::store::Recalled::recent`]).
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct Found {
+    pub(super) found: usize,
+    pub(super) filling: usize,
+}
+
+impl Found {
+    fn of(recalled: &crate::services::agent::merope::store::Recalled) -> Self {
+        let filling = recalled
+            .named
+            .iter()
+            .filter(|line| recalled.recent.contains(line))
+            .count();
+        Self {
+            found: recalled.named.len() - filling,
+            filling,
+        }
+    }
+}
+
 /// [`recalled_for`], with how their life stands as production shows it
-/// every time in a private talk (`Recollection::resident`): not recalled.
+/// every time in a private talk (`Recollection::resident`): not recalled;
+/// and how much of what recall ranked something they said found.
 async fn recalled_and_resident(
     db: &sea_orm::DatabaseConnection,
     question: &Question,
@@ -30,7 +54,7 @@ async fn recalled_and_resident(
     present: &Audience,
     cues: Option<&myriad_merope::remembering::Cues>,
     thorough: usize,
-) -> (Vec<String>, Option<String>, Vec<String>) {
+) -> (Vec<String>, Option<String>, Vec<String>, Found) {
     // The control that only recalls more, when asked for.
     let wider = wider();
     let (more, thorough_more) = ((wider - 1) * RECALLED, (wider - 1) * thorough);
@@ -54,6 +78,7 @@ async fn recalled_and_resident(
         let nodes = super::super::memory_nodes::context::load(db, user_id, now).await;
         match (ranked, nodes) {
             (Ok((recalled, _)), Ok(nodes)) => {
+                let found = Found::of(&recalled);
                 // Wider, her nodes bring as many times more too: else the
                 // nodes, three of three entries, hold it near what it was.
                 let recollection = super::super::memory_nodes::recall::recollect_times(
@@ -71,7 +96,7 @@ async fn recalled_and_resident(
                     .chain(recalled.brought_to_mind.iter().cloned())
                     .collect();
                 widened(&mut lines, &recalled, cues, more, thorough_more);
-                return (lines, recollection.listed, recollection.resident);
+                return (lines, recollection.listed, recollection.resident, found);
             }
             (_, Err(error)) => eprintln!("bench call failed: reading her nodes: {error:#}"),
             _ => {}
@@ -91,19 +116,23 @@ async fn recalled_and_resident(
     )
     .await
     .map(|(recalled, _)| {
+        let found = Found::of(&recalled);
         // Going through all of it, as production shows it: with their words.
         let named = if cues.is_some_and(|cues| cues.thorough) {
             recalled.with_their_words()
         } else {
             recalled.named
         };
-        named
-            .into_iter()
-            .chain(recalled.brought_to_mind)
-            .collect::<Vec<_>>()
+        (
+            named
+                .into_iter()
+                .chain(recalled.brought_to_mind)
+                .collect::<Vec<_>>(),
+            found,
+        )
     })
     .unwrap_or_default();
-    (named, None, Vec::new())
+    (named.0, None, Vec::new(), named.1)
 }
 
 /// `MEROPE_MEMORY_BENCH_STANDING=<file>` (question id to lines): how things
@@ -382,7 +411,7 @@ pub(super) async fn answer_one(
     back_when_thorough: bool,
     answering: &[String],
 ) -> Answered {
-    let (mut recalled, listed, resident) =
+    let (mut recalled, listed, resident, recall_found) =
         recalled_and_resident(db, question, user_id, present, cues, thorough).await;
     let standing = standing_of(&question.question_id).unwrap_or(resident);
     // The way production answers is held to the length another run
@@ -457,7 +486,10 @@ pub(super) async fn answer_one(
     };
     // The raw-chat arm: the raw chat searched every time as well, whatever
     // the cues said, beside what the look back found.
-    let found = match super::raw_back::raw_way().filter(|_| !present.is_group()) {
+    let found = match super::raw_back::raw_way()
+        .filter(|_| !present.is_group())
+        .filter(|_| super::raw_back::weak_enough(&question.question_id, recall_found))
+    {
         Some(way) => super::raw_back::with_raw(db, user_id, &question.question, way, found).await,
         None => found,
     };
