@@ -30,6 +30,12 @@
 //! - Editing her (name, personality, zone, looks) and portrait or avatar
 //!   generation noting how it goes leave her the same her: nothing is let
 //!   go for them.
+//! - A device's her merged into hers on the site (`persona_sync::merge`):
+//!   she is still the her the site has, with more to her, and the lineage
+//!   stays. Nothing she was told on the site before is let go: while the
+//!   merge lands she is frozen, which is her being off (putting by), and
+//!   what was waiting is gone over after, into the merged her. Letting the
+//!   queue go there would leave those notes with no stretch to keep them.
 
 use sea_orm::ConnectionTrait;
 
@@ -181,6 +187,14 @@ pub(super) fn bring_along(job: &mut Job) {
         });
         job.unread_times = 0;
         *from = (*from).min(unread);
+    }
+}
+
+/// The stretch `job` holds is over (gone over, let go, or out of tries):
+/// counted once when it brought notes along. Not as it is taken up, so a
+/// stretch put back and taken up again is not counted twice.
+pub(super) fn over(job: &Job) {
+    if job.brought.is_some() {
         counted(&BROUGHT_ALONG, 1);
     }
 }

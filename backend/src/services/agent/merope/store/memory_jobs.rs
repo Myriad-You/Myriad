@@ -395,6 +395,7 @@ pub(in crate::services::agent::merope) async fn claim(
             // A process may die on its final attempt. Retire just its first
             // batch; exchanges appended meanwhile still deserve a turn.
             let count = job.claimed_count;
+            settling::over(&job);
             // Only while what it was taken up under still holds.
             if matches!(job.data, Some(Payload::Settle { .. })) && current(&tx, &job, true).await? {
                 settling::leave_unread(&tx, &mut job).await?;
@@ -553,6 +554,7 @@ pub(in crate::services::agent::merope) async fn finish(
             job.outcome = Some(outcome.clone());
         }
         result => {
+            settling::over(&job);
             outcome = match result {
                 Ok(Effect::Chat(update)) => {
                     let Some(Payload::Chat {
