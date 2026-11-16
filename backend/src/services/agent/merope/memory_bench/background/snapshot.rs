@@ -234,13 +234,15 @@ pub(in super::super) async fn restore(url: &str, snapshot: &str) -> crate::db::I
         .execute_unprepared("SET LOCAL session_replication_role = replica")
         .await
         .unwrap();
-    // What the migrations seeded makes way for what the snapshot has.
+    // What the migrations seeded makes way for what the snapshot has; a
+    // table newer than the snapshot that rests on one of its tables (each
+    // message's vector on the message) goes with it, empty here as yet.
     let all: Vec<String> = tables
         .iter()
         .map(|table| format!("\"{to}\".\"{table}\""))
         .collect();
     transaction
-        .execute_unprepared(&format!("TRUNCATE {}", all.join(", ")))
+        .execute_unprepared(&format!("TRUNCATE {} CASCADE", all.join(", ")))
         .await
         .unwrap();
     for table in &tables {

@@ -630,6 +630,13 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .execute_unprepared(include_str!("memory_cues.sql"))
             .await?;
 
+        // 私聊每句话的向量，跟着那句话删。schema_check::ensure_message_embeddings_table
+        // 跑同一份文件。
+        manager
+            .get_connection()
+            .execute_unprepared(include_str!("message_embeddings.sql"))
+            .await?;
+
         // 她在主机上的节点：子机告诉她的事、她怎么看，按节点记下，带只追加的日志。
         // schema_check::ensure_agent_nodes_tables 跑同一份文件。
         manager
@@ -667,6 +674,7 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .execute_unprepared(
                 r#"
 DROP TABLE IF EXISTS agent_persona_field_history;
+DROP TABLE IF EXISTS agent_message_embeddings;
 DROP TABLE IF EXISTS agent_log_payloads;
 DROP TABLE IF EXISTS agent_log_rows;
 DROP TABLE IF EXISTS agent_log_object_keys;

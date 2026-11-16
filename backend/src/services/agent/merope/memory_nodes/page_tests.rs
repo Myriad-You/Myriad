@@ -411,7 +411,7 @@ async fn an_intent_they_cancel_is_dropped_and_recorded_so() {
 /// An entry citing a line of their talk (as the topics moved onto nodes
 /// cite the lines their memories came from) takes that line with it when
 /// it is deleted, even where its memory no longer finds the line by its
-/// words: the line goes as forgetting that line does.
+/// words: the line, and its vector, go as forgetting that line does.
 #[tokio::test]
 async fn an_entry_deleted_takes_the_line_it_cites() {
     let Some(schema) = owned("memory_nodes_page_forget_line").await else {
@@ -435,6 +435,12 @@ async fn an_entry_deleted_takes_the_line_it_cites() {
         .unwrap()
         .try_get("", "id")
         .unwrap();
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_message_embeddings (message_id, model, digest, vector, created_at) \
+         VALUES ({line}, 'm', 'd', '\\x00'::bytea, NOW())"
+    ))
+    .await
+    .unwrap();
     // A memory with no words of theirs kept as evidence: forgetting it
     // finds no line by its words.
     let memory = super::read_tests::memory(
@@ -493,5 +499,8 @@ async fn an_entry_deleted_takes_the_line_it_cites() {
         .unwrap();
     let lines = format!("SELECT COUNT(*) AS n FROM agent_messages WHERE id = {line}");
     assert_eq!(count(db, &lines).await, 0, "the line it cites goes");
+    let vectors =
+        format!("SELECT COUNT(*) AS n FROM agent_message_embeddings WHERE message_id = {line}");
+    assert_eq!(count(db, &vectors).await, 0, "and its vector with it");
     schema.drop().await;
 }

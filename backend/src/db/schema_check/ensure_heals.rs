@@ -133,6 +133,14 @@ pub(crate) async fn ensure_memory_cues_table(db: &DatabaseConnection) -> Result<
     Ok(())
 }
 
+/// What each private chat message means (`migrations/message_embeddings.sql`),
+/// for databases that ran 004 before it was in it. Same file as 004.
+pub(crate) async fn ensure_message_embeddings_table(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(include_str!("../../../migrations/message_embeddings.sql"))
+        .await?;
+    Ok(())
+}
+
 /// User lifecycle owned by the schema (`migrations/user_lifecycle.sql`): FK
 /// cascades for account-owned rows; for subject-keyed tables an insert-side
 /// guard plus an AFTER DELETE trigger on `users`. Unlike the federation candidates below this heal always applies:

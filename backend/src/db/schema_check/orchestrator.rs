@@ -114,7 +114,9 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// 2026.11.07.1：同实例私信每人一行：`federation_channels` 的唯一键改成
 /// `(channel_id, user_id)`，消息外键换成最后一行频道删除时的触发器
 /// （`channel_rows.sql`，随 005 与 `ensure_channel_rows` 一起建）。
-pub const SCHEMA_VERSION: &str = "2026.11.07.1";
+/// 2026.11.16.1：私聊每句话的向量 `agent_message_embeddings`，跟着那句话级联删除（随 004 与
+/// `ensure_message_embeddings_table` 一起建）。
+pub const SCHEMA_VERSION: &str = "2026.11.16.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -373,6 +375,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     ensure_persona_sync_tables(db).await?;
     ensure_persona_log_tables(db).await?;
     ensure_memory_cues_table(db).await?;
+    ensure_message_embeddings_table(db).await?;
     ensure_agent_nodes_tables(db).await?;
     ensure_speech_said_table(db).await?;
     ensure_topic_nodes_tables(db).await?;
