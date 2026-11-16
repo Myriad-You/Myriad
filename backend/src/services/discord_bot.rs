@@ -865,7 +865,8 @@ pub async fn send_photo(
 
 /// Her reply in a server channel, as a reply to the line she answers. Nobody
 /// is pinged but the one she replies to: whatever the text says, `@everyone`,
-/// roles and users are not mentions.
+/// roles and users are not mentions. With the bot off the line is refused
+/// (`Permanent`), so it is not kept as said.
 pub async fn send_group_reply(
     token: &str,
     channel_id: &str,
@@ -873,8 +874,11 @@ pub async fn send_group_reply(
     mentioned: &[String],
     reply_to: Option<&str>,
 ) -> Result<(), ConnectFailureKind> {
-    if channel_id.is_empty() || text.is_empty() || !bot_enabled().await {
+    if channel_id.is_empty() || text.is_empty() {
         return Ok(());
+    }
+    if !bot_enabled().await {
+        return Err(ConnectFailureKind::Permanent);
     }
     let content: String = text.chars().take(DISCORD_TEXT_LIMIT).collect();
     let payload = group_reply_payload(&content, mentioned, reply_to);
@@ -1205,6 +1209,19 @@ mod tests {
             "content": "hi"
         });
         assert!(discord_private_text_from_create(&missing, "99").is_none());
+    }
+
+    /// With the bot off a group line is refused before any request, so it
+    /// is not kept as said; an empty line is nothing to send.
+    #[tokio::test]
+    async fn a_group_line_with_the_bot_off_is_refused() {
+        // The bot is off by default.
+        assert_eq!(
+            send_group_reply("", "22", "hi", &[], Some("1")).await,
+            Err(ConnectFailureKind::Permanent)
+        );
+        assert_eq!(send_group_reply("", "22", "", &[], None).await, Ok(()));
+        assert_eq!(send_group_reply("", "", "hi", &[], None).await, Ok(()));
     }
 
     #[tokio::test]
