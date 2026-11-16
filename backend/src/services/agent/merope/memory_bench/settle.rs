@@ -55,12 +55,18 @@ async fn let_go(
     }
 }
 
-/// A session gone over once it is over (the settle way): which of its short
-/// notes last, put together, kept as production keeps a fact, and a note the
-/// answer passed over kept as it is. The lasting facts kept, with their
-/// evidence, which of them are notes kept as they were, and the indexes of
-/// the notes put into what is kept for good: production retires those, so
-/// they are no longer short notes.
+/// A session gone over once it is over (the settle way), as production goes
+/// over a stretch: in passes of at most production's number of notes, oldest
+/// first (`chat_remember::settle::first_pass`, `noted_at` when each note was
+/// taken), each once the one before is written, so it sees what that one
+/// kept among what she knows; each shown the lines up to where its notes
+/// end. A pass that fails ends it, as it ends production's job: the notes
+/// after it are not gone over (production brings them along with the next
+/// stretch). The lasting facts kept, with their evidence, which of them are
+/// notes kept as they were, and the indexes of the notes put into what is
+/// kept for good: production retires those, so they are no longer short
+/// notes.
+#[allow(clippy::too_many_arguments)]
 async fn settle_session(
     db: &sea_orm::DatabaseConnection,
     judge: &crate::services::analyzer::AiAnalyzer,
@@ -68,10 +74,83 @@ async fn settle_session(
     present: &Audience,
     turns: &[Turn],
     notes: &[super::super::chat_remember::ChatMemoryUpdate],
+    noted_at: &[chrono::DateTime<chrono::FixedOffset>],
     rows: &[Option<String>],
     at: chrono::DateTime<chrono::FixedOffset>,
     trail: &mut super::note_trail::Trail,
 ) -> (Vec<(String, String)>, Vec<String>, Vec<usize>) {
+    let (mut lasting, mut passed_over, mut settled) = (Vec::new(), Vec::new(), Vec::new());
+    let mut start = 0;
+    while start < notes.len() {
+        let end = start + super::super::chat_remember::settle::first_pass(&noted_at[start..]);
+        let shown = noted_at
+            .get(end)
+            .map_or(turns.len(), |rest| said_before(turns.len(), at, *rest));
+        let pass = Pass {
+            turns,
+            shown,
+            notes: &notes[start..end],
+            rows: rows.get(start..end).unwrap_or(&[]),
+            first: start,
+        };
+        let Some((kept, passed, put_away)) =
+            Box::pin(settle_pass(db, judge, user_id, present, pass, at, trail)).await
+        else {
+            break;
+        };
+        lasting.extend(kept);
+        passed_over.extend(passed);
+        settled.extend(put_away.into_iter().map(|index| index + start));
+        start = end;
+    }
+    (lasting, passed_over, settled)
+}
+
+/// Of a session's `count` turns over `at`, how many were said before
+/// `rest`: turn `index` was said `count - index` minutes before `at`, as
+/// `over_time` and `go_over` take them (and production shows a pass the
+/// lines said before the rest's first note).
+fn said_before(
+    count: usize,
+    at: chrono::DateTime<chrono::FixedOffset>,
+    rest: chrono::DateTime<chrono::FixedOffset>,
+) -> usize {
+    (0..count)
+        .take_while(|index| at - chrono::Duration::minutes((count - index) as i64) < rest)
+        .count()
+}
+
+/// One pass of [`settle_session`]: of `turns`, the first `shown`; its notes
+/// and their rows, the first of them note `first` of the session.
+struct Pass<'a> {
+    turns: &'a [Turn],
+    shown: usize,
+    notes: &'a [super::super::chat_remember::ChatMemoryUpdate],
+    rows: &'a [Option<String>],
+    first: usize,
+}
+
+/// One pass gone over: which of its short notes last, put together, kept as
+/// production keeps a fact, and a note the answer passed over kept as it
+/// is. As [`settle_session`] says, its indexes the pass's own; none when
+/// the call failed or could not be read.
+async fn settle_pass(
+    db: &sea_orm::DatabaseConnection,
+    judge: &crate::services::analyzer::AiAnalyzer,
+    user_id: i32,
+    present: &Audience,
+    pass: Pass<'_>,
+    at: chrono::DateTime<chrono::FixedOffset>,
+    trail: &mut super::note_trail::Trail,
+) -> Option<(Vec<(String, String)>, Vec<String>, Vec<usize>)> {
+    let Pass {
+        turns: all,
+        shown,
+        notes,
+        rows,
+        first,
+    } = pass;
+    let turns = &all[..shown];
     // What she knows of them for good, newest first, as many as production
     // shows beside a stretch.
     let mut known = crate::services::agent::memory::unified::active_in(
@@ -116,7 +195,7 @@ async fn settle_session(
                 id: index as i32 + 1,
                 theirs: turn.role == "user",
                 text: turn.content.clone(),
-                at: at - chrono::Duration::minutes((turns.len() - index) as i64),
+                at: at - chrono::Duration::minutes((all.len() - index) as i64),
             })
             .collect();
         let placed = placing::place(db, user_id, None, &lines).await;
@@ -141,7 +220,7 @@ async fn settle_session(
     // hard), and tried again as production tries a stretch again, an
     // unreadable answer too, as many times.
     let thorough = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
-        std::time::Duration::from_secs(60),
+        super::super::chat_remember::settle::SETTLE_TIMEOUT,
     ))
     .await
     .map(|analyzer| analyzer.with_deep_thinking());
@@ -189,11 +268,13 @@ async fn settle_session(
         }
     }
     let Some((raw, (kept, replaces))) = read else {
-        trail.all_went(went);
-        return (Vec::new(), Vec::new(), Vec::new());
+        for index in 0..notes.len() {
+            trail.went(first + index, went, None);
+        }
+        return None;
     };
     let left = myriad_merope::chat_remember::settle_left(&raw, &kept, notes.len());
-    trail_went(trail, &raw, &kept, &left, notes);
+    trail_went(trail, &raw, &kept, &left, notes, first);
     let mut settled: Vec<usize> = kept.iter().flat_map(|item| item.from.clone()).collect();
     settled.extend(&left);
     let mut lasting = Vec::new();
@@ -252,7 +333,7 @@ async fn settle_session(
         super::writing::settle_at(db, user_id, present, at, &updates, &from_rows).await;
         super::super::memory_nodes::facts::settled(db, user_id, None, present, &updates).await;
     }
-    (lasting, passed_over, settled)
+    Some((lasting, passed_over, settled))
 }
 
 /// Where going over put each note (`raw` its answer), on `trail`.
@@ -262,26 +343,27 @@ fn trail_went(
     kept: &[myriad_merope::chat_remember::Lasting],
     left: &[usize],
     notes: &[super::super::chat_remember::ChatMemoryUpdate],
+    first: usize,
 ) {
     let answer: Value = serde_json::from_str(myriad_merope::chat_remember::strip_json_fence(raw))
         .unwrap_or_default();
     for went in ["moment", "known"] {
         for index in answer[went].as_array().into_iter().flatten() {
             if let Some(index) = index.as_u64() {
-                trail.went(index as usize, went, None);
+                trail.went(first + index as usize, went, None);
             }
         }
     }
     for item in kept {
         let fact = super::super::ingest::compact_summary(&item.fact);
         for index in &item.from {
-            trail.went(*index, "lasting", Some(&fact));
+            trail.went(first + index, "lasting", Some(&fact));
         }
     }
     for index in left {
         let fact =
             super::super::ingest::compact_summary(notes[*index].fact.as_deref().unwrap_or(""));
-        trail.went(*index, "passed over, kept as it was", Some(&fact));
+        trail.went(first + index, "passed over, kept as it was", Some(&fact));
     }
 }
 
@@ -329,6 +411,7 @@ pub(super) async fn over_time(
     turns: &[Turn],
 ) -> (Vec<String>, Vec<(String, String)>, Vec<String>) {
     let mut notes: Vec<super::super::chat_remember::ChatMemoryUpdate> = Vec::new();
+    let mut noted_at = Vec::new();
     for (index, turn) in turns.iter().enumerate() {
         if turn.role != "user" {
             continue;
@@ -355,6 +438,7 @@ pub(super) async fn over_time(
                 .filter(|update| update.fact.is_some())
                 .cloned(),
         );
+        noted_at.resize(notes.len(), at);
         let hers = super::super::chat_remember::ChatMemoryUpdates {
             updates: Vec::new(),
             said: updates.said,
@@ -375,6 +459,7 @@ pub(super) async fn over_time(
         present,
         turns,
         &notes,
+        &noted_at,
         &[],
         over_at,
         &mut super::note_trail::Trail::off(),
@@ -421,6 +506,7 @@ pub(super) async fn go_over(
         let_fade(db, faded.into_iter().flat_map(|(_, ids)| ids).collect()).await;
         let mut row_of: Vec<Option<String>> = Vec::new();
         let mut notes: Vec<super::super::chat_remember::ChatMemoryUpdate> = Vec::new();
+        let mut noted_at = Vec::new();
         let mut noted: Vec<(String, bool)> = Vec::new();
         let mut short: Vec<(
             chrono::DateTime<chrono::FixedOffset>,
@@ -473,6 +559,7 @@ pub(super) async fn go_over(
                     .map(|note| (note.fact.clone().unwrap_or_default(), answer_here)),
             );
             notes.extend(taken);
+            noted_at.resize(notes.len(), at);
             short.push((at, updates, answer_here));
         }
         let over_at = session_at + chrono::Duration::minutes(turns.len() as i64);
@@ -511,7 +598,7 @@ pub(super) async fn go_over(
                 .join("\n");
             trail.notes(&noted);
             let (lasting, _, put_away) = settle_session(
-                db, judge, user_id, present, turns, &notes, &row_of, over_at, trail,
+                db, judge, user_id, present, turns, &notes, &noted_at, &row_of, over_at, trail,
             )
             .await;
             // A note put into what is kept for good is let go only for what
@@ -671,4 +758,22 @@ async fn let_fade(db: &sea_orm::DatabaseConnection, ids: Vec<String>) {
             [ids.into()],
         ))
         .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::said_before;
+
+    #[test]
+    fn a_pass_is_shown_the_turns_said_before_the_rest_begins() {
+        let session_at = chrono::DateTime::from_timestamp(1_700_000_000, 0)
+            .unwrap()
+            .fixed_offset();
+        let minute = |index: i64| session_at + chrono::Duration::minutes(index);
+        // Six turns, over at minute 6; the rest's first note was taken on
+        // the user turn at minute 4: turns 0..=3 were said before it.
+        assert_eq!(said_before(6, minute(6), minute(4)), 4);
+        assert_eq!(said_before(6, minute(6), minute(0)), 0);
+        assert_eq!(said_before(6, minute(6), minute(6)), 6);
+    }
 }

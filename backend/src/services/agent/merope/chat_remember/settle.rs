@@ -254,7 +254,9 @@ pub(in crate::services::agent::merope) async fn settle(
 /// parted, so the next pass, gone over from where its first note was taken,
 /// holds none of these; should more than that share one moment, they are
 /// gone over together.
-fn first_pass(at: &[chrono::DateTime<chrono::FixedOffset>]) -> usize {
+pub(in crate::services::agent::merope) fn first_pass(
+    at: &[chrono::DateTime<chrono::FixedOffset>],
+) -> usize {
     if at.len() <= SETTLE_NOTES {
         return at.len();
     }
