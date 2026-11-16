@@ -167,10 +167,15 @@ pub async fn warm(texts: &[String]) {
     if wanted.is_empty() {
         return;
     }
-    if let Ok(Ok(vectors)) = tokio::time::timeout(ASK_WITHIN, meaning.analyzer.embed(&wanted)).await
-    {
-        for (text, vector) in wanted.iter().zip(vectors) {
-            keep(&ASKED, &meaning.model, text, Arc::new(vector));
+    // Not answered: counted, no line of its own; the turn asks again.
+    match tokio::time::timeout(ASK_WITHIN, meaning.analyzer.embed(&wanted)).await {
+        Ok(Ok(vectors)) if !vectors.is_empty() => {
+            for (text, vector) in wanted.iter().zip(vectors) {
+                keep(&ASKED, &meaning.model, text, Arc::new(vector));
+            }
+        }
+        answered => {
+            unanswered(&WARMING, &answered);
         }
     }
 }
@@ -234,13 +239,85 @@ async fn store<C: ConnectionTrait, T: Text>(
     .map(|_| ())
 }
 
-/// Requests that failed or did not answer in time, since start: recall went
-/// by words those times.
-static FAILED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// How asking for vectors went wrong since the site started, for its status:
+/// ahead of recall, as their message and its cues come (`warming`); in recall
+/// (`recalling`: it went by words); for what was asked elsewhere (`asking`:
+/// lines by meaning, a group's doing); and filling rows still without one
+/// (`keeping`). With how many of all those did not answer in time. Counts
+/// only, never what was asked.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct Failures {
+    pub(crate) warming: u64,
+    pub(crate) recalling: u64,
+    pub(crate) asking: u64,
+    pub(crate) keeping: u64,
+    pub(crate) timed_out: u64,
+}
 
+static WARMING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static RECALLING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static ASKING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static KEEPING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static TIMED_OUT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// [`Failures`] so far.
+pub(crate) fn failures() -> Failures {
+    use std::sync::atomic::Ordering::Relaxed;
+    Failures {
+        warming: WARMING.load(Relaxed),
+        recalling: RECALLING.load(Relaxed),
+        asking: ASKING.load(Relaxed),
+        keeping: KEEPING.load(Relaxed),
+        timed_out: TIMED_OUT.load(Relaxed),
+    }
+}
+
+/// Requests that went unanswered, but for warming ahead.
 #[cfg(test)]
 pub fn failed() -> u64 {
-    FAILED.load(std::sync::atomic::Ordering::Relaxed)
+    let failures = failures();
+    failures.recalling + failures.asking + failures.keeping
+}
+
+type Answered<T> = Result<anyhow::Result<Vec<T>>, tokio::time::error::Elapsed>;
+
+/// A request gone unanswered, counted under `counter`: how (`timed_out`,
+/// `error`, `empty`).
+fn unanswered<T>(counter: &std::sync::atomic::AtomicU64, answered: &Answered<T>) -> &'static str {
+    use std::sync::atomic::Ordering::Relaxed;
+    let how = match answered {
+        Err(_) => "timed_out",
+        Ok(Err(error))
+            if error.chain().any(|cause| {
+                cause
+                    .downcast_ref::<reqwest::Error>()
+                    .is_some_and(reqwest::Error::is_timeout)
+            }) || format!("{error:#}").contains("timed out") =>
+        {
+            "timed_out"
+        }
+        Ok(Err(_)) => "error",
+        Ok(Ok(_)) => "empty",
+    };
+    counter.fetch_add(1, Relaxed);
+    if how == "timed_out" {
+        TIMED_OUT.fetch_add(1, Relaxed);
+    }
+    how
+}
+
+/// Asking for the vector of what was asked went unanswered: counted, and one
+/// line saying where (`recall`, `asked`), how and after how long. Never what
+/// was asked, nor the error's words.
+fn asked_unanswered<T>(at: &'static str, answered: &Answered<T>, took: std::time::Duration) {
+    let counter = if at == "recall" { &RECALLING } else { &ASKING };
+    let how = unanswered(counter, answered);
+    tracing::warn!(
+        at,
+        how,
+        took_ms = took.as_millis() as u64,
+        "embedding what was asked failed or timed out; recalling by words"
+    );
 }
 
 /// How close each of `rows` is to `query` in meaning, by memory id; empty
@@ -298,7 +375,10 @@ async fn embed_and_keep<C: ConnectionTrait, T: Text>(
                 vectors.insert(row.id().to_string(), vector);
             }
         }
-        _ => tracing::debug!("memories not embedded this time; they are next time"),
+        answered => {
+            unanswered(&KEEPING, &answered);
+            tracing::debug!("memories not embedded this time; they are next time");
+        }
     }
     vectors
 }
@@ -399,9 +479,13 @@ async fn closeness_within<C: ConnectionTrait>(
     let ask = async {
         match &cached_ask {
             Some(_) => None,
-            None => Some(
-                tokio::time::timeout(within, meaning.analyzer.embed(&[query.to_string()])).await,
-            ),
+            None => {
+                let started = std::time::Instant::now();
+                let answered =
+                    tokio::time::timeout(within, meaning.analyzer.embed(&[query.to_string()]))
+                        .await;
+                Some((answered, started.elapsed()))
+            }
         }
     };
     let batch = async {
@@ -414,17 +498,14 @@ async fn closeness_within<C: ConnectionTrait>(
     let (asking, batch) = futures::join!(ask, batch);
     vectors.extend(batch);
     let mut asked = cached_ask;
-    if let Some(answered) = asking {
+    if let Some((answered, took)) = asking {
         match answered {
             Ok(Ok(mut embedded)) if !embedded.is_empty() => {
                 let vector = Arc::new(embedded.swap_remove(0));
                 keep(&ASKED, model, query, vector.clone());
                 asked = Some(vector);
             }
-            Ok(Ok(_)) | Ok(Err(_)) | Err(_) => {
-                FAILED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                tracing::warn!("embedding what was asked failed or timed out; recalling by words");
-            }
+            unanswered => asked_unanswered("recall", &unanswered, took),
         }
     }
     let Some(asked) = asked else {
@@ -488,8 +569,8 @@ pub(crate) async fn embed_to_keep(
     let model = model_in_use().await?;
     match tokio::time::timeout(within, analyzer.embed(texts)).await {
         Ok(Ok(vectors)) if vectors.len() == texts.len() => Some((model, vectors)),
-        _ => {
-            FAILED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        answered => {
+            unanswered(&KEEPING, &answered);
             None
         }
     }
@@ -644,15 +725,15 @@ pub async fn embed_asked(query: &str) -> Option<Vec<f32>> {
     if let Some(vector) = cached(&ASKED, model, query) {
         return Some(vector.as_ref().clone());
     }
+    let started = std::time::Instant::now();
     match tokio::time::timeout(ASK_WITHIN, meaning.analyzer.embed(&[query.to_string()])).await {
         Ok(Ok(mut embedded)) if !embedded.is_empty() => {
             let vector = Arc::new(embedded.swap_remove(0));
             keep(&ASKED, model, query, vector.clone());
             Some(vector.as_ref().clone())
         }
-        _ => {
-            FAILED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            tracing::warn!("embedding what was asked failed or timed out; recalling by words");
+        unanswered => {
+            asked_unanswered("asked", &unanswered, started.elapsed());
             None
         }
     }

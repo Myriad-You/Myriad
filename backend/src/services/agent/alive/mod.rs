@@ -655,6 +655,10 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
             // started, by kind (`settling::failures`).
             "settlingFailures":
                 crate::services::agent::merope::store::memory_jobs::settling::failures(),
+            // How asking for vectors went unanswered since the site started:
+            // ahead of recall, in recall, for lines by meaning, filling rows
+            // (`meaning::failures`).
+            "meaningFailures": crate::services::agent::memory::meaning::failures(),
         },
         "ends": ends,
         // Keys of a look at the screen the site deleted before reading it

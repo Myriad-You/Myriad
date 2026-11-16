@@ -165,7 +165,8 @@ async fn kept(
 /// `asked` itself, nor, with `in_front`, the talk still in front of her
 /// (found again, it would read as something said before). None when there
 /// is no embedding model, what was asked could not be embedded in time, or
-/// no line has a vector yet.
+/// no line has a vector yet. A private turn goes through [`brought`].
+#[cfg(test)]
 pub(crate) async fn nearest(
     db: &DatabaseConnection,
     user_id: i32,
@@ -173,11 +174,49 @@ pub(crate) async fn nearest(
     wanted: usize,
     in_front: bool,
 ) -> Vec<(String, Who, String)> {
+    reach(db, user_id, asked, wanted, in_front).await.0
+}
+
+/// `nearest` for a private turn of the site's owner, with its one line
+/// ([`told_brought`]).
+pub(crate) async fn brought(
+    db: &DatabaseConnection,
+    user_id: i32,
+    asked: &str,
+    wanted: usize,
+    in_front: bool,
+) -> Vec<(String, Who, String)> {
+    let (near, reached) = reach(db, user_id, asked, wanted, in_front).await;
+    told_brought(&near, reached);
+    near
+}
+
+/// How looking by meaning went, so that no lines because nothing is near
+/// reads apart from no lines because there was nothing to look with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Reached {
+    /// Nothing to look for, or no embedding model.
+    NotLooked,
+    /// No line of theirs has a vector yet.
+    NoneKept,
+    /// What they said got no vector in time.
+    AskedUnanswered,
+    /// Looked: what came is what is near.
+    Looked,
+}
+
+async fn reach(
+    db: &DatabaseConnection,
+    user_id: i32,
+    asked: &str,
+    wanted: usize,
+    in_front: bool,
+) -> (Vec<(String, Who, String)>, Reached) {
     if wanted == 0 || asked.trim().is_empty() {
-        return Vec::new();
+        return (Vec::new(), Reached::NotLooked);
     }
     let Some(model) = meaning::model_in_use().await else {
-        return Vec::new();
+        return (Vec::new(), Reached::NotLooked);
     };
     let front = if in_front {
         super::remembering::in_front(db, user_id).await
@@ -191,10 +230,10 @@ pub(crate) async fn nearest(
         .collect();
     let vectors = kept(db, &model, &lines).await;
     if vectors.is_empty() {
-        return Vec::new();
+        return (Vec::new(), Reached::NoneKept);
     }
     let Some(query) = meaning::embed_asked(asked).await else {
-        return Vec::new();
+        return (Vec::new(), Reached::AskedUnanswered);
     };
     let mut scored: Vec<(f64, usize)> = lines
         .iter()
@@ -208,7 +247,7 @@ pub(crate) async fn nearest(
         .map(|(_, index)| index)
         .collect();
     chosen.sort_unstable();
-    chosen
+    let near = chosen
         .into_iter()
         .map(|index| {
             let line = &lines[index];
@@ -219,7 +258,8 @@ pub(crate) async fn nearest(
                 shown(&line.content),
             )
         })
-        .collect()
+        .collect();
+    (near, Reached::Looked)
 }
 
 /// Requests for vectors one [`rebuild`] makes at most: a whole talk read
@@ -425,11 +465,18 @@ fn told_rebuilt(done: &Rebuilt, stopped: Stopped) {
 
 /// The one line a private turn leaves about what it brought by meaning:
 /// how many lines and characters, never what they say.
-pub(crate) fn told_brought(near: &[(String, Who, String)]) {
+pub(crate) fn told_brought(near: &[(String, Who, String)], reached: Reached) {
     let chars: usize = near.iter().map(|(_, _, text)| text.chars().count()).sum();
+    let reached = match reached {
+        Reached::NotLooked => "not_looked",
+        Reached::NoneKept => "none_kept",
+        Reached::AskedUnanswered => "asked_unanswered",
+        Reached::Looked => "looked",
+    };
     tracing::info!(
         lines = near.len(),
         chars,
+        reached = %reached,
         "[chat-near] a private turn brought lines by meaning"
     );
 }

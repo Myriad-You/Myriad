@@ -350,7 +350,9 @@ async fn the_log_has_counts_and_none_of_the_words() {
     line(db, "mine", "user", "嗯嗯好的", 20, None).await;
     let logged = Logged::start();
     assert_eq!(rebuild(db, OWNER).await, 2);
-    told_brought(&nearest(db, OWNER, "猫", NEAREST, false).await);
+    brought(db, OWNER, "猫", NEAREST, false).await;
+    // No vector for what was asked: told apart from nothing near.
+    assert!(brought(db, OWNER, "狗", NEAREST, false).await.is_empty());
     let log = logged.text();
     let rebuilt: Vec<&str> = log
         .lines()
@@ -365,8 +367,11 @@ async fn the_log_has_counts_and_none_of_the_words() {
         .lines()
         .filter(|line| line.contains("[chat-near] a private turn brought"))
         .collect();
-    assert_eq!(brought.len(), 1, "{log}");
+    assert_eq!(brought.len(), 2, "{log}");
     assert!(brought[0].contains("lines=2"), "{log}");
+    assert!(brought[0].contains("reached=looked"), "{log}");
+    assert!(brought[1].contains("lines=0"), "{log}");
+    assert!(brought[1].contains("reached=asked_unanswered"), "{log}");
     for words in ["猫", "团子", "吐毛", "嗯嗯"] {
         assert!(!log.contains(words), "{words} in the log: {log}");
     }

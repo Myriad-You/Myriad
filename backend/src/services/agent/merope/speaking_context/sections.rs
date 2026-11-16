@@ -225,16 +225,14 @@ pub(super) async fn recollection(
         );
         let near = if owner {
             super::super::chat_near::fill_behind(db.clone(), user_id);
-            let near = super::super::chat_near::nearest(
+            super::super::chat_near::brought(
                 db,
                 user_id,
                 words,
                 super::super::chat_near::NEAREST,
                 true,
             )
-            .await;
-            super::super::chat_near::told_brought(&near);
-            near
+            .await
         } else {
             Vec::new()
         };
