@@ -147,14 +147,15 @@ impl Trail {
 
 /// Each answer going over a stretch (`MEROPE_MEMORY_BENCH_UNREAD_SETTLE=<jsonl>`,
 /// bench only): how many notes it went over, why it stopped and how many
-/// tokens it put out (thinking included) as its source said, how long it is;
-/// one that could not be read kept as it came, with why: not JSON, or JSON
-/// without `lasting` or `replaces` as lists.
+/// tokens it put out (thinking included) as its source said, how long it is
+/// and how long the call took; one that could not be read kept as it came,
+/// with why: not JSON, or JSON without `lasting` or `replaces` as lists.
 pub(super) fn keep_settle_call(
     raw: &str,
     read: bool,
     notes: usize,
     reported: Option<&crate::services::ai_cost_ledger::Reported>,
+    took: std::time::Duration,
 ) {
     let Some(path) = std::env::var_os("MEROPE_MEMORY_BENCH_UNREAD_SETTLE") else {
         return;
@@ -179,6 +180,7 @@ pub(super) fn keep_settle_call(
         "stops": reported.map(|reported| reported.stops.clone()),
         "outputTokens": reported.map(|reported| reported.usage.output),
         "chars": raw.chars().count(),
+        "tookMs": took.as_millis() as u64,
         "raw": (!read).then_some(raw),
     })
     .to_string()

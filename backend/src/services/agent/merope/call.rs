@@ -260,8 +260,6 @@ impl Ask {
                 "[Merope] answer cut off at its output limit"
             );
         }
-        #[cfg(test)]
-        kept_for_bench(self, reported, chars);
     }
 
     fn failed(self, failure: Failure) -> Failure {
@@ -328,6 +326,8 @@ impl Model {
         &self,
         call: impl std::future::Future<Output = anyhow::Result<String>>,
     ) -> Result<String, Failure> {
+        #[cfg(test)]
+        let started = std::time::Instant::now();
         // Boxed: every model call of hers goes through here, and the bookkeeping
         // around it would otherwise add its depth to every caller's future,
         // past what the compiler lays out for her longest chains.
@@ -348,6 +348,8 @@ impl Model {
                 _ => None,
             };
             self.ask.answered(reported, answered);
+            #[cfg(test)]
+            kept_for_bench(&self.ask, reported, answered, started.elapsed());
         }
         match result {
             Ok(Ok(raw)) => Ok(raw),
@@ -525,12 +527,15 @@ mod tests {
 
 /// Each call a memory bench run makes, one line to
 /// `MEROPE_BENCH_CALLS=<jsonl>`: which call, why it stopped, how many tokens
-/// it put out (thinking included) and how long the answer is. Counts only.
+/// it put out (thinking included), how long the answer is, and how long the
+/// call took, from asking to the answer read (tries again included). Counts
+/// only.
 #[cfg(test)]
 fn kept_for_bench(
     ask: &Ask,
     reported: &crate::services::ai_cost_ledger::Reported,
     chars: Option<usize>,
+    took: Duration,
 ) {
     let Some(path) = std::env::var_os("MEROPE_BENCH_CALLS") else {
         return;
@@ -541,6 +546,7 @@ fn kept_for_bench(
         "stops": reported.stops,
         "outputTokens": reported.usage.output,
         "chars": chars,
+        "tookMs": took.as_millis() as u64,
     })
     .to_string()
         + "\n";

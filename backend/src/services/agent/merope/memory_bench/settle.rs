@@ -149,6 +149,7 @@ async fn settle_session(
     let mut read = None;
     let mut went = "going over failed";
     for _ in 0..super::super::store::memory_jobs::MAX_ATTEMPTS {
+        let started = std::time::Instant::now();
         let (answer, reported) = crate::services::ai_cost_ledger::reporting(model.analyze_json(
             &myriad_merope::chat_remember::settle_system_prompt(
                 &known,
@@ -172,7 +173,13 @@ async fn settle_session(
             notes.len(),
             offered.len(),
         );
-        super::note_trail::keep_settle_call(&raw, parsed.is_some(), notes.len(), reported.as_ref());
+        super::note_trail::keep_settle_call(
+            &raw,
+            parsed.is_some(),
+            notes.len(),
+            reported.as_ref(),
+            started.elapsed(),
+        );
         match parsed {
             Some(answer) => {
                 read = Some((raw, answer));
