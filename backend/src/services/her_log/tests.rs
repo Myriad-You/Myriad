@@ -4797,7 +4797,23 @@ async fn rows_promised_at_a_handover_come_in_whole_when_late() {
     );
     assert!(before.hlc < site.hlc && site.hlc < after.hlc);
     let frame = mac.rows_frame(PERSONAL, vec![before.clone(), after.clone()]);
+    let logged = Logged::start();
     told(db, &mut mac, frame, after.hlc.wall_ms as i64 * 1000).await;
+    // Both taken, and the one written after the handover counted: one line
+    // for the batch, counts only.
+    let lines = logged.lines("a batch of her log was taken");
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    for field in [
+        "rows=2",
+        "added=2",
+        "after_handover=1",
+        "not_holder=0",
+        "audience=\"personal\"",
+    ] {
+        assert!(lines[0].contains(field), "{field} in {}", lines[0]);
+    }
+    assert!(!lines[0].contains("还没睡着") && !lines[0].contains(PARTNER));
+    drop(logged);
 
     let rows = store::rows(db, OWNER, PERSONAL).await.unwrap();
     for late in [&before, &after] {
@@ -4818,6 +4834,112 @@ async fn rows_promised_at_a_handover_come_in_whole_when_late() {
     assert_eq!(holdings.vector.get("dev_mac"), Some(&3));
     assert!(holdings.beyond.is_empty(), "{:?}", holdings.beyond);
     assert_eq!(super::pen::current(), super::pen::Pen::Here);
+    super::pen::reset_for_test();
+    schema.drop().await;
+}
+
+/// What this thread logs while it lives, as text: a test's frames are
+/// taken on its own thread (a current-thread runtime).
+struct Logged {
+    buffer: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    _guard: tracing::subscriber::DefaultGuard,
+}
+
+impl Logged {
+    fn start() -> Self {
+        #[derive(Clone)]
+        struct Buffer(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Buffer {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let buffer = Buffer(Default::default());
+        let writer = buffer.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || writer.clone())
+            .with_max_level(tracing::Level::INFO)
+            .with_ansi(false)
+            .finish();
+        Self {
+            buffer: buffer.0,
+            _guard: tracing::subscriber::set_default(subscriber),
+        }
+    }
+
+    /// The lines with `message` in them.
+    fn lines(&self, message: &str) -> Vec<String> {
+        String::from_utf8(self.buffer.lock().unwrap().clone())
+            .unwrap()
+            .lines()
+            .filter(|line| line.contains(message))
+            .map(str::to_string)
+            .collect()
+    }
+}
+
+/// A frame the server answers with an error is logged, once, with its type
+/// and the code: never what it carried. Rows it would not read and rows of
+/// a side that does not hold her look the same on the wire as none.
+#[tokio::test]
+async fn a_frame_answered_with_an_error_is_logged_without_what_it_carried() {
+    let Some(schema) = schema("her_log_refusal_logged").await else {
+        return;
+    };
+    let db = &schema.db;
+    super::pen::reset_for_test();
+    settled(db).await;
+    let base = super::now();
+    let mut mac = Side::new("dev_mac");
+    mac.now = base;
+    let device = mac.id.clone();
+    let unread = mac.frame(
+        "log.rows",
+        None,
+        json!({ "audience": PERSONAL, "rows": "她说的一句秘密" }),
+    );
+    let logged = Logged::start();
+    let outs = relay::take(
+        db,
+        &root(),
+        &on(),
+        mac.user,
+        &device,
+        Core::Pc,
+        &mut mac.link,
+        &unread,
+        base,
+    )
+    .await
+    .unwrap();
+    assert!(outs.iter().any(|out| out.t == "error"), "{outs:?}");
+    let lines = logged.lines("a frame was answered with an error");
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].contains("t=\"log.rows\""), "{}", lines[0]);
+    assert!(lines[0].contains("code=\""), "{}", lines[0]);
+    assert!(lines[0].contains(&device), "{}", lines[0]);
+    assert!(!lines[0].contains("秘密"), "{}", lines[0]);
+    // A frame taken is not.
+    let vector = mac.vector(PERSONAL);
+    relay::take(
+        db,
+        &root(),
+        &on(),
+        mac.user,
+        &device,
+        Core::Pc,
+        &mut mac.link,
+        &vector,
+        base,
+    )
+    .await
+    .unwrap();
+    assert_eq!(logged.lines("a frame was answered with an error").len(), 1);
+    drop(logged);
     super::pen::reset_for_test();
     schema.drop().await;
 }

@@ -52,6 +52,15 @@ fn talk_under_partner(db: DatabaseConnection) {
     });
 }
 
+/// A sync frame's type as a log may name it: one of the sync family's, else
+/// `?` (never other text a side sent).
+fn sync_t(frame: &Value) -> &str {
+    frame["t"]
+        .as_str()
+        .filter(|t| myriad_her_link::needs_sync(t))
+        .unwrap_or("?")
+}
+
 fn conversations_every() -> std::time::Duration {
     #[cfg(test)]
     if let Some(every) = CONVERSATIONS_EVERY_IN_TEST.with(std::cell::Cell::get) {
@@ -477,6 +486,7 @@ impl Link {
     async fn relayed(&mut self, text: &str, seq: u64) {
         use crate::services::her_log::{self, relay};
         let Ok(frame) = serde_json::from_str::<Value>(text) else {
+            tracing::info!(device = %self.device.id, t = "?", code = "bad_frame", "[link] a frame of her log was answered with an error");
             self.error("bad_frame", Some(seq));
             return;
         };
@@ -497,8 +507,14 @@ impl Link {
         .await;
         match taken {
             Ok(out) => self.deliver(out),
-            Err(her_log::Error::Off) => self.error("sync_off", Some(seq)),
-            Err(her_log::Error::ClockAhead { .. }) => self.error("clock_ahead", Some(seq)),
+            Err(her_log::Error::Off) => {
+                tracing::info!(device = %self.device.id, t = sync_t(&frame), code = "sync_off", "[link] a frame of her log was answered with an error");
+                self.error("sync_off", Some(seq))
+            }
+            Err(her_log::Error::ClockAhead { .. }) => {
+                tracing::info!(device = %self.device.id, t = sync_t(&frame), code = "clock_ahead", "[link] a frame of her log was answered with an error");
+                self.error("clock_ahead", Some(seq))
+            }
             Err(her_log::Error::Refused(why)) => {
                 tracing::info!(device = %self.device.id, why = %why, "[link] a frame of her log was refused");
                 self.error("bad_frame", Some(seq));
@@ -649,6 +665,7 @@ impl Link {
                 self.relayed(text, inbound.seq).await
             }
             t if !self.sync && myriad_her_link::needs_sync(t) => {
+                tracing::info!(device = %self.device.id, t, code = "sync_off", "[link] a frame of her log was answered with an error");
                 self.error("sync_off", Some(inbound.seq))
             }
             t if CONTRACT.frames.contains_key(t) => self.error("bad_frame", Some(inbound.seq)),

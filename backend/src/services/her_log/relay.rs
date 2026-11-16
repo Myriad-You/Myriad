@@ -359,6 +359,37 @@ pub async fn take(
     frame: &Value,
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
+    let out = answer(db, root, settings, user, device, core, session, frame, now).await?;
+    // A frame answered with an error says so here too, once per frame:
+    // the frame's type (a sync frame's name, else `?`) and the code, never
+    // what it carried. Else a side sending rows the server will not take
+    // looks the same as one sending none.
+    for refused in out.iter().filter(|out| out.t == "error") {
+        tracing::info!(
+            device,
+            t = frame["t"]
+                .as_str()
+                .filter(|t| myriad_her_link::needs_sync(t))
+                .unwrap_or("?"),
+            code = refused.body["code"].as_str().unwrap_or("?"),
+            "[her-log] a frame was answered with an error"
+        );
+    }
+    Ok(out)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn answer(
+    db: &DatabaseConnection,
+    root: &dyn keys::Root,
+    settings: &Settings,
+    user: i32,
+    device: &str,
+    core: Core,
+    session: &mut Session,
+    frame: &Value,
+    now: i64,
+) -> Result<Vec<Outgoing>, Error> {
     if !settings.enabled
         || !store::account(db, user)
             .await?
@@ -680,6 +711,15 @@ async fn rows(
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
     let audience = batch.audience.clone();
+    let sent = batch.rows.len();
+    // Where her rows of it stand against the lease as it arrives (the
+    // log's rules, as its fold reads them): a side writing after it gave
+    // her back is taken all the same, and only counted here.
+    let standings = if batch.rows.iter().any(|row| row.author == Author::Her) {
+        myriad_persona_log::lease::standings(&batch.rows, &lease::history(db).await?)
+    } else {
+        Vec::new()
+    };
     let taken = match store::take(db, root, owner, device, batch, &session.asked, now).await {
         Ok(taken) => taken,
         Err(Error::ClockAhead { server_time, .. }) => {
@@ -692,6 +732,30 @@ async fn rows(
         Err(Error::Refused(_)) => return Ok(vec![Outgoing::error("bad_frame", seq)]),
         Err(error) => return Err(error),
     };
+    // One line a batch, counts only: how many came, how many were new
+    // here, and of the new ones how many of hers were written after her
+    // epoch was handed on or by a side that did not hold it.
+    {
+        use myriad_persona_log::lease::Stand;
+        let added: BTreeSet<&str> = taken.added.iter().map(String::as_str).collect();
+        let placed = |stand: Stand| {
+            standings
+                .iter()
+                .filter(|standing| {
+                    standing.standing == stand && added.contains(standing.id.as_str())
+                })
+                .count()
+        };
+        tracing::info!(
+            device,
+            audience = audience.split(':').next().unwrap_or_default(),
+            rows = sent,
+            added = added.len(),
+            after_handover = placed(Stand::AfterHandover),
+            not_holder = placed(Stand::NotHolder),
+            "[her-log] a batch of her log was taken"
+        );
+    }
     if !taken.not_taken.is_empty() || !taken.withheld.is_empty() {
         tracing::info!(
             device,
