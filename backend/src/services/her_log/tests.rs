@@ -3417,6 +3417,7 @@ async fn her_records_go_into_her_log_by_comparing() {
         .unwrap();
     let elsewhere = super::state::sync(db, &root, OWNER).await.unwrap();
     assert_eq!((elsewhere.written, elsewhere.gone), (0, 0));
+    schema.drop().await;
 }
 
 /// Her memories go into her log by comparing (b2): one said in the owner's
@@ -3574,6 +3575,7 @@ async fn her_memories_go_into_her_log_by_comparing() {
     );
     let still = super::state::sync(db, &root, OWNER).await.unwrap();
     assert_eq!(counts(still.memories), (0, 0, 0));
+    schema.drop().await;
 }
 
 /// A memory the owner has her forget goes from her log as a forget, never a
@@ -3688,6 +3690,7 @@ async fn a_memory_forgotten_here_is_forgotten_in_her_log() {
     m2.sort();
     assert_eq!(m2, vec!["memory.retire", "memory.write"]);
     assert_eq!(count(db, &words_of("memory:m2")).await, 2);
+    schema.drop().await;
 }
 
 /// Her memories the Mac wrote go into the site's table under their own id
@@ -3939,6 +3942,7 @@ async fn her_memories_from_another_end_go_into_the_sites_table() {
     );
     let after = super::state::sync(db, &root, OWNER).await.unwrap();
     assert_eq!(after.memories, super::memories::Compared::default());
+    schema.drop().await;
 }
 
 /// Her nodes the Mac wrote while her mind was there are kept on the site
@@ -4018,6 +4022,7 @@ async fn her_nodes_from_another_end_are_kept_on_the_site() {
         count("SELECT COUNT(*) AS n FROM agent_node_rows WHERE body <> ''").await,
         0
     );
+    schema.drop().await;
 }
 
 /// Her records the Mac wrote while her mind was there go into the site's
@@ -4139,6 +4144,7 @@ async fn her_records_from_another_end_go_into_the_sites_tables() {
     );
     let after = super::state::sync(db, &root, OWNER).await.unwrap();
     assert_eq!((after.written, after.gone), (0, 0));
+    schema.drop().await;
 }
 
 /// A record from another end whose picture the site does not have waits
@@ -4222,6 +4228,7 @@ async fn a_record_waits_for_its_picture() {
     assert_eq!(super::state::take_in(db, &root, OWNER).await.unwrap(), 1);
     assert_eq!(sticker().await.as_deref(), Some("/media/her/rain.png"));
     assert_eq!(super::state::take_in(db, &root, OWNER).await.unwrap(), 0);
+    schema.drop().await;
 }
 
 /// A link's side is of the highest log ABI its hello listed, so a side that

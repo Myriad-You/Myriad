@@ -322,6 +322,7 @@ async fn a_private_talk_reads_its_own_audience_and_what_stings_from_a_group() {
     assert!(recollection.named[0].starts_with("植物: "));
     assert_eq!(recollection.picked.len(), 1);
     assert!(recollection.heard.is_empty() && recollection.listed.is_none());
+    schema.drop().await;
 }
 
 #[tokio::test]
@@ -352,6 +353,7 @@ async fn what_stings_from_a_group_is_theirs_alone_and_only_what_stings() {
             .unwrap()
             .is_empty()
     );
+    schema.drop().await;
 }
 
 #[tokio::test]
@@ -388,6 +390,7 @@ async fn going_through_all_of_a_kind_lists_every_one_with_their_words() {
     for never in ["OTHER-ACCOUNT", "在杭州做设计", "OLD-JOB"] {
         assert!(!listed.contains(never), "{never}: {listed}");
     }
+    schema.drop().await;
 }
 
 #[tokio::test]
@@ -466,6 +469,7 @@ async fn what_is_listed_is_dated_the_day_she_learned_it_not_the_day_it_went_on_a
         !listed.contains(&today),
         "the day it went on a node: {listed}"
     );
+    schema.drop().await;
 }
 
 fn held(id: &str, origin: Origin, action: Action, trigger: Option<Value>, at: i64) -> Held {

@@ -499,6 +499,8 @@ SELECT id, 1, 'github', 'suppressed', 'GitHub', '[]', 1, 0, change_date, NOW()
 FROM metadata_history WHERE user_id = 1 AND platform_name = 'github';
 ALTER TABLE metadata_history DROP COLUMN old_data, DROP COLUMN new_data;
 "#).await.unwrap();
+    // Written straight to the table: the owner cached before is not this one.
+    crate::services::principal::invalidate_site_owner_cache();
     // History from before activity events gets one event each; removing the
     // snapshot columns makes an accidental full-row read fail.
     crate::db::schema_check::rewrite_old_rows_for_test(&f.db)

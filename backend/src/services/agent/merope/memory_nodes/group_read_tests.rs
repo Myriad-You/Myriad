@@ -184,6 +184,7 @@ async fn a_group_reads_only_its_own_audience() {
     ] {
         assert!(!shown.contains(never), "{never} is not shown:\n{shown}");
     }
+    schema.drop().await;
 }
 
 #[tokio::test]
@@ -223,4 +224,5 @@ async fn going_through_all_of_a_kind_in_a_group_says_whose_each_is() {
         .find(|line| line.contains("GROUP-TOPIC"))
         .unwrap();
     assert!(!seven.contains("not the one talking to you"), "{seven}");
+    schema.drop().await;
 }

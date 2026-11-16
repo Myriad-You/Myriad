@@ -1167,6 +1167,7 @@ async fn a_lend_says_where_the_pcs_rows_there_go_on_from() {
     );
     assert_eq!(lend::through(&site.db, "dev_x", "personal:7").await, None);
     assert_eq!(lend::through(&site.db, "dev_x", &personal).await, None);
+    site.close().await;
 }
 
 #[tokio::test]

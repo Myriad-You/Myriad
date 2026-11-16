@@ -497,5 +497,6 @@ mod tests {
             .collect();
         pushes.sort_by(f64::total_cmp);
         assert_eq!(pushes, [-30.0, 20.0]);
+        isolated.drop().await;
     }
 }

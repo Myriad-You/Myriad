@@ -258,12 +258,42 @@ enum AuthLoadSlot {
     Waiter(watch::Receiver<()>),
 }
 
+#[cfg(not(test))]
 fn auth_cache() -> &'static StdMutex<AuthCache> {
     AUTH_CACHE.get_or_init(|| StdMutex::new(AuthCache::default()))
 }
 
+#[cfg(not(test))]
 fn auth_cache_inflight() -> &'static StdMutex<HashMap<i32, Arc<watch::Sender<()>>>> {
     AUTH_CACHE_INFLIGHT.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+/// Under test: the thread's own snapshots, or the process-wide ones the
+/// site runs on while the thread is on them (`principal` module docs).
+#[cfg(test)]
+fn auth_cache() -> &'static StdMutex<AuthCache> {
+    thread_local! {
+        static OWN: &'static StdMutex<AuthCache> = Box::leak(Box::default());
+    }
+    if crate::services::principal::process_wide::on() {
+        AUTH_CACHE.get_or_init(|| StdMutex::new(AuthCache::default()))
+    } else {
+        OWN.with(|own| *own)
+    }
+}
+
+/// Under test: as [`auth_cache`].
+#[cfg(test)]
+fn auth_cache_inflight() -> &'static StdMutex<HashMap<i32, Arc<watch::Sender<()>>>> {
+    thread_local! {
+        static OWN: &'static StdMutex<HashMap<i32, Arc<watch::Sender<()>>>> =
+            Box::leak(Box::default());
+    }
+    if crate::services::principal::process_wide::on() {
+        AUTH_CACHE_INFLIGHT.get_or_init(|| StdMutex::new(HashMap::new()))
+    } else {
+        OWN.with(|own| *own)
+    }
 }
 
 /// Read a cache entry, returning `Some(None)` for a cached missing account and
@@ -2298,6 +2328,46 @@ mod tests {
             .get_or_init(|| Mutex::new(()))
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Keeps the process-wide snapshot cache the site runs on: every other
+    /// test uses its thread's own (`principal` module docs).
+    #[test]
+    fn process_wide_auth_cache_hits_expires_and_is_invalidated() {
+        let _wide = crate::services::principal::process_wide::enter();
+        let snapshot = AuthSnapshot {
+            token_version: 3,
+            is_admin: true,
+            is_owner: false,
+        };
+        invalidate_auth_cache_local(4242);
+        assert!(auth_cache_get(4242).is_none());
+        auth_cache_put(4242, Some(snapshot));
+        assert!(matches!(auth_cache_get(4242), Some(Some(got)) if got.token_version == 3));
+        assert!(
+            super::AUTH_CACHE
+                .get()
+                .expect("made")
+                .lock()
+                .unwrap()
+                .entries
+                .contains_key(&4242),
+            "the process-wide cache, not the thread's"
+        );
+        // Past its time it is not read.
+        super::auth_cache()
+            .lock()
+            .unwrap()
+            .entries
+            .get_mut(&4242)
+            .expect("kept")
+            .inserted_at = Instant::now()
+            .checked_sub(AUTH_CACHE_TTL)
+            .expect("long enough up");
+        assert!(auth_cache_get(4242).is_none());
+        auth_cache_put(4242, Some(snapshot));
+        invalidate_auth_cache_local(4242);
+        assert!(auth_cache_get(4242).is_none());
     }
 
     #[test]

@@ -267,6 +267,7 @@ async fn an_asking_session_is_kept_for_the_owner_alone_and_looked_at_once() {
         .unwrap()
         .unwrap();
     assert_eq!(again["views"], node["views"]);
+    schema.drop().await;
 }
 
 /// Neither answer holds (the form with nothing in it, twice): a question
@@ -313,6 +314,7 @@ async fn what_waits_on_the_owners_answer_is_theirs_to_decide_when_her_answers_ar
         .map(|reply| reply.read.as_deref())
         .collect();
     assert_eq!(reads, [Some("hollow"), Some("hollow")]);
+    schema.drop().await;
 }
 
 /// A grant the owner ends is forgotten for good: the task, every row that
@@ -403,6 +405,7 @@ async fn a_dropped_grant_is_forgotten_for_good() {
     assert!(gone.node(&scratch).is_none());
     assert!(gone.node(&repo).is_none());
     assert_eq!(head_status(db, &repo).await, "dormant");
+    schema.drop().await;
 }
 
 /// Kept on the site's side while no side of hers is known to read a
@@ -492,6 +495,7 @@ async fn kept_rows_go_shared_once_every_side_reads_them() {
     for words in [OWNERS_WORDS, PEERS_WORDS, "Split the store"] {
         assert_eq!(rows_say(db, words).await, 0, "{words}");
     }
+    schema.drop().await;
 }
 
 /// A grant dropped stays dropped across a restart: a change told late under
@@ -522,6 +526,7 @@ async fn a_late_change_under_a_dropped_grant_is_refused_after_a_restart() {
     assert!(pictures(db, OWNER).await.is_empty());
     let left = shown::shown(db, OWNER, &owners(), None).await.unwrap();
     assert!(left.node(&task_of(grant)).is_none());
+    schema.drop().await;
 }
 
 /// A question told late keeps its card by the rules, waiting on the owner,
@@ -577,6 +582,7 @@ async fn a_question_told_late_keeps_its_card_and_is_not_looked_at() {
         1,
         "its question waits on the owner"
     );
+    schema.drop().await;
 }
 
 /// What comes together is looked at once: one answer for all of it, a card
@@ -632,6 +638,7 @@ async fn what_comes_together_is_looked_at_once_and_kept_word_for_word() {
     assert!(ledger[0].material.contains("Change 2 of 2"));
     forget_grant(db, OWNER, DEVICE, grant).await.unwrap();
     assert!(keep::ledger_of(db, OWNER).await.is_empty());
+    schema.drop().await;
 }
 
 /// The cards of `owner`'s private talk, by role: (role, card id, whole).
@@ -851,6 +858,7 @@ async fn her_card_comes_at_once_moves_to_her_line_and_settles_as_the_session_goe
     let went_on = cards::now(db, OWNER, &id).await.unwrap().unwrap();
     assert_ne!(went_on.version, open.version);
     assert_ne!(went_on.card.state, open.card.state);
+    schema.drop().await;
 }
 
 /// Her line on the repository of what she looked at goes on its node as
@@ -936,6 +944,7 @@ async fn her_line_on_the_repository_is_hers_on_its_node_and_a_progress_card() {
             .is_none_or(|node| node["standing"][myriad_nodes::look_progress::ITEM].is_null()),
         "{node:?}"
     );
+    schema.drop().await;
 }
 
 /// Her line about a session that ended carries the card of where it came
@@ -979,4 +988,5 @@ async fn her_line_on_a_session_that_ended_carries_its_status_card() {
         .expect("the status card");
     let held = cards::now(db, OWNER, &card).await.unwrap().unwrap();
     assert_eq!(held.card.kind, "status");
+    schema.drop().await;
 }

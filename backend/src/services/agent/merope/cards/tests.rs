@@ -134,6 +134,7 @@ async fn a_card_comes_once_changes_in_place_and_asks_anew_on_a_new_line() {
     let stale = answer(db, OWNER, &id, &version, "agree").await.unwrap();
     assert_eq!(stale.code, Some("card_stale"));
     assert!(stale.now.unwrap().waiting);
+    fixture.close().await;
 }
 
 /// What cannot be an answer is refused for its own reason.
@@ -187,6 +188,7 @@ async fn an_answer_that_is_none_is_refused_by_its_code() {
         ),
         (false, Some("card_closed"))
     );
+    fixture.close().await;
 }
 
 /// Her line about a card carries it: the card moves to her line, and the
@@ -261,4 +263,5 @@ async fn her_line_carries_the_card_and_the_chat_shows_it_in_place() {
         .await
         .unwrap();
     assert_eq!(recent.len(), 1);
+    fixture.close().await;
 }

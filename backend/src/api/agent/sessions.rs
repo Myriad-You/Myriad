@@ -631,6 +631,7 @@ mod message_media_tests {
             "a message cannot pin another user's media"
         );
         let _ = tokio::fs::remove_dir_all(service.store().root()).await;
+        isolated.drop().await;
     }
 }
 

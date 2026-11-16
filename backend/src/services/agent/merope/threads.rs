@@ -428,6 +428,7 @@ mod tests {
         assert_eq!(open_in_group(&db, here).await.len(), 1);
         let_fade(&db).await;
         assert!(open_in_group(&db, here).await.is_empty());
+        isolated.drop().await;
     }
     /// The same subject again takes the earlier thread's place and the
     /// earlier one says so; past the limit the oldest fade, with nothing in

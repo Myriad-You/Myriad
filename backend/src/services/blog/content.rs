@@ -493,5 +493,6 @@ mod tests {
             .unwrap();
         let hidden = search_posts(db, "关键词", 50).await.unwrap();
         assert!(hidden.hits.is_empty(), "admin_only 的源不该被搜出来");
+        fixture.close().await;
     }
 }

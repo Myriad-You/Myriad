@@ -157,6 +157,7 @@ async fn an_entry_is_dated_the_day_she_learned_it() {
     );
     // Put on the node today, and learned today.
     assert!(at(COFFEE[1]) > at(COFFEE[0]));
+    schema.drop().await;
 }
 
 #[tokio::test]

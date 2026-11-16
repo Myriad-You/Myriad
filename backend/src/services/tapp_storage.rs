@@ -839,5 +839,6 @@ mod media_reference_tests {
         prune_references(&db, 100).await.unwrap();
         assert_eq!(active_count(&db, image.id).await.unwrap(), 0);
         let _ = tokio::fs::remove_dir_all(service.store().root()).await;
+        isolated.drop().await;
     }
 }

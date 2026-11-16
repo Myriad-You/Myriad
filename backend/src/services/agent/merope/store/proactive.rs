@@ -319,5 +319,6 @@ mod tests {
         );
         assert!(said[0].0 > said[1].0, "newest first");
         assert_eq!(super::said_lately(db, 51, 1).await.unwrap().len(), 1);
+        fixture.close().await;
     }
 }

@@ -915,6 +915,7 @@ mod tests {
             Some("## Since you got up\nNobody else has talked with you since you got up.")
         );
         assert_eq!(built(ming, Audience::group(group, ming)).await, None);
+        isolated.drop().await;
     }
 
     /// Someone who wrote to her nearly every day, privately and in a group,

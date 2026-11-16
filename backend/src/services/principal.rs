@@ -4,6 +4,14 @@
 //! Every answer is read from the database (roles through the auth snapshot
 //! cache, the owner through a cache invalidated on the same NOTIFY channel).
 //! A failed read is `Err`, never a silent "not an admin" or "not claimed".
+//!
+//! Under test each test's thread keeps its own owner cache (and its own auth
+//! snapshot cache, `middleware::auth`): tests run side by side, each on a
+//! database schema of its own whose owner and users are its own, and one
+//! process-wide cache would hand a test another test's owner or user. The
+//! process-wide caches the site runs on are still tested: the tests named
+//! `process_wide_*` (here and in `middleware::auth`) put their thread on them
+//! (`process_wide`), one at a time.
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement};
 use std::sync::{Mutex as StdMutex, OnceLock};
@@ -54,11 +62,61 @@ struct SiteOwnerCache {
 
 static SITE_OWNER_CACHE: OnceLock<StdMutex<SiteOwnerCache>> = OnceLock::new();
 
+#[cfg(not(test))]
 fn site_owner_cache() -> std::sync::MutexGuard<'static, SiteOwnerCache> {
     SITE_OWNER_CACHE
         .get_or_init(|| StdMutex::new(SiteOwnerCache::default()))
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Under test: the thread's own cache, or the process-wide one the site
+/// runs on while the thread is on it ([`process_wide`]).
+#[cfg(test)]
+fn site_owner_cache() -> std::sync::MutexGuard<'static, SiteOwnerCache> {
+    thread_local! {
+        static OWN: &'static StdMutex<SiteOwnerCache> = Box::leak(Box::default());
+    }
+    let cache = if process_wide::on() {
+        SITE_OWNER_CACHE.get_or_init(|| StdMutex::new(SiteOwnerCache::default()))
+    } else {
+        OWN.with(|own| *own)
+    };
+    cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Under test: puts this thread on the process-wide owner and auth caches
+/// while the guard lives, one thread at a time (see the module docs).
+#[cfg(test)]
+pub(crate) mod process_wide {
+    use std::cell::Cell;
+
+    thread_local! {
+        static ON: Cell<bool> = const { Cell::new(false) };
+    }
+    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    pub(crate) fn on() -> bool {
+        ON.with(Cell::get)
+    }
+
+    pub(crate) struct Guard(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>);
+
+    pub(crate) fn enter() -> Guard {
+        let turn = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        ON.with(|on| on.set(true));
+        Guard(turn)
+    }
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            ON.with(|on| on.set(false));
+        }
+    }
 }
 
 /// Drop the cached site-owner id in this process. Called for every auth
@@ -194,6 +252,42 @@ mod tests {
         // The live admin gate keeps its own uncached read on purpose.
         offenders.retain(|entry| !entry.contains("middleware/auth.rs"));
         assert!(offenders.is_empty(), "{offenders:#?}");
+    }
+
+    /// Keeps the process-wide owner cache the site runs on: every other
+    /// test uses its thread's own (module docs).
+    #[test]
+    fn process_wide_owner_cache_hits_expires_and_is_invalidated() {
+        let _wide = process_wide::enter();
+        invalidate_site_owner_cache();
+        let (cached, generation) = cached_site_owner_id();
+        assert_eq!(cached, None);
+        store_site_owner_id(7, generation);
+        assert_eq!(cached_site_owner_id().0, Some(7));
+        let global = |cache: &SiteOwnerCache| cache.value.map(|(id, _)| id);
+        assert_eq!(
+            global(&SITE_OWNER_CACHE.get().expect("made").lock().unwrap()),
+            Some(7),
+            "the process-wide cache, not the thread's"
+        );
+        // Past its time it is not read.
+        site_owner_cache().value = Some((
+            7,
+            Instant::now()
+                .checked_sub(AUTH_CACHE_TTL)
+                .expect("long enough up"),
+        ));
+        assert_eq!(cached_site_owner_id().0, None);
+        let (_, generation) = cached_site_owner_id();
+        store_site_owner_id(8, generation);
+        assert_eq!(cached_site_owner_id().0, Some(8));
+        invalidate_site_owner_cache();
+        assert_eq!(cached_site_owner_id().0, None);
+        // A load from before an invalidation is not kept.
+        let (_, generation) = cached_site_owner_id();
+        invalidate_site_owner_cache();
+        store_site_owner_id(9, generation);
+        assert_eq!(cached_site_owner_id().0, None);
     }
 
     #[test]

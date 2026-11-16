@@ -41,6 +41,7 @@ async fn a_private_talk_reads_her_nodes() {
     for never in ["GROUP-FACT", "OTHER-ACCOUNT", "OWN-TOPIC", "OLD-JOB"] {
         assert!(!on.contains(never), "{never}:\n{on}");
     }
+    schema.drop().await;
 }
 
 /// Her prompt for speaking up to account 7 in the group, as [`prompt`].
@@ -101,4 +102,5 @@ async fn a_group_reads_its_own_nodes() {
     ] {
         assert!(!on.contains(never), "{never}:\n{on}");
     }
+    schema.drop().await;
 }
