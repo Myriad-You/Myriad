@@ -137,42 +137,48 @@ async fn settle_session(
         "topics": super::super::chat_remember::settle::shown_topics(&offered),
     })
     .to_string();
-    // Tried again as production tries a stretch again, an unreadable answer
-    // too, as many times.
+    // Asked as production asks it (`call::Voice::Thorough`: thinking
+    // hard), and tried again as production tries a stretch again, an
+    // unreadable answer too, as many times.
+    let thorough = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
+        std::time::Duration::from_secs(60),
+    ))
+    .await
+    .map(|analyzer| analyzer.with_deep_thinking());
+    let model = thorough.as_ref().unwrap_or(judge);
     let mut read = None;
     let mut went = "going over failed";
     for _ in 0..super::super::store::memory_jobs::MAX_ATTEMPTS {
-        let Ok(raw) = judge
-            .analyze_json(
-                &myriad_merope::chat_remember::settle_system_prompt(
-                    &known,
-                    myriad_merope::chat_remember::Examples::for_words(&theirs),
-                ),
-                &input,
-                myriad_merope::chat_remember::SETTLE_SCHEMA_NAME,
-                Some(&myriad_merope::chat_remember::settle_schema()),
-            )
-            .await
-            .inspect_err(|error| eprintln!("bench call failed: settling: {error:#}"))
+        let (answer, reported) = crate::services::ai_cost_ledger::reporting(model.analyze_json(
+            &myriad_merope::chat_remember::settle_system_prompt(
+                &known,
+                myriad_merope::chat_remember::Examples::for_words(&theirs),
+            ),
+            &input,
+            myriad_merope::chat_remember::SETTLE_SCHEMA_NAME,
+            Some(&myriad_merope::chat_remember::settle_schema()),
+        ))
+        .await;
+        let Ok(raw) =
+            answer.inspect_err(|error| eprintln!("bench call failed: settling: {error:#}"))
         else {
             went = "going over failed";
             continue;
         };
-        match myriad_merope::chat_remember::parse_settle(
+        let parsed = myriad_merope::chat_remember::parse_settle(
             &raw,
             &theirs,
             &known,
             notes.len(),
             offered.len(),
-        ) {
+        );
+        super::note_trail::keep_settle_call(&raw, parsed.is_some(), notes.len(), reported.as_ref());
+        match parsed {
             Some(answer) => {
                 read = Some((raw, answer));
                 break;
             }
-            None => {
-                super::note_trail::keep_unread(&raw);
-                went = "going over not read";
-            }
+            None => went = "going over not read",
         }
     }
     let Some((raw, (kept, replaces))) = read else {

@@ -145,22 +145,44 @@ impl Trail {
     }
 }
 
-/// An answer going over a stretch that could not be read, kept as it came
-/// with why (`MEROPE_MEMORY_BENCH_UNREAD_SETTLE=<jsonl>`, bench only): not
-/// JSON, or JSON without `lasting` or `replaces` as lists.
-pub(super) fn keep_unread(raw: &str) {
+/// Each answer going over a stretch (`MEROPE_MEMORY_BENCH_UNREAD_SETTLE=<jsonl>`,
+/// bench only): how many notes it went over, why it stopped and how many
+/// tokens it put out (thinking included) as its source said, how long it is;
+/// one that could not be read kept as it came, with why: not JSON, or JSON
+/// without `lasting` or `replaces` as lists.
+pub(super) fn keep_settle_call(
+    raw: &str,
+    read: bool,
+    notes: usize,
+    reported: Option<&crate::services::ai_cost_ledger::Reported>,
+) {
     let Some(path) = std::env::var_os("MEROPE_MEMORY_BENCH_UNREAD_SETTLE") else {
         return;
     };
     let answer = serde_json::from_str::<Value>(myriad_merope::chat_remember::strip_json_fence(raw));
     let list = |answer: &Value, field: &str| answer.get(field).is_some_and(Value::is_array);
     let why = match &answer {
+        _ if read => "read",
         Err(_) => "not json",
         Ok(answer) if !list(answer, "lasting") => "no lasting",
         Ok(answer) if !list(answer, "replaces") => "no replaces",
         Ok(_) => "other",
     };
-    let line = json!({ "why": why, "raw": raw }).to_string() + "\n";
+    let lasting = answer
+        .as_ref()
+        .ok()
+        .and_then(|answer| answer.get("lasting")?.as_array().map(Vec::len));
+    let line = json!({
+        "why": why,
+        "notes": notes,
+        "lasting": lasting,
+        "stops": reported.map(|reported| reported.stops.clone()),
+        "outputTokens": reported.map(|reported| reported.usage.output),
+        "chars": raw.chars().count(),
+        "raw": (!read).then_some(raw),
+    })
+    .to_string()
+        + "\n";
     use std::io::Write;
     if let Err(error) = std::fs::OpenOptions::new()
         .create(true)
