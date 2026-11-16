@@ -238,12 +238,14 @@ fn not_given(model: &str, id: i32, digest: &str) -> bool {
         .is_ok_and(|not_given| not_given.contains(&(model.to_string(), id, digest.to_string())))
 }
 
-/// What one [`fill`] did: lines given a vector, and how many were still
-/// without one (and not left as given none) before it asked.
+/// What one [`fill`] did: lines given a vector, how many were still
+/// without one (and not left as given none) before it asked, and how many
+/// it left as given none ([`NOT_GIVEN`]).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Filled {
     pub(crate) given: usize,
     pub(crate) missing: usize,
+    pub(crate) not_given: usize,
 }
 
 /// Gives a vector to up to [`FILL_PER_ASK`] lines of `user_id`'s private
@@ -268,8 +270,8 @@ pub(crate) async fn fill(db: &DatabaseConnection, user_id: i32) -> Filled {
         })
         .collect();
     let mut filled = Filled {
-        given: 0,
         missing: without.len(),
+        ..Filled::default()
     };
     let mut missing: Vec<(i32, String)> = Vec::new();
     let mut chars = 0;
@@ -295,6 +297,7 @@ pub(crate) async fn fill(db: &DatabaseConnection, user_id: i32) -> Filled {
             if let Ok(mut not_given) = NOT_GIVEN.lock() {
                 not_given.insert((model.clone(), *id, meaning::digest(text)));
             }
+            filled.not_given += 1;
             continue;
         }
         // A line deleted meanwhile takes nothing: the row it would rest on
@@ -330,35 +333,105 @@ pub(crate) async fn fill(db: &DatabaseConnection, user_id: i32) -> Filled {
 /// lines it has being all it needs. How many were given one. It stops when
 /// none is left without, at a request that gives none, at one after which
 /// no fewer are left without (whatever it says it stored), and after
-/// [`REBUILD_ASKS`] requests; stopped short, one line with the counts.
+/// [`REBUILD_ASKS`] requests. Each rebuild leaves one line of counts only
+/// ([`told_rebuilt`]).
 pub(crate) async fn rebuild(db: &DatabaseConnection, user_id: i32) -> usize {
-    let mut given = 0;
+    let mut done = Rebuilt::default();
     let mut before: Option<usize> = None;
+    let mut stopped = Stopped::MostAsks;
     for _ in 0..REBUILD_ASKS {
         let filled = fill(db, user_id).await;
+        done.asks += 1;
+        done.not_given += filled.not_given;
+        done.left = filled.missing;
         if filled.missing == 0 {
-            return given;
+            stopped = Stopped::Done;
+            break;
         }
         if before.is_some_and(|before| filled.missing >= before) {
-            tracing::warn!(
-                missing = filled.missing,
-                given,
-                "[chat-near] lines left without a vector: no fewer after a request"
-            );
-            return given;
+            stopped = Stopped::NoFewer;
+            break;
         }
-        given += filled.given;
+        done.given += filled.given;
+        done.left = filled
+            .missing
+            .saturating_sub(filled.given + filled.not_given);
         if filled.given == 0 {
-            return given;
+            stopped = Stopped::NoneStored;
+            break;
         }
         before = Some(filled.missing);
     }
-    tracing::warn!(
-        asks = REBUILD_ASKS,
+    told_rebuilt(&done, stopped);
+    done.given
+}
+
+/// What one [`rebuild`] did, in counts.
+#[derive(Debug, Default, Clone, Copy)]
+struct Rebuilt {
+    asks: usize,
+    given: usize,
+    left: usize,
+    not_given: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Stopped {
+    Done,
+    NoneStored,
+    NoFewer,
+    MostAsks,
+}
+
+/// The one line a rebuild leaves: counts, never a line, a vector or whose.
+fn told_rebuilt(done: &Rebuilt, stopped: Stopped) {
+    let Rebuilt {
+        asks,
         given,
-        "[chat-near] lines left without a vector: as many requests as one rebuild makes"
+        left,
+        not_given,
+    } = *done;
+    match stopped {
+        Stopped::Done => tracing::info!(
+            asks,
+            given,
+            left,
+            not_given,
+            "[chat-near] rebuilt: none left without a vector"
+        ),
+        Stopped::NoneStored => tracing::info!(
+            asks,
+            given,
+            left,
+            not_given,
+            "[chat-near] rebuilt: a request stored none"
+        ),
+        Stopped::NoFewer => tracing::warn!(
+            asks,
+            given,
+            left,
+            not_given,
+            "[chat-near] rebuilt: no fewer left without after a request"
+        ),
+        Stopped::MostAsks => tracing::warn!(
+            asks,
+            given,
+            left,
+            not_given,
+            "[chat-near] rebuilt: as many requests as one rebuild makes"
+        ),
+    }
+}
+
+/// The one line a private turn leaves about what it brought by meaning:
+/// how many lines and characters, never what they say.
+pub(crate) fn told_brought(near: &[(String, Who, String)]) {
+    let chars: usize = near.iter().map(|(_, _, text)| text.chars().count()).sum();
+    tracing::info!(
+        lines = near.len(),
+        chars,
+        "[chat-near] a private turn brought lines by meaning"
     );
-    given
 }
 
 /// Whether lines are being given vectors behind a reply now.

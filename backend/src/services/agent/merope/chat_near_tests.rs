@@ -333,3 +333,82 @@ async fn a_line_given_no_vector_ends_the_rebuild() {
     g0::leave();
     schema.drop().await;
 }
+
+/// What a rebuild and a turn leave in the log is counts only: one line
+/// each, a rebuild that finished too, and none of the words.
+#[tokio::test]
+async fn the_log_has_counts_and_none_of_the_words() {
+    let Some(schema) = schema("chat_near_told").await else {
+        return;
+    };
+    let db = &schema.db;
+    meaning_alike(&["我的猫叫团子", "团子今天吐毛了"], "猫");
+    g0::with(|world| world.vectors.insert("嗯嗯好的".into(), Vec::new()));
+    session(db, "mine", OWNER, Some(r#"{"mode":"chat"}"#), false).await;
+    line(db, "mine", "user", "我的猫叫团子", 30, None).await;
+    line(db, "mine", "assistant", "团子今天吐毛了", 25, None).await;
+    line(db, "mine", "user", "嗯嗯好的", 20, None).await;
+    let logged = Logged::start();
+    assert_eq!(rebuild(db, OWNER).await, 2);
+    told_brought(&nearest(db, OWNER, "猫", NEAREST, false).await);
+    let log = logged.text();
+    let rebuilt: Vec<&str> = log
+        .lines()
+        .filter(|line| line.contains("[chat-near] rebuilt"))
+        .collect();
+    assert_eq!(rebuilt.len(), 1, "{log}");
+    assert!(rebuilt[0].contains("none left without a vector"), "{log}");
+    for count in ["asks=2", "given=2", "left=0", "not_given=1"] {
+        assert!(rebuilt[0].contains(count), "{count}: {log}");
+    }
+    let brought: Vec<&str> = log
+        .lines()
+        .filter(|line| line.contains("[chat-near] a private turn brought"))
+        .collect();
+    assert_eq!(brought.len(), 1, "{log}");
+    assert!(brought[0].contains("lines=2"), "{log}");
+    for words in ["猫", "团子", "吐毛", "嗯嗯"] {
+        assert!(!log.contains(words), "{words} in the log: {log}");
+    }
+    drop(logged);
+    g0::leave();
+    schema.drop().await;
+}
+
+/// What this thread logs while it lives, as text (a test's runtime is its
+/// own thread).
+struct Logged {
+    buffer: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    _guard: tracing::subscriber::DefaultGuard,
+}
+
+impl Logged {
+    fn start() -> Self {
+        #[derive(Clone)]
+        struct Buffer(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Buffer {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let buffer = Buffer(Default::default());
+        let writer = buffer.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || writer.clone())
+            .with_max_level(tracing::Level::INFO)
+            .with_ansi(false)
+            .finish();
+        Self {
+            buffer: buffer.0,
+            _guard: tracing::subscriber::set_default(subscriber),
+        }
+    }
+
+    fn text(&self) -> String {
+        String::from_utf8(self.buffer.lock().unwrap().clone()).unwrap()
+    }
+}
