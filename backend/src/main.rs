@@ -140,8 +140,24 @@ static GLOBAL_ALLOCATOR: hotpath::CountingAllocator<mimalloc::MiMalloc> =
 #[global_allocator]
 static GLOBAL_ALLOCATOR: hotpath::CountingAllocator = hotpath::CountingAllocator::new();
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+/// Stack for the runtime's threads. The site runs a debug build, where each
+/// async function's poll frame reserves room for the futures it awaits, so a
+/// deep chain of model calls takes far more stack than in release; the
+/// 2 MiB a thread gets by default leaves too little to spare. Set here,
+/// `RUST_MIN_STACK` no longer changes it.
+const RUNTIME_THREAD_STACK: usize = 8 * 1024 * 1024;
+
+/// What `#[tokio::main]` builds, with the threads' stack set.
+fn main() -> anyhow::Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(RUNTIME_THREAD_STACK)
+        .build()
+        .expect("Failed building the Runtime")
+        .block_on(run())
+}
+
+async fn run() -> anyhow::Result<()> {
     // A short-lived child that looks at one portrait for its skeleton and exits,
     // so the pose model's memory goes back to the system with it.
     if std::env::args().nth(1).as_deref() == Some(services::pose_estimation::WORKER_ARG) {
