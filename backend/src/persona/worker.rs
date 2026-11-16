@@ -227,6 +227,28 @@ async fn keep_config_fresh<F, Fut>(
     }
 }
 
+/// Time persona HTTP work has to answer with headers. The proxy in front waits
+/// one minute longer for each (`proxy/src/main.rs`), so this one answers first.
+const WORK_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// Merope rig work and persona onboarding wait on image and vision providers
+/// for up to 15 minutes (`get_long_running_client`, `ONBOARDING_AI_TIMEOUT`),
+/// and the browser waits as long.
+const LONG_WORK_TIMEOUT: Duration = Duration::from_secs(17 * 60);
+
+fn work_timeout(path: &str) -> Duration {
+    let long = ["/api/merope/rig", "/api/agent/persona"]
+        .iter()
+        .any(|prefix| {
+            path.strip_prefix(prefix)
+                .is_some_and(|tail| tail.is_empty() || tail.starts_with('/'))
+        });
+    if long {
+        LONG_WORK_TIMEOUT
+    } else {
+        WORK_TIMEOUT
+    }
+}
+
 /// Admission is immediate and capacity stays held until the response stream is
 /// consumed/dropped. Slow uploads/downloads cannot leave an unbounded waiter list.
 async fn limit_http_work(
@@ -266,7 +288,7 @@ async fn limit_http_work(
     let Ok(permit) = budget.try_acquire_owned() else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let response = match tokio::time::timeout(Duration::from_secs(600), next.run(request)).await {
+    let response = match tokio::time::timeout(work_timeout(path), next.run(request)).await {
         Ok(response) => response,
         Err(_) => return StatusCode::GATEWAY_TIMEOUT.into_response(),
     };
@@ -468,6 +490,19 @@ mod tests {
             "a failed read never stops the worker"
         );
         refresh.abort();
+    }
+
+    /// Rig and onboarding work outlast the 15 minutes the browser and the
+    /// image client wait.
+    #[test]
+    fn long_work_outlasts_the_browser_wait() {
+        let browser = Duration::from_secs(15 * 60);
+        assert!(work_timeout("/api/merope/rig/import/preview") > browser);
+        assert!(work_timeout("/api/merope/rig") > browser);
+        assert!(work_timeout("/api/agent/persona/draft") > browser);
+        assert_eq!(work_timeout("/api/merope/rigs"), WORK_TIMEOUT);
+        assert_eq!(work_timeout("/api/agent/personas"), WORK_TIMEOUT);
+        assert_eq!(work_timeout("/api/agent/process"), WORK_TIMEOUT);
     }
 
     #[tokio::test]

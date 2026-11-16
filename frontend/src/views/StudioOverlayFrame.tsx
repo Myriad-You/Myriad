@@ -22,6 +22,7 @@ import {
 import {
   blogReloadDecision,
   findStudioHost,
+  hideOverlayOnPageSwap,
   setStudioOverlayApi,
   withoutStudioParam,
 } from '../components/studio/studioIsland'
@@ -288,6 +289,13 @@ export default function StudioOverlayFrame() {
       toggle: () => setOpen((value) => !value),
       escape: () => setOpen(false),
     })
+  }, [host])
+
+  // 博客页整页换走时，拍换页画面之前先收掉覆盖层。
+  useEffect(() => {
+    const top = host?.ownerDocument.defaultView
+    if (!host || !top) return
+    return hideOverlayOnPageSwap(top, host)
   }, [host])
 
   // 把覆盖层画进宿主节点的 Shadow DOM。

@@ -43,6 +43,7 @@ fn agent_run_event_stream(run: Arc<AgentRun>) -> impl Stream<Item = Result<Event
     })
 }
 
+mod cards;
 mod devices;
 mod discord_pairing;
 mod discord_status;
@@ -52,6 +53,9 @@ mod heartbeat_mcp;
 mod helpers;
 mod intentions;
 mod link;
+mod memory_migration;
+mod memory_nodes;
+pub(crate) mod mind;
 mod notifications;
 mod onebot_pairing;
 mod onebot_status;

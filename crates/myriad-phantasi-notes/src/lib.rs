@@ -14,7 +14,12 @@ use pulldown_cmark::{Event, Options, Parser, Tag, html};
 mod layout;
 #[cfg(test)]
 mod merge;
+mod old_paths;
 mod status;
+pub use old_paths::{
+    MAX_OLD_PATH_BYTES, MAX_OLD_PATHS, OldPathError, OldPathRejection, is_reserved_old_path,
+    normalize_old_path, normalize_old_paths, old_path_lookup_key,
+};
 pub use status::{NoteDocStatus, ScheduleError, is_due, schedule_at};
 
 use layout::{

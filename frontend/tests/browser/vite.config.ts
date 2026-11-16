@@ -39,6 +39,13 @@ export default defineConfig({
     host: '127.0.0.1',
     port,
     strictPort: true,
-    fs: { allow: [fileURLToPath(new URL('../..', import.meta.url))] },
+    fs: {
+      allow: [
+        fileURLToPath(new URL('../..', import.meta.url)),
+        fileURLToPath(new URL('../../../figure', import.meta.url)),
+        fileURLToPath(new URL('../../../tapp/runtime', import.meta.url)),
+        fileURLToPath(new URL('../../../tapp/shared', import.meta.url)),
+      ],
+    },
   },
 })

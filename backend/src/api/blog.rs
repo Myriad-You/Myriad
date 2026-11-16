@@ -40,6 +40,7 @@ pub fn router(app_state: crate::state::AppState) -> Router<crate::state::AppStat
             myriad_blog::NAV_SPECULATION_RULES_PATH,
             get(speculation_rules),
         )
+        .route(OLD_PATH_REDIRECT_PATH, get(old_path_redirect))
         .route("/blog", get(serve_blog).head(serve_blog))
         .route("/blog/", get(serve_blog).head(serve_blog))
         .route("/blog/{*path}", get(serve_blog).head(serve_blog))
@@ -191,6 +192,47 @@ async fn post_rebuild(_admin: AdminClaims) -> Json<Value> {
     Json(json!({ "build": build }))
 }
 
+/// 代理问的旧地址查询。和 `proxy/src/main.rs` 的 `OLD_PATH_REDIRECT_PATH` 同一条。
+/// 搜索关键词最长多少字符。超过就截断，避免匿名查询被超长串拖慢。
+const SEARCH_QUERY_MAX_CHARS: usize = 100;
+
+const OLD_PATH_REDIRECT_PATH: &str = "/api/blog/redirect";
+
+#[derive(Deserialize)]
+struct OldPathQuery {
+    path: String,
+}
+
+/// `GET /api/blog/redirect?path=/2024/05/hello/` — 搬家来的文章的旧地址。命中回
+/// `{ "location": "/blog/posts/{slug}/" }`，没命中 404。博客对这位访客不可见时也是 404。
+async fn old_path_redirect(
+    State(db): State<DatabaseConnection>,
+    viewer: OptionalViewer,
+    axum::extract::Query(query): axum::extract::Query<OldPathQuery>,
+) -> Result<Response, HttpError> {
+    let user_id = viewer
+        .claims
+        .as_ref()
+        .and_then(|claims| claims.subject().map(|subject| subject.id()));
+    crate::api::phantasi::require_phantasi_module_access_cached(&db, user_id, viewer.is_admin)
+        .await?;
+    let target = crate::services::note_old_paths::redirect_target(&db, &query.path)
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "old address lookup failed");
+            blog_error(500, "Lookup failed")
+        })?;
+    let mut response = match target {
+        Some(location) => Json(json!({ "location": location })).into_response(),
+        None => blog_error(404, "Not found").into_response(),
+    };
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    Ok(response)
+}
+
 async fn serve_blog(
     State(db): State<DatabaseConnection>,
     viewer: OptionalViewer,
@@ -207,6 +249,17 @@ async fn serve_blog(
     let query = request.uri().query().map(str::to_string);
     let current = blog::output_dir();
     let target = resolve_blog_target(&current, &path);
+    // 老博客本来就在 /blog/ 下：这里没有的地址先看是不是哪篇的旧地址。
+    if matches!(target, BlogTarget::Missing)
+        && let Some(location) = crate::services::note_old_paths::redirect_target(&db, &path)
+            .await
+            .ok()
+            .flatten()
+    {
+        let mut response = old_path_moved(&location);
+        finish_blog_response(&mut response, request.method());
+        return Ok(response);
+    }
     let anonymous = user_id.is_none();
     let if_none_match = request.headers().get(header::IF_NONE_MATCH);
     // 样式、图片、字体照常返回：导航岛和创作台只有 HTML 才用得上，不为它们拼。
@@ -235,6 +288,68 @@ async fn serve_blog(
             None
         },
     };
+    // 站内搜索：纯服务端渲染，主题有没有 JS 都一样。放在 chrome 建好之后，
+    // 这样导航岛和深浅色跟其它博客页一致。
+    if matches!(path.as_str(), "/blog/search" | "/blog/search/") {
+        let keyword: String = query
+            .as_deref()
+            .and_then(|query| {
+                url::form_urlencoded::parse(query.as_bytes())
+                    .find(|(key, _)| key == "q")
+                    .map(|(_, value)| value.into_owned())
+            })
+            .unwrap_or_default()
+            // 匿名接口：每个不同的 q 都会绕过缓存、在标题/摘要/正文上各查一次，
+            // 长度卡在 SEARCH_QUERY_MAX_CHARS 以内，别让超长串把查询拖重。
+            .chars()
+            .take(SEARCH_QUERY_MAX_CHARS)
+            .collect();
+        let locale = crate::api::reports::locale::host_locale_from_headers(request.headers());
+        let settings = crate::services::blog::load_settings(&db).await;
+        let results = crate::services::blog::search_posts(
+            &db,
+            &keyword,
+            crate::services::blog::SEARCH_PAGE_LIMIT,
+        )
+        .await
+        .map_err(|message| blog_error(500, message))?;
+        let copy = crate::services::blog::SearchCopy {
+            title: crate::i18n::blog(&locale, "search"),
+            placeholder: crate::i18n::blog(&locale, "searchPlaceholder"),
+            hint: crate::i18n::blog(&locale, "searchHint"),
+            no_results: crate::i18n::blog(&locale, "searchNoResults"),
+            results: crate::i18n::blog(&locale, "searchResults"),
+            results_more: crate::i18n::blog(&locale, "searchResultsMore"),
+            site_fallback: crate::i18n::blog(&locale, "siteFallbackTitle"),
+        };
+        let html = crate::services::blog::render_search_page(
+            &settings.site_title,
+            &locale,
+            keyword.trim(),
+            &results.hits,
+            results.more,
+            &copy,
+        );
+        let html = chrome
+            .dark
+            .and_then(|dark| myriad_blog::apply_page_scheme(&html, dark))
+            .unwrap_or(html);
+        let html = myriad_blog::decorate_page(
+            &html,
+            myriad_blog::nav_island_head(),
+            &chrome.nav,
+            chrome.studio.as_deref(),
+        );
+        let cache = if anonymous && !chrome.personal {
+            "public, max-age=60"
+        } else {
+            "private, max-age=60"
+        };
+        let mut response = html_response(StatusCode::OK, html, cache);
+        finish_blog_response(&mut response, request.method());
+        return Ok(response);
+    }
+
     let response = match target {
         BlogTarget::Redirect(location) => {
             let location = match &query {
@@ -266,6 +381,19 @@ async fn serve_blog(
     let mut response = response;
     finish_blog_response(&mut response, request.method());
     Ok(response)
+}
+
+/// 旧地址的 301。不带原来的查询串：那是旧站自己的参数。缓存一天，旧地址改了不至于一直跳错。
+fn old_path_moved(location: &str) -> Response {
+    let mut response = StatusCode::MOVED_PERMANENTLY.into_response();
+    if let Ok(value) = HeaderValue::from_str(location) {
+        response.headers_mut().insert(header::LOCATION, value);
+    }
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400"),
+    );
+    response
 }
 
 fn finish_blog_response(response: &mut Response, method: &axum::http::Method) {
@@ -378,7 +506,7 @@ fn blog_nav(
     locale: &str,
     site: Option<&myriad_blog::SiteChrome>,
 ) -> String {
-    myriad_blog::nav_island_html(
+    myriad_blog::blog_nav_island_html(
         |module| {
             crate::api::phantasi::phantasi_access_allowed(
                 preferences.module_visibility(module),
@@ -387,6 +515,7 @@ fn blog_nav(
             )
         },
         |key| crate::i18n::nav(locale, key),
+        &crate::i18n::blog(locale, "search"),
         site,
     )
 }

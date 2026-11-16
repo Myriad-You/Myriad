@@ -306,7 +306,6 @@ test('说明性的短句都是贴：操作、附件、收藏、脚注不再另�
   )
   assert.match(css, /\.agent-panel-work-chrome \{[\s\S]*?flex:\s*1 1 auto/)
   assert.match(css, /\[data-overflow='end'\]/)
-  assert.match(composer, /agent-panel-mode-labels/)
   assert.match(composer, /agent-panel-end-slot/)
   assert.match(composer, /agent-panel-end-layer/)
   assert.match(css, /\[data-mode='chat'\] \.agent-panel-face-slot/)
@@ -342,11 +341,6 @@ test('说明性的短句都是贴：操作、附件、收藏、脚注不再另�
     composer,
     /agent-panel-composer-row[\s\S]*?agent-panel-face-slot[\s\S]*?agent-panel-field-stage/,
   )
-  assert.match(css, /\.agent-panel-mode-labels/)
-  assert.match(
-    css,
-    /\.agent-panel-mode-labels > span \{[\s\S]*?grid-area:\s*1 \/ 1/,
-  )
   assert.match(
     css,
     /\.agent-panel-end-slot \{[\s\S]*?place-items:\s*center end/,
@@ -373,15 +367,14 @@ test('说明性的短句都是贴：操作、附件、收藏、脚注不再另�
   )
   assert.doesNotMatch(composer, /AgentSwap\s+id=\{mode\}/)
   assert.doesNotMatch(composer, /id=\{chatting \? 'mood' : 'trail'\}/)
-  assert.match(composer, /mode\.shortcut/)
+  assert.match(composer, /pieces\.backToHer/)
   assert.match(composer, /MoodTag/)
   assert.match(composer, /agent-panel-mood/)
   assert.match(composer, /agent-panel-work-tags/)
   assert.match(composer, /agent-panel-tag-cluster/)
   assert.doesNotMatch(composer, /role="radiogroup"/)
   assert.doesNotMatch(face, /className=\{?['"][^'"]*glass/)
-  assert.match(panel, /shouldCaptureModeTab/)
-  assert.match(panel, /cycleAgentPanelMode/)
+  assert.doesNotMatch(panel, /shouldCaptureModeTab|cycleAgentPanelMode/)
   assert.doesNotMatch(composer, /agent-panel-saved-remove/)
   assert.match(manage, /agent-panel-tag agent-panel-manage-row/)
   assert.match(manage, /agent-panel-tag-text/)

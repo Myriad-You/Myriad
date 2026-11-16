@@ -48,7 +48,7 @@ use finishing::*;
 pub use kept::*;
 pub use songs::*;
 
-pub const DOING_EVENT: &str = "agent.merope.doing";
+pub use myriad_merope::notify::DOING_EVENT;
 const PAUSE_MINUTES: std::ops::Range<i64> = 3..12;
 /// When she would rather do nothing, how long before she thinks about it
 /// again is hers to say, within these; otherwise `REST`.

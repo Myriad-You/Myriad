@@ -1,6 +1,8 @@
 import type {
   AgentResponse,
   Capability,
+  CardAnswerReply,
+  CardLine,
   CreatePresetRequest,
   ExecutionTrace,
   HeartbeatTask,
@@ -17,6 +19,7 @@ import type {
   RigStateSummary,
   SessionInfo,
   SessionMessage,
+  SessionPage,
   SkillInfo,
   TaskDetail,
   TaskInfo,
@@ -47,6 +50,17 @@ export type AgentIntentionStatus =
   | 'abandoned'
   | 'expired'
 
+/** Whether the site owner syncs her (`/api/agent/mind/sync`). */
+export interface HerSync {
+  /** Her log is on on this site (HER_LOG_ENABLED): only then can it be turned on. */
+  available: boolean
+  on: boolean
+  /** When the owner last turned it off. */
+  stoppedAt: string | null
+  /** How long the site keeps her log after it is turned off. */
+  retentionDays: number
+}
+
 /** A device that syncs her with this site (`/api/agent/devices`). */
 export interface SyncDevice {
   id: string
@@ -61,6 +75,8 @@ export interface SyncDevice {
   stale: boolean
   /** Its link to her is open right now. */
   connected?: boolean
+  /** Her link closed it for speaking another protocol: the app on it is to be updated. */
+  appOutdated?: boolean
 }
 
 /** A move of her between ends, in progress (her host lease). */
@@ -711,6 +727,28 @@ class AgentService {
     return apiService.get(`${this.baseUrl}/host`)
   }
 
+  /** Where her one mind is now (owner only): here, or the device it is on. */
+  async getMindPlace(): Promise<{
+    here: boolean
+    holder?: string
+    holderName?: string | null
+    catchingUp?: boolean
+    /** What the owner says here reaches her there (her log synced). */
+    leaves?: boolean
+  }> {
+    return apiService.get(`${this.baseUrl}/mind/where`)
+  }
+
+  /** Whether the owner syncs her (owner only). */
+  async getHerSync(): Promise<HerSync> {
+    return apiService.get(`${this.baseUrl}/mind/sync`)
+  }
+
+  /** The owner turns syncing her on or off; off brings her mind back here. */
+  async setHerSync(on: boolean): Promise<HerSync> {
+    return apiService.put(`${this.baseUrl}/mind/sync`, { on })
+  }
+
   /** Calls a move off before its commit (or turns down one a device asked for): she is back as she was. */
   async cancelHostMove(id: string): Promise<{ host: HostLease | null }> {
     return apiService.post(
@@ -1078,6 +1116,40 @@ class AgentService {
       onProgress,
       false,
     )
+  }
+
+  /** The pieces she handed off in this conversation, as they stand. */
+  async listPieces(
+    sessionId: string,
+    signal = authSubject.signal,
+  ): Promise<{ pieces: unknown[]; told: unknown[] }> {
+    const response = await apiService.get<{ pieces?: unknown[]; told?: unknown[] }>(
+      `${this.baseUrl}/sessions/${encodeURIComponent(sessionId)}/pieces`,
+      { signal },
+    )
+    return {
+      pieces: Array.isArray(response.pieces) ? response.pieces : [],
+      told: Array.isArray(response.told) ? response.told : [],
+    }
+  }
+
+  /** The panel conversation last talked in, to take up again; null when none. */
+  async getPanelChat(signal = authSubject.signal): Promise<SessionInfo | null> {
+    const response = await apiService.get<{ session?: SessionInfo | null }>(
+      `${this.baseUrl}/panel-chat`,
+      { signal },
+    )
+    return response.session && typeof response.session.id === 'string'
+      ? response.session
+      : null
+  }
+
+  /** Stop one piece, and only it. */
+  async stopPiece(sessionId: string, number: number): Promise<boolean> {
+    const response = await apiService.post<{ stopped?: boolean }>(
+      `${this.baseUrl}/sessions/${encodeURIComponent(sessionId)}/pieces/${number}/stop`,
+    )
+    return response.stopped === true
   }
 
   async getCapabilities(): Promise<Capability[]> {
@@ -1659,17 +1731,50 @@ class AgentService {
     return response.sessions
   }
 
+  /** Has her forget one line and what it taught her (on every end while her log syncs): the lines that went. */
+  async forgetSessionMessage(sessionId: string, messageId: number): Promise<number[]> {
+    const response = await apiService.delete<{ forgotten: number[] }>(
+      `${this.baseUrl}/sessions/${encodeURIComponent(sessionId)}/messages/${messageId}`,
+    )
+    return response.forgotten
+  }
+
   async getSessionMessages(
     sessionId: string,
     page: number = 1,
     limit: number = 50,
     signal = authSubject.signal,
   ): Promise<SessionMessage[]> {
-    const response = await apiService.get<{ messages: SessionMessage[] }>(
+    return (await this.getSessionPage(sessionId, page, limit, signal)).messages
+  }
+
+  /** A page of a session, with the site owner's card lines of that chat (oldest first). */
+  async getSessionPage(
+    sessionId: string,
+    page: number = 1,
+    limit: number = 50,
+    signal = authSubject.signal,
+  ): Promise<SessionPage> {
+    const response = await apiService.get<{ messages: SessionMessage[]; cards?: CardLine[] }>(
       `${this.baseUrl}/sessions/${sessionId}/messages?page=${page}&limit=${limit}`,
       { signal },
     )
-    return response.messages
+    return {
+      messages: response.messages,
+      cards: Array.isArray(response.cards) ? response.cards : [],
+    }
+  }
+
+  /** The owner's answer to the version of a card they saw. */
+  async answerCard(
+    cardId: string,
+    version: string,
+    action: string,
+  ): Promise<CardAnswerReply> {
+    return apiService.post<CardAnswerReply>(
+      `${this.baseUrl}/cards/${encodeURIComponent(cardId)}/answer`,
+      { version, action },
+    )
   }
 
   /** The run still writing a reply in this session, for a page opened or reloaded meanwhile; null when none. */

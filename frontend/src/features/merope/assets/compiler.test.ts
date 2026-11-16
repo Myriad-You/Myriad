@@ -1,10 +1,8 @@
-import type { MeropeRigManifest } from '../rig/types'
+import type { MeropeRigManifest } from '@myriad/figure/rig'
 import type { RigAssetCompileEvent } from './compiler'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { analyzeAnime25DMouthProfile } from '../anime25drig/mouthProfile'
-import { buildAnime25DPlayback } from '../anime25drig/playback'
-import { anime25DImportCopy } from '../rig/anime25dImportCopy'
+import { analyzeAnime25DMouthProfile, buildAnime25DPlayback } from '@myriad/figure/testing'
 import { persistRigAsset, preflightRigAsset } from './compiler'
 
 const file = new File([new Uint8Array([1])], 'character.psd')
@@ -19,7 +17,7 @@ test('cancelled preparation never starts preview and late preview cannot publish
         file,
         'master',
         {
-          prepare: async (_file, _master, _onStage, _fingerprint, signal) => {
+          prepare: async (_file, { signal }) => {
             assert.equal(signal, controller.signal)
             if (stage === 'prepare') controller.abort()
             return {
@@ -65,7 +63,7 @@ test('rig compiler exposes the complete successful artifact DAG', async () => {
     file,
     'master-asset',
     {
-      prepare: async (_file, _assetId, onStage) => {
+      prepare: async (_file, { onStage }) => {
         onStage?.('validated')
         onStage?.('packing')
         return {
@@ -213,7 +211,6 @@ test('preflight carries analyzed playback profiles into the persisted source', a
           mouth,
         ),
       },
-      anime25DImportCopy(),
     ),
   }
   const analyzed = structuredClone(manifest)

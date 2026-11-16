@@ -26,7 +26,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::{Value, json};
 
 use myriad_merope::chat_remember::{
-    EXTRACT_SCHEMA_NAME, extract_schema, extract_system_prompt, strip_json_fence,
+    EXTRACT_SCHEMA_NAME, Examples, extract_schema, extract_system_prompt, strip_json_fence,
 };
 
 /// Quiet this long, and a stretch of talk is over.
@@ -85,10 +85,11 @@ fn swapped(prompt: String, swaps: &[(&str, &str)]) -> String {
 const EVIDENCE_LINE: &str =
     "must be a contiguous verbatim excerpt from userText where they stated it. Do not cite reply.";
 
-/// The window way: their line still, with the talk before it in view.
-fn window_prompt(known: &[String]) -> String {
+/// The window way: their line still, with the talk before it in view
+/// (`theirs`, their words in it, for the examples' language).
+fn window_prompt(known: &[String], theirs: &str) -> String {
     swapped(
-        extract_system_prompt(known),
+        extract_system_prompt(known, Examples::for_words(theirs)),
         &[
             (
                 "before is what you said just before their message: use it only to understand what userText answers (a short reply to your question), still taking the fact from userText.",
@@ -102,10 +103,11 @@ fn window_prompt(known: &[String]) -> String {
     )
 }
 
-/// The talk way: a whole stretch, once it is over.
-fn talk_prompt(known: &[String]) -> String {
+/// The talk way: a whole stretch, once it is over (`theirs`, their words
+/// in it, for the examples' language).
+fn talk_prompt(known: &[String], theirs: &str) -> String {
     swapped(
-        extract_system_prompt(known),
+        extract_system_prompt(known, Examples::for_words(theirs)),
         &[
             (
                 "from this message of theirs.",
@@ -296,7 +298,7 @@ async fn line_ask(
             "today": today(line.at),
         })
         .to_string();
-        (window_prompt(known), input, theirs)
+        (window_prompt(known, &theirs), input, theirs)
     } else {
         let turn = super::super::TurnContext {
             before: before.map(|line| line.text.clone()),
@@ -308,7 +310,11 @@ async fn line_ask(
             &turn,
             line.at.with_timezone(&super::super::clock::zone()),
         );
-        (extract_system_prompt(known), input, line.text.clone())
+        (
+            extract_system_prompt(known, Examples::for_words(&line.text)),
+            input,
+            line.text.clone(),
+        )
     };
     let raw = ask(analyzer, &system, &input, tally).await?;
     Some((raw, theirs, from))
@@ -346,7 +352,9 @@ async fn go_over(
                 })
                 .to_string();
                 let from = json!({"at": stretch[0].at, "lines": stretch.len()});
-                if let Some(raw) = ask(analyzer, &talk_prompt(&known), &input, &mut tally).await {
+                if let Some(raw) =
+                    ask(analyzer, &talk_prompt(&known, &theirs), &input, &mut tally).await
+                {
                     keep(
                         &raw, &theirs, true, &mut known, &mut kept, &mut tally, &from,
                     );
@@ -429,7 +437,10 @@ async fn go_over(
                 let answer = tokio::time::timeout(
                     CALL_TIMEOUT,
                     analyzer.analyze_json(
-                        &myriad_merope::chat_remember::settle_system_prompt(&known),
+                        &myriad_merope::chat_remember::settle_system_prompt(
+                            &known,
+                            Examples::for_words(&theirs),
+                        ),
                         &input,
                         myriad_merope::chat_remember::SETTLE_SCHEMA_NAME,
                         Some(&myriad_merope::chat_remember::settle_schema()),
@@ -628,11 +639,14 @@ async fn her_talk_gone_over_three_ways() {
 #[test]
 fn both_ways_still_swap_into_productions_prompt() {
     let known = vec!["喜欢咖啡".to_string()];
-    for prompt in [window_prompt(&known), talk_prompt(&known)] {
+    for prompt in [
+        window_prompt(&known, "我不喝咖啡了"),
+        talk_prompt(&known, "我不喝咖啡了"),
+    ] {
         assert!(prompt.contains("' / '"));
         assert!(prompt.contains("- 喜欢咖啡"));
     }
-    assert!(talk_prompt(&[]).contains("from this stretch of talk with them."));
+    assert!(talk_prompt(&[], "我不喝咖啡了").contains("from this stretch of talk with them."));
 }
 
 #[test]

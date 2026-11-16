@@ -371,10 +371,15 @@ mod tests {
         };
         let admin = sea_orm::Database::connect(&url).await.unwrap();
         let schema = format!("note_editor_test_{}", uuid::Uuid::new_v4().simple());
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
             .await
             .unwrap();
+        drop(turn);
         let mut options = sea_orm::ConnectOptions::new(url);
         options.set_schema_search_path(&schema).max_connections(2);
         let db = sea_orm::Database::connect(options).await.unwrap();
@@ -446,9 +451,14 @@ mod tests {
             .unwrap();
         assert_eq!(row.try_get::<i64>("", "count").unwrap(), 10);
         db.close().await.unwrap();
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("DROP SCHEMA {schema} CASCADE"))
             .await
             .unwrap();
+        drop(turn);
     }
 }

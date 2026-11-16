@@ -235,18 +235,19 @@ fn rows_without_a_recorded_audience_stay_with_their_person() {
     assert_eq!(audience_of(&shared), vec![7, 8]);
 }
 
-/// Her own rows are not a venue of their own in `admits`: written here they
-/// belong to no one and nobody hears them; merged from the Mac they carry
-/// the owner (`persona_sync::merge`), who does.
+/// Her own rows may be said anywhere (the shared rule's own venue), whether
+/// written here with no one or merged from the Mac with the owner
+/// (`persona_sync::merge`).
 #[test]
-fn a_venue_other_than_a_group_is_read_as_private() {
+fn her_own_rows_are_heard_anywhere() {
     let mut own = row("o", "x", 0.5, 0);
     own.venue = OWN_VENUE.into();
     own.user_id = None;
-    assert!(!admits(&own, &Audience::private(7)));
-    own.user_id = Some(7);
     assert!(admits(&own, &Audience::private(7)));
-    assert!(!admits(&own, &Audience::group("telegram:-100123", 7)));
+    assert!(admits(&own, &Audience::group("telegram:-100123", 7)));
+    own.user_id = Some(7);
+    assert!(admits(&own, &Audience::private(8)));
+    assert!(admits(&own, &Audience::group("telegram:-100123", 8)));
 }
 
 const DAY: i64 = 86_400;

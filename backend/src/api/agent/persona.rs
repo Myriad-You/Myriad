@@ -293,6 +293,15 @@ pub async fn put_persona(
             effective_visual_profile,
         )?),
     };
+    // Her personality is one text her soul carries, flattened from the
+    // fields once, in the core, with labels in her own language: what the
+    // page flattened stands only for a persona with no fields.
+    let personality = match &persona {
+        merope::JsonDocumentUpdate::Set(saved) => {
+            flattened_personality(saved, effective_visual_profile).unwrap_or(body.personality)
+        }
+        _ => body.personality,
+    };
     let contract = merope::PersonaContractUpdate {
         persona,
         visual_profile,
@@ -302,7 +311,7 @@ pub async fn put_persona(
     let saved = merope::upsert_persona_on(
         &transaction,
         body.name,
-        body.personality,
+        personality,
         portrait,
         contract,
         user_id,
@@ -371,6 +380,17 @@ pub async fn put_persona(
         "hasCustomPersona": merope::has_custom_persona(&saved),
         "zone": saved.zone,
     })))
+}
+
+/// Her personality from her persona's fields (see
+/// `myriad_merope::personality::flatten_saved`), in her language: the
+/// persona's own, else her look's. None when it says nothing.
+fn flattened_personality(saved: &Value, visual_profile: Option<&Value>) -> Option<String> {
+    let language = saved
+        .get("language")
+        .or_else(|| visual_profile.and_then(|profile| profile.get("language")))
+        .and_then(Value::as_str)?;
+    Some(myriad_merope::personality::flatten_saved(saved, language)).filter(|text| !text.is_empty())
 }
 
 #[derive(Debug, Deserialize)]

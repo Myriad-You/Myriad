@@ -195,6 +195,11 @@ pub(crate) async fn learn_from_run(db: &DatabaseConnection, run: WorkRun) {
     if run.user_id <= 0 || !eligible(&run) {
         return;
     }
+    // What a run teaches her is hers to draw where her mind is: on another
+    // core, that core keeps its own runs.
+    let Some(_thought) = crate::services::her_log::pen::think() else {
+        return;
+    };
 
     let origin = run.origin.as_deref().unwrap_or(unified::ORIGIN_SITE);
     let date = super::utc_now().format("%Y-%m-%d").to_string();

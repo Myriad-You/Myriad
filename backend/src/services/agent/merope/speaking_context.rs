@@ -59,7 +59,7 @@ pub async fn her_openers(db: &sea_orm::DatabaseConnection, user_id: i32) -> Vec<
                lag(m.created_at) OVER w AS a1, lag(m.created_at, 2) OVER w AS a2 \
                FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
                WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
-                 AND NOT s.archived AND m.created_at < $2 \
+                 AND NOT s.archived AND m.created_at < $2 AND (m.metadata->>'piece') IS NULL \
                WINDOW w AS (ORDER BY m.created_at)) \
              SELECT content, created_at FROM t WHERE role = 'assistant' AND r1 = 'user' \
                AND a2 IS NOT NULL AND a1 - a2 >= interval '3 hours' \
@@ -212,6 +212,7 @@ async fn how_she_differs_with(db: &sea_orm::DatabaseConnection, user_id: i32) ->
              JOIN agent_sessions s ON s.id = m.session_id \
              WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND m.role IN ('user', 'assistant') \
+               AND (m.metadata->>'piece') IS NULL \
              ORDER BY m.created_at DESC LIMIT $2",
             vec![SeaValue::Int(Some(user_id)), SeaValue::Int(Some(LATEST))],
         ))
@@ -536,6 +537,24 @@ pub async fn with_said_unprompted(
             })
             .map(|(at, line, metadata)| (at, said_as_heard(line, metadata.as_ref())))
             .collect();
+    // The cards she put before them (that still wait, or lately) and what
+    // they answered, as facts in their place in time.
+    let mut said = said;
+    let owner = crate::services::site_owner::site_owner_user_id(db).await;
+    if owner == Ok(user_id) {
+        for card in super::cards::lately(db, user_id, super::cards::LATELY)
+            .await
+            .unwrap_or_default()
+        {
+            let Some(at) = chrono::DateTime::from_timestamp_millis(card.at) else {
+                continue;
+            };
+            if card.kind == "status" || (at < since && !card.waiting) {
+                continue;
+            }
+            said.push((at, format!("（{}）", card.told())));
+        }
+    }
     merge_said_unprompted(history, &said)
 }
 
@@ -633,20 +652,27 @@ async fn speaking_prompt_from_db(
     } else {
         addressee_speaking_section(&addressee)
     }];
-    sections::who_they_are(db, user_id, turn, present, &mut sections).await;
+    // What she keeps of a private talk on her nodes, read once for the
+    // turn.
+    let nodes = match turn {
+        Turn::Plain => None,
+        _ => super::memory_nodes::context::for_turn(db, user_id, present).await,
+    };
+    let nodes = nodes.as_ref();
+    sections::who_they_are(db, user_id, turn, present, nodes, &mut sections).await;
     let Ok(state) = get_or_create_state(db, user_id).await else {
         return sections;
     };
     let myself = self_state::current(db).await;
     let (her_life, opening) =
-        sections::recollection(db, user_id, turn, present, &myself, &mut sections).await;
+        sections::recollection(db, user_id, turn, present, &myself, nodes, &mut sections).await;
     sections::their_recent(db, user_id, group, &state, &mut sections).await;
     let inner_block =
         sections::her_state(db, user_id, turn, present, &state, &myself, &mut sections).await;
     sections::what_she_found(db, user_id, turn, present, &mut sections).await;
     if !matches!(turn, Turn::Plain) {
         sections::her_own(db, turn, her_life, &mut sections).await;
-        sections::between_them(db, user_id, turn, present, opening, &mut sections).await;
+        sections::between_them(db, user_id, turn, present, opening, nodes, &mut sections).await;
     }
     if matches!(turn, Turn::Chat(_)) {
         sections::chat_extras(db, user_id, turn, present, &mut sections).await;
@@ -655,9 +681,25 @@ async fn speaking_prompt_from_db(
     sections
 }
 
+/// How she is for anyone she talks to who is not one of hers (someone from
+/// outside in a group): her day so far, and that by her hours she would be
+/// asleep. Her mood is kept towards each person, so none is given here.
+pub async fn her_state_for_anyone() -> Vec<String> {
+    let Ok(db) = crate::services::process_db::database() else {
+        return Vec::new();
+    };
+    let myself = self_state::current(&db).await;
+    let mut sections = vec![self_state::format_day_section(&myself.facts)];
+    sections.extend(super::timing::past_bedtime());
+    sections
+}
+
 pub fn speaking_prompt_plain(sections: &[String]) -> String {
     sections.join("\n\n")
 }
+
+#[cfg(test)]
+mod node_tests;
 
 #[cfg(test)]
 mod tests {

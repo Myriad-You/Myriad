@@ -1,4 +1,4 @@
-import type { TappInstance } from '../types'
+import type { TappInstance } from '@myriad/tapp-runtime'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {

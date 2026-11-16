@@ -476,3 +476,174 @@ async fn what_she_knows_most_about_them_stays_where_it_was_heard() {
     assert!(there[0].contains("吉他"));
     assert!(always_known(&db, 0, &private).await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn the_mind_wanders_only_over_their_own_and_not_back_to_a_recent_thought() {
+    let Some(db) = temp_db().await else {
+        return;
+    };
+    let about = |user_id: i32, content: &str, subjects: &[&str]| NewMemory {
+        concepts: subjects
+            .iter()
+            .map(|name| Concept {
+                name: (*name).into(),
+                aliases: Vec::new(),
+            })
+            .collect(),
+        ..fact(user_id, content)
+    };
+    remember(&db, about(7, "养了一只猫叫年糕", &["猫", "年糕"]))
+        .await
+        .unwrap();
+    remember(&db, about(7, "年糕怕吸尘器", &["年糕"]))
+        .await
+        .unwrap();
+    remember(&db, about(7, "喜欢乌龙茶", &["茶"]))
+        .await
+        .unwrap();
+    remember(&db, about(8, "年糕是他的狗", &["年糕"]))
+        .await
+        .unwrap();
+    let private = Audience::private(7);
+    let ids: std::collections::HashMap<String, String> =
+        rows_for(&db, 7, &private, &MemoryKind::ABOUT_PERSON)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| (row.content, row.id))
+            .collect();
+    let now = super::super::utc_now();
+    let thought_at: std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> = [(
+        ids["年糕怕吸尘器"].clone(),
+        now - chrono::Duration::hours(1),
+    )]
+    .into();
+    for roll in [0.0, 0.3, 0.6, 0.99] {
+        let mut drawn = std::iter::repeat(roll);
+        let landed = wander(
+            &db,
+            7,
+            &private,
+            &Priming::default(),
+            &thought_at,
+            &mut || drawn.next().unwrap(),
+        )
+        .await
+        .unwrap();
+        if let Some(landed) = landed {
+            assert_ne!(
+                landed.memory.content, "年糕怕吸尘器",
+                "thought of an hour ago"
+            );
+            assert_ne!(landed.memory.content, "年糕是他的狗", "someone else's");
+        }
+    }
+    // Long enough ago, it may come to mind again.
+    let long_ago: std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> =
+        [(ids["年糕怕吸尘器"].clone(), now - chrono::Duration::days(4))].into();
+    let mut drawn = std::iter::repeat(0.0);
+    let landed = wander(
+        &db,
+        7,
+        &private,
+        &Priming::default(),
+        &long_ago,
+        &mut || drawn.next().unwrap(),
+    )
+    .await
+    .unwrap()
+    .expect("from the newest it drifts to the cat");
+    assert_ne!(landed.memory.content, "年糕是他的狗");
+    assert!(
+        wander(
+            &db,
+            0,
+            &private,
+            &Priming::default(),
+            &long_ago,
+            &mut || 0.5
+        )
+        .await
+        .unwrap()
+        .is_none()
+    );
+}
+
+#[tokio::test]
+async fn the_site_fades_only_what_it_wrote() {
+    let Some(db) = temp_db().await else {
+        return;
+    };
+    let first = remember(&db, fact(7, "养了一只猫")).await.unwrap().unwrap();
+    // As many as the site keeps, and three another end wrote, least
+    // important of all: the first to go, were they the site's.
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_memories \
+         SELECT (jsonb_populate_record(NULL::agent_memories, to_jsonb(m) \
+           || jsonb_build_object('id', 'site_' || g, 'content', 'SITE ' || g))).* \
+         FROM agent_memories m, generate_series(1, {MAX_ACTIVE_PER_USER}) g WHERE m.id = '{first}'; \
+         INSERT INTO agent_memories \
+         SELECT (jsonb_populate_record(NULL::agent_memories, to_jsonb(m) \
+           || jsonb_build_object('id', 'mac_' || g, 'content', 'MAC ' || g, 'origin', 'mac', \
+                                 'source', '{SYNC_SOURCE}', 'importance', 0))).* \
+         FROM agent_memories m, generate_series(1, 3) g WHERE m.id = '{first}'"
+    ))
+    .await
+    .unwrap();
+    fade_excess(&db, 7).await.unwrap();
+    let count = |sql: &str| {
+        let db = &db;
+        let sql = sql.to_string();
+        async move {
+            db.query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                sql,
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get::<i64>("", "n")
+            .unwrap()
+        }
+    };
+    assert_eq!(
+        count(
+            "SELECT count(*) AS n FROM agent_memories WHERE origin = 'mac' AND invalid_at IS NULL"
+        )
+        .await,
+        3,
+        "what another end wrote is that end's to let go"
+    );
+    assert_eq!(
+        count(
+            "SELECT count(*) AS n FROM agent_memories WHERE origin = 'site' AND invalid_at IS NULL"
+        )
+        .await,
+        MAX_ACTIVE_PER_USER as i64
+    );
+    // Her own doings fade with time: only those the site wrote.
+    for (id, origin) in [("own_site", "site"), ("own_mac", "mac")] {
+        let written = remember_own(&db, id, "{}", Vec::new(), OWN_EXPERIENCE)
+            .await
+            .unwrap()
+            .unwrap();
+        db.execute_unprepared(&format!(
+            "UPDATE agent_memories SET id = '{id}', origin = '{origin}', \
+             created_at = now() - interval '30 days' WHERE id = '{written}'"
+        ))
+        .await
+        .unwrap();
+    }
+    let (faded, _) =
+        fade_own_experiences(&db, chrono::Duration::days(7), chrono::Duration::days(365))
+            .await
+            .unwrap();
+    assert_eq!(faded, 1);
+    assert_eq!(
+        count(
+            "SELECT count(*) AS n FROM agent_memories WHERE id = 'own_mac' AND invalid_at IS NULL"
+        )
+        .await,
+        1
+    );
+}

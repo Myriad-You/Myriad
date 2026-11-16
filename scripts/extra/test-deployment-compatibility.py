@@ -236,6 +236,7 @@ else: sys.exit(1)
                     if token.isascii():
                         self.assertIn(f"got {len(token)} characters", result.stdout)
                     self.assertEqual("carriage return" in result.stdout, "\r" in token)
+                    self.assertEqual("non-ASCII" in result.stdout, not token.isascii())
         with self.subTest(locale=locale, token="missing"):
             result, started, stored = self.deploy(None, locale)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

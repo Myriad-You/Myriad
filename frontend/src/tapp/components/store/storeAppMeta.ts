@@ -1,9 +1,9 @@
+import type { TappPermission } from '@myriad/tapp-runtime'
 import type { ReactElement } from 'react'
-import type { TappPermission } from '../../types'
 import type { IconStyle } from '../../utils/tappColors'
 import type { UnifiedAppItem } from './types'
+import { PERMISSION_LEVELS } from '@myriad/tapp-runtime'
 import { createElement } from 'react'
-import { PERMISSION_LEVELS } from '../../runtime/permissionConfig'
 import { getTappIconStyle } from '../../utils/tappColors'
 import { hasStandaloneTappIcon } from '../TappIcon'
 

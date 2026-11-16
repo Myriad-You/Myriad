@@ -1,4 +1,4 @@
-import type { TappManifest } from '../types'
+import type { TappManifest } from '@myriad/tapp-runtime'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { declaredRemoteMedia, pendingRemoteMedia } from './remoteMediaApproval.ts'

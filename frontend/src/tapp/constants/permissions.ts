@@ -1,7 +1,7 @@
 /** 展示元数据。级别在 permissionConfig PERMISSION_LEVELS。 */
 
+import type { TappPermission } from '@myriad/tapp-runtime'
 import type { ComponentType } from 'react'
-import type { TappPermission } from '../types'
 import {
   FaBell,
   FaBrain,

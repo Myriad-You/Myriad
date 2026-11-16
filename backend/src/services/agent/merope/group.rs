@@ -78,7 +78,5 @@ pub mod speaking {
 }
 
 pub mod timing {
-    pub(crate) use crate::services::agent::merope::timing::{
-        asleep_now, typing, until_read, where_she_is,
-    };
+    pub(crate) use crate::services::agent::merope::timing::asleep_now;
 }

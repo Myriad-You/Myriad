@@ -480,7 +480,7 @@ pub async fn delete_note_with_doc(
             .all(&txn)
             .await
             .map_err(|e| phantasi_store_http("find note docs for delete", e))?;
-        for doc in docs {
+        for doc in &docs {
             crate::services::media::clear_note_doc(&txn, doc.id, Some(item_id))
                 .await
                 .map_err(media_bind_http)?;
@@ -504,14 +504,19 @@ pub async fn delete_note_with_doc(
             .await
             .map_err(|e| phantasi_store_http("delete note doc", e))?;
         sync_item_count(&txn, source).await?;
-        Ok::<_, HttpError>(())
+        Ok::<_, HttpError>(docs.iter().map(|doc| doc.id).collect::<Vec<_>>())
     }
     .await;
     match outcome {
-        Ok(()) => {
+        Ok(doc_ids) => {
             txn.commit()
                 .await
                 .map_err(|e| phantasi_store_http("commit note delete", e))?;
+            // 还开着这篇的编辑器要马上退出，不然会一直重连一篇不存在的文档。
+            let hub = crate::services::note_collab::note_collab_hub();
+            for doc_id in doc_ids {
+                hub.publish_doc_deleted(doc_id);
+            }
             crate::services::blog::request_rebuild();
             Ok(())
         }
@@ -1109,10 +1114,15 @@ mod tests {
         };
         let admin = Database::connect(&url).await.unwrap();
         let scope = format!("note_count_{}", uuid::Uuid::new_v4().simple());
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("CREATE SCHEMA {scope}"))
             .await
             .unwrap();
+        drop(turn);
         let connect = || {
             let mut options = ConnectOptions::new(url.clone());
             options
@@ -1238,10 +1248,15 @@ mod tests {
         a.close().await.unwrap();
         b.close().await.unwrap();
         blocker.close().await.unwrap();
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("DROP SCHEMA {scope} CASCADE"))
             .await
             .unwrap();
+        drop(turn);
         assert!(
             deletion_results.0.is_ok() && deletion_results.1.is_ok(),
             "concurrent deletes must succeed: {deletion_results:?}"

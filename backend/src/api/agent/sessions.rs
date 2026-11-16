@@ -125,6 +125,40 @@ pub async fn list_sessions(
     Ok(Json(json!({ "sessions": sessions_json })))
 }
 
+/// The panel conversation last talked in, for the panel to take up again
+/// when it is opened anew (`{ "session": null }` when there is none to).
+/// GET /api/agent/panel-chat
+pub async fn panel_chat(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<Value>, HttpError> {
+    let user_id = parse_user_id(&claims)?;
+    let Some(id) = crate::services::agent::panel_work::current(&db, user_id).await else {
+        return Ok(Json(json!({ "session": null })));
+    };
+    let session = agent_sessions::Entity::find_by_id(&id)
+        .filter(agent_sessions::Column::UserId.eq(user_id))
+        .filter(agent_sessions::Column::Archived.eq(false))
+        .filter(private_sessions())
+        .one(&db)
+        .await
+        .map_err(|error| session_store_http("find session", error))?
+        .filter(|session| {
+            session_mode(session.context.as_ref())
+                == crate::services::agent::AgentInteractionMode::Chat
+        });
+    Ok(Json(json!({
+        "session": session.map(|s| json!({
+            "id": s.id,
+            "title": s.title,
+            "messageCount": s.message_count,
+            "lastActiveAt": s.last_active_at.to_rfc3339(),
+            "createdAt": s.created_at.to_rfc3339(),
+            "mode": "chat",
+        })),
+    })))
+}
+
 /// 获取会话消息
 /// GET /api/agent/sessions/:id/messages
 pub async fn get_session_messages(
@@ -173,7 +207,42 @@ pub async fn get_session_messages(
         })
         .collect();
 
-    Ok(Json(json!({ "messages": messages_json })))
+    // Her cards before the site owner, where the chat stood when each came
+    // (the lines that are a card or carry one), for the page to put among
+    // the messages by time.
+    let mut body = json!({ "messages": messages_json });
+    if crate::services::site_owner::site_owner_user_id(&db).await == Ok(user_id)
+        && let Ok(cards) =
+            crate::services::agent::merope::cards::lines_in(&db, user_id, &session_id).await
+    {
+        body["cards"] = cards.into();
+    }
+    Ok(Json(body))
+}
+
+/// Has her forget one line of a conversation (D6-g): the line, what it
+/// taught her, and, in the site owner's private talk while her log syncs,
+/// the same on every end (a forget of its row in her log).
+/// DELETE /api/agent/sessions/:id/messages/:message_id
+pub async fn forget_session_message(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path((session_id, message_id)): Path<(String, i32)>,
+) -> Result<Json<Value>, HttpError> {
+    let user_id = parse_user_id(&claims)?;
+    let gone =
+        crate::services::agent::memory::manage::forget_line(&db, user_id, &session_id, message_id)
+            .await
+            .map_err(|error| session_store_http("forget message", error))?;
+    let Some(gone) = gone else {
+        return Err(HttpError::from((
+            StatusCode::NOT_FOUND,
+            Json(AppError::public_json("Message not found")),
+        )));
+    };
+    // What went with it, for the panel to take away too.
+    let lines: Vec<i32> = gone.iter().map(|line| line.id).collect();
+    Ok(Json(json!({ "forgotten": lines })))
 }
 
 /// 归档会话
@@ -419,10 +488,15 @@ mod title_endpoint_tests {
         };
         let schema = format!("title_test_{}", uuid::Uuid::new_v4().simple());
         let admin = Database::connect(&url).await.unwrap();
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
             .await
             .unwrap();
+        drop(turn);
         let mut options = ConnectOptions::new(url);
         options.set_schema_search_path(&schema).sqlx_logging(false);
         let db = Database::connect(options).await.unwrap();
@@ -439,7 +513,7 @@ mod title_endpoint_tests {
             500,
             "a missing messages table must not become an empty conversation"
         );
-        db.execute_unprepared("CREATE TABLE agent_messages (id SERIAL PRIMARY KEY, session_id TEXT NOT NULL, task_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, metadata JSONB, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())").await.unwrap();
+        db.execute_unprepared("CREATE TABLE agent_messages (id SERIAL PRIMARY KEY, session_id TEXT NOT NULL, task_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, metadata JSONB, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), origin TEXT, log_row TEXT)").await.unwrap();
         assert_eq!(
             generate_session_title(
                 State(db.clone()),
@@ -475,10 +549,15 @@ mod title_endpoint_tests {
                 .unwrap();
         assert_eq!(response["title"], "A title");
         db.close().await.unwrap();
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("DROP SCHEMA {schema} CASCADE"))
             .await
             .unwrap();
+        drop(turn);
         admin.close().await.unwrap();
     }
 }

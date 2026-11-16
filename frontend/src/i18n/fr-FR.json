@@ -664,7 +664,12 @@
       "moving": "Elle déménage : aucun bout ne l'a avant la fin ou l'annulation.",
       "vacant": "Elle n'est pas sur ce site maintenant.",
       "movedOut": "Elle a déménagé de ce site.",
-      "member": "Elle n'est pas sur ce site maintenant."
+      "member": "Elle n'est pas sur ce site maintenant.",
+      "mindElsewhere": "Elle est sur « {name} » en ce moment.",
+      "mindElsewhereUnknown": "Elle est sur un autre de vos appareils en ce moment.",
+      "mindElsewhereLeave": "Elle est sur « {name} » en ce moment ; ce que vous dites ici, elle le voit là-bas.",
+      "mindElsewhereLeaveUnknown": "Elle est sur un autre de vos appareils en ce moment ; ce que vous dites ici, elle le voit là-bas.",
+      "mindBack": "Elle vient de revenir ici et récupère encore ce qu'elle a écrit sur votre autre appareil ; ce ne sera pas long."
     },
     "status": {
       "idle": "En attente",
@@ -706,10 +711,22 @@
     "residentPlaceholder": "Dites comment modifier cette note…",
     "chatPlaceholder": "Parlez-lui…",
     "mode": {
-      "label": "Mode",
-      "work": "Aide",
-      "chat": "Discussion",
-      "shortcut": "Tab"
+      "work": "Aide"
+    },
+    "pieces": {
+      "title": "Confié",
+      "label": "n° {number} : {asked}",
+      "kicker": "Tâche",
+      "doing": "En cours",
+      "confirming": "Attend ton accord",
+      "waiting": "Attend ta réponse",
+      "done": "Fait",
+      "stopped": "Arrêtée",
+      "failed": "N'a pas abouti",
+      "stop": "Arrêter celui-ci",
+      "answer": "Répondre",
+      "answerPlaceholder": "Répondre à celui-ci",
+      "backToHer": "Retour à la conversation"
     },
     "intention": {
       "kicker": "J'ai remarqué quelque chose",
@@ -732,6 +749,12 @@
       "kicker": "Humeur"
     },
     "send": "Envoyer",
+    "search": {
+      "label": "Recherche sur le site",
+      "placeholder": "Rechercher sur le site…",
+      "posts": "Articles",
+      "library": "Bibliothèque"
+    },
     "attach": {
       "kind": "Fichier",
       "add": "Ajouter une pièce jointe",
@@ -766,7 +789,6 @@
     "executionFailed": "Exécution échouée",
     "failReason": "Échec : {reason}",
     "interrupted": "Interrompu",
-    "loginRequiredHint": "Connectez-vous pour parler à Agent. Les invités regardent seulement.",
     "requestTimeout": "Requête expirée ou interrompue",
     "streamError": "Impossible de lire le flux de réponse",
     "taskCompleted": "Tâche terminée",
@@ -779,8 +801,34 @@
     "confirmRemoveSession": "Supprimer cette conversation ?",
     "copy": "Copier",
     "copied": "Copié",
+    "typing": "En train d’écrire…",
     "retry": "Réessayer",
     "zoomImage": "Agrandir",
+    "saidOn": "Sur « {name} »",
+    "saidOnUnknown": "Sur un autre de vos appareils",
+    "pictures": "(a envoyé {count} images)",
+    "forgetLine": "Oublier",
+    "confirmForgetLine": "Elle oublie cette phrase et ce qu’elle en a retenu ; en synchronisation, partout.",
+    "card": {
+      "moved": "Cette carte a été mise à jour : voir plus bas",
+      "chose": "Choisi : « {label} »",
+      "answered": "Déjà répondu",
+      "failed": "Envoi impossible. Réessayez.",
+      "closed": "Cette carte est close",
+      "stale": "La carte vient de changer ; voici la dernière version",
+      "because": "D’après le fait {n}",
+      "view": "Avis",
+      "states": {
+        "working": "En cours",
+        "waiting_owner": "Attend votre décision",
+        "finished": "Terminé",
+        "stuck": "Bloqué",
+        "waiting_checks": "Attend les vérifications",
+        "waiting_program": "Attend un autre programme",
+        "waiting_session": "Attend de rendre compte",
+        "quiet": "Calme depuis un moment"
+      }
+    },
     "closeImage": "Fermer",
     "newSession": "Nouveau sujet",
     "stop": "Arrêter",

@@ -664,7 +664,12 @@
       "moving": "彼女は引っ越し中です：終わるか取り消すまで、どの端にも彼女はいません。",
       "vacant": "彼女は今このサイトにいません。",
       "movedOut": "彼女はこのサイトから引っ越しました。",
-      "member": "彼女は今このサイトにいません。"
+      "member": "彼女は今このサイトにいません。",
+      "mindElsewhere": "彼女はいま「{name}」のほうにいます。",
+      "mindElsewhereUnknown": "彼女はいまあなたの別のデバイスにいます。",
+      "mindElsewhereLeave": "彼女はいま「{name}」のほうにいます。ここで言ったことは、彼女があちらで読めます。",
+      "mindElsewhereLeaveUnknown": "彼女はいまあなたの別のデバイスにいます。ここで言ったことは、彼女があちらで読めます。",
+      "mindBack": "彼女はこちらに戻ったばかりで、別のデバイスで書いた分をまだ受け取っています。少しだけ待ってください。"
     },
     "status": {
       "idle": "待機中",
@@ -706,10 +711,22 @@
     "residentPlaceholder": "この記事をどう直すか伝える…",
     "chatPlaceholder": "話しかけて…",
     "mode": {
-      "label": "モード",
-      "work": "仕事",
-      "chat": "会話",
-      "shortcut": "Tab"
+      "work": "仕事"
+    },
+    "pieces": {
+      "title": "任せたこと",
+      "label": "#{number}：{asked}",
+      "kicker": "用事",
+      "doing": "進行中",
+      "confirming": "確認待ち",
+      "waiting": "回答待ち",
+      "done": "完了",
+      "stopped": "止めた",
+      "failed": "うまくいかなかった",
+      "stop": "これを止める",
+      "answer": "答える",
+      "answerPlaceholder": "これに答える",
+      "backToHer": "会話に戻る"
     },
     "intention": {
       "kicker": "気づいたことがあります",
@@ -732,6 +749,12 @@
       "kicker": "気持ち"
     },
     "send": "送信",
+    "search": {
+      "label": "サイト内検索",
+      "placeholder": "サイト内を検索…",
+      "posts": "記事",
+      "library": "ライブラリ"
+    },
     "attach": {
       "kind": "添付",
       "add": "添付を追加",
@@ -766,7 +789,6 @@
     "executionFailed": "実行失敗",
     "failReason": "失敗理由: {reason}",
     "interrupted": "中断されました",
-    "loginRequiredHint": "ログイン後に Agent と会話できます。ゲストは閲覧のみです。",
     "requestTimeout": "リクエストがタイムアウトまたは中断されました",
     "streamError": "レスポンスストリームを読み取れません",
     "taskCompleted": "タスク完了",
@@ -779,8 +801,34 @@
     "confirmRemoveSession": "この会話を削除しますか？",
     "copy": "コピー",
     "copied": "コピーしました",
+    "typing": "入力中…",
     "retry": "もう一度",
     "zoomImage": "拡大",
+    "saidOn": "「{name}」で",
+    "saidOnUnknown": "あなたの別のデバイスで",
+    "pictures": "（画像 {count} 枚）",
+    "forgetLine": "忘れる",
+    "confirmForgetLine": "この一言と、そこから覚えたことを彼女は忘れます。同期中なら両方の端末から消えます。",
+    "card": {
+      "moved": "このカードは更新されました（下にあります）",
+      "chose": "「{label}」を選びました",
+      "answered": "回答済み",
+      "failed": "送れませんでした。もう一度お試しください",
+      "closed": "このカードは終了しています",
+      "stale": "カードが更新されました。これが最新です",
+      "because": "{n} 番目の事実に基づく",
+      "view": "見立て",
+      "states": {
+        "working": "進行中",
+        "waiting_owner": "あなたの判断待ち",
+        "finished": "完了",
+        "stuck": "行き詰まり",
+        "waiting_checks": "チェック待ち",
+        "waiting_program": "別のプログラム待ち",
+        "waiting_session": "報告待ち",
+        "quiet": "しばらく動きなし"
+      }
+    },
     "closeImage": "閉じる",
     "newSession": "新しい話題",
     "stop": "止める",

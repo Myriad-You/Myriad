@@ -182,16 +182,37 @@ pub async fn wish(db: &DatabaseConnection, user_id: i32, about: &str, then: &str
         then: then.to_string(),
         due_in_hours: None,
     };
-    put(db, user_id, &kept, crate::clock::now(), true).await;
+    put(db, user_id, &kept, crate::clock::now(), true, None).await;
 }
 
 /// Something to come back to with them. The same subject again replaces
-/// the earlier one; past the limit, the oldest goes.
+/// the earlier one; past the limit, the oldest goes. Her inner pass keeps
+/// one with the message it grew from ([`keep_from`]).
+#[cfg(test)]
 pub async fn keep(db: &DatabaseConnection, user_id: i32, kept: &Kept, now: DateTime<Utc>) {
-    put(db, user_id, kept, now, false).await;
+    put(db, user_id, kept, now, false, None).await;
 }
 
-async fn put(db: &DatabaseConnection, user_id: i32, kept: &Kept, now: DateTime<Utc>, hers: bool) {
+/// [`keep`], grown from their message `from` (`message:<id>`): kept with
+/// it, so it can rest on what they said (`memory_nodes::home_intents`).
+pub async fn keep_from(
+    db: &DatabaseConnection,
+    user_id: i32,
+    kept: &Kept,
+    now: DateTime<Utc>,
+    from: Option<&str>,
+) {
+    put(db, user_id, kept, now, false, from).await;
+}
+
+async fn put(
+    db: &DatabaseConnection,
+    user_id: i32,
+    kept: &Kept,
+    now: DateTime<Utc>,
+    hers: bool,
+    from: Option<&str>,
+) {
     let about: String = kept.about.trim().chars().take(MAX_ABOUT_CHARS).collect();
     let then: String = kept.then.trim().chars().take(MAX_THEN_CHARS).collect();
     if about.is_empty() || then.is_empty() {
@@ -207,6 +228,11 @@ async fn put(db: &DatabaseConnection, user_id: i32, kept: &Kept, now: DateTime<U
         .due_in_hours
         .filter(|hours| (0..=24 * 60).contains(hours))
         .map(|hours| now + chrono::Duration::hours(hours));
+    let mut evidence =
+        json!({ "about": about, "due": due.map(|due| due.to_rfc3339()), "hers": hers });
+    if let Some(from) = from {
+        evidence["from"] = json!(from);
+    }
     // The same subject again: the new one takes the earlier one's place.
     let _ = unified::remember_in_place_of(
         db,
@@ -214,10 +240,7 @@ async fn put(db: &DatabaseConnection, user_id: i32, kept: &Kept, now: DateTime<U
             user_id,
             kind: unified::MemoryKind::Fact,
             content: then,
-            evidence: Some(
-                json!({ "about": about, "due": due.map(|due| due.to_rfc3339()), "hers": hers })
-                    .to_string(),
-            ),
+            evidence: Some(evidence.to_string()),
             speaker: unified::Speaker::Agent,
             source: SOURCE,
             audience: Audience::private(user_id),
@@ -234,6 +257,8 @@ async fn put(db: &DatabaseConnection, user_id: i32, kept: &Kept, now: DateTime<U
         },
     )
     .await;
+    // On her nodes as her intent, in step with the row.
+    super::memory_nodes::home_intents::in_step(db, user_id).await;
 }
 
 /// Before keeping a thread about `about`: the held ones on the same subject
@@ -259,6 +284,7 @@ fn make_room(held: &[Thread], about: &str) -> (Vec<String>, Vec<String>) {
 pub async fn close(db: &DatabaseConnection, user_id: i32, ids: &[String], reason: &str) {
     if !ids.is_empty() {
         let _ = unified::retire(db, user_id, ids, reason).await;
+        super::memory_nodes::home_intents::in_step(db, user_id).await;
     }
 }
 
@@ -283,13 +309,16 @@ pub fn as_input(threads: &[Thread]) -> Vec<Value> {
 }
 
 /// Threads past their time by a few days, or undated and untouched for
-/// two weeks, fade.
+/// two weeks, fade; but not those that are her intents
+/// (`memory_nodes::home_intents`): those wait for her as intents.
 pub async fn let_fade(db: &DatabaseConnection) {
     let now = crate::clock::now();
     let rows = unified::active_from_source(db, SOURCE)
         .await
         .unwrap_or_default();
     let mut faded = 0;
+    let mut people = std::collections::BTreeSet::new();
+    let mut intents = std::collections::HashMap::new();
     for row in rows {
         let stale = match thread_of(&row).and_then(|thread| thread.due) {
             Some(due) => due + PAST_DUE < now,
@@ -298,9 +327,25 @@ pub async fn let_fade(db: &DatabaseConnection) {
         if !stale {
             continue;
         }
+        if let Some(user_id) = row.user_id {
+            if let std::collections::hash_map::Entry::Vacant(entry) = intents.entry(user_id) {
+                entry.insert(super::memory_nodes::home_intents::as_intents(db, user_id).await);
+            }
+            let intent = super::memory_nodes::home_intents::intent_id(
+                super::memory_nodes::home_intents::THREAD,
+                &row.id,
+            );
+            if intents
+                .get(&user_id)
+                .is_some_and(|held| held.contains(&intent))
+            {
+                continue;
+            }
+        }
         // A group's, of no account; otherwise someone's.
         let retired = match row.user_id {
             Some(user_id) => {
+                people.insert(user_id);
                 unified::retire(db, user_id, &[row.id.clone()], "faded")
                     .await
                     .unwrap_or(0)
@@ -316,6 +361,9 @@ pub async fn let_fade(db: &DatabaseConnection) {
     }
     if faded > 0 {
         tracing::info!(faded, "[Merope] threads faded");
+    }
+    for user_id in people {
+        super::memory_nodes::home_intents::in_step(db, user_id).await;
     }
 }
 

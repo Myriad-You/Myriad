@@ -1,4 +1,4 @@
-import type { SessionMessage } from '../../services/agent/types'
+import type { CardLine, SessionMessage } from '../../services/agent/types'
 import type { ChatMessage, TaskExecution } from './engineTypes'
 import { imageUrlsFromAgentPayload } from '../../services/agent/taskEnvelope'
 import { executionStepsFromHistory } from './engineTypes'
@@ -48,6 +48,14 @@ export function restoreSessionMessage(
 
   const pendingQuestion = pendingQuestionFromMetadata(meta)
   if (pendingQuestion && taskExecution) taskExecution.status = 'waiting'
+  // A copy of a line said on another end (D6-e): where, and how many
+  // pictures came with it there.
+  const said = meta?.said as Record<string, unknown> | undefined
+  const saidOn = said
+    ? { name: typeof said.name === 'string' && said.name ? said.name : null }
+    : undefined
+  const pictures =
+    typeof meta?.pictures === 'number' && meta.pictures > 0 ? meta.pictures : undefined
 
   return {
     id: `loaded_${m.id}`,
@@ -60,5 +68,22 @@ export function restoreSessionMessage(
     imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
     taskExecution,
     pendingQuestion,
+    ...(saidOn ? { saidOn } : {}),
+    ...(pictures ? { pictures } : {}),
+  }
+}
+
+/**
+ * A line of the owner's chat that is a card or carries one, as a message of
+ * hers. Its id is never `loaded_<n>`: it cannot be forgotten as a session line.
+ */
+export function restoreCardLine(line: CardLine, sessionId: string): ChatMessage {
+  return {
+    id: `card_${line.id}`,
+    sessionId,
+    role: 'assistant',
+    content: line.role === 'assistant' ? line.content : '',
+    createdAt: new Date(line.createdAt),
+    cardLine: line,
   }
 }

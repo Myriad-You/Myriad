@@ -97,7 +97,7 @@ test('dev proxy long-timeouts cover model3d downloads, agent process, and SSE', 
 })
 
 test('TapSDK AI host round-trip is at least 5 minutes', () => {
-  const sdk = source('../../tapp/runtime/sandbox/sdkShared.ts')
+  const sdk = source('../../../../tapp/runtime/src/sandbox/sdkShared.ts')
   const aiMs = tsMs(sdk, 'SDK_AI_REQUEST_TIMEOUT_MS')
   assert.ok(
     aiMs >= 5 * 60 * 1000,

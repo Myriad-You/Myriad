@@ -27,6 +27,10 @@ async fn seed(db: &DatabaseConnection) {
          (41, 40, 50, 60, 50, 'coding', '2026-10-09Z', '2026-10-09Z', '2026-10-09Z')",
         "INSERT INTO runtime_registry (namespace, record_id, payload, expires_at, updated_at) \
          VALUES ('merope_pace', 'lazed:2026-10-09', '12.5', 9999999999, '2026-10-09Z')",
+        "INSERT INTO agent_speech_said (id, audience, user_id, thing, called, at, payload) \
+         VALUES ('g1', 'personal:41', 41, 'greeting|day', false, '2026-10-09T00:00:00Z', \
+         '{\"at\":1759968000000,\"text\":\"早呀\",\"place\":\"web\",\"source\":\"greeting\",\
+         \"called\":false,\"thing\":\"greeting|day\",\"exit\":\"face\",\"extent\":\"full\"}')",
     ] {
         db.execute_unprepared(statement).await.unwrap();
     }
@@ -72,7 +76,7 @@ async fn she_comes_into_an_empty_site_from_a_file_or_a_device() {
     let file = super::super::export::export(&source.db, 41, "雨天的伞".into())
         .await
         .unwrap();
-    let opened = archive::open("雨天的伞", &file.bytes).unwrap();
+    let opened = archive::open("雨天的伞", &file.bytes, false).unwrap();
     source.close().await;
 
     // From the file.
@@ -125,6 +129,19 @@ async fn she_comes_into_an_empty_site_from_a_file_or_a_device() {
     assert_eq!(cut["cutOff"], "unheard_end");
     let mood: f64 = one(db, "SELECT mood FROM agent_addressee_state", "mood").await;
     assert!(mood.is_finite());
+    // What she said to the owner came with her, as it was said.
+    assert_eq!(landed.counts.get("speech_said"), Some(&1));
+    let said: Value = one(
+        db,
+        "SELECT payload FROM agent_speech_said WHERE id = 'g1' AND audience = 'personal:41' \
+         AND user_id = 41 AND thing = 'greeting|day' AND NOT called",
+        "payload",
+    )
+    .await;
+    assert_eq!(
+        (said["text"].as_str(), said["at"].as_i64()),
+        (Some("早呀"), Some(1759968000000))
+    );
     let lazed: Value = one(
         db,
         "SELECT payload FROM runtime_registry WHERE record_id = 'lazed:2026-10-09'",
@@ -166,8 +183,8 @@ async fn she_comes_into_an_empty_site_from_a_file_or_a_device() {
     ));
     let frozen = confirm(db, 41, &asked.id, None, false).await.unwrap();
     assert_eq!(
-        (frozen.holder.as_str(), frozen.state, frozen.epoch),
-        (mac.id.as_str(), lease::State::Frozen, 3)
+        (frozen.holder.as_str(), frozen.frozen, frozen.epoch),
+        (mac.id.as_str(), true, 4)
     );
     let called_off = lease::cancel(db, &asked.id, None).await.unwrap();
     assert!(called_off.is_none());
@@ -207,14 +224,16 @@ async fn she_comes_into_an_empty_site_from_a_file_or_a_device() {
             here.epoch,
             here.state
         ),
-        ("site", born.lineage.as_str(), 4, lease::State::Live)
+        // The device's grant at its epoch (3), frozen (4), thawed when the
+        // first try was called off (5), frozen again (6), handed to the site.
+        ("site", born.lineage.as_str(), 7, lease::State::Live)
     );
     assert!(here.moving.is_none());
     // A commit asked again after she landed answers, and changes nothing.
     commit(db, 41, &asked.id, &mac.id, &manifest.digest)
         .await
         .unwrap();
-    assert_eq!(lease::read(db).await.unwrap().unwrap().epoch, 4);
+    assert_eq!(lease::read(db).await.unwrap().unwrap().epoch, 7);
     let staged: i64 = one(
         db,
         "SELECT COUNT(*)::BIGINT AS n FROM agent_host_import_staging",
@@ -357,7 +376,8 @@ async fn a_macs_her_is_merged_into_the_sites() {
         (
             "site",
             born.lineage.as_str(),
-            born.epoch + 1,
+            // Frozen while she is taken together, then thawed.
+            born.epoch + 2,
             lease::State::Live
         )
     );
@@ -380,6 +400,14 @@ async fn a_macs_her_is_merged_into_the_sites() {
     assert_eq!(old, json!("Merope"));
     let sessions: i64 = one(db, "SELECT COUNT(*)::BIGINT AS n FROM agent_sessions", "n").await;
     assert_eq!(sessions, 2);
+    // Both ledgers: the site's greeting and the Mac's two lines.
+    let said: i64 = one(
+        db,
+        "SELECT COUNT(*)::BIGINT AS n FROM agent_speech_said WHERE audience = 'personal:41'",
+        "n",
+    )
+    .await;
+    assert_eq!(said, 3);
     let place: Value = one(
         db,
         "SELECT proposal FROM agent_intentions WHERE id = 'int_mac'",

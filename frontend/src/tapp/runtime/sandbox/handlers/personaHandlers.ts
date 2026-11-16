@@ -1,4 +1,4 @@
-import type { TappBridge } from '../../TappBridge'
+import type { TappBridge } from '@myriad/tapp-runtime'
 import { getSiteFace } from '../../../../features/merope/api'
 import { publicPersonaNameFromConfig } from '../../../../features/merope/persona/publicName'
 import { agentService } from '../../../../services/agent'

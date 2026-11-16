@@ -1,4 +1,4 @@
-import type { TappPermission } from '../../types'
+import type { TappPermission } from '@myriad/tapp-runtime'
 import type { StorePermissionLevel, UnifiedAppItem } from './types'
 import { FaGithub, FaHome, FaLock, FaTrash } from '@lib/icons'
 import { useEffect, useMemo, useState } from 'react'

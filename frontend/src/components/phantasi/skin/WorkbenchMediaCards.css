@@ -68,3 +68,41 @@
   .managed-list-row-hit:focus-visible {
   outline-offset: -3px;
 }
+
+/* 从外面拖文件进媒体库时盖在整页上的落点提示（同主题页拖压缩包的写法）。 */
+.tool-pane.is-droppable {
+  position: relative;
+}
+
+.workbench-media-drop {
+  position: absolute;
+  inset: 0.25rem;
+  z-index: 6; /* 吸顶工具条是 5，要盖过它 */
+  border: 1.5px dashed color-mix(in srgb, var(--cfg-accent) 70%, transparent);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--cfg-accent) 10%, color-mix(in srgb, #fafaf9 85%, transparent));
+  pointer-events: none;
+}
+
+html.dark .workbench-media-drop {
+  background: color-mix(in srgb, var(--cfg-accent) 14%, color-mix(in srgb, #18181b 85%, transparent));
+}
+
+/* 列表很长、已经往下翻了时，提示停在窗口里不跟着跑掉。 */
+.workbench-media-drop__label {
+  position: sticky;
+  top: 40vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 40vh;
+  color: var(--cfg-accent);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.workbench-media-drop__label svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}

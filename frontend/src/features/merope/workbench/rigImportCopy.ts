@@ -1,6 +1,6 @@
+import type { AuthoredExpressionKind } from '@myriad/figure/rig'
 import type { TranslationKeys } from '../../../i18n'
 import type { RigAssetCompileEvent } from '../assets/pipeline'
-import type { AuthoredExpressionKind } from '../rig/authoredExpression'
 import type { TurnKeyformsStatus } from '../turnKeyformsApi'
 
 type Labels = TranslationKeys['merope']

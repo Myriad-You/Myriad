@@ -1,0 +1,9 @@
+{
+  "search": "Rechercher",
+  "searchPlaceholder": "Rechercher des articles",
+  "searchHint": "Saisissez un mot-clé pour rechercher les articles publiés.",
+  "searchNoResults": "Aucun article trouvé pour {q}.",
+  "searchResults": "{n} article(s) trouvé(s) sur {q}.",
+  "searchResultsMore": "Plus de {n} articles sur {q}.",
+  "siteFallbackTitle": "Blog"
+}

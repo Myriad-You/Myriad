@@ -236,7 +236,11 @@ async fn write_yesterday(db: &DatabaseConnection, owner: i32, day: NaiveDate) {
         .take(MAX_DAY_CHARS)
         .collect();
     match unified::write_own_day(db, day, &text).await {
-        Ok(true) => tracing::info!(%day, "[Merope] kept a day of her own"),
+        Ok(true) => {
+            tracing::info!(%day, "[Merope] kept a day of her own");
+            // On her nodes too (`memory_nodes::hanging`).
+            super::memory_nodes::hanging::kept(db, &format!("day_{day}")).await;
+        }
         Ok(false) => {}
         Err(error) => tracing::warn!(%error, "[Merope] could not keep her day"),
     }

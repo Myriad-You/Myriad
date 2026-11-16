@@ -2,7 +2,7 @@ import type {
   AgentInteractionV2,
   PublishEventRequest,
   TappEvent,
-} from '../types'
+} from '@myriad/tapp-runtime'
 import { apiRequest, streamRuntimeEvents } from './TappHttpClient'
 
 export type ComponentType = 'theme' | 'agent'

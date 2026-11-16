@@ -44,6 +44,8 @@ describe('spa-server document CSP', () => {
     assert.match(first.csp, /'strict-dynamic'/)
     assert.match(first.csp, /frame-ancestors 'none'/)
     assert.doesNotMatch(first.csp, /script-src[^;]*'unsafe-/)
+    // pwa.ts swaps in the branded manifest as a blob: URL.
+    assert.match(first.csp, /manifest-src 'self' blob:(;|$)/)
     assert.equal(first.response.headers.get('x-frame-options'), 'DENY')
   })
 

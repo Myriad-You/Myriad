@@ -19,14 +19,15 @@ fn statement(sql: &str, values: Vec<sea_orm::Value>) -> Statement {
     Statement::from_sql_and_values(DatabaseBackend::Postgres, sql, values)
 }
 
-/// Kept while she lives on another end: a Work outcome (not while she is
-/// moving: no Work runs then).
+/// Kept while she lives on another end, or her mind is on one: a Work
+/// outcome (not while she is moving: no Work runs then).
 pub(crate) fn keeps(event_key: &str) -> bool {
     WORK_OUTCOMES.contains(&event_key)
         && matches!(
             crate::services::persona_sync::lease::place(),
             crate::services::persona_sync::lease::Where::Elsewhere(_)
                 | crate::services::persona_sync::lease::Where::Vacant
+                | crate::services::persona_sync::lease::Where::MindOn(_)
         )
 }
 

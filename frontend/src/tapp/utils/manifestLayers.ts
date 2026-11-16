@@ -1,6 +1,6 @@
 /** 页面是否存在由 page 层是否声明决定。不把 hasPage 写回透传 manifest（会撞 deny_unknown_fields）。 */
 
-import type { TappManifest } from '../types'
+import type { TappManifest } from '@myriad/tapp-runtime'
 
 export function tappHasPage(manifest: Pick<TappManifest, 'page'>): boolean {
   return manifest.page !== undefined

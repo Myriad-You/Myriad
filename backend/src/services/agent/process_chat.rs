@@ -26,8 +26,8 @@ impl Agent {
             }
         };
         crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
-        let (reply, handed_off) = crate::services::agent::delegate::split(&reply);
-        let (reply, sticker) = myriad_merope::stickers::split_sticker_directive(&reply);
+        let handed_off = crate::services::agent::delegate::split(&reply).1;
+        let sticker = myriad_merope::stickers::split_sticker_directive(&reply).1;
         let (reply, music) = publish_model_outfit_overlay(&self.db, &request, &reply, None).await;
         crate::services::agent::merope::enqueue_chat_remember(
             &self.db,
@@ -54,6 +54,10 @@ impl Agent {
             crate::services::agent::merope::audience_for(&request),
             crate::services::agent::merope::turn_context(&request),
         );
+        crate::services::agent::merope::memory_nodes::intending::spawn_after_turn(
+            self.db.clone(),
+            &request,
+        );
         return attach_motion_to_result(
             Ok(AgentResponse {
                 response_type: AgentResponseType::Answer,
@@ -63,7 +67,7 @@ impl Agent {
                         &self.db,
                         &request,
                         &reply,
-                        handed_off.as_deref(),
+                        &handed_off,
                         sticker,
                     )
                     .await,
@@ -142,15 +146,55 @@ impl Agent {
             motion_refinement = Some(guard);
         }
 
+        // Typed here a message at a time: what was left of her last reply
+        // goes first, then typing shows while she thinks and writes, and
+        // the reply goes out once whole (see `merope::chat_typing`).
+        let typed = super::merope::chat_typing::in_messages(request.context.as_ref());
+        let run_id = request
+            .context
+            .as_ref()
+            .and_then(|ctx| ctx.run_id.clone())
+            .unwrap_or_default();
+        let carried = if typed {
+            super::merope::chat_typing::take_first(&run_id)
+        } else {
+            Vec::new()
+        };
+        if !carried.is_empty() {
+            let carried: Vec<_> = carried
+                .iter()
+                .map(|text| super::merope::chat_typing::Typed {
+                    text: text.clone(),
+                    typing: super::merope::chat_typing::typing(text),
+                })
+                .collect();
+            super::merope::chat_typing::type_out(
+                &carried,
+                None,
+                true,
+                &progress_tx,
+                speech_delivery.as_deref(),
+            )
+            .await;
+        }
+        if typed {
+            let _ = progress_tx.send(AgentProgressEvent::Typing).await;
+        }
+        let began = std::time::Instant::now();
+
         // Persistence still precedes chat context construction, but must
         // not stand in front of the character's immediate reaction.
         let (reply, handed_off, sticker) = match self
-            .stream_strict_lite_chat_response(&request, &progress_tx, speech_delivery)
+            .stream_strict_lite_chat_response(
+                &request,
+                &progress_tx,
+                speech_delivery.clone().filter(|_| !typed),
+            )
             .await
         {
             Ok(reply) => {
-                let (reply, handed_off) = crate::services::agent::delegate::split(&reply);
-                let (reply, sticker) = myriad_merope::stickers::split_sticker_directive(&reply);
+                let handed_off = crate::services::agent::delegate::split(&reply).1;
+                let sticker = myriad_merope::stickers::split_sticker_directive(&reply).1;
                 (
                     publish_model_outfit_overlay(&self.db, &request, &reply, Some(&progress_tx))
                         .await
@@ -166,6 +210,51 @@ impl Agent {
                 crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
                 return Err(error);
             }
+        };
+
+        // Typed out: what goes out is what she said, a message a line.
+        let reply = if typed {
+            let room = request
+                .context
+                .as_ref()
+                .and_then(|ctx| ctx.conversation_history.as_deref())
+                .and_then(crate::services::agent::merope::their_typing);
+            let sent = super::merope::chat_typing::goes_out(&reply, room.as_ref());
+            let texts: Vec<String> = sent.iter().map(|typed| typed.text.clone()).collect();
+            if let Some(session_id) = request
+                .context
+                .as_ref()
+                .and_then(|ctx| ctx.session_id.as_deref())
+            {
+                super::turn::note_draft(
+                    user_id,
+                    session_id,
+                    &run_id,
+                    super::turn::Draft {
+                        said: request.raw_input.clone(),
+                        reply: reply.clone(),
+                        messages: texts.clone(),
+                    },
+                )
+                .await;
+            }
+            super::merope::chat_typing::type_out(
+                &sent,
+                Some(began),
+                carried.is_empty(),
+                &progress_tx,
+                speech_delivery.as_deref(),
+            )
+            .await;
+            if let Some(delivery) = speech_delivery.as_ref() {
+                delivery
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .finish(&progress_tx);
+            }
+            texts.join("\n")
+        } else {
+            reply
         };
 
         // Close text without waiting for the director. Already-published plans
@@ -195,6 +284,10 @@ impl Agent {
             reply.clone(),
             crate::services::agent::merope::audience_for(&request),
             crate::services::agent::merope::turn_context(&request),
+        );
+        crate::services::agent::merope::memory_nodes::intending::spawn_after_turn(
+            self.db.clone(),
+            &request,
         );
         let performance = None;
 
@@ -251,7 +344,7 @@ impl Agent {
             response_type: AgentResponseType::Answer,
             message: reply.clone(),
             data: Some(
-                chat_reply_with_overlay(&self.db, &request, &reply, handed_off.as_deref(), sticker)
+                chat_reply_with_overlay(&self.db, &request, &reply, &handed_off, sticker)
                     .await,
             ),
             data_display: None,
@@ -288,7 +381,7 @@ fn chat_music_frontend_action(
 }
 
 /// Her words to a group as they stand once her wear directive, if any, is
-/// acted on and peeled off (see [`publish_model_outfit_overlay`]).
+/// acted on and every mark peeled off (see [`publish_model_outfit_overlay`]).
 pub(super) async fn published_reply(
     db: &sea_orm::DatabaseConnection,
     request: &UserRequest,
@@ -334,7 +427,7 @@ async fn chat_reply_with_overlay(
     db: &sea_orm::DatabaseConnection,
     request: &UserRequest,
     reply: &str,
-    handed_off: Option<&str>,
+    handed_off: &[crate::services::agent::delegate::HandOff],
     sticker: Option<myriad_merope::stickers::Choice>,
 ) -> Value {
     let mut data = crate::services::agent::chat_prompt::chat_reply_data(reply, &request.raw_input);
@@ -351,16 +444,37 @@ async fn chat_reply_with_overlay(
         object.insert("sticker".into(), value);
     }
     // Work she handed off, for the channel to start; only where she may.
-    if let (Some(instruction), Some(object)) = (
-        handed_off.filter(|_| {
-            request
-                .context
-                .as_ref()
-                .is_some_and(|context| context.channel_chat.is_some())
-        }),
-        data.as_object_mut(),
-    ) {
-        object.insert("handOff".into(), json!({ "instruction": instruction }));
+    let may_hand_off = request
+        .context
+        .as_ref()
+        .is_some_and(|context| context.channel_chat.is_some() || context.panel_work.is_some());
+    if may_hand_off
+        && !handed_off.is_empty()
+        && let Some(object) = data.as_object_mut()
+    {
+        object.insert("handOffs".into(), json!(handed_off));
+    }
+    // In the panel her lines are carried out here, and it is told the pieces
+    // as they now stand, to follow each.
+    if let Some(chat) = request
+        .context
+        .as_ref()
+        .filter(|context| context.panel_work.is_some() && !handed_off.is_empty())
+        .and_then(|context| context.session_id.as_deref())
+    {
+        crate::services::agent::panel_work::carry_out(
+            db,
+            request.user_id,
+            chat,
+            handed_off,
+            &request.raw_input,
+        )
+        .await;
+        let listed = crate::services::agent::panel_work::listed(db, request.user_id, chat).await;
+        if let Some(object) = data.as_object_mut() {
+            object.insert("pieces".into(), json!(listed.pieces));
+            object.insert("told".into(), json!(listed.told));
+        }
     }
     let session_id = request
         .context

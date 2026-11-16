@@ -1,8 +1,21 @@
-import type { TappCodeStructure, TappInstance } from '../types'
-import type { AnimationConfigRef, SafeInsets } from './sandbox'
-import type { TappBridge } from './TappBridge'
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { AnimationConfigRef, SafeInsets, TappBridge, TappCodeStructure, TappDocumentSecurity, TappInstance } from '@myriad/tapp-runtime'
+import {
+  applySandboxCapabilityProfile,
+  buildLayerScript,
+  escapeSandboxHtmlText,
+  escapeSandboxScriptSource,
+  generateFullSDK,
+  generateSessionToken,
+  generateThemeCSS,
+  getCodeStructureFingerprint,
+  getTappRuntimeFingerprint,
+  IFRAME_SANDBOX_ATTRS,
+  manifestRequestsRuntimeModule,
+  PAGE_STATIC_CSS,
+  serializeSandboxScriptValue,
+} from '@myriad/tapp-runtime'
 
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { emitAppEvent } from '../../utils/appEvents'
@@ -12,27 +25,8 @@ import {
 } from '../../utils/musicPlayerState'
 import { useTappSubject } from '../../utils/tappSubject'
 import { getIsDarkMode } from '../../utils/themeSubscriber'
+import { tappKernel } from '../tappKernel'
 import { sendResizeMessage, useIframeResize } from '../utils/iframeResize'
-import {
-  buildLayerScript,
-  getCodeStructureFingerprint,
-  getTappRuntimeFingerprint,
-} from './codeStructure'
-import {
-  applySandboxCapabilityProfile,
-  cspOptionsFromPermissions,
-  escapeSandboxHtmlText,
-  escapeSandboxScriptSource,
-  generateCSP,
-  generateFullSDK,
-  generateSecurityWrapper,
-  generateSessionToken,
-  generateThemeCSS,
-  IFRAME_SANDBOX_ATTRS,
-  PAGE_STATIC_CSS,
-  sandboxScriptNonce,
-  serializeSandboxScriptValue,
-} from './sandbox'
 import {
   registerAdvancedHandlers,
   registerAgentInteractionHandlers,
@@ -65,13 +59,7 @@ import {
   registerWidgetInvalidateTargetHandler,
 } from './sandbox/handlers'
 import { registerPlaygroundPreviewHandlers } from './sandbox/handlers/playgroundPreviewHandlers'
-import {
-  loadHostRuntimeModule,
-  manifestRequestsRuntimeModule,
-} from './sandbox/hostRuntimeModules'
 import { onSpaNavigation } from './spaNavigation'
-import { createTappBridge } from './TappBridge'
-import { TappRuntimeGrant } from './TappRuntimeGrant'
 import { useSandboxSubscriptions } from './useSandboxSubscriptions'
 import { bindAllTappKvChanges } from './WidgetRuntimeSignals'
 
@@ -105,19 +93,11 @@ function generateHeadlessCoreHTML(
   tappInstance: TappInstance,
   code: TappCodeStructure,
   sessionToken: string,
+  security: TappDocumentSecurity,
   locale: string,
 ): string {
   const { manifest } = tappInstance
-  const nonce = sandboxScriptNonce()
-  const cspOptions = cspOptionsFromPermissions(
-    tappInstance.grantedPermissions,
-    tappInstance.grantedRemoteMedia,
-  )
-  const csp = generateCSP(nonce, cspOptions)
-  const securityWrapper = escapeSandboxScriptSource(
-    // 包装层图片 URL 判断必须与 CSP 同一份选项。
-    generateSecurityWrapper(sessionToken, cspOptions.remoteMediaHosts),
-  )
+  const { nonce, csp, securityWrapper } = security
   const sdkCode = escapeSandboxScriptSource(
     generateFullSDK(tappInstance, sessionToken, 'headless'),
   )
@@ -167,6 +147,7 @@ function generatePageHTML(
   tappInstance: TappInstance,
   code: TappCodeStructure,
   sessionToken: string,
+  security: TappDocumentSecurity,
   locale: string,
   safeInsets?: SafeInsets,
   launchParams?: Record<string, string>,
@@ -180,16 +161,7 @@ function generatePageHTML(
       .getPropertyValue('--color-primary')
       .trim() || '#94a3b8'
 
-  const nonce = sandboxScriptNonce()
-  const cspOptions = cspOptionsFromPermissions(
-    tappInstance.grantedPermissions,
-    tappInstance.grantedRemoteMedia,
-  )
-  const csp = generateCSP(nonce, cspOptions)
-  const securityWrapper = escapeSandboxScriptSource(
-    // 包装层图片 URL 判断必须与 CSP 同一份选项。
-    generateSecurityWrapper(sessionToken, cspOptions.remoteMediaHosts),
-  )
+  const { nonce, csp, securityWrapper } = security
   const sdkCode = escapeSandboxScriptSource(
     generateFullSDK(tappInstance, sessionToken),
   )
@@ -551,12 +523,12 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     iframeRef.current = iframe
 
     // DOM 插入前挂消息监听
-    const bridge = createTappBridge()
+    const bridge = tappKernel.createBridge()
     bridgeRef.current = bridge
 
     const runtimeGrant = previewMode
       ? undefined
-      : new TappRuntimeGrant(
+      : tappKernel.grants.create(
           currentTappInstance.id,
           `${headless ? 'headless' : 'page'}_${sessionToken.slice(0, 32)}`,
           headless ? 'headless' : 'page',
@@ -757,24 +729,27 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
         )
       ) {
         try {
-          runtimeScripts = await loadHostRuntimeModule('three')
+          runtimeScripts = await tappKernel.runtimeModules.load('three')
         } catch (error) {
           console.error('[Tapp] host Three runtime failed', error)
         }
       }
       if (cancelled) return
 
+      const security = tappKernel.documentSecurity(currentTappInstance, sessionToken)
       const html = headless
         ? generateHeadlessCoreHTML(
             currentTappInstance,
             currentCode,
             sessionToken,
+            security,
             localeRef.current,
           )
         : generatePageHTML(
             currentTappInstance,
             currentCode,
             sessionToken,
+            security,
             localeRef.current,
             safeInsetsRef.current,
             launchParams,

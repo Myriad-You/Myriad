@@ -1,7 +1,6 @@
 /** 仍走联邦 API；本层只规范化 share id 与 game:<tappId>:<protocol> 信封。 */
 
-import type { TappInstance, TappMessage } from '../types'
-import type { TappBridge } from './TappBridge'
+import type { TappBridge, TappInstance, TappMessage } from '@myriad/tapp-runtime'
 
 import { federationApi } from '../../services/federationApi'
 import { userFacingError } from '../../utils/userFacingError'

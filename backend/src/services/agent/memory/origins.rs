@@ -57,14 +57,39 @@ pub const QUOTED_WITHIN: Duration = Duration::days(1);
 /// short is not looked for.
 const SHORTEST_QUOTE: usize = 2;
 
+/// A line deleted with what it taught her: for what else cites it to go
+/// too, here (her nodes) and on the owner's other ends (her log).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Gone {
+    /// Its `agent_messages.id`.
+    pub id: i32,
+    pub session_id: String,
+    pub role: String,
+    /// The row of her log it is, when it is one (`agent_messages.log_row`).
+    pub log_row: Option<String>,
+}
+
+impl Gone {
+    pub fn of(line: &crate::models::entities::agent_messages::Model) -> Self {
+        Self {
+            id: line.id,
+            session_id: line.session_id.clone(),
+            role: line.role.clone(),
+            log_row: line.log_row.clone(),
+        }
+    }
+}
+
 /// Deletes what `rows` (a memory and its earlier versions, about to be
-/// deleted on the same transaction) came from. The caller holds the
-/// memory-work lock ([`memory_jobs::lock`]) from before it read them, so no
-/// queued job writes in between.
+/// deleted on the same transaction) came from; the lines deleted, for what
+/// else cites them to go too. The caller holds the memory-work lock
+/// ([`memory_jobs::lock`]) from before it read them, so no queued job writes
+/// in between.
 pub async fn forget<C: ConnectionTrait>(
     db: &C,
     rows: &[agent_memories::Model],
-) -> Result<(), DbErr> {
+) -> Result<Vec<Gone>, DbErr> {
+    let mut lines = Vec::new();
     for row in rows {
         let Some(user_id) = row.user_id.filter(|id| *id > 0) else {
             continue;
@@ -78,7 +103,7 @@ pub async fn forget<C: ConnectionTrait>(
                     continue;
                 };
                 let from = row.created_at - QUOTED_WITHIN;
-                delete_quoted(db, user_id, place, &quote, from, row.created_at).await?;
+                lines.extend(delete_quoted(db, user_id, place, &quote, from, row.created_at).await?);
                 delete_diary(db, user_id, Some(&quote), from, row.created_at).await?;
                 memory_jobs::forget_holding(db, user_id, &quote).await?;
             }
@@ -86,12 +111,78 @@ pub async fn forget<C: ConnectionTrait>(
                 let Some((start, end)) = day(row.evidence.as_deref()) else {
                     continue;
                 };
-                delete_day(db, user_id, start, end).await?;
+                lines.extend(delete_day(db, user_id, start, end).await?);
                 delete_diary(db, user_id, None, start, end).await?;
             }
             _ => {}
         }
     }
+    Ok(lines)
+}
+
+/// The way back from one line: the person's (`user_id`'s) memories in
+/// `place` (`None` private, a group's id) that quote `content`, said at
+/// `at`, and were written within [`QUOTED_WITHIN`] after it, from what they
+/// said or what she told them (the sources [`forget`] follows to lines). For
+/// forgetting the line with what it taught her: each goes by
+/// [`super::manage::forget_any`].
+pub async fn quoting<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    place: Option<&str>,
+    content: &str,
+    at: DateTime<FixedOffset>,
+) -> Result<Vec<String>, DbErr> {
+    let said = content.split_whitespace().collect::<Vec<_>>().join(" ");
+    if said.chars().count() < SHORTEST_QUOTE {
+        return Ok(Vec::new());
+    }
+    let venue = place.map_or_else(|| "private".to_string(), |group| format!("group:{group}"));
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT id, evidence FROM agent_memories \
+             WHERE user_id = $1 AND venue = $2 AND source = ANY($3) AND invalid_at IS NULL \
+               AND created_at BETWEEN $4 AND $5 ORDER BY created_at, id",
+            vec![
+                user_id.into(),
+                venue.into(),
+                vec![
+                    SHORT_NOTE_SOURCE.to_string(),
+                    "chat".to_string(),
+                    SAID_SOURCE.to_string(),
+                ]
+                .into(),
+                at.into(),
+                (at + QUOTED_WITHIN).into(),
+            ],
+        ))
+        .await?;
+    let mut out = Vec::new();
+    for row in rows {
+        let evidence: Option<String> = row.try_get("", "evidence")?;
+        if quote(evidence.as_deref()).is_some_and(|quote| said.contains(&quote)) {
+            out.push(row.try_get("", "id")?);
+        }
+    }
+    Ok(out)
+}
+
+/// Deletes the rest of what one line, `content` said at `at` and now gone,
+/// left of itself: the same words in the person's chat diary from then until
+/// [`QUOTED_WITHIN`] after, and any queued job still holding them. The caller
+/// holds the memory-work lock ([`memory_jobs::lock`]).
+pub async fn forget_line_traces<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    content: &str,
+    at: DateTime<FixedOffset>,
+) -> Result<(), DbErr> {
+    let Some(said) = quote(Some(content)) else {
+        return Ok(());
+    };
+    delete_diary(db, user_id, Some(&said), at, at + QUOTED_WITHIN).await?;
+    memory_jobs::forget_holding(db, user_id, &said).await?;
     Ok(())
 }
 
@@ -106,7 +197,7 @@ fn place(venue: &str) -> Option<Option<&str>> {
 
 /// The words as said, with runs of space as one: a quote is plain text (a
 /// record's evidence is JSON and quotes nothing).
-fn quote(evidence: Option<&str>) -> Option<String> {
+pub(crate) fn quote(evidence: Option<&str>) -> Option<String> {
     let evidence = evidence?.trim();
     if evidence.starts_with('{') || evidence.starts_with('[') {
         return None;
@@ -132,7 +223,7 @@ async fn delete_quoted<C: ConnectionTrait>(
     quote: &str,
     from: DateTime<FixedOffset>,
     to: DateTime<FixedOffset>,
-) -> Result<(), DbErr> {
+) -> Result<Vec<Gone>, DbErr> {
     delete_messages(
         db,
         "WITH quoted AS ( \
@@ -151,7 +242,7 @@ async fn delete_quoted<C: ConnectionTrait>(
          ) \
          DELETE FROM agent_messages WHERE id IN ( \
            SELECT id FROM quoted UNION SELECT id FROM answers WHERE id IS NOT NULL \
-         ) RETURNING session_id",
+         ) RETURNING session_id, id, role, log_row",
         vec![
             user_id.into(),
             place.map(str::to_string).into(),
@@ -169,38 +260,50 @@ async fn delete_day<C: ConnectionTrait>(
     user_id: i32,
     start: DateTime<FixedOffset>,
     end: DateTime<FixedOffset>,
-) -> Result<(), DbErr> {
+) -> Result<Vec<Gone>, DbErr> {
     delete_messages(
         db,
         "DELETE FROM agent_messages m USING agent_sessions s \
          WHERE s.id = m.session_id AND s.user_id = $1 AND s.context->>'mode' = 'chat' \
            AND (s.context->>'venue') IS NULL \
            AND m.created_at >= $2 AND m.created_at < $3 \
-         RETURNING m.session_id",
+         RETURNING m.session_id, m.id, m.role, m.log_row",
         vec![user_id.into(), start.into(), end.into()],
     )
     .await
 }
 
-/// Runs a delete of lines returning their conversations, and has each
-/// conversation count what is left in it.
+/// Runs a delete of lines returning their conversations, ids, roles and
+/// rows, and has each conversation count what is left in it. The lines
+/// deleted.
 async fn delete_messages<C: ConnectionTrait>(
     db: &C,
     delete: &str,
     values: Vec<sea_orm::Value>,
-) -> Result<(), DbErr> {
-    let sessions: Vec<String> = db
+) -> Result<Vec<Gone>, DbErr> {
+    let deleted = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             delete,
             values,
         ))
-        .await?
+        .await?;
+    let lines = deleted
         .iter()
-        .filter_map(|row| row.try_get::<String>("", "session_id").ok())
-        .collect();
+        .map(|row| {
+            Ok(Gone {
+                id: row.try_get("", "id")?,
+                session_id: row.try_get("", "session_id")?,
+                role: row.try_get("", "role")?,
+                log_row: row.try_get("", "log_row")?,
+            })
+        })
+        .collect::<Result<Vec<_>, DbErr>>()?;
+    let mut sessions: Vec<String> = lines.iter().map(|line| line.session_id.clone()).collect();
+    sessions.sort();
+    sessions.dedup();
     if sessions.is_empty() {
-        return Ok(());
+        return Ok(lines);
     }
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -210,7 +313,7 @@ async fn delete_messages<C: ConnectionTrait>(
         [sessions.into()],
     ))
     .await?;
-    Ok(())
+    Ok(lines)
 }
 
 /// Her chat diary of the person in `from..=to`: the entries holding

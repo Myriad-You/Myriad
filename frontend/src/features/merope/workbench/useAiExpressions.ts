@@ -1,8 +1,8 @@
+import type { AuthoredExpressionKind } from '@myriad/figure/rig'
 import type { SiteExpressionUrls } from '../api'
-import type { AuthoredExpressionKind } from '../rig/authoredExpression'
+import { AUTHORED_EXPRESSION_KINDS } from '@myriad/figure/rig'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { generateSiteExpression, listSiteExpressions } from '../api'
-import { AUTHORED_EXPRESSION_KINDS } from '../rig/authoredExpression'
 import { useServerGeneration } from './useServerGeneration'
 
 /** AI expression enhancement: redraws of the current portrait, kept per portrait. */

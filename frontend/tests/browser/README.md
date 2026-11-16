@@ -32,38 +32,6 @@ accuracy, acoustic echo cancellation, Agora connectivity, or rendered avatar
 appearance. Those need separate opt-in provider and asset scenarios. Passing
 the speech producer check is not proof that a particular rig rendered the pose.
 
-## Rig import
-
-`pnpm test:browser rigImport.spec.ts` runs real PSD decoding and compilation in
-a browser Worker with OffscreenCanvas. A shared synthetic PSD fixture checks
-manifest and decoded PNG pixel parity with the page-side compiler, including
-true high collars and independent necklaces. It also checks cancellation during
-packing, successful retry, and the page's selected error language. It needs no
-backend, login, existing assets, or UI manipulation. This verifies import parity,
-not GPU motion quality or the accuracy of generated layer artwork.
-
-The eye fixture also runs the production WebGL player through automatic blink,
-deliberate one-/two-eye closure, crying and reopening. It checks the compiled
-layer opacity choices and bounded rebound on actual player ticks. This is a
-render-path regression using synthetic artwork, not a subjective appearance
-review of a user's character.
-
-The pixel eye replay uses diagnostic-colored synthetic artwork and the real
-importer/player/WebGL shaders at fixed 30 and 60 fps, with autonomous motion
-disabled. Every frame checks each iris against an independently rendered eye
-white, including invisible whites during fades. Pixel counts distinguish ordinary
-blink art, alternate deliberate closure and fallback on the other eye; reopening
-must recover the original counts. The replay also covers special-expression
-suppression, opposing head/gaze targets, finite vertices, monotonic eyelid motion
-and ordinary-art coverage (within one 8-bit alpha level after expression release).
-No screenshot baseline, business page, computer use or production debug API is
-required. Diagnostic colors and isolated eyes intentionally do not claim coverage
-of real artwork aesthetics, hair occlusion or collar/necklace deformation.
-
-If another suite owns port 4179, run with `MYRIAD_BROWSER_TEST_PORT=4188` (or another
-free port). The harness starts the installed Vite directly without asking the
-package manager to reinstall dependencies.
-
 ## Rig body replay
 
 `pnpm test:browser poseCorrectionEditor.spec.ts` mounts the real optional editing
@@ -79,60 +47,8 @@ set to a local `manifest.json` + `atlas.png` directory, it poses the head, adds
 a spot, drags it and checks that the drawn point follows the pointer, picks a
 second spot on the stage, holds the before view, and saves.
 
-The opt-in real-artwork replays use `MEROPE_SHOULDER_ASSET` and
-`MEROPE_COLLAR_ASSET`, each pointing to a local directory containing
-`manifest.json` and `atlas.png`. Run `shoulderFusion.spec.ts`, `hairFollow.spec.ts`,
-`earwearAttachment.spec.ts` and `torsoResponse.spec.ts` with those variables set.
-The earwear case requires combined left/right earrings in the high-collar asset.
-Absent fixtures are reported as skipped, not validated. Reports attach metrics
-and before/after frames; no character artwork is checked into the repository.
-
-The nod replay in `hairFollow.spec.ts` isolates vertical hair following at the
-same player time and pose: it temporarily zeros only the vertical lag, then
-compares final mesh positions and GPU pixels. It checks both lag directions and
-positive hair triangle areas through reversal and release. Its paired images
-are an ablation of that channel, not a full historical-renderer comparison or
-a naturalness score. Root pinning and one-time body rotation are covered by
-the secondary-deformation unit tests.
-
-Additional current-format portraits can run the same three hair replays through
-`MEROPE_HAIR_ASSETS`, a list of asset directories separated by the platform path
-delimiter (`:` on macOS/Linux, `;` on Windows). No asset names or hashes need to
-be added to the test. The combined replay checks both root coordinates against
-the final primary mesh through four seconds of opposing yaw/roll and positive
-and negative pitch. Its oracle includes the shader-owned body rotation: the
-high-collar envelope can redistribute pitch into body motion even when the
-requested body parameter is zero. Every hair triangle must remain oriented.
-It also bounds the final edge-length ratio against the same frame's primary
-surface, rather than the neutral drawing. The solver's local 1.25 stretch target
-is soft because orientation corrections have priority; the real-asset replay
-uses a 1.4 ceiling. The `projected-87-area-only` attachment disables only length
-projection at the identical pose and physics state, retaining the area barrier.
-This isolates shape preservation without reducing the authored motion target.
-The same report includes `projected-neutral`, `projected-atlas-composite` (flat
-Canvas2D assembly without mesh deformation) and `projected-87-without-face`.
-These are diagnostic attachments for tracing exposed regions back to a drawing
-layer; their presence is not an assertion that the original illustration and
-the split package have identical coverage or that every exposed region is wrong.
-
-The same suite replays ordinary clothing, a high collar and an open neck with an
-independent necklace at 30/60 fps. Physics stays enabled; idle, automatic blinking
-and random actions are disabled. Head targets reverse before settling, stop at
-the current pose and return to neutral. Checks cover finite transformed vertices,
-gross frame jumps/root stretch, immediate pose preservation on target replacement,
-and persistent clothing/accessory pixels. The high-collar case must compile a
-real aperture mesh and render without GPU errors, including the initial warmup.
-
-Every replay frame also forces a second deformation pass at the same time/pose
-with local geometry caches bypassed. Both geometry and rendered pixels must be
-unchanged: duplicate deformation cannot hide behind a cache. This caught the
-replaced high-collar neck being marked dirty and uploaded without a position
-buffer. Its paint layer remains; only its redundant mesh update is skipped.
-
-This is a player/renderer regression, not a director scheduling test. Gross jump
-and stretch limits are fault detectors, not naturalness ratings. The colored
-synthetic fixtures do not prove absence of tiny seams in every generated asset;
-contour/contact and neckwear occlusion also retain their dedicated unit tests.
+Rig import, player and real-artwork replays live with the figure in
+`figure/tests/browser/` (`pnpm test:browser` in `figure/`); see the README there.
 
 ## Director-to-renderer replay
 

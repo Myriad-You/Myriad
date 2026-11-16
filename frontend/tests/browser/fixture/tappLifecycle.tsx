@@ -1,14 +1,13 @@
-import type { TappInstance } from '../../../src/tapp/types'
+import type { TappInstance } from '@myriad/tapp-runtime'
+import { TappBridge } from '@myriad/tapp-runtime'
 import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import TappWidgetComponent from '../../../src/components/widgets/TappWidget'
 import { AuthProvider } from '../../../src/contexts/AuthContext'
 import { I18nProvider } from '../../../src/contexts/I18nContext'
-import { getResourceLoader } from '../../../src/tapp/runtime/sandbox/resourceLoader'
-import { TappBridge } from '../../../src/tapp/runtime/TappBridge'
 import { getTappRuntime, TappRuntime } from '../../../src/tapp/runtime/TappRuntime'
-import { TappRuntimeGrant } from '../../../src/tapp/runtime/TappRuntimeGrant'
+import { tappKernel } from '../../../src/tapp/tappKernel'
 
 // Only installation discovery and package download are synthetic. The real widget,
 // observer, sandbox, generated SDK, bridge and runtime grant execute in Chromium.
@@ -23,7 +22,7 @@ TappRuntime.prototype.getRegisteredWidgets = () => [{ id: 'fixture.lifecycle.car
 TappRuntime.prototype.getTapp = () => instance
 TappRuntime.prototype.isRunning = () => true
 TappRuntime.prototype.canControlLifecycle = () => false
-getResourceLoader().loadWidgetResources = async () => ({
+tappKernel.resources.loadWidgetResources = async () => ({
   modules: { 'card.js': `
     const probe = { boot: crypto.randomUUID(), pauses: 0, resumes: 0 };
     const reflect = function() { for (const key of Object.keys(probe)) document.body.setAttribute('data-' + key, String(probe[key])); };
@@ -60,7 +59,7 @@ export function snapshot() {
     bridges: bridges.length,
     destroyed: bridges.filter(bridge => bridge.isDestroyed()).length,
     active: bridges.filter(bridge => bridge.isSurfaceActive()).length,
-    grantRefs: TappRuntimeGrant.sharedWidgetRefCount(instance.id),
+    grantRefs: tappKernel.grants.sharedWidgetRefCount(instance.id),
   }
 }
 

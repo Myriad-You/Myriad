@@ -87,6 +87,10 @@ pub struct RequestContext {
     /// only by the server for channel turns; never serialized.
     #[serde(skip)]
     pub channel_chat: Option<ChannelChat>,
+    /// The web panel's one conversation, where she hands work off too (see
+    /// `panel_work`): what she sees of its pieces. Server-set only.
+    #[serde(skip)]
+    pub panel_work: Option<ChannelChat>,
     /// In a group, nobody addressed her: she chose to chime in, and why.
     /// Server-set only; never serialized.
     #[serde(skip)]
@@ -102,18 +106,38 @@ pub struct RequestContext {
     /// link reports the device's presence itself. Server-set only.
     #[serde(skip)]
     pub on_device: Option<String>,
+    /// A piece she handed off (see `run::ProcessContext::handed_off`).
+    /// Server-set only.
+    #[serde(skip)]
+    pub handed_off: bool,
+    /// Run with nobody there to answer, as the person it is for (their
+    /// instruction come due, `merope::memory_nodes::intents_run`): a
+    /// confirmation is given only where unattended Work may run on its own,
+    /// anything higher is refused, and a run that stops to ask ends there.
+    /// Server-set only; kept with the run, so a resumed run is still it.
+    #[serde(default)]
+    pub unattended: bool,
+    /// The runtime grants this run may use at most, met with what is
+    /// granted at each call: an instruction's grants as it was given. Not an
+    /// autonomy cap (no autonomy grant is asked for). Server-set only.
+    #[serde(default)]
+    pub instruction_cap: Option<Vec<String>>,
 }
 
 /// A private IM chat turn: she talks as herself and may hand work off.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChannelChat {
-    /// What she handed off last in this conversation and how it came back.
-    pub handed_off: Option<String>,
-    /// Work she handed off is still being done.
-    pub busy: bool,
+    /// What she handed off in this conversation lately, a line a piece
+    /// (`#N「…」` and how it stands), in the order she handed them off.
+    pub works: Vec<String>,
+    /// How many of those wait for their answer now.
+    pub waiting: usize,
     /// What they wrote came while she was not on the site (D3): when, as a
     /// fact she reads with it.
     pub came_while_away: Option<String>,
+    /// The chat app it is in (`ChannelPlatform::slug`), where her log says
+    /// the talk is.
+    pub platform: String,
 }
 
 /// 对话消息
@@ -1199,6 +1223,9 @@ pub enum AgentProgressEvent {
         /// 是否为最后一个 token
         done: bool,
     },
+    /// She is typing her next message, in a chat typed a message at a time
+    /// (see `merope::chat_typing`): the next text is a message of its own.
+    Typing,
     /// 模型思考链流式 token（reasoning_content / thought parts）
     ///
     /// 和 SummaryToken 分开：思考过程进气泡的过程区，不能写进正文。

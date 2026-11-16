@@ -5,9 +5,9 @@ import { dirname, join } from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import sandboxContract from '../../../../shared/tapp_sandbox_contract.json' with { type: 'json' }
+import { PERMISSION_LEVELS, PERMISSION_MAP } from '@myriad/tapp-runtime'
+import sandboxContract from '../../../../tapp/shared/tapp_sandbox_contract.json' with { type: 'json' }
 import { PERMISSION_COPY } from '../constants/permissionCopy.ts'
-import { PERMISSION_LEVELS, PERMISSION_MAP } from './permissionConfig.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(__dirname, '../../../..')
@@ -18,7 +18,7 @@ interface ContractExport {
 
 function loadContractExport(): ContractExport {
   const raw = readFileSync(
-    join(repoRoot, 'tools/tapp-cli/src/generated/contract.json'),
+    join(repoRoot, 'tapp/tools/tapp-cli/src/generated/contract.json'),
     'utf8',
   )
   return JSON.parse(raw) as ContractExport
@@ -56,7 +56,7 @@ describe('permission catalog lock to tapp-contract export', () => {
 
   it('TappPermission union members match the export catalog', () => {
     const source = readFileSync(
-      join(repoRoot, 'frontend/src/tapp/types/index.ts'),
+      join(repoRoot, 'tapp/runtime/src/types.ts'),
       'utf8',
     )
     const unionMembers = tappPermissionUnionMembers(source)
@@ -75,7 +75,7 @@ describe('permission catalog lock to tapp-contract export', () => {
 
   it('SandboxCapabilityProfile literals match the shared sandbox contract', () => {
     const source = readFileSync(
-      join(repoRoot, 'frontend/src/tapp/runtime/sandbox/capabilityProfiles.ts'),
+      join(repoRoot, 'tapp/runtime/src/sandbox/capabilityProfiles.ts'),
       'utf8',
     )
     const union = source.match(/export type SandboxCapabilityProfile =([^\n]+)/)

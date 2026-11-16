@@ -59,3 +59,14 @@ export function shouldApplyRemoteDoc(
   const revision = event.revision
   return revision != null && revision > currentRevision
 }
+
+/** 服务端在文档被删掉时发给房间里每个人的事件；收到就别再连这篇。 */
+export const NOTE_DOC_DELETED_EVENT = 'deleted'
+
+/**
+ * 这篇云端文档已经不在了（被删、或记着的是个早就没了的 id）。
+ * 只认 404：断网、5xx、权限问题都可能自己好，要接着重试。
+ */
+export function isNoteDocGone(error: unknown): boolean {
+  return typeof error === 'object' && error != null && (error as { status?: unknown }).status === 404
+}

@@ -17,10 +17,15 @@ impl TestDb {
             .expect("set AI_QUOTA_TEST_DATABASE_URL to a disposable PostgreSQL database");
         let schema = format!("quota_test_{}", uuid::Uuid::new_v4().simple());
         let admin = Database::connect(url.clone()).await.unwrap();
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
             .await
             .unwrap();
+        drop(turn);
         admin.close().await.unwrap();
         let mut options = ConnectOptions::new(url);
         options
@@ -76,8 +81,13 @@ impl TestDb {
             .collect()
     }
     async fn finish(self) {
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         self.exec(&format!("DROP SCHEMA {} CASCADE", self.schema))
             .await;
+        drop(turn);
         self.db.close().await.unwrap();
     }
 }

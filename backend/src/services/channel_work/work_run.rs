@@ -36,6 +36,7 @@ pub(super) async fn start_work_run(
                 channel_chat: None,
                 from_channel: true,
                 on_device: None,
+                handed_off: true,
             }),
         },
     )
@@ -43,6 +44,15 @@ pub(super) async fn start_work_run(
     {
         Ok(run) => run,
         Err(error) => {
+            // A piece picked up again whose run did not start (or is held
+            // until she is back): what came of it before is not what it was
+            // asked now (see `works::pieces`).
+            if super::works::split_lane(session_key).is_some()
+                && let Some(mut stored) = load_session(&db, sink.platform(), session_key).await
+                && stored.last_run_id.take().is_some()
+            {
+                let _ = put_session(&db, sink.platform(), user_id, session_key, stored).await;
+            }
             let body = error.to_json();
             // A move began as it was about to start: held, not refused (D3).
             if super::held::is_away_refusal(&body) {
@@ -107,6 +117,7 @@ pub(super) async fn resume_pending(
                         channel_chat: None,
                         from_channel: true,
                         on_device: None,
+                        handed_off: true,
                     }),
                 },
             )

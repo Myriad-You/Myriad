@@ -67,6 +67,8 @@ jobs:
               - frontend/**
               - shared/**
               - core
+              - figure
+              - tapp
             frontend_browser:
               - *frontend_build
               # Fixtures read by the browser round-trip spec.
@@ -74,11 +76,13 @@ jobs:
             frontend_contracts:
               - *frontend_build
               - tests/merope/**
+              - scripts/extra/figure-contracts.sh
               # Unit contract tests read these sources directly.
               - backend/src/**
               - crates/**
               - core
               - docs/development/**
+              - tapp
               - proxy/src/main.rs
             backend:
               - *workflow
@@ -89,7 +93,8 @@ jobs:
               - backend/**
               - crates/**
               - core
-              - tools/tapp-contract-export/**
+              # Path dependencies, and include_str! of its author docs.
+              - tapp
               - shared/**
               - tests/merope/**
               # include_str! targets
@@ -122,7 +127,9 @@ jobs:
               - backend/**
               - crates/**
               - core
+              - figure
               - frontend/**
+              - tapp
               - shared/**
               - scripts/extra/smoke.sh
             audit:
@@ -134,14 +141,10 @@ jobs:
               - frontend/package.json
               - frontend/pnpm-lock.yaml
               - frontend/pnpm-workspace.yaml
+              - tapp
             tapp_cli:
               - *workflow
-              - *rust_toolchain
-              - Cargo.toml
-              - Cargo.lock
-              - tools/tapp-cli/**
-              - tools/tapp-contract-export/**
-              - crates/**
+              - tapp
 
   # Split so backend-only changes rerun just the contract tests that read
   # backend/crate sources, not the build, budget and browser suites.
@@ -158,6 +161,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: true
+      # figure/ carries copies of the core contracts instead of depending on
+      # core/. A copy core/ never had was tested on a contract the site does
+      # not have; one core/ has moved past is only noted.
+      - name: Figure's contract copies are versions core/ has had
+        working-directory: .
+        run: scripts/extra/figure-contracts.sh check
       - uses: ./.github/actions/setup-frontend
       - name: Unit and static checks
         run: pnpm test
@@ -225,7 +234,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          # Virtual workspace at repo root (backend + migrations + tapp-contract)
+          # Virtual workspace at repo root (backend + migrations + site crates)
           workspaces: .
           shared-key: workspace
           save-if: ${{ github.event_name != 'pull_request' }}
@@ -388,6 +397,16 @@ jobs:
         env:
           MYRIAD_SCHEMA_DRIFT_DB: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
         run: cargo test --workspace --locked migrations_leave_no_schema_drift -- --nocapture
+      # Her log on the server and what carries it (export, import, her link)
+      # skip without a test database. They build isolated schemas, so they get
+      # a database of their own: the drift step above migrates into `public`.
+      - name: Her log, persona sync and her link against a database
+        env:
+          PGPASSWORD: myriad_ci
+          MYRIAD_MEDIA_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_media_test
+        run: |
+          createdb -h 127.0.0.1 -U myriad myriad_media_test
+          cargo test --workspace --locked -- services::her_log services::persona_sync services::agent::link api::agent::sync --test-threads=1
       - name: Federation outbox and delivery lease database contracts
         env:
           MYRIAD_SCHEMA_DRIFT_DB: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
@@ -448,6 +467,7 @@ jobs:
           workspaces: |
             .
             proxy
+            tapp
             updater
           # Only `cargo metadata` runs here; keep the registry, skip targets.
           cache-targets: false
@@ -465,6 +485,9 @@ jobs:
         run: cargo metadata --locked --no-deps --format-version 1
       - name: Verify updater lockfile
         working-directory: updater
+        run: cargo metadata --locked --no-deps --format-version 1
+      - name: Verify tapp lockfile
+        working-directory: tapp
         run: cargo metadata --locked --no-deps --format-version 1
       - name: Prove rkyv stays out of the resolved graph
         run: |
@@ -490,6 +513,9 @@ jobs:
       - name: Audit updater crates (hard — vulnerabilities)
         working-directory: updater
         run: cargo audit --file Cargo.lock
+      - name: Audit tapp crates (hard — vulnerabilities)
+        working-directory: tapp
+        run: cargo audit --file Cargo.lock
       - name: Audit backend workspace (soft — warnings)
         run: cargo audit --file Cargo.lock --deny warnings
         continue-on-error: true
@@ -499,6 +525,10 @@ jobs:
         continue-on-error: true
       - name: Audit updater crates (soft — warnings)
         working-directory: updater
+        run: cargo audit --file Cargo.lock --deny warnings
+        continue-on-error: true
+      - name: Audit tapp crates (soft — warnings)
+        working-directory: tapp
         run: cargo audit --file Cargo.lock --deny warnings
         continue-on-error: true
       - uses: actions/setup-node@v5
@@ -516,6 +546,9 @@ jobs:
         run: pnpm audit
         continue-on-error: true
 
+  # tapp/ is the myriad-tapp submodule, whose own CI runs these on every commit;
+  # rerunning them here checks the pinned commit as this repository sees it.
+  # The name is a required check on preview: keep it.
   tapp-cli:
     name: Tapp CLI contract and tests
     needs: changes
@@ -524,7 +557,7 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: tools/tapp-cli
+        working-directory: tapp/tools/tapp-cli
     steps:
       - uses: actions/checkout@v5
         with:
@@ -533,6 +566,16 @@ jobs:
         with:
           node-version: 20
       - uses: dtolnay/rust-toolchain@1.99
+        with:
+          components: clippy
+      # tapp/ is its own Cargo workspace, excluded from the root one, so the
+      # backend job's --workspace runs no longer reach these crates.
+      - name: Clippy (tapp workspace)
+        working-directory: tapp
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Rust tests (tapp workspace)
+        working-directory: tapp
+        run: cargo test --workspace --all-targets --locked
       - name: Install dependencies
         run: npm ci
       - name: Regenerate contract

@@ -42,8 +42,8 @@ test('auth probes preserve confirmed identity, retry finitely, and stop on unmou
     bundle: true, write: false, platform: 'node', format: 'cjs', packages: 'external',
     define: { 'import.meta.env': '{}' },
     plugins: [{ name: 'runtime-boundary', setup(builder) {
-      builder.onResolve({ filter: /tapp\/runtime\/Tapp(Scheduler|RuntimeGrant|Runtime)$/ }, ({ path }) => ({ path, namespace: 'test' }))
-      builder.onLoad({ filter: /.*/, namespace: 'test' }, () => ({ contents: 'export const TappScheduler = {reset(){runtimeReset("scheduler")}}; export const TappRuntimeGrant = {destroyAll(){runtimeReset("grants")}}; export const TappRuntime = {reset(){runtimeReset("runtime")}}', loader: 'js' }))
+      builder.onResolve({ filter: /tapp\/(runtime\/Tapp(Scheduler|Runtime)|tappKernel)$/ }, ({ path }) => ({ path, namespace: 'test' }))
+      builder.onLoad({ filter: /.*/, namespace: 'test' }, () => ({ contents: 'export const TappScheduler = {reset(){runtimeReset("scheduler")}}; export const tappKernel = {grants: {destroyAll(){runtimeReset("grants")}}}; export const TappRuntime = {reset(){runtimeReset("runtime")}}', loader: 'js' }))
     } }],
   })
   type Auth = ReturnType<typeof import('./AuthContext').useAuth>
@@ -183,8 +183,8 @@ test('a cookie session is probed even without a localStorage hint', async () => 
     bundle: true, write: false, platform: 'node', format: 'cjs', packages: 'external',
     define: { 'import.meta.env': '{}' },
     plugins: [{ name: 'runtime-boundary', setup(builder) {
-      builder.onResolve({ filter: /tapp\/runtime\/Tapp(Scheduler|RuntimeGrant|Runtime)$/ }, ({ path }) => ({ path, namespace: 'test' }))
-      builder.onLoad({ filter: /.*/, namespace: 'test' }, () => ({ contents: 'export const TappScheduler = {reset(){}}; export const TappRuntimeGrant = {destroyAll(){}}; export const TappRuntime = {reset(){}}', loader: 'js' }))
+      builder.onResolve({ filter: /tapp\/(runtime\/Tapp(Scheduler|Runtime)|tappKernel)$/ }, ({ path }) => ({ path, namespace: 'test' }))
+      builder.onLoad({ filter: /.*/, namespace: 'test' }, () => ({ contents: 'export const TappScheduler = {reset(){}}; export const tappKernel = {grants: {destroyAll(){}}}; export const TappRuntime = {reset(){}}', loader: 'js' }))
     } }],
   })
   type Auth = ReturnType<typeof import('./AuthContext').useAuth>

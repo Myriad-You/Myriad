@@ -264,7 +264,7 @@ returns **503** (retry later), not a permanent ban.
 
 ## Related docs / fixtures
 
-- Permission lockstep: `docs/development/tapp/fixtures/action_permissions.json`,
+- Permission lockstep: `tapp/docs/fixtures/action_permissions.json`,
   `host_route_permissions.json` (includes `keys/rotate`, `delivery/cancel-pending`)
 - Tapp host attribution: `federation_host_attribution` on federation router
 - PR lineage: `fix/federation-ensure-keys` (ensure, Accept harden, rotate API, cancel races)

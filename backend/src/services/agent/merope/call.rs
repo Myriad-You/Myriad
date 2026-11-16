@@ -32,6 +32,9 @@ pub(super) enum Voice {
     /// The stronger model, thinking it through: reading a stretch of a
     /// group's talk once, which everything she keeps of it rests on.
     Reading,
+    /// The model the chat answers with (the Standard tier): a careful look
+    /// at what the owner's own sessions ask of them, which they may act on.
+    Chat,
 }
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(45);
@@ -130,6 +133,9 @@ pub(super) struct Ask {
     operation: &'static str,
     source: &'static str,
     timeout: Duration,
+    /// Its JSON answer held to its schema by the provider where it can
+    /// ([`AiAnalyzer::analyze_json_strict`]).
+    strict: bool,
 }
 
 impl Ask {
@@ -141,6 +147,17 @@ impl Ask {
             operation,
             source: "merope",
             timeout: DEFAULT_TIMEOUT,
+            strict: false,
+        }
+    }
+
+    /// Its JSON answer held to the schema by the provider itself, where the
+    /// provider can (a schema every object of which says
+    /// `additionalProperties: false`).
+    pub(super) fn strict(self) -> Self {
+        Self {
+            strict: true,
+            ..self
         }
     }
 
@@ -155,6 +172,15 @@ impl Ask {
 
     /// The configured model, or an observable configuration failure.
     pub(super) async fn model(self) -> Result<Model, Failure> {
+        // Not while her mind is on another core: she thinks there.
+        let Some(thought) = crate::services::her_log::pen::think() else {
+            tracing::info!(
+                owner = self.owner,
+                operation = self.operation,
+                "[Merope] model not asked: her mind is on another device"
+            );
+            return Err(Failure::Unavailable);
+        };
         let analyzer = match self.voice {
             Voice::Judge => {
                 crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(self.timeout))
@@ -185,10 +211,17 @@ impl Ask {
             .await
             .ok_or_else(|| self.failed(Failure::Unavailable))?
             .with_deep_thinking(),
+            Voice::Chat => crate::services::ai::create_ai_analyzer_for_tier_with_timeout(
+                crate::config::ModelTier::Standard,
+                Some(self.timeout),
+            )
+            .await
+            .ok_or_else(|| self.failed(Failure::Unavailable))?,
         };
         Ok(Model {
             analyzer,
             ask: self,
+            _thought: thought,
         })
     }
 
@@ -245,6 +278,9 @@ impl Ask {
 pub(super) struct Model {
     analyzer: AiAnalyzer,
     ask: Ask,
+    /// Held while the model is in use: a handover of her mind away waits
+    /// for it.
+    _thought: crate::services::her_log::pen::Thought,
 }
 
 impl Model {
@@ -277,10 +313,15 @@ impl Model {
         schema_name: &str,
         schema: &Value,
     ) -> Result<String, Failure> {
-        self.billed(
-            self.analyzer
-                .analyze_json(system, input, schema_name, Some(schema)),
-        )
+        // One future either way: two arms each holding their own call nest
+        // her chat's future past the compiler's layout depth.
+        self.billed(self.analyzer.analyze_json_as(
+            system,
+            input,
+            schema_name,
+            Some(schema),
+            self.ask.strict,
+        ))
         .await
     }
 

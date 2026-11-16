@@ -5,6 +5,7 @@ use serde_json::json;
 
 use crate::federation::types::*;
 
+use super::outbound::record;
 use super::types::E2eKeyExchangeResponse;
 
 // E2E helpers
@@ -71,7 +72,7 @@ pub async fn handle_key_exchange(
     let ch_row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT c.properties, c.status FROM federation_channels c
+            r#"SELECT c.properties, c.status, c.user_id FROM federation_channels c
                JOIN federation_remote_actors ra ON c.remote_actor_id = ra.id
                WHERE c.channel_id = $1 AND ra.actor_url = $2"#,
             [channel_id.into(), actor_url_str.into()],
@@ -116,6 +117,7 @@ pub async fn handle_key_exchange(
     if ch_status == "closed" {
         return Err(format!("Channel {channel_id} is closed"));
     }
+    let owner_user_id: i32 = ch_row.try_get("", "user_id").map_err(|e| e.to_string())?;
 
     // 合并 e2e 状态：写入 remote_public_key；若已有本地密钥则 established=true。
     //
@@ -123,8 +125,8 @@ pub async fn handle_key_exchange(
     let locked = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT properties FROM federation_channels WHERE channel_id = $1 FOR UPDATE",
-            [channel_id.into()],
+            "SELECT properties FROM federation_channels WHERE channel_id = $1 AND user_id = $2 FOR UPDATE",
+            [channel_id.into(), owner_user_id.into()],
         ))
         .await
         .map_err(|e| e.to_string())?
@@ -155,11 +157,12 @@ pub async fn handle_key_exchange(
 
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE federation_channels SET properties = $2, last_activity_at = $3::timestamptz WHERE channel_id = $1",
+        "UPDATE federation_channels SET properties = $2, last_activity_at = $3::timestamptz WHERE channel_id = $1 AND user_id = $4",
         [
             channel_id.into(),
             properties.into(),
             crate::clock::now().into(),
+            owner_user_id.into(),
         ],
     ))
     .await
@@ -176,22 +179,25 @@ pub async fn handle_key_exchange(
         "algorithm": algorithm,
     });
 
-    db.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"INSERT INTO federation_channel_messages
+    // 消息两端共用：同实例的发送方已经记过这次交换。
+    if local_username_from_actor_url(&get_base_url().await, actor_url_str).is_none() {
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"INSERT INTO federation_channel_messages
            (channel_id, message_id, sender_actor, message_type, payload, is_encrypted, created_at)
            VALUES ($1, $2, $3, 'myriad:KeyExchange', $4, false, $5::timestamptz)
            ON CONFLICT (message_id) DO NOTHING"#,
-        [
-            channel_id.into(),
-            message_id.clone().into(),
-            actor_url_str.into(),
-            payload.clone().into(),
-            crate::clock::now().into(),
-        ],
-    ))
-    .await
-    .map_err(|e| e.to_string())?;
+            [
+                channel_id.into(),
+                message_id.clone().into(),
+                actor_url_str.into(),
+                payload.clone().into(),
+                crate::clock::now().into(),
+            ],
+        ))
+        .await
+        .map_err(|e| e.to_string())?;
+    }
 
     crate::federation::ws_gateway::broadcast_to_channel(
         channel_id,
@@ -288,8 +294,8 @@ pub async fn accept_channel(
     let accepted = txn
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "UPDATE federation_channels SET status = 'accepted' WHERE channel_id = $1 AND status = 'pending'",
-            [channel_id.into()],
+            "UPDATE federation_channels SET status = 'accepted' WHERE channel_id = $1 AND user_id = $2 AND status = 'pending'",
+            [channel_id.into(), user_id.into()],
         ))
         .await
         .map_err(db_err)?;
@@ -303,7 +309,7 @@ pub async fn accept_channel(
             })),
         ));
     }
-    insert_and_enqueue_delivery(
+    let outbound = record(
         &txn,
         user_id,
         &activity_id,
@@ -315,6 +321,7 @@ pub async fn accept_channel(
     .await
     .map_err(db_err)?;
     txn.commit().await.map_err(db_err)?;
+    outbound.send(db).await.map_err(db_err)?;
 
     let notif_id = crate::federation::notify::channel_invite_notification_id(channel_id, user_id);
     crate::federation::notify::mark_invite_notification_read(user_id, &notif_id).await;
@@ -346,7 +353,7 @@ pub async fn handle_channel_accept(
     let ch_check = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT c.status FROM federation_channels c
+            r#"SELECT c.user_id FROM federation_channels c
                JOIN federation_remote_actors ra ON c.remote_actor_id = ra.id
                WHERE c.channel_id = $1 AND ra.actor_url = $2"#,
             [channel_id.into(), actor_url_str.into()],
@@ -354,20 +361,25 @@ pub async fn handle_channel_accept(
         .await
         .map_err(|e| e.to_string())?;
 
-    if ch_check.is_none() {
+    let Some(ch_check) = ch_check else {
         return Err(format!(
             "Channel {} not found or actor {} is not the remote party",
             channel_id, actor_url_str
         ));
-    }
+    };
+    let owner_user_id: i32 = ch_check.try_get("", "user_id").map_err(|e| e.to_string())?;
 
     let result = db
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_channels
                SET status = 'accepted', last_activity_at = $2::timestamptz
-               WHERE channel_id = $1 AND status = 'pending'"#,
-            [channel_id.into(), crate::clock::now().into()],
+               WHERE channel_id = $1 AND user_id = $3 AND status = 'pending'"#,
+            [
+                channel_id.into(),
+                crate::clock::now().into(),
+                owner_user_id.into(),
+            ],
         ))
         .await
         .map_err(|e| e.to_string())?;
@@ -610,7 +622,7 @@ pub async fn initiate_e2e_key_exchange(
             .await;
     }
 
-    insert_and_enqueue_delivery(
+    record(
         db,
         user_id,
         &activity_id,
@@ -619,6 +631,9 @@ pub async fn initiate_e2e_key_exchange(
         kx_activity,
         &remote_inbox,
     )
+    .await
+    .map_err(db_err)?
+    .send(db)
     .await
     .map_err(db_err)?;
 
@@ -664,7 +679,7 @@ mod tests {
             .and_then(|rest| rest.split("pub async fn handle_channel_accept").next())
             .expect("accept_channel");
         assert!(body.contains("db.begin()"));
-        assert!(body.contains("insert_and_enqueue_delivery"));
+        assert!(body.contains("record("));
         assert!(body.contains("status = 'pending'"));
         assert!(body.contains("channel_inbox_missing"));
         assert!(!body.contains("if let Some(act_id)"));
@@ -678,7 +693,7 @@ mod tests {
             .nth(1)
             .and_then(|rest| rest.split("#[cfg(test)]").next())
             .expect("initiate_e2e_key_exchange");
-        assert!(body.contains("insert_and_enqueue_delivery"));
+        assert!(body.contains("record("));
         assert!(body.contains("channel_inbox_missing"));
         assert!(!body.contains("if let Some(act_id)"));
     }

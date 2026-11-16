@@ -1,6 +1,6 @@
+import type { MeropeActivity } from '@myriad/figure/performance'
 import type { StructuredPersona } from '../../../components/agent/onboarding/onboardingTypes'
 import type { AgentPersona } from '../../../services/agent/agentApi'
-import type { MeropeActivity } from '../types'
 import {
   parseFlattenedPersona,
   personaFromApi,

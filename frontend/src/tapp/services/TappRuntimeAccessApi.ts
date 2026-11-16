@@ -1,21 +1,8 @@
+import type { PermissionLevel, RuntimeGrantKind, TappRuntimeGrantResponse } from '@myriad/tapp-runtime'
 import type { TimelineResponse } from '../../types/federation'
-import type { PermissionLevel } from '../types'
 import { apiRequest } from './TappHttpClient'
 
-export type RuntimeGrantKind = 'page' | 'widget' | 'headless'
-
-export interface TappRuntimeGrantResponse {
-  version: 2
-  token: string
-  runtimeId: string
-  tappId: string
-  ownerId: number
-  subjectId: number
-  instanceId: string
-  kind: RuntimeGrantKind
-  permissions: string[]
-  expiresAt: string
-}
+export type { RuntimeGrantKind, TappRuntimeGrantResponse }
 
 export async function issueTappRuntimeGrant(
   tappId: string,

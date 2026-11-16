@@ -1,4 +1,5 @@
 import type { VoiceRunIdentity } from '../speech/realtimeChat'
+import { dispatchMeropeSpeech } from '@myriad/figure/speech'
 import {
   interruptConvoSession,
   startConvoSession,
@@ -6,9 +7,9 @@ import {
   subscribeConvoRuns,
 } from '../../../services/speechApi'
 import { markTurnTraceOnce } from '../events/turnTrace'
+import { figureChannel } from '../figureChannel'
 import { adoptRealtimeChatRun, realtimeChatSessionId } from '../speech/realtimeChat'
 import { RtcSpeechAlignment } from '../speech/rtcSpeechAlignment'
-import { dispatchMeropeSpeech } from '../speech/speechEvents'
 import { getSpeechPipeline } from '../speech/speechPipelineHost'
 import { getVoicePresence, patchVoicePresence } from '../speech/voicePresence'
 import { faceSpeechGate } from './faceSpeechArbitration'
@@ -366,7 +367,7 @@ function attachEnergyTap(session: LiveSession, track: MediaStreamTrack): void {
         session.speechActive = true
         session.utterance += 1
         faceSpeechGate.beginIncoming('chat', identity.messageId)
-        dispatchMeropeSpeech({
+        dispatchMeropeSpeech(figureChannel, {
           phase: 'start',
           messageId: identity.messageId,
           generation: identity.generation,
@@ -379,7 +380,7 @@ function attachEnergyTap(session: LiveSession, track: MediaStreamTrack): void {
     }
     if (session.speechActive) {
       const articulation = session.alignment.sample(energy, now)
-      dispatchMeropeSpeech({
+      dispatchMeropeSpeech(figureChannel, {
         phase: articulation ? 'articulation' : 'energy',
         messageId: identity.messageId,
         generation: identity.generation,
@@ -414,7 +415,7 @@ function endRemoteSpeech(session: LiveSession, cancelled: boolean): void {
   if (!session.identity) return
   if (session.speechActive) patchVoicePresence({ ttsPlaying: false })
   session.speechActive = false
-  dispatchMeropeSpeech({
+  dispatchMeropeSpeech(figureChannel, {
     phase: cancelled ? 'cancel' : 'end',
     messageId: session.identity.messageId,
     generation: session.identity.generation,

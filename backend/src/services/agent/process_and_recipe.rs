@@ -38,7 +38,7 @@ impl Agent {
 
         tracing::info!(
             user_id = user_id,
-            input = %request.raw_input,
+            input_chars = request.raw_input.chars().count(),
             "[Agent] Processing request"
         );
 
@@ -80,14 +80,30 @@ impl Agent {
     ) -> Result<AgentResponse, String> {
         let user_id = request.user_id;
         let task_id = turn_task_id(&request);
-        AgentTurnBudget::run(
-            &self.db,
-            user_id,
-            "agent.process_with_progress",
-            task_id,
-            Box::pin(self.process_with_progress_inner(request, progress_tx)),
-        )
-        .await
+        let handed_off = request
+            .context
+            .as_ref()
+            .is_some_and(|context| context.handed_off);
+        let turn = Box::pin(self.process_with_progress_inner(request, progress_tx));
+        if handed_off {
+            AgentTurnBudget::run_continuation(
+                &self.db,
+                user_id,
+                "agent.process_with_progress",
+                task_id,
+                turn,
+            )
+            .await
+        } else {
+            AgentTurnBudget::run(
+                &self.db,
+                user_id,
+                "agent.process_with_progress",
+                task_id,
+                turn,
+            )
+            .await
+        }
     }
 
     async fn process_with_progress_inner(
@@ -99,13 +115,17 @@ impl Agent {
 
         tracing::info!(
             user_id = user_id,
-            input = %request.raw_input,
+            input_chars = request.raw_input.chars().count(),
             mode = request
                 .context
                 .as_ref()
                 .map(|context| context.interaction_mode.as_str())
                 .unwrap_or("work"),
-            has_history = request.context.as_ref().and_then(|c| c.conversation_history.as_ref()).is_some(),
+            has_history = request
+                .context
+                .as_ref()
+                .and_then(|c| c.conversation_history.as_ref())
+                .is_some(),
             "[Agent] Processing request with progress tracking"
         );
 

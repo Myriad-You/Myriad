@@ -1,4 +1,4 @@
-import type { BackgroundRequirement } from '../tapp/types'
+import type { BackgroundRequirement } from '@myriad/tapp-runtime'
 import { useState } from 'react'
 import { I18nNamespace, useI18n } from '../contexts/I18nContext'
 import {

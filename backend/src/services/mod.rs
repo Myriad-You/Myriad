@@ -8,6 +8,7 @@ pub mod agora_rtc_token; // Agora AccessToken2
 pub mod ai;
 pub mod ai_config; // Cached AI provider config (text tiers + image)
 pub mod ai_cost_ledger; // Append-only AI cost ledger writes
+pub mod ai_pricing; // What an answer cost, from its own usage
 pub mod ai_quota; // Daily quota reserve/settle/usage ledger
 pub mod ai_task_context; // Context refs resolve (platform/report/profile/custom)
 pub mod ai_task_execute; // Run loop (provider + quota + ledger)
@@ -79,6 +80,7 @@ pub mod site_public_env; // Durable site public origin (DATA_DIR/site_public.env
 pub mod smart_filter;
 pub mod speech_runtime; // Provider resolve + test/status
 pub mod standalone_tts; // Standalone TTS (cache + configured provider) for HTTP + agent
+pub mod steam_art; // Real Steam cover URLs when the legacy appid path 404s
 pub mod steam_assets; // Steam store art resolution (region walk + hashed filenames)
 pub mod steam_presence; // Site owner's Steam status, cached for the card and the persona
 pub mod sticker_cutout; // Local alpha fallback for home stickers
@@ -145,6 +147,7 @@ pub mod media_catalog;
 pub mod note_authors;
 pub mod note_collab;
 pub mod note_documents;
+pub mod note_old_paths;
 pub mod note_publish;
 pub mod notion_service;
 pub(crate) mod onebot_bot; // OneBot forward-WebSocket worker

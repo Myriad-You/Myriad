@@ -1,4 +1,4 @@
-import type { TappInstance } from '../../../src/tapp/types'
+import type { TappInstance } from '@myriad/tapp-runtime'
 import { createRoot } from 'react-dom/client'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from '../../../src/contexts/AuthContext'
@@ -7,8 +7,8 @@ import { NavigationProvider } from '../../../src/contexts/NavigationContext'
 import { executeFrontendAction } from '../../../src/services/agent'
 import { TappWindowManager } from '../../../src/tapp/components/TappWindowManager'
 import { TappRunPage } from '../../../src/tapp/pages/TappRunPage'
-import { getResourceLoader } from '../../../src/tapp/runtime/sandbox/resourceLoader'
 import { getTappRuntime, TappRuntime } from '../../../src/tapp/runtime/TappRuntime'
+import { tappKernel } from '../../../src/tapp/tappKernel'
 import './tappWindows.css'
 import '../../../src/styles/theme.css'
 import '../../../src/styles/utility.css'
@@ -39,7 +39,7 @@ runtime.getAllTapps = () => apps
 runtime.getTapp = (id) => apps.find((app) => app.id === id)
 runtime.isRunning = () => true
 runtime.canControlLifecycle = () => false
-getResourceLoader().loadPageResources = async () => ({
+tappKernel.resources.loadPageResources = async () => ({
   modules: { 'page.js': `
     document.body.dataset.boot = crypto.randomUUID();
     const button = document.createElement('button');

@@ -77,8 +77,9 @@ async fn puzzles(db: &DatabaseConnection, user_id: i32) -> Vec<Value> {
 }
 
 /// Her own life lately as she has it in mind when she thinks of someone:
-/// what got to her (moved or liked), and puzzles of hers they have not
-/// played. Lines in her words, newest first.
+/// what got to her (moved or liked), questions of hers that finding out
+/// left open, and puzzles of hers they have not played. Lines in her words,
+/// newest first.
 pub(super) async fn in_mind_for(db: &DatabaseConnection, user_id: i32) -> Vec<String> {
     use myriad_merope::doing::Reaction;
     let mut lines: Vec<String> = unified::own_experiences(db, LATELY)
@@ -86,6 +87,9 @@ pub(super) async fn in_mind_for(db: &DatabaseConnection, user_id: i32) -> Vec<St
         .unwrap_or_default()
         .iter()
         .filter_map(|row| {
+            if let Some(open) = super::doing::left_open(row) {
+                return Some(open);
+            }
             let (thing, reaction) = super::doing::thing_and_reaction(row)?;
             matches!(reaction, Some(Reaction::Moved | Reaction::Liked)).then(|| {
                 format!(

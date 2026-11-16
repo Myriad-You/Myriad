@@ -50,6 +50,10 @@ name and must be upgraded first; see [external DB setup](./EXTERNAL_POSTGRES.md)
   shells via backend. See [PORTS.md](./PORTS.md). An outer TLS reverse proxy
   must pass the whole site (or the same AP + media allowlist) — `/api`-only
   breaks federation discovery **and** Note attachment media display.
+- **Timeouts**: Merope rig and persona onboarding requests can run up to 15
+  minutes; `proxy` waits 18 minutes for them. The outer reverse proxy must wait
+  longer (`proxy_read_timeout 3600s` in the templates); 600 s ends them early
+  with an empty 504. Layer by layer in [PORTS.md](./PORTS.md#proxy--persona-worker).
 - **Frontend/postgres cannot reach updater** (no shared L2 with updater).
 - The updater is not an A/B dual-live system. It uses one running business slot,
   maintenance mode, `pgdata` snapshots, and immutable image tags.
@@ -182,8 +186,11 @@ system's network settings):
 - If the address changes (DHCP), update `CORS_ORIGINS`. Giving the computer a
   fixed address in the router avoids this; that is outside the site's control.
 - Browsers treat plain-HTTP pages other than `localhost` as insecure: the
-  microphone (listen/talk) and location (weather) are unavailable there. This
-  is browser behaviour the site does not control. On the computer itself,
+  microphone (listen/talk), location (weather) and `crypto.randomUUID` are
+  unavailable there. Client-side IDs go through
+  `frontend/src/utils/uuid.ts`, which falls back to `crypto.getRandomValues`
+  when `randomUUID` is missing, so the app still loads. This is browser
+  behaviour the site does not control. On the computer itself,
   `http://localhost` does not have this limit.
 
 ### What a local instance cannot do

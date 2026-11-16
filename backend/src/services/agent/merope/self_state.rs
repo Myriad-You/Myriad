@@ -294,39 +294,15 @@ async fn pushes_since_up(
         .collect())
 }
 
-fn roughly(hours: f64) -> String {
-    if hours < 1.0 {
-        "less than an hour ago".into()
-    } else if hours < 1.5 {
-        "about an hour ago".into()
-    } else if hours < 24.0 {
-        format!("about {} hours ago", hours.round())
-    } else {
-        "more than a day ago".into()
-    }
-}
-
-/// Her own day as plain facts. What it does to her — tired, restless,
-/// curious, glad of company — is left to the model and the personality.
+/// Her own day as plain facts (`myriad_merope::speaking::format_day_section`).
+/// What it does to her — tired, restless, curious, glad of company — is left
+/// to the model and the personality.
 pub fn format_day_section(facts: &SelfFacts) -> String {
-    // The clock is in the Now section, on every turn; who else she talked
-    // with, and how it went, in the one since she got up
-    // (`myriad_merope::elsewhere`).
-    let mut lines = Vec::new();
-    if let Some(hours) = facts.hours_since_anyone.filter(|hours| *hours >= 1.0) {
-        lines.push(format!(
-            "Before this, the last time anyone came was {}.",
-            roughly(hours)
-        ));
-    }
-    lines.push(match facts.hours_since_learned {
-        Some(hours) => format!("You last learned something new {}.", roughly(hours)),
-        None => "You have not learned anything new yet.".to_string(),
-    });
-    if let Some(words) = myriad_merope::elsewhere::own_feeling_words(facts.feeling) {
-        lines.push(format!("What has happened today has left you {words}."));
-    }
-    format!("## Your day\n{}", lines.join(" "))
+    myriad_merope::speaking::format_day_section(
+        facts.hours_since_anyone,
+        facts.hours_since_learned,
+        facts.feeling,
+    )
 }
 
 #[cfg(test)]

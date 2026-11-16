@@ -571,6 +571,7 @@ mod tests {
             homepage: None,
             repository: None,
             min_system_version: None,
+            min_contract_version: None,
             widgets: None,
             background_requirements: None,
             settings: None,

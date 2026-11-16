@@ -5,9 +5,7 @@ use sea_orm::DatabaseConnection;
 use std::collections::BTreeMap;
 
 use super::super::gates::{decide_ingest, is_valuable_event, keeps_memory_of};
-use super::super::store::{
-    affect_from_state, get_or_create_state, recently_spoke_event, update_affect,
-};
+use super::super::store::{affect_from_state, get_or_create_state, update_affect};
 use super::super::{is_extremely_low, is_logged_in_addressee};
 use super::told::{Told, told_summary};
 use super::{
@@ -30,7 +28,10 @@ pub fn work_outcome_parent(
     }
 }
 
-pub fn stable_consciousness_event_id(user_id: i32, event_key: &str, summary: &str) -> String {
+/// What every event id of `event_key` for `user_id` begins with: the ledger
+/// keeps a line's event id as the thing it was about, so this finds what
+/// she said of that event, whichever window it fell in.
+pub(crate) fn event_thing_prefix(user_id: i32, event_key: &str) -> String {
     let key: String = event_key
         .chars()
         .map(|c| {
@@ -41,6 +42,11 @@ pub fn stable_consciousness_event_id(user_id: i32, event_key: &str, summary: &st
             }
         })
         .collect();
+    format!("evt_{user_id}_{key}_")
+}
+
+pub fn stable_consciousness_event_id(user_id: i32, event_key: &str, summary: &str) -> String {
+    let prefix = event_thing_prefix(user_id, event_key);
     let distinguisher = if is_work_outcome(event_key) {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -51,7 +57,7 @@ pub fn stable_consciousness_event_id(user_id: i32, event_key: &str, summary: &st
     } else {
         (crate::clock::now().timestamp() / (SAME_EVENT_MINUTES * 60)).to_string()
     };
-    format!("evt_{user_id}_{key}_{distinguisher}")
+    format!("{prefix}{distinguisher}")
 }
 
 pub fn spawn_presence(user_id: i32) {
@@ -81,12 +87,8 @@ pub fn spawn_presence(user_id: i32) {
         if !first_today && gap_hours < 12.0 {
             return;
         }
-        if recently_spoke_event(&db, user_id, "agent.merope.greeting", 12 * 60)
-            .await
-            .unwrap_or(true)
-        {
-            return;
-        }
+        // Whether she greets them again is hers: the core tells her when she
+        // already greeted them today, and what she said.
         let summary = if first_today {
             "这个人今天第一次来了"
         } else {
@@ -182,7 +184,10 @@ pub(super) async fn take_in(
     // What a child end saw: said while it is about now, kept where it may be.
     let keeps_memory = told.is_some_and(|told| told.keeps_memory && keeps_memory_of(event_key));
     let sayable = told.is_none_or(Told::sayable);
-    if !sayable && !keeps_memory {
+    // A look at their screen may still be taken in when it is no longer
+    // about now; it is only not said.
+    let screen = event_key == super::super::gates::SCREEN_EVENT;
+    if !sayable && !keeps_memory && !screen {
         log_skip(user_id, event_key, "stale");
         return Ok(());
     }
@@ -192,15 +197,15 @@ pub(super) async fn take_in(
     let decision = decide_ingest(event_key, &sight);
     let touch = event_key == "agent.merope.touch";
     // A passing thought, or something she found out: said live to someone
-    // who can see her, or let go.
+    // who can see her, or let go. A look at their screen is still decided
+    // (and taken in) while she is not there; it is only not said.
     let thought = super::super::gates::said_only_in_person(event_key);
+    let mut present = true;
     if thought {
         // Her face where they are using her: a page's, or the app's.
         let live = crate::services::agent::consciousness::face_presence(user_id);
-        if !crate::services::agent::consciousness::can_speak_to(&live)
-            || live.speaking
-            || !decision.allow_model
-        {
+        present = crate::services::agent::consciousness::can_speak_to(&live) && !live.speaking;
+        if !decision.allow_model || (!present && super::super::gates::needs_presence(event_key)) {
             return Ok(());
         }
     }
@@ -210,7 +215,15 @@ pub(super) async fn take_in(
         if !live.face_visible || live.speaking || !decision.allow_model {
             return Ok(());
         }
-        if recently_spoke_event(db, user_id, event_key, 1).await? {
+        if crate::services::agent::speech::ledger::last_about(
+            db,
+            user_id,
+            &event_thing_prefix(user_id, event_key),
+            event_key,
+        )
+        .await
+        .is_some_and(|at| crate::clock::now() - at < chrono::Duration::minutes(1))
+        {
             return Ok(());
         }
     }
@@ -255,6 +268,17 @@ pub(super) async fn take_in(
     if let Some(told) = told {
         super::told::shape(db, user_id, event_key, told, &mut conscious_event).await;
     }
+    // A look that may become memory: the notes she is offered with it,
+    // after what it showed.
+    let look = told.filter(|_| screen).and_then(super::screen::Look::of);
+    let mut offered = super::screen::Offered::default();
+    if let Some(look) = &look {
+        let (notes, section) = super::screen::offer(db, user_id, look).await;
+        offered = notes;
+        if let Some(section) = section {
+            conscious_event.summary = format!("{}\n\n{section}", conscious_event.summary);
+        }
+    }
     let origin = told.map(|told| told.origin.as_str());
     let consideration = match consider_event(db, &conscious_event).await {
         Ok(value) => value,
@@ -263,16 +287,23 @@ pub(super) async fn take_in(
             None
         }
     };
-    if let (Some(told), Some(value)) = (told, consideration.as_ref()) {
-        super::told::file(
+    // What she decided of what a child saw is kept nowhere apart: the old
+    // node table is no longer written (her notes there are still read).
+    // What a look became of hers: by whether she took it in, never by what
+    // it showed (the window's text she was shown is never kept as hers).
+    if let (Some(look), Some(value)) = (&look, consideration.as_ref()) {
+        let kept = super::screen::keep(
             db,
             user_id,
-            event_key,
-            told,
             &conscious_event,
+            look,
+            &offered,
             &value.decision,
+            &summary,
+            origin.unwrap_or_default(),
         )
         .await;
+        tracing::debug!(?kept, "[Merope] a look at their screen");
     }
     // Of what a child end saw, only what may become a memory becomes one.
     let memory = consideration
@@ -309,7 +340,7 @@ pub(super) async fn take_in(
             ConsciousnessAction::Ignore | ConsciousnessAction::Remember => None,
         })
         .filter(|text| !is_trivial_line(text))
-        .filter(|_| sayable);
+        .filter(|_| sayable && present);
     if let Some(gist) = gist {
         let work_intent_id = consideration
             .as_ref()

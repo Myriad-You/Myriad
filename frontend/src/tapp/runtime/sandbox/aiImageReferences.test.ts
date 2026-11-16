@@ -1,10 +1,9 @@
-import type { AITaskRequest, TappInstance, TappMessage } from '../../types'
-import type { TappBridge } from '../TappBridge'
+import type { AITaskRequest, TappBridge, TappInstance, TappMessage } from '@myriad/tapp-runtime'
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 import vm from 'node:vm'
+import { generateFullSDK, generateWidgetSDK } from '@myriad/tapp-runtime'
 import { registerAIHandlers } from './handlers/aiHandlers.ts'
-import { generateFullSDK, generateWidgetSDK } from './sdkGenerator.ts'
 
 const originalFetch = globalThis.fetch
 const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')

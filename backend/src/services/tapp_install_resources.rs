@@ -804,7 +804,7 @@ mod tests {
     /// 与运行时解析器共用的用例表。
     ///
     /// 两边都只做路径折叠；同一输入必须得到同一相对路径。改这张表时同步改
-    /// `frontend/src/tapp/runtime/moduleRuntime.test.ts` 里的同名用例。
+    /// `tapp/runtime/src/moduleRuntime.test.ts` 里的同名用例。
     const SHARED_RESOLUTION_CASES: &[(&str, &str, Option<&str>)] = &[
         ("page/index.js", "./state.js", Some("page/state.js")),
         ("page/index.js", "../core.js", Some("core.js")),
@@ -892,7 +892,7 @@ mod tests {
     }
 
     /// 与运行时提取器共用的用例。改这里时同步改
-    /// `frontend/src/tapp/runtime/moduleRuntime.test.ts` 的同名用例。
+    /// `tapp/runtime/src/moduleRuntime.test.ts` 的同名用例。
     const SHARED_EXTRACTION_SOURCE: &str = r#"
         var a = require('./a.js')
         var b = require("../b.js")

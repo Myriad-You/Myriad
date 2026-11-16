@@ -74,7 +74,7 @@ pub(crate) fn finish_security_headers(
             frame-ancestors {}; \
             frame-src 'none'; \
             worker-src 'self' blob:; \
-            manifest-src 'self'; \
+            manifest-src 'self' blob:; \
             upgrade-insecure-requests; ",
                 allowed_api_origins, frame_ancestors
             )
@@ -176,6 +176,8 @@ mod tests {
         assert!(!myriad_blog::BLOG_CSP.contains("frame-src 'none'"));
         assert!(myriad_blog::BLOG_CSP.contains("frame-src 'self'"));
         assert!(myriad_blog::BLOG_CSP.contains("script-src 'none'"));
+        // 笔记里的外链图片要能显示；脚本和 frame 的封锁不因此放松。
+        assert!(myriad_blog::BLOG_CSP.contains("img-src 'self' data: https: http:"));
 
         let mut bare = HeaderMap::new();
         finish_security_headers("/blog", &mut bare, false, false);
@@ -221,6 +223,7 @@ mod tests {
             .unwrap();
         assert!(csp.contains("frame-ancestors 'self'"));
         assert!(csp.contains("script-src 'self';"));
+        assert!(csp.contains("manifest-src 'self' blob:;"));
         assert_eq!(embed.get(header::X_FRAME_OPTIONS).unwrap(), "SAMEORIGIN");
 
         let mut dev = HeaderMap::new();

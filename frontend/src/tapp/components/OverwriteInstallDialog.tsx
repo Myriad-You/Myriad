@@ -1,4 +1,4 @@
-import type { TappPermission } from '../types'
+import type { TappPermission } from '@myriad/tapp-runtime'
 import { FaUpload } from '@lib/icons'
 import { useCallback, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'

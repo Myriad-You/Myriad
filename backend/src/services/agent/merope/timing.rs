@@ -1,10 +1,8 @@
-//! When she sees a message in a chat app, and how long typing takes her
-//! (see `myriad_merope::timing`). Facing someone on the site waits for none
-//! of this.
+//! Her day by the site's clock (see `myriad_merope::timing`): when she
+//! sleeps, where she is in her day, and her draws. When she sees a message
+//! and how long typing takes her are `chat_typing`'s.
 
-use std::time::Duration;
-
-use myriad_merope::timing::{self, Where};
+use myriad_merope::timing;
 
 /// Seconds until she wakes, if she is asleep now: one night for all of her,
 /// in chat apps and in her own time alike (see
@@ -34,41 +32,8 @@ pub fn past_bedtime() -> Option<String> {
     timing::past_bedtime_at(super::clock::now(), &super::clock::zone())
 }
 
-/// What she is doing as a message comes: talking there just now (which
-/// keeps her up past her bedtime, as talk does), asleep (where
-/// `may_sleep`), in the middle of something of her own, or free.
-pub fn where_she_is(in_talk: bool, may_sleep: bool) -> Where {
-    if in_talk {
-        return Where::InTalk;
-    }
-    if may_sleep && let Some(wakes_in) = asleep_now() {
-        return Where::Asleep { wakes_in };
-    }
-    let free_in = super::doing::current()
-        .map(|doing| (doing.ends - crate::clock::now()).num_seconds())
-        .filter(|seconds| *seconds > 0);
-    match free_in {
-        Some(seconds) => Where::Busy {
-            free_in: seconds as f64,
-        },
-        None => Where::Free,
-    }
-}
-
-/// How long until she has seen `text` and read it.
-pub fn until_read(at: Where, text: &str) -> Duration {
-    let seconds = timing::seen_after(at, roll(), roll())
-        + timing::reading(text.chars().count());
-    Duration::from_secs_f64(seconds)
-}
-
-/// How long typing `message` takes her, give or take.
-pub fn typing(message: &str) -> Duration {
-    Duration::from_secs_f64(timing::typing(message.chars().count(), roll()))
-}
-
-/// A number uniform in [0, 1).
-fn roll() -> f64 {
+/// A number uniform in [0, 1): a draw of hers.
+pub(crate) fn roll() -> f64 {
     #[cfg(test)]
     if let Some(roll) = crate::services::channel_group::g0::roll() {
         return roll;
@@ -90,17 +55,21 @@ mod tests {
 
     #[tokio::test]
     async fn talk_keeps_her_up_and_her_day_turns_when_she_gets_up() {
-        use myriad_merope::timing::Where;
+        use myriad_merope::timing::{Where, where_she_is};
         let (night, afternoon, late) = (at(2, 4, 0), at(2, 15, 0), at(2, 0, 30));
         super::super::clock::as_of(night, async {
+            let asleep = super::asleep_now();
             assert!(matches!(
-                super::where_she_is(false, true),
+                where_she_is(false, true, asleep, None),
                 Where::Asleep { .. }
             ));
             // Still talking: as much a group's as a private chat's.
-            assert!(matches!(super::where_she_is(true, true), Where::InTalk));
+            assert!(matches!(
+                where_she_is(true, true, asleep, None),
+                Where::InTalk
+            ));
             assert!(!matches!(
-                super::where_she_is(false, false),
+                where_she_is(false, false, asleep, None),
                 Where::Asleep { .. }
             ));
             assert!(super::past_bedtime().is_some_and(|told| told.contains("asleep now")));

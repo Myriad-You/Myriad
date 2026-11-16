@@ -31,6 +31,7 @@ import {
 } from './noteFields'
 import { displayImageUrl } from './noteImageUrl'
 import { NOTE_WIDGET_SIZES, noteWidgetCanConfigure } from './noteLayout'
+import { noteOldPathsInvalid, noteOldPathsWire } from './noteOldPaths'
 import { noteSlugInvalid, noteSlugWire, publishedNoteHref } from './noteSlug'
 import { applyNoteSourceEdit } from './noteSourceEdit'
 import { expandJammedDefinitions, setVisualImageResolver } from './noteVisual'
@@ -45,6 +46,7 @@ import { useNoteEditorPreference } from './useNoteEditorPreference'
 import { useNoteEditorPreview } from './useNoteEditorPreview'
 import { useNoteEditorSidecar } from './useNoteEditorSidecar'
 import { useNotePublish } from './useNotePublish'
+import { useNoteRemoteImages } from './useNoteRemoteImages'
 import { useNoteSelection } from './useNoteSelection'
 import { useNoteVisual } from './useNoteVisual'
 
@@ -60,6 +62,7 @@ interface NoteSnapshot {
   cover: string | null
   publishedAt: number | null
   slug?: string | null
+  oldPaths?: string | null
 }
 
 const EMPTY_SNAPSHOT: NoteSnapshot = {
@@ -69,6 +72,13 @@ const EMPTY_SNAPSHOT: NoteSnapshot = {
   cover: null,
   publishedAt: null,
   slug: null,
+  oldPaths: null,
+}
+
+/** 输入框里写的和规范化后的旧地址是不是同一组：是就留着站长自己写的样子。 */
+function sameOldPaths(input: string, field: string | null | undefined): boolean {
+  const wire = noteOldPathsWire(input)
+  return wire !== undefined && wire.join('\n') === (field ?? '')
 }
 
 export interface NoteEditorProps {
@@ -78,6 +88,11 @@ export interface NoteEditorProps {
   onSaved: (id: number) => void
   onDeleted?: (id: number) => void
   onCloudId?: (id: number) => void
+  /**
+   * 正在编辑的这篇已经不在了（在别的窗口、别的标签页或被别人删掉，或者记着的是早就删掉的 id）。
+   * 编辑器自己已经停下协作和自动保存；外面据此退出这篇。
+   */
+  onGone?: (id: number) => void
 }
 
 export function useNoteEditorSession({
@@ -87,6 +102,7 @@ export function useNoteEditorSession({
   onSaved,
   onDeleted,
   onCloudId,
+  onGone,
 }: NoteEditorProps) {
   const { t, format } = useI18n()
   const { user, isAdmin } = useAuth()
@@ -124,6 +140,8 @@ export function useNoteEditorSession({
   const [publishedAt, setPublishedAt] = useState<number | null>(null)
   const [slug, setSlug] = useState<string | null>(null)
   const [slugInput, setSlugInput] = useState('')
+  const [oldPaths, setOldPaths] = useState<string | null>(null)
+  const [oldPathsInput, setOldPathsInput] = useState('')
   const [itemId, setItemId] = useState<number | null>(null)
   const [articleHref, setArticleHref] = useState<string | null>(null)
   const defaultPublishedAt = useRef(Date.now())
@@ -179,6 +197,8 @@ export function useNoteEditorSession({
   })
   const [scheduledAt, setScheduledAt] = useState<number | null>(null)
   const [cloudHint, setCloudHint] = useState(false)
+  /** 这篇被删了：协作、自动保存、发布都停下，离开时不再问。 */
+  const [gone, setGone] = useState(false)
   const onCloudIdRef = useRef(onCloudId)
   onCloudIdRef.current = onCloudId
   useEffect(() => {
@@ -317,6 +337,8 @@ export function useNoteEditorSession({
     setPublishedAt(fields.publishedAt)
     setSlug(fields.slug ?? null)
     setSlugInput(fields.slug ?? '')
+    setOldPaths(fields.oldPaths ?? null)
+    setOldPathsInput((input) => (sameOldPaths(input, fields.oldPaths) ? input : fields.oldPaths ?? ''))
   }, [])
 
   const cloud = useNoteCloudSave({
@@ -325,7 +347,7 @@ export function useNoteEditorSession({
     loading,
     fields: {
       title, contentMd, topic, cover, publishedAt,
-      ...(docStatus === 'published' ? { slug } : {}),
+      ...(docStatus === 'published' ? { slug, oldPaths } : {}),
     },
     revisionRef,
     onServerDoc: applyServerDoc,
@@ -345,6 +367,7 @@ export function useNoteEditorSession({
       conflict: t.phantasi.noteRevisionConflict,
       uncertain: t.phantasi.noteSaveUnconfirmed,
       slugTaken: t.studio.slugTaken,
+      oldPathTaken: t.phantasi.noteSettingsOldPathTaken,
     },
   })
   const restoreHistory = async (entry: phantasiApi.NoteHistoryEntry) => {
@@ -366,6 +389,23 @@ export function useNoteEditorSession({
       throw error
     } finally { setSaving(false) }
   }
+  // 退出这篇只做一次：协作通知、断线查到 404、打开时就 404 可能接连到来。
+  const goneRef = useRef<{ done: boolean; cloudId: number | null; onGone?: (id: number) => void; discard: () => void; message: string }>({
+    done: false, cloudId, onGone, discard: cloud.discardRecovery, message: t.phantasi.noteGone,
+  })
+  goneRef.current = { ...goneRef.current, cloudId, onGone, discard: cloud.discardRecovery, message: t.phantasi.noteGone }
+  const markGone = useCallback(() => {
+    const live = goneRef.current
+    if (live.done) return
+    live.done = true
+    const id = live.cloudId ?? docId ?? null
+    // 文档没了，本地留着的恢复副本也没处可存：一起丢掉，免得下次打开又灌回来。
+    live.discard()
+    setGone(true)
+    setCloudId(null)
+    showNoteNotice(live.message, 'warning')
+    if (id != null) live.onGone?.(id)
+  }, [docId])
   const { peers, connection: collabConnection, markEditing } = useNoteCollab({
     cloudId,
     loading,
@@ -373,9 +413,10 @@ export function useNoteEditorSession({
     textareaRef,
     fields: {
       title, contentMd, topic, cover, publishedAt,
-      ...(docStatus === 'published' ? { slug } : {}),
+      ...(docStatus === 'published' ? { slug, oldPaths } : {}),
     },
     cloud,
+    onGone: markGone,
   })
   widgetSettingsOpenRef.current = widgetSettingsOpen
   overlayOpenRef.current =
@@ -399,6 +440,7 @@ export function useNoteEditorSession({
       linkOpen ||
       blockFocus ||
       widgetSettingsOpen,
+    blockBarRef,
   )
   selectionRef.current = selectionAnchor
 
@@ -447,6 +489,7 @@ export function useNoteEditorSession({
     setCloudId,
     setSaved,
     setLoading,
+    onGone: markGone,
     loadFailed: t.phantasi.errorLoadFailed,
     scheduleFailed: t.phantasi.noteScheduleFailed,
   })
@@ -491,8 +534,9 @@ export function useNoteEditorSession({
       normalizeNoteTopic(topic) !== normalizeNoteTopic(saved.topic) ||
       normalizeNoteCover(cover) !== normalizeNoteCover(saved.cover) ||
       !sameNoteMinute(publishedAt, saved.publishedAt) ||
-      (slug ?? null) !== (saved.slug ?? null),
-    [title, contentMd, topic, cover, publishedAt, slug, saved],
+      (slug ?? null) !== (saved.slug ?? null) ||
+      (docStatus === 'published' && (oldPaths ?? '') !== (saved.oldPaths ?? '')),
+    [title, contentMd, topic, cover, publishedAt, slug, oldPaths, docStatus, saved],
   )
 
   const applyEdit = useCallback(
@@ -558,6 +602,7 @@ export function useNoteEditorSession({
     scheduledAt,
     noteId,
     cloudId,
+    gone,
     draftKey,
     docStatus,
     saving,
@@ -587,6 +632,7 @@ export function useNoteEditorSession({
       discardConfirm: t.phantasi.noteDiscardConfirm,
       slugInvalid: t.studio.slugInvalid,
       slugTaken: t.studio.slugTaken,
+      oldPathTaken: t.phantasi.noteSettingsOldPathTaken,
     },
   })
   const requestClose = useCallback(() => {
@@ -669,6 +715,17 @@ export function useNoteEditorSession({
     contentMd,
   })
 
+  const { keepPastedImages } = useNoteRemoteImages({
+    t,
+    format,
+    visualRef,
+    textareaRef,
+    paneRef,
+    visualEditing,
+    commitVisualMd,
+    setContentMd,
+  })
+
   useNoteAgentPage({ docId: cloudId, title, topic, status: docStatus }, textareaRef)
 
   const canDelete =
@@ -702,6 +759,13 @@ export function useNoteEditorSession({
       if (wire === undefined) return
       if (wire !== slug) setArticleHref(null)
       setSlug(wire)
+    },
+    oldPathsInput,
+    oldPathsInvalid: noteOldPathsInvalid(oldPathsInput),
+    onOldPathsInput: (next: string) => {
+      setOldPathsInput(next)
+      const wire = noteOldPathsWire(next)
+      if (wire !== undefined) setOldPaths(wire.join('\n'))
     },
     articleHref: articleHref ?? (docStatus === 'published' ? publishedNoteHref({ slug }) : null),
     /** 只有管理员能生成 AI 注释和播客，且只对已发布的文章。 */
@@ -763,7 +827,7 @@ export function useNoteEditorSession({
     canConfigureWidget,
     bodyChars,
     peers,
-    collabConnection,
+    collabConnection: gone ? 'gone' as const : collabConnection,
     markEditing,
     selectionAnchor,
     activeMarks,
@@ -785,7 +849,8 @@ export function useNoteEditorSession({
     handleDelete,
     requestClose,
     prepareLeave,
-    dirty,
+    // 删掉的文档没有可保存的地方，外面别再因为它不敢关、不敢刷新。
+    dirty: dirty && !gone,
     placeImage,
     handleUpload,
     heading,
@@ -800,6 +865,7 @@ export function useNoteEditorSession({
     rememberVisualRange,
     applyLink,
     pasteAsLink,
+    keepPastedImages,
     selectImage,
     selectWidget,
     imageOp,

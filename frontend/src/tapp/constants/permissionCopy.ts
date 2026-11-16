@@ -1,6 +1,6 @@
 /** 权限文案键。不要依赖 @lib/icons，以便 node:test。 */
 
-import type { TappPermission } from '../types'
+import type { TappPermission } from '@myriad/tapp-runtime'
 
 export const PERMISSION_COPY: Record<
   TappPermission,

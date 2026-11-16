@@ -565,6 +565,8 @@ export function AgentDevicesGroup() {
     }
     if (device.revokedAt) {
       badges.push({ label: removedWhy(device), tone: 'muted' })
+    } else if (device.appOutdated) {
+      badges.push({ label: c.agentDevicesAppOutdated, tone: 'warn' })
     } else if (device.stale && !device.connected) {
       badges.push({ label: c.agentDevicesStale, tone: 'warn' })
     }

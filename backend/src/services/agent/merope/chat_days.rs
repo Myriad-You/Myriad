@@ -59,6 +59,7 @@ async fn by_day(db: &DatabaseConnection, place: Place<'_>) -> BTreeMap<NaiveDate
              JOIN agent_sessions s ON s.id = m.session_id \
              WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NULL AND m.role IN ('user', 'assistant') \
+               AND (m.metadata->>'piece') IS NULL \
              ORDER BY m.created_at DESC LIMIT $2",
             user_id.into(),
         ),

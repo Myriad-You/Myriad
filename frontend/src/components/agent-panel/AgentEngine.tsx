@@ -17,8 +17,8 @@ import type {
   ThinkingTokenEvent,
 } from '../../services/agent'
 import type { AgentAttachment } from './agentAttachments'
-
 import type { AgentPanelMode } from './agentPanelMode'
+
 import type {
   ChatMessage,
   ChatSession,
@@ -91,6 +91,7 @@ import {
 } from '../../services/agent/turnIdentity'
 import { authSubject } from '../../utils/authSubject'
 import { userFacingError } from '../../utils/userFacingError'
+import { safeRandomUUID } from '../../utils/uuid'
 import {
   errorCode,
   generationFailureMessage,
@@ -101,6 +102,7 @@ import { setAgentSessionId } from './agentMessages'
 import {
   AGENT_PANEL_ANSWER_EVENT,
   AGENT_PANEL_COMMAND_EVENT,
+  AGENT_PANEL_FORGOTTEN_EVENT,
   AGENT_PANEL_OPEN_SESSION_EVENT,
   AGENT_PANEL_SUBMIT_EVENT,
   agentPanelAnswerDetail,
@@ -109,10 +111,17 @@ import {
   agentPanelOpenSessionId,
   agentPanelSubmitDetail,
   attachAgentSessionOpenQueue,
-  dispatchAgentPanelOpen, dispatchHistoryAnswerResult,
+  dispatchAgentPanelOpen,
+  dispatchHistoryAnswerResult, forgottenLinesDetail,
   takeQueuedAgentSubmit,
 } from './agentPanelEvents'
 import { getAgentPanelMode, useAgentPanelMode } from './agentPanelMode'
+import {
+  setPieceActionRunner,
+  setPieceLineSink,
+  showPieces,
+  withToldLines,
+} from './agentPieces'
 import { turnSelectionText } from './agentSelection'
 import {
   pushAgentStatusEvent,
@@ -132,7 +141,7 @@ import { retainHotMessages } from './messageBudget'
 import { prepareChatBody } from './prepareChatBody'
 import { syncProjectedMessages } from './projectAgentMessage'
 import { restoreHistoryAnswer } from './restoreHistoryAnswer'
-import { restoreSessionMessage } from './sessionHistoryMessage'
+import { restoreCardLine, restoreSessionMessage } from './sessionHistoryMessage'
 
 import { SessionLoadScope } from './sessionLoadScope'
 import { restoreFollowUpQuestion } from './sessionPendingRestore'
@@ -284,6 +293,21 @@ export const AgentEngine: React.FC = () => {
     ) => frontendActionQueue.enqueue(messageId, actions, subject),
     [frontendActionQueue],
   )
+  // Pieces she handed off run their page actions through the same queue.
+  useEffect(() => {
+    setPieceActionRunner((key, actions) => void enqueueFrontendActions(key, [...actions]))
+    return () => setPieceActionRunner(null)
+  }, [enqueueFrontendActions])
+  // Her lines about how they ended go into the conversation they came from.
+  // One line each, short by construction: kept inline, with no body to store.
+  useEffect(() => {
+    setPieceLineSink((chat, lines) => {
+      if (sessionIdsByModeRef.current.chat !== chat) return
+      const restored = lines.map((line) => restoreSessionMessage(line, chat))
+      setMessages((prev) => withToldLines(prev, restored), 'chat')
+    })
+    return () => setPieceLineSink(null)
+  }, [setMessages])
   const answerQuestionRef =
     useRef<(messageId: string, answer: string, history?: HistoryAnswerSource) => void>(null)
   const sessionTitleSetByModeRef = useRef<Record<AgentPanelMode, boolean>>({
@@ -477,16 +501,21 @@ export const AgentEngine: React.FC = () => {
       const preparedBodies: import('./messageBody').MessageBodyRef[] = []
       let installed = false
       try {
-        const sessionMessages = await agentService.getSessionMessages(
+        const sessionPage = await agentService.getSessionPage(
           session.id,
           Math.max(1, Math.ceil((session.messageCount || 0) / 50)),
           50,
           subject,
         )
         if (subject.aborted) return
+        // The owner's card lines go among the page's messages by time; those
+        // from before its first message belong to an earlier page.
+        const rows = withToldLines(
+          sessionPage.messages.map((row) => restoreSessionMessage(row, session.id)),
+          sessionPage.cards.map((line) => restoreCardLine(line, session.id)),
+        )
         const loaded: ChatMessage[] = []
-        for (const row of sessionMessages) {
-          const restored = restoreSessionMessage(row, session.id)
+        for (const restored of rows) {
           const message = await prepareChatBody(restored, subject)
           for (const body of [message.body, message.taskExecution?.reasoningBody]) { if (body) preparedBodies.push(body)
 }
@@ -514,6 +543,34 @@ export const AgentEngine: React.FC = () => {
     },
     [reattachLiveChat, reattachLiveWork, sessionLoads],
   )
+
+  // Opened anew (a reload, another device), the panel takes up the
+  // conversation it was last talked in, and with it the pieces handed off
+  // there that are still under way. What she is given of it is windowed by
+  // the backend as any chat is; only the last page is shown here.
+  useEffect(() => {
+    const takeUp = async () => {
+      const subject = authSubject.signal
+      let session: ChatSession | null
+      try {
+        session = await agentService.getPanelChat(subject)
+      } catch {
+        return
+      }
+      if (
+        !session ||
+        subject.aborted ||
+        sessionIdsByModeRef.current.chat ||
+        loadingByModeRef.current.chat ||
+        messagesRef.current.chat.length > 0
+      ) {
+        return
+      }
+      void loadSession({ ...session, mode: 'chat' }, undefined, 'chat')
+    }
+    void takeUp()
+    return authSubject.subscribe(() => void takeUp())
+  }, [loadSession, messagesRef])
 
   useEffect(() => {
     const openSession = (detail: {
@@ -600,6 +657,24 @@ export const AgentEngine: React.FC = () => {
     return () =>
       window.removeEventListener(AGENT_PANEL_ANSWER_EVENT, handleAnswer)
   }, [])
+
+  // Lines she forgot, and what went with them, leave the conversation shown.
+  useEffect(() => {
+    const handleForgotten = (event: Event) => {
+      const detail = forgottenLinesDetail(event)
+      if (!detail) return
+      const gone = new Set(detail.lines.map((line) => `loaded_${line}`))
+      for (const mode of ['chat', 'work'] as const) {
+        setMessages(
+          (prev) => prev.filter((message) => !(message.sessionId === detail.sessionId && gone.has(message.id))),
+          mode,
+        )
+      }
+    }
+    window.addEventListener(AGENT_PANEL_FORGOTTEN_EVENT, handleForgotten)
+    return () =>
+      window.removeEventListener(AGENT_PANEL_FORGOTTEN_EVENT, handleForgotten)
+  }, [setMessages])
 
   useEffect(() => {
     return attachLiveBody()
@@ -753,8 +828,8 @@ export const AgentEngine: React.FC = () => {
     ) => {
       if (subject.aborted) return () => {}
       subject = bodyScopes.begin(mode, subject)
-      let summaryBody = new BodyWriter(crypto.randomUUID(), subject)
-      const thinkingBody = new BodyWriter(crypto.randomUUID(), subject)
+      let summaryBody = new BodyWriter(safeRandomUUID(), subject)
+      const thinkingBody = new BodyWriter(safeRandomUUID(), subject)
       let summaryText = new SummaryTextStream()
       let streamedSummary = ''
       let streamedThinking = ''
@@ -762,6 +837,8 @@ export const AgentEngine: React.FC = () => {
       let performanceRunId = initialRunId
       let notedStaleGeneration = false
       let liveTaskId = ''
+      // Typed a message at a time (`typing` events): only then is typing shown and cleared.
+      let typed = false
       const speech = openTurnSpeech(mode, assistantMessageId, generation, locale, speechOutput)
       const utterance = openTurnReply(
         mode,
@@ -868,7 +945,7 @@ export const AgentEngine: React.FC = () => {
             utterance.end()
             streamedSummary = ''
             summaryBody.finish()
-            summaryBody = new BodyWriter(crypto.randomUUID(), subject)
+            summaryBody = new BodyWriter(safeRandomUUID(), subject)
             summaryText = new SummaryTextStream()
             const stepEvent = event as StepStartedEvent
             addExecutionStep(assistantMessageId, {
@@ -1036,7 +1113,16 @@ export const AgentEngine: React.FC = () => {
             utterance.cancel()
             speech.cancel()
             updateMessageExecution(assistantMessageId, { status: 'error' })
-            updateMessage(assistantMessageId, { content: event.message })
+            updateMessage(assistantMessageId, {
+              content: event.message,
+              ...(typed ? { typing: false } : {}),
+            })
+            break
+
+          case 'typing':
+            // Typed a message at a time: she is at her next one.
+            typed = true
+            updateMessage(assistantMessageId, { typing: true })
             break
 
           case 'thinking_token': {
@@ -1065,7 +1151,10 @@ export const AgentEngine: React.FC = () => {
               // SummaryTextStream applies stripChatWearMarker semantics incrementally.
               // The disk body already contains only visible reply text. Never
               // re-parse a bounded prefix as if it were the complete transcript.
-              await updateMessage(assistantMessageId, snapshot)
+              await updateMessage(
+                assistantMessageId,
+                typed ? { ...snapshot, typing: false } : snapshot,
+              )
               const sealed = speech.push(text.content)
               if (sealed == null) utterance.chunk(text.content)
               else if (sealed > 0) markTurnTraceOnce('first_sentence')
@@ -1158,6 +1247,7 @@ export const AgentEngine: React.FC = () => {
               updateMessage(assistantMessageId, {
                 pendingQuestion: undefined,
                 selectedAnswer: undefined,
+                ...(typed ? { typing: false } : {}),
               })
               updateMessageExecution(assistantMessageId, {
                 status: completedEvent.success ? 'completed' : 'error',
@@ -1320,27 +1410,9 @@ export const AgentEngine: React.FC = () => {
         },
       )
 
-      // guest can open the panel; Agent still requires JWT
-      if (!isAuthenticated) {
-        const loginHint = t.agentPanel.loginRequiredHint
-        setMessages(
-          (prev) => [
-            ...prev,
-            {
-              id: `msg_guest_hint_${Date.now()}`,
-              sessionId: modeSessionId || '',
-              role: 'assistant',
-              content: loginHint,
-              createdAt: new Date(),
-            },
-          ],
-          mode,
-        )
-        window.setTimeout(() => {
-          navigate(`/login?redirect=${encodeURIComponent(location.pathname)}`)
-        }, 600)
-        return
-      }
+      // Visitors open the panel to search the site; only signed-in people ask
+      // her. The composer sends nothing for them, and nothing goes out here either.
+      if (!isAuthenticated) return
 
       if (mode === 'work' && pendingAnswerMsg && answerQuestionRef.current) {
         answerQuestionRef.current(pendingAnswerMsg.id, requestText)
@@ -1597,6 +1669,12 @@ export const AgentEngine: React.FC = () => {
           updateMessageExecution(assistantMsgId, { status: 'error' })
           return
         }
+        // Her mind is on another of the owner's devices: what they said is
+        // kept for her there and nothing answers here (D6-b), so no reply.
+        if (errorCode(error) === 'left_for_her') {
+          setMessages((prev) => prev.filter((m) => m.id !== assistantMsgId))
+          return
+        }
         // quota arrives as HTTP 200; the error-event code is the only signal
         const errorMsg = generationFailureMessage(
           error,
@@ -1722,6 +1800,16 @@ export const AgentEngine: React.FC = () => {
           response.responseType === 'task_completed')
 
       const responseData = response.data as Record<string, unknown> | undefined
+      // The pieces she handed off on this turn, as they now stand: followed
+      // each on its own run, after the talk.
+      const chatSessionId = sessionIdsByModeRef.current.chat
+      if (mode === 'chat' && chatSessionId && Array.isArray(responseData?.pieces)) {
+        showPieces(
+          chatSessionId,
+          responseData.pieces as unknown[],
+          Array.isArray(responseData.told) ? (responseData.told as unknown[]) : [],
+        )
+      }
       if (mode === 'chat' && responseData && Object.hasOwn(responseData, 'outfitId')) {
         const overlayId = responseData.outfitId
         setChatOutfitOverlay(

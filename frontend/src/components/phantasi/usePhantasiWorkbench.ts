@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as mediaApi from '../../services/mediaApi'
 import * as phantasiApi from '../../services/phantasiApi'
 import { userFacingError } from '../../utils/userFacingError'
+import { splitWorkbenchUploads, uploadInOrder } from './logic/mediaUpload'
 import { RequestTurn } from './logic/requestTurn'
 import { workbenchMediaFormatKey } from './logic/workbench'
 import { loadNoteDocs } from './pageData'
@@ -21,6 +22,8 @@ export function usePhantasiWorkbench(
     unscheduleFailed: string
     mediaLoadFailed: string
     mediaUploadFailed: string
+    /** 后面接「: 文件名」。 */
+    mediaUploadSkipped: string
     mediaDeleteFailed: string
     commentDeleteFailed: string
     reviewApproveFailed: string
@@ -67,6 +70,7 @@ export function usePhantasiWorkbench(
   const [commentsLoading, setCommentsLoading] = useState(false)
   const [applicationsLoading, setApplicationsLoading] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null)
   const notesTurn = useRef(new RequestTurn())
   const mediaTurn = useRef(new RequestTurn())
   const commentsTurn = useRef(new RequestTurn())
@@ -282,15 +286,32 @@ export function usePhantasiWorkbench(
     [setError],
   )
 
+  // 多个文件一个接一个传，全部传完只刷新一次列表。不能传的类型直接跳过并提示。
   const upload = useCallback(
-    async (file: File) => {
+    async (files: readonly File[]) => {
+      const { accepted, rejected } = splitWorkbenchUploads(files)
+      const skipped = rejected.length > 0
+        ? `${labelsRef.current.mediaUploadSkipped}: ${rejected.map(file => file.name).join('、')}`
+        : ''
+      if (skipped) setError(skipped)
+      if (accepted.length === 0) return
       setBusy(true)
+      setUploadProgress({ current: 1, total: accepted.length })
       try {
-        await mediaApi.uploadMedia(file)
-        setMediaEpoch(value => value + 1)
-      } catch (err) {
-        setError(userFacingError(err, labelsRef.current.mediaUploadFailed))
+        const { done, failed } = await uploadInOrder(
+          accepted,
+          file => mediaApi.uploadMedia(file),
+          index => setUploadProgress({ current: index + 1, total: accepted.length }),
+        )
+        if (done > 0) setMediaEpoch(value => value + 1)
+        if (failed.length > 0) {
+          const detail = userFacingError(failed[0]?.error, labelsRef.current.mediaUploadFailed)
+          const names = failed.map(row => row.item.name).join('、')
+          // 同一个提示位会顶掉前面的，跳过的文件一并带上。
+          setError([`${detail}: ${names}`, skipped].filter(Boolean).join(' '))
+        }
       } finally {
+        setUploadProgress(null)
         setBusy(false)
       }
     },
@@ -436,6 +457,7 @@ export function usePhantasiWorkbench(
     commentsLoading,
     applicationsLoading,
     busy,
+    uploadProgress,
     removeNote,
     removeNotes,
     removeComments,

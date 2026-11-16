@@ -23,7 +23,8 @@ pub const SOURCE: &str = "sore";
 /// Untouched this long, a sore spot fades.
 const FADES_AFTER: chrono::Duration = chrono::Duration::days(60);
 
-fn sore_of(row: &crate::models::entities::agent_memories::Model) -> Option<Sore> {
+/// A sore spot as its row keeps it.
+pub(crate) fn sore_of(row: &crate::models::entities::agent_memories::Model) -> Option<Sore> {
     let evidence: Value = serde_json::from_str(row.evidence.as_deref()?).ok()?;
     let at = |key: &str| {
         evidence
@@ -194,7 +195,7 @@ pub async fn keep(
             .collect();
         let _ = unified::retire(db, user_id, &oldest, "faded").await;
     }
-    let _ = put(
+    let kept = put(
         db,
         user_id,
         audience,
@@ -205,6 +206,10 @@ pub async fn keep(
         &[],
     )
     .await;
+    // On her nodes too (`memory_nodes::hanging`).
+    if let Ok(unified::Replaced { id: Some(id), .. }) = &kept {
+        super::memory_nodes::hanging::kept(db, id).await;
+    }
 }
 
 /// They apologized or made it right: it may still sting, and she knows.
@@ -229,10 +234,21 @@ pub async fn mend(db: &DatabaseConnection, sores: &[Sore], indexes: &[usize]) {
             std::slice::from_ref(&sore.id),
         )
         .await;
-        let _ = match mended {
-            Ok(replaced) if replaced.retired > 0 => transaction.commit().await,
-            _ => transaction.rollback().await,
+        let committed = match mended {
+            Ok(replaced) if replaced.retired > 0 => transaction
+                .commit()
+                .await
+                .is_ok()
+                .then_some(replaced.id)
+                .flatten(),
+            _ => {
+                let _ = transaction.rollback().await;
+                None
+            }
         };
+        if let Some(id) = committed {
+            super::memory_nodes::hanging::kept(db, &id).await;
+        }
     }
 }
 
@@ -270,16 +286,21 @@ pub async fn let_go(db: &DatabaseConnection, sores: &[Sore], indexes: &[usize]) 
         )
         .await;
         let committed = match let_go {
-            Ok(replaced) if replaced.retired > 0 => transaction.commit().await.is_ok(),
+            Ok(replaced) if replaced.retired > 0 => {
+                transaction.commit().await.is_ok().then_some(replaced.id)
+            }
             _ => {
                 let _ = transaction.rollback().await;
-                false
+                None
             }
         };
-        if !committed {
+        let Some(id) = committed else {
             continue;
-        }
+        };
         tracing::info!(user_id, "[Merope] she let something go");
+        if let Some(id) = id {
+            super::memory_nodes::hanging::kept(db, &id).await;
+        }
     }
 }
 

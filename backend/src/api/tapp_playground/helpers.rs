@@ -760,7 +760,7 @@ pub(super) fn validate_sdk_namespaces(fields: &[(&str, &str)]) -> Result<(), Str
 ///
 /// Manifest `permissions` are declared names. Preview only warns on names
 /// outside this allowlist; it does not grant. Keep in sync with frontend
-/// `PREVIEW_PERMISSIONS` in `frontend/src/tapp/utils/previewGrants.ts`.
+/// `PREVIEW_PERMISSIONS` in `tapp/runtime/src/previewGrants.ts`.
 pub(super) const PREVIEW_PERMISSIONS: &[&str] = &[
     "storage:read",
     "storage:write",

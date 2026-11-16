@@ -1,4 +1,4 @@
-import type { TappSettingItem } from '../../tapp/types'
+import type { TappSettingItem } from '@myriad/tapp-runtime'
 
 /** 按 widget 声明的设置项校验一次实例设置补丁。任何一项不合声明就整包拒绝。 */
 export function acceptTappInstanceSettingsPatch(

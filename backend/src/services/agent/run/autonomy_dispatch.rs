@@ -231,7 +231,10 @@ async fn defer_skipped_autonomy(db: &DatabaseConnection, intent: &IntentRecord) 
     }
 }
 
-async fn forward_autonomy_progress(
+/// A Work run nobody started from a page publishes its own progress: an
+/// accepted proposal here, an instruction of theirs come due
+/// (`merope::memory_nodes::intents_run`).
+pub(crate) async fn forward_autonomy_progress(
     run: Arc<AgentRun>,
     mut events: tokio::sync::mpsc::Receiver<AgentProgressEvent>,
 ) {

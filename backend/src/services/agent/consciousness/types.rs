@@ -144,6 +144,12 @@ pub struct SelfSnapshot {
     /// already heard from her, and whether they wrote back.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub said_unasked_lately: Vec<SaidUnasked>,
+    /// What she weighs about speaking up to them now, from the shared core
+    /// (`speech::facts`): why, what she said lately and whether they
+    /// answered, how long since they talked, her night, what she is doing.
+    /// When given, it carries what she said lately.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub speaking: Vec<String>,
     /// How she was after her last exchange with them, if a moment ago.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inner: Option<String>,
@@ -254,6 +260,17 @@ pub struct ConsciousnessDecision {
     pub question: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work_proposal: Option<WorkProposal>,
+    /// A look at their screen only (`agent.merope.screen`): what she took
+    /// away from it, in her words; none when it only passed by.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub took_in: Option<String>,
+    /// With `took_in`: how she was as she took it in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mood: Option<String>,
+    /// With `took_in`: the label (`n1`…) of the note offered her it
+    /// belongs with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

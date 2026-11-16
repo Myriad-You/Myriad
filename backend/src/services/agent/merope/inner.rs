@@ -290,8 +290,14 @@ async fn compile(
         super::threads::close_in_group(db, venue, &done, "taken_up").await;
     }
     if private {
+        // What they said this turn, which what she keeps grew from.
+        let from = if reflected.keep.is_empty() {
+            None
+        } else {
+            super::memory_nodes::home_intents::origin_of(db, user_id, user_text, at).await
+        };
         for kept in reflected.keep.iter().take(MAX_KEPT) {
-            super::threads::keep(db, user_id, kept, at).await;
+            super::threads::keep_from(db, user_id, kept, at, from.as_deref()).await;
         }
         super::threads::close(db, user_id, &done, "taken_up").await;
         // Being wrong about a public matter is part of her own story; about

@@ -360,7 +360,7 @@ pub(super) async fn day_with(
 ) -> Vec<Value> {
     let lines = db.query_all_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "SELECT m.role, m.content, m.created_at FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+        "SELECT m.role, m.content, m.created_at, m.metadata->>'piece' AS piece FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
          WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
            AND m.created_at >= $2 AND m.created_at < $3 AND m.role IN ('user', 'assistant') \
          ORDER BY m.created_at DESC LIMIT $4",
@@ -383,12 +383,14 @@ pub(super) async fn day_with(
             .take(300)
             .collect();
         let at = row.try_get::<DateTime<FixedOffset>>("", "created_at").ok()?;
-        (!text.trim().is_empty()).then(|| {
-            (
-                at,
-                json!({ "who": if role == "user" { "they" } else { "you" }, "text": text }),
-            )
-        })
+        // A piece's result is her helper's, not what she said.
+        let piece = row.try_get::<Option<String>>("", "piece").ok().flatten();
+        let who = match (role.as_str(), piece) {
+            ("user", _) => "they",
+            (_, Some(_)) => "your helper",
+            _ => "you",
+        };
+        (!text.trim().is_empty()).then(|| (at, json!({ "who": who, "text": text })))
     })
     .collect::<Vec<_>>();
     with_after(lines)
@@ -426,7 +428,7 @@ pub(super) async fn put_day(
         .iter()
         .filter_map(|row| row.try_get::<String>("", "id").ok())
         .collect();
-    let _ = unified::remember_in_place_of(
+    let kept = unified::remember_in_place_of(
         db,
         unified::NewMemory {
             user_id: circle.keeper(),
@@ -447,6 +449,9 @@ pub(super) async fn put_day(
         },
     )
     .await;
+    if let Ok(unified::Replaced { id: Some(id), .. }) = &kept {
+        super::super::memory_nodes::hanging::kept(db, id).await;
+    }
 }
 
 /// What days in a group (`venue` as sessions keep it) were like, oldest
@@ -472,19 +477,22 @@ pub async fn days_in(
     )
     .await
     .into_iter()
-    .map(|row| {
-        let day = row
-            .evidence
-            .as_deref()
-            .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
-            .and_then(|evidence| evidence.get("day")?.as_str().map(str::to_string))
-            .unwrap_or_else(|| row.created_at.format("%Y-%m-%d").to_string());
-        (day, row.content)
-    })
+    .map(day_of_row)
     .collect();
     // Freshest first, then what was brought back: by date, oldest first.
     days.sort_by(|left, right| left.0.cmp(&right.0));
     days
+}
+
+/// A day in a group as its row keeps it: (date, what it was like).
+pub(crate) fn day_of_row(row: crate::models::entities::agent_memories::Model) -> (String, String) {
+    let day = row
+        .evidence
+        .as_deref()
+        .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
+        .and_then(|evidence| evidence.get("day")?.as_str().map(str::to_string))
+        .unwrap_or_else(|| row.created_at.format("%Y-%m-%d").to_string());
+    (day, row.content)
 }
 
 #[cfg(test)]

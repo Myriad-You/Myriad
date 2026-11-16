@@ -32,6 +32,9 @@
     "The task expired while waiting for input": "agent_work_expired",
     "She is moving between her ends; nothing reaches her until the move is done or cancelled": "host_frozen",
     "She does not live on this site now": "host_moved",
+    "She is on another of your devices now": "mind_elsewhere",
+    "She has just come back here and is still taking in what she wrote on your other device": "mind_elsewhere",
+    "She is on another of your devices now; she sees this there": "left_for_her",
     "An export is sealed with a passphrase": "passphrase_required",
     "The site has no her to export": "her_absent",
     "She could not be exported": "export_failed",
@@ -475,6 +478,7 @@
     "Failed to begin admin setup": "account_save_failed",
     "Failed to lock admin setup": "account_save_failed",
     "Failed to change password": "password_change_failed",
+    "Failed to change syncing": "her_sync_change_failed",
     "Failed to set password": "password_change_failed",
     "Failed to update local login": "local_login_save_failed",
     "Failed to check owner": "users_load_failed",
@@ -1338,6 +1342,7 @@
     "Nothing is playing": "music_not_playing"
   },
   "explicit": [
+    "her_log_off",
     "sticker_pack_full",
     "note_too_long",
     "note_too_many_attachments",
@@ -1525,6 +1530,7 @@
     "cache_write_failed",
     "cdn_unavailable",
     "channel_inbox_missing",
+    "transfer_same_instance",
     "channel_pairing_identity",
     "character_asset_provenance_changed",
     "character_visual_inputs_changed",
@@ -1735,9 +1741,13 @@
     "sync_clock_required",
     "invalid_zone",
     "persona_field_required",
-    "host_is_site",
     "bad_frame",
     "host_frozen",
+    "mind_elsewhere",
+    "left_for_her",
+    "arm_variant_generation_in_progress",
+    "arm_variant_rejected",
+    "unknown_arm_variant",
     "host_moved",
     "move_no_her",
     "move_in_progress",
@@ -1782,6 +1792,7 @@
     "report_style_too_long",
     "report_style_builtin_readonly",
     "report_style_limit",
-    "report_style_not_found"
+    "report_style_not_found",
+    "tapp_contract_too_new"
   ]
 }

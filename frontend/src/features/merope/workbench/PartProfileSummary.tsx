@@ -1,4 +1,4 @@
-import type { Anime25DPart, Anime25DPartProfile } from '../anime25drig/types'
+import type { Anime25DPart, Anime25DPartProfile } from '@myriad/figure/workbench'
 import { useI18n } from '../../../contexts/I18nContext'
 
 type Labels = ReturnType<typeof useI18n>['t']['merope']

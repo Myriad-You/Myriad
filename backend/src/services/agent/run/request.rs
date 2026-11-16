@@ -47,10 +47,16 @@ pub(crate) fn build_request_context(mut ctx: ProcessContext) -> RequestContext {
         images,
         // Only a channel private chat sets this, after building the context.
         channel_chat: None,
+        // Only the panel's own chat sets this, once its session is known.
+        panel_work: None,
         chime: None,
         speaker: None,
         nobody_said: false,
         on_device: ctx.on_device,
+        handed_off: ctx.handed_off,
+        // Only an intent's own run sets these (`merope::memory_nodes`).
+        unattended: false,
+        instruction_cap: None,
     }
 }
 

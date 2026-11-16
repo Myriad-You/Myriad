@@ -1,4 +1,5 @@
 import type { TransferNote } from './types'
+import { addressFields, importOldPaths, importSlug } from './addresses'
 import { fileSlug, parseUnixOrDate } from './text'
 
 interface HaloPost {
@@ -10,12 +11,22 @@ interface HaloPost {
     tags?: string[]
     categories?: Array<string | { spec?: { displayName?: string } }>
   }
-  status?: string | { phase?: string }
+  /** Halo 2 在 `status.permalink` 里记着文章的公开地址。 */
+  status?: string | { phase?: string; permalink?: string }
   content?: { raw?: string; rawType?: string }
   title?: string
   content_md?: string
   topic?: string | null
   published_at?: number | null
+  slug?: string
+  /** 这里导出时带上的旧地址，Halo 不认，导回来时照样读。 */
+  old_paths?: string[]
+}
+
+function haloOldPaths(post: HaloPost): string[] {
+  const permalink = typeof post.status === 'object' ? post.status?.permalink : undefined
+  const carried = Array.isArray(post.old_paths) ? post.old_paths.map(String) : []
+  return importOldPaths([permalink, ...carried])
 }
 
 function haloTopic(post: HaloPost): string | null {
@@ -44,6 +55,7 @@ function fromHaloPost(post: HaloPost): TransferNote {
       topic: post.topic ?? null,
       published_at: post.published_at ?? null,
       status: post.status === 'published' ? 'published' : 'draft',
+      ...addressFields(importSlug(post.slug), haloOldPaths(post)),
     }
   }
   return {
@@ -52,6 +64,7 @@ function fromHaloPost(post: HaloPost): TransferNote {
     topic: haloTopic(post),
     published_at: parseUnixOrDate(post.spec?.publishTime),
     status: haloPublished(post) ? 'published' : 'draft',
+    ...addressFields(importSlug(post.spec?.slug), haloOldPaths(post)),
   }
 }
 
@@ -77,7 +90,7 @@ export function serializeHaloJson(notes: readonly TransferNote[]): string {
       posts: notes.map((note, index) => ({
         spec: {
           title: note.title || `note-${index + 1}`,
-          slug: fileSlug(note.title, index),
+          slug: note.slug || fileSlug(note.title, index),
           publish: note.status === 'published',
           publishTime: note.published_at
             ? new Date(note.published_at * 1000).toISOString()
@@ -91,6 +104,7 @@ export function serializeHaloJson(notes: readonly TransferNote[]): string {
           raw: note.content_md,
           rawType: 'markdown',
         },
+        ...(note.old_paths?.length ? { old_paths: note.old_paths } : {}),
       })),
     },
     null,

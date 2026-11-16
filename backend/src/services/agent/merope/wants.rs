@@ -272,6 +272,8 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
             "[Merope] what she wants"
         );
     }
+    // On her nodes as her intents, in step with the rows.
+    super::memory_nodes::home_intents::in_step_own(db).await;
 }
 
 /// Wants nothing moved in six weeks fade.
@@ -281,6 +283,7 @@ pub async fn let_fade(db: &DatabaseConnection) {
         Ok(_) => {}
         Err(error) => tracing::warn!(%error, "[Merope] could not let old wants fade"),
     }
+    super::memory_nodes::home_intents::in_step_own(db).await;
 }
 
 /// The wants as a choice of what to do sees them: a line each.

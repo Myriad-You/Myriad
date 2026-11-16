@@ -1,7 +1,6 @@
 /** HTTP CRUD 只准备 apiBase；首次前端订阅/前端任务才连 WS。scheduler:register 由服务端强制。 */
 
-import type { TappInstance } from '../../../types'
-import type { TappBridge } from '../../TappBridge'
+import type { TappBridge, TappInstance } from '@myriad/tapp-runtime'
 import type { TaskRegistrationOptions } from '../../TappScheduler'
 import { API_URL } from '../../../../config'
 import { userFacingError } from '../../../../utils/userFacingError'

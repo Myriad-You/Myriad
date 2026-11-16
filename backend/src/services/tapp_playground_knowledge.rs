@@ -24,7 +24,7 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     KnowledgeDocument {
         id: "QUICKSTART",
         description: "minimal application structure and first working Tapp",
-        content: include_str!("../../../docs/development/tapp/QUICKSTART.md"),
+        content: include_str!("../../../tapp/docs/QUICKSTART.md"),
     },
     KnowledgeDocument {
         id: "ARCHITECTURE",
@@ -34,37 +34,37 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     KnowledgeDocument {
         id: "MANIFEST",
         description: "complete manifest fields including locales (host name/description i18n), write-only credentials, permissions, settings, APIs, AI, events, and agent",
-        content: include_str!("../../../docs/development/tapp/MANIFEST.md"),
+        content: include_str!("../../../tapp/docs/MANIFEST.md"),
     },
     KnowledgeDocument {
         id: "API_REFERENCE",
         description: "complete Tapp JavaScript SDK reference: storage, assets getUrlMap rewriteUrl, federation notes/media, permissions, Tapp.ai.tasks generate analyze chat image search envelope",
-        content: include_str!("../../../docs/development/tapp/API_REFERENCE.md"),
+        content: include_str!("../../../tapp/docs/API_REFERENCE.md"),
     },
     KnowledgeDocument {
         id: "PAGE",
         description: "host React chrome (AnimatedView, sm/md breakpoints) — not Tapp sandbox; sandbox styling is STYLING and DESIGN_SPEC",
-        content: include_str!("../../../docs/development/tapp/PAGE.md"),
+        content: include_str!("../../../tapp/docs/PAGE.md"),
     },
     KnowledgeDocument {
         id: "WIDGET",
         description: "widget declarations, sizes, templates, settings, refresh, and runtime",
-        content: include_str!("../../../docs/development/tapp/WIDGET.md"),
+        content: include_str!("../../../tapp/docs/WIDGET.md"),
     },
     KnowledgeDocument {
         id: "SANDBOX",
         description: "iframe isolation, CSP, bridge payload limits, runtime grants, and security boundaries",
-        content: include_str!("../../../docs/development/tapp/SANDBOX.md"),
+        content: include_str!("../../../tapp/docs/SANDBOX.md"),
     },
     KnowledgeDocument {
         id: "STYLING",
         description: "CSS modes, host tokens, responsive design, themes, and component styles",
-        content: include_str!("../../../docs/development/tapp/STYLING.md"),
+        content: include_str!("../../../tapp/docs/STYLING.md"),
     },
     KnowledgeDocument {
         id: "GRAPHICS",
         description: "host runtimeModules three r170, guest IIFE fallback, canvas/WebGL, getUrlMap rewriteUrl; no CDN fetch",
-        content: include_str!("../../../docs/development/tapp/GRAPHICS.md"),
+        content: include_str!("../../../tapp/docs/GRAPHICS.md"),
     },
     KnowledgeDocument {
         id: "REST_API",
@@ -79,17 +79,17 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     KnowledgeDocument {
         id: "TROUBLESHOOTING",
         description: "common runtime, permission, federation media, storeSource, and installation failures",
-        content: include_str!("../../../docs/development/tapp/TROUBLESHOOTING.md"),
+        content: include_str!("../../../tapp/docs/TROUBLESHOOTING.md"),
     },
     KnowledgeDocument {
         id: "STORE",
         description: "remote Tapp store catalog index.json, catalog locales for long_description/preview, storeSource vs SDK install shapes, assets path rules, publish checklist",
-        content: include_str!("../../../docs/development/tapp/STORE.md"),
+        content: include_str!("../../../tapp/docs/STORE.md"),
     },
     KnowledgeDocument {
         id: "TAPP_FILE_FORMAT",
         description: "packaged .tapp archive structure and resource rules",
-        content: include_str!("../../../docs/features/TAPP_FILE_FORMAT.md"),
+        content: include_str!("../../../tapp/docs/TAPP_FILE_FORMAT.md"),
     },
     KnowledgeDocument {
         id: "PLAYGROUND_GENERATION_CONTEXT",

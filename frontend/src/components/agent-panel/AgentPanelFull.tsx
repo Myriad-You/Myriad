@@ -16,6 +16,7 @@ import {
 import { AgentPanelManage } from './AgentPanelManage'
 import { AgentPanelMessage } from './AgentPanelMessage'
 import { useAgentPanelMode } from './agentPanelMode'
+import { AgentPanelPieceList, usePlacedPieces } from './AgentPanelPieces'
 import { AgentPanelSessions, useAgentSessionList } from './AgentPanelSessions'
 import { agentPanelRowWaveMs } from './agentPanelStage'
 import { useConversationHistory } from './conversationHistory'
@@ -182,6 +183,7 @@ export const AgentPanelFull: React.FC<AgentPanelFullProps> = ({
   const sessionId = useAgentSessionId()
   const mode = useAgentPanelMode()
   const history = usePersistedHistory(mode === 'work' ? sessionId : null)
+  const pieces = usePlacedPieces(mode === 'chat' ? sessionId : null, visibleIds)
   const [historyAnswerError, setHistoryAnswerError] = useState(false)
   useEffect(() => setHistoryAnswerError(false), [sessionId, history.page])
   useEffect(() => {
@@ -260,6 +262,7 @@ export const AgentPanelFull: React.FC<AgentPanelFullProps> = ({
       >
         <div className="agent-panel-messages agent-panel-full" ref={listRef}>
           <div className="agent-panel-messages-track" ref={trackRef}>
+            {history.page ? null : <AgentPanelPieceList pieces={pieces.get('')} />}
             {history.page ? (
               <>
                 {history.loading && <p role="status">{t.common.loading}</p>}
@@ -294,14 +297,17 @@ export const AgentPanelFull: React.FC<AgentPanelFullProps> = ({
                 from="composer"
               >
                 {(id) => (
-                  <SubscribedMessage
-                    id={id}
-                    onSubmit={onSubmit}
-                    onAnswer={dispatchAgentPanelAnswer}
-                    onSuggest={onSubmit}
-                    onWorkOffer={onWorkOffer}
-                    onZoomImage={setZoomed}
-                  />
+                  <>
+                    <SubscribedMessage
+                      id={id}
+                      onSubmit={onSubmit}
+                      onAnswer={dispatchAgentPanelAnswer}
+                      onSuggest={onSubmit}
+                      onWorkOffer={onWorkOffer}
+                      onZoomImage={setZoomed}
+                    />
+                    <AgentPanelPieceList pieces={pieces.get(id)} />
+                  </>
                 )}
               </AgentPresenceList>
             )}

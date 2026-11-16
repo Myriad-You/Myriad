@@ -1,5 +1,5 @@
+import type { TappSettingItem } from '@myriad/tapp-runtime'
 import type { RefObject } from 'react'
-import type { TappSettingItem } from '../../../tapp/types'
 import { useEffect, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
 import {

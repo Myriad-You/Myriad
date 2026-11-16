@@ -275,6 +275,15 @@ impl AgentTurnBudget {
     ) -> Result<T, String> {
         use futures::FutureExt;
 
+        // Every agent turn is a thought of hers: none while her mind is on
+        // another core, and a handover away waits for this one to end.
+        let Some(_thought) = crate::services::her_log::pen::think() else {
+            tracing::info!(
+                operation,
+                "[Agent] Turn not run: her mind is on another device"
+            );
+            return Err("her mind is on another device now".into());
+        };
         let budget = Self::reserve(db, user_id, operation, task_id, kind).await?;
         let outcome = budget
             .scope(std::panic::AssertUnwindSafe(body).catch_unwind())

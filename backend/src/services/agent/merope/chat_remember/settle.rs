@@ -15,7 +15,9 @@ const SETTLE_KNOWN: usize = 40;
 /// from it since `from`, gone over with the whole stretch in view. What
 /// lasts is kept for good (put together, as it is now), what it shows has
 /// changed is replaced, and the notes it puts together are taken back in
-/// its favor; the rest stay notes and fade. Nothing to go over, no call.
+/// its favor; the rest stay notes and fade, but only those it leaves to
+/// the moment or finds already known: a note it passes over is kept for
+/// good as it is. Nothing to go over, no call.
 pub(in crate::services::agent::merope) async fn settle(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
@@ -33,10 +35,15 @@ pub(in crate::services::agent::merope) async fn settle(
         .iter()
         .filter(|row| row.source == unified::SHORT_NOTE_SOURCE && row.created_at >= from)
         .collect();
-    if notes.is_empty() {
+    // A private talk's stretch is placed on her nodes first, notes or none
+    // (see `memory_nodes::placing`).
+    let nodes = !present.is_group();
+    if notes.is_empty() && !nodes {
         return Ok(Effect::NoChange);
     }
     notes.sort_by_key(|row| row.created_at);
+    // What she kept from talks here: what another end kept
+    // (`unified::SYNC_SOURCE`) is that end's, and going over leaves it be.
     let mut known: Vec<&unified::MemoryRecord> =
         rows.iter().filter(|row| row.source == "chat").collect();
     known.sort_by_key(|row| std::cmp::Reverse(row.created_at));
@@ -51,11 +58,11 @@ pub(in crate::services::agent::merope) async fn settle(
     let lines = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT m.role, m.content FROM agent_messages m \
+            "SELECT m.id, m.role, m.content, m.created_at FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
              WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NOT DISTINCT FROM $2 \
-               AND m.role IN ('user', 'assistant') AND m.created_at >= $3 \
+               AND m.role IN ('user', 'assistant') AND (m.metadata->>'piece') IS NULL AND m.created_at >= $3 \
              ORDER BY m.created_at DESC LIMIT $4",
             [
                 user_id.into(),
@@ -75,6 +82,31 @@ pub(in crate::services::agent::merope) async fn settle(
         })
         .collect();
     conversation.reverse();
+    let mut placed = Vec::new();
+    let mut site_owner = None;
+    if nodes {
+        use super::super::memory_nodes::placing::{self, Line};
+        let mut stretch: Vec<Line> = lines
+            .iter()
+            .filter_map(|row| {
+                Some(Line {
+                    id: row.try_get("", "id").ok()?,
+                    theirs: row.try_get::<String>("", "role").ok()? == "user",
+                    text: row.try_get("", "content").ok()?,
+                    at: row.try_get("", "created_at").ok()?,
+                })
+            })
+            .collect();
+        stretch.reverse();
+        site_owner = crate::services::principal::site_owner_id(db)
+            .await
+            .ok()
+            .flatten();
+        placed = placing::place(db, user_id, site_owner, &stretch).await;
+    }
+    if notes.is_empty() {
+        return Ok(Effect::NoChange);
+    }
     let theirs = conversation
         .iter()
         .filter(|(theirs, _)| *theirs)
@@ -88,27 +120,55 @@ pub(in crate::services::agent::merope) async fn settle(
         .iter()
         .map(|row| compact_summary(&row.content))
         .collect();
+    // The topics on her nodes this stretch most likely touches, to put
+    // what lasts on (none outside a private talk).
+    let offered = if nodes {
+        super::super::memory_nodes::facts::shown_topics(db, user_id, site_owner, &theirs, &placed)
+            .await
+    } else {
+        Vec::new()
+    };
     let input = input(
         &conversation,
         &lately,
         &super::super::clock::local_now()
             .format("%Y-%m-%d (%A)")
             .to_string(),
+        &shown_topics(&offered),
     );
     let raw =
         super::super::call::Ask::new(super::super::call::Voice::Thorough, user_id, "chat_settle")
             .within(EXTRACT_TIMEOUT)
             .json_raw(
-                &myriad_merope::chat_remember::settle_system_prompt(&known),
+                &myriad_merope::chat_remember::settle_system_prompt(
+                    &known,
+                    myriad_merope::chat_remember::Examples::for_words(&theirs),
+                ),
                 &input,
                 myriad_merope::chat_remember::SETTLE_SCHEMA_NAME,
                 &myriad_merope::chat_remember::settle_schema(),
             )
             .await?;
-    let (lasting, replaces) =
-        myriad_merope::chat_remember::parse_settle(&raw, &theirs, &known, notes.len())
-            .ok_or(super::super::call::Failure::InvalidOutput)?;
-    if lasting.is_empty() && replaces.is_empty() {
+    let (lasting, replaces) = myriad_merope::chat_remember::parse_settle(
+        &raw,
+        &theirs,
+        &known,
+        notes.len(),
+        offered.len(),
+    )
+    .ok_or(super::super::call::Failure::InvalidOutput)?;
+    // A fact written in another language than they spoke is left to its
+    // notes; how many, never what.
+    let changed = myriad_merope::chat_remember::settle_changed_language(&raw, &theirs);
+    if changed > 0 {
+        tracing::info!(
+            user_id,
+            changed,
+            "[Merope] chat settle: facts in another language than they spoke were left to their notes"
+        );
+    }
+    let left = myriad_merope::chat_remember::settle_left(&raw, &lasting, notes.len());
+    if lasting.is_empty() && replaces.is_empty() && left.is_empty() {
         return Ok(Effect::NoChange);
     }
     let mut updates = ChatMemoryUpdates::default();
@@ -123,6 +183,7 @@ pub(in crate::services::agent::merope) async fn settle(
         from.dedup();
         settled.push(from);
         updates.updates.push(ChatMemoryUpdate {
+            standing: item.standing.clone(),
             fact: Some(compact_summary(&item.fact)),
             // What it changes goes with the first: it says how it is now.
             supersedes: if updates.updates.is_empty() {
@@ -135,14 +196,75 @@ pub(in crate::services::agent::merope) async fn settle(
                 serde_json::from_value(item.concepts).unwrap_or_default(),
             ),
             cues: item.when_for,
+            topic: goes_under(&item.topic, &offered),
+        });
+    }
+    for index in left {
+        let note = notes[index];
+        settled.push(vec![note.id.clone()]);
+        updates.updates.push(ChatMemoryUpdate {
+            standing: Default::default(),
+            fact: Some(compact_summary(&note.content)),
+            supersedes: Vec::new(),
+            evidence: note.evidence.clone(),
+            concepts: unified::clean_concepts(note.concepts.clone()),
+            topic: None,
+            cues: Vec::new(),
         });
     }
     Ok(Effect::Settle { updates, settled })
 }
 
+/// The topics `offered` as she sees them beside a stretch.
+pub(in crate::services::agent::merope) fn shown_topics(
+    offered: &[super::super::memory_nodes::facts::OfferedTopic],
+) -> serde_json::Value {
+    let topics: Vec<myriad_merope::topics::Topic> = offered
+        .iter()
+        .map(|topic| myriad_merope::topics::Topic {
+            name: &topic.name,
+            aliases: &topic.aliases,
+            holds: &topic.holds,
+        })
+        .collect();
+    myriad_merope::topics::shown(&topics, &(0..topics.len()).collect::<Vec<_>>())
+}
+
+/// Where going over or sorting put a fact, by the topics it was `offered`;
+/// `None` only for a label that is not among them.
+pub(in crate::services::agent::merope) fn goes_under(
+    under: &myriad_merope::topics::Under,
+    offered: &[super::super::memory_nodes::facts::OfferedTopic],
+) -> Option<super::super::memory_nodes::facts::GoesUnder> {
+    use myriad_merope::topics::Under;
+    match under {
+        Under::Nowhere => Some(super::super::memory_nodes::facts::GoesUnder::Nowhere),
+        // About them as a person: under no topic, on their own node.
+        Under::AboutThem => Some(super::super::memory_nodes::facts::GoesUnder::AboutThem),
+        // One of her nodes shown beside the topics: a topic by its names
+        // here (`memory_nodes::facts` finds the node by them again).
+        Under::Offered(index) => offered.get(*index).map(|topic| {
+            super::super::memory_nodes::facts::GoesUnder::New {
+                name: topic.name.clone(),
+                aliases: topic.aliases.clone(),
+            }
+        }),
+        Under::New { name, aliases } => Some(super::super::memory_nodes::facts::GoesUnder::New {
+            name: name.clone(),
+            aliases: aliases.clone(),
+        }),
+    }
+}
+
 /// What going over a stretch is given: the stretch as it was said (`true`
-/// on their lines), the short notes taken from it, and today.
-pub(super) fn input(conversation: &[(bool, String)], lately: &[String], today: &str) -> String {
+/// on their lines), the short notes taken from it, today, and the topics
+/// she keeps facts under that it most likely touches (`shown_topics`).
+pub(super) fn input(
+    conversation: &[(bool, String)],
+    lately: &[String],
+    today: &str,
+    topics: &serde_json::Value,
+) -> String {
     json!({
         "conversation": conversation
             .iter()
@@ -153,6 +275,7 @@ pub(super) fn input(conversation: &[(bool, String)], lately: &[String], today: &
             .collect::<Vec<_>>(),
         "lately": lately,
         "today": today,
+        "topics": topics,
     })
     .to_string()
 }

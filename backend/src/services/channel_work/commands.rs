@@ -1,4 +1,5 @@
-//! Slash commands in a private chat: status of their Work, and cancelling it.
+//! Slash commands in a private chat: status of their Work, and cancelling it,
+//! each piece she handed off included.
 
 use super::*;
 
@@ -13,6 +14,9 @@ pub(super) async fn handle_command(
 ) {
     match command {
         ChannelCommand::Stop => {
+            for lane in works::lanes(db, platform, user_id, session_key).await {
+                works::stop(db, platform, user_id, &lane).await;
+            }
             stop_delivery(session_key).await;
             cancel_session_tasks(db, user_id, session_id).await;
             clear_pending(db, platform, session_key).await;
@@ -25,6 +29,7 @@ pub(super) async fn handle_command(
             let _ = sink.send_text(CHANNEL_STOP_REPLY).await;
         }
         ChannelCommand::NewConversation => {
+            works::forget_all(db, platform, user_id, session_key).await;
             stop_delivery(session_key).await;
             cancel_session_tasks(db, user_id, session_id).await;
             clear_pending(db, platform, session_key).await;
@@ -45,12 +50,7 @@ pub(super) async fn handle_command(
                         session_key,
                         StoredSession {
                             session_id: new_id,
-                            last_run_id: None,
-                            last_event_seq: 0,
-                            original_input: String::new(),
-                            binding: None,
-                            address: None,
-                            chat_session_id: None,
+                            ..Default::default()
                         },
                     )
                     .await;
@@ -81,6 +81,20 @@ pub(super) async fn status_reply(
 ) -> String {
     if let Some(pending) = load_pending(db, platform, session_key).await {
         return format!("当前待答：\n{}", format_pending_prompt(&pending.prompt));
+    }
+    let now = crate::clock::now().timestamp();
+    let pieces: Vec<works::Piece> = works::pieces(db, platform, user_id, session_key)
+        .await
+        .into_iter()
+        .map(|(_, piece)| piece)
+        .collect();
+    let shown = works::shown(pieces, now);
+    if !shown.is_empty() {
+        return shown
+            .iter()
+            .map(|piece| works::line(piece, now))
+            .collect::<Vec<_>>()
+            .join("\n");
     }
     let agent = Agent::new(db.clone()).await;
     let tasks = agent.get_user_tasks(user_id).await;

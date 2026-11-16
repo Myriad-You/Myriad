@@ -303,6 +303,7 @@
   "scoreMoveBounce": "弹一下",
   "scoreMoveStartle": "吓一跳",
   "clusterAccents": "符号",
+  "clusterGestures": "手势",
   "anime25dFaceContent": "闭眼笑",
   "anime25dFaceTender": "温柔",
   "anime25dFaceSmug": "得意",
@@ -325,6 +326,14 @@
   "anime25dAccentSleep": "Z z z",
   "anime25dAccentSparkle": "闪光",
   "anime25dAccentBlush": "脸红",
+  "anime25dHandWaveL": "挥手（画面左）",
+  "anime25dHandPointL": "竖食指（画面左）",
+  "anime25dHandChestL": "手按胸口（画面左）",
+  "anime25dHandChinL": "托下巴（画面左）",
+  "anime25dHandWaveR": "挥手（画面右）",
+  "anime25dHandPointR": "竖食指（画面右）",
+  "anime25dHandChestR": "手按胸口（画面右）",
+  "anime25dHandChinR": "托下巴（画面右）",
   "anime25dPresetThinking": "思考",
   "anime25dPresetDizzy": "晕",
   "anime25dPresetSqueeze": ">< 挤眼",
@@ -464,6 +473,8 @@
   "rigEnhanceBodyHint": "身体画左右转身各 1 张，拆 2 次层，拟合出转身关键形；重心转移由骨骼来做，不再生成。和头部同时进行，约 20 分钟。",
   "rigEnhanceExpressions": "表情增强",
   "rigEnhanceExpressionsHint": "生成哭、闭眼笑、眨眼 3 张表情图；这张立绘生成过的直接沿用。",
+  "rigEnhanceArms": "手势",
+  "rigEnhanceArmsHint": "左右手各生成挥手、竖食指、手按胸口、托下巴 4 张，共 8 张，她说话时会自己抬手；这张立绘生成过的直接沿用。",
   "rigEnhanceGenerate": "生成并预检",
   "rigEnhanceNone": "至少勾选一项",
   "turnArchivesTitle": "增强素材",
@@ -524,6 +535,12 @@
   "aiExpressionCry": "哭",
   "aiExpressionSqueeze": "闭眼笑",
   "aiExpressionClose": "眨眼闭眼",
+  "armVariantsGenerating": "正在画手势…",
+  "armVariantsReady": "已生成 {count}/{total} 张手势，预检装配时自动使用。",
+  "armVariantsNone": "这张立绘还没有生成过手势，生成并预检时会一起生成。",
+  "armVariantsFailed": "手势生成失败，请稍后再试",
+  "armVariantsConfirm": "将调用生图模型重画 8 张手势，约需 3 分钟，会产生费用。继续吗？",
+  "armVariantsRegenerate": "重新生成手势",
   "motionSeeThroughGenerating": "远端正在拆分，完成后会自动进入本地 PSD 预检…",
   "motionTurnKeysGenerating": "正在生成转头参考图 {done}/{total}",
   "motionTurnKeysDecomposing": "正在拆层 {done}/{total}",
@@ -550,7 +567,8 @@
       "her": "她自己",
       "people": "每个人",
       "groups": "每个群",
-      "signs": "体征"
+      "signs": "体征",
+      "nodes": "节点"
     },
     "her": {
       "selfStory": "这阵子的她",
@@ -733,6 +751,98 @@
       },
       "newToHer": "新知道的",
       "knewIt": "其实早就知道"
+    },
+    "nodes": {
+      "none": "没有节点",
+      "private": "你的私聊",
+      "own": "{name} 自己",
+      "group": "群：{group}",
+      "unnamed": "未命名",
+      "aboutYou": "关于你",
+      "back": "返回节点",
+      "kind": {
+        "topic": "话题",
+        "task": "进行中的事",
+        "person": "人"
+      },
+      "status": {
+        "active": "活跃",
+        "ongoing": "持续",
+        "resting": "不活跃",
+        "done": "已完成",
+        "dropped": "已放下"
+      },
+      "count": {
+        "entries": "记忆 {count}",
+        "spans": "经历 {count}",
+        "waiting": "待提起 {count}"
+      },
+      "summary": "概要",
+      "views": "看法",
+      "open": "未完成",
+      "entries": "记下的",
+      "heard": "听说",
+      "spans": "经历",
+      "intents": "打算提起的事",
+      "actions": "操作",
+      "said": {
+        "partner": "你说的",
+        "her": "{name} 记下的",
+        "other_person": "群成员说的",
+        "third_party": "其他来源"
+      },
+      "seenElsewhere": "别处看到的",
+      "quoteOnly": "只有引文",
+      "wordsGone": "原话已删除，只保留{name}记下的",
+      "deleted": "（这段已删除）",
+      "movedTo": "已并入另一个节点",
+      "openMoved": "打开",
+      "namedByYou": "你改的名字",
+      "heardYes": "是这样",
+      "heardNo": "不是",
+      "intent": {
+        "byYou": "你交代的",
+        "byHer": "{name} 自己想的",
+        "say": "提起",
+        "work": "去做",
+        "state": {
+          "waiting": "等待中",
+          "said": "已提起",
+          "done": "做完了",
+          "dropped": "已放下"
+        },
+        "way": {
+          "ran": "做完了",
+          "raised": "没有直接做，改成举手",
+          "cancelled": "已取消"
+        },
+        "whenChanged": "等「{name}」有变化",
+        "whenDone": "等「{name}」做完",
+        "whenNone": "找合适的时候",
+        "asked": "你的原话",
+        "reply": "回复",
+        "result": "结果",
+        "cancel": "取消"
+      },
+      "rename": "重命名",
+      "renameHint": "改过的名字不会被整理改回去。",
+      "nameField": "名字",
+      "save": "保存",
+      "cancel": "取消",
+      "deleteNode": "删除节点",
+      "deleteNodeTitle": "要删除「{name}」吗？",
+      "deleteNodeMessage": "节点、节点上的记忆和这些记忆来自的对话原文会被删除。此操作无法撤销。",
+      "deleteEntry": "删除",
+      "deleteEntryTitle": "要删除这条记忆吗？",
+      "deleteEntryMessage": "这条记忆和记忆来自的对话原文会被删除。此操作无法撤销。",
+      "confirmDelete": "删除",
+      "failed": {
+        "away": "无法修改：角色当前不在这个站点上。",
+        "badName": "无法重命名：名字为空或超过 80 个字。",
+        "heardUnkept": "无法记下回答：站点还没有记录来源。",
+        "notFound": "无法找到这个节点。",
+        "other": "无法完成操作。"
+      }
     }
   },
   "fullBody": {

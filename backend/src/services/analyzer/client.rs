@@ -157,17 +157,57 @@ impl ProviderCallFailure {
         }
     }
 
-    /// 4xx except 401/403/429. No status (transport) is not a shape refusal.
+    /// 400, 404 (OpenRouter: no endpoint takes these parameters) and 422:
+    /// what was asked for is not taken. The account's own refusals (401,
+    /// 402 out of credit, 403, 429) and the rest of 4xx (a timeout, a body
+    /// too long) say nothing of the shape, and must not be remembered as
+    /// one for a day. No status (transport) is not a shape refusal.
     fn rejected_request(&self) -> bool {
         self.status.is_some_and(|status| {
-            status.is_client_error()
-                && !matches!(
-                    status,
-                    reqwest::StatusCode::UNAUTHORIZED
-                        | reqwest::StatusCode::FORBIDDEN
-                        | reqwest::StatusCode::TOO_MANY_REQUESTS
-                )
+            matches!(
+                status,
+                reqwest::StatusCode::BAD_REQUEST
+                    | reqwest::StatusCode::NOT_FOUND
+                    | reqwest::StatusCode::UNPROCESSABLE_ENTITY
+            )
         })
+    }
+}
+
+/// Puts `key` into the body's `output_config`, beside what it holds.
+fn merge_output_config(body: &mut serde_json::Value, key: &str, value: serde_json::Value) {
+    let Some(object) = body.as_object_mut() else {
+        return;
+    };
+    let config = object
+        .entry("output_config")
+        .or_insert_with(|| serde_json::json!({}));
+    if !config.is_object() {
+        *config = serde_json::json!({});
+    }
+    if let Some(config) = config.as_object_mut() {
+        config.insert(key.to_string(), value);
+    }
+}
+
+/// Takes `key` out of the body's `output_config`, and the config with it
+/// once nothing is left in it.
+fn take_output_config(body: &mut serde_json::Value, key: &str) {
+    let Some(object) = body.as_object_mut() else {
+        return;
+    };
+    let empty = match object
+        .get_mut("output_config")
+        .and_then(|c| c.as_object_mut())
+    {
+        Some(config) => {
+            config.remove(key);
+            config.is_empty()
+        }
+        None => false,
+    };
+    if empty {
+        object.remove("output_config");
     }
 }
 
@@ -253,6 +293,23 @@ impl AiAnalyzer {
         }
     }
 
+    /// The model it asks for.
+    #[cfg(test)]
+    pub(crate) fn model_name(&self) -> &str {
+        &self.model
+    }
+
+    /// Whether what its answers cost will be known: its source says so in
+    /// each answer (OpenRouter's `usage.cost`), or the model has a list
+    /// price ([`crate::services::ai_pricing::PRICES`]).
+    #[cfg(test)]
+    pub(crate) fn cost_known(&self) -> bool {
+        self.base_url
+            .as_deref()
+            .is_some_and(|url| url.contains("openrouter.ai"))
+            || crate::services::ai_pricing::price_of(&self.model).is_some()
+    }
+
     /// Cap success JSON to `max_bytes`, then deserialize.
     async fn read_limited_json<T: serde::de::DeserializeOwned>(
         response: reqwest::Response,
@@ -261,6 +318,11 @@ impl AiAnalyzer {
         let bytes = crate::services::outbound_security::read_limited_body(response, max_bytes)
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
+        #[cfg(test)]
+        crate::services::ai_cost_ledger::spent::charged(&bytes, None);
+        if let Ok(answer) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+            crate::services::ai_cost_ledger::note_answer(&answer, None);
+        }
         serde_json::from_slice(&bytes).context("Failed to parse Gemini JSON")
     }
 
@@ -364,6 +426,16 @@ impl AiAnalyzer {
         {
             object.insert("max_tokens".into(), serde_json::json!(cap));
         }
+        // A memory bench keeps what OpenRouter says each call cost.
+        #[cfg(test)]
+        if self
+            .base_url
+            .as_deref()
+            .is_some_and(|url| url.contains("openrouter.ai"))
+            && let Some(object) = body.as_object_mut()
+        {
+            object.insert("usage".into(), serde_json::json!({"include": true}));
+        }
         Ok(body)
     }
 
@@ -381,7 +453,76 @@ impl AiAnalyzer {
         if !self.light_thinking || self.refused(RequestShape::LightThinking) {
             return None;
         }
+        // Anthropic's own API thinks adaptively at `medium` when told
+        // nothing (Haiku 5.5): little is its effort `low` (GA, no beta).
+        if self.provider == AiProvider::Anthropic {
+            return Some(("output_config", serde_json::json!({ "effort": "low" })));
+        }
         self.gateway().light_thinking()
+    }
+
+    /// Anthropic's own API asked to think little: the effort on `body`.
+    /// Whether it was put there.
+    fn put_anthropic_light(&self, body: &mut serde_json::Value) -> bool {
+        if self.provider != AiProvider::Anthropic || self.deep_thinking_param().is_some() {
+            return false;
+        }
+        match self.light_thinking_param() {
+            Some(("output_config", serde_json::Value::Object(config))) => {
+                for (key, value) in config {
+                    merge_output_config(body, &key, value);
+                }
+                true
+            }
+            Some((key, value)) => match body.as_object_mut() {
+                Some(object) => {
+                    object.insert(key.to_string(), value);
+                    true
+                }
+                None => false,
+            },
+            None => false,
+        }
+    }
+
+    /// A text-protocol stream (Anthropic's own API or OpenAI Responses),
+    /// asked to think little where it can be: an endpoint that refuses the
+    /// effort is remembered and asked once more without it. The response
+    /// as it came, success or not.
+    async fn send_text_stream(
+        &self,
+        url: &str,
+        mut body: serde_json::Value,
+    ) -> Result<reqwest::Response> {
+        let light = self.put_anthropic_light(&mut body);
+        let send = |body: &serde_json::Value| {
+            let mut request = self.authenticate(self.client.post(url));
+            if self.provider == AiProvider::Anthropic {
+                request = request.header("anthropic-version", "2023-06-01");
+            }
+            let prepared = self.prepare_body(body);
+            async move {
+                Ok::<_, anyhow::Error>(
+                    request
+                        .header("Content-Type", "application/json")
+                        .json(&prepared?)
+                        .send()
+                        .await?,
+                )
+            }
+        };
+        let mut response = send(&body).await?;
+        if light
+            && ProviderCallFailure::http(response.status(), anyhow::anyhow!("refused"))
+                .rejected_request()
+        {
+            take_output_config(&mut body, "effort");
+            response = send(&body).await?;
+            if response.status().is_success() {
+                self.remember_refusal(RequestShape::LightThinking);
+            }
+        }
+        Ok(response)
     }
 
     /// For calls where getting it right is worth the wait: reading what
@@ -478,39 +619,58 @@ impl AiAnalyzer {
         let input_chars = serde_json::to_string(profile_data)
             .map(|s| s.len())
             .unwrap_or(0);
-        let result = match self.provider {
-            AiProvider::Gemini => self.analyze_with_gemini(prompt).await,
-            AiProvider::OpenAI => self.analyze_with_openai(prompt).await,
-            AiProvider::OpenAIResponses | AiProvider::Anthropic => {
-                self.analyze_with_text_protocol("", &[ChatMessage::user(prompt)])
-                    .await
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(async {
+            match self.provider {
+                AiProvider::Gemini => self.analyze_with_gemini(prompt).await,
+                AiProvider::OpenAI => self.analyze_with_openai(prompt).await,
+                AiProvider::OpenAIResponses | AiProvider::Anthropic => {
+                    self.analyze_with_text_protocol("", &[ChatMessage::user(prompt)])
+                        .await
+                }
             }
-        };
-        self.note_ledger(input_chars, &result).await;
+        })
+        .await;
+        self.note_ledger(input_chars, &result, reported.as_ref())
+            .await;
         result
     }
 
     /// Best-effort site-wide cost ledger. Writes even without attribution
     /// (`source=internal`). Governed Tapp+scheduler paths suppress this hook.
-    async fn note_ledger(&self, input_chars: usize, result: &Result<String, anyhow::Error>) {
+    ///
+    /// `reported` is what the call's answers said they used
+    /// ([`crate::services::ai_cost_ledger::reporting`]): real tokens and
+    /// cost when there is one, else the length/4 estimate.
+    async fn note_ledger(
+        &self,
+        input_chars: usize,
+        result: &Result<String, anyhow::Error>,
+        reported: Option<&crate::services::ai_cost_ledger::Reported>,
+    ) {
         match result {
             Ok(text) => {
-                crate::services::ai_cost_ledger::record_ai_call_from_attribution(
+                crate::services::ai_cost_ledger::record_ai_call_reported(
                     self.provider.as_str(),
                     &self.model,
                     input_chars,
                     text.len(),
+                    reported,
                     "completed",
                     None,
                 )
                 .await;
             }
-            Err(_) => {
-                crate::services::ai_cost_ledger::record_ai_call_from_attribution(
+            Err(error) => {
+                #[cfg(test)]
+                crate::services::ai_cost_ledger::spent::because(&self.model, error);
+                #[cfg(not(test))]
+                let _ = error;
+                crate::services::ai_cost_ledger::record_ai_call_reported(
                     self.provider.as_str(),
                     &self.model,
                     input_chars,
                     0,
+                    reported,
                     "failed",
                     Some("AI_PROVIDER_ERROR"),
                 )
@@ -643,6 +803,7 @@ impl AiAnalyzer {
         system: &str,
         messages: &[ChatMessage],
         response_format: Option<serde_json::Value>,
+        anthropic_format: Option<serde_json::Value>,
         max_tokens: Option<u32>,
     ) -> std::result::Result<String, ProviderCallFailure> {
         let url = text_protocol::endpoint(self.provider, self.base_url.as_deref());
@@ -666,16 +827,38 @@ impl AiAnalyzer {
             // as Sonnet 4.6 require it to be enabled explicitly.
             object.insert("thinking".into(), serde_json::json!({ "type": "adaptive" }));
         }
-        let mut request = self.authenticate(self.client.post(&url));
-        if self.provider == AiProvider::Anthropic {
-            request = request.header("anthropic-version", "2023-06-01");
+        if let Some(format) = anthropic_format {
+            merge_output_config(&mut body, "format", format);
         }
-        let response = request
-            .header("Content-Type", "application/json")
-            .json(&self.prepare_body(&body)?)
-            .send()
-            .await
-            .map_err(|error| ProviderCallFailure::transport(error.into()))?;
+        let light = self.put_anthropic_light(&mut body);
+        let send = |body: &serde_json::Value| {
+            let mut request = self.authenticate(self.client.post(&url));
+            if self.provider == AiProvider::Anthropic {
+                request = request.header("anthropic-version", "2023-06-01");
+            }
+            let prepared = self.prepare_body(body);
+            async move {
+                request
+                    .header("Content-Type", "application/json")
+                    .json(&prepared.map_err(ProviderCallFailure::transport)?)
+                    .send()
+                    .await
+                    .map_err(|error| ProviderCallFailure::transport(error.into()))
+            }
+        };
+        let mut response = send(&body).await?;
+        // A refused think-little effort: remembered, and asked once more
+        // without it (`RequestShape::LightThinking`).
+        if light
+            && ProviderCallFailure::http(response.status(), anyhow::anyhow!("refused"))
+                .rejected_request()
+        {
+            take_output_config(&mut body, "effort");
+            response = send(&body).await?;
+            if response.status().is_success() {
+                self.remember_refusal(RequestShape::LightThinking);
+            }
+        }
         if !response.status().is_success() {
             let status = response.status();
             return Err(ProviderCallFailure::http(
@@ -694,7 +877,7 @@ impl AiAnalyzer {
         system: &str,
         messages: &[ChatMessage],
     ) -> Result<String> {
-        self.send_text_protocol(system, messages, None, None)
+        self.send_text_protocol(system, messages, None, None, None)
             .await
             .map_err(ProviderCallFailure::into_error)
     }
@@ -759,50 +942,69 @@ impl AiAnalyzer {
 
                 let url = openai_chat_completions_url(self.base_url.as_deref());
 
-                let response = self
-                    .authenticate(self.client.post(&url))
-                    .header("Content-Type", "application/json")
-                    .json(&self.prepare_body(&request_body)?)
-                    .send()
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "Failed to send request to OpenAI-compatible API (endpoint: {url}, model: {})",
-                            self.model
-                        )
-                    });
+                // A memory bench asks again what the network dropped
+                // (`ai_cost_ledger::once_or_again`); everything else asks once.
+                let (url, request_body) = (&url, &request_body);
+                let (result, reported) = crate::services::ai_cost_ledger::reporting(crate::services::ai_cost_ledger::once_or_again(
+                    &self.model,
+                    move || async move {
+                        let response = self
+                            .authenticate(self.client.post(url))
+                            .header("Content-Type", "application/json")
+                            .json(&self.prepare_body(&request_body)?)
+                            .send()
+                            .await
+                            .with_context(|| {
+                                format!(
+                                    "Failed to send request to OpenAI-compatible API (endpoint: {url}, model: {})",
+                                    self.model
+                                )
+                            });
 
-                let result = match response {
-                    Ok(response) => {
-                        if !response.status().is_success() {
-                            let status = response.status();
-                            let error_text = Self::read_limited_error_text(response).await;
-                            Err(ProviderCallFailure::http(
-                                status,
-                                anyhow::anyhow!(format_openai_compatible_http_error(
-                                    status,
-                                    &url,
-                                    &self.model,
-                                    &error_text,
-                                )),
-                            )
-                            .into_error())
-                        } else {
-                            let openai_response: OpenAIResponse =
-                                Self::read_limited_json(response, 2 * 1024 * 1024).await?;
-                            extract_openai_completion_text(&openai_response)
-                        }
-                    }
-                    Err(e) => Err(e),
-                };
-                self.note_ledger(input_chars, &result).await;
+                        Ok(match response {
+                            Ok(response) => {
+                                if !response.status().is_success() {
+                                    let status = response.status();
+                                    let error_text = Self::read_limited_error_text(response).await;
+                                    Err(ProviderCallFailure::http(
+                                        status,
+                                        anyhow::anyhow!(format_openai_compatible_http_error(
+                                            status,
+                                            &url,
+                                            &self.model,
+                                            &error_text,
+                                        )),
+                                    )
+                                    .into_error())
+                                } else {
+                                    let openai_response: OpenAIResponse =
+                                        Self::read_limited_json(response, 2 * 1024 * 1024).await?;
+                                    extract_openai_completion_text(&openai_response)
+                                }
+                            }
+                            Err(e) => Err(e),
+                        })
+                    },
+                    |outcome: &Result<Result<String>>| match outcome {
+                        Ok(Err(error)) => Some((None, error)),
+                        _ => None,
+                    },
+                ))
+                .await;
+                let result = result?;
+                self.note_ledger(input_chars, &result, reported.as_ref())
+                    .await;
                 result
             }
             AiProvider::OpenAIResponses | AiProvider::Anthropic => {
                 let input_chars =
                     system.len() + messages.iter().map(|m| m.content.len()).sum::<usize>();
-                let result = self.analyze_with_text_protocol(system, &messages).await;
-                self.note_ledger(input_chars, &result).await;
+                let (result, reported) = crate::services::ai_cost_ledger::reporting(
+                    self.analyze_with_text_protocol(system, &messages),
+                )
+                .await;
+                self.note_ledger(input_chars, &result, reported.as_ref())
+                    .await;
                 result
             }
         }
@@ -835,70 +1037,110 @@ impl AiAnalyzer {
         schema_name: &str,
         schema: Option<&serde_json::Value>,
     ) -> Result<String> {
+        self.analyze_json_as(system, prompt, schema_name, schema, false)
+            .await
+    }
+
+    /// [`Self::analyze_json`], held to `schema` by Anthropic's own API as
+    /// well (`output_config.format`, a JSON schema every object of which
+    /// says `additionalProperties: false`), where every other call to it
+    /// only restates the schema in the prompt. An endpoint that rejects it
+    /// is remembered and asked prompt-only, as structured output is
+    /// everywhere.
+    #[cfg(test)]
+    pub async fn analyze_json_strict(
+        &self,
+        system: &str,
+        prompt: &str,
+        schema_name: &str,
+        schema: &serde_json::Value,
+    ) -> Result<String> {
+        self.analyze_json_as(system, prompt, schema_name, Some(schema), true)
+            .await
+    }
+
+    /// [`Self::analyze_json`], or [`Self::analyze_json_strict`] when
+    /// `strict`.
+    pub(crate) async fn analyze_json_as(
+        &self,
+        system: &str,
+        prompt: &str,
+        schema_name: &str,
+        schema: Option<&serde_json::Value>,
+        strict: bool,
+    ) -> Result<String> {
         let input_chars = system.len() + prompt.len();
 
-        let mode = if self.provider == AiProvider::Anthropic
+        let mode = if (self.provider == AiProvider::Anthropic && !strict)
             || self.refused(RequestShape::StructuredOutput)
         {
             JsonMode::PromptOnly(schema)
         } else {
             JsonMode::Structured(schema)
         };
-        let deep = self.deep_thinking_param().is_some();
-        let light = self.light_thinking_param().is_some();
-        let mut result = self
-            .analyze_json_inner(system, prompt, schema_name, mode, None)
-            .await;
-
-        // Drop a refused thinking parameter before trying without JSON
-        // enforcement: rejecting one says nothing about the other.
-        if deep
-            && result
-                .as_ref()
-                .is_err_and(ProviderCallFailure::rejected_request)
-        {
-            self.remember_refusal(RequestShape::DeepThinking);
-            result = self
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(async {
+            let deep = self.deep_thinking_param().is_some();
+            // Anthropic's own API drops a refused effort where it sends it.
+            let light =
+                self.light_thinking_param().is_some() && self.provider != AiProvider::Anthropic;
+            let mut result = self
                 .analyze_json_inner(system, prompt, schema_name, mode, None)
                 .await;
-        }
 
-        // The think-little parameter goes first: a refusal of it says
-        // nothing about structured output.
-        if light
-            && result
-                .as_ref()
-                .is_err_and(ProviderCallFailure::rejected_request)
-        {
-            self.remember_refusal(RequestShape::LightThinking);
-            result = self
-                .analyze_json_inner(system, prompt, schema_name, mode, None)
-                .await;
-        }
-
-        if let Err(ref failure) = result {
-            if matches!(mode, JsonMode::Structured(_)) && failure.rejected_request() {
-                self.remember_refusal(RequestShape::StructuredOutput);
-                tracing::warn!(
-                    provider = self.provider.as_str(),
-                    model = %self.model,
-                    status = ?failure.status,
-                    "[AiAnalyzer] Endpoint rejected structured output; retrying prompt-only"
-                );
+            // Drop a refused thinking parameter before trying without JSON
+            // enforcement: rejecting one says nothing about the other.
+            if deep
+                && result
+                    .as_ref()
+                    .is_err_and(ProviderCallFailure::rejected_request)
+            {
+                self.remember_refusal(RequestShape::DeepThinking);
                 result = self
-                    .analyze_json_inner(
-                        system,
-                        prompt,
-                        schema_name,
-                        JsonMode::PromptOnly(schema),
-                        None,
-                    )
+                    .analyze_json_inner(system, prompt, schema_name, mode, None)
                     .await;
             }
-        }
 
-        let result = result.map_err(ProviderCallFailure::into_error);
-        self.note_ledger(input_chars, &result).await;
+            // The think-little parameter goes first: a refusal of it says
+            // nothing about structured output.
+            if light
+                && result
+                    .as_ref()
+                    .is_err_and(ProviderCallFailure::rejected_request)
+            {
+                self.remember_refusal(RequestShape::LightThinking);
+                result = self
+                    .analyze_json_inner(system, prompt, schema_name, mode, None)
+                    .await;
+            }
+
+            if let Err(ref failure) = result {
+                if matches!(mode, JsonMode::Structured(_)) && failure.rejected_request() {
+                    self.remember_refusal(RequestShape::StructuredOutput);
+                    tracing::warn!(
+                        provider = self.provider.as_str(),
+                        model = %self.model,
+                        status = ?failure.status,
+                        "[AiAnalyzer] Endpoint rejected structured output; retrying prompt-only"
+                    );
+                    result = self
+                        .analyze_json_inner(
+                            system,
+                            prompt,
+                            schema_name,
+                            JsonMode::PromptOnly(schema),
+                            None,
+                        )
+                        .await;
+                }
+            }
+            result.map_err(ProviderCallFailure::into_error)
+        })
+        .await;
+        crate::services::ai_cost_ledger::as_step(
+            schema_name,
+            self.note_ledger(input_chars, &result, reported.as_ref()),
+        )
+        .await;
         result
     }
 
@@ -936,44 +1178,50 @@ impl AiAnalyzer {
             Some(budget)
         };
 
-        let mut result = self
-            .analyze_json_inner(system, prompt, schema_name, mode, extras)
-            .await;
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(async {
+            let mut result = self
+                .analyze_json_inner(system, prompt, schema_name, mode, extras)
+                .await;
 
-        if extras.is_some()
-            && result
-                .as_ref()
-                .is_err_and(ProviderCallFailure::rejected_request)
-        {
-            self.remember_refusal(RequestShape::Extras);
-            // The same parameter would ride again without the budget.
-            if self.light_thinking {
-                self.remember_refusal(RequestShape::LightThinking);
+            if extras.is_some()
+                && result
+                    .as_ref()
+                    .is_err_and(ProviderCallFailure::rejected_request)
+            {
+                self.remember_refusal(RequestShape::Extras);
+                // The same parameter would ride again without the budget.
+                if self.light_thinking {
+                    self.remember_refusal(RequestShape::LightThinking);
+                }
+                result = self
+                    .analyze_json_inner(system, prompt, schema_name, mode, None)
+                    .await;
             }
-            result = self
-                .analyze_json_inner(system, prompt, schema_name, mode, None)
-                .await;
-        }
 
-        if matches!(mode, JsonMode::Structured(_))
-            && result
-                .as_ref()
-                .is_err_and(ProviderCallFailure::rejected_request)
-        {
-            self.remember_refusal(RequestShape::StructuredOutput);
-            result = self
-                .analyze_json_inner(
-                    system,
-                    prompt,
-                    schema_name,
-                    JsonMode::PromptOnly(schema),
-                    None,
-                )
-                .await;
-        }
-
-        let result = result.map_err(ProviderCallFailure::into_error);
-        self.note_ledger(input_chars, &result).await;
+            if matches!(mode, JsonMode::Structured(_))
+                && result
+                    .as_ref()
+                    .is_err_and(ProviderCallFailure::rejected_request)
+            {
+                self.remember_refusal(RequestShape::StructuredOutput);
+                result = self
+                    .analyze_json_inner(
+                        system,
+                        prompt,
+                        schema_name,
+                        JsonMode::PromptOnly(schema),
+                        None,
+                    )
+                    .await;
+            }
+            result.map_err(ProviderCallFailure::into_error)
+        })
+        .await;
+        crate::services::ai_cost_ledger::as_step(
+            schema_name,
+            self.note_ledger(input_chars, &result, reported.as_ref()),
+        )
+        .await;
         result
     }
 
@@ -998,17 +1246,21 @@ impl AiAnalyzer {
         }
 
         let input_chars = system.len() + prompt.len();
-        let streamed = if self.provider == AiProvider::OpenAI {
-            self.analyze_json_streaming_openai(system, prompt, schema_name, schema, on_delta)
-                .await
-        } else {
-            self.analyze_json_streaming_protocol(system, prompt, schema_name, schema, on_delta)
-                .await
-        };
+        let (streamed, reported) = crate::services::ai_cost_ledger::reporting(async {
+            if self.provider == AiProvider::OpenAI {
+                self.analyze_json_streaming_openai(system, prompt, schema_name, schema, on_delta)
+                    .await
+            } else {
+                self.analyze_json_streaming_protocol(system, prompt, schema_name, schema, on_delta)
+                    .await
+            }
+        })
+        .await;
         match streamed {
             Ok(text) => {
                 let result = Ok(text);
-                self.note_ledger(input_chars, &result).await;
+                self.note_ledger(input_chars, &result, reported.as_ref())
+                    .await;
                 result
             }
             Err(failure) if failure.rejected_request() => {
@@ -1119,16 +1371,10 @@ impl AiAnalyzer {
             None,
             true,
         );
-        let mut request = self.authenticate(self.client.post(&url));
-        if self.provider == AiProvider::Anthropic {
-            request = request.header("anthropic-version", "2023-06-01");
-        }
-        let response = request
-            .header("Content-Type", "application/json")
-            .json(&self.prepare_body(&body)?)
-            .send()
+        let response = self
+            .send_text_stream(&url, body)
             .await
-            .map_err(|error| ProviderCallFailure::transport(error.into()))?;
+            .map_err(ProviderCallFailure::transport)?;
         if !response.status().is_success() {
             let status = response.status();
             return Err(ProviderCallFailure::http(
@@ -1152,6 +1398,29 @@ impl AiAnalyzer {
     }
 
     async fn analyze_json_inner(
+        &self,
+        system: &str,
+        prompt: &str,
+        schema_name: &str,
+        mode: JsonMode<'_>,
+        budget: Option<OutputBudget>,
+    ) -> std::result::Result<String, ProviderCallFailure> {
+        // A memory bench asks again what the network dropped
+        // (`ai_cost_ledger::once_or_again`); everything else asks once.
+        crate::services::ai_cost_ledger::once_or_again(
+            &self.model,
+            move || self.analyze_json_inner_once(system, prompt, schema_name, mode, budget),
+            |result| {
+                result
+                    .as_ref()
+                    .err()
+                    .map(|failure| (failure.status.map(|status| status.as_u16()), &failure.error))
+            },
+        )
+        .await
+    }
+
+    async fn analyze_json_inner_once(
         &self,
         system: &str,
         prompt: &str,
@@ -1292,7 +1561,20 @@ impl AiAnalyzer {
                     .map_err(ProviderCallFailure::transport)
             }
             AiProvider::OpenAIResponses | AiProvider::Anthropic => {
+                // Anthropic's own API is asked structured only by
+                // [`Self::analyze_json_strict`]: its answer held to the schema.
+                let anthropic_format = match mode {
+                    JsonMode::Structured(Some(schema))
+                        if self.provider == AiProvider::Anthropic =>
+                    {
+                        Some(serde_json::json!({ "type": "json_schema", "schema": schema }))
+                    }
+                    _ => None,
+                };
                 let (prompt, response_format) = match mode {
+                    JsonMode::Structured(Some(_)) if anthropic_format.is_some() => {
+                        (prompt.to_string(), None)
+                    }
                     JsonMode::Structured(schema)
                         if self.provider == AiProvider::OpenAIResponses =>
                     {
@@ -1312,6 +1594,7 @@ impl AiAnalyzer {
                     system,
                     &[ChatMessage::user(prompt)],
                     response_format,
+                    anthropic_format,
                     budget.map(|value| value.max_tokens),
                 )
                 .await
@@ -1344,8 +1627,11 @@ impl AiAnalyzer {
         Fut: Future<Output = bool> + Send,
     {
         let input_chars = prompt.len();
-        let result = self.analyze_stream_inner(prompt, on_delta).await;
-        self.note_ledger(input_chars, &result).await;
+        let (result, reported) =
+            crate::services::ai_cost_ledger::reporting(self.analyze_stream_inner(prompt, on_delta))
+                .await;
+        self.note_ledger(input_chars, &result, reported.as_ref())
+            .await;
         result
     }
 
@@ -1378,13 +1664,138 @@ impl AiAnalyzer {
             }
             return self.analyze_stream_parts(prompt, on_delta).await;
         }
-        // The ledger counts characters (about four per token); an image of
-        // this size costs roughly a thousand input tokens.
-        const IMAGE_INPUT_CHARS: usize = 4_000;
         let input_chars = prompt.len() + images.len() * IMAGE_INPUT_CHARS;
-        let result = self.analyze_stream_images(prompt, images, on_delta).await;
-        self.note_ledger(input_chars, &result).await;
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(
+            self.analyze_stream_images(prompt, images, on_delta),
+        )
+        .await;
+        self.note_ledger(input_chars, &result, reported.as_ref())
+            .await;
         result
+    }
+
+    /// [`Self::analyze_stream_parts_with_images`] for a conversation: a
+    /// system prompt and the messages in order, user / assistant, with
+    /// `images` on the last of them. Every protocol takes them as messages
+    /// (Gemini as `systemInstruction` and turns). A single user message and
+    /// no system prompt: exactly the prompt path.
+    pub async fn analyze_stream_messages_with_images<F, Fut>(
+        &self,
+        system: &str,
+        messages: &[ChatMessage],
+        images: &[ImageInput],
+        on_delta: F,
+    ) -> Result<String>
+    where
+        F: FnMut(StreamDelta) -> Fut + Send,
+        Fut: Future<Output = bool> + Send,
+    {
+        if system.trim().is_empty()
+            && let [only] = messages
+            && only.role == "user"
+        {
+            return self
+                .analyze_stream_parts_with_images(&only.content, images, on_delta)
+                .await;
+        }
+        let images = if images.is_empty()
+            || matches!(
+                self.provider,
+                AiProvider::Gemini | AiProvider::OpenAI | AiProvider::Anthropic
+            ) {
+            images
+        } else {
+            tracing::info!(
+                provider = ?self.provider,
+                "images not supported on this protocol; sending text only"
+            );
+            &[]
+        };
+        let input_chars = system.len()
+            + messages
+                .iter()
+                .map(|message| message.content.len())
+                .sum::<usize>()
+            + images.len() * IMAGE_INPUT_CHARS;
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(
+            self.analyze_stream_messages(system, messages, images, on_delta),
+        )
+        .await;
+        self.note_ledger(input_chars, &result, reported.as_ref())
+            .await;
+        result
+    }
+
+    async fn analyze_stream_messages<F, Fut>(
+        &self,
+        system: &str,
+        messages: &[ChatMessage],
+        images: &[ImageInput],
+        on_delta: F,
+    ) -> Result<String>
+    where
+        F: FnMut(StreamDelta) -> Fut + Send,
+        Fut: Future<Output = bool> + Send,
+    {
+        match self.provider {
+            AiProvider::Gemini => {
+                let body = gemini_messages_request(system, messages, images);
+                let url = self.gemini_url(true).await;
+                let response = self
+                    .authenticate(self.client.post(&url))
+                    .json(&self.prepare_body(&body)?)
+                    .send()
+                    .await
+                    .context("Failed to send streaming request to Gemini API")?;
+                if !response.status().is_success() {
+                    let status = response.status();
+                    let error_text = Self::read_limited_error_text(response).await;
+                    return Err(ProviderCallFailure::http(
+                        status,
+                        anyhow::anyhow!("Gemini streaming API error {}: {}", status, error_text),
+                    )
+                    .into_error());
+                }
+                super::sse::consume_text_sse(response, on_delta, gemini_stream_deltas).await
+            }
+            AiProvider::OpenAI => {
+                let response = self
+                    .post_openai_stream(openai_messages_request(
+                        &self.model,
+                        system,
+                        messages,
+                        images,
+                    ))
+                    .await?;
+                consume_openai_sse(response, on_delta).await
+            }
+            AiProvider::OpenAIResponses | AiProvider::Anthropic => {
+                let url = text_protocol::endpoint(self.provider, self.base_url.as_deref());
+                let mut body = text_protocol::request_body(
+                    self.provider,
+                    &self.model,
+                    system,
+                    messages,
+                    None,
+                    None,
+                    true,
+                );
+                if !images.is_empty() {
+                    anthropic_images_on_last(&mut body, images);
+                }
+                let response = self.send_text_stream(&url, body).await?;
+                if !response.status().is_success() {
+                    let status = response.status();
+                    return Err(ProviderCallFailure::http(
+                        status,
+                        anyhow::anyhow!("AI provider streaming API returned HTTP {status}"),
+                    )
+                    .into_error());
+                }
+                super::sse::consume_text_sse(response, on_delta, self.protocol_stream_extractor())
+                    .await
+            }
+        }
     }
 
     async fn analyze_stream_images<F, Fut>(
@@ -1518,11 +1929,7 @@ impl AiAnalyzer {
                     None,
                     true,
                 );
-                let mut request = self.authenticate(self.client.post(url));
-                if self.provider == AiProvider::Anthropic {
-                    request = request.header("anthropic-version", "2023-06-01");
-                }
-                let response = request.json(&self.prepare_body(&body)?).send().await?;
+                let response = self.send_text_stream(&url, body).await?;
                 if !response.status().is_success() {
                     let status = response.status();
                     return Err(ProviderCallFailure::http(
@@ -1537,6 +1944,10 @@ impl AiAnalyzer {
         }
     }
 }
+
+/// The ledger counts characters (about four per token); an image of this
+/// size costs roughly a thousand input tokens.
+const IMAGE_INPUT_CHARS: usize = 4_000;
 
 fn gemini_image_request(prompt: &str, images: &[ImageInput]) -> serde_json::Value {
     let mut parts = vec![serde_json::json!({ "text": prompt })];
@@ -1582,6 +1993,100 @@ fn openai_image_request(model: &str, prompt: &str, images: &[ImageInput]) -> ser
     })
 }
 
+/// A conversation as Gemini takes it: the system prompt as its
+/// `systemInstruction`, the messages as turns (hers the model's), `images`
+/// after the last one's text.
+fn gemini_messages_request(
+    system: &str,
+    messages: &[ChatMessage],
+    images: &[ImageInput],
+) -> serde_json::Value {
+    let last = messages.len().saturating_sub(1);
+    let contents: Vec<serde_json::Value> = messages
+        .iter()
+        .enumerate()
+        .map(|(index, message)| {
+            let role = if message.role == "assistant" {
+                "model"
+            } else {
+                "user"
+            };
+            let mut parts = vec![serde_json::json!({ "text": message.content })];
+            if index == last {
+                parts.extend(images.iter().map(|image| {
+                    serde_json::json!({ "inlineData": { "mimeType": image.mime, "data": image.base64 } })
+                }));
+            }
+            serde_json::json!({ "role": role, "parts": parts })
+        })
+        .collect();
+    let mut body = serde_json::json!({ "contents": contents });
+    if !system.trim().is_empty() {
+        body["systemInstruction"] = serde_json::json!({ "parts": [{ "text": system }] });
+    }
+    body
+}
+
+/// A conversation on an OpenAI-compatible endpoint: the system prompt
+/// first, the messages after it, `images` beside the last one's text.
+fn openai_messages_request(
+    model: &str,
+    system: &str,
+    messages: &[ChatMessage],
+    images: &[ImageInput],
+) -> serde_json::Value {
+    let last = messages.len().saturating_sub(1);
+    let mut sent = Vec::with_capacity(messages.len() + 1);
+    if !system.trim().is_empty() {
+        sent.push(serde_json::json!({ "role": "system", "content": system }));
+    }
+    for (index, message) in messages.iter().enumerate() {
+        let role = match message.role.as_str() {
+            "assistant" => "assistant",
+            "system" => "system",
+            _ => "user",
+        };
+        let content = if index == last && !images.is_empty() {
+            let mut content = vec![serde_json::json!({ "type": "text", "text": message.content })];
+            content.extend(images.iter().map(|image| {
+                serde_json::json!({
+                    "type": "image_url",
+                    "image_url": { "url": format!("data:{};base64,{}", image.mime, image.base64) }
+                })
+            }));
+            serde_json::Value::Array(content)
+        } else {
+            serde_json::json!(message.content)
+        };
+        sent.push(serde_json::json!({ "role": role, "content": content }));
+    }
+    serde_json::json!({ "model": model, "messages": sent, "stream": true })
+}
+
+/// `images` as base64 `image` blocks before the text of the last message of
+/// a Messages API body.
+fn anthropic_images_on_last(body: &mut serde_json::Value, images: &[ImageInput]) {
+    let Some(last) = body
+        .get_mut("messages")
+        .and_then(serde_json::Value::as_array_mut)
+        .and_then(|messages| messages.last_mut())
+    else {
+        return;
+    };
+    let text = last["content"].take();
+    let mut content: Vec<serde_json::Value> = images
+        .iter()
+        .map(|image| {
+            serde_json::json!({
+                "type": "image",
+                "source": { "type": "base64", "media_type": image.mime, "data": image.base64 }
+            })
+        })
+        .collect();
+    content.push(serde_json::json!({ "type": "text", "text": text }));
+    last["content"] = serde_json::Value::Array(content);
+}
+
 #[cfg(test)]
 mod image_request_tests {
     use super::*;
@@ -1591,6 +2096,65 @@ mod image_request_tests {
             mime: "image/webp".into(),
             base64: "AAAA".into(),
         }
+    }
+
+    /// A conversation goes as messages on every protocol: the system prompt
+    /// apart, hers as hers, an image beside the last one's text.
+    #[test]
+    fn a_conversation_goes_as_messages_with_images_on_the_last() {
+        let talk = [
+            ChatMessage::user("早"),
+            ChatMessage::assistant("早啊"),
+            ChatMessage::user("看看这个"),
+        ];
+        let openai = openai_messages_request("m", "你是瞳。", &talk, &[image()]);
+        let sent = openai["messages"].as_array().unwrap();
+        assert_eq!(
+            sent.iter()
+                .map(|message| message["role"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["system", "user", "assistant", "user"]
+        );
+        assert_eq!(sent[0]["content"], "你是瞳。");
+        assert_eq!(sent[2]["content"], "早啊");
+        assert_eq!(sent[3]["content"][0]["text"], "看看这个");
+        assert_eq!(sent[3]["content"][1]["type"], "image_url");
+        assert_eq!(openai["stream"], true);
+
+        let gemini = gemini_messages_request("你是瞳。", &talk, &[image()]);
+        assert_eq!(gemini["systemInstruction"]["parts"][0]["text"], "你是瞳。");
+        let turns = gemini["contents"].as_array().unwrap();
+        assert_eq!(
+            turns
+                .iter()
+                .map(|turn| turn["role"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["user", "model", "user"]
+        );
+        assert_eq!(turns[2]["parts"][1]["inlineData"]["mimeType"], "image/webp");
+        assert!(turns[1]["parts"].as_array().unwrap().len() == 1);
+        assert!(
+            gemini_messages_request("", &talk, &[])
+                .get("systemInstruction")
+                .is_none()
+        );
+
+        let mut anthropic = text_protocol::request_body(
+            AiProvider::Anthropic,
+            "m",
+            "你是瞳。",
+            &talk,
+            None,
+            None,
+            true,
+        );
+        anthropic_images_on_last(&mut anthropic, &[image()]);
+        assert_eq!(anthropic["system"], "你是瞳。");
+        let sent = anthropic["messages"].as_array().unwrap();
+        assert_eq!(sent.len(), 3);
+        assert_eq!(sent[1]["content"], "早啊");
+        assert_eq!(sent[2]["content"][0]["type"], "image");
+        assert_eq!(sent[2]["content"][1]["text"], "看看这个");
     }
 
     #[tokio::test]
@@ -1817,10 +2381,13 @@ mod tests {
     }
 
     #[test]
-    fn auth_rate_limit_and_transport_failures_do_not_retry() {
+    fn auth_credit_rate_limit_and_transport_failures_do_not_retry() {
         for status in [
             reqwest::StatusCode::UNAUTHORIZED,
+            reqwest::StatusCode::PAYMENT_REQUIRED,
             reqwest::StatusCode::FORBIDDEN,
+            reqwest::StatusCode::REQUEST_TIMEOUT,
+            reqwest::StatusCode::PAYLOAD_TOO_LARGE,
             reqwest::StatusCode::TOO_MANY_REQUESTS,
             reqwest::StatusCode::INTERNAL_SERVER_ERROR,
             reqwest::StatusCode::BAD_GATEWAY,

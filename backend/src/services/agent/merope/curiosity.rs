@@ -28,7 +28,7 @@ use myriad_merope::curiosity::{
 #[cfg(test)]
 use serde_json::Value;
 
-pub const FOUND_OUT_EVENT: &str = "agent.merope.found_out";
+pub use myriad_merope::notify::FOUND_OUT_EVENT;
 const MIN_USER_CHARS: usize = 6;
 const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 

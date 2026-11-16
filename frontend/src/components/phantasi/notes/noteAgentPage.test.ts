@@ -44,12 +44,12 @@ it('typing into the Agent is not editing the article', () => {
 
 it('the resident composer drops everything that is not about editing this note', () => {
   const composer = read('../../agent-panel/AgentPanelComposer.tsx')
-  assert.match(composer, /\{resident \? null : <ModeTag mode=\{mode\} \/>\}/)
+  assert.match(composer, /\{resident \|\| mode !== 'work' \? null : <BackToHer \/>\}/)
   assert.equal(composer.match(/open=\{shortcuts && context\.kind/g)?.length, 4)
   assert.match(composer, /items=\{shortcuts \? favorites : \[\]\}/)
   assert.match(composer, /canMute && !resident \?/)
   const panel = read('../../agent-panel/AgentPanel.tsx')
-  assert.match(panel, /if \(!showsComposer \|\| resident\) return/)
+  assert.doesNotMatch(panel, /cycleAgentPanelMode/)
 })
 
 it('each opened note is a fresh Work conversation with no session switcher', () => {

@@ -1,9 +1,9 @@
+import type { TappManifestLocales } from '@myriad/tapp-runtime'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import type {
   RecentTappItem,
   TappListItem,
 } from '../../tapp/services/TappLifecycleApi'
-import type { TappManifestLocales } from '../../tapp/types'
 import type { WidgetComponentProps } from '../widgetGridTypes'
 import { FaTh } from '@lib/icons'
 import { motionShim as motion } from '@lib/motionShim'

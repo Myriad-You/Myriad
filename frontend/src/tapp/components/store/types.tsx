@@ -1,7 +1,7 @@
+import type { TappCategory } from '@myriad/tapp-runtime'
 import type { ReactNode } from 'react'
 import type { ExampleTapp } from '../../examples'
 import type { RemoteApp } from '../../services/RemoteStoreService'
-import type { TappCategory } from '../../types'
 import type { StorePreviewDescriptor } from '../../utils/storePreview'
 import {
   FaCog,

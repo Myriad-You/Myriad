@@ -1,12 +1,9 @@
 import type { MoodBand } from '../agent/meropeVitals'
+import { MEROPE_STATE_EVENT, meropeStateEventDetail, resolveLoadedMeropeAffect } from '@myriad/figure/events'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
-import {
-  MEROPE_STATE_EVENT,
-  meropeStateEventDetail,
-  resolveLoadedMeropeAffect,
-} from '../../features/merope/events/performanceEvents'
 import { PERSONA_UPDATED_EVENT } from '../../features/merope/events/updates'
+import { figureChannel } from '../../features/merope/figureChannel'
 import { agentService } from '../../services/agent'
 import { ADDRESSEE_UPDATED_EVENT, moodBand } from '../agent/meropeVitals'
 
@@ -36,7 +33,7 @@ export function useAddresseeMoodBand(): MoodBand | null {
             setBand(null)
             return
           }
-          const affect = resolveLoadedMeropeAffect(persona)
+          const affect = resolveLoadedMeropeAffect(figureChannel, persona)
           apply(affect.mood, affect.arousal)
         })
         .catch(() => {
@@ -50,12 +47,12 @@ export function useAddresseeMoodBand(): MoodBand | null {
       )
       if (detail) apply(detail.mood.after, detail.mood.arousalAfter)
     }
-    window.addEventListener(MEROPE_STATE_EVENT, onState)
+    figureChannel.addEventListener(MEROPE_STATE_EVENT, onState)
     window.addEventListener(PERSONA_UPDATED_EVENT, load)
     window.addEventListener(ADDRESSEE_UPDATED_EVENT, load)
     return () => {
       active = false
-      window.removeEventListener(MEROPE_STATE_EVENT, onState)
+      figureChannel.removeEventListener(MEROPE_STATE_EVENT, onState)
       window.removeEventListener(PERSONA_UPDATED_EVENT, load)
       window.removeEventListener(ADDRESSEE_UPDATED_EVENT, load)
     }

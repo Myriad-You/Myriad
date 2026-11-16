@@ -47,6 +47,10 @@ pub(in crate::services::agent::merope) enum Keep {
     /// What they said lately: it can only take back other short notes, and
     /// what she knows for good is changed only once the talk is gone over.
     Note,
+    /// A line that only takes something back, saying nothing new ('当我没说'):
+    /// let go at once wherever it is kept, for a stretch that leaves no
+    /// short note is never gone over.
+    LetGo,
     /// Kept for good: it changes only what she knows for good.
     Lasting,
 }
@@ -54,7 +58,7 @@ pub(in crate::services::agent::merope) enum Keep {
 impl Keep {
     fn source(self) -> &'static str {
         match self {
-            Self::Note => crate::services::agent::memory::unified::SHORT_NOTE_SOURCE,
+            Self::Note | Self::LetGo => crate::services::agent::memory::unified::SHORT_NOTE_SOURCE,
             Self::Lasting => "chat",
         }
     }
@@ -68,6 +72,11 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<C: 
     present: &crate::services::agent::memory::unified::Audience,
     keep: Keep,
 ) -> Result<bool, anyhow::Error> {
+    let keep = if keep == Keep::Note && updates.updates.iter().all(|update| update.fact.is_none()) {
+        Keep::LetGo
+    } else {
+        keep
+    };
     let mut kept = false;
     for update in &updates.updates {
         kept |= apply_chat_memory_update_on(db, user_id, input_at, update, present, keep).await?;
@@ -143,23 +152,28 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
     // Lines are gone over one by one, so an older one must not undo a newer
     // one. A stretch is gone over on its own, once, with all of it in view:
     // it is not fenced by the lines, nor does it fence them.
-    if keep == Keep::Note && !chat_memory_input_is_current(db, user_id, input_at, present).await? {
+    if keep != Keep::Lasting
+        && !chat_memory_input_is_current(db, user_id, input_at, present).await?
+    {
         return Ok(false);
     }
     use crate::services::agent::memory::unified;
     use unified::SHORT_NOTE_SOURCE;
     let rows = unified::active_in(db, user_id, present, &unified::MemoryKind::ABOUT_PERSON).await?;
     let own =
-        |row: &unified::MemoryRecord| (row.source == SHORT_NOTE_SOURCE) == (keep == Keep::Note);
+        |row: &unified::MemoryRecord| (row.source == SHORT_NOTE_SOURCE) == (keep != Keep::Lasting);
     // A short note takes back only short notes: what she knows for good
-    // changes once the stretch is gone over, with all of it in view.
+    // changes once the stretch is gone over, with all of it in view. What
+    // is only taken back is let go wherever it is kept.
+    let may_take =
+        |row: &unified::MemoryRecord| own(row) || (keep == Keep::LetGo && row.source == "chat");
     let supersedes: Vec<String> = match keep {
-        Keep::Note => update
+        Keep::Note | Keep::LetGo => update
             .supersedes
             .iter()
             .filter(|old| {
                 rows.iter().any(|row| {
-                    own(row) && &super::super::ingest::compact_summary(&row.content) == *old
+                    may_take(row) && &super::super::ingest::compact_summary(&row.content) == *old
                 })
             })
             .cloned()
@@ -177,10 +191,10 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
     let mut duplicate = None;
     for note in rows {
         let content = super::super::ingest::compact_summary(&note.content);
-        if own(&note) && supersedes.contains(&content) {
+        if may_take(&note) && supersedes.contains(&content) {
             targets.push(note.id);
             found.insert(content);
-        } else if update.fact.as_ref() == Some(&content) && (keep == Keep::Note || own(&note)) {
+        } else if update.fact.as_ref() == Some(&content) && (keep != Keep::Lasting || own(&note)) {
             duplicate = Some(note.id);
         }
     }
@@ -224,7 +238,7 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
         }
     }
     let applied = !targets.is_empty() || insert.is_some();
-    if applied && keep == Keep::Note {
+    if applied && keep != Keep::Lasting {
         mark_applied(db, user_id, input_at, present).await?;
     }
     Ok(applied)
@@ -360,6 +374,30 @@ pub(crate) fn as_known(note: &crate::services::agent::memory::unified::MemoryRec
     format!("[{when}] {content} ({how})")
 }
 
+/// What they said that a kept fact was taken from, when it is their own
+/// words: going through all of it, a name or detail the fact left out is
+/// still in them (`myriad_merope::speaking::with_their_words`).
+pub(crate) fn their_words(
+    note: &crate::services::agent::memory::unified::MemoryRecord,
+) -> Option<String> {
+    let theirs = matches!(
+        (note.source.as_str(), note.speaker.as_str()),
+        (
+            "chat" | crate::services::agent::memory::unified::SHORT_NOTE_SOURCE,
+            "user"
+        )
+    );
+    let said = super::super::ingest::compact_summary(note.evidence.as_deref()?);
+    // Only what the fact does not already say in full: the words are there
+    // for what it left out (a name, a number), not to say it twice.
+    (theirs && !said.is_empty() && !note.content.contains(said.as_str()))
+        .then(|| said.chars().take(THEIR_WORDS_CHARS).collect())
+}
+
+/// How much of what they said goes beside a fact: enough for the sentence
+/// a name or detail was in.
+const THEIR_WORDS_CHARS: usize = 160;
+
 /// Source of what she herself told someone and would remember saying (a
 /// recommendation, a promise, an answer they may come back to).
 pub const SAID_SOURCE: &str = "said";
@@ -370,6 +408,20 @@ pub const SAID_SOURCE: &str = "said";
 /// talk there lately.
 const SOMEONE_ELSE_HERE: &str = "someone else in this group";
 
+/// A kept fact about `other`, another member of the group, said as theirs
+/// by the name the group knows them by (`names`), never their name on the
+/// site.
+pub(crate) fn theirs_here(
+    content: &str,
+    other: i32,
+    names: Option<&std::collections::HashMap<i32, String>>,
+) -> String {
+    let name = names
+        .and_then(|names| names.get(&other))
+        .map_or(SOMEONE_ELSE_HERE, String::as_str);
+    about_someone_else(content, name)
+}
+
 /// A kept fact about another member of the group, said as theirs.
 pub(crate) fn about_someone_else(content: &str, name: &str) -> String {
     format!("{content} (this is about {name}, not the one talking to you)")
@@ -378,6 +430,27 @@ pub(crate) fn about_someone_else(content: &str, name: &str) -> String {
 pub struct Recalled {
     pub named: Vec<String>,
     pub brought_to_mind: Vec<String>,
+    /// Of `named`, those only filling the budget as recent context.
+    pub recent: Vec<String>,
+    /// The memory behind each line of `named`, by line.
+    pub ids: Vec<(String, String)>,
+    /// What they said behind a line of `named`, by line, where it was their
+    /// own words ([`their_words`]); shown only going through all of it.
+    pub said: std::collections::HashMap<String, String>,
+}
+
+impl Recalled {
+    /// What was named, each with their words beside it where there are any:
+    /// as she sees it going through all of it.
+    pub fn with_their_words(&self) -> Vec<String> {
+        self.named
+            .iter()
+            .map(|line| match self.said.get(line) {
+                Some(said) => myriad_merope::speaking::with_their_words(line, said),
+                None => line.clone(),
+            })
+            .collect()
+    }
 }
 
 /// [`recall_remembered_primed`], keeping apart what was named and what it
@@ -407,6 +480,9 @@ pub async fn recall_remembered_split(
     let mut split = Recalled {
         named: Vec::new(),
         brought_to_mind: Vec::new(),
+        recent: Vec::new(),
+        ids: Vec::new(),
+        said: std::collections::HashMap::new(),
     };
     // In a group she remembers what everyone there said; what is about
     // someone else says whose it is, so it is never taken for the speaker's:
@@ -423,15 +499,18 @@ pub async fn recall_remembered_split(
             if names.is_none() {
                 names = Some(crate::services::channel_group::names_here(db, venue).await);
             }
-            let name = names
-                .as_ref()
-                .and_then(|names| names.get(&other))
-                .map_or(SOMEONE_ELSE_HERE, String::as_str);
-            content = about_someone_else(&content, name);
+            content = theirs_here(&content, other, names.as_ref());
         }
         if note.brought_to_mind {
             split.brought_to_mind.push(content);
         } else {
+            if note.recent {
+                split.recent.push(content.clone());
+            }
+            split.ids.push((content.clone(), note.id.clone()));
+            if let Some(said) = their_words(&note) {
+                split.said.insert(content.clone(), said);
+            }
             split.named.push(content);
         }
     }

@@ -5,7 +5,7 @@ import type { ImportProgress, NoteTransferKind } from './contentIo/types'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
 import * as phantasiApi from '../../../services/phantasiApi'
-import { showError, showSuccess } from '../../../utils/toastManager'
+import { showError, showSuccess, showWarning } from '../../../utils/toastManager'
 import { RequestTurn, unlessAborted } from '../logic/requestTurn'
 import { exportTransferFile, importTransferFile } from './contentIo/contentIo'
 
@@ -15,6 +15,8 @@ function copyFrom(phantasi: {
   importStepReading: string
   importStepParsing: string
   importStepImporting: string
+  importStepImages: string
+  importImagesKept: string
   errorInvalidFormat: string
   importSuccess: string
   errorImportFailed: string
@@ -27,6 +29,8 @@ function copyFrom(phantasi: {
     importStepReading: phantasi.importStepReading,
     importStepParsing: phantasi.importStepParsing,
     importStepImporting: phantasi.importStepImporting,
+    importStepImages: phantasi.importStepImages,
+    importImagesKept: phantasi.importImagesKept,
     errorInvalidFormat: phantasi.errorInvalidFormat,
     importSuccess: phantasi.importSuccess,
     errorImportFailed: phantasi.errorImportFailed,
@@ -125,6 +129,7 @@ export function useNoteTransfer(
       }
       if (result.ok) {
         showSuccess(result.message)
+        if (result.warning) showWarning(result.warning)
         onImported?.()
       } else {
         showError(result.error)

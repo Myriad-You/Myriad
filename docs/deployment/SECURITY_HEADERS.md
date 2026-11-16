@@ -39,6 +39,9 @@ backend 生产策略一致：
 - `connect-src` 默认 `'self' https: wss: stun: turn:`（与 backend 生产默认一致，含声网 RTC），
   再加 `blob: data:`（TApp 沙箱的资源）。覆盖用 frontend 容器的 `FRONTEND_CSP_CONNECT_SRC`，
   **不读** `CSP_CONNECT_SRC`：compose 给 backend 的默认值不含 `wss:`，用在文档上会挡掉实时通话。
+- `manifest-src 'self' blob:`：站点品牌（名称、主题色、合成图标）的 manifest 由
+  `frontend/src/utils/pwa.ts` 在页面里拼成 `blob:` 挂上；只放 `'self'` 会被浏览器拦掉，
+  安装信息退回静态 `/manifest.webmanifest`。backend 生产策略同样放行。
 - 不发 `upgrade-insecure-requests`：自托管可以只走 HTTP，文档上加它会让整站资源失败。
   需要时在外层 TLS 入口自己加。
 - 开发服务器（Vite）与 `vite preview` 不发 CSP，开发时的 HMR 内联脚本不受影响。
@@ -73,6 +76,17 @@ geolocation=(self), microphone=(self), camera=()
   因此 CSP 必须允许远程 `https:`/`http:` 图片；不能收紧为仅 `'self'` 或仅
   代理路径，否则 RSS/博客封面与外链头像会空白。若未来强制全部走
   `/api/proxy/image`，才可再收窄 `img-src`。
+- **博客页的 `img-src`（`crates/myriad-blog/src/postprocess.rs` 的 `BLOG_CSP`）**：
+  `img-src 'self' data: https: http:`，和上面的主站口径一致。笔记正文里的外链图片
+  （迁移过来的 WordPress 附件就是外部 URL）要能显示，否则只会是空白。图片不构成
+  XSS：它在 `<img>` 里不执行脚本，服务端也不去抓，因此没有 SSRF；代价只是访客的
+  IP 会暴露给图床，Referer 仍被 `strict-origin-when-cross-origin` 限制为只发 origin。
+  脚本和 connect 的封锁不因此放松：博客页仍是 `script-src 'none'` / `connect-src 'none'`。
+- **博客页的 `frame-src`**：除 `'self'` 外只放行 `player.bilibili.com`、`music.163.com`、
+  `www.youtube-nocookie.com`。一段里只有一个这几家的链接时，博客把它换成播放器
+  （`crates/myriad-blog/src/embed.rs`）：地址由模板拼出，框带 `sandbox`，不给
+  `allow-top-navigation`。笔记消毒器会剥掉手写的 iframe，所以这是博客上唯一的外站框。
+  代价是访客打开这一页时会连到这几家，并受它们的 Cookie 和统计影响。
 - `X-Content-Type-Options: nosniff`
 - `X-Frame-Options: DENY`
 - `X-XSS-Protection: 1; mode=block`
@@ -223,7 +237,8 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         # Long enough for WS + multi-minute file download streams
-        # (GET /api/federation/transfers/{id}/content is streamed, not buffered).
+        # (GET /api/federation/transfers/{id}/content is streamed, not buffered),
+        # and above the 18 min the Myriad proxy gives Merope rig work (PORTS.md).
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
         # Do not buffer large transfer downloads into temp files on the edge.

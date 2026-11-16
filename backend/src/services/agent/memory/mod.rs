@@ -7,7 +7,6 @@
 //! `myriad_agent_rules::memory`); [`work_memory`] turns a finished Work run
 //! into memories and imports the pre-unified JSON store.
 
-use myriad_agent_rules::memory::association;
 pub(crate) use myriad_agent_rules::memory::lexical;
 pub mod manage;
 pub mod meaning;

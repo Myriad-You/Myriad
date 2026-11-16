@@ -831,6 +831,56 @@ fn an_unattended_task_waiting_for_an_answer_is_over() {
     assert!(!super::unattended_and_waiting(&state));
 }
 
+/// A person's run marked unattended (their instruction come due) is
+/// answered as the heartbeat's: what needs someone there is refused, a
+/// Medium read runs on its own, a question ends it; and the mark is kept
+/// with the run, so a resumed run is still unattended.
+#[test]
+fn a_persons_unattended_run_is_answered_as_the_heartbeats() {
+    let call = |id: &str| PendingCall {
+        call: ToolCall {
+            id: id.into(),
+            name: tools::tool_name(id),
+            arguments: "{}".into(),
+        },
+        capability_id: Some(id.into()),
+        approval: None,
+    };
+    let mut state = checkpoint();
+    state.user_id = 7;
+    let delete = call("file.delete");
+    state.pending.push_back(delete.clone());
+    assert!(
+        !reject_unattended_confirmation(&mut state, &delete, "file.delete", RiskLevel::High),
+        "a person there is asked"
+    );
+    state.request.context = Some(RequestContext {
+        unattended: true,
+        ..Default::default()
+    });
+    let mut high = state.clone();
+    assert!(reject_unattended_confirmation(
+        &mut high,
+        &delete,
+        "file.delete",
+        RiskLevel::High
+    ));
+    assert!(!high.task.step_results["file.delete"].success);
+    let fetch = call("http.fetch");
+    let mut medium = state.clone();
+    medium.pending.push_back(fetch.clone());
+    assert!(!reject_unattended_confirmation(
+        &mut medium,
+        &fetch,
+        "http.fetch",
+        RiskLevel::Medium
+    ));
+    state.task.status = TaskStatus::WaitingForInput;
+    assert!(super::unattended_and_waiting(&state));
+    let kept: Checkpoint = serde_json::from_value(serde_json::to_value(&state).unwrap()).unwrap();
+    assert!(super::unattended_and_waiting(&kept));
+}
+
 /// A tool's error or empty answer is where the run is stuck, once a run; a
 /// refusal is not, until it is the same call a third time.
 #[test]
@@ -921,4 +971,94 @@ fn the_tool_failing_again_after_its_memory_is_marked() {
     saved.as_object_mut().unwrap().remove("recall");
     let loaded: Checkpoint = serde_json::from_value(saved).unwrap();
     assert!(loaded.recall.shown.is_empty() && !loaded.recall.used);
+}
+
+/// A write confirmed in chat is taken: her line for the piece (on the web
+/// panel or in an IM chat), or their reply in an IM chat, reaches the Work
+/// loop as `yes` or `no`, the only answers a confirmation takes. Read
+/// through the same lines, rules and mapping the panel and the channel use;
+/// a no or a maybe never reads as yes.
+#[test]
+fn a_write_confirmed_in_chat_is_taken() {
+    use crate::services::channel_work::works;
+    use myriad_agent_rules::channel::{PendingDecision, decide_pending_reply};
+    let mut approval = checkpoint();
+    approval.task.status = TaskStatus::WaitingForInput;
+    approval
+        .task
+        .set_pending_question(UserQuestion::confirmation("发出去吗？", "mail.send"));
+    approval.wait = Some(Wait::Approval {
+        fingerprint: "mail.send".into(),
+    });
+    let prompt = crate::services::agent::panel_work::prompt_of(&approval.task).unwrap();
+    assert!(works::is_confirmation(&prompt));
+    let waiting = works::Piece {
+        number: 1,
+        asked: "发邮件".into(),
+        started_at: Some(0),
+        ended_at: None,
+        standing: works::Standing::Waiting {
+            question: "发出去吗？".into(),
+        },
+    };
+    let taken = |reply: &str| match decide_pending_reply(&prompt, reply, 0) {
+        PendingDecision::Resume {
+            answer: reply,
+            confirmed,
+            ..
+        } => {
+            // The chat's own words for it are refused.
+            assert!(
+                approval
+                    .validate_answer(&answer(&approval, &reply))
+                    .is_err()
+            );
+            let reply = works::task_answer(reply, confirmed);
+            approval
+                .validate_answer(&answer(&approval, &reply))
+                .unwrap();
+            Some(reply)
+        }
+        _ => None,
+    };
+    let hers = |line: &str| {
+        let (_, hand_offs) = crate::services::agent::delegate::split(line);
+        let works::Act::Answer { text, .. } = works::act(&hand_offs[0], &[waiting.clone()]) else {
+            panic!("{line} answers the piece");
+        };
+        taken(&works::her_choice(&prompt, &text))
+    };
+    for (line, meant) in [
+        ("[[work #1: yes]]", Some("yes")),
+        ("[[work #1: Yes]]", Some("yes")),
+        ("[[work #1: 1]]", Some("yes")),
+        ("[[work #1: 是]]", Some("yes")),
+        ("[[work #1: 2]]", Some("no")),
+        ("[[work #1: no]]", Some("no")),
+        ("[[work #1: 不]]", Some("no")),
+        ("[[work #1: 不确定]]", None),
+        ("[[work #1: 不要 yes]]", None),
+        ("[[work #1: yesterday 那封]]", None),
+        ("[[work #1: 3]]", None),
+    ] {
+        assert_eq!(hers(line).as_deref(), meant, "{line}");
+    }
+    // Theirs, in an IM chat: the same.
+    for (said, meant) in [
+        ("1", Some("yes")),
+        ("好", Some("yes")),
+        ("否", Some("no")),
+        ("再说", None),
+        ("+1", None),
+        ("01", None),
+        ("1.", Some("yes")),
+        ("2、", Some("no")),
+        ("1..", None),
+    ] {
+        assert_eq!(
+            taken(&works::confirmation_reply(&prompt, said)).as_deref(),
+            meant,
+            "{said}"
+        );
+    }
 }

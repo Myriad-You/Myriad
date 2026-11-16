@@ -30,7 +30,6 @@ BEGIN
             ('fk_fed_follows_user', 'federation_follows', 'user_id', 'users', 'id', 'CASCADE'),
             ('fk_fed_activities_user', 'federation_activities', 'user_id', 'users', 'id', 'CASCADE'),
             ('fk_fed_channels_user', 'federation_channels', 'user_id', 'users', 'id', 'CASCADE'),
-            ('fk_fed_channel_messages_channel', 'federation_channel_messages', 'channel_id', 'federation_channels', 'channel_id', 'CASCADE'),
             ('fk_fed_published_user', 'federation_published_content', 'user_id', 'users', 'id', 'CASCADE'),
             ('fk_fed_timeline_user', 'federation_timeline', 'user_id', 'users', 'id', 'CASCADE'),
             ('fk_fed_room_members_local_user', 'federation_room_members', 'local_user_id', 'users', 'id', 'SET NULL')

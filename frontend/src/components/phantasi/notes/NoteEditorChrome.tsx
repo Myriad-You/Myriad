@@ -152,7 +152,7 @@ interface NoteTopBarProps {
   scheduledAt: number | null
   cloudHint: boolean
   peers: NoteCollabPeer[]
-  collabConnection: 'connecting' | 'connected' | 'reconnecting'
+  collabConnection: 'connecting' | 'connected' | 'reconnecting' | 'gone'
   saving: boolean
   loading: boolean
   onPublish: () => void
@@ -228,7 +228,9 @@ export function NoteTopBar({
             {format(t.phantasi.noteCharCount, { count: chars })}
           </span>
           {collabConnection !== 'connected' ? <span className="phantasi-note__collab-state" role="status">
-            {collabConnection === 'connecting' ? t.phantasi.noteCollabConnecting : t.phantasi.noteCollabReconnecting}
+            {collabConnection === 'gone'
+              ? t.phantasi.noteGone
+              : collabConnection === 'connecting' ? t.phantasi.noteCollabConnecting : t.phantasi.noteCollabReconnecting}
           </span> : null}
           {peers.length ? (
             <div className="phantasi-note__peers" aria-live="polite">
@@ -1231,6 +1233,10 @@ interface NoteSettingsDrawerProps {
   slugInput: string
   slugInvalid: boolean
   onSlugInput: (value: string) => void
+  /** 已发布笔记的旧地址输入框，一行一条。 */
+  oldPathsInput: string
+  oldPathsInvalid: boolean
+  onOldPathsInput: (value: string) => void
   articleHref?: string | null
   scheduledAt: number | null
   onScheduledAtChange: (ms: number | null) => void
@@ -1620,6 +1626,9 @@ function NotePublishedPublish({
   slugInput,
   slugInvalid,
   onSlugInput,
+  oldPathsInput,
+  oldPathsInvalid,
+  onOldPathsInput,
   articleHref,
   companion,
 }: NoteSettingsDrawerProps) {
@@ -1707,9 +1716,60 @@ function NotePublishedPublish({
           </div>
         ) : null}
       </div>
+      <NoteOldPaths value={oldPathsInput} invalid={oldPathsInvalid} onChange={onOldPathsInput} />
       <NoteArticleDate value={publishedAt} onChange={onPublishedAtChange} />
       {companion}
     </>
+  )
+}
+
+/** 搬家来的文章原来的地址。平时只显示有几条，点「修改」才展开文本框，一行一条。 */
+function NoteOldPaths({ value, invalid, onChange }: { value: string; invalid: boolean; onChange: (value: string) => void }) {
+  const { t, format } = useI18n()
+  const [editing, setEditing] = useState(false)
+  const count = value.split('\n').filter((line) => line.trim()).length
+  return (
+    <div className="phantasi-note__date-row">
+      <div className="phantasi-note__date-line">
+        <span className="note-field__label">{t.phantasi.noteSettingsOldPaths}</span>
+        {editing ? null : (
+          <span className="phantasi-note__date-value">
+            {count > 0 ? format(t.phantasi.noteSettingsOldPathsCount, { count }) : '—'}
+          </span>
+        )}
+        <NoteButton
+          variant="quiet"
+          className="phantasi-note__date-toggle"
+          aria-expanded={editing}
+          disabled={editing && invalid}
+          onClick={() => setEditing((open) => !open)}
+        >
+          {editing ? t.phantasi.noteSettingsDone : t.phantasi.noteSettingsEdit}
+        </NoteButton>
+      </div>
+      {editing ? (
+        <div className="phantasi-note__date-edit">
+          <textarea
+            id="note-old-paths"
+            autoFocus
+            className="note-input phantasi-note__old-paths"
+            rows={3}
+            value={value}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            placeholder={t.phantasi.noteSettingsOldPathsPlaceholder}
+            aria-label={t.phantasi.noteSettingsOldPaths}
+            aria-invalid={invalid || undefined}
+            aria-describedby="note-old-paths-hint"
+            onChange={(event) => onChange(event.target.value)}
+          />
+          <p id="note-old-paths-hint" className="note-field__hint">
+            {invalid ? t.phantasi.noteSettingsOldPathsInvalid : t.phantasi.noteSettingsOldPathsHint}
+          </p>
+        </div>
+      ) : null}
+    </div>
   )
 }
 

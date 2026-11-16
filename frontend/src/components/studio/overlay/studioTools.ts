@@ -75,6 +75,12 @@ export interface StudioWindowLayout {
 export interface StudioOpenWindow extends StudioToolSpec {
   loaded: string | null
   /**
+   * 开着的窗口被要求换内容的次数，iframe 跟着它重建。只看 `loaded` 不够：新笔记窗口拿到 id 后
+   * `loaded` 还是 `new`，再点「写笔记」要的也是 `new`，地址没变，iframe 就不会重新加载，
+   * 编辑器会一直停在上一篇（那篇可能刚被删）。不存进浏览器。
+   */
+  load?: number
+  /**
    * 窗口里的应用已经画出第一屏（窗口自己报的）；之前只显示占位，不露出整页的启动画面。
    * 换了加载的内容就是新的一条，重新等。不存进浏览器。
    */
@@ -205,7 +211,14 @@ export function layoutToValue(layout: StudioOverlayLayout): unknown {
 export function openTool(layout: StudioOverlayLayout, spec: StudioToolSpec): StudioOverlayLayout {
   const showing = layout.open.find((item) => item.tool === spec.tool)
   const entry: StudioOpenWindow =
-    showing && showing.arg === spec.arg ? showing : { tool: spec.tool, arg: spec.arg, loaded: spec.arg }
+    showing && showing.arg === spec.arg
+      ? showing
+      : {
+          tool: spec.tool,
+          arg: spec.arg,
+          loaded: spec.arg,
+          ...(showing ? { load: (showing.load ?? 0) + 1 } : {}),
+        }
   const rest = layout.open.filter((item) => item.tool !== spec.tool)
   return { ...layout, open: [...rest, entry] }
 }

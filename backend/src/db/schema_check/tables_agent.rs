@@ -274,6 +274,9 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     default_value: None,
                     not_null: false,
                 },
+                // A copy of a line said on another end (D6-e, `persona_log.sql`).
+                ColumnDef::new("origin", "character varying"),
+                ColumnDef::new("log_row", "character varying"),
             ],
         },
         TableDef {
@@ -950,6 +953,156 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
+            name: "agent_topic_nodes".to_string(),
+            columns: vec![
+                ColumnDef::new("id", "character varying").not_null(),
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("audience", "text").not_null(),
+                ColumnDef::new("node_key", "text").not_null(),
+                ColumnDef::new("name", "text").not_null(),
+                ColumnDef::new("aliases", "jsonb")
+                    .not_null()
+                    .default_value("'[]'::jsonb"),
+                ColumnDef::new("created_at", "timestamp with time zone").not_null(),
+                ColumnDef::new("tidied_at", "timestamp with time zone"),
+            ],
+        },
+        TableDef {
+            name: "agent_memory_topics".to_string(),
+            columns: vec![
+                ColumnDef::new("memory_id", "character varying").not_null(),
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("topic_id", "character varying"),
+                ColumnDef::new("linked_at", "timestamp with time zone")
+                    .not_null()
+                    .default_value("now()"),
+            ],
+        },
+        // 她的节点照共享核心存（`memory_nodes.sql`）
+        TableDef {
+            name: "agent_node_rows".to_string(),
+            columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("audience", "text").not_null(),
+                ColumnDef::new("node_id", "character varying").not_null(),
+                ColumnDef::new("row_id", "character varying").not_null(),
+                ColumnDef::new("kind", "character varying").not_null(),
+                ColumnDef::new("body", "text").not_null(),
+                ColumnDef::new("said_by", "jsonb")
+                    .not_null()
+                    .default_value("'[]'::jsonb"),
+                ColumnDef::new("author", "character varying").not_null(),
+                ColumnDef::new("at", "timestamp with time zone").not_null(),
+                ColumnDef::new("hlc", "text").not_null(),
+                ColumnDef::new("origin", "character varying").not_null(),
+                ColumnDef::new("dseq", "bigint"),
+                ColumnDef::new("epoch", "bigint"),
+                ColumnDef::new("envelope", "jsonb").not_null(),
+                ColumnDef::new("created_at", "timestamp with time zone")
+                    .not_null()
+                    .default_value("now()"),
+            ],
+        },
+        TableDef {
+            name: "agent_node_heads".to_string(),
+            columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("audience", "text").not_null(),
+                ColumnDef::new("node_id", "character varying").not_null(),
+                ColumnDef::new("node_key", "text"),
+                ColumnDef::new("kind", "character varying"),
+                ColumnDef::new("name", "text"),
+                ColumnDef::new("aliases", "jsonb")
+                    .not_null()
+                    .default_value("'[]'::jsonb"),
+                ColumnDef::new("status", "character varying").not_null(),
+                ColumnDef::new("node", "jsonb").not_null(),
+                ColumnDef::new("updated_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_node_placements".to_string(),
+            columns: vec![
+                ColumnDef::new("memory_id", "character varying").not_null(),
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("audience", "text").not_null(),
+                ColumnDef::new("node_id", "character varying"),
+                ColumnDef::new("how", "character varying").not_null(),
+                ColumnDef::new("decided_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_node_inbox".to_string(),
+            columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("audience", "text").not_null(),
+                ColumnDef::new("day", "date").not_null(),
+                ColumnDef::new("id", "character varying").not_null(),
+                ColumnDef::new("item", "jsonb").not_null(),
+                ColumnDef::new("created_at", "timestamp with time zone")
+                    .not_null()
+                    .default_value("now()"),
+                ColumnDef::new("placed_at", "timestamp with time zone"),
+            ],
+        },
+        TableDef {
+            name: "agent_node_instructions".to_string(),
+            columns: vec![
+                ColumnDef::new("intent_id", "character varying").not_null(),
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("audience", "text").not_null(),
+                ColumnDef::new("node_id", "character varying").not_null(),
+                ColumnDef::new("message_ref", "character varying").not_null(),
+                ColumnDef::new("echo", "text").not_null(),
+                ColumnDef::new("owner", "character varying").not_null(),
+                ColumnDef::new("persona", "character varying").not_null(),
+                ColumnDef::new("device", "character varying").not_null(),
+                ColumnDef::new("granted", "jsonb")
+                    .not_null()
+                    .default_value("'[]'::jsonb"),
+                ColumnDef::new("created_at", "timestamp with time zone")
+                    .not_null()
+                    .default_value("now()"),
+                ColumnDef::new("outcome_way", "character varying"),
+                ColumnDef::new("outcome_line", "text"),
+                ColumnDef::new("outcome_at", "timestamp with time zone"),
+                ColumnDef::new("succeeded", "boolean"),
+                ColumnDef::new("work_session_id", "character varying"),
+            ],
+        },
+        TableDef {
+            name: "agent_node_migrations".to_string(),
+            columns: vec![
+                ColumnDef::new("id", "bigint").not_null(),
+                ColumnDef::new("dry_run", "boolean").not_null(),
+                ColumnDef::new("status", "character varying").not_null(),
+                ColumnDef::new("counts", "jsonb")
+                    .not_null()
+                    .default_value("'{}'::jsonb"),
+                ColumnDef::new("estimate", "jsonb")
+                    .not_null()
+                    .default_value("'{}'::jsonb"),
+                ColumnDef::new("spent", "jsonb")
+                    .not_null()
+                    .default_value("'{}'::jsonb"),
+                ColumnDef::new("note", "text"),
+                ColumnDef::new("started_at", "timestamp with time zone").not_null(),
+                ColumnDef::new("finished_at", "timestamp with time zone"),
+            ],
+        },
+        TableDef {
+            name: "agent_speech_said".to_string(),
+            columns: vec![
+                ColumnDef::new("id", "character varying").not_null(),
+                ColumnDef::new("audience", "text").not_null(),
+                ColumnDef::new("user_id", "integer"),
+                ColumnDef::new("thing", "text"),
+                ColumnDef::new("called", "boolean").not_null(),
+                ColumnDef::new("at", "timestamp with time zone").not_null(),
+                ColumnDef::new("payload", "jsonb").not_null(),
+            ],
+        },
+        TableDef {
             name: "agent_memory_cues".to_string(),
             columns: vec![
                 ColumnDef::new("memory_id", "character varying").not_null(),
@@ -983,19 +1136,37 @@ pub(crate) fn tables() -> Vec<TableDef> {
                 ColumnDef::new("last_seen_at", "timestamp with time zone"),
                 ColumnDef::new("revoked_at", "timestamp with time zone"),
                 ColumnDef::new("revoked_reason", "character varying"),
+                ColumnDef::new("app_outdated_at", "timestamp with time zone"),
             ],
         },
         TableDef {
-            name: "agent_host_lease".to_string(),
+            name: "agent_her_copy".to_string(),
             columns: vec![
                 ColumnDef::new("id", "character varying").not_null(),
-                ColumnDef::new("holder", "character varying").not_null(),
                 ColumnDef::new("lineage", "character varying").not_null(),
-                ColumnDef::new("epoch", "bigint").not_null(),
                 ColumnDef::new("state", "character varying").not_null(),
-                ColumnDef::new("move", "jsonb"),
+                ColumnDef::new("state_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_her_moves".to_string(),
+            columns: vec![
+                ColumnDef::new("id", "character varying").not_null(),
+                ColumnDef::new("kind", "character varying").not_null(),
+                ColumnDef::new("from_holder", "character varying").not_null(),
+                ColumnDef::new("to_holder", "character varying").not_null(),
+                ColumnDef::new("phase", "character varying").not_null(),
+                ColumnDef::new("started_by", "character varying").not_null(),
+                ColumnDef::new("digest", "character varying"),
+                ColumnDef::new("started_at", "timestamp with time zone").not_null(),
+                ColumnDef::new("confirmed_at", "timestamp with time zone"),
+                ColumnDef::new("agreed", "boolean"),
+                ColumnDef::new("import_id", "character varying"),
+                ColumnDef::new("via", "character varying"),
+                ColumnDef::new("was_state", "character varying"),
                 ColumnDef::new("updated_at", "timestamp with time zone").not_null(),
-                ColumnDef::new("done", "jsonb"),
+                ColumnDef::new("done_at", "timestamp with time zone"),
+                ColumnDef::new("done_epoch", "bigint"),
             ],
         },
         TableDef {
@@ -1028,8 +1199,19 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
+            name: "agent_log_partners".to_string(),
+            columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("partner_id", "character varying").not_null(),
+                ColumnDef::new("minted_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
             name: "agent_log_rows".to_string(),
             columns: vec![
+                // Not declared NOT NULL: on a log of the old shape the generic
+                // ADD would fail; `persona_log.sql` makes that log again.
+                ColumnDef::new("user_id", "integer"),
                 ColumnDef::new("id", "character varying").not_null(),
                 ColumnDef::new("audience", "character varying").not_null(),
                 ColumnDef::new("origin", "character varying").not_null(),
@@ -1049,6 +1231,9 @@ pub(crate) fn tables() -> Vec<TableDef> {
         TableDef {
             name: "agent_log_payloads".to_string(),
             columns: vec![
+                // Not declared NOT NULL: on a log of the old shape the generic
+                // ADD would fail; `persona_log.sql` makes that log again.
+                ColumnDef::new("user_id", "integer"),
                 ColumnDef::new("row_id", "character varying").not_null(),
                 ColumnDef::new("sealed", "bytea").not_null(),
                 ColumnDef::new("created_at", "timestamp with time zone").not_null(),
@@ -1057,6 +1242,9 @@ pub(crate) fn tables() -> Vec<TableDef> {
         TableDef {
             name: "agent_log_audience_keys".to_string(),
             columns: vec![
+                // Not declared NOT NULL: on a log of the old shape the generic
+                // ADD would fail; `persona_log.sql` makes that log again.
+                ColumnDef::new("user_id", "integer"),
                 ColumnDef::new("audience", "character varying").not_null(),
                 ColumnDef::new("sealed", "text").not_null(),
                 ColumnDef::new("created_at", "timestamp with time zone").not_null(),
@@ -1065,6 +1253,9 @@ pub(crate) fn tables() -> Vec<TableDef> {
         TableDef {
             name: "agent_log_object_keys".to_string(),
             columns: vec![
+                // Not declared NOT NULL: on a log of the old shape the generic
+                // ADD would fail; `persona_log.sql` makes that log again.
+                ColumnDef::new("user_id", "integer"),
                 ColumnDef::new("audience", "character varying").not_null(),
                 ColumnDef::new("object", "character varying").not_null(),
                 ColumnDef::new("subject", "character varying"),
@@ -1073,17 +1264,29 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
-            name: "agent_log_ledger".to_string(),
+            name: "agent_log_ledgers".to_string(),
             columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
                 ColumnDef::new("audience", "character varying").not_null(),
-                ColumnDef::new("target", "character varying").not_null(),
-                ColumnDef::new("at", "character varying").not_null(),
+                ColumnDef::new("entries", "jsonb").not_null(),
+                ColumnDef::new("updated_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_log_elsewhere".to_string(),
+            columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("audience", "character varying").not_null(),
+                ColumnDef::new("node", "character varying").not_null(),
                 ColumnDef::new("recorded_at", "timestamp with time zone").not_null(),
             ],
         },
         TableDef {
             name: "agent_log_counters".to_string(),
             columns: vec![
+                // Not declared NOT NULL: on a log of the old shape the generic
+                // ADD would fail; `persona_log.sql` makes that log again.
+                ColumnDef::new("user_id", "integer"),
                 ColumnDef::new("audience", "character varying").not_null(),
                 ColumnDef::new("dseq", "bigint").not_null(),
             ],
@@ -1101,6 +1304,9 @@ pub(crate) fn tables() -> Vec<TableDef> {
                 ColumnDef::new("token_hash", "character varying").not_null(),
                 ColumnDef::new("device_id", "character varying").not_null(),
                 ColumnDef::new("audience", "character varying").not_null(),
+                ColumnDef::new("peer_abi", "smallint")
+                    .not_null()
+                    .default_value("1"),
                 ColumnDef::new("expires_at", "timestamp with time zone").not_null(),
                 ColumnDef::new("used_at", "timestamp with time zone"),
             ],
@@ -1109,11 +1315,30 @@ pub(crate) fn tables() -> Vec<TableDef> {
             name: "agent_lease_grants".to_string(),
             columns: vec![
                 ColumnDef::new("epoch", "bigint").not_null(),
-                ColumnDef::new("holder", "character varying").not_null(),
+                ColumnDef::new("holder", "character varying"),
                 ColumnDef::new("issued", "character varying").not_null(),
                 ColumnDef::new("how", "character varying").not_null(),
                 ColumnDef::new("through", "jsonb"),
                 ColumnDef::new("created_at", "timestamp with time zone").not_null(),
+                ColumnDef::new("from_holder", "character varying"),
+                ColumnDef::new("move_id", "character varying"),
+            ],
+        },
+        TableDef {
+            name: "agent_her_segments".to_string(),
+            columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("object", "character varying").not_null(),
+                ColumnDef::new("session_id", "character varying").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_her_state_rows".to_string(),
+            columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("object", "character varying").not_null(),
+                ColumnDef::new("digest", "character varying").not_null(),
+                ColumnDef::new("took", "character varying"),
             ],
         },
         TableDef {

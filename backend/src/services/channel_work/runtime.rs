@@ -64,15 +64,7 @@ pub(super) async fn start_delivery(
 ) {
     let mut stored = load_session(&db, sink.platform(), &key)
         .await
-        .unwrap_or(StoredSession {
-            session_id: String::new(),
-            last_run_id: None,
-            last_event_seq: 0,
-            original_input: String::new(),
-            binding: None,
-            address: None,
-            chat_session_id: None,
-        });
+        .unwrap_or_default();
     if let Some(id) = run.session_id() {
         stored.session_id = id.to_string();
     }

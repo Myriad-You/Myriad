@@ -7,6 +7,7 @@ pub mod consciousness;
 pub mod data_read_pure;
 pub mod data_write_pure;
 pub mod delegate;
+pub mod panel_work;
 pub mod group_turn;
 pub mod error_analyzer_pure;
 pub mod executor;
@@ -35,6 +36,7 @@ pub mod search_output;
 pub mod sessions;
 pub mod skill;
 pub mod skill_evolution;
+pub mod speech;
 pub mod system_op_pure;
 pub mod task_store_pure;
 pub mod tier_router;
@@ -47,13 +49,15 @@ pub(crate) mod work_loop;
 
 #[cfg(test)]
 mod behavior_contract;
+#[cfg(test)]
+pub(crate) mod consistency_recording;
 
 #[cfg(test)]
 mod persona_spread;
 #[cfg(test)]
 mod self_audit;
 #[cfg(test)]
-mod semantic_eval;
+pub(crate) mod semantic_eval;
 
 // 重新导出核心类型
 pub use types::*;
@@ -72,6 +76,8 @@ pub use agent_footer::{
     ensure_agent_usage_allowed, get_capabilities_summary_for_user,
     get_user_permissions, init_task_store, user_is_current_admin,
 };
+#[cfg(test)]
+pub(crate) use agent_footer::AgentTurnBudget;
 pub(crate) use agent_footer::{
     max_user_agent_permissions, scheduler_create_actions_within_grants,
     scheduler_create_tapp_permissions_within_grants,

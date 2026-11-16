@@ -1,4 +1,4 @@
-import type { TappCategory, TappManifest, WidgetCategory } from '../types'
+import type { TappCategory, TappManifest, WidgetCategory } from '@myriad/tapp-runtime'
 
 /** 用途分类的稳定 ID。运行形态与发布阶段不属于此字段。 */
 export const TAPP_CATEGORIES = [

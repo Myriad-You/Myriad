@@ -47,6 +47,8 @@ host HTTP_PORT
 | Updater | `updater/` | Self-update, snapshots, docker-guard / gateway binaries (own Cargo tree) |
 | Crates | `crates/` | Shared libs (error, outbound, image-proxy, tapp-*, …) |
 | Shared core | `core/` (git submodule) | Her rules as pure crates, in their own repository [Myriad-You/myriad-core](https://github.com/Myriad-You/myriad-core); the backend links them, the frontend reads its contracts ([SHARED_CORE.md](SHARED_CORE.md)) |
+| Figure | `figure/` (git submodule) | Her 2.5D figure: the rig runtime and the rig import tools, in their own repository [Myriad-You/myriad-figure](https://github.com/Myriad-You/myriad-figure); the frontend imports it as `@myriad/figure` ([BUILD.md](BUILD.md)) |
+| Tapp | `tapp/` (git submodule) | The Tapp contract, its pure rules, the CLI, the app author docs and the TypeScript runtime every host shares, in their own repository [Myriad-You/myriad-tapp](https://github.com/Myriad-You/myriad-tapp); the backend links the two crates and compiles in the author docs, the frontend imports the runtime as `@myriad/tapp-runtime` ([BUILD.md](BUILD.md)) |
 | Shared | `shared/` | Cross-component static assets (e.g. image proxy host list) |
 
 ## Frontend startup
@@ -212,7 +214,13 @@ its tables and the site behaves as before.
   object sealed by its audience's key, each payload AES-256-GCM under its
   object's key with the row id as associated data. The server holds the keys
   (problem 5). Forgetting deletes the object's key and payload; the stub and
-  the ledger stay.
+  the ledger stay. `scripts/extra/backup.sh` keeps the key rows and the data
+  key out of the data part, in a keys part of which only the newest copy is
+  kept (`docs/deployment/BACKUP.md`), so forgetting reaches those backups once
+  the keys part is next rewritten. Database copies made any other way (the
+  updater's `pgdata` snapshots, a hand-made `pg_dump`) still carry the key
+  rows, and the data key never changes, so with it they still open what was
+  forgotten, until they expire or are deleted.
 - **Relay** (`relay`): protocol-2 `log.vector`, `log.rows`, `lease.ask`,
   `lease.yield`, `lease.stopped` in; `log.rows`, `log.vector`, `log.full`,
   `lease.grant`, `lease.epoch`, `lease.takeover`, `error` out, every frame

@@ -1,12 +1,11 @@
-import type { TappInstance, TappMessage } from '../types'
-import type { TappBridge } from './TappBridge.ts'
+import type { TappBridge, TappInstance, TappMessage } from '@myriad/tapp-runtime'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { createContext, runInContext } from 'node:vm'
+import { generateFullSDK, generateWidgetSDK } from '@myriad/tapp-runtime'
 import { registerPlaygroundPreviewHandlers } from './sandbox/handlers/playgroundPreviewHandlers.ts'
-import { generateFullSDK, generateWidgetSDK } from './sandbox/sdkGenerator.ts'
 import {
   emitHostSettingsChange,
   emitTappPrivateChange,

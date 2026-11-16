@@ -92,10 +92,12 @@ fn parse(raw: &str) -> Option<Changes> {
 
 /// Older bits, or days, of a group the talk can bring back besides the
 /// freshest.
-const BROUGHT_BACK: usize = 2;
+pub(crate) const BROUGHT_BACK: usize = 2;
 
 /// A bit as kept: its handle and how it goes.
-fn bit_of(row: &crate::models::entities::agent_memories::Model) -> Option<(String, String)> {
+pub(crate) fn bit_of(
+    row: &crate::models::entities::agent_memories::Model,
+) -> Option<(String, String)> {
     let evidence: Value = serde_json::from_str(row.evidence.as_deref()?).ok()?;
     let handle = evidence.get("handle")?.as_str()?.trim().to_string();
     (!handle.is_empty()).then(|| (handle, row.content.clone()))
@@ -325,8 +327,9 @@ async fn apply_bits(
         )
         .await
         .map(|replaced| replaced.id);
-        if matches!(remembered, Ok(Some(_))) {
+        if let Ok(Some(id)) = &remembered {
             kept += 1;
+            super::memory_nodes::hanging::kept(db, id).await;
         }
     }
     kept
@@ -381,8 +384,9 @@ pub async fn picture_again(
         },
     )
     .await;
-    if matches!(remembered, Ok(Some(_))) {
+    if let Ok(Some(id)) = &remembered {
         tracing::info!(%venue, "[Merope] a picture this group keeps sending is one of its bits");
+        super::memory_nodes::hanging::kept(db, id).await;
     }
 }
 

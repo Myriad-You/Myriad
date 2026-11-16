@@ -3,6 +3,7 @@
 use super::super::agent_header::*;
 use super::super::response_agent;
 use super::super::types::*;
+use crate::services::agent::chat_prompt::ChatTurnPrompt;
 
 type ChatDelivery =
     std::sync::Arc<std::sync::Mutex<super::super::motion_overlay::ChatMotionDelivery>>;
@@ -157,22 +158,18 @@ impl WearStreamFilter {
         Option<myriad_merope::WearDirective>,
         Option<crate::services::agent::chat_music::ChatMusicAction>,
     ) {
-        let (after_wear, wear) = myriad_merope::split_chat_wear_directive(&self.raw);
-        let (spoken, music) =
-            crate::services::agent::chat_music::split_chat_music_directive(&after_wear);
-        let (spoken, started) = crate::services::agent::merope::soup::split_start(&spoken);
-        self.started_game |= started;
-        // A hand-off line is for the channel, not to be seen or heard.
-        let (spoken, _) = crate::services::agent::delegate::split(&spoken);
-        // A sticker line is for the chat app, not to be seen or heard.
-        let (spoken, _) = myriad_merope::stickers::split_sticker_directive(&spoken);
-        let visible = if hold {
-            crate::services::agent::chat_music::hold_incomplete_live_marker(&spoken)
+        let wear = myriad_merope::split_chat_wear_directive(&self.raw).1;
+        let music = crate::services::agent::chat_music::split_chat_music_directive(&self.raw).1;
+        self.started_game |= crate::services::agent::merope::soup::split_start(&self.raw).1;
+        // No mark is seen or heard, nor one still being written (the core's
+        // table); spaces at either end wait for what comes next.
+        let shown = if hold {
+            myriad_merope::speech::markers::shown(&self.raw).0
         } else {
-            spoken.as_str()
+            myriad_merope::speech::markers::strip(&self.raw)
         };
         (
-            self.delta(visible),
+            self.delta(shown.trim()),
             self.take_wear(wear),
             self.take_music(music),
         )
@@ -265,12 +262,14 @@ const EMPTY_REPLY: &str = "Chat model returned an empty response";
 const CUT_REPLY: &str = "Chat model reply was cut off before it finished";
 
 /// Whether only the finished reply reaches anyone: a group or an IM chat,
-/// where a reply is sent whole. On the panel it is shown as it is written.
+/// where a reply is sent whole, or the panel typed a message at a time.
+/// Said aloud on the panel, it is shown as it is written.
 fn sent_whole(request: &UserRequest) -> bool {
     request
         .context
         .as_ref()
         .is_some_and(|context| context.venue.is_some() || context.channel_chat.is_some())
+        || crate::services::agent::merope::chat_typing::in_messages(request.context.as_ref())
 }
 
 fn is_cut(error: &anyhow::Error) -> bool {
@@ -330,31 +329,30 @@ async fn streamed_analyzer() -> Result<Option<crate::services::analyzer::AiAnaly
     chat_analyzer().await.map(Some)
 }
 
-/// What she says to `prompt` in a recorded scene, streamed as one piece.
+/// What she says to `prompt` in a recorded scene, streamed as one piece:
+/// the scene reads it as one text.
 #[cfg(test)]
-async fn said_in_scene<F, Fut>(prompt: &str, mut on_delta: F) -> anyhow::Result<String>
+async fn said_in_scene<F, Fut>(prompt: &ChatTurnPrompt, mut on_delta: F) -> anyhow::Result<String>
 where
     F: FnMut(crate::services::analyzer::StreamDelta) -> Fut,
     Fut: std::future::Future<Output = bool>,
 {
-    match crate::services::channel_group::g0::say("chat", prompt).await {
+    match crate::services::channel_group::g0::say("chat", &prompt.text()).await {
         Some(Ok(text)) => {
             if !text.is_empty() {
                 on_delta(crate::services::analyzer::StreamDelta::Text(text.clone())).await;
             }
             Ok(text)
         }
-        Some(Err("cut")) => Err(anyhow::Error::new(
-            crate::services::analyzer::StreamCut {
-                partial: String::new(),
-            },
-        )),
+        Some(Err("cut")) => Err(anyhow::Error::new(crate::services::analyzer::StreamCut {
+            partial: String::new(),
+        })),
         _ => Err(anyhow::anyhow!("unavailable")),
     }
 }
 
 #[cfg(not(test))]
-async fn said_in_scene<F, Fut>(_: &str, _: F) -> anyhow::Result<String>
+async fn said_in_scene<F, Fut>(_: &ChatTurnPrompt, _: F) -> anyhow::Result<String>
 where
     F: FnMut(crate::services::analyzer::StreamDelta) -> Fut,
     Fut: std::future::Future<Output = bool>,
@@ -443,7 +441,15 @@ impl Agent {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentProgressEvent>(256);
         tokio::spawn(async move { while rx.recv().await.is_some() {} });
         match self
-            .stream_chat_response_with_analyzer(request, prompt, &tx, analyzer, None, None, false)
+            .stream_chat_response_with_analyzer(
+                request,
+                &ChatTurnPrompt::whole(prompt),
+                &tx,
+                analyzer,
+                None,
+                None,
+                false,
+            )
             .await
         {
             Ok(text) => Ok(text),
@@ -462,7 +468,12 @@ impl Agent {
         // The same request as the streamed path, only not relayed. Nothing
         // was shown, so a reply the provider dropped halfway is asked again.
         let mut response = analyzer
-            .analyze_stream_parts_with_images(&prompt, images_of(request), |_| async { true })
+            .analyze_stream_messages_with_images(
+                &prompt.system,
+                &prompt.messages,
+                images_of(request),
+                |_| async { true },
+            )
             .await;
         if response.as_ref().is_err_and(is_cut) {
             tracing::warn!(
@@ -470,7 +481,12 @@ impl Agent {
                 "[Chat] reply cut off; asking once more"
             );
             response = analyzer
-                .analyze_stream_parts_with_images(&prompt, images_of(request), |_| async { true })
+                .analyze_stream_messages_with_images(
+                    &prompt.system,
+                    &prompt.messages,
+                    images_of(request),
+                    |_| async { true },
+                )
                 .await;
         }
         let response = response.map_err(|error| error.to_string())?;
@@ -489,7 +505,7 @@ impl Agent {
         }
     }
 
-    pub(crate) async fn chat_response_prompt(&self, request: &UserRequest) -> String {
+    pub(crate) async fn chat_response_prompt(&self, request: &UserRequest) -> ChatTurnPrompt {
         let soul = crate::services::agent::identity::get_speaking_soul()
             .await
             .unwrap_or_default();
@@ -520,9 +536,8 @@ impl Agent {
         // theirs to run: those sections are for a private chat on the site,
         // where they are really there.
         if request.context.as_ref().is_some_and(|context| {
-                context.interaction_mode == crate::services::agent::AgentInteractionMode::Chat
-            })
-        {
+            context.interaction_mode == crate::services::agent::AgentInteractionMode::Chat
+        }) {
             let in_app = request
                 .context
                 .as_ref()
@@ -579,6 +594,14 @@ impl Agent {
                 None => crate::services::agent::merope::soup::offer(request).await,
             };
             blocks.extend(game);
+            // The panel's one conversation: she can hand work off there too.
+            if let Some(chat) = request
+                .context
+                .as_ref()
+                .and_then(|context| context.panel_work.as_ref())
+            {
+                blocks.push(crate::services::agent::delegate::section(chat));
+            }
             // A private IM chat: she can hand work off.
             if let Some(chat) = request
                 .context
@@ -590,15 +613,15 @@ impl Agent {
                 if let Some(away) = &chat.came_while_away {
                     blocks.push(format!("## While you were away\n{away}"));
                 }
-                // How they type to her, once there is enough of it.
-                if let Some(room) = request
+                // How they type to her (how people in a chat app usually
+                // do, until they have said enough).
+                let room = request
                     .context
                     .as_ref()
                     .and_then(|context| context.conversation_history.as_deref())
                     .and_then(crate::services::agent::merope::their_typing)
-                {
-                    blocks.push(myriad_merope::talk_shape::describe(&room, "How they type"));
-                }
+                    .unwrap_or(myriad_merope::talk_shape::CHAT_APP_USUAL);
+                blocks.push(myriad_merope::talk_shape::describe(&room, "How they type"));
                 // No player there: a song goes as its link.
                 if let Some(songs) =
                     crate::services::agent::chat_music::offer_song_links(&self.db).await
@@ -616,6 +639,20 @@ impl Agent {
                 {
                     blocks.push(stickers);
                 }
+            } else if crate::services::agent::merope::chat_typing::in_messages(
+                request.context.as_ref(),
+            ) {
+                // Typed here a message at a time: she types as she does in a
+                // chat app, the way they type to her (how people in a chat
+                // app usually do, until they have said enough).
+                blocks.push(myriad_merope::speaking::chat_app_section().to_string());
+                let room = request
+                    .context
+                    .as_ref()
+                    .and_then(|context| context.conversation_history.as_deref())
+                    .and_then(crate::services::agent::merope::their_typing)
+                    .unwrap_or(myriad_merope::talk_shape::CHAT_APP_USUAL);
+                blocks.push(myriad_merope::talk_shape::describe(&room, "How they type"));
             }
             if !merope_block.is_empty() {
                 blocks.insert(0, merope_block);
@@ -634,7 +671,8 @@ impl Agent {
                 .filter(|message| message.role == "assistant")
                 .flat_map(|message| message.content.lines())
                 .collect();
-            let about = crate::services::agent::merope::doing::now_line(&doing, crate::clock::now());
+            let about =
+                crate::services::agent::merope::doing::now_line(&doing, crate::clock::now());
             let told = myriad_merope::speaking::already_told(&about, &hers);
             if let Some(section) = myriad_merope::speaking::format_already_told_section(&told) {
                 merope_block = if merope_block.is_empty() {
@@ -762,7 +800,7 @@ impl Agent {
                 format!("{perception}\n\n{attached}")
             };
         }
-        crate::services::agent::chat_prompt::build_chat_lite_prompt_with_perception(
+        crate::services::agent::chat_prompt::chat_turn_prompt(
             &soul,
             &with_moment(merope_block),
             &history,
@@ -774,7 +812,7 @@ impl Agent {
     async fn stream_chat_response_with_analyzer(
         &self,
         request: &UserRequest,
-        prompt: &str,
+        prompt: &ChatTurnPrompt,
         progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
         analyzer: Option<crate::services::analyzer::AiAnalyzer>,
         speech_delivery: Option<ChatDelivery>,
@@ -791,6 +829,10 @@ impl Agent {
             .context
             .as_ref()
             .and_then(|context| context.session_id.clone());
+        // Typed out a message at a time once it is whole: nothing shows as
+        // it is written.
+        let typed =
+            crate::services::agent::merope::chat_typing::in_messages(request.context.as_ref());
         let said_anything = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let heard = said_anything.clone();
         let on_delta = |delta| {
@@ -824,7 +866,7 @@ impl Agent {
                                 tx.clone(),
                             );
                         }
-                        if spoken.is_empty() {
+                        if spoken.is_empty() || typed {
                             return true;
                         }
                         crate::services::analyzer::StreamDelta::Text(spoken)
@@ -838,10 +880,11 @@ impl Agent {
         let mut streamed = None;
         if let Some(HerVoice { omni, out, heard }) = &voice {
             let mut unsaid = crate::services::omni_voice::Unsaid::default();
-            let aloud = crate::services::omni_voice::said_aloud(prompt);
-            let spoken = crate::services::omni_voice::speak(
+            let aloud = crate::services::omni_voice::said_aloud(&prompt.system);
+            let spoken = crate::services::omni_voice::speak_turn(
                 omni,
                 &aloud,
+                &prompt.messages,
                 images_of(request),
                 heard.as_deref(),
                 |piece| {
@@ -888,7 +931,12 @@ impl Agent {
             None => match analyzer {
                 Some(analyzer) => {
                     analyzer
-                        .analyze_stream_parts_with_images(&prompt, images_of(request), on_delta)
+                        .analyze_stream_messages_with_images(
+                            &prompt.system,
+                            &prompt.messages,
+                            images_of(request),
+                            on_delta,
+                        )
                         .await
                 }
                 None => said_in_scene(prompt, on_delta).await,
@@ -937,7 +985,7 @@ impl Agent {
                         progress_tx.clone(),
                     );
                 }
-                if !leftover.is_empty() {
+                if !leftover.is_empty() && !typed {
                     emit_chat_delta(
                         progress_tx,
                         crate::services::analyzer::StreamDelta::Text(leftover),
@@ -963,12 +1011,14 @@ impl Agent {
                     {
                         let opening = format!("\n\n{opening}");
                         full_text.push_str(&opening);
-                        emit_chat_delta(
-                            progress_tx,
-                            crate::services::analyzer::StreamDelta::Text(opening),
-                            speech_delivery.as_ref(),
-                        )
-                        .await;
+                        if !typed {
+                            emit_chat_delta(
+                                progress_tx,
+                                crate::services::analyzer::StreamDelta::Text(opening),
+                                speech_delivery.as_ref(),
+                            )
+                            .await;
+                        }
                     }
                 }
                 if let Some(delivery) = speech_delivery.as_ref() {
@@ -1044,7 +1094,7 @@ mod prompt_size {
         let mut parts: Vec<(usize, String)> = Vec::new();
         let mut title = "(before any heading)".to_string();
         let mut chars = 0;
-        for line in prompt.lines() {
+        for line in prompt.text().lines() {
             if line.starts_with("## ") || line.starts_with("# ") {
                 parts.push((chars, title));
                 title = line.chars().take(70).collect();
@@ -1058,12 +1108,72 @@ mod prompt_size {
         }
         println!(
             "{:>6}  total ({} parts; history {} messages, {history_chars} chars)",
-            prompt.chars().count(),
+            prompt.text().chars().count(),
             parts.len(),
             history.len()
         );
         if let Ok(path) = std::env::var("MEROPE_PROBE_DUMP") {
-            std::fs::write(path, &prompt).unwrap();
+            std::fs::write(path, prompt.text()).unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+mod stream_filter_tests {
+    use super::WearStreamFilter;
+
+    /// What they see as her reply streams in, piece by piece: never a mark
+    /// or the start of one, the same words as before the core's table.
+    fn streamed(pieces: &[&str]) -> String {
+        let mut filter = WearStreamFilter::new("换睡衣".into());
+        let mut seen = String::new();
+        for piece in pieces {
+            seen.push_str(&filter.push(piece).0);
+        }
+        seen.push_str(&filter.flush().0);
+        seen
+    }
+
+    #[test]
+    fn marks_never_show_while_she_speaks() {
+        assert_eq!(
+            streamed(&["好，", "换上", "[[we", "ar:睡", "衣]]", "啦"]),
+            "好，换上啦"
+        );
+        assert_eq!(
+            streamed(&["行，我唱给你听。\n", "[[mus", "ic:play]]"]),
+            "行，我唱给你听。"
+        );
+        assert_eq!(
+            streamed(&[
+                "好，我去查",
+                "\n[[work: 明天",
+                "的天气]]\n",
+                "[[sticker:2]]"
+            ]),
+            "好，我去查"
+        );
+        assert_eq!(
+            streamed(&["好呀，等我想一个……", "\n[[game:so", "up]]"]),
+            "好呀，等我想一个……"
+        );
+        assert_eq!(streamed(&["[[workers]]", " 不是"]), "[[workers]] 不是");
+    }
+
+    #[test]
+    fn what_the_marks_ask_for_is_read_once() {
+        let mut filter = WearStreamFilter::new(String::new());
+        let (_, wear, _) = filter.push("好\n[[wear:睡衣]]");
+        assert_eq!(
+            wear,
+            Some(myriad_merope::WearDirective::Label("睡衣".into()))
+        );
+        let (_, wear, music) = filter.push("\n[[music:next]]\n[[game:soup]]");
+        assert!(wear.is_none());
+        assert_eq!(
+            music,
+            Some(crate::services::agent::chat_music::ChatMusicAction::Next)
+        );
+        assert!(filter.started_game);
     }
 }

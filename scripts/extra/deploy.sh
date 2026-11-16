@@ -118,6 +118,9 @@ ensure_guard_policy_secret() {
         case "$value" in
             *$'\r'*) err "  The value contains a carriage return (Windows line endings): convert $GUARD_ENV_FILE and .env to LF line endings." ;;
         esac
+        if [ -n "$(printf '%s' "$value" | LC_ALL=C tr -d '\000-\177')" ]; then
+            err "  The value contains non-ASCII bytes, often an invisible character (BOM, zero-width space) pasted in from another editor."
+        fi
         err "  To regenerate it, empty GUARD_SELF_UPDATE_TOKEN in both $GUARD_ENV_FILE and .env, then rerun."
         exit 2
     fi

@@ -65,7 +65,7 @@ static PLAYGROUND_AGENT_CONCURRENCY: LazyLock<Semaphore> =
 
 /// Injected verbatim into every generation run so the agent always receives
 /// the project design language, independent of documentation retrieval.
-const UI_DESIGN_SPEC: &str = include_str!("../../../../docs/development/tapp/DESIGN_SPEC.md");
+const UI_DESIGN_SPEC: &str = include_str!("../../../../tapp/docs/DESIGN_SPEC.md");
 
 /// Injected verbatim into every generation run: preview boundary and calling
 /// contract (including `Tapp.ai.tasks` operations and the result envelope).

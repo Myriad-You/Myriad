@@ -1,7 +1,7 @@
 /** 可收录：站未 noindex、模块全体可见、公开安装且 visibility !== admin。 */
 
+import type { TappInstance } from '@myriad/tapp-runtime'
 import type { PageSeoInput } from '../../utils/siteMetadata'
-import type { TappInstance } from '../types'
 import {
   formatPageTitle,
 

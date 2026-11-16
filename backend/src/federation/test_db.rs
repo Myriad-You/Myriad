@@ -31,6 +31,11 @@ impl SchemaDb {
     }
 
     async fn at(url: String) -> Option<Self> {
+        // A few schemas at a time across the tests, as every fixture does.
+        let _turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         let schema = format!("federation_test_{}", uuid::Uuid::new_v4().simple());
         let admin = Database::connect(&url).await.expect("connect test db");
         admin
@@ -51,6 +56,10 @@ impl SchemaDb {
     }
 
     pub async fn close(self) {
+        let _turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         self.db
             .execute_unprepared(&format!("DROP SCHEMA {} CASCADE", self.schema))
             .await

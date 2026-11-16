@@ -1,11 +1,12 @@
 import type { ChatMessage } from './engineTypes'
+import { safeRandomUUID } from '../../utils/uuid'
 import { BODY_PAGE_CHARS, BodyWriter, prepareMessageBody } from './messageBody'
 import { SummaryTextStream } from './summaryTextStream'
 
 /** Ingress-only normalization; neither rendering nor token updates parse full text. */
 export async function prepareAssistantBody(content: string, signal: AbortSignal) {
-  const reply = new BodyWriter(crypto.randomUUID(), signal)
-  const thought = new BodyWriter(crypto.randomUUID(), signal)
+  const reply = new BodyWriter(safeRandomUUID(), signal)
+  const thought = new BodyWriter(safeRandomUUID(), signal)
   const parser = new SummaryTextStream()
   try {
     for (let at = 0; at < content.length; at += BODY_PAGE_CHARS) {

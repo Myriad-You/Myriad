@@ -1,4 +1,4 @@
-import type { TextVisemeCue } from './textVisemes'
+import type { TextVisemeCue } from '@myriad/figure/speech'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {

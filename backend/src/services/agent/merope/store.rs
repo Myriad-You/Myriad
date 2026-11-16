@@ -55,7 +55,7 @@ pub async fn chat_lines_since(
             "SELECT m.created_at, m.content, m.role FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
              WHERE m.role IN ('user', 'assistant') AND s.context->>'mode' = 'chat' \
-               AND m.created_at >= $1 \
+               AND m.created_at >= $1 AND (m.metadata->>'piece') IS NULL \
              ORDER BY m.created_at ASC LIMIT $2",
             [since.into(), limit.into()],
         ))

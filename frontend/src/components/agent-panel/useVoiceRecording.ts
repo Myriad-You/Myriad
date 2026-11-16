@@ -31,6 +31,7 @@ import {
   speechToText,
   subscribeSpeechStatus,
 } from '../../services/speechApi'
+import { safeRandomUUID } from '../../utils/uuid'
 import {
   getAgentPanelMode,
   setAgentPanelMode,
@@ -210,7 +211,7 @@ export function useVoiceRecording(
         if (omniRef.current) {
           // She hears it herself: written down for the turn's words, the
           // recording kept for her under this token.
-          const heard = crypto.randomUUID()
+          const heard = safeRandomUUID()
           const result = await omniHear(heard, base64Audio, signal)
           return {
             text: result.success ? (result.text?.trim() ?? '') : '',

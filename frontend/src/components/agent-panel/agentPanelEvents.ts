@@ -230,6 +230,19 @@ export function agentPanelCommand(event: Event): AgentPanelCommand | null {
 }
 
 export const AGENT_PANEL_ANSWER_EVENT = 'agent-panel-answer'
+
+/** Lines she forgot (`loaded_<id>` in the panel): the panel takes them away. */
+export const AGENT_PANEL_FORGOTTEN_EVENT = 'agent-panel-forgotten'
+
+export function dispatchForgottenLines(sessionId: string, lines: number[]): void {
+  window.dispatchEvent(new CustomEvent(AGENT_PANEL_FORGOTTEN_EVENT, { detail: { sessionId, lines } }))
+}
+
+export function forgottenLinesDetail(event: Event): { sessionId: string; lines: number[] } | null {
+  const detail = (event as CustomEvent<{ sessionId?: unknown; lines?: unknown }>).detail
+  if (typeof detail?.sessionId !== 'string' || !Array.isArray(detail.lines)) return null
+  return { sessionId: detail.sessionId, lines: detail.lines.filter((line): line is number => typeof line === 'number') }
+}
 export const AGENT_PANEL_HISTORY_ANSWER_RESULT_EVENT = 'agent-panel-history-answer-result'
 
 export function dispatchHistoryAnswerResult(sessionId: string, messageId: string, success: boolean): void {

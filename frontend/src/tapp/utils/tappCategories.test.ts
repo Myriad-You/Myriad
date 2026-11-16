@@ -15,7 +15,7 @@ interface ContractExport {
 
 function loadContractExport(): ContractExport {
   const raw = readFileSync(
-    join(repoRoot, 'tools/tapp-cli/src/generated/contract.json'),
+    join(repoRoot, 'tapp/tools/tapp-cli/src/generated/contract.json'),
     'utf8',
   )
   return JSON.parse(raw) as ContractExport

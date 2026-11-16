@@ -2,6 +2,8 @@ import type { CSSProperties, ReactNode, Ref } from 'react'
 import type { RigCharacterHandle } from '../../features/merope/character/RigCharacter'
 import type { MoodBand } from '../agent/meropeVitals'
 import type { WidgetComponentProps } from '../widgetGridTypes'
+import { isAnime25DPlayback } from '@myriad/figure/anime25drig'
+import { sameLiveFaceRuntime } from '@myriad/figure/rig'
 import {
   memo,
   useCallback,
@@ -13,7 +15,6 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { useI18n, withI18nNamespace } from '../../contexts/I18nContext'
-import { isAnime25DPlayback } from '../../features/merope/anime25drig/types'
 import { getSiteFace } from '../../features/merope/api'
 import RigCharacter from '../../features/merope/character/RigCharacter'
 import { FACE_UPDATED_EVENT } from '../../features/merope/events/updates'
@@ -27,7 +28,6 @@ import {
   useLiveFacePlayback,
 } from '../../features/merope/presence/liveFacePlayback'
 import { useMeropeWidgetFaceSlot } from '../../features/merope/presence/widgetFaceSlot'
-import { sameLiveFaceRuntime } from '../../features/merope/rig/manifestValidation'
 import { useAgentStatusKind } from '../agent-panel/agentStatusStore'
 import { moodBand } from '../agent/meropeVitals'
 import { MeropeFigureBones } from './MeropeSkeleton'

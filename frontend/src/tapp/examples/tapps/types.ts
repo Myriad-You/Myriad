@@ -1,5 +1,5 @@
+import type { TappManifest } from '@myriad/tapp-runtime'
 import type { TappPlaygroundCode } from '../../services/TappPlaygroundService'
-import type { TappManifest } from '../../types'
 
 export type { TappPlaygroundCode } from '../../services/TappPlaygroundService'
 

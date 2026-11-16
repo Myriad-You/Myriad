@@ -27,7 +27,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
 use crate::config::OmniVoice;
-use crate::services::analyzer::ImageInput;
+use crate::services::analyzer::{ChatMessage, ImageInput};
 
 /// The sound she makes, as it arrives.
 pub const SAMPLE_RATE: u32 = 24_000;
@@ -211,10 +211,10 @@ fn unsayable(text: &str) -> bool {
 pub const SAID_ALOUD: &str = "## Said aloud\nThis reply is heard in your own voice as you write it, so it has no links in it: a link cannot be heard. Lines of [[...]] go last.";
 
 /// `prompt` for a turn said in her own voice: [`SAID_ALOUD`] beside her
-/// other facts, before the conversation.
+/// other facts, before how she replies.
 pub fn said_aloud(prompt: &str) -> String {
-    match prompt.find("\nConversation:\n") {
-        Some(at) => format!("{}\n\n{SAID_ALOUD}\n{}", &prompt[..at], &prompt[at..]),
+    match prompt.find(myriad_merope::chat_history::CHAT_REPLY_INSTRUCTION) {
+        Some(at) => format!("{}{SAID_ALOUD}\n\n{}", &prompt[..at], &prompt[at..]),
         None => format!("{prompt}\n\n{SAID_ALOUD}"),
     }
 }
@@ -223,16 +223,56 @@ pub fn said_aloud(prompt: &str) -> String {
 /// Node examples for local files) passes base64 with this prefix.
 const HEARD_PREFIX: &str = "data:;base64,";
 
-/// What she is asked: `prompt`, with `images` and what she `heard` (base64
-/// WAV) beside it; `aloud`, she answers with her voice too.
+/// What she is asked: `system`, then `messages`, with `images` and what she
+/// `heard` (base64 WAV) beside the last of them; `aloud`, she answers with
+/// her voice too.
 fn request_body(
     voice: &OmniVoice,
-    prompt: &str,
+    system: &str,
+    messages: &[ChatMessage],
     images: &[ImageInput],
     heard: Option<&str>,
     aloud: bool,
 ) -> Value {
-    let content = if images.is_empty() && heard.is_none() {
+    let last = messages.len().saturating_sub(1);
+    let mut sent: Vec<Value> = Vec::with_capacity(messages.len() + 1);
+    if !system.trim().is_empty() {
+        sent.push(json!({ "role": "system", "content": system }));
+    }
+    for (index, message) in messages.iter().enumerate() {
+        let role = if message.role == "assistant" {
+            "assistant"
+        } else {
+            "user"
+        };
+        let content = if index == last {
+            content_with(&message.content, images, heard)
+        } else {
+            json!(message.content)
+        };
+        sent.push(json!({ "role": role, "content": content }));
+    }
+    let mut body = json!({
+        "model": voice.model,
+        "messages": sent,
+        "stream": true,
+        "stream_options": { "include_usage": true },
+        "modalities": ["text"],
+    });
+    if aloud {
+        let mut audio = json!({ "format": "wav" });
+        if !voice.voice.is_empty() {
+            audio["voice"] = json!(voice.voice);
+        }
+        body["modalities"] = json!(["text", "audio"]);
+        body["audio"] = audio;
+    }
+    body
+}
+
+/// `prompt`, with `images` and what she `heard` beside it.
+fn content_with(prompt: &str, images: &[ImageInput], heard: Option<&str>) -> Value {
+    if images.is_empty() && heard.is_none() {
         json!(prompt)
     } else {
         let mut parts = vec![json!({ "type": "text", "text": prompt })];
@@ -249,23 +289,7 @@ fn request_body(
             }));
         }
         Value::Array(parts)
-    };
-    let mut body = json!({
-        "model": voice.model,
-        "messages": [{ "role": "user", "content": content }],
-        "stream": true,
-        "stream_options": { "include_usage": true },
-        "modalities": ["text"],
-    });
-    if aloud {
-        let mut audio = json!({ "format": "wav" });
-        if !voice.voice.is_empty() {
-            audio["voice"] = json!(voice.voice);
-        }
-        body["modalities"] = json!(["text", "audio"]);
-        body["audio"] = audio;
     }
-    body
 }
 
 /// What someone said, kept by the token the panel will send with the turn
@@ -323,7 +347,11 @@ pub fn take_heard(token: &str, user_id: i32) -> Option<String> {
 /// the recording itself.
 pub async fn transcribe(voice: &OmniVoice, wav_base64: &str) -> Result<String> {
     const ASK: &str = "Write down exactly what is said in this recording, in the language it is said in. Only the words, nothing else; if nothing is said, write nothing.";
-    let text = call(voice, ASK, &[], Some(wav_base64), false, |_| async { true }).await?;
+    let ask = [ChatMessage::user(ASK)];
+    let text = call(voice, "", &ask, &[], Some(wav_base64), false, |_| async {
+        true
+    })
+    .await?;
     Ok(text.trim().to_string())
 }
 
@@ -382,12 +410,39 @@ where
     F: FnMut(OmniDelta) -> Fut + Send,
     Fut: Future<Output = bool> + Send,
 {
-    call(voice, prompt, images, heard, true, on_delta).await
+    call(
+        voice,
+        "",
+        &[ChatMessage::user(prompt)],
+        images,
+        heard,
+        true,
+        on_delta,
+    )
+    .await
+}
+
+/// [`speak`] for a chat turn: `system`, then the conversation as
+/// `messages`, the last theirs, with `images` and what she `heard` beside it.
+pub async fn speak_turn<F, Fut>(
+    voice: &OmniVoice,
+    system: &str,
+    messages: &[ChatMessage],
+    images: &[ImageInput],
+    heard: Option<&str>,
+    on_delta: F,
+) -> Result<String>
+where
+    F: FnMut(OmniDelta) -> Fut + Send,
+    Fut: Future<Output = bool> + Send,
+{
+    call(voice, system, messages, images, heard, true, on_delta).await
 }
 
 async fn call<F, Fut>(
     voice: &OmniVoice,
-    prompt: &str,
+    system: &str,
+    messages: &[ChatMessage],
     images: &[ImageInput],
     heard: Option<&str>,
     aloud: bool,
@@ -402,7 +457,7 @@ where
     let response = client
         .post(&url)
         .bearer_auth(&voice.api_key)
-        .json(&request_body(voice, prompt, images, heard, aloud))
+        .json(&request_body(voice, system, messages, images, heard, aloud))
         .send()
         .await
         .map_err(|_| anyhow::anyhow!("could not reach the voice model"))?;
@@ -418,7 +473,12 @@ where
     crate::services::ai_cost_ledger::record_ai_call_from_attribution(
         "openai",
         &voice.model,
-        prompt.len() + heard.map_or(0, str::len),
+        system.len()
+            + messages
+                .iter()
+                .map(|message| message.content.len())
+                .sum::<usize>()
+            + heard.map_or(0, str::len),
         result.as_ref().map_or(0, String::len),
         outcome,
         code,
@@ -501,7 +561,14 @@ mod tests {
 
     #[test]
     fn she_asks_for_text_and_sound_in_one_stream() {
-        let body = request_body(&voice("Tina"), "你好", &[], None, true);
+        let body = request_body(
+            &voice("Tina"),
+            "",
+            &[ChatMessage::user("你好")],
+            &[],
+            None,
+            true,
+        );
         assert_eq!(body["modalities"], json!(["text", "audio"]));
         assert_eq!(body["audio"]["voice"], "Tina");
         assert_eq!(body["stream"], true);
@@ -513,13 +580,21 @@ mod tests {
         );
         // No voice named: the model's own.
         assert!(
-            request_body(&voice(""), "你好", &[], None, true)["audio"]
+            request_body(
+                &voice(""),
+                "",
+                &[ChatMessage::user("你好")],
+                &[],
+                None,
+                true
+            )["audio"]
                 .get("voice")
                 .is_none()
         );
         let with_image = request_body(
             &voice(""),
-            "看看",
+            "",
+            &[ChatMessage::user("看看")],
             &[ImageInput {
                 mime: "image/png".into(),
                 base64: "AAAA".into(),
@@ -529,12 +604,43 @@ mod tests {
         );
         assert_eq!(with_image["messages"][0]["content"][1]["type"], "image_url");
         // What she heard rides beside the words; writing it down is text only.
-        let hearing = request_body(&voice("Tina"), "写下来", &[], Some("UklGRg=="), false);
+        let hearing = request_body(
+            &voice("Tina"),
+            "",
+            &[ChatMessage::user("写下来")],
+            &[],
+            Some("UklGRg=="),
+            false,
+        );
         let part = &hearing["messages"][0]["content"][1];
         assert_eq!(part["type"], "input_audio");
         assert_eq!(part["input_audio"]["data"], "data:;base64,UklGRg==");
         assert_eq!(hearing["modalities"], json!(["text"]));
         assert!(hearing.get("audio").is_none());
+        // A chat turn: who she is first, the talk a message each, what she
+        // heard beside their latest.
+        let turn = request_body(
+            &voice("Tina"),
+            "你是瞳。",
+            &[
+                ChatMessage::user("早"),
+                ChatMessage::assistant("早啊"),
+                ChatMessage::user("在干嘛"),
+            ],
+            &[],
+            Some("UklGRg=="),
+            true,
+        );
+        let sent = turn["messages"].as_array().unwrap();
+        assert_eq!(
+            sent.iter()
+                .map(|message| message["role"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["system", "user", "assistant", "user"]
+        );
+        assert_eq!(sent[2]["content"], "早啊");
+        assert_eq!(sent[3]["content"][0]["text"], "在干嘛");
+        assert_eq!(sent[3]["content"][1]["type"], "input_audio");
     }
 
     #[tokio::test]
@@ -656,9 +762,13 @@ mod tests {
             assert!(unsaid.lets_through(), "{text}");
         }
         assert!(SAID_ALOUD.contains("no links in it"));
-        let prompt = said_aloud("## Now\nIt is 3pm.\nConversation:\nthem: hi");
+        let rules = myriad_merope::chat_history::CHAT_REPLY_INSTRUCTION;
+        let prompt = said_aloud(&format!("## Now\nIt is 3pm.\n\n{rules}"));
         assert!(prompt.starts_with("## Now\nIt is 3pm.\n\n## Said aloud"));
-        assert!(prompt.ends_with("\nConversation:\nthem: hi"));
+        assert!(prompt.ends_with(&format!(
+            "no links in it: a link cannot be heard. Lines of [[...]] go last.\n\n{rules}"
+        )));
+        assert_eq!(said_aloud("写在前面"), format!("写在前面\n\n{SAID_ALOUD}"));
     }
 
     #[test]

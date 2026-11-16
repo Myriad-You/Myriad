@@ -13,7 +13,7 @@ const { JSDOM } = require(require.resolve('jsdom', {
 }))
 const labels = {
   loadFailed: 'load', noteDeleteFailed: 'delete', unscheduleFailed: 'unschedule',
-  mediaLoadFailed: 'media load', mediaUploadFailed: 'upload', mediaDeleteFailed: 'media delete',
+  mediaLoadFailed: 'media load', mediaUploadFailed: 'upload', mediaUploadSkipped: 'skipped', mediaDeleteFailed: 'media delete',
   commentDeleteFailed: 'comment delete', reviewApproveFailed: 'approve',
   reviewRejectFailed: 'reject', reviewDeleteFailed: 'review delete',
 }

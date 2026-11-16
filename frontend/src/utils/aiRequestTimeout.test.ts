@@ -88,3 +88,32 @@ describe('dev proxy uses the shared AI timeout table', () => {
     assert.match(timeoutPick, /aiTimeoutMs \?\? 30000/)
   })
 })
+
+describe('production proxy and persona worker outwait the browser', () => {
+  const minutes = (source: string, name: string) => {
+    const found = source.match(
+      new RegExp(`const ${name}: Duration = Duration::from_secs\\((\\d+) \\* 60\\)`),
+    )
+    assert.ok(found, `${name} not found`)
+    return Number(found[1]) * 60 * 1000
+  }
+  const read = (path: string) =>
+    readFileSync(new URL(path, import.meta.url), 'utf8')
+
+  it('waits longer for long persona paths than the browser does', () => {
+    const proxy = read('../../../proxy/src/main.rs')
+    const worker = read('../../../backend/src/persona/worker.rs')
+    const proxyLong = minutes(proxy, 'PERSONA_LONG_REQUEST_TIMEOUT')
+    const workerLong = minutes(worker, 'LONG_WORK_TIMEOUT')
+    assert.ok(workerLong > AI_IMAGE_REQUEST_TIMEOUT_MS)
+    assert.ok(proxyLong > workerLong)
+    assert.ok(
+      minutes(proxy, 'PERSONA_REQUEST_TIMEOUT') > minutes(worker, 'WORK_TIMEOUT'),
+    )
+    for (const path of ['/api/merope/rig', '/api/agent/persona']) {
+      assert.equal(aiRequestTimeoutMs(`${path}/x`), AI_IMAGE_REQUEST_TIMEOUT_MS)
+      assert.ok(proxy.includes(`"${path}"`), `proxy misses ${path}`)
+      assert.ok(worker.includes(`"${path}"`), `worker misses ${path}`)
+    }
+  })
+})

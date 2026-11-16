@@ -1,0 +1,148 @@
+/* The nodes tab of her mind: reads inside .merope-mind, with its tokens. */
+.merope-nodes {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.merope-nodes__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.merope-nodes__toolbar > :last-child {
+  margin-left: auto;
+}
+
+.merope-nodes__list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.merope-nodes__node {
+  appearance: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.merope-nodes__node:hover,
+.merope-nodes__node:focus-visible {
+  background: var(--mind-soft);
+}
+
+.merope-nodes__name {
+  min-width: 0;
+  font-weight: 640;
+  overflow-wrap: anywhere;
+}
+
+.merope-nodes__counts {
+  margin-left: auto;
+  color: var(--mind-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.merope-nodes__summary {
+  margin: 0;
+}
+
+.merope-nodes__buttons,
+.merope-nodes__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-top: 4px;
+}
+
+.merope-nodes__actions {
+  align-items: flex-start;
+}
+
+.merope-nodes__action {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--mind-accent) 70%, var(--mind-ink));
+  font: inherit;
+  font-size: 12px;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.merope-nodes__action:hover {
+  text-decoration: underline;
+}
+
+.merope-nodes__action:disabled {
+  color: var(--mind-muted);
+  cursor: default;
+}
+
+.merope-nodes__confirm {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--mind-warn) 40%, var(--mind-line));
+  border-radius: 8px;
+}
+
+.merope-nodes__confirm > span {
+  color: var(--mind-muted);
+  font-size: 12px;
+}
+
+.merope-nodes__instruction {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 10px;
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.merope-nodes__instruction dt {
+  color: var(--mind-muted);
+}
+
+.merope-nodes__instruction dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.merope-nodes__rename {
+  display: grid;
+  gap: 6px;
+  width: min(100%, 28em);
+}
+
+.merope-nodes__rename label {
+  display: grid;
+  gap: 4px;
+}
+
+.merope-nodes__rename input {
+  padding: 6px 8px;
+  border: 1px solid var(--mind-line);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}

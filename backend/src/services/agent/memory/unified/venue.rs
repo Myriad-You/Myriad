@@ -243,15 +243,30 @@ pub async fn fresh_and_brought<C: ConnectionTrait>(
     words: Option<&str>,
     brought: usize,
 ) -> Vec<agent_memories::Model> {
-    let mut rows = venue_source_rows(db, None, venue, source, LOOKED_OVER)
+    let rows = venue_source_rows(db, None, venue, source, LOOKED_OVER)
         .await
         .unwrap_or_default();
+    fresh_and_brought_among(db, rows, fresh, words, brought).await
+}
+
+/// [`fresh_and_brought`] of `rows` already read (freshest first): the
+/// `fresh` freshest, then at most `brought` older ones `words` bring back.
+pub async fn fresh_and_brought_among<C: ConnectionTrait>(
+    db: &C,
+    mut rows: Vec<agent_memories::Model>,
+    fresh: usize,
+    words: Option<&str>,
+    brought: usize,
+) -> Vec<agent_memories::Model> {
     let older = rows.split_off(fresh.min(rows.len()));
     if let Some(words) = words {
         rows.extend(named_among(db, older, words, brought).await);
     }
     rows
 }
+
+/// How many of one source in one venue are looked over, at most.
+pub(crate) const VENUE_LOOKED_OVER: u64 = LOOKED_OVER;
 
 /// Rows of one source kept in one venue (`private`, `group:<id>`), freshest
 /// first: one person's, or everyone's there when `user_id` is `None`.

@@ -1,15 +1,11 @@
-import type { Anime25DCharacterHandle } from '../anime25drig/Anime25DCharacter'
-import type { Anime25DWorkbenchPort } from '../anime25drig/workbenchPort'
-import type { RigBearing } from '../motion/bearing'
-import type { BehaviorPlan } from '../motion/behavior'
-import type { MotionChannelPolicy } from '../motion/policy'
-import type { ResolvedScore } from '../motion/scoreTimeline'
-import type { SpeechArticulation } from '../rig/articulation'
-import type { RigMotionPort } from '../rig/motionPort'
-import type { MeropeRigManifest } from '../rig/types'
-import type { MusicMotionSignal } from '../singing/musicSignal'
-import type { SpeechProsodyPlan } from '../speech/prosody'
-import type { MeropeActivity } from '../types'
+import type { Anime25DWorkbenchPort } from '@myriad/figure/anime25drig'
+import type { BehaviorPlan, MotionChannelPolicy, ResolvedScore, RigBearing } from '@myriad/figure/motion'
+import type { MeropeActivity } from '@myriad/figure/performance'
+import type { MeropeRigManifest, RigMotionPort, SpeechArticulation } from '@myriad/figure/rig'
+import type { MusicMotionSignal } from '@myriad/figure/singing'
+import type { SpeechProsodyPlan } from '@myriad/figure/speech'
+import type { Anime25DCharacterHandle } from './Anime25DCharacter'
+import { anime25DRuntimeKey, isAnime25DPlayback, shouldUseAnime25DRuntime } from '@myriad/figure/anime25drig'
 import {
   forwardRef,
   useCallback,
@@ -20,12 +16,7 @@ import {
   useState,
 } from 'react'
 import { siteMediaUrl } from '../../../utils/siteMediaUrl'
-import Anime25DCharacter from '../anime25drig/Anime25DCharacter'
-import {
-  anime25DRuntimeKey,
-  shouldUseAnime25DRuntime,
-} from '../anime25drig/runtimePolicy'
-import { isAnime25DPlayback } from '../anime25drig/types'
+import Anime25DCharacter from './Anime25DCharacter'
 
 const MAX_PENDING_SPEECH_CHUNKS = 32
 

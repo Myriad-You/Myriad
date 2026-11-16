@@ -623,19 +623,24 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
         IndexDef {
             name: "idx_agent_log_rows_place".into(),
             table: "agent_log_rows".into(),
-            columns: vec!["audience".into(), "origin".into(), "dseq".into()],
+            columns: vec![
+                "user_id".into(),
+                "audience".into(),
+                "origin".into(),
+                "dseq".into(),
+            ],
             is_unique: true,
         },
         IndexDef {
             name: "idx_agent_log_rows_object".into(),
             table: "agent_log_rows".into(),
-            columns: vec!["audience".into(), "object".into()],
+            columns: vec!["user_id".into(), "audience".into(), "object".into()],
             is_unique: false,
         },
         IndexDef {
             name: "idx_agent_log_rows_subject".into(),
             table: "agent_log_rows".into(),
-            columns: vec!["audience".into(), "subject".into()],
+            columns: vec!["user_id".into(), "audience".into(), "subject".into()],
             is_unique: false,
         },
         IndexDef {
@@ -661,6 +666,51 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             name: "idx_agent_proactive_user_created".into(),
             table: "agent_proactive_messages".into(),
             columns: vec!["user_id".into(), "created_at".into()],
+            is_unique: false,
+        },
+        // 「说过的话」账
+        IndexDef {
+            name: "idx_agent_speech_said_audience".into(),
+            table: "agent_speech_said".into(),
+            columns: vec!["audience".into(), "at".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_agent_speech_said_thing".into(),
+            table: "agent_speech_said".into(),
+            columns: vec!["thing".into(), "at".into()],
+            is_unique: false,
+        },
+        // 记忆挂在哪个话题下
+        IndexDef {
+            name: "idx_agent_memory_topics_topic".into(),
+            table: "agent_memory_topics".into(),
+            columns: vec!["user_id".into(), "topic_id".into()],
+            is_unique: false,
+        },
+        // 她的节点照共享核心存
+        IndexDef {
+            name: "idx_agent_node_rows_node".into(),
+            table: "agent_node_rows".into(),
+            columns: vec!["user_id".into(), "audience".into(), "node_id".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_agent_node_heads_status".into(),
+            table: "agent_node_heads".into(),
+            columns: vec!["user_id".into(), "audience".into(), "status".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_agent_node_placements_node".into(),
+            table: "agent_node_placements".into(),
+            columns: vec!["user_id".into(), "audience".into(), "node_id".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_agent_node_instructions_message".into(),
+            table: "agent_node_instructions".into(),
+            columns: vec!["message_ref".into()],
             is_unique: false,
         },
         // federation 索引
@@ -740,6 +790,12 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             name: "idx_timeline_user_activity".into(),
             table: "federation_timeline".into(),
             columns: vec!["user_id".into(), "activity_id".into()],
+            is_unique: true,
+        },
+        IndexDef {
+            name: "idx_channels_channel_user".into(),
+            table: "federation_channels".into(),
+            columns: vec!["channel_id".into(), "user_id".into()],
             is_unique: true,
         },
         IndexDef {

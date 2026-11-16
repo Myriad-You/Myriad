@@ -1,5 +1,5 @@
+import type { TappCategory, TappPermission } from '@myriad/tapp-runtime'
 import type { CSSProperties } from 'react'
-import type { TappCategory, TappPermission } from '../types'
 import {
   hasStandaloneTappIcon,
   isTappIconFullColorMedia,

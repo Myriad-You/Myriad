@@ -9,9 +9,10 @@ version 3 text follows.
 These components are licensed under the Apache License, Version 2.0
 (LICENSES/Apache-2.0.txt):
 
-  - crates/tapp-contract
-  - tools/tapp-cli
-  - tools/tapp-contract-export
+  - tapp/crates/tapp-contract
+  - tapp/shared/tapp_sandbox_contract.json
+  - tapp/tools/tapp-cli
+  - tapp/tools/tapp-contract-export
 
 proxy/ and updater/ are separate programs, also under GNU AGPL version 3 only.
 
@@ -28,7 +29,8 @@ the Tapp to become a covered work.
 This additional permission does not apply if the Tapp copies substantial
 portions of this Program, other than:
 
-  - the Apache-2.0 licensed contract, CLI, and contract export tool named above;
+  - the Apache-2.0 licensed contract, contract JSON, CLI, and contract export
+    tool named above;
   - short excerpts required to call the documented Bridge.
 
 Corresponding Source for network use (AGPL section 13): for unmodified

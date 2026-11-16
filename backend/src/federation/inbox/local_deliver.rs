@@ -181,7 +181,7 @@ fn validate_delivery_activity_id(activity_id: i32) -> Result<i32, String> {
 }
 
 /// If inbox is `{base}/users/{username}/inbox`, return username.
-pub(super) fn local_username_from_inbox_url(base_url: &str, inbox_url: &str) -> Option<String> {
+pub(crate) fn local_username_from_inbox_url(base_url: &str, inbox_url: &str) -> Option<String> {
     let trimmed = inbox_url.trim().trim_end_matches('/');
     let actor = trimmed.strip_suffix("/inbox")?;
     local_username_from_actor_url(base_url, actor)
@@ -226,7 +226,7 @@ pub async fn deliver_activity_locally(
     // Local actors resolve from the users table, never over HTTP.
     let signer_actor = if matches!(
         activity_type,
-        "Follow" | "Create" | "Update" | "Delete" | "Announce" | "Like"
+        "Follow" | "Create" | "Update" | "Delete" | "Announce" | "Like" | "myriad:ChannelOpen"
     ) {
         Some(fetch_remote_actor(db, &signer).await?)
     } else {

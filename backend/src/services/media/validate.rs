@@ -133,7 +133,16 @@ pub fn validate_bytes(
     if bytes.len() > max_bytes {
         return Err(MediaError::TooLarge { max_bytes });
     }
-    let mime = normalize_mime(claimed_mime)?;
+    // 扩展名常和真实格式对不上（QQ 把表情都存成 .jpg，图床转码后不改名）：图片按内容认。
+    let claimed = canonical_mime_alias(claimed_mime);
+    let mime = match claimed
+        .starts_with("image/")
+        .then(|| sniff_image_mime(bytes))
+        .flatten()
+    {
+        Some(actual) => actual.to_string(),
+        None => normalize_mime(&claimed)?,
+    };
     let ext =
         extension_for_mime(&mime).ok_or_else(|| MediaError::invalid("Unsupported media type"))?;
     sniff_magic(bytes, &mime)?;
@@ -157,6 +166,13 @@ pub fn validate_bytes(
         height,
         class,
     })
+}
+
+/// The allowed image type the bytes actually are, whatever the upload claimed.
+fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
+    ALLOWED_IMAGE_MIMES
+        .into_iter()
+        .find(|mime| sniff_magic(bytes, mime).is_ok())
 }
 
 fn sniff_magic(bytes: &[u8], mime: &str) -> Result<(), MediaError> {
@@ -244,9 +260,20 @@ mod tests {
             validate_bytes(&png, "image/png", 1),
             Err(MediaError::TooLarge { max_bytes: 1 })
         ));
-        assert!(validate_bytes(&png, "image/jpeg", 1024 * 1024).is_err());
         assert!(validate_bytes(&png, "application/octet-stream", 1024 * 1024).is_err());
+        assert!(validate_bytes(b"not an image", "image/png", 1024).is_err());
         assert!(validate_bytes(&png, "image/png", 1024 * 1024).is_ok());
+    }
+
+    #[test]
+    fn an_image_under_the_wrong_name_is_stored_as_what_it_is() {
+        let png = png_bytes();
+        for claimed in ["image/jpeg", "image/gif", "image/jpg", "image/heic"] {
+            let parsed = validate_bytes(&png, claimed, 1024 * 1024).unwrap();
+            assert_eq!((parsed.mime.as_str(), parsed.ext), ("image/png", "png"));
+        }
+        // 只在图片之间改认：说是视频的图片仍然拒收。
+        assert!(validate_bytes(&png, "video/mp4", 1024 * 1024).is_err());
     }
 
     #[test]

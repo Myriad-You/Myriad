@@ -84,7 +84,7 @@ jobs:
             FORCE_INFRA=true
           fi
           TITLE=$(git log -1 --format=%s HEAD 2>/dev/null || true)
-          if printf '%s\n' "$TITLE" | grep -qF -- '-full'; then
+          if printf '%s\n' "$TITLE" | grep -qE -- '(^|[[:space:]])-full([[:space:]]|$)'; then
             FORCE_INFRA=true
             echo "Tagged commit title contains -full — forcing proxy/updater"
           fi

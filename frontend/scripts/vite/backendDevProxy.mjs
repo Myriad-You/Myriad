@@ -14,6 +14,7 @@ import {
 import { BACKEND_TARGET } from './constants.mjs'
 import {
   hasSpaBypass,
+  isSeoCrawlerUserAgent,
   isSeoDocumentShellPath,
   wantsSeoHtmlShell,
 } from './seoShell.mjs'
@@ -292,6 +293,108 @@ function isBackendDevProxyPath(urlPath, userAgent) {
 }
 
 /**
+ * 搬家来的文章的旧地址。和生产代理 `proxy/src/main.rs` 的 `wants_old_path_lookup` /
+ * `lookup_old_path` 同一套：只问页面请求，问不到、超时或出错都照旧交给 SPA。
+ */
+const OLD_PATH_REDIRECT_PATH = '/api/blog/redirect'
+const OLD_PATH_LOOKUP_TIMEOUT_MS = 300
+const OLD_PATH_SKIP_FIRST_SEGMENTS = new Set([
+  'assets', 'embed', 'library', 'studio', 'config', 'agent', 'login', 'register', 'setup', 'tapp',
+  // Vite 自己的模块路径。
+  'src', 'node_modules',
+])
+const OLD_PATH_PAGE_EXTENSIONS = new Set(['html', 'htm', 'shtml', 'php', 'asp', 'aspx', 'jsp'])
+
+/**
+ * @param {string | undefined} method
+ * @param {string} urlPath
+ * @param {import('node:http').IncomingHttpHeaders} headers
+ */
+export function wantsOldPathLookup(method, urlPath, headers) {
+  if (method !== 'GET' && method !== 'HEAD') return false
+  let path
+  try {
+    path = new URL(urlPath, 'http://dev.invalid').pathname
+  } catch {
+    return false
+  }
+  if (path === '/' || path.length > 2048) return false
+  const first = (path.replace(/^\/+/, '').split('/')[0] || '').toLowerCase()
+  if (first.startsWith('@') || OLD_PATH_SKIP_FIRST_SEGMENTS.has(first)) return false
+  const last = path.replace(/\/+$/, '').split('/').pop() || ''
+  const extension = /\.([a-z0-9]{1,5})$/i.exec(last)?.[1]?.toLowerCase()
+  if (extension && !OLD_PATH_PAGE_EXTENSIONS.has(extension)) return false
+  const dest = headers['sec-fetch-dest']
+  if (typeof dest === 'string') return dest.toLowerCase() === 'document'
+  const accept = headers.accept
+  if (typeof accept !== 'string') return true
+  const lower = accept.toLowerCase()
+  return lower.includes('text/html')
+    || lower.includes('application/xhtml+xml')
+    || lower.includes('*/*')
+    || isSeoCrawlerUserAgent(String(headers['user-agent'] || ''))
+}
+
+/** 后端只会回 `/blog/posts/{slug}/`；别的样子一律不跟，代理不会变成开放跳转。 */
+function isBlogPostLocation(location) {
+  return typeof location === 'string'
+    && location.startsWith('/blog/posts/')
+    && location.length <= 512
+    && !location.includes('//')
+    && /^[\x21-\x7E]+$/.test(location)
+    && !location.includes('\\')
+}
+
+/**
+ * @param {string} backendTarget
+ * @param {string} urlPath
+ * @param {string | undefined} cookie
+ * @returns {Promise<string | null>} 命中时的博客文章地址，没命中、超时或出错时为 null
+ */
+function lookupOldPath(backendTarget, urlPath, cookie) {
+  return new Promise((resolve) => {
+    let path
+    try {
+      path = new URL(urlPath, 'http://dev.invalid').pathname
+    } catch {
+      resolve(null)
+      return
+    }
+    const target = new URL(OLD_PATH_REDIRECT_PATH, backendTarget)
+    target.searchParams.set('path', path)
+    const request = http.get(
+      target,
+      {
+        agent: false,
+        headers: {
+          accept: 'application/json',
+          connection: 'close',
+          ...(cookie ? { cookie } : {}),
+        },
+        timeout: OLD_PATH_LOOKUP_TIMEOUT_MS,
+      },
+      (response) => {
+        if (response.statusCode !== 200) {
+          response.resume()
+          resolve(null)
+          return
+        }
+        void Array.fromAsync(response, (chunk) => Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+          .then((chunks) => {
+            const location = JSON.parse(Buffer.concat(chunks).toString('utf8'))?.location
+            resolve(isBlogPostLocation(location) ? location : null)
+          })
+          .catch(() => resolve(null))
+      },
+    )
+    const timer = setTimeout(() => request.destroy(), OLD_PATH_LOOKUP_TIMEOUT_MS)
+    request.on('close', () => clearTimeout(timer))
+    request.on('timeout', () => request.destroy())
+    request.on('error', () => resolve(null))
+  })
+}
+
+/**
  * Dev-only backend proxy implemented with one-shot node:http requests.
  * This avoids Vite http-proxy and undici keep-alive socket reuse while
  * preserving same-origin API URLs during local development.
@@ -308,6 +411,16 @@ export function backendDevProxyPlugin({ backendTarget = BACKEND_TARGET } = {}) {
         const originalUrl = req.originalUrl || req.url || ''
         const ua = req.headers['user-agent'] || ''
         if (!isBackendDevProxyPath(originalUrl, ua)) {
+          if (wantsOldPathLookup(req.method, originalUrl, req.headers)) {
+            const location = await lookupOldPath(backendTarget, originalUrl, req.headers.cookie)
+            if (location) {
+              res.statusCode = 301
+              res.setHeader('Location', location)
+              res.setHeader('Cache-Control', 'public, max-age=86400')
+              res.end()
+              return
+            }
+          }
           next()
           return
         }

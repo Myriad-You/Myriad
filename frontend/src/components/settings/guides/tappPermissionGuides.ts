@@ -1,5 +1,5 @@
+import type { TappPermission } from '@myriad/tapp-runtime'
 import type { Locale } from '../../../i18n'
-import type { TappPermission } from '../../../tapp/types'
 import type { SettingGuideEntry } from './types'
 import { createLocaleLoader } from '../../../i18n/createLocaleLoader'
 import en from './tappPermissionGuides.en-US.json' with { type: 'json' }

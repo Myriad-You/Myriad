@@ -34,7 +34,7 @@ pub(super) async fn put_lands(
         row.user_id.unwrap_or_else(|| circle.keeper())
     });
     let replaced: Vec<String> = was.iter().map(|row| row.id.clone()).collect();
-    let _ = unified::remember_in_place_of(
+    let kept = unified::remember_in_place_of(
         db,
         unified::NewMemory {
             user_id: circle.keeper(),
@@ -54,6 +54,9 @@ pub(super) async fn put_lands(
         },
     )
     .await;
+    if let Ok(unified::Replaced { id: Some(id), .. }) = &kept {
+        super::super::memory_nodes::hanging::kept(db, id).await;
+    }
 }
 
 /// How she comes across with them in private, as she last found it, and

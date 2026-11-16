@@ -1,4 +1,3 @@
-use chrono::Utc;
 use sea_orm::DatabaseConnection;
 
 use crate::services::agent::{AgentInteractionMode, get_user_permissions, merope, run_hub};
@@ -6,7 +5,7 @@ use crate::services::agent::{AgentInteractionMode, get_user_permissions, merope,
 use super::{IntentStore, SaidUnasked, SelfSnapshot};
 
 /// Her lines said unasked that a decision sees: as many as her line itself
-/// is shown (`redeem::compose_line`).
+/// is shown (`compose::compose_line`).
 pub(crate) const SAID_LATELY: i64 = 6;
 
 /// What she said to them lately unasked, newest first, as she is shown it
@@ -24,6 +23,32 @@ pub(crate) async fn said_unasked_lately(db: &DatabaseConnection, user_id: i32) -
         })
         .filter(|said| !said.line.is_empty())
         .collect()
+}
+
+/// What keeps her from judging an event at all, read before anything that
+/// costs: before her memories are recalled for it (an embedding).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct Standing {
+    pub(super) do_not_disturb: bool,
+    pub(super) has_active_work: bool,
+}
+
+impl Standing {
+    #[cfg(test)]
+    pub(super) fn of(snapshot: &SelfSnapshot) -> Self {
+        Self {
+            do_not_disturb: snapshot.do_not_disturb,
+            has_active_work: snapshot.has_active_work,
+        }
+    }
+
+    pub(super) async fn now(db: &DatabaseConnection, user_id: i32) -> Result<Self, anyhow::Error> {
+        let state = merope::get_or_create_state(db, user_id).await?;
+        Ok(Self {
+            do_not_disturb: merope::effective_do_not_disturb(&state),
+            has_active_work: run_hub::user_has_executing_run(user_id).await,
+        })
+    }
 }
 
 /// Capture trusted state immediately before an autonomy decision.
@@ -71,16 +96,16 @@ pub async fn capture_self_snapshot(
         live: super::presence::senses_presence(user_id),
         attention: super::attention::last_attention(user_id),
         myself: Some(merope::self_state::current(db).await.facts_view()),
-        minutes_since_you_spoke_unasked: state.last_proactive_at.map(|at| {
-            ((crate::clock::now() - at.with_timezone(&Utc))
-                .num_seconds()
-                .max(0) as f64
-                / 60.0
-                * 10.0)
-                .round()
-                / 10.0
+        minutes_since_you_spoke_unasked: crate::services::agent::speech::ledger::last_unasked_at(
+            db,
+            &crate::services::agent::speech::private(user_id),
+        )
+        .await
+        .map(|at| {
+            ((crate::clock::now() - at).num_seconds().max(0) as f64 / 60.0 * 10.0).round() / 10.0
         }),
         said_unasked_lately: said_unasked_lately(db, user_id).await,
+        speaking: Vec::new(),
         addressee_name: Some(merope::resolve_addressee_label(db, user_id).await)
             .filter(|name| !name.trim().is_empty()),
         inner: merope::inner::current(

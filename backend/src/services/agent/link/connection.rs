@@ -41,6 +41,17 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
+/// The account has its partner id: her nodes in the site owner's talk go
+/// under it, off the welcome's way.
+fn talk_under_partner(db: DatabaseConnection) {
+    tokio::spawn(async move {
+        if let Err(error) = crate::services::agent::merope::memory_nodes::partner::settle(&db).await
+        {
+            tracing::warn!(%error, "[link] the site owner's talk could not move to the partner id");
+        }
+    });
+}
+
 fn conversations_every() -> std::time::Duration {
     #[cfg(test)]
     if let Some(every) = CONVERSATIONS_EVERY_IN_TEST.with(std::cell::Cell::get) {
@@ -50,13 +61,14 @@ fn conversations_every() -> std::time::Duration {
 }
 
 /// A frame on its way to the child; the link numbers it as it goes out.
+#[derive(Clone)]
 pub(super) struct Outgoing {
     pub(super) t: &'static str,
     id: Option<String>,
     pub(super) body: Value,
 }
 
-fn frame(t: &'static str, body: Value) -> Outgoing {
+pub(super) fn frame(t: &'static str, body: Value) -> Outgoing {
     Outgoing { t, id: None, body }
 }
 
@@ -79,6 +91,9 @@ impl Outgoing {
 /// A frame as a child sends it. Every field but `id` is required.
 #[derive(Deserialize)]
 pub(super) struct Inbound {
+    /// The frame version; `None` from an end that sends none (protocol 1).
+    #[serde(default)]
+    pub(super) v: Option<u64>,
     pub(super) t: String,
     pub(super) seq: u64,
     pub(super) ack: u64,
@@ -87,6 +102,33 @@ pub(super) struct Inbound {
     #[allow(dead_code)]
     at: i64,
     pub(super) body: Value,
+}
+
+/// `custom_data` with `images` as the site's chat attaches them
+/// (`customData.attachments[].image`), for `chat_attachments::take_images` to
+/// take out, check and hand her for this turn only; at most the contract's
+/// `input.maxItems.images`, the rest left out.
+pub(super) fn with_images(custom_data: Option<Value>, images: Vec<String>) -> Option<Value> {
+    if images.is_empty() {
+        return custom_data;
+    }
+    let mut data = match custom_data {
+        Some(Value::Object(data)) => data,
+        _ => serde_json::Map::new(),
+    };
+    let attachments = images
+        .into_iter()
+        .take(
+            CONTRACT.frames["input"]
+                .max_items
+                .get("images")
+                .copied()
+                .unwrap_or(0),
+        )
+        .map(|image| json!({ "image": image }))
+        .collect();
+    data.insert("attachments".into(), Value::Array(attachments));
+    Some(Value::Object(data))
 }
 
 #[derive(Deserialize)]
@@ -122,6 +164,9 @@ pub(super) struct Input {
     pub(super) session_id: Option<String>,
     #[serde(default)]
     pub(super) rig_state: Option<Value>,
+    /// What the owner showed her with it (`images` capability): data URLs.
+    #[serde(default)]
+    pub(super) images: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -151,6 +196,7 @@ pub(super) async fn serve_with(
         db,
         owner: device.user_id,
         device,
+        linked_at: crate::clock::now().timestamp_millis(),
         timing,
         tx,
         queue: Vec::new(),
@@ -172,16 +218,31 @@ pub(super) async fn serve_with(
         senses: Default::default(),
         experience: false,
         moments: false,
+        now_sessions: false,
+        now_sessions2: false,
+        now_choices: false,
+        cards: false,
+        images: false,
         nodes: false,
         proposals: None,
         acts: false,
         wardrobe: None,
         live: None,
         host: false,
+        sync: false,
+        relay: None,
+        lends: None,
         core_refused: HashSet::new(),
     };
     tracing::info!(device = %link.device.id, "[link] opened");
     let why = link.run(sink, stream, rx, closed).await;
+    // Closed for speaking another protocol: its devices page says the app on
+    // it is to be updated, until a hello of it is taken.
+    if why == Some(Close::UnsupportedProtocol)
+        && let Err(error) = devices::app_outdated(&link.db, &link.device.id, true).await
+    {
+        tracing::warn!(%error, device = %link.device.id, "[link] that the app is to be updated could not be kept");
+    }
     // A device that is not one any more fails what it was asked to do.
     if matches!(why, Some(Close::Revoked | Close::OwnerChanged)) {
         super::act::forget_device(&link.device.id);
@@ -200,6 +261,9 @@ struct Link {
     db: DatabaseConnection,
     owner: i32,
     device: Device,
+    /// When this link opened, milliseconds since the epoch: what changed
+    /// before it was held on the device while it was away.
+    linked_at: i64,
     timing: Timing,
     /// For the run and mood followers.
     tx: mpsc::Sender<Outgoing>,
@@ -240,6 +304,20 @@ struct Link {
     experience: bool,
     /// The child said it sends `moment`: what its senses saw for her.
     moments: bool,
+    /// The child said it tells the owner's coding-agent sessions as they
+    /// change (`now.sessions`): `now.session` and `now.drop`.
+    now_sessions: bool,
+    /// Its welcome listed `now.sessions2`: a `now.session` may hold
+    /// `ownerSaidAt`, `errors` and `overwrote`.
+    now_sessions2: bool,
+    /// Its welcome listed `now.choices`: a `now.session` that asks may
+    /// hold the choices its question came with.
+    now_choices: bool,
+    /// It listed `cards` with `conversations.live`: its conversations show
+    /// her cards, and the owner answers them there (`card.answer`).
+    cards: bool,
+    /// The child said it sends `images`: what the owner shows her, with their input.
+    images: bool,
     /// The child said it takes `nodes`: it is kept current with her nodes.
     nodes: bool,
     /// Her open proposals as the child was last told them, once it said it
@@ -256,6 +334,13 @@ struct Link {
     /// The end dialled in as her host (the device she lives on, H3e-7): it
     /// only hears what becomes of her there.
     host: bool,
+    /// Whether this link's welcome said `sync` on: only then may the sync
+    /// families (`lease`, `log`, `group`, `chat`) flow on it.
+    sync: bool,
+    /// While it syncs: what her log's relay remembers of this link session.
+    relay: Option<crate::services::her_log::relay::Session>,
+    /// While it syncs: this link as her lends know it (`her_log::lend::open`).
+    lends: Option<u64>,
     /// What the shared core refused of the child's frames on this link and
     /// was logged: `t code`, a frame type outside the contract as `?`.
     core_refused: HashSet<String>,
@@ -360,6 +445,7 @@ impl Link {
     async fn send(&mut self, sink: &mut Sink, outgoing: Outgoing) -> bool {
         self.sent += 1;
         let mut envelope = json!({
+            "v": CONTRACT.encoding.frame_version,
             "t": outgoing.t,
             "seq": self.sent,
             "ack": self.heard,
@@ -384,6 +470,67 @@ impl Link {
 
     fn reply(&mut self, outgoing: Outgoing) {
         self.queue.push(outgoing);
+    }
+
+    /// A frame of her log, her lease or a lent chat while she syncs: what
+    /// the server does with it is the relay's (`her_log::relay::take`).
+    async fn relayed(&mut self, text: &str, seq: u64) {
+        use crate::services::her_log::{self, relay};
+        let Ok(frame) = serde_json::from_str::<Value>(text) else {
+            self.error("bad_frame", Some(seq));
+            return;
+        };
+        let settings = crate::services::her_log::current_settings();
+        let session = self.relay.get_or_insert_with(relay::Session::default);
+        let taken = relay::take(
+            &self.db,
+            her_log::keys::root(),
+            &settings,
+            self.owner,
+            &self.device.id,
+            // Every end that dials in is the app on a computer.
+            myriad_persona_log::Core::Pc,
+            session,
+            &frame,
+            crate::clock::now().timestamp_micros(),
+        )
+        .await;
+        match taken {
+            Ok(out) => self.deliver(out),
+            Err(her_log::Error::Off) => self.error("sync_off", Some(seq)),
+            Err(her_log::Error::ClockAhead { .. }) => self.error("clock_ahead", Some(seq)),
+            Err(her_log::Error::Refused(why)) => {
+                tracing::info!(device = %self.device.id, why = %why, "[link] a frame of her log was refused");
+                self.error("bad_frame", Some(seq));
+            }
+            Err(error) => {
+                tracing::warn!(%error, device = %self.device.id, "[link] a frame of her log was not taken");
+                self.error("internal_error", Some(seq));
+            }
+        }
+    }
+
+    /// What the relay answers, each where it goes: back on this link, to
+    /// one device, or to the owner's other computers too.
+    fn deliver(&mut self, out: Vec<crate::services::her_log::relay::Outgoing>) {
+        use crate::services::her_log::relay::To;
+        for one in out {
+            let outgoing = Outgoing {
+                t: one.t,
+                id: one.id,
+                body: one.body,
+            };
+            match one.to {
+                To::Sender => self.reply(outgoing),
+                To::Device(device) if device == self.device.id => self.reply(outgoing),
+                To::Device(device) => super::send_log(self.owner, &device, outgoing),
+                To::Hosts => super::send_log_all(self.owner, &self.device.id, outgoing),
+                To::Everyone => {
+                    super::send_log_all(self.owner, &self.device.id, outgoing.clone());
+                    self.reply(outgoing);
+                }
+            }
+        }
     }
 
     fn error(&mut self, code: &str, frame_seq: Option<u64>) {
@@ -433,7 +580,30 @@ impl Link {
             return None;
         };
         self.heard = self.heard.max(inbound.seq);
-        self.acked(inbound.ack);
+        let kept = self.acked(inbound.ack);
+        if !kept.is_empty() {
+            crate::services::her_log::lend::keep(
+                &self.db,
+                &crate::services::her_log::lend::Platforms,
+                kept,
+            )
+            .await;
+        }
+        if inbound.v != Some(CONTRACT.encoding.frame_version) {
+            if !self.hello {
+                // An end on another protocol (protocol 1 sent no v) is told
+                // that, so it shows the site needs updating.
+                let other =
+                    inbound.t == "hello" && inbound.body["protocol"] != json!(CONTRACT.protocol);
+                return Some(if other {
+                    Close::UnsupportedProtocol
+                } else {
+                    Close::BadFrame
+                });
+            }
+            self.error("version_unsupported", Some(inbound.seq));
+            return None;
+        }
         if !self.hello {
             if inbound.t != "hello" {
                 self.error("not_ready", Some(inbound.seq));
@@ -463,17 +633,35 @@ impl Link {
             "work.recall" if self.experience => self.recall(inbound),
             "experience" if self.experience => self.experienced(inbound).await,
             "moment" if self.moments => self.moment(inbound).await,
+            "now.session" if self.now_sessions => self.now_session(inbound).await,
+            "now.drop" if self.now_sessions => self.now_drop(inbound).await,
             "node.forget" if self.nodes => self.forget_node(inbound).await,
             "proposal.answer" if self.proposals.is_some() => self.answer_proposal(inbound).await,
+            "card.answer" if self.cards => self.answer_card(inbound).await,
             // Taken whatever this link said: a run's end may come after its
             // owner turned the switch off (the request must be this device's).
             "act.result" => self.act_result(inbound).await,
             "ping" => self.reply(frame("pong", json!({}))),
             "ack" | "pong" => {}
+            // A sync family's frame: her log's relay takes it while she
+            // syncs; a link whose welcome said sync off is told that.
+            t if self.sync && myriad_her_link::needs_sync(t) => {
+                self.relayed(text, inbound.seq).await
+            }
+            t if !self.sync && myriad_her_link::needs_sync(t) => {
+                self.error("sync_off", Some(inbound.seq))
+            }
             t if CONTRACT.frames.contains_key(t) => self.error("bad_frame", Some(inbound.seq)),
             _ => self.error("unknown_frame", Some(inbound.seq)),
         }
         None
+    }
+
+    /// A hello of it was taken: the app on it speaks this protocol.
+    async fn app_current(&self) {
+        if let Err(error) = devices::app_outdated(&self.db, &self.device.id, false).await {
+            tracing::warn!(%error, device = %self.device.id, "[link] that the app is current could not be kept");
+        }
     }
 
     async fn hello(&mut self, body: Value) -> Option<Close> {
@@ -485,8 +673,12 @@ impl Link {
         }
         match hello.role.as_str() {
             "child" => {}
-            // The device she lives on, as her host (H3e-7).
-            "host" => return self.host_hello(hello).await,
+            // An app from before the device she lives on dialled as a child
+            // too: told to update, as for another protocol.
+            "host" => {
+                tracing::info!(device = %self.device.id, "[link] a hello as her host, from an app before the links were one");
+                return Some(Close::UnsupportedProtocol);
+            }
             _ => return Some(Close::BadFrame),
         }
         if !CONTRACT.surfaces.contains(&hello.surface) {
@@ -501,20 +693,32 @@ impl Link {
                 return Some(Close::Unavailable);
             }
         };
+        let mut capabilities: Vec<String> = Vec::new();
+        for capability in &hello.capabilities {
+            if CONTRACT.capabilities.contains(capability) && !capabilities.contains(capability) {
+                capabilities.push(capability.clone());
+            }
+        }
+        // The device she lives on, as her host (H3e-7).
+        if let Some(lease) = lease
+            .as_ref()
+            .filter(|lease| lease.lives_on(&self.device.id))
+        {
+            return self.host_hello(&hello, lease, &capabilities).await;
+        }
         match lease.as_ref().map(|lease| lease.place()) {
-            None | Some(crate::services::persona_sync::lease::Where::Here) => {}
+            None
+            | Some(
+                crate::services::persona_sync::lease::Where::Here
+                | crate::services::persona_sync::lease::Where::MindOn(_),
+            ) => {}
             Some(crate::services::persona_sync::lease::Where::Moving) => {
                 return Some(Close::HostFrozen);
             }
             Some(_) => return Some(Close::HostMoved),
         }
-        let mut capabilities: Vec<String> = Vec::new();
-        for capability in hello.capabilities {
-            if CONTRACT.capabilities.contains(&capability) && !capabilities.contains(&capability) {
-                capabilities.push(capability);
-            }
-        }
         self.hello = true;
+        self.app_current().await;
         let mut told = Vec::new();
         for turn in turns::recent(&self.device.id, turns::TOLD_IN_WELCOME) {
             let Some(run) = get_live_run_for_user(&turn.run_id, self.owner).await else {
@@ -532,8 +736,26 @@ impl Link {
             }
             told.push(told_turn);
         }
-        let welcome = json!({
+        // Her log, her lease and the lent chats flow on this link only while
+        // the owner syncs her and the site keeps her log.
+        let settings = crate::services::her_log::current_settings();
+        let sync = match crate::services::her_log::pen::in_play(
+            &self.db,
+            &settings,
+            Some(self.owner),
+        )
+        .await
+        {
+            Ok(on) => on,
+            Err(error) => {
+                tracing::warn!(%error, device = %self.device.id, "[link] whether she syncs could not be read; welcomed with sync off");
+                false
+            }
+        };
+        self.sync = sync;
+        let mut welcome = json!({
             "protocol": CONTRACT.protocol,
+            "sync": if sync { "on" } else { "off" },
             "role": "host",
             "host": "site",
             "deviceId": self.device.id,
@@ -545,7 +767,100 @@ impl Link {
             "turns": told,
             "serverTime": crate::clock::now().timestamp_millis(),
         });
+        // The account's one partner id, minted here the first time: only to
+        // an end that knows the field. Every side of her log for this
+        // account goes by it; a device still on another id moves to it in
+        // its own core before it syncs.
+        if capabilities
+            .iter()
+            .any(|capability| capability == "partner")
+        {
+            match crate::services::her_log::partner_id(&self.db, self.owner).await {
+                Ok(partner) => {
+                    welcome["partner"] = json!(partner);
+                    talk_under_partner(self.db.clone());
+                }
+                Err(error) => {
+                    tracing::warn!(%error, device = %self.device.id, "[link] the account's partner id could not be read; welcomed without it");
+                }
+            }
+        }
         self.reply(frame("welcome", welcome));
+        if sync {
+            let abi = crate::services::her_log::relay::peer_abi(&capabilities);
+            self.relay = Some(crate::services::her_log::relay::Session::of(&capabilities));
+            // Which core this side of hers reads; once every side reads a
+            // rule's rows and `node.standing`, what the site kept of them
+            // on its side goes too.
+            match crate::services::her_log::relay::remember_side(
+                &self.db,
+                self.owner,
+                &self.device.id,
+                abi,
+            )
+            .await
+            {
+                Ok(()) => {
+                    let db = self.db.clone();
+                    let owner = self.owner;
+                    tokio::spawn(async move {
+                        match crate::services::agent::merope::memory_nodes::share::share_kept(
+                            &db, owner,
+                        )
+                        .await
+                        {
+                            Ok(0) => {}
+                            Ok(shared) => tracing::info!(
+                                shared,
+                                "[link] what was kept on the site's side is shared now"
+                            ),
+                            Err(error) => tracing::warn!(
+                                %error,
+                                "[link] what was kept on the site's side is not shared yet"
+                            ),
+                        }
+                    });
+                }
+                Err(error) => {
+                    tracing::warn!(%error, device = %self.device.id, "[link] which core this side reads is not kept");
+                }
+            }
+            super::takes_log(&self.device.id, self.registered, self.tx.clone());
+            // What a group or a private chat says may be lent to her mind
+            // here while this device holds her (`her_log::lend`), when it
+            // said it thinks with lends (`lend`). Each lend goes once, as a
+            // reliable frame; its ack makes it her mind's.
+            if capabilities.iter().any(|capability| capability == "lend") {
+                let (lend_tx, mut lent) = tokio::sync::mpsc::unbounded_channel();
+                self.lends = Some(crate::services::her_log::lend::open(
+                    &self.device.id,
+                    lend_tx,
+                ));
+                let tx = self.tx.clone();
+                tokio::spawn(async move {
+                    while let Some(one) = lent.recv().await {
+                        let outgoing = Outgoing {
+                            t: one.t,
+                            id: one.id,
+                            body: one.body,
+                        };
+                        if tx.send(outgoing).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+            // Where her mind is, and to a holder coming back after the
+            // server took her over, the takeover.
+            match crate::services::her_log::relay::welcome(&self.db, &settings, &self.device.id)
+                .await
+            {
+                Ok(out) => self.deliver(out),
+                Err(error) => {
+                    tracing::warn!(%error, device = %self.device.id, "[link] where her mind is could not be told");
+                }
+            }
+        }
         self.playback = capabilities
             .iter()
             .any(|capability| capability == "playback");
@@ -563,6 +878,20 @@ impl Link {
         self.moments = capabilities
             .iter()
             .any(|capability| capability == "moments");
+        self.images = capabilities.iter().any(|capability| capability == "images");
+        self.now_sessions = capabilities
+            .iter()
+            .any(|capability| capability == "now.sessions");
+        self.now_sessions2 = capabilities
+            .iter()
+            .any(|capability| capability == "now.sessions2");
+        self.now_choices = capabilities
+            .iter()
+            .any(|capability| capability == "now.choices");
+        self.cards = capabilities.iter().any(|capability| capability == "cards")
+            && capabilities
+                .iter()
+                .any(|capability| capability == "conversations.live");
         if capabilities.iter().any(|capability| capability == "nodes") {
             self.nodes = true;
             self.tell_nodes().await;
@@ -622,7 +951,7 @@ impl Link {
             } else {
                 String::new()
             };
-            match super::conversations::recent_with(&self.db, self.owner, live).await {
+            match super::conversations::recent_with(&self.db, self.owner, live, self.cards).await {
                 Ok(sessions) => {
                     if live {
                         self.live = Some(Live {
@@ -690,59 +1019,74 @@ impl Link {
         None
     }
 
-    /// The device she lives on dials in as her host: welcomed only while it
-    /// holds her lease at the epoch it heard; otherwise she moved (it lets
-    /// its copy go). It is told at once if she is frozen there for a move.
-    async fn host_hello(&mut self, hello: Hello) -> Option<Close> {
-        use crate::services::persona_sync::lease::{self, State};
-        if !CONTRACT.surfaces.contains(&hello.surface) {
-            return Some(Close::BadFrame);
-        }
-        let lease = match lease::read(&self.db).await {
-            Ok(lease) => lease,
-            Err(error) => {
-                tracing::warn!(%error, device = %self.device.id, "[link] could not read her host lease");
-                return Some(Close::Unavailable);
-            }
-        };
-        let Some(lease) = lease else {
-            return Some(Close::HostIsSite);
-        };
-        let holds = lease.holder == self.device.id
-            && matches!(lease.state, State::Live | State::Frozen)
-            && hello.host_epoch.is_none_or(|epoch| epoch == lease.epoch);
+    /// The device she lives on (`lease` names it): welcomed as her host
+    /// (host app) only while it holds her lease at the epoch it heard;
+    /// otherwise she moved (it lets its copy go). It is told at once if she
+    /// is frozen there for a move.
+    async fn host_hello(
+        &mut self,
+        hello: &Hello,
+        lease: &crate::services::persona_sync::lease::Lease,
+        capabilities: &[String],
+    ) -> Option<Close> {
+        // The epoch it heard is one of its holding: freezing her there for
+        // a move and thawing her move the epoch on, not her.
+        let holds = hello
+            .host_epoch
+            .is_none_or(|epoch| (lease.since..=lease.epoch).contains(&epoch));
         if !holds {
             tracing::info!(device = %self.device.id, epoch = lease.epoch, heard = ?hello.host_epoch, "[link] a host that does not hold her lease: she moved");
             return Some(Close::HostMoved);
         }
         self.hello = true;
+        self.app_current().await;
         self.host = true;
         let frozen = lease
             .moving
             .as_ref()
-            .filter(|moving| lease.state == State::Frozen && moving.from == self.device.id);
+            .filter(|moving| lease.frozen && moving.from == self.device.id);
         super::takes_host(
             &self.device.id,
             self.registered,
             self.tx.clone(),
             frozen.map(|moving| moving.id.clone()),
         );
-        self.reply(frame(
-            "welcome",
-            json!({
-                "protocol": CONTRACT.protocol,
-                "role": "site",
-                "host": "app",
-                "deviceId": self.device.id,
-                "deviceName": self.device.name,
-                "lineage": lease.lineage,
-                "hostEpoch": lease.epoch,
-                "heartbeatMs": self.timing.heartbeat.as_millis() as u64,
-                "capabilities": [],
-                "turns": [],
-                "serverTime": crate::clock::now().timestamp_millis(),
-            }),
-        ));
+        let mut welcome = json!({
+            "protocol": CONTRACT.protocol,
+            // Her host's link carries nothing of the sync families.
+            "sync": "off",
+            "role": "host",
+            "host": "app",
+            "deviceId": self.device.id,
+            "deviceName": self.device.name,
+            "lineage": lease.lineage,
+            "hostEpoch": lease.epoch,
+            "heartbeatMs": self.timing.heartbeat.as_millis() as u64,
+            // As accepted, on every link alike (the site's core reads her
+            // log's merge, split and retract rows: log2 is taken).
+            "capabilities": capabilities,
+            "turns": [],
+            "serverTime": crate::clock::now().timestamp_millis(),
+        });
+        // The device she lives on gets the account's partner id too, only
+        // here (it holds her lease at the epoch it said): it moves to it while
+        // her writes are stopped, so she comes back under the id the site
+        // holds.
+        if capabilities
+            .iter()
+            .any(|capability| capability == "partner")
+        {
+            match crate::services::her_log::partner_id(&self.db, self.owner).await {
+                Ok(partner) => {
+                    welcome["partner"] = json!(partner);
+                    talk_under_partner(self.db.clone());
+                }
+                Err(error) => {
+                    tracing::warn!(%error, device = %self.device.id, "[link] the account's partner id could not be read; her host is welcomed without it");
+                }
+            }
+        }
+        self.reply(frame("welcome", welcome));
         if let Some(moving) = frozen {
             self.reply(frame("host.freeze", freeze_body(moving)));
         }
@@ -789,10 +1133,18 @@ impl Link {
                 mode: Some(AgentInteractionMode::Chat),
                 session_id: input.session_id,
                 rig_state: input.rig_state,
-                // Answered with what she senses there: the app's own.
-                custom_data: crate::services::agent::consciousness::native_senses(
-                    self.owner,
-                    &self.device.id,
+                // Answered with what she senses there: the app's own, and
+                // what the owner showed her, as the site's chat attaches it.
+                custom_data: with_images(
+                    crate::services::agent::consciousness::native_senses(
+                        self.owner,
+                        &self.device.id,
+                    ),
+                    if self.images {
+                        input.images
+                    } else {
+                        Vec::new()
+                    },
                 ),
                 on_device: Some(self.device.id.clone()),
                 ..Default::default()
@@ -1144,14 +1496,118 @@ impl Link {
         let written = super::moment::write(&self.db, self.owner, &self.device.id, &id).await;
         super::moment::end(&self.device.id, &id);
         match written {
+            // Another agent's session is told by her link's `now` family and
+            // kept by rules (`merope::sessions`): one an app that does not
+            // tell sessions yet sends is taken, never judged one by one.
+            Ok(()) if moment.kind == crate::services::agent::merope::gates::PEER_AGENT_EVENT => {
+                tracing::debug!(device = %self.device.id, "[link] another agent's moment taken, not handed to her");
+                self.reply(super::moment::taken_frame(&id));
+            }
+            // Taken either way; it reaches her only when it is news.
             Ok(()) => {
-                tracing::info!(device = %self.device.id, kind = %moment.kind, "[link] moment taken");
-                super::moment::hand_over(self.owner, &self.device.id, &id, moment);
+                match super::moment_repeats::pass(&self.device.id, &moment) {
+                    super::moment_repeats::Passing::Reaches => {
+                        tracing::info!(device = %self.device.id, kind = %moment.kind, "[link] moment taken");
+                        super::moment::hand_over(self.owner, &self.device.id, &id, moment);
+                    }
+                    held => {
+                        tracing::debug!(device = %self.device.id, kind = %moment.kind, ?held, "[link] moment taken, not handed to her");
+                    }
+                }
                 self.reply(super::moment::taken_frame(&id));
             }
             // Not taken: the child keeps it and sends it again on its next link.
             Err(error) => {
                 tracing::warn!(%error, device = %self.device.id, "[link] could not write a moment");
+            }
+        }
+    }
+
+    /// One of the owner's coding-agent sessions on this device changed: read
+    /// by the core's rules, kept on her nodes, answered `now.taken`. Not
+    /// kept: the device sends it again on its next link.
+    async fn now_session(&mut self, inbound: Inbound) {
+        let seq = inbound.seq;
+        let Some(id) = inbound
+            .id
+            .filter(|id| id.starts_with("ns_") && valid_id(id))
+        else {
+            self.error("bad_id", Some(seq));
+            return;
+        };
+        let listed = myriad_her_link::now::Listed {
+            sessions2: self.now_sessions2,
+            choices: self.now_choices,
+        };
+        let session = match myriad_her_link::now::read_listed(&inbound.body, listed) {
+            Ok(session) => session,
+            Err(refusal) => {
+                tracing::debug!(device = %self.device.id, detail = %refusal.detail, "[link] now.session refused");
+                self.error("bad_frame", Some(seq));
+                return;
+            }
+        };
+        if super::now::was_taken(&self.db, &self.device.id, &id).await {
+            self.reply(super::now::taken_frame(&id));
+            return;
+        }
+        let kept = crate::services::agent::merope::sessions::take(
+            &self.db,
+            self.owner,
+            &self.device.id,
+            session,
+            crate::services::agent::merope::sessions::Arrival {
+                linked_at: self.linked_at,
+                at: crate::clock::now().timestamp_millis(),
+            },
+        )
+        .await;
+        match kept {
+            Ok(()) => match super::now::record(&self.db, self.owner, &self.device.id, &id).await {
+                Ok(()) => self.reply(super::now::taken_frame(&id)),
+                Err(error) => {
+                    tracing::warn!(%error, device = %self.device.id, "[link] a session's change was kept, its id was not")
+                }
+            },
+            Err(error) => {
+                tracing::warn!(%error, device = %self.device.id, "[link] could not keep a session's change")
+            }
+        }
+    }
+
+    /// The owner stopped this device watching their sessions: what was kept
+    /// of that grant is forgotten for good, then answered `now.taken`.
+    async fn now_drop(&mut self, inbound: Inbound) {
+        let seq = inbound.seq;
+        let Some(id) = inbound
+            .id
+            .filter(|id| id.starts_with("nd_") && valid_id(id))
+        else {
+            self.error("bad_id", Some(seq));
+            return;
+        };
+        let Ok(drop) = myriad_her_link::now::read_drop(&inbound.body) else {
+            self.error("bad_frame", Some(seq));
+            return;
+        };
+        match crate::services::agent::merope::sessions::forget_grant(
+            &self.db,
+            self.owner,
+            &self.device.id,
+            &drop.grant,
+        )
+        .await
+        {
+            Ok(()) => {
+                if let Err(error) =
+                    super::now::record(&self.db, self.owner, &self.device.id, &id).await
+                {
+                    tracing::warn!(%error, device = %self.device.id, "[link] a dropped grant's id was not kept");
+                }
+                self.reply(super::now::taken_frame(&id));
+            }
+            Err(error) => {
+                tracing::warn!(%error, device = %self.device.id, "[link] could not forget a dropped grant")
             }
         }
     }
@@ -1270,6 +1726,97 @@ impl Link {
         self.tell_proposals(false).await;
     }
 
+    /// `card.answer`: the owner answered one of her cards on the app. Kept
+    /// once however often it comes (by its id, and by card, version and
+    /// action); then the conversation as it now stands.
+    async fn answer_card(&mut self, inbound: Inbound) {
+        #[derive(Deserialize)]
+        struct Answer {
+            card: String,
+            action: String,
+            version: String,
+        }
+        let seq = inbound.seq;
+        // Sent again until acked, and kept once by what it answers: no
+        // id needs remembering.
+        if !inbound
+            .id
+            .as_deref()
+            .is_some_and(|id| valid_id(id) && id.starts_with("ca_"))
+        {
+            self.error("bad_id", Some(seq));
+            return;
+        }
+        let Ok(answer) = serde_json::from_value::<Answer>(inbound.body) else {
+            self.error("bad_frame", Some(seq));
+            return;
+        };
+        let answered = if !myriad_nodes::cards::id_ok(&answer.card)
+            || !myriad_nodes::cards::word(&answer.action)
+            || !valid_id(&answer.version)
+        {
+            crate::services::agent::merope::cards::Answered {
+                kept: false,
+                code: Some("card_unknown"),
+                now: None,
+            }
+        } else {
+            match crate::services::agent::merope::cards::answer(
+                &self.db,
+                self.owner,
+                &answer.card,
+                &answer.version,
+                &answer.action,
+            )
+            .await
+            {
+                Ok(answered) => answered,
+                Err(error) => {
+                    tracing::warn!(%error, device = %self.device.id, "[link] an answer to a card was not kept");
+                    crate::services::agent::merope::cards::Answered {
+                        kept: false,
+                        code: Some("internal_error"),
+                        now: None,
+                    }
+                }
+            }
+        };
+        let mut body = json!({ "card": answer.card, "kept": answered.kept });
+        if let Some(code) = answered.code {
+            body["code"] = code.into();
+        }
+        self.reply(Outgoing::latest("card.answered", body));
+        // The conversation it is on, as it now stands: sent even when the
+        // answer changed nothing (kept before, or to an older version).
+        let before = self.live.as_ref().map(|live| live.changes.clone());
+        self.keep_conversations().await;
+        let after = self.live.as_ref().map(|live| live.changes.clone());
+        if answered.kept && before == after {
+            self.tell_card(&answer.card).await;
+        }
+    }
+
+    /// The conversation whose lines hold `card` whole, as it stands now.
+    async fn tell_card(&mut self, card: &str) {
+        let read = super::conversations::recent_with(&self.db, self.owner, true, true).await;
+        let Ok(sessions) = read else {
+            return;
+        };
+        let holds = |session: &Value| {
+            session["messages"].as_array().is_some_and(|lines| {
+                lines
+                    .iter()
+                    .any(|line| line["cardId"] == card && line.get("card").is_some())
+            })
+        };
+        if let Some(session) = sessions.into_iter().find(holds)
+            && let Some(frame) =
+                super::conversations::one_frame(session, CONTRACT.limits.max_frame_bytes)
+        {
+            self.reply(frame);
+        }
+    }
+
     /// `act.result`: what became of a request to act.
     async fn act_result(&mut self, inbound: Inbound) {
         let seq = inbound.seq;
@@ -1381,7 +1928,8 @@ impl Link {
         if changes == live.changes {
             return;
         }
-        let sessions = match super::conversations::recent_with(&self.db, self.owner, true).await {
+        let read = super::conversations::recent_with(&self.db, self.owner, true, self.cards).await;
+        let sessions = match read {
             Ok(sessions) => sessions,
             Err(error) => {
                 tracing::warn!(%error, device = %self.device.id, "[link] could not read recent conversations");
@@ -1456,9 +2004,12 @@ impl Link {
             // Lines that could not be queued when said, and none that expired.
             let pending = super::say::pending(&self.device.id);
             let asked = super::act::pending(&self.device.id);
+            let device = &self.device.id;
             self.unacked.retain(|(_, id)| {
                 pending.iter().any(|(waiting, _)| waiting == id)
                     || asked.iter().any(|(waiting, _)| waiting == id)
+                    // A lend waits for its ack too, which makes it her mind's.
+                    || crate::services::her_log::lend::waiting(device, id)
             });
             for (id, body) in pending {
                 if !self.said.contains(&id) {
@@ -1478,17 +2029,21 @@ impl Link {
     }
 
     /// The child's ack covers everything up to `ack` on this connection.
-    fn acked(&mut self, ack: u64) {
+    /// The private messages lent that her mind took with it, to keep.
+    fn acked(&mut self, ack: u64) -> Vec<crate::services::her_log::lend::ChatLent> {
         let device = &self.device.id;
+        let mut kept = Vec::new();
         self.unacked.retain(|(seq, id)| {
             if *seq <= ack {
                 super::say::acked(device, id);
                 super::act::acked(device, id);
+                kept.extend(crate::services::her_log::lend::acked(device, id));
                 false
             } else {
                 true
             }
         });
+        kept
     }
 
     /// The link is closed: stop sending, and the person is not there now
@@ -1505,6 +2060,22 @@ impl Link {
                 self.owner,
                 &self.device.id,
             );
+        }
+        // Lent nothing more; what was lent here and not acked is the
+        // site's again.
+        if let Some(token) = self.lends.take() {
+            let back = crate::services::her_log::lend::close(&self.device.id, token);
+            if !back.is_empty() {
+                let db = self.db.clone();
+                tokio::spawn(async move {
+                    crate::services::her_log::lend::give_back(
+                        &db,
+                        &crate::services::her_log::lend::Platforms,
+                        back,
+                    )
+                    .await;
+                });
+            }
         }
     }
 }

@@ -56,6 +56,9 @@ mod first_word;
 mod inbound;
 mod session;
 mod work_run;
+pub(crate) mod works;
+#[cfg(test)]
+mod scheduling_eval;
 
 use commands::*;
 pub(crate) use first_word::*;

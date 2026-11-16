@@ -1,10 +1,10 @@
+import type { Anime25DPlayback, PoseCorrection } from '@myriad/figure/anime25drig'
 import type { RefObject } from 'react'
-import type { PoseCorrection } from '../anime25drig/poseCorrections'
-import type { Anime25DPlayback } from '../anime25drig/types'
 import type { RigCharacterHandle } from '../character/RigCharacter'
 import type { DriverSliderKey } from './motionControls'
 import type { MovingPartsSearch } from './MovingPartsPanel'
 import type { WorkbenchDriver } from './useWorkbenchDriver'
+import { ANIME25D_MOTION_ENVELOPE_PROBES } from '@myriad/figure/workbench'
 import { useState } from 'react'
 import {
   InfoActionCard,
@@ -14,7 +14,6 @@ import {
   SwitchItem,
 } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'
-import { ANIME25D_MOTION_ENVELOPE_PROBES } from '../anime25drig/motionEnvelope'
 import {
   DRIVER_SLIDERS,
   envelopeProbeLabel,
@@ -287,6 +286,16 @@ export function MotionPanel({
           'accentSparkle',
           'accentBlush',
         ])}
+        {sliderCluster(labels.clusterGestures, [
+          'handWaveL',
+          'handPointL',
+          'handChestL',
+          'handChinL',
+          'handWaveR',
+          'handPointR',
+          'handChestR',
+          'handChinR',
+        ])}
       </SettingGroup>
       <SettingGroup
         title={labels.hairBodyGroup}
@@ -339,7 +348,7 @@ export function MotionPanel({
       </SettingGroup>
       {motionEnabled && correctionPlayback && correctionAssetId && onSavePoseCorrections ? (
         <PoseCorrectionEditor
-          key={correctionAssetId}
+          key={`pose-${correctionAssetId}`}
           playback={correctionPlayback}
           characterRef={characterRef}
           driver={driver}
@@ -349,7 +358,7 @@ export function MotionPanel({
         />
       ) : null}
       {correctionPlayback && movingParts ? (
-        <MovingPartsPanel key={correctionAssetId ?? ''} playback={correctionPlayback} target={correctionTarget} search={movingParts} />
+        <MovingPartsPanel key={`parts-${correctionAssetId ?? ''}`} playback={correctionPlayback} target={correctionTarget} search={movingParts} />
       ) : null}
     </>
   )

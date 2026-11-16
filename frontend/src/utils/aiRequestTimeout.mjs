@@ -1,5 +1,6 @@
 /** Do not use the generic 30s HTTP timeout. */
 export const AI_REQUEST_TIMEOUT_FLOOR_MS = 5 * 60 * 1000
+/** Below what the proxy gives persona paths here (PERSONA_LONG_REQUEST_TIMEOUT). */
 export const AI_IMAGE_REQUEST_TIMEOUT_MS = 15 * 60 * 1000
 
 const IMAGE_AI_PREFIXES = [

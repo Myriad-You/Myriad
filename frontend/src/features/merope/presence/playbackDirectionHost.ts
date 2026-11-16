@@ -1,13 +1,14 @@
 import type { AgentPanelMode } from '../../../components/agent-panel/agentPanelMode'
 import type { PlaybackDirectionScope } from '../motion/playbackDirection'
+import { sanitizePerformanceDirective } from '@myriad/figure/events'
+import { MEROPE_SPEECH_EVENT, meropeSpeechEventDetail } from '@myriad/figure/speech'
 import { getAgentPanelMode } from '../../../components/agent-panel/agentPanelMode'
 import { API_URL } from '../../../config'
 import apiService from '../../../services/api'
 import { clearCSRFToken, getCSRFToken } from '../../../utils/csrf'
 import { liveFaceVisible } from '../events/faceVisible'
-import { sanitizePerformanceDirective } from '../events/performanceEvents'
 import { markTurnTrace } from '../events/turnTrace'
-import { isLiveMotionGeneration } from '../motion/liveGeneration'
+import { figureChannel } from '../figureChannel'
 import {
   PlaybackDirectionClient,
   sendPlaybackObservation,
@@ -16,7 +17,6 @@ import {
   captureProductionRigStateSummary,
   getProductionMotionRuntime,
 } from '../motion/runtimeHost'
-import { MEROPE_SPEECH_EVENT, meropeSpeechEventDetail } from '../speech/speechEvents'
 import { getSpeechPipeline } from '../speech/speechPipelineHost'
 import { deliverTurnLine } from './engineFace'
 
@@ -71,7 +71,7 @@ export const playbackDirection = new PlaybackDirectionClient({
   },
   current: ({ generation }) =>
     enabled &&
-    isLiveMotionGeneration(generation) &&
+    figureChannel.isLive(generation) &&
     liveFaceVisible() &&
     document.visibilityState === 'visible' &&
     getAgentPanelMode() === directedMode,
@@ -102,11 +102,11 @@ export function retainPlaybackDirection(): () => void {
     if (detail?.phase === 'cancel' && !detail.utteranceId)
       playbackDirection.cancel(detail.messageId)
   }
-  window.addEventListener(MEROPE_SPEECH_EVENT, onSpeech)
+  figureChannel.addEventListener(MEROPE_SPEECH_EVENT, onSpeech)
   return () => {
     enabled = false
     stopChecking()
-    window.removeEventListener(MEROPE_SPEECH_EVENT, onSpeech)
+    figureChannel.removeEventListener(MEROPE_SPEECH_EVENT, onSpeech)
     playbackDirection.stop()
   }
 }

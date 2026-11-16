@@ -68,6 +68,9 @@ pub struct Device {
     pub last_seen_at: Option<DateTime<FixedOffset>>,
     pub revoked_at: Option<DateTime<FixedOffset>>,
     pub revoked_reason: Option<String>,
+    /// When her link last closed it for speaking another protocol: the app
+    /// on it is to be updated. Cleared by its next hello the site takes.
+    pub app_outdated_at: Option<DateTime<FixedOffset>>,
 }
 
 impl Device {
@@ -89,12 +92,13 @@ impl Device {
             last_seen_at: row.try_get("", "last_seen_at")?,
             revoked_at: row.try_get("", "revoked_at")?,
             revoked_reason: row.try_get("", "revoked_reason")?,
+            app_outdated_at: row.try_get("", "app_outdated_at")?,
         })
     }
 }
 
 const COLUMNS: &str = "id, user_id, name, token_hint, lineage, created_at, last_seen_at, \
-                       revoked_at, revoked_reason";
+                       revoked_at, revoked_reason, app_outdated_at";
 
 /// 32 random bytes as a fixed-width base62 number.
 fn base62(bytes: [u8; 32]) -> String {
@@ -216,7 +220,7 @@ pub async fn list<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<Vec<Device
 
 /// Removes a live device of the owner's, closing its link if one is open.
 /// `None` when there is no such live device.
-pub async fn revoke<C: ConnectionTrait>(
+pub async fn revoke<C: ConnectionTrait + TransactionTrait>(
     db: &C,
     user_id: i32,
     id: &str,
@@ -250,6 +254,15 @@ pub async fn revoke<C: ConnectionTrait>(
             RevokeReason::ByOwner | RevokeReason::DeviceLeft => Close::Revoked,
         };
         disconnect(&device.id, close);
+        // What it told of the owner's coding-agent sessions goes for good:
+        // the reason it was kept (the device watching for them) is gone.
+        // Not now: again when the owner forgets the device ([`forget`]) or
+        // any of their devices tells a session.
+        if let Err(error) =
+            crate::services::agent::merope::sessions::forget_device(db, user_id, &device.id).await
+        {
+            tracing::warn!(%error, device = %device.id, "[devices] a removed device's sessions are not forgotten yet");
+        }
     }
     Ok(removed)
 }
@@ -259,7 +272,25 @@ pub async fn revoke<C: ConnectionTrait>(
 /// which is what closes its link and settles her lease. Its backups stay
 /// (they are how she is taken back). `false` when there is no such removed
 /// device.
-pub async fn forget<C: ConnectionTrait>(db: &C, user_id: i32, id: &str) -> Result<bool, DbErr> {
+pub async fn forget<C: ConnectionTrait + TransactionTrait>(
+    db: &C,
+    user_id: i32,
+    id: &str,
+) -> Result<bool, DbErr> {
+    // What it told of their sessions, if removing it did not forget it.
+    let removed = db
+        .query_one_raw(statement(
+            "SELECT 1 AS one FROM agent_sync_devices \
+             WHERE id = $1 AND user_id = $2 AND revoked_at IS NOT NULL",
+            vec![id.into(), user_id.into()],
+        ))
+        .await?
+        .is_some();
+    if removed {
+        crate::services::agent::merope::sessions::forget_device(db, user_id, id)
+            .await
+            .map_err(|error| DbErr::Custom(format!("a removed device's sessions: {error}")))?;
+    }
     let gone = db
         .execute_raw(statement(
             "DELETE FROM agent_sync_devices WHERE id = $1 AND user_id = $2 AND revoked_at IS NOT NULL",
@@ -290,7 +321,7 @@ impl From<DbErr> for Refused {
 
 /// The device holding `token`, while it is one and belongs to the site's
 /// owner `owner`. A device of a previous owner is revoked on sight.
-pub async fn authenticate<C: ConnectionTrait>(
+pub async fn authenticate<C: ConnectionTrait + TransactionTrait>(
     db: &C,
     token: &str,
     owner: Option<i32>,
@@ -325,7 +356,7 @@ pub async fn authenticate<C: ConnectionTrait>(
 /// The device `id` while it still is one and still belongs to the site's
 /// owner `owner`: what a connection that stays open checks now and then, as
 /// [`authenticate`] checked it when it opened.
-pub async fn recheck<C: ConnectionTrait>(
+pub async fn recheck<C: ConnectionTrait + TransactionTrait>(
     db: &C,
     id: &str,
     owner: Option<i32>,
@@ -356,6 +387,29 @@ pub async fn seen<C: ConnectionTrait>(db: &C, id: &str) -> Result<(), DbErr> {
          WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < $3::timestamptz - make_interval(secs => $2))",
         vec![id.into(), (SEEN_EVERY_SECS as f64).into(), crate::clock::now().into()],
     ))
+    .await?;
+    Ok(())
+}
+
+/// Her link closed the device for speaking another protocol (`outdated`), or
+/// took its hello: what its devices page says of the app on it.
+pub async fn app_outdated<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+    outdated: bool,
+) -> Result<(), DbErr> {
+    db.execute_raw(if outdated {
+        statement(
+            "UPDATE agent_sync_devices SET app_outdated_at = $2::timestamptz WHERE id = $1",
+            vec![id.into(), crate::clock::now().into()],
+        )
+    } else {
+        statement(
+            "UPDATE agent_sync_devices SET app_outdated_at = NULL \
+             WHERE id = $1 AND app_outdated_at IS NOT NULL",
+            vec![id.into()],
+        )
+    })
     .await?;
     Ok(())
 }
@@ -500,6 +554,7 @@ mod tests {
             last_seen_at: at(29),
             revoked_at: None,
             revoked_reason: None,
+            app_outdated_at: None,
         };
         assert!(!device.stale(now));
         device.last_seen_at = at(31);

@@ -88,6 +88,14 @@ export interface ChatMessage {
   dataDisplay?: DataDisplayHint
   data?: unknown
   imageUrls?: string[]
+  /** Said on another of the owner's ends (D6-e): that end's name, when it has one. */
+  saidOn?: { name: string | null }
+  /** How many pictures came with a line said elsewhere; they stay there. */
+  pictures?: number
+  /** Typed a message at a time: whether she is at her next one. */
+  typing?: boolean
+  /** A line of the owner's chat that is a card or carries one. */
+  cardLine?: import('../../services/agent/types').CardLine
 }
 
 export interface TaskExecution {

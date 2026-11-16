@@ -28,7 +28,7 @@ test(`background runner admits four successful instances serially after ${failed
     publishBackgroundResidents: (next: Array<{ id: string }>) => published.push(next),
     clearBackgroundResidents: () => {},
     registerBackgroundResidentStopHandler: (handler: (tappId: string) => void) => { stopResident = handler; return () => { stopResident = undefined } },
-    loadCoreResources: async (tapp: { id: string }) => { calls.push(tapp.id); if (tapp.id === '0') await first.promise; if (Number(tapp.id) < failed) throw new Error('fixture package unavailable'); return { modules: {} } },
+    tappKernel: { resources: { loadCoreResources: async (tapp: { id: string }) => { calls.push(tapp.id); if (tapp.id === '0') await first.promise; if (Number(tapp.id) < failed) throw new Error('fixture package unavailable'); return { modules: {} } } } },
     lazy: () => () => null, Suspense: React.Suspense,
   }
   const runner = compileFunction(`${script}; return TappBackgroundRunner;`, Object.keys(dependencies))(...Object.values(dependencies))

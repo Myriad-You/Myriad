@@ -65,6 +65,18 @@ pub(super) async fn load_configured_lite() -> sea_orm::DatabaseConnection {
     db
 }
 
+/// Her soul as the site has it, read-only, with the configured Lite loaded:
+/// for other live evaluations of her judgment.
+pub(crate) async fn configured_soul() -> String {
+    let db = load_configured_lite().await;
+    let soul = match super::merope::store::get_persona_on(&db).await {
+        Ok(Some(persona)) => super::merope::format_persona(&persona).unwrap_or_default(),
+        _ => String::new(),
+    };
+    let _ = db.close().await;
+    soul
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Case {
@@ -721,8 +733,17 @@ fn mind_chat_prompt(case: &Case) -> String {
             .map(super::merope::reach::writing_first_section),
         case.channel.as_ref().map(|channel| {
             super::delegate::section(&super::types::ChannelChat {
-                handed_off: channel["handedOff"].as_str().map(str::to_string),
-                busy: channel["busy"].as_bool().unwrap_or(false),
+                works: channel["works"]
+                    .as_array()
+                    .map(|works| {
+                        works
+                            .iter()
+                            .filter_map(|line| line.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .or_else(|| channel["handedOff"].as_str().map(|line| vec![line.to_string()]))
+                    .unwrap_or_default(),
+                waiting: channel["waiting"].as_u64().unwrap_or(0) as usize,
                 ..Default::default()
             })
         }),
@@ -923,6 +944,7 @@ fn event_context(case: &Case) -> (event::ConsciousnessEvent, event::SelfSnapshot
                 they_wrote_since: said.they_wrote_since,
             })
             .collect(),
+        speaking: vec![],
         inner: None,
         macs_for_work: vec![],
     };
@@ -1330,7 +1352,7 @@ fn request(case: &Case) -> Value {
             json!({"input":chat_prompt::build_chat_lite_prompt_with_perception(&default_soul(),&remembered,&[],&case.input,&scene),"schema":null,"schemaName":null,"system":null})
         }
         "memory" => {
-            let (system, schema) = memory::live_probe_contract(&case.remembered);
+            let (system, schema) = memory::live_probe_contract(&case.remembered, &case.input);
             let turn = super::merope::TurnContext {
                 before: case
                     .history
@@ -1352,7 +1374,7 @@ fn request(case: &Case) -> Value {
             json!({"system":system,"schema":schema,"schemaName":"agent_consciousness_decision","input":json!({"event":event,"self":snapshot}).to_string()})
         }
         // The line made from a decision's gist (`reply`) about what a child
-        // end told (`input`), as `redeem::compose_line` asks for it; without
+        // end told (`input`), as `compose::compose_line` asks for it; without
         // the speaking sections a chat turn wears (memory, mood, how she is).
         "speak" => {
             use myriad_merope::speaking::{
@@ -1641,6 +1663,7 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
                 &theirs,
                 &case.remembered,
                 case.lately.len(),
+                0,
             ) else {
                 return "output_invalid";
             };

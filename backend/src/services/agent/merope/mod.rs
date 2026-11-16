@@ -5,9 +5,11 @@ mod appraisal;
 pub(in crate::services::agent) mod background;
 pub(in crate::services::agent) mod bits;
 mod call;
+pub(crate) mod cards;
 pub(in crate::services::agent) mod chat_days;
 pub mod clock;
 pub(in crate::services::agent) mod chat_remember;
+pub(crate) mod chat_typing;
 pub(in crate::services::agent) mod curiosity;
 pub(in crate::services::agent) mod doing;
 pub mod draft;
@@ -33,13 +35,12 @@ mod memory_bench;
 #[cfg(test)]
 mod size_guard_tests;
 pub(in crate::services::agent) mod memory_jobs;
+pub(crate) mod memory_nodes;
 pub(in crate::services::agent) mod motion;
-mod motion_local;
 pub(in crate::services::agent) mod motion_preview;
 pub(in crate::services::agent) mod nodes;
 pub(in crate::services::agent) mod observe;
 pub(in crate::services::agent) mod onboarding_ai;
-pub(in crate::services::agent) mod onboarding_prompts;
 mod other_groups;
 pub(in crate::services::agent) mod others;
 mod outfit_overlay;
@@ -55,6 +56,7 @@ pub(in crate::services::agent) mod self_state;
 pub(in crate::services::agent) mod self_story;
 mod senses;
 pub(in crate::services::agent) mod serial;
+pub(crate) mod sessions;
 pub(in crate::services::agent) mod sharing;
 pub(in crate::services::agent) mod sore;
 pub(in crate::services::agent) mod soup;
@@ -140,11 +142,14 @@ pub async fn resolve_speaking_soul() -> Option<String> {
     if enabled {
         if let Ok(db) = crate::services::process_db::database() {
             if let Ok(Some(persona)) = get_persona(&db).await {
-                if let Some(text) = format_persona(&persona) {
-                    return Some(format!(
-                        "{text}\n\n{}",
-                        myriad_merope::speaking::site_line(&site)
-                    ));
+                // Put together once, in the core: she lives on this site,
+                // called by its name.
+                if let Some(soul) = myriad_merope::speaking::soul(
+                    &persona.name,
+                    &persona.personality,
+                    &myriad_merope::speaking::Home::site(&site),
+                ) {
+                    return Some(soul);
                 }
             }
         }
@@ -361,7 +366,8 @@ pub use speaking_prompts::{
 };
 
 pub use speaking_context::{
-    audience_for, her_openers, resolve_addressee_label, speaking_prompt, speaking_prompt_for_event,
+    audience_for, her_openers, her_state_for_anyone, resolve_addressee_label, speaking_prompt,
+    speaking_prompt_for_event,
     speaking_prompt_in_group, speaking_prompt_plain, speaking_prompt_to_reach,
     speaking_prompt_with_query, their_typing, with_said_unprompted,
 };

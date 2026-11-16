@@ -19,6 +19,7 @@ mod recovery;
 #[cfg(test)]
 mod reference_tests;
 mod references;
+mod remote;
 mod retire;
 mod scan;
 pub(crate) mod serve;
@@ -508,6 +509,7 @@ mod tests {
             include_str!("recovery.rs"),
             include_str!("retire.rs"),
             include_str!("references.rs"),
+            include_str!("remote.rs"),
             include_str!("cite.rs"),
             include_str!("scan.rs"),
             include_str!("serve.rs"),

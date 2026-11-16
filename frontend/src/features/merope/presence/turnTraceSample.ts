@@ -1,5 +1,5 @@
 import { noteTurnTraceLeaks } from '../events/turnTrace'
-import { getRigMotionCoordinator } from '../motion/coordinator'
+import { getProductionCoordinator } from '../motion/productionCoordinator'
 import { speechAudioContextOpen } from '../speech/ttsPlayer'
 import { voicePresenceListenerCount } from '../speech/voicePresence'
 
@@ -7,6 +7,6 @@ export function sampleTurnTraceLeaks(): void {
   noteTurnTraceLeaks({
     audioContexts: speechAudioContextOpen() ? 1 : 0,
     voiceListeners: voicePresenceListenerCount(),
-    leases: getRigMotionCoordinator().leaseCount(),
+    leases: getProductionCoordinator().leaseCount(),
   })
 }

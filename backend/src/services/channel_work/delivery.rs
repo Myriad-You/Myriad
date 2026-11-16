@@ -241,6 +241,13 @@ pub(super) async fn deliver_run(
                     DeliveryPlan::FailVisible { content, .. } => (content, Vec::new()),
                     DeliveryPlan::Drop => continue,
                 };
+                // A piece says which it is while another of the chat is not done,
+                // and its question carries its number into its buttons.
+                let content = works::label_for(&db, sink.platform(), user_id, &key, &content).await;
+                let prompt = match works::split_lane(&key) {
+                    Some((_, number)) => prompt.map(|prompt| works::stamp(number, prompt)),
+                    None => prompt,
+                };
                 if matches!(event, ChannelEvent::TaskStarted { .. }) {
                     let _ = sink.send_text(&content).await;
                     continue;

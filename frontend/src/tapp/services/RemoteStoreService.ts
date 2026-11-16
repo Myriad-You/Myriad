@@ -1,6 +1,7 @@
-import type { TappManifest } from '../types'
+import type { TappManifest } from '@myriad/tapp-runtime'
 import type { RemoteStoreLocales } from '../utils/storeLocale'
 import type { StorePreviewDescriptor } from '../utils/storePreview'
+import { maxDeclaredAssets } from '@myriad/tapp-runtime'
 import { currentCopy, formatCurrent } from '../../i18n/localeCopy'
 import { ApiError, apiService } from '../../services/api'
 import {
@@ -16,7 +17,6 @@ import {
 } from '../utils/storePackagePaths'
 import { isStoreAppAvailable } from '../utils/storePolicy'
 import { parseStorePreview } from '../utils/storePreview'
-import { maxDeclaredAssets } from '../utils/tappPackageLimits'
 
 /** `{ success, error, data }` envelope of the store-source admin endpoints. */
 interface StoreEnvelope {

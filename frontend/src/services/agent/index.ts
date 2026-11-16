@@ -11,12 +11,29 @@ export {
   unregisterActionHandler,
 } from './frontendActions'
 
+export { memoryNodesApi } from './memoryNodesApi'
+
+export type {
+  MemoryNodeAudience,
+  MemoryNodeEntry,
+  MemoryNodeHeadItem,
+  MemoryNodeIntent,
+  MemoryNodeLine,
+  MemoryNodeList,
+  MemoryNodePage,
+  MemoryNodeSpan,
+} from './memoryNodesApi'
+
 /** Quota rejections use error.code. */
 export { AgentStreamError } from './sseTransport'
 export type {
   AgentResponse,
   AgentResponseType,
   Capability,
+  CardAnswerReply,
+  CardLine,
+  CardNow,
+  CardVersion,
   ClarificationPoint,
   ClarificationType,
   ColumnDef,
@@ -61,6 +78,7 @@ export type {
   ScrollOptions,
   SessionInfo,
   SessionMessage,
+  SessionPage,
   SkillInfo,
   StepCompletedEvent,
   StepDebugEvent,

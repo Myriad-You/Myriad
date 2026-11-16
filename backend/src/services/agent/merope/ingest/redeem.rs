@@ -1,32 +1,33 @@
 //! Speak intent in → sentence out. Rechecks sight here. Live and notify are
 //! independent channels.
 
-use super::delivery_claim::DeliveryCoordinator;
 use chrono::{DateTime, FixedOffset, Utc};
 use futures::{StreamExt, stream};
-use once_cell::sync::Lazy;
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
 
-use super::super::gates::{IngestDecision, decide_ingest, is_task_outcome, is_valuable_event};
+use super::super::gates::{IngestDecision, decide_ingest, is_valuable_event};
 use super::super::store::{
-    affect_from_state, get_or_create_state, get_persona, insert_proactive, latest_open_session,
-    recent_proactive, recently_spoke_event, touch_proactive,
+    affect_from_state, get_or_create_state, get_persona, latest_open_session,
 };
 use super::super::{
     MoodTransition, MotionContext, MotionPhase, PerformanceDirective, direct_motion,
     local_directive, public_persona_name, refine_motion, resolve_round_motion_style,
 };
+use super::compose::{compose_line, sanitize_speech};
 use super::in_person::{InPerson, in_person, say_on_app};
-use super::{SAME_EVENT_MINUTES, current_sight, is_enabled, is_trivial_line, log_skip};
+use super::{current_sight, is_enabled, is_trivial_line, log_skip};
 use crate::services::agent::consciousness::{SpeakIntent, drain_speak_intents, last_live_presence};
 use crate::services::agent::merope::gates::IngestSight;
 use crate::services::agent::notification_preferences::{ACTION_OPEN_AGENT, NotificationEventKey};
 use crate::services::agent::notifications::{
     LiveSpeech, Notification, NotificationPriority, NotificationType, get_notification_manager,
 };
-
-static DELIVERY: Lazy<DeliveryCoordinator> = Lazy::new(DeliveryCoordinator::default);
+use crate::services::agent::speech::{
+    self, Extent, Wish,
+    admit::{admit, goes_on},
+    ledger::{self, Line, Out, Transcript},
+};
 
 fn merope_owns_notify(event_key: &str) -> bool {
     event_key.starts_with("agent.merope.")
@@ -64,33 +65,25 @@ async fn redeem_speak_intent(
     if intent.expires_at <= crate::clock::now() {
         return Ok(());
     }
-    let Some(mut claim) = DELIVERY.claim(&intent).await else {
-        log_skip(
-            intent.user_id,
-            &intent.topic,
-            "delivery_already_claimed_or_expired",
-        );
-        return Ok(());
-    };
     let touch = intent.topic == "agent.merope.touch";
+    let mut wish = wish_of(&intent);
+    // What the shared core lets go before a word is written: the same thing
+    // already said to them, their do-not-disturb, a runaway loop.
+    if !goes_on(&admit(db, &wish).await) {
+        log_skip(intent.user_id, &intent.topic, "not_admitted");
+        return Ok(());
+    }
+    if crate::services::agent::consciousness::withdrawn(&intent) {
+        log_skip(intent.user_id, &intent.topic, "withdrawn");
+        return Ok(());
+    }
     let state = get_or_create_state(db, intent.user_id).await?;
     let input_at = state.last_user_message_at;
     let Some(decision) = current_delivery(db, &intent, input_at, false).await else {
         return Ok(());
     };
-    let repeat_minutes = if touch { 1 } else { SAME_EVENT_MINUTES };
-    if recently_spoke_event(db, intent.user_id, &intent.topic, repeat_minutes).await? {
+    if touch && touched_again(db, &intent).await {
         log_skip(intent.user_id, &intent.topic, "recently_spoke");
-        return Ok(());
-    }
-    let last_proactive = state
-        .last_proactive_at
-        .map(|value| value.with_timezone(&Utc));
-    let cooldown = crate::services::agent::merope::self_state::current(db)
-        .await
-        .proactive_cooldown_secs();
-    if within_proactive_cooldown(&intent.topic, last_proactive, crate::clock::now(), cooldown) {
-        log_skip(intent.user_id, &intent.topic, "proactive_cooldown");
         return Ok(());
     }
 
@@ -143,14 +136,27 @@ async fn redeem_speak_intent(
         log_skip(intent.user_id, &intent.topic, "trivial_line");
         return Ok(());
     }
-    if let Ok(recent) = recent_proactive(db, intent.user_id, 1).await {
-        if recent
-            .first()
-            .is_some_and(|last| last.content.trim() == spoken.trim())
-        {
-            log_skip(intent.user_id, &intent.topic, "duplicate_line");
-            return Ok(());
-        }
+    // One line at a time to them: wait for whatever of hers is going out
+    // there (or her choice among lines waiting together), then look again
+    // with the words in it, as things stand now.
+    let Some(_turn) = speech::send::turn(
+        intent.user_id,
+        &wish.to,
+        speech::send::hand(wish.source, &spoken),
+    )
+    .await
+    else {
+        log_skip(intent.user_id, &intent.topic, "let_go_for_another");
+        return Ok(());
+    };
+    if touch && touched_again(db, &intent).await {
+        log_skip(intent.user_id, &intent.topic, "recently_spoke");
+        return Ok(());
+    }
+    wish.text = Some(spoken.clone());
+    if !goes_on(&admit(db, &wish).await) {
+        log_skip(intent.user_id, &intent.topic, "not_admitted_as_written");
+        return Ok(());
     }
 
     let Some(decision) = current_delivery(db, &intent, input_at, false).await else {
@@ -221,6 +227,12 @@ async fn redeem_speak_intent(
     let Some(decision) = current_delivery(db, &intent, input_at, false).await else {
         return Ok(());
     };
+    // What it rested on was taken back while it was worded or waited: the
+    // last look before it goes out.
+    if crate::services::agent::consciousness::withdrawn(&intent) {
+        log_skip(intent.user_id, &intent.topic, "withdrawn");
+        return Ok(());
+    }
     // Merope toasts only what it owns. Task / phantasi / sync already have a
     // producer; sending ours as well would be two notices for one event.
     let mut delivered = false;
@@ -244,7 +256,6 @@ async fn redeem_speak_intent(
         )
         .await;
         if delivered {
-            claim.delivered(&intent, repeat_minutes);
             said_on_app = Some(intent.id.clone());
         }
         // Her director refines how she acts it while the app says it.
@@ -269,9 +280,6 @@ async fn redeem_speak_intent(
             source_intent_id,
             voice.as_ref().map(|(_, _, token)| token.as_str()),
         );
-        if delivered {
-            claim.delivered(&intent, repeat_minutes);
-        }
         if let Some(context) = pending_motion.take().filter(|_| delivered) {
             let user_id = intent.user_id;
             let id = intent.id.clone();
@@ -311,30 +319,38 @@ async fn redeem_speak_intent(
     } else {
         false
     };
-    // The transcript and cooldown describe accepted delivery, not composition.
-    // Suppression or an unavailable transport must not consume either.
-    if delivered || notified {
-        claim.delivered(&intent, repeat_minutes);
-        insert_proactive(
-            db,
-            intent.user_id,
-            &spoken,
-            Some(&intent.topic),
+    // What went out, and how much: the ledger has every line it judges by,
+    // one that never went out too, as not said. Only what reached them is
+    // in her transcript there.
+    let exit = match &target {
+        InPerson::App(_) if delivered => "app",
+        InPerson::Face if delivered => "face",
+        _ => "notice",
+    };
+    ledger::write(
+        db,
+        Line {
+            to: &wish.to,
+            source: wish.source,
+            called: wish.called,
+            thing: wish.thing.as_deref(),
+            text: &spoken,
+        },
+        Out::full(if said_on_app.is_some() { "app" } else { "web" }, exit)
+            .extent(if delivered || notified {
+                Extent::Full
+            } else {
+                Extent::None
+            })
+            .line(Some(intent.id.clone())),
+        Some(Transcript {
+            event_key: &intent.topic,
             notified,
-            said_on_app.as_deref(),
-        )
-        .await?;
-        let _ = touch_proactive(db, intent.user_id).await;
-        // What a child end saw: her line on its node is said now.
-        if super::super::gates::files_on_node(&intent.topic) {
-            if let Err(error) =
-                super::super::nodes::said(db, intent.user_id, &intent.source_event_id, &spoken)
-                    .await
-            {
-                tracing::warn!(%error, "[Merope] could not mark a node's line said");
-            }
-        }
-    }
+            say_id: said_on_app.as_deref(),
+            card: intent.card.as_deref(),
+        }),
+    )
+    .await;
     Ok(())
 }
 
@@ -423,119 +439,6 @@ fn delivery_decision(
 fn speech_is_shown(event_key: &str, notify: bool) -> bool {
     notify && merope_owns_notify(event_key)
 }
-
-/// The line she says for `intent` (what she means, about what happened), as
-/// she would put it; with `voice`, in her own voice, its sound sent as it is
-/// made.
-async fn compose_line(
-    db: &DatabaseConnection,
-    intent: &SpeakIntent,
-    voice: Option<(
-        &crate::config::OmniVoice,
-        &crate::services::omni_voice::VoiceOut,
-    )>,
-) -> Option<String> {
-    let user_id = intent.user_id;
-    let model = super::super::call::Ask::new(super::super::call::Voice::Hers, user_id, "speak")
-        .within(std::time::Duration::from_secs(30))
-        .model()
-        .await
-        .ok()?;
-    let soul = crate::services::agent::identity::get_speaking_soul()
-        .await
-        .unwrap_or_else(|| "You are Agent.".to_string());
-    let mut sections =
-        crate::services::agent::merope::speaking_prompt_for_event(db, user_id, &intent.gist).await;
-    // How the last exchange left her, if it was a moment ago.
-    sections.extend(
-        super::super::inner::current(
-            user_id,
-            &crate::services::agent::memory::unified::Audience::private(user_id),
-        )
-        .as_deref()
-        .and_then(crate::services::agent::merope::format_inner_moment_ago_section),
-    );
-    let mind = crate::services::agent::merope::speaking_prompt_plain(&sections);
-    // What she already said unasked, as her decision saw it.
-    let recent_block = super::said_lately_block(db, user_id).await;
-    let system =
-        super::super::speaking_prompts::compose_proactive_system(&soul, &mind, &recent_block);
-    let prompt = super::super::speaking_prompts::compose_proactive_user(
-        &intent.gist,
-        intent.happened.as_deref(),
-    );
-    let made = match voice {
-        Some((omni, out)) => {
-            let aloud = crate::services::omni_voice::said_aloud(&format!("{system}\n\n{prompt}"));
-            let mut unsaid = crate::services::omni_voice::Unsaid::default();
-            let speaking = crate::services::omni_voice::speak(omni, &aloud, &[], None, |piece| {
-                match piece {
-                    crate::services::omni_voice::OmniDelta::Text(text) => unsaid.written(&text),
-                    crate::services::omni_voice::OmniDelta::Audio(sound) => {
-                        if unsaid.lets_through() {
-                            out.send(&sound);
-                        }
-                    }
-                }
-                async { true }
-            });
-            // Billed and bounded as any line of hers is (see `call::Model`).
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(45),
-                crate::services::ai_cost_ledger::with_site_ai_ledger(
-                    user_id, "merope", "speak", speaking,
-                ),
-            )
-            .await
-            {
-                Ok(made) => made.map_err(|error| error.to_string()),
-                Err(_) => Err("her own voice ran out of time".to_string()),
-            }
-        }
-        None => model
-            .text(&system, &prompt)
-            .await
-            .map_err(|error| error.to_string()),
-    };
-    match made {
-        Ok(raw) => {
-            let spoken = sanitize_speech(&raw);
-            (!is_trivial_line(&spoken)).then_some(spoken)
-        }
-        Err(error) => {
-            tracing::debug!(%error, "[Merope] Lite speech failed; saying nothing");
-            None
-        }
-    }
-}
-
-fn sanitize_speech(raw: &str) -> String {
-    let mut text = raw.trim().to_string();
-    if text.starts_with("```") {
-        text = text
-            .lines()
-            .skip(1)
-            .take_while(|line| !line.trim_start().starts_with("```"))
-            .collect::<Vec<_>>()
-            .join(" ");
-    }
-    let text = text
-        .trim()
-        .trim_matches(|c| c == '"' || c == '“' || c == '”')
-        .trim();
-    // All she said, a line a sentence as she wrote it: she is asked for one
-    // or two, and what she says is hers to keep whole.
-    let lines: Vec<&str> = text
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect();
-    lines.join("\n").chars().take(SPEECH_CHARS).collect()
-}
-
-/// Bounds what is kept of a line she says unprompted, against a runaway
-/// answer; far past the one or two sentences she is asked for.
-const SPEECH_CHARS: usize = 600;
 
 fn emit_live_speech(
     user_id: i32,
@@ -643,89 +546,42 @@ async fn display_name(db: &DatabaseConnection) -> String {
     public_persona_name(true, stored.as_deref())
 }
 
-/// 刚主动说过话就先不再开口。间隔跨事件计算（同一事件的重复另有
-/// `SAME_EVENT_MINUTES` 管），由她自己的精力决定，最短
-/// `BASE_PROACTIVE_COOLDOWN_SECS`，累了就等更久（见 `self_state`）。
-/// 触摸是对当下动作的回应，任务结果是对方在等的事，这两类不受间隔限制。
-fn within_proactive_cooldown(
-    topic: &str,
-    last_proactive_at: Option<DateTime<Utc>>,
-    now: DateTime<Utc>,
-    cooldown_secs: i64,
-) -> bool {
-    if topic == "agent.merope.touch" || is_task_outcome(topic) {
-        return false;
-    }
-    let cooldown =
-        cooldown_secs.max(crate::services::agent::merope::self_state::BASE_PROACTIVE_COOLDOWN_SECS);
-    last_proactive_at
-        .is_some_and(|last| now.signed_duration_since(last) < chrono::Duration::seconds(cooldown))
+/// What she means to say for `intent`, as the shared core takes it: to them,
+/// for the reason its event names, about that event (its id is the same
+/// event within its window: said once, not again), only face to face when
+/// the event is, until it runs out. A touch is being called on.
+fn wish_of(intent: &SpeakIntent) -> Wish {
+    let to = speech::private(intent.user_id);
+    let mut wish = speech::wish(
+        to.clone(),
+        speech::source_of_event(&intent.topic),
+        intent.gist.clone(),
+        to,
+    );
+    let touch = intent.topic == "agent.merope.touch";
+    wish.thing = Some(intent.source_event_id.clone());
+    wish.called = touch;
+    wish.in_person = touch || super::super::gates::said_only_in_person(&intent.topic);
+    wish.keeps_until = Some(speech::micros(intent.expires_at));
+    wish
+}
+
+/// A touch answered a moment ago (within a minute): the only gate on
+/// what she says of an event that is still a rule here, read from the
+/// ledger. The same event to them within fifteen minutes and her cooldown
+/// since she last spoke up are hers to weigh now (`self.speaking`: what she
+/// said lately and whether they answered); the event's own window is still
+/// one thing, said once.
+async fn touched_again(db: &DatabaseConnection, intent: &SpeakIntent) -> bool {
+    let user = intent.user_id;
+    let prefix = super::produce::event_thing_prefix(user, &intent.topic);
+    ledger::last_about(db, user, &prefix, &intent.topic)
+        .await
+        .is_some_and(|at| (crate::clock::now() - at).num_minutes() < 1)
 }
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn what_she_says_unprompted_is_kept_whole() {
-        assert_eq!(
-            super::sanitize_speech("\"刚听完那首。\n\n副歌那段还在脑子里转。\""),
-            "刚听完那首。\n副歌那段还在脑子里转。"
-        );
-        assert_eq!(super::sanitize_speech("```\n就一句\n```"), "就一句");
-    }
-
-    #[test]
-    fn proactive_speech_waits_between_events_but_not_for_touch_or_outcomes() {
-        let now = crate::clock::now();
-        let recent = Some(now - chrono::Duration::seconds(30));
-        let old = Some(
-            now - chrono::Duration::seconds(
-                crate::services::agent::merope::self_state::BASE_PROACTIVE_COOLDOWN_SECS + 1,
-            ),
-        );
-        assert!(super::within_proactive_cooldown(
-            "phantasi.digest",
-            recent,
-            now,
-            180
-        ));
-        assert!(!super::within_proactive_cooldown(
-            "phantasi.digest",
-            old,
-            now,
-            180
-        ));
-        assert!(!super::within_proactive_cooldown(
-            "phantasi.digest",
-            None,
-            now,
-            180
-        ));
-        assert!(!super::within_proactive_cooldown(
-            "agent.merope.touch",
-            recent,
-            now,
-            180
-        ));
-        assert!(!super::within_proactive_cooldown(
-            "agent.task_completed",
-            recent,
-            now,
-            180
-        ));
-        // A tired persona waits longer; nothing makes the wait shorter.
-        assert!(super::within_proactive_cooldown(
-            "phantasi.digest",
-            old,
-            now,
-            600
-        ));
-        assert!(super::within_proactive_cooldown(
-            "phantasi.digest",
-            Some(now - chrono::Duration::seconds(100)),
-            now,
-            10
-        ));
-    }
     #[test]
     fn every_event_rechecks_input_expiry_switch_dnd_and_delivery_surface() {
         let now = crate::clock::now();
@@ -816,8 +672,9 @@ mod tests {
             .next()
             .unwrap();
         assert!(!src.contains("set_activity("));
-        let before_write = src.split("insert_proactive(").next().unwrap();
-        assert!(before_write.contains("if delivered || notified"));
+        let before_write = src.split("ledger::write(").next().unwrap();
+        let after_write = src.split("ledger::write(").nth(1).unwrap();
+        assert!(after_write.contains("if delivered || notified"));
         assert!(before_write.contains("delivered = emit_live_speech("));
         assert!(before_write.contains("let notified = if"));
         assert!(
@@ -918,8 +775,12 @@ mod tests {
             .nth(1)
             .expect("redeem path");
         assert!(redeem.contains("if is_trivial_line(&spoken)"));
-        assert!(redeem.contains("last.content.trim() == spoken.trim()"));
-        assert!(redeem.contains("insert_proactive"));
+        // The same line again is the core's to refuse, with the words in it.
+        assert!(redeem.contains("wish.text = Some(spoken.clone())"));
+        assert!(redeem.contains("ledger::write("));
+        // A cooldown or the same topic a while ago are hers to weigh (step 3
+        // of unified speech), not rules here.
+        assert!(!src.contains("proactive_cooldown") && !src.contains("SAME_EVENT_MINUTES"));
         assert!(redeem.contains("emit_speech_notification"));
         assert!(redeem.contains("emit_live_speech"));
         assert!(redeem.contains("if shown {"));

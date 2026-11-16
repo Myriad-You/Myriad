@@ -7,7 +7,7 @@ import ts from 'typescript'
 const source = ts.createSourceFile('runtime.ts', readFileSync(new URL('./TappRuntime.ts', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true)
 const body = source.statements.filter(node => !ts.isImportDeclaration(node)).map(node => node.getText(source).replace(/^export /, '')).join('\n')
 function runtimeWith(dependencies: Record<string, unknown>): typeof import('./TappRuntime').TappRuntime {
-  const deps = { getResourceLoader: () => ({ clearCache() {} }), ...dependencies }
+  const deps = { tappKernel: { resources: { clearCache() {} } }, ...dependencies }
   return compileFunction(`${ts.transpile(body, { target: ts.ScriptTarget.ESNext })}; return TappRuntime`, Object.keys(deps))(...Object.values(deps))
 }
 const installed = { id: 'owner-app', manifest: { id: 'owner-app', permissions: [] }, user_role: 'admin', is_admin_tapp: true, status: 'installed', granted_permissions: [] }

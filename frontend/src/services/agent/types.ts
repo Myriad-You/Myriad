@@ -1,75 +1,27 @@
-import type performanceContract from '../../../../core/shared/merope_performance_contract.json'
+import type { MoodTransition, PerformanceDirective, RigStateSummary } from '@myriad/figure/performance'
 
-export type BodyControl = keyof typeof performanceContract.bodyControls
-export interface BodyPose {
-  targets: Partial<Record<BodyControl, number>>
-  transitionMs: number
-  /** Zero keeps the pose until revised or explicitly released. */
-  holdMs: number
-}
-
-export type RigMotionStyle = 'restrained' | 'even' | 'open'
-export type RigMusicEnergy = 'quiet' | 'soft' | 'present' | 'strong'
-export type RigBeatPhase = 'rest' | 'downbeat' | 'pulse' | 'hold'
-export type RigBehaviorFunction =
-  | 'orient'
-  | 'attend'
-  | 'acknowledge'
-  | 'uncertain'
-  | 'prepareSpeech'
-  | 'emphasize'
-  | 'surprise'
-  | 'celebrate'
-  | 'relief'
-  | 'entrain'
-  | 'express'
-export type RigBehaviorPhase =
-  | 'planned'
-  | 'preparing'
-  | 'committed'
-  | 'holding'
-  | 'recovering'
-  | 'complete'
-  | 'rejected'
-
-export interface RigStateSummary {
-  expression: PerformanceBaseline['expression'] | 'steady'
-  posture: PerformanceBaseline['posture']
-  acting: {
-    intent: PerformanceCue['intent'] | null
-    phase: PerformancePhase | 'idle'
-    function: RigBehaviorFunction | null
-    lifecycle: RigBehaviorPhase | null
-    remainingMs: number
-  }
-  activeBehaviors: {
-    function: RigBehaviorFunction
-    lifecycle: RigBehaviorPhase
-    source: string
-    resources: string[]
-    remainingMs: number
-  }[]
-  owners: {
-    mouth: string
-    expression: string
-    gaze: string
-    headBody: string
-  }
-  speaking: boolean
-  singing: boolean
-  musicPlaying: boolean
-  music?: {
-    energy: RigMusicEnergy
-    beat: RigBeatPhase
-  }
-  capabilities: string[]
-  recentIntents: PerformanceCue['intent'][]
-  motionStyle: RigMotionStyle
-  pageVisible: boolean
-  faceVisible: boolean
-  /** The look her face holds now (facePresets), for the director to change from. */
-  face?: string
-}
+export type {
+  BodyControl,
+  BodyPose,
+  MoodBandName,
+  MoodTransition,
+  PerformanceBaseline,
+  PerformanceCue,
+  PerformanceDirective,
+  PerformancePhase,
+  RigBeatPhase,
+  RigBehaviorFunction,
+  RigBehaviorPhase,
+  RigMotionStyle,
+  RigMusicEnergy,
+  RigStateSummary,
+  ScoreBeat,
+  ScoreDirection,
+  ScoreMove,
+  ScoreMoveKind,
+  ScoreSide,
+  SpeechPhrase,
+} from '@myriad/figure/performance'
 
 export interface ProcessContext {
   mode?: 'work' | 'chat'
@@ -158,113 +110,6 @@ export type AgentResponseType =
   | 'task_progress'
   | 'task_completed'
   | 'error'
-
-export type PerformancePhase =
-  'reaction' | 'delivery' | 'outcome' | 'proactive' | 'mood' | 'presence'
-
-export interface PerformanceBaseline {
-  expression: 'withdrawn' | 'subdued' | 'steady' | 'warm' | 'tense'
-  posture: 'closed' | 'neutral' | 'open'
-  motionEnergy: number
-  attention: number
-  pose?: BodyPose
-  /** The contract's look her face holds (facePresets), whose life the body plays. */
-  face?: string
-  /** How she gets from the look before to this one (faceShifts); naturally without. */
-  shift?: string
-  /** Looks passed through on the way, in order and without stopping (facePresets names, or 'plain'). */
-  via?: string[]
-}
-
-export interface PerformanceCue {
-  intent:
-    | 'greet'
-    | 'respond'
-    | 'question'
-    | 'delight'
-    | 'emphasize'
-    | 'listen'
-    | 'notify'
-    | 'think'
-    | 'dizzy'
-    | 'cry'
-    | 'angry'
-    | 'speechless'
-    | 'maniac'
-    | 'silly'
-    | 'lovestruck'
-  atMs: number
-  intensity: number
-  tempo: number
-  fadeInMs: number
-  fadeOutMs: number
-  holdMs?: number
-  interrupt: 'replace' | 'queue' | 'if-lower'
-}
-
-export interface PerformanceDirective {
-  phrases?: SpeechPhrase[]
-  /** Beats on the reply's words or on time: acting that unfolds beat by beat. */
-  score?: ScoreBeat[]
-  /** Standing acting only: the score plays again each this many milliseconds. */
-  loopMs?: number
-  phase: PerformancePhase
-  moodRevision: number
-  motionStyle: RigMotionStyle
-  plan: {
-    baseline?: PerformanceBaseline
-    cues: PerformanceCue[]
-  }
-}
-
-export type ScoreMoveKind =
-  | 'nod' | 'shake' | 'glance' | 'blink' | 'wink' | 'beat' | 'shrug' | 'sigh' | 'bounce' | 'startle'
-export type ScoreSide = 'left' | 'right' | 'both'
-export type ScoreDirection =
-  | 'left' | 'right' | 'up' | 'down' | 'up-left' | 'up-right' | 'down-left' | 'down-right'
-
-/** A movement that goes and comes back by itself, such as a nod. */
-export interface ScoreMove {
-  kind: ScoreMoveKind
-  side?: ScoreSide
-  direction?: ScoreDirection
-  amount: number
-  count: number
-  tempo: number
-}
-
-/**
- * One beat of the director's score: on words of the reply as they are
- * spoken (`text`, shifted by `offsetMs`), or `atMs` after the score arrives.
- */
-export interface ScoreBeat {
-  text?: string
-  atMs: number
-  offsetMs: number
-  /** Targets reached from this moment and held until revised or `holdMs` passes. */
-  pose?: BodyPose
-  move?: ScoreMove
-}
-
-export interface SpeechPhrase {
-  text: string
-  intent:
-    'ask' | 'hesitate' | 'tease' | 'explain' | 'check-in' | 'laugh' | 'none'
-}
-
-export type MoodBandName = 'floor' | 'sad' | 'tense' | 'calm' | 'excited'
-
-export interface MoodTransition {
-  before: number
-  after: number
-  arousalBefore?: number
-  arousalAfter?: number
-  bandBefore: MoodBandName
-  bandAfter: MoodBandName
-  delta: number
-  cause: string
-  revision: number
-}
 
 export interface AgentResponse {
   success: boolean
@@ -373,6 +218,11 @@ export interface SummaryTokenEvent {
   type: 'summary_token'
   token: string
   done: boolean
+}
+
+/** She is typing her next message in a chat typed a message at a time: the next text is a message of its own. */
+export interface TypingEvent {
+  type: 'typing'
 }
 
 export interface ThinkingTokenEvent {
@@ -536,6 +386,7 @@ export type ProgressEvent =
   | SessionCreatedEvent
   | SessionTitleUpdatedEvent
   | SummaryTokenEvent
+  | TypingEvent
   | ThinkingTokenEvent
   | PerformancePlanEvent
   | MeropeStateChangedEvent
@@ -729,6 +580,55 @@ export interface SessionMessage {
   taskId?: string
   metadata?: Record<string, unknown>
   createdAt: string
+}
+
+/** One version of a card put before the site owner. `kind` and `scene` are open words. */
+export interface CardVersion {
+  at: number
+  id: string
+  kind: string
+  scene: string
+  subject?: string
+  title: string
+  state?: string
+  facts?: { text: string; ref?: string }[]
+  /** Her view; `because` names facts by number, from 1. */
+  view?: { text: string; because?: number[] }
+  actions?: { id: string; label: string }[]
+}
+
+/** A card as it stands, held by the latest line that carries it. */
+export interface CardNow {
+  card: CardVersion
+  version: string
+  answered?: { at: number; action: string; version: string }
+  waiting: boolean
+}
+
+/** A line of the owner's private chat that is a card or carries one. */
+export interface CardLine {
+  /** `pro_<n>`: not a session message id, never forgettable as one. */
+  id: string
+  /** `assistant`: her line carrying the card; `card`: only the card. */
+  role: 'assistant' | 'card'
+  content: string
+  createdAt: string
+  cardId: string
+  line?: string
+  /** Only on the latest line carrying the card. */
+  card?: CardNow
+}
+
+export interface SessionPage {
+  messages: SessionMessage[]
+  /** Only for the site owner; empty otherwise. */
+  cards: CardLine[]
+}
+
+export interface CardAnswerReply {
+  kept: boolean
+  code?: 'card_stale' | string
+  card?: CardNow
 }
 
 export interface QueueStatus {

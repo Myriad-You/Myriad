@@ -8,43 +8,62 @@
 //! take are answered with `error` and a contract code, never a message.
 //!
 //! - `log.vector` (what a host core holds of one audience): answered with
-//!   the rows it lacks, every forget first, in `log.rows` batches that fit
-//!   the frame limits, and with the server's own vector so it sends what
-//!   the server lacks. A core that holds nothing of a large audience gets a
-//!   single-use HTTPS link instead (`log.full`).
-//! - `log.rows`: checked and merged by the log rules ([`store::take`]); a
-//!   clock too far ahead refuses the batch whole (`error` `clock_ahead`
-//!   with the server's time, as the HTTPS `clock_ahead` compares it). Rows
-//!   sealed to another PC are relayed unread.
-//! - A group's log is kept only here. Only the core her mind is on gets a
-//!   group's rows (lent for her to think with, never to keep: the PC must
-//!   not write them to disk) and may send rows of a group (what she said
-//!   and noted, written back only here).
+//!   the rows it lacks, every forget and retract first, in `log.rows`
+//!   batches that fit
+//!   the frame limits (`myriad_nodes::wire::send` for the partner's
+//!   computer: a body goes only when it may, the batch's `withheld` says
+//!   why the others do not), then the rows it asks again for (`ask`), and
+//!   with the server's own vector so it sends what the server lacks. A core
+//!   that holds nothing of a large audience gets a single-use HTTPS link
+//!   instead (`log.full`). A core older than ABI 2 (its `hello` did not list
+//!   `log2`) gets no rows while one it would refuse (a merge's or a split's
+//!   names, a retract) is to go (`tooOld`): only the server's vector, so it
+//!   still sends what the server lacks.
+//! - `log.rows`: checked and merged by the log rules ([`store::take`], the
+//!   wire's `take` as the server); a clock too far ahead refuses the batch
+//!   whole (`error` `clock_ahead` with the server's time, as the HTTPS
+//!   `clock_ahead` compares it). Bodies that did not come, or came spoilt,
+//!   are asked for again in the `log.vector` that answers the batch, each
+//!   at most once per link session ([`Session`]). Rows sealed to another PC
+//!   are relayed unread.
+//! - Every side of an account goes by its partner id (`personal:<id>`),
+//!   which the site mints ([`super::partner_id`]) and gives in `welcome`:
+//!   the server's side is that id, and so is every device's as the server
+//!   names it (`peer`). A device still on another id refuses to sync in its
+//!   own core until it has moved.
+//! - The partner's computers hold only the partner's private talk and hers
+//!   (`myriad_persona_log::holder`): a group's log and anyone else's
+//!   private talk are kept only here and never sent to one (`not_holder`).
+//!   Only the core her mind is on may send rows of those audiences (what
+//!   she said and noted, written back only here); what a group says reaches
+//!   her mind as `group.lend`, not as rows.
 //! - `lease.ask`, `lease.yield`, `lease.stopped`: moves by [`lease`]; a new
 //!   grant goes to the new holder (`lease.grant`) and every device is told
 //!   where she is now (`lease.epoch`), both with the server's stop time.
 //!
-//! What is not here yet: speaking protocol 2 on the WebSocket itself (the
-//! site's link still speaks protocol 1, and these frames reach nothing
-//! until it negotiates 2), delivering to other connected devices
-//! ([`To::Device`], [`To::Hosts`], [`To::Everyone`] say where a frame goes;
-//! the connection would send them), and asking a holder to give her up
-//! when another core asks for her.
+//! - `group.say`, `chat.say`: her mind on a PC says something in a group
+//!   or a private chat the site lent it ([`super::lend`]); sent there as
+//!   her, answered with `group.said` or `chat.said`.
+//!
+//! The link hands these frames here once its welcome said sync on, and
+//! sends what comes back where [`To`] says. What is not here yet: asking a
+//! holder to give her up when another core asks for her.
 
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use myriad_nodes::wire::{ASK_ROWS, Batch};
 use myriad_persona_log::{
-    Row, Vector,
+    Core, Holder, Vector,
     lease::{Refusal as MoveRefusal, Request, Through},
+    row::Author,
 };
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 
 use super::{
-    Error, NODE, Settings, full, keys,
-    lease::{self, Core, Outcome},
-    store::{self, Batch, Sent},
+    Error, NODE, Owner, Settings, full, keys,
+    lease::{self, Core as Seen, Outcome},
+    store,
 };
 
 /// Where an outgoing frame goes.
@@ -89,14 +108,134 @@ impl Outgoing {
     }
 }
 
-/// The most rows and payloads in one `log.rows` (the contract's
-/// `maxItems`), and the most payload bytes, leaving room in a frame.
-pub const MAX_ROWS: usize = 256;
-pub const MAX_PAYLOADS: usize = 64;
-pub const MAX_BATCH_BYTES: usize = 160 * 1024;
-/// A core that holds nothing of an audience with more rows than this gets
-/// the HTTPS download instead of rows over the link.
-pub const FULL_AFTER_ROWS: usize = 2 * MAX_ROWS;
+/// A core that holds nothing of an audience with more rows than this, and
+/// listed [`FULL`], gets the HTTPS download instead of rows over the link.
+pub const FULL_AFTER_ROWS: usize = 2 * myriad_nodes::wire::BATCH_ROWS;
+
+/// What the server remembers of one link session with one device: its
+/// core's ABI as its `hello` said ([`peer_abi`]), whether it downloads a
+/// first full sync by a link ([`FULL`]), and the rows it asked that device
+/// for again, so it asks for each at most once (`log.vector` `ask`). The
+/// connection keeps one per link and drops it when the link closes.
+#[derive(Debug, Clone)]
+pub struct Session {
+    peer_abi: u32,
+    full: bool,
+    asked: BTreeSet<String>,
+}
+
+/// The capability a host core lists when it downloads a first full sync by
+/// the link `log.full` gives: only such a link is given one; another gets
+/// the rows over the link in `log.rows` batches, as any increment.
+pub const FULL: &str = "log.full";
+
+impl Session {
+    pub fn new(peer_abi: u32) -> Self {
+        Self {
+            peer_abi,
+            full: false,
+            asked: BTreeSet::new(),
+        }
+    }
+
+    /// The session of a link whose `hello` listed `capabilities`, as
+    /// accepted.
+    pub fn of(capabilities: &[String]) -> Self {
+        Self {
+            full: capabilities.iter().any(|capability| capability == FULL),
+            ..Self::new(peer_abi(capabilities))
+        }
+    }
+}
+
+impl Default for Session {
+    /// A device that said nothing of its core: ABI 1.
+    fn default() -> Self {
+        Self::new(1)
+    }
+}
+
+/// The core ABI of the other side of a link (`nodes.wire_send` `peerAbi`):
+/// the highest N for which its `hello` (or `welcome`) listed `logN`, 1 when
+/// none. `capabilities` is the list as accepted, so it holds only the `logN`
+/// the contract of the core this site is built with has, none above what
+/// that core reads.
+pub fn peer_abi(capabilities: &[String]) -> u32 {
+    capabilities
+        .iter()
+        .filter_map(|capability| capability.strip_prefix("log")?.parse::<u32>().ok())
+        .filter(|abi| *abi >= 2)
+        .max()
+        .unwrap_or(1)
+}
+
+/// The core ABI each of the owner's devices last synced her log with, by
+/// device: a side of hers is a device that synced, until it is removed.
+const SIDES: &str = "her_log_side_abi";
+const SIDE_SECS: i64 = 100 * 365 * 24 * 60 * 60;
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Side {
+    abi: u32,
+}
+
+/// Keeps that `device` syncs her log with a core of `abi`.
+pub async fn remember_side<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    owner: i32,
+    device: &str,
+    abi: u32,
+) -> Result<(), sea_orm::DbErr> {
+    crate::services::runtime_registry::put(
+        db,
+        SIDES,
+        &format!("{owner}/{device}"),
+        crate::services::runtime_registry::RegistryIdentity {
+            subject_id: Some(owner),
+            owner_id: Some(owner),
+            tapp_id: None,
+            runtime_id: Some(device),
+        },
+        &Side { abi },
+        crate::clock::now().timestamp() + SIDE_SECS,
+    )
+    .await
+}
+
+/// Whether every side of the owner's that syncs her log reads `abi`: there
+/// is one, and each device of theirs that synced and is not removed last
+/// synced with a core of `abi` or later. A row only such a core reads may
+/// then be written to go to all of them (`myriad_nodes::wire`: a side
+/// below it gets nothing while one is to go).
+pub async fn every_side_reads<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    owner: i32,
+    abi: u32,
+) -> Result<bool, sea_orm::DbErr> {
+    let rows = crate::services::runtime_registry::list(db, SIDES, Some(owner), None).await?;
+    let removed = db
+        .query_all_raw(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT id FROM agent_sync_devices WHERE user_id = $1 AND revoked_at IS NOT NULL",
+            [owner.into()],
+        ))
+        .await?
+        .into_iter()
+        .filter_map(|row| row.try_get::<String>("", "id").ok())
+        .collect::<BTreeSet<String>>();
+    let sides: Vec<_> = rows
+        .into_iter()
+        .filter(|row| {
+            !row.runtime_id
+                .as_deref()
+                .is_some_and(|device| removed.contains(device))
+        })
+        .collect();
+    Ok(!sides.is_empty()
+        && sides.into_iter().all(|row| {
+            serde_json::from_value::<Side>(row.payload).is_ok_and(|side| side.abi >= abi)
+        }))
+}
 
 /// The roles the server speaks in.
 const SERVER_ROLES: [&str; 2] = ["server", "host"];
@@ -128,64 +267,24 @@ fn batch_id() -> String {
     format!("rows_{}", &uuid::Uuid::new_v4().simple().to_string()[..20])
 }
 
-/// `sent` as `log.rows` bodies within the frame limits, in order (every
-/// forget first, as the rules answered).
-pub fn batches(audience: &str, sent: Vec<Sent>) -> Vec<Value> {
-    let mut bodies = Vec::new();
-    let mut rows: Vec<Value> = Vec::new();
-    let mut payloads: Vec<Value> = Vec::new();
-    let mut bytes = 0;
-    let flush = |rows: &mut Vec<Value>,
-                 payloads: &mut Vec<Value>,
-                 bytes: &mut usize,
-                 bodies: &mut Vec<Value>| {
-        if rows.is_empty() {
-            return;
-        }
-        let mut body = json!({ "audience": audience, "rows": std::mem::take(rows) });
-        if !payloads.is_empty() {
-            body["payloads"] = json!(std::mem::take(payloads));
-        }
-        *bytes = 0;
-        bodies.push(body);
-    };
-    for Sent { row, payload } in sent {
-        let data = match (&row.payload, payload) {
-            (Some(reference), Some(data)) => {
-                Some((reference.reference.clone(), BASE64.encode(data)))
-            }
-            _ => None,
-        };
-        let size = data.as_ref().map_or(0, |(_, data)| data.len());
-        if rows.len() == MAX_ROWS
-            || (data.is_some()
-                && (payloads.len() == MAX_PAYLOADS || bytes + size > MAX_BATCH_BYTES))
-        {
-            flush(&mut rows, &mut payloads, &mut bytes, &mut bodies);
-        }
-        rows.push(row.to_value());
-        if let Some((reference, data)) = data {
-            bytes += data.len();
-            payloads.push(json!({ "ref": reference, "data": data }));
-        }
-    }
-    flush(&mut rows, &mut payloads, &mut bytes, &mut bodies);
-    bodies
-}
-
-fn vector_body(audience: &str, holdings: &myriad_persona_log::Holdings) -> Value {
+fn vector_body(audience: &str, holdings: &myriad_persona_log::Holdings, ask: &[String]) -> Value {
     let mut body = json!({ "audience": audience, "vector": holdings.vector });
     if !holdings.beyond.is_empty() {
         body["beyond"] = json!(holdings.beyond);
     }
+    if !ask.is_empty() {
+        body["ask"] = json!(ask);
+    }
     body
 }
 
-/// Who holds her mind now: the server when no grant was ever issued.
+/// Who holds her mind now: the server when no grant was ever issued (none
+/// while she is frozen between ends, which the site keeps no grant of yet).
 async fn holder(db: &DatabaseConnection) -> Result<String, Error> {
     Ok(lease::standing(db)
         .await?
-        .map_or_else(|| NODE.to_string(), |grant| grant.holder))
+        .map_or_else(|| Some(NODE.to_string()), |grant| grant.holder)
+        .unwrap_or_default())
 }
 
 /// What the server sends a device that just connected: where her mind is,
@@ -208,11 +307,11 @@ pub async fn welcome(
         lease::epoch_body(standing, settings),
     )];
     let taken_from_it = history.windows(2).any(|pair| {
-        pair[0].holder == device
+        pair[0].held_by(device)
             && pair[1].how == myriad_persona_log::How::Takeover
-            && pair[1].holder == NODE
+            && pair[1].held_by(NODE)
     });
-    if standing.holder != device && taken_from_it {
+    if !standing.held_by(device) && taken_from_it {
         let takeover = history
             .iter()
             .rev()
@@ -240,30 +339,42 @@ fn audience_of(body: &Value) -> Result<String, Error> {
         .ok_or_else(|| Error::Refused("no audience".into()))
 }
 
-/// Takes one frame from `device`, at the server's time `now` (microseconds).
+/// Takes one frame from `device`, one of the ends of `user`'s account, at
+/// the server's time `now` (microseconds), in that device's link `session`. `core` is
+/// what the device is as a side of her log, as its hello says: a computer
+/// (`Pc`) is a host core and holds the partner's private talk and hers; a
+/// phone or XR (`Child`) holds no log, so it is no host and gets none.
 /// `Err(Error::Off)` when her log on the server is off or the owner has
 /// not turned it on: the connection then treats the frame as one it does
 /// not know.
+#[allow(clippy::too_many_arguments)]
 pub async fn take(
     db: &DatabaseConnection,
     root: &dyn keys::Root,
     settings: &Settings,
-    owner: i32,
+    user: i32,
     device: &str,
+    core: Core,
+    session: &mut Session,
     frame: &Value,
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
     if !settings.enabled
-        || !store::account(db, owner)
+        || !store::account(db, user)
             .await?
             .is_some_and(|account| account.on())
     {
         return Err(Error::Off);
     }
+    let owner = super::owner(db, user).await?;
     let seq = frame.get("seq").and_then(Value::as_u64);
     let holder = holder(db).await?;
-    let mut as_roles = vec!["device", "host"];
-    if holder == device {
+    let host = core == Core::Pc;
+    let mut as_roles = vec!["device"];
+    if host {
+        as_roles.push("host");
+    }
+    if host && holder == device {
         as_roles.push("mind");
     }
     let checked = match myriad_her_link::check(frame, &roles(&as_roles)) {
@@ -271,17 +382,62 @@ pub async fn take(
         Err(refusal) => return Ok(vec![Outgoing::error(&refusal.code, seq)]),
     };
     let body = &frame["body"];
-    let mine = holder == device;
+    let mine = host && holder == device;
+    // Which lease frame came from whom and when, with the epoch it names:
+    // no reasons, places or anything else in the body.
+    if checked.t.starts_with("lease.") {
+        tracing::info!(
+            device,
+            t = %checked.t,
+            epoch = ?body.get("epoch").and_then(serde_json::Value::as_u64),
+            holder = %holder,
+            "[her-log] a lease frame"
+        );
+    }
+    let side = Holder {
+        core,
+        owner: owner.partner.clone(),
+    };
     match checked.t.as_str() {
         "log.vector" => {
             let audience = audience_of(body)?;
-            if store::is_group(&audience) && !mine {
+            if !side.holds(&audience) {
                 return Ok(vec![Outgoing::error("not_holder", seq)]);
             }
             let theirs: Vector = serde_json::from_value(body["vector"].clone())
                 .map_err(|_| Error::Refused("vector".into()))?;
-            lease::heard(db, device, Some(Core::Host), now).await?;
-            vector(db, root, device, &audience, &theirs, now).await
+            let ask: Vec<String> = match body.get("ask") {
+                Some(ask) => {
+                    serde_json::from_value(ask.clone()).map_err(|_| Error::Refused("ask".into()))?
+                }
+                None => Vec::new(),
+            };
+            // The counts it holds past a gap, by origin: not in its vector,
+            // so a side that took rows after a refused one shows them here.
+            if let Some(beyond) = body.get("beyond") {
+                tracing::debug!(
+                    device,
+                    audience,
+                    beyond = %beyond,
+                    "[her-log] a side's rows past a gap"
+                );
+            }
+            lease::heard(db, device, Some(Seen::Host), now).await?;
+            // How far a host core is: the holder on what it was handed, a
+            // device marked behind until it catches up, anyone's for when
+            // it is handed her later (`stuck`).
+            if host {
+                let standing = if mine || super::stuck::held_back(device) {
+                    lease::standing(db).await?
+                } else {
+                    None
+                };
+                super::stuck::heard(device, standing.as_ref(), &audience, &theirs, now);
+            }
+            vector(
+                db, root, &owner, device, &side, session, &audience, &theirs, ask, now,
+            )
+            .await
         }
         "log.rows" => {
             let audience = audience_of(body)?;
@@ -295,39 +451,93 @@ pub async fn take(
                     body: body.clone(),
                 }]);
             }
-            if store::is_group(&audience) && !mine {
-                return Ok(vec![Outgoing::error("not_holder", seq)]);
-            }
-            let Some(batch) = batch_of(body) else {
+            let Ok(batch) = serde_json::from_value::<Batch>(body.clone()) else {
                 return Ok(vec![Outgoing::error("bad_frame", seq)]);
             };
-            lease::heard(db, device, Some(Core::Host), now).await?;
-            rows(db, root, device, &audience, batch, seq, now).await
+            // What a computer may not hold, only her mind writes, for here:
+            // her mind there now, or there before a takeover sending what it
+            // wrote while it held her (her own memory catching up).
+            if !side.holds(&audience) && !mine && !(host && held_then(db, device, &batch).await?) {
+                return Ok(vec![Outgoing::error("not_holder", seq)]);
+            }
+            lease::heard(db, device, Some(Seen::Host), now).await?;
+            rows(db, root, settings, &owner, device, session, batch, seq, now).await
         }
         "lease.ask" => {
-            lease::heard(db, device, Some(Core::Host), now).await?;
+            lease::heard(db, device, Some(Seen::Host), now).await?;
+            // Its holder asking: the grant it was sent did not reach it (the
+            // link it went out on closed as it went, the device opening
+            // another), though `lease.epoch` did. It gets the grant again,
+            // as it stands; nothing moves.
+            if holder == device
+                && let Some(standing) = lease::standing(db)
+                    .await?
+                    .filter(|grant| grant.held_by(device))
+            {
+                tracing::info!(
+                    device,
+                    epoch = standing.epoch,
+                    "[her-log] her holder asked again: its grant was sent again"
+                );
+                return Ok(vec![Outgoing {
+                    to: To::Sender,
+                    t: "lease.grant",
+                    id: Some(standing.epoch.to_string()),
+                    body: lease::grant_body(&standing, settings),
+                }]);
+            }
             let request = match body["why"].as_str() {
-                Some("force") => Request::Force {
-                    to: device.to_string(),
-                },
+                Some("force") => {
+                    // Taken from here by force: her records as they are now
+                    // go into her log first, while she still writes here.
+                    if holder == NODE {
+                        records_before_leaving(db, root, user).await;
+                    }
+                    Request::Force {
+                        to: device.to_string(),
+                    }
+                }
+                // Taken back from it for never catching up, and still
+                // behind: it would hold her and stop again (`stuck`).
+                Some("talk" | "place") if holder == NODE && super::stuck::held_back(device) => {
+                    return Ok(Vec::new());
+                }
                 Some("talk" | "place") if holder == NODE => {
                     let standing = lease::current(db).await?;
+                    // Nothing new starts here from now on; what is in hand
+                    // ends before the grant goes out, so her rows here stop
+                    // at `through`.
+                    if !super::pen::quiet(device, standing.epoch + 1, super::pen::HANDOVER_WAIT)
+                        .await
+                    {
+                        tracing::warn!(
+                            device,
+                            thinking = super::pen::thinking(),
+                            "[her-log] handing her mind over with a thought still in hand"
+                        );
+                    }
+                    // Her records as they are now go into her log before
+                    // `through` is read: the device has her whole.
+                    records_before_leaving(db, root, user).await;
                     let through = lease::through_of(db, NODE).await?;
-                    Request::Handover {
+                    let request = Request::Handover {
                         from: NODE.to_string(),
                         epoch: standing.epoch,
                         to: device.to_string(),
                         through: (!through.is_empty()).then_some(through),
-                    }
+                    };
+                    let out = moved(db, settings, user, request, seq, now).await;
+                    super::pen::handed(db, settings, user).await?;
+                    return out;
                 }
                 // Asking another holder to give her up is not done yet: no
                 // answer, as the contract allows.
                 _ => return Ok(Vec::new()),
             };
-            moved(db, settings, request, seq, now).await
+            moved(db, settings, user, request, seq, now).await
         }
         "lease.yield" => {
-            lease::heard(db, device, Some(Core::Host), now).await?;
+            lease::heard(db, device, Some(Seen::Host), now).await?;
             let to = body["to"].as_str().unwrap_or(NODE).to_string();
             // `through` is {audience: last dseq}, one count per audience.
             let Ok(through) = serde_json::from_value::<Through>(body["through"].clone()) else {
@@ -339,10 +549,16 @@ pub async fn take(
                 to,
                 through: (!through.is_empty()).then_some(through),
             };
-            moved(db, settings, request, seq, now).await
+            moved(db, settings, user, request, seq, now).await
+        }
+        "lease.place" => {
+            let place = body["place"].as_str().filter(|place| !place.is_empty());
+            let owner_here = body["ownerHere"].as_bool().unwrap_or(false);
+            lease::place(db, device, place, owner_here, now).await?;
+            Ok(Vec::new())
         }
         "lease.stopped" => {
-            lease::heard(db, device, Some(Core::Host), now).await?;
+            lease::heard(db, device, Some(Seen::Host), now).await?;
             let stopped_ms = body["stoppedAt"].as_i64().unwrap_or(0);
             lease::stopped(
                 db,
@@ -353,39 +569,43 @@ pub async fn take(
             .await?;
             Ok(Vec::new())
         }
+        // Her mind on a PC says something where the site lent her a chat.
+        "group.say" | "chat.say" => {
+            Ok(super::lend::say(db, &super::lend::Platforms, device, mine, frame).await)
+        }
         _ => Err(Error::Refused("not a log or lease frame".into())),
     }
 }
 
-fn batch_of(body: &Value) -> Option<Batch> {
-    let rows: Vec<Row> = serde_json::from_value(body.get("rows")?.clone()).ok()?;
-    let mut payloads = BTreeMap::new();
-    for payload in body
-        .get("payloads")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-    {
-        let reference = payload.get("ref")?.as_str()?.to_string();
-        let data = BASE64.decode(payload.get("data")?.as_str()?).ok()?;
-        payloads.insert(reference, data);
-    }
-    Some(Batch { rows, payloads })
-}
-
+#[allow(clippy::too_many_arguments)]
 async fn vector(
     db: &DatabaseConnection,
     root: &dyn keys::Root,
+    owner: &Owner,
     device: &str,
+    to: &myriad_persona_log::Holder,
+    session: &Session,
     audience: &str,
     theirs: &Vector,
+    ask: Vec<String>,
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
-    let ours = store::holdings(db, audience).await?;
+    let ours = store::holdings(db, owner.user, audience).await?;
+    // How far a side has her log, by origin: counts only, no rows. What a
+    // check after a forget reads to see the side has the forget row.
+    tracing::debug!(
+        device,
+        audience,
+        theirs = ?theirs,
+        ours = ?ours.vector,
+        "[her-log] a side's vector"
+    );
     let mut out = Vec::new();
     let held: u64 = ours.vector.values().sum();
-    if theirs.is_empty() && held as usize > FULL_AFTER_ROWS {
-        let link = full::issue(db, device, audience, now).await?;
+    // A link is given only to one that said it downloads by it: one that
+    // did not would drop it and never catch up (a Mac did, 2026-11-14).
+    if theirs.is_empty() && session.full && held as usize > FULL_AFTER_ROWS {
+        let link = full::issue(db, device, audience, session.peer_abi, now).await?;
         out.push(Outgoing::back(
             "log.full",
             json!({
@@ -396,54 +616,153 @@ async fn vector(
             }),
         ));
     } else {
-        let sent = store::answer(db, root, audience, theirs).await?;
-        for body in batches(audience, sent) {
+        let sent =
+            store::send(db, root, owner, audience, theirs, ask, to, session.peer_abi).await?;
+        if sent.too_old {
+            tracing::info!(
+                device,
+                "[her-log] a device's core is older than ABI 2: no rows go to it until it repins"
+            );
+        }
+        if !sent.held_back.is_empty() {
+            tracing::warn!(
+                device,
+                held_back = sent.held_back.len(),
+                "[her-log] rows about the partner under another id went as stubs: a fault in the log"
+            );
+        }
+        for batch in sent.batches {
             out.push(Outgoing {
                 to: To::Sender,
                 t: "log.rows",
                 id: Some(batch_id()),
-                body,
+                body: serde_json::to_value(batch)
+                    .map_err(|_| Error::Refused("a batch does not write".into()))?,
             });
         }
     }
-    out.push(Outgoing::back("log.vector", vector_body(audience, &ours)));
+    out.push(Outgoing::back(
+        "log.vector",
+        vector_body(audience, &ours, &[]),
+    ));
     Ok(out)
 }
 
+/// Every row of `batch` is hers from `device`, at an epoch it held her: her
+/// mind there before the server took her over, back with what it wrote
+/// then.
+async fn held_then(db: &DatabaseConnection, device: &str, batch: &Batch) -> Result<bool, Error> {
+    if batch.rows.is_empty() {
+        return Ok(false);
+    }
+    let history = lease::history(db).await?;
+    Ok(batch.rows.iter().all(|row| {
+        row.author == Author::Her
+            && row.origin == device
+            && row.epoch.is_some_and(|epoch| {
+                history
+                    .iter()
+                    .any(|grant| grant.epoch == epoch && grant.held_by(device))
+            })
+    }))
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn rows(
     db: &DatabaseConnection,
     root: &dyn keys::Root,
+    settings: &Settings,
+    owner: &Owner,
     device: &str,
-    audience: &str,
+    session: &mut Session,
     batch: Batch,
     seq: Option<u64>,
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
-    let taken = match store::take(db, root, device, audience, batch, now).await {
+    let audience = batch.audience.clone();
+    let taken = match store::take(db, root, owner, device, batch, &session.asked, now).await {
         Ok(taken) => taken,
         Err(Error::ClockAhead { server_time, .. }) => {
             let mut error = Outgoing::error("clock_ahead", seq);
             error.body["serverTime"] = json!(server_time);
             return Ok(vec![error]);
         }
+        // A batch the wire would not read (a payload twice, a withheld
+        // body of no row, or carried too).
+        Err(Error::Refused(_)) => return Ok(vec![Outgoing::error("bad_frame", seq)]),
         Err(error) => return Err(error),
     };
-    if !taken.not_taken.is_empty() {
+    if !taken.not_taken.is_empty() || !taken.withheld.is_empty() {
         tracing::info!(
             device,
             not_taken = taken.not_taken.len(),
-            "[her-log] some rows of a batch were not taken"
+            withheld = taken.withheld.len(),
+            "[her-log] some rows of a batch were not taken, or came without their body"
         );
     }
-    let ours = store::holdings(db, audience).await?;
-    let mut out = vec![Outgoing::back("log.vector", vector_body(audience, &ours))];
-    // The other host cores hear there is more; a group's log stays here.
-    if !taken.added.is_empty() && !store::is_group(audience) {
+    // Each body that may yet come is asked for once in this link session.
+    let ask: Vec<String> = taken
+        .ask
+        .into_iter()
+        .filter(|id| !session.asked.contains(id))
+        .take(ASK_ROWS)
+        .collect();
+    session.asked.extend(ask.iter().cloned());
+    // What another end heard and she said there in the owner's private
+    // talk shows in the site's conversations too (D6-e).
+    if audience == owner.personal()
+        && let Err(error) = super::talk::fold(db, root, owner.user).await
+    {
+        tracing::warn!(%error, "[her-log] lines said on another end were not copied here");
+    }
+    // The owner's answers to her cards there are answers here too.
+    if audience == owner.personal()
+        && !taken.added.is_empty()
+        && let Err(error) = super::cards::fold(db, root, owner.user).await
+    {
+        tracing::warn!(%error, "[her-log] answers to her cards on another end were not taken here");
+    }
+    // Her records another end wrote go into the site's tables (b1).
+    if (audience == owner.personal() || audience == Owner::OWN)
+        && !taken.added.is_empty()
+        && let Err(error) = super::state::take_in(db, root, owner.user).await
+    {
+        tracing::warn!(%error, "[her-log] her records from another end were not taken in here");
+    }
+    // And her memories (b2).
+    if (audience == owner.personal() || audience == Owner::OWN)
+        && !taken.added.is_empty()
+        && let Err(error) = super::memories::take_in(db, root, owner).await
+    {
+        tracing::warn!(%error, "[her-log] her memories from another end were not taken in here");
+    }
+    // And her nodes, after the memories their entries name.
+    if (audience == owner.personal() || audience == Owner::OWN)
+        && !taken.added.is_empty()
+        && let Err(error) =
+            crate::services::agent::merope::memory_nodes::logged::take_in(db, root, owner).await
+    {
+        tracing::warn!(%error, "[her-log] her nodes from another end were not taken in here");
+    }
+    // A catch-up waiting on these rows may be over: she thinks here again.
+    if !taken.added.is_empty()
+        && matches!(super::pen::current(), super::pen::Pen::CatchingUp { .. })
+    {
+        super::pen::settle_for(db, settings, Some(owner.user)).await?;
+    }
+    let ours = store::holdings(db, owner.user, &audience).await?;
+    let mut out = vec![Outgoing::back(
+        "log.vector",
+        vector_body(&audience, &ours, &ask),
+    )];
+    // The other host cores hear there is more; what they may not hold
+    // stays here.
+    if !taken.added.is_empty() && owner.pc().holds(&audience) {
         out.push(Outgoing {
             to: To::Hosts,
             t: "log.vector",
             id: None,
-            body: vector_body(audience, &ours),
+            body: vector_body(&audience, &ours, &[]),
         });
     }
     Ok(out)
@@ -452,16 +771,21 @@ async fn rows(
 async fn moved(
     db: &DatabaseConnection,
     settings: &Settings,
+    user: i32,
     request: Request,
     seq: Option<u64>,
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
-    match lease::request(db, settings, request, now).await? {
+    let outcome = lease::request(db, settings, request, now).await?;
+    // Where her mind is, read again here (the other processes hear the
+    // grant from the database).
+    super::pen::settle_for(db, settings, Some(user)).await?;
+    match outcome {
         Outcome::Granted(grant) => {
             let mut out = Vec::new();
-            if grant.holder != NODE {
+            if let Some(holder) = grant.holder.clone().filter(|holder| holder != NODE) {
                 out.push(Outgoing {
-                    to: To::Device(grant.holder.clone()),
+                    to: To::Device(holder),
                     t: "lease.grant",
                     id: Some(grant.epoch.to_string()),
                     body: lease::grant_body(&grant, settings),
@@ -478,5 +802,14 @@ async fn moved(
         Outcome::Refused(MoveRefusal::NotHolder) => Ok(vec![Outgoing::error("not_holder", seq)]),
         Outcome::Refused(MoveRefusal::StaleEpoch) => Ok(vec![Outgoing::error("stale_epoch", seq)]),
         Outcome::Refused(_) | Outcome::NotAHost => Ok(Vec::new()),
+    }
+}
+
+/// Her records compared with her log (`state::sync`) as she leaves the
+/// server: a handover or a force. A comparison that fails does not stop her
+/// leaving; what it missed is the gap a takeover has anyway.
+async fn records_before_leaving(db: &DatabaseConnection, root: &dyn keys::Root, user: i32) {
+    if let Err(error) = super::state::sync(db, root, user).await {
+        tracing::warn!(%error, "[her-log] her records did not reach her log before she left");
     }
 }

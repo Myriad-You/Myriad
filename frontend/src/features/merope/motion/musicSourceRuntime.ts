@@ -1,12 +1,8 @@
-import type {
-  MusicMotionAudio,
-  MusicMotionClock,
-  MusicMotionVisibility,
-} from './musicSource'
+import type { MusicMotionAudio, MusicMotionClock, MusicMotionVisibility } from '@myriad/figure/motion'
+import { MusicMotionSource } from '@myriad/figure/motion'
 import { isPageVisible, onVisibility } from '../../../hooks/animation'
 import { audioManager } from '../../../utils/musicPlayer'
-import { getRigMotionCoordinator } from './coordinator'
-import { MusicMotionSource } from './musicSource'
+import { getProductionCoordinator } from './productionCoordinator'
 
 const productionClock: MusicMotionClock = {
   now: () => performance.now(),
@@ -32,7 +28,7 @@ const runtime: { current: MusicMotionSource | null } = { current: null }
 export function getMusicMotionSource(): MusicMotionSource {
   if (!runtime.current) {
     runtime.current = new MusicMotionSource(
-      getRigMotionCoordinator(),
+      getProductionCoordinator(),
       productionClock,
       productionAudio,
       productionVisibility,

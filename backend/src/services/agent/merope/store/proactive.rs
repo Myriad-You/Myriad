@@ -44,23 +44,24 @@ pub async fn mark_line_cut_off(
     else {
         return Ok(false);
     };
-    let mut metadata = line
-        .metadata
-        .clone()
-        .filter(Value::is_object)
-        .unwrap_or_else(|| serde_json::json!({}));
-    if let Some(object) = metadata.as_object_mut() {
-        object.insert(
-            crate::services::agent::chat_prompt::CUT_OFF_KEY.into(),
-            crate::services::agent::chat_prompt::cut_off_kind(true).into(),
-        );
-        if let Some(heard) = heard_chars {
-            object.insert("heardChars".into(), heard.into());
-        }
+    // Written beside what else marks the line (a card it carries), never
+    // over it.
+    let mut marks = serde_json::Map::new();
+    marks.insert(
+        crate::services::agent::chat_prompt::CUT_OFF_KEY.into(),
+        crate::services::agent::chat_prompt::cut_off_kind(true).into(),
+    );
+    if let Some(heard) = heard_chars {
+        marks.insert("heardChars".into(), heard.into());
     }
-    let mut active: agent_proactive_messages::ActiveModel = line.into();
-    active.metadata = Set(Some(metadata));
-    active.update(db).await?;
+    db.execute_raw(sea_orm::Statement::from_sql_and_values(
+        sea_orm::DatabaseBackend::Postgres,
+        "UPDATE agent_proactive_messages \
+         SET metadata = (CASE WHEN jsonb_typeof(metadata) = 'object' THEN metadata \
+           ELSE '{}'::jsonb END) || $2::jsonb WHERE id = $1",
+        [line.id.into(), Value::Object(marks).into()],
+    ))
+    .await?;
     Ok(true)
 }
 
@@ -71,6 +72,7 @@ pub async fn recent_proactive(
 ) -> Result<Vec<agent_proactive_messages::Model>, anyhow::Error> {
     Ok(agent_proactive_messages::Entity::find()
         .filter(agent_proactive_messages::Column::UserId.eq(user_id))
+        .filter(agent_proactive_messages::Column::Role.eq("assistant"))
         .order_by_desc(agent_proactive_messages::Column::CreatedAt)
         .limit(limit)
         .all(db)
@@ -187,25 +189,6 @@ pub async fn first_words_said(
         .collect())
 }
 
-pub async fn recently_spoke_event(
-    db: &DatabaseConnection,
-    user_id: i32,
-    event_key: &str,
-    within_minutes: i64,
-) -> Result<bool, anyhow::Error> {
-    let Some(latest) = agent_proactive_messages::Entity::find()
-        .filter(agent_proactive_messages::Column::UserId.eq(user_id))
-        .filter(agent_proactive_messages::Column::EventKey.eq(event_key))
-        .order_by_desc(agent_proactive_messages::Column::CreatedAt)
-        .one(db)
-        .await?
-    else {
-        return Ok(false);
-    };
-    let age = crate::clock::now() - latest.created_at.with_timezone(&Utc);
-    Ok(age.num_minutes() < within_minutes)
-}
-
 pub async fn latest_open_session(
     db: &DatabaseConnection,
     user_id: i32,
@@ -225,18 +208,6 @@ pub async fn latest_open_session(
         session.id,
         session.last_active_at.with_timezone(&Utc),
     )))
-}
-
-pub async fn touch_proactive(
-    db: &DatabaseConnection,
-    user_id: i32,
-) -> Result<agent_addressee_state::Model, anyhow::Error> {
-    let state = get_or_create_state(db, user_id).await?;
-    let now = crate::clock::now().into();
-    let mut active: agent_addressee_state::ActiveModel = state.into();
-    active.last_proactive_at = Set(Some(now));
-    active.updated_at = Set(now);
-    Ok(active.update(db).await?)
 }
 
 /// Someone's own lines to her in chat, in private and in groups, newest

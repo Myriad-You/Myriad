@@ -479,10 +479,15 @@ mod tests {
             .expect("disposable test DB required");
         let admin = Database::connect(&url).await.unwrap();
         let schema = format!("notification_bridge_{}", uuid::Uuid::new_v4().simple());
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
             .await
             .unwrap();
+        drop(turn);
         let mut options = ConnectOptions::new(url);
         options.max_connections(4).map_sqlx_postgres_opts({
             let schema = schema.clone();
@@ -578,9 +583,14 @@ mod tests {
         assert!(manager.history.read().await.is_empty());
         drop(listener);
         db.close().await.unwrap();
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("DROP SCHEMA {schema} CASCADE"))
             .await
             .unwrap();
+        drop(turn);
     }
 }

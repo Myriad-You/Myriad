@@ -386,6 +386,10 @@ pub(super) async fn perform(venue: &str, effect: Effect) {
             schema,
             turn,
         } => {
+            // Whether to chime in: a turn that follows it is hers, unasked.
+            if operation == "group_chime" {
+                said::unasked(&venue, myriad_merope::speech::Source::GroupInterject, None);
+            }
             tokio::spawn(async move {
                 let within = Duration::from_millis(timeout_ms);
                 let asked = match turn {
@@ -444,6 +448,13 @@ pub(super) async fn perform(venue: &str, effect: Effect) {
         } => {
             tokio::spawn(async move {
                 use myriad_agent_rules::mentions::Piece;
+                // Through admission and into the ledger, like any line of hers.
+                let text = said::text_of(&pieces);
+                let (turn, may) = said::may_send(&venue, quote, &text).await;
+                if !may {
+                    answered(venue, id, Answer::Sent { ok: false }).await;
+                    return;
+                }
                 let pieces: Vec<Piece> = pieces
                     .into_iter()
                     .map(|piece| match piece {
@@ -461,6 +472,7 @@ pub(super) async fn perform(venue: &str, effect: Effect) {
                     },
                     None => false,
                 };
+                said::sent(&venue, turn.as_ref(), &text, ok).await;
                 answered(venue, id, Answer::Sent { ok }).await;
             });
         }

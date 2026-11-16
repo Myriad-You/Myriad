@@ -192,6 +192,55 @@ pub(crate) async fn save_stopped(
 
 /// Browser and realtime voice enter the same run lifecycle, history, budget,
 /// Chat supersession and director. Only their event transports differ.
+/// Whether this Chat turn is the site owner talking to her in the panel
+/// while her log is synced: a line her mind on another device hears.
+async fn leaves_it_for_her(db: &DatabaseConnection, user_id: i32, req: &ProcessRequest) -> bool {
+    let from_here = req.context.as_ref().is_none_or(|context| {
+        context.channel_chat.is_none() && !context.from_channel && context.on_device.is_none()
+    });
+    from_here
+        && crate::services::site_owner::site_owner_user_id(db).await == Ok(user_id)
+        && crate::services::her_log::pen::in_play(
+            db,
+            crate::services::her_log::settings(),
+            Some(user_id),
+        )
+        .await
+        .unwrap_or(false)
+}
+
+/// Keeps what the owner said in their private chat (her log takes it from
+/// there) and answers that she sees it on the device her mind is on.
+async fn left_for_her(db: &DatabaseConnection, user_id: i32, req: &ProcessRequest) -> AppError {
+    let session = req
+        .context
+        .as_ref()
+        .and_then(|context| context.session_id.as_deref());
+    let kept = match ensure_session_in(
+        db,
+        session,
+        user_id,
+        crate::services::agent::AgentInteractionMode::Chat,
+        None,
+    )
+    .await
+    {
+        Ok(session) => {
+            crate::services::agent::sessions::persist_user_message_from(
+                db, &session, &req.input, "web",
+            )
+            .await
+        }
+        Err(error) => Err(error.to_string()),
+    };
+    if let Err(error) = kept {
+        tracing::error!(%error, "[Agent API] what the owner left for her was not kept");
+        return AppError::internal("Could not save durable Agent message");
+    }
+    AppError::conflict("She is on another of your devices now; she sees this there")
+        .with_code("left_for_her")
+}
+
 pub(crate) async fn start(
     db: DatabaseConnection,
     caller: Caller,
@@ -210,8 +259,14 @@ pub(crate) async fn start(
     // assistant, without her (H3e-9); while she is moving it waits too.
     if interaction_mode == crate::services::agent::AgentInteractionMode::Work {
         crate::services::persona_sync::lease::refuse_work_while_away()?;
-    } else {
-        crate::services::persona_sync::lease::refuse_while_away()?;
+    } else if let Err(refused) = crate::services::persona_sync::lease::refuse_while_away() {
+        // Her mind on another of the owner's devices: what the owner says to
+        // her in the panel is kept and goes into her log, and she hears it
+        // there (D6-b); nothing runs here.
+        if refused.code() == Some("mind_elsewhere") && leaves_it_for_her(&db, user_id, &req).await {
+            return Err(left_for_her(&db, user_id, &req).await);
+        }
+        return Err(refused);
     }
     let channel_chat = req
         .context
@@ -313,17 +368,29 @@ pub(crate) async fn start(
     } else {
         None
     };
-    if let Some(cut) = chat_claim.as_ref().and_then(|claim| claim.cut_off.as_ref()) {
-        if has_session {
-            save_cut_off(
-                &db,
-                &session_id,
-                &cut.text,
-                cut.voice,
-                &cut.run_id,
-                cut.heard_chars,
-            )
-            .await;
+    if let Some(claim) = chat_claim.as_ref()
+        && let Some(cut) = claim.cut_off.as_ref()
+        && has_session
+    {
+        use crate::services::agent::merope::chat_typing::{AfterCut, after_cut, send_first};
+        match after_cut(&db, user_id, &session_id, cut, &req.input).await {
+            AfterCut::AsBefore => {
+                save_cut_off(
+                    &db,
+                    &session_id,
+                    &cut.text,
+                    cut.voice,
+                    &cut.run_id,
+                    cut.heard_chars,
+                )
+                .await;
+            }
+            AfterCut::Kept => {}
+            // Her last draft still fits: this turn sends it first.
+            AfterCut::GoesFirst(messages) => {
+                claim.spoken.carry(&messages);
+                send_first(&run_id_for_meta, messages);
+            }
         }
     }
 
@@ -368,9 +435,27 @@ pub(crate) async fn start(
         };
 
     if has_session {
-        if let Err(e) =
-            require_user_message_persisted(persist_user_message(&db, &session_id, &req.input).await)
-        {
+        // Where it was said, as her log names the talk (D6).
+        let place = match (&channel_chat, &answered_elsewhere) {
+            (Some(chat), _) if !chat.platform.is_empty() => chat.platform.as_str(),
+            _ if req
+                .context
+                .as_ref()
+                .is_some_and(|context| context.on_device.is_some()) =>
+            {
+                "app"
+            }
+            _ => "web",
+        };
+        if let Err(e) = require_user_message_persisted(
+            crate::services::agent::sessions::persist_user_message_from(
+                &db,
+                &session_id,
+                &req.input,
+                place,
+            )
+            .await,
+        ) {
             tracing::error!("[Agent API] Failed to persist user message: {}", e);
             return Err(AppError::internal("Could not save durable Agent message"));
         }
@@ -408,6 +493,20 @@ pub(crate) async fn start(
             new_ctx.conversation_history = Some(history);
         }
         user_request.context = Some(new_ctx);
+    }
+    // The panel's one conversation: she sees the pieces she handed off here
+    // and may hand off more (see `panel_work`), and it is the one the panel
+    // takes up again when opened anew. A chat app, a device or a group
+    // answers elsewhere and keeps its own.
+    if is_chat
+        && has_session
+        && !answered_elsewhere
+        && let Some(ctx) = user_request.context.as_mut()
+        && ctx.venue.is_none()
+    {
+        crate::services::agent::panel_work::remember(&db, user_id, &session_id).await;
+        ctx.panel_work =
+            Some(crate::services::agent::panel_work::view(&db, user_id, &session_id).await);
     }
     let autonomy_cap =
         autonomy_cap_for_intention(&db, source_intent_id.as_deref(), user_id).await?;
@@ -543,6 +642,11 @@ pub(crate) async fn start(
         LANE_QUEUE.clone()
     };
     let source_intent_id_for_work = source_intent_id.clone();
+    // Typed here a message at a time: she sees it when she would, sooner
+    // while they are talking (see `merope::chat_typing`).
+    let until_seen =
+        crate::services::agent::merope::chat_typing::in_messages(user_request.context.as_ref())
+            .then(|| crate::services::agent::merope::chat_typing::until_seen_here(&user_request));
     let (mut chat_cancel, chat_slot_id, chat_spoken) = match chat_claim {
         Some(claim) => (
             Some(claim.cancelled),
@@ -553,6 +657,29 @@ pub(crate) async fn start(
     };
     // tx 会被移动到 spawn 中，确保 channel 在任务完成前不会关闭
     let execution = tokio::spawn(async move {
+        // Not seen yet, she holds no lane; what they send meanwhile cuts
+        // this off, and the next turn reads it all together.
+        if let (Some(wait), Some(cancelled)) = (until_seen, chat_cancel.as_mut()) {
+            let seen = tokio::select! {
+                biased;
+                _ = cancelled => false,
+                _ = tokio::time::sleep(wait) => true,
+            };
+            if !seen {
+                let _ = tx
+                    .send(crate::services::agent::turn::superseded_turn_event())
+                    .await;
+                if let Some(slot_id) = chat_slot_id {
+                    crate::services::agent::turn::finish_chat_turn(
+                        user_id,
+                        &session_id_clone,
+                        slot_id,
+                    )
+                    .await;
+                }
+                return;
+            }
+        }
         // 同一 lane 串行；全局许可 4；`acquire_timeout` 默认 60s
         // 注意：进入 wait-for-input 后必须释放，否则最多 4 个等待任务会堵死全局槽位
         {
@@ -1113,7 +1240,7 @@ mod cut_off_tests {
         let claim = body.find("claim_speaking_turn(").expect("claim");
         let save = body.find("save_cut_off(").expect("save");
         let history = body.find("load_session_history(").expect("history");
-        let persist = body.find("persist_user_message(").expect("persist");
+        let persist = body.find("persist_user_message_from(").expect("persist");
         assert!(claim < save && save < history && history < persist);
         // A turn that was cut off does not also save its whole reply.
         let finish = body.find("spoken.finish()").expect("finish check");

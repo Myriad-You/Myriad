@@ -1,6 +1,5 @@
+import type { TappBridge, TappInstance, TappMessage } from '@myriad/tapp-runtime'
 import type { OneShotDataAccessGrant } from '../services/TappApiService'
-import type { TappInstance, TappMessage } from '../types'
-import type { TappBridge } from './TappBridge'
 import { userFacingError } from '../../utils/userFacingError'
 import {
   authorizeDataExchange,

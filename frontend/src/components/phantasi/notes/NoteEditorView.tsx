@@ -121,6 +121,9 @@ export function NoteEditorView({
   slugInput,
   slugInvalid,
   onSlugInput,
+  oldPathsInput,
+  oldPathsInvalid,
+  onOldPathsInput,
   articleHref,
   companionItemId,
   loading,
@@ -213,6 +216,7 @@ export function NoteEditorView({
   rememberVisualRange,
   applyLink,
   pasteAsLink,
+  keepPastedImages,
   selectImage,
   selectWidget,
   imageOp,
@@ -567,6 +571,8 @@ export function NoteEditorView({
                         insertPastedMarkdown(value, start, end, converted),
                       )
                     }
+                    // 外站图片随后存进本站再换地址；没转换的纯文本由浏览器照常贴进去。
+                    keepPastedImages(converted ?? text, 'markdown')
                   }}
                   onDrop={(e) => {
                     const file = [...e.dataTransfer.files].find((item) =>
@@ -632,12 +638,14 @@ export function NoteEditorView({
                       e.preventDefault()
                       commitVisualMd(pasteVisualHtml(e.currentTarget, visual))
                       void hydrateVisualMath(e.currentTarget)
+                      keepPastedImages(visual, 'html')
                       return
                     }
                     // 贴的是 Markdown（没带 HTML）：按 Markdown 解，图片就是图片。
                     if (!html && looksLikeMarkdown(text)) {
                       e.preventDefault()
                       commitVisualMd(pasteMarkdownIntoVisual(e.currentTarget, text))
+                      keepPastedImages(text, 'markdown')
                     }
                   }}
                   onKeyDown={(e) => {
@@ -901,6 +909,9 @@ export function NoteEditorView({
           slugInput={slugInput}
           slugInvalid={slugInvalid}
           onSlugInput={onSlugInput}
+          oldPathsInput={oldPathsInput}
+          oldPathsInvalid={oldPathsInvalid}
+          onOldPathsInput={onOldPathsInput}
           articleHref={articleHref}
           scheduledAt={scheduledAt}
           onScheduledAtChange={setScheduledAt}

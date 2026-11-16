@@ -1,27 +1,12 @@
+import type { Anime25DPlayback, PoseCorrection } from '@myriad/figure/anime25drig'
+import type { Anime25DDriver, PoseCorrectionRegion, PoseCorrectionStagePick } from '@myriad/figure/workbench'
 import type { RefObject } from 'react'
-import type { Anime25DDriver } from '../anime25drig/driver'
-import type { PoseCorrectionRegion } from '../anime25drig/poseAuthoring'
-import type { PoseCorrection } from '../anime25drig/poseCorrections'
-import type { Anime25DPlayback } from '../anime25drig/types'
-import type { PoseCorrectionStagePick } from '../anime25drig/workbenchPort'
 import type { RigCharacterHandle } from '../character/RigCharacter'
+import { appendPoseCorrectionPatch, clampPoseCorrectionPatch, countPoseCorrectionChanges, isPoseCorrections, nearestPoseCorrectionRegion, newPoseCorrectionPatch, POSE_CORRECTION_REGIONS, poseCorrectionCorner, poseCorrectionPreviewDriver, poseCorrectionRegionPoint, poseCorrectionTransitionDriver } from '@myriad/figure/workbench'
 import { useEffect, useRef, useState } from 'react'
 import { SettingGroup, SettingsButton, SettingTitleTag, SliderItem } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'
 import { showStickyToast } from '../../../utils/toastManager'
-import {
-  appendPoseCorrectionPatch,
-  clampPoseCorrectionPatch,
-  countPoseCorrectionChanges,
-  nearestPoseCorrectionRegion,
-  newPoseCorrectionPatch,
-  POSE_CORRECTION_REGIONS,
-  poseCorrectionCorner,
-  poseCorrectionPreviewDriver,
-  poseCorrectionRegionPoint,
-  poseCorrectionTransitionDriver,
-} from '../anime25drig/poseAuthoring'
-import { isPoseCorrections } from '../anime25drig/poseCorrections'
 import { PoseCorrectionOverlay } from './PoseCorrectionOverlay'
 
 type Patch = PoseCorrection['patches'][number]

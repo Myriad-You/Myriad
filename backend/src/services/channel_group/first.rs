@@ -2,6 +2,7 @@
 //! as a turn of her own (see `myriad_merope::group`).
 
 use myriad_merope::group::{self as core, Event, Message};
+use myriad_merope::speech::Source;
 
 use super::*;
 
@@ -15,14 +16,33 @@ pub async fn share_first(owner: i32, what: String) {
     let Ok(db) = db() else {
         return;
     };
-    let offered = offered(&db, None).await;
-    if offered.is_empty() {
+    // Something of hers, the same thing once a group: what the shared core
+    // lets her say there at all.
+    let thing = format!("share|{what}");
+    let mut offered = offered(&db, None).await;
+    let mut admitted = Vec::with_capacity(offered.len());
+    for group in offered.drain(..) {
+        if said::may_bring_up(
+            &db,
+            &group.id,
+            Source::GroupShare,
+            &what,
+            crate::services::agent::speech::own(),
+            &thing,
+        )
+        .await
+        {
+            admitted.push(group);
+        }
+    }
+    if admitted.is_empty() {
         return;
     }
-    let Some((venue, why)) = sharing::choose(owner, &what, &offered).await else {
+    let Some((venue, why)) = sharing::choose(owner, &what, &admitted).await else {
         return;
     };
     let reason = myriad_merope::sharing::reason(&what, &why);
+    said::unasked(&venue, Source::GroupShare, Some(thing));
     if speak_first(&db, &venue, reason).await {
         info!(%venue, "[Group] she brought something of hers up");
     }
@@ -41,10 +61,16 @@ pub async fn come_back(owner: i32, venue: &str, what: &str) -> bool {
     let Some(group) = offered(&db, Some(venue)).await.into_iter().next() else {
         return false;
     };
+    let thing = format!("come_back|{what}");
+    let heard_there = crate::services::agent::speech::group(venue);
+    if !said::may_bring_up(&db, venue, Source::GroupFirst, what, heard_there, &thing).await {
+        return false;
+    }
     let Some(why) = sharing::come_back(owner, what, &group).await else {
         return false;
     };
     let reason = myriad_merope::sharing::come_back_reason(what, &why);
+    said::unasked(venue, Source::GroupFirst, Some(thing));
     let spoke = speak_first(&db, venue, reason).await;
     if spoke {
         info!(%venue, "[Group] she came back to something there");

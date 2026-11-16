@@ -4,11 +4,13 @@ import { useEffect } from 'react'
 import { userFacingError } from '../../../utils/userFacingError'
 import { showNoteNotice } from '../phantasiNotice'
 import { sameCloudFields } from './noteCloudFields'
+import { isNoteDocGone } from './noteCollab'
 import {
   readNoteRecovery,
   recoverNoteFields,
 } from './noteDraft'
 import { normalizeNoteCover, normalizeNoteTopic } from './noteFields'
+import { oldPathsField } from './noteOldPaths'
 import { expandJammedDefinitions } from './noteVisual'
 import { openNoteCloudDoc } from './useNoteCloud'
 
@@ -24,6 +26,7 @@ export function useNoteEditorOpen({
   setCloudId,
   setSaved,
   setLoading,
+  onGone,
   loadFailed,
   scheduleFailed,
 }: {
@@ -38,6 +41,11 @@ export function useNoteEditorOpen({
   setCloudId: (id: number) => void
   setSaved: (next: NoteCloudFields) => void
   setLoading: (loading: boolean) => void
+  /**
+   * 要打开的那篇已经不在了（浏览器里记着的是删掉的 id）。交给外面退出这篇；
+   * 不报「加载失败」，也不能留着这个 id 去连协作、自动保存。
+   */
+  onGone?: () => void
   loadFailed: string
   scheduleFailed: string
 }): void {
@@ -59,6 +67,7 @@ export function useNoteEditorOpen({
           cover: normalizeNoteCover(doc.image),
           publishedAt: doc.published_at ?? null,
           slug: doc.slug?.trim() || null,
+          oldPaths: oldPathsField(doc.old_paths),
         }
         const recovery = (loadRecovery ?? readNoteRecovery)({ userId, docId: doc.id })
         const recovered = recoverNoteFields(recovery, server)
@@ -76,7 +85,8 @@ export function useNoteEditorOpen({
         }
       } catch (err) {
         if (!controller.signal.aborted) {
-          showNoteNotice(userFacingError(err, loadFailed))
+          if ((docId != null || noteId != null) && isNoteDocGone(err) && onGone) onGone()
+          else showNoteNotice(userFacingError(err, loadFailed))
         }
       } finally {
         if (!controller.signal.aborted) setLoading(false)

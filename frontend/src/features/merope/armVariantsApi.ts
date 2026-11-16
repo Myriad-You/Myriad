@@ -1,0 +1,88 @@
+import type { ArmVariantGesture, ArmVariantSource } from '@myriad/figure/rig'
+import { ARM_VARIANT_GESTURES } from '@myriad/figure/rig'
+import { currentCopy } from '../../i18n/localeCopy'
+import { apiService } from '../../services/api'
+import { fullBodyPath, MeropeApiError, meropeError, PREFIX } from './api'
+
+/** A drawing takes as long as a portrait drawn from scratch, and is checked after. */
+const ARM_VARIANT_TIMEOUT_MS = 15 * 60 * 1000
+
+export type ArmVariantSide = ArmVariantSource['side']
+/** A gesture on one arm, as the server names it: `wave-left`. */
+export type ArmVariantKey = `${ArmVariantGesture}-${ArmVariantSide}`
+export const ARM_VARIANT_KEYS: readonly ArmVariantKey[] = ARM_VARIANT_GESTURES.flatMap((gesture) =>
+  (['left', 'right'] as const).map((side) => `${gesture}-${side}` as const),
+)
+
+/** Where a picture's gesture arms are kept: the worn bust's, or a full-body set's (`outfitId`). */
+function armVariantsPath(outfitId?: string | null): string {
+  return `${PREFIX}${outfitId ? fullBodyPath(outfitId) : ''}/arm-variants`
+}
+
+/**
+ * Gesture arms drawn for the current master portrait (a full-body set's
+ * picture with `outfitId`), ready to cut into the rig at import, and the ones
+ * being drawn now (begun before a reload, or in another tab).
+ */
+export async function listSiteArmVariants(outfitId?: string | null): Promise<{ variants: ArmVariantSource[]; drawing: ArmVariantKey[] }> {
+  try {
+    const data = await apiService.get<{ variants?: Record<string, unknown>; drawing?: unknown }>(
+      armVariantsPath(outfitId),
+    )
+    const drawing = Array.isArray(data.drawing) ? data.drawing : []
+    return {
+      variants: ARM_VARIANT_KEYS.flatMap((key) => {
+        const variant = readArmVariant(key, data.variants?.[key])
+        return variant ? [variant] : []
+      }),
+      drawing: ARM_VARIANT_KEYS.filter((key) => drawing.includes(key)),
+    }
+  } catch (reason) {
+    throw meropeError(reason, currentCopy().merope.armVariantsFailed)
+  }
+}
+
+/** Draws one gesture arm on the current master portrait (a full-body set's picture with `outfitId`); resolves once it is kept. */
+export async function generateSiteArmVariant(key: ArmVariantKey, outfitId?: string | null): Promise<ArmVariantSource> {
+  try {
+    const data = await apiService.post<Record<string, unknown>>(
+      `${armVariantsPath(outfitId)}/${key}`,
+      {},
+      { timeout: ARM_VARIANT_TIMEOUT_MS },
+    )
+    const variant = readArmVariant(key, data)
+    if (!variant) throw new MeropeApiError(currentCopy().merope.armVariantsFailed, 502)
+    return variant
+  } catch (reason) {
+    if (reason instanceof MeropeApiError) throw reason
+    throw meropeError(reason, currentCopy().merope.armVariantsFailed)
+  }
+}
+
+function readArmVariant(key: ArmVariantKey, value: unknown): ArmVariantSource | null {
+  if (!value || typeof value !== 'object') return null
+  const { url, hand, keypoints } = value as { url?: unknown; hand?: unknown; keypoints?: unknown }
+  if (typeof url !== 'string' || !url.trim()) return null
+  const [gesture, side] = key.split('-') as [ArmVariantGesture, ArmVariantSide]
+  // Where the pose model found the raised hand, in portrait pixels; the cut seeds there.
+  const points = Array.isArray(hand)
+    ? hand.flatMap((point) =>
+        Array.isArray(point) && typeof point[0] === 'number' && typeof point[1] === 'number'
+          ? [[point[0], point[1]] as const]
+          : [],
+      )
+    : []
+  // Every joint it found on the drawing, with its score: the arm is measured as a 3D arm from them. Kept whole or
+  // not at all (they are looked up by index); drawings kept before that have none.
+  const joints = Array.isArray(keypoints)
+    && keypoints.every((point) => Array.isArray(point) && point.length === 3 && point.every((v) => typeof v === 'number'))
+    ? (keypoints as Array<[number, number, number]>).map(([x, y, score]) => [x, y, score] as const)
+    : []
+  return {
+    gesture,
+    side,
+    url,
+    ...(points.length > 0 ? { hand: points } : {}),
+    ...(joints.length > 0 ? { keypoints: joints } : {}),
+  }
+}

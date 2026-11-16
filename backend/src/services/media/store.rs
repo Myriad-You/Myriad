@@ -67,9 +67,7 @@ impl MediaStore {
         }
         tokio::fs::rename(self.temp_path(write_token), &final_path).await?;
         // Persist directory metadata before the database makes the file ready.
-        if let Some(parent) = final_path.parent() {
-            tokio::fs::File::open(parent).await?.sync_all().await?;
-        }
+        sync_parent(&final_path).await?;
         Ok(())
     }
 
@@ -177,10 +175,17 @@ impl MediaStore {
     }
 }
 
+#[cfg(unix)]
 async fn sync_parent(path: &Path) -> Result<(), MediaError> {
     if let Some(parent) = path.parent() {
         tokio::fs::File::open(parent).await?.sync_all().await?;
     }
+    Ok(())
+}
+
+/// Windows cannot open a directory as a file, so there is no handle to sync.
+#[cfg(not(unix))]
+async fn sync_parent(_path: &Path) -> Result<(), MediaError> {
     Ok(())
 }
 

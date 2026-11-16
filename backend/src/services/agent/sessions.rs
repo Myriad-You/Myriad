@@ -158,6 +158,17 @@ pub(crate) async fn persist_user_message(
     session_id: &str,
     content: &str,
 ) -> Result<(), String> {
+    persist_user_message_from(db, session_id, content, "web").await
+}
+
+/// [`persist_user_message`] said where `place` names (`web`, `app`, a chat
+/// app): in the owner's private chat it goes into her log too (D6).
+pub(crate) async fn persist_user_message_from(
+    db: &DatabaseConnection,
+    session_id: &str,
+    content: &str,
+    place: &str,
+) -> Result<(), String> {
     let now = crate::clock::now().fixed_offset();
     let msg = agent_messages::ActiveModel {
         id: sea_orm::ActiveValue::NotSet,
@@ -167,12 +178,23 @@ pub(crate) async fn persist_user_message(
         content: Set(content.to_string()),
         metadata: Set(None),
         created_at: Set(now),
+        origin: Set(None),
+        log_row: Set(None),
     };
     let inserted = agent_messages::Entity::insert(msg)
         .exec(db)
         .await
         .map_err(|error| session_store_failed("save user message", error))?;
     bind_message_media(db, session_id, inserted.last_insert_id, content, None).await;
+    crate::services::her_log::talk::partner_said(
+        db,
+        session_id,
+        inserted.last_insert_id,
+        content,
+        now.to_utc(),
+        place,
+    )
+    .await;
     Ok(())
 }
 
@@ -257,6 +279,33 @@ async fn persist_message(
     metadata: Option<Value>,
 ) -> Result<(), String> {
     let now = crate::clock::now().fixed_offset();
+    persist_message_at(db, session_id, task_id, role, content, metadata, now)
+        .await
+        .map(|_| ())
+}
+
+/// One of her lines that belongs at `at` in the transcript, not where it is
+/// written (a piece that ended while nobody was reading). Its id.
+pub(crate) async fn persist_assistant_message_at(
+    db: &DatabaseConnection,
+    session_id: &str,
+    content: &str,
+    metadata: Option<Value>,
+    at: sea_orm::prelude::DateTimeWithTimeZone,
+) -> Result<i32, String> {
+    persist_message_at(db, session_id, None, "assistant", content, metadata, at).await
+}
+
+async fn persist_message_at(
+    db: &DatabaseConnection,
+    session_id: &str,
+    task_id: Option<&str>,
+    role: &str,
+    content: &str,
+    metadata: Option<Value>,
+    at: sea_orm::prelude::DateTimeWithTimeZone,
+) -> Result<i32, String> {
+    let now = crate::clock::now().fixed_offset();
     let cited_metadata = metadata.clone();
     let msg = agent_messages::ActiveModel {
         id: sea_orm::ActiveValue::NotSet,
@@ -265,7 +314,9 @@ async fn persist_message(
         role: Set(role.to_string()),
         content: Set(content.to_string()),
         metadata: Set(metadata),
-        created_at: Set(now),
+        created_at: Set(at),
+        origin: Set(None),
+        log_row: Set(None),
     };
     let inserted = agent_messages::Entity::insert(msg)
         .exec(db)
@@ -282,6 +333,16 @@ async fn persist_message(
 
     // 更新会话消息计数和最后活跃时间
     if let Ok(Some(session)) = agent_sessions::Entity::find_by_id(session_id).one(db).await {
+        if role == "assistant" {
+            said_in_private(
+                db,
+                &session,
+                content,
+                cited_metadata.as_ref(),
+                inserted.last_insert_id,
+            )
+            .await;
+        }
         let mut active: agent_sessions::ActiveModel = session.into();
         active.last_active_at = Set(now);
         if let Ok(count) = agent_messages::Entity::find()
@@ -294,7 +355,62 @@ async fn persist_message(
         let _ = active.update(db).await;
     }
 
-    Ok(())
+    Ok(inserted.last_insert_id)
+}
+
+/// Her answer in a private chat, kept in the ledger of what she said
+/// (`speech`): called on, so it passed only the audience and the grants.
+/// Her lines said unasked are kept there by the path that said them
+/// (`unprompted`), and a group's by the group; a line that never went out
+/// (`cutOff: unsent`) is kept as not said.
+async fn said_in_private(
+    db: &DatabaseConnection,
+    session: &agent_sessions::Model,
+    content: &str,
+    metadata: Option<&Value>,
+    message_id: i32,
+) {
+    use crate::services::agent::chat_prompt::{CUT_OFF_KEY, CUT_OFF_UNSENT};
+    use crate::services::agent::speech::{self, Extent, Source, ledger};
+    let context = session.context.as_ref();
+    let private_chat = context
+        .and_then(|context| context.get("mode"))
+        .and_then(Value::as_str)
+        == Some("chat")
+        && context
+            .and_then(|context| context.get("venue"))
+            .is_none_or(Value::is_null);
+    let unprompted = metadata
+        .and_then(|metadata| metadata.get("unprompted"))
+        .and_then(Value::as_bool)
+        == Some(true);
+    if !private_chat || unprompted || session.user_id <= 0 {
+        return;
+    }
+    let cut = metadata
+        .and_then(|metadata| metadata.get(CUT_OFF_KEY))
+        .and_then(Value::as_str);
+    let mut out = ledger::Out::full("web", "chat")
+        .extent(if cut == Some(CUT_OFF_UNSENT) {
+            Extent::None
+        } else {
+            Extent::Full
+        })
+        .line(Some(message_id.to_string()));
+    out.interrupted = cut.is_some_and(|cut| cut != CUT_OFF_UNSENT);
+    ledger::write(
+        db,
+        ledger::Line {
+            to: &speech::private(session.user_id),
+            source: Source::Reply,
+            called: true,
+            thing: None,
+            text: content,
+        },
+        out,
+        None,
+    )
+    .await;
 }
 
 /// 加载会话历史消息作为对话上下文。

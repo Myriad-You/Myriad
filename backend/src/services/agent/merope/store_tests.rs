@@ -15,6 +15,7 @@ fn what_they_said_is_plain_and_the_rest_says_how_she_knows() {
             access_count: 0,
             created_at: crate::clock::now().fixed_offset(),
             brought_to_mind: false,
+            recent: false,
             concepts: Vec::new(),
         };
     // This year's are without the year, the day on her clock.

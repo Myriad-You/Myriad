@@ -23,3 +23,11 @@ test('realtime talk starts an Agora session then tears it down', () => {
   assert.match(source, /user-unpublished/)
   assert.match(source, /owned\.remoteTrack && owned\.remoteTrack !== track/)
 })
+
+test('live-conversation frames carry their adopted run generation', () => {
+  const source = readFileSync(
+    new URL('./agoraConversation.ts', import.meta.url),
+    'utf8',
+  )
+  assert.match(source, /generation: identity\.generation/)
+})

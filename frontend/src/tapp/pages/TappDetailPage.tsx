@@ -1,3 +1,4 @@
+import type { TappInstance, TappPermission, TappSettingItem } from '@myriad/tapp-runtime'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { ToastType } from '../../components/Toast'
 import type {
@@ -6,7 +7,6 @@ import type {
   TappInboundGuardStatus,
 } from '../services/TappCredentialApi'
 import type { TappVisibility } from '../services/TappLifecycleApi'
-import type { TappInstance, TappPermission, TappSettingItem } from '../types'
 import {
   FaCog,
   FaDownload,
@@ -19,6 +19,7 @@ import {
   FaTrash,
   LuChevronLeft,
 } from '@lib/icons'
+import { PERMISSION_LEVELS } from '@myriad/tapp-runtime'
 import {
 
   useCallback,
@@ -63,7 +64,6 @@ import { TappIconBadge } from '../components/TappIconBadge'
 import { UninstallConfirmDialog } from '../components/UninstallConfirmDialog'
 import { PERMISSION_CONFIG } from '../constants/permissions'
 import { useTappShellPresence } from '../hooks/useTappShellPresence'
-import { PERMISSION_LEVELS } from '../runtime/permissionConfig'
 import { getTappRuntime } from '../runtime/TappRuntime'
 import { emitHostSettingsChange } from '../runtime/WidgetRuntimeSignals'
 import * as TappApiService from '../services/TappApiService'

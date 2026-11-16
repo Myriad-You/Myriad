@@ -9,8 +9,9 @@ import type { SpeechSegment } from '../speech/speechSegmenter'
 import type { FaceDelivery, FaceSpeechLine } from './faceSpeechArbitration'
 import { openVoiceStream } from '../../../services/speechApi'
 import { authSubject } from '../../../utils/authSubject'
+import { safeRandomUUID } from '../../../utils/uuid'
 import { getLocalPerception, getProductionBody } from '../body/host'
-import { setLiveMotionGeneration } from '../motion/liveGeneration'
+import { figureChannel } from '../figureChannel'
 import { captureProductionRigStateSummary } from '../motion/runtimeHost'
 import { notePresenceRoute, startPresenceInbound } from '../perception/inbound'
 import { getSpeechPipeline } from '../speech/speechPipelineHost'
@@ -83,7 +84,7 @@ export function attachLiveBody(): () => void {
 
 /** One turn replaces the last: motion and face must agree on which. */
 export function setTurnGeneration(generation: number): void {
-  setLiveMotionGeneration(generation)
+  figureChannel.setGeneration(generation)
   agentFace.setGeneration(generation)
 }
 
@@ -146,7 +147,7 @@ function openOwnVoice(
   const pipeline = getSpeechPipeline()
   const stream = pipeline.openStream(messageId, generation, 'reply')
   if (!stream) return null
-  const token = crypto.randomUUID()
+  const token = safeRandomUUID()
   turnVoiceTokens.set(messageId, token)
   if (turnVoiceTokens.size > 64)
     turnVoiceTokens.delete(turnVoiceTokens.keys().next().value!)

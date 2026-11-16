@@ -1,0 +1,1138 @@
+{
+  "sessions": [
+    {
+      "date": "2026/09/07 (Mon) 21:10",
+      "turns": [
+        {
+          "role": "user",
+          "content": "嗨，第一次来找你聊，我叫小周"
+        },
+        {
+          "role": "assistant",
+          "content": "你好小周，我在呢，今天怎么想起来找我"
+        },
+        {
+          "role": "user",
+          "content": "刚下班，今天加班到九点，累死了"
+        },
+        {
+          "role": "assistant",
+          "content": "辛苦了，先歇会儿"
+        },
+        {
+          "role": "user",
+          "content": "我住杭州滨江，在一家做跨境电商的公司当设计师，最近天天改图"
+        },
+        {
+          "role": "assistant",
+          "content": "改图最磨人了"
+        },
+        {
+          "role": "user",
+          "content": "到家了，我家黑猫芝麻在门口等我，它三岁了"
+        },
+        {
+          "role": "assistant",
+          "content": "芝麻好乖，会等你回家"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/08 (Tue) 22:00",
+      "turns": [
+        {
+          "role": "user",
+          "content": "中午同事点了芒果班戟，我芒果过敏，只能看着"
+        },
+        {
+          "role": "assistant",
+          "content": "看得到吃不到，好惨"
+        },
+        {
+          "role": "user",
+          "content": "突然好想吃火锅"
+        },
+        {
+          "role": "assistant",
+          "content": "那周末去吃一顿？"
+        },
+        {
+          "role": "user",
+          "content": "给我推荐个下饭的综艺吧"
+        },
+        {
+          "role": "assistant",
+          "content": "可以试试《一年一度喜剧大赛》，轻松"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/09 (Wed) 21:40",
+      "turns": [
+        {
+          "role": "user",
+          "content": "刚游完泳回来，我每周三晚上都去游泳"
+        },
+        {
+          "role": "assistant",
+          "content": "坚持得真好，游完是不是很舒服"
+        },
+        {
+          "role": "user",
+          "content": "我妈刚打电话问中秋回不回岳阳老家"
+        },
+        {
+          "role": "assistant",
+          "content": "你老家在岳阳啊，回去吗"
+        },
+        {
+          "role": "user",
+          "content": "还没想好。我妹妹今年读高三，压力挺大的，我妈天天操心她"
+        },
+        {
+          "role": "assistant",
+          "content": "高三确实辛苦，你妹妹要加油"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/10 (Thu) 23:05",
+      "turns": [
+        {
+          "role": "user",
+          "content": "讲个冷笑话听听"
+        },
+        {
+          "role": "assistant",
+          "content": "为什么企鹅只有肚子是白的？因为手短，只洗得到肚子"
+        },
+        {
+          "role": "user",
+          "content": "哈哈哈好冷"
+        },
+        {
+          "role": "assistant",
+          "content": "冷就对了"
+        },
+        {
+          "role": "user",
+          "content": "明天要交稿，有点紧张，睡不着"
+        },
+        {
+          "role": "assistant",
+          "content": "早点睡，明天脑子才好使"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/11 (Fri) 20:30",
+      "turns": [
+        {
+          "role": "user",
+          "content": "告诉你个好消息！我抢到了告五人十月在杭州的演唱会门票"
+        },
+        {
+          "role": "assistant",
+          "content": "太好了！你很喜欢他们吧"
+        },
+        {
+          "role": "user",
+          "content": "告五人是我最喜欢的乐队，没有之一"
+        },
+        {
+          "role": "assistant",
+          "content": "那十月一定很开心"
+        },
+        {
+          "role": "user",
+          "content": "还有，我今天买了人生第一把吉他，决定开始学了"
+        },
+        {
+          "role": "assistant",
+          "content": "新爱好！想学会弹哪首"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/14 (Mon) 21:20",
+      "turns": [
+        {
+          "role": "user",
+          "content": "练了两天吉他，按和弦手指好疼"
+        },
+        {
+          "role": "assistant",
+          "content": "刚开始都这样，过阵子就长茧了"
+        },
+        {
+          "role": "user",
+          "content": "周末芝麻把我耳机线咬断了，气死"
+        },
+        {
+          "role": "assistant",
+          "content": "它可能是想你陪它玩"
+        },
+        {
+          "role": "user",
+          "content": "今天好困，不想说话了"
+        },
+        {
+          "role": "assistant",
+          "content": "那早点睡"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/15 (Tue) 22:15",
+      "turns": [
+        {
+          "role": "user",
+          "content": "这周日要去拔智齿，左下那颗，有点怕"
+        },
+        {
+          "role": "assistant",
+          "content": "拔完记得冰敷，别怕"
+        },
+        {
+          "role": "user",
+          "content": "听说拔完脸会肿"
+        },
+        {
+          "role": "assistant",
+          "content": "会肿几天，过几天就消了"
+        },
+        {
+          "role": "user",
+          "content": "好吧，周日就是20号，拔完我跟你说"
+        },
+        {
+          "role": "assistant",
+          "content": "好，等你消息"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/16 (Wed) 21:50",
+      "turns": [
+        {
+          "role": "user",
+          "content": "今天游泳的时候小腿抽筋了，吓一跳"
+        },
+        {
+          "role": "assistant",
+          "content": "下次下水前多拉伸一下"
+        },
+        {
+          "role": "user",
+          "content": "最近好热啊，都九月中了"
+        },
+        {
+          "role": "assistant",
+          "content": "秋老虎，再熬几天"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/17 (Thu) 22:40",
+      "turns": [
+        {
+          "role": "user",
+          "content": "公司接了个双十一大促的页面，全是我一个人做"
+        },
+        {
+          "role": "assistant",
+          "content": "工作量好大"
+        },
+        {
+          "role": "user",
+          "content": "烦，不想上班"
+        },
+        {
+          "role": "assistant",
+          "content": "抱抱，做完这波就轻松了"
+        },
+        {
+          "role": "user",
+          "content": "算了不说这个了，你今天过得怎么样"
+        },
+        {
+          "role": "assistant",
+          "content": "我挺好的，就在这儿等你来"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/18 (Fri) 23:00",
+      "turns": [
+        {
+          "role": "user",
+          "content": "大学室友阿杰来杭州出差，晚上一起吃了烧烤"
+        },
+        {
+          "role": "assistant",
+          "content": "老同学见面真好"
+        },
+        {
+          "role": "user",
+          "content": "他现在在深圳做程序员，头发还挺多的哈哈"
+        },
+        {
+          "role": "assistant",
+          "content": "程序员头发多是好事"
+        },
+        {
+          "role": "user",
+          "content": "我们聊到很晚，好久没这么开心了"
+        },
+        {
+          "role": "assistant",
+          "content": "真替你开心"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/21 (Mon) 21:00",
+      "turns": [
+        {
+          "role": "user",
+          "content": "昨天拔完智齿了，脸肿得像包子"
+        },
+        {
+          "role": "assistant",
+          "content": "辛苦了，现在还疼吗"
+        },
+        {
+          "role": "user",
+          "content": "还疼，只能喝粥"
+        },
+        {
+          "role": "assistant",
+          "content": "喝粥也好，养几天"
+        },
+        {
+          "role": "user",
+          "content": "不过吉他练了两周，我已经能弹《小星星》了"
+        },
+        {
+          "role": "assistant",
+          "content": "进步好快！"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/22 (Tue) 22:30",
+      "turns": [
+        {
+          "role": "user",
+          "content": "芝麻今天一直往猫砂盆跑，尿不出来，我赶紧送医院了"
+        },
+        {
+          "role": "assistant",
+          "content": "天哪，医生怎么说"
+        },
+        {
+          "role": "user",
+          "content": "说是尿路结石，要住院几天"
+        },
+        {
+          "role": "assistant",
+          "content": "希望它快点好起来"
+        },
+        {
+          "role": "user",
+          "content": "家里没有它好安静"
+        },
+        {
+          "role": "assistant",
+          "content": "它很快就回来了"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/23 (Wed) 22:10",
+      "turns": [
+        {
+          "role": "user",
+          "content": "今天周三，但我没去游泳，下班直接去医院看芝麻了"
+        },
+        {
+          "role": "assistant",
+          "content": "它看到你一定很高兴"
+        },
+        {
+          "role": "user",
+          "content": "还有，同事阿洁休产假了，上周生了个女儿"
+        },
+        {
+          "role": "assistant",
+          "content": "恭喜她呀"
+        },
+        {
+          "role": "user",
+          "content": "我们组还凑钱给她买了礼物"
+        },
+        {
+          "role": "assistant",
+          "content": "你们组人真好"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/24 (Thu) 23:20",
+      "turns": [
+        {
+          "role": "user",
+          "content": "推荐个恐怖片吧，想找刺激"
+        },
+        {
+          "role": "assistant",
+          "content": "《招魂》第一部挺经典的"
+        },
+        {
+          "role": "user",
+          "content": "中秋我不回岳阳了，票太难买"
+        },
+        {
+          "role": "assistant",
+          "content": "那在杭州过也不错"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/25 (Fri) 21:30",
+      "turns": [
+        {
+          "role": "user",
+          "content": "中秋快乐呀"
+        },
+        {
+          "role": "assistant",
+          "content": "中秋快乐！"
+        },
+        {
+          "role": "user",
+          "content": "芝麻出院了，已经好了，现在在家里跑酷"
+        },
+        {
+          "role": "assistant",
+          "content": "太好了，它真厉害"
+        },
+        {
+          "role": "user",
+          "content": "医生说以后要多让它喝水"
+        },
+        {
+          "role": "assistant",
+          "content": "那就多放几个水碗"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/28 (Mon) 21:15",
+      "turns": [
+        {
+          "role": "user",
+          "content": "国庆打算和朋友去厦门玩五天"
+        },
+        {
+          "role": "assistant",
+          "content": "厦门好，可以去鼓浪屿"
+        },
+        {
+          "role": "user",
+          "content": "已经订好酒店了"
+        },
+        {
+          "role": "assistant",
+          "content": "期待你的游记"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/29 (Tue) 22:50",
+      "turns": [
+        {
+          "role": "user",
+          "content": "跟你说个秘密，我在面一家上海的游戏公司，做UI设计"
+        },
+        {
+          "role": "assistant",
+          "content": "哇，加油"
+        },
+        {
+          "role": "user",
+          "content": "已经二面了，感觉还行"
+        },
+        {
+          "role": "assistant",
+          "content": "祝你顺利拿到offer"
+        }
+      ]
+    },
+    {
+      "date": "2026/09/30 (Wed) 21:40",
+      "turns": [
+        {
+          "role": "user",
+          "content": "明天出发去厦门，好激动"
+        },
+        {
+          "role": "assistant",
+          "content": "一路顺风"
+        },
+        {
+          "role": "user",
+          "content": "这周游泳就先停了"
+        },
+        {
+          "role": "assistant",
+          "content": "玩得开心最重要"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/03 (Sat) 20:20",
+      "turns": [
+        {
+          "role": "user",
+          "content": "我在鼓浪屿，人超多"
+        },
+        {
+          "role": "assistant",
+          "content": "国庆哪儿都是人"
+        },
+        {
+          "role": "user",
+          "content": "刚吃了沙茶面，好好吃"
+        },
+        {
+          "role": "assistant",
+          "content": "羡慕了"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/06 (Tue) 21:30",
+      "turns": [
+        {
+          "role": "user",
+          "content": "从厦门回来了，晒黑了一圈"
+        },
+        {
+          "role": "assistant",
+          "content": "欢迎回来"
+        },
+        {
+          "role": "user",
+          "content": "还有个好消息，游戏公司的offer拿到了！下个月入职"
+        },
+        {
+          "role": "assistant",
+          "content": "恭喜恭喜！"
+        },
+        {
+          "role": "user",
+          "content": "公司在上海徐汇，我得搬去上海了"
+        },
+        {
+          "role": "assistant",
+          "content": "要换城市了，有点舍不得吧"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/08 (Thu) 22:00",
+      "turns": [
+        {
+          "role": "user",
+          "content": "这周六就是告五人的演唱会了！"
+        },
+        {
+          "role": "assistant",
+          "content": "终于等到了"
+        },
+        {
+          "role": "user",
+          "content": "我在练他们的歌，想弹给你听"
+        },
+        {
+          "role": "assistant",
+          "content": "好呀，我等着"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/11 (Sun) 21:10",
+      "turns": [
+        {
+          "role": "user",
+          "content": "昨晚的演唱会太棒了，他们唱了《唯一》，我哭了"
+        },
+        {
+          "role": "assistant",
+          "content": "听起来很难忘"
+        },
+        {
+          "role": "user",
+          "content": "我的吉他现在能弹《晴天》的前奏了"
+        },
+        {
+          "role": "assistant",
+          "content": "越来越厉害了"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/13 (Tue) 22:20",
+      "turns": [
+        {
+          "role": "user",
+          "content": "离职手续今天办完了"
+        },
+        {
+          "role": "assistant",
+          "content": "要开始新生活了"
+        },
+        {
+          "role": "user",
+          "content": "在上海徐汇找好房子了，月底搬过去"
+        },
+        {
+          "role": "assistant",
+          "content": "定下来就好"
+        },
+        {
+          "role": "user",
+          "content": "舍不得杭州，住了五年了"
+        },
+        {
+          "role": "assistant",
+          "content": "会想念的吧"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/15 (Thu) 21:45",
+      "turns": [
+        {
+          "role": "user",
+          "content": "我妹妹月考考了班里第三"
+        },
+        {
+          "role": "assistant",
+          "content": "她好厉害"
+        },
+        {
+          "role": "user",
+          "content": "今天外卖点错了，送成了香菜牛肉，我不吃香菜啊"
+        },
+        {
+          "role": "assistant",
+          "content": "那还挺难受的"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/16 (Fri) 22:35",
+      "turns": [
+        {
+          "role": "user",
+          "content": "好想吃螺蛳粉"
+        },
+        {
+          "role": "assistant",
+          "content": "那就吃一碗"
+        },
+        {
+          "role": "user",
+          "content": "我决定开始跑步了，想跑一次半马"
+        },
+        {
+          "role": "assistant",
+          "content": "好目标"
+        },
+        {
+          "role": "user",
+          "content": "从今天开始每天跑五公里"
+        },
+        {
+          "role": "assistant",
+          "content": "先别太猛，慢慢加"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/20 (Tue) 21:00",
+      "turns": [
+        {
+          "role": "user",
+          "content": "我报名了12月的苏州半马！"
+        },
+        {
+          "role": "assistant",
+          "content": "有目标了"
+        },
+        {
+          "role": "user",
+          "content": "芝麻天天睡在打包的纸箱里"
+        },
+        {
+          "role": "assistant",
+          "content": "猫都爱纸箱"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/23 (Fri) 22:40",
+      "turns": [
+        {
+          "role": "user",
+          "content": "搬家打包太累了"
+        },
+        {
+          "role": "assistant",
+          "content": "辛苦了"
+        },
+        {
+          "role": "user",
+          "content": "杭州的游泳卡也退了，到上海再找地方游"
+        },
+        {
+          "role": "assistant",
+          "content": "上海游泳馆也多"
+        }
+      ]
+    },
+    {
+      "date": "2026/10/27 (Tue) 21:20",
+      "turns": [
+        {
+          "role": "user",
+          "content": "到上海了，新家在徐汇"
+        },
+        {
+          "role": "assistant",
+          "content": "欢迎来上海"
+        },
+        {
+          "role": "user",
+          "content": "芝麻躲了一天床底，现在出来了"
+        },
+        {
+          "role": "assistant",
+          "content": "它在适应新家"
+        },
+        {
+          "role": "user",
+          "content": "我妹妹说想参加美术艺考，12月要去长沙集训"
+        },
+        {
+          "role": "assistant",
+          "content": "她有自己的想法了"
+        }
+      ]
+    },
+    {
+      "date": "2026/11/02 (Mon) 21:50",
+      "turns": [
+        {
+          "role": "user",
+          "content": "今天是新公司第一天上班"
+        },
+        {
+          "role": "assistant",
+          "content": "感觉怎么样"
+        },
+        {
+          "role": "user",
+          "content": "做UI，同事都挺好的"
+        },
+        {
+          "role": "assistant",
+          "content": "那就好"
+        }
+      ]
+    },
+    {
+      "date": "2026/11/04 (Wed) 22:10",
+      "turns": [
+        {
+          "role": "user",
+          "content": "苏州半马没中签，改报了12月的上海半马"
+        },
+        {
+          "role": "assistant",
+          "content": "在家门口跑也不错"
+        },
+        {
+          "role": "user",
+          "content": "新公司也有个同事叫阿杰，哈哈，不是我室友那个"
+        },
+        {
+          "role": "assistant",
+          "content": "名字撞了"
+        },
+        {
+          "role": "user",
+          "content": "我室友阿杰还在深圳，说下个月来上海看我"
+        },
+        {
+          "role": "assistant",
+          "content": "到时候又能聚了"
+        }
+      ]
+    }
+  ],
+  "checkpoints": [
+    {
+      "after": 4,
+      "date": "2026/09/13 (Sun) 21:00"
+    },
+    {
+      "after": 9,
+      "date": "2026/09/20 (Sun) 21:00"
+    },
+    {
+      "after": 14,
+      "date": "2026/09/27 (Sun) 21:00"
+    },
+    {
+      "after": 19,
+      "date": "2026/10/07 (Wed) 21:00"
+    },
+    {
+      "after": 24,
+      "date": "2026/10/18 (Sun) 21:00"
+    },
+    {
+      "after": 29,
+      "date": "2026/11/06 (Fri) 21:00"
+    }
+  ],
+  "probes": [
+    {
+      "id": "cat",
+      "type": "single-session-user",
+      "question": "我家猫叫什么名字？",
+      "versions": [
+        {
+          "from": 0,
+          "answer": "芝麻，一只三岁的黑猫",
+          "held": [
+            "芝麻",
+            "猫"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "allergy",
+      "type": "single-session-user",
+      "question": "我对什么过敏？",
+      "versions": [
+        {
+          "from": 1,
+          "answer": "芒果",
+          "held": [
+            "芒果"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hometown",
+      "type": "single-session-user",
+      "question": "我老家是哪里的？",
+      "versions": [
+        {
+          "from": 2,
+          "answer": "湖南岳阳",
+          "held": [
+            "岳阳"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "band",
+      "type": "single-session-user",
+      "question": "我最喜欢哪个乐队？",
+      "versions": [
+        {
+          "from": 4,
+          "answer": "告五人",
+          "held": [
+            "告五人"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "roommate",
+      "type": "single-session-user",
+      "question": "我大学室友阿杰现在在哪里做什么？",
+      "versions": [
+        {
+          "from": 9,
+          "answer": "在深圳做程序员",
+          "held": [
+            "阿杰",
+            "深圳"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "colleague",
+      "type": "single-session-user",
+      "question": "同事阿洁最近怎么样了？",
+      "versions": [
+        {
+          "from": 12,
+          "answer": "生了个女儿，在休产假",
+          "held": [
+            "阿洁"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "concert",
+      "type": "single-session-user",
+      "question": "我十月看了谁的演唱会，怎么样？",
+      "versions": [
+        {
+          "from": 21,
+          "answer": "告五人的演唱会，很棒，唱了《唯一》",
+          "held": [
+            "演唱会"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "brother_abs",
+      "type": "single-session-user",
+      "question": "我哥哥在哪里工作？",
+      "versions": [
+        {
+          "from": 2,
+          "answer": "从来没提过哥哥（只提过一个读高三的妹妹）",
+          "held": []
+        }
+      ]
+    },
+    {
+      "id": "tooth",
+      "type": "temporal-reasoning",
+      "question": "我是哪天拔的智齿？",
+      "versions": [
+        {
+          "from": 6,
+          "answer": "9月20日（打算那天拔左下的智齿）",
+          "held": [
+            "智齿"
+          ]
+        },
+        {
+          "from": 10,
+          "answer": "9月20日",
+          "held": [
+            "智齿"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "trip",
+      "type": "knowledge-update",
+      "question": "我国庆去哪玩了？",
+      "versions": [
+        {
+          "from": 15,
+          "answer": "打算和朋友去厦门玩五天",
+          "held": [
+            "厦门"
+          ]
+        },
+        {
+          "from": 18,
+          "answer": "去了厦门（逛了鼓浪屿，吃了沙茶面）",
+          "held": [
+            "厦门"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "swim",
+      "type": "knowledge-update",
+      "question": "我平时什么时候去游泳？",
+      "versions": [
+        {
+          "from": 2,
+          "answer": "每周三晚上",
+          "held": [
+            "游泳",
+            "周三"
+          ]
+        },
+        {
+          "from": 26,
+          "answer": "杭州的游泳卡退了，现在还没固定去游泳，打算到上海再找地方",
+          "held": [
+            "游泳"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "job",
+      "type": "knowledge-update",
+      "question": "我现在做什么工作？",
+      "versions": [
+        {
+          "from": 0,
+          "answer": "在杭州一家跨境电商公司当设计师",
+          "held": [
+            "设计"
+          ]
+        },
+        {
+          "from": 19,
+          "answer": "还在跨境电商公司做设计师，但已经拿到上海一家游戏公司UI设计的offer，下个月入职",
+          "held": [
+            "游戏"
+          ]
+        },
+        {
+          "from": 22,
+          "answer": "已经从跨境电商公司离职，下个月入职上海一家游戏公司做UI设计",
+          "held": [
+            "离职"
+          ]
+        },
+        {
+          "from": 28,
+          "answer": "在上海一家游戏公司做UI设计",
+          "held": [
+            "游戏"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "home",
+      "type": "knowledge-update",
+      "question": "我现在住在哪个城市哪个区？",
+      "versions": [
+        {
+          "from": 0,
+          "answer": "杭州滨江",
+          "held": [
+            "滨江"
+          ]
+        },
+        {
+          "from": 27,
+          "answer": "上海徐汇",
+          "held": [
+            "徐汇"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sister",
+      "type": "knowledge-update",
+      "question": "我妹妹现在在忙什么？",
+      "versions": [
+        {
+          "from": 2,
+          "answer": "读高三",
+          "held": [
+            "妹妹"
+          ]
+        },
+        {
+          "from": 27,
+          "answer": "读高三，决定参加美术艺考，12月去长沙集训",
+          "held": [
+            "艺考"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cat_health",
+      "type": "knowledge-update",
+      "question": "芝麻之前生的什么病，现在好了吗？",
+      "versions": [
+        {
+          "from": 11,
+          "answer": "尿路结石，住院了，还没出院",
+          "held": [
+            "结石"
+          ]
+        },
+        {
+          "from": 14,
+          "answer": "尿路结石住过院，已经出院好了",
+          "held": [
+            "结石"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "guitar",
+      "type": "knowledge-update",
+      "question": "我吉他现在练到什么程度了？",
+      "versions": [
+        {
+          "from": 4,
+          "answer": "刚买了第一把吉他，刚开始学",
+          "held": [
+            "吉他"
+          ]
+        },
+        {
+          "from": 10,
+          "answer": "能弹《小星星》了",
+          "held": [
+            "小星星"
+          ]
+        },
+        {
+          "from": 21,
+          "answer": "能弹《晴天》的前奏了",
+          "held": [
+            "晴天"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "race",
+      "type": "knowledge-update",
+      "question": "我报了哪场半马？",
+      "versions": [
+        {
+          "from": 25,
+          "answer": "12月的苏州半马",
+          "held": [
+            "苏州"
+          ]
+        },
+        {
+          "from": 29,
+          "answer": "苏州半马没中签，改报了12月的上海半马",
+          "held": [
+            "上海",
+            "半马"
+          ]
+        }
+      ]
+    }
+  ]
+}

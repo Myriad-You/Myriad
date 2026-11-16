@@ -1,4 +1,5 @@
 import { authSubject } from '../../utils/authSubject'
+import { safeRandomUUID } from '../../utils/uuid'
 
 export const BODY_PAGE_CHARS = 8192
 export const BODY_INLINE_CHARS = 4096
@@ -6,7 +7,7 @@ export const BODY_INLINE_CHARS = 4096
 export const detachedPrefix = (text: string, chars: number) => text.slice(0, chars).split('').join('')
 const MAX_STORED_BYTES = 64 * 1024 * 1024
 const MAX_BODY_AGE_MS = 24 * 60 * 60 * 1000
-const tabId = globalThis.crypto.randomUUID()
+const tabId = safeRandomUUID()
 const owner = () => `${tabId}:${authSubject.revision}`
 export interface MessageBodyRef { id: string; owner: string; chars: number }
 export interface BodyStorage {
@@ -176,7 +177,7 @@ export class BodyWriter {
 export async function prepareMessageBody(content: string, signal = authSubject.signal): Promise<{ content: string; body?: MessageBodyRef }> {
   signal.throwIfAborted()
   if (content.length <= BODY_INLINE_CHARS) return { content, body: undefined }
-  const writer = new BodyWriter(globalThis.crypto.randomUUID(), signal)
+  const writer = new BodyWriter(safeRandomUUID(), signal)
   try { return await writer.append(content) } catch (error) {
     await writer.discardStored()
     throw error

@@ -378,6 +378,13 @@ const PERSONA_PARSE_KEYS = {
   speech: ['表达', 'Voice', '話し方'],
 } as const
 
+/**
+ * What the page sends as `personality`. The server keeps its own instead:
+ * flattened from the same fields in the core, labelled in her language
+ * (`persona.language`), not the reader's. The request still carries
+ * `personality`, which stands for a save without structured fields; the
+ * request shape is shared with those, so it stays.
+ */
 export function flattenPersona(persona: StructuredPersona): string {
   const labels = personaFieldLabels()
   // English traits may contain ASCII commas

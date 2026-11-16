@@ -5,7 +5,7 @@
 
 -- A device that syncs her with the site, one row each. The token is kept
 -- only as its sha256; `token_hint` is the `mys_` prefix and 8 characters.
--- Where she lives is not a device's: it is the host lease below.
+-- Where she lives is not a device's: it is her lease and the copy below.
 CREATE TABLE IF NOT EXISTS agent_sync_devices (
     id VARCHAR(40) PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -17,8 +17,12 @@ CREATE TABLE IF NOT EXISTS agent_sync_devices (
     created_at TIMESTAMPTZ NOT NULL,
     last_seen_at TIMESTAMPTZ,
     revoked_at TIMESTAMPTZ,
-    revoked_reason VARCHAR(32)
+    revoked_reason VARCHAR(32),
+    -- When her link last closed it for speaking another protocol (its app is
+    -- to be updated); cleared by its next hello the site takes.
+    app_outdated_at TIMESTAMPTZ
 );
+ALTER TABLE agent_sync_devices ADD COLUMN IF NOT EXISTS app_outdated_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_agent_sync_devices_user_created
     ON agent_sync_devices (user_id, created_at DESC);
 -- The parent/child flag of the old design, retired: a database from before
@@ -26,73 +30,81 @@ CREATE INDEX IF NOT EXISTS idx_agent_sync_devices_user_created
 DROP INDEX IF EXISTS idx_agent_sync_devices_one_parent;
 ALTER TABLE agent_sync_devices DROP COLUMN IF EXISTS role;
 
--- Her host lease: the one end she lives on (services/persona_sync/lease.rs).
--- One row, because the site has one her. `holder` is `site` or the id of the
--- device she lives on; `lineage` is her birth (issued with the row, kept
--- across every move); `epoch` goes up by one at each commit or reclaim and
--- never down; `state` is live, frozen (a move under way: no end has her),
--- vacant (she is not here: the device she lived on was removed, or the site
--- let her go after she moved out) or moved_out (exported to be brought in
--- elsewhere, waiting for the owner to let this copy go or undo it). `move`
--- is the move in progress, if any; `done` the last one that finished (its
--- id and the epoch it left), so a commit asked again is answered. No key,
--- token or grant is ever in it.
-CREATE TABLE IF NOT EXISTS agent_host_lease (
+-- Where she lives (services/persona_sync/lease.rs). Which end holds her is
+-- her lease (`agent_lease_grants`, persona_log.sql), and only that; these two
+-- keep the rest. The old one-row lease (`agent_host_lease`) is taken apart
+-- into them and the grants once, at start (`lease::old_lease`).
+--
+-- The site's copy of her, one row, because the site has one her. `lineage`
+-- is her birth (kept across every move: a new birth is a new row); `state`
+-- is live (she lives here, whichever end her mind is on), away (she lives
+-- on the device the grant names, the site let its copy go or has none yet),
+-- vacant (she is not here and the site does not know where: the device she
+-- lived on was removed, or the site let her go after she moved out) or
+-- moved_out (exported to be brought in elsewhere, waiting for the owner to
+-- let this copy go or undo it). No key, token or grant is ever in it.
+CREATE TABLE IF NOT EXISTS agent_her_copy (
     id VARCHAR(8) PRIMARY KEY CHECK (id = 'her'),
-    holder VARCHAR(40) NOT NULL,
     lineage VARCHAR(36) NOT NULL,
-    epoch BIGINT NOT NULL CHECK (epoch >= 1),
     state VARCHAR(12) NOT NULL
-        CONSTRAINT agent_host_lease_state_check
-        CHECK (state IN ('live', 'frozen', 'vacant', 'moved_out')),
-    move JSONB,
-    updated_at TIMESTAMPTZ NOT NULL
+        CONSTRAINT agent_her_copy_state_check
+        CHECK (state IN ('live', 'away', 'vacant', 'moved_out')),
+    state_at TIMESTAMPTZ NOT NULL
 );
--- A lease from before she could move out of the site: its state takes the
--- longer word, and the last finished move is kept beside it.
-DO $$
+CREATE OR REPLACE FUNCTION agent_her_copy_guard() RETURNS trigger AS $$
 BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = current_schema() AND table_name = 'agent_host_lease'
-          AND column_name = 'state' AND character_maximum_length < 12
-    ) THEN
-        ALTER TABLE agent_host_lease ALTER COLUMN state TYPE VARCHAR(12);
-        ALTER TABLE agent_host_lease DROP CONSTRAINT IF EXISTS agent_host_lease_state_check;
-        ALTER TABLE agent_host_lease ADD CONSTRAINT agent_host_lease_state_check
-            CHECK (state IN ('live', 'frozen', 'vacant', 'moved_out'));
-    END IF;
-END $$;
-ALTER TABLE agent_host_lease ADD COLUMN IF NOT EXISTS done JSONB;
--- The epoch only goes up and the lineage never changes in place: a new birth
--- is a new row.
-CREATE OR REPLACE FUNCTION agent_host_lease_guard() RETURNS trigger AS $$
-BEGIN
-    IF NEW.epoch < OLD.epoch THEN
-        RAISE EXCEPTION 'agent_host_lease: epoch % may not go back to %', OLD.epoch, NEW.epoch;
-    END IF;
     IF NEW.lineage <> OLD.lineage THEN
-        RAISE EXCEPTION 'agent_host_lease: the lineage does not change in place';
+        RAISE EXCEPTION 'agent_her_copy: the lineage does not change in place';
     END IF;
     RETURN NEW;
 END $$ LANGUAGE plpgsql;
-DROP TRIGGER IF EXISTS agent_host_lease_guard ON agent_host_lease;
-CREATE TRIGGER agent_host_lease_guard BEFORE UPDATE ON agent_host_lease
-    FOR EACH ROW EXECUTE FUNCTION agent_host_lease_guard();
--- Every change is announced on `myriad_her_host` as it commits, so each
--- process (and each of its links and drivers) reads the lease again.
-CREATE OR REPLACE FUNCTION agent_host_lease_changed() RETURNS trigger AS $$
+DROP TRIGGER IF EXISTS agent_her_copy_guard ON agent_her_copy;
+CREATE TRIGGER agent_her_copy_guard BEFORE UPDATE ON agent_her_copy
+    FOR EACH ROW EXECUTE FUNCTION agent_her_copy_guard();
+
+-- Her moves, one row each: proposed → frozen → transferring → applied →
+-- committed → retired. While one is frozen no end holds her (a freeze
+-- grant). One that is called off goes; one that finished stays (`done_at`,
+-- and `done_epoch` the epoch it left), so a commit asked again is answered.
+-- At most one is under way.
+CREATE TABLE IF NOT EXISTS agent_her_moves (
+    id VARCHAR(64) PRIMARY KEY,
+    kind VARCHAR(8) NOT NULL CHECK (kind IN ('move', 'merge', 'recover')),
+    from_holder VARCHAR(64) NOT NULL,
+    to_holder VARCHAR(64) NOT NULL,
+    phase VARCHAR(12) NOT NULL
+        CHECK (phase IN ('proposed', 'frozen', 'transferring', 'applied', 'committed', 'retired')),
+    started_by VARCHAR(8) NOT NULL CHECK (started_by IN ('owner', 'device')),
+    digest VARCHAR(128),
+    started_at TIMESTAMPTZ NOT NULL,
+    confirmed_at TIMESTAMPTZ,
+    agreed BOOLEAN,
+    import_id VARCHAR(64),
+    via VARCHAR(64),
+    was_state VARCHAR(12),
+    updated_at TIMESTAMPTZ NOT NULL,
+    done_at TIMESTAMPTZ,
+    done_epoch BIGINT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_her_moves_one_under_way
+    ON agent_her_moves ((true)) WHERE done_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_agent_her_moves_done
+    ON agent_her_moves (done_at DESC);
+
+-- Every change to either is announced on `myriad_her_host` as it commits
+-- (so is every grant), so each process (and each of its links and drivers)
+-- reads where she is again.
+CREATE OR REPLACE FUNCTION agent_her_place_changed() RETURNS trigger AS $$
 BEGIN
-    IF TG_OP = 'DELETE' THEN
-        PERFORM pg_notify('myriad_her_host', OLD.epoch::text);
-    ELSE
-        PERFORM pg_notify('myriad_her_host', NEW.epoch::text);
-    END IF;
+    PERFORM pg_notify('myriad_her_host', TG_TABLE_NAME);
     RETURN NULL;
 END $$ LANGUAGE plpgsql;
-DROP TRIGGER IF EXISTS agent_host_lease_changed ON agent_host_lease;
-CREATE TRIGGER agent_host_lease_changed AFTER INSERT OR UPDATE OR DELETE ON agent_host_lease
-    FOR EACH ROW EXECUTE FUNCTION agent_host_lease_changed();
+DROP TRIGGER IF EXISTS agent_her_copy_changed ON agent_her_copy;
+CREATE TRIGGER agent_her_copy_changed AFTER INSERT OR UPDATE OR DELETE ON agent_her_copy
+    FOR EACH ROW EXECUTE FUNCTION agent_her_place_changed();
+DROP TRIGGER IF EXISTS agent_her_moves_changed ON agent_her_moves;
+CREATE TRIGGER agent_her_moves_changed AFTER INSERT OR UPDATE OR DELETE ON agent_her_moves
+    FOR EACH ROW EXECUTE FUNCTION agent_her_place_changed();
 
 -- What moved her affect toward each person, one row per change, appended in
 -- the same transaction as the change itself (store/addressee.rs). `at` is

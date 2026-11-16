@@ -339,53 +339,23 @@ pub async fn proxy_image(Query(params): Query<ImageProxyQuery>) -> Response {
             .into_response();
     }
 
-    // Resolve and pin the public target, and never follow an unvalidated redirect.
-    let (target_url, client) = match crate::services::outbound_security::build_public_http_client(
-        &url,
-        std::time::Duration::from_secs(10),
-        Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
-    )
-    .await
-    {
-        Ok(target) => target,
-        Err(error) => {
-            tracing::warn!(%url, %error, "Rejected unsafe image proxy target");
-            return (StatusCode::FORBIDDEN, "Cannot proxy unsafe URLs").into_response();
-        }
-    };
-
-    // 根据域名设置适当的Referer
-    let referer = get_referer_for_url(&url);
-
-    // 发起请求 — upstream failures soft-fail (no 502/504 console noise for <img>)
-    let response = match client
-        .get(target_url)
-        .header("Referer", referer)
-        .send()
-        .await
-    {
-        Ok(resp) => resp,
-        Err(e) => {
-            let reason = if e.is_timeout() {
-                "upstream timeout"
-            } else if e.is_connect() {
-                "upstream connect failed"
-            } else {
-                "upstream request failed"
+    let response = match fetch_upstream_image(&url).await {
+        Ok(response) => response,
+        Err(failure) => {
+            // 新上架、换过图或锁区的 Steam 游戏，老封面地址 404，换成商店里的真实地址再取一次。
+            let fallback = match crate::services::steam_art::legacy_app_art(&url) {
+                Some((appid, file)) => crate::services::steam_art::resolve(appid, &file).await,
+                None => None,
             };
-            tracing::debug!(%url, error = %e, %reason, "Image proxy upstream error");
-            return soft_fail_placeholder(reason, &url);
+            match fallback {
+                Some(actual) => match fetch_upstream_image(&actual).await {
+                    Ok(response) => response,
+                    Err(failure) => return failure,
+                },
+                None => return failure,
+            }
         }
     };
-
-    if !response.status().is_success() {
-        tracing::debug!(
-            %url,
-            status = %response.status(),
-            "Image proxy target returned non-success"
-        );
-        return soft_fail_placeholder("upstream non-success status", &url);
-    }
 
     // 获取内容类型
     let content_type = response
@@ -445,6 +415,59 @@ pub async fn proxy_image(Query(params): Query<ImageProxyQuery>) -> Response {
         image_data,
     )
         .into_response()
+}
+
+/// 取上游图片；取不到时给出要回给浏览器的响应。
+async fn fetch_upstream_image(url: &str) -> Result<reqwest::Response, Response> {
+    // Resolve and pin the public target, and never follow an unvalidated redirect.
+    let (target_url, client) = match crate::services::outbound_security::build_public_http_client(
+        url,
+        std::time::Duration::from_secs(10),
+        Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+    )
+    .await
+    {
+        Ok(target) => target,
+        Err(error) => {
+            tracing::warn!(%url, %error, "Rejected unsafe image proxy target");
+            return Err((StatusCode::FORBIDDEN, "Cannot proxy unsafe URLs").into_response());
+        }
+    };
+
+    // 根据域名设置适当的Referer
+    let referer = get_referer_for_url(url);
+
+    // 发起请求 — upstream failures soft-fail (no 502/504 console noise for <img>)
+    let response = match client
+        .get(target_url)
+        .header("Referer", referer)
+        .send()
+        .await
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            let reason = if e.is_timeout() {
+                "upstream timeout"
+            } else if e.is_connect() {
+                "upstream connect failed"
+            } else {
+                "upstream request failed"
+            };
+            tracing::debug!(%url, error = %e, %reason, "Image proxy upstream error");
+            return Err(soft_fail_placeholder(reason, url));
+        }
+    };
+
+    if !response.status().is_success() {
+        tracing::debug!(
+            %url,
+            status = %response.status(),
+            "Image proxy target returned non-success"
+        );
+        return Err(soft_fail_placeholder("upstream non-success status", url));
+    }
+
+    Ok(response)
 }
 
 /// True when Content-Type is SVG (active content if served same-origin).

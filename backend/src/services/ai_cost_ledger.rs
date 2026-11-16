@@ -9,9 +9,12 @@
 //! vanish. Governed tasks wrap their provider call in
 //! [`with_ai_ledger_suppressed`] to avoid double-count. **Admin subjects are
 //! included** — this is full-site usage, not visitor-stats style staff
-//! exclusion. Token counts are the same length/4 estimates the quota system
-//! uses (images/speech use the helpers below); `cost_micro_usd` stays NULL
-//! until a pricing source exists.
+//! exclusion. A call's tokens and cost are what its answers reported
+//! ([`reporting`], priced by [`crate::services::ai_pricing`]): real token
+//! counts (`tokens_estimated` false) and `cost_micro_usd` when every answer
+//! had a cost. Without a report they are the same length/4 estimates the
+//! quota system uses (images/speech use the helpers below), marked
+//! estimated, and the cost stays NULL.
 //!
 //! HTTP list endpoint stays in the API layer; only the best-effort append lives
 //! here so AI task execution does not import `crate::api`.
@@ -85,6 +88,118 @@ impl AiUsageMeter {
     fn add(&self, tokens: u64) {
         self.total_tokens.fetch_add(tokens, Ordering::Relaxed);
     }
+}
+
+/// What the answers inside one call reported: their usage added up, and
+/// their cost while every one of them had one.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Reported {
+    pub usage: crate::services::ai_pricing::Usage,
+    /// At least one answer reported usage.
+    pub answers: u64,
+    pub cost_usd: f64,
+    /// An answer reported usage but no cost (no price for its model).
+    pub unpriced: bool,
+    /// Why each answer that said so stopped (`end_turn`, `max_tokens`,
+    /// `refusal`, `stop`, `length`…), in the order they were read.
+    pub stops: Vec<String>,
+}
+
+impl Reported {
+    /// One answer of `model` that reported `usage`, priced.
+    pub fn of(model: &str, usage: crate::services::ai_pricing::Usage) -> Self {
+        let cost = crate::services::ai_pricing::cost_usd(model, &usage);
+        Self {
+            usage,
+            answers: 1,
+            cost_usd: cost.unwrap_or(0.0),
+            unpriced: cost.is_none(),
+            stops: Vec::new(),
+        }
+    }
+
+    fn add(&mut self, other: &Reported) {
+        self.usage.add(other.usage);
+        self.answers += other.answers;
+        self.cost_usd += other.cost_usd;
+        self.unpriced |= other.unpriced;
+        self.stops.extend(other.stops.iter().cloned());
+    }
+
+    /// Prompt and output tokens, as the ledger keeps them.
+    pub fn tokens(&self) -> (i32, i32) {
+        let clamp = |tokens: u64| i32::try_from(tokens).unwrap_or(i32::MAX);
+        (clamp(self.usage.prompt()), clamp(self.usage.output))
+    }
+
+    /// Micro-dollars, when every answer had a cost.
+    pub fn cost_micro_usd(&self) -> Option<i64> {
+        (!self.unpriced).then(|| (self.cost_usd * 1_000_000.0).round() as i64)
+    }
+}
+
+tokio::task_local! {
+    static REPORTED: Arc<std::sync::Mutex<Reported>>;
+}
+
+/// `fut`, and what the answers read inside it reported (`None`: none
+/// reported usage). What it gathers is added to an enclosing call's too, so
+/// a governed task sees what the analyzer calls inside it reported.
+pub async fn reporting<F: Future>(fut: F) -> (F::Output, Option<Reported>) {
+    let here = Arc::new(std::sync::Mutex::new(Reported::default()));
+    let out = REPORTED.scope(here.clone(), fut).await;
+    let reported = here
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    let _ = REPORTED.try_with(|outer| {
+        outer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .add(&reported);
+    });
+    (out, (reported.answers > 0).then_some(reported))
+}
+
+/// One answer read, as its source sent it (a whole JSON body, or a stream's
+/// usage gathered by the reader): kept in the current call's report.
+/// `asked` is the model the call named, for an answer that does not say.
+pub(crate) fn note_answer(answer: &serde_json::Value, asked: Option<&str>) {
+    let answered = crate::services::ai_pricing::answered(answer, asked);
+    if let Some(usage) = answered.usage {
+        keep(Reported {
+            usage,
+            answers: 1,
+            cost_usd: answered.cost_usd.unwrap_or(0.0),
+            unpriced: answered.cost_usd.is_none(),
+            stops: stop_of(answer).into_iter().collect(),
+        });
+    }
+}
+
+/// Why an answer stopped, as its source says it: Anthropic's
+/// `stop_reason`, an OpenAI-shaped `finish_reason`, Gemini's
+/// `finishReason`.
+fn stop_of(answer: &serde_json::Value) -> Option<String> {
+    answer["stop_reason"]
+        .as_str()
+        .or_else(|| answer["choices"][0]["finish_reason"].as_str())
+        .or_else(|| answer["candidates"][0]["finishReason"].as_str())
+        .map(str::to_string)
+}
+
+/// A streamed answer's usage, gathered by its reader: kept in the current
+/// call's report, priced as `model`.
+pub(crate) fn note_usage(model: &str, usage: crate::services::ai_pricing::Usage) {
+    keep(Reported::of(model, usage));
+}
+
+fn keep(reported: Reported) {
+    let _ = REPORTED.try_with(|here| {
+        here.lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .add(&reported);
+    });
 }
 
 tokio::task_local! {
@@ -217,6 +332,44 @@ pub fn estimate_stt_tokens(audio_bytes: usize, transcript: &str) -> (i32, i32) {
     (input, output)
 }
 
+/// Ledger write from analyzer calls: what the call's answers reported, else
+/// the length/4 estimate of its text.
+pub async fn record_ai_call_reported(
+    provider: &str,
+    model: &str,
+    input_chars: usize,
+    output_chars: usize,
+    reported: Option<&Reported>,
+    status: &str,
+    error_code: Option<&str>,
+) {
+    let Some(reported) = reported else {
+        return record_ai_call_from_attribution(
+            provider,
+            model,
+            input_chars,
+            output_chars,
+            status,
+            error_code,
+        )
+        .await;
+    };
+    let (input_tokens, output_tokens) = reported.tokens();
+    record_tokens(
+        provider,
+        model,
+        Tokens {
+            input: input_tokens,
+            output: output_tokens,
+            estimated: false,
+            cost_micro_usd: reported.cost_micro_usd(),
+        },
+        status,
+        error_code,
+    )
+    .await;
+}
+
 /// Best-effort ledger write from analyzer text hooks (`estimate_text_tokens`).
 ///
 /// Writes even without a task-local attribution (`source=internal`) so a
@@ -241,6 +394,18 @@ pub async fn record_ai_call_from_attribution(
 }
 
 /// Same hook with caller-supplied token estimates (images, speech).
+/// `fut`, its calls counted under `step` by the tests' spend counter;
+/// outside tests just `fut`.
+pub(crate) async fn as_step<F: std::future::Future>(step: &str, fut: F) -> F::Output {
+    #[cfg(test)]
+    return spent::during(step, fut).await;
+    #[cfg(not(test))]
+    {
+        let _ = step;
+        fut.await
+    }
+}
+
 pub async fn record_ai_tokens_from_attribution(
     provider: &str,
     model: &str,
@@ -249,8 +414,48 @@ pub async fn record_ai_tokens_from_attribution(
     status: &str,
     error_code: Option<&str>,
 ) {
-    let input_tokens = input_tokens.max(0);
-    let output_tokens = output_tokens.max(0);
+    record_tokens(
+        provider,
+        model,
+        Tokens {
+            input: input_tokens,
+            output: output_tokens,
+            estimated: true,
+            cost_micro_usd: None,
+        },
+        status,
+        error_code,
+    )
+    .await;
+}
+
+/// Token counts for one row, and whether they are estimates.
+pub struct Tokens {
+    pub input: i32,
+    pub output: i32,
+    pub estimated: bool,
+    pub cost_micro_usd: Option<i64>,
+}
+
+async fn record_tokens(
+    provider: &str,
+    model: &str,
+    tokens: Tokens,
+    status: &str,
+    error_code: Option<&str>,
+) {
+    let input_tokens = tokens.input.max(0);
+    let output_tokens = tokens.output.max(0);
+
+    #[cfg(test)]
+    spent::add(
+        model,
+        input_tokens,
+        output_tokens,
+        status,
+        tokens.estimated,
+        tokens.cost_micro_usd,
+    );
 
     // Metered even without attribution: planner / nested work must still settle.
     let _ = AI_USAGE_METER.try_with(|meter| {
@@ -281,6 +486,8 @@ pub async fn record_ai_tokens_from_attribution(
             model,
             input_tokens,
             output_tokens,
+            tokens_estimated: tokens.estimated,
+            cost_micro_usd: tokens.cost_micro_usd,
             status,
             error_code,
         },
@@ -301,6 +508,10 @@ pub struct AiCostLedgerEntry<'a> {
     pub model: &'a str,
     pub input_tokens: i32,
     pub output_tokens: i32,
+    /// Length/4 estimates, not what the source reported.
+    pub tokens_estimated: bool,
+    /// What the source reported it cost, in micro-dollars, when known.
+    pub cost_micro_usd: Option<i64>,
     pub status: &'a str,
     pub error_code: Option<&'a str>,
 }
@@ -314,8 +525,8 @@ pub async fn record_ai_cost(db: &DatabaseConnection, entry: AiCostLedgerEntry<'_
                 INSERT INTO ai_cost_ledger
                     (subject_id, owner_id, tapp_id, task_id, source, operation,
                      provider, model, input_tokens, output_tokens,
-                     tokens_estimated, status, error_code)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11, $12)
+                     tokens_estimated, cost_micro_usd, status, error_code)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             "#,
             vec![
                 SeaValue::Int(Some(entry.subject_id)),
@@ -328,6 +539,8 @@ pub async fn record_ai_cost(db: &DatabaseConnection, entry: AiCostLedgerEntry<'_
                 SeaValue::String(Some(entry.model.to_string())),
                 SeaValue::Int(Some(entry.input_tokens.max(0))),
                 SeaValue::Int(Some(entry.output_tokens.max(0))),
+                SeaValue::Bool(Some(entry.tokens_estimated)),
+                SeaValue::BigInt(entry.cost_micro_usd),
                 SeaValue::String(Some(entry.status.to_string())),
                 SeaValue::String(entry.error_code.map(|code| code.to_string())),
             ],
@@ -343,8 +556,419 @@ pub async fn record_ai_cost(db: &DatabaseConnection, entry: AiCostLedgerEntry<'_
     }
 }
 
+/// `call` once; in a memory bench (a test build), again as long as
+/// `spent::again_after` says to wait for what the network dropped
+/// (`failed` reads a result's status and error, `None` when it is not a
+/// failure). Outside tests the choice is made when it is compiled: one call,
+/// nothing else.
+pub(crate) async fn once_or_again<R, F: std::future::Future<Output = R>>(
+    model: &str,
+    mut call: impl FnMut() -> F,
+    failed: impl Fn(&R) -> Option<(Option<u16>, &anyhow::Error)>,
+) -> R {
+    #[cfg(not(test))]
+    {
+        let _ = (model, failed);
+        call().await
+    }
+    #[cfg(test)]
+    {
+        let mut attempt = 0;
+        loop {
+            let result = call().await;
+            let Some(wait) = failed(&result)
+                .and_then(|(status, error)| spent::again_after(model, status, error, attempt))
+            else {
+                return result;
+            };
+            tokio::time::sleep(wait).await;
+            attempt += 1;
+        }
+    }
+}
+
+/// What every model call in this test process spent, by model, with the
+/// same estimates the ledger keeps: the memory benches report it, so what a
+/// run costs is known from the last run instead of guessed.
+#[cfg(test)]
+pub(crate) mod spent {
+    use std::collections::BTreeMap;
+    use std::sync::Mutex;
+
+    /// Calls, input tokens, output tokens, calls that failed.
+    type Spent = BTreeMap<String, (u64, u64, u64, u64)>;
+    static SPENT: Mutex<Spent> = Mutex::new(BTreeMap::new());
+    /// The same, by what each call was for.
+    static BY_STEP: Mutex<Spent> = Mutex::new(BTreeMap::new());
+    /// Failed calls by model and why, where the caller said why.
+    static BECAUSE: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
+    /// Calls whose tokens are length/4 estimates: no answer said its usage.
+    static ESTIMATED: Mutex<u64> = Mutex::new(0);
+    /// What the ledger rows say they cost (`cost_micro_usd`), added up.
+    static ROW_COST: Mutex<i64> = Mutex::new(0);
+    /// What the calls cost in dollars (the source's `usage.cost`, else
+    /// the usage the answer reported at the list price,
+    /// [`crate::services::ai_pricing`]), and how many answers had a cost
+    /// and how many did not.
+    static CHARGED: Mutex<(f64, u64, u64)> = Mutex::new((0.0, 0, 0));
+    /// The same dollars over the whole process: never taken.
+    static CHARGED_ALL: Mutex<f64> = Mutex::new(0.0);
+    /// The models of answers that had no cost (no price, or no usage):
+    /// a capped run starts nothing more once there is one, since what it
+    /// spends is no longer known. Never taken.
+    static UNPRICED: Mutex<std::collections::BTreeSet<String>> =
+        Mutex::new(std::collections::BTreeSet::new());
+
+    /// A successful answer's body: what it cost, kept. `asked` is the
+    /// model the call named, for an answer that does not say.
+    pub(crate) fn charged(body: &[u8], asked: Option<&str>) {
+        let answered = serde_json::from_slice::<serde_json::Value>(body)
+            .map(|body| crate::services::ai_pricing::answered(&body, asked))
+            .unwrap_or_default();
+        let cost = answered.cost_usd;
+        // `MEROPE_BENCH_SHOW_USAGE=1`: each answer's own usage, to check the
+        // totals against.
+        if std::env::var_os("MEROPE_BENCH_SHOW_USAGE").is_some() {
+            eprintln!(
+                "answer usage: {} {:?} cost {:?}",
+                answered.model, answered.usage, cost
+            );
+        }
+        if cost.is_none() {
+            let model = if answered.model.is_empty() {
+                "a model the answer did not name".to_string()
+            } else {
+                answered.model
+            };
+            UNPRICED
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .insert(model);
+        }
+        let mut charged = CHARGED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match cost {
+            Some(cost) => {
+                charged.0 += cost;
+                charged.1 += 1;
+                *CHARGED_ALL
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) += cost;
+            }
+            None => charged.2 += 1,
+        }
+    }
+
+    /// What the source has said the calls cost so far in this process, in
+    /// dollars.
+    pub(crate) fn charged_so_far() -> f64 {
+        *CHARGED_ALL
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The account said it is out of credit (402) in this process.
+    static OUT_OF_CREDIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    /// Whether a run is to start nothing more: the account is out of
+    /// credit, or what the source said the calls cost has passed
+    /// `MEROPE_BENCH_SPEND_LIMIT` (dollars). What is under way finishes.
+    pub(crate) fn stop_starting() -> Option<String> {
+        if OUT_OF_CREDIT.load(std::sync::atomic::Ordering::Relaxed) {
+            return Some("out of credit (402)".to_string());
+        }
+        let limit: f64 = std::env::var("MEROPE_BENCH_SPEND_LIMIT")
+            .ok()
+            .and_then(|limit| limit.parse().ok())?;
+        let unpriced = UNPRICED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        if !unpriced.is_empty() {
+            return Some(format!(
+                "an answer had no cost (no price or no usage): {}",
+                unpriced.join(", ")
+            ));
+        }
+        let spent = charged_so_far();
+        (spent > limit).then(|| format!("charged ${spent:.4} past the limit ${limit}"))
+    }
+
+    tokio::task_local! {
+        static STEP: String;
+        /// The failures said inside one `failures_in`.
+        static HERE: std::sync::Arc<Mutex<Vec<String>>>;
+    }
+
+    /// `fut`, and every failure said while it ran, as `model: why`: one
+    /// question's run knows whether the network, not her, cost it.
+    pub(crate) async fn failures_in<F: std::future::Future>(fut: F) -> (F::Output, Vec<String>) {
+        let here = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let out = HERE.scope(here.clone(), fut).await;
+        let failed =
+            std::mem::take(&mut *here.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
+        (out, failed)
+    }
+
+    /// `fut`, its calls counted as `step` unless an outer step is set.
+    pub(super) async fn during<F: std::future::Future>(step: &str, fut: F) -> F::Output {
+        if STEP.try_with(|_| ()).is_ok() {
+            fut.await
+        } else {
+            STEP.scope(step.to_string(), fut).await
+        }
+    }
+
+    fn count(
+        into: &Mutex<Spent>,
+        key: String,
+        input_tokens: i32,
+        output_tokens: i32,
+        failed: bool,
+    ) {
+        let mut spent = into.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let entry = spent.entry(key).or_default();
+        entry.0 += 1;
+        entry.1 += input_tokens as u64;
+        entry.2 += output_tokens as u64;
+        entry.3 += u64::from(failed);
+    }
+
+    /// A call that failed is counted and said: an embedding that fails sends
+    /// recall back to words alone without a word in the log, and a run
+    /// watched only for its own failures would not know.
+    pub(super) fn add(
+        model: &str,
+        input_tokens: i32,
+        output_tokens: i32,
+        status: &str,
+        estimated: bool,
+        cost_micro_usd: Option<i64>,
+    ) {
+        if let Some(cost) = cost_micro_usd {
+            *ROW_COST
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) += cost;
+        }
+        if estimated {
+            *ESTIMATED
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) += 1;
+        }
+        let failed = status == "failed";
+        if failed {
+            eprintln!("model call failed: {model}");
+        }
+        count(
+            &SPENT,
+            model.to_string(),
+            input_tokens,
+            output_tokens,
+            failed,
+        );
+        let step = STEP
+            .try_with(|step| step.clone())
+            .ok()
+            .or_else(|| super::current_ai_attribution().map(|attribution| attribution.operation))
+            .unwrap_or_else(|| "unlabeled".to_string());
+        count(&BY_STEP, step, input_tokens, output_tokens, failed);
+    }
+
+    /// Why a call to `model` failed, said and counted: a timeout, which
+    /// recall waiting on meaning meets now and then, or the status the
+    /// source answered with (402 is out of credit), or the error's start.
+    pub(crate) fn because(model: &str, error: &anyhow::Error) {
+        let why = reason(error);
+        if why == "HTTP 402" {
+            OUT_OF_CREDIT.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        eprintln!("model call failed because: {model}: {why}");
+        let _ = HERE.try_with(|here| {
+            here.lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(format!("{model}: {why}"));
+        });
+        *BECAUSE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .entry(format!("{model}: {why}"))
+            .or_default() += 1;
+    }
+
+    /// How long to wait before making a call again that failed on its
+    /// `attempt`th try (from 0), when the run asks for it
+    /// (`MEROPE_BENCH_RETRY_CALLS=<n>`, at most n more tries) and the
+    /// network failed it: a timeout, no connection or name lookup, or the
+    /// source busy (5xx, 429). What the account refuses (402 out of credit,
+    /// the rest of 4xx) and whatever came back are never asked again. A try
+    /// made again is counted as retried, not as a failure of the run: one
+    /// dropped call does not cost a whole question.
+    pub(crate) fn again_after(
+        model: &str,
+        status: Option<u16>,
+        error: &anyhow::Error,
+        attempt: usize,
+    ) -> Option<std::time::Duration> {
+        let most: usize = std::env::var("MEROPE_BENCH_RETRY_CALLS")
+            .ok()
+            .and_then(|most| most.parse().ok())
+            .unwrap_or(0);
+        if attempt >= most || OUT_OF_CREDIT.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
+        let why = reason(error);
+        let code = status.or_else(|| why.strip_prefix("HTTP ").and_then(|code| code.parse().ok()));
+        let network = match code {
+            Some(code) => code == 429 || (500..600).contains(&code),
+            None => {
+                let text = format!("{error:#}").to_lowercase();
+                why == "timeout"
+                    || [
+                        "send request",
+                        "send embeddings request",
+                        "dns",
+                        "lookup",
+                        "connect",
+                        "connection",
+                        "broken pipe",
+                        "decoding response body",
+                        "unexpected eof",
+                    ]
+                    .iter()
+                    .any(|word| text.contains(word))
+            }
+        };
+        if !network {
+            return None;
+        }
+        eprintln!("model call retried: {model}: {why}");
+        *BECAUSE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .entry(format!("retried: {model}: {why}"))
+            .or_default() += 1;
+        Some(std::time::Duration::from_secs([3, 10, 30][attempt.min(2)]))
+    }
+
+    pub(super) fn reason(error: &anyhow::Error) -> String {
+        let text = format!("{error:#}");
+        let timed_out = error.chain().any(|cause| {
+            cause
+                .downcast_ref::<reqwest::Error>()
+                .is_some_and(reqwest::Error::is_timeout)
+        });
+        if timed_out || text.contains("timed out") {
+            return "timeout".to_string();
+        }
+        // "OpenAI-compatible API error 402 Payment Required (endpoint: …"
+        let status = text
+            .split("API error ")
+            .nth(1)
+            .and_then(|rest| rest.get(..3))
+            .filter(|code| code.bytes().all(|byte| byte.is_ascii_digit()));
+        match status {
+            Some(code) => format!("HTTP {code}"),
+            None => text.chars().take(80).collect(),
+        }
+    }
+
+    /// What was spent since the last call, by model, by step, and in all.
+    pub(crate) fn take() -> serde_json::Value {
+        let taken = |from: &Mutex<Spent>| {
+            std::mem::take(&mut *from.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))
+        };
+        let (spent, by_step) = (taken(&SPENT), taken(&BY_STEP));
+        let because = std::mem::take(
+            &mut *BECAUSE
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        );
+        let charged = std::mem::take(
+            &mut *CHARGED
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        );
+        let total = spent.values().fold((0, 0, 0, 0), |sum, one| {
+            (sum.0 + one.0, sum.1 + one.1, sum.2 + one.2, sum.3 + one.3)
+        });
+        let line = |(calls, input, output, failed): (u64, u64, u64, u64)| {
+            serde_json::json!({"calls": calls, "input_tokens": input, "output_tokens": output,
+                "failed": failed})
+        };
+        let lines = |spent: Spent| {
+            spent
+                .into_iter()
+                .map(|(key, one)| (key, line(one)))
+                .collect::<serde_json::Map<_, _>>()
+        };
+        serde_json::json!({
+            "estimated": "tokens are what each answer reported; a call with no usage \
+                is counted at length/4 (estimatedCalls)",
+            "rowsCostMicroUsd": std::mem::take(
+                &mut *ROW_COST
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            ),
+            "estimatedCalls": std::mem::take(
+                &mut *ESTIMATED
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            ),
+            "by_model": lines(spent),
+            "by_step": lines(by_step),
+            "total": line(total),
+            "failedBecause": because,
+            "charged": {"usd": charged.0, "answersWithCost": charged.1,
+                "answersWithoutCost": charged.2},
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn a_call_keeps_what_its_answers_reported_and_so_does_the_call_around_it() {
+        use serde_json::json;
+        let (((), inner), outer) = super::reporting(async {
+            let inner = super::reporting(async {
+                super::note_answer(
+                    &json!({"model": "claude-haiku-5-5", "stop_reason": "refusal",
+                        "usage": {"input_tokens": 2000, "output_tokens": 100}}),
+                    None,
+                );
+            })
+            .await;
+            super::note_answer(&json!({"choices": []}), None);
+            inner
+        })
+        .await;
+        let inner = inner.unwrap();
+        assert_eq!(inner.tokens(), (2000, 100));
+        assert_eq!(inner.cost_micro_usd(), Some(250));
+        assert_eq!(outer.as_ref().unwrap().tokens(), (2000, 100));
+        // Why each answer stopped goes with it, to the call around it too.
+        assert_eq!(inner.stops, ["refusal"]);
+        assert_eq!(outer.as_ref().unwrap().stops, ["refusal"]);
+        // An answer of a model with no price: real tokens, no cost.
+        let ((), unpriced) = super::reporting(async {
+            super::note_answer(
+                &json!({"usage": {"prompt_tokens": 10, "completion_tokens": 2}}),
+                Some("someone/else"),
+            );
+        })
+        .await;
+        let unpriced = unpriced.unwrap();
+        assert_eq!(
+            (unpriced.tokens(), unpriced.cost_micro_usd()),
+            ((10, 2), None)
+        );
+        // Nothing reported: the ledger estimates.
+        assert_eq!(super::reporting(async {}).await.1, None);
+    }
+
     use super::{
         AiCostLedgerEntry, AiLedgerAttribution, AiUsageMeter, estimate_image_tokens,
         estimate_stt_tokens, estimate_text_tokens, estimate_tts_tokens, ledger_write_enabled,
@@ -352,6 +976,52 @@ mod tests {
         with_ai_usage_meter, with_site_ai_ledger,
     };
     use super::{record_ai_tokens_from_attribution, with_work_usage_meter};
+
+    #[tokio::test]
+    async fn a_run_knows_the_failures_said_while_it_ran_and_no_others() {
+        super::spent::because("outside", &anyhow::anyhow!("before"));
+        let ((), failed) = super::spent::failures_in(async {
+            super::spent::because("m", &anyhow::anyhow!("API error 503 Service Unavailable"));
+            tokio::task::yield_now().await;
+            super::spent::because("e", &anyhow::anyhow!("operation timed out"));
+        })
+        .await;
+        assert_eq!(failed, ["m: HTTP 503", "e: timeout"]);
+    }
+
+    #[tokio::test]
+    async fn a_failed_call_says_whether_it_timed_out_or_what_the_source_answered() {
+        let refused = anyhow::anyhow!(
+            "OpenAI-compatible API error 402 Payment Required (endpoint: https://x/v1, model: m)"
+        )
+        .context("embeddings");
+        assert_eq!(super::spent::reason(&refused), "HTTP 402");
+
+        // A source that takes the request and never answers.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let held = tokio::spawn(async move {
+            let (_socket, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        let sent = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(100))
+            .build()
+            .unwrap()
+            .get(format!("http://{address}/"))
+            .send()
+            .await
+            .unwrap_err();
+        let waited = anyhow::Error::new(sent).context("Failed to send embeddings request");
+        assert_eq!(super::spent::reason(&waited), "timeout");
+        held.abort();
+
+        let other = anyhow::anyhow!("embeddings response is missing an input");
+        assert_eq!(
+            super::spent::reason(&other),
+            "embeddings response is missing an input"
+        );
+    }
 
     #[tokio::test]
     async fn meter_accumulates_across_nested_calls() {
@@ -424,6 +1094,64 @@ mod tests {
         record_ai_call_from_attribution("openai", "m", 100, 100, "completed", None).await;
     }
 
+    #[tokio::test]
+    async fn a_row_keeps_real_tokens_and_cost_or_says_it_estimated() {
+        use sea_orm::{ConnectionTrait, Statement};
+        let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+            return;
+        };
+        // A row's subject must be a user (`guard_subject_user`).
+        fixture
+            .db
+            .execute_unprepared("INSERT INTO users (id, username) VALUES (1, 'alice')")
+            .await
+            .unwrap();
+        let entry = |task_id, estimated, cost| AiCostLedgerEntry {
+            subject_id: 1,
+            owner_id: 1,
+            tapp_id: None,
+            task_id,
+            source: "internal",
+            operation: "chat",
+            provider: "anthropic",
+            model: "claude-haiku-5-5",
+            input_tokens: 2000,
+            output_tokens: 100,
+            tokens_estimated: estimated,
+            cost_micro_usd: cost,
+            status: "completed",
+            error_code: None,
+        };
+        super::record_ai_cost(&fixture.db, entry("reported", false, Some(250))).await;
+        super::record_ai_cost(&fixture.db, entry("guessed", true, None)).await;
+        let rows = fixture
+            .db
+            .query_all_raw(Statement::from_string(
+                fixture.db.get_database_backend(),
+                "SELECT task_id, tokens_estimated, cost_micro_usd FROM ai_cost_ledger \
+                 ORDER BY task_id",
+            ))
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| {
+                (
+                    row.try_get::<String>("", "task_id").unwrap(),
+                    row.try_get::<bool>("", "tokens_estimated").unwrap(),
+                    row.try_get::<Option<i64>>("", "cost_micro_usd").unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        fixture.close().await;
+        assert_eq!(
+            rows,
+            vec![
+                ("guessed".to_string(), true, None),
+                ("reported".to_string(), false, Some(250)),
+            ]
+        );
+    }
+
     #[test]
     fn entry_fields_are_borrowed_for_zero_copy_call_sites() {
         let entry = AiCostLedgerEntry {
@@ -437,6 +1165,8 @@ mod tests {
             model: "gpt-test",
             input_tokens: 10,
             output_tokens: 20,
+            tokens_estimated: true,
+            cost_micro_usd: None,
             status: "completed",
             error_code: None,
         };
@@ -510,10 +1240,7 @@ mod tests {
             super::current_attribution().map(|a| (a.subject_id, a.source, a.tapp_id))
         })
         .await;
-        assert_eq!(
-            seen,
-            Some((3, "playground".into(), None))
-        );
+        assert_eq!(seen, Some((3, "playground".into(), None)));
     }
 
     #[test]
@@ -527,7 +1254,10 @@ mod tests {
                 .unwrap_err()
                 .contains("not configured")
         );
-        assert_ne!(super::site_owner_id_from_lookup(Err("db down".into())).ok(), Some(1));
+        assert_ne!(
+            super::site_owner_id_from_lookup(Err("db down".into())).ok(),
+            Some(1)
+        );
         assert_ne!(super::site_owner_id_from_lookup(Ok(None)).ok(), Some(1));
         assert_eq!(super::site_owner_id_from_lookup(Ok(Some(42))).unwrap(), 42);
     }

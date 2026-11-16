@@ -664,7 +664,12 @@
       "moving": "She is moving: no end has her until the move is done or cancelled.",
       "vacant": "She is not on this site now.",
       "movedOut": "She moved out of this site.",
-      "member": "She is not on this site now."
+      "member": "She is not on this site now.",
+      "mindElsewhere": "She is on “{name}” right now.",
+      "mindElsewhereUnknown": "She is on another of your devices right now.",
+      "mindElsewhereLeave": "She is on “{name}” right now; what you say here, she sees there.",
+      "mindElsewhereLeaveUnknown": "She is on another of your devices right now; what you say here, she sees there.",
+      "mindBack": "She has just come back here and is still taking in what she wrote on your other device; it won't be long."
     },
     "status": {
       "idle": "Idle",
@@ -706,10 +711,22 @@
     "residentPlaceholder": "Tell it how to change this note…",
     "chatPlaceholder": "Talk with it…",
     "mode": {
-      "label": "Mode",
-      "work": "Help",
-      "chat": "Chat",
-      "shortcut": "Tab"
+      "work": "Help"
+    },
+    "pieces": {
+      "title": "Handed off",
+      "label": "#{number}: {asked}",
+      "kicker": "Task",
+      "doing": "Doing",
+      "confirming": "Needs your OK",
+      "waiting": "Waiting for your answer",
+      "done": "Done",
+      "stopped": "Stopped",
+      "failed": "Didn't work out",
+      "stop": "Stop this one",
+      "answer": "Answer",
+      "answerPlaceholder": "Answer this one",
+      "backToHer": "Back to the conversation"
     },
     "intention": {
       "kicker": "I noticed something",
@@ -732,6 +749,12 @@
       "kicker": "Mood"
     },
     "send": "Send",
+    "search": {
+      "label": "Site search",
+      "placeholder": "Search this site…",
+      "posts": "Posts",
+      "library": "Library"
+    },
     "attach": {
       "kind": "File",
       "add": "Add attachment",
@@ -766,7 +789,6 @@
     "executionFailed": "Execution failed",
     "failReason": "Failure: {reason}",
     "interrupted": "Interrupted",
-    "loginRequiredHint": "Sign in to chat with Agent. Guest mode is view-only.",
     "requestTimeout": "Request timed out or interrupted",
     "streamError": "Unable to read response stream",
     "taskCompleted": "Task completed",
@@ -779,8 +801,34 @@
     "confirmRemoveSession": "Delete this conversation?",
     "copy": "Copy",
     "copied": "Copied",
+    "typing": "Typing…",
     "retry": "Try again",
     "zoomImage": "View larger",
+    "saidOn": "On “{name}”",
+    "saidOnUnknown": "On another of your devices",
+    "pictures": "(sent {count} pictures)",
+    "forgetLine": "Forget",
+    "confirmForgetLine": "She forgets this line and what she took from it; while syncing, it goes on every end.",
+    "card": {
+      "moved": "This card was updated — see further down",
+      "chose": "Chose “{label}”",
+      "answered": "Already answered",
+      "failed": "Couldn't send. Try again.",
+      "closed": "This card is closed",
+      "stale": "The card just changed; this is the latest",
+      "because": "Based on fact {n}",
+      "view": "View",
+      "states": {
+        "working": "Working",
+        "waiting_owner": "Waiting on you",
+        "finished": "Finished",
+        "stuck": "Stuck",
+        "waiting_checks": "Waiting on checks",
+        "waiting_program": "Waiting on another program",
+        "waiting_session": "Waiting to report back",
+        "quiet": "Quiet for a while"
+      }
+    },
     "closeImage": "Close",
     "newSession": "New topic",
     "stop": "Stop",

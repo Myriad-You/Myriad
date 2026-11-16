@@ -116,6 +116,7 @@ mod tests {
             addressee_name: None,
             minutes_since_you_spoke_unasked: None,
             said_unasked_lately: vec![],
+            speaking: vec![],
             inner: None,
             macs_for_work: vec![],
         }
@@ -130,6 +131,9 @@ mod tests {
             speech: None,
             question: None,
             work_proposal: None,
+            took_in: None,
+            mood: None,
+            note: None,
         }
     }
 

@@ -33,9 +33,7 @@ import { AgentPanelHerAway, useHerAway } from './AgentPanelHerAway'
 import { AgentPanelHerTime } from './AgentPanelHerTime'
 import { AgentPanelIntention } from './AgentPanelIntention'
 import {
-  cycleAgentPanelMode,
   setAgentPanelMode,
-  shouldCaptureModeTab,
   useAgentPanelMode,
 } from './agentPanelMode'
 import {
@@ -160,7 +158,10 @@ export const AgentPanel: React.FC<{ resident?: boolean }> = ({ resident = false 
   }, [showsFull])
 
   // She is not on this site (H3e-9): no chat with her here; Work stays.
-  const { away, device: awayOn } = useHerAway(open)
+  const { away, device: awayOn, owner: isOwner, leaves, catchingUp } = useHerAway(open)
+  // Her mind on another device of the owner's: what they say here reaches
+  // her there, so they keep the composer, told where she is (D6-b).
+  const leavesForHer = away === 'mind_elsewhere' && isOwner && leaves
   const awayFromChat = away !== null && mode === 'chat'
   const showsComposer = !(showsFull && fullView === 'manage')
 
@@ -277,18 +278,11 @@ export const AgentPanel: React.FC<{ resident?: boolean }> = ({ resident = false 
   useEffect(() => {
     if (!open) return
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        if (!resident || showsFull) collapse()
-        return
-      }
-      if (!showsComposer || resident) return
-      if (!shouldCaptureModeTab(event, overlayRef.current)) return
-      event.preventDefault()
-      cycleAgentPanelMode(event.shiftKey ? -1 : 1)
+      if (event.key === 'Escape' && (!resident || showsFull)) collapse()
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [collapse, open, resident, showsComposer, showsFull])
+  }, [collapse, open, resident, showsFull])
 
   useEffect(() => {
     if (!open) return
@@ -370,9 +364,16 @@ export const AgentPanel: React.FC<{ resident?: boolean }> = ({ resident = false 
             ) : null}
 
             {showsComposer && awayFromChat && away ? (
-              <AgentPanelHerAway away={away} device={awayOn} mode={mode} />
+              <AgentPanelHerAway
+                away={away}
+                device={awayOn}
+                owner={isOwner}
+                leaves={leaves}
+                catchingUp={catchingUp}
+                mode={mode}
+              />
             ) : null}
-            {showsComposer && !awayFromChat && (
+            {showsComposer && (!awayFromChat || leavesForHer) && (
               <AgentPanelComposer
                 resident={resident}
                 onSubmit={submit}

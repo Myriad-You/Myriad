@@ -332,11 +332,19 @@ pub(super) async fn preview_rig(
 ) -> ApiResult<Json<Value>> {
     require_merope_enabled().await?;
     let user_id = require_owner(claims, db).await?;
+    // Each step as it ends, so a preview that runs long shows where it waited.
+    let started = std::time::Instant::now();
+    let step = |step: &str| {
+        let elapsed_ms = started.elapsed().as_millis() as u64;
+        tracing::info!(step, elapsed_ms, "rig preview step");
+    };
+    step("started");
     let ParsedRigImport {
         mut source,
         analysis_reference_bytes,
         ..
     } = parse_rig_import(multipart, slot.profile()).await?;
+    step("upload read");
     let analysis_reference_bytes = analysis_reference_bytes
         .ok_or_else(|| bad_request("Rig preview is missing its analysis reference"))?;
     let master = require_master_match(
@@ -354,9 +362,11 @@ pub(super) async fn preview_rig(
         Some(&analysis_reference_bytes),
     )
     .await;
+    step("chest analysed");
     // The moving parts are looked for after the import, off its path (full_body).
     prepare_import_part_profile(&mut source);
     let (_, manifest) = compile_imported_rig(source, "preview://rig-atlas".to_owned()).await?;
+    step("compiled");
     Ok(Json(json!({ "manifest": manifest, "persisted": false })))
 }
 

@@ -125,11 +125,7 @@ test('a playable rig never uses the master portrait as a stand-in', () => {
     'utf8',
   )
   const character = readFileSync(
-    new URL('../anime25drig/Anime25DCharacter.tsx', import.meta.url),
-    'utf8',
-  )
-  const player = readFileSync(
-    new URL('../anime25drig/player.ts', import.meta.url),
+    new URL('../character/Anime25DCharacter.tsx', import.meta.url),
     'utf8',
   )
   for (const source of [widget, panel]) {
@@ -146,9 +142,4 @@ test('a playable rig never uses the master portrait as a stand-in', () => {
   assert.match(character, /presentLive\(true\)/)
   assert.match(character, /if \(!recoverGpu\(\)\) onPlaybackError/)
   assert.match(character, /key=\{gpuEpoch\}/)
-  assert.match(player, /loadImage\(atlasUrl, atlasAbort\.signal\)/)
-  assert.match(
-    player,
-    /if \(this\.disposed \|\| atlasAbort\.signal\.aborted\) return/,
-  )
 })

@@ -1,12 +1,11 @@
-import type { TappInstance, TappMessage } from '../../../types'
-import type { TappBridge } from '../../TappBridge'
+import type { TappBridge, TappInstance, TappMessage } from '@myriad/tapp-runtime'
+import { sanitizeStorageValue, validateStorageKey } from '@myriad/tapp-runtime'
 import {
   emitTappPrivateChange,
   emitTappSettingsChange,
   emitTappSharedChange,
   emitTappStorageChange,
 } from '../../WidgetRuntimeSignals'
-import { sanitizeStorageValue, validateStorageKey } from '../security'
 
 export type PreviewStore = Map<string, unknown>
 

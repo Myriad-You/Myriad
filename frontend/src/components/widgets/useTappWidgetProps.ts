@@ -1,4 +1,4 @@
-import type { RegisteredWidget } from '../../tapp/types'
+import type { RegisteredWidget } from '@myriad/tapp-runtime'
 import type { WidgetConfig } from '../widgetGridTypes'
 import { useCallback, useMemo } from 'react'
 import { acceptTappInstanceSettingsPatch } from './tappInstanceSettings'

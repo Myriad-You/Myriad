@@ -183,6 +183,8 @@ export interface PhantasiNoteDoc {
   image: string | null
   /** 公开地址 `/blog/posts/{slug}/` 的那一段。空则发布时由后端生成。 */
   slug?: string | null
+  /** 搬家来的文章原来的地址（规范化后的路径），访问会 301 到这篇。只有单篇读取的已发布笔记带。 */
+  old_paths?: string[]
   status: PhantasiNoteDocStatus
   scheduled_at: number | null
   published_at: number | null
@@ -198,6 +200,8 @@ export interface PhantasiNoteDocInput {
   topic?: string | null
   image?: string | null
   slug?: string | null
+  /** 整组替换；省略表示不改。只有已发布的笔记（或发布这一下）能带。 */
+  old_paths?: string[]
   published_at?: number | null
   scheduled_at?: number | null
   revision?: number

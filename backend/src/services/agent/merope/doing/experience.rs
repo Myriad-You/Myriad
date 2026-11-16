@@ -41,6 +41,21 @@ pub(in crate::services::agent::merope) fn thing_and_reaction(
     Experience::of(row).map(|experience| (experience.thing, experience.reaction))
 }
 
+/// A question she took up that finding it out left open (see
+/// `myriad_merope::explore::left_open`), as a line for thinking of someone
+/// who might know it or see it otherwise; none for anything else.
+pub(in crate::services::agent::merope) fn left_open(row: &unified_row::Model) -> Option<String> {
+    let experience = Experience::of(row)?;
+    let Thing::Inquiry { question, .. } = &experience.thing else {
+        return None;
+    };
+    let how = myriad_merope::explore::left_open(experience.kept.explored.as_ref()?)?;
+    Some(format!(
+        "a question of yours still open, 「{question}」: {how}; what you made of it: {}",
+        row.content
+    ))
+}
+
 /// A row of her own experience for looking back: the line with how it
 /// landed and what she wrote, and whether it did not go well (only fine,
 /// not for her, a guess that did not hold, a question left unanswered).

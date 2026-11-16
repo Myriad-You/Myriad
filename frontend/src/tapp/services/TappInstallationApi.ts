@@ -1,8 +1,8 @@
-import type { TappManifest } from '../types'
+import type { TappManifest } from '@myriad/tapp-runtime'
 import type { TappListItem } from './TappLifecycleApi'
 import type { TappPlaygroundCode } from './TappPlaygroundService'
+import { generateOnDemandTailwindCSS } from '@myriad/tapp-runtime'
 import { currentCopy, formatCurrent } from '../../i18n/localeCopy'
-import { generateOnDemandTailwindCSS } from '../runtime/sandbox/styles'
 import { tappLayerEntries } from '../utils/manifestLayers'
 
 import {

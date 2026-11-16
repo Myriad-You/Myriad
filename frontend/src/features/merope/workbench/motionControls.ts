@@ -1,24 +1,9 @@
+import type { ResolvedScore } from '@myriad/figure/motion'
+import type { Anime25DDebugSnapshot, Anime25DDriver, Anime25DMotionEnvelopeProbeId } from '@myriad/figure/workbench'
 import type { TranslationKeys } from '../../../i18n'
 import type { BodyControl, ScoreMoveKind } from '../../../services/agent/types'
-import type { Anime25DDriver } from '../anime25drig/driver'
-import type { Anime25DMotionEnvelopeProbeId } from '../anime25drig/motionEnvelope'
-import type { Anime25DDebugSnapshot } from '../anime25drig/player'
-import type { ResolvedScore } from '../motion/scoreTimeline'
+import { ANGRY_EXPRESSION_PRESET, BODY_CONTROL_DRIVERS, CRY_EXPRESSION_PRESET, DIZZY_EXPRESSION_PRESET, FACE_PRESETS, LOVESTRUCK_EXPRESSION_PRESET, MANIAC_EXPRESSION_PRESET, mappedControlValue, SILLY_EXPRESSION_PRESET, SPEECHLESS_EXPRESSION_PRESET, SQUEEZE_EXPRESSION_PRESET, THINKING_EXPRESSION_PRESET, tierExtent } from '@myriad/figure/workbench'
 import { formatMessage, getDefaultLocale } from '../../../i18n'
-import { mappedControlValue } from '../anime25drig/actingField'
-import { BODY_CONTROL_DRIVERS } from '../anime25drig/directedPose'
-import {
-  ANGRY_EXPRESSION_PRESET,
-  CRY_EXPRESSION_PRESET,
-  DIZZY_EXPRESSION_PRESET,
-  LOVESTRUCK_EXPRESSION_PRESET,
-  MANIAC_EXPRESSION_PRESET,
-  SILLY_EXPRESSION_PRESET,
-  SPEECHLESS_EXPRESSION_PRESET,
-  SQUEEZE_EXPRESSION_PRESET,
-  THINKING_EXPRESSION_PRESET,
-} from '../anime25drig/expressionPresets'
-import { FACE_PRESETS, tierExtent } from '../events/performanceContract'
 
 type Labels = TranslationKeys['merope']
 type StringLabel = {
@@ -291,6 +276,14 @@ export const DRIVER_SLIDERS: readonly DriverSlider[] = [
   { key: 'accentSleep', label: 'anime25dAccentSleep', min: 0, max: 1 },
   { key: 'accentSparkle', label: 'anime25dAccentSparkle', min: 0, max: 1 },
   { key: 'accentBlush', label: 'anime25dAccentBlush', min: 0, max: 1 },
+  { key: 'handWaveL', label: 'anime25dHandWaveL', min: 0, max: 1 },
+  { key: 'handPointL', label: 'anime25dHandPointL', min: 0, max: 1 },
+  { key: 'handChestL', label: 'anime25dHandChestL', min: 0, max: 1 },
+  { key: 'handChinL', label: 'anime25dHandChinL', min: 0, max: 1 },
+  { key: 'handWaveR', label: 'anime25dHandWaveR', min: 0, max: 1 },
+  { key: 'handPointR', label: 'anime25dHandPointR', min: 0, max: 1 },
+  { key: 'handChestR', label: 'anime25dHandChestR', min: 0, max: 1 },
+  { key: 'handChinR', label: 'anime25dHandChinR', min: 0, max: 1 },
   { key: 'fhAmp', label: 'anime25dFhAmp', min: 0, max: 3 },
   { key: 'fhSoft', label: 'anime25dFhSoft', min: 0, max: 2 },
   { key: 'bangL', label: 'anime25dBangL', min: -1, max: 1 },

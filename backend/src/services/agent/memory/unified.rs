@@ -180,17 +180,21 @@ impl Audience {
 }
 
 /// Whether a stored memory may be said in front of `present`, by
-/// `myriad_agent_rules::memory::audience`. A stored venue other than
-/// `group:<id>` (`private`, and her own `own`) is read as private with the
-/// row's [`audience_of`], as it always was here: the shared rule has no
-/// venue of her own.
+/// `myriad_agent_rules::memory::audience`. Her own (`own`) may be said
+/// anywhere, as on every other side; any other venue but `group:<id>` is read
+/// as private with the row's [`audience_of`].
 fn admits(row: &agent_memories::Model, present: &Audience) -> bool {
-    let learned = rules::Audience {
-        members: audience_of(row),
-        venue: match row.venue.strip_prefix("group:") {
+    let venue = if row.venue == OWN_VENUE {
+        rules::Venue::Own
+    } else {
+        match row.venue.strip_prefix("group:") {
             Some(id) => rules::Venue::Group(id.into()),
             None => rules::Venue::Private,
-        },
+        }
+    };
+    let learned = rules::Audience {
+        members: audience_of(row),
+        venue,
     };
     rules::admits(&learned, &present.rules())
 }
@@ -285,6 +289,9 @@ pub struct MemoryRecord {
     /// Recalled because what they said brought it to mind by association,
     /// not because they named it.
     pub brought_to_mind: bool,
+    /// Shown only to fill the budget as recent context: nothing asked
+    /// named it.
+    pub recent: bool,
     /// What it is about, as written with it.
     pub concepts: Vec<Concept>,
 }
@@ -305,6 +312,7 @@ impl From<agent_memories::Model> for MemoryRecord {
             access_count: model.access_count,
             created_at: model.created_at,
             brought_to_mind: false,
+            recent: false,
         }
     }
 }
@@ -345,6 +353,15 @@ fn audience_of(model: &agent_memories::Model) -> Vec<i32> {
 /// once the stretch of talk is over, what lasts of it is kept for good under
 /// `chat` (see `merope::chat_remember`).
 pub const SHORT_NOTE_SOURCE: &str = "chat_note";
+
+/// Where a memory another end of hers kept for good is kept, when the site
+/// has no source of its own by the name that end gave it (see
+/// `her_log::memories`). An ordinary memory: not a short note, not kept
+/// apart ([`KEPT_APART`]), not a bit; in a private talk it is sorted onto
+/// her nodes and given when it would come to mind, as what she kept from a
+/// talk here is. Going over a stretch of talk leaves it be, and the site
+/// never fades it: that end decides, as it wrote it.
+pub const SYNC_SOURCE: &str = "sync";
 
 /// Where a Work lesson or pattern the extraction drew from one run is kept
 /// until it holds: recalled by Work alone, until a run it was shown in is
@@ -686,9 +703,13 @@ pub async fn retire_in_favor_of<C: ConnectionTrait>(
     Ok(result.rows_affected)
 }
 
+/// Fades the least of what the site kept of `user_id` beyond
+/// [`MAX_ACTIVE_PER_USER`]. Only what the site wrote counts and fades: a
+/// memory another end wrote is that end's to let go.
 async fn fade_excess<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<(), DbErr> {
     let mut rows = agent_memories::Entity::find()
         .filter(agent_memories::Column::UserId.eq(user_id))
+        .filter(agent_memories::Column::Origin.eq(ORIGIN_SITE))
         .filter(agent_memories::Column::InvalidAt.is_null())
         .all(db)
         .await?;

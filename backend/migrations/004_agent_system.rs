@@ -610,14 +610,14 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .execute_unprepared(include_str!("conversation_changes.sql"))
             .await?;
 
-        // 同步她：设备凭据、主机租约、她不在时存着的聊天应用来信、把她搬进空站点的导入会话、心情变化与锚点、人设字段历史。schema_check::ensure_persona_sync_tables 跑同一份文件。
+        // 同步她：设备凭据、她在站点上的那一份和搬家、她不在时存着的聊天应用来信、把她搬进空站点的导入会话、心情变化与锚点、人设字段历史。schema_check::ensure_persona_sync_tables 跑同一份文件。
         manager
             .get_connection()
             .execute_unprepared(include_str!("persona_sync.sql"))
             .await?;
 
-        // 服务端上她的日志（多端同步 S6）：按受众的日志行、封好的载荷、钥匙环、忘掉的账、
-        // 执笔权的签发历史、账号的地区。默认不用（HER_LOG_ENABLED）。
+        // 服务端上她的日志（多端同步 S6）：每个账号按受众的日志行、封好的载荷、钥匙环、账、
+        // 伙伴 id、执笔权的签发历史、账号的地区。默认不用（HER_LOG_ENABLED）。
         // schema_check::ensure_persona_log_tables 跑同一份文件。
         manager
             .get_connection()
@@ -637,6 +637,27 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .execute_unprepared(include_str!("agent_nodes.sql"))
             .await?;
 
+        // 她说过的话（`speech.said`），她的日志没开时记在站点上。
+        // schema_check::ensure_speech_said_table 跑同一份文件。
+        manager
+            .get_connection()
+            .execute_unprepared(include_str!("speech_said.sql"))
+            .await?;
+
+        // 她把记下的事挂在哪个话题下：话题节点和记忆的指向。
+        // schema_check::ensure_topic_nodes_tables 跑同一份文件。
+        manager
+            .get_connection()
+            .execute_unprepared(include_str!("topic_nodes.sql"))
+            .await?;
+
+        // 她的节点照共享核心存：只追加的节点行、折叠出的头、记忆放在哪、拿不准的收件箱。
+        // schema_check::ensure_memory_nodes_tables 跑同一份文件。
+        manager
+            .get_connection()
+            .execute_unprepared(include_str!("memory_nodes.sql"))
+            .await?;
+
         Ok(())
     }
 
@@ -650,23 +671,35 @@ DROP TABLE IF EXISTS agent_log_payloads;
 DROP TABLE IF EXISTS agent_log_rows;
 DROP TABLE IF EXISTS agent_log_object_keys;
 DROP TABLE IF EXISTS agent_log_audience_keys;
-DROP TABLE IF EXISTS agent_log_ledger;
+DROP TABLE IF EXISTS agent_log_ledgers;
+DROP TABLE IF EXISTS agent_log_elsewhere;
 DROP TABLE IF EXISTS agent_log_counters;
 DROP TABLE IF EXISTS agent_log_clock;
 DROP TABLE IF EXISTS agent_log_full_links;
 DROP TABLE IF EXISTS agent_log_accounts;
+DROP TABLE IF EXISTS agent_log_partners;
 DROP TABLE IF EXISTS agent_lease_grants;
 DROP FUNCTION IF EXISTS agent_lease_grants_guard();
 DROP TABLE IF EXISTS agent_lease_ends;
 DROP TABLE IF EXISTS agent_host_import_staging;
 DROP TABLE IF EXISTS agent_host_import;
 DROP TABLE IF EXISTS agent_channel_held;
-DROP TABLE IF EXISTS agent_host_lease;
-DROP FUNCTION IF EXISTS agent_host_lease_guard(), agent_host_lease_changed();
+DROP TABLE IF EXISTS agent_her_moves;
+DROP TABLE IF EXISTS agent_her_copy;
+DROP FUNCTION IF EXISTS agent_her_copy_guard(), agent_her_place_changed();
 DROP TABLE IF EXISTS agent_affect_anchor;
 DROP TABLE IF EXISTS agent_affect_events;
 DROP TABLE IF EXISTS agent_sync_devices;
 DROP TABLE IF EXISTS merope_stickers;
+DROP TABLE IF EXISTS agent_node_migrations;
+DROP TABLE IF EXISTS agent_node_instructions;
+DROP TABLE IF EXISTS agent_node_inbox;
+DROP TABLE IF EXISTS agent_node_placements;
+DROP TABLE IF EXISTS agent_node_heads;
+DROP TABLE IF EXISTS agent_node_rows;
+DROP TABLE IF EXISTS agent_memory_topics;
+DROP TABLE IF EXISTS agent_topic_nodes;
+DROP FUNCTION IF EXISTS agent_memory_topics_forget();
 DROP TABLE IF EXISTS agent_node_events;
 DROP TABLE IF EXISTS agent_nodes;
 DROP TABLE IF EXISTS agent_memory_cues;

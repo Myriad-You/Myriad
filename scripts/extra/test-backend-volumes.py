@@ -6,6 +6,7 @@ Missing images are pulled.
 Uses production mount declarations and real backup/restore scripts, with small
 shell services replacing business processes. This is NOT a full updater rollout.
 """
+import base64
 import copy
 import json
 import os
@@ -13,6 +14,7 @@ from pathlib import Path
 import secrets
 import shutil
 import subprocess
+import tarfile
 import tempfile
 
 REPO = Path(__file__).resolve().parents[2]
@@ -22,10 +24,29 @@ ROOT = Path(TEMP.name).resolve()
 ENV = {k: v for k, v in os.environ.items() if k not in ("COMPOSE_FILE", "COMPOSE_PROJECT_NAME")}
 ENV["COMPOSE_PROJECT_NAME"] = PROJECT
 VOLUMES = [f"{PROJECT}_backend_{kind}" for kind in ("data", "cache")]
+# Her log's key tables as backend/migrations/persona_log.sql makes them.
+KEY_TABLES = """
+CREATE TABLE users (id INTEGER PRIMARY KEY);
+CREATE TABLE agent_log_audience_keys (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    audience VARCHAR(512) NOT NULL,
+    sealed TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (user_id, audience));
+CREATE TABLE agent_log_object_keys (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    audience VARCHAR(512) NOT NULL,
+    object VARCHAR(512) NOT NULL,
+    subject VARCHAR(512),
+    sealed BYTEA NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (user_id, audience, object));
+"""
 
 
-def run(args, check=True, data=None):
-    result = subprocess.run(args, cwd=ROOT, env=ENV, input=data, capture_output=True, text=True)
+def run(args, check=True, data=None, env=None):
+    result = subprocess.run(args, cwd=ROOT, env={**ENV, **(env or {})}, input=data,
+                            capture_output=True, text=True)
     if check and result.returncode:
         raise RuntimeError(f"{args[:3]} failed:\n{result.stderr}")
     return result
@@ -60,6 +81,11 @@ def start():
     assert run(["docker", "wait", initializer]).stdout.strip() == "0"
     compose("up", "-d", "--wait", "--wait-timeout", "60", "postgres", "backend",
             "persona-worker", "federation-worker")
+
+
+def hexed(text):
+    """How COPY writes a bytea column."""
+    return text.encode().hex()
 
 
 def save(model):
@@ -216,13 +242,61 @@ test "$(stat -c %a /restored)" = 700
 
     print("Running real PostgreSQL + media backup and restore", flush=True)
     backup = ROOT / "backup"
+    keys = ROOT / "backup-keys"
+    # Her log's keys and the data key go to the keys part, never the data part.
+    data_key = base64.b64encode(secrets.token_bytes(32)).decode()
+    compose("exec", "-T", "backend", "sh", "-c", f"umask 077; echo {data_key} >/app/data/.secret-key")
+    sql(KEY_TABLES + """
+        INSERT INTO users VALUES (1), (2);
+        INSERT INTO agent_log_audience_keys VALUES
+            (1, 'partner', 'sealed-audience-one', now()), (2, 'partner', 'sealed-audience-two', now());
+        INSERT INTO agent_log_object_keys VALUES
+            (1, 'partner', 'kept', NULL, 'sealed-object-kept'::bytea, now()),
+            (1, 'partner', 'forgotten', 'subject-a', 'sealed-object-forgotten'::bytea, now());""")
     # Old volume archives can carry a 0755 root; restoring one must not expose
     # the new host data directory with those historical permissions.
     container("chmod 755 /data; chown 0:0 /data", [f"type=bind,src={ROOT / 'data'},dst=/data"])
-    run(["bash", str(scripts / "backup.sh"), "backup", "--out", str(backup)])
+    said = run(["bash", str(scripts / "backup.sh"), "backup", "--out", str(backup)])
     archive_stat = (backup / "backend_data.tar.gz").stat()
     assert archive_stat.st_uid == os.getuid(), "backup archive must belong to the host operator"
     assert archive_stat.st_mode & 0o777 == 0o600
+    assert sorted(p.name for p in backup.iterdir()) == ["MANIFEST.txt", "backend_data.tar.gz", "postgres.dump"]
+    with tarfile.open(backup / "backend_data.tar.gz") as data_tar:
+        names = data_tar.getnames()
+        assert "./media/sentinel" in names
+        assert not any(name.endswith("secret-key") for name in names), names
+        packed = b"".join(data_tar.extractfile(m).read() for m in data_tar.getmembers() if m.isfile())
+    dumped = run(["docker", "run", "--rm", "--network", "none", "--mount",
+                  f"type=bind,src={backup},dst=/in,readonly", "postgres:18-alpine",
+                  "pg_restore", "--data-only", "-f", "-", "/in/postgres.dump"]).stdout
+    assert "original" in dumped and "sealed-" not in dumped and hexed("sealed-") not in dumped, \
+        "key rows must not be in the data part"
+    secret_values = [data_key, *(values[k] for k in values if k.endswith(("PASSWORD", "SECRET", "TOKEN")))]
+    for value in secret_values:
+        assert value.encode() not in packed and value not in dumped
+        assert value not in (backup / "MANIFEST.txt").read_text()
+        assert value not in said.stdout + said.stderr, "backup must not print a secret"
+    assert keys.stat().st_mode & 0o777 == 0o700
+    assert sorted(p.name for p in keys.iterdir()) == [
+        "MANIFEST.txt", "agent_log_audience_keys.copy", "agent_log_object_keys.copy", "data-key", "env"]
+    assert all(p.stat().st_mode & 0o777 == 0o600 for p in keys.iterdir())
+    assert (keys / "data-key").read_text().strip() == data_key
+    assert (keys / "env").read_bytes() == (ROOT / ".env").read_bytes()
+    assert hexed("sealed-object-forgotten") in (keys / "agent_log_object_keys.copy").read_text()
+
+    print("Forgetting a key and rewriting only the keys part", flush=True)
+    sql("""DELETE FROM agent_log_object_keys WHERE object = 'forgotten';
+        INSERT INTO users VALUES (3);
+        INSERT INTO agent_log_audience_keys VALUES (3, 'partner', 'sealed-audience-three', now());""")
+    stale = ROOT / "backup-keys.old.1"
+    stale.mkdir(mode=0o700)
+    (stale / "agent_log_object_keys.copy").write_text("sealed-object-forgotten")
+    said = run(["bash", str(scripts / "backup.sh"), "keys"])
+    for value in secret_values:
+        assert value not in said.stdout + said.stderr, "keys must not print a secret"
+    assert sorted(p.name for p in ROOT.iterdir() if p.name.startswith("backup-keys")) == ["backup-keys"]
+    assert hexed("sealed-object-forgotten") not in (keys / "agent_log_object_keys.copy").read_text()
+    assert hexed("sealed-object-kept") in (keys / "agent_log_object_keys.copy").read_text()
     sql("UPDATE volume_test SET value='changed';")
     compose("exec", "-T", "backend", "sh", "-c", "echo changed >/app/data/media/sentinel")
     with (ROOT / ".env").open("a") as env_file:
@@ -233,7 +307,8 @@ test "$(stat -c %a /restored)" = 700
     (ROOT / "data").rename(parked)
     (ROOT / "data").symlink_to(parked, target_is_directory=True)
     try:
-        rejected = run(["bash", str(scripts / "backup.sh"), "restore", "--from", str(backup)], check=False)
+        rejected = run(["bash", str(scripts / "backup.sh"), "restore", "--from", str(backup),
+                        "--keys", str(keys)], check=False)
         assert rejected.returncode != 0
         assert (ROOT / ".env").read_bytes() == live_env
         assert sql("SELECT value FROM volume_test;") == "changed"
@@ -246,8 +321,23 @@ test "$(stat -c %a /restored)" = 700
     # even after the pathname is restored. Release it before the valid restore.
     compose("down")
     start()
-    run(["bash", str(scripts / "backup.sh"), "restore", "--from", str(backup)])
+    # No keys part where backup puts it, none given: refused before anything.
+    keyless = run(["bash", str(scripts / "backup.sh"), "restore", "--from", str(backup)], check=False,
+                  env={"BACKUP_KEYS_DIR": str(ROOT / "no-keys-here")})
+    assert keyless.returncode != 0 and "no keys part" in keyless.stdout + keyless.stderr
+    assert (ROOT / ".env").read_bytes() == live_env
+    assert sql("SELECT value FROM volume_test;") == "changed"
+    # The keys part is found where backup put it: one command, as before the split.
+    said = run(["bash", str(scripts / "backup.sh"), "restore", "--from", str(backup)])
+    for value in secret_values:
+        assert value not in said.stdout + said.stderr, "restore must not print a secret"
     assert sql("SELECT value FROM volume_test;") == "original"
+    # The object forgotten after the data part was made stays forgotten; the
+    # account the data part does not have takes no key rows.
+    assert sql("SELECT object FROM agent_log_object_keys ORDER BY object;") == "kept"
+    assert sql("SELECT user_id FROM agent_log_audience_keys ORDER BY user_id;") == "1\n2"
+    assert compose("exec", "-T", "backend", "cat", "/app/data/.secret-key").stdout.strip() == data_key
+    assert (ROOT / ".env").read_bytes() == (keys / "env").read_bytes()
     assert compose("exec", "-T", "backend", "cat", "/app/data/media/sentinel").stdout.strip() == "original"
     assert container("stat -c %a /data", [f"type=bind,src={ROOT / 'data'},dst=/data,readonly"]).stdout.strip() == "700"
     # Docker Desktop remaps bind ownership; actual uid-1000 access is the
@@ -268,7 +358,7 @@ test "$(stat -c %a /restored)" = 700
     provision()  # Existing legacy volumes must be preserved.
     start()
     assert compose("exec", "-T", "backend", "cat", "/app/data/media/sentinel").stdout.strip() == "newest"
-    print("PASS: fresh direct binds, migration, uid 1000 writes, read-only root, worker subpaths, recreation, rejected restore, database/media restore, rollback", flush=True)
+    print("PASS: fresh direct binds, migration, uid 1000 writes, read-only root, worker subpaths, recreation, rejected restore, keys part apart from data part, forgetting reaches the backup, database/media restore, rollback", flush=True)
 finally:
     if (ROOT / "docker-compose.yml").exists():
         compose("down", "--volumes", "--remove-orphans", check=False)
