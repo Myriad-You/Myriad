@@ -1,4 +1,6 @@
 //! Opt-in integration fixtures, one PostgreSQL schema and media root per test.
+//! Making and dropping the schema waits its turn (`db::SCHEMA_WORK`): a whole
+//! suite doing it at once fills PostgreSQL's shared lock table.
 use super::*;
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 
@@ -13,6 +15,10 @@ impl Fixture {
             eprintln!("skipping media integration test: MYRIAD_MEDIA_TEST_DATABASE_URL is unset");
             return None;
         };
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         let admin = sea_orm::Database::connect(&url).await.unwrap();
         let schema = format!("media_test_{}", Uuid::new_v4().simple());
         admin
@@ -27,6 +33,7 @@ impl Fixture {
             .sqlx_logging(false);
         let db = sea_orm::Database::connect(options).await.unwrap();
         ::migration::Migrator::up(&db, None).await.unwrap();
+        drop(turn);
         db.execute_unprepared("INSERT INTO users (id, username) VALUES (1, 'media-test')")
             .await
             .unwrap();
@@ -55,6 +62,10 @@ impl Fixture {
             .unwrap()
     }
     pub async fn close(self) {
+        let _turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         self.db
             .execute_unprepared(&format!("DROP SCHEMA {} CASCADE", self.schema))
             .await

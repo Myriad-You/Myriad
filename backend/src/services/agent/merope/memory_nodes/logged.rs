@@ -279,6 +279,7 @@ pub(crate) async fn take_in(
             let author = match row.author {
                 myriad_persona_log::row::Author::Her => "her",
                 myriad_persona_log::row::Author::Owner => "owner",
+                myriad_persona_log::row::Author::Rule => "rule",
             };
             txn.execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,

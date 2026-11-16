@@ -141,7 +141,7 @@ import { retainHotMessages } from './messageBudget'
 import { prepareChatBody } from './prepareChatBody'
 import { syncProjectedMessages } from './projectAgentMessage'
 import { restoreHistoryAnswer } from './restoreHistoryAnswer'
-import { restoreSessionMessage } from './sessionHistoryMessage'
+import { restoreCardLine, restoreSessionMessage } from './sessionHistoryMessage'
 
 import { SessionLoadScope } from './sessionLoadScope'
 import { restoreFollowUpQuestion } from './sessionPendingRestore'
@@ -501,16 +501,21 @@ export const AgentEngine: React.FC = () => {
       const preparedBodies: import('./messageBody').MessageBodyRef[] = []
       let installed = false
       try {
-        const sessionMessages = await agentService.getSessionMessages(
+        const sessionPage = await agentService.getSessionPage(
           session.id,
           Math.max(1, Math.ceil((session.messageCount || 0) / 50)),
           50,
           subject,
         )
         if (subject.aborted) return
+        // The owner's card lines go among the page's messages by time; those
+        // from before its first message belong to an earlier page.
+        const rows = withToldLines(
+          sessionPage.messages.map((row) => restoreSessionMessage(row, session.id)),
+          sessionPage.cards.map((line) => restoreCardLine(line, session.id)),
+        )
         const loaded: ChatMessage[] = []
-        for (const row of sessionMessages) {
-          const restored = restoreSessionMessage(row, session.id)
+        for (const restored of rows) {
           const message = await prepareChatBody(restored, subject)
           for (const body of [message.body, message.taskExecution?.reasoningBody]) { if (body) preparedBodies.push(body)
 }
@@ -1405,27 +1410,9 @@ export const AgentEngine: React.FC = () => {
         },
       )
 
-      // guest can open the panel; Agent still requires JWT
-      if (!isAuthenticated) {
-        const loginHint = t.agentPanel.loginRequiredHint
-        setMessages(
-          (prev) => [
-            ...prev,
-            {
-              id: `msg_guest_hint_${Date.now()}`,
-              sessionId: modeSessionId || '',
-              role: 'assistant',
-              content: loginHint,
-              createdAt: new Date(),
-            },
-          ],
-          mode,
-        )
-        window.setTimeout(() => {
-          navigate(`/login?redirect=${encodeURIComponent(location.pathname)}`)
-        }, 600)
-        return
-      }
+      // Visitors open the panel to search the site; only signed-in people ask
+      // her. The composer sends nothing for them, and nothing goes out here either.
+      if (!isAuthenticated) return
 
       if (mode === 'work' && pendingAnswerMsg && answerQuestionRef.current) {
         answerQuestionRef.current(pendingAnswerMsg.id, requestText)

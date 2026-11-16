@@ -384,6 +384,8 @@
   "fileTooLarge": "That file is too large.",
   "payloadTooLarge": "That message is too large.",
   "byCode": {
+    "her_log_off": "Sync with Computer is not open on this site.",
+    "her_sync_change_failed": "Couldn't change syncing. Please try again later.",
     "agent_work_budget": "This task used up its budget before it could wrap up. Anything already saved stays saved; tell it what to do next.",
     "agent_work_context": "This task's context grew too long to continue. Anything already saved stays saved; start a new conversation to carry on.",
     "agent_work_turns": "This task hit its limit on back-and-forth turns. Anything already saved stays saved; tell it what to do next.",
@@ -659,7 +661,7 @@
     "agent_access_denied": "You do not have permission to do that.",
     "host_frozen": "She is moving and is on no end right now. Try again once the move is done or cancelled.",
     "host_moved": "She does not live on this site now.",
-    "mind_elsewhere": "She is on another of your devices now, so nothing here answers for the moment.",
+    "mind_elsewhere": "She can't answer here right now: she is on another of your devices, or has just come back and is still taking in what she wrote there.",
     "left_for_her": "Your message is kept; she sees it on that device.",
     "device_host_later": "Letting her live on a device comes in a later version.",
     "move_not_agreed": "That device has not agreed to her living on it yet.",

@@ -1114,10 +1114,15 @@ mod tests {
         };
         let admin = Database::connect(&url).await.unwrap();
         let scope = format!("note_count_{}", uuid::Uuid::new_v4().simple());
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("CREATE SCHEMA {scope}"))
             .await
             .unwrap();
+        drop(turn);
         let connect = || {
             let mut options = ConnectOptions::new(url.clone());
             options
@@ -1243,10 +1248,15 @@ mod tests {
         a.close().await.unwrap();
         b.close().await.unwrap();
         blocker.close().await.unwrap();
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("DROP SCHEMA {scope} CASCADE"))
             .await
             .unwrap();
+        drop(turn);
         assert!(
             deletion_results.0.is_ok() && deletion_results.1.is_ok(),
             "concurrent deletes must succeed: {deletion_results:?}"

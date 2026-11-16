@@ -537,6 +537,24 @@ pub async fn with_said_unprompted(
             })
             .map(|(at, line, metadata)| (at, said_as_heard(line, metadata.as_ref())))
             .collect();
+    // The cards she put before them (that still wait, or lately) and what
+    // they answered, as facts in their place in time.
+    let mut said = said;
+    let owner = crate::services::site_owner::site_owner_user_id(db).await;
+    if owner == Ok(user_id) {
+        for card in super::cards::lately(db, user_id, super::cards::LATELY)
+            .await
+            .unwrap_or_default()
+        {
+            let Some(at) = chrono::DateTime::from_timestamp_millis(card.at) else {
+                continue;
+            };
+            if card.kind == "status" || (at < since && !card.waiting) {
+                continue;
+            }
+            said.push((at, format!("（{}）", card.told())));
+        }
+    }
     merge_said_unprompted(history, &said)
 }
 

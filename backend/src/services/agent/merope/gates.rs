@@ -48,13 +48,14 @@ pub fn is_valuable_event(event_key: &str) -> bool {
         .is_some_and(NotificationEventKey::interrupts_when_away)
 }
 
-/// What a child end saw that she keeps on a node (`merope::nodes`): another
-/// agent's session on its repository's, a talk with another AI on those
-/// talks'. She decides about these as about anything (what she would note
-/// goes to the node, and Work may come of it); a child's reading of their
-/// situation has no node and is only said or let go.
+/// What a child end saw that she decides about as about anything: a talk
+/// with another AI (what she would remember becomes a memory when the
+/// child says it may, and Work may come of it); her notes kept from before
+/// on its node (`merope::nodes`) come with it, and nothing more is written
+/// there. A child's reading of their situation is only said or let go. Another agent's session is not judged one by one: her link's `now`
+/// family puts it on her nodes by rules (`merope::sessions`).
 pub fn files_on_node(event_key: &str) -> bool {
-    event_key == PEER_AGENT_EVENT || event_key == AI_CHAT_EVENT
+    event_key == AI_CHAT_EVENT
 }
 
 /// Of what is said only in person, what she decides to remember may still

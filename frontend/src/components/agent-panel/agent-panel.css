@@ -1075,6 +1075,177 @@ button.agent-panel-tag:disabled {
   }
 }
 
+/* 她摆到站长面前的卡：所有 kind 同一个样子。表面、边框、阴影跟聊天里
+   一行一个的气泡同一套，亮暗跟着表面变量走。 */
+.agent-panel-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-self: flex-start;
+  box-sizing: border-box;
+  max-width: 86%;
+  min-width: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--surface-border, rgb(0 0 0 / 8%));
+  border-radius: 18px;
+  background: var(
+    --surface-bg,
+    rgb(var(--surface-rgb) / var(--surface-alpha))
+  );
+  box-shadow: var(--surface-shadow);
+  color: var(--text-primary, #111827);
+  font-size: 14px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.agent-panel-card:focus {
+  outline: none;
+}
+
+.agent-panel-card:focus-visible {
+  outline: 2px solid var(--cfg-accent, #10b981);
+  outline-offset: 2px;
+}
+
+.agent-panel-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 10px;
+}
+
+.agent-panel-card-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.agent-panel-card-state {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in oklab, currentcolor 7%, transparent);
+  color: var(--text-secondary, #6b7280);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.agent-panel-card-state[data-state='waiting_owner'] {
+  color: var(--cfg-accent, #10b981);
+}
+
+.agent-panel-card-state[data-state='stuck'] {
+  color: var(--color-error, #ef4444);
+}
+
+.agent-panel-card-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-panel-card-fact {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 8px;
+  padding: 2px 6px;
+  margin: 0 -6px;
+  border-radius: 8px;
+  transition: background-color 0.15s ease;
+}
+
+.agent-panel-card-fact[data-lit='true'] {
+  background: color-mix(in oklab, var(--cfg-accent, #10b981) 14%, transparent);
+}
+
+.agent-panel-card-fact-n,
+.agent-panel-card-cite {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.35em;
+  height: 1.35em;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: color-mix(in oklab, currentcolor 8%, transparent);
+  color: var(--text-secondary, #6b7280);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.agent-panel-card-fact[data-cited='true'] .agent-panel-card-fact-n {
+  background: color-mix(in oklab, var(--cfg-accent, #10b981) 18%, transparent);
+  color: var(--cfg-accent, #10b981);
+}
+
+.agent-panel-card-view {
+  display: grid;
+  gap: 2px;
+  padding-left: 10px;
+  border-left: 2px solid
+    color-mix(in oklab, var(--cfg-accent, #10b981) 55%, transparent);
+}
+
+.agent-panel-card-view-label {
+  color: var(--text-muted, #9ca3af);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.agent-panel-card-view-text {
+  margin: 0;
+}
+
+.agent-panel-card-cite {
+  margin-left: 4px;
+  border: 0;
+  background: color-mix(in oklab, var(--cfg-accent, #10b981) 18%, transparent);
+  color: var(--cfg-accent, #10b981);
+  cursor: pointer;
+  font-family: inherit;
+  vertical-align: 0.15em;
+}
+
+.agent-panel-card-cite:focus-visible {
+  outline: 2px solid var(--cfg-accent, #10b981);
+  outline-offset: 1px;
+}
+
+.agent-panel-card-actions .agent-panel-tag:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.agent-panel-card-chosen,
+.agent-panel-card-note {
+  margin: 0;
+  color: var(--text-secondary, #6b7280);
+  font-size: 12px;
+}
+
+.agent-panel-card-note[data-tone='error'] {
+  color: var(--color-error, #ef4444);
+}
+
+.agent-panel-card-pointer {
+  align-self: flex-start;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-panel-card-fact {
+    transition-duration: 0.01ms;
+  }
+}
+
 @media (width <= 520px) {
   .agent-panel-intention {
     grid-template-columns: 1fr;
@@ -4038,4 +4209,70 @@ html.dark .agent-panel-aurora[data-status='error']::after {
   background: transparent;
   color: inherit;
   font: inherit;
+}
+
+/* 输入框上方的站内搜索结果：边输边出，访客也能用。 */
+.agent-panel-search {
+  max-height: min(40dvh, 320px);
+  overflow-y: auto;
+  margin: 0 0 8px;
+  padding: 6px;
+  border-radius: 16px;
+}
+
+.agent-panel-search ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-panel-search-heading {
+  margin: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.6;
+}
+
+.agent-panel-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.agent-panel-search-row[data-kind='library']:has(> .agent-panel-search-cover) {
+  grid-template-columns: 36px minmax(0, 1fr);
+  column-gap: 10px;
+}
+
+.agent-panel-search-row:hover,
+.agent-panel-search-row:focus-visible {
+  background: color-mix(in srgb, currentcolor 8%, transparent);
+}
+
+.agent-panel-search-cover {
+  grid-row: span 2;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.agent-panel-search-title,
+.agent-panel-search-excerpt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-panel-search-title {
+  font-size: 14px;
+}
+
+.agent-panel-search-excerpt {
+  font-size: 12px;
+  opacity: 0.65;
 }

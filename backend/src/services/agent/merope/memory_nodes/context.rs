@@ -449,6 +449,23 @@ impl NodeTurn {
     }
 }
 
+/// How their life stands now, across her nodes: shown every time in a
+/// private talk, before what she remembers ([`super::recall::Recollection::resident`]).
+pub(crate) fn resident_section(resident: &[String]) -> Option<String> {
+    let lines: Vec<String> = resident
+        .iter()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .map(|line| format!("- {line}"))
+        .collect();
+    section(
+        "How their life stands now",
+        "How things stand in their life now, as you keep it, newest first: what changed since stands here as it is now. Where what you remember below says otherwise, this is the later.",
+        "standing_now",
+        &lines,
+    )
+}
+
 /// What others told her about them that they never confirmed: never a fact.
 pub(crate) fn heard_section(heard: &[String]) -> Option<String> {
     let lines: Vec<String> = heard

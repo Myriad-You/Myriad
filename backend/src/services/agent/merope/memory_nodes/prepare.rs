@@ -10,12 +10,14 @@ use serde_json::Value;
 use super::Error;
 use crate::services::her_log::NODE;
 
-/// Who writes a row: she, or the person whose audience it is (what they
-/// said, set, renamed, had her forget).
+/// Who writes a row: she, the person whose audience it is (what they
+/// said, set, renamed, had her forget), or a rule of the core's that put
+/// what a device told on her nodes with no one's judgment (`rule`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Author {
     Her,
     Owner,
+    Rule,
 }
 
 impl Author {
@@ -23,6 +25,7 @@ impl Author {
         match self {
             Self::Her => "her",
             Self::Owner => "owner",
+            Self::Rule => "rule",
         }
     }
 
@@ -30,6 +33,7 @@ impl Author {
         match self {
             Self::Her => myriad_persona_log::row::Author::Her,
             Self::Owner => myriad_persona_log::row::Author::Owner,
+            Self::Rule => myriad_persona_log::row::Author::Rule,
         }
     }
 }
