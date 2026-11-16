@@ -183,7 +183,7 @@ async fn appraisal_commit_rechecks_input_after_waiting_for_the_database_lock() {
 }
 
 use super::*;
-use sea_orm::{Database, TransactionTrait};
+use sea_orm::TransactionTrait;
 use serde_json::json;
 
 #[test]
@@ -552,8 +552,16 @@ async fn portrait_generation_lease_preserves_concurrent_persona_and_rejects_visu
     let Some(database_url) = crate::db::test_url(&["PORTRAIT_TEST_DATABASE_URL"]) else {
         return;
     };
-    let db = Database::connect(database_url).await.unwrap();
-    let transaction = db.begin().await.unwrap();
+    // A migrated schema of its own in the test database: nothing is written
+    // to `public` there.
+    let schema = crate::db::IsolatedSchema::migrated(&database_url, "portrait_lease").await;
+    sea_orm::ConnectionTrait::execute_unprepared(
+        &schema.db,
+        "INSERT INTO users (id, username) VALUES (1, 'owner')",
+    )
+    .await
+    .unwrap();
+    let transaction = schema.db.begin().await.unwrap();
     agent_persona::Entity::delete_by_id(PERSONA_ROW_ID)
         .exec(&transaction)
         .await
@@ -669,6 +677,7 @@ async fn portrait_generation_lease_preserves_concurrent_persona_and_rejects_visu
         .unwrap()
     );
     transaction.rollback().await.unwrap();
+    schema.drop().await;
 }
 
 #[test]

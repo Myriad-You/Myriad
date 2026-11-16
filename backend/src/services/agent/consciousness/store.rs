@@ -452,7 +452,7 @@ fn to_fixed(value: DateTime<Utc>) -> DateTime<FixedOffset> {
 mod ledger_db_tests {
     use super::*;
     use crate::services::agent::consciousness::{AcceptSource, IntentStatus, WorkProposal};
-    use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement};
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
     #[tokio::test]
     async fn user_takeover_and_autonomy_claim_exclude_each_other() {
@@ -557,26 +557,27 @@ mod ledger_db_tests {
         assert_eq!(next[0].id, "ready-later");
     }
 
-    async fn connect() -> Option<(DatabaseConnection, i32)> {
+    /// A migrated schema of its own in the test database (nothing written
+    /// to `public` there), and a user in it.
+    async fn connect() -> Option<(crate::db::IsolatedSchema, i32)> {
         let url = crate::db::test_url(&[
             "AGENT_TEST_DATABASE_URL",
             "NOTIFICATION_TEST_DATABASE_URL",
             "MYRIAD_SCHEMA_DRIFT_DB",
         ])?;
-        let db = Database::connect(url).await.ok()?;
-        migration::Migrator::up(&db, None).await.ok()?;
-        let _ = crate::db::schema_check::ensure_schema(&db).await;
-        let row = db
+        let schema = crate::db::IsolatedSchema::migrated(&url, "intent_ledger").await;
+        let row = schema
+            .db
             .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "INSERT INTO users (username) VALUES ($1) RETURNING id",
                 [format!("autonomy-ledger-{}", uuid::Uuid::new_v4().simple()).into()],
             ))
             .await
-            .ok()
-            .flatten()?;
-        let user_id = row.try_get::<i32>("", "id").ok()?;
-        Some((db, user_id))
+            .expect("insert a ledger user")
+            .expect("the ledger user's row");
+        let user_id = row.try_get::<i32>("", "id").expect("the ledger user's id");
+        Some((schema, user_id))
     }
 
     fn proposal(source: &str) -> WorkProposal {
@@ -613,9 +614,10 @@ mod ledger_db_tests {
 
     #[tokio::test]
     async fn unique_source_event_and_cas_claim_and_reclaim() {
-        let Some((db, user_id)) = connect().await else {
+        let Some((schema, user_id)) = connect().await else {
             return;
         };
+        let db = schema.db.clone();
         let store = IntentStore::new(db.clone());
         let source = format!("evt_test_{}", uuid::Uuid::new_v4().simple());
         let mut first = record(user_id, &source, IntentStatus::Proposed);
@@ -705,13 +707,15 @@ mod ledger_db_tests {
                 [user_id.into()],
             ))
             .await;
+        schema.drop().await;
     }
 
     #[tokio::test]
     async fn accepted_rows_expire_by_expires_at() {
-        let Some((db, user_id)) = connect().await else {
+        let Some((schema, user_id)) = connect().await else {
             return;
         };
+        let db = schema.db.clone();
         let store = IntentStore::new(db.clone());
         let source = format!("evt_test_{}", uuid::Uuid::new_v4().simple());
         let mut row = record(user_id, &source, IntentStatus::Proposed);
@@ -739,5 +743,6 @@ mod ledger_db_tests {
                 [user_id.into()],
             ))
             .await;
+        schema.drop().await;
     }
 }

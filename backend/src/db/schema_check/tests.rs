@@ -413,10 +413,11 @@ async fn runtime_config_seed_preserves_existing_values_and_is_idempotent() {
         return;
     };
 
-    use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement};
-    let db = Database::connect(&url)
-        .await
-        .expect("connect to config seed database");
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    // A schema of its own in the test database: nothing is written to
+    // `public` there.
+    let schema = crate::db::IsolatedSchema::migrated(&url, "config_seed").await;
+    let db = schema.db.clone();
     db.execute_unprepared(
         r#"
         CREATE TABLE IF NOT EXISTS configurations (
@@ -472,6 +473,7 @@ async fn runtime_config_seed_preserves_existing_values_and_is_idempotent() {
         .await
         .expect("repeat config seed");
     assert_eq!(second, 0, "runtime config seed must be idempotent");
+    schema.drop().await;
 }
 
 #[test]

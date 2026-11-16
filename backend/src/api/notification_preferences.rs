@@ -88,7 +88,7 @@ pub async fn update_notification_preferences(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement};
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
     fn claims(user_id: i32) -> Claims {
         Claims {
@@ -125,8 +125,9 @@ mod tests {
         let Some(database_url) = crate::db::test_url(&["NOTIFICATION_TEST_DATABASE_URL"]) else {
             return;
         };
-        let db = Database::connect(&database_url).await.unwrap();
-        migration::Migrator::up(&db, None).await.unwrap();
+        let schema =
+            crate::db::IsolatedSchema::migrated(&database_url, "notification_preferences").await;
+        let db = schema.db.clone();
         let first_user = insert_user(&db, "first").await;
         let second_user = insert_user(&db, "second").await;
         crate::services::agent::notifications::init_notifications(db.clone()).await;
@@ -181,6 +182,7 @@ mod tests {
         ))
         .await
         .unwrap();
+        schema.drop().await;
     }
 }
 use myriad_error::AppError;

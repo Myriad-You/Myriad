@@ -779,10 +779,16 @@ mod tests {
             eprintln!("skipping: set MYRIAD_TAPP_STORAGE_GUARD_DB for the PostgreSQL guard test");
             return;
         };
-        let db = sea_orm::Database::connect(&url)
-            .await
-            .expect("connect guard database");
+        // A migrated schema of its own in the test database: nothing is
+        // written to `public` there.
+        let schema = crate::db::IsolatedSchema::migrated(&url, "tapp_credentials_guard").await;
+        let db = schema.db.clone();
         let owner_id = 2_147_483_599_i32;
+        db.execute_unprepared(&format!(
+            "INSERT INTO users (id, username) VALUES ({owner_id}, 'guard')"
+        ))
+        .await
+        .expect("guard user");
         let tapp_id = "codex.credential.status.guard";
         let cleanup = || {
             Statement::from_sql_and_values(
@@ -817,5 +823,6 @@ VALUES
         );
 
         db.execute_raw(cleanup()).await.expect("remove guard rows");
+        schema.drop().await;
     }
 }

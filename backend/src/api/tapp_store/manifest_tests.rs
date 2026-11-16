@@ -2306,21 +2306,24 @@ async fn recovery_preserves_unpublished_staging_during_install_and_update() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
-/// Uses an explicitly supplied disposable database, shared by two connections.
+/// In a schema of its own in the test database, shared by two connections.
 #[tokio::test]
 async fn recovery_waits_for_activation_commit_and_rereads_generation() {
     use sea_orm::{
-        ActiveModelTrait, ConnectionTrait, Database, DatabaseBackend, IntoActiveModel, Schema,
-        Statement, TransactionTrait,
+        ActiveModelTrait, ConnectionTrait, DatabaseBackend, IntoActiveModel, Statement,
+        TransactionTrait,
     };
     let Some(url) = crate::db::test_url(&["TAPP_TEST_DATABASE_URL"]) else {
         return;
     };
-    let db = Database::connect(url).await.unwrap();
-    let backend = DatabaseBackend::Postgres;
-    db.execute_raw(backend.build(&Schema::new(backend).create_table_from_entity(tapps::Entity)))
+    // A migrated schema of its own in the test database: nothing is
+    // written to `public` there.
+    let schema = crate::db::IsolatedSchema::migrated(&url, "tapp_recovery").await;
+    let db = schema.db.clone();
+    db.execute_unprepared("INSERT INTO users (id, username) VALUES (987654, 'race')")
         .await
         .unwrap();
+    let backend = DatabaseBackend::Postgres;
     let id = format!("com.example.race{}", uuid::Uuid::new_v4().simple());
     let live = tapp_dir_for(987654, &id).unwrap();
     // A first install can be writing staging before any row or lifecycle lock.
@@ -2410,9 +2413,6 @@ async fn recovery_waits_for_activation_commit_and_rereads_generation() {
         "new"
     );
     activated.commit().await;
-    db.execute_raw(Statement::from_string(backend, "DROP TABLE tapps"))
-        .await
-        .unwrap();
     std::fs::remove_dir_all(live).unwrap();
-    db.close().await.unwrap();
+    schema.drop().await;
 }

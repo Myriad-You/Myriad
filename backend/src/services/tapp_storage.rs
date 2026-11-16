@@ -618,12 +618,18 @@ mod tests {
             eprintln!("skipping: set MYRIAD_TAPP_STORAGE_GUARD_DB for the PostgreSQL guard test");
             return;
         };
-        use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement};
+        use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
-        let db = Database::connect(&url)
-            .await
-            .expect("connect guard database");
+        // A migrated schema of its own in the test database: nothing is
+        // written to `public` there.
+        let schema = crate::db::IsolatedSchema::migrated(&url, "tapp_storage_guard").await;
+        let db = schema.db.clone();
         let user_id = 2_147_483_600_i32;
+        db.execute_unprepared(&format!(
+            "INSERT INTO users (id, username) VALUES ({user_id}, 'guard')"
+        ))
+        .await
+        .expect("guard user");
         let tapp_id = "codex.storage.guard";
         let delete_rows = || {
             Statement::from_sql_and_values(
@@ -700,6 +706,7 @@ VALUES
         db.execute_raw(delete_rows())
             .await
             .expect("remove guard rows");
+        schema.drop().await;
     }
 
     #[test]

@@ -75,7 +75,7 @@ mod split_contract_tests {
 
 #[cfg(test)]
 mod list_smoke_tests {
-    use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement};
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
     #[tokio::test]
     async fn list_channels_empty_for_new_user_when_db_provided() {
@@ -86,12 +86,8 @@ mod list_smoke_tests {
         ]) else {
             return;
         };
-        let db = Database::connect(&database_url)
-            .await
-            .expect("connect test db");
-        migration::Migrator::up(&db, None)
-            .await
-            .expect("migrator up");
+        let schema = crate::db::IsolatedSchema::migrated(&database_url, "channel_list_smoke").await;
+        let db = schema.db.clone();
 
         let row = db
             .query_one_raw(Statement::from_sql_and_values(
@@ -108,6 +104,7 @@ mod list_smoke_tests {
             .await
             .expect("list_channels");
         assert!(channels.is_empty(), "new user must have zero channels");
+        schema.drop().await;
     }
 }
 
