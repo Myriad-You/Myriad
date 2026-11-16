@@ -539,29 +539,44 @@ pub async fn remember_in_place_of<C: ConnectionTrait>(
     memory: NewMemory,
     old: InPlaceOf<'_>,
 ) -> Result<Replaced, DbErr> {
+    remember_in_place_of_each(db, memory, &[old]).await
+}
+
+/// [`remember_in_place_of`] for rows that go for more than one reason: each
+/// group is retired as its own `reason`, all of them pointing at the same
+/// row, and none of them is taken for one that already says `memory`.
+pub async fn remember_in_place_of_each<C: ConnectionTrait>(
+    db: &C,
+    memory: NewMemory,
+    olds: &[InPlaceOf<'_>],
+) -> Result<Replaced, DbErr> {
     let content = normalize_content(&memory.content);
+    let mut retired = 0;
     if memory.user_id <= 0 || content.is_empty() {
-        let retired = retire_in_favor_of(db, old.user_id, old.ids, old.reason, None).await?;
+        for old in olds {
+            retired += retire_in_favor_of(db, old.user_id, old.ids, old.reason, None).await?;
+        }
         return Ok(Replaced { id: None, retired });
     }
     // Rows this retires are gone by the time a duplicate would be looked for.
-    let same_keeper = old.user_id == memory.user_id;
-    if let Some(held) = held_already(db, &memory, &content, |row| {
-        same_keeper && old.ids.contains(&row.id)
-    })
-    .await?
-    {
-        let retired = retire_in_favor_of(db, old.user_id, old.ids, old.reason, Some(&held)).await?;
-        return Ok(Replaced { id: None, retired });
-    }
+    let going = |row: &agent_memories::Model| {
+        olds.iter()
+            .any(|old| old.user_id == memory.user_id && old.ids.contains(&row.id))
+    };
+    let held = held_already(db, &memory, &content, going).await?;
     let user_id = memory.user_id;
-    let id = insert_new(db, memory, content, ORIGIN_SITE).await?;
-    let retired = retire_in_favor_of(db, old.user_id, old.ids, old.reason, Some(&id)).await?;
-    fade_excess(db, user_id).await?;
-    Ok(Replaced {
-        id: Some(id),
-        retired,
-    })
+    let id = match &held {
+        Some(_) => None,
+        None => Some(insert_new(db, memory, content, ORIGIN_SITE).await?),
+    };
+    let by = held.as_deref().or(id.as_deref());
+    for old in olds {
+        retired += retire_in_favor_of(db, old.user_id, old.ids, old.reason, by).await?;
+    }
+    if id.is_some() {
+        fade_excess(db, user_id).await?;
+    }
+    Ok(Replaced { id, retired })
 }
 
 /// The active row of the same person, in the same place, that already says

@@ -36,6 +36,16 @@ pub(in crate::services::agent::merope) struct Job {
     /// over next, never dropped and never written ahead of what came before.
     #[serde(default)]
     pub next: Option<Payload>,
+    /// Where a stretch let go unread began: the next stretch here is gone
+    /// over from there, so its notes are brought along (see [`settling`]).
+    #[serde(default)]
+    pub unread_from: Option<chrono::DateTime<chrono::FixedOffset>>,
+    /// How many stretches have brought what is left unread along already.
+    #[serde(default)]
+    pub unread_times: u8,
+    /// What the stretch now being gone over brought along.
+    #[serde(default)]
+    pub brought: Option<settling::Brought>,
 }
 #[derive(Debug, Clone)]
 pub(in crate::services::agent::merope) struct Claim {
@@ -116,7 +126,11 @@ async fn save(db: &impl ConnectionTrait, id: &str, job: &Job, now: i64) -> anyho
             runtime_id: None,
         },
         job,
-        now + RETENTION,
+        now + if job.unread_from.is_some() {
+            settling::WAITS
+        } else {
+            RETENTION
+        },
     )
     .await?;
     Ok(())
@@ -170,6 +184,9 @@ pub(in crate::services::agent::merope) async fn enqueue(
     let in_flight = existing
         .as_ref()
         .is_some_and(|job| job.token.is_some() && job.lease > now);
+    let unread = existing
+        .as_ref()
+        .and_then(|job| Some((job.unread_from?, job.unread_times)));
     let mut job = existing
         .filter(|job| job.data.is_some() || job.next.is_some())
         .unwrap_or(Job {
@@ -185,7 +202,14 @@ pub(in crate::services::agent::merope) async fn enqueue(
         claimed_count: 0,
         outcome: None,
         next: None,
+        unread_from: None,
+        unread_times: 0,
+        brought: None,
     });
+    if let (None, Some((from, times))) = (job.unread_from, unread) {
+        job.unread_from = Some(from);
+        job.unread_times = times;
+    }
     job.last_arrival = now;
     if let Payload::Settle { from, .. } = &data {
         // Each line puts it off until they go quiet, but never past a while
@@ -331,7 +355,12 @@ pub(in crate::services::agent::merope) async fn claim(
             // A process may die on its final attempt. Retire just its first
             // batch; exchanges appended meanwhile still deserve a turn.
             let count = job.claimed_count;
+            // Only while what it was taken up under still holds.
+            if matches!(job.data, Some(Payload::Settle { .. })) && current(&tx, &job, true).await? {
+                settling::leave_unread(&tx, &mut job).await?;
+            }
             consume(&mut job, count, now, "attempts_exhausted");
+            job.brought = None;
             promote_next(&mut job, now);
             save(&tx, &id, &job, now).await?;
             continue;
@@ -343,6 +372,7 @@ pub(in crate::services::agent::merope) async fn claim(
         job.attempts += 1;
         job.lease = now + LEASE;
         job.token = Some(uuid::Uuid::new_v4().to_string());
+        settling::bring_along(&mut job);
         save(&tx, &id, &job, now).await?;
         if let Some(Payload::Stranger { exchanges, .. }) = &mut job.data {
             exchanges.truncate(8);
@@ -444,8 +474,20 @@ pub(in crate::services::agent::merope) async fn finish(
     let outcome;
     // What a stretch kept, put on her nodes once it is written.
     let mut on_nodes = None;
+    // A stretch is tried again when its answer could not be read too: what
+    // it would keep for good is not let go on one unreadable answer.
+    let stretch = matches!(job.data, Some(Payload::Settle { .. }));
+    if stretch && matches!(&result, Err(failure) if failure.unreadable()) {
+        settling::unreadable();
+    }
     match result {
-        Err(failure) if failure.retryable() && job.attempts < MAX_ATTEMPTS => {
+        Err(failure)
+            if (failure.retryable() || (stretch && failure.unreadable()))
+                && job.attempts < MAX_ATTEMPTS =>
+        {
+            if stretch {
+                settling::asked_again();
+            }
             outcome = failure.to_string();
             if let (Some(data), Some(next)) = (&mut job.data, job.next.take()) {
                 data.fold(next);
@@ -483,43 +525,14 @@ pub(in crate::services::agent::merope) async fn finish(
                     let Some(Payload::Settle { present, last, .. }) = &job.data else {
                         anyhow::bail!("wrong memory job kind");
                     };
-                    let kept = super::apply_chat_memory_updates_on(
-                        &tx,
-                        job.owner,
-                        *last,
-                        &updates,
-                        present,
-                        super::Keep::Lasting,
+                    // What was put together is kept for good now, each
+                    // note pointing at what it was kept as: forgetting that
+                    // takes the notes with it. The rest stays a short note
+                    // and fades.
+                    let kept = super::settle_chat_memory_on(
+                        &tx, job.owner, *last, &updates, &settled, present,
                     )
                     .await?;
-                    // What was put together is kept for good now; the rest
-                    // stays a short note and fades. Each note points at what
-                    // it was kept as, an earlier version of it: forgetting
-                    // that takes the notes with it.
-                    use crate::services::agent::memory::unified;
-                    let held = unified::active_in(
-                        &tx,
-                        job.owner,
-                        present,
-                        &unified::MemoryKind::ABOUT_PERSON,
-                    )
-                    .await?;
-                    for (update, notes) in updates.updates.iter().zip(&settled) {
-                        let holder = update.fact.as_ref().and_then(|fact| {
-                            held.iter().find(|row| {
-                                row.source == "chat"
-                                    && &super::super::ingest::compact_summary(&row.content) == fact
-                            })
-                        });
-                        unified::retire_in_favor_of(
-                            &tx,
-                            job.owner,
-                            notes,
-                            "settled",
-                            holder.map(|row| row.id.as_str()),
-                        )
-                        .await?;
-                    }
                     on_nodes = Some((present.clone(), updates.clone()));
                     if kept { "applied" } else { "no_change" }.into()
                 }
@@ -545,13 +558,18 @@ pub(in crate::services::agent::merope) async fn finish(
                     "stale".into()
                 }
                 Ok(Effect::NoChange) => "no_change".into(),
-                Err(failure) => failure.to_string(),
+                Err(failure) => {
+                    // Its notes stay notes and go with the next stretch.
+                    settling::leave_unread(&tx, &mut job).await?;
+                    failure.to_string()
+                }
             };
             let count = match &claim.job.data {
                 Some(Payload::Stranger { exchanges, .. }) => exchanges.len(),
                 _ => 0,
             };
             consume(&mut job, count, now, &outcome);
+            job.brought = None;
             promote_next(&mut job, now);
         }
     }
@@ -570,6 +588,9 @@ pub(in crate::services::agent::merope) async fn finish(
     }
     Ok(())
 }
+
+#[path = "memory_jobs_settling.rs"]
+pub(in crate::services::agent) mod settling;
 
 #[cfg(test)]
 #[path = "memory_jobs_tests.rs"]

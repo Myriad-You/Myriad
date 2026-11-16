@@ -3,6 +3,9 @@ use super::*;
 use crate::services::agent::memory::unified::Audience;
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, IntoActiveModel};
 
+#[path = "memory_jobs_settle_tests.rs"]
+mod settle;
+
 async fn fixture() -> crate::db::IsolatedSchema {
     let url =
         std::env::var("MYRIAD_MEROPE_TEST_DATABASE_URL").expect("explicit disposable database");

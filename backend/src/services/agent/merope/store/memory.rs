@@ -143,6 +143,38 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
     present: &crate::services::agent::memory::unified::Audience,
     keep: Keep,
 ) -> Result<bool, anyhow::Error> {
+    apply_one(db, user_id, input_at, update, present, keep, &[]).await
+}
+
+/// A stretch gone over: what it keeps for good, each with the short notes it
+/// was put together from (`settled`, one list per update). A note is let go
+/// only for the memory that holds it now, the one written or the one that
+/// already said it; when nothing holds it, it stays a note and fades.
+pub(in crate::services::agent::merope) async fn settle_chat_memory_on<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    last: chrono::DateTime<chrono::FixedOffset>,
+    updates: &super::super::chat_remember::ChatMemoryUpdates,
+    settled: &[Vec<String>],
+    present: &crate::services::agent::memory::unified::Audience,
+) -> Result<bool, anyhow::Error> {
+    let mut kept = false;
+    for (index, update) in updates.updates.iter().enumerate() {
+        let notes = settled.get(index).map_or(&[][..], Vec::as_slice);
+        kept |= apply_one(db, user_id, last, update, present, Keep::Lasting, notes).await?;
+    }
+    Ok(kept)
+}
+
+async fn apply_one<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    input_at: chrono::DateTime<chrono::FixedOffset>,
+    update: &super::super::chat_remember::ChatMemoryUpdate,
+    present: &crate::services::agent::memory::unified::Audience,
+    keep: Keep,
+    settling: &[String],
+) -> Result<bool, anyhow::Error> {
     if user_id <= 0 || (update.fact.is_none() && update.supersedes.is_empty()) {
         return Ok(false);
     }
@@ -189,11 +221,25 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
     // is not taken of what she already knows anywhere; what is kept for
     // good is not kept twice there.
     let mut duplicate = None;
+    // The short notes this keeps for good: those it was put together from,
+    // and any that say just what it says. A note is not what she already
+    // knows for good; the fact takes its place and the note points at it.
+    let lasting_fact = keep == Keep::Lasting
+        && update
+            .fact
+            .as_deref()
+            .is_some_and(|fact| !unified::normalize_content(fact).is_empty());
+    let mut settles: Vec<String> = Vec::new();
     for note in rows {
         let content = super::super::ingest::compact_summary(&note.content);
         if may_take(&note) && supersedes.contains(&content) {
             targets.push(note.id);
             found.insert(content);
+        } else if lasting_fact
+            && note.source == SHORT_NOTE_SOURCE
+            && (settling.contains(&note.id) || update.fact.as_ref() == Some(&content))
+        {
+            settles.push(note.id);
         } else if update.fact.as_ref() == Some(&content) && (keep != Keep::Lasting || own(&note)) {
             duplicate = Some(note.id);
         }
@@ -208,7 +254,7 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
     let insert = update.fact.as_ref().filter(|_| duplicate.is_none());
     match insert {
         Some(fact) => {
-            let replaced = unified::remember_in_place_of(
+            let replaced = unified::remember_in_place_of_each(
                 db,
                 unified::NewMemory {
                     user_id,
@@ -221,11 +267,18 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
                     importance: 0.6,
                     concepts: update.concepts.clone(),
                 },
-                unified::InPlaceOf {
-                    user_id,
-                    ids: &targets,
-                    reason: "superseded",
-                },
+                &[
+                    unified::InPlaceOf {
+                        user_id,
+                        ids: &targets,
+                        reason: "superseded",
+                    },
+                    unified::InPlaceOf {
+                        user_id,
+                        ids: &settles,
+                        reason: "settled",
+                    },
+                ],
             )
             .await?;
             if let Some(id) = replaced.id {
@@ -235,6 +288,9 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
         None => {
             unified::retire_in_favor_of(db, user_id, &targets, "superseded", duplicate.as_deref())
                 .await?;
+            if let Some(holder) = &duplicate {
+                unified::retire_in_favor_of(db, user_id, &settles, "settled", Some(holder)).await?;
+            }
         }
     }
     let applied = !targets.is_empty() || insert.is_some();

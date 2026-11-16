@@ -142,6 +142,11 @@ impl Failure {
             Self::Storage => true,
         }
     }
+
+    /// The model answered, but not in a way that could be read.
+    pub(super) fn unreadable(&self) -> bool {
+        matches!(self, Self::Model(call::Failure::InvalidOutput))
+    }
 }
 impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
