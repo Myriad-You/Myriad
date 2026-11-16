@@ -977,6 +977,8 @@
   "agentAliveSettledNoChange": "nichts zu behalten",
   "agentAliveSettledStale": "veraltet, nicht behalten",
   "agentAliveSettledFailed": "fehlgeschlagen",
+  "agentAliveSettling": "Probleme beim Aufarbeiten der Gespräche",
+  "agentAliveSettlingFailures": "Antworten unlesbar {unreadable}-mal, erneut gefragt {again}-mal; {left} Stapel unsortiert gelassen, {brought} in den nächsten mitgenommen; {kept} Notizen unsortiert dauerhaft behalten (nicht zusammengeführt oder dedupliziert)",
   "agentAliveStanding": "Zuletzt „sein Leben jetzt“ geschrieben",
   "agentAliveStandingFailed": "Fehlgeschlagene Modellaufrufe dabei",
   "agentAliveStandingFailedCount": "{n}, zuletzt {ago}",

@@ -32,7 +32,7 @@ function alive(change: (shown: HerAlive) => void = () => {}): HerAlive {
         { name: 'her own time', everySecs: 60, ranAt: '2026-11-16T03:59:50Z', runs: 180, endedAt: '2026-11-16T03:59:51Z', running: false, failedAt: null, failures: 0, skippedAt: null, skippedWhy: null, skips: 0, overdue: false },
       ],
     },
-    memory: { settledAt: null, settledOutcome: null, standingWrittenAt: null, standingFailures: null, standingFailed: 0, standingFailedAt: null },
+    memory: { settledAt: null, settledOutcome: null, standingWrittenAt: null, standingFailures: null, standingFailed: 0, standingFailedAt: null, settlingFailures: { unreadable: 2, asked_again: 3, left_unread: 1, brought_along: 1, kept_unsettled: 4 } },
     ends: [
       {
         id: 'dev_a',
@@ -105,6 +105,7 @@ test('shows whether she is living, with the three capability layers apart', asyn
       ['实际授予的', '让它办事 · 记录同步的版本：3'],
     ])
     assert.match(text(), /MyriadNative 0\.9\.1 · 连接契约 2 · 核心 3/)
+    assert.match(text(), /没整理成、原样留作长期的 4 条（没经过归并去重）/)
     assert.match(text(), /落后 12 行/)
     // What it told of frames: none dropped; two of hers acked and not read.
     assert.deepEqual(rows.slice(6, 8), [

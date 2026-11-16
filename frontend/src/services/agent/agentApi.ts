@@ -276,6 +276,17 @@ export interface HerAlive {
     } | null
     standingFailed: number
     standingFailedAt: string | null
+    /**
+     * How going over what was chatted went wrong since the site started.
+     * `kept_unsettled` notes were kept long-term as they were, not merged.
+     */
+    settlingFailures: {
+      unreadable: number
+      asked_again: number
+      left_unread: number
+      brought_along: number
+      kept_unsettled: number
+    }
   }
   ends: HerAliveEnd[]
   /**

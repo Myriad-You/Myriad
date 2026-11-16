@@ -402,6 +402,18 @@ export function AgentAliveGroup() {
                 }`
               : c.agentAliveNever}
           </dd>
+          <dt>{c.agentAliveSettling}</dt>
+          <dd>
+            {Object.values(memory.settlingFailures).some((count) => count > 0)
+              ? format(c.agentAliveSettlingFailures, {
+                  unreadable: String(memory.settlingFailures.unreadable),
+                  again: String(memory.settlingFailures.asked_again),
+                  left: String(memory.settlingFailures.left_unread),
+                  brought: String(memory.settlingFailures.brought_along),
+                  kept: String(memory.settlingFailures.kept_unsettled),
+                })
+              : c.agentAliveNone}
+          </dd>
           <dt>{c.agentAliveStanding}</dt>
           <dd>{ago(memory.standingWrittenAt)}</dd>
           <dt>{c.agentAliveStandingFailed}</dt>

@@ -977,6 +977,8 @@
   "agentAliveSettledNoChange": "rien à retenir",
   "agentAliveSettledStale": "périmé, non retenu",
   "agentAliveSettledFailed": "échec",
+  "agentAliveSettling": "Problèmes en reprenant les conversations",
+  "agentAliveSettlingFailures": "Réponses illisibles {unreadable} fois, redemandé {again} fois ; {left} lots laissés non triés, {brought} repris au suivant ; {kept} notes gardées telles quelles à long terme, jamais triées (ni fusionnées ni dédoublonnées)",
   "agentAliveStanding": "Dernière écriture de « sa vie en ce moment »",
   "agentAliveStandingFailed": "Appels au modèle échoués à cette étape",
   "agentAliveStandingFailedCount": "{n}, le dernier {ago}",

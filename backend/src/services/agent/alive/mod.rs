@@ -651,6 +651,10 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
             "standingFailures": crate::services::agent::merope::memory_nodes::standing::failures(),
             "standingFailed": state.memory.standing_failed,
             "standingFailedAt": at(state.memory.standing_failed_at),
+            // How going over what was chatted went wrong since the site
+            // started, by kind (`settling::failures`).
+            "settlingFailures":
+                crate::services::agent::merope::store::memory_jobs::settling::failures(),
         },
         "ends": ends,
         // Keys of a look at the screen the site deleted before reading it

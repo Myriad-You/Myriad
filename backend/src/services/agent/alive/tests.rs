@@ -532,6 +532,18 @@ async fn what_is_kept_comes_back_after_a_restart() {
             "{kind}"
         );
     }
+    for kind in [
+        "unreadable",
+        "asked_again",
+        "left_unread",
+        "brought_along",
+        "kept_unsettled",
+    ] {
+        assert!(
+            report["memory"]["settlingFailures"][kind].is_u64(),
+            "{kind}"
+        );
+    }
     assert_eq!(report["calls"][0]["kind"], "act.request");
     assert_eq!(report["calls"][0]["outcomes"]["completed"], 1);
     assert_eq!(report["ends"], json!([]));
