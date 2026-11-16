@@ -90,20 +90,59 @@ pub(super) async fn apply_at(
     at: chrono::DateTime<chrono::FixedOffset>,
     updates: &super::super::chat_remember::ChatMemoryUpdates,
 ) -> Option<()> {
+    write_at(db, user_id, present, at, updates, None).await
+}
+
+/// What a stretch gone over keeps for good, as production keeps it: each
+/// update with the short notes it was put together from (`settled`).
+pub(super) async fn settle_at(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    present: &Audience,
+    at: chrono::DateTime<chrono::FixedOffset>,
+    updates: &super::super::chat_remember::ChatMemoryUpdates,
+    settled: &[Vec<String>],
+) -> Option<()> {
+    write_at(db, user_id, present, at, updates, Some(settled)).await
+}
+
+async fn write_at(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    present: &Audience,
+    at: chrono::DateTime<chrono::FixedOffset>,
+    updates: &super::super::chat_remember::ChatMemoryUpdates,
+    settled: Option<&[Vec<String>]>,
+) -> Option<()> {
     said_at(db, user_id, at).await;
     let before = crate::clock::now().fixed_offset();
     let transaction = sea_orm::TransactionTrait::begin(db).await.ok()?;
     // Written as kept for good: the bench compares ways of going over talk,
     // with the short notes' fading stood in for by SHORT_NOTES_LAST.
-    let applied = super::super::store::apply_chat_memory_updates_on(
-        &transaction,
-        user_id,
-        at,
-        updates,
-        present,
-        super::super::store::Keep::Lasting,
-    )
-    .await
+    let applied = match settled {
+        Some(settled) => {
+            super::super::store::settle_chat_memory_on(
+                &transaction,
+                user_id,
+                at,
+                updates,
+                settled,
+                present,
+            )
+            .await
+        }
+        None => {
+            super::super::store::apply_chat_memory_updates_on(
+                &transaction,
+                user_id,
+                at,
+                updates,
+                present,
+                super::super::store::Keep::Lasting,
+            )
+            .await
+        }
+    }
     .unwrap_or(false);
     transaction.commit().await.ok()?;
     if !applied {

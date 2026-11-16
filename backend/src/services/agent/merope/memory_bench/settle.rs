@@ -68,6 +68,7 @@ async fn settle_session(
     present: &Audience,
     turns: &[Turn],
     notes: &[super::super::chat_remember::ChatMemoryUpdate],
+    rows: &[Option<String>],
     at: chrono::DateTime<chrono::FixedOffset>,
     trail: &mut super::note_trail::Trail,
 ) -> (Vec<(String, String)>, Vec<String>, Vec<usize>) {
@@ -168,7 +169,11 @@ async fn settle_session(
     settled.extend(&left);
     let mut lasting = Vec::new();
     let mut updates = super::super::chat_remember::ChatMemoryUpdates::default();
+    // The rows of the notes each update was put together from.
+    let row = |index: usize| rows.get(index).cloned().flatten();
+    let mut from_rows: Vec<Vec<String>> = Vec::new();
     for item in kept {
+        from_rows.push(item.from.iter().filter_map(|index| row(*index)).collect());
         let fact = super::super::ingest::compact_summary(&item.fact);
         updates
             .updates
@@ -195,6 +200,7 @@ async fn settle_session(
     // A note the answer passed over is kept as it is, as production does.
     let mut passed_over = Vec::new();
     for index in left {
+        from_rows.push(row(index).into_iter().collect());
         let note = &notes[index];
         let fact = super::super::ingest::compact_summary(note.fact.as_deref().unwrap_or(""));
         updates
@@ -214,7 +220,7 @@ async fn settle_session(
         passed_over.push(fact);
     }
     if !updates.updates.is_empty() {
-        apply_at(db, user_id, present, at, &updates).await;
+        super::writing::settle_at(db, user_id, present, at, &updates, &from_rows).await;
         super::super::memory_nodes::facts::settled(db, user_id, None, present, &updates).await;
     }
     (lasting, passed_over, settled)
@@ -340,6 +346,7 @@ pub(super) async fn over_time(
         present,
         turns,
         &notes,
+        &[],
         over_at,
         &mut super::note_trail::Trail::off(),
     )
@@ -371,8 +378,19 @@ pub(super) async fn go_over(
     trail: &mut super::note_trail::Trail,
 ) {
     let asked_at = date_of(question_date);
+    // The short notes kept as rows, as production keeps them while a talk
+    // goes on, by when their session was over.
+    let mut as_rows: Vec<(chrono::DateTime<chrono::FixedOffset>, Vec<String>)> = Vec::new();
     for (session_at, turns, present) in sessions {
         let (session_at, present) = (*session_at, present);
+        // Notes of a session long enough before this one have faded
+        // (the bench's stand-in for fading, as when they ask).
+        let (faded, fresh): (Vec<_>, Vec<_>) = std::mem::take(&mut as_rows)
+            .into_iter()
+            .partition(|(over, _)| session_at - *over > SHORT_NOTES_LAST);
+        as_rows = fresh;
+        let_fade(db, faded.into_iter().flat_map(|(_, ids)| ids).collect()).await;
+        let mut row_of: Vec<Option<String>> = Vec::new();
         let mut notes: Vec<super::super::chat_remember::ChatMemoryUpdate> = Vec::new();
         let mut noted: Vec<(String, bool)> = Vec::new();
         let mut short: Vec<(
@@ -419,6 +437,7 @@ pub(super) async fn go_over(
             if answer_here {
                 trail.answer_line(&text, taken.len(), false);
             }
+            row_of.extend(keep_as_notes(db, user_id, present, at, &taken).await);
             noted.extend(
                 taken
                     .iter()
@@ -462,9 +481,34 @@ pub(super) async fn go_over(
                 .collect::<Vec<_>>()
                 .join("\n");
             trail.notes(&noted);
-            let (lasting, _, put_away) =
-                settle_session(db, judge, user_id, present, turns, &notes, over_at, trail).await;
-            settled = put_away;
+            let (lasting, _, put_away) = settle_session(
+                db, judge, user_id, present, turns, &notes, &row_of, over_at, trail,
+            )
+            .await;
+            // A note put into what is kept for good is let go only for what
+            // holds it now, as production does; the rest are still notes.
+            let still: std::collections::HashSet<String> =
+                crate::services::agent::memory::unified::latest_of(
+                    db,
+                    user_id,
+                    crate::services::agent::memory::unified::SHORT_NOTE_SOURCE,
+                    10_000,
+                )
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|row| row.id)
+                .collect();
+            settled = put_away
+                .into_iter()
+                .filter(|index| {
+                    row_of
+                        .get(*index)
+                        .cloned()
+                        .flatten()
+                        .is_none_or(|id| !still.contains(&id))
+                })
+                .collect();
             for (fact, evidence) in lasting {
                 *kept += 1;
                 if !answer_lines.is_empty()
@@ -479,6 +523,13 @@ pub(super) async fn go_over(
         // Short notes still fresh when the question is asked, but not those
         // settled into what is kept for good: production retires them.
         if asked_at - over_at <= SHORT_NOTES_LAST {
+            // Kept below as the bench keeps a fresh note; its row would take
+            // it as one already there.
+            let_fade(
+                db,
+                std::mem::take(&mut row_of).into_iter().flatten().collect(),
+            )
+            .await;
             let mut note = 0;
             for (at, updates, answer_here) in short {
                 let facts = super::super::chat_remember::ChatMemoryUpdates {
@@ -518,5 +569,77 @@ pub(super) async fn go_over(
             }
         }
         trail.close(db, user_id, present).await;
+        let over_at = session_at + chrono::Duration::minutes(turns.len() as i64);
+        as_rows.push((over_at, row_of.into_iter().flatten().collect()));
     }
+    // What she has when they ask is as before: the notes kept as rows go,
+    // those still fresh then were kept above.
+    let_fade(db, as_rows.into_iter().flat_map(|(_, ids)| ids).collect()).await;
+}
+
+/// Short notes of one turn (`taken`) kept as rows as production keeps them
+/// while the talk goes on (`Keep::Note`), so what is noted next sees them
+/// as production's extraction does: the latest of them, and what it checks
+/// a new fact against. Their rows, in the order of `taken` (none for one
+/// not kept: taken as one already there).
+async fn keep_as_notes(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    present: &Audience,
+    at: chrono::DateTime<chrono::FixedOffset>,
+    taken: &[super::super::chat_remember::ChatMemoryUpdate],
+) -> Vec<Option<String>> {
+    use crate::services::agent::memory::unified;
+    let notes = || async {
+        unified::latest_of(db, user_id, unified::SHORT_NOTE_SOURCE, 10_000)
+            .await
+            .unwrap_or_default()
+    };
+    let before: std::collections::HashSet<String> =
+        notes().await.into_iter().map(|row| row.id).collect();
+    let updates = super::super::chat_remember::ChatMemoryUpdates {
+        updates: taken.to_vec(),
+        ..Default::default()
+    };
+    if let Ok(transaction) = sea_orm::TransactionTrait::begin(db).await {
+        // Dated as production dates a note: now, so it has not faded.
+        let _ = super::super::store::apply_chat_memory_updates_on(
+            &transaction,
+            user_id,
+            at,
+            &updates,
+            present,
+            super::super::store::Keep::Note,
+        )
+        .await;
+        let _ = transaction.commit().await;
+    }
+    let new: Vec<_> = notes()
+        .await
+        .into_iter()
+        .filter(|row| !before.contains(&row.id))
+        .collect();
+    taken
+        .iter()
+        .map(|note| {
+            let fact = super::super::ingest::compact_summary(note.fact.as_deref().unwrap_or(""));
+            new.iter()
+                .find(|row| super::super::ingest::compact_summary(&row.content) == fact)
+                .map(|row| row.id.clone())
+        })
+        .collect()
+}
+
+/// Short notes kept as rows let go: faded, in the bench's stand-in.
+async fn let_fade(db: &sea_orm::DatabaseConnection, ids: Vec<String>) {
+    if ids.is_empty() {
+        return;
+    }
+    let _ = db
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "DELETE FROM agent_memories WHERE id = ANY($1)",
+            [ids.into()],
+        ))
+        .await;
 }
