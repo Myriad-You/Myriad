@@ -83,17 +83,14 @@ pub(crate) fn macs(owner: i32) -> Vec<Mac> {
     macs
 }
 
-/// The Mac a new proposal for a Mac is for: the one the owner is using her on
-/// now, else the first.
+/// The Mac a new proposal for a Mac is for, by the one rule for picking an
+/// end ([`super::pick::device`]): the one the owner is using her on now,
+/// else the one they used last, else the first by name.
 pub(crate) fn mac_for_work(owner: i32) -> Option<Mac> {
     let macs = macs(owner);
-    macs.iter()
-        .find(|mac| {
-            crate::services::agent::consciousness::native_presence(owner, &mac.device_id)
-                .is_some_and(|live| live.page_visible)
-        })
-        .cloned()
-        .or_else(|| macs.into_iter().next())
+    let ids: Vec<String> = macs.iter().map(|mac| mac.device_id.clone()).collect();
+    let picked = super::pick::device(owner, &ids)?.clone();
+    macs.into_iter().find(|mac| mac.device_id == picked)
 }
 
 /// Asks the Mac the accepted proposal is for to run it, and marks it running.

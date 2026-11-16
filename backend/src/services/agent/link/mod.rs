@@ -61,6 +61,7 @@ mod now;
 mod nodes;
 mod notices;
 mod outfit;
+mod pick;
 mod proposals;
 mod say;
 mod senses;
