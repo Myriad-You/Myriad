@@ -11,6 +11,7 @@ import { agentService } from '../../services/agent'
 import { AgentMarkdown } from './AgentMarkdown'
 import { AgentMessageBody } from './AgentMessageBody'
 import { useAgentSessionId } from './agentMessages'
+import { AgentPanelCard } from './AgentPanelCard'
 import { dispatchForgottenLines } from './agentPanelEvents'
 import { useAgentPanelMode } from './agentPanelMode'
 import { AgentPanelQuestion } from './AgentPanelQuestion'
@@ -32,6 +33,10 @@ export interface AgentPanelMessageProps {
   onSuggest: (text: string) => void
   onWorkOffer?: (input: string) => void
   onZoomImage: (url: string) => void
+}
+
+function answerCard(cardId: string, version: string, action: string) {
+  return agentService.answerCard(cardId, version, action)
 }
 
 function formatTime(at: number, locale?: string): string {
@@ -428,6 +433,14 @@ export const AgentPanelMessage: React.FC<AgentPanelMessageProps> = React.memo(
               ) : null}
             </div>
           </div>
+        ) : null}
+        {message.cardLine ? (
+          <AgentPanelCard
+            line={message.cardLine}
+            copy={t.agentPanel.card}
+            format={format}
+            answer={answerCard}
+          />
         ) : null}
         {showsFooter ? (
           <div className="agent-panel-message-footer">

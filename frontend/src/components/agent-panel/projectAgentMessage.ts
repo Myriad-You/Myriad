@@ -118,6 +118,7 @@ export function projectAgentMessage(message: ChatMessage): AgentMessage {
     ...(message.saidOn ? { saidOn: message.saidOn } : {}),
     ...(message.pictures ? { pictures: message.pictures } : {}),
     ...(message.typing !== undefined ? { typing: message.typing } : {}),
+    ...(message.cardLine ? { cardLine: message.cardLine } : {}),
     ...(message.suggestions?.length
       ? { suggestions: message.suggestions }
       : {}),

@@ -16,6 +16,21 @@ pub(super) async fn recalled_for(
     cues: Option<&myriad_merope::remembering::Cues>,
     thorough: usize,
 ) -> (Vec<String>, Option<String>) {
+    let (recalled, listed, _) =
+        recalled_and_resident(db, question, user_id, present, cues, thorough).await;
+    (recalled, listed)
+}
+
+/// [`recalled_for`], with how their life stands as production shows it
+/// every time in a private talk (`Recollection::resident`): not recalled.
+async fn recalled_and_resident(
+    db: &sea_orm::DatabaseConnection,
+    question: &Question,
+    user_id: i32,
+    present: &Audience,
+    cues: Option<&myriad_merope::remembering::Cues>,
+    thorough: usize,
+) -> (Vec<String>, Option<String>, Vec<String>) {
     // The control that only recalls more, when asked for.
     let wider = wider();
     let (more, thorough_more) = ((wider - 1) * RECALLED, (wider - 1) * thorough);
@@ -56,7 +71,7 @@ pub(super) async fn recalled_for(
                     .chain(recalled.brought_to_mind.iter().cloned())
                     .collect();
                 widened(&mut lines, &recalled, cues, more, thorough_more);
-                return (lines, recollection.listed);
+                return (lines, recollection.listed, recollection.resident);
             }
             (_, Err(error)) => eprintln!("bench call failed: reading her nodes: {error:#}"),
             _ => {}
@@ -88,7 +103,50 @@ pub(super) async fn recalled_for(
             .collect::<Vec<_>>()
     })
     .unwrap_or_default();
-    (named, None)
+    (named, None, Vec::new())
+}
+
+/// `MEROPE_MEMORY_BENCH_STANDING=<file>` (question id to lines): how things
+/// stand with them now, as a list she would always have, shown first among
+/// what she remembers when she answers. A trial: not recalled, and not
+/// counted as recalled. Without the file, the list production shows.
+fn standing_of(id: &str) -> Option<Vec<String>> {
+    static STANDING: std::sync::OnceLock<std::collections::HashMap<String, Vec<String>>> =
+        std::sync::OnceLock::new();
+    STANDING
+        .get_or_init(|| {
+            std::env::var("MEROPE_MEMORY_BENCH_STANDING")
+                .map(|path| {
+                    serde_json::from_str(&std::fs::read_to_string(&path).expect("the list"))
+                        .expect("question ids, each to its lines")
+                })
+                .unwrap_or_default()
+        })
+        .get(id)
+        .cloned()
+}
+
+/// What she has in mind when she answers: the list of how things stand
+/// now, then what she recalled.
+fn with_standing(standing: &[String], recalled: &[String]) -> Vec<String> {
+    standing
+        .iter()
+        .map(|line| format!("现在: {line}"))
+        .chain(recalled.iter().cloned())
+        .collect()
+}
+
+#[test]
+fn how_things_stand_comes_first_and_is_not_recalled() {
+    let recalled = vec!["跑步: [07-03] 每周三和周五跑五公里".to_string()];
+    assert_eq!(
+        with_standing(&["膝盖坏了，夜跑停了".to_string()], &recalled),
+        [
+            "现在: 膝盖坏了，夜跑停了",
+            "跑步: [07-03] 每周三和周五跑五公里"
+        ]
+    );
+    assert_eq!(with_standing(&[], &recalled), recalled);
 }
 
 /// `MEROPE_MEMORY_BENCH_RECALL_ONLY=1`: recall each way and ask nothing,
@@ -320,7 +378,9 @@ pub(super) async fn answer_one(
     back_when_thorough: bool,
     answering: &[String],
 ) -> Answered {
-    let (mut recalled, listed) = recalled_for(db, question, user_id, present, cues, thorough).await;
+    let (mut recalled, listed, resident) =
+        recalled_and_resident(db, question, user_id, present, cues, thorough).await;
+    let standing = standing_of(&question.question_id).unwrap_or(resident);
     // The way production answers is held to the length another run
     // answered on, when asked (`MEROPE_MEMORY_BENCH_RECALL_CHARS_OF`).
     if back_when_thorough
@@ -411,7 +471,10 @@ pub(super) async fn answer_one(
     let mut answer = String::new();
     for _ in 0..3 {
         answer = lite
-            .analyze_with_system(&answer_system(question, present, &recalled), &input)
+            .analyze_with_system(
+                &answer_system(question, present, &with_standing(&standing, &recalled)),
+                &input,
+            )
             .await
             .inspect_err(|error| eprintln!("bench call failed: answering: {error:#}"))
             .unwrap_or_default();

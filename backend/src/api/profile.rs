@@ -743,6 +743,18 @@ pub async fn lookup_library_data(
     )
 }
 
+/// 站长的资料库和来源偏好。站内搜索按同一份偏好过滤，搜到的和资料库页面显示的一样。
+pub(crate) async fn site_library(
+    db: &DatabaseConnection,
+) -> Result<(CachedLibraryItems, LibrarySourcePreferences), String> {
+    let user_id = site_owner_user_id(db).await?;
+    let items = match cached_library_items(user_id) {
+        Some(items) => items,
+        None => get_or_load_library_items(user_id, || load_library_items(db, user_id)).await,
+    };
+    Ok((items, load_library_source_preferences(db).await))
+}
+
 async fn load_library_items(db: &DatabaseConnection, user_id: i32) -> Vec<LibraryItem> {
     // 创建元数据服务
     let metadata_service = crate::services::metadata_service::MetadataService::new(db.clone());

@@ -287,17 +287,8 @@ pub(super) async fn take_in(
             None
         }
     };
-    if let (Some(told), Some(value)) = (told, consideration.as_ref()) {
-        super::told::file(
-            db,
-            user_id,
-            event_key,
-            told,
-            &conscious_event,
-            &value.decision,
-        )
-        .await;
-    }
+    // What she decided of what a child saw is kept nowhere apart: the old
+    // node table is no longer written (her notes there are still read).
     // What a look became of hers: by whether she took it in, never by what
     // it showed (the window's text she was shown is never kept as hers).
     if let (Some(look), Some(value)) = (&look, consideration.as_ref()) {

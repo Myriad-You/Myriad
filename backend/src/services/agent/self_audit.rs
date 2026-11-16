@@ -276,6 +276,7 @@ async fn run_self_audit() {
             .expect("their memories");
         let said = agent_proactive_messages::Entity::find()
             .filter(agent_proactive_messages::Column::UserId.eq(user_id))
+            .filter(agent_proactive_messages::Column::Role.eq("assistant"))
             .order_by_desc(agent_proactive_messages::Column::CreatedAt)
             .limit(15)
             .all(&db)

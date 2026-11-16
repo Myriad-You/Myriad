@@ -582,6 +582,55 @@ export interface SessionMessage {
   createdAt: string
 }
 
+/** One version of a card put before the site owner. `kind` and `scene` are open words. */
+export interface CardVersion {
+  at: number
+  id: string
+  kind: string
+  scene: string
+  subject?: string
+  title: string
+  state?: string
+  facts?: { text: string; ref?: string }[]
+  /** Her view; `because` names facts by number, from 1. */
+  view?: { text: string; because?: number[] }
+  actions?: { id: string; label: string }[]
+}
+
+/** A card as it stands, held by the latest line that carries it. */
+export interface CardNow {
+  card: CardVersion
+  version: string
+  answered?: { at: number; action: string; version: string }
+  waiting: boolean
+}
+
+/** A line of the owner's private chat that is a card or carries one. */
+export interface CardLine {
+  /** `pro_<n>`: not a session message id, never forgettable as one. */
+  id: string
+  /** `assistant`: her line carrying the card; `card`: only the card. */
+  role: 'assistant' | 'card'
+  content: string
+  createdAt: string
+  cardId: string
+  line?: string
+  /** Only on the latest line carrying the card. */
+  card?: CardNow
+}
+
+export interface SessionPage {
+  messages: SessionMessage[]
+  /** Only for the site owner; empty otherwise. */
+  cards: CardLine[]
+}
+
+export interface CardAnswerReply {
+  kept: boolean
+  code?: 'card_stale' | string
+  card?: CardNow
+}
+
 export interface QueueStatus {
   total_lanes: number
   max_concurrent: number

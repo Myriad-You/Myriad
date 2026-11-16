@@ -16,6 +16,8 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
         .merge(super::memory_nodes::routes(app_state.clone()))
         // 把节点之前记下的搬上节点（站长）：只数不写或真搬，每次的记录
         .merge(super::memory_migration::routes(app_state.clone()))
+        // 她放到站长面前的卡：站长在网页上答（站长）
+        .merge(super::cards::routes(app_state.clone()))
         // 健康检查（公开）
         .route("/health", get(health))
         // 队列状态（需要认证）

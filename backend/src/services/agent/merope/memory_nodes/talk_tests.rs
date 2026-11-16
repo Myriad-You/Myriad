@@ -547,3 +547,328 @@ async fn when_it_happened_and_where_it_stands_go_on_its_entry() {
     assert!(coat.get("happened").is_none() && coat.get("state").is_none());
     schema.drop().await;
 }
+
+/// The node.standing rows of the talk, oldest first: item, text, whether
+/// it ended, its sync, and its base.
+async fn standing_rows(db: &DatabaseConnection) -> Vec<(String, String, bool, Value, Value)> {
+    db.query_all_raw(Statement::from_string(
+        DatabaseBackend::Postgres,
+        "SELECT body FROM agent_node_rows WHERE kind = 'node.standing' ORDER BY at, hlc",
+    ))
+    .await
+    .unwrap()
+    .iter()
+    .map(|row| {
+        let body: Value =
+            serde_json::from_str(&row.try_get::<String>("", "body").unwrap()).unwrap();
+        (
+            body["item"].as_str().unwrap().to_string(),
+            body["text"].as_str().unwrap().to_string(),
+            body["ended"] == true,
+            body["sync"].clone(),
+            body["base"].clone(),
+        )
+    })
+    .collect()
+}
+
+#[tokio::test]
+async fn what_a_kept_fact_does_to_how_their_life_stands_is_written_where_it_stands() {
+    let Some(schema) = schema("memory_nodes_standing_step").await else {
+        return;
+    };
+    let db = &schema.db;
+    let running = || {
+        Some(GoesUnder::New {
+            name: "跑步".into(),
+            aliases: Vec::new(),
+        })
+    };
+    // Something it starts: on the topic asked, theirs, kept on the site.
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[],"add":[{"topic":"跑步","text":"每周三晚上夜跑"}]}"#,
+    )]);
+    settle(db, vec![update("每周三晚上夜跑", &[], running())]).await;
+    assert_eq!(asked("memory_standing_step"), 1);
+    let rows = standing_rows(db).await;
+    assert_eq!(rows.len(), 1);
+    let (item, text, ended, sync, base) = rows[0].clone();
+    assert!(item.starts_with("them-"));
+    assert_eq!((text.as_str(), ended), ("每周三晚上夜跑", false));
+    assert_eq!(sync, json!({"local": crate::services::her_log::NODE}));
+    assert_eq!(base, json!([]));
+    // Someone else's news never ends their own item.
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"男朋友","set":[{"item":1,"text":"男朋友不跑了"}],"end":[1],"add":[]}"#,
+    )]);
+    settle(db, vec![update("男朋友说他不跑步了", &[], running())]).await;
+    assert_eq!(asked("memory_standing_step"), 1);
+    assert_eq!(standing_rows(db).await.len(), 1);
+    // Theirs ending: in the fact's own words, on the row it stood on.
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[1],"add":[]}"#,
+    )]);
+    settle(db, vec![update("膝盖伤了，不夜跑了", &[], running())]).await;
+    assert_eq!(asked("memory_standing_step"), 1);
+    let rows = standing_rows(db).await;
+    assert_eq!(rows.len(), 2);
+    let (ended_item, text, ended, _, base) = rows[1].clone();
+    assert_eq!(ended_item, item);
+    assert_eq!((text.as_str(), ended), ("膝盖伤了，不夜跑了", true));
+    assert_eq!(base.as_array().map(Vec::len), Some(1));
+    let heads = read::heads(db, OTHER, &talk(), None).await.unwrap();
+    let node = heads
+        .iter()
+        .find(|head| head.name.as_deref() == Some("跑步"))
+        .unwrap();
+    let head = read::node(db, OTHER, &talk(), &node.node_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let now = &head["standing"][&item];
+    assert_eq!(now["value"]["ended"], true);
+    assert!(now.get("bothChanged").is_none());
+    // An ended item is not shown again.
+    assert!(myriad_nodes::stands::shown_on(&node.node_id, &head).is_empty());
+    schema.drop().await;
+}
+
+/// Kept on the site's side while a side of theirs would refuse it; written
+/// to go once every side reads it, and what was kept before goes then too
+/// (`share_kept`, as when a side comes), under its own id.
+#[tokio::test]
+async fn how_their_life_stands_goes_to_their_sides_once_every_side_reads_it() {
+    let Some(schema) = schema("memory_nodes_standing_shared").await else {
+        return;
+    };
+    let db = &schema.db;
+    let topic = |name: &str| {
+        Some(GoesUnder::New {
+            name: name.into(),
+            aliases: Vec::new(),
+        })
+    };
+    let local = json!({"local": crate::services::her_log::NODE});
+    // A side of theirs still on log2: kept on the site.
+    crate::services::her_log::relay::remember_side(db, OTHER, "dev_mac", 2)
+        .await
+        .unwrap();
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[],"add":[{"topic":"跑步","text":"每周三晚上夜跑"}]}"#,
+    )]);
+    settle(db, vec![update("每周三晚上夜跑", &[], topic("跑步"))]).await;
+    let rows = standing_rows(db).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].3, local);
+    // Every side reads log3: written to go.
+    crate::services::her_log::relay::remember_side(db, OTHER, "dev_mac", 3)
+        .await
+        .unwrap();
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[],"add":[{"topic":"游泳","text":"周末去游泳"}]}"#,
+    )]);
+    settle(db, vec![update("周末去游泳", &[], topic("游泳"))]).await;
+    let rows = standing_rows(db).await;
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        (rows[0].3.clone(), rows[1].3.clone()),
+        (local, json!("shared"))
+    );
+    // The one kept before goes too, once.
+    let shared = super::share::share_kept(db, OTHER).await.unwrap();
+    assert_eq!(shared, 1);
+    let rows = standing_rows(db).await;
+    assert!(rows.iter().all(|row| row.3 == json!("shared")), "{rows:?}");
+    assert_eq!(super::share::share_kept(db, OTHER).await.unwrap(), 0);
+    schema.drop().await;
+}
+
+/// How things stand on 「跑步」 in account 7's talk, as shown.
+async fn running_stands(db: &DatabaseConnection) -> Vec<String> {
+    let heads = read::heads(db, OTHER, &talk(), None).await.unwrap();
+    let Some(node) = heads
+        .iter()
+        .find(|head| head.name.as_deref() == Some("跑步"))
+    else {
+        return Vec::new();
+    };
+    let Some(head) = read::node(db, OTHER, &talk(), &node.node_id).await.unwrap() else {
+        return Vec::new();
+    };
+    myriad_nodes::stands::shown_on(&node.node_id, &head)
+        .into_iter()
+        .map(|item| item.text)
+        .collect()
+}
+
+#[tokio::test]
+async fn how_their_life_stands_goes_with_the_memory_it_rests_on() {
+    let Some(schema) = schema("memory_nodes_standing_forget").await else {
+        return;
+    };
+    let db = &schema.db;
+    let running = || {
+        Some(GoesUnder::New {
+            name: "跑步".into(),
+            aliases: Vec::new(),
+        })
+    };
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[],"add":[{"topic":"跑步","text":"每周三晚上夜跑"}]}"#,
+    )]);
+    settle(db, vec![update("每周三晚上夜跑", &[], running())]).await;
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[{"item":1,"text":"每周五晚上夜跑"}],"end":[],"add":[]}"#,
+    )]);
+    settle(db, vec![update("夜跑改到周五了", &[], running())]).await;
+    assert_eq!(running_stands(db).await, vec!["每周五晚上夜跑".to_string()]);
+    // The change forgotten: it stands as it did before it.
+    let changed = memory_id(db, "夜跑改到周五了").await;
+    forget::forget(db, &[changed], &[]).await.unwrap();
+    assert_eq!(running_stands(db).await, vec!["每周三晚上夜跑".to_string()]);
+    // What it began with forgotten too: nothing of it stands.
+    let began = memory_id(db, "每周三晚上夜跑").await;
+    forget::forget(db, &[began], &[]).await.unwrap();
+    assert!(running_stands(db).await.is_empty());
+    let left = count(
+        db,
+        "SELECT count(*) AS n FROM agent_node_rows WHERE kind = 'node.standing' AND body <> ''",
+    )
+    .await;
+    assert_eq!(left, 0);
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn what_she_knew_before_stands_first_and_a_new_fact_ends_it() {
+    let Some(schema) = schema("memory_nodes_standing_built").await else {
+        return;
+    };
+    let db = &schema.db;
+    let running = || {
+        Some(GoesUnder::New {
+            name: "跑步".into(),
+            aliases: Vec::new(),
+        })
+    };
+    // Kept before anything stood: nothing to build from but itself, and
+    // the step starts nothing.
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[],"add":[]}"#,
+    )]);
+    let mut first = update("每周三晚上夜跑", &[], running());
+    first.standing.happened = Some(myriad_merope::happened::Happened {
+        from: "2026-08-21".into(),
+        to: None,
+        about: false,
+    });
+    settle(db, vec![first]).await;
+    assert_eq!(asked("memory_standing_build"), 0);
+    assert!(standing_rows(db).await.is_empty());
+    // A rule's 「现在」 (where a session is now) in the same talk is not
+    // hers: it does not count as built.
+    let node = read::heads(db, OTHER, &talk(), None)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|head| head.name.as_deref() == Some("跑步"))
+        .unwrap()
+        .node_id;
+    let session = json!({
+        "version": myriad_nodes::BODY_VERSION,
+        "sync": myriad_nodes::Sync::Local(crate::services::her_log::NODE.to_string()),
+        "saidBy": ["third_party"],
+        "base": [],
+        "item": "now",
+        "text": "quiet for long, its tests still running",
+        "because": ["session:s0123456789abcdef01234567"],
+    });
+    write::write(
+        db,
+        OTHER,
+        &talk(),
+        &[RowIn {
+            id: myriad_nodes::entries::row_id_from("node.standing", &node, "now", "rule"),
+            node,
+            kind: "node.standing".into(),
+            body: session,
+            author: Author::Rule,
+        }],
+        None,
+    )
+    .await
+    .unwrap();
+    let rule_rows = standing_rows(db).await.len();
+    assert_eq!(rule_rows, 1);
+    // The next stretch: first how things stood (from what she knew, not
+    // from what it kept), then what it does to that.
+    answering(&[
+        (
+            "memory_standing_build",
+            r#"{"items":[{"whose":"them","text":"每周三晚上夜跑","because":[1]}]}"#,
+        ),
+        (
+            "memory_standing_step",
+            r#"{"whose":"them","set":[],"end":[1],"add":[]}"#,
+        ),
+    ]);
+    settle(db, vec![update("膝盖伤了，不夜跑了", &[], running())]).await;
+    let world = g0::leave().expect("a world");
+    let built: Vec<&Value> = world
+        .log
+        .iter()
+        .filter(|line| {
+            line["kind"] == "model" && line["what"]["operation"] == "memory_standing_build"
+        })
+        .collect();
+    assert_eq!(built.len(), 1);
+    let input = built[0]["what"]["input"].as_str().unwrap();
+    assert!(input.contains("每周三晚上夜跑") && !input.contains("膝盖"));
+    // Each memory with when it happened, not when it was put on the node.
+    assert!(input.contains("2026-08-21"), "{input}");
+    let rows: Vec<_> = standing_rows(db)
+        .await
+        .into_iter()
+        .filter(|row| row.0 != "now")
+        .collect();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].1, "每周三晚上夜跑");
+    assert_eq!(rows[0].4, json!([]));
+    assert_eq!(rows[1].0, rows[0].0, "the same item, ended");
+    assert_eq!(
+        (rows[1].1.as_str(), rows[1].2),
+        ("膝盖伤了，不夜跑了", true)
+    );
+    assert_eq!(rows[1].4.as_array().map(Vec::len), Some(1));
+    // Since: what it rests on happened then; the news, with no day of its
+    // own, the day she was told.
+    let sinces: Vec<Value> = db
+        .query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT body FROM agent_node_rows WHERE kind = 'node.standing' AND author = 'her' \
+             ORDER BY at, hlc",
+        ))
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| {
+            serde_json::from_str::<Value>(&row.try_get::<String>("", "body").unwrap()).unwrap()
+                ["since"]
+                .clone()
+        })
+        .collect();
+    let today = crate::clock::now()
+        .with_timezone(&crate::services::agent::merope::clock::zone())
+        .format("%Y-%m-%d")
+        .to_string();
+    assert_eq!(sinces, vec![json!("2026-08-21"), json!(today)]);
+    schema.drop().await;
+}

@@ -108,26 +108,42 @@ impl Outgoing {
     }
 }
 
-/// A core that holds nothing of an audience with more rows than this gets
-/// the HTTPS download instead of rows over the link.
+/// A core that holds nothing of an audience with more rows than this, and
+/// listed [`FULL`], gets the HTTPS download instead of rows over the link.
 pub const FULL_AFTER_ROWS: usize = 2 * myriad_nodes::wire::BATCH_ROWS;
 
 /// What the server remembers of one link session with one device: its
-/// core's ABI as its `hello` said ([`peer_abi`]), and the rows it asked
-/// that device for again, so it asks for each at most once (`log.vector`
-/// `ask`). The connection keeps one per link and drops it when the link
-/// closes.
+/// core's ABI as its `hello` said ([`peer_abi`]), whether it downloads a
+/// first full sync by a link ([`FULL`]), and the rows it asked that device
+/// for again, so it asks for each at most once (`log.vector` `ask`). The
+/// connection keeps one per link and drops it when the link closes.
 #[derive(Debug, Clone)]
 pub struct Session {
     peer_abi: u32,
+    full: bool,
     asked: BTreeSet<String>,
 }
+
+/// The capability a host core lists when it downloads a first full sync by
+/// the link `log.full` gives: only such a link is given one; another gets
+/// the rows over the link in `log.rows` batches, as any increment.
+pub const FULL: &str = "log.full";
 
 impl Session {
     pub fn new(peer_abi: u32) -> Self {
         Self {
             peer_abi,
+            full: false,
             asked: BTreeSet::new(),
+        }
+    }
+
+    /// The session of a link whose `hello` listed `capabilities`, as
+    /// accepted.
+    pub fn of(capabilities: &[String]) -> Self {
+        Self {
+            full: capabilities.iter().any(|capability| capability == FULL),
+            ..Self::new(peer_abi(capabilities))
         }
     }
 }
@@ -139,14 +155,86 @@ impl Default for Session {
     }
 }
 
-/// The core ABI of the other side of a link: 2 when its `hello` (or
-/// `welcome`) listed `log2`, 1 when not (`nodes.wire_send` `peerAbi`).
+/// The core ABI of the other side of a link (`nodes.wire_send` `peerAbi`):
+/// the highest N for which its `hello` (or `welcome`) listed `logN`, 1 when
+/// none. `capabilities` is the list as accepted, so it holds only the `logN`
+/// the contract of the core this site is built with has, none above what
+/// that core reads.
 pub fn peer_abi(capabilities: &[String]) -> u32 {
-    if capabilities.iter().any(|capability| capability == "log2") {
-        2
-    } else {
-        1
-    }
+    capabilities
+        .iter()
+        .filter_map(|capability| capability.strip_prefix("log")?.parse::<u32>().ok())
+        .filter(|abi| *abi >= 2)
+        .max()
+        .unwrap_or(1)
+}
+
+/// The core ABI each of the owner's devices last synced her log with, by
+/// device: a side of hers is a device that synced, until it is removed.
+const SIDES: &str = "her_log_side_abi";
+const SIDE_SECS: i64 = 100 * 365 * 24 * 60 * 60;
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Side {
+    abi: u32,
+}
+
+/// Keeps that `device` syncs her log with a core of `abi`.
+pub async fn remember_side<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    owner: i32,
+    device: &str,
+    abi: u32,
+) -> Result<(), sea_orm::DbErr> {
+    crate::services::runtime_registry::put(
+        db,
+        SIDES,
+        &format!("{owner}/{device}"),
+        crate::services::runtime_registry::RegistryIdentity {
+            subject_id: Some(owner),
+            owner_id: Some(owner),
+            tapp_id: None,
+            runtime_id: Some(device),
+        },
+        &Side { abi },
+        crate::clock::now().timestamp() + SIDE_SECS,
+    )
+    .await
+}
+
+/// Whether every side of the owner's that syncs her log reads `abi`: there
+/// is one, and each device of theirs that synced and is not removed last
+/// synced with a core of `abi` or later. A row only such a core reads may
+/// then be written to go to all of them (`myriad_nodes::wire`: a side
+/// below it gets nothing while one is to go).
+pub async fn every_side_reads<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    owner: i32,
+    abi: u32,
+) -> Result<bool, sea_orm::DbErr> {
+    let rows = crate::services::runtime_registry::list(db, SIDES, Some(owner), None).await?;
+    let removed = db
+        .query_all_raw(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT id FROM agent_sync_devices WHERE user_id = $1 AND revoked_at IS NOT NULL",
+            [owner.into()],
+        ))
+        .await?
+        .into_iter()
+        .filter_map(|row| row.try_get::<String>("", "id").ok())
+        .collect::<BTreeSet<String>>();
+    let sides: Vec<_> = rows
+        .into_iter()
+        .filter(|row| {
+            !row.runtime_id
+                .as_deref()
+                .is_some_and(|device| removed.contains(device))
+        })
+        .collect();
+    Ok(!sides.is_empty()
+        && sides.into_iter().all(|row| {
+            serde_json::from_value::<Side>(row.payload).is_ok_and(|side| side.abi >= abi)
+        }))
 }
 
 /// The roles the server speaks in.
@@ -295,6 +383,17 @@ pub async fn take(
     };
     let body = &frame["body"];
     let mine = host && holder == device;
+    // Which lease frame came from whom and when, with the epoch it names:
+    // no reasons, places or anything else in the body.
+    if checked.t.starts_with("lease.") {
+        tracing::info!(
+            device,
+            t = %checked.t,
+            epoch = ?body.get("epoch").and_then(serde_json::Value::as_u64),
+            holder = %holder,
+            "[her-log] a lease frame"
+        );
+    }
     let side = Holder {
         core,
         owner: owner.partner.clone(),
@@ -313,7 +412,28 @@ pub async fn take(
                 }
                 None => Vec::new(),
             };
+            // The counts it holds past a gap, by origin: not in its vector,
+            // so a side that took rows after a refused one shows them here.
+            if let Some(beyond) = body.get("beyond") {
+                tracing::debug!(
+                    device,
+                    audience,
+                    beyond = %beyond,
+                    "[her-log] a side's rows past a gap"
+                );
+            }
             lease::heard(db, device, Some(Seen::Host), now).await?;
+            // How far a host core is: the holder on what it was handed, a
+            // device marked behind until it catches up, anyone's for when
+            // it is handed her later (`stuck`).
+            if host {
+                let standing = if mine || super::stuck::held_back(device) {
+                    lease::standing(db).await?
+                } else {
+                    None
+                };
+                super::stuck::heard(device, standing.as_ref(), &audience, &theirs, now);
+            }
             vector(
                 db, root, &owner, device, &side, session, &audience, &theirs, ask, now,
             )
@@ -345,6 +465,27 @@ pub async fn take(
         }
         "lease.ask" => {
             lease::heard(db, device, Some(Seen::Host), now).await?;
+            // Its holder asking: the grant it was sent did not reach it (the
+            // link it went out on closed as it went, the device opening
+            // another), though `lease.epoch` did. It gets the grant again,
+            // as it stands; nothing moves.
+            if holder == device
+                && let Some(standing) = lease::standing(db)
+                    .await?
+                    .filter(|grant| grant.held_by(device))
+            {
+                tracing::info!(
+                    device,
+                    epoch = standing.epoch,
+                    "[her-log] her holder asked again: its grant was sent again"
+                );
+                return Ok(vec![Outgoing {
+                    to: To::Sender,
+                    t: "lease.grant",
+                    id: Some(standing.epoch.to_string()),
+                    body: lease::grant_body(&standing, settings),
+                }]);
+            }
             let request = match body["why"].as_str() {
                 Some("force") => {
                     // Taken from here by force: her records as they are now
@@ -355,6 +496,11 @@ pub async fn take(
                     Request::Force {
                         to: device.to_string(),
                     }
+                }
+                // Taken back from it for never catching up, and still
+                // behind: it would hold her and stop again (`stuck`).
+                Some("talk" | "place") if holder == NODE && super::stuck::held_back(device) => {
+                    return Ok(Vec::new());
                 }
                 Some("talk" | "place") if holder == NODE => {
                     let standing = lease::current(db).await?;
@@ -445,9 +591,20 @@ async fn vector(
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
     let ours = store::holdings(db, owner.user, audience).await?;
+    // How far a side has her log, by origin: counts only, no rows. What a
+    // check after a forget reads to see the side has the forget row.
+    tracing::debug!(
+        device,
+        audience,
+        theirs = ?theirs,
+        ours = ?ours.vector,
+        "[her-log] a side's vector"
+    );
     let mut out = Vec::new();
     let held: u64 = ours.vector.values().sum();
-    if theirs.is_empty() && held as usize > FULL_AFTER_ROWS {
+    // A link is given only to one that said it downloads by it: one that
+    // did not would drop it and never catch up (a Mac did, 2026-11-14).
+    if theirs.is_empty() && session.full && held as usize > FULL_AFTER_ROWS {
         let link = full::issue(db, device, audience, session.peer_abi, now).await?;
         out.push(Outgoing::back(
             "log.full",
@@ -557,6 +714,13 @@ async fn rows(
         && let Err(error) = super::talk::fold(db, root, owner.user).await
     {
         tracing::warn!(%error, "[her-log] lines said on another end were not copied here");
+    }
+    // The owner's answers to her cards there are answers here too.
+    if audience == owner.personal()
+        && !taken.added.is_empty()
+        && let Err(error) = super::cards::fold(db, root, owner.user).await
+    {
+        tracing::warn!(%error, "[her-log] answers to her cards on another end were not taken here");
     }
     // Her records another end wrote go into the site's tables (b1).
     if (audience == owner.personal() || audience == Owner::OWN)

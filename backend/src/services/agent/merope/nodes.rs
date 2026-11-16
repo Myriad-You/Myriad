@@ -22,16 +22,22 @@ use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use chrono::{DateTime, Utc};
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
+#[cfg(test)]
+use sea_orm::TransactionTrait;
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
 
-use super::gates::{AI_CHAT_EVENT, PEER_AGENT_EVENT};
+use super::gates::AI_CHAT_EVENT;
 
-/// The most notes, references and log-worthy lines a node keeps (as on the Mac).
+/// The most notes, references and log-worthy lines a node kept (as on the Mac).
+#[cfg(test)]
 const NOTES_AT_MOST: usize = 64;
+#[cfg(test)]
 const REFS_AT_MOST: usize = 200;
 /// Her notes that come with the next moment about the node, newest last.
 const NOTES_TOLD: usize = 6;
@@ -49,6 +55,7 @@ pub(crate) enum Form {
 }
 
 impl Form {
+    #[cfg(test)]
     fn as_str(self) -> &'static str {
         match self {
             Form::Repo => "repo",
@@ -66,16 +73,11 @@ pub(crate) struct Place {
 }
 
 /// Where a moment of `event_key` with these facts files, if anywhere.
-pub(crate) fn place(event_key: &str, facts: &BTreeMap<String, String>) -> Option<Place> {
+/// Another agent's session files nowhere here any more: her link's `now`
+/// family puts it on her nodes by rules (`merope::sessions`); the
+/// repository nodes kept from before are still listed and forgotten.
+pub(crate) fn place(event_key: &str, _facts: &BTreeMap<String, String>) -> Option<Place> {
     match event_key {
-        PEER_AGENT_EVENT => {
-            let repo = facts.get("repo").map(|repo| repo.trim()).unwrap_or("");
-            (!repo.is_empty()).then(|| Place {
-                form: Form::Repo,
-                key: repo.to_string(),
-                title: repo.to_string(),
-            })
-        }
         // The child names this one in its own language.
         AI_CHAT_EVENT => Some(Place {
             form: Form::Together,
@@ -109,6 +111,7 @@ pub(crate) struct Note {
     pub(crate) said: bool,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Ref {
@@ -116,7 +119,9 @@ struct Ref {
     at: DateTime<Utc>,
 }
 
-/// What she decided about a moment, as it is kept on its node.
+/// What she decided about a moment, as it was kept on its node. The table
+/// is no longer written; tests make old nodes with it.
+#[cfg(test)]
 #[derive(Debug, Clone)]
 pub(crate) struct Decided<'a> {
     pub(crate) event: &'a str,
@@ -166,6 +171,7 @@ fn json_list<T: for<'de> Deserialize<'de>>(value: Option<Value>) -> Vec<T> {
 }
 
 /// Appends a line to the node's log, after `logged` lines.
+#[cfg(test)]
 async fn log<C: ConnectionTrait>(
     db: &C,
     node: &str,
@@ -237,7 +243,9 @@ pub(crate) fn told(notes: &[Note]) -> Option<String> {
 
 /// Files what she decided about a moment on its node: the node made the
 /// first time, the event kept as a reference, her line or note kept, each
-/// change logged. Only the owner's own.
+/// change logged. Only the owner's own. No longer written but by tests,
+/// which make the nodes kept from before.
+#[cfg(test)]
 pub(crate) async fn decided(
     db: &DatabaseConnection,
     user_id: i32,
@@ -348,6 +356,7 @@ pub(crate) async fn decided(
 
 /// Her line about `event` was said to the owner: its note on the node says
 /// so. Nothing when no node of theirs holds it.
+#[cfg(test)]
 pub(crate) async fn said(
     db: &DatabaseConnection,
     user_id: i32,
@@ -490,13 +499,22 @@ mod tests {
             .collect()
     }
 
+    /// A repository node kept from before the `now` family.
+    pub(crate) fn repo_place(key: &str) -> Place {
+        Place {
+            form: Form::Repo,
+            key: key.to_string(),
+            title: key.to_string(),
+        }
+    }
+
     #[test]
-    fn a_moment_files_under_its_repository_or_the_talks_with_other_ais() {
-        let repo = place(PEER_AGENT_EVENT, &facts(&[("repo", "sample-repo")])).unwrap();
-        assert_eq!((repo.form, repo.key.as_str()), (Form::Repo, "sample-repo"));
-        assert_eq!(repo.title, "sample-repo");
-        assert_eq!(place(PEER_AGENT_EVENT, &facts(&[("repo", "  ")])), None);
-        assert_eq!(place(PEER_AGENT_EVENT, &facts(&[])), None);
+    fn a_moment_files_under_the_talks_with_other_ais_only() {
+        use crate::services::agent::merope::gates::PEER_AGENT_EVENT;
+        assert_eq!(
+            place(PEER_AGENT_EVENT, &facts(&[("repo", "sample-repo")])),
+            None
+        );
         let chats = place(AI_CHAT_EVENT, &facts(&[("service", "Chat")])).unwrap();
         assert_eq!(
             (chats.form, chats.key.as_str()),
@@ -557,7 +575,7 @@ mod tests {
             .unwrap();
         }
         let mut heard = subscribe();
-        let repo = place(PEER_AGENT_EVENT, &facts(&[("repo", "sample-repo")])).unwrap();
+        let repo = repo_place("sample-repo");
         let line = |event: &str, action: &str, said: bool| Note {
             event: event.into(),
             happened: "waiting".into(),

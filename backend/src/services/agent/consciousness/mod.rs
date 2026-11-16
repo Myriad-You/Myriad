@@ -7,10 +7,12 @@
 
 mod attention;
 mod authorize;
+mod decision_prompt;
 mod dispatch;
 mod engine;
 mod grant;
 mod grant_store;
+mod judging;
 mod policy;
 mod presence;
 mod snapshot;
@@ -21,7 +23,7 @@ mod types;
 #[cfg(test)]
 pub(crate) fn semantic_probe_contract(soul: &str, kind: &str) -> (String, serde_json::Value) {
     (
-        engine::decision_system_prompt(soul),
+        decision_prompt::decision_system_prompt(soul, kind),
         engine::decision_schema_for_event(kind),
     )
 }
@@ -51,7 +53,10 @@ pub use presence::{
 };
 pub use snapshot::capture_self_snapshot;
 pub(crate) use snapshot::said_unasked_lately;
-pub use speak_intent::{SpeakIntent, drain_speak_intents, enqueue_speak_intent, new_speak_intent};
+pub use speak_intent::{
+    SpeakIntent, drain_speak_intents, enqueue_speak_intent, new_speak_intent,
+    withdraw_speak_intents, withdrawn,
+};
 pub use store::IntentStore;
 pub use types::{
     AcceptSource, ConsciousnessAction, ConsciousnessDecision, ConsciousnessEvent, EventUrgency,

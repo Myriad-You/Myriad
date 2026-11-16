@@ -56,6 +56,8 @@ mod contract;
 mod conversations;
 mod experience;
 mod moment;
+mod moment_repeats;
+mod now;
 mod nodes;
 mod notices;
 mod outfit;
@@ -220,6 +222,13 @@ fn send_log_all(owner: i32, except: &str, outgoing: connection::Outgoing) {
     for sender in senders {
         let _ = sender.try_send(outgoing.clone());
     }
+}
+
+/// A frame of her log to every link of `owner` that syncs her now, sent
+/// by the server itself rather than as an answer on a link (her mind taken
+/// back from a holder that never caught up: `her_log::stuck`).
+pub(crate) fn tell_log_links(owner: i32, t: &'static str, body: serde_json::Value) {
+    send_log_all(owner, "", connection::frame(t, body));
 }
 
 /// Where she lives changed: each child is told she is not here (frozen or

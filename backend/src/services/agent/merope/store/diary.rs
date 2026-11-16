@@ -126,6 +126,7 @@ pub(crate) async fn spoke_up_between(
 ) -> Result<u64, sea_orm::DbErr> {
     use sea_orm::PaginatorTrait;
     agent_proactive_messages::Entity::find()
+        .filter(agent_proactive_messages::Column::Role.eq("assistant"))
         .filter(agent_proactive_messages::Column::CreatedAt.gte(start))
         .filter(agent_proactive_messages::Column::CreatedAt.lt(end))
         .count(db)

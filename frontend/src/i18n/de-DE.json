@@ -668,7 +668,8 @@
       "mindElsewhere": "Sie ist gerade auf „{name}“.",
       "mindElsewhereUnknown": "Sie ist gerade auf einem anderen deiner Geräte.",
       "mindElsewhereLeave": "Sie ist gerade auf „{name}“; was du hier sagst, sieht sie dort.",
-      "mindElsewhereLeaveUnknown": "Sie ist gerade auf einem anderen deiner Geräte; was du hier sagst, sieht sie dort."
+      "mindElsewhereLeaveUnknown": "Sie ist gerade auf einem anderen deiner Geräte; was du hier sagst, sieht sie dort.",
+      "mindBack": "Sie ist gerade hierher zurückgekommen und holt noch nach, was sie auf deinem anderen Gerät geschrieben hat; gleich ist es so weit."
     },
     "status": {
       "idle": "Bereit",
@@ -748,6 +749,12 @@
       "kicker": "Stimmung"
     },
     "send": "Senden",
+    "search": {
+      "label": "Suche auf der Website",
+      "placeholder": "Auf der Website suchen…",
+      "posts": "Beiträge",
+      "library": "Bibliothek"
+    },
     "attach": {
       "kind": "Datei",
       "add": "Anhang hinzufügen",
@@ -782,7 +789,6 @@
     "executionFailed": "Ausführung fehlgeschlagen",
     "failReason": "Fehler: {reason}",
     "interrupted": "Unterbrochen",
-    "loginRequiredHint": "Anmelden, um mit Agent zu chatten. Als Gast nur ansehen.",
     "requestTimeout": "Anfrage abgelaufen oder unterbrochen",
     "streamError": "Antwortstrom ließ sich nicht lesen",
     "taskCompleted": "Aufgabe erledigt",
@@ -803,6 +809,26 @@
     "pictures": "(hat {count} Bilder geschickt)",
     "forgetLine": "Vergessen",
     "confirmForgetLine": "Sie vergisst diesen Satz und was sie daraus behalten hat; beim Synchronisieren auf allen Geräten.",
+    "card": {
+      "moved": "Diese Karte wurde aktualisiert – siehe weiter unten",
+      "chose": "„{label}“ gewählt",
+      "answered": "Bereits beantwortet",
+      "failed": "Nicht gesendet. Versuch es noch einmal.",
+      "closed": "Diese Karte ist abgeschlossen",
+      "stale": "Die Karte hat sich gerade geändert; das ist die neueste",
+      "because": "Gestützt auf Fakt {n}",
+      "view": "Einschätzung",
+      "states": {
+        "working": "Läuft",
+        "waiting_owner": "Wartet auf dich",
+        "finished": "Fertig",
+        "stuck": "Festgefahren",
+        "waiting_checks": "Wartet auf Prüfungen",
+        "waiting_program": "Wartet auf ein anderes Programm",
+        "waiting_session": "Wartet auf Rückmeldung",
+        "quiet": "Länger ruhig"
+      }
+    },
     "closeImage": "Schließen",
     "newSession": "Neues Thema",
     "stop": "Stopp",

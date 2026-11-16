@@ -668,7 +668,8 @@
       "mindElsewhere": "她现在在「{name}」那边。",
       "mindElsewhereUnknown": "她现在在你的另一台设备上。",
       "mindElsewhereLeave": "她现在在「{name}」那边，在这里说的话她在那边看得到。",
-      "mindElsewhereLeaveUnknown": "她现在在你的另一台设备上，在这里说的话她在那边看得到。"
+      "mindElsewhereLeaveUnknown": "她现在在你的另一台设备上，在这里说的话她在那边看得到。",
+      "mindBack": "她刚回到这里，正在接上另一台设备那边写下的内容，一会儿就好。"
     },
     "status": {
       "idle": "待命",
@@ -748,6 +749,12 @@
       "kicker": "心情"
     },
     "send": "发送",
+    "search": {
+      "label": "站内搜索",
+      "placeholder": "搜索站内内容…",
+      "posts": "文章",
+      "library": "收藏库"
+    },
     "attach": {
       "kind": "附件",
       "add": "添加附件",
@@ -782,7 +789,6 @@
     "executionFailed": "执行失败",
     "failReason": "失败原因: {reason}",
     "interrupted": "已中断",
-    "loginRequiredHint": "登录后即可与 Agent 对话。游客模式仅可浏览。",
     "requestTimeout": "请求超时或已中断",
     "streamError": "无法读取响应流",
     "taskCompleted": "任务已完成",
@@ -803,6 +809,26 @@
     "pictures": "（发了 {count} 张图）",
     "forgetLine": "忘掉",
     "confirmForgetLine": "她会忘掉这句话和由它记下的事；同步着的话，两端都会删掉。",
+    "card": {
+      "moved": "这张卡已更新，在下面",
+      "chose": "选了「{label}」",
+      "answered": "已经回答过了",
+      "failed": "没送出去，再试一次",
+      "closed": "这张卡已经结束了",
+      "stale": "卡刚更新过，这是最新的",
+      "because": "依据第 {n} 条",
+      "view": "看法",
+      "states": {
+        "working": "进行中",
+        "waiting_owner": "等你决定",
+        "finished": "已完成",
+        "stuck": "卡住了",
+        "waiting_checks": "等检查跑完",
+        "waiting_program": "等别的程序",
+        "waiting_session": "等着回报",
+        "quiet": "很久没动静"
+      }
+    },
     "closeImage": "关掉",
     "newSession": "换个话题",
     "stop": "停下",

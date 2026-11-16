@@ -1155,10 +1155,15 @@ mod tests {
         let url = std::env::var("MYRIAD_RUNTIME_ISOLATION_TEST_DB").unwrap();
         let admin = Database::connect(&url).await.unwrap();
         let schema = format!("permission_policy_{}", uuid::Uuid::new_v4().simple());
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
             .await
             .unwrap();
+        drop(turn);
         let mut options = ConnectOptions::new(url);
         options.max_connections(2).map_sqlx_postgres_opts({
             let schema = schema.clone();
@@ -1221,10 +1226,15 @@ mod tests {
                 .await
                 .is_err()
         );
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("DROP SCHEMA {schema} CASCADE"))
             .await
             .unwrap();
+        drop(turn);
     }
 
     #[tokio::test]
@@ -1236,10 +1246,15 @@ mod tests {
         let url = std::env::var("MYRIAD_RUNTIME_ISOLATION_TEST_DB").unwrap();
         let admin = Database::connect(&url).await.unwrap();
         let schema = format!("config_txn_{}", uuid::Uuid::new_v4().simple());
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
             .await
             .unwrap();
+        drop(turn);
         let mut options = ConnectOptions::new(url);
         options.max_connections(2).map_sqlx_postgres_opts({
             let schema = schema.clone();
@@ -1340,10 +1355,15 @@ mod tests {
             "nested api_key must be sealed at rest"
         );
         assert!(!api_key.contains("sk-nested"));
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("DROP SCHEMA {schema} CASCADE"))
             .await
             .unwrap();
+        drop(turn);
     }
     use super::ConfigService;
     use crate::config::DynamicConfig;
