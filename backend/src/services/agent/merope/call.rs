@@ -400,6 +400,10 @@ pub(super) async fn site_owner() -> Option<i32> {
 pub(super) use myriad_merope::answer::parse;
 
 #[cfg(test)]
+#[path = "call_future_sizes_tests.rs"]
+mod future_sizes_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

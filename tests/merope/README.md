@@ -109,11 +109,11 @@ node scripts/test-merope-semantics.mjs --live
 MEROPE_MEMORY_BENCH=tests/merope/memory-zh.json MEROPE_MEMORY_BENCH_WAY=settle \
 MEROPE_MEMORY_BENCH_TIMES=3 MEROPE_MEMORY_BENCH_PER_TYPE=100 \
 MEROPE_MEMORY_BENCH_REPORT=/absolute/new/file.json \
-MYRIAD_MEDIA_TEST_DATABASE_URL=… cargo test -p myriad-backend --bin myriad-backend \
+RUST_MIN_STACK=8388608 MYRIAD_MEDIA_TEST_DATABASE_URL=… cargo test -p myriad-backend --bin myriad-backend \
   -- --ignored her_memory_on_longmemeval --nocapture
 ```
 
-会花站点模型的钱。写入只进每次新建、跑完删除的独立 schema。题目全部是编的：闲聊、私事和数字都不来自真实用户。报告的 `scores` 给出每种召回方式的单次准确率、每轮答对数和 `pass^n`（n 次都答对的题数）。`wide` 是生产的召回方式。
+会花站点模型的钱。写入只进每次新建、跑完删除的独立 schema。`RUST_MIN_STACK=8388608` 给测试线程 8 MB 栈：评测在测试线程上把整条记下、整理、回想的链压在一个栈里，debug 构建下默认的 2 MB 不够（2026-11-17 曾溢出）。题目全部是编的：闲聊、私事和数字都不来自真实用户。报告的 `scores` 给出每种召回方式的单次准确率、每轮答对数和 `pass^n`（n 次都答对的题数）。`wide` 是生产的召回方式。
 
 ### 变了没说的事
 
@@ -143,7 +143,7 @@ MYRIAD_MEDIA_TEST_DATABASE_URL=… cargo test -p myriad-backend --bin myriad-bac
 ```sh
 MEROPE_MEMORY_WEEKS=tests/merope/memory-chain-zh.json MEROPE_MEMORY_BENCH_TIMES=3 \
 MEROPE_MEMORY_WEEKS_REPORT=/absolute/new/file.json \
-MYRIAD_MEDIA_TEST_DATABASE_URL=… cargo test -p myriad-backend --bin myriad-backend \
+RUST_MIN_STACK=8388608 MYRIAD_MEDIA_TEST_DATABASE_URL=… cargo test -p myriad-backend --bin myriad-backend \
   -- --ignored her_memory_over_weeks --nocapture
 ```
 
@@ -160,7 +160,7 @@ MEROPE_MEMORY_BENCH=tests/merope/memory-long-zh.json \
 MEROPE_MEMORY_BENCH_BACKGROUND=tests/merope/memory-long-background-zh.json \
 MEROPE_MEMORY_BENCH_TIMES=3 MEROPE_MEMORY_BENCH_SMALL=1 MEROPE_MEMORY_BENCH_WIDER_ARM=2 \
 MEROPE_MEMORY_BENCH_REPORT=/absolute/new/file.json \
-MYRIAD_MEDIA_TEST_DATABASE_URL=… cargo test -p myriad-backend --bin myriad-backend \
+RUST_MIN_STACK=8388608 MYRIAD_MEDIA_TEST_DATABASE_URL=… cargo test -p myriad-backend --bin myriad-backend \
   -- --ignored her_memory_after_a_long_background --nocapture
 ```
 
