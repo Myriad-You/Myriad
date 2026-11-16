@@ -1092,6 +1092,7 @@
   "agentHostChooseTitle": "彼女の住む場所",
   "agentHostChooseBody": "彼女が住むのは一か所だけです。Mac に住ませるのは今後のバージョンからです：その時サイトがウェブとチャットアプリの言葉をその Mac に渡せるようになります。",
   "agentHostChooseOpenBody": "受け入れ確認用の入口が開いています：Mac を選び、その Mac が同意してここでパスフレーズを入れて確認すると、彼女はそこへ移ります。",
+  "agentHostStaysBody": "彼女はサイトに住んでいます。つながっている Mac でも彼女と話せて、彼女はその Mac を通して見たり作業したりできますが、そちらへ移ることはありません。",
   "agentHostChooseDevice": "彼女を「{name}」に住ませる",
   "agentHostChooseBack": "彼女をサイトに戻す",
   "agentHostChooseBackConfirm": "彼女を「{name}」からサイトに戻しますか？確認するとその Mac で凍結され、戻り終わるまでどの端にも彼女はいません。",

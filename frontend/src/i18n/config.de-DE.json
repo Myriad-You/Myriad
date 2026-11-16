@@ -1092,6 +1092,7 @@
   "agentHostChooseTitle": "Wo sie wohnt",
   "agentHostChooseBody": "Sie wohnt nur an einem Ort. Sie auf einem Mac wohnen zu lassen, kommt in einer späteren Version, wenn die Website weitergeben kann, was im Web und in Chat-Apps gesagt wird.",
   "agentHostChooseOpenBody": "Der Abnahme-Zugang ist offen: Wähle einen Mac; sobald er zustimmt und du hier mit einer Passphrase bestätigst, zieht sie dorthin.",
+  "agentHostStaysBody": "Sie lebt auf der Website. Auf einem verbundenen Mac können Sie mit ihr sprechen, und sie kann darüber sehen und Dinge erledigen, aber sie zieht nicht dorthin um.",
   "agentHostChooseDevice": "Sie auf „{name}“ wohnen lassen",
   "agentHostChooseBack": "Sie auf die Website zurückholen",
   "agentHostChooseBackConfirm": "Sie von „{name}“ auf die Website zurückholen? Sie wird auf dem Mac sofort eingefroren, und bis sie hier ankommt, hat sie kein Ende.",

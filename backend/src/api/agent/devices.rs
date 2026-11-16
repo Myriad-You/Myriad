@@ -54,6 +54,15 @@ async fn device_list(db: &DatabaseConnection, owner: i32) -> Result<Value, HttpE
         .await
         .map_err(store_failed)?
         .is_none();
+    let stays = matches!(
+        crate::services::persona_sync::moves::to_device_allowed(
+            db,
+            crate::services::her_log::settings(),
+            owner,
+        )
+        .await,
+        Err(lease::MoveError::Later)
+    );
     // Her daily backups (D4): what the site keeps and cannot open.
     let backups = crate::services::persona_sync::backups::listed(db)
         .await
@@ -77,6 +86,9 @@ async fn device_list(db: &DatabaseConnection, owner: i32) -> Result<Value, HttpE
         "sealed": sealed,
         // Her living on a device opens with H4 (Q8); the acceptance entry only.
         "deviceHostOpen": lease::device_host_open(),
+        // She stays on the site while her log syncs (2026-11-16): no move
+        // to a device is offered, and the page says so.
+        "herStays": stays,
         // What the site sealed of its her before a merge (H3d-12).
         "retired": crate::services::persona_sync::merge::retired().await,
         "empty": empty,

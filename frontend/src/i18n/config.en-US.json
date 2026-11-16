@@ -1092,6 +1092,7 @@
   "agentHostChooseTitle": "Where she lives",
   "agentHostChooseBody": "She lives in one place only. Letting her live on a Mac comes in a later version, when the site can pass what the web and chat apps say on to that Mac.",
   "agentHostChooseOpenBody": "The acceptance entry is open: pick a Mac; once it agrees and you confirm here with a passphrase, she moves there.",
+  "agentHostStaysBody": "She lives on the site. You can talk with her on a connected Mac, and she can see and get things done through it, but she does not move there.",
   "agentHostChooseDevice": "Let her live on “{name}”",
   "agentHostChooseBack": "Bring her back to the site",
   "agentHostChooseBackConfirm": "Bring her back from “{name}” to the site? She is frozen on that Mac at once, and no end has her until she lands here.",

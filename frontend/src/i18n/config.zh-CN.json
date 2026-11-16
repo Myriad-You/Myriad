@@ -1092,6 +1092,7 @@
   "agentHostChooseTitle": "她住在哪里",
   "agentHostChooseBody": "她只住在一处。让她住到一台 Mac 上要等以后的版本：到那时站点才能把网页和聊天应用里的话转给那台 Mac。",
   "agentHostChooseOpenBody": "验收入口已打开：选一台 Mac，那台 Mac 同意、你在这里输口令确认后，她就搬过去。",
+  "agentHostStaysBody": "她住在站点。连着的 Mac 上也能和她说话，她也能借那台 Mac 看和办事，但她不会搬过去。",
   "agentHostChooseDevice": "让她住到「{name}」上",
   "agentHostChooseBack": "把她搬回站点",
   "agentHostChooseBackConfirm": "把她从「{name}」搬回站点？确认后她在那台 Mac 上冻结，传完之前哪一端都没有她。",

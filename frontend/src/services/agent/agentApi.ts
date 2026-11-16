@@ -214,6 +214,8 @@ export interface SyncDeviceList {
   sealed?: number | null
   /** Her living on a device is open here (only the acceptance entry before H4, Q8). */
   deviceHostOpen?: boolean
+  /** She stays on the site while her log syncs: no move to a device is offered. */
+  herStays?: boolean
   /** The site's last check of its own clock; null while off or not run yet. */
   serverClock?: ServerClock | null
   limit: number

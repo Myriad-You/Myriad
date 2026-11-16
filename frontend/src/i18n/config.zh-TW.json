@@ -1092,6 +1092,7 @@
   "agentHostChooseTitle": "她住在哪裡",
   "agentHostChooseBody": "她只住在一處。讓她住到一台 Mac 上要等以後的版本：到那時站點才能把網頁和聊天應用裡的話轉給那台 Mac。",
   "agentHostChooseOpenBody": "驗收入口已打開：選一台 Mac，那台 Mac 同意、你在這裡輸口令確認後，她就搬過去。",
+  "agentHostStaysBody": "她住在站點。連著的 Mac 上也能和她說話，她也能借那台 Mac 看和辦事，但她不會搬過去。",
   "agentHostChooseDevice": "讓她住到「{name}」上",
   "agentHostChooseBack": "把她搬回站點",
   "agentHostChooseBackConfirm": "把她從「{name}」搬回站點？確認後她在那台 Mac 上凍結，傳完之前哪一端都沒有她。",

@@ -1092,6 +1092,7 @@
   "agentHostChooseTitle": "Où elle vit",
   "agentHostChooseBody": "Elle ne vit qu'à un seul endroit. La faire vivre sur un Mac viendra dans une version ultérieure, quand le site pourra transmettre à ce Mac ce qui se dit sur le web et dans les applis de discussion.",
   "agentHostChooseOpenBody": "L'entrée de recette est ouverte : choisissez un Mac ; une fois qu'il accepte et que vous confirmez ici avec une phrase de passe, elle y part.",
+  "agentHostStaysBody": "Elle vit sur le site. Vous pouvez lui parler sur un Mac connecté, et elle peut voir et agir à travers lui, mais elle ne s’y installe pas.",
   "agentHostChooseDevice": "La faire vivre sur « {name} »",
   "agentHostChooseBack": "La ramener sur le site",
   "agentHostChooseBackConfirm": "La ramener de « {name} » sur le site ? Elle est figée sur ce Mac tout de suite, et aucun bout ne l'a avant son arrivée ici.",

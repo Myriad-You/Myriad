@@ -1092,6 +1092,7 @@
   "agentHostChooseTitle": "그녀가 사는 곳",
   "agentHostChooseBody": "그녀는 한 곳에만 삽니다. Mac에 살게 하는 것은 이후 버전부터입니다: 그때 사이트가 웹과 채팅 앱의 말을 그 Mac으로 전달할 수 있게 됩니다.",
   "agentHostChooseOpenBody": "검수용 입구가 열려 있습니다: Mac을 고르고, 그 Mac이 동의한 뒤 여기서 암호를 넣어 확인하면 그녀가 그리로 옮깁니다.",
+  "agentHostStaysBody": "그녀는 사이트에 삽니다. 연결된 Mac에서도 그녀와 이야기할 수 있고, 그녀는 그 Mac을 통해 보고 일을 할 수 있지만, 그쪽으로 옮겨 가지는 않습니다.",
   "agentHostChooseDevice": "그녀를 「{name}」에 살게 하기",
   "agentHostChooseBack": "그녀를 사이트로 데려오기",
   "agentHostChooseBackConfirm": "그녀를 「{name}」에서 사이트로 데려올까요? 확인하면 그 Mac에서 동결되고, 돌아올 때까지 어느 쪽에도 그녀가 없습니다.",

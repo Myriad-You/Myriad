@@ -932,19 +932,23 @@ export function AgentDevicesGroup() {
                     }),
                   },
                 ]
-              : live.map((device) => ({
-                  key: device.id,
-                  label: format(c.agentHostChooseDevice, { name: device.name }),
-                  onClick: () => void startMove('move', device.id),
-                  disabled: working || !list?.deviceHostOpen,
-                  variant: 'secondary' as const,
-                }))
+              : list?.herStays
+                ? []
+                : live.map((device) => ({
+                    key: device.id,
+                    label: format(c.agentHostChooseDevice, { name: device.name }),
+                    onClick: () => void startMove('move', device.id),
+                    disabled: working || !list?.deviceHostOpen,
+                    variant: 'secondary' as const,
+                  }))
           }
         >
           <p className="info-action-card-lede">
-            {list?.deviceHostOpen
-              ? c.agentHostChooseOpenBody
-              : c.agentHostChooseBody}
+            {list?.herStays
+              ? c.agentHostStaysBody
+              : list?.deviceHostOpen
+                ? c.agentHostChooseOpenBody
+                : c.agentHostChooseBody}
           </p>
         </InfoActionCard>
       ) : null}
