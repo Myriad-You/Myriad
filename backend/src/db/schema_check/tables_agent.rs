@@ -1111,6 +1111,15 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
+            name: "agent_forgotten".to_string(),
+            columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("what", "character varying").not_null(),
+                ColumnDef::new("mark", "character varying").not_null(),
+                ColumnDef::new("forgotten_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
             name: "agent_message_embeddings".to_string(),
             columns: vec![
                 ColumnDef::new("message_id", "integer").not_null(),

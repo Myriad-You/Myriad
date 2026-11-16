@@ -630,6 +630,15 @@ pub async fn take_in(
                 ))
                 .await?;
                 state::drop_known(&txn, owner.user, &object).await?;
+                // Kept as forgotten here too, so no copy elsewhere brings it
+                // back (`memory::forgotten`).
+                crate::services::agent::memory::forgotten::keep(
+                    &txn,
+                    owner.user,
+                    crate::services::agent::memory::forgotten::MEMORY,
+                    &[id.to_string()],
+                )
+                .await?;
                 txn.commit().await?;
                 // In her log too: every line that went.
                 crate::services::her_log::talk::forget_lines(db, &gone).await;

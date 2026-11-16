@@ -8,6 +8,7 @@
 //! into memories and imports the pre-unified JSON store.
 
 pub(crate) use myriad_agent_rules::memory::lexical;
+pub mod forgotten;
 pub mod manage;
 pub mod meaning;
 pub mod origins;

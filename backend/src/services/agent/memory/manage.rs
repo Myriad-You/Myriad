@@ -189,6 +189,14 @@ async fn forget_memory(
     let forgotten = crate::services::her_log::memories::forget_on(&txn, site_owner, &doomed)
         .await
         .map_err(|error| DbErr::Custom(error.to_string()))?;
+    // Kept as forgotten, so no copy elsewhere brings them back: under the
+    // person, or hers under the site owner.
+    for row in &rows {
+        if let Some(user_id) = row.user_id.filter(|id| *id > 0).or(site_owner) {
+            super::forgotten::keep(&txn, user_id, super::forgotten::MEMORY, &[row.id.clone()])
+                .await?;
+        }
+    }
     agent_memories::Entity::delete_many()
         .filter(agent_memories::Column::Id.is_in(doomed))
         .exec(&txn)
@@ -250,6 +258,17 @@ pub async fn forget_line(
     crate::services::agent::merope::memory_nodes::forget::forget(&txn, &[], &[line.id])
         .await
         .map_err(|error| DbErr::Custom(error.to_string()))?;
+    super::forgotten::keep(
+        &txn,
+        user_id,
+        super::forgotten::LINE,
+        &[super::forgotten::line_mark(
+            &line.role,
+            line.created_at.timestamp_micros(),
+            &line.content,
+        )],
+    )
+    .await?;
     agent_messages::Entity::delete_by_id(line.id)
         .exec(&txn)
         .await?;

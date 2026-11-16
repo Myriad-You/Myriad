@@ -141,6 +141,14 @@ pub(crate) async fn ensure_message_embeddings_table(db: &DatabaseConnection) -> 
     Ok(())
 }
 
+/// What she was made to forget, by mark (`migrations/forgotten.sql`), for
+/// databases that ran 004 before it was in it. Same file as 004.
+pub(crate) async fn ensure_forgotten_table(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(include_str!("../../../migrations/forgotten.sql"))
+        .await?;
+    Ok(())
+}
+
 /// User lifecycle owned by the schema (`migrations/user_lifecycle.sql`): FK
 /// cascades for account-owned rows; for subject-keyed tables an insert-side
 /// guard plus an AFTER DELETE trigger on `users`. Unlike the federation candidates below this heal always applies:

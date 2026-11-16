@@ -74,6 +74,7 @@ fn test_folded_extension_tables_in_expected_schema() {
         "agent_memory_embeddings",
         "agent_memory_cues",
         "agent_message_embeddings",
+        "agent_forgotten",
         "agent_speech_said",
         "agent_nodes",
         "agent_node_events",
