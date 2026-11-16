@@ -225,6 +225,27 @@ impl Ask {
         })
     }
 
+    /// What an answer's source said of it: one that stopped at its output
+    /// limit (thinking counts against it) is told in one line, counts only,
+    /// never what was said.
+    fn answered(&self, reported: &crate::services::ai_cost_ledger::Reported, chars: Option<usize>) {
+        let cut_off = reported
+            .stops
+            .iter()
+            .any(|stop| matches!(stop.as_str(), "max_tokens" | "length" | "MAX_TOKENS"));
+        if cut_off {
+            tracing::warn!(
+                owner = self.owner,
+                operation = self.operation,
+                output_tokens = reported.usage.output,
+                chars,
+                "[Merope] answer cut off at its output limit"
+            );
+        }
+        #[cfg(test)]
+        kept_for_bench(self, reported, chars);
+    }
+
     fn failed(self, failure: Failure) -> Failure {
         tracing::warn!(owner = self.owner, operation = self.operation, source = self.source,
             outcome = %failure, retryable = failure.retryable(), "[Merope] model call failed");
@@ -289,7 +310,7 @@ impl Model {
         &self,
         call: impl std::future::Future<Output = anyhow::Result<String>>,
     ) -> Result<String, Failure> {
-        let result = tokio::time::timeout(
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(tokio::time::timeout(
             self.ask.timeout,
             crate::services::ai_cost_ledger::with_site_ai_ledger(
                 self.ask.owner,
@@ -297,8 +318,15 @@ impl Model {
                 self.ask.operation,
                 call,
             ),
-        )
+        ))
         .await;
+        if let Some(reported) = &reported {
+            let answered = match &result {
+                Ok(Ok(raw)) => Some(raw.chars().count()),
+                _ => None,
+            };
+            self.ask.answered(reported, answered);
+        }
         match result {
             Ok(Ok(raw)) => Ok(raw),
             Ok(Err(error)) => Err(self.ask.failed(Failure::classify(&error))),
@@ -456,4 +484,33 @@ mod tests {
         let ask = ask.billed_as("touch").within(Duration::from_secs(2));
         assert_eq!((ask.source, ask.timeout), ("touch", Duration::from_secs(2)));
     }
+}
+
+/// Each call a memory bench run makes, one line to
+/// `MEROPE_BENCH_CALLS=<jsonl>`: which call, why it stopped, how many tokens
+/// it put out (thinking included) and how long the answer is. Counts only.
+#[cfg(test)]
+fn kept_for_bench(
+    ask: &Ask,
+    reported: &crate::services::ai_cost_ledger::Reported,
+    chars: Option<usize>,
+) {
+    let Some(path) = std::env::var_os("MEROPE_BENCH_CALLS") else {
+        return;
+    };
+    let line = serde_json::json!({
+        "operation": ask.operation,
+        "voice": format!("{:?}", ask.voice),
+        "stops": reported.stops,
+        "outputTokens": reported.usage.output,
+        "chars": chars,
+    })
+    .to_string()
+        + "\n";
+    use std::io::Write;
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut file| file.write_all(line.as_bytes()));
 }
