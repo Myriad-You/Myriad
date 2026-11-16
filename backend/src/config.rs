@@ -529,6 +529,10 @@ pub struct DynamicConfig {
     pub qq_bot_enabled: bool,
     pub qq_bot_app_id: String,
     pub qq_bot_app_secret: Option<String>,
+    /// 官方 QQ 机器人群聊：默认关。打开后只认白名单里的 group_openid。
+    pub qq_bot_groups_enabled: bool,
+    /// group_openid 白名单，逗号分隔（规范化后）。空：不参与任何群。
+    pub qq_bot_group_ids: String,
 
     /// Telegram 机器人办事通道。默认关；bot token 只写，不是 MTProto api_hash。
     pub telegram_bot_enabled: bool,
@@ -886,6 +890,8 @@ impl Default for DynamicConfig {
             qq_bot_enabled: false,
             qq_bot_app_id: String::new(),
             qq_bot_app_secret: None,
+            qq_bot_groups_enabled: false,
+            qq_bot_group_ids: String::new(),
             telegram_bot_enabled: false,
             telegram_bot_token: None,
             discord_bot_enabled: false,
