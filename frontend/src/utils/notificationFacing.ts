@@ -152,6 +152,13 @@ export function notificationFacingTitle(notification: AppNotification): string {
       return fill(t.noticeSkillChanged, {
         name: metaString(notification, 'skill_id') || name,
       })
+    case NotificationEvent.systemInfo: {
+      // Her own life stopped while she should be living, or is back.
+      const status = metaString(notification, 'status')
+      if (status === 'her_life_stopped') return t.noticeHerLifeStopped
+      if (status === 'her_life_back') return t.noticeHerLifeBack
+      break
+    }
     default:
       break
   }
@@ -236,6 +243,23 @@ export function notificationFacingBody(notification: AppNotification): string {
   }
   if (eventKey === NotificationEvent.heartbeatSeoReview) {
     return notification.body
+  }
+  if (eventKey === NotificationEvent.systemInfo) {
+    const status = metaString(notification, 'status')
+    const when = (key: string) => {
+      const at = metaString(notification, key)
+      return at ? new Date(at).toLocaleString() : ''
+    }
+    if (status === 'her_life_stopped') {
+      return fill(t.noticeHerLifeStoppedBody, { time: when('from') })
+    }
+    if (status === 'her_life_back') {
+      const seconds = notification.metadata?.stopped_secs
+      return fill(t.noticeHerLifeBackBody, {
+        time: when('since'),
+        n: typeof seconds === 'number' ? Math.round(seconds / 60) : 0,
+      })
+    }
   }
   if (eventKey === NotificationEvent.skillImproved) {
     return t.noticeSkillImprovedBody
