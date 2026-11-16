@@ -599,6 +599,12 @@ impl ConfigService {
                 .or_else(|| v.as_str().map(|s| s == "true" || s == "1"))
                 .unwrap_or(config.discord_bot_enabled);
         }
+        if let Some(v) = map.get("discord_bot_hear_other_bots") {
+            config.discord_bot_hear_other_bots = v
+                .as_bool()
+                .or_else(|| v.as_str().map(|s| s == "true" || s == "1"))
+                .unwrap_or(config.discord_bot_hear_other_bots);
+        }
         if let Some(v) = map.get("feishu_bot_enabled") {
             config.feishu_bot_enabled = v
                 .as_bool()
@@ -1750,8 +1756,10 @@ mod tests {
         let configured = ConfigService::parse_config(HashMap::from([
             ("discord_bot_enabled".into(), json!(true)),
             ("discord_bot_token".into(), json!("MTk4.Cl2FMQ.test")),
+            ("discord_bot_hear_other_bots".into(), json!(true)),
         ]));
         assert!(configured.discord_bot_enabled);
+        assert!(configured.discord_bot_hear_other_bots);
         assert_eq!(
             configured.discord_bot_token.as_deref(),
             Some("MTk4.Cl2FMQ.test")
@@ -1760,8 +1768,10 @@ mod tests {
         let from_str = ConfigService::parse_config(HashMap::from([
             ("discord_bot_enabled".into(), json!("true")),
             ("discord_bot_token".into(), json!("  ")),
+            ("discord_bot_hear_other_bots".into(), json!("true")),
         ]));
         assert!(from_str.discord_bot_enabled);
+        assert!(from_str.discord_bot_hear_other_bots);
         assert_eq!(from_str.discord_bot_token, None);
 
         let off = ConfigService::parse_config(HashMap::from([(
@@ -1769,6 +1779,7 @@ mod tests {
             json!(false),
         )]));
         assert!(!off.discord_bot_enabled);
+        assert!(!off.discord_bot_hear_other_bots);
         assert_eq!(off.discord_bot_token, None);
     }
 
