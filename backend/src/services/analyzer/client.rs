@@ -174,6 +174,43 @@ impl ProviderCallFailure {
     }
 }
 
+/// Puts `key` into the body's `output_config`, beside what it holds.
+fn merge_output_config(body: &mut serde_json::Value, key: &str, value: serde_json::Value) {
+    let Some(object) = body.as_object_mut() else {
+        return;
+    };
+    let config = object
+        .entry("output_config")
+        .or_insert_with(|| serde_json::json!({}));
+    if !config.is_object() {
+        *config = serde_json::json!({});
+    }
+    if let Some(config) = config.as_object_mut() {
+        config.insert(key.to_string(), value);
+    }
+}
+
+/// Takes `key` out of the body's `output_config`, and the config with it
+/// once nothing is left in it.
+fn take_output_config(body: &mut serde_json::Value, key: &str) {
+    let Some(object) = body.as_object_mut() else {
+        return;
+    };
+    let empty = match object
+        .get_mut("output_config")
+        .and_then(|c| c.as_object_mut())
+    {
+        Some(config) => {
+            config.remove(key);
+            config.is_empty()
+        }
+        None => false,
+    };
+    if empty {
+        object.remove("output_config");
+    }
+}
+
 impl AiAnalyzer {
     pub(super) async fn gemini_url(&self, stream: bool) -> String {
         if let Some(base) = self
@@ -256,6 +293,23 @@ impl AiAnalyzer {
         }
     }
 
+    /// The model it asks for.
+    #[cfg(test)]
+    pub(crate) fn model_name(&self) -> &str {
+        &self.model
+    }
+
+    /// Whether what its answers cost will be known: its source says so in
+    /// each answer (OpenRouter's `usage.cost`), or the model has a list
+    /// price ([`crate::services::ai_pricing::PRICES`]).
+    #[cfg(test)]
+    pub(crate) fn cost_known(&self) -> bool {
+        self.base_url
+            .as_deref()
+            .is_some_and(|url| url.contains("openrouter.ai"))
+            || crate::services::ai_pricing::price_of(&self.model).is_some()
+    }
+
     /// Cap success JSON to `max_bytes`, then deserialize.
     async fn read_limited_json<T: serde::de::DeserializeOwned>(
         response: reqwest::Response,
@@ -264,6 +318,11 @@ impl AiAnalyzer {
         let bytes = crate::services::outbound_security::read_limited_body(response, max_bytes)
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
+        #[cfg(test)]
+        crate::services::ai_cost_ledger::spent::charged(&bytes, None);
+        if let Ok(answer) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+            crate::services::ai_cost_ledger::note_answer(&answer, None);
+        }
         serde_json::from_slice(&bytes).context("Failed to parse Gemini JSON")
     }
 
@@ -367,6 +426,16 @@ impl AiAnalyzer {
         {
             object.insert("max_tokens".into(), serde_json::json!(cap));
         }
+        // A memory bench keeps what OpenRouter says each call cost.
+        #[cfg(test)]
+        if self
+            .base_url
+            .as_deref()
+            .is_some_and(|url| url.contains("openrouter.ai"))
+            && let Some(object) = body.as_object_mut()
+        {
+            object.insert("usage".into(), serde_json::json!({"include": true}));
+        }
         Ok(body)
     }
 
@@ -384,7 +453,76 @@ impl AiAnalyzer {
         if !self.light_thinking || self.refused(RequestShape::LightThinking) {
             return None;
         }
+        // Anthropic's own API thinks adaptively at `medium` when told
+        // nothing (Haiku 5.5): little is its effort `low` (GA, no beta).
+        if self.provider == AiProvider::Anthropic {
+            return Some(("output_config", serde_json::json!({ "effort": "low" })));
+        }
         self.gateway().light_thinking()
+    }
+
+    /// Anthropic's own API asked to think little: the effort on `body`.
+    /// Whether it was put there.
+    fn put_anthropic_light(&self, body: &mut serde_json::Value) -> bool {
+        if self.provider != AiProvider::Anthropic || self.deep_thinking_param().is_some() {
+            return false;
+        }
+        match self.light_thinking_param() {
+            Some(("output_config", serde_json::Value::Object(config))) => {
+                for (key, value) in config {
+                    merge_output_config(body, &key, value);
+                }
+                true
+            }
+            Some((key, value)) => match body.as_object_mut() {
+                Some(object) => {
+                    object.insert(key.to_string(), value);
+                    true
+                }
+                None => false,
+            },
+            None => false,
+        }
+    }
+
+    /// A text-protocol stream (Anthropic's own API or OpenAI Responses),
+    /// asked to think little where it can be: an endpoint that refuses the
+    /// effort is remembered and asked once more without it. The response
+    /// as it came, success or not.
+    async fn send_text_stream(
+        &self,
+        url: &str,
+        mut body: serde_json::Value,
+    ) -> Result<reqwest::Response> {
+        let light = self.put_anthropic_light(&mut body);
+        let send = |body: &serde_json::Value| {
+            let mut request = self.authenticate(self.client.post(url));
+            if self.provider == AiProvider::Anthropic {
+                request = request.header("anthropic-version", "2023-06-01");
+            }
+            let prepared = self.prepare_body(body);
+            async move {
+                Ok::<_, anyhow::Error>(
+                    request
+                        .header("Content-Type", "application/json")
+                        .json(&prepared?)
+                        .send()
+                        .await?,
+                )
+            }
+        };
+        let mut response = send(&body).await?;
+        if light
+            && ProviderCallFailure::http(response.status(), anyhow::anyhow!("refused"))
+                .rejected_request()
+        {
+            take_output_config(&mut body, "effort");
+            response = send(&body).await?;
+            if response.status().is_success() {
+                self.remember_refusal(RequestShape::LightThinking);
+            }
+        }
+        Ok(response)
     }
 
     /// For calls where getting it right is worth the wait: reading what
@@ -481,39 +619,58 @@ impl AiAnalyzer {
         let input_chars = serde_json::to_string(profile_data)
             .map(|s| s.len())
             .unwrap_or(0);
-        let result = match self.provider {
-            AiProvider::Gemini => self.analyze_with_gemini(prompt).await,
-            AiProvider::OpenAI => self.analyze_with_openai(prompt).await,
-            AiProvider::OpenAIResponses | AiProvider::Anthropic => {
-                self.analyze_with_text_protocol("", &[ChatMessage::user(prompt)])
-                    .await
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(async {
+            match self.provider {
+                AiProvider::Gemini => self.analyze_with_gemini(prompt).await,
+                AiProvider::OpenAI => self.analyze_with_openai(prompt).await,
+                AiProvider::OpenAIResponses | AiProvider::Anthropic => {
+                    self.analyze_with_text_protocol("", &[ChatMessage::user(prompt)])
+                        .await
+                }
             }
-        };
-        self.note_ledger(input_chars, &result).await;
+        })
+        .await;
+        self.note_ledger(input_chars, &result, reported.as_ref())
+            .await;
         result
     }
 
     /// Best-effort site-wide cost ledger. Writes even without attribution
     /// (`source=internal`). Governed Tapp+scheduler paths suppress this hook.
-    async fn note_ledger(&self, input_chars: usize, result: &Result<String, anyhow::Error>) {
+    ///
+    /// `reported` is what the call's answers said they used
+    /// ([`crate::services::ai_cost_ledger::reporting`]): real tokens and
+    /// cost when there is one, else the length/4 estimate.
+    async fn note_ledger(
+        &self,
+        input_chars: usize,
+        result: &Result<String, anyhow::Error>,
+        reported: Option<&crate::services::ai_cost_ledger::Reported>,
+    ) {
         match result {
             Ok(text) => {
-                crate::services::ai_cost_ledger::record_ai_call_from_attribution(
+                crate::services::ai_cost_ledger::record_ai_call_reported(
                     self.provider.as_str(),
                     &self.model,
                     input_chars,
                     text.len(),
+                    reported,
                     "completed",
                     None,
                 )
                 .await;
             }
-            Err(_) => {
-                crate::services::ai_cost_ledger::record_ai_call_from_attribution(
+            Err(error) => {
+                #[cfg(test)]
+                crate::services::ai_cost_ledger::spent::because(&self.model, error);
+                #[cfg(not(test))]
+                let _ = error;
+                crate::services::ai_cost_ledger::record_ai_call_reported(
                     self.provider.as_str(),
                     &self.model,
                     input_chars,
                     0,
+                    reported,
                     "failed",
                     Some("AI_PROVIDER_ERROR"),
                 )
@@ -646,6 +803,7 @@ impl AiAnalyzer {
         system: &str,
         messages: &[ChatMessage],
         response_format: Option<serde_json::Value>,
+        anthropic_format: Option<serde_json::Value>,
         max_tokens: Option<u32>,
     ) -> std::result::Result<String, ProviderCallFailure> {
         let url = text_protocol::endpoint(self.provider, self.base_url.as_deref());
@@ -669,16 +827,38 @@ impl AiAnalyzer {
             // as Sonnet 4.6 require it to be enabled explicitly.
             object.insert("thinking".into(), serde_json::json!({ "type": "adaptive" }));
         }
-        let mut request = self.authenticate(self.client.post(&url));
-        if self.provider == AiProvider::Anthropic {
-            request = request.header("anthropic-version", "2023-06-01");
+        if let Some(format) = anthropic_format {
+            merge_output_config(&mut body, "format", format);
         }
-        let response = request
-            .header("Content-Type", "application/json")
-            .json(&self.prepare_body(&body)?)
-            .send()
-            .await
-            .map_err(|error| ProviderCallFailure::transport(error.into()))?;
+        let light = self.put_anthropic_light(&mut body);
+        let send = |body: &serde_json::Value| {
+            let mut request = self.authenticate(self.client.post(&url));
+            if self.provider == AiProvider::Anthropic {
+                request = request.header("anthropic-version", "2023-06-01");
+            }
+            let prepared = self.prepare_body(body);
+            async move {
+                request
+                    .header("Content-Type", "application/json")
+                    .json(&prepared.map_err(ProviderCallFailure::transport)?)
+                    .send()
+                    .await
+                    .map_err(|error| ProviderCallFailure::transport(error.into()))
+            }
+        };
+        let mut response = send(&body).await?;
+        // A refused think-little effort: remembered, and asked once more
+        // without it (`RequestShape::LightThinking`).
+        if light
+            && ProviderCallFailure::http(response.status(), anyhow::anyhow!("refused"))
+                .rejected_request()
+        {
+            take_output_config(&mut body, "effort");
+            response = send(&body).await?;
+            if response.status().is_success() {
+                self.remember_refusal(RequestShape::LightThinking);
+            }
+        }
         if !response.status().is_success() {
             let status = response.status();
             return Err(ProviderCallFailure::http(
@@ -697,7 +877,7 @@ impl AiAnalyzer {
         system: &str,
         messages: &[ChatMessage],
     ) -> Result<String> {
-        self.send_text_protocol(system, messages, None, None)
+        self.send_text_protocol(system, messages, None, None, None)
             .await
             .map_err(ProviderCallFailure::into_error)
     }
@@ -762,50 +942,69 @@ impl AiAnalyzer {
 
                 let url = openai_chat_completions_url(self.base_url.as_deref());
 
-                let response = self
-                    .authenticate(self.client.post(&url))
-                    .header("Content-Type", "application/json")
-                    .json(&self.prepare_body(&request_body)?)
-                    .send()
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "Failed to send request to OpenAI-compatible API (endpoint: {url}, model: {})",
-                            self.model
-                        )
-                    });
+                // A memory bench asks again what the network dropped
+                // (`ai_cost_ledger::once_or_again`); everything else asks once.
+                let (url, request_body) = (&url, &request_body);
+                let (result, reported) = crate::services::ai_cost_ledger::reporting(crate::services::ai_cost_ledger::once_or_again(
+                    &self.model,
+                    move || async move {
+                        let response = self
+                            .authenticate(self.client.post(url))
+                            .header("Content-Type", "application/json")
+                            .json(&self.prepare_body(&request_body)?)
+                            .send()
+                            .await
+                            .with_context(|| {
+                                format!(
+                                    "Failed to send request to OpenAI-compatible API (endpoint: {url}, model: {})",
+                                    self.model
+                                )
+                            });
 
-                let result = match response {
-                    Ok(response) => {
-                        if !response.status().is_success() {
-                            let status = response.status();
-                            let error_text = Self::read_limited_error_text(response).await;
-                            Err(ProviderCallFailure::http(
-                                status,
-                                anyhow::anyhow!(format_openai_compatible_http_error(
-                                    status,
-                                    &url,
-                                    &self.model,
-                                    &error_text,
-                                )),
-                            )
-                            .into_error())
-                        } else {
-                            let openai_response: OpenAIResponse =
-                                Self::read_limited_json(response, 2 * 1024 * 1024).await?;
-                            extract_openai_completion_text(&openai_response)
-                        }
-                    }
-                    Err(e) => Err(e),
-                };
-                self.note_ledger(input_chars, &result).await;
+                        Ok(match response {
+                            Ok(response) => {
+                                if !response.status().is_success() {
+                                    let status = response.status();
+                                    let error_text = Self::read_limited_error_text(response).await;
+                                    Err(ProviderCallFailure::http(
+                                        status,
+                                        anyhow::anyhow!(format_openai_compatible_http_error(
+                                            status,
+                                            &url,
+                                            &self.model,
+                                            &error_text,
+                                        )),
+                                    )
+                                    .into_error())
+                                } else {
+                                    let openai_response: OpenAIResponse =
+                                        Self::read_limited_json(response, 2 * 1024 * 1024).await?;
+                                    extract_openai_completion_text(&openai_response)
+                                }
+                            }
+                            Err(e) => Err(e),
+                        })
+                    },
+                    |outcome: &Result<Result<String>>| match outcome {
+                        Ok(Err(error)) => Some((None, error)),
+                        _ => None,
+                    },
+                ))
+                .await;
+                let result = result?;
+                self.note_ledger(input_chars, &result, reported.as_ref())
+                    .await;
                 result
             }
             AiProvider::OpenAIResponses | AiProvider::Anthropic => {
                 let input_chars =
                     system.len() + messages.iter().map(|m| m.content.len()).sum::<usize>();
-                let result = self.analyze_with_text_protocol(system, &messages).await;
-                self.note_ledger(input_chars, &result).await;
+                let (result, reported) = crate::services::ai_cost_ledger::reporting(
+                    self.analyze_with_text_protocol(system, &messages),
+                )
+                .await;
+                self.note_ledger(input_chars, &result, reported.as_ref())
+                    .await;
                 result
             }
         }
@@ -838,72 +1037,108 @@ impl AiAnalyzer {
         schema_name: &str,
         schema: Option<&serde_json::Value>,
     ) -> Result<String> {
+        self.analyze_json_as(system, prompt, schema_name, schema, false)
+            .await
+    }
+
+    /// [`Self::analyze_json`], held to `schema` by Anthropic's own API as
+    /// well (`output_config.format`, a JSON schema every object of which
+    /// says `additionalProperties: false`), where every other call to it
+    /// only restates the schema in the prompt. An endpoint that rejects it
+    /// is remembered and asked prompt-only, as structured output is
+    /// everywhere.
+    #[cfg(test)]
+    pub async fn analyze_json_strict(
+        &self,
+        system: &str,
+        prompt: &str,
+        schema_name: &str,
+        schema: &serde_json::Value,
+    ) -> Result<String> {
+        self.analyze_json_as(system, prompt, schema_name, Some(schema), true)
+            .await
+    }
+
+    /// [`Self::analyze_json`], or [`Self::analyze_json_strict`] when
+    /// `strict`.
+    pub(crate) async fn analyze_json_as(
+        &self,
+        system: &str,
+        prompt: &str,
+        schema_name: &str,
+        schema: Option<&serde_json::Value>,
+        strict: bool,
+    ) -> Result<String> {
         let input_chars = system.len() + prompt.len();
 
-        let mode = if self.provider == AiProvider::Anthropic
+        let mode = if (self.provider == AiProvider::Anthropic && !strict)
             || self.refused(RequestShape::StructuredOutput)
         {
             JsonMode::PromptOnly(schema)
         } else {
             JsonMode::Structured(schema)
         };
-        let deep = self.deep_thinking_param().is_some();
-        let light = self.light_thinking_param().is_some();
-        let mut result = self
-            .analyze_json_inner(system, prompt, schema_name, mode, None)
-            .await;
-
-        // Drop a refused thinking parameter before trying without JSON
-        // enforcement: rejecting one says nothing about the other.
-        if deep
-            && result
-                .as_ref()
-                .is_err_and(ProviderCallFailure::rejected_request)
-        {
-            self.remember_refusal(RequestShape::DeepThinking);
-            result = self
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(async {
+            let deep = self.deep_thinking_param().is_some();
+            // Anthropic's own API drops a refused effort where it sends it.
+            let light =
+                self.light_thinking_param().is_some() && self.provider != AiProvider::Anthropic;
+            let mut result = self
                 .analyze_json_inner(system, prompt, schema_name, mode, None)
                 .await;
-        }
 
-        // The think-little parameter goes first: a refusal of it says
-        // nothing about structured output.
-        if light
-            && result
-                .as_ref()
-                .is_err_and(ProviderCallFailure::rejected_request)
-        {
-            self.remember_refusal(RequestShape::LightThinking);
-            result = self
-                .analyze_json_inner(system, prompt, schema_name, mode, None)
-                .await;
-        }
-
-        if let Err(ref failure) = result {
-            if matches!(mode, JsonMode::Structured(_)) && failure.rejected_request() {
-                self.remember_refusal(RequestShape::StructuredOutput);
-                tracing::warn!(
-                    provider = self.provider.as_str(),
-                    model = %self.model,
-                    status = ?failure.status,
-                    "[AiAnalyzer] Endpoint rejected structured output; retrying prompt-only"
-                );
+            // Drop a refused thinking parameter before trying without JSON
+            // enforcement: rejecting one says nothing about the other.
+            if deep
+                && result
+                    .as_ref()
+                    .is_err_and(ProviderCallFailure::rejected_request)
+            {
+                self.remember_refusal(RequestShape::DeepThinking);
                 result = self
-                    .analyze_json_inner(
-                        system,
-                        prompt,
-                        schema_name,
-                        JsonMode::PromptOnly(schema),
-                        None,
-                    )
+                    .analyze_json_inner(system, prompt, schema_name, mode, None)
                     .await;
             }
-        }
 
-        let result = result.map_err(ProviderCallFailure::into_error);
+            // The think-little parameter goes first: a refusal of it says
+            // nothing about structured output.
+            if light
+                && result
+                    .as_ref()
+                    .is_err_and(ProviderCallFailure::rejected_request)
+            {
+                self.remember_refusal(RequestShape::LightThinking);
+                result = self
+                    .analyze_json_inner(system, prompt, schema_name, mode, None)
+                    .await;
+            }
+
+            if let Err(ref failure) = result {
+                if matches!(mode, JsonMode::Structured(_)) && failure.rejected_request() {
+                    self.remember_refusal(RequestShape::StructuredOutput);
+                    tracing::warn!(
+                        provider = self.provider.as_str(),
+                        model = %self.model,
+                        status = ?failure.status,
+                        "[AiAnalyzer] Endpoint rejected structured output; retrying prompt-only"
+                    );
+                    result = self
+                        .analyze_json_inner(
+                            system,
+                            prompt,
+                            schema_name,
+                            JsonMode::PromptOnly(schema),
+                            None,
+                        )
+                        .await;
+                }
+            }
+            result.map_err(ProviderCallFailure::into_error)
+        })
+        .await;
         crate::services::ai_cost_ledger::as_step(
             schema_name,
-            self.note_ledger(input_chars, &result),
+            self.note_ledger(input_chars, &result, reported.as_ref()),
         )
         .await;
         result
@@ -943,46 +1178,48 @@ impl AiAnalyzer {
             Some(budget)
         };
 
-        let mut result = self
-            .analyze_json_inner(system, prompt, schema_name, mode, extras)
-            .await;
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(async {
+            let mut result = self
+                .analyze_json_inner(system, prompt, schema_name, mode, extras)
+                .await;
 
-        if extras.is_some()
-            && result
-                .as_ref()
-                .is_err_and(ProviderCallFailure::rejected_request)
-        {
-            self.remember_refusal(RequestShape::Extras);
-            // The same parameter would ride again without the budget.
-            if self.light_thinking {
-                self.remember_refusal(RequestShape::LightThinking);
+            if extras.is_some()
+                && result
+                    .as_ref()
+                    .is_err_and(ProviderCallFailure::rejected_request)
+            {
+                self.remember_refusal(RequestShape::Extras);
+                // The same parameter would ride again without the budget.
+                if self.light_thinking {
+                    self.remember_refusal(RequestShape::LightThinking);
+                }
+                result = self
+                    .analyze_json_inner(system, prompt, schema_name, mode, None)
+                    .await;
             }
-            result = self
-                .analyze_json_inner(system, prompt, schema_name, mode, None)
-                .await;
-        }
 
-        if matches!(mode, JsonMode::Structured(_))
-            && result
-                .as_ref()
-                .is_err_and(ProviderCallFailure::rejected_request)
-        {
-            self.remember_refusal(RequestShape::StructuredOutput);
-            result = self
-                .analyze_json_inner(
-                    system,
-                    prompt,
-                    schema_name,
-                    JsonMode::PromptOnly(schema),
-                    None,
-                )
-                .await;
-        }
-
-        let result = result.map_err(ProviderCallFailure::into_error);
+            if matches!(mode, JsonMode::Structured(_))
+                && result
+                    .as_ref()
+                    .is_err_and(ProviderCallFailure::rejected_request)
+            {
+                self.remember_refusal(RequestShape::StructuredOutput);
+                result = self
+                    .analyze_json_inner(
+                        system,
+                        prompt,
+                        schema_name,
+                        JsonMode::PromptOnly(schema),
+                        None,
+                    )
+                    .await;
+            }
+            result.map_err(ProviderCallFailure::into_error)
+        })
+        .await;
         crate::services::ai_cost_ledger::as_step(
             schema_name,
-            self.note_ledger(input_chars, &result),
+            self.note_ledger(input_chars, &result, reported.as_ref()),
         )
         .await;
         result
@@ -1009,17 +1246,21 @@ impl AiAnalyzer {
         }
 
         let input_chars = system.len() + prompt.len();
-        let streamed = if self.provider == AiProvider::OpenAI {
-            self.analyze_json_streaming_openai(system, prompt, schema_name, schema, on_delta)
-                .await
-        } else {
-            self.analyze_json_streaming_protocol(system, prompt, schema_name, schema, on_delta)
-                .await
-        };
+        let (streamed, reported) = crate::services::ai_cost_ledger::reporting(async {
+            if self.provider == AiProvider::OpenAI {
+                self.analyze_json_streaming_openai(system, prompt, schema_name, schema, on_delta)
+                    .await
+            } else {
+                self.analyze_json_streaming_protocol(system, prompt, schema_name, schema, on_delta)
+                    .await
+            }
+        })
+        .await;
         match streamed {
             Ok(text) => {
                 let result = Ok(text);
-                self.note_ledger(input_chars, &result).await;
+                self.note_ledger(input_chars, &result, reported.as_ref())
+                    .await;
                 result
             }
             Err(failure) if failure.rejected_request() => {
@@ -1130,16 +1371,10 @@ impl AiAnalyzer {
             None,
             true,
         );
-        let mut request = self.authenticate(self.client.post(&url));
-        if self.provider == AiProvider::Anthropic {
-            request = request.header("anthropic-version", "2023-06-01");
-        }
-        let response = request
-            .header("Content-Type", "application/json")
-            .json(&self.prepare_body(&body)?)
-            .send()
+        let response = self
+            .send_text_stream(&url, body)
             .await
-            .map_err(|error| ProviderCallFailure::transport(error.into()))?;
+            .map_err(ProviderCallFailure::transport)?;
         if !response.status().is_success() {
             let status = response.status();
             return Err(ProviderCallFailure::http(
@@ -1163,6 +1398,29 @@ impl AiAnalyzer {
     }
 
     async fn analyze_json_inner(
+        &self,
+        system: &str,
+        prompt: &str,
+        schema_name: &str,
+        mode: JsonMode<'_>,
+        budget: Option<OutputBudget>,
+    ) -> std::result::Result<String, ProviderCallFailure> {
+        // A memory bench asks again what the network dropped
+        // (`ai_cost_ledger::once_or_again`); everything else asks once.
+        crate::services::ai_cost_ledger::once_or_again(
+            &self.model,
+            move || self.analyze_json_inner_once(system, prompt, schema_name, mode, budget),
+            |result| {
+                result
+                    .as_ref()
+                    .err()
+                    .map(|failure| (failure.status.map(|status| status.as_u16()), &failure.error))
+            },
+        )
+        .await
+    }
+
+    async fn analyze_json_inner_once(
         &self,
         system: &str,
         prompt: &str,
@@ -1303,7 +1561,20 @@ impl AiAnalyzer {
                     .map_err(ProviderCallFailure::transport)
             }
             AiProvider::OpenAIResponses | AiProvider::Anthropic => {
+                // Anthropic's own API is asked structured only by
+                // [`Self::analyze_json_strict`]: its answer held to the schema.
+                let anthropic_format = match mode {
+                    JsonMode::Structured(Some(schema))
+                        if self.provider == AiProvider::Anthropic =>
+                    {
+                        Some(serde_json::json!({ "type": "json_schema", "schema": schema }))
+                    }
+                    _ => None,
+                };
                 let (prompt, response_format) = match mode {
+                    JsonMode::Structured(Some(_)) if anthropic_format.is_some() => {
+                        (prompt.to_string(), None)
+                    }
                     JsonMode::Structured(schema)
                         if self.provider == AiProvider::OpenAIResponses =>
                     {
@@ -1323,6 +1594,7 @@ impl AiAnalyzer {
                     system,
                     &[ChatMessage::user(prompt)],
                     response_format,
+                    anthropic_format,
                     budget.map(|value| value.max_tokens),
                 )
                 .await
@@ -1355,8 +1627,11 @@ impl AiAnalyzer {
         Fut: Future<Output = bool> + Send,
     {
         let input_chars = prompt.len();
-        let result = self.analyze_stream_inner(prompt, on_delta).await;
-        self.note_ledger(input_chars, &result).await;
+        let (result, reported) =
+            crate::services::ai_cost_ledger::reporting(self.analyze_stream_inner(prompt, on_delta))
+                .await;
+        self.note_ledger(input_chars, &result, reported.as_ref())
+            .await;
         result
     }
 
@@ -1390,8 +1665,12 @@ impl AiAnalyzer {
             return self.analyze_stream_parts(prompt, on_delta).await;
         }
         let input_chars = prompt.len() + images.len() * IMAGE_INPUT_CHARS;
-        let result = self.analyze_stream_images(prompt, images, on_delta).await;
-        self.note_ledger(input_chars, &result).await;
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(
+            self.analyze_stream_images(prompt, images, on_delta),
+        )
+        .await;
+        self.note_ledger(input_chars, &result, reported.as_ref())
+            .await;
         result
     }
 
@@ -1438,10 +1717,12 @@ impl AiAnalyzer {
                 .map(|message| message.content.len())
                 .sum::<usize>()
             + images.len() * IMAGE_INPUT_CHARS;
-        let result = self
-            .analyze_stream_messages(system, messages, images, on_delta)
+        let (result, reported) = crate::services::ai_cost_ledger::reporting(
+            self.analyze_stream_messages(system, messages, images, on_delta),
+        )
+        .await;
+        self.note_ledger(input_chars, &result, reported.as_ref())
             .await;
-        self.note_ledger(input_chars, &result).await;
         result
     }
 
@@ -1502,11 +1783,7 @@ impl AiAnalyzer {
                 if !images.is_empty() {
                     anthropic_images_on_last(&mut body, images);
                 }
-                let mut request = self.authenticate(self.client.post(url));
-                if self.provider == AiProvider::Anthropic {
-                    request = request.header("anthropic-version", "2023-06-01");
-                }
-                let response = request.json(&self.prepare_body(&body)?).send().await?;
+                let response = self.send_text_stream(&url, body).await?;
                 if !response.status().is_success() {
                     let status = response.status();
                     return Err(ProviderCallFailure::http(
@@ -1652,11 +1929,7 @@ impl AiAnalyzer {
                     None,
                     true,
                 );
-                let mut request = self.authenticate(self.client.post(url));
-                if self.provider == AiProvider::Anthropic {
-                    request = request.header("anthropic-version", "2023-06-01");
-                }
-                let response = request.json(&self.prepare_body(&body)?).send().await?;
+                let response = self.send_text_stream(&url, body).await?;
                 if !response.status().is_success() {
                     let status = response.status();
                     return Err(ProviderCallFailure::http(

@@ -592,6 +592,10 @@ impl Throwaway {
             runtime.block_on(async move {
                 let schema = format!("g0_{}", uuid::Uuid::new_v4().simple());
                 let admin = sea_orm::Database::connect(&url).await.unwrap();
+                let turn = crate::db::SCHEMA_WORK
+                    .acquire()
+                    .await
+                    .expect("never closed");
                 admin
                     .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
                     .await
@@ -603,6 +607,7 @@ impl Throwaway {
                     .sqlx_logging(false);
                 let db = sea_orm::Database::connect(options).await.unwrap();
                 crate::db::Migrator::up(&db, None).await.unwrap();
+                drop(turn);
                 let _ = ready.send(());
                 while let Ok(job) = inbox.recv() {
                     match job {
@@ -629,10 +634,15 @@ impl Throwaway {
                         }
                         Job::Drop(done) => {
                             db.close().await.ok();
+                            let turn = crate::db::SCHEMA_WORK
+                                .acquire()
+                                .await
+                                .expect("never closed");
                             admin
                                 .execute_unprepared(&format!("DROP SCHEMA {schema} CASCADE"))
                                 .await
                                 .unwrap();
+                            drop(turn);
                             admin.close().await.ok();
                             let _ = done.send(());
                             return;

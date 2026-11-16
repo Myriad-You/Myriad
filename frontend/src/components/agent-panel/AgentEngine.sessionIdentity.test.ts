@@ -4,10 +4,11 @@ import test from 'node:test'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 import { authSubject } from '../../utils/authSubject'
+import { withToldLines } from './agentPieces'
 import { prepareMessageBody, releaseMessageBody } from './messageBody'
 import { retainHotMessages } from './messageBudget'
 import { prepareChatBody } from './prepareChatBody'
-import { restoreSessionMessage } from './sessionHistoryMessage'
+import { restoreCardLine, restoreSessionMessage } from './sessionHistoryMessage'
 import { SessionLoadScope } from './sessionLoadScope'
 
 const source = ts.createSourceFile('AgentEngine.tsx', readFileSync(new URL('./AgentEngine.tsx', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
@@ -35,9 +36,9 @@ function harness(getMessages: (...args: unknown[]) => Promise<unknown[]>) {
     authSubject, console, sessionLoads: scope, bodyScopes: new SessionLoadScope(),
     sessionIdsByModeRef: { current: { work: null, chat: null } },
     sessionTitleSetByModeRef: { current: {} }, setSessionId: noop,
-    stopAgoraConversation: noop, agentService: { getSessionMessages: getMessages },
+    stopAgoraConversation: noop, agentService: { getSessionPage: async (...args: unknown[]) => ({ messages: await getMessages(...args), cards: [] }) },
     imageUrlsFromAgentPayload: () => [], executionStepsFromHistory: () => [],
-    restoreSessionMessage, prepareMessageBody, releaseMessageBody, retainHotMessages, prepareChatBody,
+    restoreSessionMessage, restoreCardLine, withToldLines, prepareMessageBody, releaseMessageBody, retainHotMessages, prepareChatBody,
     setMessages: (rows: unknown) => writes.push(rows),
     restoreFollowUpQuestion: () => null,
     reattachLiveWork: (...args: unknown[]) => reattaches.push(args),

@@ -56,6 +56,10 @@ pub(crate) struct Beside {
     pub placements: Vec<Placement>,
     pub inbox: Vec<inbox::Item>,
     pub taken_out: Vec<String>,
+    /// Rows the site kept on its side only, taken out first so the batch
+    /// writes them again as shared ([`super::share`]): they never left
+    /// the site and took no count, so no side misses them.
+    pub unshared: Vec<String>,
 }
 
 impl Beside {
@@ -68,8 +72,13 @@ impl Beside {
         moved
     }
 
+    /// What is hers beside the rows: it needs her pen.
+    fn hers(&self) -> bool {
+        !(self.placements.is_empty() && self.inbox.is_empty() && self.taken_out.is_empty())
+    }
+
     fn is_empty(&self) -> bool {
-        self.placements.is_empty() && self.inbox.is_empty() && self.taken_out.is_empty()
+        !self.hers() && self.unshared.is_empty()
     }
 
     async fn keep<C: ConnectionTrait>(
@@ -98,6 +107,39 @@ pub(super) async fn lock<C: ConnectionTrait>(db: &C, user_id: i32, audience: &st
         [user_id.to_string().into(), audience.into()],
     ))
     .await?;
+    Ok(())
+}
+
+/// Takes out the site's own rows under `ids` in `audience` (no count, from
+/// the site), each to be written again in the batch; any other refuses it.
+async fn unshare<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    audience: &str,
+    ids: &[String],
+) -> Result<(), Error> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let taken = db
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "DELETE FROM agent_node_rows WHERE user_id = $1 AND audience = $2 \
+             AND row_id = ANY($3) AND dseq IS NULL AND origin = $4",
+            [
+                user_id.into(),
+                audience.into(),
+                ids.to_vec().into(),
+                NODE.into(),
+            ],
+        ))
+        .await?
+        .rows_affected();
+    if taken != ids.len() as u64 {
+        return Err(Error::Refused(
+            "only the site's own local rows are written again as shared".into(),
+        ));
+    }
     Ok(())
 }
 
@@ -287,9 +329,7 @@ pub(crate) async fn write_with(
     }
     // An audience the core reads, where her own node may be.
     myriad_nodes::node_id(audience, "her")?;
-    if pen.is_none()
-        && (rows.iter().any(|row| row.author == Author::Her) || !beside.is_empty())
-    {
+    if pen.is_none() && (rows.iter().any(|row| row.author == Author::Her) || beside.hers()) {
         return Err(Error::NoPen);
     }
     let txn = db.begin().await?;
@@ -310,6 +350,7 @@ pub(crate) async fn write_with(
     let moved_to = redirected.as_ref().map(|moved| moved.partner.as_str());
     let batch = prepare_all(audience, rows)?;
     lock(&txn, user_id, audience).await?;
+    unshare(&txn, user_id, audience, &beside.unshared).await?;
     // Her own and the site owner's talk go into her log as well, while she
     // syncs it: what is not in it yet goes first (`logged`).
     let into_log = logged::into_log(&txn, user_id, audience).await?;

@@ -464,6 +464,22 @@ async fn a_placement_goes_with_its_memory() {
             .unwrap(),
         ["g1"]
     );
+    // Another end put it on a node: an entry names it, with no placement here.
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_node_rows (user_id, audience, node_id, row_id, kind, body, author, \
+         at, hlc, origin, envelope) VALUES (7, '{talk}', '{node}', 'r1', 'node.entry', \
+         '{{\"refs\":[\"memory:m2\"],\"text\":\"lives in Austin\"}}', 'her', now(), '0', \
+         'mac', '{{}}')",
+        node = "a".repeat(32)
+    ))
+    .await
+    .unwrap();
+    assert!(
+        placements::unplaced(db, OTHER, &talk, &[], 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     db.execute_unprepared("DELETE FROM agent_memories WHERE id = 'm1'")
         .await
         .unwrap();

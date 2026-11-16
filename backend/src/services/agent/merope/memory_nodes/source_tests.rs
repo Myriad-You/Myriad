@@ -450,11 +450,11 @@ async fn a_child_ends_moments_hang_on_the_site_owners_repository() {
         return;
     };
     let db = &schema.db;
-    let facts = std::collections::BTreeMap::from([(
-        "repo".to_string(),
-        "git@github.com:Me/Repo.git".to_string(),
-    )]);
-    let place = nodes::place(myriad_merope::notify::PEER_AGENT_EVENT, &facts).unwrap();
+    let place = nodes::Place {
+        form: nodes::Form::Repo,
+        key: "git@github.com:Me/Repo.git".into(),
+        title: "git@github.com:Me/Repo.git".into(),
+    };
     let decided = |event: &'static str| nodes::Decided {
         event,
         happened: "waiting",

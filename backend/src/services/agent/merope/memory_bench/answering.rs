@@ -1,5 +1,7 @@
 //! Recall, answering and grading for the memory bench.
 
+use std::collections::HashMap;
+
 use super::super::remembering;
 use super::*;
 
@@ -14,6 +16,25 @@ pub(super) async fn recalled_for(
     cues: Option<&myriad_merope::remembering::Cues>,
     thorough: usize,
 ) -> (Vec<String>, Option<String>) {
+    let (recalled, listed, _) =
+        recalled_and_resident(db, question, user_id, present, cues, thorough).await;
+    (recalled, listed)
+}
+
+/// [`recalled_for`], with how their life stands as production shows it
+/// every time in a private talk (`Recollection::resident`): not recalled.
+async fn recalled_and_resident(
+    db: &sea_orm::DatabaseConnection,
+    question: &Question,
+    user_id: i32,
+    present: &Audience,
+    cues: Option<&myriad_merope::remembering::Cues>,
+    thorough: usize,
+) -> (Vec<String>, Option<String>, Vec<String>) {
+    // The control that only recalls more, when asked for.
+    let wider = wider();
+    let (more, thorough_more) = ((wider - 1) * RECALLED, (wider - 1) * thorough);
+    let (limit, thorough) = (RECALLED * wider, thorough * wider);
     // In a private talk, as production does: ranked, then what comes to
     // mind of her nodes on the day it is asked.
     if super::settle::on_nodes(present) {
@@ -24,7 +45,7 @@ pub(super) async fn recalled_for(
             present,
             &question.question,
             cues,
-            RECALLED,
+            limit,
             thorough,
             &Priming::default(),
             1.0,
@@ -33,20 +54,24 @@ pub(super) async fn recalled_for(
         let nodes = super::super::memory_nodes::context::load(db, user_id, now).await;
         match (ranked, nodes) {
             (Ok((recalled, _)), Ok(nodes)) => {
-                let recollection = super::super::memory_nodes::recall::recollect(
+                // Wider, her nodes bring as many times more too: else the
+                // nodes, three of three entries, hold it near what it was.
+                let recollection = super::super::memory_nodes::recall::recollect_times(
                     &nodes.shown,
                     &nodes.own,
                     &recalled,
                     cues,
                     now,
+                    wider,
                 );
-                let lines = recollection
+                let mut lines: Vec<String> = recollection
                     .named
                     .into_iter()
                     .chain(recollection.heard)
-                    .chain(recalled.brought_to_mind)
+                    .chain(recalled.brought_to_mind.iter().cloned())
                     .collect();
-                return (lines, recollection.listed);
+                widened(&mut lines, &recalled, cues, more, thorough_more);
+                return (lines, recollection.listed, recollection.resident);
             }
             (_, Err(error)) => eprintln!("bench call failed: reading her nodes: {error:#}"),
             _ => {}
@@ -59,7 +84,7 @@ pub(super) async fn recalled_for(
         present,
         &question.question,
         cues,
-        RECALLED,
+        limit,
         thorough,
         &Priming::default(),
         1.0,
@@ -78,7 +103,249 @@ pub(super) async fn recalled_for(
             .collect::<Vec<_>>()
     })
     .unwrap_or_default();
-    (named, None)
+    (named, None, Vec::new())
+}
+
+/// `MEROPE_MEMORY_BENCH_STANDING=<file>` (question id to lines): how things
+/// stand with them now, as a list she would always have, shown first among
+/// what she remembers when she answers. A trial: not recalled, and not
+/// counted as recalled. Without the file, the list production shows.
+fn standing_of(id: &str) -> Option<Vec<String>> {
+    static STANDING: std::sync::OnceLock<std::collections::HashMap<String, Vec<String>>> =
+        std::sync::OnceLock::new();
+    STANDING
+        .get_or_init(|| {
+            std::env::var("MEROPE_MEMORY_BENCH_STANDING")
+                .map(|path| {
+                    serde_json::from_str(&std::fs::read_to_string(&path).expect("the list"))
+                        .expect("question ids, each to its lines")
+                })
+                .unwrap_or_default()
+        })
+        .get(id)
+        .cloned()
+}
+
+/// What she has in mind when she answers: the list of how things stand
+/// now, then what she recalled.
+fn with_standing(standing: &[String], recalled: &[String]) -> Vec<String> {
+    standing
+        .iter()
+        .map(|line| format!("现在: {line}"))
+        .chain(recalled.iter().cloned())
+        .collect()
+}
+
+#[test]
+fn how_things_stand_comes_first_and_is_not_recalled() {
+    let recalled = vec!["跑步: [07-03] 每周三和周五跑五公里".to_string()];
+    assert_eq!(
+        with_standing(&["膝盖坏了，夜跑停了".to_string()], &recalled),
+        [
+            "现在: 膝盖坏了，夜跑停了",
+            "跑步: [07-03] 每周三和周五跑五公里"
+        ]
+    );
+    assert_eq!(with_standing(&[], &recalled), recalled);
+}
+
+/// `MEROPE_MEMORY_BENCH_RECALL_ONLY=1`: recall each way and ask nothing,
+/// to see what a change to recall changes before paying for answers.
+fn recall_only() -> bool {
+    std::env::var("MEROPE_MEMORY_BENCH_RECALL_ONLY").as_deref() == Ok("1")
+}
+
+/// What another run recalled and answered the wide way.
+#[derive(Clone, Default)]
+struct Earlier {
+    recalled: Vec<String>,
+    correct: Option<bool>,
+    why: Option<String>,
+    answer: String,
+}
+
+/// Of the run in `MEROPE_MEMORY_BENCH_ANSWERS_OF` (its `.partial.jsonl`),
+/// what this question and round recalled and answered the wide way.
+fn answered_before(id: &str, round: usize) -> Option<Earlier> {
+    static OF: std::sync::OnceLock<HashMap<(String, usize), Earlier>> = std::sync::OnceLock::new();
+    OF.get_or_init(|| {
+        let Ok(path) = std::env::var("MEROPE_MEMORY_BENCH_ANSWERS_OF") else {
+            return HashMap::new();
+        };
+        let text = std::fs::read_to_string(&path).expect("the run answered before");
+        answers_in(&text)
+    })
+    .get(&(id.to_string(), round))
+    .cloned()
+}
+
+fn answers_in(text: &str) -> HashMap<(String, usize), Earlier> {
+    text.lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|row| !row["void"].as_bool().unwrap_or(false))
+        .filter(|row| {
+            !row["wide"]["response"]
+                .as_str()
+                .unwrap_or("")
+                .trim()
+                .is_empty()
+        })
+        .filter_map(|row| {
+            let wide = &row["wide"];
+            Some((
+                (
+                    row["id"].as_str()?.to_string(),
+                    row["round"].as_u64()? as usize,
+                ),
+                Earlier {
+                    recalled: wide["recalled"]
+                        .as_array()?
+                        .iter()
+                        .filter_map(|line| line.as_str().map(str::to_string))
+                        .collect(),
+                    correct: wide["correct"].as_bool(),
+                    why: wide["why"].as_str().map(str::to_string),
+                    answer: wide["response"].as_str()?.to_string(),
+                },
+            ))
+        })
+        .collect()
+}
+
+/// How far down the ranking by line [`ranks_of_needs`] looks.
+pub(super) const RANKS_LOOKED_AT: usize = 200;
+
+/// Where, in the ranking by line that recall starts from (not what her
+/// nodes then show), the first line holding each thing `question` needs
+/// comes, 1 for the first: looking as deep as answering does (`thorough`
+/// when it goes through all of it), and looking [`RANKS_LOOKED_AT`] deep.
+/// `None` where it is not. To tell a fact ranked but not shown, one ranked
+/// just past the depth, and one never a candidate at all. The deep order is
+/// not the shallow one: each try brings more, so they merge otherwise.
+pub(super) async fn ranks_of_needs(
+    db: &sea_orm::DatabaseConnection,
+    question: &Question,
+    user_id: i32,
+    present: &Audience,
+    cues: Option<&myriad_merope::remembering::Cues>,
+    thorough: usize,
+) -> Vec<(Option<usize>, Option<usize>)> {
+    let at = |limit: usize, thorough: usize| async move {
+        let Ok((recalled, _)) = remembering::ranked_with(
+            db,
+            user_id,
+            present,
+            &question.question,
+            cues,
+            limit,
+            thorough,
+            &Priming::default(),
+            1.0,
+        )
+        .await
+        else {
+            return vec![None; question.needs.len()];
+        };
+        (0..question.needs.len())
+            .map(|fact| {
+                recalled
+                    .named
+                    .iter()
+                    .position(|line| question.holds(fact, line))
+                    .map(|at| at + 1)
+            })
+            .collect::<Vec<_>>()
+    };
+    let shallow = at(RECALLED, thorough).await;
+    let deep = at(RANKS_LOOKED_AT, RANKS_LOOKED_AT).await;
+    shallow.into_iter().zip(deep).collect()
+}
+
+/// The wider control on her nodes: after what they brought, the ranked
+/// lines they left out, in their order, up to `more` (`thorough_more` when
+/// answering needs all of it); a line only filling as recent talk does not
+/// count, as it would not going through all of it.
+fn widened(
+    lines: &mut Vec<String>,
+    recalled: &crate::services::agent::merope::store::Recalled,
+    cues: Option<&myriad_merope::remembering::Cues>,
+    more: usize,
+    thorough_more: usize,
+) {
+    let more = if cues.is_some_and(|cues| cues.thorough) {
+        thorough_more
+    } else {
+        more
+    };
+    let left_out: Vec<String> = recalled
+        .named
+        .iter()
+        .filter(|line| !recalled.recent.contains(line))
+        .filter(|line| !lines.iter().any(|shown| shown.contains(line.as_str())))
+        .take(more)
+        .cloned()
+        .collect();
+    lines.extend(left_out);
+}
+
+/// `MEROPE_MEMORY_BENCH_RECALL_CHARS_OF=<report>`: the wide way of each
+/// question is recalled at most as long, in characters, as the same
+/// question and round recalled the wide way in that run (its
+/// `.partial.jsonl` or its report), so two ways are compared at the same
+/// length of what she answers on, not one answering on more.
+fn chars_of(id: &str, round: usize) -> Option<usize> {
+    static OF: std::sync::OnceLock<HashMap<(String, usize), usize>> = std::sync::OnceLock::new();
+    OF.get_or_init(|| {
+        let Ok(path) = std::env::var("MEROPE_MEMORY_BENCH_RECALL_CHARS_OF") else {
+            return HashMap::new();
+        };
+        let text = std::fs::read_to_string(&path).expect("the run to match in length");
+        let rows: Vec<Value> = if path.ends_with(".jsonl") {
+            text.lines()
+                .filter_map(|line| serde_json::from_str(line).ok())
+                .collect()
+        } else {
+            serde_json::from_str::<Value>(&text).expect("a report")["rows"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+        };
+        rows.iter()
+            .filter(|row| !row["void"].as_bool().unwrap_or(false))
+            .filter_map(|row| {
+                let recalled = row["wide"]["recalled"].as_array()?;
+                let chars = recalled
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(|line| line.chars().count())
+                    .sum();
+                Some((
+                    (
+                        row["id"].as_str()?.to_string(),
+                        row["round"].as_u64()? as usize,
+                    ),
+                    chars,
+                ))
+            })
+            .collect()
+    })
+    .get(&(id.to_string(), round))
+    .copied()
+}
+
+/// `lines` kept whole, in order, while they fit in `most` characters.
+fn cut_to(lines: &mut Vec<String>, most: usize) {
+    let mut used = 0;
+    let mut kept = 0;
+    for line in lines.iter() {
+        let chars = line.chars().count();
+        if used + chars > most {
+            break;
+        }
+        used += chars;
+        kept += 1;
+    }
+    lines.truncate(kept);
 }
 
 pub(super) struct Answered {
@@ -111,13 +378,49 @@ pub(super) async fn answer_one(
     back_when_thorough: bool,
     answering: &[String],
 ) -> Answered {
-    let (recalled, listed) = recalled_for(db, question, user_id, present, cues, thorough).await;
+    let (mut recalled, listed, resident) =
+        recalled_and_resident(db, question, user_id, present, cues, thorough).await;
+    let standing = standing_of(&question.question_id).unwrap_or(resident);
+    // The way production answers is held to the length another run
+    // answered on, when asked (`MEROPE_MEMORY_BENCH_RECALL_CHARS_OF`).
+    if back_when_thorough
+        && wider() == 1
+        && let Some(most) = chars_of(&question.question_id, round())
+    {
+        cut_to(&mut recalled, most);
+    }
     let retrieved = answering.iter().any(|fact| {
         recalled.iter().any(|line| line.contains(fact.as_str()))
             || listed
                 .as_ref()
                 .is_some_and(|list| list.contains(fact.as_str()))
     });
+    // Only recalling (`MEROPE_MEMORY_BENCH_RECALL_ONLY=1`): nothing asked.
+    let unasked = |recalled: Vec<String>, earlier: Option<Earlier>| {
+        let earlier = earlier.unwrap_or_default();
+        Answered {
+            retrieved,
+            correct: earlier.correct,
+            dragged: None,
+            why: earlier.why,
+            answer: earlier.answer,
+            recalled,
+            cues: cues.map(|cues| format!("{cues:?}")),
+            through: None,
+        }
+    };
+    if recall_only() {
+        return unasked(recalled, None);
+    }
+    // The wide way recalling just what another run did, on the same kept
+    // copy, is answered as it answered (`MEROPE_MEMORY_BENCH_ANSWERS_OF`).
+    if back_when_thorough
+        && wider() == 1
+        && let Some(earlier) = answered_before(&question.question_id, round())
+        && earlier.recalled == recalled
+    {
+        return unasked(recalled, Some(earlier));
+    }
     // Asked about what was said in detail, she scrolls back, as in a chat;
     // the wide way also when their words plainly reach back, as production
     // does. Never in a group: what she scrolls through is the private chat.
@@ -168,7 +471,10 @@ pub(super) async fn answer_one(
     let mut answer = String::new();
     for _ in 0..3 {
         answer = lite
-            .analyze_with_system(&answer_system(question, present, &recalled), &input)
+            .analyze_with_system(
+                &answer_system(question, present, &with_standing(&standing, &recalled)),
+                &input,
+            )
             .await
             .inspect_err(|error| eprintln!("bench call failed: answering: {error:#}"))
             .unwrap_or_default();
@@ -220,4 +526,24 @@ pub(super) async fn answer_one(
         cues: cues.map(|cues| format!("{cues:?}")),
         through: going_through,
     }
+}
+
+/// Another run's answers are taken only where it answered: not from a void
+/// row, not from one that got no reply.
+#[test]
+fn only_what_was_answered_is_answered_again() {
+    let rows = [
+        json!({"id": "a", "round": 0, "void": false,
+            "wide": {"recalled": ["x"], "correct": true, "why": "ok", "response": "是的"}}),
+        json!({"id": "b", "round": 0, "void": true,
+            "wide": {"recalled": ["y"], "correct": false, "response": "不"}}),
+        json!({"id": "c", "round": 0, "void": false,
+            "wide": {"recalled": ["z"], "correct": null, "response": "  "}}),
+    ];
+    let text: String = rows.iter().map(|row| format!("{row}\n")).collect();
+    let earlier = answers_in(&text);
+    assert_eq!(earlier.len(), 1);
+    let a = &earlier[&("a".to_string(), 0)];
+    assert_eq!(a.recalled, ["x"]);
+    assert_eq!((a.correct, a.answer.as_str()), (Some(true), "是的"));
 }

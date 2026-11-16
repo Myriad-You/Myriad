@@ -120,6 +120,14 @@ pub(crate) async fn start(db: DatabaseConnection) {
     });
 }
 
+/// Whether `user_id`'s talk is under the partner id for good: the id is
+/// there and no row is left under the old name. Until then her own rows
+/// may still move (a person key in them), so none goes into her log
+/// (`logged`).
+pub(super) async fn settled<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<bool, Error> {
+    Ok(partner_of(db, user_id).await?.is_some() && !any_under_old(db, user_id).await?)
+}
+
 /// Whether any row of `user_id`'s is still under the old name.
 async fn any_under_old<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<bool, Error> {
     Ok(db

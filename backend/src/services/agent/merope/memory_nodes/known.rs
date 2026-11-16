@@ -43,6 +43,11 @@ impl Known {
         self.kind.as_deref() == Some("person")
     }
 
+    /// Its newest entry or span (else when it was made), Unix microseconds.
+    pub(crate) fn latest(&self) -> i64 {
+        self.latest
+    }
+
     pub(crate) fn topic(&self) -> myriad_merope::topics::Topic<'_> {
         myriad_merope::topics::Topic {
             name: &self.name,
@@ -54,7 +59,7 @@ impl Known {
 
 /// Whether a node of this status is still there.
 pub(crate) fn is_live(status: &str) -> bool {
-    !matches!(status, "absorbed" | "forgotten" | "retracted")
+    !matches!(status, "absorbed" | "forgotten" | "retracted" | "dormant")
 }
 
 fn memory_of(entry: &Value) -> Vec<String> {

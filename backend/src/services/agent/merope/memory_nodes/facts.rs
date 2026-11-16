@@ -394,6 +394,8 @@ pub(crate) async fn settled(
     let result = async {
         let rows = unified::active_in(db, user_id, present, &MemoryKind::ABOUT_PERSON).await?;
         let mut facts: Vec<Fact> = Vec::new();
+        // Those that took the place of something she knew.
+        let mut replacing: Vec<String> = Vec::new();
         for update in &updates.updates {
             let Some(fact) = &update.fact else {
                 continue;
@@ -409,7 +411,10 @@ pub(crate) async fn settled(
                 continue;
             }
             let placement = match replaced(db, &holder.id).await? {
-                Some(placement) => Some(placement),
+                Some(placement) => {
+                    replacing.push(holder.id.clone());
+                    Some(placement)
+                }
                 None => update.topic.as_ref().map(from_settled),
             };
             if let Some(placement) = placement {
@@ -426,6 +431,28 @@ pub(crate) async fn settled(
         if present.is_group() {
             super::group_facts::to_their_talk(db, user_id, site_owner, &audience, &facts, &pen)
                 .await;
+        } else {
+            // What it does to how their life stands now.
+            match super::standing::after_settled(
+                db,
+                user_id,
+                home.user_id,
+                present,
+                &audience,
+                &facts,
+                &replacing,
+                &pen,
+            )
+            .await
+            {
+                Ok(0) => {}
+                Ok(written) => {
+                    tracing::info!(written, "[memory-nodes] how their life stands is written")
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "[memory-nodes] how their life stands not written")
+                }
+            }
         }
         Ok::<usize, Error>(placed)
     }

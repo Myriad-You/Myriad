@@ -14,6 +14,7 @@ mod compose;
 mod in_person;
 mod produce;
 mod redeem;
+mod screen;
 #[cfg(test)]
 pub(in crate::services::agent) use compose::proactive_prompt;
 mod told;

@@ -158,7 +158,7 @@ export const AgentPanel: React.FC<{ resident?: boolean }> = ({ resident = false 
   }, [showsFull])
 
   // She is not on this site (H3e-9): no chat with her here; Work stays.
-  const { away, device: awayOn, owner: isOwner, leaves } = useHerAway(open)
+  const { away, device: awayOn, owner: isOwner, leaves, catchingUp } = useHerAway(open)
   // Her mind on another device of the owner's: what they say here reaches
   // her there, so they keep the composer, told where she is (D6-b).
   const leavesForHer = away === 'mind_elsewhere' && isOwner && leaves
@@ -369,6 +369,7 @@ export const AgentPanel: React.FC<{ resident?: boolean }> = ({ resident = false 
                 device={awayOn}
                 owner={isOwner}
                 leaves={leaves}
+                catchingUp={catchingUp}
                 mode={mode}
               />
             ) : null}

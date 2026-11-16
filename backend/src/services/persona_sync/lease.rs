@@ -1350,6 +1350,12 @@ pub fn refuse_while_away() -> Result<(), AppError> {
         Where::Elsewhere(_) | Where::Vacant | Where::MovedOut => {
             Err(AppError::conflict("She does not live on this site now").with_code("host_moved"))
         }
+        // Handed back and still taking in what that device wrote: the
+        // same code, said as it is.
+        Where::MindOn(holder) if holder == SITE => Err(AppError::conflict(
+            "She has just come back here and is still taking in what she wrote on your other device",
+        )
+        .with_code("mind_elsewhere")),
         Where::MindOn(_) => Err(
             AppError::conflict("She is on another of your devices now").with_code("mind_elsewhere")
         ),
@@ -1414,6 +1420,14 @@ pub fn adopt(lease: Option<Lease>) {
     if let Some(lease) = &lease {
         crate::services::agent::link::lease_changed(lease);
     }
+    // Her mind left a device: what was lent to it and not taken is the
+    // site's again (groups for the group mind once she is back, private
+    // messages held again).
+    let given_back = match &before {
+        Where::MindOn(device) => crate::services::her_log::lend::let_go(device),
+        _ => Vec::new(),
+    };
+    let mut given_back = Some(given_back).filter(|back| !back.is_empty());
     match after {
         Where::Moving
         | Where::Elsewhere(_)
@@ -1439,10 +1453,35 @@ pub fn adopt(lease: Option<Lease>) {
                 } else {
                     crate::services::channel_group::back_from_away();
                 }
-                tokio::spawn(crate::services::channel_work::held::replay(db.clone()));
+                // What was given back is held first, then read with the rest.
+                let back = given_back.take().unwrap_or_default();
+                let held = db.clone();
+                tokio::spawn(async move {
+                    crate::services::her_log::lend::give_back(
+                        &held,
+                        &crate::services::her_log::lend::Platforms,
+                        back,
+                    )
+                    .await;
+                    crate::services::channel_work::held::replay(held).await;
+                });
                 tokio::spawn(crate::services::agent::merope::replay_kept_for_her(db));
             }
         }
+    }
+    // She is not back here: what was given back is held until she is.
+    if let Some(back) = given_back
+        && let Ok(db) = crate::services::process_db::database()
+        && tokio::runtime::Handle::try_current().is_ok()
+    {
+        tokio::spawn(async move {
+            crate::services::her_log::lend::give_back(
+                &db,
+                &crate::services::her_log::lend::Platforms,
+                back,
+            )
+            .await;
+        });
     }
 }
 

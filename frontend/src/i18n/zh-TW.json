@@ -668,7 +668,8 @@
       "mindElsewhere": "她現在在「{name}」那邊。",
       "mindElsewhereUnknown": "她現在在你的另一台裝置上。",
       "mindElsewhereLeave": "她現在在「{name}」那邊，在這裡說的話她在那邊看得到。",
-      "mindElsewhereLeaveUnknown": "她現在在你的另一台裝置上，在這裡說的話她在那邊看得到。"
+      "mindElsewhereLeaveUnknown": "她現在在你的另一台裝置上，在這裡說的話她在那邊看得到。",
+      "mindBack": "她剛回到這裡，正在接上另一台裝置那邊寫下的內容，一會兒就好。"
     },
     "status": {
       "idle": "待命",
@@ -808,6 +809,26 @@
     "pictures": "（發了 {count} 張圖）",
     "forgetLine": "忘掉",
     "confirmForgetLine": "她會忘掉這句話和由它記下的事；同步著的話，兩端都會刪掉。",
+    "card": {
+      "moved": "這張卡已更新，在下面",
+      "chose": "選了「{label}」",
+      "answered": "已經回答過了",
+      "failed": "沒送出去，再試一次",
+      "closed": "這張卡已經結束了",
+      "stale": "卡剛更新過，這是最新的",
+      "because": "依據第 {n} 條",
+      "view": "看法",
+      "states": {
+        "working": "進行中",
+        "waiting_owner": "等你決定",
+        "finished": "已完成",
+        "stuck": "卡住了",
+        "waiting_checks": "等檢查跑完",
+        "waiting_program": "等別的程式",
+        "waiting_session": "等著回報",
+        "quiet": "很久沒動靜"
+      }
+    },
     "closeImage": "關掉",
     "newSession": "換個話題",
     "stop": "停下",

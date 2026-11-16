@@ -286,6 +286,9 @@ fn from_her_nodes(
     cues: Option<&myriad_merope::remembering::Cues>,
     sections: &mut Vec<String>,
 ) {
+    sections.extend(super::super::memory_nodes::context::resident_section(
+        &recollection.resident,
+    ));
     if let Some(block) = format_remembered_section(&recollection.named) {
         sections.push(block);
         if cues.is_some_and(|cues| cues.thorough) {

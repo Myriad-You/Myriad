@@ -51,7 +51,8 @@ use super::{Error, NODE, Owner, keys, store};
 use crate::services::persona_sync::{assets, snapshot};
 
 /// The kinds whose records are her log's rows here, in the order they are
-/// compared. Her memories and diary of nodes come with b2; her talk is D6.
+/// compared. Her memories are compared on their own ([`super::memories`]),
+/// her nodes go in as they are written; her talk is D6.
 pub const KINDS: [Kind; 17] = [
     Kind::Persona,
     Kind::Outfit,
@@ -93,6 +94,8 @@ pub struct Synced {
     /// Rows of her nodes put into the log that were not in it yet
     /// (`memory_nodes::logged`).
     pub nodes: usize,
+    /// What the comparison of her memories wrote ([`super::memories`]).
+    pub memories: super::memories::Compared,
     pub took: Duration,
 }
 
@@ -217,6 +220,10 @@ pub async fn sync(
         }
         drop_known(&txn, site_owner, object).await?;
         synced.gone += 1;
+    }
+    // Her memories, while she thinks here.
+    if let (Author::Her, Some(epoch)) = author {
+        synced.memories = super::memories::compare(&txn, root, &owner, epoch, &known, now).await?;
     }
     txn.commit().await?;
     // Her nodes too: what was written while the log was off, or before.
@@ -399,7 +406,10 @@ async fn gone(
 }
 
 /// What her log last has of each object written here, by its digest.
-async fn known<C: ConnectionTrait>(db: &C, user: i32) -> Result<BTreeMap<String, String>, Error> {
+pub(super) async fn known<C: ConnectionTrait>(
+    db: &C,
+    user: i32,
+) -> Result<BTreeMap<String, String>, Error> {
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             db.get_database_backend(),
@@ -435,7 +445,7 @@ pub(super) async fn keep<C: ConnectionTrait>(
 }
 
 /// The log has `object` at `digest` now, taken in from `row` another end wrote.
-async fn taken_in<C: ConnectionTrait>(
+pub(super) async fn taken_in<C: ConnectionTrait>(
     db: &C,
     user: i32,
     object: &str,
@@ -453,7 +463,10 @@ async fn taken_in<C: ConnectionTrait>(
 }
 
 /// The row from another end last taken in of each object.
-async fn took<C: ConnectionTrait>(db: &C, user: i32) -> Result<BTreeMap<String, String>, Error> {
+pub(super) async fn took<C: ConnectionTrait>(
+    db: &C,
+    user: i32,
+) -> Result<BTreeMap<String, String>, Error> {
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             db.get_database_backend(),
@@ -471,7 +484,11 @@ async fn took<C: ConnectionTrait>(db: &C, user: i32) -> Result<BTreeMap<String, 
     Ok(out)
 }
 
-async fn drop_known<C: ConnectionTrait>(db: &C, user: i32, object: &str) -> Result<(), Error> {
+pub(super) async fn drop_known<C: ConnectionTrait>(
+    db: &C,
+    user: i32,
+    object: &str,
+) -> Result<(), Error> {
     db.execute_raw(Statement::from_sql_and_values(
         db.get_database_backend(),
         "DELETE FROM agent_her_state_rows WHERE user_id = $1 AND object = $2",

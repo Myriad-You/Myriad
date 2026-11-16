@@ -49,6 +49,7 @@ import {
   AgentChannelSources,
 } from './AgentChannelSources'
 import { AgentDevicesGroup } from './AgentDevicesGroup'
+import { AgentHerSyncGroup } from './AgentHerSyncGroup'
 import AgentOptionsPanel, {
   AgentNestedSection,
 } from './AgentOptionsPanel'
@@ -586,6 +587,7 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
         <HerRecent onPlay={(text) => askAgentPanel(text, 'chat')} />
       ) : null}
       {meropeOn && user?.is_owner ? <AgentDevicesGroup /> : null}
+      {meropeOn && user?.is_owner ? <AgentHerSyncGroup /> : null}
       <SettingGroup
         title={t.config.agentChannelsTitle}
         icon={<LuMessageSquare />}

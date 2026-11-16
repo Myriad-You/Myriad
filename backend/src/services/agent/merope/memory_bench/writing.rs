@@ -163,3 +163,127 @@ pub(super) async fn keep_chat(
         .unwrap();
     }
 }
+
+/// What writing a question's own sessions left: what of it answers the
+/// question, and how much was kept.
+#[derive(Clone, Debug, Default)]
+pub(super) struct Written {
+    pub(super) answering: Vec<String>,
+    pub(super) kept: usize,
+}
+
+/// The writing half of [`run_for`]: the question's own sessions kept as
+/// the site keeps chat and written as she would, after `answering`.
+pub(super) async fn write_for(
+    db: &sea_orm::DatabaseConnection,
+    judge: &crate::services::analyzer::AiAnalyzer,
+    question: &Question,
+    name: &str,
+    (user_id, tag): (i32, &str),
+    mut answering: Vec<String>,
+) -> Written {
+    let mut kept = 0;
+    let mut sessions: Vec<Session> = question
+        .haystack_dates
+        .iter()
+        .map(|date| date_of(date))
+        .zip(question.haystack_sessions.iter())
+        .enumerate()
+        .map(|(number, (at, turns))| (at, turns, audience_at(question.venue(number), user_id, tag)))
+        .collect();
+    sessions.sort_by_key(|(at, _, _)| *at);
+    // The chat itself, as the site keeps it, for scrolling back through.
+    for (number, (session_at, turns, here)) in sessions.iter().enumerate() {
+        keep_chat(
+            db,
+            &format!("{name}-{number}"),
+            user_id,
+            *session_at,
+            turns,
+            here,
+        )
+        .await;
+    }
+    // What she already keeps of them, a week before they ask.
+    if !question.memories.is_empty() {
+        let updates = super::super::chat_remember::ChatMemoryUpdates {
+            updates: question
+                .memories
+                .iter()
+                .map(|fact| super::super::chat_remember::ChatMemoryUpdate {
+                    standing: Default::default(),
+                    fact: Some(fact.clone()),
+                    supersedes: Vec::new(),
+                    evidence: Some(fact.clone()),
+                    concepts: Vec::new(),
+                    topic: None,
+                    cues: Vec::new(),
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let at = date_of(&question.question_date) - chrono::Duration::days(7);
+        if apply_at(db, user_id, &Audience::private(user_id), at, &updates)
+            .await
+            .is_some()
+        {
+            kept += question.memories.len();
+        }
+    }
+    let settle = std::env::var("MEROPE_MEMORY_BENCH_WAY").as_deref() == Ok("settle");
+    if settle {
+        settle::go_over(
+            db,
+            judge,
+            user_id,
+            &sessions,
+            &question.question_date,
+            &mut answering,
+            &mut kept,
+        )
+        .await;
+    }
+    for (session_at, turns, here) in sessions.iter().filter(|_| !settle) {
+        for (index, turn) in turns.iter().enumerate() {
+            if turn.role != "user" {
+                continue;
+            }
+            let reply = turns
+                .get(index + 1)
+                .filter(|next| next.role == "assistant")
+                .map(|next| next.content.as_str())
+                .unwrap_or("");
+            let at = *session_at + chrono::Duration::minutes(index as i64);
+            let text: String = turn
+                .content
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            if text.chars().count() > 2_000 {
+                continue;
+            }
+            let Some(updates) = remember_turn(db, judge, user_id, here, &text, reply, at).await
+            else {
+                continue;
+            };
+            kept += 1;
+            // What answers the question may be in their words or hers.
+            let answer_here =
+                turn.has_answer || turns.get(index + 1).is_some_and(|next| next.has_answer);
+            if answer_here {
+                answering.extend(
+                    updates
+                        .updates
+                        .iter()
+                        .filter_map(|update| update.fact.as_deref())
+                        .chain(updates.said.iter().map(|said| said.said.as_str()))
+                        .map(super::super::ingest::compact_summary),
+                );
+            }
+        }
+    }
+    if settle {
+        settle::keep_up_nodes(db, user_id).await;
+    }
+    Written { answering, kept }
+}

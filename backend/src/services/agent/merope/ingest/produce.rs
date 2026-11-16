@@ -184,7 +184,10 @@ pub(super) async fn take_in(
     // What a child end saw: said while it is about now, kept where it may be.
     let keeps_memory = told.is_some_and(|told| told.keeps_memory && keeps_memory_of(event_key));
     let sayable = told.is_none_or(Told::sayable);
-    if !sayable && !keeps_memory {
+    // A look at their screen may still be taken in when it is no longer
+    // about now; it is only not said.
+    let screen = event_key == super::super::gates::SCREEN_EVENT;
+    if !sayable && !keeps_memory && !screen {
         log_skip(user_id, event_key, "stale");
         return Ok(());
     }
@@ -194,15 +197,15 @@ pub(super) async fn take_in(
     let decision = decide_ingest(event_key, &sight);
     let touch = event_key == "agent.merope.touch";
     // A passing thought, or something she found out: said live to someone
-    // who can see her, or let go.
+    // who can see her, or let go. A look at their screen is still decided
+    // (and taken in) while she is not there; it is only not said.
     let thought = super::super::gates::said_only_in_person(event_key);
+    let mut present = true;
     if thought {
         // Her face where they are using her: a page's, or the app's.
         let live = crate::services::agent::consciousness::face_presence(user_id);
-        if !crate::services::agent::consciousness::can_speak_to(&live)
-            || live.speaking
-            || !decision.allow_model
-        {
+        present = crate::services::agent::consciousness::can_speak_to(&live) && !live.speaking;
+        if !decision.allow_model || (!present && super::super::gates::needs_presence(event_key)) {
             return Ok(());
         }
     }
@@ -265,6 +268,17 @@ pub(super) async fn take_in(
     if let Some(told) = told {
         super::told::shape(db, user_id, event_key, told, &mut conscious_event).await;
     }
+    // A look that may become memory: the notes she is offered with it,
+    // after what it showed.
+    let look = told.filter(|_| screen).and_then(super::screen::Look::of);
+    let mut offered = super::screen::Offered::default();
+    if let Some(look) = &look {
+        let (notes, section) = super::screen::offer(db, user_id, look).await;
+        offered = notes;
+        if let Some(section) = section {
+            conscious_event.summary = format!("{}\n\n{section}", conscious_event.summary);
+        }
+    }
     let origin = told.map(|told| told.origin.as_str());
     let consideration = match consider_event(db, &conscious_event).await {
         Ok(value) => value,
@@ -273,16 +287,23 @@ pub(super) async fn take_in(
             None
         }
     };
-    if let (Some(told), Some(value)) = (told, consideration.as_ref()) {
-        super::told::file(
+    // What she decided of what a child saw is kept nowhere apart: the old
+    // node table is no longer written (her notes there are still read).
+    // What a look became of hers: by whether she took it in, never by what
+    // it showed (the window's text she was shown is never kept as hers).
+    if let (Some(look), Some(value)) = (&look, consideration.as_ref()) {
+        let kept = super::screen::keep(
             db,
             user_id,
-            event_key,
-            told,
             &conscious_event,
+            look,
+            &offered,
             &value.decision,
+            &summary,
+            origin.unwrap_or_default(),
         )
         .await;
+        tracing::debug!(?kept, "[Merope] a look at their screen");
     }
     // Of what a child end saw, only what may become a memory becomes one.
     let memory = consideration
@@ -319,7 +340,7 @@ pub(super) async fn take_in(
             ConsciousnessAction::Ignore | ConsciousnessAction::Remember => None,
         })
         .filter(|text| !is_trivial_line(text))
-        .filter(|_| sayable);
+        .filter(|_| sayable && present);
     if let Some(gist) = gist {
         let work_intent_id = consideration
             .as_ref()

@@ -70,6 +70,7 @@ use drawing::{
 };
 #[cfg(test)]
 use figure::alongside;
+pub(super) use figure::{enlarged_figure, super_resolved};
 use figure::{fit, plain, put_back, run_figure};
 #[cfg(test)]
 use served::missing_job;

@@ -709,10 +709,15 @@ mod delivery_db_tests {
         let url = std::env::var("MYRIAD_RUNTIME_ISOLATION_TEST_DB").unwrap();
         let admin = Database::connect(&url).await.unwrap();
         let schema_name = format!("{prefix}_{}", uuid::Uuid::new_v4().simple());
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("CREATE SCHEMA {schema_name}"))
             .await
             .unwrap();
+        drop(turn);
         let mut options = ConnectOptions::new(url);
         options.max_connections(2).map_sqlx_postgres_opts({
             let schema_name = schema_name.clone();
@@ -739,10 +744,15 @@ mod delivery_db_tests {
 
     async fn drop_schema(admin: &sea_orm::DatabaseConnection, schema_name: &str) {
         use sea_orm::ConnectionTrait;
+        let turn = crate::db::SCHEMA_WORK
+            .acquire()
+            .await
+            .expect("never closed");
         admin
             .execute_unprepared(&format!("DROP SCHEMA {schema_name} CASCADE"))
             .await
             .unwrap();
+        drop(turn);
     }
 
     fn runtime(runtime_id: &str, subject_id: i32) -> EventRuntime {

@@ -83,6 +83,7 @@ export async function preflightFullBodyPsdAsset(
   sourceGenerationFingerprint?: string,
   onStage?: (event: RigAssetCompileEvent) => void,
   signal?: AbortSignal,
+  armVariants?: RigPsdImportOptions['armVariants'],
 ): Promise<RigAssetPreflight> {
   const [skeleton, picture] = await Promise.all([
     getFullBodySkeleton(outfitId),
@@ -102,6 +103,8 @@ export async function preflightFullBodyPsdAsset(
             profile: 'fullBody',
             skeleton: skeleton ?? undefined,
             referenceUrl,
+            // Drawn on the enlarged picture, which is what the importer checks against.
+            armVariants,
           }),
         preview: fullBodyRigImport(outfitId).preview,
       },

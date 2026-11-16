@@ -1818,6 +1818,10 @@ async fn retired_columns_are_dropped_once() {
     };
     let schema = format!("retired_cols_{}", uuid::Uuid::new_v4().simple());
     let admin = Database::connect(&url).await.expect("connect test db");
+    let _turn = crate::db::SCHEMA_WORK
+        .acquire()
+        .await
+        .expect("never closed");
     admin
         .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
         .await
@@ -1883,6 +1887,10 @@ async fn the_support_floor_refuses_an_unmarked_old_database() {
     };
     let schema = format!("floor_test_{}", uuid::Uuid::new_v4().simple());
     let admin = Database::connect(&url).await.expect("connect test db");
+    let _turn = crate::db::SCHEMA_WORK
+        .acquire()
+        .await
+        .expect("never closed");
     admin
         .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
         .await
@@ -1934,6 +1942,10 @@ async fn an_unfinished_media_upgrade_is_refused() {
     };
     let schema = format!("media_guard_test_{}", uuid::Uuid::new_v4().simple());
     let admin = Database::connect(&url).await.expect("connect test db");
+    let _turn = crate::db::SCHEMA_WORK
+        .acquire()
+        .await
+        .expect("never closed");
     admin
         .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
         .await

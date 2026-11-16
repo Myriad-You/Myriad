@@ -194,6 +194,34 @@ impl NotificationManager {
         self.notify(notification).await;
     }
 
+    /// One source asked her to judge too often: she stopped judging what it
+    /// tells her for a while (`consciousness::judging`). Said to the
+    /// site's admins once each time it happens.
+    pub async fn notify_judging_paused(&self, source: &str, per_hour: usize, minutes: u64) {
+        for user_id in self.admin_user_ids().await {
+            let notification = Notification::new(
+                user_id,
+                NotificationType::SystemInfo,
+                NotificationPriority::High,
+                format!("She stopped judging events from {source} for {minutes} minutes"),
+                format!(
+                    "{source} asked her to judge more than {per_hour} events within an hour, \
+                     which usually means it is telling the same thing over and over. \
+                     What it sends meanwhile is let go unjudged."
+                ),
+            )
+            .with_event(
+                NotificationEventKey::SystemInfo,
+                serde_json::json!({
+                    "action": ACTION_OPEN_AGENT,
+                    "source": source,
+                    "status": "paused",
+                }),
+            );
+            self.notify(notification).await;
+        }
+    }
+
     /// Skill 自动淘汰 / AI 改进完成时通知管理员
     pub async fn notify_skill_evolution(&self, skill_id: &str, action: &str, detail: &str) {
         let (title, event, priority) = match action {

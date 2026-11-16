@@ -1,0 +1,9744 @@
+{
+ "sessions": [
+  {
+   "date": "2026/07/01 (Wed) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早 刚煮完燕麦 团子蹲在灶台边上盯着锅看"
+    },
+    {
+     "role": "assistant",
+     "content": "它是不是以为你在煮什么好东西"
+    },
+    {
+     "role": "user",
+     "content": "天天这样 煮的是燕麦它又不吃 闻一下就走了"
+    },
+    {
+     "role": "assistant",
+     "content": "纯监工 确认你没偷吃肉"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 今天成都又说三十五度 出门就化了"
+    },
+    {
+     "role": "assistant",
+     "content": "多喝水 防晒别忘"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/01 (Wed) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下班了 回家先把猫爬架那个视频导出来再去跑步"
+    },
+    {
+     "role": "assistant",
+     "content": "新款的介绍视频？"
+    },
+    {
+     "role": "user",
+     "content": "对 周末拍的 结果这台旧笔记本剪到一半就卡 五年了 风扇响得跟拖拉机一样"
+    },
+    {
+     "role": "assistant",
+     "content": "五年的机器剪视频是挺吃力 导出要多久"
+    },
+    {
+     "role": "user",
+     "content": "上回两分钟的片子导了四十分钟 我开着让它导 跑回来应该好了"
+    },
+    {
+     "role": "assistant",
+     "content": "正好 跑完回来收货"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/01 (Wed) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跑回来了 视频还在导 进度条才百分之八十"
+    },
+    {
+     "role": "assistant",
+     "content": "比你想的快一点嘛"
+    },
+    {
+     "role": "user",
+     "content": "趁着等 练了会儿琴 上周留的扫弦还是不顺"
+    },
+    {
+     "role": "assistant",
+     "content": "哪首"
+    },
+    {
+     "role": "user",
+     "content": "晴天前奏那段 右手老是乱 一节课180 学不会感觉亏大了"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 按课时算的焦虑 多扫几遍就顺了"
+    },
+    {
+     "role": "user",
+     "content": "明天再说 手指头疼"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/02 (Thu) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天晚饭随便下了碗面 冰箱里只剩两个鸡蛋了"
+    },
+    {
+     "role": "assistant",
+     "content": "周末该去超市补货了"
+    },
+    {
+     "role": "user",
+     "content": "是 下午被一个退货单搞得头大 客户说猫砂盆尺寸不对 页面上明明写了"
+    },
+    {
+     "role": "assistant",
+     "content": "这种最无奈 写了也没人看"
+    },
+    {
+     "role": "user",
+     "content": "最后还是给他退了 算了不想了"
+    },
+    {
+     "role": "assistant",
+     "content": "吃完面歇会儿"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/02 (Thu) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "苏禾发了张她们工地的照片 人晒得跟炭一样"
+    },
+    {
+     "role": "assistant",
+     "content": "深圳这几天也很热吧"
+    },
+    {
+     "role": "user",
+     "content": "她说楼板都烫手 下午还要爬脚手架看节点"
+    },
+    {
+     "role": "assistant",
+     "content": "好辛苦 叫她多涂点防晒"
+    },
+    {
+     "role": "user",
+     "content": "说了 她说涂了也没用 哈哈 等会十点再视频"
+    },
+    {
+     "role": "assistant",
+     "content": "那晚点陪她吐槽"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/02 (Thu) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刷到一个视频 拍的老绿皮火车 慢悠悠钻山洞"
+    },
+    {
+     "role": "assistant",
+     "content": "现在不太常见了"
+    },
+    {
+     "role": "user",
+     "content": "看着就想起我爸 他以前就是跑绿皮车的列车员 小时候老在站台等他回来"
+    },
+    {
+     "role": "assistant",
+     "content": "那种画面应该记得很清楚吧"
+    },
+    {
+     "role": "user",
+     "content": "嗯 穿着那身制服 手里拎个茶缸 现在退休了天天在家浇花"
+    },
+    {
+     "role": "assistant",
+     "content": "挺好的 跑了那么多年 该歇歇了"
+    },
+    {
+     "role": "user",
+     "content": "睡了 明天还上班"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/03 (Fri) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "中午面馆排队排到门口 等了十五分钟"
+    },
+    {
+     "role": "assistant",
+     "content": "周五人多 吃的什么"
+    },
+    {
+     "role": "user",
+     "content": "老样子 牛肉面少放辣 天太热吃不动"
+    },
+    {
+     "role": "assistant",
+     "content": "下午还有会吗"
+    },
+    {
+     "role": "user",
+     "content": "两点一个周会 估计又要讲六月数据"
+    },
+    {
+     "role": "assistant",
+     "content": "撑过去就周末了"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/03 (Fri) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下班 换衣服去江边 阿Ken说七点九眼桥那边等"
+    },
+    {
+     "role": "assistant",
+     "content": "今天还是五公里？"
+    },
+    {
+     "role": "user",
+     "content": "嗯 锦江边那一圈正好五公里 周三周五雷打不动"
+    },
+    {
+     "role": "assistant",
+     "content": "这么热 记得带水"
+    },
+    {
+     "role": "user",
+     "content": "带了 晚上江边有风还行 跑完照例去喝一杯"
+    },
+    {
+     "role": "assistant",
+     "content": "去吧 别被阿Ken甩开"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/03 (Fri) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "回来了 今晚就喝了一杯 阿Ken喝了三杯 话特别多"
+    },
+    {
+     "role": "assistant",
+     "content": "他说什么了"
+    },
+    {
+     "role": "user",
+     "content": "他们行里下半年考核 吐槽了一晚上 我负责点头"
+    },
+    {
+     "role": "assistant",
+     "content": "当听众也挺累的"
+    },
+    {
+     "role": "user",
+     "content": "还好 听别人吐槽比自己吐槽轻松 团子在门口等我 一开门就躺倒"
+    },
+    {
+     "role": "assistant",
+     "content": "翻肚皮了？"
+    },
+    {
+     "role": "user",
+     "content": "翻了 摸两下又咬我"
+    },
+    {
+     "role": "assistant",
+     "content": "标准的猫"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/04 (Sat) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "上完课出来 外面太阳毒得很"
+    },
+    {
+     "role": "assistant",
+     "content": "今天学了什么"
+    },
+    {
+     "role": "user",
+     "content": "开始练分解和弦了 老师说我右手太僵"
+    },
+    {
+     "role": "assistant",
+     "content": "慢慢来 中午吃啥"
+    },
+    {
+     "role": "user",
+     "content": "附近随便吃个冒菜 然后回家睡午觉"
+    },
+    {
+     "role": "assistant",
+     "content": "冒菜配午觉 很周末"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/04 (Sat) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下午睡到四点 起来打了两把哈迪斯2 卡一个boss死了七八次"
+    },
+    {
+     "role": "assistant",
+     "content": "那个boss听说挺难的"
+    },
+    {
+     "role": "user",
+     "content": "手残 气得想摔手柄 吃完饭再战"
+    },
+    {
+     "role": "assistant",
+     "content": "吃饱了手稳一点"
+    },
+    {
+     "role": "user",
+     "content": "晚饭点了个烤鱼外卖 一个人吃有点多"
+    },
+    {
+     "role": "assistant",
+     "content": "剩的明天中午热一下"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/04 (Sat) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "团子今晚发什么疯 一直在门口嚎"
+    },
+    {
+     "role": "assistant",
+     "content": "是不是想出去"
+    },
+    {
+     "role": "user",
+     "content": "估计闻到楼道里有别的猫 公猫就这样 领地意识重得很 绝育了也没用"
+    },
+    {
+     "role": "assistant",
+     "content": "外面一有动静就要宣示一下"
+    },
+    {
+     "role": "user",
+     "content": "开了个罐头才消停 现在趴窗台上舔爪子"
+    },
+    {
+     "role": "assistant",
+     "content": "罐头一出 天下太平"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/05 (Sun) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下午去超市补货 买了一堆 回来发现忘买鸡蛋"
+    },
+    {
+     "role": "assistant",
+     "content": "最该买的那个忘了"
+    },
+    {
+     "role": "user",
+     "content": "对 冰箱倒是塞满了 周一到周五晚饭应该够"
+    },
+    {
+     "role": "assistant",
+     "content": "准备做什么"
+    },
+    {
+     "role": "user",
+     "content": "番茄牛腩 炖一大锅分装"
+    },
+    {
+     "role": "assistant",
+     "content": "聪明 下班回来热一下就能吃"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/05 (Sun) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刚给我妈打完电话 她又问苏禾什么时候来家里"
+    },
+    {
+     "role": "assistant",
+     "content": "你怎么说的"
+    },
+    {
+     "role": "user",
+     "content": "说还早 她就开始念叨两地分着不是长久之计"
+    },
+    {
+     "role": "assistant",
+     "content": "当妈的都会操心"
+    },
+    {
+     "role": "user",
+     "content": "我知道 就是被念叨有点烦 等会跟苏禾视频 这个话题我就不提了"
+    },
+    {
+     "role": "assistant",
+     "content": "嗯 今晚聊点开心的"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/05 (Sun) 22:20",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "这周热到没胃口 但是又好想回血"
+    },
+    {
+     "role": "assistant",
+     "content": "热天吃火锅才过瘾 开着空调涮毛肚"
+    },
+    {
+     "role": "user",
+     "content": "对 就是这个画面 下周谁有空"
+    },
+    {
+     "role": "assistant",
+     "content": "我都行 看你们"
+    },
+    {
+     "role": "user",
+     "content": "那我回头看看大家时间 定了再说"
+    },
+    {
+     "role": "assistant",
+     "content": "好 等通知"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/06 (Mon) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "周一 闹钟响了三遍才起"
+    },
+    {
+     "role": "assistant",
+     "content": "周末睡太晚了吧"
+    },
+    {
+     "role": "user",
+     "content": "昨晚跟苏禾聊到快一点 她今天还要早起去现场"
+    },
+    {
+     "role": "assistant",
+     "content": "两个人都得困一天"
+    },
+    {
+     "role": "user",
+     "content": "燕麦煮糊了一半 凑合吃了 再灌杯咖啡"
+    },
+    {
+     "role": "assistant",
+     "content": "路上慢点"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/06 (Mon) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "上午被拉去开会 说下半年要搞直播矩阵"
+    },
+    {
+     "role": "assistant",
+     "content": "听起来活要变多了"
+    },
+    {
+     "role": "user",
+     "content": "肯定的 现在一个月四场 以后要一周两场"
+    },
+    {
+     "role": "assistant",
+     "content": "人手够吗"
+    },
+    {
+     "role": "user",
+     "content": "不够 说是招人 谁知道什么时候招到"
+    },
+    {
+     "role": "assistant",
+     "content": "先吃饭 下午再头疼"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/06 (Mon) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天做了上半年复盘 我们组数据还行"
+    },
+    {
+     "role": "assistant",
+     "content": "那挺好"
+    },
+    {
+     "role": "user",
+     "content": "在毛球星当运营主管这小半年 最大的感受就是什么都得管 文案 图片 客服投诉都要过一遍"
+    },
+    {
+     "role": "assistant",
+     "content": "公司不大 主管就是兜底的那个"
+    },
+    {
+     "role": "user",
+     "content": "对 有时候想做点长远的 一天全被琐事切碎了"
+    },
+    {
+     "role": "assistant",
+     "content": "能把琐事兜住也是本事"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/07 (Tue) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早 今天成都终于凉快点了 阴天"
+    },
+    {
+     "role": "assistant",
+     "content": "难得 出门舒服了"
+    },
+    {
+     "role": "user",
+     "content": "嗯 燕麦里加了根香蕉 甜得刚好"
+    },
+    {
+     "role": "assistant",
+     "content": "香蕉燕麦不错"
+    },
+    {
+     "role": "user",
+     "content": "今天要交直播排期表 昨晚没弄完 得早点到公司"
+    },
+    {
+     "role": "assistant",
+     "content": "那快去 别饿着"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/07 (Tue) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "苏禾说她这周末可能要去广州两天"
+    },
+    {
+     "role": "assistant",
+     "content": "出差？"
+    },
+    {
+     "role": "user",
+     "content": "嗯 跟甲方对方案 她最近天天改图 说梦里都是CAD"
+    },
+    {
+     "role": "assistant",
+     "content": "做建筑真的熬人"
+    },
+    {
+     "role": "user",
+     "content": "我说我这边好歹准点下班 她说你等着 你们旺季也快来了"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 她挺懂你们行业"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/07 (Tue) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "团子把我桌上的笔一根根拨到地上 我捡一根它拨一根"
+    },
+    {
+     "role": "assistant",
+     "content": "在跟你玩呢"
+    },
+    {
+     "role": "user",
+     "content": "我一忙它就来捣乱 合上电脑它反而走了"
+    },
+    {
+     "role": "assistant",
+     "content": "就是要你看它"
+    },
+    {
+     "role": "user",
+     "content": "现在睡在我电脑包上 不让动"
+    },
+    {
+     "role": "assistant",
+     "content": "这下你也忙不成了"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/08 (Wed) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天公司年度体检 早上空腹抽了四管血 饿到中午"
+    },
+    {
+     "role": "assistant",
+     "content": "抽完有东西吃吗"
+    },
+    {
+     "role": "user",
+     "content": "发了个面包一盒牛奶 吃了跟没吃一样"
+    },
+    {
+     "role": "assistant",
+     "content": "结果什么时候出"
+    },
+    {
+     "role": "user",
+     "content": "说明天小程序上就能看 一会还要去夜跑 腿有点软"
+    },
+    {
+     "role": "assistant",
+     "content": "今天跑慢点 别逞强"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/08 (Wed) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跑完回来饿疯了 煮了碗面加两个蛋"
+    },
+    {
+     "role": "assistant",
+     "content": "抽了血又跑步 是该补补"
+    },
+    {
+     "role": "user",
+     "content": "刚才视频的时候苏禾看着我吃 说她也饿了 转头点了个夜宵"
+    },
+    {
+     "role": "assistant",
+     "content": "隔着屏幕互相投毒"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 睡了 明天看报告"
+    },
+    {
+     "role": "assistant",
+     "content": "晚安"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/09 (Thu) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "体检报告出来了 别的都还行 就尿酸偏高 标了个箭头"
+    },
+    {
+     "role": "assistant",
+     "content": "上面有建议吗"
+    },
+    {
+     "role": "user",
+     "content": "写着建议复查 少吃海鲜动物内脏 少喝啤酒"
+    },
+    {
+     "role": "assistant",
+     "content": "那周五的酒要收着点了"
+    },
+    {
+     "role": "user",
+     "content": "我中午刚点了碗猪肝面 看完报告默默把猪肝挑出来了"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 就从这碗开始"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/09 (Thu) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下班顺路带团子去宠物医院剪指甲 它在包里嚎了一路"
+    },
+    {
+     "role": "assistant",
+     "content": "它是不是特别讨厌出门"
+    },
+    {
+     "role": "user",
+     "content": "极其讨厌 医生顺手称了下 十二斤 说别再胖了"
+    },
+    {
+     "role": "assistant",
+     "content": "十二斤的橘白 是挺扎实"
+    },
+    {
+     "role": "user",
+     "content": "还翻了下疫苗本 下次打疫苗是十二月 到时候又是一场大战"
+    },
+    {
+     "role": "assistant",
+     "content": "还早 先熬过今天的指甲"
+    },
+    {
+     "role": "user",
+     "content": "剪完就在包里装死 我先吃饭 等下还要去打球"
+    },
+    {
+     "role": "assistant",
+     "content": "去吧 让它自己生会儿气"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/10 (Fri) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跑步前先吃根香蕉垫着 阿Ken说带了块新跑步表 要给我显摆"
+    },
+    {
+     "role": "assistant",
+     "content": "他又换装备了"
+    },
+    {
+     "role": "user",
+     "content": "他每个月都要添点东西 我还是那双旧鞋"
+    },
+    {
+     "role": "assistant",
+     "content": "鞋还能穿就行 今晚还去喝吗"
+    },
+    {
+     "role": "user",
+     "content": "去 不过我就喝苏打水了 前天体检尿酸480 不敢造"
+    },
+    {
+     "role": "assistant",
+     "content": "苏打水也挺好 气氛到了就行"
+    },
+    {
+     "role": "user",
+     "content": "阿Ken肯定笑我 不管了"
+    },
+    {
+     "role": "assistant",
+     "content": "笑就笑 脚要紧"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/10 (Fri) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跑完了 今天江边好多人 跳广场舞的占了半边道"
+    },
+    {
+     "role": "assistant",
+     "content": "只能绕着跑？"
+    },
+    {
+     "role": "user",
+     "content": "绕了好几次 配速全乱了 阿Ken那块新表说我心率一百七"
+    },
+    {
+     "role": "assistant",
+     "content": "热天心率高很正常"
+    },
+    {
+     "role": "user",
+     "content": "现在坐鹿角门口吹风 他在里面点单"
+    },
+    {
+     "role": "assistant",
+     "content": "记得你的苏打水"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/10 (Fri) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "到家了 洗完澡把这周雾城第二集补了"
+    },
+    {
+     "role": "assistant",
+     "content": "周三那集？"
+    },
+    {
+     "role": "user",
+     "content": "对 周二周三各一集 周三结尾太狠了 女主居然是卧底"
+    },
+    {
+     "role": "assistant",
+     "content": "啊 前面完全没看出来"
+    },
+    {
+     "role": "user",
+     "content": "回头看第三集其实有暗示 编剧挺会埋的 下周二还得等四天"
+    },
+    {
+     "role": "assistant",
+     "content": "等更最折磨"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/11 (Sat) 08:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早 燕麦里加了把蓝莓 周六的仪式感"
+    },
+    {
+     "role": "assistant",
+     "content": "今天上课吗"
+    },
+    {
+     "role": "user",
+     "content": "上 十点 等下骑过去 晴天那段扫弦还是没练熟"
+    },
+    {
+     "role": "assistant",
+     "content": "老师又要说你右手僵了"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 已经做好挨说的准备了"
+    },
+    {
+     "role": "assistant",
+     "content": "挨完说就会了"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/11 (Sat) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "苏禾今天去广州了 说这次甲方特别难搞"
+    },
+    {
+     "role": "assistant",
+     "content": "周末还出差 好惨"
+    },
+    {
+     "role": "user",
+     "content": "是啊 发了张高铁上的照片 头发乱成一团还在改图"
+    },
+    {
+     "role": "assistant",
+     "content": "心疼一下"
+    },
+    {
+     "role": "user",
+     "content": "我给她点了杯奶茶送到酒店 她回了一串哭哭的表情"
+    },
+    {
+     "role": "assistant",
+     "content": "这个操作加分"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/12 (Sun) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "中午自己拌了个凉面 加了黄瓜丝 热天就靠这个续命"
+    },
+    {
+     "role": "assistant",
+     "content": "听着很解暑"
+    },
+    {
+     "role": "user",
+     "content": "团子过来闻了一下 嫌弃地走了"
+    },
+    {
+     "role": "assistant",
+     "content": "它不懂凉面的好"
+    },
+    {
+     "role": "user",
+     "content": "下午打算把屋子收拾一下 地上全是猫毛"
+    },
+    {
+     "role": "assistant",
+     "content": "夏天掉毛季 吸尘器要累坏了"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/12 (Sun) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "心里有点堵 刚跟苏禾吵了一架"
+    },
+    {
+     "role": "assistant",
+     "content": "怎么了"
+    },
+    {
+     "role": "user",
+     "content": "她出差回来累 我说今晚视频晚点也行 她就问我是不是不想跟她聊 然后就吵起来了 说到底还是异地 见不着面 一点小事就放大"
+    },
+    {
+     "role": "assistant",
+     "content": "两个人都累的时候 话特别容易听岔"
+    },
+    {
+     "role": "user",
+     "content": "嗯 现在谁也没理谁 挺难受的"
+    },
+    {
+     "role": "assistant",
+     "content": "先缓一缓 等她气消了再说 你不是那个意思 她会明白的"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/12 (Sun) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "给我妈打完电话了 她听出来我不太高兴 问是不是工作不顺"
+    },
+    {
+     "role": "assistant",
+     "content": "你跟她说了吗"
+    },
+    {
+     "role": "user",
+     "content": "没说吵架的事 就说有点累 她让我多吃饭 还说我爸最近血压挺稳"
+    },
+    {
+     "role": "assistant",
+     "content": "那是个好消息"
+    },
+    {
+     "role": "user",
+     "content": "嗯 被她念叨一通 反而好点了"
+    },
+    {
+     "role": "assistant",
+     "content": "妈妈的电话管用的"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/13 (Mon) 12:50",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "周六晚上去试了科华北路新开那家烤肉 拔草了 肉腌得齁咸"
+    },
+    {
+     "role": "assistant",
+     "content": "啊 我还收藏了想去"
+    },
+    {
+     "role": "user",
+     "content": "别去了 排队一小时 吃完口渴到半夜"
+    },
+    {
+     "role": "assistant",
+     "content": "那我划掉 还是老地方稳"
+    },
+    {
+     "role": "user",
+     "content": "对 新店还是得有人先去踩"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 下回我去当先锋"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/13 (Mon) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跟苏禾和好了 昨晚十点还是视频了 两个人都道了歉"
+    },
+    {
+     "role": "assistant",
+     "content": "太好了"
+    },
+    {
+     "role": "user",
+     "content": "她说那天在高铁上被甲方骂了一路 本来就憋着气"
+    },
+    {
+     "role": "assistant",
+     "content": "难怪 火不是冲你的"
+    },
+    {
+     "role": "user",
+     "content": "嗯 今天她还给我寄了包糖水料 说让我自己煮"
+    },
+    {
+     "role": "assistant",
+     "content": "好可爱 煮了记得拍照"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/13 (Mon) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "组里来了个实习生 第一天就把一包猫条的价格多打了个零"
+    },
+    {
+     "role": "assistant",
+     "content": "啊 上线了吗"
+    },
+    {
+     "role": "user",
+     "content": "还好审核的时候发现了 不然一包猫条卖一百九"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 吓出一身汗吧"
+    },
+    {
+     "role": "user",
+     "content": "我比她还慌 明天得把审核流程再过一遍"
+    },
+    {
+     "role": "assistant",
+     "content": "第一天嘛 抓到了就好"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/14 (Tue) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "困死了 团子半夜三点在客厅跑酷 从沙发冲到书架再冲回来 来回十几趟"
+    },
+    {
+     "role": "assistant",
+     "content": "它在开运动会吗"
+    },
+    {
+     "role": "user",
+     "content": "我起来抓它 它钻床底 我刚躺下它又开始 一晚上醒了三次"
+    },
+    {
+     "role": "assistant",
+     "content": "太惨了 今天带杯咖啡"
+    },
+    {
+     "role": "user",
+     "content": "已经在灌了 它倒好 在我枕头上睡得打呼"
+    },
+    {
+     "role": "assistant",
+     "content": "罪魁祸首睡得最香"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/14 (Tue) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今晚用苏禾寄的料煮了绿豆沙 第一次煮 豆子没煮烂"
+    },
+    {
+     "role": "assistant",
+     "content": "泡的时间不够吧"
+    },
+    {
+     "role": "user",
+     "content": "网上说要泡四个小时 我泡了二十分钟 哈哈"
+    },
+    {
+     "role": "assistant",
+     "content": "难怪 下次前一晚泡上"
+    },
+    {
+     "role": "user",
+     "content": "拍给她看 她笑了我五分钟"
+    },
+    {
+     "role": "assistant",
+     "content": "至少她开心了"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/14 (Tue) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早上那杯咖啡撑到下午三点就不行了 开会差点睡着"
+    },
+    {
+     "role": "assistant",
+     "content": "被团子坑了一整天"
+    },
+    {
+     "role": "user",
+     "content": "今晚打算拿逗猫棒把它玩到累瘫 看它半夜还跑不跑"
+    },
+    {
+     "role": "assistant",
+     "content": "消耗体力战术"
+    },
+    {
+     "role": "user",
+     "content": "玩了二十分钟 它比我还精神 我先累了"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 你输了"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/15 (Wed) 12:50",
+   "venue": "group:qq:20260702",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今晚八点开炉 选品表放共享文档了 主推自动喂食器"
+    },
+    {
+     "role": "assistant",
+     "content": "收到 晚上我去直播间蹲着"
+    },
+    {
+     "role": "user",
+     "content": "话术稿下午三点前给主播 大家有补充的群里说"
+    },
+    {
+     "role": "assistant",
+     "content": "上回评论区问得最多的是能不能定时喂 话术里可以提一句"
+    },
+    {
+     "role": "user",
+     "content": "好 加上 我跑完步回来盯后台数据"
+    },
+    {
+     "role": "assistant",
+     "content": "跑完先喝水再看数据"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/15 (Wed) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下班 今天又闷又热 江边估计也是蒸笼"
+    },
+    {
+     "role": "assistant",
+     "content": "还去吗"
+    },
+    {
+     "role": "user",
+     "content": "去 阿Ken已经在催了 我回去换个衣服"
+    },
+    {
+     "role": "assistant",
+     "content": "今晚还有直播 跑完来得及吗"
+    },
+    {
+     "role": "user",
+     "content": "八点开始 我九点前跑完 中途看看手机就行"
+    },
+    {
+     "role": "assistant",
+     "content": "那快出发"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/16 (Thu) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早 心情很差 昨天下午复盘会老韩当着全组的面把我的八月直播方案批得一无是处"
+    },
+    {
+     "role": "assistant",
+     "content": "当众说的？"
+    },
+    {
+     "role": "user",
+     "content": "对 说思路老套没新意 全组都看着 我脸烫了一下午"
+    },
+    {
+     "role": "assistant",
+     "content": "换谁都难受 方案有问题可以私下说"
+    },
+    {
+     "role": "user",
+     "content": "更惨的是今天秋季上新项目启动 启动会又是他主持 我还得上去讲排期"
+    },
+    {
+     "role": "assistant",
+     "content": "撑住 讲你准备好的那部分 他挑刺就先记下来"
+    },
+    {
+     "role": "user",
+     "content": "嗯 燕麦煮了也只吃了一半 走了"
+    },
+    {
+     "role": "assistant",
+     "content": "路上别想他"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/16 (Thu) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "启动会开完了 秋季上新计划十月上线 差不多三个月"
+    },
+    {
+     "role": "assistant",
+     "content": "听着挺紧的"
+    },
+    {
+     "role": "user",
+     "content": "紧 老韩今天倒没怎么说我 可能昨天骂够了"
+    },
+    {
+     "role": "assistant",
+     "content": "那还算顺利"
+    },
+    {
+     "role": "user",
+     "content": "中午一个人在面馆吃了碗酸辣粉 想安静会儿"
+    },
+    {
+     "role": "assistant",
+     "content": "嗯 吃饱下午再战"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/16 (Thu) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "打完球了 把气全撒在球上 出了一身汗"
+    },
+    {
+     "role": "assistant",
+     "content": "打完舒服点没"
+    },
+    {
+     "role": "user",
+     "content": "舒服点 但老韩下午说明早要看选品初稿 回家还得接着弄"
+    },
+    {
+     "role": "assistant",
+     "content": "第一天就这么赶"
+    },
+    {
+     "role": "user",
+     "content": "是啊 等下跟苏禾视频完就开干"
+    },
+    {
+     "role": "assistant",
+     "content": "开干之前先吃点东西"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/17 (Fri) 08:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早 昨晚选品表弄到快两点 闹钟都没听见 八点半才出门"
+    },
+    {
+     "role": "assistant",
+     "content": "睡了不到六个小时"
+    },
+    {
+     "role": "user",
+     "content": "五个 燕麦是边刷牙边煮的"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 今天别太拼"
+    },
+    {
+     "role": "user",
+     "content": "今天还得跟设计组对图 晚上还要跑步 想想就累"
+    },
+    {
+     "role": "assistant",
+     "content": "跑步可以慢一点"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/17 (Fri) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "累到不想说话 秋季上新第一周就加班 昨晚弄到两点 今晚又在公司加到七点多"
+    },
+    {
+     "role": "assistant",
+     "content": "连着两天 身体要扛不住的"
+    },
+    {
+     "role": "user",
+     "content": "阿Ken在催了 换了衣服去江边 跑完估计直接瘫"
+    },
+    {
+     "role": "assistant",
+     "content": "今天别追配速 慢慢跑完就行"
+    },
+    {
+     "role": "user",
+     "content": "嗯 跑完去鹿角坐坐 喝一杯就回"
+    },
+    {
+     "role": "assistant",
+     "content": "早点回家睡"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/17 (Fri) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "在鹿角了 阿Ken一坐下就给我看他家猫可乐的视频 说它学会开抽屉了"
+    },
+    {
+     "role": "assistant",
+     "content": "会开抽屉 这么聪明"
+    },
+    {
+     "role": "user",
+     "content": "他说可乐把抽屉里的零食全叼出来藏床底 我说团子只会拨笔"
+    },
+    {
+     "role": "assistant",
+     "content": "团子走的是拆家路线"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 喝完这杯就撤 今天真的困"
+    },
+    {
+     "role": "assistant",
+     "content": "回去早点睡"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/18 (Sat) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "上完课了 今天总算被夸了一句 说分解和弦稳了"
+    },
+    {
+     "role": "assistant",
+     "content": "苦练有回报"
+    },
+    {
+     "role": "user",
+     "content": "回来路上买了半个西瓜 抱在怀里骑回来的"
+    },
+    {
+     "role": "assistant",
+     "content": "夏天的周末就该有西瓜"
+    },
+    {
+     "role": "user",
+     "content": "团子过来舔了一口西瓜汁 表情很复杂"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 想吃又觉得哪里不对"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/18 (Sat) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "在家循环白噪号的新专辑 一下午没换过"
+    },
+    {
+     "role": "assistant",
+     "content": "好听吗"
+    },
+    {
+     "role": "user",
+     "content": "太好听了 听他们好几年了 主唱嗓子有颗粒感 第三首那段吉他我想学"
+    },
+    {
+     "role": "assistant",
+     "content": "正好可以跟老师说想练这首"
+    },
+    {
+     "role": "user",
+     "content": "下次课问问 估计我现在还弹不了"
+    },
+    {
+     "role": "assistant",
+     "content": "先慢慢扒"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/18 (Sat) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "晚上做了个凉拌鸡丝 一个人干掉一大盘"
+    },
+    {
+     "role": "assistant",
+     "content": "自己做的就是香"
+    },
+    {
+     "role": "user",
+     "content": "还剩一点明天当午饭 现在等苏禾十点视频"
+    },
+    {
+     "role": "assistant",
+     "content": "她今天干嘛了"
+    },
+    {
+     "role": "user",
+     "content": "说在家补觉补了一天 周末终于不用去工地"
+    },
+    {
+     "role": "assistant",
+     "content": "那她今晚精神好 能多聊会儿"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/19 (Sun) 20:15",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天在芳草街吃到一家冰粉 红糖给得超足 推荐给大家"
+    },
+    {
+     "role": "assistant",
+     "content": "哪家 求定位"
+    },
+    {
+     "role": "user",
+     "content": "不是店 是一个阿姨推车卖的 就在路口那棵大树下"
+    },
+    {
+     "role": "assistant",
+     "content": "推车的往往最好吃 一直在那吗"
+    },
+    {
+     "role": "user",
+     "content": "下午四点以后才出来 卖完就走"
+    },
+    {
+     "role": "assistant",
+     "content": "记下了 明天去碰碰运气"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/19 (Sun) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "还没睡 明天又周一了 有点焦虑"
+    },
+    {
+     "role": "assistant",
+     "content": "上新的事？"
+    },
+    {
+     "role": "user",
+     "content": "嗯 选品还有一半没定 老韩周一例会肯定要问"
+    },
+    {
+     "role": "assistant",
+     "content": "你已经弄完一大半了"
+    },
+    {
+     "role": "user",
+     "content": "也是 不想了 团子过来趴我肚子上了"
+    },
+    {
+     "role": "assistant",
+     "content": "它在给你充电 睡吧"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/20 (Mon) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "还在公司 今天例会过了一半选品 剩下的要重做"
+    },
+    {
+     "role": "assistant",
+     "content": "重做多少"
+    },
+    {
+     "role": "user",
+     "content": "二十多个款 老韩说颜色太素 秋季要有温暖感"
+    },
+    {
+     "role": "assistant",
+     "content": "好抽象的要求"
+    },
+    {
+     "role": "user",
+     "content": "设计组也在骂 估计今晚得九点多才走"
+    },
+    {
+     "role": "assistant",
+     "content": "晚饭吃了吗 先垫点"
+    },
+    {
+     "role": "user",
+     "content": "点了外卖 在等"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/20 (Mon) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "到家了 九点半走的 骑车的时候风还挺舒服"
+    },
+    {
+     "role": "assistant",
+     "content": "辛苦了 吃过了吗"
+    },
+    {
+     "role": "user",
+     "content": "外卖在公司吃的 回来团子饿得在碗边坐着 一脸怨念"
+    },
+    {
+     "role": "assistant",
+     "content": "铲屎官加班 猫跟着受罪"
+    },
+    {
+     "role": "user",
+     "content": "给它加了点冻干赔罪"
+    },
+    {
+     "role": "assistant",
+     "content": "那它原谅你了"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/20 (Mon) 22:20",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刷到奎星楼街新开了家砂锅粥 周末谁去打卡"
+    },
+    {
+     "role": "assistant",
+     "content": "我我我 好久没喝砂锅粥了"
+    },
+    {
+     "role": "user",
+     "content": "周日中午吧 周六上午我有课"
+    },
+    {
+     "role": "assistant",
+     "content": "周日中午可以"
+    },
+    {
+     "role": "user",
+     "content": "那就周日十二点 先说好 难吃了别怪我"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 难吃就当拔草呗"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/21 (Tue) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "中午面馆出新品了 番茄肥牛面 试了一下还行"
+    },
+    {
+     "role": "assistant",
+     "content": "换换口味"
+    },
+    {
+     "role": "user",
+     "content": "汤有点甜 比我想的好 下午还要跟设计对图"
+    },
+    {
+     "role": "assistant",
+     "content": "温暖感那个？"
+    },
+    {
+     "role": "user",
+     "content": "对 他们出了三版 我觉得都太橙了"
+    },
+    {
+     "role": "assistant",
+     "content": "橙色倒是挺秋天的 哈哈"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/21 (Tue) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下班先去眼镜店买隐形 月抛的又用完了"
+    },
+    {
+     "role": "assistant",
+     "content": "一次买几盒"
+    },
+    {
+     "role": "user",
+     "content": "买了半年的量 六百度的片子还得订货 要等两天"
+    },
+    {
+     "role": "assistant",
+     "content": "度数高选择就少"
+    },
+    {
+     "role": "user",
+     "content": "是啊 框架眼镜太重 上班还是戴隐形舒服"
+    },
+    {
+     "role": "assistant",
+     "content": "别戴超时 月抛到点就换"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/21 (Tue) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "右脚大脚趾有点疼 走路一下一下地刺"
+    },
+    {
+     "role": "assistant",
+     "content": "是不是扭到了"
+    },
+    {
+     "role": "user",
+     "content": "没扭 查了下估计是尿酸高闹的 体检刚说偏高 这就来了"
+    },
+    {
+     "role": "assistant",
+     "content": "那多喝水 少碰海鲜和啤酒 疼得厉害就去医院看看"
+    },
+    {
+     "role": "user",
+     "content": "嗯 今晚灌了两大杯水 脚搭在凳子上"
+    },
+    {
+     "role": "assistant",
+     "content": "明天看看情况再决定跑不跑"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/22 (Wed) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "脚好多了 早上起来基本不疼了"
+    },
+    {
+     "role": "assistant",
+     "content": "那就好 水接着喝"
+    },
+    {
+     "role": "user",
+     "content": "带了个一升的水杯到公司 同事以为我在健身"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 健康人设"
+    },
+    {
+     "role": "user",
+     "content": "中午面汤也没喝完 忍住了"
+    },
+    {
+     "role": "assistant",
+     "content": "很自律了"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/22 (Wed) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跑完了 脚没事 阿Ken放慢了陪我跑"
+    },
+    {
+     "role": "assistant",
+     "content": "他人挺好的"
+    },
+    {
+     "role": "user",
+     "content": "回来路上他问我还追不追海贼王 我说废话 从初中追到现在十几年了"
+    },
+    {
+     "role": "assistant",
+     "content": "这都成老朋友了"
+    },
+    {
+     "role": "user",
+     "content": "最新一话还没看 留着睡前看"
+    },
+    {
+     "role": "assistant",
+     "content": "别看太晚 明天还上班"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/22 (Wed) 22:20",
+   "venue": "group:qq:20260702",
+   "turns": [
+    {
+     "role": "user",
+     "content": "明天上午十点对秋季上新选品终版 大家今晚把意见汇总到表里"
+    },
+    {
+     "role": "assistant",
+     "content": "收到 看了下 猫窝那几款颜色比上周暖多了"
+    },
+    {
+     "role": "user",
+     "content": "嗯 设计组改了三轮 辛苦了"
+    },
+    {
+     "role": "assistant",
+     "content": "拍摄排期定了吗"
+    },
+    {
+     "role": "user",
+     "content": "下周一开始棚拍 样品周五到"
+    },
+    {
+     "role": "assistant",
+     "content": "好 周五我在群里提醒大家收样"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/23 (Thu) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "选品终于过了 老韩只说了一句可以"
+    },
+    {
+     "role": "assistant",
+     "content": "能从他嘴里听到可以 不容易"
+    },
+    {
+     "role": "user",
+     "content": "我都愣了一下 中午奖励自己加了个煎蛋"
+    },
+    {
+     "role": "assistant",
+     "content": "庆祝规格有点朴素 哈哈"
+    },
+    {
+     "role": "user",
+     "content": "晚上打完球再奖励"
+    },
+    {
+     "role": "assistant",
+     "content": "好 今晚多杀几个球"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/23 (Thu) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "打完羽毛球了 今晚和林悦他们双打 我跟她一组连赢三局"
+    },
+    {
+     "role": "assistant",
+     "content": "厉害 状态不错"
+    },
+    {
+     "role": "user",
+     "content": "她扣杀太猛了 我就在后场捡球 每周四这场是我最放松的时候"
+    },
+    {
+     "role": "assistant",
+     "content": "运动完心情就好"
+    },
+    {
+     "role": "user",
+     "content": "一身汗 回去冲凉 十点跟苏禾视频要晚几分钟了"
+    },
+    {
+     "role": "assistant",
+     "content": "快回去吧"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/23 (Thu) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跟苏禾视频完了 她说八月可能要连着赶两个投标"
+    },
+    {
+     "role": "assistant",
+     "content": "那你们俩都要忙起来了"
+    },
+    {
+     "role": "user",
+     "content": "是啊 我这边上新 她那边投标 视频的时候估计就是两张疲惫的脸"
+    },
+    {
+     "role": "assistant",
+     "content": "疲惫也要见见"
+    },
+    {
+     "role": "user",
+     "content": "她说那就开着视频各自加班 哈哈"
+    },
+    {
+     "role": "assistant",
+     "content": "云陪伴 也挺好"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/24 (Fri) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "周五了 中午设计组请大家喝奶茶 庆祝选品过了"
+    },
+    {
+     "role": "assistant",
+     "content": "过了一关 值得一杯"
+    },
+    {
+     "role": "user",
+     "content": "我点的无糖 尿酸那个箭头还挂着 甜的也少碰"
+    },
+    {
+     "role": "assistant",
+     "content": "自律"
+    },
+    {
+     "role": "user",
+     "content": "下午弄棚拍的清单 晚上跑步"
+    },
+    {
+     "role": "assistant",
+     "content": "周五节奏挺好"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/24 (Fri) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跑完了 今晚锦江边起风了 跑得特别舒服"
+    },
+    {
+     "role": "assistant",
+     "content": "难得凉快"
+    },
+    {
+     "role": "user",
+     "content": "阿Ken今天状态差 说昨晚加班到一点 他们行里也在搞季末"
+    },
+    {
+     "role": "assistant",
+     "content": "大家都在加班"
+    },
+    {
+     "role": "user",
+     "content": "等下去鹿角 他说今晚只喝一杯就回"
+    },
+    {
+     "role": "assistant",
+     "content": "你俩都早点回"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/24 (Fri) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "在鹿角 点的姜汁汽水 明早还有吉他课 不敢喝多"
+    },
+    {
+     "role": "assistant",
+     "content": "几点的课"
+    },
+    {
+     "role": "user",
+     "content": "十点 在弦音 唐老师说明天开始教我白噪号那首的前奏"
+    },
+    {
+     "role": "assistant",
+     "content": "终于要学想学的了"
+    },
+    {
+     "role": "user",
+     "content": "对 有点期待 这周都没怎么练 希望别被说"
+    },
+    {
+     "role": "assistant",
+     "content": "今晚回去摸两下琴再睡"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/25 (Sat) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "晚饭做了个番茄炒蛋 打开雾城当下饭剧 边吃边看"
+    },
+    {
+     "role": "assistant",
+     "content": "吃饭不看剧吃不下？"
+    },
+    {
+     "role": "user",
+     "content": "吃不下 习惯了 吃饭一定得放一集 不然总觉得少点什么"
+    },
+    {
+     "role": "assistant",
+     "content": "这周那两集怎么样"
+    },
+    {
+     "role": "user",
+     "content": "周三那集男主回老家那段 我饭都忘了扒"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 下饭下到忘了饭"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/25 (Sat) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天课上学了那首的前奏 回来练了一下午 手指头全是印子"
+    },
+    {
+     "role": "assistant",
+     "content": "能弹下来了吗"
+    },
+    {
+     "role": "user",
+     "content": "能弹 就是慢 一快就糊"
+    },
+    {
+     "role": "assistant",
+     "content": "先慢后快"
+    },
+    {
+     "role": "user",
+     "content": "录了一段发给苏禾 她听出来是哪首了 我觉得这就算成功"
+    },
+    {
+     "role": "assistant",
+     "content": "能听出来就是成功"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/25 (Sat) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "团子趴在吉他包上不走 我想收琴它就瞪我"
+    },
+    {
+     "role": "assistant",
+     "content": "它是喜欢那个包吧"
+    },
+    {
+     "role": "user",
+     "content": "软乎乎的 它觉得是它的窝"
+    },
+    {
+     "role": "assistant",
+     "content": "要不给它也买个那种垫子"
+    },
+    {
+     "role": "user",
+     "content": "买过 它不睡 就要睡我的东西"
+    },
+    {
+     "role": "assistant",
+     "content": "猫的标准操作"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/26 (Sun) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早 阿Ken约下周末去城郊那个水上乐园 说有个深水区能跳水"
+    },
+    {
+     "role": "assistant",
+     "content": "去吗"
+    },
+    {
+     "role": "user",
+     "content": "我说我只在浅水区泡着 小时候在河里溺过一次水 到现在深一点的水都不敢下"
+    },
+    {
+     "role": "assistant",
+     "content": "那不用勉强 浅水区一样能玩"
+    },
+    {
+     "role": "user",
+     "content": "他不知道这事 我就说我不会游 他笑了半天"
+    },
+    {
+     "role": "assistant",
+     "content": "让他笑 你自己舒服最要紧"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/26 (Sun) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刚跟我妈打完电话 她说我爸最近迷上钓鱼 天天往河边跑"
+    },
+    {
+     "role": "assistant",
+     "content": "退休生活挺丰富"
+    },
+    {
+     "role": "user",
+     "content": "她嫌他晒得黑 还说要给我寄两瓶自己做的豆瓣酱"
+    },
+    {
+     "role": "assistant",
+     "content": "家里的味道"
+    },
+    {
+     "role": "user",
+     "content": "我说别寄太多 一个人吃不完 她说吃不完分给同事"
+    },
+    {
+     "role": "assistant",
+     "content": "妈妈的逻辑 无法反驳"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/26 (Sun) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "和苏禾视频完了 她今天去看了个展 给我看了一堆照片"
+    },
+    {
+     "role": "assistant",
+     "content": "什么展"
+    },
+    {
+     "role": "user",
+     "content": "建筑模型展 她说看得手痒 想回去做模型"
+    },
+    {
+     "role": "assistant",
+     "content": "职业病"
+    },
+    {
+     "role": "user",
+     "content": "她说等投标忙完想请几天假 还没定去哪"
+    },
+    {
+     "role": "assistant",
+     "content": "有空就来成都呗"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/27 (Mon) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下班顺路在书店买了小满鱼的新画集 翻了一路"
+    },
+    {
+     "role": "assistant",
+     "content": "喜欢她很久了吧"
+    },
+    {
+     "role": "user",
+     "content": "好几年了 她画的那种傍晚的光和猫 我手机壁纸一直是她的画"
+    },
+    {
+     "role": "assistant",
+     "content": "难怪 跟团子也挺搭"
+    },
+    {
+     "role": "user",
+     "content": "在想秋季上新的海报能不能往她那种感觉靠 明天跟设计组说说"
+    },
+    {
+     "role": "assistant",
+     "content": "可以拿几张当参考给他们看"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/27 (Mon) 21:40",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "昨天那家砂锅粥 去了的都说说"
+    },
+    {
+     "role": "assistant",
+     "content": "我觉得不错 虾粥很鲜"
+    },
+    {
+     "role": "user",
+     "content": "我吃的皮蛋瘦肉 还行 就是等太久"
+    },
+    {
+     "role": "assistant",
+     "content": "下次提前打电话订位"
+    },
+    {
+     "role": "user",
+     "content": "这周有点忙 下周再约别的"
+    },
+    {
+     "role": "assistant",
+     "content": "好 等你们忙完"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/27 (Mon) 22:20",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天谁去吃了玉林路新开那家冒菜 我路过看排好长"
+    },
+    {
+     "role": "assistant",
+     "content": "没去 那个队我直接绕路了哈哈"
+    },
+    {
+     "role": "user",
+     "content": "我中午在公司没赶上 周末有人约吗"
+    },
+    {
+     "role": "assistant",
+     "content": "周末可以 听说要等号 得早点去"
+    },
+    {
+     "role": "user",
+     "content": "那周六下午？我上午有事"
+    },
+    {
+     "role": "assistant",
+     "content": "行 周六下午三点左右 那会儿人少点"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/28 (Tue) 18:40",
+   "venue": "group:qq:20260702",
+   "turns": [
+    {
+     "role": "user",
+     "content": "上新主图第二版还有谁没交 明天上午要过一遍"
+    },
+    {
+     "role": "assistant",
+     "content": "猫砂那组还差两张 设计说今晚能出"
+    },
+    {
+     "role": "user",
+     "content": "好 让他们十点前丢群里 我晚上看"
+    },
+    {
+     "role": "assistant",
+     "content": "收到 我去催一下"
+    },
+    {
+     "role": "user",
+     "content": "狗粮那页文案也再顺一遍 老韩上次说太长"
+    },
+    {
+     "role": "assistant",
+     "content": "嗯 我砍到三行以内"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/28 (Tue) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刚到家 团子把我拖鞋叼到猫砂盆旁边了 啥意思"
+    },
+    {
+     "role": "assistant",
+     "content": "嫌你回来晚 给你点颜色看看"
+    },
+    {
+     "role": "user",
+     "content": "草 我今天八点多就走了"
+    },
+    {
+     "role": "assistant",
+     "content": "对它来说就是晚 喂了没"
+    },
+    {
+     "role": "user",
+     "content": "喂了 现在趴我腿上 一边呼噜一边咬我手"
+    },
+    {
+     "role": "assistant",
+     "content": "又爱又气 今晚雾城更新了 看不看"
+    },
+    {
+     "role": "user",
+     "content": "等会儿 先冲个澡"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/28 (Tue) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "雾城这集太憋屈了 男主明明知道还不说"
+    },
+    {
+     "role": "assistant",
+     "content": "编剧就爱卡这种地方 估计下周才解开"
+    },
+    {
+     "role": "user",
+     "content": "明天周三还有一集 不过我赌他还是不说"
+    },
+    {
+     "role": "assistant",
+     "content": "那你明天看完再来骂"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 说起来明天中午又是青山面馆 工作日天天吃 菜单都快吃穿了"
+    },
+    {
+     "role": "assistant",
+     "content": "还没吃腻 你一般点啥"
+    },
+    {
+     "role": "user",
+     "content": "牛肉面 偶尔换肥肠 老板现在都不问了直接下"
+    },
+    {
+     "role": "assistant",
+     "content": "熟客待遇 天热可以试试他家凉面"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/29 (Wed) 08:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早 外面闷得要死 骑到公司背全湿了"
+    },
+    {
+     "role": "assistant",
+     "content": "成都这几天就是蒸笼 带件T恤换吧"
+    },
+    {
+     "role": "user",
+     "content": "带了 工位抽屉常备一件"
+    },
+    {
+     "role": "assistant",
+     "content": "有经验 今晚还跑吗 这么热"
+    },
+    {
+     "role": "user",
+     "content": "跑 江边晚上会好点 阿Ken说八点半到"
+    },
+    {
+     "role": "assistant",
+     "content": "多喝水 别逞强"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/29 (Wed) 19:30",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "上周说的那家泰式 我昨天去了 拔草了"
+    },
+    {
+     "role": "assistant",
+     "content": "啊 不是说很火吗"
+    },
+    {
+     "role": "user",
+     "content": "冬阴功寡淡 咖喱死甜 价格还不便宜"
+    },
+    {
+     "role": "assistant",
+     "content": "网红店常规操作 装修好看就完了"
+    },
+    {
+     "role": "user",
+     "content": "你们别去了 不如巷子口那家老干锅"
+    },
+    {
+     "role": "assistant",
+     "content": "收到 从清单上划掉"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/29 (Wed) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跑完了 热得像从河里捞出来的"
+    },
+    {
+     "role": "assistant",
+     "content": "江边有风没"
+    },
+    {
+     "role": "user",
+     "content": "有一点 没用 阿Ken跑一半说要停下来买水"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 最后跑完了吗"
+    },
+    {
+     "role": "user",
+     "content": "跑完了 比平时慢两分钟 现在坐江边吹风"
+    },
+    {
+     "role": "assistant",
+     "content": "歇够了再骑回去 别吹太久"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/30 (Thu) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "我妈一大早发语音 问我今年中秋回不回绵阳"
+    },
+    {
+     "role": "assistant",
+     "content": "这么早就开始问了 还有快两个月呢"
+    },
+    {
+     "role": "user",
+     "content": "她生日就是农历八月十五 刚好中秋那天 所以每年都盯得紧"
+    },
+    {
+     "role": "assistant",
+     "content": "那确实得提前安排 回得去吗"
+    },
+    {
+     "role": "user",
+     "content": "看上新那边 九月底能松一点的话就回"
+    },
+    {
+     "role": "assistant",
+     "content": "先跟她说尽量 别说死"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/30 (Thu) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "面馆电视在放千与千寻 老板女儿看得饭都不吃了"
+    },
+    {
+     "role": "assistant",
+     "content": "午饭配宫崎骏 挺好"
+    },
+    {
+     "role": "user",
+     "content": "我小时候也这样 宫崎骏的我基本都看过 龙猫看了不下十遍"
+    },
+    {
+     "role": "assistant",
+     "content": "那最喜欢哪部"
+    },
+    {
+     "role": "user",
+     "content": "哈尔的移动城堡吧 音乐一响就不行"
+    },
+    {
+     "role": "assistant",
+     "content": "那段配乐确实 一听就想起城堡在走"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/30 (Thu) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下午三点又要跟老韩过方案 现在就开始紧张"
+    },
+    {
+     "role": "assistant",
+     "content": "上次他挑的那几点改完了吗"
+    },
+    {
+     "role": "user",
+     "content": "改了 但他每次都能找到新的"
+    },
+    {
+     "role": "assistant",
+     "content": "那就提前想他可能问啥 自己先挑一遍"
+    },
+    {
+     "role": "user",
+     "content": "嗯 我把数据那页再对一下"
+    },
+    {
+     "role": "assistant",
+     "content": "加油 过完来说"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/31 (Fri) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "中午面吃不下 早上燕麦煮多了 现在还撑"
+    },
+    {
+     "role": "assistant",
+     "content": "你煮了多少"
+    },
+    {
+     "role": "user",
+     "content": "每天都自己煮一碗 今天手一抖倒了大半袋 还加了根香蕉"
+    },
+    {
+     "role": "assistant",
+     "content": "那中午随便吃点 晚上还要跑"
+    },
+    {
+     "role": "user",
+     "content": "嗯 喝了碗汤就上楼了"
+    },
+    {
+     "role": "assistant",
+     "content": "跑前别再吃太多 不然要岔气"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/31 (Fri) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跑完了 今天江边好多人"
+    },
+    {
+     "role": "assistant",
+     "content": "周五嘛 都出来散步"
+    },
+    {
+     "role": "user",
+     "content": "差点撞到一只柯基 牵绳的在看手机"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 没事就好 等下去鹿角吗"
+    },
+    {
+     "role": "user",
+     "content": "去 阿Ken已经过去占位了"
+    },
+    {
+     "role": "assistant",
+     "content": "少喝点 明天还有课"
+    }
+   ]
+  },
+  {
+   "date": "2026/07/31 (Fri) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "鹿角换了个新精酿 有点酸"
+    },
+    {
+     "role": "assistant",
+     "content": "酸的那种你喝得惯吗"
+    },
+    {
+     "role": "user",
+     "content": "一般 阿Ken说好喝 他口味很怪"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 那你点回老的"
+    },
+    {
+     "role": "user",
+     "content": "点了 他在吐槽他们行新来的领导"
+    },
+    {
+     "role": "assistant",
+     "content": "周五晚上必备环节"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/01 (Sat) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "周六还醒这么早 团子五点就在床上踩我"
+    },
+    {
+     "role": "assistant",
+     "content": "饿了还是想玩"
+    },
+    {
+     "role": "user",
+     "content": "饿了 喂完又去扒窗帘"
+    },
+    {
+     "role": "assistant",
+     "content": "窗帘还活着吗"
+    },
+    {
+     "role": "user",
+     "content": "下面一截已经流苏了 哈哈"
+    },
+    {
+     "role": "assistant",
+     "content": "上午课几点"
+    },
+    {
+     "role": "user",
+     "content": "十点 再眯半小时"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/01 (Sat) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下午去吃了那家冒菜 排了四十分钟"
+    },
+    {
+     "role": "assistant",
+     "content": "值不值"
+    },
+    {
+     "role": "user",
+     "content": "还行 毛肚很嫩 就是太辣 胃在烧"
+    },
+    {
+     "role": "assistant",
+     "content": "喝点酸奶压一压"
+    },
+    {
+     "role": "user",
+     "content": "楼下买了 边喝边上游戏浇了个水"
+    },
+    {
+     "role": "assistant",
+     "content": "那个种田的？"
+    },
+    {
+     "role": "user",
+     "content": "对 每天就上去浇浇水"
+    },
+    {
+     "role": "assistant",
+     "content": "很养生 跟你今天的胃挺配"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/01 (Sat) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刚跟苏禾视频完 她今天加班到九点"
+    },
+    {
+     "role": "assistant",
+     "content": "她们那边也在赶图？"
+    },
+    {
+     "role": "user",
+     "content": "嗯 一个竞标 她说下周还得熬"
+    },
+    {
+     "role": "assistant",
+     "content": "两个人都在赶 视频就是黑眼圈对黑眼圈"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 她还说我胖了"
+    },
+    {
+     "role": "assistant",
+     "content": "镜头背锅"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/02 (Sun) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "上午大扫除了一遍 团子的毛能再拼一只猫"
+    },
+    {
+     "role": "assistant",
+     "content": "夏天掉毛季 正常"
+    },
+    {
+     "role": "user",
+     "content": "吸尘器满了两次 还从沙发缝里抠出它丢的逗猫棒"
+    },
+    {
+     "role": "assistant",
+     "content": "失而复得 它应该很开心"
+    },
+    {
+     "role": "user",
+     "content": "并没有 看了一眼就走了"
+    },
+    {
+     "role": "assistant",
+     "content": "猫就这样 找不到的时候才最想要"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/02 (Sun) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "晚饭就半碗饭加一盘青菜 好饿"
+    },
+    {
+     "role": "assistant",
+     "content": "怎么突然这么克制"
+    },
+    {
+     "role": "user",
+     "content": "早上上秤 79 离75还差四公斤 动不了了"
+    },
+    {
+     "role": "assistant",
+     "content": "慢慢来 别饿太狠 回头反弹"
+    },
+    {
+     "role": "user",
+     "content": "知道 主要周五鹿角那几杯太顶"
+    },
+    {
+     "role": "assistant",
+     "content": "那就少喝一杯 比少吃饭好坚持"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/02 (Sun) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "周一又要来了 明天上新第二轮评审"
+    },
+    {
+     "role": "assistant",
+     "content": "准备得怎么样"
+    },
+    {
+     "role": "user",
+     "content": "差不多 就数据那页还等林悦给图"
+    },
+    {
+     "role": "assistant",
+     "content": "她一般靠谱吗"
+    },
+    {
+     "role": "user",
+     "content": "靠谱 就是爱踩点交"
+    },
+    {
+     "role": "assistant",
+     "content": "那明早提醒她一句"
+    },
+    {
+     "role": "user",
+     "content": "发了 她回了个ok的猫猫表情"
+    },
+    {
+     "role": "assistant",
+     "content": "稳了 早点睡"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/03 (Mon) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "救命 楼上七点开始打电钻 好像在装修"
+    },
+    {
+     "role": "assistant",
+     "content": "一大早的 什么情况"
+    },
+    {
+     "role": "user",
+     "content": "电梯里贴了通知 说要装好几个月 我之前没注意"
+    },
+    {
+     "role": "assistant",
+     "content": "好几个月…团子没被吓到吧"
+    },
+    {
+     "role": "user",
+     "content": "躲床底了 出门的时候楼道里有人烧艾草熏蚊子 一闻就想起小时候外婆家 夏天她天天烧"
+    },
+    {
+     "role": "assistant",
+     "content": "那个味道确实 一下就回去了"
+    },
+    {
+     "role": "user",
+     "content": "是 闻着还挺安心 跟楼上那个声音刚好抵消"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 今天先熬过去"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/03 (Mon) 18:40",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今晚有人吃饭吗 我加完班估计九点"
+    },
+    {
+     "role": "assistant",
+     "content": "九点太晚了 我都吃完了"
+    },
+    {
+     "role": "user",
+     "content": "那算了 我公司楼下随便对付"
+    },
+    {
+     "role": "assistant",
+     "content": "周三有空吗 那家烤鱼"
+    },
+    {
+     "role": "user",
+     "content": "周三我要跑步 周末吧"
+    },
+    {
+     "role": "assistant",
+     "content": "行 周末再约"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/04 (Tue) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下大雨 今天骑车得穿雨衣了"
+    },
+    {
+     "role": "assistant",
+     "content": "路上慢点 积水多"
+    },
+    {
+     "role": "user",
+     "content": "团子趴窗台看雨 看得好认真"
+    },
+    {
+     "role": "assistant",
+     "content": "是不是想起什么了"
+    },
+    {
+     "role": "user",
+     "content": "可能吧 它就是这种下雨天在小区里捡的 那会儿缩在车底下叫 浑身湿透"
+    },
+    {
+     "role": "assistant",
+     "content": "原来是雨天来的 怪不得爱看雨"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 也可能就是想出去"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/04 (Tue) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "加班中 下楼买喝的 店里在放《后来》 我站那听完了才走"
+    },
+    {
+     "role": "assistant",
+     "content": "被一首歌钉在原地"
+    },
+    {
+     "role": "user",
+     "content": "一听就想起高中同桌 她那会儿天天在草稿纸上抄歌词"
+    },
+    {
+     "role": "assistant",
+     "content": "后来呢"
+    },
+    {
+     "role": "user",
+     "content": "后来就没联系了 哈哈 跟歌一样"
+    },
+    {
+     "role": "assistant",
+     "content": "这歌就是专门干这个的"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/04 (Tue) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "回来了 楼上又响了一天 物业说只准白天弄"
+    },
+    {
+     "role": "assistant",
+     "content": "至少晚上安静 你那房子隔音怎样"
+    },
+    {
+     "role": "user",
+     "content": "玉林租的一室一厅老房子 能怎样 楼上掉根筷子都听得见"
+    },
+    {
+     "role": "assistant",
+     "content": "老小区都这样 想搬吗"
+    },
+    {
+     "role": "user",
+     "content": "不想 离春山近 吃的也多 团子也住惯了"
+    },
+    {
+     "role": "assistant",
+     "content": "那就忍到他们装完"
+    },
+    {
+     "role": "user",
+     "content": "只能这样 今晚雾城更新 先看"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/05 (Wed) 07:50",
+   "venue": "group:qq:20260702",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早 今天十点上新排期会 大家把进度更新到表里"
+    },
+    {
+     "role": "assistant",
+     "content": "收到 推广素材那栏我更新了"
+    },
+    {
+     "role": "user",
+     "content": "好 第三周活动预算还没定 我会上提"
+    },
+    {
+     "role": "assistant",
+     "content": "那个估计得老韩拍板"
+    },
+    {
+     "role": "user",
+     "content": "对 我准备两个版本给他挑"
+    },
+    {
+     "role": "assistant",
+     "content": "稳"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/05 (Wed) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "难得七点下班 今晚跑步终于不用赶"
+    },
+    {
+     "role": "assistant",
+     "content": "太难得了 吃了没"
+    },
+    {
+     "role": "user",
+     "content": "吃了点 消化一下 八点半跟阿Ken江边见"
+    },
+    {
+     "role": "assistant",
+     "content": "今天凉快点 适合跑"
+    },
+    {
+     "role": "user",
+     "content": "嗯 下午下过雨 空气好多了"
+    },
+    {
+     "role": "assistant",
+     "content": "那今天可以跑快一点"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/05 (Wed) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "出门前团子抱着我腿不让走"
+    },
+    {
+     "role": "assistant",
+     "content": "它知道你又要出去"
+    },
+    {
+     "role": "user",
+     "content": "给它开了个罐头才放我走"
+    },
+    {
+     "role": "assistant",
+     "content": "被拿捏了"
+    },
+    {
+     "role": "user",
+     "content": "天天这样 等我回来它又装不认识我"
+    },
+    {
+     "role": "assistant",
+     "content": "猫的脾气 拿了好处就翻脸"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/06 (Thu) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今晚羽毛球 林悦说多叫了两个人"
+    },
+    {
+     "role": "assistant",
+     "content": "双打凑齐了"
+    },
+    {
+     "role": "user",
+     "content": "嗯 打到九点 回去冲个澡刚好十点跟苏禾视频"
+    },
+    {
+     "role": "assistant",
+     "content": "卡得刚刚好"
+    },
+    {
+     "role": "user",
+     "content": "每晚十点雷打不动 晚几分钟她就要问"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 那今天别打加时"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/06 (Thu) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "打完了 输惨了 林悦那个扣杀太狠"
+    },
+    {
+     "role": "assistant",
+     "content": "设计组的人都藏着一手"
+    },
+    {
+     "role": "user",
+     "content": "她说她大学是校队的 早说啊"
+    },
+    {
+     "role": "assistant",
+     "content": "你是被骗来当陪练的"
+    },
+    {
+     "role": "user",
+     "content": "下周我要换搭档"
+    },
+    {
+     "role": "assistant",
+     "content": "换了也打不过 哈哈"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/07 (Fri) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "排队的时候看了眼监控 团子在我枕头上睡成一摊"
+    },
+    {
+     "role": "assistant",
+     "content": "它的日子比你舒服多了"
+    },
+    {
+     "role": "user",
+     "content": "楼上电钻一响它就弹起来 然后又躺回去"
+    },
+    {
+     "role": "assistant",
+     "content": "已经习惯了 比你适应得快"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 晚上跑完还要去鹿角 一周就这点盼头"
+    },
+    {
+     "role": "assistant",
+     "content": "那下午撑住"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/07 (Fri) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "在鹿角 阿Ken说要报十一月的半马"
+    },
+    {
+     "role": "assistant",
+     "content": "你也报吗"
+    },
+    {
+     "role": "user",
+     "content": "我五公里都喘 半马算了"
+    },
+    {
+     "role": "assistant",
+     "content": "可以先陪他练练长距离"
+    },
+    {
+     "role": "user",
+     "content": "他让我周末陪他跑十五公里 我直接装没听见"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 装没听见也是一种回答"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/07 (Fri) 23:05",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "鹿角刚出来 芳华街口那家钵钵鸡还开着 有人要宵夜吗"
+    },
+    {
+     "role": "assistant",
+     "content": "这个点了 都躺了吧"
+    },
+    {
+     "role": "user",
+     "content": "我就问问 帮你们带"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 不用 下次"
+    },
+    {
+     "role": "user",
+     "content": "那我回了 下周我出差 有局别等我"
+    },
+    {
+     "role": "assistant",
+     "content": "好 回来补上"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/08 (Sat) 08:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "腿好酸 昨晚在锦江边跑完五公里 阿Ken还想再来一圈 被我拒了"
+    },
+    {
+     "role": "assistant",
+     "content": "他在给半马加练吧"
+    },
+    {
+     "role": "user",
+     "content": "对 每周三周五都想拖着我多跑 我坚持就五公里"
+    },
+    {
+     "role": "assistant",
+     "content": "守住底线"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 上午还有吉他课 手指也疼"
+    },
+    {
+     "role": "assistant",
+     "content": "上半身下半身都在受罪"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/08 (Sat) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "心情很差 下午跟苏禾吵了一架"
+    },
+    {
+     "role": "assistant",
+     "content": "怎么了"
+    },
+    {
+     "role": "user",
+     "content": "原来说好八月底她过来 现在又要往后推 我说那我过去 她又说她忙 说着就吵起来了"
+    },
+    {
+     "role": "assistant",
+     "content": "两边都忙 谁也挪不出空 最磨人"
+    },
+    {
+     "role": "user",
+     "content": "就是 异地一年多了 每次都卡在见不着面 挂了电话我一下午都很难受"
+    },
+    {
+     "role": "assistant",
+     "content": "先别急着回 等都冷静点再说"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/08 (Sat) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "她刚发消息了 说对不起 是她太累了"
+    },
+    {
+     "role": "assistant",
+     "content": "那挺好 你呢"
+    },
+    {
+     "role": "user",
+     "content": "我也道歉了 十点还是照常视频"
+    },
+    {
+     "role": "assistant",
+     "content": "嗯 当面说比打字好"
+    },
+    {
+     "role": "user",
+     "content": "她说九月一定来 让我先别订票"
+    },
+    {
+     "role": "assistant",
+     "content": "那就等她定日子"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/09 (Sun) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "昨晚视频聊到一点 今天眼睛肿成核桃"
+    },
+    {
+     "role": "assistant",
+     "content": "和好了就值"
+    },
+    {
+     "role": "user",
+     "content": "值 不过团子五点又来踩我"
+    },
+    {
+     "role": "assistant",
+     "content": "它可不管你们的感情问题"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 喂完了 回去睡个回笼觉 明天出差 下午再收拾行李"
+    },
+    {
+     "role": "assistant",
+     "content": "杭州那边热 带薄的"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/09 (Sun) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "行李收好了 约了上门喂猫的 明天开始来四天"
+    },
+    {
+     "role": "assistant",
+     "content": "团子认生吗"
+    },
+    {
+     "role": "user",
+     "content": "有点 不过那个姐姐之前来过一次 团子躲了半小时就出来蹭她了"
+    },
+    {
+     "role": "assistant",
+     "content": "那问题不大 监控开着吧"
+    },
+    {
+     "role": "user",
+     "content": "开着 到时候在酒店看直播"
+    },
+    {
+     "role": "assistant",
+     "content": "杭州云吸猫"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/09 (Sun) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "杭州供应商会议的资料还没看完"
+    },
+    {
+     "role": "assistant",
+     "content": "明天飞机上看？"
+    },
+    {
+     "role": "user",
+     "content": "嗯 九点四十的航班 路上看"
+    },
+    {
+     "role": "assistant",
+     "content": "那今晚别熬"
+    },
+    {
+     "role": "user",
+     "content": "再看半小时就睡 苏禾让我给她带把杭州的扇子"
+    },
+    {
+     "role": "assistant",
+     "content": "记着 别忘了"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/10 (Mon) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "在去机场的路上 出发去杭州了"
+    },
+    {
+     "role": "assistant",
+     "content": "时间够吗"
+    },
+    {
+     "role": "user",
+     "content": "够 出门前团子坐门口看我拖箱子"
+    },
+    {
+     "role": "assistant",
+     "content": "它知道你要走好几天"
+    },
+    {
+     "role": "user",
+     "content": "心软了 给它多放了一把猫粮"
+    },
+    {
+     "role": "assistant",
+     "content": "喂猫的会来 放心"
+    },
+    {
+     "role": "user",
+     "content": "嗯 周四回来"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/10 (Mon) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "到了 开了一下午会 供应商那边特别能说"
+    },
+    {
+     "role": "assistant",
+     "content": "谈得怎么样"
+    },
+    {
+     "role": "user",
+     "content": "价格还没松口 明天继续"
+    },
+    {
+     "role": "assistant",
+     "content": "吃饭了吗"
+    },
+    {
+     "role": "user",
+     "content": "楼下吃了碗片儿川 这次住的栖云 就在西湖边 走两步就到湖边"
+    },
+    {
+     "role": "assistant",
+     "content": "那晚上去湖边吹吹风"
+    },
+    {
+     "role": "user",
+     "content": "太累了 先躺会儿看团子监控 它霸占了我的床"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/10 (Mon) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "本来想去湖边跑一圈 换了鞋下楼 跑了一公里就回来了"
+    },
+    {
+     "role": "assistant",
+     "content": "太热了？"
+    },
+    {
+     "role": "user",
+     "content": "也热 主要一个人跑不下去 旁边没人我就老想停"
+    },
+    {
+     "role": "assistant",
+     "content": "平时都是阿Ken拖着你"
+    },
+    {
+     "role": "user",
+     "content": "对 夜跑我自己一个人坚持不了 得有个人一起"
+    },
+    {
+     "role": "assistant",
+     "content": "那这几天就当休息 回去再跟他跑"
+    },
+    {
+     "role": "user",
+     "content": "嗯 周五补上"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/11 (Tue) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "中午供应商请吃杭帮菜 全是甜的"
+    },
+    {
+     "role": "assistant",
+     "content": "西湖醋鱼吃了吗"
+    },
+    {
+     "role": "user",
+     "content": "吃了 说实话不太行 有点腥"
+    },
+    {
+     "role": "assistant",
+     "content": "名菜嘛 吃个意思"
+    },
+    {
+     "role": "user",
+     "content": "东坡肉不错 不过我只敢吃一块"
+    },
+    {
+     "role": "assistant",
+     "content": "克制 晚上奖励自己一下"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/11 (Tue) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "回酒店了 雾城今晚更新 躺床上用手机看"
+    },
+    {
+     "role": "assistant",
+     "content": "出差也不落下"
+    },
+    {
+     "role": "user",
+     "content": "这集终于说了 男主那个秘密"
+    },
+    {
+     "role": "assistant",
+     "content": "你上周还在骂他憋着"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 现在原谅他了"
+    },
+    {
+     "role": "assistant",
+     "content": "明天还有一集 别又被气回去"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/11 (Tue) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下午去湖边走了一圈 腿上被咬了七八个包"
+    },
+    {
+     "role": "assistant",
+     "content": "杭州蚊子这么猛"
+    },
+    {
+     "role": "user",
+     "content": "我O型血 走哪都是蚊子的自助餐 同事一个包没有"
+    },
+    {
+     "role": "assistant",
+     "content": "酒店有花露水吗"
+    },
+    {
+     "role": "user",
+     "content": "跟前台要了一瓶 涂完满屋子味"
+    },
+    {
+     "role": "assistant",
+     "content": "至少今晚睡得着了"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/12 (Wed) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "酒店早餐的咖啡难喝死了"
+    },
+    {
+     "role": "assistant",
+     "content": "机器打的那种？"
+    },
+    {
+     "role": "user",
+     "content": "对 一股焦味 好想春山的手冲 我最喜欢的就是那个"
+    },
+    {
+     "role": "assistant",
+     "content": "回去第一件事就去喝一杯"
+    },
+    {
+     "role": "user",
+     "content": "必须 阿June上次说要换新豆子"
+    },
+    {
+     "role": "assistant",
+     "content": "那你回去刚好赶上"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/12 (Wed) 08:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天去仓库看样品 在打车"
+    },
+    {
+     "role": "assistant",
+     "content": "仓库远吗"
+    },
+    {
+     "role": "user",
+     "content": "一个小时 在萧山那边"
+    },
+    {
+     "role": "assistant",
+     "content": "车上眯一会儿"
+    },
+    {
+     "role": "user",
+     "content": "眯不了 老韩在群里连发五条语音"
+    },
+    {
+     "role": "assistant",
+     "content": "先转文字看看急不急"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/12 (Wed) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天在仓库碰到一个以前趣养的同事 他现在在这边做供应链"
+    },
+    {
+     "role": "assistant",
+     "content": "这么巧"
+    },
+    {
+     "role": "user",
+     "content": "他问我去年被裁之后怎么样 其实挺不想提的 去年十月那阵子我天天在家投简历 投了四个月"
+    },
+    {
+     "role": "assistant",
+     "content": "那段日子不好过 现在回头看呢"
+    },
+    {
+     "role": "user",
+     "content": "还是会有点堵 不过现在在毛球星挺好的"
+    },
+    {
+     "role": "assistant",
+     "content": "嗯 你是自己走过来的"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/13 (Thu) 08:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "在机场等登机 回成都了"
+    },
+    {
+     "role": "assistant",
+     "content": "终于 团子等你四天了"
+    },
+    {
+     "role": "user",
+     "content": "候机的时候把今天的50个日语单词背完了"
+    },
+    {
+     "role": "assistant",
+     "content": "出差都没断？"
+    },
+    {
+     "role": "user",
+     "content": "没断 每天50个 明年要考N3 断一天就补不回来"
+    },
+    {
+     "role": "assistant",
+     "content": "太自律了"
+    },
+    {
+     "role": "user",
+     "content": "也就这件事坚持住了 哈哈"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/13 (Thu) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "落地了 在回公司的车上 耳机里放白噪号"
+    },
+    {
+     "role": "assistant",
+     "content": "他们出新歌了？"
+    },
+    {
+     "role": "user",
+     "content": "没 老歌 白噪号我能循环一整天 那种吵吵的吉他特别对胃口"
+    },
+    {
+     "role": "assistant",
+     "content": "下次他们来成都你得去现场"
+    },
+    {
+     "role": "user",
+     "content": "必须去 上次没抢到票"
+    },
+    {
+     "role": "assistant",
+     "content": "这次早点蹲"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/13 (Thu) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今晚羽毛球没去 太累了 回家团子一直跟脚"
+    },
+    {
+     "role": "assistant",
+     "content": "四天没见 它要黏你好几天"
+    },
+    {
+     "role": "user",
+     "content": "下午人事让补资料 生日那栏填3月14 旁边同事说跟圆周率一天"
+    },
+    {
+     "role": "assistant",
+     "content": "那你小时候是不是被叫过π"
+    },
+    {
+     "role": "user",
+     "content": "叫过 初中外号就这个"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 这外号挺好听的"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/14 (Fri) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "烦死了 七点不到楼上就开电钻 昨晚本来就没睡好"
+    },
+    {
+     "role": "assistant",
+     "content": "刚出差回来想补觉都不行"
+    },
+    {
+     "role": "user",
+     "content": "对 钻得脑仁疼 团子也炸毛了"
+    },
+    {
+     "role": "assistant",
+     "content": "物业不是说只能白天施工吗"
+    },
+    {
+     "role": "user",
+     "content": "他们说七点就算白天 我要去找物业了"
+    },
+    {
+     "role": "assistant",
+     "content": "先戴耳塞撑一下 今天周五 晚上还要跑"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/14 (Fri) 12:50",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "出差吃了四天甜的 周末谁去回血"
+    },
+    {
+     "role": "assistant",
+     "content": "我 好久没吃了"
+    },
+    {
+     "role": "user",
+     "content": "周日晚上？那家牛油锅底的"
+    },
+    {
+     "role": "assistant",
+     "content": "可以 我再叫两个人"
+    },
+    {
+     "role": "user",
+     "content": "订五点半吧 早点吃完我晚上还有事"
+    },
+    {
+     "role": "assistant",
+     "content": "行 我去订"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/14 (Fri) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天提前跑 在江边热身 团子早上把我耳机线咬断了"
+    },
+    {
+     "role": "assistant",
+     "content": "她是不是在报复你出差"
+    },
+    {
+     "role": "user",
+     "content": "是他 团子是公的 哈哈"
+    },
+    {
+     "role": "assistant",
+     "content": "对对 是他 我说错了 他在报复你"
+    },
+    {
+     "role": "user",
+     "content": "报复完还躺我鞋上睡"
+    },
+    {
+     "role": "assistant",
+     "content": "又咬又黏 典型"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/15 (Sat) 08:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "到琴行早了 在门口等 带了本球状闪电"
+    },
+    {
+     "role": "assistant",
+     "content": "刘慈欣那本？"
+    },
+    {
+     "role": "user",
+     "content": "对 三体看完以后刘慈欣的书我差不多都买了 这本是第二遍"
+    },
+    {
+     "role": "assistant",
+     "content": "第二遍看出什么不一样了"
+    },
+    {
+     "role": "user",
+     "content": "第一遍光顾着追情节 这次在看他写的那些物理细节"
+    },
+    {
+     "role": "assistant",
+     "content": "唐老师到了没"
+    },
+    {
+     "role": "user",
+     "content": "到了 进去了"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/15 (Sat) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下课了 唐老师今天教了首老歌 我爷爷以前常哼"
+    },
+    {
+     "role": "assistant",
+     "content": "弹出来什么感觉"
+    },
+    {
+     "role": "user",
+     "content": "弹到一半有点弹不下去 爷爷五月走的 到现在心里还是没过去"
+    },
+    {
+     "role": "assistant",
+     "content": "才三个月 没过去很正常"
+    },
+    {
+     "role": "user",
+     "content": "我以为我好了 结果一个调子就不行了"
+    },
+    {
+     "role": "assistant",
+     "content": "不用急着好 想他的时候就弹一弹"
+    },
+    {
+     "role": "user",
+     "content": "嗯 回去再练练"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/15 (Sat) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下午睡了一觉 晚上自己做了番茄鸡蛋面"
+    },
+    {
+     "role": "assistant",
+     "content": "心情好点了吗"
+    },
+    {
+     "role": "user",
+     "content": "好点了 团子一直蹲灶台边看"
+    },
+    {
+     "role": "assistant",
+     "content": "它也想吃面"
+    },
+    {
+     "role": "user",
+     "content": "给了它一小块鸡蛋 闻了闻走了"
+    },
+    {
+     "role": "assistant",
+     "content": "嫌弃你的手艺"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 等会儿跟苏禾视频 她说九月的票在看了"
+    },
+    {
+     "role": "assistant",
+     "content": "那太好了"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/16 (Sun) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "脚又疼了 右脚大拇指那个关节 走路一瘸一瘸的"
+    },
+    {
+     "role": "assistant",
+     "content": "是不是尿酸"
+    },
+    {
+     "role": "user",
+     "content": "应该是 体检尿酸就偏高 这几天在杭州吃得太杂了"
+    },
+    {
+     "role": "assistant",
+     "content": "那晚上火锅还去吗"
+    },
+    {
+     "role": "user",
+     "content": "去 但我只吃素菜 多喝水 啤酒不碰"
+    },
+    {
+     "role": "assistant",
+     "content": "找时间去复查一下吧"
+    },
+    {
+     "role": "user",
+     "content": "约了 下周四"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/16 (Sun) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "火锅回来了 吃素菜吃得好委屈"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 看着他们涮毛肚"
+    },
+    {
+     "role": "user",
+     "content": "而且他们油碟里抓了一大把香菜 我不吃香菜 只能自己重新调一碗"
+    },
+    {
+     "role": "assistant",
+     "content": "各调各的 互不打扰"
+    },
+    {
+     "role": "user",
+     "content": "我闻到都受不了"
+    },
+    {
+     "role": "assistant",
+     "content": "那下次你先去调"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/17 (Mon) 21:00",
+   "venue": "group:qq:20260702",
+   "turns": [
+    {
+     "role": "user",
+     "content": "竞品那边我看完了 他们第三周做满减 我们得提前"
+    },
+    {
+     "role": "assistant",
+     "content": "那预算要不要挪一点到第二周"
+    },
+    {
+     "role": "user",
+     "content": "我觉得要 明早我跟老韩说"
+    },
+    {
+     "role": "assistant",
+     "content": "好 我把数据整理好发你"
+    },
+    {
+     "role": "user",
+     "content": "辛苦 都九点了 大家早点走吧"
+    },
+    {
+     "role": "assistant",
+     "content": "你自己也是"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/17 (Mon) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "才到家 楼上今天居然没响"
+    },
+    {
+     "role": "assistant",
+     "content": "难得 是不是装完一部分了"
+    },
+    {
+     "role": "user",
+     "content": "不知道 可能在等材料 我怀疑明天会更狠"
+    },
+    {
+     "role": "assistant",
+     "content": "先享受今晚的安静"
+    },
+    {
+     "role": "user",
+     "content": "团子一进门就开始跑 从沙发跳到柜子上"
+    },
+    {
+     "role": "assistant",
+     "content": "它也憋了一天"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/17 (Mon) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "视频完了 苏禾说九月中下旬那个周末能来"
+    },
+    {
+     "role": "assistant",
+     "content": "定了吗"
+    },
+    {
+     "role": "user",
+     "content": "还没 她要看项目 不过大概率"
+    },
+    {
+     "role": "assistant",
+     "content": "周末的话你都不用请假"
+    },
+    {
+     "role": "user",
+     "content": "嗯 我已经在想带她去哪了"
+    },
+    {
+     "role": "assistant",
+     "content": "先列着 等她定了再排"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/18 (Tue) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早上刷到一个拍绿皮火车的视频 看了好几遍"
+    },
+    {
+     "role": "assistant",
+     "content": "怎么突然对火车感兴趣"
+    },
+    {
+     "role": "user",
+     "content": "我爸以前就是跑绿皮车的列车员 小时候放暑假他带我跟过一趟"
+    },
+    {
+     "role": "assistant",
+     "content": "那车厢你应该很熟"
+    },
+    {
+     "role": "user",
+     "content": "熟 硬座那个味道 他推着小推车走来走去 一看到绿皮车就想起他"
+    },
+    {
+     "role": "assistant",
+     "content": "把视频转给他看看"
+    },
+    {
+     "role": "user",
+     "content": "他肯定又要讲半天以前跑车的事 哈哈"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/18 (Tue) 21:40",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "上周日那家牛油锅 下次换一家吧 太咸了"
+    },
+    {
+     "role": "assistant",
+     "content": "还好吧 我觉得挺香"
+    },
+    {
+     "role": "user",
+     "content": "我那天只吃素菜 素菜都咸"
+    },
+    {
+     "role": "assistant",
+     "content": "那下次去清汤的"
+    },
+    {
+     "role": "user",
+     "content": "行 玉林这边有人知道哪家清汤好吗"
+    },
+    {
+     "role": "assistant",
+     "content": "我问问我同事"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/19 (Wed) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "面馆老板问我怎么好几天没来 我说出差了"
+    },
+    {
+     "role": "assistant",
+     "content": "熟到会被查勤了"
+    },
+    {
+     "role": "user",
+     "content": "他还送了我一碟泡菜"
+    },
+    {
+     "role": "assistant",
+     "content": "熟客福利"
+    },
+    {
+     "role": "user",
+     "content": "下午周会 老韩又要过上新进度 落后两天"
+    },
+    {
+     "role": "assistant",
+     "content": "先说补救方案 再说原因"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/19 (Wed) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跑完了 脚好多了"
+    },
+    {
+     "role": "assistant",
+     "content": "那就好 没勉强吧"
+    },
+    {
+     "role": "user",
+     "content": "没 慢慢跑的 刚刚周以安打电话 说开学前想回趟绵阳"
+    },
+    {
+     "role": "assistant",
+     "content": "你妹妹在哪读书来着"
+    },
+    {
+     "role": "user",
+     "content": "西安 在那边读研 现在比我还忙"
+    },
+    {
+     "role": "assistant",
+     "content": "读研都这样 导师催得紧"
+    },
+    {
+     "role": "user",
+     "content": "她说导师暑假都不放人"
+    },
+    {
+     "role": "assistant",
+     "content": "那她回绵阳估计也待不了几天"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/20 (Thu) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下午请了两小时假去医院复查 尿酸降到430了"
+    },
+    {
+     "role": "assistant",
+     "content": "降了 这一个多月没白忍"
+    },
+    {
+     "role": "user",
+     "content": "医生说还是偏高 但趋势是对的 让我继续少吃海鲜少喝啤酒"
+    },
+    {
+     "role": "assistant",
+     "content": "那鹿角只能点无醇的了"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 阿Ken肯定笑我"
+    },
+    {
+     "role": "assistant",
+     "content": "笑就笑 脚不疼最重要"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/20 (Thu) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "羽毛球中场 我今天居然赢了林悦一局"
+    },
+    {
+     "role": "assistant",
+     "content": "终于翻身"
+    },
+    {
+     "role": "user",
+     "content": "她说她让着我 我不信"
+    },
+    {
+     "role": "assistant",
+     "content": "嘴上不认输"
+    },
+    {
+     "role": "user",
+     "content": "下一局她认真了 已经输两个球了"
+    },
+    {
+     "role": "assistant",
+     "content": "快去 别聊了"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/20 (Thu) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "打完球了 周六蓉城主场 阿Ken弄到两张票"
+    },
+    {
+     "role": "assistant",
+     "content": "又要去凤凰山喊了"
+    },
+    {
+     "role": "user",
+     "content": "那必须 蓉城主场我每年都去好几回"
+    },
+    {
+     "role": "assistant",
+     "content": "喊哑了别怪我没提醒"
+    },
+    {
+     "role": "user",
+     "content": "少喊点 哈哈 不可能"
+    },
+    {
+     "role": "assistant",
+     "content": "带件外套 晚场有风"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/21 (Fri) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "中午面里加了个卤蛋 算复查的奖励"
+    },
+    {
+     "role": "assistant",
+     "content": "就一个卤蛋"
+    },
+    {
+     "role": "user",
+     "content": "还能怎样 医生不让放开吃"
+    },
+    {
+     "role": "assistant",
+     "content": "卤蛋也挺好"
+    },
+    {
+     "role": "user",
+     "content": "晚上跑完去鹿角 我准备点个无醇的"
+    },
+    {
+     "role": "assistant",
+     "content": "阿Ken的表情我已经想象到了"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/21 (Fri) 21:00",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跑完路过芳沁街 新开了一家砂锅粥 周日中午谁去打卡"
+    },
+    {
+     "role": "assistant",
+     "content": "砂锅粥 我可以"
+    },
+    {
+     "role": "user",
+     "content": "周日中午 明天我白天有课晚上看球"
+    },
+    {
+     "role": "assistant",
+     "content": "好 十二点？"
+    },
+    {
+     "role": "user",
+     "content": "十二点 我先去拿号 打卡完给你们评分"
+    },
+    {
+     "role": "assistant",
+     "content": "收到"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/21 (Fri) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "鹿角出来了 点了无醇的 阿Ken笑了我十分钟"
+    },
+    {
+     "role": "assistant",
+     "content": "意料之中"
+    },
+    {
+     "role": "user",
+     "content": "他问我周日晚上要不要一起吃饭 我说不行 每周日晚上要给我妈打电话 一打一个小时"
+    },
+    {
+     "role": "assistant",
+     "content": "阿姨有那么多要说"
+    },
+    {
+     "role": "user",
+     "content": "从邻居家的狗讲到我爸的血压"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 信息量很大的电话"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/22 (Sat) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早 今天上课要回课 昨晚回来还练了半小时"
+    },
+    {
+     "role": "assistant",
+     "content": "无醇的 不影响手指"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 但手指起茧了 按弦疼"
+    },
+    {
+     "role": "assistant",
+     "content": "起茧就是快过那道坎了"
+    },
+    {
+     "role": "user",
+     "content": "唐老师说再一个月就不疼了"
+    },
+    {
+     "role": "assistant",
+     "content": "那就熬过去"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/22 (Sat) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "到凤凰山门口了 人好多"
+    },
+    {
+     "role": "assistant",
+     "content": "穿球衣了吗"
+    },
+    {
+     "role": "user",
+     "content": "穿了 阿Ken还带了围巾 这天气戴围巾"
+    },
+    {
+     "role": "assistant",
+     "content": "仪式感"
+    },
+    {
+     "role": "user",
+     "content": "进场了 开球前去买瓶水"
+    },
+    {
+     "role": "assistant",
+     "content": "好好看 嗓子悠着点"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/23 (Sun) 07:50",
+   "venue": "group:qq:20260702",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早 周日打扰一下 下周二晚上开炉 主推新款猫砂和冻干 大家周一把脚本过一遍"
+    },
+    {
+     "role": "assistant",
+     "content": "收到 主播那边我来对"
+    },
+    {
+     "role": "user",
+     "content": "开炉前一天要彩排 样品周一到"
+    },
+    {
+     "role": "assistant",
+     "content": "好 我周一盯仓库"
+    },
+    {
+     "role": "user",
+     "content": "这次开炉老韩会来看 大家准备充分点"
+    },
+    {
+     "role": "assistant",
+     "content": "明白 压力来了"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/23 (Sun) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早上发完群消息又睡回去了 睡到十一点 还是好累"
+    },
+    {
+     "role": "assistant",
+     "content": "这周太满了"
+    },
+    {
+     "role": "user",
+     "content": "秋季上新天天加班到十一二点 回家倒头就睡 周五还跑步去鹿角 透支了"
+    },
+    {
+     "role": "assistant",
+     "content": "今天就好好躺着"
+    },
+    {
+     "role": "user",
+     "content": "现在在砂锅粥店门口等号 差点没起来"
+    },
+    {
+     "role": "assistant",
+     "content": "吃完回去接着睡"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/23 (Sun) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "晚饭自己炒了个青菜 煎了块鸡胸 减肥人的周日就这么朴素"
+    },
+    {
+     "role": "assistant",
+     "content": "朴素但稳 鸡胸没煎柴吧"
+    },
+    {
+     "role": "user",
+     "content": "有点柴 下次试试先腌一下"
+    },
+    {
+     "role": "assistant",
+     "content": "腌个二十分钟会嫩很多 抓点淀粉也行"
+    },
+    {
+     "role": "user",
+     "content": "团子全程蹲旁边看 眼神很怨"
+    },
+    {
+     "role": "assistant",
+     "content": "它大概觉得那块鸡胸本来该归它"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/24 (Mon) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下午要过秋季上新的排期 上午改了三版"
+    },
+    {
+     "role": "assistant",
+     "content": "三版 是排期在变还是有人在加需求"
+    },
+    {
+     "role": "user",
+     "content": "加需求 设计那边说主图要多出一套竖版的"
+    },
+    {
+     "role": "assistant",
+     "content": "那排期肯定得往后挪 不然只能压你们自己"
+    },
+    {
+     "role": "user",
+     "content": "对 估计又得加班 先吃口面压压惊"
+    },
+    {
+     "role": "assistant",
+     "content": "吃饱再去开会 空着肚子容易上头"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/24 (Mon) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "还在公司 外卖都没心思点"
+    },
+    {
+     "role": "assistant",
+     "content": "那至少点个简单的 别空着肚子熬"
+    },
+    {
+     "role": "user",
+     "content": "小林刚分了我半个面包 设计组今天也在加"
+    },
+    {
+     "role": "assistant",
+     "content": "斜对面互相救济 挺好"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 她那边竖版主图出了一半 我这边在对文案"
+    },
+    {
+     "role": "assistant",
+     "content": "争取九点前走吧 明天还得一早骑车过来"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/24 (Mon) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "到家了 团子在门口等 一开门就开始喊"
+    },
+    {
+     "role": "assistant",
+     "content": "喊饭还是喊你"
+    },
+    {
+     "role": "user",
+     "content": "喊饭 碗里明明还有 它就要新倒的"
+    },
+    {
+     "role": "assistant",
+     "content": "猫就这样 上面那层闻过了就不算数"
+    },
+    {
+     "role": "user",
+     "content": "给它添了一点 我去洗澡 一会儿还要视频"
+    },
+    {
+     "role": "assistant",
+     "content": "去吧 别洗太久 快十点了"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/25 (Tue) 08:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "阿Ken一大早发消息 说鹿角新到了一款精酿 周五跑完去试"
+    },
+    {
+     "role": "assistant",
+     "content": "他这是提前三天就开始约了"
+    },
+    {
+     "role": "user",
+     "content": "反正每周五都去 跑完坐那喝一杯 他就是想换个口味"
+    },
+    {
+     "role": "assistant",
+     "content": "跑五公里换一杯 也算公平"
+    },
+    {
+     "role": "user",
+     "content": "我尿酸复查刚降一点 啤酒还是少喝 到时候点杯低度的"
+    },
+    {
+     "role": "assistant",
+     "content": "嗯 点完慢慢喝 主要是坐着聊天"
+    },
+    {
+     "role": "user",
+     "content": "先不想了 出门 早上有个会得骑快点"
+    },
+    {
+     "role": "assistant",
+     "content": "快归快 路口还是慢点"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/25 (Tue) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早上燕麦煮糊了 锅底一层 我还是硬吃了"
+    },
+    {
+     "role": "assistant",
+     "content": "糊燕麦有点惨 火开大了吗"
+    },
+    {
+     "role": "user",
+     "content": "边煮边找袜子 一走神就糊了"
+    },
+    {
+     "role": "assistant",
+     "content": "下次先关小火再去找"
+    },
+    {
+     "role": "user",
+     "content": "所以现在饿得特别快 面馆刚坐下 加了个煎蛋"
+    },
+    {
+     "role": "assistant",
+     "content": "加蛋可以 下午还有得熬"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/25 (Tue) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "雾城今天更了 我还没看 先跟苏禾视频完再说"
+    },
+    {
+     "role": "assistant",
+     "content": "那你忍住 别刷到剧透"
+    },
+    {
+     "role": "user",
+     "content": "已经被热搜标题剧透一半了 说陈队不是内鬼"
+    },
+    {
+     "role": "assistant",
+     "content": "啊 这种标题真的很烦"
+    },
+    {
+     "role": "user",
+     "content": "算了 反正每周二周三各一集 明天还有一集兜底"
+    },
+    {
+     "role": "assistant",
+     "content": "那今晚看完正好接上明天"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/26 (Wed) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "起来煮燕麦 突然很想周末 早上去春山喝杯咖啡 晚上再去鹿角坐一下 就很舒服"
+    },
+    {
+     "role": "assistant",
+     "content": "一天头尾都安排好了"
+    },
+    {
+     "role": "user",
+     "content": "对 中间爱干嘛干嘛 可惜今天才周三"
+    },
+    {
+     "role": "assistant",
+     "content": "周三还能夜跑 也算个盼头"
+    },
+    {
+     "role": "user",
+     "content": "看晚上加不加班 不加就去江边"
+    },
+    {
+     "role": "assistant",
+     "content": "去吧 跑完睡得也好"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/26 (Wed) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跑完了 阿Ken今天配速快得离谱 我在后面追"
+    },
+    {
+     "role": "assistant",
+     "content": "他吃什么了这么猛"
+    },
+    {
+     "role": "user",
+     "content": "说最近在减脂 跑得像赶地铁"
+    },
+    {
+     "role": "assistant",
+     "content": "你跟上了吗"
+    },
+    {
+     "role": "user",
+     "content": "后两公里放弃了 自己慢慢跑完 五公里还是跑满了"
+    },
+    {
+     "role": "assistant",
+     "content": "跑满就行 不用跟他比"
+    },
+    {
+     "role": "user",
+     "content": "江边风好大 回去冲个澡"
+    },
+    {
+     "role": "assistant",
+     "content": "嗯 别在风口站久了"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/26 (Wed) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刚刷到小满鱼更新了 画了只橘猫趴在窗台上 太像团子了"
+    },
+    {
+     "role": "assistant",
+     "content": "光听描述就有画面了"
+    },
+    {
+     "role": "user",
+     "content": "小满鱼的画我真的每张都喜欢 颜色软软的 看着就放松"
+    },
+    {
+     "role": "assistant",
+     "content": "这张可以存下来当壁纸"
+    },
+    {
+     "role": "user",
+     "content": "已经换上了 团子本猫在旁边睡得四仰八叉 一点都不文艺"
+    },
+    {
+     "role": "assistant",
+     "content": "本猫负责真实 画负责好看"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/27 (Thu) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "羽毛球打完了 今天跟小林一组 被对面打爆"
+    },
+    {
+     "role": "assistant",
+     "content": "被打爆了语气还挺开心"
+    },
+    {
+     "role": "user",
+     "content": "输了请喝水而已 小林说她最近天天画竖版主图 手腕都不灵了"
+    },
+    {
+     "role": "assistant",
+     "content": "那这锅不能全怪她"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 主要怪我 网前一个都没接住"
+    },
+    {
+     "role": "assistant",
+     "content": "下周四找回来"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/27 (Thu) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "有本书拖了一个月还没看完 这周末去春山把它啃了"
+    },
+    {
+     "role": "assistant",
+     "content": "什么书拖这么久"
+    },
+    {
+     "role": "user",
+     "content": "讲城市规划的 苏禾推荐的 有点硬"
+    },
+    {
+     "role": "assistant",
+     "content": "那确实适合找个安静地方慢慢看"
+    },
+    {
+     "role": "user",
+     "content": "春山周日上午人少 我一般坐窗边 周末去一坐就到中午"
+    },
+    {
+     "role": "assistant",
+     "content": "那这周应该能啃掉一大半"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/27 (Thu) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "我妈晚上发了条语音 刚视频完才看到 问中秋回不回"
+    },
+    {
+     "role": "assistant",
+     "content": "这么早就开始问了"
+    },
+    {
+     "role": "user",
+     "content": "她就是提前问一嘴 反正每周日晚上都要给她打电话 到时候再细说"
+    },
+    {
+     "role": "assistant",
+     "content": "那你得先看看秋季上新的排期"
+    },
+    {
+     "role": "user",
+     "content": "对 上线前估计不好走 周日打电话跟她好好讲"
+    },
+    {
+     "role": "assistant",
+     "content": "嗯 你好好说她不会太失望"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/28 (Fri) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "面馆今天人巨多 排了十分钟"
+    },
+    {
+     "role": "assistant",
+     "content": "周五中午大家都想吃点好的"
+    },
+    {
+     "role": "user",
+     "content": "我就一碗清汤牛肉面 不敢吃红油 晚上还要跑"
+    },
+    {
+     "role": "assistant",
+     "content": "跑前吃清淡点是对的"
+    },
+    {
+     "role": "user",
+     "content": "下午还有个会 老韩也在 希望别点我名"
+    },
+    {
+     "role": "assistant",
+     "content": "祝你隐身成功"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/28 (Fri) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "在鹿角 跟苏禾说好晚点视频 阿Ken在跟老板聊新到的那款酒 我喝苏打水"
+    },
+    {
+     "role": "assistant",
+     "content": "自律"
+    },
+    {
+     "role": "user",
+     "content": "尿酸刚降下来 不想前功尽弃 闻闻就行"
+    },
+    {
+     "role": "assistant",
+     "content": "闻闻也算喝过了"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 阿Ken说我像来陪聊的"
+    },
+    {
+     "role": "assistant",
+     "content": "陪聊也是正经活"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/28 (Fri) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "到家了 苏禾那边还在加班 视频推到十一点半"
+    },
+    {
+     "role": "assistant",
+     "content": "她也这么晚"
+    },
+    {
+     "role": "user",
+     "content": "她们在赶投标 最近比我还惨"
+    },
+    {
+     "role": "assistant",
+     "content": "那今晚你俩互相心疼一下"
+    },
+    {
+     "role": "user",
+     "content": "我先把猫砂铲了 团子刚拉了个大的"
+    },
+    {
+     "role": "assistant",
+     "content": "去吧 铲完她差不多也下班了"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/29 (Sat) 20:15",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "明天中午有人出来吃饭吗 周日我空"
+    },
+    {
+     "role": "assistant",
+     "content": "先定吃啥 不然又要在群里吵半小时"
+    },
+    {
+     "role": "user",
+     "content": "清淡点的 最近在控尿酸 海鲜就算了"
+    },
+    {
+     "role": "assistant",
+     "content": "那就玉林路那家云南米线 汤底清 不怎么油"
+    },
+    {
+     "role": "user",
+     "content": "行 十二点路口见 来的接个龙"
+    },
+    {
+     "role": "assistant",
+     "content": "你先报名 我帮你盯着人数"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/29 (Sat) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "上午吉他课唐老师让我练扫弦 下午练到手指头都麻了"
+    },
+    {
+     "role": "assistant",
+     "content": "扫弦那个节奏型最难稳"
+    },
+    {
+     "role": "user",
+     "content": "对 一快就乱 唐老师说我右手太僵"
+    },
+    {
+     "role": "assistant",
+     "content": "手腕放松点 不用一直使劲"
+    },
+    {
+     "role": "user",
+     "content": "楼下邻居估计也被我扫烦了 哈哈"
+    },
+    {
+     "role": "assistant",
+     "content": "白天练 他们忍得了"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/29 (Sat) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刚视频完 苏禾说九月可能请几天假过来"
+    },
+    {
+     "role": "assistant",
+     "content": "那这个月都有盼头了"
+    },
+    {
+     "role": "user",
+     "content": "嗯 她已经在列来成都要吃的东西了 我说来了再说"
+    },
+    {
+     "role": "assistant",
+     "content": "她那单子估计比假期还长"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 对了她11月3号生日 礼物我还没头绪 先放着"
+    },
+    {
+     "role": "assistant",
+     "content": "不急 还有两个多月"
+    },
+    {
+     "role": "user",
+     "content": "睡了 明天周日 想睡个懒觉"
+    },
+    {
+     "role": "assistant",
+     "content": "晚安 睡到自然醒"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/30 (Sun) 08:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "烦死了 周日早上七点半楼上就开电钻 本来昨晚就没睡好"
+    },
+    {
+     "role": "assistant",
+     "content": "周日都不放过 太过分了"
+    },
+    {
+     "role": "user",
+     "content": "物业说规定八点以后才能施工 他们提前了 我刚下去找了物业"
+    },
+    {
+     "role": "assistant",
+     "content": "找了有用吗"
+    },
+    {
+     "role": "user",
+     "content": "说会去提醒 现在是停了 可我也醒透了"
+    },
+    {
+     "role": "assistant",
+     "content": "那干脆起来煮燕麦 下午补个觉"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/30 (Sun) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刚跟我妈打完电话 她说我爸最近血压还算稳"
+    },
+    {
+     "role": "assistant",
+     "content": "那挺好 药按时吃着就行"
+    },
+    {
+     "role": "user",
+     "content": "嗯 我妈天天盯着 中秋的事我说上线前看情况"
+    },
+    {
+     "role": "assistant",
+     "content": "她能理解就好"
+    },
+    {
+     "role": "user",
+     "content": "还让我少熬夜 我说好 然后今晚还得改方案"
+    },
+    {
+     "role": "assistant",
+     "content": "那就十一点前收工 给你妈一个面子"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/30 (Sun) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "苏禾今天去爬梧桐山了 给我发了一堆照片"
+    },
+    {
+     "role": "assistant",
+     "content": "那座山爬上去挺累的"
+    },
+    {
+     "role": "user",
+     "content": "她说下次我去深圳一起爬 我说我膝盖先不同意"
+    },
+    {
+     "role": "assistant",
+     "content": "每周跑五公里的人说膝盖不同意"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 跑步和爬山是两回事 一会儿视频再跟她扯"
+    },
+    {
+     "role": "assistant",
+     "content": "让她给你讲讲山顶长啥样"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/31 (Mon) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "又在公司 秋季上新的落地页今天要定稿"
+    },
+    {
+     "role": "assistant",
+     "content": "定稿日一般都很长"
+    },
+    {
+     "role": "user",
+     "content": "文案改了五版 老韩还没看 等他看完才能走"
+    },
+    {
+     "role": "assistant",
+     "content": "那先吃点东西垫着"
+    },
+    {
+     "role": "user",
+     "content": "小林那边也在等 我俩对着屏幕发呆"
+    },
+    {
+     "role": "assistant",
+     "content": "发呆也算养精神"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/31 (Mon) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "终于出来了 老韩说明天再看 白等两小时"
+    },
+    {
+     "role": "assistant",
+     "content": "啊 这种最气"
+    },
+    {
+     "role": "user",
+     "content": "骑车回去路上风挺舒服 算唯一的安慰"
+    },
+    {
+     "role": "assistant",
+     "content": "夏末的晚风 还行"
+    },
+    {
+     "role": "user",
+     "content": "回家先给团子开个罐头 它今天一个人待太久了"
+    },
+    {
+     "role": "assistant",
+     "content": "一个罐头 它应该会原谅你"
+    }
+   ]
+  },
+  {
+   "date": "2026/08/31 (Mon) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刚视频的时候苏禾说想重看千与千寻 我说宫崎骏的每部我都能再看十遍"
+    },
+    {
+     "role": "assistant",
+     "content": "你最喜欢哪部"
+    },
+    {
+     "role": "user",
+     "content": "龙猫吧 小时候家里录像带看的 后来他每部都追"
+    },
+    {
+     "role": "assistant",
+     "content": "龙猫那种夏天的感觉 很难不喜欢"
+    },
+    {
+     "role": "user",
+     "content": "我们约了周末各自在家同时开 边看边视频"
+    },
+    {
+     "role": "assistant",
+     "content": "隔着屏幕一起看 也挺好"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/01 (Tue) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早上边吃燕麦边看海贼王新一话 追了快十五年了还没完结"
+    },
+    {
+     "role": "assistant",
+     "content": "那是从初中就开始看了"
+    },
+    {
+     "role": "user",
+     "content": "差不多 初二同学借的漫画 后来就一直跟着"
+    },
+    {
+     "role": "assistant",
+     "content": "它都快陪你半辈子了"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 想想有点吓人 出门了 九月一号 楼下好多送小孩上学的"
+    },
+    {
+     "role": "assistant",
+     "content": "路上人多 骑慢点"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/01 (Tue) 20:15",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "周日那家米线大家觉得咋样 我回来又想了一次"
+    },
+    {
+     "role": "assistant",
+     "content": "看你们发的照片 汤是真清 就是份量看着小了点"
+    },
+    {
+     "role": "user",
+     "content": "对 我吃完还加了个饵块"
+    },
+    {
+     "role": "assistant",
+     "content": "控尿酸控得挺有分寸"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 下周有人想吃别的吗 我周六下午有空"
+    },
+    {
+     "role": "assistant",
+     "content": "周六下午适合喝东西 吃饭就得等晚上了"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/01 (Tue) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "视频完了 今天的五十个单词还没背 现在补"
+    },
+    {
+     "role": "assistant",
+     "content": "这么晚还背 挺能坚持"
+    },
+    {
+     "role": "user",
+     "content": "不背心里不踏实 明年还要考N3"
+    },
+    {
+     "role": "assistant",
+     "content": "背完早点睡 明早别又把燕麦煮糊"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 那锅底我到现在都有阴影"
+    },
+    {
+     "role": "assistant",
+     "content": "那就定个闹钟 煮的时候别找袜子"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/02 (Wed) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下雨了 今天骑车得套雨衣"
+    },
+    {
+     "role": "assistant",
+     "content": "路滑 骑慢点"
+    },
+    {
+     "role": "user",
+     "content": "团子趴在窗台看雨 一动不动"
+    },
+    {
+     "role": "assistant",
+     "content": "它在思考猫生"
+    },
+    {
+     "role": "user",
+     "content": "晚上本来要夜跑 下成这样估计泡汤"
+    },
+    {
+     "role": "assistant",
+     "content": "看看傍晚停不停 说不定就停了"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/02 (Wed) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "面馆老板今天送了一碟泡菜 说我是熟客"
+    },
+    {
+     "role": "assistant",
+     "content": "天天去 熟到这份上了"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 早上出门就不顺 B2我那个117号位被旁边一辆车压线了 电动车挤半天才推出来"
+    },
+    {
+     "role": "assistant",
+     "content": "下雨天地库还滑 没摔就好"
+    },
+    {
+     "role": "user",
+     "content": "没事 下午要对直播排期 吃完赶紧回"
+    },
+    {
+     "role": "assistant",
+     "content": "嗯 吃完别马上趴着睡"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/02 (Wed) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "雨傍晚停了 还是跑了 回来看了蓉城的比赛 赢了"
+    },
+    {
+     "role": "assistant",
+     "content": "双喜 下一场是主场吗"
+    },
+    {
+     "role": "user",
+     "content": "下周末主场 票已经抢好了 主场我一般都去现场"
+    },
+    {
+     "role": "assistant",
+     "content": "现场那个氛围 看转播比不了"
+    },
+    {
+     "role": "user",
+     "content": "对 每次全场一起唱都起鸡皮疙瘩"
+    },
+    {
+     "role": "assistant",
+     "content": "到时候嗓子悠着点"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/03 (Thu) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下班先回了趟家 给孔雀鱼换水 换完再去打球"
+    },
+    {
+     "role": "assistant",
+     "content": "还专门回来一趟"
+    },
+    {
+     "role": "user",
+     "content": "这几天热 缸里有点浑 怕它们闷着"
+    },
+    {
+     "role": "assistant",
+     "content": "团子没去捞吧"
+    },
+    {
+     "role": "user",
+     "content": "它就蹲缸边看 爪子不敢伸 被我凶过一次"
+    },
+    {
+     "role": "assistant",
+     "content": "看看又不犯法"
+    },
+    {
+     "role": "user",
+     "content": "好了 换完了 去羽毛球馆"
+    },
+    {
+     "role": "assistant",
+     "content": "去吧 别迟到"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/03 (Thu) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "到球馆门口了 顺手给以安转了这个月的1500"
+    },
+    {
+     "role": "assistant",
+     "content": "月初准时到账 她应该挺安心"
+    },
+    {
+     "role": "user",
+     "content": "她说这学期导师给了点补助 让我少转点 我说你先拿着"
+    },
+    {
+     "role": "assistant",
+     "content": "当哥的嘴硬心软"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 她在西安吃得比我好 天天给我发泡馍"
+    },
+    {
+     "role": "assistant",
+     "content": "那就当投资她的胃了"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/04 (Fri) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "面馆换新菜单了 有个藤椒鸡丝面 试了一下"
+    },
+    {
+     "role": "assistant",
+     "content": "好吃吗"
+    },
+    {
+     "role": "user",
+     "content": "还行 就是太麻 吃完嘴还是木的"
+    },
+    {
+     "role": "assistant",
+     "content": "下午开会说话会不会漏风"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 刚好下午没会 只用对表格"
+    },
+    {
+     "role": "assistant",
+     "content": "那挺好 跑步前能缓过来"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/04 (Fri) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "鹿角回来了 明天上完吉他课去重庆找林可 高铁一点多的"
+    },
+    {
+     "role": "assistant",
+     "content": "好久没见他了吧"
+    },
+    {
+     "role": "user",
+     "content": "毕业后就见过两次 他说带我去吃一家开了二十年的老火锅"
+    },
+    {
+     "role": "assistant",
+     "content": "记着尿酸 少点毛肚多点素菜"
+    },
+    {
+     "role": "user",
+     "content": "知道知道 团子明天一晚上就靠自动喂食器了"
+    },
+    {
+     "role": "assistant",
+     "content": "一晚上没事 回来多陪它玩会儿"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/05 (Sat) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "在重庆 跟林可吃完火锅在江边走 路边有人弹吉他在唱后来"
+    },
+    {
+     "role": "assistant",
+     "content": "江边夜景配这首歌 有点犯规"
+    },
+    {
+     "role": "user",
+     "content": "一听到后来我就想起高中同桌 那时候午休天天用个小音箱放这首"
+    },
+    {
+     "role": "assistant",
+     "content": "那是挺深的记忆了"
+    },
+    {
+     "role": "user",
+     "content": "林可说我一听这歌就发呆 十几年了还这样"
+    },
+    {
+     "role": "assistant",
+     "content": "有些歌就是带着一个人"
+    },
+    {
+     "role": "user",
+     "content": "嗯 今晚住他那 明天中午再回成都"
+    },
+    {
+     "role": "assistant",
+     "content": "好 好好玩"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/05 (Sat) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "在林可家沙发上 他还在打游戏 我已经困了"
+    },
+    {
+     "role": "assistant",
+     "content": "大学那会儿是不是也这样"
+    },
+    {
+     "role": "user",
+     "content": "一模一样 他打游戏我在旁边睡 十年没变"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 这种室友情挺好"
+    },
+    {
+     "role": "user",
+     "content": "刚跟苏禾视频完 她说我在重庆待一天就晒黑了"
+    },
+    {
+     "role": "assistant",
+     "content": "重庆的太阳是毒"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/06 (Sun) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "林可带我吃了碗小面 吃完就去高铁站"
+    },
+    {
+     "role": "assistant",
+     "content": "比成都的面辣吗"
+    },
+    {
+     "role": "user",
+     "content": "辣的路数不一样 更冲 嘴到现在还在烧"
+    },
+    {
+     "role": "assistant",
+     "content": "上车前买瓶冰的"
+    },
+    {
+     "role": "user",
+     "content": "已经在站里了 一点半的车 到家正好下午"
+    },
+    {
+     "role": "assistant",
+     "content": "团子估计要扒着你闻一圈重庆味"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/06 (Sun) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "到家收拾完了 团子闻了我半天 现在不理我"
+    },
+    {
+     "role": "assistant",
+     "content": "在生你出门一晚的气"
+    },
+    {
+     "role": "user",
+     "content": "估计是 明天又上班 午饭又是青山面馆那几样 吃了大半年了"
+    },
+    {
+     "role": "assistant",
+     "content": "在重庆吃了两天重口的 回来可能觉得面馆太清淡"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 老板听到要哭 不过工作日中午就它最近 也吃不腻"
+    },
+    {
+     "role": "assistant",
+     "content": "稳定也好 省得每天想吃啥"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/06 (Sun) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刚给我妈打完电话 说了去重庆的事"
+    },
+    {
+     "role": "assistant",
+     "content": "她听你出去玩应该挺高兴"
+    },
+    {
+     "role": "user",
+     "content": "嗯 她说多出去走走 别天天加班"
+    },
+    {
+     "role": "assistant",
+     "content": "妈妈都这么说"
+    },
+    {
+     "role": "user",
+     "content": "十点还要跟苏禾视频 她说要给我看她新买的台灯"
+    },
+    {
+     "role": "assistant",
+     "content": "专门留着视频看 那应该挺好看"
+    },
+    {
+     "role": "user",
+     "content": "先去洗个澡"
+    },
+    {
+     "role": "assistant",
+     "content": "嗯 洗完差不多就十点了"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/07 (Mon) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "出门发现电动车后轮有点瘪 先去小区门口修车铺打个气"
+    },
+    {
+     "role": "assistant",
+     "content": "别是扎钉子了"
+    },
+    {
+     "role": "user",
+     "content": "师傅说气门芯老化 换了个 五块钱"
+    },
+    {
+     "role": "assistant",
+     "content": "五块钱解决 运气不错"
+    },
+    {
+     "role": "user",
+     "content": "就是要晚五分钟 今天还有直播脚本要过"
+    },
+    {
+     "role": "assistant",
+     "content": "五分钟问题不大 路上别急"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/07 (Mon) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "直播脚本过了一整天 晚饭在工位吃的"
+    },
+    {
+     "role": "assistant",
+     "content": "吃的啥"
+    },
+    {
+     "role": "user",
+     "content": "楼下便利店的饭团 两个 减肥人士的妥协"
+    },
+    {
+     "role": "assistant",
+     "content": "饭团还行 别再加个炸鸡就好"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 小林刚问要不要拼炸鸡 我拒绝了 好痛苦"
+    },
+    {
+     "role": "assistant",
+     "content": "拒绝得好 周三跑步的时候会感谢自己"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/07 (Mon) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "外面又下雨了 团子缩在我腿上不动"
+    },
+    {
+     "role": "assistant",
+     "content": "下雨天它会更黏人吗"
+    },
+    {
+     "role": "user",
+     "content": "好像是 它就是一个下雨天我在小区垃圾桶边捡的 当时淋得透湿 可能一下雨就有点那个记忆"
+    },
+    {
+     "role": "assistant",
+     "content": "那它现在有你的腿 挺幸福"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 三年了 从一小团长成一大坨"
+    },
+    {
+     "role": "assistant",
+     "content": "名字倒是一直很准"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/08 (Tue) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "吃面的时候刷到老屋更新 这次做了个带抽屉的猫窝 我当初做猫爬架就是看他视频一点点学的"
+    },
+    {
+     "role": "assistant",
+     "content": "那这期是不是又想抄作业了"
+    },
+    {
+     "role": "user",
+     "content": "想 但是周末没空 上新忙完再说"
+    },
+    {
+     "role": "assistant",
+     "content": "先收藏 不会跑"
+    },
+    {
+     "role": "user",
+     "content": "他那个榫卯我还没学会 我的都是打钉子的"
+    },
+    {
+     "role": "assistant",
+     "content": "打钉子结实就行 猫又不看工艺"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/08 (Tue) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天雾城那集反转了 陈队真的是内鬼"
+    },
+    {
+     "role": "assistant",
+     "content": "啊 那上周那个标题是骗人的"
+    },
+    {
+     "role": "user",
+     "content": "对 白担心一周 结果是被反着剧透"
+    },
+    {
+     "role": "assistant",
+     "content": "编剧和营销号一起在演你"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 一会儿跟苏禾视频 她还没看 我得憋住"
+    },
+    {
+     "role": "assistant",
+     "content": "憋住 别一张嘴就漏了"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/09 (Wed) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "苏禾定了 19号过来 待到21号 她说来了想去吃海鲜大排档"
+    },
+    {
+     "role": "assistant",
+     "content": "在成都吃海鲜大排档 她这是在考你"
+    },
+    {
+     "role": "user",
+     "content": "她说深圳吃惯了 想看看成都的大排档啥样 我说成都哪有像样的海鲜"
+    },
+    {
+     "role": "assistant",
+     "content": "那你得提前找找了"
+    },
+    {
+     "role": "user",
+     "content": "我先问问饭搭子群 那帮人肯定知道"
+    },
+    {
+     "role": "assistant",
+     "content": "群里那帮人什么店都去过"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/09 (Wed) 19:30",
+   "venue": "group:qq:20260702",
+   "turns": [
+    {
+     "role": "user",
+     "content": "各位 明天上午老韩要过上新主图 今晚能出齐吗"
+    },
+    {
+     "role": "assistant",
+     "content": "别慌 先把已经出的放进一个文件夹 明天按顺序过"
+    },
+    {
+     "role": "user",
+     "content": "好 我把文案也放进去 对一下有没有字压图的"
+    },
+    {
+     "role": "assistant",
+     "content": "压图最容易出在竖版那几张 先看竖版"
+    },
+    {
+     "role": "user",
+     "content": "收到 八点半前我把文件夹链接发群里"
+    },
+    {
+     "role": "assistant",
+     "content": "发完记得吃饭 别都饿着熬"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/09 (Wed) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天没跑成 加班到九点半 骑回来都十点了"
+    },
+    {
+     "role": "assistant",
+     "content": "那跟苏禾视频也晚了吧"
+    },
+    {
+     "role": "user",
+     "content": "晚了二十分钟 她在给我念大排档的候选店"
+    },
+    {
+     "role": "assistant",
+     "content": "她已经开始做攻略了"
+    },
+    {
+     "role": "user",
+     "content": "对 比我还上心 我连21号周一要不要请假都还没想好"
+    },
+    {
+     "role": "assistant",
+     "content": "那这个你明天就可以先问了"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/10 (Thu) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "老韩上午过了主图 竟然没挑刺 我还挺不习惯"
+    },
+    {
+     "role": "assistant",
+     "content": "说明你们准备得好"
+    },
+    {
+     "role": "user",
+     "content": "也可能他今天心情好 刚还在群里发了个大拇指"
+    },
+    {
+     "role": "assistant",
+     "content": "这个大拇指值得截图"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 中午给自己加了份牛肉"
+    },
+    {
+     "role": "assistant",
+     "content": "应该的"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/10 (Thu) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "打完羽毛球了 今天赢了 小林状态回来了"
+    },
+    {
+     "role": "assistant",
+     "content": "前两周被打爆的找回来了"
+    },
+    {
+     "role": "user",
+     "content": "对 她手腕好了 杀球特别狠"
+    },
+    {
+     "role": "assistant",
+     "content": "你网前接住了吗"
+    },
+    {
+     "role": "user",
+     "content": "接住两个 已经是历史最佳"
+    },
+    {
+     "role": "assistant",
+     "content": "进步看得见"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/10 (Thu) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "视频完了 苏禾问成都这周天气 我说秋老虎 还三十度"
+    },
+    {
+     "role": "assistant",
+     "content": "她来那周说不定就凉下来了"
+    },
+    {
+     "role": "user",
+     "content": "希望吧 她怕热 要是三十几度她能一整天不出门"
+    },
+    {
+     "role": "assistant",
+     "content": "九月中下旬一般会降一点"
+    },
+    {
+     "role": "user",
+     "content": "嗯 我去背单词了 今天还差二十个"
+    },
+    {
+     "role": "assistant",
+     "content": "背完就睡 明天还要跑"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/11 (Fri) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早上边吃燕麦边看大理攻略 国庆想去三天 洱海 双廊 喜洲 苍山 古城全塞进去"
+    },
+    {
+     "role": "assistant",
+     "content": "三天跑这么多 你这是去赶场"
+    },
+    {
+     "role": "user",
+     "content": "难得放假 能多去一个是一个 排了个表 每天早上七点出发"
+    },
+    {
+     "role": "assistant",
+     "content": "七点 你上班都没起这么早"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 还没定 先排着玩"
+    },
+    {
+     "role": "assistant",
+     "content": "排再满 也留半天给自己发呆吧"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/11 (Fri) 12:20",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "这周被上新榨干了 周日晚上谁去回血 我想吃老灶"
+    },
+    {
+     "role": "assistant",
+     "content": "周日可以 你记得要鸳鸯 尿酸别全泡红汤里"
+    },
+    {
+     "role": "user",
+     "content": "鸳鸯可以 红汤那边我就涮涮素菜 回血嘛 主要是那个氛围"
+    },
+    {
+     "role": "assistant",
+     "content": "老灶周末要排队 最好五点半前到"
+    },
+    {
+     "role": "user",
+     "content": "那就五点半 还有谁 接龙"
+    },
+    {
+     "role": "assistant",
+     "content": "接龙顺便报忌口 省得到时候点菜吵"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/11 (Fri) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "在鹿角 老板说办个会员 生日当月送一杯 让我填生日"
+    },
+    {
+     "role": "assistant",
+     "content": "你四月生日 那还早着呢"
+    },
+    {
+     "role": "user",
+     "content": "不是四月 是3月14 说过的"
+    },
+    {
+     "role": "assistant",
+     "content": "啊对 是3月14 我记岔了"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 白色情人节那天 很好记"
+    },
+    {
+     "role": "assistant",
+     "content": "这下忘不掉了"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/12 (Sat) 08:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "昨晚跑的时候想了下 我夜跑真离不开人 有回阿Ken出差 我一个人去 跑了两公里就回家了"
+    },
+    {
+     "role": "assistant",
+     "content": "一个人跑是容易给自己找理由"
+    },
+    {
+     "role": "user",
+     "content": "对 旁边有人就不好意思停 所以每次都得约好"
+    },
+    {
+     "role": "assistant",
+     "content": "阿Ken是你的跑步发动机"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 他知道了要收费 准备去上吉他课了"
+    },
+    {
+     "role": "assistant",
+     "content": "去吧 扫弦加油"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/12 (Sat) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "吉他课下了 店里来了个订单 要那款三层的猫爬架"
+    },
+    {
+     "role": "assistant",
+     "content": "网店又开张了"
+    },
+    {
+     "role": "user",
+     "content": "下午得把板子切出来 也就周末有空做"
+    },
+    {
+     "role": "assistant",
+     "content": "切的时候把团子关屋里 别让它去踩木屑"
+    },
+    {
+     "role": "user",
+     "content": "它最爱木屑 上次滚了一身"
+    },
+    {
+     "role": "assistant",
+     "content": "那它算半个质检员"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/12 (Sat) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "看完球回来了 赢了 嗓子哑了"
+    },
+    {
+     "role": "assistant",
+     "content": "现场赢球 值了"
+    },
+    {
+     "role": "user",
+     "content": "凤凰山今天坐满了 散场地铁挤到怀疑人生"
+    },
+    {
+     "role": "assistant",
+     "content": "嗓子这样还能跟苏禾视频吗"
+    },
+    {
+     "role": "user",
+     "content": "刚视频了 她说我像只鸭子"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 多喝点温水"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/13 (Sun) 07:50",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早 今晚老灶五点半 我刚打电话排了号"
+    },
+    {
+     "role": "assistant",
+     "content": "打电话还能排号 那家进步了"
+    },
+    {
+     "role": "user",
+     "content": "说是周末才开的 先到先得 现在报了四个人"
+    },
+    {
+     "role": "assistant",
+     "content": "四个人点个鸳鸯正好"
+    },
+    {
+     "role": "user",
+     "content": "谁带饮料说一声 我那份要无糖的"
+    },
+    {
+     "role": "assistant",
+     "content": "无糖记下了 别到时候拿成甜的"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/13 (Sun) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "吃完回来了 撑 明天骑电动车上班那十五分钟估计都消化不完"
+    },
+    {
+     "role": "assistant",
+     "content": "吃了多少啊"
+    },
+    {
+     "role": "user",
+     "content": "清汤那边涮了一堆菌子 红汤就碰了两下"
+    },
+    {
+     "role": "assistant",
+     "content": "挺克制了"
+    },
+    {
+     "role": "user",
+     "content": "一会儿给我妈打电话 她肯定又问是不是吃辣了"
+    },
+    {
+     "role": "assistant",
+     "content": "如实说 只碰了两下"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/13 (Sun) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "楼下有人在烧艾草 不知道熏什么 一闻到我就想起小时候外婆家"
+    },
+    {
+     "role": "assistant",
+     "content": "外婆家以前也烧吗"
+    },
+    {
+     "role": "user",
+     "content": "夏天天天烧 驱蚊 院子里全是这个味 外婆坐门口摇蒲扇"
+    },
+    {
+     "role": "assistant",
+     "content": "气味真的会一下把人拽回去"
+    },
+    {
+     "role": "user",
+     "content": "嗯 在阳台多闻了一会儿 团子嫌弃地走了"
+    },
+    {
+     "role": "assistant",
+     "content": "它闻不出你闻到的那些"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/14 (Mon) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早上眼睛干 隐形眼镜半天戴不进去"
+    },
+    {
+     "role": "assistant",
+     "content": "是不是这副快到期了"
+    },
+    {
+     "role": "user",
+     "content": "还有一周 估计昨晚吃完火锅又熬夜看手机"
+    },
+    {
+     "role": "assistant",
+     "content": "滴点眼药水再试"
+    },
+    {
+     "role": "user",
+     "content": "戴上了 出门 今天周会老韩主持"
+    },
+    {
+     "role": "assistant",
+     "content": "周一的会 祝顺利"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/14 (Mon) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "还在公司 晚饭点了个轻食 一盒生菜"
+    },
+    {
+     "role": "assistant",
+     "content": "生菜配加班 很苦"
+    },
+    {
+     "role": "user",
+     "content": "小林说看着就没食欲 她点了麻辣烫"
+    },
+    {
+     "role": "assistant",
+     "content": "闻着她的麻辣烫吃生菜 更苦了"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 今晚可能要九点多 方案得重改"
+    },
+    {
+     "role": "assistant",
+     "content": "改完早点回 别憋着"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/14 (Mon) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "心情很差 今天周会老韩当着全组的面说我的直播方案没重点"
+    },
+    {
+     "role": "assistant",
+     "content": "当众说 最伤人"
+    },
+    {
+     "role": "user",
+     "content": "做了一周的东西 他翻了两页就这么说 小林都替我尴尬"
+    },
+    {
+     "role": "assistant",
+     "content": "他说的那点 你自己觉得在不在点上"
+    },
+    {
+     "role": "user",
+     "content": "有一点在 但是可以私下讲啊 当着那么多人"
+    },
+    {
+     "role": "assistant",
+     "content": "道理能听 场合不对 你难受很正常"
+    },
+    {
+     "role": "user",
+     "content": "不想了 跟苏禾视频去 她在等"
+    },
+    {
+     "role": "assistant",
+     "content": "去吧 跟她吐两句也好"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/15 (Tue) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早饭边吃燕麦边补雾城 我吃饭不放一集就吃不下去"
+    },
+    {
+     "role": "assistant",
+     "content": "配剧吃饭 越吃越慢吧"
+    },
+    {
+     "role": "user",
+     "content": "是 燕麦都凉了 但不放就感觉少了点啥"
+    },
+    {
+     "role": "assistant",
+     "content": "今晚更新那集正好留着晚饭看"
+    },
+    {
+     "role": "user",
+     "content": "对 晚饭就靠它了 昨天的事也不想了"
+    },
+    {
+     "role": "assistant",
+     "content": "嗯 换个心情出门"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/15 (Tue) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "上午改直播方案 老韩路过丢了一句 重点放转化 别堆玩法"
+    },
+    {
+     "role": "assistant",
+     "content": "这句比昨天那一通有用多了"
+    },
+    {
+     "role": "user",
+     "content": "对 早说不就完了 现在思路清楚点了"
+    },
+    {
+     "role": "assistant",
+     "content": "那下午能改快点"
+    },
+    {
+     "role": "user",
+     "content": "先吃面 今天加了个卤蛋 犒劳自己"
+    },
+    {
+     "role": "assistant",
+     "content": "卤蛋该加"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/16 (Wed) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "困死了 昨晚团子三点开始在客厅跑酷 从柜子跳到沙发 咚咚咚的 我醒了就再没睡着"
+    },
+    {
+     "role": "assistant",
+     "content": "三点 它在搞夜间特训吗"
+    },
+    {
+     "role": "user",
+     "content": "不知道发什么疯 今天上班一直打哈欠"
+    },
+    {
+     "role": "assistant",
+     "content": "那今晚夜跑还去吗"
+    },
+    {
+     "role": "user",
+     "content": "阿Ken在催 还是去 跑完估计能睡死"
+    },
+    {
+     "role": "assistant",
+     "content": "也是 累了反而睡得好"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/16 (Wed) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "到江边了 等阿Ken 他说路上堵"
+    },
+    {
+     "role": "assistant",
+     "content": "你先热个身"
+    },
+    {
+     "role": "user",
+     "content": "在压腿 今天江边人好多 有人在放风筝"
+    },
+    {
+     "role": "assistant",
+     "content": "晚上放风筝 带灯的那种吗"
+    },
+    {
+     "role": "user",
+     "content": "对 一串亮的 挺好看"
+    },
+    {
+     "role": "assistant",
+     "content": "跑的时候别光看天"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/16 (Wed) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跑完了 五公里 腿是软的 但人醒了"
+    },
+    {
+     "role": "assistant",
+     "content": "困劲被跑没了"
+    },
+    {
+     "role": "user",
+     "content": "是 阿Ken说周五继续 我说你周五别又迟到"
+    },
+    {
+     "role": "assistant",
+     "content": "周五跑完还有鹿角 他不会迟到的"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 有道理 回家洗澡 今晚团子再闹我就把它关厕所"
+    },
+    {
+     "role": "assistant",
+     "content": "你舍不得"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/17 (Thu) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "燕麦里加了根香蕉 今天奢侈一下"
+    },
+    {
+     "role": "assistant",
+     "content": "香蕉燕麦 挺像样的早餐"
+    },
+    {
+     "role": "user",
+     "content": "吃的时候有个买家来砍价 那款最贵的399的爬架 问能不能三百 木头都不止这个钱"
+    },
+    {
+     "role": "assistant",
+     "content": "砍得也太狠了"
+    },
+    {
+     "role": "user",
+     "content": "后天苏禾就来了 想把家里收拾一下 晚上还要打球"
+    },
+    {
+     "role": "assistant",
+     "content": "那今晚打完回来收一点 明天再收一点"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/17 (Thu) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "到球馆了 小林说她那组今天缺人 让我去顶"
+    },
+    {
+     "role": "assistant",
+     "content": "你成救火队员了"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 对面是她们组长 听说很猛"
+    },
+    {
+     "role": "assistant",
+     "content": "那你守网前 别往后场乱跑"
+    },
+    {
+     "role": "user",
+     "content": "好 上次网前接住两个 今天争取三个"
+    },
+    {
+     "role": "assistant",
+     "content": "目标明确"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/17 (Thu) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "中场歇一下 被组长杀了好几个 手臂都酸了"
+    },
+    {
+     "role": "assistant",
+     "content": "网前接住几个了"
+    },
+    {
+     "role": "user",
+     "content": "一个 还是蹭网过去的"
+    },
+    {
+     "role": "assistant",
+     "content": "蹭网也算"
+    },
+    {
+     "role": "user",
+     "content": "再打一局就回去收拾屋子 苏禾老嫌我家乱"
+    },
+    {
+     "role": "assistant",
+     "content": "那抓紧 收拾比打球还累"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/18 (Fri) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下班了 今天早走 先去超市再去江边 明天苏禾来"
+    },
+    {
+     "role": "assistant",
+     "content": "买什么 给她准备吃的吗"
+    },
+    {
+     "role": "user",
+     "content": "她爱喝的那个椰子水 再买个新枕头 家里那个太扁了"
+    },
+    {
+     "role": "assistant",
+     "content": "新枕头是给她还是给你"
+    },
+    {
+     "role": "user",
+     "content": "都有 哈哈 估计团子会先霸占"
+    },
+    {
+     "role": "assistant",
+     "content": "那就买三个"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/18 (Fri) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "超市买完了 先骑回家放东西再去的江边 迟到十分钟 被阿Ken笑了"
+    },
+    {
+     "role": "assistant",
+     "content": "他上次迟到 这次轮到你 扯平"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 今天跑完鹿角只坐一会儿 早点回去"
+    },
+    {
+     "role": "assistant",
+     "content": "嗯 明天要精神点去接人"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/18 (Fri) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "回来了 床单换了 地也拖了 团子已经睡在新枕头上了"
+    },
+    {
+     "role": "assistant",
+     "content": "果然被它霸占了"
+    },
+    {
+     "role": "user",
+     "content": "苏禾明天中午落地 我上完吉他课直接去机场接她"
+    },
+    {
+     "role": "assistant",
+     "content": "时间刚好 课一下就走"
+    },
+    {
+     "role": "user",
+     "content": "有点紧张 好久没见了"
+    },
+    {
+     "role": "assistant",
+     "content": "紧张说明在乎 早点睡"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/19 (Sat) 07:50",
+   "venue": "group:qq:20260702",
+   "turns": [
+    {
+     "role": "user",
+     "content": "周末打扰一下 昨天直播预热的数据谁导出来了 我想周一前看一眼"
+    },
+    {
+     "role": "assistant",
+     "content": "周末就别看了 周一早会一起过"
+    },
+    {
+     "role": "user",
+     "content": "也是 今天有私事 手机可能不常看 急事打电话"
+    },
+    {
+     "role": "assistant",
+     "content": "好 安心去忙 群里有事会艾特你"
+    },
+    {
+     "role": "user",
+     "content": "谢谢 周一见"
+    },
+    {
+     "role": "assistant",
+     "content": "周一见 周末愉快"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/19 (Sat) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "接到苏禾了！！刚从机场出来"
+    },
+    {
+     "role": "assistant",
+     "content": "哇 苏禾到啦 一路顺不顺"
+    },
+    {
+     "role": "user",
+     "content": "顺 就是我差点迟到 上午吉他课唐老师拖了十分钟 下课直接冲地铁"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈哈 唐老师不知道你今天有大事"
+    },
+    {
+     "role": "user",
+     "content": "我跟他说了 他说那今天的扫弦作业你女朋友监督"
+    },
+    {
+     "role": "assistant",
+     "content": "这老师挺会的 那现在去哪吃"
+    },
+    {
+     "role": "user",
+     "content": "她说饿死了 先回玉林放东西 楼下随便吃点"
+    },
+    {
+     "role": "assistant",
+     "content": "好 去吧去吧 别看手机了"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/19 (Sat) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刚才吓我一跳"
+    },
+    {
+     "role": "assistant",
+     "content": "咋了"
+    },
+    {
+     "role": "user",
+     "content": "苏禾拿外卖的时候门没关 团子就溜出去了 好在只跑到楼梯口"
+    },
+    {
+     "role": "assistant",
+     "content": "还好还好 你脸色肯定变了"
+    },
+    {
+     "role": "user",
+     "content": "真的腿都软了 他去年走丢过三天 我那几天到处贴寻猫启事 最后是在楼道里找到的 缩在消防栓后面"
+    },
+    {
+     "role": "assistant",
+     "content": "难怪你这么紧张 那三天得多煎熬"
+    },
+    {
+     "role": "user",
+     "content": "嗯 苏禾也吓到了 一直跟团子道歉 团子理都不理她 在吃罐头"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 他倒是心大 今晚门记得反锁"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/20 (Sun) 08:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早 煮了两份燕麦"
+    },
+    {
+     "role": "assistant",
+     "content": "早呀 她吃得惯吗"
+    },
+    {
+     "role": "user",
+     "content": "她说像在吃糊糊 往里面加了一大勺蜂蜜"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 那你那份呢 也加了？"
+    },
+    {
+     "role": "user",
+     "content": "没 我老老实实吃原味 她笑我像个苦行僧"
+    },
+    {
+     "role": "assistant",
+     "content": "今天打算带她去哪逛"
+    },
+    {
+     "role": "user",
+     "content": "先去人民公园喝盖碗茶 下午随便走走 她说不想特种兵 就想慢慢晃"
+    },
+    {
+     "role": "assistant",
+     "content": "挺好 难得见一次 慢一点刚好"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/20 (Sun) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "脚趾又开始疼了 走路都有点瘸"
+    },
+    {
+     "role": "assistant",
+     "content": "又是那个关节吗"
+    },
+    {
+     "role": "user",
+     "content": "嗯 尿酸高的老毛病 这两天陪她吃得太放肆了 昨晚还喝了两瓶啤酒"
+    },
+    {
+     "role": "assistant",
+     "content": "那今晚多喝水 啤酒先停了吧"
+    },
+    {
+     "role": "user",
+     "content": "知道 苏禾都在念我了 说我自己不长记性"
+    },
+    {
+     "role": "assistant",
+     "content": "她念得对 明天送她走还要走路呢"
+    },
+    {
+     "role": "user",
+     "content": "嗯 我先躺着把脚抬高 她在帮我切西瓜"
+    },
+    {
+     "role": "assistant",
+     "content": "被照顾的感觉不错吧 好好歇着"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/21 (Mon) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刚把苏禾送到机场 现在往公司赶"
+    },
+    {
+     "role": "assistant",
+     "content": "这么早 她几点的飞机"
+    },
+    {
+     "role": "user",
+     "content": "八点四十 她非要我别进去 在门口抱了一下就走了"
+    },
+    {
+     "role": "assistant",
+     "content": "怕你舍不得吧"
+    },
+    {
+     "role": "user",
+     "content": "也怕她自己舍不得 哈哈 回来的路上有点空"
+    },
+    {
+     "role": "assistant",
+     "content": "两天半过得真快 下次见面定了吗"
+    },
+    {
+     "role": "user",
+     "content": "还没 估计得年底了 先上班吧 今天还有个会"
+    },
+    {
+     "role": "assistant",
+     "content": "嗯 别迟到 晚上视频再跟她说"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/21 (Mon) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "面馆老板今天问我是不是胖了"
+    },
+    {
+     "role": "assistant",
+     "content": "草 老板这么直接的吗"
+    },
+    {
+     "role": "user",
+     "content": "周末吃太猛了 早上一称79 本来都快往下走了"
+    },
+    {
+     "role": "assistant",
+     "content": "两天而已 慢慢就回去了 目标还是75吧"
+    },
+    {
+     "role": "user",
+     "content": "对 75 今天点的素椒面 没加臊子"
+    },
+    {
+     "role": "assistant",
+     "content": "这么自觉 那脚还疼不疼"
+    },
+    {
+     "role": "user",
+     "content": "好点了 今天能正常走路"
+    },
+    {
+     "role": "assistant",
+     "content": "那就好 这周饮食清淡点"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/22 (Tue) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "困到吃面的时候差点睡着"
+    },
+    {
+     "role": "assistant",
+     "content": "昨晚没睡好吗"
+    },
+    {
+     "role": "user",
+     "content": "团子半夜三点开始跑酷 从衣柜顶跳到床上 正好踩我肚子上"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈哈哈 那一下得多疼"
+    },
+    {
+     "role": "user",
+     "content": "我怀疑他是在找苏禾 这两天她在他天天有人陪玩"
+    },
+    {
+     "role": "assistant",
+     "content": "有可能 人走了他也不习惯"
+    },
+    {
+     "role": "user",
+     "content": "下午还要对排期 我先去买杯咖啡续命"
+    },
+    {
+     "role": "assistant",
+     "content": "去吧 晚上早点睡补回来"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/22 (Tue) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天的单词还差二十个没背"
+    },
+    {
+     "role": "assistant",
+     "content": "上周末是不是也断了几天"
+    },
+    {
+     "role": "user",
+     "content": "断了两天 苏禾在嘛 现在在补 一天五十个真的不能欠 欠了就滚雪球 明年还要考N3"
+    },
+    {
+     "role": "assistant",
+     "content": "明年 N3 加油 今天背到哪一课了"
+    },
+    {
+     "role": "user",
+     "content": "交通那一块 什么乗り換え 終点 背得我头晕"
+    },
+    {
+     "role": "assistant",
+     "content": "这个以后去日本坐车用得上"
+    },
+    {
+     "role": "user",
+     "content": "先考过再说吧 背完去看雾城 今天更新"
+    },
+    {
+     "role": "assistant",
+     "content": "好 当奖励"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/22 (Tue) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "雾城今天这集 我猜错了"
+    },
+    {
+     "role": "assistant",
+     "content": "你之前猜谁是内鬼来着"
+    },
+    {
+     "role": "user",
+     "content": "我猜那个法医 结果是他徒弟 前面一点铺垫都没有"
+    },
+    {
+     "role": "assistant",
+     "content": "有点硬转 还是你没注意到"
+    },
+    {
+     "role": "user",
+     "content": "苏禾说第三集就有 那个徒弟擦过手套 我完全没看到"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 她看得比你仔细"
+    },
+    {
+     "role": "user",
+     "content": "她刚视频的时候一直在炫耀 明天还更一集"
+    },
+    {
+     "role": "assistant",
+     "content": "明天你认真看 别再被她赢了"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/23 (Wed) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天面馆人超多 排了十分钟"
+    },
+    {
+     "role": "assistant",
+     "content": "楼下新开了公司吗"
+    },
+    {
+     "role": "user",
+     "content": "好像隔壁楼搬来一家游戏公司 一群穿格子衫的"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 你们那片要更挤了"
+    },
+    {
+     "role": "user",
+     "content": "老板倒是乐开花了 还多送了我一碟泡菜"
+    },
+    {
+     "role": "assistant",
+     "content": "老顾客待遇 下午忙吗"
+    },
+    {
+     "role": "user",
+     "content": "下午要跟设计组过详情页 小林那边改了三版了"
+    },
+    {
+     "role": "assistant",
+     "content": "希望这版能过"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/23 (Wed) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "回家换衣服准备去跑步 发现孔雀鱼缸里多了好多小鱼"
+    },
+    {
+     "role": "assistant",
+     "content": "孔雀鱼又生了？"
+    },
+    {
+     "role": "user",
+     "content": "对 一窝起码二十条 小得跟线头一样"
+    },
+    {
+     "role": "assistant",
+     "content": "要不要隔离开 不然大的会吃"
+    },
+    {
+     "role": "user",
+     "content": "先捞了一半到小盒子里 剩下的躲水草里了 随缘吧"
+    },
+    {
+     "role": "assistant",
+     "content": "团子没在旁边盯着吧"
+    },
+    {
+     "role": "user",
+     "content": "在 趴在鱼缸边上看得眼睛都直了 我把盖子压紧了"
+    },
+    {
+     "role": "assistant",
+     "content": "好 那你安心去跑"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/23 (Wed) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天跑完差点进不了门"
+    },
+    {
+     "role": "assistant",
+     "content": "钥匙丢了？"
+    },
+    {
+     "role": "user",
+     "content": "落在公司了 还好备用的放在春山阿June那 她还没关门 跑过去拿的"
+    },
+    {
+     "role": "assistant",
+     "content": "幸好 这么晚她还在"
+    },
+    {
+     "role": "user",
+     "content": "在收拾 还顺手给我塞了块今天剩的司康"
+    },
+    {
+     "role": "assistant",
+     "content": "刚跑完五公里就吃司康 哈哈"
+    },
+    {
+     "role": "user",
+     "content": "就吃了一半 剩的明早配燕麦 今天跑得还行 配速比上周快"
+    },
+    {
+     "role": "assistant",
+     "content": "可以啊 那今天没白跑"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/24 (Thu) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下雨了 好烦"
+    },
+    {
+     "role": "assistant",
+     "content": "骑车不方便吧"
+    },
+    {
+     "role": "user",
+     "content": "嗯 得穿雨衣 头盔面罩全是水"
+    },
+    {
+     "role": "assistant",
+     "content": "慢点骑 路滑"
+    },
+    {
+     "role": "user",
+     "content": "知道 团子今天倒是很乖 趴在窗台看雨"
+    },
+    {
+     "role": "assistant",
+     "content": "他是不是特别喜欢下雨天"
+    },
+    {
+     "role": "user",
+     "content": "好像是 一下雨就安静 可能想起自己是哪来的了 哈哈"
+    },
+    {
+     "role": "assistant",
+     "content": "说不定 出门吧 别迟到"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/24 (Thu) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刚收到通知 上新上线以后部门要聚餐 说是庆功"
+    },
+    {
+     "role": "assistant",
+     "content": "吃什么 定了吗"
+    },
+    {
+     "role": "user",
+     "content": "还能吃什么 烧烤 每次聚餐都是烧烤 老韩就认那家"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 你减重的计划要受考验了"
+    },
+    {
+     "role": "user",
+     "content": "就是 烤脑花烤五花肉一上来 我只能啃玉米"
+    },
+    {
+     "role": "assistant",
+     "content": "可以多点点素的 烤韭菜烤茄子"
+    },
+    {
+     "role": "user",
+     "content": "嗯 啤酒肯定不碰了 先去打羽毛球了 小林他们已经到了"
+    },
+    {
+     "role": "assistant",
+     "content": "去吧 打完记得拉伸"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/24 (Thu) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天羽毛球被小林虐了"
+    },
+    {
+     "role": "assistant",
+     "content": "她这么强吗"
+    },
+    {
+     "role": "user",
+     "content": "她大学是校队的 我今天才知道 一直藏着"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 难怪你们组谁都打不过她"
+    },
+    {
+     "role": "user",
+     "content": "打完浑身是汗 回来冲了个澡 苏禾说我视频里脸还是红的"
+    },
+    {
+     "role": "assistant",
+     "content": "运动完是这样 早点睡吧"
+    },
+    {
+     "role": "user",
+     "content": "嗯 团子今晚千万别跑酷"
+    },
+    {
+     "role": "assistant",
+     "content": "祈祷一下 晚安"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/25 (Fri) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "终于下班 换好鞋了 准备去江边"
+    },
+    {
+     "role": "assistant",
+     "content": "今天阿Ken来吗"
+    },
+    {
+     "role": "user",
+     "content": "来 他说他今天被行长训了 要跑掉一肚子气"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 那今天配速可能很猛"
+    },
+    {
+     "role": "user",
+     "content": "我怕跟不上 这周加班加得腿是软的"
+    },
+    {
+     "role": "assistant",
+     "content": "跟不上就让他先跑 你按自己节奏"
+    },
+    {
+     "role": "user",
+     "content": "嗯 五公里完事去喝一杯"
+    },
+    {
+     "role": "assistant",
+     "content": "好 注意安全"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/25 (Fri) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跑完了 在鹿角坐着"
+    },
+    {
+     "role": "assistant",
+     "content": "跟上阿Ken没"
+    },
+    {
+     "role": "user",
+     "content": "没 他前两公里冲太猛 后面自己岔气了 哈哈哈"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈哈 气没跑掉 先把自己跑掉了"
+    },
+    {
+     "role": "user",
+     "content": "他现在在吐槽他们行长 我听着呢"
+    },
+    {
+     "role": "assistant",
+     "content": "你喝的什么 脚刚好别喝啤酒"
+    },
+    {
+     "role": "user",
+     "content": "柠檬苏打 被他嘲笑了半天"
+    },
+    {
+     "role": "assistant",
+     "content": "让他笑 你自己舒服最重要"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/25 (Fri) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刚跟苏禾视频完"
+    },
+    {
+     "role": "assistant",
+     "content": "她回深圳这几天还好吗"
+    },
+    {
+     "role": "user",
+     "content": "忙 甲方又改需求了 她说比我上新还惨"
+    },
+    {
+     "role": "assistant",
+     "content": "你俩这是比惨大赛"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 她说想团子了 让我给她看看 团子对着镜头打了个哈欠就走了"
+    },
+    {
+     "role": "assistant",
+     "content": "太给面子了"
+    },
+    {
+     "role": "user",
+     "content": "就这德性 我也准备睡了 明天还要上课"
+    },
+    {
+     "role": "assistant",
+     "content": "好 晚安"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/26 (Sat) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "被林可的电话吵醒的"
+    },
+    {
+     "role": "assistant",
+     "content": "这么早 他有什么事吗"
+    },
+    {
+     "role": "user",
+     "content": "说他转正了 矩阵云那边昨天下的通知 激动得一大早就打过来"
+    },
+    {
+     "role": "assistant",
+     "content": "哇 那是好事 难怪等不及"
+    },
+    {
+     "role": "user",
+     "content": "我说你跟我激动有啥用 他说上次我去重庆陪他喝酒说过要第一个告诉我"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 他还记着"
+    },
+    {
+     "role": "user",
+     "content": "嗯 醒都醒了 起来煮燕麦 一会儿去上吉他课"
+    },
+    {
+     "role": "assistant",
+     "content": "早起也好 今天不用赶"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/26 (Sat) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下课了 整个人好累"
+    },
+    {
+     "role": "assistant",
+     "content": "吉他课这么累吗"
+    },
+    {
+     "role": "user",
+     "content": "不是课 是这周 秋季上新周一加班到十二点才走 后面几天回家还在改方案 改到一两点"
+    },
+    {
+     "role": "assistant",
+     "content": "难怪 一周的累都堆到今天了"
+    },
+    {
+     "role": "user",
+     "content": "上课的时候手都在抖 唐老师问我是不是没吃饭"
+    },
+    {
+     "role": "assistant",
+     "content": "下午别安排事了 回去睡一觉"
+    },
+    {
+     "role": "user",
+     "content": "嗯 回去吃个饭就睡 团子肯定会来压我胸口"
+    },
+    {
+     "role": "assistant",
+     "content": "那就当暖宝宝了 好好补觉"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/26 (Sat) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "睡了一下午 现在精神了"
+    },
+    {
+     "role": "assistant",
+     "content": "补回来了就好"
+    },
+    {
+     "role": "user",
+     "content": "阿Ken刚发消息 说下周三跑步想换个路线 从九眼桥那边往下跑"
+    },
+    {
+     "role": "assistant",
+     "content": "还是五公里吗"
+    },
+    {
+     "role": "user",
+     "content": "对 还是锦江边五公里 就是换个起点 他说老路线跑腻了"
+    },
+    {
+     "role": "assistant",
+     "content": "换换风景也好 周五呢"
+    },
+    {
+     "role": "user",
+     "content": "周五我可能跑不了 要看要不要加班 国庆前肯定忙"
+    },
+    {
+     "role": "assistant",
+     "content": "那到时候再说"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/27 (Sun) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "我真的要疯了"
+    },
+    {
+     "role": "assistant",
+     "content": "怎么了"
+    },
+    {
+     "role": "user",
+     "content": "楼上周日早上七点半就开电钻 我昨天睡了一下午晚上又睡不着 两点才睡着 刚睡熟就被钻醒"
+    },
+    {
+     "role": "assistant",
+     "content": "周日也开工 太过分了"
+    },
+    {
+     "role": "user",
+     "content": "我上去敲门 工人说业主要赶国庆前弄完 我能说啥"
+    },
+    {
+     "role": "assistant",
+     "content": "可以跟物业反映一下 周末施工时间应该有规定"
+    },
+    {
+     "role": "user",
+     "content": "说过两次了 没用 现在烦得午饭都不想吃 准备出去躲躲"
+    },
+    {
+     "role": "assistant",
+     "content": "出去透透气也好 别在家里硬扛"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/27 (Sun) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刚给我妈打完电话"
+    },
+    {
+     "role": "assistant",
+     "content": "家里都好吗"
+    },
+    {
+     "role": "user",
+     "content": "好 我爸血压稳定 就是一直问我国庆回不回去"
+    },
+    {
+     "role": "assistant",
+     "content": "你怎么说的"
+    },
+    {
+     "role": "user",
+     "content": "说要出去玩 她说那过年一定回来 然后又念叨我别老熬夜 眼睛本来就六百度"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 妈妈总是记得这个"
+    },
+    {
+     "role": "user",
+     "content": "说起来隐形眼镜也快没了 这盒月抛就剩最后一副 得赶紧下单"
+    },
+    {
+     "role": "assistant",
+     "content": "出去玩之前要囤够 别到大理没得换"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/28 (Mon) 07:50",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早 玉林西路新开了一家冒菜 有人去打卡过没"
+    },
+    {
+     "role": "assistant",
+     "content": "是转角那家吗 门口排队排到隔壁那个 我还没去过"
+    },
+    {
+     "role": "user",
+     "content": "对就那家 我国庆要出去 节后回来想去"
+    },
+    {
+     "role": "assistant",
+     "content": "可以啊 我听说他们家的鸭血很嫩"
+    },
+    {
+     "role": "user",
+     "content": "那就等我回来一起打卡 去晚了怕排不上"
+    },
+    {
+     "role": "assistant",
+     "content": "好 到时候群里喊 早点去能少排会儿"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/28 (Mon) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天居然七点就下班了"
+    },
+    {
+     "role": "assistant",
+     "content": "这么难得 老韩放过你们了"
+    },
+    {
+     "role": "user",
+     "content": "他出差了 哈哈 整个组都提前溜了"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 那晚上打算干嘛"
+    },
+    {
+     "role": "user",
+     "content": "回家做饭 买了点鸡胸和西兰花 准备好好减一下"
+    },
+    {
+     "role": "assistant",
+     "content": "健身餐 你要不要加点黑胡椒 不然很柴"
+    },
+    {
+     "role": "user",
+     "content": "有 还买了一小瓶 团子已经在门口等我了 听到电梯就过来"
+    },
+    {
+     "role": "assistant",
+     "content": "他耳朵好灵 回去好好吃一顿"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/28 (Mon) 22:20",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "说个昨天的 芳草街那家网红烤鱼 我拔草了"
+    },
+    {
+     "role": "assistant",
+     "content": "啊 那家不是天天排队吗"
+    },
+    {
+     "role": "user",
+     "content": "排了四十分钟 鱼是冻的 酱料甜得发齁 一百八吃了个寂寞"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 排队全靠打折券撑着的吧"
+    },
+    {
+     "role": "user",
+     "content": "大家别去了 有那钱不如去吃楼下老妈蹄花"
+    },
+    {
+     "role": "assistant",
+     "content": "收到 帮大家避个雷了"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/29 (Tue) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "团子国庆有着落了"
+    },
+    {
+     "role": "assistant",
+     "content": "找到人照顾了？"
+    },
+    {
+     "role": "user",
+     "content": "林悦说可以放她家 三天 她家也有只布偶 正好作伴"
+    },
+    {
+     "role": "assistant",
+     "content": "那太好了 不用放寄养店"
+    },
+    {
+     "role": "user",
+     "content": "嗯 我就怕他俩打架 团子在家横惯了"
+    },
+    {
+     "role": "assistant",
+     "content": "带上他常用的窝和猫砂 有熟悉的味道会好一点"
+    },
+    {
+     "role": "user",
+     "content": "对 还要带一袋罐头 当是给林悦的伙食费 哈哈 这样我去大理就放心了"
+    },
+    {
+     "role": "assistant",
+     "content": "回来记得好好谢谢她"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/29 (Tue) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "网店今天一下进了三单"
+    },
+    {
+     "role": "assistant",
+     "content": "哇 国庆前大家都在囤吗"
+    },
+    {
+     "role": "user",
+     "content": "可能 都是那款双层的猫爬架 我得赶在出门前做出来"
+    },
+    {
+     "role": "assistant",
+     "content": "来得及吗 就剩两天了"
+    },
+    {
+     "role": "user",
+     "content": "木板都切好了 今晚拼两个 明天拼一个 打包寄出就行"
+    },
+    {
+     "role": "assistant",
+     "content": "楼上装修 你这边也敲敲打打 邻居要崩溃了"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 我只拧螺丝 不敢用电钻 会被自己骂死"
+    },
+    {
+     "role": "assistant",
+     "content": "那还挺有自知之明 加油"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/29 (Tue) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跟阿Ken说了 这周五我要鸽"
+    },
+    {
+     "role": "assistant",
+     "content": "因为去大理？"
+    },
+    {
+     "role": "user",
+     "content": "对 周五一早的飞机 跑步和去鹿角都去不了了"
+    },
+    {
+     "role": "assistant",
+     "content": "他怎么说"
+    },
+    {
+     "role": "user",
+     "content": "他说那他一个人去鹿角喝 给我留一杯 回来补"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 这账记得挺清楚"
+    },
+    {
+     "role": "user",
+     "content": "周三还是照跑 他新找的那条路线我还没试过"
+    },
+    {
+     "role": "assistant",
+     "content": "好 那周三跑完再好好收拾行李"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/30 (Wed) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "节前最后一天 办公室已经没人想干活了"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 都在看攻略吧"
+    },
+    {
+     "role": "user",
+     "content": "隔壁工位在抢回老家的票 小林在看去哪拍照"
+    },
+    {
+     "role": "assistant",
+     "content": "那你呢"
+    },
+    {
+     "role": "user",
+     "content": "我在面馆 一边吃一边看大理的天气 说是三天都晴"
+    },
+    {
+     "role": "assistant",
+     "content": "运气不错 别晒伤了"
+    },
+    {
+     "role": "user",
+     "content": "嗯 要带防晒 回去就加到清单里"
+    },
+    {
+     "role": "assistant",
+     "content": "还有墨镜 高原太阳很毒"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/30 (Wed) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "苏禾刚发了张照片 她工位上又多了几盆多肉"
+    },
+    {
+     "role": "assistant",
+     "content": "她是要开个植物园吗"
+    },
+    {
+     "role": "user",
+     "content": "差不多 她最宝贝那盆胖丁 说国庆没人浇水愁死了"
+    },
+    {
+     "role": "assistant",
+     "content": "多肉几天不浇应该没事吧"
+    },
+    {
+     "role": "user",
+     "content": "我也这么说 她说你不懂 胖丁很娇气"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 被名字骗了"
+    },
+    {
+     "role": "user",
+     "content": "她国庆不出去 就在深圳加班 有点可怜"
+    },
+    {
+     "role": "assistant",
+     "content": "那你在大理多给她发点照片"
+    }
+   ]
+  },
+  {
+   "date": "2026/09/30 (Wed) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跑完了 回来在排大理的行程"
+    },
+    {
+     "role": "assistant",
+     "content": "排成什么样了"
+    },
+    {
+     "role": "user",
+     "content": "第一天古城加崇圣寺 第二天环洱海骑车加喜洲 第三天苍山索道 下午还想去双廊 晚上飞回来"
+    },
+    {
+     "role": "assistant",
+     "content": "三天塞这么多 你这是去打仗吧"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 难得出去一次 每个都想去 早上六点起都排进去了"
+    },
+    {
+     "role": "assistant",
+     "content": "鞋子穿舒服点 你脚刚好没多久"
+    },
+    {
+     "role": "user",
+     "content": "知道 带那双跑鞋 跑着逛"
+    },
+    {
+     "role": "assistant",
+     "content": "也给自己留点发呆的时间 洱海边坐一坐"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/01 (Thu) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刚把团子送到林悦家"
+    },
+    {
+     "role": "assistant",
+     "content": "他乖不乖"
+    },
+    {
+     "role": "user",
+     "content": "一进门就钻沙发底下了 怎么叫都不出来"
+    },
+    {
+     "role": "assistant",
+     "content": "正常 换地方要缓一缓"
+    },
+    {
+     "role": "user",
+     "content": "林悦家那只布偶一直在沙发边上转 想看又不敢"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 两边都在试探"
+    },
+    {
+     "role": "user",
+     "content": "林悦说没事 明天就熟了 我走的时候有点舍不得"
+    },
+    {
+     "role": "assistant",
+     "content": "就三天 她会照顾好的"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/01 (Thu) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "放假第一天 工作群一直在响"
+    },
+    {
+     "role": "assistant",
+     "content": "不是放假了吗"
+    },
+    {
+     "role": "user",
+     "content": "电商哪有真放假 国庆大促还在跑 我管运营的 有事都得找我"
+    },
+    {
+     "role": "assistant",
+     "content": "运营主管也太难了"
+    },
+    {
+     "role": "user",
+     "content": "主要是新人不敢拍板 一个优惠券要不要加码也来问我"
+    },
+    {
+     "role": "assistant",
+     "content": "那你在大理也得带着手机了"
+    },
+    {
+     "role": "user",
+     "content": "我说好了 每天晚上看一次 其余时间别找我"
+    },
+    {
+     "role": "assistant",
+     "content": "这样挺好 去玩就好好玩"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/01 (Thu) 22:20",
+   "venue": "group:qq:20260702",
+   "turns": [
+    {
+     "role": "user",
+     "content": "说一下 明后天的开炉排班 二号小周主播 三号换阿琳"
+    },
+    {
+     "role": "assistant",
+     "content": "收到 二号几点开"
+    },
+    {
+     "role": "user",
+     "content": "晚上七点 选品还是按上周那个表 猫砂和冻干放前面"
+    },
+    {
+     "role": "assistant",
+     "content": "好 开炉前我在群里提醒大家再核一遍库存"
+    },
+    {
+     "role": "user",
+     "content": "辛苦 我这几天在外面 有急事打电话 别光在群里艾特"
+    },
+    {
+     "role": "assistant",
+     "content": "明白 你安心玩 群里有急事我先喊你"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/02 (Fri) 19:30",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "报告 人在大理 刚吃了一顿菌子火锅 回血了"
+    },
+    {
+     "role": "assistant",
+     "content": "哇 菌子火锅！要煮够时间啊"
+    },
+    {
+     "role": "user",
+     "content": "老板拿了个沙漏 不到时间不让动筷子 哈哈"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 这是怕你见小人"
+    },
+    {
+     "role": "user",
+     "content": "见手青好吃到我想打包回成都 大家有什么推荐 明天还在这边"
+    },
+    {
+     "role": "assistant",
+     "content": "喜洲粑粑一定要吃 咸的甜的都试试"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/02 (Fri) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "到大理了 跟你报个平安"
+    },
+    {
+     "role": "assistant",
+     "content": "不是早上就到了吗 哈哈"
+    },
+    {
+     "role": "user",
+     "content": "早上到的 但一落地就开始跑 古城崇圣寺都走完了 现在才回住的地方"
+    },
+    {
+     "role": "assistant",
+     "content": "走了多少步"
+    },
+    {
+     "role": "user",
+     "content": "两万八 腿已经不是我的了"
+    },
+    {
+     "role": "assistant",
+     "content": "天哪 脚趾还好吧"
+    },
+    {
+     "role": "user",
+     "content": "还行 没疼 就是酸 天特别蓝 云低得像要掉下来"
+    },
+    {
+     "role": "assistant",
+     "content": "听着就舒服 早点休息 明天还要骑车"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/02 (Fri) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "林悦发视频了 团子在她家吃饭了"
+    },
+    {
+     "role": "assistant",
+     "content": "太好了 适应得挺快"
+    },
+    {
+     "role": "user",
+     "content": "就是还不让布偶靠近 一靠近就哈气"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 地盘意识很强"
+    },
+    {
+     "role": "user",
+     "content": "林悦说他晚上可能要跑酷 让我做好心理准备 我说你保重"
+    },
+    {
+     "role": "assistant",
+     "content": "她要体验你的日常了"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 一会儿十点跟苏禾视频 给她看看古城夜景"
+    },
+    {
+     "role": "assistant",
+     "content": "她肯定羡慕死了"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/03 (Sat) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "环洱海骑了一半 在喜洲吃饭"
+    },
+    {
+     "role": "assistant",
+     "content": "粑粑吃上了吗"
+    },
+    {
+     "role": "user",
+     "content": "吃了 甜的那种 烫嘴 今天吉他课请了假 唐老师说回来要检查"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 出来玩也逃不掉作业"
+    },
+    {
+     "role": "user",
+     "content": "刚才路过一个院子 白墙青瓦还种了三角梅 突然想我要是住这就好了 不用挤玉林那个一室一厅"
+    },
+    {
+     "role": "assistant",
+     "content": "团子在院子里得乐疯"
+    },
+    {
+     "role": "user",
+     "content": "对 想想也就是想想 他在家半夜跑酷都嫌客厅不够大"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 先好好骑完下半圈"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/03 (Sat) 23:05",
+   "venue": "group:qq:20260701",
+   "turns": [
+    {
+     "role": "user",
+     "content": "汇报一下 今天吃了喜洲粑粑 乳扇 还有一家铜锅洋芋饭"
+    },
+    {
+     "role": "assistant",
+     "content": "这一天吃得好扎实 洋芋饭好吃吗"
+    },
+    {
+     "role": "user",
+     "content": "好吃 锅巴是精华 就是乳扇我不太行 有股奶膻味"
+    },
+    {
+     "role": "assistant",
+     "content": "乳扇确实挑人 烤着吃会好一点"
+    },
+    {
+     "role": "user",
+     "content": "我吃的就是烤的 哈哈 可能就是吃不惯 明天回成都了"
+    },
+    {
+     "role": "assistant",
+     "content": "回来记得带鲜花饼 群里等着"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/04 (Sun) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "落地了 刚去林悦家把团子接回来"
+    },
+    {
+     "role": "assistant",
+     "content": "他见到你什么反应"
+    },
+    {
+     "role": "user",
+     "content": "愣了两秒然后一直蹭我腿 叫个不停 林悦说他这三天还挺乖"
+    },
+    {
+     "role": "assistant",
+     "content": "想你了 这三天玩得怎么样"
+    },
+    {
+     "role": "user",
+     "content": "爽是爽 累得比上班还惨 下周末我要回归正常生活 早上去春山喝咖啡 晚上去鹿角喝一杯 哪都不跑了"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 这才是你的舒适区"
+    },
+    {
+     "role": "user",
+     "content": "对 给林悦带了两盒鲜花饼 她家布偶好像也舍不得团子"
+    },
+    {
+     "role": "assistant",
+     "content": "两只猫算是交了个朋友"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/04 (Sun) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "林悦刚发消息 说这周四羽毛球照常"
+    },
+    {
+     "role": "assistant",
+     "content": "国庆后第一场"
+    },
+    {
+     "role": "user",
+     "content": "嗯 她说我得请全场喝饮料 算团子的寄养费"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 这个合理 帮你照顾了三天"
+    },
+    {
+     "role": "user",
+     "content": "合理 就是我这腿 周四之前不知道能不能恢复"
+    },
+    {
+     "role": "assistant",
+     "content": "这几天多泡泡脚 拉伸一下"
+    },
+    {
+     "role": "user",
+     "content": "嗯 团子在我腿上睡着了 不敢动"
+    },
+    {
+     "role": "assistant",
+     "content": "那就别动了 当休息"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/04 (Sun) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刚给我妈打完电话 给她看了一堆洱海的照片"
+    },
+    {
+     "role": "assistant",
+     "content": "她喜欢吗"
+    },
+    {
+     "role": "user",
+     "content": "喜欢 说明年想跟我爸也去 我说那我给你们排行程"
+    },
+    {
+     "role": "assistant",
+     "content": "可别排成你这种强度"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 肯定不行 我爸血压高 得慢慢来 高原也得注意"
+    },
+    {
+     "role": "assistant",
+     "content": "对 大理海拔不低 让叔叔先问问医生"
+    },
+    {
+     "role": "user",
+     "content": "嗯 我妈记下了 然后又问我和苏禾什么时候定下来 我赶紧挂了"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈哈 每次都绕到这"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/05 (Mon) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "别人还在放假 我要回公司了"
+    },
+    {
+     "role": "assistant",
+     "content": "上新要冲了吧"
+    },
+    {
+     "role": "user",
+     "content": "对 九号上线 我们组就休了前几天 后面全部回去冲"
+    },
+    {
+     "role": "assistant",
+     "content": "刚回来就开工 腿还酸吗"
+    },
+    {
+     "role": "user",
+     "content": "酸 下楼都扶着扶手 团子还在床上睡得四仰八叉"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 他才是在放国庆"
+    },
+    {
+     "role": "user",
+     "content": "羡慕 燕麦都没煮 路上买个包子凑合"
+    },
+    {
+     "role": "assistant",
+     "content": "别空着肚子 今天估计很长"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/05 (Mon) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "青山面馆关门了 门口贴着国庆休息到六号"
+    },
+    {
+     "role": "assistant",
+     "content": "啊 那中午吃什么"
+    },
+    {
+     "role": "user",
+     "content": "点外卖 一份轻食沙拉 吃完半小时就饿了"
+    },
+    {
+     "role": "assistant",
+     "content": "沙拉确实扛不住 下午备点坚果"
+    },
+    {
+     "role": "user",
+     "content": "有 小林那抽屉零食多 我去打劫"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 别把减的又吃回来"
+    },
+    {
+     "role": "user",
+     "content": "放心 我就拿一包海苔"
+    },
+    {
+     "role": "assistant",
+     "content": "海苔可以"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/05 (Mon) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "还在公司 估计得十点后才能走"
+    },
+    {
+     "role": "assistant",
+     "content": "上新排期还有问题吗"
+    },
+    {
+     "role": "user",
+     "content": "主图有两款被平台打回来了 说有夸大用语 得连夜改"
+    },
+    {
+     "role": "assistant",
+     "content": "改个字就能过吗"
+    },
+    {
+     "role": "user",
+     "content": "说不好 还要重新提审 慢的话两天"
+    },
+    {
+     "role": "assistant",
+     "content": "那赶在九号前应该来得及"
+    },
+    {
+     "role": "user",
+     "content": "嗯 我先跟苏禾说一声 今天视频可能晚点"
+    },
+    {
+     "role": "assistant",
+     "content": "好 晚饭记得吃"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/06 (Tue) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "主图提审过了！"
+    },
+    {
+     "role": "assistant",
+     "content": "这么快 太好了"
+    },
+    {
+     "role": "user",
+     "content": "运气好 早上就通过了 整个组都在欢呼"
+    },
+    {
+     "role": "assistant",
+     "content": "那今天能早点走了吧"
+    },
+    {
+     "role": "user",
+     "content": "看情况 下午还要跟直播那边对一下脚本"
+    },
+    {
+     "role": "assistant",
+     "content": "今天雾城更新 晚上有得看"
+    },
+    {
+     "role": "user",
+     "content": "对 一直吊着上集那个结尾 我要早点回去"
+    },
+    {
+     "role": "assistant",
+     "content": "那下午加油 争取八点前撤"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/06 (Tue) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "在整理大理的照片 拍了快八百张"
+    },
+    {
+     "role": "assistant",
+     "content": "要发朋友圈吗"
+    },
+    {
+     "role": "user",
+     "content": "挑了九张 结果还有好多舍不得删"
+    },
+    {
+     "role": "assistant",
+     "content": "九宫格永远不够用"
+    },
+    {
+     "role": "user",
+     "content": "住的那家半日闲客栈的院子拍得最好 早上光从屋檐漏下来 猫在晒太阳"
+    },
+    {
+     "role": "assistant",
+     "content": "听着像明信片 那张必须放"
+    },
+    {
+     "role": "user",
+     "content": "嗯 放中间 苏禾说这张她要拿去当屏保"
+    },
+    {
+     "role": "assistant",
+     "content": "那就是认证过的好照片"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/06 (Tue) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "好想喝春山的手冲"
+    },
+    {
+     "role": "assistant",
+     "content": "大理没喝到好咖啡吗"
+    },
+    {
+     "role": "user",
+     "content": "喝了三四家 网红店都挺好看 但没一杯比得上阿June冲的耶加雪菲"
+    },
+    {
+     "role": "assistant",
+     "content": "她那家你喝了这么久 口味都被养刁了"
+    },
+    {
+     "role": "user",
+     "content": "就是 每次去都点手冲 别的看都不看"
+    },
+    {
+     "role": "assistant",
+     "content": "这周末去补一杯"
+    },
+    {
+     "role": "user",
+     "content": "必须 周六上完课就去"
+    },
+    {
+     "role": "assistant",
+     "content": "好 那早点睡 明天还要上班"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/07 (Wed) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "中午吃完在工位翻球状闪电"
+    },
+    {
+     "role": "assistant",
+     "content": "又在重读吗"
+    },
+    {
+     "role": "user",
+     "content": "嗯 刘慈欣的我隔一段就要翻一遍 这本比三体还喜欢"
+    },
+    {
+     "role": "assistant",
+     "content": "为什么更喜欢这本"
+    },
+    {
+     "role": "user",
+     "content": "说不上来 可能是那种一个人死磕一件事的劲 小时候看完就想当物理学家"
+    },
+    {
+     "role": "assistant",
+     "content": "后来当了运营主管 哈哈"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 现实就是这样 面馆今天开门了 终于不用吃沙拉"
+    },
+    {
+     "role": "assistant",
+     "content": "回归正常了"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/07 (Wed) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跑完了 九眼桥那条路线真的好看"
+    },
+    {
+     "role": "assistant",
+     "content": "阿Ken新找的那条？"
+    },
+    {
+     "role": "user",
+     "content": "对 沿江的灯全亮了 跑着跑着都忘了累"
+    },
+    {
+     "role": "assistant",
+     "content": "腿恢复了吗 大理回来才几天"
+    },
+    {
+     "role": "user",
+     "content": "前两公里还有点沉 后面就开了 五公里跑了二十八分多"
+    },
+    {
+     "role": "assistant",
+     "content": "可以啊 比你之前还快"
+    },
+    {
+     "role": "user",
+     "content": "阿Ken说是我在大理练了高原 哈哈"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 特种兵训练营结业了"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/07 (Wed) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "雾城这集我又猜错了"
+    },
+    {
+     "role": "assistant",
+     "content": "你这赛季猜对过几次"
+    },
+    {
+     "role": "user",
+     "content": "零次 苏禾已经三连胜了"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈哈 要不你别猜了"
+    },
+    {
+     "role": "user",
+     "content": "不行 下周二我一定翻盘 刚跟她赌了一顿火锅"
+    },
+    {
+     "role": "assistant",
+     "content": "赌注不小 输了你得飞深圳请"
+    },
+    {
+     "role": "user",
+     "content": "那正好 有借口去见她"
+    },
+    {
+     "role": "assistant",
+     "content": "这么一想输了也不亏 快睡吧"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/08 (Thu) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "还在公司 明天上线 今天在做最后检查"
+    },
+    {
+     "role": "assistant",
+     "content": "紧张吗"
+    },
+    {
+     "role": "user",
+     "content": "有点 不过该做的都做了 现在就怕服务器扛不住"
+    },
+    {
+     "role": "assistant",
+     "content": "那个不归你管 别想太多"
+    },
+    {
+     "role": "user",
+     "content": "嗯 等这波过了我周末要去春山窝一下午 带本书 手机扣着"
+    },
+    {
+     "role": "assistant",
+     "content": "这才是你的周末 带哪本"
+    },
+    {
+     "role": "user",
+     "content": "之前在春山看了一半的那本村上 一直没看完"
+    },
+    {
+     "role": "assistant",
+     "content": "好 这周末把它看完"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/08 (Thu) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "终于检查完 骑电动车回家拿球拍"
+    },
+    {
+     "role": "assistant",
+     "content": "还要去打羽毛球？"
+    },
+    {
+     "role": "user",
+     "content": "答应林悦了 请全场喝饮料 不去说不过去"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 寄养费得还"
+    },
+    {
+     "role": "user",
+     "content": "回家十五分钟 拿了拍子再骑过去 正好九点开场"
+    },
+    {
+     "role": "assistant",
+     "content": "骑慢点 别为了赶时间冲"
+    },
+    {
+     "role": "user",
+     "content": "知道 今天风好大 吹得头盔都在响"
+    },
+    {
+     "role": "assistant",
+     "content": "那更要慢点"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/08 (Thu) 21:00",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "到了 一人一瓶电解质水 我花了一百多"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 这寄养费不便宜"
+    },
+    {
+     "role": "user",
+     "content": "林悦说值 团子在她家把她的毛线团全拆了"
+    },
+    {
+     "role": "assistant",
+     "content": "啊 他还干了这个"
+    },
+    {
+     "role": "user",
+     "content": "她今天才跟我说 我说那我再请一次"
+    },
+    {
+     "role": "assistant",
+     "content": "团子欠的你来还"
+    },
+    {
+     "role": "user",
+     "content": "就是 先打了 一会儿再聊"
+    },
+    {
+     "role": "assistant",
+     "content": "去吧 明天大日子 别打太晚"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/09 (Fri) 07:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天秋季上新上线 九点准时开"
+    },
+    {
+     "role": "assistant",
+     "content": "终于到这一天了 睡好了吗"
+    },
+    {
+     "role": "user",
+     "content": "五点就醒了 以安一大早还给我发消息说加油"
+    },
+    {
+     "role": "assistant",
+     "content": "妹妹真贴心 她离得近 要不周末叫她来家里吃顿饭一起庆祝"
+    },
+    {
+     "role": "user",
+     "content": "她在西安啊 读研呢 哪近了"
+    },
+    {
+     "role": "assistant",
+     "content": "啊对 是西安 我记岔了 那就视频庆祝一下"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 行 先上班 燕麦都只吃了两口"
+    },
+    {
+     "role": "assistant",
+     "content": "路上慢点 今天顺顺利利"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/09 (Fri) 18:40",
+   "venue": "group:qq:20260702",
+   "turns": [
+    {
+     "role": "user",
+     "content": "各位辛苦 上线九个小时 秋季新品卖了去年同期的一倍半"
+    },
+    {
+     "role": "assistant",
+     "content": "哇 这数据可以！"
+    },
+    {
+     "role": "user",
+     "content": "晚上八点那场开炉是今天重头戏 主推那款秋冬猫窝 库存再看一眼"
+    },
+    {
+     "role": "assistant",
+     "content": "收到 希望库存够卖"
+    },
+    {
+     "role": "user",
+     "content": "够 开炉前十分钟大家都在线 有问题直接群里喊"
+    },
+    {
+     "role": "assistant",
+     "content": "好 今晚大家冲"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/09 (Fri) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "直播结束了 猫窝卖空了"
+    },
+    {
+     "role": "assistant",
+     "content": "太猛了 恭喜恭喜"
+    },
+    {
+     "role": "user",
+     "content": "今天跑步是来不及了 阿Ken说那就直接鹿角见 给我庆祝"
+    },
+    {
+     "role": "assistant",
+     "content": "他欠你那杯正好还了"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 对 大理那杯他还记着 现在骑过去"
+    },
+    {
+     "role": "assistant",
+     "content": "今天可以放松一下 但别喝多"
+    },
+    {
+     "role": "user",
+     "content": "知道 我还要回去跟苏禾视频 她说要第一个听数据"
+    },
+    {
+     "role": "assistant",
+     "content": "好 替你开心"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/10 (Sat) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "心里堵得慌"
+    },
+    {
+     "role": "assistant",
+     "content": "怎么了 昨天不是挺开心的"
+    },
+    {
+     "role": "user",
+     "content": "昨晚跟苏禾吵架了 本来在说上线的事 说着说着就说到什么时候能在一个城市"
+    },
+    {
+     "role": "assistant",
+     "content": "又绕到这个了"
+    },
+    {
+     "role": "user",
+     "content": "她说她那边项目走不开 我这边刚站稳也走不开 谁都不让步 最后她挂了视频 到现在没回我"
+    },
+    {
+     "role": "assistant",
+     "content": "两个人都没错 就是都累 这种时候最难受"
+    },
+    {
+     "role": "user",
+     "content": "嗯 上午吉他课都弹错好几次 唐老师让我先回家休息"
+    },
+    {
+     "role": "assistant",
+     "content": "先别急着想结论 等她缓一缓 你也缓一缓"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/10 (Sat) 18:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "她回消息了"
+    },
+    {
+     "role": "assistant",
+     "content": "说什么了"
+    },
+    {
+     "role": "user",
+     "content": "就发了张她养的多肉照片 什么也没说"
+    },
+    {
+     "role": "assistant",
+     "content": "这是在递台阶吧"
+    },
+    {
+     "role": "user",
+     "content": "我也觉得 我回了张团子睡觉的照片 她回了个哈哈"
+    },
+    {
+     "role": "assistant",
+     "content": "那就好 冰化了一点"
+    },
+    {
+     "role": "user",
+     "content": "嗯 晚上视频再好好说 下午在春山坐了会儿 心里好多了"
+    },
+    {
+     "role": "assistant",
+     "content": "晚上好好说 别急着讲道理"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/10 (Sat) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "聊开了 她也哭了 我也说了很多"
+    },
+    {
+     "role": "assistant",
+     "content": "说出来就好 现在饿不饿"
+    },
+    {
+     "role": "user",
+     "content": "饿 晚饭都没吃 想弄点简单的"
+    },
+    {
+     "role": "assistant",
+     "content": "做个香菜拌牛肉吧 超市熟牛肉切片 一大把香菜 加辣椒油醋 五分钟搞定"
+    },
+    {
+     "role": "user",
+     "content": "我不吃香菜啊 说过的"
+    },
+    {
+     "role": "assistant",
+     "content": "对对 你不吃香菜 我又忘了 那换成葱和小米辣拌"
+    },
+    {
+     "role": "user",
+     "content": "这个可以 冰箱还有半根葱"
+    },
+    {
+     "role": "assistant",
+     "content": "好 吃完早点睡"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/11 (Sun) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "睡到十一点 好久没这么睡了"
+    },
+    {
+     "role": "assistant",
+     "content": "楼上今天没开工？"
+    },
+    {
+     "role": "user",
+     "content": "神奇 今天一点动静都没有 可能装完了"
+    },
+    {
+     "role": "assistant",
+     "content": "那可太好了"
+    },
+    {
+     "role": "user",
+     "content": "先别高兴太早 上次也安静了两天又开始了"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 被吓出阴影了"
+    },
+    {
+     "role": "user",
+     "content": "团子也难得睡了个整觉 现在在晒太阳"
+    },
+    {
+     "role": "assistant",
+     "content": "一家都补觉了"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/11 (Sun) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下午收拾了一下书桌 乱得没法看了"
+    },
+    {
+     "role": "assistant",
+     "content": "翻出什么宝贝没"
+    },
+    {
+     "role": "user",
+     "content": "翻出大学时候跟林可的合照 两个人都瘦得跟竹竿一样"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 那时候你多少斤"
+    },
+    {
+     "role": "user",
+     "content": "一百二十几 现在想都不敢想 顺便把身份证放回抽屉第二格了 每次用完都乱放"
+    },
+    {
+     "role": "assistant",
+     "content": "固定放一个地方好 找起来省事"
+    },
+    {
+     "role": "user",
+     "content": "嗯 刚才给我妈打了电话 她说下个月给我寄香肠"
+    },
+    {
+     "role": "assistant",
+     "content": "腊月还没到就开始寄了 妈妈牌的最好吃"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/11 (Sun) 23:05",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "刚给以安转了这个月的生活费"
+    },
+    {
+     "role": "assistant",
+     "content": "还是一千五吗"
+    },
+    {
+     "role": "user",
+     "content": "对 1500 本来月初就该转的 国庆一忙给忘了"
+    },
+    {
+     "role": "assistant",
+     "content": "她催你了吗"
+    },
+    {
+     "role": "user",
+     "content": "没 她从来不催 是我自己想起来的 她回了个磕头的表情包"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 妹妹很懂事"
+    },
+    {
+     "role": "user",
+     "content": "她说研二课多 还在找实习 让我别惦记"
+    },
+    {
+     "role": "assistant",
+     "content": "你这个哥哥当得挺到位"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/12 (Mon) 12:50",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "昨晚剪网店的介绍视频 电脑卡死了两次"
+    },
+    {
+     "role": "assistant",
+     "content": "还是那台老笔记本吗"
+    },
+    {
+     "role": "user",
+     "content": "对 这台笔记本用了五年了 一导出风扇就跟起飞一样"
+    },
+    {
+     "role": "assistant",
+     "content": "要不要考虑换一台"
+    },
+    {
+     "role": "user",
+     "content": "想过 但网店那点钱还不够买 先凑合 等双十一看看"
+    },
+    {
+     "role": "assistant",
+     "content": "那剪的时候先关掉别的软件"
+    },
+    {
+     "role": "user",
+     "content": "嗯 团子还老喜欢趴在键盘边上取暖 那风扇口热乎乎的"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 给他当暖炉了"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/12 (Mon) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天准点下班了"
+    },
+    {
+     "role": "assistant",
+     "content": "上线后终于松口气了"
+    },
+    {
+     "role": "user",
+     "content": "嗯 数据还在涨 就是售后那边开始忙了 退换货一堆"
+    },
+    {
+     "role": "assistant",
+     "content": "这也算卖得好的烦恼"
+    },
+    {
+     "role": "user",
+     "content": "哈哈 晚上打算煮个番茄鸡蛋面 好久没好好做饭了"
+    },
+    {
+     "role": "assistant",
+     "content": "简单又暖胃"
+    },
+    {
+     "role": "user",
+     "content": "嗯 还要喂鱼 那窝小孔雀鱼长大了不少"
+    },
+    {
+     "role": "assistant",
+     "content": "存活了几条"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/12 (Mon) 22:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "苏禾刚才视频 一直让我把镜头对着团子"
+    },
+    {
+     "role": "assistant",
+     "content": "团子配合吗"
+    },
+    {
+     "role": "user",
+     "content": "难得配合 还对着屏幕喵了两声 她说团子比我会撒娇"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 这话没毛病"
+    },
+    {
+     "role": "user",
+     "content": "上周那次吵完 这几天说话都软了不少"
+    },
+    {
+     "role": "assistant",
+     "content": "吵开了反而好一些"
+    },
+    {
+     "role": "user",
+     "content": "嗯 我也是 明天还要上班 睡了"
+    },
+    {
+     "role": "assistant",
+     "content": "晚安"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/13 (Tue) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "下班路上买了份烤鸭 准备回家边吃边看雾城"
+    },
+    {
+     "role": "assistant",
+     "content": "今天更新 你和苏禾的赌约"
+    },
+    {
+     "role": "user",
+     "content": "对 我这次押那个记者 赌一顿火锅"
+    },
+    {
+     "role": "assistant",
+     "content": "理由是什么"
+    },
+    {
+     "role": "user",
+     "content": "上集她接电话的时候背景有雾笛声 跟案发现场一样 我反复看了三遍"
+    },
+    {
+     "role": "assistant",
+     "content": "哇 这次功课做足了"
+    },
+    {
+     "role": "user",
+     "content": "必须 输不起了"
+    },
+    {
+     "role": "assistant",
+     "content": "等你的好消息"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/13 (Tue) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "猜对了！！是记者"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈哈 终于翻盘了"
+    },
+    {
+     "role": "user",
+     "content": "苏禾不服 说我肯定偷看剧透了"
+    },
+    {
+     "role": "assistant",
+     "content": "你可以把雾笛那个截图甩给她"
+    },
+    {
+     "role": "user",
+     "content": "甩了 她沉默了三十秒说算你狠"
+    },
+    {
+     "role": "assistant",
+     "content": "这顿火锅赢得光明正大"
+    },
+    {
+     "role": "user",
+     "content": "她说下次见面请 一会儿十点再跟她视频接着吵"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 这种吵架可以多来点"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/14 (Wed) 08:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "楼上又开始了 我就知道"
+    },
+    {
+     "role": "assistant",
+     "content": "又打电钻？"
+    },
+    {
+     "role": "user",
+     "content": "这次是敲墙 咚咚咚的 团子吓得躲进了衣柜"
+    },
+    {
+     "role": "assistant",
+     "content": "可怜的团子"
+    },
+    {
+     "role": "user",
+     "content": "我正好出门 燕麦边吃边穿鞋 他在家只能自己扛了"
+    },
+    {
+     "role": "assistant",
+     "content": "要不要给他留个音乐盖一盖"
+    },
+    {
+     "role": "user",
+     "content": "好主意 放了个轻音乐 走了"
+    },
+    {
+     "role": "assistant",
+     "content": "路上小心"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/14 (Wed) 12:20",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "面馆老板今天出新品了 酸菜肥肠面"
+    },
+    {
+     "role": "assistant",
+     "content": "你点了吗"
+    },
+    {
+     "role": "user",
+     "content": "没敢 肥肠嘌呤高 点了个番茄煎蛋面"
+    },
+    {
+     "role": "assistant",
+     "content": "自觉 尿酸复查以后挺稳的吧"
+    },
+    {
+     "role": "user",
+     "content": "嗯 脚这段时间都没疼 不想作死"
+    },
+    {
+     "role": "assistant",
+     "content": "那就保持"
+    },
+    {
+     "role": "user",
+     "content": "小林点了肥肠面 在我对面吃得特别香 是故意的"
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈 意志力考验"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/14 (Wed) 20:15",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "跑完回来刷到老屋更新了"
+    },
+    {
+     "role": "assistant",
+     "content": "那个木工博主？这次做了什么"
+    },
+    {
+     "role": "user",
+     "content": "做了个带抽屉的小边柜 榫卯一个钉子都没用 我做猫爬架那套手法就是跟他学的"
+    },
+    {
+     "role": "assistant",
+     "content": "你要不要也试试抽屉"
+    },
+    {
+     "role": "user",
+     "content": "想 在猫爬架底下加个抽屉放猫粮 应该有人买"
+    },
+    {
+     "role": "assistant",
+     "content": "这个点子好 实用"
+    },
+    {
+     "role": "user",
+     "content": "先画个草图 等周末有空试一版"
+    },
+    {
+     "role": "assistant",
+     "content": "做出来记得拍视频"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/15 (Thu) 08:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "早 今天上午要开上新复盘会"
+    },
+    {
+     "role": "assistant",
+     "content": "数据那么好 应该没什么好挑的吧"
+    },
+    {
+     "role": "user",
+     "content": "难说 老韩那个人 好也能挑出不好来"
+    },
+    {
+     "role": "assistant",
+     "content": "做好准备就行 你有数据撑着"
+    },
+    {
+     "role": "user",
+     "content": "嗯 PPT昨晚改到一点 团子全程趴在我旁边盯着"
+    },
+    {
+     "role": "assistant",
+     "content": "他是监工 哈哈"
+    },
+    {
+     "role": "user",
+     "content": "出门了 天有点凉 得加件外套"
+    },
+    {
+     "role": "assistant",
+     "content": "穿厚点 加油"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/15 (Thu) 19:30",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "今天心情很差"
+    },
+    {
+     "role": "assistant",
+     "content": "复盘会出什么事了"
+    },
+    {
+     "role": "user",
+     "content": "老韩当着全组的面说我直播方案太保守 说猫窝卖空是运气 不是方案好"
+    },
+    {
+     "role": "assistant",
+     "content": "啊 这也太不公平了 准备了那么久"
+    },
+    {
+     "role": "user",
+     "content": "最气的是他说的那个加码方案 当时是他自己砍掉的"
+    },
+    {
+     "role": "assistant",
+     "content": "这就更憋屈了 你当场说了吗"
+    },
+    {
+     "role": "user",
+     "content": "没 全组都在 说了更难看 一会儿去打羽毛球发泄一下"
+    },
+    {
+     "role": "assistant",
+     "content": "去吧 把气都打出去"
+    }
+   ]
+  },
+  {
+   "date": "2026/10/15 (Thu) 21:40",
+   "venue": "private",
+   "turns": [
+    {
+     "role": "user",
+     "content": "打完了 出了一身汗 舒服多了"
+    },
+    {
+     "role": "assistant",
+     "content": "好点了吗"
+    },
+    {
+     "role": "user",
+     "content": "嗯 林悦说老韩那话她也听不下去 散会后还帮我吐槽了半天"
+    },
+    {
+     "role": "assistant",
+     "content": "有人站你这边就好"
+    },
+    {
+     "role": "user",
+     "content": "她说设计组都知道那个方案谁砍的 我心里就平了一点"
+    },
+    {
+     "role": "assistant",
+     "content": "大家心里都有数"
+    },
+    {
+     "role": "user",
+     "content": "嗯 回去洗澡 一会儿跟苏禾视频"
+    },
+    {
+     "role": "assistant",
+     "content": "好 今天辛苦了"
+    }
+   ]
+  }
+ ]
+}
