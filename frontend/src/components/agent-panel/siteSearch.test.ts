@@ -15,10 +15,16 @@ test('an empty search shows nothing', () => {
 
 test('results for an earlier word stay shown but are not current', () => {
   const results = { posts: [post], library: [] }
-  assert.deepEqual(siteSearchFor(null, 'ab'), { results: null, current: false })
-  assert.deepEqual(siteSearchFor({ query: 'ab', results }, '  '), { results: null, current: false })
-  assert.deepEqual(siteSearchFor({ query: 'ab', results }, ' ab '), { results, current: true })
-  assert.deepEqual(siteSearchFor({ query: 'ab', results }, 'abc'), { results, current: false })
+  const found = { query: 'ab', subject: 3, results }
+  assert.deepEqual(siteSearchFor(null, 'ab', 3), { results: null, current: false })
+  assert.deepEqual(siteSearchFor(found, '  ', 3), { results: null, current: false })
+  assert.deepEqual(siteSearchFor(found, ' ab ', 3), { results, current: true })
+  assert.deepEqual(siteSearchFor(found, 'abc', 3), { results, current: false })
+})
+
+test('signing in or out drops what was found as the one before', () => {
+  const found = { query: 'ab', subject: 3, results: { posts: [post], library: [] } }
+  assert.deepEqual(siteSearchFor(found, 'ab', 4), { results: null, current: false })
 })
 
 test('enter opens the first post, else the library', () => {
