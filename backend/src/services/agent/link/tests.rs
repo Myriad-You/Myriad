@@ -1852,6 +1852,23 @@ async fn an_input_starts_a_run_for_the_owner_and_streams_it() {
     child.send("ping", None, json!({})).await;
     child.expect("pong").await;
 
+    // Asked for by its turn alone (a child that never read its run.accepted):
+    // its run and the session the host began come again as a resend the
+    // host already had, and nothing streams until it asks with the run id.
+    child
+        .send(
+            "run.resume",
+            None,
+            json!({ "turnId": "t_hi", "afterSeq": 0 }),
+        )
+        .await;
+    let told = child.expect("run.accepted").await;
+    assert_eq!(told["body"]["duplicate"], true);
+    assert_eq!(told["body"]["runId"], run_id.as_str());
+    assert_eq!(told["body"]["sessionId"], accepted["body"]["sessionId"]);
+    child.send("ping", None, json!({})).await;
+    child.expect("pong").await;
+
     // Turns the host does not start.
     for (id, body, code) in [
         (
@@ -1932,7 +1949,7 @@ async fn performing_and_resuming_after_a_reconnect() {
         .send(
             "run.resume",
             None,
-            json!({ "turnId": "t_p", "afterSeq": 0 }),
+            json!({ "turnId": "t_p", "runId": run_id, "afterSeq": 0 }),
         )
         .await;
     let started = child.expect("run.event").await;
@@ -1996,7 +2013,7 @@ async fn performing_and_resuming_after_a_reconnect() {
         .send(
             "run.resume",
             None,
-            json!({ "turnId": "t_p", "afterSeq": 0 }),
+            json!({ "turnId": "t_p", "runId": run_id, "afterSeq": 0 }),
         )
         .await;
     for sequence in 1..=6 {
@@ -2022,7 +2039,7 @@ async fn performing_and_resuming_after_a_reconnect() {
         .send(
             "run.resume",
             None,
-            json!({ "turnId": "t_p", "afterSeq": 5 }),
+            json!({ "turnId": "t_p", "runId": run_id, "afterSeq": 5 }),
         )
         .await;
     assert_eq!(child.expect("run.event").await["body"]["sequence"], 6);
@@ -2292,7 +2309,7 @@ async fn the_app_is_directed_while_it_says_her_reply() {
         .send(
             "run.resume",
             None,
-            json!({ "turnId": "t_body", "afterSeq": 0 }),
+            json!({ "turnId": "t_body", "runId": run_id, "afterSeq": 0 }),
         )
         .await;
     assert_eq!(child.expect("run.event").await["body"]["sequence"], 1);

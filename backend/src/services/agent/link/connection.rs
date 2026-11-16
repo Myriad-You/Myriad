@@ -1230,6 +1230,11 @@ impl Link {
             return;
         };
         match get_run_for_user(&turn.run_id, self.owner).await {
+            // A child that never read the run's run.accepted (it was answered
+            // with an error, or could not read it) knows neither its run nor
+            // the session the host began: it hears them again as a resend
+            // the host already had, and asks once more with the run id.
+            Ok(Some(_)) if resume.run_id.is_none() => self.reply(accepted(&turn, true)),
             Ok(Some(run)) => self.follow(turn, run, resume.after_seq),
             Ok(None) => self.reject(&resume.turn_id, "turn_unknown"),
             Err(error) => {
