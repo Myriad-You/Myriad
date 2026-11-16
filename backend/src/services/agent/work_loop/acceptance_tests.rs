@@ -6,8 +6,9 @@ use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, QueryFilter, Schema, Statement,
 };
 
-pub(super) async fn business_database(user: i32) -> sea_orm::DatabaseConnection {
-    let db = tests::test_database().await;
+pub(super) async fn business_database(user: i32) -> Option<crate::db::IsolatedSchema> {
+    let isolated = tests::test_database().await?;
+    let db = &isolated.db;
     let schema = Schema::new(DatabaseBackend::Postgres);
     for statement in [
         schema
@@ -37,10 +38,10 @@ pub(super) async fn business_database(user: i32) -> sea_orm::DatabaseConnection 
     .unwrap();
     tapp_storage::Entity::delete_many()
         .filter(tapp_storage::Column::UserId.eq(user))
-        .exec(&db)
+        .exec(db)
         .await
         .unwrap();
-    db
+    Some(isolated)
 }
 
 pub(super) fn state_for(user: i32) -> Checkpoint {
@@ -125,7 +126,10 @@ pub(super) async fn article_fixture(db: &sea_orm::DatabaseConnection, user: i32)
 
 async fn search_read_save(steer: bool) {
     let user = if steer { 8482 } else { 8481 };
-    let db = business_database(user).await;
+    let Some(isolated) = business_database(user).await else {
+        return;
+    };
+    let db = isolated.db.clone();
     // No earlier fixture can affect the bounded search result set.
     db.execute_raw(Statement::from_string(
         DatabaseBackend::Postgres,
@@ -208,24 +212,25 @@ async fn search_read_save(steer: bool) {
             notes[0].key
         );
     }
+    isolated.drop().await;
 }
 
 #[tokio::test]
-#[ignore = "requires isolated myriad_work_loop_test"]
 async fn postgres_empty_search_revises_query_reads_articles_and_persists_note() {
     search_read_save(false).await;
 }
 
 #[tokio::test]
-#[ignore = "requires isolated myriad_work_loop_test"]
 async fn postgres_steering_stops_a_model_proposed_note_before_writing() {
     search_read_save(true).await;
 }
 
 #[tokio::test]
-#[ignore = "requires isolated myriad_work_loop_test"]
 async fn postgres_unacknowledged_note_is_reconciled_without_a_second_write() {
-    let db = business_database(8483).await;
+    let Some(isolated) = business_database(8483).await else {
+        return;
+    };
+    let db = isolated.db.clone();
     let agent = Agent::new(db.clone()).await;
     let emitter = executor::events::StepEventEmitter::new(None);
     let mut state = state_for(8483);
@@ -332,12 +337,13 @@ async fn postgres_unacknowledged_note_is_reconciled_without_a_second_write() {
         .await
         .unwrap();
     assert_eq!(notes.len(), 1);
+    isolated.drop().await;
 }
 
 /// Opt-in acceptance: real configured model, synthetic articles, real handlers,
 /// and writes only to the explicitly named disposable database.
 #[tokio::test]
-#[ignore = "requires MYRIAD_WORK_LIVE_SMOKE=1 and isolated myriad_work_loop_test"]
+#[ignore = "requires MYRIAD_WORK_LIVE_SMOKE=1 and MYRIAD_WORK_TEST_DATABASE_URL; spends on the configured model"]
 async fn configured_model_search_read_save_business_acceptance() {
     assert_eq!(std::env::var("MYRIAD_WORK_LIVE_SMOKE").as_deref(), Ok("1"));
     dotenvy::dotenv().ok();
@@ -359,8 +365,11 @@ async fn configured_model_search_read_save_business_acceptance() {
     .await
     .expect("configured Work model")
     .into();
-    let db = business_database(8681).await;
-    // Test helper verified current_database before these fixture writes.
+    let Some(isolated) = business_database(8681).await else {
+        return;
+    };
+    let db = isolated.db.clone();
+    // A schema of its own: these fixture writes reach nothing else.
     phantasi_items::Entity::delete_many()
         .exec(&db)
         .await
@@ -418,4 +427,5 @@ async fn configured_model_search_read_save_business_acceptance() {
         state.budget.as_ref().unwrap().spent_tokens,
         started.elapsed().as_secs()
     );
+    isolated.drop().await;
 }

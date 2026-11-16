@@ -15,13 +15,14 @@ async fn signal(path: &Path) {
     .expect("fixture process must reach its checkpoint");
 }
 
-fn spawn(dir: &Path, task_id: &str, role: &str) -> tokio::process::Child {
+fn spawn(dir: &Path, task_id: &str, role: &str, schema: &str) -> tokio::process::Child {
     let log = std::fs::File::create(dir.join(format!("{role}.log"))).unwrap();
     tokio::process::Command::new(std::env::current_exe().unwrap())
         .args(["--ignored", "--exact", FIXTURE, "--nocapture"])
         .env("MYRIAD_WORK_PROCESS_ROLE", role)
         .env("MYRIAD_WORK_PROCESS_TASK", task_id)
         .env("MYRIAD_WORK_PROCESS_DIR", dir)
+        .env("MYRIAD_WORK_TEST_SCHEMA", schema)
         .stdin(std::process::Stdio::null())
         .stdout(log.try_clone().unwrap())
         .stderr(log)
@@ -50,9 +51,11 @@ impl Drop for FixtureDir {
 }
 
 #[tokio::test]
-#[ignore = "requires MYRIAD_WORK_TEST_DATABASE_URL pointing to myriad_work_loop_test"]
 async fn postgres_work_process_recovery_and_competing_resumes() {
-    let db = tests::test_database().await;
+    let Some(isolated) = tests::test_database().await else {
+        return;
+    };
+    let db = isolated.db.clone();
     db.execute_raw(Statement::from_string(DatabaseBackend::Postgres,
         "CREATE TABLE IF NOT EXISTS work_test_effects (task_id TEXT NOT NULL, operation TEXT NOT NULL)"))
         .await.unwrap();
@@ -98,10 +101,10 @@ async fn postgres_work_process_recovery_and_competing_resumes() {
     .unwrap();
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
-    let mut original = spawn(&dir.0, &task_id, "interrupted");
+    let mut original = spawn(&dir.0, &task_id, "interrupted", isolated.name());
     signal(&dir.0.join("interrupted.ready")).await;
     // A live process must not lose its lease to a recovery scan.
-    let mut live_scan = spawn(&dir.0, &task_id, "recover-live");
+    let mut live_scan = spawn(&dir.0, &task_id, "recover-live", isolated.name());
     successful(&mut live_scan, &dir.0, "recover-live").await;
     assert_eq!(
         store::load(&db, &task_id, 8282).await.unwrap().task.status,
@@ -118,17 +121,17 @@ async fn postgres_work_process_recovery_and_competing_resumes() {
     ))
     .await
     .unwrap();
-    let mut recovery = spawn(&dir.0, &task_id, "recover-expired");
+    let mut recovery = spawn(&dir.0, &task_id, "recover-expired", isolated.name());
     successful(&mut recovery, &dir.0, "recover-expired").await;
     let recovered = store::load(&db, &task_id, 8282).await.unwrap();
     assert_eq!(recovered.task.status, TaskStatus::WaitingForInput);
     assert!(matches!(recovered.wait, Some(Wait::Recovery)));
     assert_eq!(recovered.inflight.as_deref(), Some("effect"));
 
-    let mut stale = spawn(&dir.0, &task_id, "stale");
+    let mut stale = spawn(&dir.0, &task_id, "stale", isolated.name());
     successful(&mut stale, &dir.0, "stale").await;
-    let mut first = spawn(&dir.0, &task_id, "resume-a");
-    let mut second = spawn(&dir.0, &task_id, "resume-b");
+    let mut first = spawn(&dir.0, &task_id, "resume-a", isolated.name());
+    let mut second = spawn(&dir.0, &task_id, "resume-b", isolated.name());
     signal(&dir.0.join("resume-a.ready")).await;
     signal(&dir.0.join("resume-b.ready")).await;
     std::fs::write(dir.0.join("resume.go"), []).unwrap();
@@ -179,7 +182,7 @@ async fn postgres_work_process_recovery_and_competing_resumes() {
         .task
         .set_pending_question(UserQuestion::free_text("Continue?", "", true));
     store::save(&db, &mut waiting).await.unwrap();
-    let mut cancel = spawn(&dir.0, &waiting.task.task_id, "cancel");
+    let mut cancel = spawn(&dir.0, &waiting.task.task_id, "cancel", isolated.name());
     successful(&mut cancel, &dir.0, "cancel").await;
     let response = saved_response(&db, &waiting.task.task_id, 0).await.unwrap();
     assert_eq!(response.message, "Cancelled on another process");
@@ -189,17 +192,21 @@ async fn postgres_work_process_recovery_and_competing_resumes() {
     assert!(task.completed_at.is_some());
     assert!(store::save(&db, &mut waiting).await.is_err());
     server.abort();
+    isolated.drop().await;
 }
 
 /// Only invoked by the parent above. Each invocation has independent memory,
 /// cancellation flags, connection pool, task cache and process lifetime.
 #[tokio::test]
-#[ignore = "child fixture; run postgres_work_process_recovery_and_competing_resumes"]
+#[ignore = "subprocess fixture, not a test: postgres_work_process_recovery_and_competing_resumes starts it in its schema"]
 async fn work_process_fixture() {
     let role = std::env::var("MYRIAD_WORK_PROCESS_ROLE").expect("parent fixture required");
     let task_id = std::env::var("MYRIAD_WORK_PROCESS_TASK").unwrap();
     let dir = std::path::PathBuf::from(std::env::var_os("MYRIAD_WORK_PROCESS_DIR").unwrap());
-    let db = tests::test_database().await;
+    let Some(isolated) = tests::test_database().await else {
+        return;
+    };
+    let db = isolated.db.clone();
     match role.as_str() {
         "interrupted" => {
             let mut state = tests::checkpoint();

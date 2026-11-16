@@ -83,6 +83,30 @@ impl IsolatedSchema {
         }
     }
 
+    /// A schema of its own with nothing in it, for tests that make only the
+    /// few tables they use. Its pool is the default size: what runs on it may
+    /// hold several connections at once.
+    pub(crate) async fn bare(url: &str, prefix: &str) -> Self {
+        use sea_orm::ConnectionTrait;
+
+        let _turn = SCHEMA_WORK.acquire().await.expect("never closed");
+
+        let schema = format!("{prefix}_{}", uuid::Uuid::new_v4().simple());
+        let admin = sea_orm::Database::connect(url).await.unwrap();
+        admin
+            .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
+            .await
+            .unwrap();
+        admin.close().await.unwrap();
+        let mut options = sea_orm::ConnectOptions::new(url.to_string());
+        options.set_schema_search_path(&schema).sqlx_logging(false);
+        Self {
+            db: sea_orm::Database::connect(options).await.unwrap(),
+            url: url.to_string(),
+            schema,
+        }
+    }
+
     pub(crate) async fn drop(self) {
         use sea_orm::ConnectionTrait;
         let _turn = SCHEMA_WORK.acquire().await.expect("never closed");

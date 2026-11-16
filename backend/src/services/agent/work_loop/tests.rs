@@ -349,25 +349,16 @@ async fn failed_discovery_does_not_partially_expand_the_tool_catalog() {
     assert!(state.selected.is_empty());
 }
 
-/// Shared, explicit test database; never falls back to the application's DB.
-pub(super) async fn test_database() -> sea_orm::DatabaseConnection {
-    let url =
-        std::env::var("MYRIAD_WORK_TEST_DATABASE_URL").expect("explicit disposable database URL");
-    let db = sea_orm::Database::connect(url).await.unwrap();
-    let name = db
-        .query_one_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            "SELECT current_database() AS name",
-        ))
-        .await
-        .unwrap()
-        .unwrap()
-        .try_get::<String>("", "name")
-        .unwrap();
-    assert_eq!(
-        name, "myriad_work_loop_test",
-        "This test creates tables only in its dedicated database"
-    );
+/// A schema of its own on the test database, with the few tables the work
+/// loop uses; never the application's database, never its default schema. A
+/// child process opens its parent's (`MYRIAD_WORK_TEST_SCHEMA`).
+pub(super) async fn test_database() -> Option<crate::db::IsolatedSchema> {
+    let url = crate::db::test_url(&["MYRIAD_WORK_TEST_DATABASE_URL"])?;
+    let isolated = match std::env::var("MYRIAD_WORK_TEST_SCHEMA") {
+        Ok(schema) => crate::db::IsolatedSchema::existing(&url, &schema).await,
+        Err(_) => crate::db::IsolatedSchema::bare(&url, "work_loop").await,
+    };
+    let db = &isolated.db;
     let schema = Schema::new(DatabaseBackend::Postgres);
     db.execute_raw(
         DatabaseBackend::Postgres.build(
@@ -388,15 +379,17 @@ pub(super) async fn test_database() -> sea_orm::DatabaseConnection {
             .await
             .unwrap();
     }
-    db
+    Some(isolated)
 }
 
 #[tokio::test]
-#[ignore = "requires MYRIAD_WORK_TEST_DATABASE_URL pointing to myriad_work_loop_test"]
 async fn postgres_recipe_discovery_is_owner_scoped() {
     use crate::models::entities::agent_task_presets;
     use sea_orm::{ActiveModelTrait, Set};
-    let db = test_database().await;
+    let Some(isolated) = test_database().await else {
+        return;
+    };
+    let db = isolated.db.clone();
     let schema = Schema::new(DatabaseBackend::Postgres);
     db.execute_raw(
         DatabaseBackend::Postgres.build(
@@ -446,13 +439,16 @@ async fn postgres_recipe_discovery_is_owner_scoped() {
         .unwrap();
     assert!(found.iter().any(|item| item["id"] == own_id));
     assert!(found.iter().all(|item| item["id"] != own_id + 1));
+    isolated.drop().await;
 }
 
 /// Uses an isolated PostgreSQL database; never falls back to the application's DB.
 #[tokio::test]
-#[ignore = "requires MYRIAD_WORK_TEST_DATABASE_URL pointing to myriad_work_loop_test"]
 async fn postgres_fencing_recovery_and_observation_driven_execution() {
-    let db = test_database().await;
+    let Some(isolated) = test_database().await else {
+        return;
+    };
+    let db = isolated.db.clone();
     let mut state = checkpoint();
     store::save(&db, &mut state).await.unwrap();
     assert!(
@@ -778,6 +774,7 @@ async fn postgres_fencing_recovery_and_observation_driven_execution() {
     );
     assert!(!public.contains("lease_id"));
     server.abort();
+    isolated.drop().await;
 }
 
 #[tokio::test]

@@ -89,9 +89,11 @@ async fn final_model() -> (
 }
 
 #[tokio::test]
-#[ignore = "requires isolated myriad_work_loop_test"]
 async fn postgres_recipe_orders_dependencies_and_resumes_without_duplicate_note() {
-    let db = business_database(8581).await;
+    let Some(isolated) = business_database(8581).await else {
+        return;
+    };
+    let db = isolated.db.clone();
     let agent = Agent::new(db.clone()).await;
     let fact = uuid::Uuid::new_v4().to_string();
     let id = preset(
@@ -148,12 +150,15 @@ async fn postgres_recipe_orders_dependencies_and_resumes_without_duplicate_note(
         .unwrap();
     assert_eq!(notes.len(), 1);
     assert_eq!(notes[0].value["content"], fact);
+    isolated.drop().await;
 }
 
 #[tokio::test]
-#[ignore = "requires isolated myriad_work_loop_test"]
 async fn postgres_recipe_confirmation_denial_revocation_and_owner_isolation() {
-    let db = business_database(8582).await;
+    let Some(isolated) = business_database(8582).await else {
+        return;
+    };
+    let db = isolated.db.clone();
     let agent = Agent::new(db.clone()).await;
     let emitter = executor::events::StepEventEmitter::new(None);
     let mut trigger = step(
@@ -252,12 +257,15 @@ async fn postgres_recipe_confirmation_denial_revocation_and_owner_isolation() {
             .unwrap()
             .is_empty()
     );
+    isolated.drop().await;
 }
 
 #[tokio::test]
-#[ignore = "requires isolated myriad_work_loop_test"]
 async fn postgres_budget_survives_reload_and_blocks_pending_write() {
-    let db = business_database(8584).await;
+    let Some(isolated) = business_database(8584).await else {
+        return;
+    };
+    let db = isolated.db.clone();
     let agent = Agent::new(db.clone()).await;
     let mut state = state_for(8584);
     state.budget = Some(budget::Budget {
@@ -295,12 +303,15 @@ async fn postgres_budget_survives_reload_and_blocks_pending_write() {
             .unwrap()
             .is_empty()
     );
+    isolated.drop().await;
 }
 
 #[tokio::test]
-#[ignore = "requires isolated myriad_work_loop_test"]
 async fn postgres_interrupted_model_keeps_reserved_spend_after_retry() {
-    let db = business_database(8585).await;
+    let Some(isolated) = business_database(8585).await else {
+        return;
+    };
+    let db = isolated.db.clone();
     let agent = Agent::new(db.clone()).await;
     let mut state = state_for(8585);
     let (analyzer, server) = model(axum::Router::new().route(
@@ -344,4 +355,5 @@ async fn postgres_interrupted_model_keeps_reserved_spend_after_retry() {
         .unwrap();
     server.abort();
     assert!(state.budget.as_ref().unwrap().spent_tokens >= charged + 8192);
+    isolated.drop().await;
 }
