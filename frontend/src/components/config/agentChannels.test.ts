@@ -22,6 +22,8 @@ describe('agentChannels', () => {
       qq_bot_enabled: 'false',
       qq_bot_app_id: '',
       qq_bot_app_secret: '',
+      qq_bot_groups_enabled: 'false',
+      qq_bot_group_ids: '',
       telegram_bot_enabled: 'true',
       telegram_bot_token: '',
       discord_bot_enabled: 'false',
@@ -36,6 +38,17 @@ describe('agentChannels', () => {
     assert.equal(channelIsStored('discord', get), true)
     assert.equal(channelIsStored('feishu', get), false)
     assert.deepEqual(visibleAgentChannels(get, ['qq']), ['qq', 'telegram', 'discord'])
+
+    values.qq_bot_group_ids = 'group-a'
+    assert.equal(channelIsStored('qq', get), true)
+  })
+
+  it('counts the QQ group switch only when it is on', () => {
+    const values: Record<string, string> = { qq_bot_groups_enabled: 'false' }
+    const get = (key: string) => values[key] ?? ''
+    assert.equal(channelIsStored('qq', get), false)
+    values.qq_bot_groups_enabled = 'true'
+    assert.equal(channelIsStored('qq', get), true)
   })
 
   it('keeps catalog order and ignores unknown revealed ids', () => {
@@ -53,6 +66,8 @@ describe('agentChannels', () => {
       qq_bot_enabled: 'false',
       qq_bot_app_id: '',
       qq_bot_app_secret: '',
+      qq_bot_groups_enabled: 'false',
+      qq_bot_group_ids: '',
     })
   })
 })

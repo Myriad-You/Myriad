@@ -81,7 +81,29 @@ pub(super) async fn send_reply(
                 Err(_) => Err(ConnectFailureKind::Transient),
             }
         }
-        ChannelPlatform::Qq | ChannelPlatform::Feishu => Err(ConnectFailureKind::Permanent),
+        ChannelPlatform::Qq => {
+            // QQ's group API has no segment model here; a mention stays the
+            // name people know, not a platform ping (no everyone form).
+            let text: String = pieces
+                .iter()
+                .map(|piece| match piece {
+                    mentions::Piece::Text(text) => text.clone(),
+                    mentions::Piece::Mention { name, .. } => format!("@{name}"),
+                })
+                .collect();
+            if text.trim().is_empty() {
+                return Ok(());
+            }
+            let Ok(db) = db() else {
+                return Err(ConnectFailureKind::Transient);
+            };
+            let auth = crate::services::qq_bot::outbound_auth_header()
+                .await
+                .map_err(|_| ConnectFailureKind::Transient)?;
+            let msg_id = (!line.message_id.is_empty()).then_some(line.message_id.as_str());
+            crate::services::qq_work::send_group(&db, &auth, &line.chat, &text, msg_id).await
+        }
+        ChannelPlatform::Feishu => Err(ConnectFailureKind::Permanent),
     }
 }
 
