@@ -981,7 +981,7 @@
   "agentAliveSettlingFailures": "Answers unreadable {unreadable} times, asked again {again} times; {left} batches left unsorted, {brought} carried into the next; {kept} notes kept long-term as they were, never sorted (not merged or deduplicated)",
   "agentAliveCutOff": "Answers cut off at their output limit",
   "agentAliveUnplaced": "Talk not placed on her notes",
-  "agentAliveUnplacedCounts": "{kept} spans kept to place later, {later} batches placed later, {dropped} lines let go after a week unplaced",
+  "agentAliveUnplacedCounts": "{kept} spans kept to place later, {later} batches placed later, {failed} failed again, {errors} stopped on an error, {dropped} lines let go after a week unplaced",
   "agentAliveStanding": "Last wrote how someone’s life stands now",
   "agentAliveStandingFailed": "Failed model calls for that step",
   "agentAliveStandingFailedCount": "{n}, the latest {ago}",

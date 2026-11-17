@@ -428,6 +428,8 @@ export function AgentAliveGroup() {
               ? format(c.agentAliveUnplacedCounts, {
                   kept: String(memory.unplaced.kept),
                   later: String(memory.unplaced.placed_later),
+                  failed: String(memory.unplaced.failed ?? 0),
+                  errors: String(memory.unplaced.errors ?? 0),
                   dropped: String(memory.unplaced.let_go),
                 })
               : c.agentAliveNone}

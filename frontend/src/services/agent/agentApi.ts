@@ -302,7 +302,7 @@ export interface HerAlive {
      * time kept to place later, batches placed later, and lines let go
      * unplaced after a week.
      */
-    unplaced?: { kept: number, placed_later: number, let_go: number }
+    unplaced?: { kept: number, placed_later: number, failed: number, errors: number, let_go: number }
   }
   ends: HerAliveEnd[]
   /**

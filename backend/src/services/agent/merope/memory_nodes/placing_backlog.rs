@@ -48,17 +48,24 @@ struct Unplaced {
 }
 
 /// How what could not be placed went since the site started, for her
-/// status: spans of time kept to place later, batches placed later, and
-/// lines let go unplaced after a week. Counts only.
+/// status: spans of time kept to place later, batches placed later,
+/// batches whose placing failed again (its answer failed, was cut off or
+/// could not be read), times placing later stopped on an error (asked
+/// again the next hour, not counted toward waiting a day), and lines let go
+/// unplaced after a week. Counts only.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct Failures {
     pub(crate) kept: u64,
     pub(crate) placed_later: u64,
+    pub(crate) failed: u64,
+    pub(crate) errors: u64,
     pub(crate) let_go: u64,
 }
 
 static KEPT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static PLACED_LATER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static FAILED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static ERRORS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static LET_GO: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// [`Failures`] so far.
@@ -67,6 +74,8 @@ pub(crate) fn failures() -> Failures {
     Failures {
         kept: KEPT.load(Relaxed),
         placed_later: PLACED_LATER.load(Relaxed),
+        failed: FAILED.load(Relaxed),
+        errors: ERRORS.load(Relaxed),
         let_go: LET_GO.load(Relaxed),
     }
 }
@@ -216,6 +225,7 @@ pub(crate) async fn place_later(db: &DatabaseConnection) {
             continue;
         };
         if let Err(error) = place_one(db, user_id, site_owner, unplaced).await {
+            counted(&ERRORS, 1);
             tracing::warn!(%error, "[memory-nodes] what is still to be placed not placed");
         }
     }
@@ -320,6 +330,7 @@ async fn place_batch(
             ..current
         };
         put(db, user_id, &failed).await;
+        counted(&FAILED, 1);
         return Ok(None);
     }
     if asked {

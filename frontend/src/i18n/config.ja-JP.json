@@ -981,7 +981,7 @@
   "agentAliveSettlingFailures": "回答が読めなかった {unreadable} 回、聞き直し {again} 回。未整理のまま残した {left} 件、次回に持ち越した {brought} 件。整理できずそのまま長期に残したメモ {kept} 件（統合・重複排除なし）",
   "agentAliveCutOff": "出力上限で途切れた回答",
   "agentAliveUnplaced": "ノートに置けなかった会話",
-  "agentAliveUnplacedCounts": "後で置くため記録 {kept} 件、後から置けた {later} 回、7 日置けず手放した {dropped} 行",
+  "agentAliveUnplacedCounts": "後で置くため記録 {kept} 件、後から置けた {later} 回、また失敗 {failed} 回、エラーで中断 {errors} 回、7 日置けず手放した {dropped} 行",
   "agentAliveStanding": "「いまの暮らし」を最後に書いた時刻",
   "agentAliveStandingFailed": "その手順でのモデル呼び出し失敗",
   "agentAliveStandingFailedCount": "{n} 回、直近は{ago}",

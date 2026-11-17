@@ -981,7 +981,7 @@
   "agentAliveSettlingFailures": "回答讀不出 {unreadable} 次，重問 {again} 次；留著沒整理 {left} 批，下次帶上 {brought} 批；沒整理成、原樣留作長期的 {kept} 條（沒經過歸併去重）",
   "agentAliveCutOff": "回答被輸出上限截斷",
   "agentAliveUnplaced": "沒放上節點的話",
-  "agentAliveUnplacedCounts": "記下待補放 {kept} 段，補放成功 {later} 批，超過 7 天沒放成丟掉 {dropped} 句",
+  "agentAliveUnplacedCounts": "記下待補放 {kept} 段，補放成功 {later} 批、又失敗 {failed} 批、出錯停下 {errors} 次，超過 7 天沒放成丟掉 {dropped} 句",
   "agentAliveStanding": "上次寫「他現在的生活」",
   "agentAliveStandingFailed": "這一步問模型失敗",
   "agentAliveStandingFailedCount": "{n} 次，最近一次 {ago}",

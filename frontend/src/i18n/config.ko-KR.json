@@ -981,7 +981,7 @@
   "agentAliveSettlingFailures": "답을 읽지 못함 {unreadable}회, 다시 물음 {again}회; 정리하지 못하고 남긴 묶음 {left}개, 다음에 함께 가져간 묶음 {brought}개; 정리되지 않은 채 그대로 장기로 남긴 메모 {kept}개(병합·중복 제거 없음)",
   "agentAliveCutOff": "출력 한도에서 끊긴 답",
   "agentAliveUnplaced": "노트에 놓지 못한 대화",
-  "agentAliveUnplacedCounts": "나중에 놓으려 기록한 구간 {kept}개, 나중에 놓은 묶음 {later}개, 7일 동안 못 놓아 버린 줄 {dropped}개",
+  "agentAliveUnplacedCounts": "나중에 놓으려 기록한 구간 {kept}개, 나중에 놓은 묶음 {later}개, 다시 실패 {failed}개, 오류로 멈춤 {errors}번, 7일 동안 못 놓아 버린 줄 {dropped}개",
   "agentAliveStanding": "「지금의 생활」을 마지막으로 쓴 때",
   "agentAliveStandingFailed": "그 단계의 모델 호출 실패",
   "agentAliveStandingFailedCount": "{n}번, 가장 최근은 {ago}",

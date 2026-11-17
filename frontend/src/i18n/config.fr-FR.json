@@ -981,7 +981,7 @@
   "agentAliveSettlingFailures": "Réponses illisibles {unreadable} fois, redemandé {again} fois ; {left} lots laissés non triés, {brought} repris au suivant ; {kept} notes gardées telles quelles à long terme, jamais triées (ni fusionnées ni dédoublonnées)",
   "agentAliveCutOff": "Réponses coupées à leur limite de sortie",
   "agentAliveUnplaced": "Conversations non classées dans ses notes",
-  "agentAliveUnplacedCounts": "{kept} périodes gardées pour plus tard, {later} lots classés après coup, {dropped} lignes abandonnées après une semaine",
+  "agentAliveUnplacedCounts": "{kept} périodes gardées pour plus tard, {later} lots classés après coup, {failed} échoués à nouveau, {errors} arrêts sur erreur, {dropped} lignes abandonnées après une semaine",
   "agentAliveStanding": "Dernière écriture de « sa vie en ce moment »",
   "agentAliveStandingFailed": "Appels au modèle échoués à cette étape",
   "agentAliveStandingFailedCount": "{n}, le dernier {ago}",
