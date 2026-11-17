@@ -303,6 +303,18 @@ export interface HerAlive {
      * unplaced after a week.
      */
     unplaced?: { kept: number, placed_later: number, failed: number, errors: number, let_go: number }
+    /**
+     * What rests on memories taken back or forgotten, cleared from her
+     * notes since the site started: memories still waiting for the sweep,
+     * sweeps that cleared something, sweeps stopped on an error, and
+     * versions left out as they were written for resting on what went.
+     */
+    forgetting?: { left_to_sweep: number, swept: number, sweep_errors: number, left_out: number }
+    /**
+     * Lines whose corrections were left undone since the site started, their new
+     * fact not holding up: what they corrected stays as it was.
+     */
+    correctionsUnkept?: number
   }
   ends: HerAliveEnd[]
   /**

@@ -434,6 +434,18 @@ export function AgentAliveGroup() {
                 })
               : c.agentAliveNone}
           </dd>
+          <dt>{c.agentAliveForgetting}</dt>
+          <dd>
+            {(memory.forgetting && Object.values(memory.forgetting).some((count) => count > 0)) || (memory.correctionsUnkept ?? 0) > 0
+              ? format(c.agentAliveForgettingCounts, {
+                  left: String(memory.forgetting?.left_to_sweep ?? 0),
+                  swept: String(memory.forgetting?.swept ?? 0),
+                  errors: String(memory.forgetting?.sweep_errors ?? 0),
+                  out: String(memory.forgetting?.left_out ?? 0),
+                  unkept: String(memory.correctionsUnkept ?? 0),
+                })
+              : c.agentAliveNone}
+          </dd>
           <dt>{c.agentAliveStanding}</dt>
           <dd>{ago(memory.standingWrittenAt)}</dd>
           <dt>{c.agentAliveStandingFailed}</dt>

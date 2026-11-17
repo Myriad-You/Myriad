@@ -982,6 +982,8 @@
   "agentAliveCutOff": "Answers cut off at their output limit",
   "agentAliveUnplaced": "Talk not placed on her notes",
   "agentAliveUnplacedCounts": "{kept} spans kept to place later, {later} batches placed later, {failed} failed again, {errors} stopped on an error, {dropped} lines let go after a week unplaced",
+  "agentAliveForgetting": "Clearing what was taken back or forgotten from her notes",
+  "agentAliveForgettingCounts": "{left} memories waiting for the sweep, {swept} sweeps that cleared something, {errors} stopped on an error, {out} versions left out for resting on what went, {unkept} times a line's corrections were left undone, their new fact not holding up",
   "agentAliveStanding": "Last wrote how someone’s life stands now",
   "agentAliveStandingFailed": "Failed model calls for that step",
   "agentAliveStandingFailedCount": "{n}, the latest {ago}",

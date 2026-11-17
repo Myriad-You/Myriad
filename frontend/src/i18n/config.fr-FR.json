@@ -982,6 +982,8 @@
   "agentAliveCutOff": "Réponses coupées à leur limite de sortie",
   "agentAliveUnplaced": "Conversations non classées dans ses notes",
   "agentAliveUnplacedCounts": "{kept} périodes gardées pour plus tard, {later} lots classés après coup, {failed} échoués à nouveau, {errors} arrêts sur erreur, {dropped} lignes abandonnées après une semaine",
+  "agentAliveForgetting": "Nettoyage de ses notes après un retrait ou un oubli",
+  "agentAliveForgettingCounts": "{left} souvenirs en attente du balayage, {swept} balayages effectués, {errors} arrêts sur erreur, {out} versions écartées car fondées sur ce qui n'est plus, {unkept} fois des corrections non appliquées, leur nouveau fait ne tenant pas",
   "agentAliveStanding": "Dernière écriture de « sa vie en ce moment »",
   "agentAliveStandingFailed": "Appels au modèle échoués à cette étape",
   "agentAliveStandingFailedCount": "{n}, le dernier {ago}",
