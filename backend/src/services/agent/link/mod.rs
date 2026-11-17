@@ -51,6 +51,9 @@
 
 mod act;
 mod body;
+// Read by her calls to a device (`calls`), which come next.
+#[cfg_attr(not(test), allow(dead_code))]
+mod calls_store;
 mod connection;
 mod contract;
 mod conversations;

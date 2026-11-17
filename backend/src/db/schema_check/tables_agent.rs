@@ -1159,6 +1159,36 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
+            name: "agent_device_call_groups".to_string(),
+            columns: vec![
+                ColumnDef::new("device_id", "character varying").not_null(),
+                ColumnDef::new("call_group", "character varying").not_null(),
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("approved", "boolean").not_null(),
+                ColumnDef::new("decided_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_device_calls".to_string(),
+            columns: vec![
+                ColumnDef::new("call_id", "character varying").not_null(),
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("device_id", "character varying").not_null(),
+                ColumnDef::new("action", "character varying").not_null(),
+                ColumnDef::new("version", "integer").not_null(),
+                ColumnDef::new("for_kind", "character varying").not_null(),
+                ColumnDef::new("for_group", "character varying"),
+                ColumnDef::new("outcome", "character varying").not_null(),
+                ColumnDef::new("error_code", "character varying"),
+                ColumnDef::new("asked_at", "timestamp with time zone").not_null(),
+                ColumnDef::new("ended_at", "timestamp with time zone").not_null(),
+                ColumnDef::new("took_ms", "bigint").not_null(),
+                ColumnDef::new("late", "boolean")
+                    .not_null()
+                    .default_value("false"),
+            ],
+        },
+        TableDef {
             name: "agent_her_copy".to_string(),
             columns: vec![
                 ColumnDef::new("id", "character varying").not_null(),

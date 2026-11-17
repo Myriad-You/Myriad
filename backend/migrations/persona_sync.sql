@@ -30,6 +30,43 @@ CREATE INDEX IF NOT EXISTS idx_agent_sync_devices_user_created
 DROP INDEX IF EXISTS idx_agent_sync_devices_one_parent;
 ALTER TABLE agent_sync_devices DROP COLUMN IF EXISTS role;
 
+-- What the owner approved a device to be asked to do for her, per
+-- permission group of the link's calls (services/agent/link/calls_store.rs).
+-- A group with no row is approved when it is one of calls.defaultApproved
+-- and waits for the owner otherwise. Kept on the site, her host, only: it is
+-- the approved layer; what is granted at a call is worked out then.
+CREATE TABLE IF NOT EXISTS agent_device_call_groups (
+    device_id VARCHAR(40) NOT NULL REFERENCES agent_sync_devices(id) ON DELETE CASCADE,
+    call_group VARCHAR(32) NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    approved BOOLEAN NOT NULL,
+    decided_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (device_id, call_group)
+);
+
+-- Her calls to a device, one row each: what was asked, for whom, how it
+-- ended and how long it took. Never its args, its result or anything the
+-- device said: only the code a failure ended with. A result that came after
+-- the call was counted timed out changes its row (late). Kept 30 days.
+CREATE TABLE IF NOT EXISTS agent_device_calls (
+    call_id VARCHAR(64) PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    device_id VARCHAR(40) NOT NULL REFERENCES agent_sync_devices(id) ON DELETE CASCADE,
+    action VARCHAR(64) NOT NULL,
+    version INTEGER NOT NULL,
+    for_kind VARCHAR(8) NOT NULL
+        CHECK (for_kind IN ('owner', 'own', 'group', 'other')),
+    for_group VARCHAR(128),
+    outcome VARCHAR(8) NOT NULL CHECK (outcome IN ('done', 'failed', 'unknown')),
+    error_code VARCHAR(32),
+    asked_at TIMESTAMPTZ NOT NULL,
+    ended_at TIMESTAMPTZ NOT NULL,
+    took_ms BIGINT NOT NULL,
+    late BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS idx_agent_device_calls_user_asked
+    ON agent_device_calls (user_id, asked_at DESC);
+
 -- Where she lives (services/persona_sync/lease.rs). Which end holds her is
 -- her lease (`agent_lease_grants`, persona_log.sql), and only that; these two
 -- keep the rest. The old one-row lease (`agent_host_lease`) is taken apart

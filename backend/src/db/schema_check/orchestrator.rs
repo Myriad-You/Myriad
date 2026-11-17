@@ -118,7 +118,11 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// `ensure_message_embeddings_table` 一起建）。
 /// 2026.11.16.2：她被要求忘掉的东西的记号 `agent_forgotten`（记忆记 id、原话记摘要，不存原话），
 /// 设备合并时不让它们回来（随 004 与 `ensure_forgotten_table` 一起建）。
-pub const SCHEMA_VERSION: &str = "2026.11.16.2";
+/// 2026.11.17.1：她调设备（统一调用）：站长按「设备 × 能力组」的批准 `agent_device_call_groups`
+/// （没落过的组按 `calls.defaultApproved`），和每次调用一行的记录 `agent_device_calls`（不存参数、
+/// 结果和设备原文，留 30 天）；两张都随设备行级联删除（`persona_sync.sql`，随 004 与
+/// `ensure_persona_sync_tables` 一起建）。旧二进制不认识它们也照常启动：比对只查缺的，不查多的。
+pub const SCHEMA_VERSION: &str = "2026.11.17.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
