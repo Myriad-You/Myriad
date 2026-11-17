@@ -156,9 +156,8 @@ impl Lines<'_> {
     }
 
     /// How one thing on `node` stands now (`node.standing` `item`), with
-    /// since when ([`stands_since`]): a day of what was said, as every other
-    /// line she reads is dated, not the day the row was written. What a rule
-    /// wrote from what a device told says so, for it is only seen, not known.
+    /// since when ([`super::since`]): dated as every other line she reads,
+    /// by what was said, not by when the row was written.
     fn standing(&self, node: &super::shown::Node, item: &str) -> Option<(String, String)> {
         let standing = node.head.get("standing")?.get(item)?;
         let text = standing.get("value")?.get("text")?.as_str()?.trim();
@@ -166,81 +165,43 @@ impl Lines<'_> {
             return None;
         }
         let by_rule = standing.get("author").and_then(|author| author.as_str()) == Some("rule");
-        let line = standing_line(text, &self.since(node, item)?, by_rule);
+        let line = super::since::now(text, &self.since(node, item)?, by_rule);
         Some((line.clone(), line))
     }
 
     /// What ended on `node` ([`super::ended`]): the words of each and its
-    /// line, with since when. One
-    /// resting on memories none of which she still holds (taken back, let
-    /// go) is not said: what ended it is theirs to have unsaid.
+    /// line, with since when. One resting on nothing is not said.
     fn ended(&self, node: &super::shown::Node) -> Vec<(String, String)> {
         let since = |item: &str| {
             let rests_on = cited(&node.head["standing"][item]["value"]["because"]);
-            let held = rests_on
-                .iter()
-                .any(|id| self.shown.learned_of(id).is_some());
-            (rests_on.is_empty() || held)
+            (!rests_on.is_empty())
                 .then(|| self.since(node, item))
                 .flatten()
         };
         super::ended::lines(node, since, super::ended::MOST)
     }
 
-    /// Since when `item` on `node` stands ([`stands_since`]).
+    /// Since when `item` on `node` stands or ended, as its line says it
+    /// ([`super::since::dated`]). None when all it rests on was taken back
+    /// ([`Shown::unsaid`]): it is then not said at all, standing or ended.
     fn since(&self, node: &super::shown::Node, item: &str) -> Option<String> {
         let standing = node.head.get("standing")?.get(item)?;
         let value = standing.get("value")?;
-        let learned = cited(value.get("because").unwrap_or(&serde_json::Value::Null))
+        let because = value.get("because").unwrap_or(&serde_json::Value::Null);
+        if self.shown.unsaid(because) {
+            return None;
+        }
+        let learned = cited(because)
             .iter()
             .filter_map(|id| self.shown.learned_of(id))
             .max();
-        Some(stands_since(
+        Some(super::since::dated(
             value.get("since"),
             learned,
             standing.get("at")?.as_i64()?,
             &self.zone,
+            chrono::Datelike::year(&clock::local_now()),
         ))
-    }
-}
-
-/// Since when one thing stands, as she is shown it: what its row says
-/// (`since`: a day, month or year, or the moment what it tells of began,
-/// else the day she was told); else the latest day she learned a memory it
-/// rests on (`learned`); only when neither is known, the day the row was
-/// written (`at`). A row written long after what it rests on (built from
-/// what she knew, set again) is so never dated later than what they said
-/// since.
-fn stands_since(
-    since: Option<&serde_json::Value>,
-    learned: Option<i64>,
-    at: i64,
-    zone: &Zone,
-) -> String {
-    let day = since
-        .and_then(|since| since.as_str())
-        .map(str::trim)
-        .filter(|day| stands::is_day(day));
-    if let Some(day) = day {
-        return day.to_string();
-    }
-    let moment = since.and_then(|since| since.as_i64());
-    DateTime::from_timestamp_micros(moment.or(learned).unwrap_or(at))
-        .unwrap_or_default()
-        .with_timezone(zone)
-        .format("%Y-%m-%d")
-        .to_string()
-}
-
-/// One thing that stands, as a line: since when and what it is, not a
-/// record of a day. Nothing in parentheses after it: beside a fact that is
-/// how she says she came by it some other way than being told
-/// (`store::as_known`), and one she was told is not to read as that.
-fn standing_line(text: &str, since: &str, by_rule: bool) -> String {
-    if by_rule {
-        format!("now, since {since}, as their computer told it: {text}")
-    } else {
-        format!("now, since {since}: {text}")
     }
 }
 
@@ -452,6 +413,7 @@ fn recollect_within(
         zone: clock::zone(),
         here,
     };
+    let resident_chars = budget.resident_chars;
     let Ok(pick) = recall::pick(PickInput {
         ranked: ranked.clone(),
         nodes: shown
@@ -587,17 +549,23 @@ fn recollect_within(
     let resident = if here.is_some() {
         Vec::new()
     } else {
+        // Each with since when, as on a picked node; none whose every
+        // memory was taken back. Within the room the core counted its
+        // words in: the days beside them are counted here.
+        let mut room = resident_chars;
         let resident: Vec<String> = pick
             .resident
             .iter()
             .filter_map(|one| {
                 let node = shown.node(&one.node)?;
                 let name = node.name.as_deref().unwrap_or_default().trim();
-                // Each with since when, as on a picked node.
-                Some(match lines.since(node, &one.item) {
-                    Some(since) => format!("{name}, since {since}：{}", one.text),
-                    None => format!("{name}：{}", one.text),
-                })
+                let dated = lines.since(node, &one.item)?;
+                Some(super::since::resident(name, &one.text, &dated))
+            })
+            .take_while(|line| {
+                let fits = line.chars().count() <= room;
+                room = room.saturating_sub(line.chars().count());
+                fits
             })
             .collect();
         // Counts only: how many went with the talk, how many the core
@@ -712,52 +680,5 @@ mod more_tests {
         // Those the list of how their life stands shows are not counted.
         assert!(super::more_standing(3, 1).unwrap().0.contains("2 more"));
         assert_eq!(super::more_standing(2, 2), None);
-    }
-
-    /// What stands is dated by what was said, never by when its row was
-    /// written: a row written in November on what they said in August
-    /// reads as since August, so a line of theirs from October is plainly
-    /// the later.
-    #[test]
-    fn what_stands_is_since_what_was_said_not_since_it_was_written() {
-        use chrono::TimeZone;
-        use serde_json::json;
-        let zone = super::clock::zone();
-        let micros = |month: u32, day: u32| {
-            zone.with_ymd_and_hms(2026, month, day, 12, 0, 0)
-                .unwrap()
-                .timestamp_micros()
-        };
-        let (told, written) = (micros(8, 11), micros(11, 16));
-        // Its own day, as written: a day, a month or a year.
-        for day in ["2026-08-11", "2026-08", "2025"] {
-            assert_eq!(
-                super::stands_since(Some(&json!(day)), Some(told), written, &zone),
-                day
-            );
-        }
-        // A moment: the day of it.
-        assert_eq!(
-            super::stands_since(Some(&json!(micros(8, 3))), Some(told), written, &zone),
-            "2026-08-03"
-        );
-        // None of its own, or one that is no day: the latest day she
-        // learned what it rests on.
-        for since in [None, Some(json!("lately")), Some(json!(null))] {
-            assert_eq!(
-                super::stands_since(since.as_ref(), Some(told), written, &zone),
-                "2026-08-11"
-            );
-        }
-        // Only with nothing it rests on still held: the day it was written.
-        assert_eq!(
-            super::stands_since(None, None, written, &zone),
-            "2026-11-16"
-        );
-        // The line says what stands and since when; it is no dated record.
-        let line = super::standing_line("每晚练琴一小时", "2026-08-11", false);
-        assert_eq!(line, "now, since 2026-08-11: 每晚练琴一小时");
-        assert!(!line.starts_with('[') && !line.contains('('), "{line}");
-        assert!(super::standing_line("在写报告", "2026-11-16", true).contains("their computer"));
     }
 }

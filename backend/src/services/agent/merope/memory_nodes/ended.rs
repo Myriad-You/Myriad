@@ -8,8 +8,9 @@
 //! rule's item is what a device showed for a while, and its ending is
 //! nothing about their life. A memory they had her forget takes the rows
 //! resting on it with it ([`super::forget`]); one they took back or let go
-//! keeps its rows, so the caller's `since` says nothing for an item none of
-//! whose memories she still holds, and it is left out.
+//! keeps its rows, so the caller's `since` says nothing for an item all of
+//! whose memories were taken back, or that rests on none, and it is left
+//! out.
 
 use myriad_nodes::stands;
 
@@ -44,16 +45,11 @@ pub(super) fn lines(
     ended.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
     ended
         .into_iter()
-        .filter_map(|(_, item, text)| Some((text.to_string(), line(text, &since(item)?))))
+        .filter_map(|(_, item, text)| {
+            Some((text.to_string(), super::since::ended(text, &since(item)?)))
+        })
         .take(most)
         .collect()
-}
-
-/// One ended thing, as a line: since when, and what ended it. No
-/// parenthesis after it: beside a fact that is how she says she came by it
-/// some other way than being told.
-fn line(text: &str, since: &str) -> String {
-    format!("ended, since {since}: {text}")
 }
 
 #[cfg(test)]
@@ -94,11 +90,11 @@ mod tests {
             "now": {"at": 50, "author": "rule",
                 "value": {"text": "在写报告", "because": [], "ended": true}},
         }));
-        let since = |item: &str| Some(format!("2026-10-{}", &item[item.len() - 1..]));
+        let since = |item: &str| Some(format!("since 10-{}", &item[item.len() - 1..]));
         let all = lines(&node, since, MOST);
         assert_eq!(all.len(), 2, "{all:?}");
         assert_eq!(all[0].0, "膝盖伤了，不夜跑了");
-        assert!(all[0].1.starts_with("ended, since 2026-10-"), "{all:?}");
+        assert!(all[0].1.starts_with("ended, since 10-"), "{all:?}");
         assert!(all[0].1.ends_with(": 膝盖伤了，不夜跑了"), "{all:?}");
         assert_eq!(all[1].0, "健身卡到期，没续");
         assert_eq!(lines(&node, since, 1).len(), 1);

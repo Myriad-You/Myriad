@@ -314,3 +314,140 @@ async fn a_memory_forgotten_elsewhere_takes_its_lines_here() {
     assert!(gone.is_empty());
     schema.drop().await;
 }
+
+async fn retire(db: &DatabaseConnection, id: &str, reason: &str, by: Option<&str>) {
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_memories SET invalid_reason = $2, superseded_by = $3 WHERE id = $1",
+        [id.into(), reason.into(), by.map(str::to_string).into()],
+    ))
+    .await
+    .unwrap();
+}
+
+/// A line is known as replaced however late she went over it: said three
+/// days ago, noted then, gone over into a lasting fact only today, and
+/// that fact replaced since. The fact was written days after the words;
+/// the note it came from was not.
+#[tokio::test]
+async fn a_line_gone_over_days_later_is_still_known_as_replaced() {
+    let Some(schema) = schema("chat_lines_gone_over_late").await else {
+        return;
+    };
+    let db = &schema.db;
+    session(db, "mine", OWNER, Some(r#"{"mode":"chat"}"#), false).await;
+    let three_days = 3 * 24 * 60;
+    line(db, "mine", "user", "我住在北京朝阳", three_days, None).await;
+    line(
+        db,
+        "mine",
+        "assistant",
+        "朝阳那边挺方便",
+        three_days - 1,
+        None,
+    )
+    .await;
+    line(db, "mine", "user", "周末想去爬香山", 5, None).await;
+    let note = quoting(db, unified::SHORT_NOTE_SOURCE, "住在北京朝阳").await;
+    let lasting = quoting(db, "chat", "我住在北京朝阳").await;
+    let newer = quoting(db, "chat", "搬到北京海淀了").await;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_memories SET created_at = NOW() - $2 * INTERVAL '1 minute' WHERE id = $1",
+        [note.clone().into(), (three_days - 2).into()],
+    ))
+    .await
+    .unwrap();
+    retire(db, &note, "settled", Some(&lasting)).await;
+    let flags = |read: Vec<Line>| read.iter().map(|line| line.replaced).collect::<Vec<_>>();
+    assert_eq!(flags(private_lines(db, OWNER, 3000).await), [false; 3]);
+
+    retire(db, &lasting, "superseded", Some(&newer)).await;
+    let read = private_lines(db, OWNER, 3000).await;
+    assert_eq!(contents(&read).len(), 3, "nothing is hidden for it");
+    assert_eq!(flags(read), [true, false, false]);
+
+    // What replaced it let go, with nothing in its place: taken back, so
+    // nothing she keeps took the line's place and it is not marked.
+    retire(db, &newer, "superseded", None).await;
+    let read = private_lines(db, OWNER, 3000).await;
+    assert_eq!(contents(&read).len(), 3);
+    assert_eq!(flags(read), [false; 3]);
+    schema.drop().await;
+}
+
+/// A line's day is the day on her clock. The database gives the moment at
+/// no offset, where what was said in her small hours is still the day
+/// before; read so, a change of mind after midnight would be dated before
+/// what it changed.
+#[tokio::test]
+async fn a_line_is_dated_on_her_clock() {
+    use chrono::TimeZone;
+    let zone = super::super::clock::Zone::Named(chrono_tz::Asia::Singapore);
+    let small_hours = zone
+        .with_ymd_and_hms(2026, 11, 10, 0, 30, 0)
+        .unwrap()
+        .with_timezone(&chrono::Utc)
+        .fixed_offset();
+    assert_eq!(small_hours.format("%Y-%m-%d").to_string(), "2026-11-09");
+    let day = super::super::clock::in_zone(zone, async { super::day(&small_hours) }).await;
+    assert_eq!(day, "2026-11-10");
+    assert_eq!(day_of(&found_on(day.clone(), true)), day);
+    assert_eq!(day_of(REPLACED_SINCE), REPLACED_SINCE);
+
+    // And that is how the database gives it.
+    let Some(schema) = schema("chat_lines_clock").await else {
+        return;
+    };
+    let db = &schema.db;
+    session(db, "mine", OWNER, Some(r#"{"mode":"chat"}"#), false).await;
+    line(db, "mine", "user", "我在学吉他", 30, None).await;
+    let read = private_lines(db, OWNER, 3000).await;
+    assert_eq!(read[0].at.offset().local_minus_utc(), 0);
+    schema.drop().await;
+}
+
+/// Lines are held against the memories written after them only, each
+/// within its own reach: a memory taken back reaches a day back from when
+/// it was written, whatever note it came from.
+#[test]
+fn each_memory_reaches_its_own_lines() {
+    let at = |hours: i64| {
+        chrono::DateTime::parse_from_rfc3339("2026-11-10T00:00:00+00:00").unwrap()
+            + chrono::Duration::hours(hours)
+    };
+    let line = |id: i32, hours: i64, hers: bool, content: &str| Line {
+        id,
+        at: at(hours),
+        hers,
+        content: content.into(),
+        replaced: false,
+    };
+    let lines = [
+        line(1, 0, false, "我住在北京朝阳"),
+        line(2, 1, true, "朝阳那边挺方便"),
+        line(3, 60, false, "我住在北京朝阳 来着"),
+        line(4, 200, false, "我住在北京朝阳"),
+    ];
+    let quoted = |written: i64, noted: i64, taken_back: bool| Quoted {
+        quote: "住在北京朝阳".into(),
+        written: at(written),
+        noted: at(noted),
+        taken_back,
+        replaced: !taken_back,
+    };
+    // Replaced, written at 72h from a note at 2h: the lines from a day
+    // before the note on, up to when it was written; theirs only.
+    let (gone, replaced) = became(&lines, vec![quoted(72, 2, false)]);
+    assert!(gone.is_empty());
+    assert_eq!(replaced, HashSet::from([1, 3]));
+    // Taken back, the same days: only within a day before it was written,
+    // as before; a line before that stays.
+    let (gone, replaced) = became(&lines, vec![quoted(72, 2, true)]);
+    assert_eq!(gone, HashSet::from([3]));
+    assert!(replaced.is_empty());
+    // Both on one line: taken back wins, and her answer goes with it.
+    let (gone, replaced) = became(&lines, vec![quoted(72, 2, false), quoted(3, 3, true)]);
+    assert_eq!(gone, HashSet::from([1, 2]));
+    assert_eq!(replaced, HashSet::from([3]));
+}

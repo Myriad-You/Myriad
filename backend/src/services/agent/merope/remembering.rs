@@ -300,7 +300,7 @@ pub async fn look_back(
                 myriad_merope::remembering::excerpt(content, query, SHOWN_CHARS)
             };
             let who = if *hers { Who::You } else { Who::They };
-            let day = at.format("%Y-%m-%d").to_string();
+            let day = super::chat_lines::day(at);
             (super::chat_lines::found_on(day, replaced[index]), who, text)
         })
         .collect();

@@ -462,7 +462,7 @@ pub(crate) fn resident_section(resident: &[String]) -> Option<String> {
         .collect();
     section(
         "How their life stands now",
-        "How things stand in their life now, as you keep it, each with since when. An item is as new as its day: where a fact below, or a line of theirs you looked back to, is dated later and says otherwise, that is the later; where it is dated earlier, this is.",
+        "How things stand in their life now, as you keep it, each with since when, and with the day they told you where that is another day. An item is as new as the day it was told: where a fact below, or a line of theirs you looked back to, is dated later than that and says otherwise, that is the later; where it is dated earlier, this is.",
         "standing_now",
         &lines,
     )

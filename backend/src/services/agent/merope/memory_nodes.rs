@@ -126,6 +126,7 @@ pub(crate) mod read;
 pub(crate) mod recall;
 pub(crate) mod share;
 pub(crate) mod shown;
+mod since;
 pub(crate) mod sorting;
 pub(crate) mod standing;
 pub(crate) mod upkeep;
@@ -216,3 +217,6 @@ mod partner_tests;
 
 #[cfg(test)]
 mod logged_tests;
+
+#[cfg(test)]
+mod since_tests;

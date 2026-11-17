@@ -51,21 +51,33 @@ pub enum Place<'a> {
     In(&'a str),
 }
 
-/// The talk there, by the day it was on the host clock, oldest first.
-async fn by_day(db: &DatabaseConnection, place: Place<'_>) -> BTreeMap<NaiveDate, Vec<Said>> {
+/// When each private line of theirs that a later fact took the place of
+/// was said (`chat_lines`): marked where shown.
+type Replaced = std::collections::HashSet<DateTime<FixedOffset>>;
+
+/// The talk there, by the day it was on the host clock, oldest first; and
+/// in private, which of their lines a later fact replaced.
+async fn by_day(
+    db: &DatabaseConnection,
+    place: Place<'_>,
+) -> (BTreeMap<NaiveDate, Vec<Said>>, Replaced) {
     // In private, the lines a chat turn may look through (see `chat_lines`):
     // not an archived talk, nothing they took back.
     if let Place::With(user_id) = place {
         let mut days: BTreeMap<NaiveDate, Vec<Said>> = BTreeMap::new();
+        let mut replaced = Replaced::new();
         for line in super::chat_lines::private_lines(db, user_id, LATEST).await {
+            if line.replaced {
+                replaced.insert(line.at);
+            }
             days.entry(super::clock::date_of(&line.at))
                 .or_default()
                 .push((line.at, line.hers, line.content));
         }
-        return days;
+        return (days, replaced);
     }
     let (sql, value): (&str, sea_orm::Value) = match place {
-        Place::With(_) => return BTreeMap::new(),
+        Place::With(_) => return Default::default(),
         Place::In(venue) => (
             "SELECT m.role, m.content, m.created_at, \
                coalesce(nullif(u.display_name, ''), u.username, '') AS name \
@@ -113,7 +125,7 @@ async fn by_day(db: &DatabaseConnection, place: Place<'_>) -> BTreeMap<NaiveDate
             .or_default()
             .push((at, role == "assistant", text));
     }
-    days
+    (days, Replaced::new())
 }
 
 /// The lines she wrote for their days, by day.
@@ -160,8 +172,8 @@ async fn day_lines(db: &DatabaseConnection, place: Place<'_>) -> BTreeMap<NaiveD
 async fn table(
     db: &DatabaseConnection,
     place: Place<'_>,
-) -> (Vec<DayLine>, BTreeMap<NaiveDate, Vec<Said>>) {
-    let days = by_day(db, place).await;
+) -> (Vec<DayLine>, BTreeMap<NaiveDate, Vec<Said>>, Replaced) {
+    let (days, replaced) = by_day(db, place).await;
     let lines = day_lines(db, place).await;
     let table = days
         .iter()
@@ -178,7 +190,7 @@ async fn table(
             }),
         })
         .collect();
-    (table, days)
+    (table, days, replaced)
 }
 
 /// Keep `line` as the line for `day` with them, written going over that
@@ -292,7 +304,7 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
     let today = super::clock::today();
     let oldest = today - chrono::Duration::days(FILL_BACK_DAYS);
     for user_id in people(db).await {
-        let days = by_day(db, Place::With(user_id)).await;
+        let (days, _) = by_day(db, Place::With(user_id)).await;
         let lines = written(db, user_id).await;
         let unwritten: Vec<(&NaiveDate, &Vec<Said>)> = days
             .iter()
@@ -319,7 +331,7 @@ pub async fn turn_back(
     looking_for: &str,
     asked: &str,
 ) -> Vec<(String, Who, String)> {
-    let (table, days) = table(db, place).await;
+    let (table, days, replaced) = table(db, place).await;
     let today = super::clock::today();
     // Today's talk is in front of her already.
     let table: Vec<DayLine> = table.into_iter().filter(|day| day.date < today).collect();
@@ -342,19 +354,6 @@ pub async fn turn_back(
         return Vec::new();
     };
     let picked = parse_pick(&raw, &table).unwrap_or_default();
-    // Their private lines a later fact took the place of, by when they were
-    // said: marked where shown, as wherever she looks back (`chat_lines`).
-    let replaced: std::collections::HashSet<DateTime<FixedOffset>> = match place {
-        Place::With(user_id) if !picked.is_empty() => {
-            super::chat_lines::private_lines(db, user_id, LATEST)
-                .await
-                .into_iter()
-                .filter(|line| line.replaced)
-                .map(|line| line.at)
-                .collect()
-        }
-        _ => Default::default(),
-    };
     let mut found = Vec::new();
     for date in picked {
         let Some(said) = days.get(&date) else {
@@ -411,7 +410,7 @@ mod live {
             Some(venue) => Place::In(venue),
             None => Place::With(user_id),
         };
-        let (table, days) = table(&db, place).await;
+        let (table, days, _) = table(&db, place).await;
         for day in &table {
             println!("{} {:>3}  {}", day.date, day.messages, day.about);
         }

@@ -97,6 +97,30 @@ pub(crate) async fn held<C: ConnectionTrait>(
         .collect()
 }
 
+/// The memory rows among `ids` they took back or had her let go: deleted,
+/// or put aside with nothing in its place. One a later fact replaced is
+/// not among them (the same line `chat_lines` draws for their words).
+pub(crate) async fn taken_back<C: ConnectionTrait>(
+    db: &C,
+    ids: Vec<String>,
+) -> Result<HashSet<String>, Error> {
+    if ids.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT id FROM agent_memories WHERE id = ANY($1) \
+             AND (invalid_reason = 'deleted' \
+                  OR (invalid_reason = 'superseded' AND superseded_by IS NULL))",
+            [ids.into()],
+        ))
+        .await?;
+    rows.iter()
+        .map(|row| Ok(row.try_get::<String>("", "id")?))
+        .collect()
+}
+
 /// The day she learned each of the memory rows `ids`, Unix microseconds:
 /// when it was kept, or when the first of the short notes settled into it
 /// was taken ([`crate::services::agent::merope::chat_remember`]), which is

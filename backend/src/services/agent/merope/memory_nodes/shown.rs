@@ -16,7 +16,7 @@
 //!
 //! One read of one account's one audience: two never mix.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use myriad_merope::happened::Happened;
 use myriad_nodes::{
@@ -78,6 +78,9 @@ pub(crate) struct Shown {
     /// The day she learned each of those, Unix microseconds
     /// ([`known::learned`]).
     pub learned: HashMap<String, i64>,
+    /// Those a head names that they took back or had her let go
+    /// ([`known::taken_back`]).
+    pub taken_back: HashSet<String>,
 }
 
 impl Shown {
@@ -115,6 +118,14 @@ impl Shown {
                 .copied()
                 .unwrap_or_else(|| row.created_at.timestamp_micros()),
         )
+    }
+
+    /// Whether what rests on the memories `because` names is no longer to
+    /// be said: it names some, and they took every one of them back. One
+    /// replaced by a later fact is not taken back: what rests on it stands.
+    pub(crate) fn unsaid(&self, because: &Value) -> bool {
+        let rests_on = cited(because);
+        !rests_on.is_empty() && rests_on.iter().all(|id| self.taken_back.contains(id))
     }
 
     /// The live memory row an item of a head (a view, an open item) rests
@@ -258,6 +269,7 @@ pub(crate) async fn shown<C: ConnectionTrait>(
         ));
     }
     let named: BTreeSet<String> = heads.iter().flat_map(|head| named_by(&head.4)).collect();
+    let taken_back = known::taken_back(db, named.iter().cloned().collect()).await?;
     let held: BTreeSet<String> = known::held(db, named.into_iter().collect())
         .await?
         .into_iter()
@@ -308,6 +320,7 @@ pub(crate) async fn shown<C: ConnectionTrait>(
         nodes,
         memories,
         learned,
+        taken_back,
     })
 }
 
@@ -319,6 +332,29 @@ mod tests {
 
     fn head(entries: Value) -> Value {
         json!({ "entries": entries })
+    }
+
+    /// The memories what stands or ended rests on are read with the head,
+    /// though no entry names them: since when it stands is their day.
+    #[test]
+    fn what_stands_names_the_memories_it_rests_on() {
+        let head = json!({
+            "entries": [{"refs": ["memory:m1"]}],
+            "standing": {"them-1": {"value": {"because": ["memory:m2", "row:r"]}}},
+            "views": {"v": {"value": {"because": ["memory:m3"]}}},
+        });
+        let mut named = named_by(&head);
+        named.sort();
+        assert_eq!(named, ["m1", "m2", "m3"]);
+        let shown = Shown {
+            taken_back: ["m2".to_string()].into(),
+            ..Default::default()
+        };
+        // All it rests on taken back: not said. Any left, or none named:
+        // it is.
+        assert!(shown.unsaid(&json!(["memory:m2"])));
+        assert!(!shown.unsaid(&json!(["memory:m2", "memory:m1"])));
+        assert!(!shown.unsaid(&json!([])));
     }
 
     #[test]

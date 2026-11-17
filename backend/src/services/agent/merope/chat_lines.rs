@@ -54,6 +54,13 @@ pub(crate) fn found_on(day: String, replaced: bool) -> String {
     }
 }
 
+/// The day a line was said, on her clock, as every other line she reads
+/// is dated: the database gives the moment at no offset, and its day there
+/// is the day before for what was said in her small hours.
+pub(crate) fn day(at: &DateTime<FixedOffset>) -> String {
+    super::clock::date_of(at).to_string()
+}
+
 /// The day alone of a line as found: what lines are put in order by, so
 /// one whose day says more stays where it was said among that day's.
 pub(crate) fn day_of(found_on: &str) -> &str {
@@ -127,7 +134,9 @@ pub(crate) async fn private_lines(db: &DatabaseConnection, user_id: i32, latest:
 ///
 /// Replaced since: what a memory quotes that a later fact took the place of
 /// (retired as superseded, pointing at one that was not itself taken back),
-/// their line only.
+/// their line only. A fact gone over from short notes was written when she
+/// went over them, which may be days after the words: its line is looked
+/// for from a day before the first of those notes was taken.
 async fn withdrawn(
     db: &DatabaseConnection,
     user_id: i32,
@@ -137,6 +146,9 @@ async fn withdrawn(
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT m.evidence, m.created_at, \
+               LEAST(m.created_at, (SELECT min(s.created_at) FROM agent_memories s \
+                                    WHERE s.superseded_by = m.id \
+                                      AND s.invalid_reason = 'settled')) AS noted, \
                (m.invalid_reason = 'deleted' OR m.superseded_by IS NULL) AS taken_back, \
                EXISTS (SELECT 1 FROM agent_memories n \
                        WHERE n.id = m.superseded_by AND n.user_id = m.user_id \
@@ -160,39 +172,80 @@ async fn withdrawn(
     else {
         return Default::default();
     };
-    // Each quote with when its memory was written, and what became of it.
-    let quoted: Vec<(String, DateTime<FixedOffset>, bool, bool)> = rows
+    let quoted: Vec<Quoted> = rows
         .iter()
         .filter_map(|row| {
             let evidence: Option<String> = row.try_get("", "evidence").ok()?;
-            Some((
-                origins::quote(evidence.as_deref())?,
-                row.try_get("", "created_at").ok()?,
-                row.try_get("", "taken_back").ok()?,
-                row.try_get("", "replaced").ok()?,
-            ))
+            Some(Quoted {
+                quote: origins::quote(evidence.as_deref())?,
+                written: row.try_get("", "created_at").ok()?,
+                noted: row.try_get("", "noted").ok()?,
+                taken_back: row.try_get("", "taken_back").ok()?,
+                replaced: row.try_get("", "replaced").ok()?,
+            })
         })
         .collect();
+    became(lines, quoted)
+}
+
+/// What one retired memory quotes, when it was written and when the first
+/// note it was gone over from was taken (`noted`; when it was written, for
+/// one gone over from none), and what became of it.
+struct Quoted {
+    quote: String,
+    written: DateTime<FixedOffset>,
+    noted: DateTime<FixedOffset>,
+    taken_back: bool,
+    replaced: bool,
+}
+
+/// [`withdrawn`], once read: each line against the memories written after
+/// it only, found by when they were written.
+fn became(lines: &[Line], mut quoted: Vec<Quoted>) -> (HashSet<i32>, HashSet<i32>) {
+    quoted.sort_by_key(|quoted| quoted.written);
+    // No memory written later than this after a line can quote it.
+    let longest = quoted
+        .iter()
+        .map(|quoted| quoted.written - quoted.noted)
+        .max()
+        .unwrap_or_default()
+        + origins::QUOTED_WITHIN;
     let (mut gone, mut replaced) = (HashSet::new(), HashSet::new());
     for (index, line) in lines.iter().enumerate() {
-        let said = line
-            .content
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
-        let quotes = |(quote, written, _, _): &&(String, DateTime<FixedOffset>, bool, bool)| {
-            line.at <= *written
-                && line.at >= *written - origins::QUOTED_WITHIN
-                && said.contains(quote.as_str())
-        };
-        if quoted.iter().filter(quotes).any(|quote| quote.2) {
+        let after = quoted.partition_point(|quoted| quoted.written < line.at);
+        let mut said = None;
+        let (mut taken_back, mut since) = (false, false);
+        for quoted in quoted[after..]
+            .iter()
+            .take_while(|quoted| quoted.written <= line.at + longest)
+        {
+            let within = if quoted.taken_back {
+                line.at >= quoted.written - origins::QUOTED_WITHIN
+            } else {
+                quoted.replaced && !line.hers && line.at >= quoted.noted - origins::QUOTED_WITHIN
+            };
+            if !within {
+                continue;
+            }
+            let said = said.get_or_insert_with(|| {
+                line.content
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            });
+            if said.contains(quoted.quote.as_str()) {
+                taken_back |= quoted.taken_back;
+                since |= !quoted.taken_back;
+            }
+        }
+        if taken_back {
             gone.insert(line.id);
             if !line.hers
                 && let Some(answer) = lines.get(index + 1).filter(|next| next.hers)
             {
                 gone.insert(answer.id);
             }
-        } else if !line.hers && quoted.iter().filter(quotes).any(|quote| quote.3) {
+        } else if since {
             replaced.insert(line.id);
         }
     }
