@@ -14,6 +14,8 @@
 //!   in private and is on no node yet is sorted onto them, a batch at a
 //!   time (`memory_nodes::sorting`).
 //! - **Her nodes.** The nodes due are gone over (`memory_nodes::upkeep`).
+//! - **The owner's lines by meaning.** Their private talk without vectors
+//!   is given them, a batch a request (`chat_near::fill_behind`).
 
 use std::sync::{LazyLock, Mutex};
 
@@ -28,6 +30,11 @@ pub async fn tick(db: DatabaseConnection) {
         super::chat_remember::cues::write_missing(&db).await;
         super::memory_nodes::sorting::sort_missing(&db).await;
         super::memory_nodes::upkeep::tick(&db).await;
+        // The owner's private talk given vectors before their next turn, so
+        // their first words have lines to be near (`chat_near`).
+        if let Some(owner) = super::call::site_owner().await {
+            super::chat_near::fill_behind(db.clone(), owner);
+        }
     }
     let today = super::clock::today();
     if FOLDED_ON.lock().is_ok_and(|folded| *folded == Some(today)) {

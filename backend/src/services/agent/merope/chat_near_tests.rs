@@ -354,6 +354,50 @@ async fn a_line_given_no_vector_ends_the_rebuild() {
     schema.drop().await;
 }
 
+/// [`rebuild_once`], waiting while another test's rebuild runs.
+async fn rebuilt_once(db: &DatabaseConnection, user_id: i32) -> usize {
+    for _ in 0..200 {
+        if let Some(given) = rebuild_once(db, user_id).await {
+            return given;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    panic!("another rebuild never ended");
+}
+
+/// Her hourly upkeep gives the owner's private talk vectors before any turn
+/// (`merope::upkeep`): from none, one run leaves every line with one; once
+/// every line has one, a run asks for nothing.
+#[tokio::test]
+async fn upkeep_gives_the_talk_vectors_before_any_turn_then_asks_nothing() {
+    let Some(schema) = schema("chat_near_upkeep").await else {
+        return;
+    };
+    let db = &schema.db;
+    meaning_alike(&["我在学吉他", "周末去爬山"], "吉他");
+    session(db, "mine", OWNER, Some(r#"{"mode":"chat"}"#), false).await;
+    line(db, "mine", "user", "我在学吉他", 30, None).await;
+    line(db, "mine", "assistant", "周末去爬山", 25, None).await;
+    let vectors = "SELECT COUNT(*) AS n FROM agent_message_embeddings";
+    assert_eq!(count(db, vectors).await, 0);
+    let given = tokio::time::timeout(std::time::Duration::from_secs(30), rebuilt_once(db, OWNER))
+        .await
+        .expect("a run ends");
+    assert_eq!(given, 2);
+    assert_eq!(count(db, vectors).await, 2, "every line has one");
+    // Asked for anything now, the model would answer none.
+    g0::with(|world| world.vectors.clear());
+    assert_eq!(
+        fill(db, OWNER).await,
+        Filled::default(),
+        "nothing to ask for"
+    );
+    assert_eq!(rebuilt_once(db, OWNER).await, 0);
+    assert_eq!(count(db, vectors).await, 2);
+    g0::leave();
+    schema.drop().await;
+}
+
 /// What a rebuild and a turn leave in the log is counts only: one line
 /// each, a rebuild that finished too, and none of the words.
 #[tokio::test]

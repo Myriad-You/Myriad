@@ -373,8 +373,9 @@ pub(crate) async fn fill(db: &DatabaseConnection, user_id: i32) -> Filled {
 /// lines it has being all it needs. How many were given one. It stops when
 /// none is left without, at a request that gives none, at one after which
 /// no fewer are left without (whatever it says it stored), and after
-/// [`REBUILD_ASKS`] requests. Each rebuild leaves one line of counts only
-/// ([`told_rebuilt`]).
+/// [`REBUILD_ASKS`] requests. Each rebuild that found a line without one
+/// leaves one line of counts only ([`told_rebuilt`]); one that found none
+/// (asked nothing) leaves none.
 pub(crate) async fn rebuild(db: &DatabaseConnection, user_id: i32) -> usize {
     let mut done = Rebuilt::default();
     let mut before: Option<usize> = None;
@@ -402,7 +403,10 @@ pub(crate) async fn rebuild(db: &DatabaseConnection, user_id: i32) -> usize {
         }
         before = Some(filled.missing);
     }
-    told_rebuilt(&done, stopped);
+    // Only a first fill that found none missing asked nothing.
+    if !(done.asks == 1 && matches!(stopped, Stopped::Done)) {
+        told_rebuilt(&done, stopped);
+    }
     done.given
 }
 
@@ -484,30 +488,39 @@ pub(crate) fn told_brought(near: &[(String, Who, String)], reached: Reached) {
 /// Whether lines are being given vectors behind a reply now.
 static FILLING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// [`rebuild`] behind the reply: nothing waits on it. Most turns leave a
-/// line or two without one, one request; on an end that has just become
-/// where she is, the whole talk. Once at a time: a turn while it runs
-/// leaves it to the one running.
-pub(crate) fn fill_behind(db: DatabaseConnection, user_id: i32) {
+/// [`rebuild`], once at a time: what was given, or none when another runs
+/// (it is left to that one).
+pub(crate) async fn rebuild_once(db: &DatabaseConnection, user_id: i32) -> Option<usize> {
     use std::sync::atomic::Ordering;
     if FILLING.swap(true, Ordering::AcqRel) {
-        return;
+        return None;
     }
-    /// Lets the next turn fill again however this one ends (a panic too).
+    /// Lets the next one fill again however this one ends (a panic too).
     struct Done;
     impl Drop for Done {
         fn drop(&mut self) {
             FILLING.store(false, Ordering::Release);
         }
     }
-    // On her managed runner: refused (at capacity, or shutting down), the
-    // next turn tries again.
-    if !super::background::spawn("chat lines' vectors", async move {
-        let _done = Done;
-        rebuild(&db, user_id).await;
-    }) {
-        FILLING.store(false, Ordering::Release);
+    let _done = Done;
+    Some(rebuild(db, user_id).await)
+}
+
+/// [`rebuild_once`] behind the reply, or in her hourly upkeep before any
+/// turn (`merope::upkeep`): nothing waits on it. Most turns leave a line or
+/// two without one, one request; on an end that has just become where she
+/// is, or a talk never given vectors, the whole talk, at most
+/// [`REBUILD_ASKS`] requests. Once every line has one, nothing is asked.
+pub(crate) fn fill_behind(db: DatabaseConnection, user_id: i32) {
+    // One running already: left to it, no task taken for nothing.
+    if FILLING.load(std::sync::atomic::Ordering::Acquire) {
+        return;
     }
+    // On her managed runner: refused (at capacity, or shutting down), the
+    // next turn or upkeep tries again.
+    let _ = super::background::spawn("chat lines' vectors", async move {
+        rebuild_once(&db, user_id).await;
+    });
 }
 
 /// What scrolling back found (`found`), with each of `near` added once,
