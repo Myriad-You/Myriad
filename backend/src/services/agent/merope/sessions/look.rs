@@ -431,7 +431,7 @@ async fn look(
         }
     }
     // Where each repository stands now, as she sees it.
-    keep::progress(db, owner, &asking.material, &answer.repos).await;
+    keep::progress(db, owner, pictures, &asking.material, &answer.repos).await;
     if let Some(line) = &answer.line
         && let Some(judgment) = &answer.judgments[line.change - 1]
     {

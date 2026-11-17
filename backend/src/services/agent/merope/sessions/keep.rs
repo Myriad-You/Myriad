@@ -2,7 +2,7 @@
 //! line she would say, and the look itself (what she was shown and what the
 //! model answered, word for word) in the owner's ledger for a week.
 
-use myriad_her_link::now::Session;
+use myriad_her_link::now::{Change, Session};
 use myriad_nodes::sessions;
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::{Deserialize, Serialize};
@@ -153,13 +153,14 @@ pub(super) async fn card(
     Ok(true)
 }
 
-/// Her line on each repository of the look (`repos`): written on the
-/// repository's node as hers, while her mind is here, and its progress
-/// card put before the owner, the day's counts its facts. A repository the
-/// rules have not made a node of yet is passed by.
+/// Her line on each repository of the look (`repos`, of the changes in
+/// `looked`): written on the repository's node as hers, while her mind is
+/// here, and its progress card put before the owner, the day's counts its
+/// facts. A repository the rules have not made a node of yet is passed by.
 pub(super) async fn progress(
     db: &DatabaseConnection,
     owner: i32,
+    looked: &[Picture],
     material: &Material,
     repos: &[myriad_nodes::session_look::RepoNow],
 ) {
@@ -225,17 +226,7 @@ pub(super) async fn progress(
                 continue;
             }
         };
-        // The same line of hers again, on nothing it did not rest on
-        // already, is not a new one: only its card's counts may have moved.
-        let held: Vec<&Value> = standing["value"]["because"]
-            .as_array()
-            .map(|ids| ids.iter().collect())
-            .unwrap_or_default();
-        let again = standing["author"] == "her"
-            && standing["value"]["text"] == made.row.body["text"]
-            && made.row.body["because"]
-                .as_array()
-                .is_some_and(|ids| ids.iter().all(|id| held.contains(&id)));
+        let again = nothing_new(standing, &made.row.body, looked, &repo.key);
         let row = RowIn {
             id: made.row.id,
             node: made.node,
@@ -250,6 +241,39 @@ pub(super) async fn progress(
         if let Err(error) = crate::services::agent::merope::cards::put(db, owner, made.card).await {
             tracing::warn!(%error, "[Merope] a repository's progress card was not put");
         }
+    }
+}
+
+/// Whether her line on the repository `key` (`standing`, as it stands)
+/// stands as it is rather than be written again as `body`, from a look at
+/// the changes `looked`: it is hers and `body` rests on nothing it did not
+/// rest on already, and either no session of the repository came to the
+/// end of a round in the look (one asking the owner something has not got
+/// further) or it says the same words. Only its card's counts may have
+/// moved.
+pub(super) fn nothing_new(standing: &Value, body: &Value, looked: &[Picture], key: &str) -> bool {
+    let held: Vec<&Value> = standing["value"]["because"]
+        .as_array()
+        .map(|ids| ids.iter().collect())
+        .unwrap_or_default();
+    let new_ground = standing["author"] != "her"
+        || !body["because"]
+            .as_array()
+            .is_some_and(|ids| ids.iter().all(|id| held.contains(&id)));
+    let round_done = looked.iter().any(|picture| {
+        matches!(picture.session.change, Change::Finished | Change::Failed)
+            && repo_key_of(picture).as_deref() == Some(key)
+    });
+    !new_ground && (!round_done || standing["value"]["text"] == body["text"])
+}
+
+/// The key of the repository `picture`'s session is in, as the rows a
+/// rule writes of it name it (`super::take`).
+fn repo_key_of(picture: &Picture) -> Option<String> {
+    match (&picture.session.remote, &picture.session.folder) {
+        (Some(remote), _) => myriad_nodes::repo_key(remote).ok(),
+        (_, Some(folder)) => Some(sessions::folder_key(&picture.device, folder)),
+        (None, None) => None,
     }
 }
 
@@ -413,7 +437,6 @@ pub(super) async fn status_card(
     owner: i32,
     picture: &Picture,
 ) -> Option<String> {
-    use myriad_her_link::now::Change;
     if !matches!(picture.session.change, Change::Finished | Change::Failed) {
         return None;
     }
@@ -429,7 +452,7 @@ pub(super) async fn status_card(
 /// it finished or failed (`status`), and her cards on it settled once it
 /// went on or ended without waiting on the owner (they answered it there).
 pub(super) async fn session_cards(db: &DatabaseConnection, owner: i32, picture: &Picture) {
-    use myriad_her_link::now::{Change, WaitingOn};
+    use myriad_her_link::now::WaitingOn;
     let Ok(task) = task_id(owner, picture) else {
         return;
     };
@@ -624,3 +647,7 @@ pub(super) async fn ledger_of(db: &DatabaseConnection, owner: i32) -> Vec<Looked
         .filter_map(|row| serde_json::from_value(row.payload).ok())
         .collect()
 }
+
+#[cfg(test)]
+#[path = "keep_tests.rs"]
+mod tests;
