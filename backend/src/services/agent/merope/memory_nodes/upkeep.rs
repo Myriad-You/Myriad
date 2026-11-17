@@ -432,6 +432,8 @@ pub(crate) async fn run(
 ) -> Result<usize, Error> {
     let mut calls = 0;
     let mut gone: HashSet<String> = HashSet::new();
+    // Nothing resting on a memory they took back is gone over again.
+    super::forget::taken_back_here(db, user_id, audience).await?;
     while calls < at_most {
         let kept = heads::rows_of(db, user_id, audience).await?;
         let bodies = heads::bodies(&kept)?;

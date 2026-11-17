@@ -67,6 +67,95 @@ async fn citing<C: ConnectionTrait>(
         .collect()
 }
 
+/// The kinds of row that are versions of an item, each written on the
+/// ones before it (its `base`): her views, what is not wrapped up, how
+/// their life stands, and a head field (a summary, …).
+const VERSIONED: &[&str] = &[
+    "node.view_changed",
+    "node.open_item",
+    "node.standing",
+    "node.revised",
+];
+
+/// `doomed` (row ids of `kept`) and every version that rests on an entry
+/// or a span among them, or on one forgotten before: what her upkeep writes (a summary sentence, a
+/// view, what is not wrapped up) names its evidence by row (`entry:<row>`,
+/// `span:<row>`), not by the memory, and its words were written from it.
+pub(super) fn resting_on(kept: &[heads::KeptRow], doomed: BTreeSet<String>) -> BTreeSet<String> {
+    // What goes now, and what went before: a version a forgetting before
+    // this one left resting on an entry it took.
+    let evidence: BTreeSet<String> = kept
+        .iter()
+        .filter(|kept| doomed.contains(&kept.row.id) || kept.row.forgotten)
+        .filter_map(|kept| match kept.row.kind.as_str() {
+            "node.entry" => Some(format!("entry:{}", kept.row.id)),
+            "node.span" => Some(format!("span:{}", kept.row.id)),
+            _ => None,
+        })
+        .collect();
+    if evidence.is_empty() {
+        return doomed;
+    }
+    let names = |because: &serde_json::Value| {
+        because.as_array().is_some_and(|ids| {
+            ids.iter()
+                .any(|id| id.as_str().is_some_and(|id| evidence.contains(id)))
+        })
+    };
+    let more: Vec<String> = kept
+        .iter()
+        .filter(|kept| VERSIONED.contains(&kept.row.kind.as_str()))
+        .filter(|kept| {
+            kept.body
+                .as_deref()
+                .and_then(|body| serde_json::from_str::<serde_json::Value>(body).ok())
+                .is_some_and(|body| {
+                    names(&body["because"])
+                        || body["value"].as_array().is_some_and(|sentences| {
+                            sentences.iter().any(|sentence| names(&sentence["because"]))
+                        })
+                })
+        })
+        .map(|kept| kept.row.id.clone())
+        .collect();
+    let mut doomed = doomed;
+    doomed.extend(more);
+    doomed
+}
+
+/// `doomed` (row ids of `kept`) and every version written on one of them,
+/// however far down: its words were written from what goes, so they go
+/// too, and the item stands again as it was before the first of them.
+pub(super) fn written_on(
+    kept: &[heads::KeptRow],
+    mut doomed: BTreeSet<String>,
+) -> BTreeSet<String> {
+    loop {
+        let more: Vec<String> = kept
+            .iter()
+            .filter(|kept| {
+                !doomed.contains(&kept.row.id) && VERSIONED.contains(&kept.row.kind.as_str())
+            })
+            .filter(|kept| {
+                kept.body
+                    .as_deref()
+                    .and_then(|body| serde_json::from_str::<serde_json::Value>(body).ok())
+                    .and_then(|body| body.get("base").cloned())
+                    .and_then(|base| base.as_array().cloned())
+                    .is_some_and(|base| {
+                        base.iter()
+                            .any(|row| row.as_str().is_some_and(|row| doomed.contains(row)))
+                    })
+            })
+            .map(|kept| kept.row.id.clone())
+            .collect();
+        if more.is_empty() {
+            return doomed;
+        }
+        doomed.extend(more);
+    }
+}
+
 /// Rows of `user_id` made stubs: no payload, no body.
 pub(super) async fn stub<C: ConnectionTrait>(db: &C, user_id: i32, rows: &[Row]) -> Result<(), Error> {
     // A forget is never a stub: it holds no words.
@@ -195,6 +284,101 @@ fn empty_topic(node: &myriad_nodes::Node) -> bool {
             .is_some_and(|kind| kind.current.value.kind == Kind::Topic)
 }
 
+/// What rests in `user_id`'s `audience` on a memory they took back
+/// (「当我没说」, or deleted), forgotten as if it were forgotten now
+/// ([`forget`]): taking a memory back forgets it there at once, but one
+/// taken back on another of her ends, or before forgetting reached 「现在」,
+/// left it. Run before what is here is read for her (a stretch's facts,
+/// her upkeep), in a transaction of its own.
+pub(crate) async fn taken_back_here(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    audience: &str,
+) -> Result<(), Error> {
+    use sea_orm::TransactionTrait;
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT DISTINCT substr(cited.ref, 8) AS id FROM agent_node_rows r \
+             CROSS JOIN LATERAL jsonb_array_elements_text( \
+               COALESCE((r.body::jsonb)->(CASE \
+                 WHEN r.kind IN ('node.view_changed', 'node.open_item', 'node.standing') THEN 'because' \
+                 ELSE 'refs' END), '[]'::jsonb)) AS cited(ref) \
+             WHERE r.user_id = $1 AND r.audience = $2 AND r.body <> '' \
+               AND r.kind IN ('node.entry', 'node.view_changed', 'node.open_item', 'node.standing') \
+               AND cited.ref LIKE 'memory:%'",
+            [user_id.into(), audience.into()],
+        ))
+        .await?;
+    let ids: Vec<String> = rows
+        .iter()
+        .map(|row| row.try_get::<String>("", "id"))
+        .collect::<Result<_, _>>()?;
+    let taken_back: Vec<String> = super::known::named(db, ids)
+        .await?
+        .into_iter()
+        .filter(|(_, named)| named.taken_back)
+        .map(|(id, _)| id)
+        .collect();
+    let left = left_resting(db, user_id, audience).await?;
+    if taken_back.is_empty() && left == 0 {
+        return Ok(());
+    }
+    let txn = db.begin().await?;
+    if !taken_back.is_empty() {
+        forget(&txn, &taken_back, &[]).await?;
+    }
+    if left > 0 {
+        forget_rows(&txn, user_id, audience, &BTreeSet::new(), BTreeSet::new()).await?;
+    }
+    txn.commit().await?;
+    tracing::info!(
+        memories = taken_back.len(),
+        left,
+        "[memory-nodes] what rested on memories taken back, or on entries forgotten before, forgotten"
+    );
+    Ok(())
+}
+
+/// What a version rests on (`because`, or each summary sentence's) that is
+/// an entry or a span already forgotten (a stub), as SQL over a row `d`.
+const RESTS_ON_A_STUB: &str = "agent_node_rows d \
+     CROSS JOIN LATERAL ( \
+       SELECT jsonb_array_elements_text(COALESCE(d.body::jsonb->'because', '[]'::jsonb)) AS ref \
+       UNION ALL \
+       SELECT jsonb_array_elements_text(COALESCE(s->'because', '[]'::jsonb)) \
+       FROM jsonb_array_elements(CASE WHEN jsonb_typeof(d.body::jsonb->'value') = 'array' \
+                                      THEN d.body::jsonb->'value' ELSE '[]'::jsonb END) s \
+     ) refs \
+     JOIN agent_node_rows e ON e.user_id = d.user_id AND e.audience = d.audience AND e.body = '' \
+       AND e.kind IN ('node.entry', 'node.span') \
+       AND refs.ref = (CASE e.kind WHEN 'node.entry' THEN 'entry:' ELSE 'span:' END) || e.row_id \
+     WHERE d.body <> '' \
+       AND d.kind IN ('node.view_changed', 'node.open_item', 'node.standing', 'node.revised')";
+
+/// How many versions in `user_id`'s `audience` still rest on an entry or a
+/// span forgotten before upkeep's evidence was followed ([`resting_on`]).
+async fn left_resting(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    audience: &str,
+) -> Result<i64, Error> {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            format!(
+                "SELECT count(DISTINCT d.row_id) AS n FROM {RESTS_ON_A_STUB} \
+                 AND d.user_id = $1 AND d.audience = $2"
+            ),
+            [user_id.into(), audience.into()],
+        ))
+        .await?;
+    Ok(row
+        .map(|row| row.try_get::<i64>("", "n"))
+        .transpose()?
+        .unwrap_or(0))
+}
+
 /// Forgets on her nodes what goes with the memories `memories` (ids) and
 /// the lines `lines` (`agent_messages.id`) being forgotten, on `db`'s
 /// transaction ([module docs](self)).
@@ -222,49 +406,65 @@ pub(crate) async fn forget<C: ConnectionTrait>(
         rows.insert(row);
     }
     for ((user_id, audience), (nodes, cited)) in by_audience {
-        write::lock(db, user_id, &audience).await?;
-        let kept = heads::rows_of(db, user_id, &audience).await?;
-        let doomed: Vec<Row> = kept
-            .iter()
-            .filter(|kept| cited.contains(&kept.row.id))
-            .map(|kept| kept.row.clone())
-            .collect();
-        for row in doomed.iter().filter(|row| !row.forgotten) {
-            forget_one(db, user_id, &audience, &row_node(row), Forgets::Row(&row.id)).await?;
-        }
-        stub(db, user_id, &doomed).await?;
-        // What held them: the nodes they were written on, or went into.
-        let folded = heads::fold_rows(&heads::rows_of(db, user_id, &audience).await?)?;
-        let mut holders: BTreeSet<String> = nodes.clone();
-        for node in &folded.nodes {
-            if nodes.contains(&node.id)
-                && let Some(into) = &node.absorbed_into
-            {
-                holders.insert(into.into.clone());
-                holders.insert(myriad_nodes::node_id(&audience, &into.into).unwrap_or_default());
-            }
-        }
-        let emptied: Vec<String> = folded
-            .nodes
-            .iter()
-            .filter(|node| holders.contains(&node.id) && empty_topic(node))
-            .map(|node| node.id.clone())
-            .collect();
-        for node in &emptied {
-            forget_one(db, user_id, &audience, node, Forgets::Node).await?;
-        }
-        if !emptied.is_empty() {
-            let gone: Vec<Row> = heads::rows_of(db, user_id, &audience)
-                .await?
-                .into_iter()
-                .filter(|kept| emptied.contains(&row_node(&kept.row)))
-                .map(|kept| kept.row)
-                .collect();
-            stub(db, user_id, &gone).await?;
-        }
-        let folded = heads::fold_rows(&heads::rows_of(db, user_id, &audience).await?)?;
-        heads::refresh(db, user_id, &audience, &folded).await?;
+        forget_rows(db, user_id, &audience, &nodes, cited).await?;
     }
+    Ok(())
+}
+
+/// Forgets `cited` (rows of `user_id`'s `audience`, on `nodes`) with what
+/// rests on them or was written on them, then a topic of `nodes` they
+/// leave empty; the audience's heads refreshed.
+async fn forget_rows<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    audience: &str,
+    nodes: &BTreeSet<String>,
+    cited: BTreeSet<String>,
+) -> Result<(), Error> {
+    let audience = audience.to_string();
+    write::lock(db, user_id, &audience).await?;
+    let kept = heads::rows_of(db, user_id, &audience).await?;
+    let cited = written_on(&kept, resting_on(&kept, cited));
+    let doomed: Vec<Row> = kept
+        .iter()
+        .filter(|kept| cited.contains(&kept.row.id))
+        .map(|kept| kept.row.clone())
+        .collect();
+    for row in doomed.iter().filter(|row| !row.forgotten) {
+        forget_one(db, user_id, &audience, &row_node(row), Forgets::Row(&row.id)).await?;
+    }
+    stub(db, user_id, &doomed).await?;
+    // What held them: the nodes they were written on, or went into.
+    let folded = heads::fold_rows(&heads::rows_of(db, user_id, &audience).await?)?;
+    let mut holders: BTreeSet<String> = nodes.clone();
+    for node in &folded.nodes {
+        if nodes.contains(&node.id)
+            && let Some(into) = &node.absorbed_into
+        {
+            holders.insert(into.into.clone());
+            holders.insert(myriad_nodes::node_id(&audience, &into.into).unwrap_or_default());
+        }
+    }
+    let emptied: Vec<String> = folded
+        .nodes
+        .iter()
+        .filter(|node| holders.contains(&node.id) && empty_topic(node))
+        .map(|node| node.id.clone())
+        .collect();
+    for node in &emptied {
+        forget_one(db, user_id, &audience, node, Forgets::Node).await?;
+    }
+    if !emptied.is_empty() {
+        let gone: Vec<Row> = heads::rows_of(db, user_id, &audience)
+            .await?
+            .into_iter()
+            .filter(|kept| emptied.contains(&row_node(&kept.row)))
+            .map(|kept| kept.row)
+            .collect();
+        stub(db, user_id, &gone).await?;
+    }
+    let folded = heads::fold_rows(&heads::rows_of(db, user_id, &audience).await?)?;
+    heads::refresh(db, user_id, &audience, &folded).await?;
     Ok(())
 }
 

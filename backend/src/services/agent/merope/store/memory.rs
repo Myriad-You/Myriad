@@ -290,6 +290,11 @@ async fn apply_one<C: ConnectionTrait>(
                 .await?;
             if let Some(holder) = &duplicate {
                 unified::retire_in_favor_of(db, user_id, &settles, "settled", Some(holder)).await?;
+            } else {
+                // Taken back with nothing in its place: what rests on it on
+                // her nodes goes as when it is forgotten, in this
+                // transaction (its words may carry what was taken back).
+                super::super::memory_nodes::forget::forget(db, &targets, &[]).await?;
             }
         }
     }

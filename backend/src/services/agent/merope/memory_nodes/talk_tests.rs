@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use super::facts::GoesUnder;
 use super::placing::{self, Line};
-use super::{Author, RowIn, audience, facts, forget, inbox, read, sorting, upkeep, write};
+use super::{Author, RowIn, audience, facts, forget, heads, inbox, read, sorting, upkeep, write};
 use crate::services::agent::memory::unified::Audience;
 use crate::services::agent::merope::chat_remember::{ChatMemoryUpdate, ChatMemoryUpdates};
 use crate::services::agent::merope::store::{self, Keep};
@@ -944,5 +944,367 @@ async fn what_she_knew_on_a_node_stands_first_whatever_stands_elsewhere() {
     )
     .await;
     assert_eq!(asked("memory_standing_build"), 0, "stood on: not again");
+    schema.drop().await;
+}
+
+/// What the step was shown of each fact since the world was entered.
+fn step_inputs() -> Vec<String> {
+    let world = g0::leave().expect("a world");
+    world
+        .log
+        .iter()
+        .filter(|line| {
+            line["kind"] == "model" && line["what"]["operation"] == "memory_standing_step"
+        })
+        .filter_map(|line| line["what"]["input"].as_str().map(str::to_string))
+        .collect()
+}
+
+/// On 「工作」: 「在趣养做运营」, then rewritten on what `then` says as
+/// `rewritten`, each kept as a fact of its own.
+async fn work_stands(db: &DatabaseConnection, then: &str, rewritten: &str) {
+    let work = || {
+        Some(GoesUnder::New {
+            name: "工作".into(),
+            aliases: Vec::new(),
+        })
+    };
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[],"add":[{"topic":"工作","text":"在趣养做运营"}]}"#,
+    )]);
+    settle(db, vec![update("在趣养做运营", &[], work())]).await;
+    let set =
+        json!({"whose": "them", "set": [{"item": 1, "text": rewritten}], "end": [], "add": []});
+    answering(&[("memory_standing_step", set.to_string().as_str())]);
+    settle(db, vec![update(then, &[], work())]).await;
+}
+
+/// How things stand on 「工作」, as shown.
+async fn work_now(db: &DatabaseConnection) -> Vec<String> {
+    let heads = read::heads(db, OTHER, &talk(), None).await.unwrap();
+    let node = heads
+        .iter()
+        .find(|head| head.name.as_deref() == Some("工作"))
+        .unwrap();
+    let head = read::node(db, OTHER, &talk(), &node.node_id)
+        .await
+        .unwrap()
+        .unwrap();
+    myriad_nodes::stands::shown_on(&node.node_id, &head)
+        .into_iter()
+        .map(|item| item.text)
+        .collect()
+}
+
+/// A fact on 「工作」 with nothing to change: what the step was shown.
+async fn shown_next(db: &DatabaseConnection, text: &str) -> String {
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[],"add":[]}"#,
+    )]);
+    settle(
+        db,
+        vec![update(
+            text,
+            &[],
+            Some(GoesUnder::New {
+                name: "工作".into(),
+                aliases: Vec::new(),
+            }),
+        )],
+    )
+    .await;
+    step_inputs().join("\n")
+}
+
+/// A memory forgotten goes from how their life stands with every version
+/// written on what rests on it: v1 [m1] → v2 on v1 [m2] → v3 on v2 [m3];
+/// m2 forgotten, v2 and v3 are stubs and v1 stands again, and nothing of
+/// m2 is shown to the step after.
+#[tokio::test]
+async fn what_was_written_on_a_forgotten_memory_goes_with_it() {
+    let Some(schema) = schema("memory_nodes_standing_written_on").await else {
+        return;
+    };
+    let db = &schema.db;
+    work_stands(db, "同事小王在追她", "在趣养做运营，同事小王在追她").await;
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[{"item":1,"text":"在趣养做主管，同事小王在追她"}],"end":[],"add":[]}"#,
+    )]);
+    settle(
+        db,
+        vec![update(
+            "升职做了主管",
+            &[],
+            Some(GoesUnder::New {
+                name: "工作".into(),
+                aliases: Vec::new(),
+            }),
+        )],
+    )
+    .await;
+    assert_eq!(work_now(db).await, vec!["在趣养做主管，同事小王在追她"]);
+    let wooed = memory_id(db, "同事小王在追她").await;
+    forget::forget(db, &[wooed.clone()], &[]).await.unwrap();
+    // The memory itself goes too, as forgetting does.
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_memories SET invalid_at = NOW(), invalid_reason = 'deleted' WHERE id = $1",
+        [wooed.into()],
+    ))
+    .await
+    .unwrap();
+    let stubs = count(
+        db,
+        "SELECT count(*) AS n FROM agent_node_rows WHERE kind = 'node.standing' AND body = ''",
+    )
+    .await;
+    assert_eq!(stubs, 2, "v2 and v3");
+    assert_eq!(work_now(db).await, vec!["在趣养做运营"]);
+    let shown = shown_next(db, "趣养搬了新办公室").await;
+    assert!(
+        shown.contains("在趣养做运营") && !shown.contains("小王"),
+        "{shown}"
+    );
+    schema.drop().await;
+}
+
+/// A version resting on a memory taken back where forgetting never reached
+/// it (taken back on another of her ends, or before forgetting reached
+/// 「现在」) is forgotten before the next fact is read: it stands as it
+/// did before, and nothing of it is shown to the step.
+#[tokio::test]
+async fn what_rests_on_a_memory_taken_back_elsewhere_is_not_shown_again() {
+    for (name, taken_back) in [
+        (
+            "memory_nodes_standing_taken_back_elsewhere",
+            // Put aside with nothing in its place, as a taking back comes in.
+            "UPDATE agent_memories SET invalid_at = NOW(), invalid_reason = 'superseded', \
+             superseded_by = NULL WHERE content = '同事小王在追她'",
+        ),
+        (
+            "memory_nodes_standing_deleted_before",
+            // Deleted, as before forgetting reached 「现在」.
+            "UPDATE agent_memories SET invalid_at = NOW(), invalid_reason = 'deleted' \
+             WHERE content = '同事小王在追她'",
+        ),
+    ] {
+        let Some(schema) = schema(name).await else {
+            return;
+        };
+        let db = &schema.db;
+        work_stands(db, "同事小王在追她", "在趣养做运营，同事小王在追她").await;
+        db.execute_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            taken_back,
+        ))
+        .await
+        .unwrap();
+        // Its rows are still here, whole.
+        assert_eq!(work_now(db).await, vec!["在趣养做运营，同事小王在追她"]);
+        let shown = shown_next(db, "升职做了主管").await;
+        assert!(
+            shown.contains("在趣养做运营") && !shown.contains("小王"),
+            "{name}: {shown}"
+        );
+        assert_eq!(work_now(db).await, vec!["在趣养做运营"], "{name}");
+        schema.drop().await;
+    }
+}
+
+/// A memory taken back as a stretch is gone over (put aside with nothing in
+/// its place) goes from her nodes in that same writing, as when it is
+/// forgotten: v1 [m1] → v2 on v1 [m2] → v3 on v2 [m3]; m2 taken back, v2
+/// and v3 are stubs before anything else is read, v1 stands again, and
+/// nothing of m2 is shown to the step after.
+#[tokio::test]
+async fn what_was_written_on_a_memory_taken_back_goes_with_it() {
+    let Some(schema) = schema("memory_nodes_standing_taken_back_here").await else {
+        return;
+    };
+    let db = &schema.db;
+    work_stands(db, "同事小王在追她", "在趣养做运营，同事小王在追她").await;
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[{"item":1,"text":"在趣养做主管，同事小王在追她"}],"end":[],"add":[]}"#,
+    )]);
+    settle(
+        db,
+        vec![update(
+            "升职做了主管",
+            &[],
+            Some(GoesUnder::New {
+                name: "工作".into(),
+                aliases: Vec::new(),
+            }),
+        )],
+    )
+    .await;
+    assert_eq!(work_now(db).await, vec!["在趣养做主管，同事小王在追她"]);
+    let taken_back = ChatMemoryUpdate {
+        fact: None,
+        evidence: None,
+        ..update("", &["同事小王在追她"], None)
+    };
+    let transaction = db.begin().await.unwrap();
+    let applied = store::apply_chat_memory_update_on(
+        &transaction,
+        OTHER,
+        crate::clock::now().fixed_offset(),
+        &taken_back,
+        &Audience::private(OTHER),
+        Keep::Lasting,
+    )
+    .await
+    .unwrap();
+    transaction.commit().await.unwrap();
+    assert!(applied, "taken back");
+    let stubs = count(
+        db,
+        "SELECT count(*) AS n FROM agent_node_rows WHERE kind = 'node.standing' AND body = ''",
+    )
+    .await;
+    assert_eq!(stubs, 2, "v2 and v3, before anything else is read");
+    assert_eq!(work_now(db).await, vec!["在趣养做运营"]);
+    let shown = shown_next(db, "趣养搬了新办公室").await;
+    assert!(
+        shown.contains("在趣养做运营") && !shown.contains("小王"),
+        "{shown}"
+    );
+    schema.drop().await;
+}
+
+/// What her upkeep wrote resting on an entry of a memory taken back or
+/// forgotten (a summary sentence names its evidence by row, `entry:<row>`)
+/// goes with it at once: before upkeep writes the summary again, it is in
+/// no head she is shown.
+#[tokio::test]
+async fn a_summary_resting_on_what_goes_goes_with_it() {
+    for (name, taken_back) in [
+        ("memory_nodes_summary_taken_back", true),
+        ("memory_nodes_summary_forgotten", false),
+    ] {
+        let Some(schema) = schema(name).await else {
+            return;
+        };
+        let db = &schema.db;
+        let (wooed, node, _) = summed_up(db).await;
+        let before = read::node(db, OTHER, &talk(), &node)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            before["summary"]["value"].to_string().contains("小王"),
+            "{name}"
+        );
+        if taken_back {
+            db.execute_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "UPDATE agent_memories SET invalid_at = NOW(), invalid_reason = 'superseded', \
+                 superseded_by = NULL WHERE content = '同事小王在追她'",
+            ))
+            .await
+            .unwrap();
+            forget::taken_back_here(db, OTHER, &talk()).await.unwrap();
+        } else {
+            forget::forget(db, &[wooed], &[]).await.unwrap();
+        }
+        let after = read::node(db, OTHER, &talk(), &node)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!after.to_string().contains("小王"), "{name}: {after}");
+        schema.drop().await;
+    }
+}
+
+/// 「工作」 as [`work_stands`] leaves it, and a summary her upkeep wrote on
+/// it resting on the entry of 「同事小王在追她」: that memory, the node,
+/// the entry's row.
+async fn summed_up(db: &DatabaseConnection) -> (String, String, String) {
+    work_stands(db, "同事小王在追她", "在趣养做运营，同事小王在追她").await;
+    let wooed = memory_id(db, "同事小王在追她").await;
+    let entry: String = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT row_id FROM agent_node_rows WHERE kind = 'node.entry' AND body LIKE $1",
+            [format!("%memory:{wooed}%").into()],
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "row_id")
+        .unwrap();
+    let node = read::heads(db, OTHER, &talk(), None)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|head| head.name.as_deref() == Some("工作"))
+        .unwrap()
+        .node_id;
+    let summary = json!({
+        "version": myriad_nodes::BODY_VERSION,
+        "sync": {"local": crate::services::her_log::NODE},
+        "saidBy": ["her"],
+        "base": [],
+        "field": "summary",
+        "value": [{"text": "在趣养做运营，同事小王在追她。", "because": [format!("entry:{entry}")]}],
+    });
+    let thought = pen::think().unwrap();
+    write::write(
+        db,
+        OTHER,
+        &talk(),
+        &[RowIn {
+            id: myriad_nodes::entries::row_id_from("node.revised", &node, "summary", "1"),
+            node: node.clone(),
+            kind: "node.revised".into(),
+            body: summary,
+            author: Author::Her,
+        }],
+        Some(&thought),
+    )
+    .await
+    .unwrap();
+    (wooed, node, entry)
+}
+
+/// What a forgetting before upkeep's evidence was followed left (a summary
+/// resting on an entry it took, whole) goes the next time a stretch's
+/// facts are read there.
+#[tokio::test]
+async fn what_an_earlier_forgetting_left_goes_at_the_next_stretch() {
+    let Some(schema) = schema("memory_nodes_summary_left_before").await else {
+        return;
+    };
+    let db = &schema.db;
+    let (_, node, entry) = summed_up(db).await;
+    // Forgotten as before: the entry alone, its summary left.
+    let kept = heads::rows_of(db, OTHER, &talk()).await.unwrap();
+    let row = kept
+        .iter()
+        .find(|kept| kept.row.id == entry)
+        .unwrap()
+        .row
+        .clone();
+    forget::forget_one(db, OTHER, &talk(), &node, forget::Forgets::Row(&row.id))
+        .await
+        .unwrap();
+    forget::stub(db, OTHER, &[row]).await.unwrap();
+    let folded = heads::fold_rows(&heads::rows_of(db, OTHER, &talk()).await.unwrap()).unwrap();
+    heads::refresh(db, OTHER, &talk(), &folded).await.unwrap();
+    let left = read::node(db, OTHER, &talk(), &node)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(left["summary"]["value"].to_string().contains("小王"));
+    shown_next(db, "趣养搬了新办公室").await;
+    let after = read::node(db, OTHER, &talk(), &node)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(after["summary"].is_null(), "{}", after["summary"]);
     schema.drop().await;
 }

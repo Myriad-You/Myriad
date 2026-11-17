@@ -357,6 +357,10 @@ pub(crate) async fn after_settled(
     pen: &Thought,
 ) -> Result<usize, Error> {
     let mut written = 0;
+    // What rests on a memory they took back goes before anything is read
+    // here: forgetting never reached it if it was taken back on another of
+    // her ends, or before forgetting reached 「现在」.
+    super::forget::taken_back_here(db, owner, audience).await?;
     // A node a fact is put on that none of hers ever stood on (what she
     // kept there before 「现在」 was written): first how things stood there
     // before this stretch, so what it changes is changed, not only started.
