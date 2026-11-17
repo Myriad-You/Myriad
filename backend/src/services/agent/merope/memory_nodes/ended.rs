@@ -8,8 +8,8 @@
 //! rule's item is what a device showed for a while, and its ending is
 //! nothing about their life. A memory they had her forget takes the rows
 //! resting on it with it ([`super::forget`]); one they took back or let go
-//! keeps its rows, so the caller's `since` says nothing for an item all of
-//! whose memories were taken back, or that rests on none, and it is left
+//! keeps its rows, so the caller's `since` says nothing for an item any of
+//! whose memories was taken back, or that rests on none, and it is left
 //! out.
 
 use myriad_nodes::stands;

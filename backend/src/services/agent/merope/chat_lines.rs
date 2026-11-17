@@ -114,7 +114,11 @@ pub(crate) async fn private_lines(db: &DatabaseConnection, user_id: i32, latest:
         })
         .collect();
     lines.reverse();
-    let (gone, replaced) = withdrawn(db, user_id, &lines).await;
+    // What they took back cannot be told apart from the rest unread: no
+    // line is read then, rather than every one of them.
+    let Some((gone, replaced)) = withdrawn(db, user_id, &lines).await else {
+        return Vec::new();
+    };
     lines.retain(|line| !gone.contains(&line.id));
     for line in &mut lines {
         line.replaced = replaced.contains(&line.id);
@@ -133,6 +137,12 @@ pub(crate) async fn private_lines(db: &DatabaseConnection, user_id: i32, latest:
 /// deleting): only she does not bring them up again. Read when looked for,
 /// so a taking back that came from another end counts too.
 ///
+/// Either way, what the short notes it was gone over from quote went with
+/// it: a note's own words are not the fact's, and are theirs all the same.
+///
+/// None when it cannot be read: the caller then reads no line at all, for
+/// which of them were taken back is not known.
+///
 /// Replaced since: what a memory quotes that a later fact took the place of
 /// (retired as superseded, pointing at one that was not itself taken back),
 /// their line only. A fact gone over from short notes was written when she
@@ -142,26 +152,34 @@ async fn withdrawn(
     db: &DatabaseConnection,
     user_id: i32,
     lines: &[Line],
-) -> (HashSet<i32>, HashSet<i32>) {
-    let Ok(rows) = db
+) -> Option<(HashSet<i32>, HashSet<i32>)> {
+    let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             // The notes each was gone over from are joined once, among this
-            // person's rows, not looked up row by row.
-            "SELECT m.evidence, m.created_at, \
-               LEAST(m.created_at, min(s.created_at)) AS noted, \
-               (m.invalid_reason = 'deleted' OR m.superseded_by IS NULL) AS taken_back, \
-               EXISTS (SELECT 1 FROM agent_memories n \
-                       WHERE n.id = m.superseded_by AND n.user_id = m.user_id \
-                         AND n.invalid_reason IS DISTINCT FROM 'deleted' \
-                         AND NOT (n.invalid_reason IS NOT DISTINCT FROM 'superseded' \
-                                  AND n.superseded_by IS NULL)) AS replaced \
-             FROM agent_memories m \
-             LEFT JOIN agent_memories s ON s.user_id = m.user_id \
-               AND s.superseded_by = m.id AND s.invalid_reason = 'settled' \
-             WHERE m.user_id = $1 AND m.venue = 'private' AND m.source = ANY($2) \
-               AND m.invalid_reason IN ('deleted', 'superseded') \
-             GROUP BY m.id",
+            // person's rows, not looked up row by row; and each of those
+            // notes quotes words of its own, which went the way of the fact
+            // it was gone over into.
+            "WITH retired AS ( \
+               SELECT m.id, m.user_id, m.evidence, m.created_at, \
+                 LEAST(m.created_at, min(s.created_at)) AS noted, \
+                 (m.invalid_reason = 'deleted' OR m.superseded_by IS NULL) AS taken_back, \
+                 EXISTS (SELECT 1 FROM agent_memories n \
+                         WHERE n.id = m.superseded_by AND n.user_id = m.user_id \
+                           AND n.invalid_reason IS DISTINCT FROM 'deleted' \
+                           AND NOT (n.invalid_reason IS NOT DISTINCT FROM 'superseded' \
+                                    AND n.superseded_by IS NULL)) AS replaced \
+               FROM agent_memories m \
+               LEFT JOIN agent_memories s ON s.user_id = m.user_id \
+                 AND s.superseded_by = m.id AND s.invalid_reason = 'settled' \
+               WHERE m.user_id = $1 AND m.venue = 'private' AND m.source = ANY($2) \
+                 AND m.invalid_reason IN ('deleted', 'superseded') \
+               GROUP BY m.id) \
+             SELECT evidence, created_at, noted, taken_back, replaced FROM retired \
+             UNION ALL \
+             SELECT s.evidence, r.created_at, s.created_at, r.taken_back, r.replaced \
+             FROM retired r JOIN agent_memories s ON s.user_id = r.user_id \
+               AND s.superseded_by = r.id AND s.invalid_reason = 'settled'",
             [
                 user_id.into(),
                 vec![
@@ -173,9 +191,14 @@ async fn withdrawn(
             ],
         ))
         .await
-    else {
-        return Default::default();
-    };
+        .inspect_err(|error| {
+            let failed = UNREAD.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            tracing::warn!(
+                failed,
+                "[chat-lines] what they took back could not be read, so no line is: {error}"
+            );
+        })
+        .ok()?;
     let quoted: Vec<Quoted> = rows
         .iter()
         .filter_map(|row| {
@@ -189,8 +212,12 @@ async fn withdrawn(
             })
         })
         .collect();
-    became(lines, quoted)
+    Some(became(lines, quoted))
 }
+
+/// How many times what they took back could not be read since she
+/// started: each time, a look back that read nothing.
+static UNREAD: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// What one retired memory quotes, when it was written and when the first
 /// note it was gone over from was taken (`noted`; when it was written, for

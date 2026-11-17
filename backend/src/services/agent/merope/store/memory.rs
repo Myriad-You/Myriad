@@ -394,6 +394,16 @@ pub async fn recall_remembered(
 /// A kept fact as she holds it: what they told her, plainly; anything else
 /// with how she came by it, so she holds it as loosely as it deserves.
 pub(crate) fn as_known(note: &crate::services::agent::memory::unified::MemoryRecord) -> String {
+    as_known_in(note, super::super::clock::local_now().year())
+}
+
+/// [`as_known`] as she speaks in `year` (her clock's, as this turn is put
+/// together): a day in it is written without it, here and on every line
+/// dated beside these.
+pub(crate) fn as_known_in(
+    note: &crate::services::agent::memory::unified::MemoryRecord,
+    year: i32,
+) -> String {
     let content = super::super::ingest::compact_summary(&note.content);
     if content.is_empty() {
         return content;
@@ -401,7 +411,7 @@ pub(crate) fn as_known(note: &crate::services::agent::memory::unified::MemoryRec
     // When she came to know it, on her clock: what happened "last week" is
     // placed in time; the year only when it is not this one.
     let known = note.created_at.with_timezone(&super::super::clock::zone());
-    let when = if known.year() == super::super::clock::local_now().year() {
+    let when = if known.year() == year {
         known.format("%m-%d")
     } else {
         known.format("%Y-%m-%d")

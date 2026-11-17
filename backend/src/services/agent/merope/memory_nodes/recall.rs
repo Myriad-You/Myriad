@@ -135,7 +135,7 @@ impl Lines<'_> {
             Some(line) => (line.clone(), self.said.get(line).cloned()),
             None => match self.record(entry_id) {
                 Some(record) => {
-                    let line = store::as_known(&record);
+                    let line = store::as_known_in(&record, self.year);
                     let line = match self.here {
                         Some(here) => here.theirs(line, Some(&record)),
                         None => line,

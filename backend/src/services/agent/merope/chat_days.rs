@@ -451,6 +451,40 @@ mod tests {
             "{found:?}"
         );
     }
+
+    /// The private talk by day comes with which of their lines a later
+    /// fact replaced, by when each was said; a group's talk with none.
+    #[tokio::test]
+    async fn the_talk_by_day_knows_which_lines_were_replaced() {
+        use super::super::chat_lines::tests::{OWNER, line, quoting, schema, session};
+        use sea_orm::ConnectionTrait;
+        let Some(schema) = schema("chat_days_replaced").await else {
+            return;
+        };
+        let db = &schema.db;
+        session(db, "mine", OWNER, Some(r#"{"mode":"chat"}"#), false).await;
+        line(db, "mine", "user", "我住在北京朝阳", 30, None).await;
+        line(db, "mine", "assistant", "朝阳那边挺方便", 29, None).await;
+        line(db, "mine", "user", "周末想去爬香山", 20, None).await;
+        let old = quoting(db, "chat", "住在北京朝阳").await;
+        let newer = quoting(db, "chat", "搬到北京海淀了").await;
+        db.execute_unprepared(&format!(
+            "UPDATE agent_memories SET invalid_reason = 'superseded', superseded_by = '{newer}' \
+             WHERE id = '{old}'"
+        ))
+        .await
+        .unwrap();
+        let (days, replaced) = by_day(db, Place::With(OWNER)).await;
+        let said: Vec<&Said> = days.values().flatten().collect();
+        assert_eq!(said.len(), 3);
+        let theirs = said
+            .iter()
+            .find(|(_, _, text)| text == "我住在北京朝阳")
+            .unwrap();
+        assert_eq!(replaced, Replaced::from([theirs.0]));
+        assert!(by_day(db, Place::In("qq:42")).await.1.is_empty());
+        schema.drop().await;
+    }
 }
 
 #[cfg(test)]

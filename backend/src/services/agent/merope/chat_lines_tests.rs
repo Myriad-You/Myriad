@@ -447,7 +447,8 @@ fn each_memory_reaches_its_own_lines() {
     let (gone, replaced) = became(&lines, vec![quoted(72, 2, true)]);
     assert_eq!(gone, HashSet::from([1, 2, 3]));
     // Gone over from no note: a day before it was written, as it was.
-    let (gone, _) = became(&lines, vec![quoted(72, 72, true)]);
+    assert!(replaced.is_empty());
+    let (gone, replaced) = became(&lines, vec![quoted(72, 72, true)]);
     assert_eq!(gone, HashSet::from([3]));
     assert!(replaced.is_empty());
     // Both on one line: taken back wins, and her answer goes with it.
@@ -533,5 +534,47 @@ async fn scrolling_back_a_replaced_line_says_so_beside_her_day() {
         .find(|(_, _, text)| text.contains("挺方便"))
         .unwrap_or_else(|| panic!("{by_words:?}"));
     assert_eq!(answer.0, hers);
+    schema.drop().await;
+}
+
+/// A lasting fact taken back takes the words of the short notes it was
+/// gone over from too: a note quotes its own line, which the fact's words
+/// do not hold, and that line is theirs to have unsaid all the same. One
+/// replaced by a later fact marks the note's line the same way.
+#[tokio::test]
+async fn what_a_note_quoted_goes_with_the_fact_it_was_gone_over_into() {
+    let Some(schema) = schema("chat_lines_note_quotes").await else {
+        return;
+    };
+    let db = &schema.db;
+    session(db, "mine", OWNER, Some(r#"{"mode":"chat"}"#), false).await;
+    let said = [
+        "我真的讨厌香菜",
+        "记住了，不放香菜",
+        "说起来我不喜欢香菜好多年了",
+        "周末想去爬香山",
+    ];
+    for (index, text) in said.iter().enumerate() {
+        let role = if index == 1 { "assistant" } else { "user" };
+        line(db, "mine", role, text, 60 - index as i32 * 5, None).await;
+    }
+    let note = quoting(db, unified::SHORT_NOTE_SOURCE, "真的讨厌香菜").await;
+    let lasting = quoting(db, "chat", "不喜欢香菜").await;
+    retire(db, &note, "settled", Some(&lasting)).await;
+    assert_eq!(contents(&private_lines(db, OWNER, 3000).await), said);
+
+    // Replaced by a later fact: both lines of theirs say so.
+    let newer = quoting(db, "chat", "现在能吃一点香菜了").await;
+    retire(db, &lasting, "superseded", Some(&newer)).await;
+    let read = private_lines(db, OWNER, 3000).await;
+    assert_eq!(contents(&read), said);
+    assert_eq!(
+        read.iter().map(|line| line.replaced).collect::<Vec<_>>(),
+        [true, false, true, false]
+    );
+    // Let go, with nothing in its place: neither line comes up again, nor
+    // her answer to the first.
+    retire(db, &lasting, "superseded", None).await;
+    assert_eq!(contents(&private_lines(db, OWNER, 3000).await), [said[3]]);
     schema.drop().await;
 }

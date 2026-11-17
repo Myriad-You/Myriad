@@ -26,9 +26,10 @@ use crate::services::agent::merope::clock::Zone;
 /// (`learned`, the latest day she learned a memory it rests on), the second
 /// alone when they are one day, it has no day of its own, or its own is
 /// after the day she was told (nothing is told before it began: a row
-/// built later than what it rests on); with nothing it
-/// rests on still held, its own day; only with neither, the day the row was
-/// written (`at`). `year`: this one, left out of a whole day in it.
+/// built later than what it rests on). With nothing it rests on to say
+/// when it was told (it names no memory, or none is kept any more), the
+/// day its row was written (`at`) stands for the day told: the latest it
+/// can have been. `year`: this one, left out of a whole day in it.
 pub(super) fn dated(
     since: Option<&Value>,
     learned: Option<i64>,
@@ -55,8 +56,21 @@ pub(super) fn dated(
             format!("since {}, told {}", short(&began, year), short(&told, year))
         }
         (_, Some(told)) => format!("since {}", short(&told, year)),
-        (Some(began), None) => format!("since {}", short(&began, year)),
-        (None, None) => format!("since {}", short(&day_of(at), year)),
+        // Nothing it rests on to say when it was told: no later than the
+        // day its row was written.
+        (began, None) => {
+            let written = day_of(at);
+            match began {
+                Some(began) if began.as_str() < written.as_str() => {
+                    format!(
+                        "since {}, told {}",
+                        short(&began, year),
+                        short(&written, year)
+                    )
+                }
+                _ => format!("since {}", short(&written, year)),
+            }
+        }
     }
 }
 
@@ -150,11 +164,15 @@ mod tests {
                 "since 11-10"
             );
         }
-        // Nothing it rests on still held: its own day; with neither, the
-        // day it was written.
+        // Nothing it rests on to say when: told no later than the day it
+        // was written, which the line carries as every line does.
         assert_eq!(
             dated(Some(&json!("2026-08")), None, written, &zone, 2026),
-            "since 2026-08"
+            "since 2026-08, told 11-16"
+        );
+        assert_eq!(
+            dated(Some(&json!("2026-12-01")), None, written, &zone, 2026),
+            "since 11-16"
         );
         assert_eq!(dated(None, None, written, &zone, 2026), "since 11-16");
         // Another year is written out.

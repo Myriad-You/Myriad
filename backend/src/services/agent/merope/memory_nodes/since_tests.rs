@@ -157,6 +157,19 @@ async fn what_stands_and_what_ended_are_read_with_the_day_they_were_told() {
     .await
     .unwrap();
     told(recollect(db, &[]).await.resident);
+    // It rests on a second memory too, one she still holds: with the first
+    // let go it is not said all the same, for its words may carry that.
+    db.execute_unprepared(&format!(
+        "UPDATE agent_node_heads h SET node = jsonb_set(h.node, \
+           ARRAY['standing', item.key, 'value', 'because'], \
+           '[\"memory:{half}\", \"memory:{said}\"]'::jsonb) \
+         FROM agent_node_heads g, jsonb_each(g.node->'standing') AS item \
+         WHERE g.user_id = h.user_id AND g.audience = h.audience AND g.node_id = h.node_id \
+           AND item.value->'value'->>'text' = '在准备半马'"
+    ))
+    .await
+    .unwrap();
+    told(recollect(db, &[]).await.resident);
     db.execute_unprepared(&format!(
         "UPDATE agent_memories SET superseded_by = NULL WHERE id = '{half}'"
     ))
