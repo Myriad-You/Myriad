@@ -516,12 +516,15 @@ impl Link {
 
     /// A frame of her log, her lease or a lent chat while she syncs: what
     /// the server does with it is the relay's (`her_log::relay::take`).
-    async fn relayed(&mut self, text: &str, seq: u64) {
+    /// The link closes (`unavailable`) when a page of her log the device
+    /// sent could not be settled: it names a page once, so on this link it
+    /// would wait for ever; on the next, paging starts over.
+    async fn relayed(&mut self, text: &str, seq: u64) -> Option<Close> {
         use crate::services::her_log::{self, relay};
         let Ok(frame) = serde_json::from_str::<Value>(text) else {
             tracing::info!(device = %self.device.id, t = "?", code = "bad_frame", "[link] a frame of her log was answered with an error");
             self.error("bad_frame", Some(seq));
-            return;
+            return None;
         };
         let settings = crate::services::her_log::current_settings();
         let session = self.relay.get_or_insert_with(relay::Session::default);
@@ -557,6 +560,10 @@ impl Link {
                 self.error("internal_error", Some(seq));
             }
         }
+        self.relay
+            .as_ref()
+            .is_some_and(relay::Session::unsettled)
+            .then_some(Close::Unavailable)
     }
 
     /// What the relay answers, each where it goes: back on this link, to
@@ -704,7 +711,7 @@ impl Link {
             // A sync family's frame: her log's relay takes it while she
             // syncs; a link whose welcome said sync off is told that.
             t if self.sync && myriad_her_link::needs_sync(t) => {
-                self.relayed(text, inbound.seq).await
+                return self.relayed(text, inbound.seq).await;
             }
             t if !self.sync && myriad_her_link::needs_sync(t) => {
                 tracing::info!(device = %self.device.id, t, code = "sync_off", "[link] a frame of her log was answered with an error");
@@ -861,6 +868,8 @@ impl Link {
         if sync {
             let abi = crate::services::her_log::relay::peer_abi(&capabilities);
             self.relay = Some(crate::services::her_log::relay::Session::of(&capabilities));
+            // Paging starts over on this link.
+            super::counts::pages_closed(&self.device.id);
             // Which core this side of hers reads; once every side reads a
             // rule's rows and `node.standing`, what the site kept of them
             // on its side goes too.
@@ -2228,6 +2237,7 @@ impl Link {
                 self.owner,
                 &self.device.id,
             );
+            super::counts::pages_closed(&self.device.id);
         }
         // Lent nothing more; what was lent here and not acked is the
         // site's again.

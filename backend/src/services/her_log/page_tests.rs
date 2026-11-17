@@ -322,6 +322,55 @@ async fn the_server_names_back_a_page_it_settled() {
     let back = answers(db, &mut ahead, &frame, T0).await;
     assert_eq!(back[0]["body"]["code"], "clock_ahead");
     assert_eq!(named(&back), [Some("page_of_air_two".to_string())]);
+    // Refused by the contract: named all the same, with the server's
+    // vector of an audience it holds.
+    let mut spoilt = ahead.frame(
+        "log.rows",
+        Some("batch_spoilt"),
+        json!({ "audience": PERSONAL, "rows": "none", "payloads": [], "more": "page_spoilt" }),
+    );
+    let back = answers(db, &mut ahead, &spoilt, T0).await;
+    assert_eq!(back[0]["t"], "error");
+    let spoilt_code = back[0]["body"]["code"].as_str().unwrap().to_string();
+    assert_eq!(named(&back), [Some("page_spoilt".to_string())]);
+    let vector = &of_kind(&back, "log.vector")[0]["body"]["vector"];
+    assert!(!vector.as_object().unwrap().is_empty());
+    // An audience it may not hold, refused: named with nothing of what the
+    // server holds of it, however the batch was refused.
+    let group = air.write(
+        GROUP,
+        "persona:x",
+        "persona.field",
+        Author::Owner,
+        Some("a"),
+        T0,
+    );
+    let mut frame = air.rows_frame(GROUP, vec![group]);
+    frame["body"]["more"] = json!("page_of_a_group");
+    spoilt["body"]["audience"] = json!(GROUP);
+    for (frame, code) in [(frame, "not_holder"), (spoilt, spoilt_code.as_str())] {
+        let back = answers(db, &mut ahead, &frame, T0).await;
+        assert_eq!(back[0]["body"]["code"], code, "{back:?}");
+        let named = of_kind(&back, "log.vector");
+        assert_eq!(named.len(), 1);
+        assert_eq!(named[0]["body"]["vector"], json!({}));
+        assert!(named[0]["body"].get("beyond").is_none());
+    }
+    // The database failing on one: no name; the link is to close.
+    let mut sky = Side::new("dev_sky");
+    sky.link = paging();
+    assert!(!sky.link.unsettled());
+    db.execute_unprepared("ALTER TABLE agent_log_rows RENAME TO agent_log_rows_gone")
+        .await
+        .unwrap();
+    let row = line(&mut sky, "persona:sky", T0 + 3);
+    let mut frame = sky.rows_frame(PERSONAL, vec![row]);
+    frame["body"]["more"] = json!("page_of_air_four");
+    assert!(off_take(db, &mut sky, &on(), &frame).await.is_err());
+    assert!(sky.link.unsettled());
+    db.execute_unprepared("ALTER TABLE agent_log_rows_gone RENAME TO agent_log_rows")
+        .await
+        .unwrap();
     schema.drop().await;
 }
 
@@ -338,30 +387,59 @@ async fn a_log_vector_not_answered_lets_its_page_go() {
     many_rows(db, 290).await;
     let mut air = Side::new("dev_air");
     air.link = paging();
-    let asking = air.vector(PERSONAL);
-    let first = answers(db, &mut air, &asking, LATER).await;
-    let after = take_page(&mut air, &first).unwrap();
     let off = Settings {
         enabled: false,
         ..on()
     };
-    let refused = relay::take(
-        db,
-        &root(),
-        &off,
-        OWNER,
-        "dev_air",
-        Core::Pc,
-        &mut air.link,
-        &after,
-        LATER,
-    )
-    .await;
-    assert!(refused.is_err());
+    let asking = air.vector(PERSONAL);
+    let first = answers(db, &mut air, &asking, LATER).await;
+    let page = more_of(&first).unwrap();
+    // One that does not name the page, not answered: the page stays.
+    let stale = air.vector(PERSONAL);
+    assert!(off_take(db, &mut air, &off, &stale).await.is_err());
+    // One naming it that the contract refuses: the page goes.
+    let mut spoilt = naming(&mut air, PERSONAL, &page);
+    spoilt["body"]["vector"] = json!("all of it");
+    let refused = answers(db, &mut air, &spoilt, LATER).await;
+    assert_eq!(refused.len(), 1);
+    assert_eq!(refused[0]["t"], "error");
+    let asking = air.vector(PERSONAL);
+    let again = answers(db, &mut air, &asking, LATER).await;
+    assert_eq!(row_ids(&again), row_ids(&first));
+    // One naming it, not answered: the page goes.
+    let after = take_page(&mut air, &again).unwrap();
+    assert!(off_take(db, &mut air, &off, &after).await.is_err());
     let asking = air.vector(PERSONAL);
     let again = answers(db, &mut air, &asking, LATER).await;
     assert_eq!(of_kind(&again, "log.rows").len(), 1);
+    // A stale one not answered leaves the page: the side names it next.
+    let after = take_page(&mut air, &again).unwrap();
+    let stale = air.vector(PERSONAL);
+    assert!(off_take(db, &mut air, &off, &stale).await.is_err());
+    let next = answers(db, &mut air, &after, LATER).await;
+    assert_eq!(of_kind(&next, "log.rows").len(), 1);
     schema.drop().await;
+}
+
+/// `frame` from `side` taken with `off` (her log off, or on).
+async fn off_take(
+    db: &DatabaseConnection,
+    side: &mut Side,
+    off: &Settings,
+    frame: &Value,
+) -> Result<Vec<Outgoing>, crate::services::her_log::Error> {
+    relay::take(
+        db,
+        &root(),
+        off,
+        OWNER,
+        &side.id.clone(),
+        Core::Pc,
+        &mut side.link,
+        frame,
+        LATER,
+    )
+    .await
 }
 
 /// While a page is unfinished, a log.vector that does not name it gets
@@ -399,6 +477,11 @@ async fn a_log_vector_that_names_no_page_on_its_way_gets_none() {
     let own = air.vector(OWN);
     let own_first = answers(db, &mut air, &own, LATER).await;
     assert_eq!(of_kind(&own_first, "log.rows").len(), 1);
+    let open: Vec<String> = counts::pages_open_by("dev_air_passed")
+        .into_iter()
+        .map(|(kind, _)| kind)
+        .collect();
+    assert_eq!(open, ["own", "personal"]);
     let crossed = naming(&mut air, OWN, &page);
     assert!(answers(db, &mut air, &crossed, LATER).await.is_empty());
     let mut next = [take_page(&mut air, &again), take_page(&mut air, &own_first)];
@@ -432,8 +515,11 @@ async fn a_log_vector_that_names_no_page_on_its_way_gets_none() {
         .map(|(why, passed)| (why, passed.count))
         .collect();
     assert_eq!(passed.get("no_headway"), Some(&1));
-    assert_eq!(passed.get("page_unfinished"), Some(&3));
     assert_eq!(passed.get("no_such_page"), Some(&1));
+    // That one is on its way is the rule while paging: not counted; how
+    // long it has been is.
+    assert_eq!(passed.get("page_unfinished"), None);
+    assert!(counts::pages_open_by("dev_air_passed").is_empty());
     schema.drop().await;
 }
 
@@ -554,5 +640,41 @@ async fn a_forget_written_while_paging_comes_next_and_once() {
         assert!(pages < 40, "paging does not end");
     }
     holds_all(&air, &mac, PERSONAL);
+    schema.drop().await;
+}
+
+/// Rows asked again for wait on a link up to as many as a page of asks
+/// each could carry; past that they are dropped and counted, and paging
+/// goes on.
+#[tokio::test]
+async fn rows_asked_again_for_past_what_a_link_keeps_are_dropped() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
+    let Some(schema) = schema("her_log_pages_asks").await else {
+        return;
+    };
+    let db = &schema.db;
+    let _pages = relay::pages_in_test(1);
+    many_rows(db, 290).await;
+    let mut air = Side::new("dev_air_asks");
+    air.link = paging();
+    let asking = air.vector(PERSONAL);
+    let first = answers(db, &mut air, &asking, LATER).await;
+    let after = take_page(&mut air, &first).unwrap();
+    let kept = wire::ASK_ROWS * wire::PAGE_BATCHES;
+    for round in 0..=kept / wire::ASK_ROWS {
+        let mut plain = air.vector(PERSONAL);
+        let ask: Vec<String> = (0..wire::ASK_ROWS)
+            .map(|n| format!("row_asked_{round}_{n}"))
+            .collect();
+        plain["body"]["ask"] = json!(ask);
+        assert!(answers(db, &mut air, &plain, LATER).await.is_empty());
+    }
+    let dropped = counts::pages_passed_by("dev_air_asks")
+        .into_iter()
+        .find(|(why, _)| *why == "ask_dropped")
+        .map(|(_, passed)| passed.count);
+    assert_eq!(dropped, Some(1));
+    let next = answers(db, &mut air, &after, LATER).await;
+    assert_eq!(of_kind(&next, "log.rows").len(), 1);
     schema.drop().await;
 }

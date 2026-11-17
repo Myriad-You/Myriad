@@ -131,7 +131,14 @@ pub struct Session {
     /// a link, so what it asked is kept until a page carries it, whatever
     /// becomes of the log.vector that asked.
     asks: BTreeMap<String, Vec<String>>,
+    /// A batch that ended a page of the side's could not be settled (the
+    /// database failed on it): the link is to close, so paging starts over.
+    unsettled: bool,
 }
+
+/// The most rows asked again for an audience keeps waiting on a link: as
+/// many as a page of asks each could carry. More are dropped and counted.
+const ASKS_KEPT: usize = ASK_ROWS * myriad_nodes::wire::PAGE_BATCHES;
 
 /// A page sent and not finished yet: its `more`, what the side held when it
 /// asked for it, and whether it carried rows the side lacked (not only rows
@@ -162,7 +169,15 @@ impl Session {
             pages: false,
             open: BTreeMap::new(),
             asks: BTreeMap::new(),
+            unsettled: false,
         }
+    }
+
+    /// Whether the link is to close: a page the side sent could not be
+    /// settled, and it names a page once (`log.pages`). On the next link
+    /// paging starts over.
+    pub fn unsettled(&self) -> bool {
+        self.unsettled
     }
 
     /// The session of a link whose `hello` listed `capabilities`, as
@@ -396,6 +411,12 @@ fn field<'a>(body: &'a Value, name: &str) -> Option<&'a Value> {
     body.get(name)
 }
 
+/// An audience's kind (`personal`, `own`, `group`), what a log line says
+/// of it: never whose it is.
+fn kind_of(audience: &str) -> &str {
+    audience.split(':').next().unwrap_or_default()
+}
+
 fn audience_of(body: &Value) -> Result<String, Error> {
     field(body, "audience")
         .and_then(Value::as_str)
@@ -424,20 +445,43 @@ pub async fn take(
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
     let out = answer(db, root, settings, user, device, core, session, frame, now).await;
-    // A log.vector not answered (her log off, the database away, a field
-    // that does not read) lets the audience's unfinished page go: the side
-    // names a page once, so the page would be waiting for a name that does
-    // not come, and every log.vector after it would get nothing. Its next
-    // log.vector without after gets a page again.
-    if out.is_err()
-        && frame["t"] == "log.vector"
-        && let Some(audience) = frame["body"]["audience"].as_str()
-        && session.open.remove(audience).is_some()
+    let body = &frame["body"];
+    // A log.vector that named its audience's unfinished page and left it
+    // unfinished (not answered: her log off, the database away, a field
+    // that does not read; or refused) lets it go: the side names a page
+    // once, so the page would wait for a name that does not come, and every
+    // log.vector after it would get nothing. Its next log.vector without
+    // after gets a page again. One that did not name it leaves it.
+    if frame["t"] == "log.vector"
+        && let Some(audience) = body["audience"].as_str()
+        && let Some(after) = body["after"].as_str()
+        && session
+            .open
+            .get(audience)
+            .is_some_and(|open| open.id == after)
     {
+        session.open.remove(audience);
+        crate::services::agent::link::counts::page_closed(device, audience);
         tracing::info!(
             device,
-            audience,
-            "[her-log] a log.vector was not answered: its audience's unfinished page was let go"
+            audience = kind_of(audience),
+            "[her-log] a log.vector naming a page was not answered: the page was let go"
+        );
+    }
+    // A batch that ends a page of the side's and could not be settled
+    // (the database failed while taking it, or after) is named by no
+    // log.vector: the link closes and paging starts over on the next.
+    if out.is_err()
+        && session.pages
+        && frame["t"] == "log.rows"
+        && body["more"].is_string()
+        && body.get("sealed").is_none()
+    {
+        session.unsettled = true;
+        tracing::info!(
+            device,
+            audience = body["audience"].as_str().map_or("?", kind_of),
+            "[her-log] a batch ending a page could not be settled: the link closes"
         );
     }
     let out = out?;
@@ -489,12 +533,31 @@ async fn answer(
     if host && holder == device {
         as_roles.push("mind");
     }
+    let mine = host && holder == device;
+    let side = Holder {
+        core,
+        owner: owner.partner.clone(),
+    };
     let checked = match myriad_her_link::check(frame, &roles(&as_roles)) {
         Ok(checked) => checked,
-        Err(refusal) => return Ok(vec![Outgoing::error(&refusal.code, seq)]),
+        Err(refusal) => {
+            let mut out = vec![Outgoing::error(&refusal.code, seq)];
+            // A batch ending a page, refused by the contract (too large,
+            // too many), is settled all the same: named back.
+            let body = &frame["body"];
+            if session.pages
+                && frame["t"] == "log.rows"
+                && body.get("sealed").is_none()
+                && let (Some(audience), Some(more)) =
+                    (body["audience"].as_str(), body["more"].as_str())
+            {
+                let readable = side.holds(audience) || mine;
+                settled(db, owner.user, audience, more, readable, &mut out).await?;
+            }
+            return Ok(out);
+        }
     };
     let body = &frame["body"];
-    let mine = host && holder == device;
     // Which lease frame came from whom and when, with the epoch it names:
     // no reasons, places or anything else in the body.
     if checked.t.starts_with("lease.") {
@@ -506,10 +569,6 @@ async fn answer(
             "[her-log] a lease frame"
         );
     }
-    let side = Holder {
-        core,
-        owner: owner.partner.clone(),
-    };
     match checked.t.as_str() {
         "log.vector" => {
             let audience = audience_of(body)?;
@@ -582,6 +641,9 @@ async fn answer(
                 .and_then(Value::as_str)
                 .filter(|_| session.pages)
                 .map(str::to_string);
+            // Whether the side may read what the server holds of the
+            // audience: it holds it, or her mind is there.
+            let readable = side.holds(&audience) || mine;
             let mut out = match serde_json::from_value::<Batch>(body.clone()) {
                 Err(_) => vec![Outgoing::error("bad_frame", seq)],
                 Ok(batch) => {
@@ -589,10 +651,7 @@ async fn answer(
                     // for here: her mind there now, or there before a
                     // takeover sending what it wrote while it held her (her
                     // own memory catching up).
-                    if !side.holds(&audience)
-                        && !mine
-                        && !(host && held_then(db, device, &batch).await?)
-                    {
+                    if !readable && !(host && held_then(db, device, &batch).await?) {
                         vec![Outgoing::error("not_holder", seq)]
                     } else {
                         lease::heard(db, device, Some(Seen::Host), now).await?;
@@ -601,7 +660,7 @@ async fn answer(
                 }
             };
             if let Some(more) = more {
-                settled(db, owner.user, &audience, &more, &mut out).await?;
+                settled(db, owner.user, &audience, &more, readable, &mut out).await?;
             }
             Ok(out)
         }
@@ -758,10 +817,26 @@ async fn vector(
         // kept whether or not this log.vector gets a page.
         if !ask.is_empty() {
             let waited = session.asks.entry(audience.to_string()).or_default();
+            let mut known: BTreeSet<String> = waited.iter().cloned().collect();
+            let mut dropped = false;
             for id in ask.drain(..) {
-                if !waited.contains(&id) {
-                    waited.push(id);
+                if known.contains(&id) {
+                    continue;
                 }
+                if waited.len() >= ASKS_KEPT {
+                    dropped = true;
+                    break;
+                }
+                known.insert(id.clone());
+                waited.push(id);
+            }
+            if dropped {
+                tracing::info!(
+                    device,
+                    audience = kind_of(audience),
+                    "[her-log] rows asked again for past what a link keeps were dropped"
+                );
+                crate::services::agent::link::counts::page_passed(device, "ask_dropped");
             }
         }
         // A page a time: while one is on its way, only the log.vector
@@ -780,12 +855,25 @@ async fn vector(
         // next round starts with its next log.vector without after.
         let passed = passed.or_else(|| {
             let open = session.open.remove(audience)?;
+            crate::services::agent::link::counts::page_closed(device, audience);
             (open.lacked && &open.vector == theirs && open.beyond == beyond).then_some("no_headway")
         });
+        // While a page is on its way the side answers the server's
+        // log.vector with its own: that it gets nothing is the rule, not
+        // news. How long a page has been on its way is on the status page.
+        if passed == Some("page_unfinished") {
+            tracing::debug!(
+                device,
+                audience = kind_of(audience),
+                after = after.is_some(),
+                "[her-log] a log.vector got no page: one is on its way"
+            );
+            return Ok(Vec::new());
+        }
         if let Some(why) = passed {
             tracing::info!(
                 device,
-                audience,
+                audience = kind_of(audience),
                 why,
                 after = after.is_some(),
                 "[her-log] a log.vector got no page"
@@ -880,6 +968,7 @@ async fn vector(
                     lacked,
                 },
             );
+            crate::services::agent::link::counts::page_opened(device, audience);
         }
         if sent.too_old {
             tracing::info!(
@@ -915,12 +1004,17 @@ async fn vector(
 /// is settled, taken or refused with an error: the log.vector that answers
 /// it names that page (`after`), so the side sends the next one. That is
 /// the server's vector of the audience: when the batch was taken, the one
-/// with the rows it asks again for; when it was refused, one of its own.
+/// with the rows it asks again for; when it was refused, one of its own,
+/// read only when the side may read it (`readable`: it holds the audience,
+/// or her mind is there), else an empty one, which tells it nothing. One
+/// that would not pass the contract (an audience or page id that is not
+/// one) is not sent.
 async fn settled(
     db: &DatabaseConnection,
     user: i32,
     audience: &str,
     more: &str,
+    readable: bool,
     out: &mut Vec<Outgoing>,
 ) -> Result<(), Error> {
     if let Some(back) = out
@@ -930,10 +1024,16 @@ async fn settled(
         back.body["after"] = json!(more);
         return Ok(());
     }
-    let ours = store::holdings(db, user, audience).await?;
-    let mut body = vector_body(audience, &ours, &[]);
+    let mut body = if readable {
+        vector_body(audience, &store::holdings(db, user, audience).await?, &[])
+    } else {
+        json!({ "audience": audience, "vector": {} })
+    };
     body["after"] = json!(more);
-    out.push(Outgoing::back("log.vector", body));
+    let back = Outgoing::back("log.vector", body);
+    if encode(&back, 1, 0, 0).is_ok() {
+        out.push(back);
+    }
     Ok(())
 }
 

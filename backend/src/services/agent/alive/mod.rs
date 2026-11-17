@@ -607,9 +607,17 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
                         "lastAt": told.last_at.map(|at| at.to_rfc3339()),
                     }))
                     .collect::<Vec<_>>(),
-                // Its log.vector frames that got no page of her log
-                // (`log.pages`), by why: one waiting long here is a page
-                // that only a new link starts again.
+                // Pages of her log on their way to it (`log.pages`), by the
+                // kind of audience, with when each went: one sent long ago
+                // waits for a name that does not come, and only a new link
+                // starts it again.
+                "logPagesOpen": crate::services::agent::link::counts::pages_open_by(&device.id)
+                    .into_iter()
+                    .map(|(kind, at)| json!({ "audience": kind, "sentAt": at.to_rfc3339() }))
+                    .collect::<Vec<_>>(),
+                // Its log.vector frames that got no page by naming one not
+                // on its way or one that brought nothing, and rows it asked
+                // again for past what a link keeps, by why.
                 "logPagesPassed": crate::services::agent::link::counts::pages_passed_by(&device.id)
                     .into_iter()
                     .map(|(why, passed)| json!({

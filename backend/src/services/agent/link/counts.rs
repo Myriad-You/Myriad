@@ -2,9 +2,10 @@
 //! status page: keys of a look at the screen it deleted (`screenFields`),
 //! per frame type and key, and the frames a child told it dropped
 //! (`link.dropped`), per device, frame type and reason, and of those the
-//! reliable ones its ack had covered (not read, though acked), and the
+//! reliable ones its ack had covered (not read, though acked), the
 //! `log.vector` frames of her log that got no page (`log.pages`), per
-//! device and why. Counts and when, never a value.
+//! device and why, and when each page still on its way was sent, per device
+//! and audience kind. Counts and when, never a value.
 
 use std::collections::BTreeMap;
 use std::sync::{LazyLock, Mutex};
@@ -43,6 +44,8 @@ struct Counts {
     unread: BTreeMap<String, BTreeMap<&'static str, Count>>,
     /// device → why → log.vector frames that got no page.
     pages: BTreeMap<String, BTreeMap<&'static str, Count>>,
+    /// device → audience → when the page of it on its way was sent.
+    open: BTreeMap<String, BTreeMap<String, DateTime<Utc>>>,
 }
 
 static COUNTS: LazyLock<Mutex<Counts>> = LazyLock::new(Mutex::default);
@@ -132,13 +135,12 @@ pub(super) fn unread(device_id: &str, t: &'static str) {
     });
 }
 
-/// A `log.vector` from a device got no page of her log: a page of its
-/// audience was unfinished and it did not name it (`page_unfinished`), it
-/// named a page not on its way (`no_such_page`), or the page it named
-/// brought nothing it did not hold (`no_headway`). Only those words are
-/// counted.
+/// A `log.vector` from a device got no page of her log: it named a page
+/// not on its way (`no_such_page`), or the page it named brought nothing it
+/// did not hold (`no_headway`); or rows it asked again for were past what
+/// a link keeps (`ask_dropped`). Only those words are counted.
 pub(crate) fn page_passed(device_id: &str, why: &'static str) {
-    if !matches!(why, "page_unfinished" | "no_such_page" | "no_headway") {
+    if !matches!(why, "no_such_page" | "no_headway" | "ask_dropped") {
         return;
     }
     let now = crate::clock::now();
@@ -154,6 +156,62 @@ pub(crate) fn page_passed(device_id: &str, why: &'static str) {
             .or_default()
             .add(now);
     });
+}
+
+/// A page of `audience` went to a device: on its way until it is named,
+/// let go, or the link closes.
+pub(crate) fn page_opened(device_id: &str, audience: &str) {
+    let now = crate::clock::now();
+    with(|counts| {
+        if !counts.open.contains_key(device_id) && counts.open.len() >= DEVICES_AT_MOST {
+            return;
+        }
+        counts
+            .open
+            .entry(device_id.to_string())
+            .or_default()
+            .insert(audience.to_string(), now);
+    });
+}
+
+/// The page of `audience` on its way to a device is not any more.
+pub(crate) fn page_closed(device_id: &str, audience: &str) {
+    with(|counts| {
+        if let Some(open) = counts.open.get_mut(device_id) {
+            open.remove(audience);
+            if open.is_empty() {
+                counts.open.remove(device_id);
+            }
+        }
+    });
+}
+
+/// A device's link closed, or a new one began: no page is on its way.
+pub(crate) fn pages_closed(device_id: &str) {
+    with(|counts| {
+        counts.open.remove(device_id);
+    });
+}
+
+/// When each page still on its way to a device was sent, by the kind of
+/// its audience (`personal`, `own`, `group`), never whose.
+pub(crate) fn pages_open_by(device_id: &str) -> Vec<(String, DateTime<Utc>)> {
+    with(|counts| {
+        counts
+            .open
+            .get(device_id)
+            .map(|open| {
+                open.iter()
+                    .map(|(audience, at)| {
+                        (
+                            audience.split(':').next().unwrap_or_default().to_string(),
+                            *at,
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    })
 }
 
 /// The `log.vector` frames of one device that got no page, by why.
