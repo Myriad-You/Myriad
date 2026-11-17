@@ -339,8 +339,10 @@ pub(crate) async fn run(
         calls += 1;
         let Ok(raw) = Ask::new(Voice::Thorough, user_id, OPERATION)
             .within(TIMEOUT)
-            // At most 5,683 measured, thinking included.
-            .output_at_most(10_000)
+            // At most 5,683 measured, thinking included, but a live upkeep
+            // was cut off at 10,000 with under a thousand characters said:
+            // what deep thinking had before limits were named.
+            .output_at_most(16_000)
             .json_raw(&system_prompt(), &shown, SCHEMA_NAME, &schema())
             .await
         else {
