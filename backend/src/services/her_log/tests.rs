@@ -30,6 +30,10 @@ use super::{
     test_partner::PARTNER,
 };
 
+/// What a side lacks, a page at a time (`log.pages`): with this file's sides.
+#[path = "page_tests.rs"]
+mod page_tests;
+
 const OWNER: i32 = 41;
 /// The partner's private talk: `personal:<partner id>` ([`PARTNER`]).
 const PERSONAL: &str = "personal:partner_019b76daa80000112233445566778899";
@@ -307,11 +311,11 @@ impl Side {
 
     fn vector(&mut self, audience: &str) -> Value {
         let holdings = vector::holdings(&self.log(audience)).unwrap();
-        self.frame(
-            "log.vector",
-            None,
-            json!({ "audience": audience, "vector": holdings.vector }),
-        )
+        let mut body = json!({ "audience": audience, "vector": holdings.vector });
+        if !holdings.beyond.is_empty() {
+            body["beyond"] = json!(holdings.beyond);
+        }
+        self.frame("log.vector", None, body)
     }
 
     /// This side's bodies of `rows`, by row id, as read.
@@ -335,6 +339,8 @@ impl Side {
             rows,
             theirs: theirs.clone(),
             ask,
+            beyond: BTreeMap::new(),
+            page: None,
             holder: Holder {
                 core: Core::Server,
                 owner: self.partner.clone(),
@@ -361,6 +367,7 @@ impl Side {
             rows: Vec::new(),
             payloads: Vec::new(),
             withheld: Vec::new(),
+            more: None,
         };
         for row in rows {
             let carried = row
@@ -396,7 +403,15 @@ impl Side {
                     );
                 }
                 self.merge(&audience, rows);
-                Vec::new()
+                // Its page held, it asks for the next (`log.pages`).
+                match body.get("more").and_then(Value::as_str) {
+                    Some(page) => {
+                        let mut next = self.vector(&audience);
+                        next["body"]["after"] = json!(page);
+                        vec![next]
+                    }
+                    None => Vec::new(),
+                }
             }
             "log.vector" => {
                 let audience = body["audience"].as_str().unwrap().to_string();
@@ -2650,6 +2665,7 @@ async fn a_stub_held_back_under_the_old_id_is_filled_or_relabelled_by_the_row_mo
         rows: vec![row.stub()],
         payloads: Vec::new(),
         withheld: Vec::new(),
+        more: None,
     };
     let said = store::take(
         db,
@@ -2734,6 +2750,7 @@ async fn a_stub_held_back_under_the_old_id_is_filled_or_relabelled_by_the_row_mo
         rows: vec![earlier.stub()],
         payloads: Vec::new(),
         withheld: Vec::new(),
+        more: None,
     };
     store::take(
         db,
@@ -2764,6 +2781,7 @@ async fn a_stub_held_back_under_the_old_id_is_filled_or_relabelled_by_the_row_mo
             rows: vec![moved_stub.clone()],
             payloads: Vec::new(),
             withheld: Vec::new(),
+            more: None,
         },
         &Default::default(),
         T0 + MINUTE,
@@ -2828,6 +2846,7 @@ async fn a_stub_held_back_under_the_old_id_is_filled_or_relabelled_by_the_row_mo
             rows: vec![rain.stub()],
             payloads: Vec::new(),
             withheld: Vec::new(),
+            more: None,
         },
         &Default::default(),
         T0 + 2 * MINUTE,
@@ -2913,6 +2932,7 @@ async fn a_stub_held_back_under_the_old_id_is_filled_or_relabelled_by_the_row_mo
             rows: vec![about.clone()],
             payloads: Vec::new(),
             withheld: Vec::new(),
+            more: None,
         },
         &Default::default(),
         T0 + 2 * MINUTE,

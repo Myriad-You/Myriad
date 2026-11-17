@@ -456,11 +456,13 @@ async fn take_in<C: ConnectionTrait>(
     now: i64,
 ) -> Result<Taken, Error> {
     let user = owner.user;
+    // A page's more (`log.pages`) is the link's, read where the batch came.
     let Batch {
         audience,
         rows: incoming,
         payloads,
         mut withheld,
+        more: _,
     } = batch;
     let audience = audience.as_str();
     Audience::parse(audience)?;
@@ -497,6 +499,7 @@ async fn take_in<C: ConnectionTrait>(
             rows: incoming,
             payloads,
             withheld,
+            more: None,
         },
         holder: owner.server(),
         peer: owner.partner.clone(),
@@ -726,6 +729,32 @@ pub async fn send<C: ConnectionTrait>(
     to: &Holder,
     peer_abi: u32,
 ) -> Result<wire::Sent, Error> {
+    send_page(db, root, owner, audience, theirs, ask, to, peer_abi, None).await
+}
+
+/// A page of what a side lacks (`log.pages`): at most `batches` batches,
+/// leaving out the rows it holds past a gap (its `log.vector` `beyond`).
+#[derive(Debug, Clone, Copy)]
+pub struct Paging<'a> {
+    pub batches: usize,
+    pub beyond: &'a BTreeMap<String, Vec<u64>>,
+}
+
+/// [`send`], a page at a time when `page` is given: only the bodies a page
+/// can hold are opened, at most a full batch of rows for each of its
+/// batches.
+#[allow(clippy::too_many_arguments)]
+pub async fn send_page<C: ConnectionTrait>(
+    db: &C,
+    root: &dyn keys::Root,
+    owner: &Owner,
+    audience: &str,
+    theirs: &Vector,
+    ask: Vec<String>,
+    to: &Holder,
+    peer_abi: u32,
+    page: Option<Paging<'_>>,
+) -> Result<wire::Sent, Error> {
     let user = owner.user;
     let rows = if to.holds(audience) {
         rows(db, user, audience).await?
@@ -735,8 +764,19 @@ pub async fn send<C: ConnectionTrait>(
     // The bodies the batches may carry: what it lacks, what it asks for
     // again, and every node's created row (it says whose the node is, so a
     // node that is someone else's in hers stays off the wire).
+    let held_past = |row: &Row| {
+        page.is_some_and(|page| {
+            row.dseq.is_some_and(|dseq| {
+                page.beyond
+                    .get(&row.origin)
+                    .is_some_and(|past| past.contains(&dseq))
+            })
+        })
+    };
     let lacking: BTreeSet<String> = vector::answer(&rows, theirs)?
         .into_iter()
+        .filter(|row| !held_past(row))
+        .take(page.map_or(usize::MAX, |page| page.batches * wire::BATCH_ROWS))
         .map(|row| row.id)
         .collect();
     let asked: BTreeSet<&str> = ask.iter().map(String::as_str).collect();
@@ -756,6 +796,8 @@ pub async fn send<C: ConnectionTrait>(
         bodies,
         theirs: theirs.clone(),
         ask,
+        beyond: page.map(|page| page.beyond.clone()).unwrap_or_default(),
+        page: page.map(|page| page.batches),
         holder: to.clone(),
         here: owner.partner.clone(),
         peer_abi,

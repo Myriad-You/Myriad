@@ -328,8 +328,10 @@ struct Link {
     /// The frame type each unacked reliable id went out as.
     sent_as: HashMap<String, &'static str>,
     /// Per reliable frame type, the last one the child's ack covered, and
-    /// when: an ack is cumulative, so a child that could not read it acked
-    /// it all the same, and tells so only with `link.dropped`.
+    /// when. An ack says the child received and settled every frame up to
+    /// it: took it, refused it, dropped it as one it cannot read (told only
+    /// with `link.dropped`, where both listed `streams`) or passed it by; it
+    /// says nothing of what came of one it took.
     last_acked: HashMap<&'static str, (String, std::time::Instant)>,
     /// What the child said it senses for her.
     senses: super::senses::Senses,

@@ -49,7 +49,7 @@
 //! sends what comes back where [`To`] says. What is not here yet: asking a
 //! holder to give her up when another core asks for her.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use myriad_nodes::wire::{ASK_ROWS, Batch};
 use myriad_persona_log::{
@@ -114,14 +114,30 @@ pub const FULL_AFTER_ROWS: usize = 2 * myriad_nodes::wire::BATCH_ROWS;
 
 /// What the server remembers of one link session with one device: its
 /// core's ABI as its `hello` said ([`peer_abi`]), whether it downloads a
-/// first full sync by a link ([`FULL`]), and the rows it asked that device
-/// for again, so it asks for each at most once (`log.vector` `ask`). The
-/// connection keeps one per link and drops it when the link closes.
+/// first full sync by a link ([`FULL`]), the rows it asked that device
+/// for again, so it asks for each at most once (`log.vector` `ask`), and
+/// whether it takes what it lacks a page at a time ([`PAGES`]), with the
+/// page of each audience on its way. The connection keeps one per link and
+/// drops it when the link closes.
 #[derive(Debug, Clone)]
 pub struct Session {
     peer_abi: u32,
     full: bool,
     asked: BTreeSet<String>,
+    pages: bool,
+    open: BTreeMap<String, Page>,
+}
+
+/// A page sent and not finished yet: its `more`, what the side held when it
+/// asked for it, whether it carried rows the side lacked (not only rows
+/// asked again for), and the rows asked again for that wait for the next.
+#[derive(Debug, Clone)]
+struct Page {
+    id: String,
+    vector: Vector,
+    beyond: BTreeMap<String, Vec<u64>>,
+    lacked: bool,
+    ask_left: Vec<String>,
 }
 
 /// The capability a host core lists when it downloads a first full sync by
@@ -129,23 +145,57 @@ pub struct Session {
 /// the rows over the link in `log.rows` batches, as any increment.
 pub const FULL: &str = "log.full";
 
+/// The capability an end lists when it takes what it lacks a page at a time
+/// (`log.rows` `more`, `log.vector` `after`).
+pub const PAGES: &str = "log.pages";
+
 impl Session {
     pub fn new(peer_abi: u32) -> Self {
         Self {
             peer_abi,
             full: false,
             asked: BTreeSet::new(),
+            pages: false,
+            open: BTreeMap::new(),
         }
     }
 
     /// The session of a link whose `hello` listed `capabilities`, as
     /// accepted.
     pub fn of(capabilities: &[String]) -> Self {
+        let listed = |name: &str| capabilities.iter().any(|capability| capability == name);
         Self {
-            full: capabilities.iter().any(|capability| capability == FULL),
+            full: listed(FULL),
+            pages: listed(PAGES),
             ..Self::new(peer_abi(capabilities))
         }
     }
+}
+
+/// Batches in a page: the contract's `limits.logPageBatches`; fewer in a
+/// test that drains pages without writing thousands of rows.
+fn page_batches() -> usize {
+    #[cfg(test)]
+    if let Some(batches) = PAGE_IN_TEST.with(std::cell::Cell::get) {
+        return batches;
+    }
+    myriad_nodes::wire::PAGE_BATCHES
+}
+
+#[cfg(test)]
+thread_local! {
+    static PAGE_IN_TEST: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+/// Pages of `batches` on this thread, for a test.
+#[cfg(test)]
+pub(crate) fn pages_in_test(batches: usize) {
+    PAGE_IN_TEST.with(|cell| cell.set(Some(batches)));
+}
+
+/// A page's id: never one of another link's.
+fn page_id() -> String {
+    format!("page_{}", &uuid::Uuid::new_v4().simple().to_string()[..20])
 }
 
 impl Default for Session {
@@ -445,14 +495,20 @@ async fn answer(
             };
             // The counts it holds past a gap, by origin: not in its vector,
             // so a side that took rows after a refused one shows them here.
-            if let Some(beyond) = body.get("beyond") {
-                tracing::debug!(
-                    device,
-                    audience,
-                    beyond = %beyond,
-                    "[her-log] a side's rows past a gap"
-                );
-            }
+            let beyond: BTreeMap<String, Vec<u64>> = match body.get("beyond") {
+                Some(beyond) => {
+                    tracing::debug!(
+                        device,
+                        audience,
+                        beyond = %beyond,
+                        "[her-log] a side's rows past a gap"
+                    );
+                    serde_json::from_value(beyond.clone())
+                        .map_err(|_| Error::Refused("beyond".into()))?
+                }
+                None => BTreeMap::new(),
+            };
+            let after = body.get("after").and_then(Value::as_str);
             lease::heard(db, device, Some(Seen::Host), now).await?;
             // How far a host core is: the holder on what it was handed, a
             // device marked behind until it catches up, anyone's for when
@@ -465,8 +521,14 @@ async fn answer(
                 };
                 super::stuck::heard(device, standing.as_ref(), &audience, &theirs, now);
             }
+            let asked = Asked {
+                theirs: &theirs,
+                beyond,
+                ask,
+                after,
+            };
             vector(
-                db, root, &owner, device, &side, session, &audience, &theirs, ask, now,
+                db, root, &owner, device, &side, session, &audience, asked, now,
             )
             .await
         }
@@ -615,6 +677,15 @@ async fn answer(
     }
 }
 
+/// What a side's `log.vector` says it holds and wants of one audience.
+struct Asked<'a> {
+    theirs: &'a Vector,
+    beyond: BTreeMap<String, Vec<u64>>,
+    ask: Vec<String>,
+    /// The page it holds now (`log.pages`), when it sent this for the next.
+    after: Option<&'a str>,
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn vector(
     db: &DatabaseConnection,
@@ -622,12 +693,54 @@ async fn vector(
     owner: &Owner,
     device: &str,
     to: &myriad_persona_log::Holder,
-    session: &Session,
+    session: &mut Session,
     audience: &str,
-    theirs: &Vector,
-    ask: Vec<String>,
+    asked: Asked<'_>,
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
+    let Asked {
+        theirs,
+        beyond,
+        mut ask,
+        after,
+    } = asked;
+    // A page a time: while one is on its way, only the log.vector naming it
+    // gets the next; a duplicate or a stale one gets nothing again.
+    if session.pages
+        && let Some(open) = session.open.get(audience)
+    {
+        if after != Some(open.id.as_str()) {
+            return Ok(Vec::new());
+        }
+        let open = session
+            .open
+            .remove(audience)
+            .expect("the page was just read");
+        // It holds nothing more than when it asked for the page, which
+        // carried rows it lacked: they were refused. That page is done; the
+        // next round starts with its next log.vector without after.
+        if open.lacked && &open.vector == theirs && open.beyond == beyond {
+            tracing::info!(
+                device,
+                audience,
+                "[her-log] a page brought a side nothing it did not hold: no next page this round"
+            );
+            return Ok(Vec::new());
+        }
+        // The rows asked again for that waited go first.
+        let mut waited = open.ask_left;
+        for id in ask {
+            if !waited.contains(&id) {
+                waited.push(id);
+            }
+        }
+        ask = waited;
+    }
+    let waiting = if session.pages && ask.len() > ASK_ROWS {
+        ask.split_off(ASK_ROWS)
+    } else {
+        Vec::new()
+    };
     let ours = store::holdings(db, owner.user, audience).await?;
     // How far a side has her log, by origin: counts only, no rows. What a
     // check after a forget reads to see the side has the forget row.
@@ -655,8 +768,49 @@ async fn vector(
             }),
         ));
     } else {
-        let sent =
-            store::send(db, root, owner, audience, theirs, ask, to, session.peer_abi).await?;
+        let paging = session.pages.then(|| store::Paging {
+            batches: page_batches(),
+            beyond: &beyond,
+        });
+        let asked: BTreeSet<String> = ask.iter().cloned().collect();
+        let mut sent = store::send_page(
+            db,
+            root,
+            owner,
+            audience,
+            theirs,
+            ask,
+            to,
+            session.peer_abi,
+            paging,
+        )
+        .await?;
+        // More to go: the last batch names the page, which the side names
+        // in its next log.vector once it has settled that batch.
+        let mut ask_left = std::mem::take(&mut sent.ask_left);
+        ask_left.extend(waiting);
+        if session.pages
+            && (sent.more || !ask_left.is_empty())
+            && let Some(last) = sent.batches.last_mut()
+        {
+            let id = page_id();
+            last.more = Some(id.clone());
+            let lacked = sent
+                .batches
+                .iter()
+                .flat_map(|batch| &batch.rows)
+                .any(|row| !asked.contains(&row.id));
+            session.open.insert(
+                audience.to_string(),
+                Page {
+                    id,
+                    vector: theirs.clone(),
+                    beyond: beyond.clone(),
+                    lacked,
+                    ask_left,
+                },
+            );
+        }
         if sent.too_old {
             tracing::info!(
                 device,
