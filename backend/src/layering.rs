@@ -373,6 +373,12 @@ fn merope_background_work_uses_the_managed_runner() {
 /// site's own that is not hers. A new file is one or the other only by
 /// review; the list only shrinks.
 const MEROPE_RULES_STILL_HERE: &[(&str, &str)] = &[
+    (
+        "services/agent/merope/memory_nodes/since.rs",
+        "hers, to move: how what stands and what ended read on their lines (since when, \
+         told when). Its shape is still being settled against the memory bench; once it \
+         is, it goes to the core, where the app's lines are to read the same",
+    ),
     ("services/agent/merope/motion_preview.rs", "hers, to move"),
     (
         "services/agent/merope/report_dna/evidence.rs",

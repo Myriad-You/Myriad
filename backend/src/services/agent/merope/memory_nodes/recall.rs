@@ -171,7 +171,7 @@ impl Lines<'_> {
         Some((line.clone(), line))
     }
 
-    /// What ended on `node` ([`super::ended`]): the words of each and its
+    /// What ended on `node` ([`super::since::ended_lines`]): the words of each and its
     /// line, with since when. One resting on nothing is not said.
     fn ended(&self, node: &super::shown::Node) -> Vec<(String, String)> {
         let since = |item: &str| {
@@ -180,7 +180,7 @@ impl Lines<'_> {
                 .then(|| self.since(node, item))
                 .flatten()
         };
-        super::ended::lines(node, since, super::ended::MOST)
+        super::since::ended_lines(node, since, super::since::MOST_ENDED)
     }
 
     /// Since when `item` on `node` stands or ended, as its line says it

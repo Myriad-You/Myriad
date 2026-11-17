@@ -12,6 +12,14 @@
 //! they left in August, it reads `since 2026-08, told 11-10`, and a fact of
 //! September is plainly the earlier word.
 //!
+//! What stood on a node and has ended (a `node.standing` item whose latest
+//! version is `ended`) keeps the fact that ended it as its words (the core's
+//! `stands::decide`). Left unsaid, the node's older entries (`[08-21] 每周三
+//! 晚上夜跑`) read as how things are; said first, with its day, they read as
+//! what was before it ([`ended_lines`]). Only what she concluded is said: a
+//! rule's item is what a device showed for a while, and its ending is
+//! nothing about their life.
+//!
 //! Days are written as a fact's is (`store::as_known`): month and day, the
 //! year only when it is not this one.
 
@@ -19,6 +27,7 @@ use chrono::DateTime;
 use myriad_nodes::stands;
 use serde_json::Value;
 
+use super::shown::Node;
 use crate::services::agent::merope::clock::Zone;
 
 /// Since when one thing stands, as its line says it: the day it began
@@ -112,6 +121,39 @@ pub(super) fn resident(name: &str, text: &str, dated: &str) -> String {
     } else {
         format!("{name}, {dated}：{text}")
     }
+}
+
+/// How many ended things of one node are said: the latest.
+pub(super) const MOST_ENDED: usize = 2;
+
+/// The ended things on `node`, newest first, at most `most`: the words of
+/// each and its line, with since when (`since`, by item; one with none is
+/// left out).
+pub(super) fn ended_lines(
+    node: &Node,
+    since: impl Fn(&str) -> Option<String>,
+    most: usize,
+) -> Vec<(String, String)> {
+    let Some(standing) = node.head.get("standing").and_then(|all| all.as_object()) else {
+        return Vec::new();
+    };
+    let mut over: Vec<(i64, &str, &str)> = standing
+        .iter()
+        .filter(|(item, held)| {
+            stands::whose_of(item).is_some()
+                && held.get("author").and_then(|author| author.as_str()) != Some("rule")
+                && held["value"]["ended"].as_bool() == Some(true)
+        })
+        .filter_map(|(item, held)| {
+            let text = held["value"]["text"].as_str()?.trim();
+            (!text.is_empty()).then_some((held.get("at")?.as_i64()?, item.as_str(), text))
+        })
+        .collect();
+    over.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
+    over.into_iter()
+        .filter_map(|(_, item, text)| Some((text.to_string(), ended(text, &since(item)?))))
+        .take(most)
+        .collect()
 }
 
 #[cfg(test)]
@@ -208,5 +250,54 @@ mod tests {
         ] {
             assert!(!line.starts_with('[') && !line.contains('('), "{line}");
         }
+    }
+
+    fn node(standing: serde_json::Value) -> Node {
+        Node {
+            id: "n".into(),
+            kind: Some("topic".into()),
+            name: Some("夜跑".into()),
+            status: None,
+            gone: false,
+            head: json!({ "standing": standing }),
+            facts: Vec::new(),
+            heard: Vec::new(),
+            latest: 0,
+        }
+    }
+
+    /// What ended on a node is said, newest first, with since when; what
+    /// still stands, a rule's item and one with no words are not, and no
+    /// more than asked.
+    #[test]
+    fn what_ended_is_said_with_since_when() {
+        let item = |n: usize| stands::item_id("them", "n", "m", n);
+        let node = node(json!({
+            (item(0)): {"at": 30, "author": "her",
+                "value": {"text": "膝盖伤了，不夜跑了", "because": [], "ended": true}},
+            (item(1)): {"at": 20, "author": "her",
+                "value": {"text": "每周三晚上夜跑", "because": []}},
+            (item(2)): {"at": 10, "author": "her",
+                "value": {"text": "健身卡到期，没续", "because": [], "ended": true}},
+            (item(3)): {"at": 40, "author": "her",
+                "value": {"text": " ", "because": [], "ended": true}},
+            "now": {"at": 50, "author": "rule",
+                "value": {"text": "在写报告", "because": [], "ended": true}},
+        }));
+        let since = |item: &str| Some(format!("since 10-{}", &item[item.len() - 1..]));
+        let all = ended_lines(&node, since, MOST_ENDED);
+        assert_eq!(all.len(), 2, "{all:?}");
+        assert_eq!(all[0].0, "膝盖伤了，不夜跑了");
+        assert!(
+            all[0]
+                .1
+                .starts_with("no longer as it stood here, since 10-"),
+            "{all:?}"
+        );
+        assert!(all[0].1.ends_with(": 膝盖伤了，不夜跑了"), "{all:?}");
+        assert_eq!(all[1].0, "健身卡到期，没续");
+        assert_eq!(ended_lines(&node, since, 1).len(), 1);
+        // No day to say: not said.
+        assert!(ended_lines(&node, |_| None, MOST_ENDED).is_empty());
     }
 }
