@@ -980,6 +980,8 @@
   "agentAliveSettling": "Probleme beim Aufarbeiten der Gespräche",
   "agentAliveSettlingFailures": "Antworten unlesbar {unreadable}-mal, erneut gefragt {again}-mal; {left} Stapel unsortiert gelassen, {brought} in den nächsten mitgenommen; {kept} Notizen unsortiert dauerhaft behalten (nicht zusammengeführt oder dedupliziert)",
   "agentAliveCutOff": "Antworten am Ausgabelimit abgeschnitten",
+  "agentAliveUnplaced": "Nicht in Notizen eingeordnete Gespräche",
+  "agentAliveUnplacedCounts": "{kept} Abschnitte zum späteren Einordnen vorgemerkt, {later} Stapel später eingeordnet, {dropped} Zeilen nach einer Woche verworfen",
   "agentAliveStanding": "Zuletzt „sein Leben jetzt“ geschrieben",
   "agentAliveStandingFailed": "Fehlgeschlagene Modellaufrufe dabei",
   "agentAliveStandingFailedCount": "{n}, zuletzt {ago}",

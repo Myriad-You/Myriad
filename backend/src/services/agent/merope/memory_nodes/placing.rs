@@ -9,10 +9,11 @@
 //!
 //! Each line is placed once: a line already in a span or the inbox is not
 //! shown again, so a stretch gone over again (a retry) asks only of what is
-//! new, and costs nothing when nothing is. An answer the core cannot read
-//! as it stands writes nothing: the talk is all still there, and going
-//! over the stretch goes on without it. Only a private talk is placed;
-//! only while her mind is here.
+//! new, and costs nothing when nothing is. An answer that failed, was cut
+//! off or cannot be read as it stands writes nothing: the talk is all still
+//! there, going over the stretch goes on without it, and the lines are
+//! placed later, at her upkeep ([`backlog`]). Only a private talk is
+//! placed; only while her mind is here.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -139,13 +140,45 @@ pub(crate) async fn place(
         return Vec::new();
     }
     let audience = audience::private_talk(user_id, site_owner);
-    match place_in(db, user_id, &audience, lines).await {
-        Ok(nodes) => nodes,
+    let placed = match place_in(db, user_id, &audience, lines).await {
+        Ok(placed) => placed,
         Err(error) => {
             tracing::warn!(%error, "[memory-nodes] a stretch could not be placed");
-            Vec::new()
+            Placed {
+                missed: said_between(lines.iter()),
+                ..Placed::default()
+            }
         }
+    };
+    let still = [placed.missed, placed.left].into_iter().flatten().reduce(
+        |(from, until), (other_from, other_until)| (from.min(other_from), until.max(other_until)),
+    );
+    if let Some((from, until)) = still {
+        backlog::keep(db, user_id, from, until).await;
     }
+    placed.nodes
+}
+
+/// When the first and the last of `lines` were said.
+fn said_between<'a>(lines: impl Iterator<Item = &'a Line>) -> Option<Said> {
+    lines.fold(None, |span, line| match span {
+        None => Some((line.at, line.at)),
+        Some((from, until)) => Some((from.min(line.at), until.max(line.at))),
+    })
+}
+
+/// From when until when some lines were said.
+type Said = (DateTime<FixedOffset>, DateTime<FixedOffset>);
+
+/// What placing some lines came to: the nodes their spans are on; when the
+/// lines it could not place were said (its answer failed, was cut off, or
+/// could not be read); and when those past what one call is shown were
+/// (the latest of a long stretch), not asked of yet.
+#[derive(Default)]
+struct Placed {
+    nodes: Vec<String>,
+    missed: Option<Said>,
+    left: Option<Said>,
 }
 
 async fn place_in(
@@ -153,7 +186,7 @@ async fn place_in(
     user_id: i32,
     audience: &str,
     lines: &[Line],
-) -> Result<Vec<String>, Error> {
+) -> Result<Placed, Error> {
     let refs: Vec<String> = lines.iter().map(Line::reference).collect();
     let placed = already(db, user_id, audience, &refs).await?;
     let mut used: Vec<String> = Vec::new();
@@ -169,11 +202,17 @@ async fn place_in(
         .filter(|line| !placed.contains_key(&line.reference()))
         .collect();
     if fresh.is_empty() {
-        return Ok(used);
+        return Ok(Placed {
+            nodes: used,
+            ..Placed::default()
+        });
     }
     let Some(pen) = crate::services::her_log::pen::think() else {
         tracing::info!("[memory-nodes] a stretch not placed: her mind is on another device");
-        return Ok(used);
+        return Ok(Placed {
+            nodes: used,
+            ..Placed::default()
+        });
     };
     let partner = audience::said_by(audience, Speaker::Person)
         .ok_or_else(|| Error::Refused("a talk's audience has no one in it".into()))?;
@@ -211,6 +250,8 @@ async fn place_in(
             .collect(),
         candidates,
     })?;
+    // Past what one call is shown: placed later, from the first not shown.
+    let left = said_between(fresh.iter().skip(prepared.taken).copied());
     let input = json!({
         "talk": prepared.items.iter().map(|item| json!({
             "n": item.n, "saidBy": item.said_by, "text": item.text,
@@ -231,7 +272,11 @@ async fn place_in(
         .json_raw(&system_prompt(), &input, SCHEMA_NAME, &schema())
         .await
     else {
-        return Ok(used);
+        return Ok(Placed {
+            nodes: used,
+            missed: said_between(fresh.iter().copied()),
+            left: None,
+        });
     };
     let read = place::read(ReadInput {
         items: prepared.items.iter().map(|item| item.id.clone()).collect(),
@@ -250,7 +295,11 @@ async fn place_in(
             ?why,
             "[memory-nodes] her placing did not read: nothing placed"
         );
-        return Ok(used);
+        return Ok(Placed {
+            nodes: used,
+            missed: said_between(fresh.iter().copied()),
+            left: None,
+        });
     }
     let by_ref: BTreeMap<String, &Line> =
         fresh.iter().map(|line| (line.reference(), *line)).collect();
@@ -306,5 +355,12 @@ async fn place_in(
         }
     }
     write_with(db, user_id, audience, &rows, Some(&pen), &beside).await?;
-    Ok(used)
+    Ok(Placed {
+        nodes: used,
+        missed: None,
+        left,
+    })
 }
+
+#[path = "placing_backlog.rs"]
+pub(crate) mod backlog;

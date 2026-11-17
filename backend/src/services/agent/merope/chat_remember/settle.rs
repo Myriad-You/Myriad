@@ -7,7 +7,7 @@ use super::super::ingest::compact_summary;
 use super::{ChatMemoryUpdate, ChatMemoryUpdates};
 
 /// Lines of a stretch, at most, shown when it is gone over.
-const SETTLE_LINES: i64 = 80;
+pub(in crate::services::agent::merope) const SETTLE_LINES: i64 = 80;
 /// What she knows of them for good, at most, shown beside it.
 const SETTLE_KNOWN: usize = 40;
 /// Short notes gone over at once, at most: a stretch with more is gone over
@@ -83,6 +83,7 @@ pub(in crate::services::agent::merope) async fn settle(
     // what they answered is there too), up to where the notes gone over now
     // end.
     let venue = present.group_id();
+    let begins = said_from.unwrap_or(from) - chrono::Duration::minutes(2);
     let lines = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -96,7 +97,7 @@ pub(in crate::services::agent::merope) async fn settle(
             [
                 user_id.into(),
                 venue.map(str::to_string).into(),
-                (said_from.unwrap_or(from) - chrono::Duration::minutes(2)).into(),
+                begins.into(),
                 SETTLE_LINES.into(),
                 rest.into(),
             ],
@@ -128,6 +129,20 @@ pub(in crate::services::agent::merope) async fn settle(
             })
             .collect();
         stretch.reverse();
+        // Said in more lines than going over is shown: those before are
+        // placed later, at her upkeep.
+        if lines.len() as i64 >= SETTLE_LINES
+            && let Some(oldest) = stretch.first()
+            && oldest.at > begins
+        {
+            placing::backlog::keep(
+                db,
+                user_id,
+                begins,
+                oldest.at - chrono::Duration::microseconds(1),
+            )
+            .await;
+        }
         site_owner = crate::services::principal::site_owner_id(db)
             .await
             .ok()

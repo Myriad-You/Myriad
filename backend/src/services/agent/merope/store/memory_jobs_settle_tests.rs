@@ -312,3 +312,113 @@ async fn notes_of_a_fact_past_the_most_kept_are_kept_as_they_are() {
     );
     schema.drop().await;
 }
+
+/// A stretch said in more lines than going over is shown: its earliest
+/// lines are not shown to going over, nor placed with it; and placing is
+/// shown fewer still, the earliest of those. Both, kept to be placed later.
+#[tokio::test]
+async fn the_earliest_lines_of_a_long_stretch_are_not_shown_but_placed_later() {
+    use crate::services::channel_group::g0;
+    let Some(schema) = fixture().await else {
+        return;
+    };
+    let db = &schema.db;
+    let shown = crate::services::agent::merope::chat_remember::settle::SETTLE_LINES as usize;
+    let said = shown + 10;
+    let began = crate::clock::now().fixed_offset() - chrono::Duration::minutes(30);
+    db.execute_unprepared(
+        "INSERT INTO agent_sessions (id, user_id, title, context, message_count, archived, \
+         created_at, last_active_at) VALUES ('long-talk', 7, 't', '{\"mode\":\"chat\"}'::jsonb, \
+         0, false, NOW(), NOW())",
+    )
+    .await
+    .unwrap();
+    let line = |index: usize| format!("line-{index:03}");
+    for index in 0..said {
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO agent_messages (session_id, role, content, metadata, created_at) \
+             VALUES ('long-talk', 'user', $1, '{}'::jsonb, $2)",
+            [
+                line(index).into(),
+                (began + chrono::Duration::seconds(index as i64 * 10)).into(),
+            ],
+        ))
+        .await
+        .unwrap();
+    }
+    note(db, "周末要搬家", unified::SHORT_NOTE_SOURCE).await;
+    let mut world = g0::World::new(0.5);
+    world
+        .models
+        .entry("chat_settle".into())
+        .or_default()
+        .push_back(Some(
+            r#"{"lasting":[],"replaces":[],"moment":[0],"known":[]}"#.into(),
+        ));
+    // Placed as they are shown: only those not shown are left.
+    world
+        .models
+        .entry("memory_node_place".into())
+        .or_default()
+        .push_back(Some(
+            r#"{"spans":[{"start":1,"node":null,"gist":"a long talk"}]}"#.into(),
+        ));
+    g0::enter(world);
+    let effect = crate::services::agent::merope::chat_remember::settle(
+        db,
+        7,
+        &Audience::private(7),
+        began,
+        None,
+    )
+    .await;
+    let world = g0::leave().expect("a world");
+    assert!(effect.is_ok(), "gone over");
+    let input_of = |operation: &str| {
+        world
+            .log
+            .iter()
+            .find(|entry| entry["kind"] == "model" && entry["what"]["operation"] == operation)
+            .and_then(|entry| entry["what"]["input"].as_str())
+            .unwrap_or_else(|| panic!("{operation} asked"))
+            .to_string()
+    };
+    let settled = input_of("chat_settle");
+    assert!(settled.contains(&line(said - 1)), "the latest gone over");
+    let placed = input_of("memory_node_place");
+    let at_once = myriad_nodes::limits::PLACE_ITEMS;
+    assert!(
+        placed.contains(&line(said - shown + at_once - 1))
+            && !placed.contains(&line(said - shown + at_once)),
+        "placing shown as many as it takes"
+    );
+    for operation in ["chat_settle", "memory_node_place"] {
+        let input = input_of(operation);
+        assert!(
+            input.contains(&line(said - shown)),
+            "{operation}: as many as are shown"
+        );
+        for index in 0..said - shown {
+            assert!(
+                !input.contains(&line(index)),
+                "{operation}: {} not shown",
+                line(index)
+            );
+        }
+    }
+    // Those not shown, before and after, are kept to be placed later.
+    let unplaced: serde_json::Value = crate::services::runtime_registry::get(
+        db,
+        crate::services::agent::merope::memory_nodes::placing::backlog::NAMESPACE,
+        "7",
+    )
+    .await
+    .unwrap()
+    .expect("kept to place later");
+    let at =
+        |index: usize| (began + chrono::Duration::seconds(index as i64 * 10)).timestamp_micros();
+    assert!(unplaced["from"].as_i64().unwrap() <= at(0));
+    assert!(unplaced["until"].as_i64().unwrap() >= at(said - 1));
+    schema.drop().await;
+}

@@ -330,7 +330,7 @@ pub(crate) async fn calls_today<C: ConnectionTrait>(
     )
 }
 
-async fn count_calls<C: ConnectionTrait>(
+pub(crate) async fn count_calls<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
     audience: &str,
@@ -356,6 +356,9 @@ async fn count_calls<C: ConnectionTrait>(
 
 /// One upkeep of her nodes, at the site's hourly upkeep.
 pub(crate) async fn tick(db: &DatabaseConnection) {
+    // What a stretch could not place first, so what it puts in the inbox is
+    // filed with the rest.
+    super::placing::backlog::place_later(db).await;
     let talks = match audiences(db).await {
         Ok(talks) => talks,
         Err(error) => {

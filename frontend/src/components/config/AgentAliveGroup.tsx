@@ -422,6 +422,16 @@ export function AgentAliveGroup() {
                   .join(' · ')
               : c.agentAliveNone}
           </dd>
+          <dt>{c.agentAliveUnplaced}</dt>
+          <dd>
+            {memory.unplaced && Object.values(memory.unplaced).some((count) => count > 0)
+              ? format(c.agentAliveUnplacedCounts, {
+                  kept: String(memory.unplaced.kept),
+                  later: String(memory.unplaced.placed_later),
+                  dropped: String(memory.unplaced.let_go),
+                })
+              : c.agentAliveNone}
+          </dd>
           <dt>{c.agentAliveStanding}</dt>
           <dd>{ago(memory.standingWrittenAt)}</dd>
           <dt>{c.agentAliveStandingFailed}</dt>

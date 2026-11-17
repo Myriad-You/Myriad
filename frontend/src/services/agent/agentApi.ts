@@ -297,6 +297,12 @@ export interface HerAlive {
      * the call they answered; absent from a site that does not count them.
      */
     cutOff?: Record<string, number>
+    /**
+     * Talk her placing could not place, since the site started: spans of
+     * time kept to place later, batches placed later, and lines let go
+     * unplaced after a week.
+     */
+    unplaced?: { kept: number, placed_later: number, let_go: number }
   }
   ends: HerAliveEnd[]
   /**

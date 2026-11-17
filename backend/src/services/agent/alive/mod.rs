@@ -662,6 +662,10 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
             // Her answers cut off at their output limit since the site
             // started, by the call they answered (`call::cut_off`).
             "cutOff": crate::services::agent::merope::answers_cut_off(),
+            // Talk her placing could not place, since the site started: spans
+            // kept to place later, batches placed later, lines let go after
+            // a week (`placing::backlog::failures`).
+            "unplaced": crate::services::agent::merope::memory_nodes::placing::backlog::failures(),
         },
         "ends": ends,
         // Keys of a look at the screen the site deleted before reading it
