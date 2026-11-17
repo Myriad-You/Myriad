@@ -2,8 +2,9 @@
 //! status page: keys of a look at the screen it deleted (`screenFields`),
 //! per frame type and key, and the frames a child told it dropped
 //! (`link.dropped`), per device, frame type and reason, and of those the
-//! reliable ones its ack had covered (not read, though acked). Counts and
-//! when, never a value.
+//! reliable ones its ack had covered (not read, though acked), and the
+//! `log.vector` frames of her log that got no page (`log.pages`), per
+//! device and why. Counts and when, never a value.
 
 use std::collections::BTreeMap;
 use std::sync::{LazyLock, Mutex};
@@ -40,6 +41,8 @@ struct Counts {
     dropped: BTreeMap<String, BTreeMap<(&'static str, &'static str), Count>>,
     /// device → reliable frame type → acked by the child but not read.
     unread: BTreeMap<String, BTreeMap<&'static str, Count>>,
+    /// device → why → log.vector frames that got no page.
+    pages: BTreeMap<String, BTreeMap<&'static str, Count>>,
 }
 
 static COUNTS: LazyLock<Mutex<Counts>> = LazyLock::new(Mutex::default);
@@ -127,6 +130,41 @@ pub(super) fn unread(device_id: &str, t: &'static str) {
             .or_default()
             .add(now);
     });
+}
+
+/// A `log.vector` from a device got no page of her log: a page of its
+/// audience was unfinished and it did not name it (`page_unfinished`), it
+/// named a page not on its way (`no_such_page`), or the page it named
+/// brought nothing it did not hold (`no_headway`). Only those words are
+/// counted.
+pub(crate) fn page_passed(device_id: &str, why: &'static str) {
+    if !matches!(why, "page_unfinished" | "no_such_page" | "no_headway") {
+        return;
+    }
+    let now = crate::clock::now();
+    with(|counts| {
+        if !counts.pages.contains_key(device_id) && counts.pages.len() >= DEVICES_AT_MOST {
+            return;
+        }
+        counts
+            .pages
+            .entry(device_id.to_string())
+            .or_default()
+            .entry(why)
+            .or_default()
+            .add(now);
+    });
+}
+
+/// The `log.vector` frames of one device that got no page, by why.
+pub(crate) fn pages_passed_by(device_id: &str) -> Vec<(&'static str, Count)> {
+    with(|counts| {
+        counts
+            .pages
+            .get(device_id)
+            .map(|kinds| kinds.iter().map(|(why, count)| (*why, *count)).collect())
+            .unwrap_or_default()
+    })
 }
 
 /// What one device acked of her reliable frames without reading it.

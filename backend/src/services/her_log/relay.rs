@@ -117,7 +117,8 @@ pub const FULL_AFTER_ROWS: usize = 2 * myriad_nodes::wire::BATCH_ROWS;
 /// first full sync by a link ([`FULL`]), the rows it asked that device
 /// for again, so it asks for each at most once (`log.vector` `ask`), and
 /// whether it takes what it lacks a page at a time ([`PAGES`]), with the
-/// page of each audience on its way. The connection keeps one per link and
+/// page of each audience on its way and the rows of each it asked again for
+/// that wait for a page with room. The connection keeps one per link and
 /// drops it when the link closes.
 #[derive(Debug, Clone)]
 pub struct Session {
@@ -126,18 +127,21 @@ pub struct Session {
     asked: BTreeSet<String>,
     pages: bool,
     open: BTreeMap<String, Page>,
+    /// By audience, oldest first: a side asks for each row at most once on
+    /// a link, so what it asked is kept until a page carries it, whatever
+    /// becomes of the log.vector that asked.
+    asks: BTreeMap<String, Vec<String>>,
 }
 
 /// A page sent and not finished yet: its `more`, what the side held when it
-/// asked for it, whether it carried rows the side lacked (not only rows
-/// asked again for), and the rows asked again for that wait for the next.
+/// asked for it, and whether it carried rows the side lacked (not only rows
+/// asked again for).
 #[derive(Debug, Clone)]
 struct Page {
     id: String,
     vector: Vector,
     beyond: BTreeMap<String, Vec<u64>>,
     lacked: bool,
-    ask_left: Vec<String>,
 }
 
 /// The capability a host core lists when it downloads a first full sync by
@@ -157,6 +161,7 @@ impl Session {
             asked: BTreeSet::new(),
             pages: false,
             open: BTreeMap::new(),
+            asks: BTreeMap::new(),
         }
     }
 
@@ -187,10 +192,19 @@ thread_local! {
     static PAGE_IN_TEST: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
 }
 
-/// Pages of `batches` on this thread, for a test.
+/// Pages of `batches` on this thread, for a test, until what this gives is
+/// dropped (a test may run on the thread of the one before it).
 #[cfg(test)]
-pub(crate) fn pages_in_test(batches: usize) {
+#[must_use]
+pub(crate) fn pages_in_test(batches: usize) -> impl Drop {
+    struct Pages;
+    impl Drop for Pages {
+        fn drop(&mut self) {
+            PAGE_IN_TEST.with(|cell| cell.set(None));
+        }
+    }
     PAGE_IN_TEST.with(|cell| cell.set(Some(batches)));
+    Pages
 }
 
 /// A page's id: never one of another link's.
@@ -409,7 +423,24 @@ pub async fn take(
     frame: &Value,
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
-    let out = answer(db, root, settings, user, device, core, session, frame, now).await?;
+    let out = answer(db, root, settings, user, device, core, session, frame, now).await;
+    // A log.vector not answered (her log off, the database away, a field
+    // that does not read) lets the audience's unfinished page go: the side
+    // names a page once, so the page would be waiting for a name that does
+    // not come, and every log.vector after it would get nothing. Its next
+    // log.vector without after gets a page again.
+    if out.is_err()
+        && frame["t"] == "log.vector"
+        && let Some(audience) = frame["body"]["audience"].as_str()
+        && session.open.remove(audience).is_some()
+    {
+        tracing::info!(
+            device,
+            audience,
+            "[her-log] a log.vector was not answered: its audience's unfinished page was let go"
+        );
+    }
+    let out = out?;
     // A frame answered with an error says so here too, once per frame:
     // the frame's type (a sync frame's name, else `?`) and the code, never
     // what it carried. Else a side sending rows the server will not take
@@ -544,17 +575,35 @@ async fn answer(
                     body: body.clone(),
                 }]);
             }
-            let Ok(batch) = serde_json::from_value::<Batch>(body.clone()) else {
-                return Ok(vec![Outgoing::error("bad_frame", seq)]);
+            // The page this batch ends, on a link that pages: named back once
+            // the batch is settled, taken or refused.
+            let more = body
+                .get("more")
+                .and_then(Value::as_str)
+                .filter(|_| session.pages)
+                .map(str::to_string);
+            let mut out = match serde_json::from_value::<Batch>(body.clone()) {
+                Err(_) => vec![Outgoing::error("bad_frame", seq)],
+                Ok(batch) => {
+                    // What a computer may not hold, only her mind writes,
+                    // for here: her mind there now, or there before a
+                    // takeover sending what it wrote while it held her (her
+                    // own memory catching up).
+                    if !side.holds(&audience)
+                        && !mine
+                        && !(host && held_then(db, device, &batch).await?)
+                    {
+                        vec![Outgoing::error("not_holder", seq)]
+                    } else {
+                        lease::heard(db, device, Some(Seen::Host), now).await?;
+                        rows(db, root, settings, &owner, device, session, batch, seq, now).await?
+                    }
+                }
             };
-            // What a computer may not hold, only her mind writes, for here:
-            // her mind there now, or there before a takeover sending what it
-            // wrote while it held her (her own memory catching up).
-            if !side.holds(&audience) && !mine && !(host && held_then(db, device, &batch).await?) {
-                return Ok(vec![Outgoing::error("not_holder", seq)]);
+            if let Some(more) = more {
+                settled(db, owner.user, &audience, &more, &mut out).await?;
             }
-            lease::heard(db, device, Some(Seen::Host), now).await?;
-            rows(db, root, settings, &owner, device, session, batch, seq, now).await
+            Ok(out)
         }
         "lease.ask" => {
             lease::heard(db, device, Some(Seen::Host), now).await?;
@@ -704,37 +753,48 @@ async fn vector(
         mut ask,
         after,
     } = asked;
-    // A page a time: while one is on its way, only the log.vector naming it
-    // gets the next; a duplicate or a stale one gets nothing again.
-    if session.pages
-        && let Some(open) = session.open.get(audience)
-    {
-        if after != Some(open.id.as_str()) {
-            return Ok(Vec::new());
+    if session.pages {
+        // What it asks again for waits behind what it asked before, and is
+        // kept whether or not this log.vector gets a page.
+        if !ask.is_empty() {
+            let waited = session.asks.entry(audience.to_string()).or_default();
+            for id in ask.drain(..) {
+                if !waited.contains(&id) {
+                    waited.push(id);
+                }
+            }
         }
-        let open = session
-            .open
-            .remove(audience)
-            .expect("the page was just read");
+        // A page a time: while one is on its way, only the log.vector
+        // naming it gets the next; a duplicate or a stale one gets nothing
+        // again. One naming a page that is not on its way (the last page
+        // twice, or a page of another link) gets nothing either: a page
+        // goes only to a log.vector without after, or to the one naming it.
+        let passed = match (session.open.get(audience), after) {
+            (Some(open), Some(after)) if open.id == after => None,
+            (Some(_), _) => Some("page_unfinished"),
+            (None, Some(_)) => Some("no_such_page"),
+            (None, None) => None,
+        };
         // It holds nothing more than when it asked for the page, which
         // carried rows it lacked: they were refused. That page is done; the
         // next round starts with its next log.vector without after.
-        if open.lacked && &open.vector == theirs && open.beyond == beyond {
+        let passed = passed.or_else(|| {
+            let open = session.open.remove(audience)?;
+            (open.lacked && &open.vector == theirs && open.beyond == beyond).then_some("no_headway")
+        });
+        if let Some(why) = passed {
             tracing::info!(
                 device,
                 audience,
-                "[her-log] a page brought a side nothing it did not hold: no next page this round"
+                why,
+                after = after.is_some(),
+                "[her-log] a log.vector got no page"
             );
+            crate::services::agent::link::counts::page_passed(device, why);
             return Ok(Vec::new());
         }
-        // The rows asked again for that waited go first.
-        let mut waited = open.ask_left;
-        for id in ask {
-            if !waited.contains(&id) {
-                waited.push(id);
-            }
-        }
-        ask = waited;
+        // Taken off only once a page is sent.
+        ask = session.asks.get(audience).cloned().unwrap_or_default();
     }
     let waiting = if session.pages && ask.len() > ASK_ROWS {
         ask.split_off(ASK_ROWS)
@@ -786,11 +846,22 @@ async fn vector(
         )
         .await?;
         // More to go: the last batch names the page, which the side names
-        // in its next log.vector once it has settled that batch.
+        // in its next log.vector once it has settled that batch. The rows
+        // asked again for that did not fit wait in the session for the
+        // next page, or, when this one carried nothing, for its next
+        // log.vector.
         let mut ask_left = std::mem::take(&mut sent.ask_left);
         ask_left.extend(waiting);
+        let more = sent.more || !ask_left.is_empty();
+        if session.pages {
+            if ask_left.is_empty() {
+                session.asks.remove(audience);
+            } else {
+                session.asks.insert(audience.to_string(), ask_left);
+            }
+        }
         if session.pages
-            && (sent.more || !ask_left.is_empty())
+            && more
             && let Some(last) = sent.batches.last_mut()
         {
             let id = page_id();
@@ -807,7 +878,6 @@ async fn vector(
                     vector: theirs.clone(),
                     beyond: beyond.clone(),
                     lacked,
-                    ask_left,
                 },
             );
         }
@@ -839,6 +909,32 @@ async fn vector(
         vector_body(audience, &ours, &[]),
     ));
     Ok(out)
+}
+
+/// The batch that ends a page of the side's (`more`, on a link that pages)
+/// is settled, taken or refused with an error: the log.vector that answers
+/// it names that page (`after`), so the side sends the next one. That is
+/// the server's vector of the audience: when the batch was taken, the one
+/// with the rows it asks again for; when it was refused, one of its own.
+async fn settled(
+    db: &DatabaseConnection,
+    user: i32,
+    audience: &str,
+    more: &str,
+    out: &mut Vec<Outgoing>,
+) -> Result<(), Error> {
+    if let Some(back) = out
+        .iter_mut()
+        .find(|out| out.to == To::Sender && out.t == "log.vector")
+    {
+        back.body["after"] = json!(more);
+        return Ok(());
+    }
+    let ours = store::holdings(db, user, audience).await?;
+    let mut body = vector_body(audience, &ours, &[]);
+    body["after"] = json!(more);
+    out.push(Outgoing::back("log.vector", body));
+    Ok(())
 }
 
 /// Every row of `batch` is hers from `device`, at an epoch it held her: her
