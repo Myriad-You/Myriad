@@ -596,3 +596,63 @@ async fn what_only_her_inbox_or_an_intent_names_goes_when_it_is_taken_back() {
     );
     schema.drop().await;
 }
+
+/// Intents resting on a memory taken back on another end, never swept here:
+/// come due, none is acted on or said (the sweep runs first).
+#[tokio::test]
+async fn an_intent_on_a_memory_taken_back_elsewhere_is_not_acted_on() {
+    use super::talk_tests::{memory_id, update};
+    use crate::services::agent::memory::unified::Audience;
+    use crate::services::agent::merope::store::{self, Keep};
+    let Some(schema) = schema("memory_nodes_intents_due_taken_back").await else {
+        return;
+    };
+    let db = &schema.db;
+    pen::reset_for_test();
+    topic(db, "houseplants", &[("m0", "has a fern")]).await;
+    let at = now();
+    let (message, _) = told(db, at).await;
+    let transaction = db.begin().await.unwrap();
+    assert!(
+        store::apply_chat_memory_update_on(
+            &transaction,
+            OTHER,
+            at.fixed_offset(),
+            &update("the fern needs water", &[], None),
+            &Audience::private(OTHER),
+            Keep::Lasting,
+        )
+        .await
+        .unwrap()
+    );
+    transaction.commit().await.unwrap();
+    let water = memory_id(db, "the fern needs water").await;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_node_rows SET body = replace(body, $1, $2) WHERE kind = 'node.intent'",
+        [
+            format!("\"message:{message}\"").into(),
+            format!("\"memory:{water}\"").into(),
+        ],
+    ))
+    .await
+    .unwrap();
+    // Taken back on another end: no forgetting here.
+    db.execute_unprepared(
+        "UPDATE agent_memories SET invalid_at = NOW(), invalid_reason = 'superseded', \
+         superseded_by = NULL WHERE content LIKE 'the fern %'",
+    )
+    .await
+    .unwrap();
+    log();
+    world(&[], &["the fern!", "checking the weather now"]);
+    assert!(
+        intents_due::tick_at(db, at + Duration::hours(20))
+            .await
+            .is_empty()
+    );
+    let seen = log();
+    assert!(of(&seen, "say", None).is_empty(), "nothing said");
+    assert!(of(&seen, "intent_work", None).is_empty(), "nothing run");
+    schema.drop().await;
+}

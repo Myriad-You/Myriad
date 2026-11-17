@@ -435,7 +435,10 @@ export function AgentAliveGroup() {
               : c.agentAliveNone}
           </dd>
           <dt>{c.agentAliveForgetting}</dt>
-          <dd>
+          <dd data-late={(memory.forgetting?.sweep_errors_in_a_row ?? 0) > 0 ? 'true' : undefined}>
+            {(memory.forgetting?.sweep_errors_in_a_row ?? 0) > 0
+              ? `${format(c.agentAliveForgettingStuck, { n: String(memory.forgetting?.sweep_errors_in_a_row) })} `
+              : null}
             {(memory.forgetting && Object.values(memory.forgetting).some((count) => count > 0)) || (memory.correctionsUnkept ?? 0) > 0
               ? format(c.agentAliveForgettingCounts, {
                   left: String(memory.forgetting?.left_to_sweep ?? 0),

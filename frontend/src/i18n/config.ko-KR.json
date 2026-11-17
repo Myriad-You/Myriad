@@ -984,6 +984,7 @@
   "agentAliveUnplacedCounts": "나중에 놓으려 기록한 구간 {kept}개, 나중에 놓은 묶음 {later}개, 다시 실패 {failed}개, 오류로 멈춤 {errors}번, 7일 동안 못 놓아 버린 줄 {dropped}개",
   "agentAliveForgetting": "취소·잊은 뒤 노트 정리",
   "agentAliveForgettingCounts": "정리 대기 {left}개, 정리한 횟수 {swept}번, 오류로 멈춤 {errors}번, 근거가 사라져 쓰지 않은 버전 {out}개, 새 사실이 성립하지 않아 하지 않은 정정 {unkept}번",
+  "agentAliveForgettingStuck": "정리가 {n}번 연속 실패: 그 대화에서는 그녀의 노트를 읽지 못합니다.",
   "agentAliveStanding": "「지금의 생활」을 마지막으로 쓴 때",
   "agentAliveStandingFailed": "그 단계의 모델 호출 실패",
   "agentAliveStandingFailedCount": "{n}번, 가장 최근은 {ago}",

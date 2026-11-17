@@ -22,9 +22,13 @@ pub(crate) struct Failures {
     pub(crate) left_to_sweep: u64,
     pub(crate) swept: u64,
     pub(crate) sweep_errors: u64,
-    /// Versions left out as they were written, for resting on what went
-    /// while they were being made ([`resting_on_what_went`]).
+    /// Versions and intents left out as they were written, for resting on
+    /// what went while they were being made ([`resting_on_what_went`]).
     pub(crate) left_out: u64,
+    /// Of her talks, the most sweeps in a row that stopped on an error in
+    /// one: while it is not 0, that talk's nodes are not read and its
+    /// intents not acted on.
+    pub(crate) sweep_errors_in_a_row: u64,
 }
 
 /// The memories taken back whose nodes could not be forgotten at once, until
@@ -33,6 +37,11 @@ static LEFT_TO_SWEEP: std::sync::LazyLock<std::sync::Mutex<BTreeSet<String>>> =
     std::sync::LazyLock::new(Default::default);
 static SWEPT: AtomicU64 = AtomicU64::new(0);
 static SWEEP_ERRORS: AtomicU64 = AtomicU64::new(0);
+/// Sweeps in a row that stopped on an error, by account and audience: a
+/// talk whose sweep went through, or that needed none, is not here.
+static SWEEP_ERRORS_IN_A_ROW: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<(i32, String), u64>>,
+> = std::sync::LazyLock::new(Default::default);
 static LEFT_OUT: AtomicU64 = AtomicU64::new(0);
 
 /// Whether the memory `id` waits for the sweep ([`LEFT_TO_SWEEP`]).
@@ -48,16 +57,61 @@ pub(crate) fn failures() -> Failures {
         swept: SWEPT.load(Relaxed),
         sweep_errors: SWEEP_ERRORS.load(Relaxed),
         left_out: LEFT_OUT.load(Relaxed),
+        sweep_errors_in_a_row: SWEEP_ERRORS_IN_A_ROW
+            .lock()
+            .map_or(0, |in_a_row| in_a_row.values().copied().max().unwrap_or(0)),
+    }
+}
+
+/// A sweep of `user_id`'s `audience` that stopped on an error, counted
+/// ([`Failures`]).
+fn sweep_failed(user_id: i32, audience: &str) {
+    SWEEP_ERRORS.fetch_add(1, Relaxed);
+    if let Ok(mut in_a_row) = SWEEP_ERRORS_IN_A_ROW.lock() {
+        *in_a_row.entry((user_id, audience.to_string())).or_default() += 1;
+    }
+}
+
+/// `user_id`'s `audience` swept, or needing none: its errors in a row end.
+fn sweep_held(user_id: i32, audience: &str) {
+    if let Ok(mut in_a_row) = SWEEP_ERRORS_IN_A_ROW.lock() {
+        in_a_row.remove(&(user_id, audience.to_string()));
+    }
+}
+
+/// Whether a version is part of a life (what she made of something, what
+/// is not wrapped up, a summary sentence, an item of how someone's life
+/// stands): what a memory taken back can stand under. A rule's item (where
+/// a session is now) or her line on a repository is not; nor what a device
+/// wrote under a grant.
+pub(super) fn of_a_life(kind: &str, body: Option<&str>) -> bool {
+    match kind {
+        "node.view_changed" | "node.open_item" | "node.revised" => true,
+        "node.standing" => body
+            .and_then(|body| serde_json::from_str::<serde_json::Value>(body).ok())
+            // The SQL test in [`RESTS_ON_A_STUB`] is the same but for not
+            // reading a person's name as UTF-8: no item is minted so.
+            .and_then(|body| {
+                body["item"]
+                    .as_str()
+                    .map(|item| myriad_nodes::stands::whose_of(item).is_some())
+            })
+            .unwrap_or(false),
+        _ => false,
     }
 }
 
 /// Of the rows `fresh` (id, kind, body) about to be written in `user_id`'s
-/// `audience`, the versions resting on what went while they were being
-/// made (a model's answer in flight as a memory was forgotten or taken
-/// back): one naming a memory known to be gone ([`super::super::known::Named::sure`]),
-/// an entry or a span forgotten, or written on a version forgotten, and
-/// any of them written on another such. Each is left out alone, and
-/// counted ([`Failures::left_out`]).
+/// `audience`, the versions and the waiting intents resting on what went
+/// while they were being made (a model's answer in flight as a memory was
+/// forgotten or taken back): one naming a memory known to be gone
+/// ([`super::super::known::Named::sure`]) or an entry or a span forgotten;
+/// a version of a life ([`of_a_life`]) or an intent written on a row
+/// forgotten; and any of them written on another such. An intent settled
+/// (said, done, dropped) is written whatever it rests on, unless it is
+/// written on a row of it forgotten: it says nothing new, but would bring
+/// the words back. Each is left out alone, and counted
+/// ([`Failures::left_out`]).
 pub(in super::super) async fn resting_on_what_went<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
@@ -72,17 +126,33 @@ pub(in super::super) async fn resting_on_what_went<C: ConnectionTrait>(
             .filter_map(|item| item.as_str().map(str::to_string))
             .collect()
     };
-    // Each version with what it rests on and what it was written on.
+    // Each version (and intent) with what it rests on and, for a version
+    // of a life, what it was written on: one written on a version gone
+    // before goes with it only there ([`of_a_life`]).
     let versions: Vec<(String, Vec<String>, Vec<String>)> = fresh
         .iter()
-        .filter(|(_, kind, _)| super::VERSIONED.contains(kind))
-        .filter_map(|(id, _, body)| {
+        .filter(|(_, kind, _)| super::VERSIONED.contains(kind) || *kind == "node.intent")
+        .filter_map(|(id, kind, body)| {
+            let life = of_a_life(kind, Some(body));
             let body: serde_json::Value = serde_json::from_str(body).ok()?;
-            let mut because = strings(&body["because"]);
+            let intent = *kind == "node.intent";
+            // An intent settled says nothing new: only one written on a row
+            // of it already forgotten goes (the words would come back).
+            let settled = intent && body["status"] != "waiting";
+            let mut because = if settled {
+                Vec::new()
+            } else {
+                strings(&body["because"])
+            };
             for sentence in body["value"].as_array().into_iter().flatten() {
                 because.extend(strings(&sentence["because"]));
             }
-            Some((id.to_string(), because, strings(&body["base"])))
+            let base = if life || intent {
+                strings(&body["base"])
+            } else {
+                Vec::new()
+            };
+            Some((id.to_string(), because, base))
         })
         .collect();
     if versions.is_empty() {
@@ -164,7 +234,7 @@ pub(in super::super) async fn resting_on_what_went<C: ConnectionTrait>(
 }
 
 /// Which error it was, for a log line that carries no words.
-fn kind(error: &Error) -> &'static str {
+pub(crate) fn error_kind(error: &Error) -> &'static str {
     match error {
         Error::Refused(_) => "refused",
         Error::NoPen => "no_pen",
@@ -244,7 +314,7 @@ pub(crate) async fn forget_taken_back<C: ConnectionTrait + TransactionTrait>(
         }
         tracing::warn!(
             memories = memories.len(),
-            kind = kind(&error),
+            kind = error_kind(&error),
             "[memory-nodes] what rests on memories taken back is left to the sweep"
         );
     }
@@ -265,7 +335,11 @@ pub(crate) async fn taken_back_here(
     user_id: i32,
     audience: &str,
 ) -> Result<(), Error> {
-    let started = crate::clock::now();
+    let began = crate::clock::now();
+    // Taken back in a transaction still open as this began is written at
+    // a time before it, and only seen once it commits: the next read
+    // sweeps again for what came within this much before.
+    let started = began - COMMIT_SLACK;
     // What was left to the sweep before this one began: only that can be
     // found done by it.
     let left: Vec<String> = LEFT_TO_SWEEP
@@ -276,15 +350,24 @@ pub(crate) async fn taken_back_here(
     if swept.is_ok() && !left.is_empty() {
         swept = swept_for(db, &left).await;
     }
-    if swept.is_ok()
-        && let Ok(mut at) = SWEPT_AT.lock()
-    {
-        at.insert((user_id, audience.to_string()), started);
+    if swept.is_ok() {
+        sweep_held(user_id, audience);
+        // One that began before what another end brought was landed may
+        // not have seen it ([`sweep_again`]): the next read sweeps again.
+        let landed = LANDED
+            .lock()
+            .ok()
+            .and_then(|landed| landed.get(&user_id).copied());
+        if landed.is_none_or(|landed| began > landed)
+            && let Ok(mut at) = SWEPT_AT.lock()
+        {
+            at.insert((user_id, audience.to_string()), started);
+        }
     }
     if let Err(error) = &swept {
-        SWEEP_ERRORS.fetch_add(1, Relaxed);
+        sweep_failed(user_id, audience);
         tracing::warn!(
-            kind = kind(error),
+            kind = error_kind(error),
             "[memory-nodes] forgetting what rests on memories taken back stopped"
         );
     }
@@ -371,13 +454,41 @@ static SWEPT_AT: std::sync::LazyLock<
     std::sync::Mutex<std::collections::HashMap<(i32, String), chrono::DateTime<chrono::Utc>>>,
 > = std::sync::LazyLock::new(Default::default);
 
-/// [`taken_back_here`] before `user_id`'s `audience` is read for her turn,
-/// when anything of theirs was taken back, put aside or forgotten since it
-/// was last swept (here, on another end, or as forgetting on her nodes
-/// failed), or it was not swept since the site started: so a summary
-/// sentence, a view or what is not wrapped up resting on what they took
-/// back is not shown until the next stretch or upkeep. One small read when
-/// nothing changed.
+/// How long a transaction taking something back may stay open before it
+/// commits: a sweep is taken to have begun this much earlier than it did
+/// ([`taken_back_here`]), as what it took back is written with the time
+/// it was written, not the time it was committed.
+const COMMIT_SLACK: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
+
+/// When what another of her ends brought was last landed, by account
+/// ([`sweep_again`]).
+static LANDED: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<i32, chrono::DateTime<chrono::Utc>>>,
+> = std::sync::LazyLock::new(Default::default);
+
+/// Each of `user_id`'s talks is swept again before it is next read, once
+/// what another of her ends brought is committed here (`persona_sync::merge`,
+/// `her_log::state`): it was written with that end's times, which may be
+/// before the last sweep here. A sweep that began before this does not
+/// count as that one ([`taken_back_here`]).
+pub(crate) fn sweep_again(user_id: i32) {
+    if let Ok(mut landed) = LANDED.lock() {
+        landed.insert(user_id, crate::clock::now());
+    }
+    if let Ok(mut at) = SWEPT_AT.lock() {
+        at.retain(|(user, _), _| *user != user_id);
+    }
+}
+
+/// [`taken_back_here`] before `user_id`'s `audience` is read for her turn
+/// or her intents there are read or acted on, when anything of theirs was
+/// taken back, put aside or forgotten since it was last swept (here, on
+/// another end, or as forgetting on her nodes failed), one of theirs waits
+/// in [`LEFT_TO_SWEEP`], or it was not swept since the site started or
+/// since another end's records landed: so a summary sentence, a view, what
+/// is not wrapped up or an intent resting on what they took back is not
+/// shown or acted on. One small read when nothing changed; for
+/// [`COMMIT_SLACK`] after something was taken back, each read sweeps.
 pub(crate) async fn before_reading(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
@@ -386,8 +497,15 @@ pub(crate) async fn before_reading(
     let key = (user_id, audience.to_string());
     let swept = SWEPT_AT.lock().ok().and_then(|at| at.get(&key).copied());
     if let Some(swept) = swept {
-        let changed: Result<Option<chrono::DateTime<chrono::FixedOffset>>, Error> = async {
-            Ok(db
+        // Left to the sweep when forgetting failed here ([`LEFT_TO_SWEEP`]):
+        // one of theirs, or one forgotten for good whose person is not
+        // known any more, is swept for whatever the times say.
+        let left: Vec<String> = LEFT_TO_SWEEP
+            .lock()
+            .map(|left| left.iter().cloned().collect())
+            .unwrap_or_default();
+        let changed: Result<(Option<chrono::DateTime<chrono::FixedOffset>>, bool), Error> = async {
+            let row = db
                 .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "SELECT GREATEST( \
@@ -395,27 +513,37 @@ pub(crate) async fn before_reading(
                     WHERE user_id = $1 AND (invalid_reason = 'deleted' \
                           OR (invalid_reason = 'superseded' AND superseded_by IS NULL))), \
                    (SELECT max(forgotten_at) FROM agent_forgotten \
-                    WHERE user_id = $1 AND what = $2)) AS at",
+                    WHERE user_id = $1 AND what = $2)) AS at, \
+                   EXISTS (SELECT 1 FROM unnest($3::text[]) AS left_(id) \
+                     WHERE EXISTS (SELECT 1 FROM agent_memories m \
+                                   WHERE m.id = left_.id AND m.user_id = $1) \
+                        OR (NOT EXISTS (SELECT 1 FROM agent_memories m WHERE m.id = left_.id) \
+                            AND EXISTS (SELECT 1 FROM agent_forgotten f \
+                                        WHERE f.what = $2 AND f.mark = left_.id))) AS left_here",
                     [
                         user_id.into(),
                         crate::services::agent::memory::forgotten::MEMORY.into(),
+                        left.into(),
                     ],
                 ))
-                .await?
-                .map(|row| row.try_get("", "at"))
-                .transpose()?
-                .flatten())
+                .await?;
+            Ok(match row {
+                Some(row) => (row.try_get("", "at")?, row.try_get("", "left_here")?),
+                None => (None, false),
+            })
         }
         .await;
         // Counted as a sweep that stopped: her nodes are not read this turn.
         let changed = changed.inspect_err(|error| {
-            SWEEP_ERRORS.fetch_add(1, Relaxed);
+            sweep_failed(user_id, audience);
             tracing::warn!(
-                kind = kind(error),
+                kind = error_kind(error),
                 "[memory-nodes] whether anything was taken back could not be read"
             );
         })?;
-        if changed.is_none_or(|at| at.with_timezone(&chrono::Utc) < swept) {
+        let (changed, left_here) = changed;
+        if !left_here && changed.is_none_or(|at| at.with_timezone(&chrono::Utc) < swept) {
+            sweep_held(user_id, audience);
             return Ok(());
         }
     }
@@ -487,27 +615,34 @@ async fn sweep(
 }
 
 /// What a version rests on (`because`, or each summary sentence's) that is
-/// an entry or a span already forgotten (a stub), as SQL over a row `d`.
+/// an entry or a span already forgotten (a stub), as SQL over a row `d`;
+/// and, for a version of a life ([`of_a_life`]: the same test in SQL), the
+/// version it was written on (`base`) that is: what [`super::forget_rows`]
+/// forgets, so a sweep finds none of it left after.
 const RESTS_ON_A_STUB: &str = "agent_node_rows d \
      CROSS JOIN LATERAL ( \
-       SELECT jsonb_array_elements_text(COALESCE(d.body::jsonb->'because', '[]'::jsonb)) AS ref \
+       SELECT jsonb_array_elements_text(COALESCE(d.body::jsonb->'because', '[]'::jsonb)), false \
        UNION ALL \
-       SELECT jsonb_array_elements_text(COALESCE(s->'because', '[]'::jsonb)) \
+       SELECT jsonb_array_elements_text(COALESCE(s->'because', '[]'::jsonb)), false \
        FROM jsonb_array_elements(CASE WHEN jsonb_typeof(d.body::jsonb->'value') = 'array' \
                                       THEN d.body::jsonb->'value' ELSE '[]'::jsonb END) s \
        UNION ALL \
-       SELECT jsonb_array_elements_text(COALESCE(d.body::jsonb->'base', '[]'::jsonb)) \
-     ) refs \
+       SELECT jsonb_array_elements_text(COALESCE(d.body::jsonb->'base', '[]'::jsonb)), true \
+     ) AS refs(ref, base) \
      JOIN agent_node_rows e ON e.user_id = d.user_id AND e.audience = d.audience AND e.body = '' \
        AND ((e.kind IN ('node.entry', 'node.span') \
              AND refs.ref = (CASE e.kind WHEN 'node.entry' THEN 'entry:' ELSE 'span:' END) || e.row_id) \
          OR (e.kind IN ('node.view_changed', 'node.open_item', 'node.standing', 'node.revised') \
-             AND refs.ref = e.row_id)) \
+             AND refs.base AND refs.ref = e.row_id \
+             AND (d.kind IN ('node.view_changed', 'node.open_item', 'node.revised') \
+               OR (d.kind = 'node.standing' \
+                 AND (d.body::jsonb->>'item') ~ '^(them|p([0-9a-fA-F]{2})+)-[0-9a-fA-F]{10}$')))) \
      WHERE d.body <> '' \
        AND d.kind IN ('node.view_changed', 'node.open_item', 'node.standing', 'node.revised')";
 
 /// How many versions in `user_id`'s `audience` still rest on an entry or a
-/// span forgotten before upkeep's evidence was followed ([`resting_on`]).
+/// span forgotten before upkeep's evidence was followed ([`resting_on`]),
+/// or, of a life, were written on a version forgotten ([`RESTS_ON_A_STUB`]).
 async fn left_resting(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,

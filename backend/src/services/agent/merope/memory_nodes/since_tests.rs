@@ -321,8 +321,10 @@ async fn an_earlier_versions_memory_taken_back_takes_the_item() {
     let now = |resident: Vec<String>| saying(&resident, "每周五晚上夜跑").len();
     assert_eq!(now(recollect(db, &[]).await.resident), 1);
     // The first version's memory let go: the second, written over it, is
-    // not said either.
-    let let_go = "invalid_reason = 'superseded', invalid_at = now(), superseded_by = NULL";
+    // not said either. Let go on another end, as of long ago: not swept
+    // here (`forget::before_reading`), only not said, so it can come back.
+    let let_go = "invalid_reason = 'superseded', invalid_at = now(), superseded_by = NULL, \
+                  updated_at = '2000-01-01'";
     let held = "invalid_reason = NULL, invalid_at = NULL, superseded_by = NULL";
     memory(db, &first, let_go).await;
     assert_eq!(now(recollect(db, &[]).await.resident), 0);
@@ -368,7 +370,7 @@ async fn an_earlier_versions_memory_taken_back_takes_the_item() {
     memory(
         db,
         "mem_replacer",
-        "invalid_reason = 'deleted', invalid_at = now()",
+        "invalid_reason = 'deleted', invalid_at = now(), updated_at = '2000-01-01'",
     )
     .await;
     assert!(ended(recollect(db, &[&ending]).await.named).is_empty());

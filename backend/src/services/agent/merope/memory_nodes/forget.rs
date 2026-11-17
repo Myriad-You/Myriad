@@ -37,10 +37,12 @@ use crate::services::her_log::{self, NODE};
 mod taken_back;
 #[cfg(test)]
 pub(crate) use taken_back::left_to_sweep_holds;
+use taken_back::of_a_life;
 pub(super) use taken_back::resting_on_what_went;
 pub(crate) use taken_back::{
     Failures, before_reading, failures, forget_taken_back, taken_back_here,
 };
+pub(crate) use taken_back::{error_kind, sweep_again};
 
 /// The rows citing any of `refs`: entries and spans by their references,
 /// her views, what is not wrapped up and how their life stands (「现在」)
@@ -162,6 +164,35 @@ pub(super) fn written_on(
             return doomed;
         }
         doomed.extend(more);
+    }
+}
+
+/// `gone` (row ids of `kept`) and every version of a life written on one of
+/// them, however far down ([`written_on`], only through [`of_a_life`]).
+fn written_on_a_life(kept: &[heads::KeptRow], mut gone: BTreeSet<String>) -> BTreeSet<String> {
+    loop {
+        let more: Vec<String> = kept
+            .iter()
+            .filter(|kept| {
+                !gone.contains(&kept.row.id) && of_a_life(&kept.row.kind, kept.body.as_deref())
+            })
+            .filter(|kept| {
+                kept.body
+                    .as_deref()
+                    .and_then(|body| serde_json::from_str::<serde_json::Value>(body).ok())
+                    .and_then(|body| body.get("base").cloned())
+                    .and_then(|base| base.as_array().cloned())
+                    .is_some_and(|base| {
+                        base.iter()
+                            .any(|row| row.as_str().is_some_and(|row| gone.contains(row)))
+                    })
+            })
+            .map(|kept| kept.row.id.clone())
+            .collect();
+        if more.is_empty() {
+            return gone;
+        }
+        gone.extend(more);
     }
 }
 
@@ -338,16 +369,17 @@ async fn forget_rows<C: ConnectionTrait>(
     let audience = audience.to_string();
     write::lock(db, user_id, &audience).await?;
     let kept = heads::rows_of(db, user_id, &audience).await?;
-    // A version forgotten before still takes what was written on it since
-    // (an answer in flight as it went).
+    // A version forgotten before still takes a version of a life written on
+    // it since (an answer in flight as it went); never a rule's row or her
+    // line on a repository, which a device under another grant writes on
+    // one a grant removed took (`forget_named`).
     let gone_before: BTreeSet<String> = kept
         .iter()
         .filter(|kept| kept.row.forgotten && VERSIONED.contains(&kept.row.kind.as_str()))
         .map(|kept| kept.row.id.clone())
         .collect();
-    let mut start = resting_on(&kept, cited);
-    start.extend(gone_before.iter().cloned());
-    let cited = written_on(&kept, start);
+    let mut cited = written_on(&kept, resting_on(&kept, cited));
+    cited.extend(written_on_a_life(&kept, gone_before.clone()));
     let doomed: Vec<Row> = kept
         .iter()
         .filter(|kept| cited.contains(&kept.row.id) && !gone_before.contains(&kept.row.id))

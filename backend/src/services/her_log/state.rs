@@ -711,6 +711,9 @@ pub async fn take_in(
         taken_in(&txn, site_owner, object, digest.unwrap_or(""), row).await?;
     }
     txn.commit().await?;
+    // Memories taken back on another end came with its times: her nodes
+    // are swept again before they are next read.
+    crate::services::agent::merope::memory_nodes::forget::sweep_again(site_owner);
     if let Some(Some(rig)) = rig {
         crate::services::merope_rig::mirror_active_asset(Some(rig)).await;
     }

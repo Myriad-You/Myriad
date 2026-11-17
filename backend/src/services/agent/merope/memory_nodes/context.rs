@@ -97,7 +97,11 @@ pub(crate) async fn for_turn(
     match read {
         Ok(turn) => turn,
         Err(error) => {
-            tracing::warn!(%error, "[memory-nodes] her nodes could not be read for a turn");
+            // Which error only: one refusing a row may name what is in it.
+            tracing::warn!(
+                kind = super::forget::error_kind(&error),
+                "[memory-nodes] her nodes could not be read for a turn"
+            );
             None
         }
     }

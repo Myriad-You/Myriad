@@ -33,7 +33,8 @@
   color: var(--cfg-text-1);
 }
 
-.agent-alive-table tr[data-late='true'] td:last-child {
+.agent-alive-table tr[data-late='true'] td:last-child,
+.agent-alive-rows dd[data-late='true'] {
   color: var(--color-danger, #d70015);
 }
 

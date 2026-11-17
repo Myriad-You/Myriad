@@ -1592,6 +1592,142 @@ async fn a_version_written_on_one_that_went_is_left_out() {
     schema.drop().await;
 }
 
+/// A device's grant removed takes the rows naming it (`forget_named`). Her
+/// line written since on one of them under another grant (a repository's
+/// progress: no one's life) is written, and stays as a memory they took
+/// back is forgotten and swept; what rested on that memory goes.
+#[tokio::test]
+async fn a_line_written_on_what_a_removed_grant_took_stays() {
+    let Some(schema) = schema("memory_nodes_removed_grant_line").await else {
+        return;
+    };
+    let db = &schema.db;
+    work_stands(db, "同事小王在追她", "在趣养做运营，同事小王在追她").await;
+    let v2 = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT node_id, body FROM agent_node_rows \
+             WHERE kind = 'node.standing' AND body LIKE '%小王%'",
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    let (node, body): (String, String) = (
+        v2.try_get("", "node_id").unwrap(),
+        v2.try_get("", "body").unwrap(),
+    );
+    let pen = pen::think().expect("her mind is here in tests");
+    let line = |seed: &str, text: &str, base: Vec<String>, grant: &str| {
+        let mut body: Value = serde_json::from_str(&body).unwrap();
+        body["item"] = json!("progress");
+        body["text"] = json!(text);
+        body["base"] = json!(base);
+        body["because"] = json!([grant]);
+        RowIn {
+            id: myriad_nodes::entries::row_id_from("node.standing", &node, "progress", seed),
+            node: node.clone(),
+            kind: "node.standing".into(),
+            body,
+            author: Author::Her,
+        }
+    };
+    let removed = myriad_nodes::sessions::grant_ref("mac", "g_removed");
+    let other = myriad_nodes::sessions::grant_ref("mac", "g_other");
+    let first = line("1", "进度一", Vec::new(), &removed);
+    let first_id = first.id.clone();
+    write::write(db, OTHER, &talk(), &[first], Some(&pen))
+        .await
+        .unwrap();
+    forget::forget_named(db, OTHER, &talk(), &removed, "no-such-key/")
+        .await
+        .unwrap();
+    let progress = "SELECT count(*) AS n FROM agent_node_rows WHERE body LIKE '%进度二%'";
+    write::write(
+        db,
+        OTHER,
+        &talk(),
+        &[line("2", "进度二", vec![first_id], &other)],
+        Some(&pen),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        count(db, progress).await,
+        1,
+        "written on the stub, not left out"
+    );
+    let wooed = memory_id(db, "同事小王在追她").await;
+    forget::forget(db, &[wooed.clone()], &[]).await.unwrap();
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_memories SET invalid_at = NOW(), invalid_reason = 'deleted' WHERE id = $1",
+        [wooed.into()],
+    ))
+    .await
+    .unwrap();
+    forget::taken_back_here(db, OTHER, &talk()).await.unwrap();
+    assert_eq!(count(db, progress).await, 1, "her line stays");
+    assert_eq!(
+        work_now(db).await,
+        vec!["在趣养做运营"],
+        "what rested on it went"
+    );
+    schema.drop().await;
+}
+
+/// An intent waiting written while a memory it rests on was being taken
+/// back is left out as it is written, as is one settled on a row of it
+/// already forgotten (its words would come back); one settled on its own
+/// row is not, nor a version of no one's life written on a version gone
+/// before.
+#[tokio::test]
+async fn an_intent_resting_on_a_memory_taken_back_is_left_out_as_it_is_written() {
+    let Some(schema) = schema("memory_nodes_intent_left_out").await else {
+        return;
+    };
+    let db = &schema.db;
+    assert!(kept(db, &update("看牙在周五", &[], None), Keep::Lasting).await);
+    let went = memory_id(db, "看牙在周五").await;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_memories SET invalid_at = NOW(), invalid_reason = 'deleted' WHERE id = $1",
+        [went.clone().into()],
+    ))
+    .await
+    .unwrap();
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO agent_node_rows (user_id, audience, node_id, row_id, kind, body, author, \
+         at, hlc, origin, envelope) \
+         VALUES (7, $1, 'n', 'v-stub', 'node.standing', '', 'her', NOW(), '', 'test', '{}')",
+        [talk().into()],
+    ))
+    .await
+    .unwrap();
+    let intent = json!({"status": "waiting", "because": [format!("memory:{went}")]}).to_string();
+    let said = json!({"status": "said", "because": [format!("memory:{went}")]}).to_string();
+    let revived = json!({"status": "done", "base": ["v-stub"], "because": []}).to_string();
+    let line = json!({"item": "progress", "base": ["v-stub"], "because": []}).to_string();
+    let life = json!({"item": "them-0123456789", "base": ["v-stub"], "because": []}).to_string();
+    let fresh = [
+        ("i", "node.intent", intent.as_str()),
+        ("s", "node.intent", said.as_str()),
+        ("r", "node.intent", revived.as_str()),
+        ("l", "node.standing", line.as_str()),
+        ("v", "node.standing", life.as_str()),
+    ];
+    let went = super::forget::resting_on_what_went(db, OTHER, &talk(), &fresh)
+        .await
+        .unwrap();
+    assert_eq!(
+        went,
+        ["i", "r", "v"].into_iter().map(str::to_string).collect(),
+        "the waiting intent, a settled one written on a row forgotten and the life's version \
+         go; an intent settled on its own row and her line on a repository stay"
+    );
+    schema.drop().await;
+}
+
 /// `update` kept as `keep` says, in a transaction of its own: whether it
 /// was.
 async fn kept(db: &DatabaseConnection, update: &ChatMemoryUpdate, keep: Keep) -> bool {

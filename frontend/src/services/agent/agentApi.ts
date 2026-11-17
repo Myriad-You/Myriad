@@ -306,10 +306,12 @@ export interface HerAlive {
     /**
      * What rests on memories taken back or forgotten, cleared from her
      * notes since the site started: memories still waiting for the sweep,
-     * sweeps that cleared something, sweeps stopped on an error, and
-     * versions left out as they were written for resting on what went.
+     * sweeps that cleared something, sweeps stopped on an error, versions
+     * and intents left out as they were written for resting on what went,
+     * and the most sweeps in a row that stopped on an error in one of her
+     * talks (while not 0, that talk's notes are not read).
      */
-    forgetting?: { left_to_sweep: number, swept: number, sweep_errors: number, left_out: number }
+    forgetting?: { left_to_sweep: number, swept: number, sweep_errors: number, left_out: number, sweep_errors_in_a_row?: number }
     /**
      * Lines whose corrections were left undone since the site started, their new
      * fact not holding up: what they corrected stays as it was.
