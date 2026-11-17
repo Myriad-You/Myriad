@@ -93,25 +93,36 @@ fn keep_screen_fields(row: &mut Value) {
         row.remove("summary");
         super::counts::screen_key_deleted(t, "summary");
     }
-    let mut chat = false;
-    if let Some(facts) = row.get_mut("safeFacts").and_then(Value::as_object_mut) {
-        keep_facts(t, facts, false);
-        chat = facts.contains_key("who");
-    }
+    let chat = row
+        .get_mut("safeFacts")
+        .and_then(Value::as_object_mut)
+        .is_some_and(|facts| keep_facts(t, facts, false));
     if chat
         && let Some(Value::String(summary)) = row.get_mut("summary")
-        && let Some((first, _)) = summary.split_once('\n')
+        && let Some(first) = cut_to_first_line(summary)
     {
-        *summary = first.to_string();
+        *summary = first;
         super::counts::screen_key_deleted(t, "summary");
     }
 }
 
+/// A text up to its first line break of any kind (`\n`, `\r`, a vertical
+/// tab, a form feed, NEL, U+2028, U+2029); `None` when it has none.
+fn cut_to_first_line(text: &str) -> Option<String> {
+    let at = text.find([
+        '\n', '\r', '\u{0B}', '\u{0C}', '\u{85}', '\u{2028}', '\u{2029}',
+    ])?;
+    Some(text[..at].to_string())
+}
+
 /// The facts `screenFields` names, and with `plain` only text cut to the
 /// contract's length, numbers and yes/no; a chat window's (who) never its
-/// screen_text. What goes is counted by key, never its value.
-fn keep_facts(t: &'static str, facts: &mut serde_json::Map<String, Value>, plain: bool) {
+/// screen_text. What goes is counted by key, never its value. Whether it
+/// is a chat window is told by `who` as it came, before anything of it goes:
+/// one whose `who` is not a plain value is still a chat. True for a chat.
+fn keep_facts(t: &'static str, facts: &mut serde_json::Map<String, Value>, plain: bool) -> bool {
     let max_chars = super::contract::CONTRACT.limits.max_text_chars;
+    let chat = facts.contains_key("who");
     facts.retain(|key, value| {
         let named = super::counts::screen_fact(key);
         let kept = named
@@ -131,15 +142,16 @@ fn keep_facts(t: &'static str, facts: &mut serde_json::Map<String, Value>, plain
             }
         }
     }
-    if facts.contains_key("who") && facts.remove("screen_text").is_some() {
+    if chat && facts.remove("screen_text").is_some() {
         super::counts::screen_key_deleted(t, "screen_text");
     }
+    chat
 }
 
 /// What a `screen.look` result may say, built anew: its facts (an object, of
-/// plain values) and the first line of its summary; anything else beside
-/// them is left out and counted. `None` when it is not of that shape at all:
-/// none of it is read.
+/// plain values) and the first line of its summary, cut to the contract's
+/// length; anything else beside them is left out and counted. `None` when
+/// it is not of that shape at all: none of it is read.
 pub(super) fn look_result(result: &Value) -> Option<Value> {
     let t = "call.result";
     let given = result.as_object()?;
@@ -149,11 +161,13 @@ pub(super) fn look_result(result: &Value) -> Option<Value> {
     kept.insert("facts".into(), Value::Object(facts));
     match given.get("summary") {
         Some(Value::String(summary)) => {
-            let first = summary.split('\n').next().unwrap_or_default();
+            let max_chars = super::contract::CONTRACT.limits.max_text_chars;
+            let first = cut_to_first_line(summary).unwrap_or_else(|| summary.clone());
+            let first: String = first.chars().take(max_chars).collect();
             if first.len() != summary.len() {
                 super::counts::screen_key_deleted(t, "summary");
             }
-            kept.insert("summary".into(), Value::String(first.to_string()));
+            kept.insert("summary".into(), Value::String(first));
         }
         Some(_) => super::counts::screen_key_deleted(t, "summary"),
         None => {}
@@ -288,6 +302,38 @@ mod tests {
             keys.iter()
                 .any(|(t, key, _)| *t == "presence" && key == "safeFacts")
         );
+    }
+
+    #[test]
+    fn a_chat_is_a_chat_by_who_as_it_came_even_where_who_cannot_stay() {
+        // Who of another shape is not said, and the window is still a chat:
+        // what anyone else wrote there is not read.
+        let look = look_result(&json!({
+            "facts": { "who": ["Ann"], "screen_text": "Ann: see you at 7", "app": "Messages" },
+            "summary": "Ann\u{2028}see you at 7",
+        }))
+        .unwrap();
+        assert_eq!(look["facts"], json!({ "app": "Messages" }));
+        assert_eq!(look["summary"], "Ann");
+        // Any line break ends the summary, and it is never longer than text is.
+        let max_chars = super::super::contract::CONTRACT.limits.max_text_chars;
+        for (summary, kept) in [("Ann\rsee you", "Ann"), ("Ann\r\nsee you", "Ann")] {
+            let look = look_result(&json!({ "facts": {}, "summary": summary })).unwrap();
+            assert_eq!(look["summary"], kept);
+        }
+        let long = "x".repeat(max_chars + 5);
+        let look = look_result(&json!({ "facts": {}, "summary": long })).unwrap();
+        assert_eq!(look["summary"].as_str().unwrap().chars().count(), max_chars);
+        // The same on what a child senses there.
+        let senses = Senses::of(&["perception.screen".to_string()]);
+        let kept = senses.admit(&json!({ "perception": [
+            { "sourceId": "screen_chat", "kind": "screen",
+              "summary": "Ann wrote\rsee you at 7",
+              "safeFacts": { "who": "Ann", "screen_text": "see you at 7" } },
+        ]}));
+        let row = &kept["perception"][0];
+        assert_eq!(row["safeFacts"], json!({ "who": "Ann" }));
+        assert_eq!(row["summary"], "Ann wrote");
     }
 
     #[test]

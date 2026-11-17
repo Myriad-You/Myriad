@@ -299,18 +299,21 @@ fn grant_calls(device_id: &str, id: u64, turn: u64, granted: Vec<calls::Action>)
 
 /// The owner is taking `group` back for their device: from now on nothing
 /// of it is asked there, before the decision is even written; the device
-/// is told once it is.
+/// is told once it is. A turn worked out before this, from what was
+/// approved then, is no longer the latest: it never puts the group back.
 fn withhold_calls(owner: i32, device_id: &str, group: &str) {
     if let Ok(mut open) = OPEN.lock()
-        && let Some(granted) = open
+        && let Some(calls) = open
             .get_mut(device_id)
             .filter(|link| link.owner == owner)
             .and_then(|link| link.calls.as_mut())
-            .and_then(|calls| calls.granted.as_mut())
     {
-        granted.retain(|action| {
-            myriad_her_link::call_spec(&action.name).is_none_or(|spec| spec.group != group)
-        });
+        calls.turn += 1;
+        if let Some(granted) = calls.granted.as_mut() {
+            granted.retain(|action| {
+                myriad_her_link::call_spec(&action.name).is_none_or(|spec| spec.group != group)
+            });
+        }
     }
 }
 

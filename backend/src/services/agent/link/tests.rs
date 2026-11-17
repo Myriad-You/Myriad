@@ -4446,6 +4446,91 @@ async fn a_call_times_out_on_the_hosts_clock_and_what_comes_after_changes_its_ro
     site.close().await;
 }
 
+#[tokio::test]
+async fn a_result_that_comes_while_its_timed_out_row_is_written_is_what_the_row_ends_as() {
+    let _calls = calls_turn().await;
+    let Some(site) = site().await else {
+        return;
+    };
+    super::calls_pending::times_in_test(300, 100, 5_000);
+    let go = super::calls_pending::hold_next_timed_out_row();
+    let (mac, token) = device(&site.db, "Mac").await;
+    let (mut child, _) = offering(&site, &token, &["screen.look"]).await;
+    let call = her_call(
+        &site,
+        &mac.id,
+        "screen.look",
+        json!({ "kind": "owner" }),
+        json!({}),
+    );
+    let ask = child.expect("call.ask").await;
+    let call_id = ask["body"]["callId"].as_str().unwrap().to_string();
+    // Counted timed out, its row on its way.
+    for _ in 0..250 {
+        if super::calls_pending::timed_out_unkept(&call_id) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(super::calls_pending::timed_out_unkept(&call_id));
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "screen.look", "version": 1, "outcome": "done",
+                    "result": { "facts": { "app": "Finder" } } }),
+        )
+        .await;
+    nothing_else(&mut child).await;
+    assert!(
+        super::calls_store::recent(&site.db, OWNER, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    // The row is written, then what came meanwhile over it.
+    go.send(()).unwrap();
+    assert_eq!(
+        call.await.unwrap(),
+        super::calls_pending::Answer::failed("call_timeout")
+    );
+    let kept = kept_calls(&site, 1).await;
+    assert_eq!(
+        (
+            kept[0].outcome.as_str(),
+            kept[0].error_code.as_deref(),
+            kept[0].late
+        ),
+        ("done", None, true)
+    );
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn a_turn_worked_out_before_a_group_is_taken_back_never_puts_it_back() {
+    let _calls = calls_turn().await;
+    let Some(site) = site().await else {
+        return;
+    };
+    let (mac, token) = device(&site.db, "Mac").await;
+    let (mut child, granted) = offering(&site, &token, &["screen.look"]).await;
+    assert_eq!(
+        granted["body"]["actions"],
+        json!([{ "name": "screen.look", "version": 1 }])
+    );
+    // A turn read the approval as it stood; the owner takes the group back
+    // before that turn tells the device.
+    let (id, turn, offered) = super::calls_regrant(OWNER, &mac.id).unwrap();
+    super::withhold_calls(OWNER, &mac.id, "screen");
+    assert!(super::granted_devices(OWNER, "screen.look").is_empty());
+    super::grant_calls(&mac.id, id, turn, offered);
+    assert!(super::granted_devices(OWNER, "screen.look").is_empty());
+    nothing_else(&mut child).await;
+    drop(child);
+    site.close().await;
+}
+
 /// Her calls to `device_id` kept so far, once there are `n`.
 async fn kept_calls(site: &Site, n: usize) -> Vec<super::calls_store::Kept> {
     for _ in 0..200 {

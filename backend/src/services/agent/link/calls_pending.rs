@@ -114,8 +114,16 @@ struct Pending {
 /// The calls waiting on their answer, by callId.
 static PENDING: LazyLock<Mutex<HashMap<String, Pending>>> = LazyLock::new(Mutex::default);
 /// Calls counted timed out, for a result that comes after all.
-static TIMED_OUT: LazyLock<Mutex<HashMap<String, (Record, Instant)>>> =
-    LazyLock::new(Mutex::default);
+static TIMED_OUT: LazyLock<Mutex<HashMap<String, TimedOut>>> = LazyLock::new(Mutex::default);
+
+/// A call counted timed out: its row, from when, and whether that row is
+/// written yet. A result that comes before it is, is held in it (`late`)
+/// and written right after, so the row ends as what happened.
+struct TimedOut {
+    record: Record,
+    at: Instant,
+    kept: bool,
+}
 
 fn pending<T>(f: impl FnOnce(&mut HashMap<String, Pending>) -> T) -> T {
     match PENDING.lock() {
@@ -134,7 +142,7 @@ pub(super) fn waiting_on(device_id: &str) -> usize {
     })
 }
 
-fn timed_out<T>(f: impl FnOnce(&mut HashMap<String, (Record, Instant)>) -> T) -> T {
+fn timed_out<T>(f: impl FnOnce(&mut HashMap<String, TimedOut>) -> T) -> T {
     match TIMED_OUT.lock() {
         Ok(mut all) => f(&mut all),
         Err(poisoned) => f(&mut poisoned.into_inner()),
@@ -223,14 +231,10 @@ async fn run(
         ended_at: crate::clock::now(),
         late: false,
     };
-    if let Err(error) = calls_store::record(&db, &record).await {
-        tracing::warn!(%error, device = %device_id, action, "[link] her call to a device is not kept");
-    }
     if answer.outcome == Outcome::Failed("call_timeout") {
-        timed_out(|all| {
-            all.retain(|_, (_, at)| at.elapsed() < LATE_KEPT);
-            all.insert(record.call_id.clone(), (record, Instant::now()));
-        });
+        keep_timed_out(&db, &record).await;
+    } else if let Err(error) = calls_store::record(&db, &record).await {
+        tracing::warn!(%error, device = %device_id, action, "[link] her call to a device is not kept");
     }
     let outcome = answer.outcome.name();
     let code = answer.outcome.code().unwrap_or_default();
@@ -240,6 +244,62 @@ async fn run(
     );
     tracing::info!(device = %device_id, action, outcome, code, "[link] her call to a device ended");
     let _ = caller.send(answer);
+}
+
+/// Keeps a call counted timed out: first where a result that still comes
+/// finds it, then its row; what came meanwhile is written over it.
+pub(super) async fn keep_timed_out(db: &DatabaseConnection, record: &Record) {
+    timed_out(|all| {
+        all.retain(|_, one| one.at.elapsed() < LATE_KEPT);
+        let one = TimedOut {
+            record: record.clone(),
+            at: Instant::now(),
+            kept: false,
+        };
+        all.insert(record.call_id.clone(), one);
+    });
+    #[cfg(test)]
+    if let Some(row_written) = KEEPING.with(|keeping| keeping.borrow_mut().take()) {
+        let _ = row_written.await;
+    }
+    if let Err(error) = calls_store::record(db, record).await {
+        tracing::warn!(%error, device = %record.device_id, action = %record.action, "[link] her call to a device is not kept");
+    }
+    let came = timed_out(|all| match all.get_mut(&record.call_id) {
+        Some(one) if one.record.late => all.remove(&record.call_id).map(|one| one.record),
+        Some(one) => {
+            one.kept = true;
+            None
+        }
+        None => None,
+    });
+    if let Some(came) = came
+        && let Err(error) = calls_store::record(db, &came).await
+    {
+        tracing::warn!(%error, device = %record.device_id, "[link] what came of her call after all is not kept");
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// A test's hold on the next timed-out row being written: released when
+    /// the test says so, as a slow write would be.
+    static KEEPING: std::cell::RefCell<Option<oneshot::Receiver<()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The next timed-out row on this thread is written only once `go` is sent.
+#[cfg(test)]
+pub(super) fn hold_next_timed_out_row() -> oneshot::Sender<()> {
+    let (go, row_written) = oneshot::channel();
+    KEEPING.with(|keeping| *keeping.borrow_mut() = Some(row_written));
+    go
+}
+
+/// Whether call `call_id` is counted timed out and its row not written yet.
+#[cfg(test)]
+pub(super) fn timed_out_unkept(call_id: &str) -> bool {
+    timed_out(|all| all.get(call_id).is_some_and(|one| !one.kept))
 }
 
 /// Who asks what of which device, under which callId.
@@ -421,20 +481,25 @@ pub(super) async fn result(db: &DatabaseConnection, device_id: &str, body: &Valu
         }
         return;
     }
+    // Its timed-out row not written yet: held for when it is.
     let late = timed_out(|all| {
-        let ours = all
-            .get(call_id)
-            .is_some_and(|(record, _)| record.device_id == device_id);
-        if ours { all.remove(call_id) } else { None }
+        let one = all
+            .get_mut(call_id)
+            .filter(|one| one.record.device_id == device_id && !one.record.late)?;
+        let answer = answer_of(&one.record.action, one.record.version, body);
+        one.record.outcome = answer.outcome;
+        one.record.ended_at = crate::clock::now();
+        one.record.late = true;
+        tracing::info!(device = %device_id, action = %one.record.action, outcome = answer.outcome.name(), "[link] her call to a device came back after it was counted timed out");
+        if one.kept {
+            all.remove(call_id).map(|one| one.record)
+        } else {
+            None
+        }
     });
-    let Some((mut record, _)) = late else {
+    let Some(record) = late else {
         return;
     };
-    let answer = answer_of(&record.action, record.version, body);
-    record.outcome = answer.outcome;
-    record.ended_at = crate::clock::now();
-    record.late = true;
-    tracing::info!(device = %device_id, action = %record.action, outcome = answer.outcome.name(), "[link] her call to a device came back after it was counted timed out");
     if let Err(error) = calls_store::record(db, &record).await {
         tracing::warn!(%error, device = %device_id, "[link] what came of her call after all is not kept");
     }
