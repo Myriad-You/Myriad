@@ -508,13 +508,17 @@ fn summary_of(head: &Value) -> Vec<String> {
 
 /// What a person's head says beyond its own sections: its summary, her
 /// views but `us` and `lands`, what is not wrapped up that is no sore spot.
+/// A view or an open item resting on a memory they took back is not said
+/// ([`Shown::unsaid`]): its words are hers, written from what it rested on,
+/// and may carry what was taken back though another memory it names is
+/// still held.
 pub(super) fn head_lines(node: &shown::Node, shown: &Shown) -> Vec<String> {
     let mut lines: Vec<String> = summary_of(&node.head)
         .into_iter()
         .map(|text| format!("- {text}"))
         .collect();
     for (id, item) in node.head["views"].as_object().into_iter().flatten() {
-        if id == "us" || id == "lands" {
+        if id == "us" || id == "lands" || shown.unsaid(&item["value"]["because"]) {
             continue;
         }
         if let Some(text) = item["value"]["text"].as_str().map(str::trim)
@@ -533,7 +537,8 @@ pub(super) fn head_lines(node: &shown::Node, shown: &Shown) -> Vec<String> {
         });
         // One whose sore spot went (faded, let go) is not here either.
         let gone = !named.is_empty() && shown.memory_of(item).is_none();
-        if a_sore || gone || item["value"]["closed"].as_bool() == Some(true) {
+        let unsaid = shown.unsaid(&item["value"]["because"]);
+        if a_sore || gone || unsaid || item["value"]["closed"].as_bool() == Some(true) {
             continue;
         }
         if let Some(text) = item["value"]["text"].as_str().map(str::trim)

@@ -185,3 +185,51 @@ async fn what_stands_and_what_ended_are_read_with_the_day_they_were_told() {
     assert!(saying(&recollect(db, &[]).await.resident, "在准备半马").is_empty());
     schema.drop().await;
 }
+
+/// What she makes of them (a view, something not wrapped up) is not said
+/// once any memory it rests on was taken back, though another it names is
+/// still held: her words there were written from both.
+#[tokio::test]
+async fn what_she_makes_of_them_is_unsaid_with_what_they_took_back() {
+    use super::read_tests::{OWNER, SEVEN, owned, seed};
+    let Some(schema) = owned("memory_nodes_head_unsaid").await else {
+        return;
+    };
+    let db = &schema.db;
+    let (_, about) = seed(db).await;
+    let talk = super::audience::private_talk(SEVEN, Some(OWNER));
+    let node = myriad_nodes::node_id(&talk, &super::audience::person_key(&talk, SEVEN)).unwrap();
+    let because = format!(r#"["memory:{}", "memory:{}"]"#, about[0], about[1]);
+    let changed = db
+        .execute_unprepared(&format!(
+            "UPDATE agent_node_heads SET node = node || jsonb_build_object( \
+               'views', jsonb_build_object('tired', jsonb_build_object('value', \
+                 jsonb_build_object('text', 'VIEW 他最近很累', 'because', '{because}'::jsonb))), \
+               'open', jsonb_build_object('reply', jsonb_build_object('value', \
+                 jsonb_build_object('text', 'OPEN 还没回他那件事', 'because', '{because}'::jsonb)))) \
+             WHERE node_id = '{node}'"
+        ))
+        .await
+        .unwrap();
+    assert_eq!(changed.rows_affected(), 1);
+    let head = || async {
+        let turn = context::load(db, SEVEN, crate::clock::now()).await.unwrap();
+        turn.about_head_section().unwrap_or_default()
+    };
+    let said = head().await;
+    assert!(
+        said.contains("VIEW 他最近很累") && said.contains("OPEN 还没回他那件事"),
+        "{said}"
+    );
+    // One of the two let go, with nothing in its place.
+    db.execute_unprepared(&format!(
+        "UPDATE agent_memories SET invalid_reason = 'superseded', invalid_at = now(), \
+         superseded_by = NULL WHERE id = '{}'",
+        about[1]
+    ))
+    .await
+    .unwrap();
+    let said = head().await;
+    assert!(!said.contains("VIEW") && !said.contains("OPEN"), "{said}");
+    schema.drop().await;
+}
