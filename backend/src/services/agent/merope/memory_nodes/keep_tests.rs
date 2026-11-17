@@ -155,6 +155,47 @@ async fn an_upkeep_cut_off_writes_nothing_and_waits_after_twice() {
 }
 
 #[tokio::test]
+async fn an_inbox_cut_off_twice_waits_for_something_new() {
+    let Some(schema) = schema("memory_nodes_inbox_cut_off").await else {
+        return;
+    };
+    let db = &schema.db;
+    let to_inbox =
+        |gist: &str| format!(r#"{{"spans":[{{"start":1,"node":null,"gist":"{gist}"}}]}}"#);
+    answering(&[("memory_node_place", &to_inbox("a plant"))]);
+    placing::place(db, OTHER, None, &[line(401, true, "a plant", 0)]).await;
+    assert_eq!(asked("memory_node_place"), 1);
+    let cut_off = || {
+        answering(&[("memory_node_upkeep", r#"{"actions":[]}"#)]);
+        g0::with(|world| world.cut_off.insert("memory_node_upkeep".into(), 1));
+    };
+    for _ in 0..2 {
+        cut_off();
+        upkeep::tick(db).await;
+        assert_eq!(asked("memory_node_upkeep"), 1, "the inbox asked of");
+    }
+    // Twice with nothing new in it: it waits, and stays.
+    answering(&[("memory_node_upkeep", r#"{"actions":[]}"#)]);
+    upkeep::tick(db).await;
+    assert_eq!(asked("memory_node_upkeep"), 0, "waits");
+    assert_eq!(
+        super::inbox::waiting(db, OTHER, &talk(), 10)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    // Something new in it: asked again.
+    answering(&[("memory_node_place", &to_inbox("a trip"))]);
+    placing::place(db, OTHER, None, &[line(402, true, "a trip", 1)]).await;
+    assert_eq!(asked("memory_node_place"), 1);
+    answering(&[("memory_node_upkeep", r#"{"actions":[]}"#)]);
+    upkeep::tick(db).await;
+    assert_eq!(asked("memory_node_upkeep"), 1, "something new: asked");
+    schema.drop().await;
+}
+
+#[tokio::test]
 async fn forgetting_a_memory_takes_its_entry_and_an_empty_topic() {
     let Some(schema) = schema("memory_nodes_forget").await else {
         return;

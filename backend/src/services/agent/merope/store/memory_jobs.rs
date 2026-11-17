@@ -393,6 +393,9 @@ pub(in crate::services::agent::merope) async fn claim(
     let tx = db.begin().await?;
     lock(&tx).await?;
     let now = now(&tx).await?;
+    // What stretches out of tries kept as they were, put on her nodes once
+    // this is written.
+    let mut kept = Vec::new();
     // The shared advisory lock makes claim atomic across processes; expired
     // leases are eligible without a separate recovery pass.
     let rows = tx.query_all_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
@@ -408,7 +411,7 @@ pub(in crate::services::agent::merope) async fn claim(
             settling::over(&job);
             // Only while what it was taken up under still holds.
             if matches!(job.data, Some(Payload::Settle { .. })) && current(&tx, &job, true).await? {
-                settling::leave_unread(&tx, &mut job).await?;
+                kept.extend(settling::leave_unread(&tx, &mut job).await?);
             }
             consume(&mut job, count, now, "attempts_exhausted");
             job.brought = None;
@@ -429,10 +432,26 @@ pub(in crate::services::agent::merope) async fn claim(
             exchanges.truncate(8);
         }
         tx.commit().await?;
+        on_nodes_meanwhile(db, kept);
         return Ok(Some(Claim { id, job }));
     }
     tx.commit().await?;
+    on_nodes_meanwhile(db, kept);
     Ok(None)
+}
+
+/// What was kept as it was, put on her nodes while the job just claimed is
+/// done: sorting it takes as long as a model's answer, and the lease runs.
+fn on_nodes_meanwhile(db: &DatabaseConnection, kept: Vec<settling::Kept>) {
+    if kept.is_empty() {
+        return;
+    }
+    let db = db.clone();
+    tokio::spawn(async move {
+        for kept in kept {
+            kept.on_nodes(&db).await;
+        }
+    });
 }
 
 pub(in crate::services::agent::merope) async fn current(

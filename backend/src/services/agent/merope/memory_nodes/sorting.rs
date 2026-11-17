@@ -31,7 +31,7 @@ use crate::services::agent::merope::call::{Ask, Voice};
 const PEOPLE: i64 = 10;
 const ASKS: usize = 3;
 const TIMEOUT: Duration = Duration::from_secs(90);
-const OPERATION: &str = "memory_node_sort";
+pub(crate) const OPERATION: &str = "memory_node_sort";
 /// The answer's schema, by the name the old topics were sorted under.
 const SCHEMA_NAME: &str = "topic_sort";
 /// What she knows for good of someone, which she sorts: what she found out

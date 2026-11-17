@@ -106,21 +106,23 @@ pub(super) fn asked_again() {
 /// The stretch `job` holds is let go unread after its last try. Where it
 /// began is kept for the next to begin there too; notes it brought along
 /// as often as they are brought are kept for good as they are, and only
-/// its own wait.
+/// its own wait. What was kept so, and where: to be put on her nodes once
+/// this is written ([`super::super::super::memory_nodes::facts::kept_as_they_were`]).
 pub(super) async fn leave_unread(
     db: &sea_orm::DatabaseTransaction,
     job: &mut Job,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<Kept>> {
     let Some(Payload::Settle {
         from,
         last,
         present,
     }) = &job.data
     else {
-        return Ok(());
+        return Ok(None);
     };
     let (from, last, present) = (*from, *last, present.clone());
     let mut kept = 0;
+    let mut kept_as = None;
     match job.brought.take() {
         Some(brought) if brought.times >= BROUGHT_AT_MOST => {
             // On its own: what cannot be kept so is left unread as before,
@@ -136,9 +138,14 @@ pub(super) async fn leave_unread(
             )
             .await
             {
-                Ok(count) => {
+                Ok(facts) => {
                     inner.commit().await?;
-                    kept = count;
+                    kept = facts.len();
+                    kept_as = Some(Kept {
+                        owner: job.owner,
+                        present: present.clone(),
+                        facts,
+                    });
                     counted(&KEPT_UNSETTLED, kept as u64);
                     job.unread_from = Some(brought.own);
                     job.unread_times = 0;
@@ -169,7 +176,39 @@ pub(super) async fn leave_unread(
         failures = %serde_json::to_value(failures()).unwrap_or_default(),
         "[Merope] a stretch was left unread: its notes go with the next"
     );
-    Ok(())
+    Ok(kept_as)
+}
+
+/// Notes kept for good as they were ([`leave_unread`]): whose, where, and
+/// each as it is kept now.
+pub(in crate::services::agent::merope) struct Kept {
+    pub(in crate::services::agent::merope) owner: i32,
+    pub(in crate::services::agent::merope) present:
+        crate::services::agent::memory::unified::Audience,
+    pub(in crate::services::agent::merope) facts: Vec<String>,
+}
+
+impl Kept {
+    /// Put on her nodes, once what kept them is written.
+    pub(in crate::services::agent::merope) async fn on_nodes(
+        self,
+        db: &sea_orm::DatabaseConnection,
+    ) {
+        let site_owner = crate::services::principal::site_owner_id(db)
+            .await
+            .ok()
+            .flatten();
+        // Boxed, as going over's own: the chain down to the model call
+        // would otherwise be laid out in the caller's frame.
+        Box::pin(super::super::super::memory_nodes::facts::kept_as_they_were(
+            db,
+            self.owner,
+            site_owner,
+            &self.present,
+            &self.facts,
+        ))
+        .await;
+    }
 }
 
 /// A stretch taken up to be gone over begins where one left unread began.
@@ -235,7 +274,8 @@ pub(super) fn put_back(job: &mut Job) {
 }
 
 /// The notes of `owner` here from `since` until `until`, kept for good as
-/// they are: each as going over keeps a note it passes over. How many.
+/// they are: each as going over keeps a note it passes over. Each as it is
+/// kept.
 async fn keep_as_they_are<C: ConnectionTrait>(
     db: &C,
     owner: i32,
@@ -243,7 +283,7 @@ async fn keep_as_they_are<C: ConnectionTrait>(
     last: chrono::DateTime<chrono::FixedOffset>,
     since: chrono::DateTime<chrono::FixedOffset>,
     until: chrono::DateTime<chrono::FixedOffset>,
-) -> anyhow::Result<usize> {
+) -> anyhow::Result<Vec<String>> {
     use crate::services::agent::memory::unified;
     let rows = unified::active_in(db, owner, present, &unified::MemoryKind::ABOUT_PERSON).await?;
     let mut updates = super::super::super::chat_remember::ChatMemoryUpdates::default();
@@ -267,5 +307,9 @@ async fn keep_as_they_are<C: ConnectionTrait>(
             });
     }
     super::super::settle_chat_memory_on(db, owner, last, &updates, &settled, present).await?;
-    Ok(settled.len())
+    Ok(updates
+        .updates
+        .into_iter()
+        .filter_map(|update| update.fact)
+        .collect())
 }

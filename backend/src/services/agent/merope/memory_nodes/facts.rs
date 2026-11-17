@@ -466,6 +466,81 @@ pub(crate) async fn settled(
     }
 }
 
+/// What a stretch never read kept for good as it was (`facts`, each as it
+/// was noted): it says nothing of where it goes, so it is sorted onto her
+/// nodes at once, as her upkeep sorts what is on none, and then, as going
+/// over a stretch does, what it does to how their life stands is written.
+/// A private talk only, while her mind is here; what is not sorted now is
+/// left to her upkeep.
+pub(crate) async fn kept_as_they_were(
+    db: &DatabaseConnection,
+    user_id: i32,
+    site_owner: Option<i32>,
+    present: &Audience,
+    kept: &[String],
+) {
+    if user_id <= 0 || kept.is_empty() || present.is_group() {
+        return;
+    }
+    let Some(home) = audience::of_talk(present, user_id, site_owner) else {
+        return;
+    };
+    let Some(pen) = crate::services::her_log::pen::think() else {
+        return;
+    };
+    let audience = home.audience;
+    let result = async {
+        let rows: Vec<unified::MemoryRecord> =
+            unified::active_in(db, user_id, present, &MemoryKind::ABOUT_PERSON)
+                .await?
+                .into_iter()
+                .filter(|row| {
+                    row.source == "chat"
+                        && kept.contains(&crate::services::agent::merope::ingest::compact_summary(
+                            &row.content,
+                        ))
+                })
+                .collect();
+        let Some(answer) =
+            super::sorting::answer(db, user_id, &audience, &rows, super::sorting::OPERATION)
+                .await?
+        else {
+            return Ok::<usize, Error>(0);
+        };
+        if answer.unreadable {
+            return Ok(0);
+        }
+        put(db, user_id, &audience, &answer.facts, &pen).await?;
+        let placed: Vec<Fact> = answer
+            .facts
+            .into_iter()
+            .filter(|fact| fact.placement != Placement::Nowhere)
+            .collect();
+        super::standing::after_settled(
+            db,
+            user_id,
+            home.user_id,
+            present,
+            &audience,
+            &placed,
+            &[],
+            &pen,
+        )
+        .await
+    }
+    .await;
+    match result {
+        Ok(written) => tracing::info!(
+            kept = kept.len(),
+            written,
+            "[memory-nodes] what a stretch never read kept is on her nodes"
+        ),
+        Err(error) => {
+            tracing::warn!(%error, "[memory-nodes] what a stretch never read kept not put on nodes")
+        }
+    }
+}
+
 /// How one of her nodes is named among the topics going over a stretch is
 /// shown: its id after this, so its label reads back as the node.
 pub(crate) const SHOWN: &str = "node:";

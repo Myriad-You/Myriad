@@ -26,6 +26,8 @@ pub(in crate::services::agent::merope) async fn finish(
     let outcome;
     // What a stretch kept, put on her nodes once it is written.
     let mut on_nodes = None;
+    // What a stretch never read kept as it was, put on them the same way.
+    let mut kept_as_they_were = None;
     // A stretch is tried again when its answer could not be read too: what
     // it would keep for good is not let go on one unreadable answer.
     let stretch = matches!(job.data, Some(Payload::Settle { .. }));
@@ -137,7 +139,7 @@ pub(in crate::services::agent::merope) async fn finish(
                 Ok(Effect::Paused) => unreachable!("put back above"),
                 Err(failure) => {
                     // Its notes stay notes and go with the next stretch.
-                    settling::leave_unread(&tx, &mut job).await?;
+                    kept_as_they_were = settling::leave_unread(&tx, &mut job).await?;
                     failure.to_string()
                 }
             };
@@ -184,6 +186,9 @@ pub(in crate::services::agent::merope) async fn finish(
             db, job.owner, owner, &present, &updates,
         ))
         .await;
+    }
+    if let Some(kept) = kept_as_they_were {
+        kept.on_nodes(db).await;
     }
     Ok(())
 }

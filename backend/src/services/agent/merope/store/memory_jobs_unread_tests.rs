@@ -220,6 +220,70 @@ async fn notes_never_read_are_kept_as_they_are_after_two_more_stretches() {
     schema.drop().await;
 }
 
+/// Notes kept for good as they were go on her nodes as what going over
+/// keeps does: sorted onto them at once (they say nothing of where they
+/// go), then what they do to how their life stands is asked.
+#[tokio::test]
+async fn notes_kept_as_they_were_are_put_on_her_nodes() {
+    use crate::services::channel_group::g0;
+    let Some(schema) = fixture().await else {
+        return;
+    };
+    let db = &schema.db;
+    let now = crate::clock::now().fixed_offset();
+    let ago = |minutes| now - chrono::Duration::minutes(minutes);
+    noted_at(db, "周末要搬家", ago(120)).await;
+    noted_at(db, "在学吉他", ago(100)).await;
+    never_read(db, stretch_from(db, "settle", ago(121)).await).await;
+    never_read(db, stretch_from(db, "settle", ago(61)).await).await;
+    let mut world = g0::World::new(0.5);
+    world.models.entry("memory_node_sort".into()).or_default().push_back(Some(
+        r#"{"facts":[{"fact":1,"topic":{"on":"","name":"生活","aliases":[]}},{"fact":2,"topic":{"on":"","name":"生活","aliases":[]}}]}"#.into(),
+    ));
+    g0::enter(world);
+    never_read(db, stretch_from(db, "settle", ago(30)).await).await;
+    let world = g0::leave().expect("a world");
+    let asked = |operation: &str| {
+        world
+            .log
+            .iter()
+            .filter(|entry| entry["kind"] == "model" && entry["what"]["operation"] == operation)
+            .count()
+    };
+    assert_eq!(
+        went(db).await["周末要搬家"],
+        holds("周末要搬家"),
+        "kept as it was"
+    );
+    assert_eq!(asked("memory_node_sort"), 1, "sorted at once");
+    for text in ["周末要搬家", "在学吉他"] {
+        let id: String = db
+            .query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT id FROM agent_memories WHERE content = $1 AND source = 'chat'",
+                [text.into()],
+            ))
+            .await
+            .unwrap()
+            .expect("kept for good")
+            .try_get("", "id")
+            .unwrap();
+        let placement =
+            crate::services::agent::merope::memory_nodes::placements::placement(db, &id)
+                .await
+                .unwrap();
+        assert!(
+            placement.is_some_and(|placement| placement.node_id.is_some()),
+            "{text} on a node"
+        );
+    }
+    assert!(
+        asked("memory_standing_step") + asked("memory_standing_build") > 0,
+        "how their life stands asked"
+    );
+    schema.drop().await;
+}
+
 /// The same when the last stretch to bring them along never finished: its
 /// process went away on every try.
 #[tokio::test]
