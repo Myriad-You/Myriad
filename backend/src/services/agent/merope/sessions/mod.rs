@@ -30,6 +30,7 @@ use std::collections::BTreeSet;
 
 use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionSession, TransactionTrait};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::memory_nodes::{
     Error, audience, forget,
@@ -93,6 +94,30 @@ fn identity(owner: i32, device: &str) -> RegistryIdentity<'_> {
     }
 }
 
+/// Whether `row` is the task's `node.standing` saying where it stands in
+/// the words and state it already stands in, by a rule. Each change brings
+/// one (its id comes from when it changed), so a session telling the same
+/// thing again and again would heap up versions saying the same: only a
+/// change of words, of state, or an end is written. When it began standing
+/// so (its `since`) stays the first one's.
+fn stands_as_it_did(task_node: Option<&Value>, task: &str, row: &RowIn) -> bool {
+    if row.kind != "node.standing" || row.node != task {
+        return false;
+    }
+    let Some(item) = row.body.get("item").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(now) = task_node.and_then(|node| node.get("standing")?.get(item)) else {
+        return false;
+    };
+    let value = &now["value"];
+    let ended = |at: &Value| at.get("ended").and_then(Value::as_bool).unwrap_or(false);
+    now["author"] == "rule"
+        && value["text"] == row.body["text"]
+        && value.get("state") == row.body.get("state")
+        && ended(value) == ended(&row.body)
+}
+
 /// Takes one change of a session the owner's `device` told: kept on her
 /// nodes by the rules, then looked at when it asks them, failed or
 /// finished, unless it came late. A change older than the one kept changes nothing. While
@@ -133,10 +158,8 @@ pub(crate) async fn take(
     let repo_node = read::node(db, owner, &audience, &repo).await?;
     let repo_known = repo_node.is_some();
     let repo_sync = repo_node.as_ref().and_then(sessions::created_sync);
-    let task_known = read::node(db, owner, &audience, &task)
-        .await?
-        .as_ref()
-        .and_then(sessions::task_known);
+    let task_node = read::node(db, owner, &audience, &task).await?;
+    let task_known = task_node.as_ref().and_then(sessions::task_known);
     let rows = sessions::session_rows(SessionInput {
         audience: audience.clone(),
         device: device.to_string(),
@@ -158,6 +181,8 @@ pub(crate) async fn take(
             body: placed.row.body,
             author: Author::Rule,
         })
+        // Where it stands, said as it was already: no new version of it.
+        .filter(|row| !stands_as_it_did(task_node.as_ref(), &task, row))
         .collect();
     // Found before anything is kept: a removed device's grants are found
     // by these.

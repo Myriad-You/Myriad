@@ -33,6 +33,8 @@ const TOGETHER: &str = "g_6666666666";
 const PROGRESS: &str = "g_7777777777";
 /// The grant of the status-card test alone.
 const ENDED: &str = "g_8888888888";
+/// The grant of the test of a state told again alone.
+const AGAIN: &str = "g_9999999999";
 /// What the owner said to it: theirs alone.
 const OWNERS_WORDS: &str = "把存储拆开然后提交";
 /// What another session sent it, with someone else's name in it.
@@ -479,12 +481,13 @@ async fn kept_rows_go_shared_once_every_side_reads_them() {
     );
     // Once is all.
     assert_eq!(share::share_kept(db, OWNER).await.unwrap(), 0);
-    // What comes later is shared from the first.
+    // What comes later is shared from the first: working again, a new
+    // version of where it stands (the same state again writes none).
     take(
         db,
         OWNER,
         DEVICE,
-        under(SHARING, "quiet", 1_760_000_200_000),
+        under(SHARING, "started", 1_760_000_200_000),
     )
     .await
     .unwrap();
@@ -988,5 +991,50 @@ async fn her_line_on_a_session_that_ended_carries_its_status_card() {
         .expect("the status card");
     let held = cards::now(db, OWNER, &card).await.unwrap().unwrap();
     assert_eq!(held.card.kind, "status");
+    schema.drop().await;
+}
+
+/// A session telling where it stands, the same again and again, keeps one
+/// version of it on its task: only a new state or new words are a new one.
+#[tokio::test]
+async fn where_a_session_stands_told_again_is_one_version() {
+    let Some(schema) = schema().await else {
+        return;
+    };
+    let db = &schema.db;
+    let versions = || async {
+        count(
+            db,
+            &format!(
+                "SELECT count(*) AS n FROM agent_node_rows WHERE kind = 'node.standing' \
+                 AND author = 'rule' AND node_id = '{}'",
+                task_of(AGAIN)
+            ),
+        )
+        .await
+    };
+    for at in [1_000, 2_000, 3_000] {
+        take(db, OWNER, DEVICE, under(AGAIN, "started", at))
+            .await
+            .unwrap();
+    }
+    assert_eq!(versions().await, 1, "working, told three times: one");
+    take(db, OWNER, DEVICE, under(AGAIN, "quiet", 4_000))
+        .await
+        .unwrap();
+    assert_eq!(versions().await, 2, "gone quiet: a new one");
+    take(db, OWNER, DEVICE, under(AGAIN, "quiet", 5_000))
+        .await
+        .unwrap();
+    assert_eq!(versions().await, 2, "still quiet: none");
+    take(db, OWNER, DEVICE, under(AGAIN, "started", 6_000))
+        .await
+        .unwrap();
+    assert_eq!(versions().await, 3, "working again: a new one");
+    let node = read::node(db, OWNER, &owners(), &task_of(AGAIN))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(node["standing"][sessions::NOW]["value"]["state"], "working");
     schema.drop().await;
 }
