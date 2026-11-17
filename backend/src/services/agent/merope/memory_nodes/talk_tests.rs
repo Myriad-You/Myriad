@@ -1747,7 +1747,7 @@ async fn kept(db: &DatabaseConnection, update: &ChatMemoryUpdate, keep: Keep) ->
 }
 
 /// A long line of corrections whose last word is taken back is taken back
-/// to its start (seventeen steps, past where it used to be cut short).
+/// to its start (seventeen steps, so the walk has to go well past the first few).
 #[tokio::test]
 async fn a_long_line_of_corrections_taken_back_is_taken_back_to_its_start() {
     let Some(schema) = schema("memory_nodes_taken_back_long_line").await else {
