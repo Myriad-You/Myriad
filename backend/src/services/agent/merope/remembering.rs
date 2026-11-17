@@ -387,7 +387,9 @@ fn merge_found(
             found.push((date, who, text));
         }
     }
-    found.sort_by(|left, right| left.0.cmp(&right.0));
+    found.sort_by(|left, right| {
+        super::chat_lines::day_of(&left.0).cmp(super::chat_lines::day_of(&right.0))
+    });
     found
 }
 
@@ -648,6 +650,25 @@ mod tests {
         );
         assert_eq!(found.len(), 2);
         assert_eq!(found[0].0, "2026-09-12");
+    }
+
+    /// A line whose day says its fact was replaced stays before her
+    /// answer to it: lines are put in order by the day, not by what the
+    /// day says besides.
+    #[test]
+    fn a_replaced_line_stays_where_it_was_said_in_its_day() {
+        let replaced =
+            crate::services::agent::merope::chat_lines::found_on("2026-11-17".into(), true);
+        let found = super::merge_found(
+            vec![
+                (replaced.clone(), Who::They, "我住在北京朝阳".into()),
+                ("2026-11-17".into(), Who::You, "朝阳那边挺方便".into()),
+            ],
+            vec![("2026-11-18".into(), Who::They, "今天下雨了".into())],
+        );
+        let said: Vec<&str> = found.iter().map(|(_, _, text)| text.as_str()).collect();
+        assert_eq!(said, ["我住在北京朝阳", "朝阳那边挺方便", "今天下雨了"]);
+        assert_eq!(found[0].0, replaced);
     }
 
     /// Each cue naming one book fills with the others: a book some try

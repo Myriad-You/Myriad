@@ -536,7 +536,9 @@ pub(crate) fn beside(
             None => all.push((date, who, text)),
         }
     }
-    all.sort_by(|left, right| left.0.cmp(&right.0));
+    all.sort_by(|left, right| {
+        super::chat_lines::day_of(&left.0).cmp(super::chat_lines::day_of(&right.0))
+    });
     all
 }
 

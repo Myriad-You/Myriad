@@ -257,6 +257,7 @@ async fn what_they_took_back_is_not_read() {
     .unwrap();
     let read = private_lines(db, OWNER, 3000).await;
     assert!(read.iter().all(|line| !line.replaced), "{read:?}");
+    assert_eq!(contents(&read).len(), 3, "and none of them hidden for it");
     let by_words = super::super::remembering::look_back(db, OWNER, "香菜", "", 3).await;
     assert!(
         !found(&by_words).iter().any(|text| text.contains("香菜")),

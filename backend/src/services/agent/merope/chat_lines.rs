@@ -54,6 +54,15 @@ pub(crate) fn found_on(day: String, replaced: bool) -> String {
     }
 }
 
+/// The day alone of a line as found: what lines are put in order by, so
+/// one whose day says more stays where it was said among that day's.
+pub(crate) fn day_of(found_on: &str) -> &str {
+    found_on
+        .strip_suffix(REPLACED_SINCE)
+        .and_then(|day| day.strip_suffix(", "))
+        .unwrap_or(found_on)
+}
+
 /// The newest `latest` lines of `user_id`'s private chat with her that a
 /// chat turn may look through, oldest first: their own talk only (no
 /// venue: never a group's; a session with no mode written is chat), not an
