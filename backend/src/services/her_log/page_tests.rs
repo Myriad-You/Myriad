@@ -397,12 +397,23 @@ async fn a_log_vector_not_answered_lets_its_page_go() {
     // One that does not name the page, not answered: the page stays.
     let stale = air.vector(PERSONAL);
     assert!(off_take(db, &mut air, &off, &stale).await.is_err());
-    // One naming it that the contract refuses: the page goes.
+    // One naming it that the contract refuses (more rows asked for than a
+    // frame may carry): the page goes.
     let mut spoilt = naming(&mut air, PERSONAL, &page);
-    spoilt["body"]["vector"] = json!("all of it");
+    let ask: Vec<String> = (0..=wire::ASK_ROWS).map(|n| format!("row_{n}")).collect();
+    spoilt["body"]["ask"] = json!(ask);
     let refused = answers(db, &mut air, &spoilt, LATER).await;
     assert_eq!(refused.len(), 1);
     assert_eq!(refused[0]["t"], "error");
+    let asking = air.vector(PERSONAL);
+    let again = answers(db, &mut air, &asking, LATER).await;
+    assert_eq!(row_ids(&again), row_ids(&first));
+    // One naming it that does not read (a vector that is none): the page
+    // goes.
+    let page = more_of(&again).unwrap();
+    let mut spoilt = naming(&mut air, PERSONAL, &page);
+    spoilt["body"]["vector"] = json!("all of it");
+    assert!(off_take(db, &mut air, &on(), &spoilt).await.is_err());
     let asking = air.vector(PERSONAL);
     let again = answers(db, &mut air, &asking, LATER).await;
     assert_eq!(row_ids(&again), row_ids(&first));
