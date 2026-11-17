@@ -396,6 +396,24 @@ pub(super) struct Answered {
     /// it was put in front of her: not recalled, but what she answered on
     /// too, so what judges recall can be shown it.
     pub(super) scrolled: Option<String>,
+    /// How their life stands, as it was put in front of her before what she
+    /// recalled (in a private talk): not recalled either.
+    pub(super) standing: Vec<String>,
+}
+
+impl Answered {
+    /// Every line she answered on, however it came: how things stand, what
+    /// she recalled, what she scrolled back to. What a question needs is
+    /// looked for here to tell whether it was in front of her at all.
+    pub(super) fn shown(&self) -> Vec<String> {
+        self.standing
+            .iter()
+            .chain(&self.recalled)
+            .map(String::as_str)
+            .chain(self.scrolled.iter().flat_map(|scrolled| scrolled.lines()))
+            .map(str::to_string)
+            .collect()
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -441,6 +459,7 @@ pub(super) async fn answer_one(
             cues: cues.map(|cues| format!("{cues:?}")),
             through: None,
             scrolled: None,
+            standing: standing.clone(),
         }
     };
     if recall_only() {
@@ -536,6 +555,7 @@ pub(super) async fn answer_one(
             cues: cues.map(|cues| format!("{cues:?}")),
             through: going_through,
             scrolled,
+            standing,
         };
     }
     let mut graded = json!({"question": question.question, "correctAnswer": question.answer,
@@ -570,6 +590,7 @@ pub(super) async fn answer_one(
         cues: cues.map(|cues| format!("{cues:?}")),
         through: going_through,
         scrolled,
+        standing,
     }
 }
 

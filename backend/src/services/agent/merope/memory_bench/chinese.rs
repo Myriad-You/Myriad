@@ -296,6 +296,22 @@ pub(super) fn the_implicit_memory_set_reads_as_the_bench_needs() {
         expected.insert(format!("associated/{category}"), 5);
     }
     assert_eq!(counted(&set), expected);
+    // Each says what answering it needs, the fact that decides it last:
+    // whether that was written, recalled and in front of her is checked
+    // line by line, not by any one line of the talk it came from.
+    for question in &set {
+        assert!(
+            !question.needs.is_empty()
+                && question.needs.iter().all(|words| {
+                    !words.is_empty()
+                        && words
+                            .iter()
+                            .all(|word| word.split('&').all(|part| !part.trim().is_empty()))
+                }),
+            "{}",
+            question.question_id
+        );
+    }
     // The held-out set has every kind, fewer of each.
     assert_eq!(
         counted(&held_out).keys().collect::<Vec<_>>(),

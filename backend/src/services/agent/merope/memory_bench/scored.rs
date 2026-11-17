@@ -47,7 +47,7 @@ pub(super) fn report(
         }
         let right_of =
             |outcome: &Outcome| answered(outcome).is_some_and(|a| a.correct == Some(true));
-        let mut by_kind: BTreeMap<String, [usize; 8]> = BTreeMap::new();
+        let mut by_kind: BTreeMap<String, [usize; 9]> = BTreeMap::new();
         let mut per_round = vec![0usize; times];
         let (mut right, mut every) = (0, 0);
         for question in questions {
@@ -72,6 +72,15 @@ pub(super) fn report(
                     .filter(|outcome| {
                         answered(outcome)
                             .is_some_and(|a| question.met_in(&a.recalled).iter().all(|met| *met))
+                    })
+                    .count();
+                // And in front of her at all, however it came: recalled,
+                // standing, or scrolled back to.
+                slot[8] += runs
+                    .iter()
+                    .filter(|outcome| {
+                        answered(outcome)
+                            .is_some_and(|a| question.met_in(&a.shown()).iter().all(|met| *met))
                     })
                     .count();
             }
@@ -114,16 +123,17 @@ pub(super) fn report(
         };
         let kinds: serde_json::Map<String, Value> = by_kind
             .into_iter()
-            .map(
-                |(kind, [n, right, run, every, written, retrieved, needing, recalled])| {
-                    (
-                        kind,
-                        json!({"questions": n, "runs": run, "written": written,
+            .map(|(kind, slot)| {
+                let [n, right, run, every, written, retrieved, ..] = slot;
+                let [.., needing, recalled, shown] = slot;
+                (
+                    kind,
+                    json!({"questions": n, "runs": run, "written": written,
                             "retrieved": retrieved, "right": right, "every": every,
-                            "needing": needing, "recalledNeeded": recalled}),
-                    )
-                },
-            )
+                            "needing": needing, "recalledNeeded": recalled,
+                            "shownNeeded": shown}),
+                )
+            })
             .collect();
         scores.insert(
             arm.to_string(),
@@ -187,7 +197,7 @@ pub(super) fn report(
             "dragged":answered.dragged,"why":answered.why,"recalled":answered.recalled,
             "response":answered.answer,
             "cues":answered.cues,"through":answered.through,
-            "scrolled":answered.scrolled})
+            "scrolled":answered.scrolled,"standing":answered.standing})
     };
     let rows: Vec<Value> = outcomes
         .iter()
@@ -238,6 +248,7 @@ pub(super) fn partial_row(
             "any": words,
             "written": outcome.answering.iter().any(|row| question.holds(fact, row)),
             "wide": question.met_in(&outcome.wide.recalled)[fact],
+            "shown": question.met_in(&outcome.wide.shown())[fact],
             "wider": outcome.wider.as_ref().map(|wider| question.met_in(&wider.recalled)[fact]),
             "rank": outcome.need_ranks.get(fact).and_then(|ranks| ranks.1),
             "rankShallow": outcome.need_ranks.get(fact).and_then(|ranks| ranks.0),
@@ -246,7 +257,7 @@ pub(super) fn partial_row(
             "response": outcome.wide.answer, "why": outcome.wide.why,
             "recalled": outcome.wide.recalled,
             "recalledChars": recalled_chars(&outcome.wide),
-            "scrolled": outcome.wide.scrolled},
+            "scrolled": outcome.wide.scrolled, "standing": outcome.wide.standing},
         "wider": outcome.wider.as_ref().map(|wider| json!({"correct": wider.correct,
             "retrieved": wider.retrieved, "recalled": wider.recalled,
             "recalledChars": recalled_chars(wider)})),
