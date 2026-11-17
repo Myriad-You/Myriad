@@ -55,7 +55,7 @@ use myriad_nodes::wire::{ASK_ROWS, Batch};
 use myriad_persona_log::{
     Core, Holder, Vector,
     lease::{Refusal as MoveRefusal, Request, Through},
-    row::Author,
+    row::{Audience, Author},
 };
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
@@ -134,6 +134,9 @@ pub struct Session {
     /// A batch that ended a page of the side's could not be settled (the
     /// database failed on it): the link is to close, so paging starts over.
     unsettled: bool,
+    /// The link's number (`link::open`): what the status page keeps of a
+    /// page on its way is this link's, and only this link lets it go.
+    link: u64,
 }
 
 /// The most rows asked again for an audience keeps waiting on a link: as
@@ -170,7 +173,13 @@ impl Session {
             open: BTreeMap::new(),
             asks: BTreeMap::new(),
             unsettled: false,
+            link: 0,
         }
+    }
+
+    /// This session, of the link numbered `link`.
+    pub fn on_link(self, link: u64) -> Self {
+        Self { link, ..self }
     }
 
     /// Whether the link is to close: a page the side sent could not be
@@ -461,7 +470,7 @@ pub async fn take(
             .is_some_and(|open| open.id == after)
     {
         session.open.remove(audience);
-        crate::services::agent::link::counts::page_closed(device, audience);
+        crate::services::agent::link::counts::page_closed(device, session.link, audience);
         tracing::info!(
             device,
             audience = kind_of(audience),
@@ -478,6 +487,7 @@ pub async fn take(
         && body.get("sealed").is_none()
     {
         session.unsettled = true;
+        crate::services::agent::link::counts::page_unsettled(device);
         tracing::info!(
             device,
             audience = body["audience"].as_str().map_or("?", kind_of),
@@ -552,7 +562,7 @@ async fn answer(
                     (body["audience"].as_str(), body["more"].as_str())
             {
                 let readable = side.holds(audience) || mine;
-                settled(db, owner.user, audience, more, readable, &mut out).await?;
+                settled(db, owner.user, device, audience, more, readable, &mut out).await?;
             }
             return Ok(out);
         }
@@ -660,7 +670,7 @@ async fn answer(
                 }
             };
             if let Some(more) = more {
-                settled(db, owner.user, &audience, &more, readable, &mut out).await?;
+                settled(db, owner.user, device, &audience, &more, readable, &mut out).await?;
             }
             Ok(out)
         }
@@ -855,7 +865,7 @@ async fn vector(
         // next round starts with its next log.vector without after.
         let passed = passed.or_else(|| {
             let open = session.open.remove(audience)?;
-            crate::services::agent::link::counts::page_closed(device, audience);
+            crate::services::agent::link::counts::page_closed(device, session.link, audience);
             (open.lacked && &open.vector == theirs && open.beyond == beyond).then_some("no_headway")
         });
         // While a page is on its way the side answers the server's
@@ -968,7 +978,7 @@ async fn vector(
                     lacked,
                 },
             );
-            crate::services::agent::link::counts::page_opened(device, audience);
+            crate::services::agent::link::counts::page_opened(device, session.link, audience);
         }
         if sent.too_old {
             tracing::info!(
@@ -1006,17 +1016,29 @@ async fn vector(
 /// the server's vector of the audience: when the batch was taken, the one
 /// with the rows it asks again for; when it was refused, one of its own,
 /// read only when the side may read it (`readable`: it holds the audience,
-/// or her mind is there), else an empty one, which tells it nothing. One
-/// that would not pass the contract (an audience or page id that is not
-/// one) is not sent.
+/// or her mind is there), else an empty one, which tells it nothing. A
+/// page id or audience that is not one (`limits.idPattern`, an audience of
+/// her log) is not named back: the contract's check reads neither shape,
+/// so whatever the side wrote would come back to it as it was.
+#[allow(clippy::too_many_arguments)]
 async fn settled(
     db: &DatabaseConnection,
     user: i32,
+    device: &str,
     audience: &str,
     more: &str,
     readable: bool,
     out: &mut Vec<Outgoing>,
 ) -> Result<(), Error> {
+    if !myriad_her_link::valid_id(more) || Audience::parse(audience).is_err() {
+        tracing::info!(
+            device,
+            "[her-log] a batch named a page or an audience that is not one: not named back"
+        );
+        return Ok(());
+    }
+    // A page of the side's named back: the link is settling again.
+    crate::services::agent::link::counts::page_settled(device);
     if let Some(back) = out
         .iter_mut()
         .find(|out| out.to == To::Sender && out.t == "log.vector")
@@ -1030,10 +1052,7 @@ async fn settled(
         json!({ "audience": audience, "vector": {} })
     };
     body["after"] = json!(more);
-    let back = Outgoing::back("log.vector", body);
-    if encode(&back, 1, 0, 0).is_ok() {
-        out.push(back);
-    }
+    out.push(Outgoing::back("log.vector", body));
     Ok(())
 }
 

@@ -363,14 +363,47 @@ async fn the_server_names_back_a_page_it_settled() {
     db.execute_unprepared("ALTER TABLE agent_log_rows RENAME TO agent_log_rows_gone")
         .await
         .unwrap();
-    let row = line(&mut sky, "persona:sky", T0 + 3);
-    let mut frame = sky.rows_frame(PERSONAL, vec![row]);
-    frame["body"]["more"] = json!("page_of_air_four");
-    assert!(off_take(db, &mut sky, &on(), &frame).await.is_err());
-    assert!(sky.link.unsettled());
+    for (n, page) in ["page_of_air_four", "page_of_air_five"]
+        .into_iter()
+        .enumerate()
+    {
+        let row = line(&mut sky, &format!("persona:sky{n}"), T0 + 3 + n as i64);
+        let mut frame = sky.rows_frame(PERSONAL, vec![row]);
+        frame["body"]["more"] = json!(page);
+        assert!(off_take(db, &mut sky, &on(), &frame).await.is_err());
+        assert!(sky.link.unsettled());
+        sky.link = paging();
+    }
+    let unsettled = counts::pages_unsettled_by("dev_sky").unwrap();
+    assert_eq!((unsettled.in_a_row, unsettled.closes.count), (2, 2));
     db.execute_unprepared("ALTER TABLE agent_log_rows_gone RENAME TO agent_log_rows")
         .await
         .unwrap();
+    // A page named back again: the closes in a row start over.
+    let row = line(&mut sky, "persona:clear", T0 + 6);
+    let mut frame = sky.rows_frame(PERSONAL, vec![row]);
+    frame["body"]["more"] = json!("page_of_air_six");
+    assert_eq!(
+        named(&answers(db, &mut sky, &frame, T0).await),
+        [Some("page_of_air_six".to_string())]
+    );
+    let unsettled = counts::pages_unsettled_by("dev_sky").unwrap();
+    assert_eq!((unsettled.in_a_row, unsettled.closes.count), (0, 2));
+    // What is not a page id, or not an audience, is not named back: the
+    // contract's check reads neither shape.
+    let row = line(&mut sky, "persona:odd", T0 + 7);
+    let mut frame = sky.rows_frame(PERSONAL, vec![row]);
+    frame["body"]["more"] = json!("not a page id!");
+    let back = answers(db, &mut sky, &frame, T0).await;
+    assert!(named(&back).iter().all(|name| name.is_none()), "{back:?}");
+    let nowhere = sky.frame(
+        "log.rows",
+        Some("batch_nowhere"),
+        json!({ "audience": "nowhere at all", "rows": "none", "payloads": [], "more": "page_nowhere" }),
+    );
+    let back = answers(db, &mut sky, &nowhere, T0).await;
+    assert_eq!(back[0]["t"], "error");
+    assert!(of_kind(&back, "log.vector").is_empty(), "{back:?}");
     schema.drop().await;
 }
 
@@ -687,5 +720,57 @@ async fn rows_asked_again_for_past_what_a_link_keeps_are_dropped() {
     assert_eq!(dropped, Some(1));
     let next = answers(db, &mut air, &after, LATER).await;
     assert_eq!(of_kind(&next, "log.rows").len(), 1);
+    schema.drop().await;
+}
+
+/// What the status page keeps of a page on its way is the link's that sent
+/// it: let go when the page is, and when that link closes, but not when
+/// another link of the device closes.
+#[tokio::test]
+async fn a_page_on_its_way_is_its_links() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
+    let Some(schema) = schema("her_log_pages_link").await else {
+        return;
+    };
+    let db = &schema.db;
+    let _pages = relay::pages_in_test(1);
+    many_rows(db, 290).await;
+    let device = "dev_air_link";
+    let open = || -> Vec<String> {
+        counts::pages_open_by(device)
+            .into_iter()
+            .map(|(kind, _)| kind)
+            .collect()
+    };
+    let mut air = Side::new(device);
+    air.link = paging().on_link(7);
+    let asking = air.vector(PERSONAL);
+    let first = answers(db, &mut air, &asking, LATER).await;
+    assert_eq!(open(), ["personal"]);
+    // Named but not answered: let go.
+    let off = Settings {
+        enabled: false,
+        ..on()
+    };
+    let after = naming(&mut air, PERSONAL, &more_of(&first).unwrap());
+    assert!(off_take(db, &mut air, &off, &after).await.is_err());
+    assert!(open().is_empty());
+    let asking = air.vector(PERSONAL);
+    answers(db, &mut air, &asking, LATER).await;
+    assert_eq!(open(), ["personal"]);
+    // Another link of the device closing leaves it; its own closing does not.
+    counts::pages_closed(device, 8);
+    assert_eq!(open(), ["personal"]);
+    counts::pages_closed(device, 7);
+    assert!(open().is_empty());
+    // A link that took over sends its own page; the old one closing after
+    // leaves that.
+    air.link = paging().on_link(9);
+    let asking = air.vector(PERSONAL);
+    answers(db, &mut air, &asking, LATER).await;
+    counts::pages_closed(device, 7);
+    assert_eq!(open(), ["personal"]);
+    counts::pages_closed(device, 9);
+    assert!(open().is_empty());
     schema.drop().await;
 }

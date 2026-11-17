@@ -109,7 +109,10 @@ pub(crate) fn spawn_after_turn(
                 )
             }
             Ok(Ok(_)) => {}
-            Ok(Err(error)) => tracing::warn!(%error, "[memory-nodes] her intents not judged"),
+            Ok(Err(error)) => tracing::warn!(
+                kind = super::forget::error_kind(&error),
+                "[memory-nodes] her intents not judged"
+            ),
             Err(_) => tracing::info!("[memory-nodes] her intents ran out of time"),
         }
     });
@@ -221,6 +224,13 @@ pub(crate) async fn after_turn(
         return Ok(Judged::default());
     };
     let audience = audience::private_talk(user_id, site_owner);
+    // Her intents waiting are shown to the model: what rests on what they
+    // took back goes first ([`super::forget::before_reading`]). If it
+    // cannot, what they said now is judged still, with none shown: it is
+    // judged once.
+    let swept = super::forget::before_reading(db, user_id, &audience)
+        .await
+        .is_ok();
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
@@ -241,11 +251,15 @@ pub(crate) async fn after_turn(
             name: node.name.clone(),
         });
     }
-    let waiting: Vec<Held> = intent_store::held(db, user_id, &audience)
-        .await?
-        .into_iter()
-        .filter(Held::waiting)
-        .collect();
+    let waiting: Vec<Held> = if swept {
+        intent_store::held(db, user_id, &audience)
+            .await?
+            .into_iter()
+            .filter(Held::waiting)
+            .collect()
+    } else {
+        Vec::new()
+    };
     let zone = intent_store::zone_name(now);
     let micros = now.timestamp_micros();
     let prepared: Prepared = intents::prepare(JudgeInput {

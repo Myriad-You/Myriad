@@ -28,11 +28,21 @@ use myriad_persona_log::{
     Row,
     row::{Author, LOG_VERSION, Replicate},
 };
-use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, TransactionSession, TransactionTrait};
-use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
 use super::{Error, heads, inbox, logged, write};
 use crate::services::her_log::{self, NODE};
+
+#[path = "taken_back.rs"]
+mod taken_back;
+#[cfg(test)]
+pub(crate) use taken_back::left_to_sweep_holds;
+use taken_back::of_a_life;
+pub(super) use taken_back::resting_on_what_went;
+pub(crate) use taken_back::{
+    Failures, before_reading, failures, forget_taken_back, taken_back_here,
+};
+pub(crate) use taken_back::{error_kind, sweep_again};
 
 /// The rows citing any of `refs`: entries and spans by their references,
 /// her views, what is not wrapped up and how their life stands (「现在」)
@@ -154,6 +164,35 @@ pub(super) fn written_on(
             return doomed;
         }
         doomed.extend(more);
+    }
+}
+
+/// `gone` (row ids of `kept`) and every version of a life written on one of
+/// them, however far down ([`written_on`], only through [`of_a_life`]).
+fn written_on_a_life(kept: &[heads::KeptRow], mut gone: BTreeSet<String>) -> BTreeSet<String> {
+    loop {
+        let more: Vec<String> = kept
+            .iter()
+            .filter(|kept| {
+                !gone.contains(&kept.row.id) && of_a_life(&kept.row.kind, kept.body.as_deref())
+            })
+            .filter(|kept| {
+                kept.body
+                    .as_deref()
+                    .and_then(|body| serde_json::from_str::<serde_json::Value>(body).ok())
+                    .and_then(|body| body.get("base").cloned())
+                    .and_then(|base| base.as_array().cloned())
+                    .is_some_and(|base| {
+                        base.iter()
+                            .any(|row| row.as_str().is_some_and(|row| gone.contains(row)))
+                    })
+            })
+            .map(|kept| kept.row.id.clone())
+            .collect();
+        if more.is_empty() {
+            return gone;
+        }
+        gone.extend(more);
     }
 }
 
@@ -285,224 +324,6 @@ fn empty_topic(node: &myriad_nodes::Node) -> bool {
             .is_some_and(|kind| kind.current.value.kind == Kind::Topic)
 }
 
-/// How forgetting what rests on a memory taken back went since the site
-/// started, for her status: memories taken back whose nodes could not be
-/// forgotten at once (left to the sweep, [`taken_back_here`]), sweeps that
-/// forgot something, and sweeps that stopped on an error (what was to be
-/// read or gone over there waits, and the sweep is tried again at the next
-/// stretch or the next hourly upkeep). Counts only.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
-pub(crate) struct Failures {
-    pub(crate) left_to_sweep: u64,
-    pub(crate) swept: u64,
-    pub(crate) sweep_errors: u64,
-}
-
-static LEFT_TO_SWEEP: AtomicU64 = AtomicU64::new(0);
-static SWEPT: AtomicU64 = AtomicU64::new(0);
-static SWEEP_ERRORS: AtomicU64 = AtomicU64::new(0);
-
-/// [`Failures`] so far.
-pub(crate) fn failures() -> Failures {
-    Failures {
-        left_to_sweep: LEFT_TO_SWEEP.load(Relaxed),
-        swept: SWEPT.load(Relaxed),
-        sweep_errors: SWEEP_ERRORS.load(Relaxed),
-    }
-}
-
-/// Which error it was, for a log line that carries no words.
-fn kind(error: &Error) -> &'static str {
-    match error {
-        Error::Refused(_) => "refused",
-        Error::NoPen => "no_pen",
-        Error::Db(_) => "database",
-    }
-}
-
-/// How far back a line of memories, each replaced by the next, is followed.
-const LINE_STEPS: i32 = 16;
-
-/// The memories `memories` they took back with every one each replaced, as
-/// far back as it goes: taking back the last word on something takes back
-/// what it corrected too (「当我没说」 of 「改到周六」 is not 「还是周五」),
-/// as forgetting takes a memory's whole line (`memory::manage`).
-async fn with_what_they_replaced<C: ConnectionTrait>(
-    db: &C,
-    memories: &[String],
-) -> Result<Vec<String>, Error> {
-    let rows = db
-        .query_all_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "WITH RECURSIVE line(id, depth) AS ( \
-               SELECT id, 0 FROM agent_memories WHERE id = ANY($1) \
-               UNION \
-               SELECT m.id, line.depth + 1 FROM agent_memories m \
-               JOIN line ON m.superseded_by = line.id WHERE line.depth < $2) \
-             SELECT DISTINCT id FROM line",
-            [memories.to_vec().into(), LINE_STEPS.into()],
-        ))
-        .await?;
-    rows.iter()
-        .map(|row| Ok(row.try_get::<String>("", "id")?))
-        .collect()
-}
-
-/// What rests on the memories `memories` they took back, and on each they
-/// replaced ([`with_what_they_replaced`]), forgotten on her nodes in a
-/// savepoint of `db`'s transaction. The memories are let go whatever
-/// happens here: if this fails, it is undone alone, counted, and the sweep
-/// before her nodes are next read or gone over forgets it
-/// ([`taken_back_here`]).
-pub(crate) async fn forget_taken_back<C: ConnectionTrait + TransactionTrait>(
-    db: &C,
-    memories: &[String],
-) {
-    if memories.is_empty() {
-        return;
-    }
-    let result = async {
-        let savepoint = db.begin().await?;
-        let forgotten = async {
-            let line = with_what_they_replaced(&savepoint, memories).await?;
-            forget(&savepoint, &line, &[]).await
-        }
-        .await;
-        match forgotten {
-            Ok(()) => savepoint.commit().await.map_err(Error::from),
-            Err(error) => {
-                savepoint.rollback().await?;
-                Err(error)
-            }
-        }
-    }
-    .await;
-    if let Err(error) = result {
-        LEFT_TO_SWEEP.fetch_add(memories.len() as u64, Relaxed);
-        tracing::warn!(
-            memories = memories.len(),
-            kind = kind(&error),
-            "[memory-nodes] what rests on memories taken back is left to the sweep"
-        );
-    }
-}
-
-/// What rests in `user_id`'s `audience` on a memory they took back
-/// (「当我没说」, or deleted), forgotten as if it were forgotten now
-/// ([`forget`]): taking a memory back forgets it there at once, but one
-/// taken back on another of her ends, or before forgetting reached 「现在」,
-/// left it. Run before what is here is read for her (a stretch's facts,
-/// her upkeep), in a transaction of its own.
-///
-/// An error stops what was to follow (nothing resting on what they took
-/// back is read or gone over), is counted, and the sweep is tried again the
-/// next time.
-pub(crate) async fn taken_back_here(
-    db: &sea_orm::DatabaseConnection,
-    user_id: i32,
-    audience: &str,
-) -> Result<(), Error> {
-    let swept = sweep(db, user_id, audience).await;
-    if let Err(error) = &swept {
-        SWEEP_ERRORS.fetch_add(1, Relaxed);
-        tracing::warn!(
-            kind = kind(error),
-            "[memory-nodes] forgetting what rests on memories taken back stopped"
-        );
-    }
-    swept
-}
-
-/// [`taken_back_here`], once.
-async fn sweep(
-    db: &sea_orm::DatabaseConnection,
-    user_id: i32,
-    audience: &str,
-) -> Result<(), Error> {
-    let rows = db
-        .query_all_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT DISTINCT substr(cited.ref, 8) AS id FROM agent_node_rows r \
-             CROSS JOIN LATERAL jsonb_array_elements_text( \
-               COALESCE((r.body::jsonb)->(CASE \
-                 WHEN r.kind IN ('node.view_changed', 'node.open_item', 'node.standing') THEN 'because' \
-                 ELSE 'refs' END), '[]'::jsonb)) AS cited(ref) \
-             WHERE r.user_id = $1 AND r.audience = $2 AND r.body <> '' \
-               AND r.kind IN ('node.entry', 'node.view_changed', 'node.open_item', 'node.standing') \
-               AND cited.ref LIKE 'memory:%'",
-            [user_id.into(), audience.into()],
-        ))
-        .await?;
-    let ids: Vec<String> = rows
-        .iter()
-        .map(|row| row.try_get::<String>("", "id"))
-        .collect::<Result<_, _>>()?;
-    let taken_back: Vec<String> = super::known::named(db, ids)
-        .await?
-        .into_iter()
-        .filter(|(_, named)| named.taken_back)
-        .map(|(id, _)| id)
-        .collect();
-    let left = left_resting(db, user_id, audience).await?;
-    if taken_back.is_empty() && left == 0 {
-        return Ok(());
-    }
-    let txn = db.begin().await?;
-    if !taken_back.is_empty() {
-        forget(&txn, &taken_back, &[]).await?;
-    }
-    if left > 0 {
-        forget_rows(&txn, user_id, audience, &BTreeSet::new(), BTreeSet::new()).await?;
-    }
-    txn.commit().await?;
-    SWEPT.fetch_add(1, Relaxed);
-    tracing::info!(
-        memories = taken_back.len(),
-        left,
-        "[memory-nodes] what rested on memories taken back, or on entries forgotten before, forgotten"
-    );
-    Ok(())
-}
-
-/// What a version rests on (`because`, or each summary sentence's) that is
-/// an entry or a span already forgotten (a stub), as SQL over a row `d`.
-const RESTS_ON_A_STUB: &str = "agent_node_rows d \
-     CROSS JOIN LATERAL ( \
-       SELECT jsonb_array_elements_text(COALESCE(d.body::jsonb->'because', '[]'::jsonb)) AS ref \
-       UNION ALL \
-       SELECT jsonb_array_elements_text(COALESCE(s->'because', '[]'::jsonb)) \
-       FROM jsonb_array_elements(CASE WHEN jsonb_typeof(d.body::jsonb->'value') = 'array' \
-                                      THEN d.body::jsonb->'value' ELSE '[]'::jsonb END) s \
-     ) refs \
-     JOIN agent_node_rows e ON e.user_id = d.user_id AND e.audience = d.audience AND e.body = '' \
-       AND e.kind IN ('node.entry', 'node.span') \
-       AND refs.ref = (CASE e.kind WHEN 'node.entry' THEN 'entry:' ELSE 'span:' END) || e.row_id \
-     WHERE d.body <> '' \
-       AND d.kind IN ('node.view_changed', 'node.open_item', 'node.standing', 'node.revised')";
-
-/// How many versions in `user_id`'s `audience` still rest on an entry or a
-/// span forgotten before upkeep's evidence was followed ([`resting_on`]).
-async fn left_resting(
-    db: &sea_orm::DatabaseConnection,
-    user_id: i32,
-    audience: &str,
-) -> Result<i64, Error> {
-    let row = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            format!(
-                "SELECT count(DISTINCT d.row_id) AS n FROM {RESTS_ON_A_STUB} \
-                 AND d.user_id = $1 AND d.audience = $2"
-            ),
-            [user_id.into(), audience.into()],
-        ))
-        .await?;
-    Ok(row
-        .map(|row| row.try_get::<i64>("", "n"))
-        .transpose()?
-        .unwrap_or(0))
-}
-
 /// Forgets on her nodes what goes with the memories `memories` (ids) and
 /// the lines `lines` (`agent_messages.id`) being forgotten, on `db`'s
 /// transaction ([module docs](self)).
@@ -548,10 +369,20 @@ async fn forget_rows<C: ConnectionTrait>(
     let audience = audience.to_string();
     write::lock(db, user_id, &audience).await?;
     let kept = heads::rows_of(db, user_id, &audience).await?;
-    let cited = written_on(&kept, resting_on(&kept, cited));
+    // A version forgotten before still takes a version of a life written on
+    // it since (an answer in flight as it went); never a rule's row or her
+    // line on a repository, which a device under another grant writes on
+    // one a grant removed took (`forget_named`).
+    let gone_before: BTreeSet<String> = kept
+        .iter()
+        .filter(|kept| kept.row.forgotten && VERSIONED.contains(&kept.row.kind.as_str()))
+        .map(|kept| kept.row.id.clone())
+        .collect();
+    let mut cited = written_on(&kept, resting_on(&kept, cited));
+    cited.extend(written_on_a_life(&kept, gone_before.clone()));
     let doomed: Vec<Row> = kept
         .iter()
-        .filter(|kept| cited.contains(&kept.row.id))
+        .filter(|kept| cited.contains(&kept.row.id) && !gone_before.contains(&kept.row.id))
         .map(|kept| kept.row.clone())
         .collect();
     for row in doomed.iter().filter(|row| !row.forgotten) {

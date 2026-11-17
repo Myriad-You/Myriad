@@ -380,6 +380,19 @@ pub(crate) async fn write_with(
             Some(_) => return Err(Error::Refused("a row id already holds another row".into())),
         }
     }
+    // Written from what was read before it went (a model's answer in
+    // flight as a memory was forgotten or taken back): left out, alone.
+    let went = super::forget::resting_on_what_went(
+        &txn,
+        user_id,
+        audience,
+        &fresh
+            .iter()
+            .map(|row| (row.id.as_str(), row.kind.as_str(), row.body.as_str()))
+            .collect::<Vec<_>>(),
+    )
+    .await?;
+    fresh.retain(|row| !went.contains(&row.id));
     if fresh.is_empty() {
         beside.keep(&txn, user_id, audience).await?;
         commit(txn, moved_to).await?;

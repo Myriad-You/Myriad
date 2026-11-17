@@ -115,6 +115,11 @@ pub enum SaidNew {
 /// holding up ([`parse_chat_memory_updates`]).
 static CORRECTIONS_UNKEPT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// [`CORRECTIONS_UNKEPT`] so far, for her status.
+pub(crate) fn corrections_unkept() -> u64 {
+    CORRECTIONS_UNKEPT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[cfg(test)]
 impl ChatMemoryUpdates {
     /// Seen as one update, for checks written against one: its first new

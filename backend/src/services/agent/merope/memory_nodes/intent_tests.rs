@@ -518,3 +518,141 @@ async fn forgetting_their_words_takes_what_rested_on_them() {
     );
     schema.drop().await;
 }
+
+/// A memory taken back that only an inbox item or an intent names is found
+/// by the sweep before her nodes are read: the item goes, and so do the
+/// intents resting on it.
+#[tokio::test]
+async fn what_only_her_inbox_or_an_intent_names_goes_when_it_is_taken_back() {
+    use super::talk_tests::{memory_id, update};
+    use crate::services::agent::memory::unified::Audience;
+    use crate::services::agent::merope::store::{self, Keep};
+    let Some(schema) = schema("memory_nodes_intents_taken_back").await else {
+        return;
+    };
+    let db = &schema.db;
+    pen::reset_for_test();
+    let (message, _) = told(db, now()).await;
+    log();
+    for fact in ["fern sits by the window", "fern was a gift"] {
+        let transaction = db.begin().await.unwrap();
+        assert!(
+            store::apply_chat_memory_update_on(
+                &transaction,
+                OTHER,
+                now().fixed_offset(),
+                &update(fact, &[], None),
+                &Audience::private(OTHER),
+                Keep::Lasting,
+            )
+            .await
+            .unwrap()
+        );
+        transaction.commit().await.unwrap();
+    }
+    let window = memory_id(db, "fern sits by the window").await;
+    let gift = memory_id(db, "fern was a gift").await;
+    // Her intents rest on the gift, as the window rests in her inbox.
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_node_rows SET body = replace(body, $1, $2) WHERE kind = 'node.intent'",
+        [
+            format!("\"message:{message}\"").into(),
+            format!("\"memory:{gift}\"").into(),
+        ],
+    ))
+    .await
+    .unwrap();
+    let cited = format!("memory:{window}");
+    super::inbox::add(
+        db,
+        OTHER,
+        &talk(),
+        &[super::inbox::Item {
+            day: Some(now().date_naive()),
+            id: cited.clone(),
+            said_by: vec![myriad_nodes::SaidBy::Partner],
+            text: "the fern's spot".into(),
+            refs: vec![cited],
+            from: None,
+            to: None,
+        }],
+    )
+    .await
+    .unwrap();
+    assert_eq!(held(db).await.len(), 3);
+    db.execute_unprepared(
+        "UPDATE agent_memories SET invalid_at = NOW(), invalid_reason = 'superseded', \
+         superseded_by = NULL WHERE content LIKE 'fern %'",
+    )
+    .await
+    .unwrap();
+    forget::taken_back_here(db, OTHER, &talk()).await.unwrap();
+    assert!(held(db).await.is_empty(), "no intent rests on what went");
+    assert_eq!(
+        count(db, "SELECT COUNT(*) AS n FROM agent_node_inbox").await,
+        0,
+        "nor does an inbox item"
+    );
+    schema.drop().await;
+}
+
+/// Intents resting on a memory taken back on another end, never swept here:
+/// come due, none is acted on or said (the sweep runs first).
+#[tokio::test]
+async fn an_intent_on_a_memory_taken_back_elsewhere_is_not_acted_on() {
+    use super::talk_tests::{memory_id, update};
+    use crate::services::agent::memory::unified::Audience;
+    use crate::services::agent::merope::store::{self, Keep};
+    let Some(schema) = schema("memory_nodes_intents_due_taken_back").await else {
+        return;
+    };
+    let db = &schema.db;
+    pen::reset_for_test();
+    topic(db, "houseplants", &[("m0", "has a fern")]).await;
+    let at = now();
+    let (message, _) = told(db, at).await;
+    let transaction = db.begin().await.unwrap();
+    assert!(
+        store::apply_chat_memory_update_on(
+            &transaction,
+            OTHER,
+            at.fixed_offset(),
+            &update("the fern needs water", &[], None),
+            &Audience::private(OTHER),
+            Keep::Lasting,
+        )
+        .await
+        .unwrap()
+    );
+    transaction.commit().await.unwrap();
+    let water = memory_id(db, "the fern needs water").await;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_node_rows SET body = replace(body, $1, $2) WHERE kind = 'node.intent'",
+        [
+            format!("\"message:{message}\"").into(),
+            format!("\"memory:{water}\"").into(),
+        ],
+    ))
+    .await
+    .unwrap();
+    // Taken back on another end: no forgetting here.
+    db.execute_unprepared(
+        "UPDATE agent_memories SET invalid_at = NOW(), invalid_reason = 'superseded', \
+         superseded_by = NULL WHERE content LIKE 'the fern %'",
+    )
+    .await
+    .unwrap();
+    log();
+    world(&[], &["the fern!", "checking the weather now"]);
+    assert!(
+        intents_due::tick_at(db, at + Duration::hours(20))
+            .await
+            .is_empty()
+    );
+    let seen = log();
+    assert!(of(&seen, "say", None).is_empty(), "nothing said");
+    assert!(of(&seen, "intent_work", None).is_empty(), "nothing run");
+    schema.drop().await;
+}

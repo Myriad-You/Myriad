@@ -109,36 +109,60 @@ pub(crate) struct Named {
     /// The day she learned it, Unix microseconds ([`learned`]): held or
     /// not, that is when it was said.
     pub learned: i64,
+    /// Whether what it is, is known: the row is here, or it was forgotten
+    /// (the mark forgetting keeps, `memory::forgotten`). A row not here
+    /// with no such mark may only not have come from another end yet: it
+    /// counts as taken back, so nothing resting on it is shown, but nothing
+    /// is forgotten for it.
+    pub sure: bool,
 }
 
 /// How far a memory row is followed to what replaced it, and what replaced
-/// that, to find whether the last of them was taken back.
-const TAKEN_BACK_STEPS: i32 = 16;
+/// that, to find whether the last of them was taken back: well past how
+/// far forgetting follows a line (`memory::manage`'s 32), so a long line of
+/// corrections is not cut short into one only replaced.
+const TAKEN_BACK_STEPS: i32 = 64;
 
 /// The one place it is said which memory rows were taken back, as SQL: two
 /// common table expressions (`WITH RECURSIVE` first) ending in
-/// `taken_back(id)`, over the rows of `agent_memories` alias `s` that
+/// `taken_back(id, sure)`, over the rows of `agent_memories` alias `s` that
 /// `seeds` picks. A row is taken back when it was deleted, or put aside
 /// with nothing in its place, or replaced (or gone over into, `settled`)
-/// by one taken back, as far as the line goes: 「当我没说」 of 「改到周六」
-/// takes back 「周五」 too, not only the correction.
+/// by one taken back, as far as the line goes, among the same person's
+/// rows: 「当我没说」 of 「改到周六」 takes back 「周五」 too, not only the
+/// correction. A line whose next row is not here (forgotten on another
+/// end, or not come yet) is taken back too; `sure` only when forgetting
+/// kept that row's mark (`memory::forgotten`), as for a row not here
+/// ([`Named::sure`]).
 pub(crate) fn taken_back_sql(seeds: &str) -> String {
     format!(
-        "taken_back_line(start, id, superseded_by, reason, depth) AS ( \
-           SELECT s.id, s.id, s.superseded_by, s.invalid_reason, 0 \
+        "taken_back_line(start, id, user_id, superseded_by, reason, depth) AS ( \
+           SELECT s.id, s.id, s.user_id, s.superseded_by, s.invalid_reason, 0 \
            FROM agent_memories s WHERE {seeds} \
            UNION ALL \
-           SELECT l.start, n.id, n.superseded_by, n.invalid_reason, l.depth + 1 \
+           SELECT l.start, n.id, n.user_id, n.superseded_by, n.invalid_reason, l.depth + 1 \
            FROM taken_back_line l JOIN agent_memories n ON n.id = l.superseded_by \
+             AND n.user_id IS NOT DISTINCT FROM l.user_id \
            WHERE l.depth < {TAKEN_BACK_STEPS}), \
-         taken_back(id) AS ( \
-           SELECT DISTINCT start FROM taken_back_line \
-           WHERE reason = 'deleted' OR (reason = 'superseded' AND superseded_by IS NULL))"
+         taken_back(id, sure) AS ( \
+           SELECT start, bool_or(sure) FROM ( \
+             SELECT start, true AS sure FROM taken_back_line \
+             WHERE reason = 'deleted' OR (reason = 'superseded' AND superseded_by IS NULL) \
+             UNION ALL \
+             SELECT l.start, EXISTS (SELECT 1 FROM agent_forgotten f \
+                                     WHERE f.what = 'memory' AND f.mark = l.superseded_by) \
+             FROM taken_back_line l \
+             WHERE l.superseded_by IS NOT NULL AND NOT EXISTS ( \
+               SELECT 1 FROM agent_memories n WHERE n.id = l.superseded_by \
+                 AND n.user_id IS NOT DISTINCT FROM l.user_id)) gone \
+           GROUP BY start)"
     )
 }
 
 /// Each of the memory rows `ids` as it is now, in one read: whether it is
-/// held, whether it was taken back, and the day she learned it.
+/// held, whether it was taken back, and the day she learned it. One not
+/// here is not held and is taken back: forgotten, if forgetting kept its
+/// mark ([`Named::sure`]), or not come yet.
 pub(crate) async fn named<C: ConnectionTrait>(
     db: &C,
     ids: Vec<String>,
@@ -153,6 +177,7 @@ pub(crate) async fn named<C: ConnectionTrait>(
                 "WITH RECURSIVE {} \
                  SELECT h.id, (h.invalid_at IS NULL AND h.superseded_by IS NULL) AS held, \
                    h.id IN (SELECT id FROM taken_back) AS taken_back, \
+                   COALESCE((SELECT sure FROM taken_back t WHERE t.id = h.id), true) AS sure, \
                    LEAST(h.created_at, min(n.created_at)) AS at \
                  FROM agent_memories h \
                  LEFT JOIN agent_memories n \
@@ -161,10 +186,11 @@ pub(crate) async fn named<C: ConnectionTrait>(
                  GROUP BY h.id, h.created_at, h.invalid_at, h.superseded_by",
                 taken_back_sql("s.id = ANY($1)")
             ),
-            [ids.into()],
+            [ids.clone().into()],
         ))
         .await?;
-    rows.iter()
+    let mut named: HashMap<String, Named> = rows
+        .iter()
         .map(|row| {
             let at: chrono::DateTime<chrono::FixedOffset> = row.try_get("", "at")?;
             Ok((
@@ -173,10 +199,44 @@ pub(crate) async fn named<C: ConnectionTrait>(
                     held: row.try_get("", "held")?,
                     taken_back: row.try_get("", "taken_back")?,
                     learned: at.timestamp_micros(),
+                    sure: row.try_get("", "sure")?,
                 },
             ))
         })
-        .collect()
+        .collect::<Result<_, Error>>()?;
+    let missing: Vec<String> = ids
+        .iter()
+        .filter(|id| !named.contains_key(*id))
+        .cloned()
+        .collect();
+    if !missing.is_empty() {
+        let forgotten: HashSet<String> = db
+            .query_all_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT DISTINCT mark FROM agent_forgotten WHERE what = $1 AND mark = ANY($2)",
+                [
+                    crate::services::agent::memory::forgotten::MEMORY.into(),
+                    missing.clone().into(),
+                ],
+            ))
+            .await?
+            .iter()
+            .map(|row| row.try_get::<String>("", "mark"))
+            .collect::<Result<_, _>>()?;
+        for id in missing {
+            let sure = forgotten.contains(&id);
+            named.insert(
+                id,
+                Named {
+                    held: false,
+                    taken_back: true,
+                    learned: 0,
+                    sure,
+                },
+            );
+        }
+    }
+    Ok(named)
 }
 
 /// The day she learned each of the memory rows `ids`, Unix microseconds:

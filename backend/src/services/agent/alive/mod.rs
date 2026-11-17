@@ -626,6 +626,16 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
                         "lastAt": passed.last_at.map(|at| at.to_rfc3339()),
                     }))
                     .collect::<Vec<_>>(),
+                // Its links closed for a page of its that could not be
+                // settled (the database failing on it): in a row since one
+                // was named back, and in all. Many in a row is a device
+                // reconnecting and sending the page again into a fault.
+                "logPagesUnsettled": crate::services::agent::link::counts::pages_unsettled_by(&device.id)
+                    .map(|unsettled| json!({
+                        "inARow": unsettled.in_a_row,
+                        "closes": unsettled.closes.count,
+                        "lastAt": unsettled.closes.last_at.map(|at| at.to_rfc3339()),
+                    })),
             })
         })
         .collect();
@@ -685,6 +695,15 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
             // kept to place later, batches placed later, lines let go after
             // a week (`placing::backlog::failures`).
             "unplaced": crate::services::agent::merope::memory_nodes::placing::backlog::failures(),
+            // What rests on memories taken back or forgotten, cleared from her
+            // nodes since the site started: memories still waiting for the
+            // sweep, sweeps that cleared something, sweeps stopped on an
+            // error, versions left out as they were written for resting on
+            // what went (`memory_nodes::forget::failures`). Counts only.
+            "forgetting": crate::services::agent::merope::memory_nodes::forget::failures(),
+            // Lines whose corrections were left undone since the site started, their
+            // new fact not holding up (`chat_remember::corrections_unkept`).
+            "correctionsUnkept": crate::services::agent::merope::chat_remember::corrections_unkept(),
         },
         "ends": ends,
         // Keys of a look at the screen the site deleted before reading it

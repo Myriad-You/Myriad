@@ -1,7 +1,9 @@
 //! Her intents come due (decision D5, N3): every half minute, while she
 //! lives on the site, the waiting intents of each private
 //! audience are put to the core (`myriad_nodes::intents::due`): a time come,
-//! or the node one waits on changed or done.
+//! or the node one waits on changed or done. Before they are read, what
+//! rests on what they took back goes (`forget::before_reading`); when it
+//! cannot, none of that audience's is acted on this time.
 //!
 //! Each one due is settled first (`said`), so it is acted on once whatever
 //! happens next: a row already there is someone else's acting on it. Then:
@@ -72,7 +74,10 @@ pub(crate) async fn tick_at(db: &DatabaseConnection, now: DateTime<Utc>) -> Vec<
     for (user_id, audience) in audiences {
         match due_in(db, user_id, &audience, now).await {
             Ok(mut more) => runs.append(&mut more),
-            Err(error) => tracing::warn!(%error, "[memory-nodes] intents not acted on"),
+            Err(error) => tracing::warn!(
+                kind = super::forget::error_kind(&error),
+                "[memory-nodes] intents not acted on"
+            ),
         }
     }
     runs
@@ -84,6 +89,9 @@ async fn due_in(
     audience: &str,
     now: DateTime<Utc>,
 ) -> Result<Vec<ToRun>, Error> {
+    // What rests on what they took back goes before an intent is acted on
+    // or said ([`super::forget::before_reading`]); if it cannot, none is.
+    super::forget::before_reading(db, user_id, audience).await?;
     let rows = heads::rows_of(db, user_id, audience).await?;
     let due = intents::due(DueInput {
         bodies: heads::bodies(&rows)?,

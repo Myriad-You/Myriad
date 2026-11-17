@@ -231,7 +231,10 @@ pub(crate) async fn in_step(db: &DatabaseConnection, user_id: i32) {
     }
     let site_owner = hanging::site_owner(db).await;
     if let Err(error) = threads_in_step(db, user_id, site_owner, crate::clock::now()).await {
-        tracing::warn!(%error, "[memory-nodes] threads and her intents not kept in step");
+        tracing::warn!(
+            kind = super::forget::error_kind(&error),
+            "[memory-nodes] threads and her intents not kept in step"
+        );
     }
 }
 
@@ -240,7 +243,10 @@ pub(crate) async fn in_step(db: &DatabaseConnection, user_id: i32) {
 pub(crate) async fn in_step_own(db: &DatabaseConnection) {
     let site_owner = hanging::site_owner(db).await;
     if let Err(error) = wants_in_step(db, site_owner).await {
-        tracing::warn!(%error, "[memory-nodes] wants and her intents not kept in step");
+        tracing::warn!(
+            kind = super::forget::error_kind(&error),
+            "[memory-nodes] wants and her intents not kept in step"
+        );
     }
 }
 
@@ -418,6 +424,9 @@ async fn step(db: &DatabaseConnection, side: &Side, now: DateTime<Utc>) -> Resul
     let Some(pen) = crate::services::her_log::pen::think() else {
         return Ok(Stepped::default());
     };
+    // Her intents are read here: what rests on what they took back goes
+    // first ([`super::forget::before_reading`]).
+    super::forget::before_reading(db, side.user_id, &side.audience).await?;
     let mut stepped = Stepped::default();
     let mut live = side.live(db).await?;
     // Oldest first: her intents are as old as their rows, for the bound.

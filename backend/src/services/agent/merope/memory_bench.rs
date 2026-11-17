@@ -47,6 +47,7 @@ mod memes;
 mod note_trail;
 mod probes;
 mod raw_back;
+mod regrade;
 mod scored;
 mod settle;
 mod since_up;

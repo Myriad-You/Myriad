@@ -97,7 +97,11 @@ pub(crate) async fn for_turn(
     match read {
         Ok(turn) => turn,
         Err(error) => {
-            tracing::warn!(%error, "[memory-nodes] her nodes could not be read for a turn");
+            // Which error only: one refusing a row may name what is in it.
+            tracing::warn!(
+                kind = super::forget::error_kind(&error),
+                "[memory-nodes] her nodes could not be read for a turn"
+            );
             None
         }
     }
@@ -113,6 +117,10 @@ pub(crate) async fn load(
     let talk = audience::private_talk(user_id, site_owner);
     let about = myriad_nodes::node_id(&talk, &audience::person_key(&talk, user_id))?;
     let her = myriad_nodes::node_id(&talk, "her")?;
+    // What rests on what they took back on another end, or where forgetting
+    // failed here, goes before anything is shown; if that cannot be done,
+    // her nodes are not read for this turn.
+    super::forget::before_reading(db, user_id, &talk).await?;
     let shown = shown::shown(db, user_id, &talk, Some(&about)).await?;
     let mut sores: Vec<sore::Sore> = shown
         .node(&about)

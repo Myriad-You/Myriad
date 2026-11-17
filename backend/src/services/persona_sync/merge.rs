@@ -368,6 +368,9 @@ async fn merge_in(
     ))
     .await?;
     txn.commit().await?;
+    // Memories taken back on the other side came with its times: her nodes
+    // are swept again before they are next read.
+    crate::services::agent::merope::memory_nodes::forget::sweep_again(owner);
     if let Some(Some(rig)) = rig {
         crate::services::merope_rig::mirror_active_asset(Some(rig)).await;
     }

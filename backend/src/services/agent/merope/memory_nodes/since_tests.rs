@@ -321,8 +321,10 @@ async fn an_earlier_versions_memory_taken_back_takes_the_item() {
     let now = |resident: Vec<String>| saying(&resident, "每周五晚上夜跑").len();
     assert_eq!(now(recollect(db, &[]).await.resident), 1);
     // The first version's memory let go: the second, written over it, is
-    // not said either.
-    let let_go = "invalid_reason = 'superseded', invalid_at = now(), superseded_by = NULL";
+    // not said either. Let go on another end, as of long ago: not swept
+    // here (`forget::before_reading`), only not said, so it can come back.
+    let let_go = "invalid_reason = 'superseded', invalid_at = now(), superseded_by = NULL, \
+                  updated_at = '2000-01-01'";
     let held = "invalid_reason = NULL, invalid_at = NULL, superseded_by = NULL";
     memory(db, &first, let_go).await;
     assert_eq!(now(recollect(db, &[]).await.resident), 0);
@@ -368,7 +370,7 @@ async fn an_earlier_versions_memory_taken_back_takes_the_item() {
     memory(
         db,
         "mem_replacer",
-        "invalid_reason = 'deleted', invalid_at = now()",
+        "invalid_reason = 'deleted', invalid_at = now(), updated_at = '2000-01-01'",
     )
     .await;
     assert!(ended(recollect(db, &[&ending]).await.named).is_empty());
@@ -392,4 +394,91 @@ async fn an_earlier_versions_memory_taken_back_takes_the_item() {
         "{lines:?}"
     );
     schema.drop().await;
+}
+
+/// In a group the same rules hold. Nothing writes how a life stands into a
+/// group's audience today (`facts::settled` does so in a private talk
+/// only), so what stands there is put in by hand, as another end might
+/// send it: it is read there as in private, with since when; it is not
+/// read in their private talk; and it goes with the memory it rests on.
+#[tokio::test]
+async fn in_a_group_what_stands_is_read_and_unsaid_the_same() {
+    use super::group_read_tests::seed_group;
+    use super::read_tests::{GROUP, SEVEN, owned};
+    let Some(schema) = owned("memory_nodes_since_group").await else {
+        return;
+    };
+    let db = &schema.db;
+    let (theirs, _) = seed_group(db).await;
+    let because = format!(r#"["memory:{theirs}"]"#);
+    let changed = db
+        .execute_unprepared(&format!(
+            "UPDATE agent_node_heads SET node = node || jsonb_build_object('standing', \
+               jsonb_build_object( \
+                 'them-aaaaaaaaaa', jsonb_build_object('at', 1794000000000000, 'author', 'her', \
+                   'value', jsonb_build_object('text', 'GROUP-NOW 每周六开黑', \
+                     'because', '{because}'::jsonb)), \
+                 'them-bbbbbbbbbb', jsonb_build_object('at', 1794000000000001, 'author', 'her', \
+                   'value', jsonb_build_object('text', 'GROUP-END 公会解散了', 'ended', true, \
+                     'because', '{because}'::jsonb)))) \
+             WHERE audience = 'group:qq:5' AND node::text LIKE '%{theirs}%'"
+        ))
+        .await
+        .unwrap();
+    assert_eq!(changed.rows_affected(), 1);
+    let in_group = || async {
+        let turn = super::group_context::load(db, SEVEN, GROUP)
+            .await
+            .unwrap()
+            .expect("a site owner keeps it");
+        let recalled = ranked(db, &[&theirs]).await;
+        let here = turn.group.as_ref().map(|group| &group.here);
+        let now = crate::clock::now();
+        recall::recollect_here(&turn.shown, &turn.own, here, &recalled, None, now)
+    };
+    let found = in_group().await;
+    let now = saying(&found.named, "GROUP-NOW");
+    assert_eq!(now.len(), 1, "{:?}", found.named);
+    assert!(now[0].contains("now, since "), "{now:?}");
+    let ended = saying(&found.named, "GROUP-END");
+    assert_eq!(ended.len(), 1, "{:?}", found.named);
+    assert!(
+        ended[0].contains("no longer as it stood here, since "),
+        "{ended:?}"
+    );
+    // A group has no list of how their life stands.
+    assert!(found.resident.is_empty(), "{:?}", found.resident);
+    // Not in their private talk: another audience.
+    let private = recollect_as(db, SEVEN, &[]).await;
+    let all = [private.named, private.resident].concat();
+    assert!(saying(&all, "GROUP-").is_empty(), "{all:?}");
+    // The memory it rests on let go: neither is said in the group.
+    memory(
+        db,
+        &theirs,
+        "invalid_reason = 'superseded', invalid_at = now(), superseded_by = NULL",
+    )
+    .await;
+    let found = in_group().await;
+    for gone in ["GROUP-NOW", "GROUP-END"] {
+        assert!(saying(&found.named, gone).is_empty(), "{:?}", found.named);
+    }
+    // What the group knows of them otherwise is still read.
+    assert!(
+        !saying(&found.named, "GROUP-FACT").is_empty(),
+        "{:?}",
+        found.named
+    );
+    schema.drop().await;
+}
+
+async fn recollect_as(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    found: &[&str],
+) -> recall::Recollection {
+    let now = crate::clock::now();
+    let turn = context::load(db, user_id, now).await.unwrap();
+    let recalled = ranked(db, found).await;
+    recall::recollect(&turn.shown, &turn.own, &recalled, None, now)
 }
