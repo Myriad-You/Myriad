@@ -1431,13 +1431,15 @@ async fn a_memory_taken_back_is_let_go_when_her_nodes_fail() {
     )
     .await;
     assert_eq!(let_go, 1, "let go whatever her nodes did");
-    assert!(forget::failures().left_to_sweep > before.left_to_sweep);
+    let wooed = memory_id(db, "同事小王在追她").await;
+    assert!(forget::left_to_sweep_holds(&wooed), "left to the sweep");
     assert_eq!(standing_stubs(db).await, 0, "her nodes as they were");
     assert!(forget::taken_back_here(db, OTHER, &talk()).await.is_err());
     assert!(forget::failures().sweep_errors > before.sweep_errors);
     refuse_node_rows(db, false).await;
     forget::taken_back_here(db, OTHER, &talk()).await.unwrap();
     assert!(forget::failures().swept > before.swept);
+    assert!(!forget::left_to_sweep_holds(&wooed), "swept");
     assert_eq!(standing_stubs(db).await, 1, "v2");
     assert_eq!(work_now(db).await, vec!["在趣养做运营"]);
     schema.drop().await;
@@ -1482,6 +1484,114 @@ async fn a_correction_taken_back_elsewhere_takes_back_what_it_corrected() {
     schema.drop().await;
 }
 
+/// A memory forgotten here before forgetting reached her nodes (its row
+/// deleted, its mark kept) leaves what rests on it to the next stretch,
+/// which forgets it; one only not here, with no mark, may not have come
+/// from another end yet: it is hidden where she reads, and nothing is
+/// forgotten for it.
+#[tokio::test]
+async fn a_memory_deleted_before_goes_from_her_nodes_and_one_not_here_yet_stays() {
+    let Some(schema) = schema("memory_nodes_deleted_before").await else {
+        return;
+    };
+    let db = &schema.db;
+    work_stands(db, "同事小王在追她", "在趣养做运营，同事小王在追她").await;
+    let wooed = memory_id(db, "同事小王在追她").await;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "DELETE FROM agent_memories WHERE id = $1",
+        [wooed.clone().into()],
+    ))
+    .await
+    .unwrap();
+    // Not here, no mark: hidden, not forgotten.
+    let named = super::known::named(db, vec![wooed.clone()]).await.unwrap();
+    assert!(named[&wooed].taken_back && !named[&wooed].sure);
+    forget::taken_back_here(db, OTHER, &talk()).await.unwrap();
+    assert_eq!(standing_stubs(db).await, 0, "nothing forgotten for it");
+    // Its mark kept, as forgetting does: forgotten at the next stretch.
+    crate::services::agent::memory::forgotten::keep(
+        db,
+        OTHER,
+        crate::services::agent::memory::forgotten::MEMORY,
+        std::slice::from_ref(&wooed),
+    )
+    .await
+    .unwrap();
+    let shown = shown_next(db, "趣养搬了新办公室").await;
+    assert!(
+        shown.contains("在趣养做运营") && !shown.contains("小王"),
+        "{shown}"
+    );
+    assert_eq!(standing_stubs(db).await, 1, "v2");
+    assert_eq!(work_now(db).await, vec!["在趣养做运营"]);
+    schema.drop().await;
+}
+
+/// A version written from what was read before a memory went (the model's
+/// answer in flight as m2 was forgotten): v3 on v2, written after v2 is a
+/// stub, is left out alone and counted; how things stand is v1.
+#[tokio::test]
+async fn a_version_written_on_one_that_went_is_left_out() {
+    let Some(schema) = schema("memory_nodes_written_on_what_went").await else {
+        return;
+    };
+    let db = &schema.db;
+    work_stands(db, "同事小王在追她", "在趣养做运营，同事小王在追她").await;
+    let v2 = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT row_id, node_id, body FROM agent_node_rows \
+             WHERE kind = 'node.standing' AND body LIKE '%小王%'",
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    let (v2_id, node, body): (String, String, String) = (
+        v2.try_get("", "row_id").unwrap(),
+        v2.try_get("", "node_id").unwrap(),
+        v2.try_get("", "body").unwrap(),
+    );
+    let held = memory_id(db, "在趣养做运营").await;
+    let wooed = memory_id(db, "同事小王在追她").await;
+    forget::forget(db, &[wooed.clone()], &[]).await.unwrap();
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_memories SET invalid_at = NOW(), invalid_reason = 'deleted' WHERE id = $1",
+        [wooed.into()],
+    ))
+    .await
+    .unwrap();
+    let mut v3: Value = serde_json::from_str(&body).unwrap();
+    v3["text"] = json!("在趣养做主管，同事小王在追她");
+    v3["base"] = json!([v2_id]);
+    v3["because"] = json!([format!("memory:{held}")]);
+    let row = RowIn {
+        id: myriad_nodes::entries::row_id_from("node.standing", &node, "in-flight", ""),
+        node,
+        kind: "node.standing".into(),
+        body: v3,
+        author: Author::Her,
+    };
+    let before = forget::failures().left_out;
+    let pen = pen::think().expect("her mind is here in tests");
+    write::write(db, OTHER, &talk(), &[row], Some(&pen))
+        .await
+        .unwrap();
+    assert!(forget::failures().left_out > before, "counted");
+    assert_eq!(
+        count(
+            db,
+            "SELECT count(*) AS n FROM agent_node_rows WHERE body LIKE '%主管%'"
+        )
+        .await,
+        0,
+        "left out"
+    );
+    assert_eq!(work_now(db).await, vec!["在趣养做运营"]);
+    schema.drop().await;
+}
+
 /// `update` kept as `keep` says, in a transaction of its own: whether it
 /// was.
 async fn kept(db: &DatabaseConnection, update: &ChatMemoryUpdate, keep: Keep) -> bool {
@@ -1498,6 +1608,151 @@ async fn kept(db: &DatabaseConnection, update: &ChatMemoryUpdate, keep: Keep) ->
     .unwrap();
     transaction.commit().await.unwrap();
     applied
+}
+
+/// A long line of corrections whose last word is taken back is taken back
+/// to its start (seventeen steps, past where it used to be cut short).
+#[tokio::test]
+async fn a_long_line_of_corrections_taken_back_is_taken_back_to_its_start() {
+    let Some(schema) = schema("memory_nodes_taken_back_long_line").await else {
+        return;
+    };
+    let db = &schema.db;
+    let said = |day: usize| format!("看牙改到第{day}天");
+    assert!(kept(db, &update(&said(0), &[], None), Keep::Lasting).await);
+    for day in 1..=17 {
+        let before = said(day - 1);
+        assert!(
+            kept(
+                db,
+                &update(&said(day), &[before.as_str()], None),
+                Keep::Lasting
+            )
+            .await
+        );
+    }
+    let first = memory_id(db, &said(0)).await;
+    let named = super::known::named(db, vec![first.clone()]).await.unwrap();
+    assert!(
+        !named[&first].held && !named[&first].taken_back,
+        "only replaced"
+    );
+    assert!(take_back(db, &said(17)).await, "taken back");
+    let named = super::known::named(db, vec![first.clone()]).await.unwrap();
+    assert!(
+        named[&first].taken_back && named[&first].sure,
+        "{:?}",
+        named[&first]
+    );
+    schema.drop().await;
+}
+
+/// A line whose next row is not here counts as taken back: known to be,
+/// when forgetting kept that row's mark; hidden only, when it may not have
+/// come yet. A line is followed only among one person's rows.
+#[tokio::test]
+async fn a_line_whose_next_is_not_here_counts_as_taken_back() {
+    let Some(schema) = schema("memory_nodes_taken_back_dangling").await else {
+        return;
+    };
+    let db = &schema.db;
+    assert!(kept(db, &update("周五去看牙", &[], None), Keep::Lasting).await);
+    assert!(
+        kept(
+            db,
+            &update("改到周六看牙", &["周五去看牙"], None),
+            Keep::Lasting
+        )
+        .await
+    );
+    let friday = memory_id(db, "周五去看牙").await;
+    let saturday = memory_id(db, "改到周六看牙").await;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "DELETE FROM agent_memories WHERE id = $1",
+        [saturday.clone().into()],
+    ))
+    .await
+    .unwrap();
+    let named = super::known::named(db, vec![friday.clone()]).await.unwrap();
+    assert!(
+        !named[&friday].held && named[&friday].taken_back && !named[&friday].sure,
+        "not come yet: hidden, {:?}",
+        named[&friday]
+    );
+    crate::services::agent::memory::forgotten::keep(
+        db,
+        OTHER,
+        crate::services::agent::memory::forgotten::MEMORY,
+        std::slice::from_ref(&saturday),
+    )
+    .await
+    .unwrap();
+    let named = super::known::named(db, vec![friday.clone()]).await.unwrap();
+    assert!(
+        named[&friday].taken_back && named[&friday].sure,
+        "forgotten"
+    );
+
+    // What replaced it is another person's row, deleted: not followed.
+    assert!(kept(db, &update("周日去爬山", &[], None), Keep::Lasting).await);
+    assert!(
+        kept(
+            db,
+            &update("改到下周爬山", &["周日去爬山"], None),
+            Keep::Lasting
+        )
+        .await
+    );
+    let sunday = memory_id(db, "周日去爬山").await;
+    db.execute_unprepared(
+        "UPDATE agent_memories SET user_id = 1, invalid_at = NOW(), invalid_reason = 'deleted' \
+         WHERE content = '改到下周爬山'",
+    )
+    .await
+    .unwrap();
+    let named = super::known::named(db, vec![sunday.clone()]).await.unwrap();
+    assert!(
+        named[&sunday].taken_back && !named[&sunday].sure,
+        "{:?}",
+        named[&sunday]
+    );
+    schema.drop().await;
+}
+
+/// What rests on a memory taken back where forgetting did not reach her
+/// nodes (on another end, or as it failed here) is forgotten before her
+/// nodes are read for her turn, not only at the next stretch: a summary
+/// sentence resting on its entry is in no head she is shown.
+#[tokio::test]
+async fn what_rests_on_a_memory_taken_back_goes_before_she_reads() {
+    let Some(schema) = schema("memory_nodes_taken_back_before_reading").await else {
+        return;
+    };
+    let db = &schema.db;
+    let (_, node, _) = summed_up(db).await;
+    // Later than any sweep another test here ran for the same account and
+    // audience (when each was last swept is kept for the site, not by
+    // schema).
+    db.execute_unprepared(
+        "UPDATE agent_memories SET invalid_at = NOW(), invalid_reason = 'superseded', \
+         superseded_by = NULL, updated_at = NOW() + INTERVAL '1 hour' \
+         WHERE content = '同事小王在追她'",
+    )
+    .await
+    .unwrap();
+    let left = read::node(db, OTHER, &talk(), &node)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(left["summary"]["value"].to_string().contains("小王"));
+    forget::before_reading(db, OTHER, &talk()).await.unwrap();
+    let after = read::node(db, OTHER, &talk(), &node)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!after.to_string().contains("小王"), "{after}");
+    schema.drop().await;
 }
 
 /// A line that corrects a short note with a new fact beside it
