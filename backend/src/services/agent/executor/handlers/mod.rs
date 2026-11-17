@@ -32,6 +32,9 @@ pub struct HandlerContext<'a> {
     /// 执行上下文快照（包含对话历史、角色身份等）
     pub execution_context: Option<ExecutionContext>,
     pub autonomy_permission_cap: Option<Vec<String>>,
+    /// The group chat the run happens in (`RequestContext::venue`): a call
+    /// to a device made there is for that group. Server-set only.
+    pub venue: Option<String>,
 }
 
 /// What a confirmation card shows: the capability, for a name in the reader's language, and
@@ -76,6 +79,16 @@ pub(crate) async fn execute_local_capability(
     ctx: &HandlerContext<'_>,
 ) -> Result<Value, String> {
     match category {
+        // What she asks of the owner's device goes over her link.
+        CapabilityCategory::DataRead if capability_id.starts_with("device.") => {
+            crate::services::agent::link::calls::work(
+                ctx.db,
+                capability_id,
+                ctx.user_id,
+                ctx.venue.as_deref(),
+            )
+            .await
+        }
         CapabilityCategory::DataRead => data_read::execute(capability_id, params, ctx).await,
         CapabilityCategory::DataWrite => data_write::execute(capability_id, params, ctx).await,
         CapabilityCategory::AiProcess => {
@@ -109,6 +122,7 @@ mod coverage {
         map.insert(
             CapabilityCategory::DataRead,
             HashSet::from([
+                "device.screen.look",
                 "platform.read",
                 "platform.stats",
                 "phantasi.read",
@@ -305,7 +319,7 @@ mod coverage {
         );
         assert_eq!(
             registry.get_all().len(),
-            123,
+            124,
             "update handler_ids_by_category when adding a capability"
         );
     }

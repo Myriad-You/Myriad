@@ -134,12 +134,55 @@ pub(crate) async fn grants_changed(db: &DatabaseConnection, owner: i32, device_i
     super::grant_calls(device_id, id, turn, granted);
 }
 
-// Work asks through these next.
-#[cfg_attr(not(test), allow(unused_imports))]
-pub(crate) use super::calls_pending::{Answer, ask, sweep};
+pub(crate) use super::calls_pending::{ask, sweep};
+
+/// A Work capability of a device (`device.<action>`) the person `user_id`
+/// can use now: a device of theirs is linked and was told it is granted
+/// the action. Apart from the site's own grants, which do not know devices.
+pub(crate) fn usable(user_id: i32, capability_id: &str) -> bool {
+    capability_id.strip_prefix("device.").is_some_and(|action| {
+        enabled(action) && !super::granted_devices(user_id, action).is_empty()
+    })
+}
+
+/// Work asked a device's capability: she asks it of the device of
+/// `user_id`'s they are at, for them, or for the group the run is in
+/// (`venue`). Work is told the result of one done; otherwise a code and
+/// what it means, never the device's words.
+pub(crate) async fn work(
+    db: &DatabaseConnection,
+    capability_id: &str,
+    user_id: i32,
+    venue: Option<&str>,
+) -> Result<Value, String> {
+    let Some(action) = capability_id
+        .strip_prefix("device.")
+        .filter(|action| enabled(action))
+    else {
+        return Err("call_unknown: this is not something she asks a device".into());
+    };
+    let devices = super::granted_devices(user_id, action);
+    let Some(device_id) = super::pick::device(user_id, &devices).cloned() else {
+        return Err(
+            "call_unavailable: no device of theirs is linked and lets her do this now".into(),
+        );
+    };
+    let of = match venue {
+        Some(group) => json!({ "kind": "group", "groupId": group }),
+        None => json!({ "kind": "owner" }),
+    };
+    let answer = ask(db, user_id, &device_id, action, &of, json!({})).await;
+    match answer.outcome {
+        calls_store::Outcome::Done => Ok(answer.result.unwrap_or_else(|| json!({}))),
+        calls_store::Outcome::Failed(code) => Err(format!("{code}: the device did not do it")),
+        calls_store::Outcome::Unknown => Err(
+            "unknown: the device lost track midway, so it may have happened; do not ask it again"
+                .into(),
+        ),
+    }
+}
 
 /// What her calls of `action` are counted as on her status page.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn kind(action: &str) -> &'static str {
     ENABLED
         .iter()

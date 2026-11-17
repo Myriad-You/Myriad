@@ -52,8 +52,6 @@
 mod act;
 mod body;
 pub(crate) mod calls;
-// Work asks through it next.
-#[cfg_attr(not(test), allow(dead_code))]
 mod calls_pending;
 mod calls_store;
 mod connection;
@@ -296,7 +294,6 @@ fn grant_calls(device_id: &str, id: u64, turn: u64, granted: Vec<calls::Action>)
 /// it was told it is granted the action; marked sent on that link under the
 /// same lock. The code it fails with otherwise: `call_unavailable` (not
 /// linked, or not told yet), `call_not_granted`.
-#[cfg_attr(not(test), allow(dead_code))]
 fn send_call(
     owner: i32,
     device_id: &str,
@@ -320,13 +317,30 @@ fn send_call(
 }
 
 /// A frame of her calls to the device's link, if it takes them.
-#[cfg_attr(not(test), allow(dead_code))]
 fn send_calls_frame(device_id: &str, outgoing: connection::Outgoing) {
     if let Ok(open) = OPEN.lock()
         && let Some(calls) = open.get(device_id).and_then(|link| link.calls.as_ref())
     {
         let _ = calls.sender.try_send(outgoing);
     }
+}
+
+/// The owner's devices whose link was told it is granted `action` now.
+pub(crate) fn granted_devices(owner: i32, action: &str) -> Vec<String> {
+    OPEN.lock()
+        .map(|open| {
+            open.iter()
+                .filter(|(_, link)| link.owner == owner)
+                .filter(|(_, link)| {
+                    link.calls
+                        .as_ref()
+                        .and_then(|calls| calls.granted.as_ref())
+                        .is_some_and(|granted| granted.iter().any(|one| one.name == action))
+                })
+                .map(|(device, _)| device.clone())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The link `id` syncs her log: what the relay sends this device goes

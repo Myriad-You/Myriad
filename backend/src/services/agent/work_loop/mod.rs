@@ -907,6 +907,11 @@ impl Agent {
             step_id: Some(call.id.clone()),
             execution_context: Some(context.clone()),
             autonomy_permission_cap: context.autonomy_permission_cap.clone(),
+            venue: state
+                .request
+                .context
+                .as_ref()
+                .and_then(|context| context.venue.clone()),
         };
         let timeout = super::executor_utils_pure::step_timeout_secs(
             step.timeout_ms,

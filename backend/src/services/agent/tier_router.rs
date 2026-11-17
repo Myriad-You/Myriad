@@ -86,6 +86,8 @@ impl TierRouter {
             id if id.starts_with("music.") => TaskComplexity::Simple,
             // 网易云音乐查询
             id if id.starts_with("netease.") => TaskComplexity::Simple,
+            // 问主人的设备（她的链接），不消耗 LLM
+            id if id.starts_with("device.") => TaskComplexity::Simple,
             // 路由和页面
             "router.navigate" | "router.state" => TaskComplexity::Simple,
             "page.content" => TaskComplexity::Simple,

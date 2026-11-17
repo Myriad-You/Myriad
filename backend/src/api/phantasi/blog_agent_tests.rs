@@ -24,6 +24,7 @@ async fn call(
         step_id: None,
         execution_context: None,
         autonomy_permission_cap: None,
+        venue: None,
     };
     let params: HashMap<String, Value> = serde_json::from_value(params).unwrap();
     execute_capability(id, "", &capability.category, &params, &context).await

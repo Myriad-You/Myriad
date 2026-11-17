@@ -36,6 +36,9 @@ struct Call {
     user_id: i32,
     autonomy_permission_cap: Option<Vec<String>>,
     params: HashMap<String, Value>,
+    /// The group chat the run happens in, for a call to a device.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    venue: Option<String>,
 }
 
 pub(crate) fn is_web_owned(capability: &str) -> bool {
@@ -51,6 +54,8 @@ pub(crate) fn is_web_owned(capability: &str) -> bool {
             | "task.submit"
             | "platform.refresh"
             | "system.metrics"
+            // Her link to the owner's devices lives in the web process.
+            | "device.screen.look"
     )
 }
 
@@ -203,6 +208,7 @@ async fn execute(db: &sea_orm::DatabaseConnection, call: Call) -> Result<Value, 
         step_id: None,
         execution_context: None,
         autonomy_permission_cap: call.autonomy_permission_cap,
+        venue: call.venue,
     };
     // Deliberately bypass the remote-dispatch wrapper: this is the state owner.
     agent::executor::handlers::execute_local_capability(
@@ -228,6 +234,7 @@ pub async fn call(
         user_id: context.user_id,
         autonomy_permission_cap: context.autonomy_permission_cap.clone(),
         params: params.clone(),
+        venue: context.venue.clone(),
     })
     .map_err(|_| "Could not encode web capability")?;
     if body.len() > MAX_REQUEST {

@@ -48,6 +48,32 @@ pub(super) async fn granted_for(
         .unwrap_or_default()
 }
 
+/// A capability of a device shows only while a device of the person this
+/// runs for is linked and granted it (`link::calls`): the site's grants do
+/// not know devices. Every other capability is up to those grants alone.
+fn device_usable(state: &Checkpoint, id: &str) -> bool {
+    !id.starts_with("device.") || crate::services::agent::link::calls::usable(state.user_id, id)
+}
+
+/// The capability index without the capabilities `usable` turns away.
+fn only_usable(mut index: Value, usable: impl Fn(&str) -> bool) -> Value {
+    let mut gone = 0;
+    if let Some(caps) = index["caps"].as_object_mut() {
+        for entries in caps.values_mut() {
+            if let Some(list) = entries.as_array_mut() {
+                let before = list.len();
+                list.retain(|entry| entry["id"].as_str().is_none_or(&usable));
+                gone += before - list.len();
+            }
+        }
+        caps.retain(|_, entries| entries.as_array().is_none_or(|list| !list.is_empty()));
+    }
+    if let Some(total) = index["total"].as_u64() {
+        index["total"] = json!(total.saturating_sub(gone as u64));
+    }
+    index
+}
+
 pub(super) async fn definitions(
     state: &Checkpoint,
     granted: &std::collections::HashSet<String>,
@@ -56,6 +82,7 @@ pub(super) async fn definitions(
     for id in &state.selected {
         if let Some(cap) = capability::get_capability_by_id(id).await {
             if capability::capability_covered_by_grants(&cap, Some(granted))
+                && device_usable(state, id)
                 && let Ok(schema) = tool_schema::prepare(&cap.input_schema)
             {
                 tools.push(ToolDefinition {
@@ -95,6 +122,9 @@ pub(super) async fn local_call(
                     .ok_or_else(|| format!("Unknown capability: {id}"))?;
                 if !capability::capability_covered_by_grants(&cap, Some(granted)) {
                     return Err("Capability is not currently granted".into());
+                }
+                if !device_usable(state, id) {
+                    return Err("No device of theirs lets her do this now".into());
                 }
                 let schema = tool_schema::prepare(&cap.input_schema)?;
                 selected.retain(|value| value != id);
@@ -208,7 +238,10 @@ pub(super) async fn system_prompt(
     let identity = super::super::identity::get_speaking_soul()
         .await
         .unwrap_or_else(|| "You are Agent, Myriad's site assistant.".into());
-    let index = capability::get_compact_index_for_grants(Some(granted)).await;
+    let index = only_usable(
+        capability::get_compact_index_for_grants(Some(granted)).await,
+        |id| device_usable(state, id),
+    );
     let persona = super::super::merope::speaking_prompt(state.user_id)
         .await
         .join("\n");
@@ -243,7 +276,13 @@ mod tests {
     #[tokio::test]
     async fn all_builtin_tools_can_be_discovered_with_bounded_schemas_and_current_grants() {
         let registry = capability::get_registry();
-        let capabilities: Vec<_> = registry.get_all().into_iter().cloned().collect();
+        // A device's capability shows only while a device lets her
+        // (`link::calls`, tested there); none is linked here.
+        let (devices, capabilities): (Vec<_>, Vec<_>) = registry
+            .get_all()
+            .into_iter()
+            .cloned()
+            .partition(|cap| cap.id.starts_with("device."));
         let granted = capabilities
             .iter()
             .flat_map(|cap| cap.required_permissions.clone())
@@ -270,6 +309,15 @@ mod tests {
                 assert_eq!(definition.parameters, loaded["input"]);
             }
         }
+        for device in &devices {
+            let refused =
+                local_call(&mut state, &call, &json!({"ids":[device.id]}), &granted).await;
+            assert_eq!(
+                refused.unwrap_err(),
+                "No device of theirs lets her do this now"
+            );
+        }
+        assert!(!devices.is_empty());
         let restricted = capabilities
             .iter()
             .find(|cap| !cap.required_permissions.is_empty())
@@ -305,5 +353,27 @@ mod tests {
         assert_eq!(a, tool_name("mcp.server.tool-name"));
         assert!(tool_name(&"名字".repeat(100)).len() <= 64);
         assert!(a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+    }
+}
+
+#[cfg(test)]
+mod device_tests {
+    use super::*;
+
+    #[test]
+    fn the_index_leaves_out_what_is_not_usable_and_counts_what_stays() {
+        let index = json!({
+            "total": 3,
+            "caps": {
+                "Data read": [{ "id": "device.screen.look", "h": "x" }, { "id": "platform.read", "h": "y" }],
+                "Devices only": [{ "id": "device.voice.speak", "h": "z" }],
+            }
+        });
+        let kept = only_usable(index.clone(), |id| !id.starts_with("device."));
+        assert_eq!(
+            kept,
+            json!({ "total": 1, "caps": { "Data read": [{ "id": "platform.read", "h": "y" }] } })
+        );
+        assert_eq!(only_usable(index.clone(), |_| true), index);
     }
 }

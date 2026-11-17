@@ -4148,7 +4148,7 @@ fn her_call(
     action: &'static str,
     of: Value,
     args: Value,
-) -> tokio::task::JoinHandle<super::calls::Answer> {
+) -> tokio::task::JoinHandle<super::calls_pending::Answer> {
     let db = site.db.clone();
     let device_id = device_id.to_string();
     tokio::spawn(async move { super::calls::ask(&db, OWNER, &device_id, action, &of, args).await })
@@ -4255,12 +4255,18 @@ async fn a_call_is_refused_at_once_when_the_device_is_away_or_it_is_not_for_the_
     let owner = json!({ "kind": "owner" });
     // Not linked: unavailable at once, and nothing waits for it.
     let away = super::calls::ask(&site.db, OWNER, &mac.id, "screen.look", &owner, json!({})).await;
-    assert_eq!(away, super::calls::Answer::failed("call_unavailable"));
+    assert_eq!(
+        away,
+        super::calls_pending::Answer::failed("call_unavailable")
+    );
     // Linked, but it has not said what it can do: not told anything yet.
     let mut child = Child::open(&site, &token).await;
     child.hello_with(&["calls"]).await;
     let early = super::calls::ask(&site.db, OWNER, &mac.id, "screen.look", &owner, json!({})).await;
-    assert_eq!(early, super::calls::Answer::failed("call_unavailable"));
+    assert_eq!(
+        early,
+        super::calls_pending::Answer::failed("call_unavailable")
+    );
     child
         .send(
             "call.offer",
@@ -4278,7 +4284,10 @@ async fn a_call_is_refused_at_once_when_the_device_is_away_or_it_is_not_for_the_
     ] {
         let refused =
             super::calls::ask(&site.db, OWNER, &mac.id, "screen.look", &of, json!({})).await;
-        assert_eq!(refused, super::calls::Answer::failed("wrong_audience"));
+        assert_eq!(
+            refused,
+            super::calls_pending::Answer::failed("wrong_audience")
+        );
     }
     // Not granted: the owner turned it off.
     super::calls::set_approved(&site.db, OWNER, &mac.id, "screen", false)
@@ -4286,7 +4295,10 @@ async fn a_call_is_refused_at_once_when_the_device_is_away_or_it_is_not_for_the_
         .unwrap();
     child.expect("call.granted").await;
     let off = super::calls::ask(&site.db, OWNER, &mac.id, "screen.look", &owner, json!({})).await;
-    assert_eq!(off, super::calls::Answer::failed("call_not_granted"));
+    assert_eq!(
+        off,
+        super::calls_pending::Answer::failed("call_not_granted")
+    );
     nothing_else(&mut child).await;
     let kept = super::calls_store::recent(&site.db, OWNER, 10)
         .await
@@ -4334,7 +4346,7 @@ async fn a_call_times_out_on_the_hosts_clock_and_what_comes_after_changes_its_ro
     let call_id = ask["body"]["callId"].as_str().unwrap().to_string();
     assert_eq!(
         call.await.unwrap(),
-        super::calls::Answer::failed("call_timeout")
+        super::calls_pending::Answer::failed("call_timeout")
     );
     // It came back after all: what happened, marked late.
     child
@@ -4419,7 +4431,10 @@ async fn an_unknown_outcome_is_not_asked_again_and_a_call_cut_off_goes_again_on_
                     "error": { "code": "not_now" } }),
         )
         .await;
-    assert_eq!(call.await.unwrap(), super::calls::Answer::failed("not_now"));
+    assert_eq!(
+        call.await.unwrap(),
+        super::calls_pending::Answer::failed("not_now")
+    );
     drop(child);
     site.close().await;
 }
@@ -4468,7 +4483,7 @@ async fn taking_an_action_back_cancels_a_long_call_after_telling_what_is_granted
         .await;
     assert_eq!(
         call.await.unwrap(),
-        super::calls::Answer::failed("call_cancelled")
+        super::calls_pending::Answer::failed("call_cancelled")
     );
 
     // A long call not taken in time is cancelled and timed out.
@@ -4486,8 +4501,55 @@ async fn taking_an_action_back_cancels_a_long_call_after_telling_what_is_granted
     );
     assert_eq!(
         call.await.unwrap(),
-        super::calls::Answer::failed("call_timeout")
+        super::calls_pending::Answer::failed("call_timeout")
     );
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_in_a_group() {
+    let Some(site) = site().await else {
+        return;
+    };
+    let look = "device.screen.look";
+    let (mac, token) = device(&site.db, "Mac").await;
+    assert!(!super::calls::usable(OWNER, look));
+    let away = super::calls::work(&site.db, look, OWNER, None).await;
+    assert!(away.unwrap_err().starts_with("call_unavailable"));
+    let (mut child, _) = offering(&site, &token, &["screen.look"]).await;
+    assert!(super::calls::usable(OWNER, look));
+    // Not someone else's device, nor an action not enabled.
+    assert!(!super::calls::usable(OWNER + 1, look));
+    assert!(!super::calls::usable(OWNER, "device.work.run"));
+    // In a group: refused before anything is asked.
+    let group = super::calls::work(&site.db, look, OWNER, Some("telegram:-100")).await;
+    assert!(group.unwrap_err().starts_with("wrong_audience"));
+    nothing_else(&mut child).await;
+    // For the owner: asked, and what it may say comes back.
+    let db = site.db.clone();
+    let asked = tokio::spawn(async move { super::calls::work(&db, look, OWNER, None).await });
+    let ask = child.expect("call.ask").await;
+    assert_eq!(ask["body"]["for"], json!({ "kind": "owner" }));
+    let call_id = ask["body"]["callId"].as_str().unwrap().to_string();
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "screen.look", "version": 1, "outcome": "done",
+                    "result": { "facts": { "app": "Safari", "window_title": "Myriad" } } }),
+        )
+        .await;
+    assert_eq!(
+        asked.await.unwrap().unwrap(),
+        json!({ "facts": { "app": "Safari", "window_title": "Myriad" } })
+    );
+    // The owner turns it off: Work no longer sees it.
+    super::calls::set_approved(&site.db, OWNER, &mac.id, "screen", false)
+        .await
+        .unwrap();
+    child.expect("call.granted").await;
+    assert!(!super::calls::usable(OWNER, look));
     drop(child);
     site.close().await;
 }

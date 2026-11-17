@@ -4,6 +4,7 @@
 
 mod ai;
 mod blog;
+mod device;
 mod external;
 mod model3d;
 mod phantasi;
@@ -29,4 +30,5 @@ pub fn register_all(registry: &mut CapabilityRegistry) {
     seo::register(registry);
     external::register(registry);
     ui::register(registry);
+    device::register(registry);
 }
