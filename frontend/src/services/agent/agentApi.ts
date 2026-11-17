@@ -287,6 +287,11 @@ export interface HerAlive {
       brought_along: number
       kept_unsettled: number
     }
+    /**
+     * Her answers cut off at their output limit since the site started, by
+     * the call they answered; absent from a site that does not count them.
+     */
+    cutOff?: Record<string, number>
   }
   ends: HerAliveEnd[]
   /**

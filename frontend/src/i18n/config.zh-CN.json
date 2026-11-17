@@ -979,6 +979,7 @@
   "agentAliveSettledFailed": "没成功",
   "agentAliveSettling": "聊完整理出的问题",
   "agentAliveSettlingFailures": "回答读不出 {unreadable} 次，重问 {again} 次；留着没整理 {left} 批，下次带上 {brought} 批；没整理成、原样留作长期的 {kept} 条（没经过归并去重）",
+  "agentAliveCutOff": "回答被输出上限截断",
   "agentAliveStanding": "上次写「他现在的生活」",
   "agentAliveStandingFailed": "这一步问模型失败",
   "agentAliveStandingFailedCount": "{n} 次，最近一次 {ago}",

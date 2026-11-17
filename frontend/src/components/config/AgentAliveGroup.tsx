@@ -414,6 +414,14 @@ export function AgentAliveGroup() {
                 })
               : c.agentAliveNone}
           </dd>
+          <dt>{c.agentAliveCutOff}</dt>
+          <dd>
+            {Object.keys(memory.cutOff ?? {}).length
+              ? Object.entries(memory.cutOff ?? {})
+                  .map(([operation, count]) => `${operation} ${count}`)
+                  .join(' · ')
+              : c.agentAliveNone}
+          </dd>
           <dt>{c.agentAliveStanding}</dt>
           <dd>{ago(memory.standingWrittenAt)}</dd>
           <dt>{c.agentAliveStandingFailed}</dt>

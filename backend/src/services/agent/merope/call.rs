@@ -39,6 +39,20 @@ pub(super) enum Voice {
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(45);
 
+/// Answers cut off at their output limit since the site started, by
+/// operation: counts only.
+static CUT_OFF: std::sync::Mutex<std::collections::BTreeMap<&'static str, u64>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// How many answers of each operation were cut off at their output limit
+/// since the site started, for her status.
+pub(crate) fn cut_off() -> std::collections::BTreeMap<&'static str, u64> {
+    CUT_OFF
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+}
+
 /// Safe, structured outcome. Provider bodies and credentials never enter job records.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -52,6 +66,9 @@ pub(super) enum Failure {
     InvalidOutput,
     StreamInterrupted,
     Quota,
+    /// A JSON answer that stopped at its output limit: what came is not the
+    /// whole of it, and is not read.
+    CutOff,
     Unknown,
 }
 
@@ -67,6 +84,7 @@ impl std::fmt::Display for Failure {
             Self::InvalidOutput => "model_invalid_output",
             Self::StreamInterrupted => "model_stream_interrupted",
             Self::Quota => "model_quota",
+            Self::CutOff => "model_cut_off",
             Self::Unknown => "model_unknown_failure",
         })
     }
@@ -77,7 +95,11 @@ impl Failure {
     pub(super) fn retryable(self) -> bool {
         matches!(
             self,
-            Self::Timeout | Self::Transport | Self::Upstream | Self::StreamInterrupted
+            Self::Timeout
+                | Self::Transport
+                | Self::Upstream
+                | Self::StreamInterrupted
+                | Self::CutOff
         )
     }
 
@@ -243,23 +265,37 @@ impl Ask {
         })
     }
 
-    /// What an answer's source said of it: one that stopped at its output
-    /// limit (thinking counts against it) is told in one line, counts only,
-    /// never what was said.
-    fn answered(&self, reported: &crate::services::ai_cost_ledger::Reported, chars: Option<usize>) {
+    /// What an answer's source said of it: whether it stopped at its output
+    /// limit (thinking counts against it).
+    fn answered(
+        &self,
+        reported: &crate::services::ai_cost_ledger::Reported,
+        chars: Option<usize>,
+    ) -> bool {
         let cut_off = reported
             .stops
             .iter()
             .any(|stop| matches!(stop.as_str(), "max_tokens" | "length" | "MAX_TOKENS"));
         if cut_off {
-            tracing::warn!(
-                owner = self.owner,
-                operation = self.operation,
-                output_tokens = reported.usage.output,
-                chars,
-                "[Merope] answer cut off at its output limit"
-            );
+            self.cut_off(Some(reported.usage.output), chars);
         }
+        cut_off
+    }
+
+    /// An answer cut off at its output limit, told in one line and counted
+    /// by operation for her status: counts only, never what was said.
+    fn cut_off(&self, output_tokens: Option<u64>, chars: Option<usize>) {
+        tracing::warn!(
+            owner = self.owner,
+            operation = self.operation,
+            output_tokens,
+            chars,
+            "[Merope] answer cut off at its output limit"
+        );
+        let mut counts = CUT_OFF
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *counts.entry(self.operation).or_default() += 1;
     }
 
     fn failed(self, failure: Failure) -> Failure {
@@ -290,6 +326,11 @@ impl Ask {
                     return Err(Failure::Timeout);
                 }
                 tokio::time::sleep(delay).await;
+            }
+            // One that stops at its output limit, as the scene has it.
+            if crate::services::channel_group::g0::cut_off(self.operation) {
+                self.cut_off(None, None);
+                return Err(self.failed(Failure::CutOff));
             }
             return answer.ok_or(Failure::Unavailable);
         }
@@ -322,9 +363,12 @@ pub(super) struct Model {
 }
 
 impl Model {
+    /// `call`'s answer, billed; `whole`: only the whole of it will do, so
+    /// one cut off at its output limit is a failure ([`Failure::CutOff`]).
     async fn billed(
         &self,
         call: impl std::future::Future<Output = anyhow::Result<String>>,
+        whole: bool,
     ) -> Result<String, Failure> {
         #[cfg(test)]
         let started = std::time::Instant::now();
@@ -342,16 +386,18 @@ impl Model {
                 ),
             )))
             .await;
+        let mut cut_off = false;
         if let Some(reported) = &reported {
             let answered = match &result {
                 Ok(Ok(raw)) => Some(raw.chars().count()),
                 _ => None,
             };
-            self.ask.answered(reported, answered);
+            cut_off = self.ask.answered(reported, answered);
             #[cfg(test)]
             kept_for_bench(&self.ask, reported, answered, started.elapsed());
         }
         match result {
+            Ok(Ok(_)) if whole && cut_off => Err(self.ask.failed(Failure::CutOff)),
             Ok(Ok(raw)) => Ok(raw),
             Ok(Err(error)) => Err(self.ask.failed(Failure::classify(&error))),
             Err(_) => Err(self.ask.failed(Failure::Timeout)),
@@ -368,19 +414,22 @@ impl Model {
     ) -> Result<String, Failure> {
         // One future either way: two arms each holding their own call nest
         // her chat's future past the compiler's layout depth.
-        self.billed(self.analyzer.analyze_json_as(
-            system,
-            input,
-            schema_name,
-            Some(schema),
-            self.ask.strict,
-        ))
+        self.billed(
+            self.analyzer.analyze_json_as(
+                system,
+                input,
+                schema_name,
+                Some(schema),
+                self.ask.strict,
+            ),
+            true,
+        )
         .await
     }
 
     /// Free text.
     pub(super) async fn text(&self, system: &str, prompt: &str) -> Result<String, Failure> {
-        self.billed(self.analyzer.analyze_with_system(system, prompt))
+        self.billed(self.analyzer.analyze_with_system(system, prompt), false)
             .await
     }
 
@@ -390,6 +439,7 @@ impl Model {
         self.billed(
             self.analyzer
                 .analyze_stream_parts_with_images(prompt, &[], |_| async { true }),
+            false,
         )
         .await
     }
@@ -403,6 +453,7 @@ impl Model {
         self.billed(
             self.analyzer
                 .analyze_stream_parts_with_images(prompt, pictures, |_| async { true }),
+            false,
         )
         .await
     }
@@ -502,6 +553,47 @@ mod tests {
         assert!(Failure::Transport.retryable());
         assert!(Failure::Upstream.retryable());
         assert!(Failure::StreamInterrupted.retryable());
+        assert!(Failure::CutOff.retryable());
+    }
+
+    #[test]
+    fn an_answer_stopped_at_its_output_limit_is_told_and_counted_by_operation() {
+        let ask = Ask::new(Voice::Judge, 7, "test_cut_off_counted");
+        let stopped = |stop: &str| crate::services::ai_cost_ledger::Reported {
+            stops: vec![stop.to_string()],
+            ..Default::default()
+        };
+        assert!(!ask.answered(&stopped("end_turn"), Some(10)));
+        assert_eq!(cut_off().get("test_cut_off_counted"), None);
+        for stop in ["max_tokens", "length", "MAX_TOKENS"] {
+            assert!(ask.answered(&stopped(stop), Some(10)), "{stop}");
+        }
+        assert_eq!(cut_off().get("test_cut_off_counted"), Some(&3));
+    }
+
+    #[tokio::test]
+    async fn a_json_answer_cut_off_is_a_failure_to_try_again() {
+        use crate::services::channel_group::g0;
+        let mut world = g0::World::new(0.5);
+        world
+            .models
+            .entry("test_cut_off_json".into())
+            .or_default()
+            .extend([Some("{}".to_string()), Some("{}".to_string())]);
+        world.cut_off.insert("test_cut_off_json".into(), 1);
+        g0::enter(world);
+        let ask = || Ask::new(Voice::Judge, 7, "test_cut_off_json");
+        let schema = serde_json::json!({});
+        assert_eq!(
+            ask().json_raw("", "", "s", &schema).await,
+            Err(Failure::CutOff)
+        );
+        assert_eq!(
+            ask().json_raw("", "", "s", &schema).await,
+            Ok("{}".to_string())
+        );
+        let _ = g0::leave();
+        assert_eq!(cut_off().get("test_cut_off_json"), Some(&1));
     }
 
     #[test]

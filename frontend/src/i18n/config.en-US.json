@@ -979,6 +979,7 @@
   "agentAliveSettledFailed": "did not go through",
   "agentAliveSettling": "Trouble going over chats",
   "agentAliveSettlingFailures": "Answers unreadable {unreadable} times, asked again {again} times; {left} batches left unsorted, {brought} carried into the next; {kept} notes kept long-term as they were, never sorted (not merged or deduplicated)",
+  "agentAliveCutOff": "Answers cut off at their output limit",
   "agentAliveStanding": "Last wrote how someone’s life stands now",
   "agentAliveStandingFailed": "Failed model calls for that step",
   "agentAliveStandingFailedCount": "{n}, the latest {ago}",

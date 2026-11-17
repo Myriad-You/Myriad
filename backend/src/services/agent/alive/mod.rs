@@ -659,6 +659,9 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
             // ahead of recall, in recall, for lines by meaning, filling rows
             // (`meaning::failures`).
             "meaningFailures": crate::services::agent::memory::meaning::failures(),
+            // Her answers cut off at their output limit since the site
+            // started, by the call they answered (`call::cut_off`).
+            "cutOff": crate::services::agent::merope::answers_cut_off(),
         },
         "ends": ends,
         // Keys of a look at the screen the site deleted before reading it
