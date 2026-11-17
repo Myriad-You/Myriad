@@ -75,11 +75,12 @@ pub(crate) struct Shown {
     pub nodes: Vec<Node>,
     /// The live memory rows its entries, views and open items name, by id.
     pub memories: HashMap<String, agent_memories::Model>,
-    /// The day she learned each of those, Unix microseconds
-    /// ([`known::learned`]).
+    /// The day she learned each memory a head names, Unix microseconds
+    /// ([`known::learned`]): of those held, and of those a later fact
+    /// replaced, for what rests on one was still said that day.
     pub learned: HashMap<String, i64>,
     /// Those a head names that they took back or had her let go
-    /// ([`known::taken_back`]).
+    /// ([`known::Named::taken_back`]).
     pub taken_back: HashSet<String>,
 }
 
@@ -120,12 +121,21 @@ impl Shown {
         )
     }
 
+    /// When they told her what the memory row `id` keeps, held or since
+    /// replaced by a later fact; none for one they took back.
+    pub(crate) fn told_of(&self, id: &str) -> Option<i64> {
+        (!self.taken_back.contains(id))
+            .then(|| self.learned.get(id).copied())
+            .flatten()
+    }
+
     /// Whether what rests on the memories `because` names is no longer to
-    /// be said: it names some, and they took every one of them back. One
-    /// replaced by a later fact is not taken back: what rests on it stands.
+    /// be said: they took any one of them back, for its words may carry
+    /// what was taken back (the rule forgetting keeps: [`super::forget`]).
+    /// One replaced by a later fact is not taken back: what rests on it
+    /// stands.
     pub(crate) fn unsaid(&self, because: &Value) -> bool {
-        let rests_on = cited(because);
-        !rests_on.is_empty() && rests_on.iter().all(|id| self.taken_back.contains(id))
+        cited(because).iter().any(|id| self.taken_back.contains(id))
     }
 
     /// The live memory row an item of a head (a view, an open item) rests
@@ -269,10 +279,17 @@ pub(crate) async fn shown<C: ConnectionTrait>(
         ));
     }
     let named: BTreeSet<String> = heads.iter().flat_map(|head| named_by(&head.4)).collect();
-    let taken_back = known::taken_back(db, named.iter().cloned().collect()).await?;
-    let held: BTreeSet<String> = known::held(db, named.into_iter().collect())
-        .await?
-        .into_iter()
+    // One read of every memory the heads name: held, taken back, learned.
+    let named = known::named(db, named.into_iter().collect()).await?;
+    let held: BTreeSet<String> = named
+        .iter()
+        .filter(|(_, row)| row.held)
+        .map(|(id, _)| id.clone())
+        .collect();
+    let taken_back: HashSet<String> = named
+        .iter()
+        .filter(|(_, row)| row.taken_back)
+        .map(|(id, _)| id.clone())
         .collect();
     let memories = if held.is_empty() {
         HashMap::new()
@@ -285,7 +302,10 @@ pub(crate) async fn shown<C: ConnectionTrait>(
             .map(|row| (row.id.clone(), row))
             .collect()
     };
-    let learned = known::learned(db, memories.keys().cloned().collect()).await?;
+    let learned = named
+        .into_iter()
+        .map(|(id, row)| (id, row.learned))
+        .collect();
     // The site keeps none yet.
     let provenance = HashMap::new();
     let nodes = heads
@@ -350,11 +370,21 @@ mod tests {
             taken_back: ["m2".to_string()].into(),
             ..Default::default()
         };
-        // All it rests on taken back: not said. Any left, or none named:
-        // it is.
+        // Any it rests on taken back: not said, though another is held.
+        // None taken back, or none named: it is.
         assert!(shown.unsaid(&json!(["memory:m2"])));
-        assert!(!shown.unsaid(&json!(["memory:m2", "memory:m1"])));
+        assert!(shown.unsaid(&json!(["memory:m1", "memory:m2"])));
+        assert!(!shown.unsaid(&json!(["memory:m1"])));
         assert!(!shown.unsaid(&json!([])));
+        // Told when it was learned, held or replaced; never when taken
+        // back.
+        let shown = Shown {
+            learned: [("m1".to_string(), 5), ("m2".to_string(), 7)].into(),
+            ..shown
+        };
+        assert_eq!(shown.told_of("m1"), Some(5));
+        assert_eq!(shown.told_of("m2"), None);
+        assert_eq!(shown.learned_of("m1"), None, "not held: no entry of it");
     }
 
     #[test]

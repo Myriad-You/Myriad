@@ -112,6 +112,8 @@ struct Lines<'a> {
     said: &'a HashMap<String, String>,
     thorough: bool,
     zone: Zone,
+    /// The year it is as she speaks: left out of a day in it.
+    year: i32,
     here: Option<&'a Here>,
 }
 
@@ -182,8 +184,10 @@ impl Lines<'_> {
     }
 
     /// Since when `item` on `node` stands or ended, as its line says it
-    /// ([`super::since::dated`]). None when all it rests on was taken back
-    /// ([`Shown::unsaid`]): it is then not said at all, standing or ended.
+    /// ([`super::since::dated`]): told the latest day she learned a memory
+    /// it rests on, held or since replaced. None when any of them was taken
+    /// back ([`Shown::unsaid`]): it is then not said at all, standing or
+    /// ended.
     fn since(&self, node: &super::shown::Node, item: &str) -> Option<String> {
         let standing = node.head.get("standing")?.get(item)?;
         let value = standing.get("value")?;
@@ -193,14 +197,14 @@ impl Lines<'_> {
         }
         let learned = cited(because)
             .iter()
-            .filter_map(|id| self.shown.learned_of(id))
+            .filter_map(|id| self.shown.told_of(id))
             .max();
         Some(super::since::dated(
             value.get("since"),
             learned,
             standing.get("at")?.as_i64()?,
             &self.zone,
-            chrono::Datelike::year(&clock::local_now()),
+            self.year,
         ))
     }
 }
@@ -266,6 +270,9 @@ fn standing_of(shown: &Shown, node: &super::shown::Node) -> Vec<PickStanding> {
         .map(|standing| {
             standing
                 .iter()
+                // One resting on what they took back is not hers to say:
+                // the core never counts or picks it.
+                .filter(|(_, version)| !shown.unsaid(&version["value"]["because"]))
                 .filter_map(|(item, version)| {
                     let value = version.get("value");
                     Some(PickStanding {
@@ -411,6 +418,7 @@ fn recollect_within(
         said: &recalled.said,
         thorough,
         zone: clock::zone(),
+        year: chrono::Datelike::year(&now.with_timezone(&clock::zone())),
         here,
     };
     let resident_chars = budget.resident_chars;
@@ -446,14 +454,31 @@ fn recollect_within(
             named.push(shown);
         }
     };
-    // How many of a node's stands the list of how their life stands shows,
-    // in a private talk (the only place it is shown; see below).
-    let elsewhere = |node: &str| {
-        if here.is_some() || shown.node(node).is_none() {
-            return 0;
-        }
-        pick.resident.iter().filter(|one| one.node == node).count()
-    };
+    // How their life stands, every time: in a private talk only, each
+    // under its node's name with since when, as on a picked node. Within
+    // the room the core counted its words in: the days beside them are
+    // counted here, and one that no longer fits is left out for the next
+    // that does, as the core leaves one out.
+    let mut room = resident_chars;
+    let resident: Vec<(&str, String)> = pick
+        .resident
+        .iter()
+        .filter(|_| here.is_none())
+        .filter_map(|one| {
+            let node = shown.node(&one.node)?;
+            let name = node.name.as_deref().unwrap_or_default().trim();
+            let dated = lines.since(node, &one.item)?;
+            let line = super::since::resident(name, &one.text, &dated);
+            let chars = line.chars().count();
+            (chars <= room).then(|| {
+                room -= chars;
+                (one.node.as_str(), line)
+            })
+        })
+        .collect();
+    // How many of a node's stands that list shows: those are not counted
+    // again as left out on the node.
+    let elsewhere = |node: &str| resident.iter().filter(|(on, _)| *on == node).count();
     for picked in &pick.picked {
         let node = shown.node(&picked.node);
         let name = node
@@ -544,33 +569,10 @@ fn recollect_within(
             listed(shown, &kind, cues?, now, &lines)
         })
         .flatten();
-    // How their life stands, every time: in a private talk only, each
-    // under its node's name, as the core counted it.
-    let resident = if here.is_some() {
-        Vec::new()
-    } else {
-        // Each with since when, as on a picked node; none whose every
-        // memory was taken back. Within the room the core counted its
-        // words in: the days beside them are counted here.
-        let mut room = resident_chars;
-        let resident: Vec<String> = pick
-            .resident
-            .iter()
-            .filter_map(|one| {
-                let node = shown.node(&one.node)?;
-                let name = node.name.as_deref().unwrap_or_default().trim();
-                let dated = lines.since(node, &one.item)?;
-                Some(super::since::resident(name, &one.text, &dated))
-            })
-            .take_while(|line| {
-                let fits = line.chars().count() <= room;
-                room = room.saturating_sub(line.chars().count());
-                fits
-            })
-            .collect();
+    if here.is_none() {
         // Counts only: how many went with the talk, how many the core
-        // picked that the heads did not hold, and how many its room left
-        // out or cut short.
+        // picked that are not shown, and how many its room left out or cut
+        // short.
         tracing::info!(
             shown = resident.len(),
             unread = pick.resident.len() - resident.len(),
@@ -578,8 +580,8 @@ fn recollect_within(
             cut = pick.resident_cut,
             "[memory-nodes] how their life stands went with the private talk"
         );
-        resident
-    };
+    }
+    let resident = resident.into_iter().map(|(_, line)| line).collect();
     Recollection {
         named,
         heard,

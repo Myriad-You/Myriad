@@ -98,7 +98,8 @@ async fn what_stands_and_what_ended_are_read_with_the_day_they_were_told() {
     let ended = saying(&found.named, "膝盖伤了");
     assert_eq!(ended.len(), 1, "{:?}", found.named);
     assert!(
-        ended[0].starts_with("跑步: ended, since ") && ended[0].contains(&today),
+        ended[0].starts_with("跑步: no longer as it stood here, since ")
+            && ended[0].contains(&today),
         "{ended:?}"
     );
     let at = |words: &str| found.named.iter().position(|line| line.contains(words));
@@ -132,20 +133,30 @@ async fn what_stands_and_what_ended_are_read_with_the_day_they_were_told() {
         "在准备半马",
     )
     .await;
-    assert_eq!(
-        saying(&recollect(db, &[]).await.resident, "在准备半马").len(),
-        1
-    );
+    // Told ten days ago.
+    let ten = crate::clock::now() - chrono::Duration::days(10);
+    db.execute_unprepared(&format!(
+        "UPDATE agent_memories SET created_at = '{}' WHERE id = '{half}'",
+        ten.to_rfc3339()
+    ))
+    .await
+    .unwrap();
+    let told = |resident: Vec<String>| {
+        let lines = saying(&resident, "在准备半马");
+        assert_eq!(lines.len(), 1, "{resident:?}");
+        assert!(
+            lines[0].contains(&day(ten)) && !lines[0].contains(&today),
+            "the day it was told, held or replaced: {lines:?}"
+        );
+    };
+    told(recollect(db, &[]).await.resident);
     db.execute_unprepared(&format!(
         "UPDATE agent_memories SET invalid_reason = 'superseded', invalid_at = now(), \
          superseded_by = '{said}' WHERE id = '{half}'"
     ))
     .await
     .unwrap();
-    assert_eq!(
-        saying(&recollect(db, &[]).await.resident, "在准备半马").len(),
-        1
-    );
+    told(recollect(db, &[]).await.resident);
     db.execute_unprepared(&format!(
         "UPDATE agent_memories SET superseded_by = NULL WHERE id = '{half}'"
     ))

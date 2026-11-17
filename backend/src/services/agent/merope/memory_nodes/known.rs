@@ -97,27 +97,56 @@ pub(crate) async fn held<C: ConnectionTrait>(
         .collect()
 }
 
-/// The memory rows among `ids` they took back or had her let go: deleted,
-/// or put aside with nothing in its place. One a later fact replaced is
-/// not among them (the same line `chat_lines` draws for their words).
-pub(crate) async fn taken_back<C: ConnectionTrait>(
+/// One memory row a head names, as it is now.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Named {
+    /// Still held: not replaced, faded or let go ([`held`]).
+    pub held: bool,
+    /// They took it back or had her let it go: deleted, or put aside with
+    /// nothing in its place. One a later fact replaced is not (the same
+    /// line `chat_lines` draws for their words).
+    pub taken_back: bool,
+    /// The day she learned it, Unix microseconds ([`learned`]): held or
+    /// not, that is when it was said.
+    pub learned: i64,
+}
+
+/// Each of the memory rows `ids` as it is now, in one read: whether it is
+/// held, whether it was taken back, and the day she learned it.
+pub(crate) async fn named<C: ConnectionTrait>(
     db: &C,
     ids: Vec<String>,
-) -> Result<HashSet<String>, Error> {
+) -> Result<HashMap<String, Named>, Error> {
     if ids.is_empty() {
-        return Ok(HashSet::new());
+        return Ok(HashMap::new());
     }
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT id FROM agent_memories WHERE id = ANY($1) \
-             AND (invalid_reason = 'deleted' \
-                  OR (invalid_reason = 'superseded' AND superseded_by IS NULL))",
+            "SELECT h.id, (h.invalid_at IS NULL AND h.superseded_by IS NULL) AS held, \
+               COALESCE(h.invalid_reason = 'deleted' \
+                        OR (h.invalid_reason = 'superseded' AND h.superseded_by IS NULL), \
+                        false) AS taken_back, \
+               LEAST(h.created_at, min(n.created_at)) AS at \
+             FROM agent_memories h \
+             LEFT JOIN agent_memories n ON n.superseded_by = h.id AND n.invalid_reason = 'settled' \
+             WHERE h.id = ANY($1) \
+             GROUP BY h.id, h.created_at, h.invalid_at, h.superseded_by, h.invalid_reason",
             [ids.into()],
         ))
         .await?;
     rows.iter()
-        .map(|row| Ok(row.try_get::<String>("", "id")?))
+        .map(|row| {
+            let at: chrono::DateTime<chrono::FixedOffset> = row.try_get("", "at")?;
+            Ok((
+                row.try_get::<String>("", "id")?,
+                Named {
+                    held: row.try_get("", "held")?,
+                    taken_back: row.try_get("", "taken_back")?,
+                    learned: at.timestamp_micros(),
+                },
+            ))
+        })
         .collect()
 }
 

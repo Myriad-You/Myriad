@@ -81,9 +81,13 @@ pub(super) fn now(text: &str, dated: &str, by_rule: bool) -> String {
     }
 }
 
-/// One ended thing, as a line: what ended it and since when.
+/// One ended thing, as a line: the fact that ended it (`text`: the row
+/// keeps that, not what stood) and since when. Said as what changed, so
+/// the fact is not read as the thing that ended (`ended: 搬到上海了` reads
+/// as the move being over): the node's older entries are what no longer
+/// stands, and this is why.
 pub(super) fn ended(text: &str, dated: &str) -> String {
-    format!("ended, {dated}: {text}")
+    format!("no longer as it stood here, {dated}: {text}")
 }
 
 /// One item of how their life stands, under its node's `name` when it has
@@ -169,7 +173,7 @@ mod tests {
         assert!(now("在写报告", "since 11-16", true).contains("their computer"));
         assert_eq!(
             ended("搬到上海了", "since 10-18"),
-            "ended, since 10-18: 搬到上海了"
+            "no longer as it stood here, since 10-18: 搬到上海了"
         );
         assert_eq!(
             resident("工作", "在趣养做运营", "since 09-01"),

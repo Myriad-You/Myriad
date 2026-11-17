@@ -94,7 +94,12 @@ mod tests {
         let all = lines(&node, since, MOST);
         assert_eq!(all.len(), 2, "{all:?}");
         assert_eq!(all[0].0, "膝盖伤了，不夜跑了");
-        assert!(all[0].1.starts_with("ended, since 10-"), "{all:?}");
+        assert!(
+            all[0]
+                .1
+                .starts_with("no longer as it stood here, since 10-"),
+            "{all:?}"
+        );
         assert!(all[0].1.ends_with(": 膝盖伤了，不夜跑了"), "{all:?}");
         assert_eq!(all[1].0, "健身卡到期，没续");
         assert_eq!(lines(&node, since, 1).len(), 1);

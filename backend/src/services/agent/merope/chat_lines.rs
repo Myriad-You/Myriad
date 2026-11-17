@@ -126,8 +126,9 @@ pub(crate) async fn private_lines(db: &DatabaseConnection, user_id: i32, latest:
 /// whose fact was replaced since.
 ///
 /// Taken back: what a memory they took back quotes (one retired as let go,
-/// with nothing in its place, or deleted), said within a day before it was
-/// written, and her answer right after each line of theirs. A let-go memory
+/// with nothing in its place, or deleted), said from a day before it was
+/// first noted until it was written, and her answer right after each line
+/// of theirs. A let-go memory
 /// keeps its row and its words stay in the chat (「当作没说过」 is not
 /// deleting): only she does not bring them up again. Read when looked for,
 /// so a taking back that came from another end counts too.
@@ -145,10 +146,10 @@ async fn withdrawn(
     let Ok(rows) = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
+            // The notes each was gone over from are joined once, among this
+            // person's rows, not looked up row by row.
             "SELECT m.evidence, m.created_at, \
-               LEAST(m.created_at, (SELECT min(s.created_at) FROM agent_memories s \
-                                    WHERE s.superseded_by = m.id \
-                                      AND s.invalid_reason = 'settled')) AS noted, \
+               LEAST(m.created_at, min(s.created_at)) AS noted, \
                (m.invalid_reason = 'deleted' OR m.superseded_by IS NULL) AS taken_back, \
                EXISTS (SELECT 1 FROM agent_memories n \
                        WHERE n.id = m.superseded_by AND n.user_id = m.user_id \
@@ -156,8 +157,11 @@ async fn withdrawn(
                          AND NOT (n.invalid_reason IS NOT DISTINCT FROM 'superseded' \
                                   AND n.superseded_by IS NULL)) AS replaced \
              FROM agent_memories m \
+             LEFT JOIN agent_memories s ON s.user_id = m.user_id \
+               AND s.superseded_by = m.id AND s.invalid_reason = 'settled' \
              WHERE m.user_id = $1 AND m.venue = 'private' AND m.source = ANY($2) \
-               AND m.invalid_reason IN ('deleted', 'superseded')",
+               AND m.invalid_reason IN ('deleted', 'superseded') \
+             GROUP BY m.id",
             [
                 user_id.into(),
                 vec![
@@ -219,12 +223,11 @@ fn became(lines: &[Line], mut quoted: Vec<Quoted>) -> (HashSet<i32>, HashSet<i32
             .iter()
             .take_while(|quoted| quoted.written <= line.at + longest)
         {
-            let within = if quoted.taken_back {
-                line.at >= quoted.written - origins::QUOTED_WITHIN
-            } else {
-                quoted.replaced && !line.hers && line.at >= quoted.noted - origins::QUOTED_WITHIN
-            };
-            if !within {
+            // Either way from a day before its first note was taken: a
+            // fact gone over days after the words still reaches them.
+            if line.at < quoted.noted - origins::QUOTED_WITHIN
+                || !(quoted.taken_back || (quoted.replaced && !line.hers))
+            {
                 continue;
             }
             let said = said.get_or_insert_with(|| {

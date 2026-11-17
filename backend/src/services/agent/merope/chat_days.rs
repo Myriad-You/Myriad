@@ -354,6 +354,21 @@ pub async fn turn_back(
         return Vec::new();
     };
     let picked = parse_pick(&raw, &table).unwrap_or_default();
+    read_days(picked, &days, &table, &replaced, looking_for, asked)
+}
+
+/// The days turned to (`picked`), read: of each, the lines that answer
+/// `looking_for`, a line of theirs a later fact replaced saying so beside
+/// its day (`replaced`); of a day with none that answers, what it was
+/// about. Oldest day first, each day's lines as they were said.
+fn read_days(
+    picked: Vec<NaiveDate>,
+    days: &BTreeMap<NaiveDate, Vec<Said>>,
+    table: &[DayLine],
+    replaced: &Replaced,
+    looking_for: &str,
+    asked: &str,
+) -> Vec<(String, Who, String)> {
     let mut found = Vec::new();
     for date in picked {
         let Some(said) = days.get(&date) else {
@@ -387,6 +402,55 @@ pub async fn turn_back(
         super::chat_lines::day_of(&left.0).cmp(super::chat_lines::day_of(&right.0))
     });
     found
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Turning back to a day, a line of theirs a later fact replaced says
+    /// so beside its day, and stays where it was said in it; her answer and
+    /// a line nothing replaced have the day alone.
+    #[test]
+    fn a_replaced_line_read_from_its_day_says_so() {
+        let day: NaiveDate = "2026-11-10".parse().unwrap();
+        let at = |minute: u32| {
+            chrono::DateTime::parse_from_rfc3339(&format!("2026-11-10T04:{minute:02}:00+00:00"))
+                .unwrap()
+        };
+        let said: Vec<Said> = vec![
+            (at(0), false, "我住在北京朝阳".into()),
+            (at(1), true, "北京朝阳那边挺方便".into()),
+            (at(2), false, "北京朝阳的房租又涨了".into()),
+        ];
+        let days = BTreeMap::from([(day, said)]);
+        let table = vec![DayLine {
+            date: day,
+            messages: 3,
+            about: "住处".into(),
+        }];
+        let replaced = Replaced::from([at(0)]);
+        let found = read_days(vec![day], &days, &table, &replaced, "北京朝阳", "现在住哪");
+        let dated: Vec<(&str, &str)> = found
+            .iter()
+            .map(|(date, _, text)| (date.as_str(), text.as_str()))
+            .collect();
+        let marked = super::super::chat_lines::found_on(day.to_string(), true);
+        assert_eq!(
+            dated,
+            [
+                (marked.as_str(), "我住在北京朝阳"),
+                ("2026-11-10", "北京朝阳那边挺方便"),
+                ("2026-11-10", "北京朝阳的房租又涨了"),
+            ]
+        );
+        // Nothing replaced: no line says so.
+        let found = read_days(vec![day], &days, &table, &Replaced::new(), "北京朝阳", "");
+        assert!(
+            found.iter().all(|(date, _, _)| date == "2026-11-10"),
+            "{found:?}"
+        );
+    }
 }
 
 #[cfg(test)]

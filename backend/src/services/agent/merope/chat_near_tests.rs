@@ -157,6 +157,20 @@ async fn what_they_took_back_is_not_found() {
         .map(|(day, _, _)| day.ends_with(super::super::chat_lines::REPLACED_SINCE))
         .collect();
     assert_eq!(marked, [true, false, false]);
+    // And each is dated on her clock: where its day there is not the
+    // database's, hers.
+    let at = private_lines(db, OWNER, 3000).await[0].at;
+    let zone = super::super::chat_lines::tests::another_day(at);
+    let hers =
+        super::super::clock::in_zone(zone, async { super::super::chat_lines::day(&at) }).await;
+    assert_ne!(hers, at.format("%Y-%m-%d").to_string());
+    let found = super::super::clock::in_zone(zone, nearest(db, OWNER, "香", 10, false)).await;
+    assert_eq!(super::super::chat_lines::day_of(&found[0].0), hers);
+    assert!(
+        found[0]
+            .0
+            .ends_with(super::super::chat_lines::REPLACED_SINCE)
+    );
     // Scrolling back by words reads the same lines.
     let by_words = super::super::remembering::look_back(db, OWNER, "香菜", "", 3).await;
     assert!(

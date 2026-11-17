@@ -408,8 +408,8 @@ async fn a_line_is_dated_on_her_clock() {
 }
 
 /// Lines are held against the memories written after them only, each
-/// within its own reach: a memory taken back reaches a day back from when
-/// it was written, whatever note it came from.
+/// within its own reach: from a day before the first note it was gone over
+/// from was taken (before it was written, for one gone over from none).
 #[test]
 fn each_memory_reaches_its_own_lines() {
     let at = |hours: i64| {
@@ -441,13 +441,97 @@ fn each_memory_reaches_its_own_lines() {
     let (gone, replaced) = became(&lines, vec![quoted(72, 2, false)]);
     assert!(gone.is_empty());
     assert_eq!(replaced, HashSet::from([1, 3]));
-    // Taken back, the same days: only within a day before it was written,
-    // as before; a line before that stays.
+    // Taken back, the same days: the same lines are gone, with her answer
+    // to the first. Gone over days after the words, what was taken back
+    // still does not come up again.
     let (gone, replaced) = became(&lines, vec![quoted(72, 2, true)]);
+    assert_eq!(gone, HashSet::from([1, 2, 3]));
+    // Gone over from no note: a day before it was written, as it was.
+    let (gone, _) = became(&lines, vec![quoted(72, 72, true)]);
     assert_eq!(gone, HashSet::from([3]));
     assert!(replaced.is_empty());
     // Both on one line: taken back wins, and her answer goes with it.
     let (gone, replaced) = became(&lines, vec![quoted(72, 2, false), quoted(3, 3, true)]);
     assert_eq!(gone, HashSet::from([1, 2]));
     assert_eq!(replaced, HashSet::from([3]));
+}
+
+/// A zone where the moment `at` falls on another day than the database
+/// gives it (which gives it at no offset).
+pub(in crate::services::agent::merope) fn another_day(
+    at: chrono::DateTime<chrono::FixedOffset>,
+) -> super::super::clock::Zone {
+    use chrono::Timelike;
+    super::super::clock::Zone::Named(if at.with_timezone(&chrono::Utc).hour() < 12 {
+        chrono_tz::Etc::GMTPlus12
+    } else {
+        chrono_tz::Etc::GMTMinus12
+    })
+}
+
+/// Scrolling back by words, a line of theirs a later fact replaced is read
+/// as said, its day saying so; and its day is the day on her clock.
+#[tokio::test]
+async fn scrolling_back_a_replaced_line_says_so_beside_her_day() {
+    let Some(schema) = schema("chat_lines_scrolled_marked").await else {
+        return;
+    };
+    let db = &schema.db;
+    session(db, "mine", OWNER, Some(r#"{"mode":"chat"}"#), false).await;
+    let three_days = 3 * 24 * 60;
+    line(db, "mine", "user", "我住在北京朝阳", three_days, None).await;
+    line(
+        db,
+        "mine",
+        "assistant",
+        "朝阳那边挺方便",
+        three_days - 1,
+        None,
+    )
+    .await;
+    // The talk still in front of her is not scrolled back to: enough said
+    // since that those two are behind it.
+    let in_front = crate::services::agent::sessions::PRIVATE_CHAT_IN_FRONT as i32 + 2;
+    for index in 0..in_front {
+        let role = if index % 2 == 0 { "user" } else { "assistant" };
+        line(
+            db,
+            "mine",
+            role,
+            &format!("后来的第{index}句"),
+            in_front - index,
+            None,
+        )
+        .await;
+    }
+    let old = quoting(db, "chat", "住在北京朝阳").await;
+    let newer = quoting(db, "chat", "搬到北京海淀了").await;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_memories SET created_at = NOW() - $2 * INTERVAL '1 minute' WHERE id = $1",
+        [old.clone().into(), (three_days - 2).into()],
+    ))
+    .await
+    .unwrap();
+    retire(db, &old, "superseded", Some(&newer)).await;
+
+    let at = private_lines(db, OWNER, 3000).await[0].at;
+    let zone = another_day(at);
+    let hers = super::super::clock::in_zone(zone, async { super::day(&at) }).await;
+    assert_ne!(hers, at.format("%Y-%m-%d").to_string());
+    let look_back = super::super::remembering::look_back(db, OWNER, "住在北京朝阳", "", 3);
+    let by_words = super::super::clock::in_zone(zone, look_back).await;
+    let theirs = by_words
+        .iter()
+        .find(|(_, _, text)| text.contains("我住在北京朝阳"))
+        .unwrap_or_else(|| panic!("{by_words:?}"));
+    assert_eq!(theirs.0, found_on(hers.clone(), true));
+    assert_eq!(theirs.2, "我住在北京朝阳", "as said");
+    // Her answer below it: the same day, and nothing beside it.
+    let answer = by_words
+        .iter()
+        .find(|(_, _, text)| text.contains("挺方便"))
+        .unwrap_or_else(|| panic!("{by_words:?}"));
+    assert_eq!(answer.0, hers);
+    schema.drop().await;
 }
