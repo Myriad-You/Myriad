@@ -246,8 +246,9 @@ async fn what_they_took_back_is_not_read() {
     let day = |index: usize| super::found_on("2026-11-17".into(), read[index].replaced);
     assert_eq!(day(0), format!("2026-11-17, {}", super::REPLACED_SINCE));
     assert_eq!(day(1), "2026-11-17");
-    // The later fact taken back too: nothing she keeps took its place, so
-    // the line is no longer marked.
+    // The later fact taken back too: what it replaced goes with it, as
+    // forgetting takes a memory's whole line, so the line and her answer
+    // are left out now.
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE agent_memories SET invalid_reason = 'deleted', invalid_at = now() WHERE id = $1",
@@ -256,8 +257,7 @@ async fn what_they_took_back_is_not_read() {
     .await
     .unwrap();
     let read = private_lines(db, OWNER, 3000).await;
-    assert!(read.iter().all(|line| !line.replaced), "{read:?}");
-    assert_eq!(contents(&read).len(), 3, "and none of them hidden for it");
+    assert_eq!(contents(&read), [said[4]], "{read:?}");
     let by_words = super::super::remembering::look_back(db, OWNER, "香菜", "", 3).await;
     assert!(
         !found(&by_words).iter().any(|text| text.contains("香菜")),
@@ -367,12 +367,12 @@ async fn a_line_gone_over_days_later_is_still_known_as_replaced() {
     assert_eq!(contents(&read).len(), 3, "nothing is hidden for it");
     assert_eq!(flags(read), [true, false, false]);
 
-    // What replaced it let go, with nothing in its place: taken back, so
-    // nothing she keeps took the line's place and it is not marked.
+    // What replaced it let go, with nothing in its place: taken back, and
+    // what it replaced with it, and the note gone over into that. The line
+    // and her answer are left out.
     retire(db, &newer, "superseded", None).await;
     let read = private_lines(db, OWNER, 3000).await;
-    assert_eq!(contents(&read).len(), 3);
-    assert_eq!(flags(read), [false; 3]);
+    assert_eq!(contents(&read), ["周末想去爬香山"]);
     schema.drop().await;
 }
 
@@ -576,5 +576,54 @@ async fn what_a_note_quoted_goes_with_the_fact_it_was_gone_over_into() {
     // her answer to the first.
     retire(db, &lasting, "superseded", None).await;
     assert_eq!(contents(&private_lines(db, OWNER, 3000).await), [said[3]]);
+    schema.drop().await;
+}
+
+/// Taking back the last of a line of corrections takes back each it
+/// corrected: 「周五去看牙」, replaced by 「改到周六看牙」, replaced by
+/// 「改到周日看牙」, the last taken back. All three are taken back, as
+/// her nodes read them too, and each line they quote is left out with
+/// her answer.
+#[tokio::test]
+async fn taking_back_the_last_correction_takes_back_what_it_corrected() {
+    let Some(schema) = schema("chat_lines_taken_back_line").await else {
+        return;
+    };
+    let db = &schema.db;
+    session(db, "mine", OWNER, Some(r#"{"mode":"chat"}"#), false).await;
+    let said = [
+        ("user", "周五去看牙"),
+        ("assistant", "好，周五"),
+        ("user", "改到周六看牙吧"),
+        ("assistant", "周六也行"),
+        ("user", "还是改到周日看牙"),
+        ("assistant", "那就周日"),
+        ("user", "今天下雨了"),
+    ];
+    for (index, (role, text)) in said.iter().enumerate() {
+        line(db, "mine", role, text, 40 - index as i32 * 5, None).await;
+    }
+    let friday = quoting(db, "chat", "周五去看牙").await;
+    let saturday = quoting(db, "chat", "改到周六看牙").await;
+    let sunday = quoting(db, "chat", "改到周日看牙").await;
+    retire(db, &friday, "superseded", Some(&saturday)).await;
+    retire(db, &saturday, "superseded", Some(&sunday)).await;
+    assert_eq!(
+        contents(&private_lines(db, OWNER, 3000).await).len(),
+        7,
+        "replaced, not hidden"
+    );
+    retire(db, &sunday, "superseded", None).await;
+    let named = crate::services::agent::merope::memory_nodes::known::named(
+        db,
+        vec![friday.clone(), saturday.clone(), sunday.clone()],
+    )
+    .await
+    .unwrap();
+    for id in [&friday, &saturday, &sunday] {
+        assert!(named[id].taken_back, "{id}");
+    }
+    let read = private_lines(db, OWNER, 3000).await;
+    assert_eq!(contents(&read), ["今天下雨了"], "{read:?}");
     schema.drop().await;
 }

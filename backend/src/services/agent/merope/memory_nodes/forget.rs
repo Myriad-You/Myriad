@@ -28,7 +28,8 @@ use myriad_persona_log::{
     Row,
     row::{Author, LOG_VERSION, Replicate},
 };
-use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, TransactionSession, TransactionTrait};
+use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
 use super::{Error, heads, inbox, logged, write};
 use crate::services::her_log::{self, NODE};
@@ -284,18 +285,140 @@ fn empty_topic(node: &myriad_nodes::Node) -> bool {
             .is_some_and(|kind| kind.current.value.kind == Kind::Topic)
 }
 
+/// How forgetting what rests on a memory taken back went since the site
+/// started, for her status: memories taken back whose nodes could not be
+/// forgotten at once (left to the sweep, [`taken_back_here`]), sweeps that
+/// forgot something, and sweeps that stopped on an error (what was to be
+/// read or gone over there waits, and the sweep is tried again at the next
+/// stretch or the next hourly upkeep). Counts only.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct Failures {
+    pub(crate) left_to_sweep: u64,
+    pub(crate) swept: u64,
+    pub(crate) sweep_errors: u64,
+}
+
+static LEFT_TO_SWEEP: AtomicU64 = AtomicU64::new(0);
+static SWEPT: AtomicU64 = AtomicU64::new(0);
+static SWEEP_ERRORS: AtomicU64 = AtomicU64::new(0);
+
+/// [`Failures`] so far.
+pub(crate) fn failures() -> Failures {
+    Failures {
+        left_to_sweep: LEFT_TO_SWEEP.load(Relaxed),
+        swept: SWEPT.load(Relaxed),
+        sweep_errors: SWEEP_ERRORS.load(Relaxed),
+    }
+}
+
+/// Which error it was, for a log line that carries no words.
+fn kind(error: &Error) -> &'static str {
+    match error {
+        Error::Refused(_) => "refused",
+        Error::NoPen => "no_pen",
+        Error::Db(_) => "database",
+    }
+}
+
+/// How far back a line of memories, each replaced by the next, is followed.
+const LINE_STEPS: i32 = 16;
+
+/// The memories `memories` they took back with every one each replaced, as
+/// far back as it goes: taking back the last word on something takes back
+/// what it corrected too (「当我没说」 of 「改到周六」 is not 「还是周五」),
+/// as forgetting takes a memory's whole line (`memory::manage`).
+async fn with_what_they_replaced<C: ConnectionTrait>(
+    db: &C,
+    memories: &[String],
+) -> Result<Vec<String>, Error> {
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "WITH RECURSIVE line(id, depth) AS ( \
+               SELECT id, 0 FROM agent_memories WHERE id = ANY($1) \
+               UNION \
+               SELECT m.id, line.depth + 1 FROM agent_memories m \
+               JOIN line ON m.superseded_by = line.id WHERE line.depth < $2) \
+             SELECT DISTINCT id FROM line",
+            [memories.to_vec().into(), LINE_STEPS.into()],
+        ))
+        .await?;
+    rows.iter()
+        .map(|row| Ok(row.try_get::<String>("", "id")?))
+        .collect()
+}
+
+/// What rests on the memories `memories` they took back, and on each they
+/// replaced ([`with_what_they_replaced`]), forgotten on her nodes in a
+/// savepoint of `db`'s transaction. The memories are let go whatever
+/// happens here: if this fails, it is undone alone, counted, and the sweep
+/// before her nodes are next read or gone over forgets it
+/// ([`taken_back_here`]).
+pub(crate) async fn forget_taken_back<C: ConnectionTrait + TransactionTrait>(
+    db: &C,
+    memories: &[String],
+) {
+    if memories.is_empty() {
+        return;
+    }
+    let result = async {
+        let savepoint = db.begin().await?;
+        let forgotten = async {
+            let line = with_what_they_replaced(&savepoint, memories).await?;
+            forget(&savepoint, &line, &[]).await
+        }
+        .await;
+        match forgotten {
+            Ok(()) => savepoint.commit().await.map_err(Error::from),
+            Err(error) => {
+                savepoint.rollback().await?;
+                Err(error)
+            }
+        }
+    }
+    .await;
+    if let Err(error) = result {
+        LEFT_TO_SWEEP.fetch_add(memories.len() as u64, Relaxed);
+        tracing::warn!(
+            memories = memories.len(),
+            kind = kind(&error),
+            "[memory-nodes] what rests on memories taken back is left to the sweep"
+        );
+    }
+}
+
 /// What rests in `user_id`'s `audience` on a memory they took back
 /// (「当我没说」, or deleted), forgotten as if it were forgotten now
 /// ([`forget`]): taking a memory back forgets it there at once, but one
 /// taken back on another of her ends, or before forgetting reached 「现在」,
 /// left it. Run before what is here is read for her (a stretch's facts,
 /// her upkeep), in a transaction of its own.
+///
+/// An error stops what was to follow (nothing resting on what they took
+/// back is read or gone over), is counted, and the sweep is tried again the
+/// next time.
 pub(crate) async fn taken_back_here(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
     audience: &str,
 ) -> Result<(), Error> {
-    use sea_orm::TransactionTrait;
+    let swept = sweep(db, user_id, audience).await;
+    if let Err(error) = &swept {
+        SWEEP_ERRORS.fetch_add(1, Relaxed);
+        tracing::warn!(
+            kind = kind(error),
+            "[memory-nodes] forgetting what rests on memories taken back stopped"
+        );
+    }
+    swept
+}
+
+/// [`taken_back_here`], once.
+async fn sweep(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    audience: &str,
+) -> Result<(), Error> {
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -332,6 +455,7 @@ pub(crate) async fn taken_back_here(
         forget_rows(&txn, user_id, audience, &BTreeSet::new(), BTreeSet::new()).await?;
     }
     txn.commit().await?;
+    SWEPT.fetch_add(1, Relaxed);
     tracing::info!(
         memories = taken_back.len(),
         left,

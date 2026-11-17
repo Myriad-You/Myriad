@@ -1143,24 +1143,7 @@ async fn what_was_written_on_a_memory_taken_back_goes_with_it() {
     )
     .await;
     assert_eq!(work_now(db).await, vec!["在趣养做主管，同事小王在追她"]);
-    let taken_back = ChatMemoryUpdate {
-        fact: None,
-        evidence: None,
-        ..update("", &["同事小王在追她"], None)
-    };
-    let transaction = db.begin().await.unwrap();
-    let applied = store::apply_chat_memory_update_on(
-        &transaction,
-        OTHER,
-        crate::clock::now().fixed_offset(),
-        &taken_back,
-        &Audience::private(OTHER),
-        Keep::Lasting,
-    )
-    .await
-    .unwrap();
-    transaction.commit().await.unwrap();
-    assert!(applied, "taken back");
+    assert!(take_back(db, "同事小王在追她").await, "taken back");
     let stubs = count(
         db,
         "SELECT count(*) AS n FROM agent_node_rows WHERE kind = 'node.standing' AND body = ''",
@@ -1306,5 +1289,195 @@ async fn what_an_earlier_forgetting_left_goes_at_the_next_stretch() {
         .unwrap()
         .unwrap();
     assert!(after["summary"].is_null(), "{}", after["summary"]);
+    schema.drop().await;
+}
+
+/// `content` taken back as a stretch is gone over (「当我没说」): put aside
+/// with nothing in its place. Whether it was.
+async fn take_back(db: &DatabaseConnection, content: &str) -> bool {
+    let taken_back = ChatMemoryUpdate {
+        fact: None,
+        evidence: None,
+        ..update("", &[content], None)
+    };
+    let transaction = db.begin().await.unwrap();
+    let applied = store::apply_chat_memory_update_on(
+        &transaction,
+        OTHER,
+        crate::clock::now().fixed_offset(),
+        &taken_back,
+        &Audience::private(OTHER),
+        Keep::Lasting,
+    )
+    .await
+    .unwrap();
+    transaction.commit().await.unwrap();
+    applied
+}
+
+/// The versions of how their life stands forgotten (stubs).
+async fn standing_stubs(db: &DatabaseConnection) -> i64 {
+    count(
+        db,
+        "SELECT count(*) AS n FROM agent_node_rows WHERE kind = 'node.standing' AND body = ''",
+    )
+    .await
+}
+
+/// How things stand on the topic `name`, as shown; nothing when no such
+/// topic stands.
+async fn now_on(db: &DatabaseConnection, name: &str) -> Vec<String> {
+    let heads = read::heads(db, OTHER, &talk(), None).await.unwrap();
+    let Some(node) = heads.iter().find(|head| head.name.as_deref() == Some(name)) else {
+        return Vec::new();
+    };
+    let Some(head) = read::node(db, OTHER, &talk(), &node.node_id).await.unwrap() else {
+        return Vec::new();
+    };
+    myriad_nodes::stands::shown_on(&node.node_id, &head)
+        .into_iter()
+        .map(|item| item.text)
+        .collect()
+}
+
+fn teeth() -> Option<GoesUnder> {
+    Some(GoesUnder::New {
+        name: "看牙".into(),
+        aliases: Vec::new(),
+    })
+}
+
+/// Taking back the last word on something takes back what it corrected:
+/// 「周五去看牙」 (v1), corrected to 「改到周六看牙」 (v2 on v1), then the
+/// correction taken back: v1 and v2 are stubs, nothing of either stands,
+/// and neither day is shown to the step after.
+#[tokio::test]
+async fn a_memory_taken_back_goes_with_what_it_replaced() {
+    let Some(schema) = schema("memory_nodes_taken_back_line").await else {
+        return;
+    };
+    let db = &schema.db;
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[],"add":[{"topic":"看牙","text":"周五去看牙"}]}"#,
+    )]);
+    settle(db, vec![update("周五去看牙", &[], teeth())]).await;
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[{"item":1,"text":"周六去看牙"}],"end":[],"add":[]}"#,
+    )]);
+    settle(db, vec![update("改到周六看牙", &["周五去看牙"], teeth())]).await;
+    assert_eq!(now_on(db, "看牙").await, vec!["周六去看牙"]);
+    assert!(take_back(db, "改到周六看牙").await, "taken back");
+    assert_eq!(standing_stubs(db).await, 2, "v1 and v2");
+    assert!(now_on(db, "看牙").await.is_empty());
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[],"add":[]}"#,
+    )]);
+    settle(db, vec![update("牙医诊所换了地址", &[], teeth())]).await;
+    let shown = step_inputs().join("\n");
+    assert!(
+        shown.contains("牙医诊所换了地址") && !shown.contains("周五") && !shown.contains("周六"),
+        "{shown}"
+    );
+    schema.drop().await;
+}
+
+/// Her nodes in this test's schema refuse every row written, or take them
+/// again.
+async fn refuse_node_rows(db: &DatabaseConnection, refuse: bool) {
+    let here: String = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT current_schema() AS here",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "here")
+        .unwrap();
+    assert_ne!(here, "public", "only in the test's own schema");
+    let sql = if refuse {
+        format!(
+            "CREATE FUNCTION \"{here}\".refuse_node_rows() RETURNS trigger LANGUAGE plpgsql AS \
+             $$ BEGIN RAISE EXCEPTION 'refused in this test'; END $$; \
+             CREATE TRIGGER refuse_node_rows BEFORE INSERT OR UPDATE ON \"{here}\".agent_node_rows \
+             FOR EACH ROW EXECUTE FUNCTION \"{here}\".refuse_node_rows()"
+        )
+    } else {
+        format!("DROP TRIGGER refuse_node_rows ON \"{here}\".agent_node_rows")
+    };
+    db.execute_unprepared(&sql).await.unwrap();
+}
+
+/// A memory taken back is let go even when her nodes cannot be written
+/// then: what rests on it is left to the sweep and counted; a sweep that
+/// stops is counted, and the next one forgets it.
+#[tokio::test]
+async fn a_memory_taken_back_is_let_go_when_her_nodes_fail() {
+    let Some(schema) = schema("memory_nodes_taken_back_nodes_fail").await else {
+        return;
+    };
+    let db = &schema.db;
+    work_stands(db, "同事小王在追她", "在趣养做运营，同事小王在追她").await;
+    refuse_node_rows(db, true).await;
+    let before = forget::failures();
+    assert!(take_back(db, "同事小王在追她").await, "taken back");
+    let let_go = count(
+        db,
+        "SELECT count(*) AS n FROM agent_memories WHERE content = '同事小王在追她' \
+         AND invalid_reason = 'superseded' AND superseded_by IS NULL",
+    )
+    .await;
+    assert_eq!(let_go, 1, "let go whatever her nodes did");
+    assert!(forget::failures().left_to_sweep > before.left_to_sweep);
+    assert_eq!(standing_stubs(db).await, 0, "her nodes as they were");
+    assert!(forget::taken_back_here(db, OTHER, &talk()).await.is_err());
+    assert!(forget::failures().sweep_errors > before.sweep_errors);
+    refuse_node_rows(db, false).await;
+    forget::taken_back_here(db, OTHER, &talk()).await.unwrap();
+    assert!(forget::failures().swept > before.swept);
+    assert_eq!(standing_stubs(db).await, 1, "v2");
+    assert_eq!(work_now(db).await, vec!["在趣养做运营"]);
+    schema.drop().await;
+}
+
+/// A correction taken back on another of her ends (put aside with nothing
+/// in its place, as it comes in) takes back what it corrected here too:
+/// before the next fact is read, what rests on either is forgotten.
+#[tokio::test]
+async fn a_correction_taken_back_elsewhere_takes_back_what_it_corrected() {
+    let Some(schema) = schema("memory_nodes_taken_back_line_elsewhere").await else {
+        return;
+    };
+    let db = &schema.db;
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[],"add":[{"topic":"看牙","text":"周五去看牙"}]}"#,
+    )]);
+    settle(db, vec![update("周五去看牙", &[], teeth())]).await;
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[{"item":1,"text":"周六去看牙"}],"end":[],"add":[]}"#,
+    )]);
+    settle(db, vec![update("改到周六看牙", &["周五去看牙"], teeth())]).await;
+    db.execute_unprepared(
+        "UPDATE agent_memories SET invalid_at = NOW(), invalid_reason = 'superseded', \
+         superseded_by = NULL WHERE content = '改到周六看牙'",
+    )
+    .await
+    .unwrap();
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":"them","set":[],"end":[],"add":[]}"#,
+    )]);
+    settle(db, vec![update("牙医诊所换了地址", &[], teeth())]).await;
+    let shown = step_inputs().join("\n");
+    assert!(
+        !shown.contains("周五") && !shown.contains("周六"),
+        "{shown}"
+    );
+    assert_eq!(standing_stubs(db).await, 2, "v1 and v2");
     schema.drop().await;
 }

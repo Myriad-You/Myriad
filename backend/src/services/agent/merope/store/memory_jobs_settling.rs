@@ -276,7 +276,7 @@ pub(super) fn put_back(job: &mut Job) {
 /// The notes of `owner` here from `since` until `until`, kept for good as
 /// they are: each as going over keeps a note it passes over. Each as it is
 /// kept.
-async fn keep_as_they_are<C: ConnectionTrait>(
+async fn keep_as_they_are<C: ConnectionTrait + sea_orm::TransactionTrait>(
     db: &C,
     owner: i32,
     present: &crate::services::agent::memory::unified::Audience,

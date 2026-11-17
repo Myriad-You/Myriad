@@ -160,10 +160,11 @@ async fn withdrawn(
             // person's rows, not looked up row by row; and each of those
             // notes quotes words of its own, which went the way of the fact
             // it was gone over into.
-            "WITH retired AS ( \
+            format!(
+                "WITH RECURSIVE {}, retired AS ( \
                SELECT m.id, m.user_id, m.evidence, m.created_at, \
                  LEAST(m.created_at, min(s.created_at)) AS noted, \
-                 (m.invalid_reason = 'deleted' OR m.superseded_by IS NULL) AS taken_back, \
+                 m.id IN (SELECT id FROM taken_back) AS taken_back, \
                  EXISTS (SELECT 1 FROM agent_memories n \
                          WHERE n.id = m.superseded_by AND n.user_id = m.user_id \
                            AND n.invalid_reason IS DISTINCT FROM 'deleted' \
@@ -180,6 +181,11 @@ async fn withdrawn(
              SELECT s.evidence, r.created_at, s.created_at, r.taken_back, r.replaced \
              FROM retired r JOIN agent_memories s ON s.user_id = r.user_id \
                AND s.superseded_by = r.id AND s.invalid_reason = 'settled'",
+                super::memory_nodes::known::taken_back_sql(
+                    "s.user_id = $1 AND s.venue = 'private' AND s.source = ANY($2) \
+                     AND s.invalid_reason IN ('deleted', 'superseded')"
+                )
+            ),
             [
                 user_id.into(),
                 vec![

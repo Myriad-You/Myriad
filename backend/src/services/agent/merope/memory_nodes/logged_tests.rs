@@ -509,3 +509,92 @@ async fn her_old_nodes_come_after_her_memories_with_an_older_epoch() {
     );
     schema.drop().await;
 }
+
+/// A memory taken back in the site owner's talk, whose rows go into her
+/// log: what rests on it goes from her nodes there, and the forget goes
+/// into her log too, for every end to let it go; the memory keeps its row,
+/// put aside.
+#[tokio::test]
+async fn a_memory_taken_back_in_the_owners_talk_goes_from_her_log_too() {
+    let Some(schema) = schema("memory_nodes_logged_taken_back").await else {
+        return;
+    };
+    let db = &schema.db;
+    test_settings::set(Settings {
+        enabled: true,
+        ..Settings::default()
+    });
+    keys::test_root::use_here(keys::test_root::TestRoot([9; 32]));
+    her_log::test_partner::give(db, OWNER, PARTNER).await;
+    partner::remember(Some(PARTNER));
+    let talk = audience::owners_talk();
+    let thought = pen::think().expect("her mind is here in tests");
+    store::start(db, OWNER).await.unwrap();
+    db.execute_unprepared(
+        "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, audience, \
+         valid_from, created_at, updated_at) VALUES \
+         ('m1', 1, 'fact', 'trying a blue flask this week', 'chat', 'private', '[1]'::jsonb, \
+          now(), now(), now()), \
+         ('m2', 1, 'fact', 'has a snake plant', 'chat', 'private', '[1]'::jsonb, \
+          now(), now(), now())",
+    )
+    .await
+    .unwrap();
+    let (node, rows) = topic(&talk, "m2", "has a snake plant");
+    write::write(db, OWNER, &talk, &rows, Some(&thought))
+        .await
+        .unwrap();
+    let standing = RowIn {
+        id: myriad_nodes::entries::row_id_from("node.standing", &node, "them-0a1b2c3d4e", "her"),
+        node: node.clone(),
+        kind: "node.standing".into(),
+        body: json!({
+            "version": myriad_nodes::BODY_VERSION,
+            "sync": "shared",
+            "saidBy": ["her"],
+            "base": [],
+            "item": "them-0a1b2c3d4e",
+            "text": "trying a blue flask this week",
+            "because": ["memory:m1"],
+        }),
+        author: Author::Her,
+    };
+    write::write(db, OWNER, &talk, &[standing], Some(&thought))
+        .await
+        .unwrap();
+    let logged = placed(db, LOG_ROWS, &talk).await.len();
+    db.execute_unprepared(
+        "UPDATE agent_memories SET invalid_at = now(), invalid_reason = 'superseded', \
+         superseded_by = NULL WHERE id = 'm1'",
+    )
+    .await
+    .unwrap();
+    let txn = sea_orm::TransactionTrait::begin(db).await.unwrap();
+    forget::forget_taken_back(&txn, &["m1".to_string()]).await;
+    txn.commit().await.unwrap();
+    let head = read::node(db, OWNER, &talk, &node).await.unwrap().unwrap();
+    assert!(myriad_nodes::stands::shown_on(&node, &head).is_empty());
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*) AS n FROM agent_node_rows WHERE kind = 'node.standing' AND body <> ''"
+        )
+        .await,
+        0,
+        "no word of it is kept"
+    );
+    assert!(
+        placed(db, LOG_ROWS, &talk).await.len() > logged,
+        "the forget goes into her log"
+    );
+    assert_eq!(
+        count(
+            db,
+            "SELECT COUNT(*) AS n FROM agent_memories WHERE id = 'm1'"
+        )
+        .await,
+        1,
+        "taken back keeps its row"
+    );
+    schema.drop().await;
+}

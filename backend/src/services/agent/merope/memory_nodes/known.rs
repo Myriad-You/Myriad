@@ -111,6 +111,32 @@ pub(crate) struct Named {
     pub learned: i64,
 }
 
+/// How far a memory row is followed to what replaced it, and what replaced
+/// that, to find whether the last of them was taken back.
+const TAKEN_BACK_STEPS: i32 = 16;
+
+/// The one place it is said which memory rows were taken back, as SQL: two
+/// common table expressions (`WITH RECURSIVE` first) ending in
+/// `taken_back(id)`, over the rows of `agent_memories` alias `s` that
+/// `seeds` picks. A row is taken back when it was deleted, or put aside
+/// with nothing in its place, or replaced (or gone over into, `settled`)
+/// by one taken back, as far as the line goes: 「当我没说」 of 「改到周六」
+/// takes back 「周五」 too, not only the correction.
+pub(crate) fn taken_back_sql(seeds: &str) -> String {
+    format!(
+        "taken_back_line(start, id, superseded_by, reason, depth) AS ( \
+           SELECT s.id, s.id, s.superseded_by, s.invalid_reason, 0 \
+           FROM agent_memories s WHERE {seeds} \
+           UNION ALL \
+           SELECT l.start, n.id, n.superseded_by, n.invalid_reason, l.depth + 1 \
+           FROM taken_back_line l JOIN agent_memories n ON n.id = l.superseded_by \
+           WHERE l.depth < {TAKEN_BACK_STEPS}), \
+         taken_back(id) AS ( \
+           SELECT DISTINCT start FROM taken_back_line \
+           WHERE reason = 'deleted' OR (reason = 'superseded' AND superseded_by IS NULL))"
+    )
+}
+
 /// Each of the memory rows `ids` as it is now, in one read: whether it is
 /// held, whether it was taken back, and the day she learned it.
 pub(crate) async fn named<C: ConnectionTrait>(
@@ -123,15 +149,18 @@ pub(crate) async fn named<C: ConnectionTrait>(
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT h.id, (h.invalid_at IS NULL AND h.superseded_by IS NULL) AS held, \
-               COALESCE(h.invalid_reason = 'deleted' \
-                        OR (h.invalid_reason = 'superseded' AND h.superseded_by IS NULL), \
-                        false) AS taken_back, \
-               LEAST(h.created_at, min(n.created_at)) AS at \
-             FROM agent_memories h \
-             LEFT JOIN agent_memories n ON n.superseded_by = h.id AND n.invalid_reason = 'settled' \
-             WHERE h.id = ANY($1) \
-             GROUP BY h.id, h.created_at, h.invalid_at, h.superseded_by, h.invalid_reason",
+            format!(
+                "WITH RECURSIVE {} \
+                 SELECT h.id, (h.invalid_at IS NULL AND h.superseded_by IS NULL) AS held, \
+                   h.id IN (SELECT id FROM taken_back) AS taken_back, \
+                   LEAST(h.created_at, min(n.created_at)) AS at \
+                 FROM agent_memories h \
+                 LEFT JOIN agent_memories n \
+                   ON n.superseded_by = h.id AND n.invalid_reason = 'settled' \
+                 WHERE h.id = ANY($1) \
+                 GROUP BY h.id, h.created_at, h.invalid_at, h.superseded_by",
+                taken_back_sql("s.id = ANY($1)")
+            ),
             [ids.into()],
         ))
         .await?;

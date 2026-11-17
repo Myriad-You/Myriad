@@ -64,7 +64,9 @@ impl Keep {
     }
 }
 
-pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<C: ConnectionTrait>(
+pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<
+    C: ConnectionTrait + sea_orm::TransactionTrait,
+>(
     db: &C,
     user_id: i32,
     input_at: chrono::DateTime<chrono::FixedOffset>,
@@ -135,7 +137,9 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<C: 
     Ok(kept)
 }
 
-pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: ConnectionTrait>(
+pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<
+    C: ConnectionTrait + sea_orm::TransactionTrait,
+>(
     db: &C,
     user_id: i32,
     input_at: chrono::DateTime<chrono::FixedOffset>,
@@ -150,7 +154,9 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
 /// was put together from (`settled`, one list per update). A note is let go
 /// only for the memory that holds it now, the one written or the one that
 /// already said it; when nothing holds it, it stays a note and fades.
-pub(in crate::services::agent::merope) async fn settle_chat_memory_on<C: ConnectionTrait>(
+pub(in crate::services::agent::merope) async fn settle_chat_memory_on<
+    C: ConnectionTrait + sea_orm::TransactionTrait,
+>(
     db: &C,
     user_id: i32,
     last: chrono::DateTime<chrono::FixedOffset>,
@@ -166,7 +172,7 @@ pub(in crate::services::agent::merope) async fn settle_chat_memory_on<C: Connect
     Ok(kept)
 }
 
-async fn apply_one<C: ConnectionTrait>(
+async fn apply_one<C: ConnectionTrait + sea_orm::TransactionTrait>(
     db: &C,
     user_id: i32,
     input_at: chrono::DateTime<chrono::FixedOffset>,
@@ -292,9 +298,10 @@ async fn apply_one<C: ConnectionTrait>(
                 unified::retire_in_favor_of(db, user_id, &settles, "settled", Some(holder)).await?;
             } else {
                 // Taken back with nothing in its place: what rests on it on
-                // her nodes goes as when it is forgotten, in this
-                // transaction (its words may carry what was taken back).
-                super::super::memory_nodes::forget::forget(db, &targets, &[]).await?;
+                // her nodes, or on what it replaced, goes as when it is
+                // forgotten (its words may carry what was taken back). The
+                // memory goes whatever happens there.
+                super::super::memory_nodes::forget::forget_taken_back(db, &targets).await;
             }
         }
     }
