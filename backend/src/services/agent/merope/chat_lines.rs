@@ -12,6 +12,12 @@
 //!   again, nor her answer to it ([`withdrawn`]). 「当我没说」 keeps the
 //!   words in the chat (CONTEXT: it means not bringing them up, not
 //!   deleting): only looking back leaves them out.
+//! - **Replaced since.** What a memory quotes that a later fact took the
+//!   place of (the old fact is no longer shown) is still what they said
+//!   that day, and is found; but the line says so where she reads it
+//!   ([`Line::found`]), so their old words do not read as how things are
+//!   beside the fact that took their place. The words themselves stay as
+//!   said: what is matched, given a vector or written into a day is them.
 
 use std::collections::HashSet;
 
@@ -27,6 +33,23 @@ pub(crate) struct Line {
     pub(crate) at: DateTime<FixedOffset>,
     pub(crate) hers: bool,
     pub(crate) content: String,
+    /// A fact kept from this line of theirs has since been replaced by a
+    /// later one she still keeps.
+    pub(crate) replaced: bool,
+}
+
+/// Before a line of theirs she looked back to, when a later fact she keeps
+/// took the place of what it told her.
+pub(crate) const REPLACED_SINCE: &str = "(you keep a later fact in place of what this told you)";
+
+/// `text` of a line as she reads it when found: marked when what it told
+/// her was `replaced` since.
+pub(crate) fn found(text: String, replaced: bool) -> String {
+    if replaced {
+        format!("{REPLACED_SINCE} {text}")
+    } else {
+        text
+    }
 }
 
 /// The newest `latest` lines of `user_id`'s private chat with her that a
@@ -68,30 +91,50 @@ pub(crate) async fn private_lines(db: &DatabaseConnection, user_id: i32, latest:
                 at: row.try_get("", "created_at").ok()?,
                 hers: row.try_get::<String>("", "role").ok()? == "assistant",
                 content,
+                replaced: false,
             })
         })
         .collect();
     lines.reverse();
-    let gone = withdrawn(db, user_id, &lines).await;
+    let (gone, replaced) = withdrawn(db, user_id, &lines).await;
     lines.retain(|line| !gone.contains(&line.id));
+    for line in &mut lines {
+        line.replaced = replaced.contains(&line.id);
+    }
     lines
 }
 
-/// Of `lines` (oldest first), those they took back: what a memory they took
-/// back quotes (one retired as let go, with nothing in its place, or
-/// deleted), said within a day before it was written, and her answer right
-/// after each line of theirs. A let-go memory keeps its row and its words
-/// stay in the chat (「当作没说过」 is not deleting): only she does not bring
-/// them up again. Read when looked for, so a taking back that came from
-/// another end counts too.
-async fn withdrawn(db: &DatabaseConnection, user_id: i32, lines: &[Line]) -> HashSet<i32> {
+/// Of `lines` (oldest first), those they took back, and those of theirs
+/// whose fact was replaced since.
+///
+/// Taken back: what a memory they took back quotes (one retired as let go,
+/// with nothing in its place, or deleted), said within a day before it was
+/// written, and her answer right after each line of theirs. A let-go memory
+/// keeps its row and its words stay in the chat (「当作没说过」 is not
+/// deleting): only she does not bring them up again. Read when looked for,
+/// so a taking back that came from another end counts too.
+///
+/// Replaced since: what a memory quotes that a later fact took the place of
+/// (retired as superseded, pointing at one that was not itself taken back),
+/// their line only.
+async fn withdrawn(
+    db: &DatabaseConnection,
+    user_id: i32,
+    lines: &[Line],
+) -> (HashSet<i32>, HashSet<i32>) {
     let Ok(rows) = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT evidence, created_at FROM agent_memories \
-             WHERE user_id = $1 AND venue = 'private' AND source = ANY($2) \
-               AND (invalid_reason = 'deleted' \
-                    OR (invalid_reason = 'superseded' AND superseded_by IS NULL))",
+            "SELECT m.evidence, m.created_at, \
+               (m.invalid_reason = 'deleted' OR m.superseded_by IS NULL) AS taken_back, \
+               EXISTS (SELECT 1 FROM agent_memories n \
+                       WHERE n.id = m.superseded_by AND n.user_id = m.user_id \
+                         AND n.invalid_reason IS DISTINCT FROM 'deleted' \
+                         AND NOT (n.invalid_reason IS NOT DISTINCT FROM 'superseded' \
+                                  AND n.superseded_by IS NULL)) AS replaced \
+             FROM agent_memories m \
+             WHERE m.user_id = $1 AND m.venue = 'private' AND m.source = ANY($2) \
+               AND m.invalid_reason IN ('deleted', 'superseded')",
             [
                 user_id.into(),
                 vec![
@@ -104,41 +147,45 @@ async fn withdrawn(db: &DatabaseConnection, user_id: i32, lines: &[Line]) -> Has
         ))
         .await
     else {
-        return HashSet::new();
+        return Default::default();
     };
-    let taken_back: Vec<(String, DateTime<FixedOffset>)> = rows
+    // Each quote with when its memory was written, and what became of it.
+    let quoted: Vec<(String, DateTime<FixedOffset>, bool, bool)> = rows
         .iter()
         .filter_map(|row| {
             let evidence: Option<String> = row.try_get("", "evidence").ok()?;
             Some((
                 origins::quote(evidence.as_deref())?,
                 row.try_get("", "created_at").ok()?,
+                row.try_get("", "taken_back").ok()?,
+                row.try_get("", "replaced").ok()?,
             ))
         })
         .collect();
-    let mut gone = HashSet::new();
+    let (mut gone, mut replaced) = (HashSet::new(), HashSet::new());
     for (index, line) in lines.iter().enumerate() {
         let said = line
             .content
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ");
-        let quoted = taken_back.iter().any(|(quote, written)| {
+        let quotes = |(quote, written, _, _): &&(String, DateTime<FixedOffset>, bool, bool)| {
             line.at <= *written
                 && line.at >= *written - origins::QUOTED_WITHIN
-                && said.contains(quote)
-        });
-        if !quoted {
-            continue;
-        }
-        gone.insert(line.id);
-        if !line.hers
-            && let Some(answer) = lines.get(index + 1).filter(|next| next.hers)
-        {
-            gone.insert(answer.id);
+                && said.contains(quote.as_str())
+        };
+        if quoted.iter().filter(quotes).any(|quote| quote.2) {
+            gone.insert(line.id);
+            if !line.hers
+                && let Some(answer) = lines.get(index + 1).filter(|next| next.hers)
+            {
+                gone.insert(answer.id);
+            }
+        } else if !line.hers && quoted.iter().filter(quotes).any(|quote| quote.3) {
+            replaced.insert(line.id);
         }
     }
-    gone
+    (gone, replaced)
 }
 
 #[cfg(test)]

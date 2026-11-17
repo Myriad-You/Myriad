@@ -342,6 +342,19 @@ pub async fn turn_back(
         return Vec::new();
     };
     let picked = parse_pick(&raw, &table).unwrap_or_default();
+    // Their private lines a later fact took the place of, by when they were
+    // said: marked where shown, as wherever she looks back (`chat_lines`).
+    let replaced: std::collections::HashSet<DateTime<FixedOffset>> = match place {
+        Place::With(user_id) if !picked.is_empty() => {
+            super::chat_lines::private_lines(db, user_id, LATEST)
+                .await
+                .into_iter()
+                .filter(|line| line.replaced)
+                .map(|line| line.at)
+                .collect()
+        }
+        _ => Default::default(),
+    };
     let mut found = Vec::new();
     for date in picked {
         let Some(said) = days.get(&date) else {
@@ -363,11 +376,14 @@ pub async fn turn_back(
             continue;
         }
         for index in read {
-            let (_, hers, text) = said[index];
+            let (at, hers, text) = said[index];
             found.push((
                 date.to_string(),
                 if *hers { Who::You } else { Who::They },
-                myriad_merope::remembering::excerpt(text, looking_for, SHOWN_CHARS),
+                super::chat_lines::found(
+                    myriad_merope::remembering::excerpt(text, looking_for, SHOWN_CHARS),
+                    !*hers && replaced.contains(at),
+                ),
             ));
         }
     }

@@ -241,13 +241,17 @@ pub async fn look_back(
     // The lines a chat turn may look through (see `chat_lines`): not a
     // group's, not a piece of work, not an archived talk, nothing they took
     // back. Oldest first, as the chat reads.
-    let chat: Vec<(chrono::DateTime<chrono::FixedOffset>, bool, String)> =
-        super::chat_lines::private_lines(db, user_id, 3000)
-            .await
-            .into_iter()
-            .filter(|line| !in_front.contains(&line.id) && line.content.trim() != asked.trim())
-            .map(|line| (line.at, line.hers, line.content))
-            .collect();
+    let lines: Vec<super::chat_lines::Line> = super::chat_lines::private_lines(db, user_id, 3000)
+        .await
+        .into_iter()
+        .filter(|line| !in_front.contains(&line.id) && line.content.trim() != asked.trim())
+        .collect();
+    // Which of them a later fact took the place of: said where it is shown.
+    let replaced: Vec<bool> = lines.iter().map(|line| line.replaced).collect();
+    let chat: Vec<(chrono::DateTime<chrono::FixedOffset>, bool, String)> = lines
+        .into_iter()
+        .map(|line| (line.at, line.hers, line.content))
+        .collect();
     let mut named: Vec<(usize, usize)> = chat
         .iter()
         .enumerate()
@@ -296,6 +300,7 @@ pub async fn look_back(
                 myriad_merope::remembering::excerpt(content, query, SHOWN_CHARS)
             };
             let who = if *hers { Who::You } else { Who::They };
+            let text = super::chat_lines::found(text, replaced[index]);
             (at.format("%Y-%m-%d").to_string(), who, text)
         })
         .collect();

@@ -217,13 +217,14 @@ fn latest_of(head: &Value) -> i64 {
 }
 
 /// Every memory row a head names: on its entries and spans, views and
-/// open items.
+/// open items, and what stands or ended there (so since when it does, and
+/// whether what it rests on is still held, can be told).
 fn named_by(head: &Value) -> Vec<String> {
     let entries = ["entries", "spans"]
         .iter()
         .flat_map(|field| head[field].as_array().into_iter().flatten())
         .flat_map(|item| cited(&item["refs"]));
-    let items = ["views", "open"]
+    let items = ["views", "open", "standing"]
         .iter()
         .flat_map(|field| head[field].as_object().into_iter().flatten())
         .flat_map(|(_, item)| cited(&item["value"]["because"]));

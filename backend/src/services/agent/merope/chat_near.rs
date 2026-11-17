@@ -255,7 +255,7 @@ async fn reach(
             (
                 line.at.format("%Y-%m-%d").to_string(),
                 who,
-                shown(&line.content),
+                super::chat_lines::found(shown(&line.content), line.replaced),
             )
         })
         .collect();

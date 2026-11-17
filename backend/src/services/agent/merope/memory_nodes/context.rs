@@ -451,6 +451,8 @@ impl NodeTurn {
 
 /// How their life stands now, across her nodes: shown every time in a
 /// private talk, before what she remembers ([`super::recall::Recollection::resident`]).
+/// Which is the later, an item or something else she reads, is told by
+/// their days, not by where they stand in the prompt.
 pub(crate) fn resident_section(resident: &[String]) -> Option<String> {
     let lines: Vec<String> = resident
         .iter()
@@ -460,7 +462,7 @@ pub(crate) fn resident_section(resident: &[String]) -> Option<String> {
         .collect();
     section(
         "How their life stands now",
-        "How things stand in their life now, as you keep it, newest first: what changed since stands here as it is now. Where what you remember below says otherwise, this is the later.",
+        "How things stand in their life now, as you keep it, each with since when. An item is as new as its day: where a fact below, or a line of theirs you looked back to, is dated later and says otherwise, that is the later; where it is dated earlier, this is.",
         "standing_now",
         &lines,
     )

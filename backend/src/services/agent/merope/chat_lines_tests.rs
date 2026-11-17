@@ -186,7 +186,8 @@ async fn only_their_own_private_chat_is_read() {
 
 /// What they took back (a memory let go with nothing in its place, or
 /// deleted) is not brought up again, nor her answer to it, though the words
-/// stay in the chat; what was only corrected still is.
+/// stay in the chat; what a later fact replaced still is, and says so
+/// where she reads it.
 #[tokio::test]
 async fn what_they_took_back_is_not_read() {
     let Some(schema) = schema("chat_lines_withdrawn").await else {
@@ -223,16 +224,29 @@ async fn what_they_took_back_is_not_read() {
     .await
     .unwrap();
 
+    // What a later fact took the place of is still read, as said, and
+    // known as replaced: their line only, not her answer to it.
+    let read = private_lines(db, OWNER, 3000).await;
     assert_eq!(
-        contents(&private_lines(db, OWNER, 3000).await),
+        contents(&read),
         [said[2], said[3], said[4]],
         "the line and her answer are left out"
+    );
+    assert_eq!(
+        read.iter().map(|line| line.replaced).collect::<Vec<_>>(),
+        [true, false, false]
     );
     assert_eq!(
         count(db, "SELECT COUNT(*) AS n FROM agent_messages").await,
         5,
         "and stay in the chat"
     );
+    // Where she reads it, it says so; a line nothing replaced reads as said.
+    assert_eq!(
+        super::found(said[2].to_string(), read[0].replaced),
+        format!("{} {}", super::REPLACED_SINCE, said[2])
+    );
+    assert_eq!(super::found(said[3].to_string(), read[1].replaced), said[3]);
     let by_words = super::super::remembering::look_back(db, OWNER, "香菜", "", 3).await;
     assert!(
         !found(&by_words).iter().any(|text| text.contains("香菜")),
