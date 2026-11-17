@@ -691,7 +691,10 @@ impl Link {
             // Taken whatever this link said: a run's end may come after its
             // owner turned the switch off (the request must be this device's).
             "act.result" => self.act_result(inbound).await,
-            "call.offer" | "call.ask" | "call.cancel" if self.calls => {
+            "call.offer" | "call.ask" | "call.cancel" | "call.result" | "call.accepted"
+            | "call.progress" | "call.event"
+                if self.calls =>
+            {
                 self.call_frame(text, inbound).await
             }
             "ping" => self.reply(frame("pong", json!({}))),
@@ -1965,7 +1968,14 @@ impl Link {
                     self.reply(answer);
                 }
             }
-            // Nothing it asked runs on the host: nothing to stop.
+            // How one of her calls came out, and a long one taken.
+            "call.result" => {
+                super::calls_pending::result(&self.db, &self.device.id, &inbound.body).await
+            }
+            "call.accepted" => super::calls_pending::accepted(&self.device.id, &inbound.body),
+            // Where a long one is, and pieces of a result that comes whole
+            // in call.result: nothing she waits on. Nothing it asked runs on
+            // the host: nothing to stop.
             _ => {}
         }
     }

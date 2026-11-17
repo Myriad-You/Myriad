@@ -134,6 +134,20 @@ pub(crate) async fn grants_changed(db: &DatabaseConnection, owner: i32, device_i
     super::grant_calls(device_id, id, turn, granted);
 }
 
+// Work asks through these next.
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use super::calls_pending::{Answer, ask, sweep};
+
+/// What her calls of `action` are counted as on her status page.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(super) fn kind(action: &str) -> &'static str {
+    ENABLED
+        .iter()
+        .copied()
+        .find(|enabled| *enabled == action)
+        .unwrap_or("call.other")
+}
+
 /// The permission groups the owner is shown for a device: those of an
 /// action enabled here, each once.
 pub(crate) fn shown_groups() -> Vec<&'static str> {

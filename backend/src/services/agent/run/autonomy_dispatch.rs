@@ -18,6 +18,8 @@ use serde_json::{Value, json};
 pub async fn tick_autonomy_work(db: DatabaseConnection) {
     // What the owner's Macs were asked to do and has run out of time.
     crate::services::agent::link::sweep_acts(&db).await;
+    // Rows of her calls to a device past what is kept.
+    crate::services::agent::link::calls::sweep(&db).await;
     let store = IntentStore::new(db.clone());
     if let Err(error) = store.expire_stale_global().await {
         tracing::warn!(%error, "[Autonomy] expire stale proposals failed");

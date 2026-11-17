@@ -93,6 +93,8 @@ pub(super) struct TimingSpec {
     pub touch_appraise_ms: u64,
     pub act_pickup_ms: u64,
     pub act_max_run_ms: u64,
+    /// How long a long call waits for `call.accepted`.
+    pub call_accept_ms: u64,
     pub missed_heartbeats: u32,
     pub hello_timeout_ms: u64,
 }

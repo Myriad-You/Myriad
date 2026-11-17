@@ -52,8 +52,9 @@
 mod act;
 mod body;
 pub(crate) mod calls;
-// Its records are written by her calls to a device, which come next.
+// Work asks through it next.
 #[cfg_attr(not(test), allow(dead_code))]
+mod calls_pending;
 mod calls_store;
 mod connection;
 mod contract;
@@ -280,10 +281,51 @@ fn grant_calls(device_id: &str, id: u64, turn: u64, granted: Vec<calls::Action>)
         return;
     }
     match calls.sender.try_send(calls::granted_frame(&granted)) {
-        Ok(()) => calls.granted = Some(granted),
+        Ok(()) => {
+            // Then what changes for the calls waiting on it.
+            calls_pending::regranted(device_id, id, &granted, &calls.sender);
+            calls.granted = Some(granted);
+        }
         Err(error) => {
             tracing::warn!(%error, device = %device_id, "[link] what it is granted could not be told; told when it changes again");
         }
+    }
+}
+
+/// Sends her call `call_id` of `action` on the owner's device's link, when
+/// it was told it is granted the action; marked sent on that link under the
+/// same lock. The code it fails with otherwise: `call_unavailable` (not
+/// linked, or not told yet), `call_not_granted`.
+#[cfg_attr(not(test), allow(dead_code))]
+fn send_call(
+    owner: i32,
+    device_id: &str,
+    call_id: &str,
+    action: &str,
+    ask: connection::Outgoing,
+) -> Result<(), &'static str> {
+    let open = OPEN.lock().map_err(|_| "internal_error")?;
+    let link = open
+        .get(device_id)
+        .filter(|link| link.owner == owner)
+        .ok_or("call_unavailable")?;
+    let calls = link.calls.as_ref().ok_or("call_unavailable")?;
+    let granted = calls.granted.as_ref().ok_or("call_unavailable")?;
+    if !granted.iter().any(|granted| granted.name == action) {
+        return Err("call_not_granted");
+    }
+    calls.sender.try_send(ask).map_err(|_| "call_unavailable")?;
+    calls_pending::sent(call_id, link.id);
+    Ok(())
+}
+
+/// A frame of her calls to the device's link, if it takes them.
+#[cfg_attr(not(test), allow(dead_code))]
+fn send_calls_frame(device_id: &str, outgoing: connection::Outgoing) {
+    if let Ok(open) = OPEN.lock()
+        && let Some(calls) = open.get(device_id).and_then(|link| link.calls.as_ref())
+    {
+        let _ = calls.sender.try_send(outgoing);
     }
 }
 
@@ -467,6 +509,7 @@ pub(crate) fn disconnect(device_id: &str, why: Close) {
     if matches!(why, Close::Revoked | Close::OwnerChanged) {
         say::forget_device(device_id);
         act::forget_device(device_id);
+        calls_pending::forget_device(device_id);
     }
     let open = OPEN.lock().ok().and_then(|mut open| open.remove(device_id));
     if let Some(open) = open {

@@ -76,29 +76,35 @@ impl Senses {
 /// window's row (its facts carry who) keeps only the first line of its
 /// summary and no screen_text: a child from before put others' words there.
 fn keep_screen_fields(row: &mut Value) {
-    let Some(row) = row.as_object_mut() else {
+    keep_look("presence", "safeFacts", row);
+}
+
+/// What `screenFields` lets a look at the screen in a frame of type `t` say:
+/// its facts under `facts_key`, and its summary.
+pub(super) fn keep_look(t: &'static str, facts_key: &str, look: &mut Value) {
+    let Some(look) = look.as_object_mut() else {
         return;
     };
     let mut chat = false;
-    if let Some(facts) = row.get_mut("safeFacts").and_then(Value::as_object_mut) {
+    if let Some(facts) = look.get_mut(facts_key).and_then(Value::as_object_mut) {
         facts.retain(|key, _| {
             let kept = super::counts::screen_fact(key);
             if !kept {
-                super::counts::screen_key_deleted("presence", key);
+                super::counts::screen_key_deleted(t, key);
             }
             kept
         });
         chat = facts.contains_key("who");
         if chat && facts.remove("screen_text").is_some() {
-            super::counts::screen_key_deleted("presence", "screen_text");
+            super::counts::screen_key_deleted(t, "screen_text");
         }
     }
     if chat
-        && let Some(Value::String(summary)) = row.get_mut("summary")
+        && let Some(Value::String(summary)) = look.get_mut("summary")
         && let Some((first, _)) = summary.split_once('\n')
     {
         *summary = first.to_string();
-        super::counts::screen_key_deleted("presence", "summary");
+        super::counts::screen_key_deleted(t, "summary");
     }
 }
 

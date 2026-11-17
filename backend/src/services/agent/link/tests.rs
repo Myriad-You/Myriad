@@ -4126,6 +4126,372 @@ async fn a_device_asks_only_her_host_and_is_answered_and_a_link_without_calls_is
     site.close().await;
 }
 
+/// A child that listed calls, offered `actions` and was told what it is granted.
+async fn offering(site: &Site, token: &str, actions: &[&str]) -> (Child, Value) {
+    let mut child = Child::open(site, token).await;
+    child.hello_with(&["calls"]).await;
+    let actions: Vec<Value> = actions
+        .iter()
+        .map(|name| json!({ "name": name, "version": 1 }))
+        .collect();
+    child
+        .send("call.offer", None, json!({ "actions": actions }))
+        .await;
+    let granted = child.expect("call.granted").await;
+    (child, granted)
+}
+
+/// Her call, asked in the background: what it came to, when it does.
+fn her_call(
+    site: &Site,
+    device_id: &str,
+    action: &'static str,
+    of: Value,
+    args: Value,
+) -> tokio::task::JoinHandle<super::calls::Answer> {
+    let db = site.db.clone();
+    let device_id = device_id.to_string();
+    tokio::spawn(async move { super::calls::ask(&db, OWNER, &device_id, action, &of, args).await })
+}
+
+/// Nothing more came on the link: a ping is answered next.
+async fn nothing_else(child: &mut Child) {
+    child.send("ping", None, json!({})).await;
+    child.expect("pong").await;
+}
+
+#[tokio::test]
+async fn she_looks_at_a_linked_devices_screen_and_keeps_only_how_it_went() {
+    let Some(site) = site().await else {
+        return;
+    };
+    let (mac, token) = device(&site.db, "Mac").await;
+    let (mut child, _) = offering(&site, &token, &["screen.look"]).await;
+    let before = crate::clock::now().timestamp_millis();
+    let call = her_call(
+        &site,
+        &mac.id,
+        "screen.look",
+        json!({ "kind": "owner" }),
+        json!({}),
+    );
+    let ask = child.expect("call.ask").await;
+    let body = &ask["body"];
+    assert_eq!(ask["id"], body["callId"]);
+    assert_eq!(body["action"], "screen.look");
+    assert_eq!(body["for"], json!({ "kind": "owner" }));
+    assert_eq!(body["args"], json!({}));
+    // On the host's clock, at most a minute ahead.
+    let deadline = body["deadlineAt"].as_i64().unwrap();
+    assert!(
+        deadline >= before + 60_000 && deadline <= crate::clock::now().timestamp_millis() + 60_000
+    );
+    let call_id = body["callId"].as_str().unwrap().to_string();
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "screen.look", "version": 1, "outcome": "done",
+                    "result": { "facts": { "app": "Xcode", "window_title": "calls.rs", "screen_text": "fn ask", "clipboard": "secret" },
+                                "summary": "Editing calls.rs" } }),
+        )
+        .await;
+    let answer = call.await.unwrap();
+    assert_eq!(answer.outcome, super::calls_store::Outcome::Done);
+    // A key screenFields does not name is gone; an app's text stays.
+    assert_eq!(
+        answer.result,
+        Some(
+            json!({ "facts": { "app": "Xcode", "window_title": "calls.rs", "screen_text": "fn ask" },
+                     "summary": "Editing calls.rs" })
+        )
+    );
+    let kept = super::calls_store::recent(&site.db, OWNER, 10)
+        .await
+        .unwrap();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(
+        (
+            kept[0].call_id.as_str(),
+            kept[0].device_id.as_str(),
+            kept[0].action.as_str(),
+            kept[0].outcome.as_str(),
+            kept[0].for_kind.as_str(),
+            kept[0].late
+        ),
+        (
+            call_id.as_str(),
+            mac.id.as_str(),
+            "screen.look",
+            "done",
+            "owner",
+            false
+        )
+    );
+    // Her call's row holds none of what came back.
+    let row: Value = site
+        .db
+        .query_one_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            format!("SELECT row_to_json(c)::text AS row FROM agent_device_calls c WHERE call_id = '{call_id}'"),
+        ))
+        .await
+        .unwrap()
+        .map(|row| serde_json::from_str(&row.try_get::<String>("", "row").unwrap()).unwrap())
+        .unwrap();
+    for word in ["Xcode", "calls.rs", "fn ask", "secret", "Editing"] {
+        assert!(!row.to_string().contains(word), "{row}");
+    }
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn a_call_is_refused_at_once_when_the_device_is_away_or_it_is_not_for_the_owner() {
+    let Some(site) = site().await else {
+        return;
+    };
+    let (mac, token) = device(&site.db, "Mac").await;
+    let owner = json!({ "kind": "owner" });
+    // Not linked: unavailable at once, and nothing waits for it.
+    let away = super::calls::ask(&site.db, OWNER, &mac.id, "screen.look", &owner, json!({})).await;
+    assert_eq!(away, super::calls::Answer::failed("call_unavailable"));
+    // Linked, but it has not said what it can do: not told anything yet.
+    let mut child = Child::open(&site, &token).await;
+    child.hello_with(&["calls"]).await;
+    let early = super::calls::ask(&site.db, OWNER, &mac.id, "screen.look", &owner, json!({})).await;
+    assert_eq!(early, super::calls::Answer::failed("call_unavailable"));
+    child
+        .send(
+            "call.offer",
+            None,
+            json!({ "actions": [{ "name": "screen.look", "version": 1 }] }),
+        )
+        .await;
+    child.expect("call.granted").await;
+    // What was refused before is not sent now.
+    nothing_else(&mut child).await;
+    // In a group, or for someone else: refused before anything is asked.
+    for of in [
+        json!({ "kind": "group", "groupId": "telegram:-100" }),
+        json!({ "kind": "other" }),
+    ] {
+        let refused =
+            super::calls::ask(&site.db, OWNER, &mac.id, "screen.look", &of, json!({})).await;
+        assert_eq!(refused, super::calls::Answer::failed("wrong_audience"));
+    }
+    // Not granted: the owner turned it off.
+    super::calls::set_approved(&site.db, OWNER, &mac.id, "screen", false)
+        .await
+        .unwrap();
+    child.expect("call.granted").await;
+    let off = super::calls::ask(&site.db, OWNER, &mac.id, "screen.look", &owner, json!({})).await;
+    assert_eq!(off, super::calls::Answer::failed("call_not_granted"));
+    nothing_else(&mut child).await;
+    let kept = super::calls_store::recent(&site.db, OWNER, 10)
+        .await
+        .unwrap();
+    let codes: Vec<_> = kept
+        .iter()
+        .filter_map(|one| one.error_code.as_deref())
+        .collect();
+    assert_eq!(codes.len(), 5);
+    assert_eq!(
+        codes
+            .iter()
+            .filter(|code| **code == "call_unavailable")
+            .count(),
+        2
+    );
+    assert_eq!(
+        codes
+            .iter()
+            .filter(|code| **code == "wrong_audience")
+            .count(),
+        2
+    );
+    assert!(kept.iter().any(|one| one.for_kind == "group" && one.for_group.as_deref() == Some("telegram:-100")));
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn a_call_times_out_on_the_hosts_clock_and_what_comes_after_changes_its_row() {
+    let Some(site) = site().await else {
+        return;
+    };
+    super::calls_pending::times_in_test(300, 100, 5_000);
+    let (mac, token) = device(&site.db, "Mac").await;
+    let (mut child, _) = offering(&site, &token, &["screen.look"]).await;
+    let call = her_call(
+        &site,
+        &mac.id,
+        "screen.look",
+        json!({ "kind": "owner" }),
+        json!({}),
+    );
+    let ask = child.expect("call.ask").await;
+    let call_id = ask["body"]["callId"].as_str().unwrap().to_string();
+    assert_eq!(
+        call.await.unwrap(),
+        super::calls::Answer::failed("call_timeout")
+    );
+    // It came back after all: what happened, marked late.
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "screen.look", "version": 1, "outcome": "done",
+                    "result": { "facts": { "app": "Finder" } } }),
+        )
+        .await;
+    nothing_else(&mut child).await;
+    let kept = super::calls_store::recent(&site.db, OWNER, 10)
+        .await
+        .unwrap();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(
+        (
+            kept[0].outcome.as_str(),
+            kept[0].error_code.as_deref(),
+            kept[0].late
+        ),
+        ("done", None, true)
+    );
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn an_unknown_outcome_is_not_asked_again_and_a_call_cut_off_goes_again_on_the_next_link() {
+    let Some(site) = site().await else {
+        return;
+    };
+    super::calls_pending::times_in_test(10_000, 100, 5_000);
+    let (mac, token) = device(&site.db, "Mac").await;
+    let (mut child, _) = offering(&site, &token, &["screen.look"]).await;
+    let call = her_call(
+        &site,
+        &mac.id,
+        "screen.look",
+        json!({ "kind": "owner" }),
+        json!({}),
+    );
+    let ask = child.expect("call.ask").await;
+    let call_id = ask["body"]["callId"].as_str().unwrap().to_string();
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "screen.look", "version": 1, "outcome": "unknown" }),
+        )
+        .await;
+    let answer = call.await.unwrap();
+    assert_eq!(answer.outcome, super::calls_store::Outcome::Unknown);
+    assert_eq!(answer.result, None);
+    nothing_else(&mut child).await;
+
+    // Cut off before it answered: the next link is told what it is
+    // granted first, then the same call, same deadline.
+    let call = her_call(
+        &site,
+        &mac.id,
+        "screen.look",
+        json!({ "kind": "owner" }),
+        json!({}),
+    );
+    let first = child.expect("call.ask").await;
+    drop(child);
+    let (mut child, granted) = offering(&site, &token, &["screen.look"]).await;
+    assert_eq!(
+        granted["body"]["actions"],
+        json!([{ "name": "screen.look", "version": 1 }])
+    );
+    let again = child.expect("call.ask").await;
+    assert_eq!(again["id"], first["id"]);
+    assert_eq!(again["body"], first["body"]);
+    let call_id = again["body"]["callId"].as_str().unwrap().to_string();
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "screen.look", "version": 1, "outcome": "failed",
+                    "error": { "code": "not_now" } }),
+        )
+        .await;
+    assert_eq!(call.await.unwrap(), super::calls::Answer::failed("not_now"));
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn taking_an_action_back_cancels_a_long_call_after_telling_what_is_granted() {
+    let Some(site) = site().await else {
+        return;
+    };
+    super::calls::enable_in_test(&["screen.look", "work.run"]);
+    super::calls_pending::times_in_test(10_000, 100, 5_000);
+    let (mac, token) = device(&site.db, "Mac").await;
+    super::calls::set_approved(&site.db, OWNER, &mac.id, "work", true)
+        .await
+        .unwrap();
+    let (mut child, granted) = offering(&site, &token, &["screen.look", "work.run"]).await;
+    assert_eq!(granted["body"]["actions"].as_array().unwrap().len(), 2);
+    let args = json!({ "proposalId": "p-1", "title": "Tidy", "instruction": "Tidy the desktop" });
+    let call = her_call(&site, &mac.id, "work.run", json!({ "kind": "owner" }), args);
+    let ask = child.expect("call.ask").await;
+    let call_id = ask["body"]["callId"].as_str().unwrap().to_string();
+    child
+        .send("call.accepted", None, json!({ "callId": call_id }))
+        .await;
+    nothing_else(&mut child).await;
+    // The owner takes work back: told first, then the long call is stopped.
+    super::calls::set_approved(&site.db, OWNER, &mac.id, "work", false)
+        .await
+        .unwrap();
+    assert_eq!(
+        child.expect("call.granted").await["body"]["actions"],
+        json!([{ "name": "screen.look", "version": 1 }])
+    );
+    assert_eq!(
+        child.expect("call.cancel").await["body"],
+        json!({ "callId": call_id })
+    );
+    // What comes of it is what happened.
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "work.run", "version": 1, "outcome": "failed",
+                    "error": { "code": "call_cancelled" } }),
+        )
+        .await;
+    assert_eq!(
+        call.await.unwrap(),
+        super::calls::Answer::failed("call_cancelled")
+    );
+
+    // A long call not taken in time is cancelled and timed out.
+    super::calls::set_approved(&site.db, OWNER, &mac.id, "work", true)
+        .await
+        .unwrap();
+    child.expect("call.granted").await;
+    super::calls_pending::times_in_test(10_000, 100, 200);
+    let args = json!({ "proposalId": "p-2", "title": "Tidy", "instruction": "Tidy the desktop" });
+    let call = her_call(&site, &mac.id, "work.run", json!({ "kind": "owner" }), args);
+    let ask = child.expect("call.ask").await;
+    assert_eq!(
+        child.expect("call.cancel").await["body"]["callId"],
+        ask["body"]["callId"]
+    );
+    assert_eq!(
+        call.await.unwrap(),
+        super::calls::Answer::failed("call_timeout")
+    );
+    drop(child);
+    site.close().await;
+}
+
 async fn until(child: &mut Child, t: &str) -> Value {
     loop {
         let frame = child.next().await;
