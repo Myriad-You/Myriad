@@ -92,7 +92,28 @@ pub struct ChatMemoryUpdates {
     /// Public things they suggested she try herself, each about the thing
     /// with no one named: hers to wonder about (see `merope::heard`).
     pub put_onto: Vec<String>,
+    /// Whether the line said anything new beside what it let go of: what it
+    /// lets go of is then corrected, not taken back.
+    pub said_new: SaidNew,
 }
+
+/// What a line said beside what it let go of ([`ChatMemoryUpdates::said_new`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SaidNew {
+    /// Nothing: what it lets go of is taken back.
+    #[default]
+    Nothing,
+    /// A new fact, kept or not (one that does not hold up leaves the
+    /// correction undone, [`parse_chat_memory_updates`]).
+    Something,
+    /// Only what she already had (`already`): what it lets go of is
+    /// replaced by that, wherever it is kept.
+    WhatSheHad,
+}
+
+/// Corrections left as they were since the site started, their new fact not
+/// holding up ([`parse_chat_memory_updates`]).
+static CORRECTIONS_UNKEPT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 #[cfg(test)]
 impl ChatMemoryUpdates {
@@ -128,7 +149,14 @@ pub fn parse_chat_memory_updates(
     let facts = value.get("facts")?.as_array()?;
     let supersedes = value.get("supersedes")?.as_array()?;
     let said = value.get("said")?.as_array()?;
-    let mut out = ChatMemoryUpdates::default();
+    let mut out = ChatMemoryUpdates {
+        said_new: if facts.is_empty() {
+            SaidNew::Nothing
+        } else {
+            SaidNew::Something
+        },
+        ..ChatMemoryUpdates::default()
+    };
     // A withdrawal or correction of what she knew comes first, on its own.
     if !supersedes.is_empty() {
         let single = serde_json::json!({
@@ -157,6 +185,19 @@ pub fn parse_chat_memory_updates(
         {
             out.updates.push(update);
         }
+    }
+    // A correction none of whose new facts holds up is not made: what it
+    // corrects stays as it was (the answer may be what is wrong), rather
+    // than going with nothing kept in its place. Counted.
+    if !facts.is_empty() && out.updates.iter().all(|update| update.fact.is_none()) {
+        if !out.updates.is_empty() {
+            let so_far = CORRECTIONS_UNKEPT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            tracing::warn!(
+                so_far,
+                "[chat-remember] a correction whose new fact did not hold up is left as it was"
+            );
+        }
+        out.updates.clear();
     }
     for item in said.iter().take(myriad_merope::chat_remember::MAX_SAID) {
         let (Some(line), Some(evidence)) = (
@@ -665,6 +706,62 @@ mod tests {
             Some("是独生子"),
             "still what they said"
         );
+    }
+
+    /// A correction is not taken for a taking back: one whose new fact does
+    /// not hold up is not made at all (what it corrects stays as it was);
+    /// one that only lets go says nothing new.
+    #[test]
+    fn a_correction_whose_new_fact_does_not_hold_up_is_not_made() {
+        let user = "不是周五，改到周六看牙了";
+        let corrected = serde_json::json!({
+            "facts": [{"fact": "改到周六看牙", "evidence": "周六去看牙", "concepts": []}],
+            "supersedes": ["周五去看牙"],
+            "supersedesEvidence": "不是周五",
+            "said": []
+        })
+        .to_string();
+        let updates =
+            parse_chat_memory_updates(&corrected, user, "", &["周五去看牙".into()]).unwrap();
+        assert!(updates.updates.is_empty(), "{updates:?}");
+        assert_eq!(updates.said_new, SaidNew::Something);
+        let let_go = serde_json::json!({
+            "facts": [], "supersedes": ["周五去看牙"], "supersedesEvidence": "不是周五", "said": []
+        })
+        .to_string();
+        let updates = parse_chat_memory_updates(&let_go, user, "", &["周五去看牙".into()]).unwrap();
+        assert_eq!(updates.updates.len(), 1);
+        assert_eq!(updates.said_new, SaidNew::Nothing);
+    }
+
+    /// A correction whose new fact she already had replaces what it lets go
+    /// of by the one she had; with two she had, which it is goes unsaid.
+    #[test]
+    fn a_correction_to_what_she_had_is_replaced_by_it() {
+        let let_go = ChatMemoryUpdate {
+            fact: None,
+            supersedes: vec!["周五要考试".into()],
+            evidence: Some("不是周五".into()),
+            ..new_fact("", "考试")
+        };
+        let mut updates = vec![let_go.clone(), new_fact("考试改到周六", "考试")];
+        let pairs = vec![(1, "考试在周六".to_string())];
+        assert_eq!(
+            settle_already(&mut updates, &pairs, &[Already::Same]),
+            Some((0, "考试在周六".to_string()))
+        );
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].fact.as_deref(), Some("考试在周六"));
+        assert_eq!(updates[0].supersedes, vec!["周五要考试".to_string()]);
+
+        let mut updates = vec![let_go, new_fact("考试改到周六", "考试")];
+        let pairs = vec![(1, "考试在周六".to_string()), (1, "周六考数学".to_string())];
+        assert_eq!(
+            settle_already(&mut updates, &pairs, &[Already::Same, Already::Same]),
+            None
+        );
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].fact, None);
     }
 
     #[test]

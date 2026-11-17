@@ -62,6 +62,7 @@ fn fact() -> Effect {
             }],
             said: vec![],
             put_onto: vec![],
+            said_new: Default::default(),
         },
     )
 }
@@ -79,6 +80,7 @@ fn fact_of(fact: &str) -> Effect {
             }],
             said: vec![],
             put_onto: vec![],
+            said_new: Default::default(),
         },
     )
 }
@@ -645,6 +647,7 @@ async fn taking_back_lets_go_of_what_she_knows_for_good() {
             updates,
             said: vec![],
             put_onto: vec![],
+            said_new: Default::default(),
         }
     };
     let Effect::Chat(lasting) = fact_of(known) else {

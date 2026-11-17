@@ -42,6 +42,18 @@ pub(super) async fn check_against_unshown(
     else {
         return;
     };
+    // What each she has is about, and which she knows for good, by its words:
+    // a correction is made to one she had only when it is about what it
+    // lets go of, and replaces what she knows for good only by the same.
+    let about: std::collections::HashMap<String, Vec<String>> = rows
+        .iter()
+        .map(|row| (compact_summary(&row.content), subject_names(&row.concepts)))
+        .collect();
+    let for_good: std::collections::HashSet<String> = rows
+        .iter()
+        .filter(|row| row.source == "chat")
+        .map(|row| compact_summary(&row.content))
+        .collect();
     let unshown: Vec<Unshown> = rows
         .into_iter()
         .map(|row| Unshown {
@@ -81,7 +93,21 @@ pub(super) async fn check_against_unshown(
         return;
     };
     let verdicts = parse_already(&raw, pairs.len());
-    settle_already(&mut updates.updates, &pairs, &verdicts);
+    if let Some((index, known)) = settle_already(&mut updates.updates, &pairs, &verdicts) {
+        let names = about.get(&known).cloned().unwrap_or_default();
+        let related = updates.updates[index].supersedes.iter().any(|old| {
+            about
+                .get(old)
+                .is_some_and(|theirs| theirs.iter().any(|name| names.contains(name)))
+        });
+        if !related {
+            // Something she had said again beside what is let go of: no
+            // correction to it.
+            updates.updates[index].fact = None;
+        } else if for_good.contains(&known) {
+            updates.said_new = super::SaidNew::WhatSheHad;
+        }
+    }
 }
 
 /// A fact she had but the extraction did not see, with what it is about.
@@ -165,17 +191,27 @@ pub(super) fn alike_unshown(
 /// A fact both already had and replacing something is already had: nothing
 /// is replaced on its account. A short note takes the place only of short
 /// notes; what she knows for good waits for the stretch to be gone over.
+/// When the line, its new fact one she already had and nothing else new,
+/// now corrects what it lets go of to that one: where the correction is,
+/// and the one she had.
 pub(super) fn settle_already(
     updates: &mut Vec<ChatMemoryUpdate>,
     pairs: &[(usize, String)],
     verdicts: &[myriad_merope::chat_remember::Already],
-) {
+) -> Option<(usize, String)> {
     use myriad_merope::chat_remember::Already;
     let had: std::collections::HashSet<usize> = pairs
         .iter()
         .zip(verdicts)
         .filter(|(_, verdict)| **verdict == Already::Same)
         .map(|((index, _), _)| *index)
+        .collect();
+    // What she already had of each new fact found already had.
+    let had_known: std::collections::BTreeSet<&String> = pairs
+        .iter()
+        .zip(verdicts)
+        .filter(|(_, verdict)| **verdict == Already::Same)
+        .map(|((_, known), _)| known)
         .collect();
     let mut held_both = std::collections::HashSet::new();
     for ((index, known), verdict) in pairs.iter().zip(verdicts) {
@@ -201,5 +237,26 @@ pub(super) fn settle_already(
             update.fact = None;
         }
     }
+    // A correction whose new fact she already had, and nothing else new:
+    // what it lets go of is replaced by the one she had, not taken back.
+    // With more than one she had, which it is goes unsaid.
+    if let [known] = had_known.into_iter().collect::<Vec<_>>()[..]
+        && updates.iter().all(|update| update.fact.is_none())
+        && let Some(correction) = updates
+            .iter_mut()
+            .find(|update| !update.supersedes.is_empty())
+    {
+        correction.fact = Some(known.clone());
+        updates.retain(|update| update.fact.is_some() || !update.supersedes.is_empty());
+        let index = updates
+            .iter()
+            .position(|update| update.fact.as_ref() == Some(known))?;
+        return Some((index, known.clone()));
+    }
     updates.retain(|update| update.fact.is_some() || !update.supersedes.is_empty());
+    None
 }
+
+#[cfg(test)]
+#[path = "already_tests.rs"]
+mod tests;

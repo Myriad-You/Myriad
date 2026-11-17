@@ -47,9 +47,10 @@ pub(in crate::services::agent::merope) enum Keep {
     /// What they said lately: it can only take back other short notes, and
     /// what she knows for good is changed only once the talk is gone over.
     Note,
-    /// A line that only takes something back, saying nothing new ('当我没说'):
-    /// let go at once wherever it is kept, for a stretch that leaves no
-    /// short note is never gone over.
+    /// A line that only takes something back, saying nothing new ('当我没说'),
+    /// or corrects it to what she already knew for good: let go at once
+    /// wherever it is kept, for a stretch that leaves no short note is never
+    /// gone over.
     LetGo,
     /// Kept for good: it changes only what she knows for good.
     Lasting,
@@ -74,7 +75,17 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<
     present: &crate::services::agent::memory::unified::Audience,
     keep: Keep,
 ) -> Result<bool, anyhow::Error> {
-    let keep = if keep == Keep::Note && updates.updates.iter().all(|update| update.fact.is_none()) {
+    // A line that says nothing new takes back what it lets go of; one whose
+    // new fact she already had replaces it by that. Either is let go at
+    // once wherever it is kept. One that corrects, its new fact kept, is a
+    // short note like any other.
+    use super::super::chat_remember::SaidNew;
+    let keep = if keep == Keep::Note
+        && match updates.said_new {
+            SaidNew::Nothing => updates.updates.iter().all(|update| update.fact.is_none()),
+            SaidNew::WhatSheHad => true,
+            SaidNew::Something => false,
+        } {
         Keep::LetGo
     } else {
         keep

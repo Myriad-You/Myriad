@@ -99,6 +99,7 @@ pub(in super::super) async fn go_over(
                 updates: Vec::new(),
                 said: updates.said.clone(),
                 put_onto: updates.put_onto.clone(),
+                said_new: super::super::super::chat_remember::SaidNew::Nothing,
             };
             if (!hers.said.is_empty() || !hers.put_onto.is_empty())
                 && apply_at(db, user_id, present, *at, &hers).await.is_some()
@@ -197,6 +198,7 @@ pub(in super::super) async fn go_over(
                         .collect(),
                     said: Vec::new(),
                     put_onto: Vec::new(),
+                    said_new: updates.said_new,
                 };
                 if !facts.updates.is_empty()
                     && apply_at(db, user_id, present, at, &facts).await.is_some()

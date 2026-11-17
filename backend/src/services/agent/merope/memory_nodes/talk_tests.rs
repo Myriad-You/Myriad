@@ -1563,3 +1563,89 @@ async fn a_correction_in_a_line_is_no_taking_back() {
         schema.drop().await;
     }
 }
+
+/// What a line does to what she knows for good, by what it said beside
+/// what it let go of: only what she already had replaces it by that, at
+/// once, nothing taken back on her nodes; a new fact leaves it to the
+/// stretch being gone over; nothing new takes it back, and what rests on
+/// it goes.
+#[tokio::test]
+async fn a_line_lets_go_of_what_she_knows_for_good_as_what_it_said() {
+    use crate::services::agent::merope::chat_remember::SaidNew;
+    for (name, said_new, friday_held, stubs) in [
+        (
+            "memory_nodes_line_what_she_had",
+            SaidNew::WhatSheHad,
+            false,
+            0,
+        ),
+        (
+            "memory_nodes_line_something_new",
+            SaidNew::Something,
+            true,
+            0,
+        ),
+        ("memory_nodes_line_nothing_new", SaidNew::Nothing, false, 1),
+    ] {
+        let Some(schema) = schema(name).await else {
+            return;
+        };
+        let db = &schema.db;
+        assert!(kept(db, &update("周五去看牙", &[], None), Keep::Lasting).await);
+        assert!(kept(db, &update("改到周六看牙", &[], None), Keep::Lasting).await);
+        let friday = memory_id(db, "周五去看牙").await;
+        let saturday = memory_id(db, "改到周六看牙").await;
+        topic(db, "看牙", &[(friday.as_str(), "周五去看牙")]).await;
+        // As `already` leaves it: the new fact, one she had, in the
+        // correction's place; otherwise the correction alone.
+        let fact = (said_new == SaidNew::WhatSheHad).then(|| "改到周六看牙".to_string());
+        let updates = ChatMemoryUpdates {
+            updates: vec![ChatMemoryUpdate {
+                fact,
+                evidence: Some("不是周五".into()),
+                ..update("", &["周五去看牙"], None)
+            }],
+            said_new,
+            ..ChatMemoryUpdates::default()
+        };
+        let transaction = db.begin().await.unwrap();
+        store::apply_chat_memory_updates_on(
+            &transaction,
+            OTHER,
+            crate::clock::now().fixed_offset(),
+            &updates,
+            &Audience::private(OTHER),
+            Keep::Note,
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+        let named = super::known::named(db, vec![friday.clone()]).await.unwrap();
+        assert_eq!(named[&friday].held, friday_held, "{name}");
+        let replaced = count(
+            db,
+            &format!(
+                "SELECT count(*) AS n FROM agent_memories WHERE id = '{friday}' \
+                 AND superseded_by = '{saturday}'"
+            ),
+        )
+        .await;
+        assert_eq!(
+            replaced,
+            i64::from(said_new == SaidNew::WhatSheHad),
+            "{name}"
+        );
+        assert_eq!(
+            named[&friday].taken_back,
+            said_new == SaidNew::Nothing,
+            "{name}"
+        );
+        let entries = count(
+            db,
+            "SELECT count(*) AS n FROM agent_node_rows WHERE kind = 'node.entry' AND body = ''",
+        )
+        .await;
+        assert_eq!(entries, stubs, "{name}");
+        schema.drop().await;
+    }
+}
