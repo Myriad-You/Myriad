@@ -442,16 +442,27 @@ pub(in crate::services::agent::merope) async fn claim(
 
 /// What was kept as it was, put on her nodes while the job just claimed is
 /// done: sorting it takes as long as a model's answer, and the lease runs.
+/// On her managed runner: as the process stops it is let finish within the
+/// drain, then cut off. What it did not put on a node then, or when the
+/// runner had no room for it, stays on none: her upkeep sorts what is on no
+/// node onto one later (`memory_nodes::sorting`), but what those facts do
+/// to how their life stands (「现在」) is not written after the fact.
 fn on_nodes_meanwhile(db: &DatabaseConnection, kept: Vec<settling::Kept>) {
     if kept.is_empty() {
         return;
     }
     let db = db.clone();
-    tokio::spawn(async move {
+    let facts: usize = kept.iter().map(|kept| kept.facts.len()).sum();
+    if !super::super::background::spawn("kept as they were, onto her nodes", async move {
         for kept in kept {
             kept.on_nodes(&db).await;
         }
-    });
+    }) {
+        tracing::info!(
+            facts,
+            "[memory-jobs] kept as they were, not put on her nodes now: left to her upkeep"
+        );
+    }
 }
 
 pub(in crate::services::agent::merope) async fn current(
