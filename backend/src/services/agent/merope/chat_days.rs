@@ -378,12 +378,9 @@ pub async fn turn_back(
         for index in read {
             let (at, hers, text) = said[index];
             found.push((
-                date.to_string(),
+                super::chat_lines::found_on(date.to_string(), !*hers && replaced.contains(at)),
                 if *hers { Who::You } else { Who::They },
-                super::chat_lines::found(
-                    myriad_merope::remembering::excerpt(text, looking_for, SHOWN_CHARS),
-                    !*hers && replaced.contains(at),
-                ),
+                myriad_merope::remembering::excerpt(text, looking_for, SHOWN_CHARS),
             ));
         }
     }

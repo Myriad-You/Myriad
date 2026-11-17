@@ -18,13 +18,14 @@ use super::shown::Node;
 /// How many ended things of one node are said: the latest.
 pub(super) const MOST: usize = 2;
 
-/// The ended things on `node`, newest first, at most `most`: each as a line
-/// with since when (`since`, by item; one with none is left out).
+/// The ended things on `node`, newest first, at most `most`: the words of
+/// each and its line, with since when (`since`, by item; one with none is
+/// left out).
 pub(super) fn lines(
     node: &Node,
     since: impl Fn(&str) -> Option<String>,
     most: usize,
-) -> Vec<String> {
+) -> Vec<(String, String)> {
     let Some(standing) = node.head.get("standing").and_then(|all| all.as_object()) else {
         return Vec::new();
     };
@@ -43,14 +44,16 @@ pub(super) fn lines(
     ended.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
     ended
         .into_iter()
-        .filter_map(|(_, item, text)| Some(line(text, &since(item)?)))
+        .filter_map(|(_, item, text)| Some((text.to_string(), line(text, &since(item)?))))
         .take(most)
         .collect()
 }
 
-/// One ended thing, as a line: what ended it and since when.
+/// One ended thing, as a line: since when, and what ended it. No
+/// parenthesis after it: beside a fact that is how she says she came by it
+/// some other way than being told.
 fn line(text: &str, since: &str) -> String {
-    format!("ended: {text} (since {since})")
+    format!("ended, since {since}: {text}")
 }
 
 #[cfg(test)]
@@ -94,8 +97,10 @@ mod tests {
         let since = |item: &str| Some(format!("2026-10-{}", &item[item.len() - 1..]));
         let all = lines(&node, since, MOST);
         assert_eq!(all.len(), 2, "{all:?}");
-        assert!(all[0].starts_with("ended: 膝盖伤了，不夜跑了 (since 2026-10-"));
-        assert!(all[1].starts_with("ended: 健身卡到期，没续 (since "));
+        assert_eq!(all[0].0, "膝盖伤了，不夜跑了");
+        assert!(all[0].1.starts_with("ended, since 2026-10-"), "{all:?}");
+        assert!(all[0].1.ends_with(": 膝盖伤了，不夜跑了"), "{all:?}");
+        assert_eq!(all[1].0, "健身卡到期，没续");
         assert_eq!(lines(&node, since, 1).len(), 1);
         // No day to say: not said.
         assert!(lines(&node, |_| None, MOST).is_empty());

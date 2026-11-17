@@ -300,8 +300,8 @@ pub async fn look_back(
                 myriad_merope::remembering::excerpt(content, query, SHOWN_CHARS)
             };
             let who = if *hers { Who::You } else { Who::They };
-            let text = super::chat_lines::found(text, replaced[index]);
-            (at.format("%Y-%m-%d").to_string(), who, text)
+            let day = at.format("%Y-%m-%d").to_string();
+            (super::chat_lines::found_on(day, replaced[index]), who, text)
         })
         .collect();
     // And, as a person does, thinking which day it was and reading that day

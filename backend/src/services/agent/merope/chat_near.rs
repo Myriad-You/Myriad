@@ -253,9 +253,9 @@ async fn reach(
             let line = &lines[index];
             let who = if line.hers { Who::You } else { Who::They };
             (
-                line.at.format("%Y-%m-%d").to_string(),
+                super::chat_lines::found_on(line.at.format("%Y-%m-%d").to_string(), line.replaced),
                 who,
-                super::chat_lines::found(shown(&line.content), line.replaced),
+                shown(&line.content),
             )
         })
         .collect();

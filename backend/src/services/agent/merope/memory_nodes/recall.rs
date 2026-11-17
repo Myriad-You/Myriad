@@ -170,7 +170,8 @@ impl Lines<'_> {
         Some((line.clone(), line))
     }
 
-    /// What ended on `node` ([`super::ended`]), each with since when. One
+    /// What ended on `node` ([`super::ended`]): the words of each and its
+    /// line, with since when. One
     /// resting on memories none of which she still holds (taken back, let
     /// go) is not said: what ended it is theirs to have unsaid.
     fn ended(&self, node: &super::shown::Node) -> Vec<(String, String)> {
@@ -184,9 +185,6 @@ impl Lines<'_> {
                 .flatten()
         };
         super::ended::lines(node, since, super::ended::MOST)
-            .into_iter()
-            .map(|line| (line.clone(), line))
-            .collect()
     }
 
     /// Since when `item` on `node` stands ([`stands_since`]).
@@ -234,13 +232,15 @@ fn stands_since(
         .to_string()
 }
 
-/// One thing that stands, as a line: what it is and since when, not a
-/// record of a day.
+/// One thing that stands, as a line: since when and what it is, not a
+/// record of a day. Nothing in parentheses after it: beside a fact that is
+/// how she says she came by it some other way than being told
+/// (`store::as_known`), and one she was told is not to read as that.
 fn standing_line(text: &str, since: &str, by_rule: bool) -> String {
     if by_rule {
-        format!("now: {text} (since {since}, as their computer told it)")
+        format!("now, since {since}, as their computer told it: {text}")
     } else {
-        format!("now: {text} (since {since})")
+        format!("now, since {since}: {text}")
     }
 }
 
@@ -513,15 +513,13 @@ fn recollect_within(
         // And what ended on it, before the entries from when it still
         // stood; the fact that ended it is not said again as an entry.
         let ended = node.map(|node| lines.ended(node)).unwrap_or_default();
-        for line in &ended {
-            push(line.clone(), name);
+        for (_, line) in &ended {
+            push((line.clone(), line.clone()), name);
         }
         for id in &picked.entries {
             if let Some(entry) = find(shown, &picked.node, id)
                 && !standing.contains(entry.text.trim())
-                && !ended
-                    .iter()
-                    .any(|(line, _)| line.contains(entry.text.trim()))
+                && !ended.iter().any(|(text, _)| text == entry.text.trim())
             {
                 push(lines.of(id, &entry.text, entry.at), name);
             }
@@ -597,7 +595,7 @@ fn recollect_within(
                 let name = node.name.as_deref().unwrap_or_default().trim();
                 // Each with since when, as on a picked node.
                 Some(match lines.since(node, &one.item) {
-                    Some(since) => format!("{name}：{} (since {since})", one.text),
+                    Some(since) => format!("{name}, since {since}：{}", one.text),
                     None => format!("{name}：{}", one.text),
                 })
             })
@@ -758,8 +756,8 @@ mod more_tests {
         );
         // The line says what stands and since when; it is no dated record.
         let line = super::standing_line("每晚练琴一小时", "2026-08-11", false);
-        assert_eq!(line, "now: 每晚练琴一小时 (since 2026-08-11)");
-        assert!(!line.starts_with('['), "{line}");
+        assert_eq!(line, "now, since 2026-08-11: 每晚练琴一小时");
+        assert!(!line.starts_with('[') && !line.contains('('), "{line}");
         assert!(super::standing_line("在写报告", "2026-11-16", true).contains("their computer"));
     }
 }

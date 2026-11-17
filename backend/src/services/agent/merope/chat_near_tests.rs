@@ -150,9 +150,13 @@ async fn what_they_took_back_is_not_found() {
     );
     fill(db, OWNER).await;
     let found = nearest(db, OWNER, "香", 10, false).await;
-    // What a later fact took the place of is found as said, and says so.
-    let replaced = super::super::chat_lines::found(said[2].to_string(), true);
-    assert_eq!(texts(&found), [replaced.as_str(), said[3], said[4]]);
+    // What a later fact took the place of is found as said; its day says so.
+    assert_eq!(texts(&found), [said[2], said[3], said[4]]);
+    let marked: Vec<bool> = found
+        .iter()
+        .map(|(day, _, _)| day.ends_with(super::super::chat_lines::REPLACED_SINCE))
+        .collect();
+    assert_eq!(marked, [true, false, false]);
     // Scrolling back by words reads the same lines.
     let by_words = super::super::remembering::look_back(db, OWNER, "香菜", "", 3).await;
     assert!(

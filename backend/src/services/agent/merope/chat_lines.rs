@@ -14,8 +14,8 @@
 //!   deleting): only looking back leaves them out.
 //! - **Replaced since.** What a memory quotes that a later fact took the
 //!   place of (the old fact is no longer shown) is still what they said
-//!   that day, and is found; but the line says so where she reads it
-//!   ([`Line::found`]), so their old words do not read as how things are
+//!   that day, and is found; but its day says so where she reads it
+//!   ([`found_on`]), so their old words do not read as how things are
 //!   beside the fact that took their place. The words themselves stay as
 //!   said: what is matched, given a vector or written into a day is them.
 
@@ -38,17 +38,19 @@ pub(crate) struct Line {
     pub(crate) replaced: bool,
 }
 
-/// Before a line of theirs she looked back to, when a later fact she keeps
-/// took the place of what it told her.
-pub(crate) const REPLACED_SINCE: &str = "(you keep a later fact in place of what this told you)";
+/// Beside the day of a line of theirs she looked back to, when what she kept
+/// from it was replaced by a later fact.
+pub(crate) const REPLACED_SINCE: &str = "what you kept from this was later replaced";
 
-/// `text` of a line as she reads it when found: marked when what it told
-/// her was `replaced` since.
-pub(crate) fn found(text: String, replaced: bool) -> String {
+/// The `day` of a line as she reads it when found: with that said beside
+/// it when what it told her was `replaced` since. Beside the day, not in
+/// their words: what they said stays as said, and is matched, merged and
+/// cut as any other line.
+pub(crate) fn found_on(day: String, replaced: bool) -> String {
     if replaced {
-        format!("{REPLACED_SINCE} {text}")
+        format!("{day}, {REPLACED_SINCE}")
     } else {
-        text
+        day
     }
 }
 

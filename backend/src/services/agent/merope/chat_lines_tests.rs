@@ -219,7 +219,7 @@ async fn what_they_took_back_is_not_read() {
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE agent_memories SET invalid_reason = 'superseded', superseded_by = $2 WHERE id = $1",
-        [corrected.into(), newer.into()],
+        [corrected.into(), newer.clone().into()],
     ))
     .await
     .unwrap();
@@ -241,12 +241,22 @@ async fn what_they_took_back_is_not_read() {
         5,
         "and stay in the chat"
     );
-    // Where she reads it, it says so; a line nothing replaced reads as said.
-    assert_eq!(
-        super::found(said[2].to_string(), read[0].replaced),
-        format!("{} {}", super::REPLACED_SINCE, said[2])
-    );
-    assert_eq!(super::found(said[3].to_string(), read[1].replaced), said[3]);
+    // Where she reads it, its day says so; one nothing replaced has its
+    // day alone. Their words are as said either way.
+    let day = |index: usize| super::found_on("2026-11-17".into(), read[index].replaced);
+    assert_eq!(day(0), format!("2026-11-17, {}", super::REPLACED_SINCE));
+    assert_eq!(day(1), "2026-11-17");
+    // The later fact taken back too: nothing she keeps took its place, so
+    // the line is no longer marked.
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_memories SET invalid_reason = 'deleted', invalid_at = now() WHERE id = $1",
+        [newer.into()],
+    ))
+    .await
+    .unwrap();
+    let read = private_lines(db, OWNER, 3000).await;
+    assert!(read.iter().all(|line| !line.replaced), "{read:?}");
     let by_words = super::super::remembering::look_back(db, OWNER, "香菜", "", 3).await;
     assert!(
         !found(&by_words).iter().any(|text| text.contains("香菜")),
