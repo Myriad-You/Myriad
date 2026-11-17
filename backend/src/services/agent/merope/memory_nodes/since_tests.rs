@@ -97,13 +97,16 @@ async fn what_stands_and_what_ended_are_read_with_the_day_they_were_told() {
     let found = recollect(db, &[&said]).await;
     let ended = saying(&found.named, "膝盖伤了");
     assert_eq!(ended.len(), 1, "{:?}", found.named);
+    // It says which thing no longer stands, in the words it stood in.
     assert!(
-        ended[0].starts_with("跑步: no longer as it stood here, since ")
+        ended[0].starts_with("跑步: no longer: 每周三晚上夜跑, since ")
+            && ended[0].ends_with(": 膝盖伤了，不夜跑了")
             && ended[0].contains(&today),
         "{ended:?}"
     );
     let at = |words: &str| found.named.iter().position(|line| line.contains(words));
-    assert!(at("膝盖伤了") < at("每周三晚上夜跑"), "{:?}", found.named);
+    assert!(at("膝盖伤了") < at("] 每周三晚上夜跑"), "{:?}", found.named);
+    assert!(at("] 每周三晚上夜跑").is_some(), "{:?}", found.named);
     assert!(
         saying(&found.named, "now, since").is_empty(),
         "{:?}",
@@ -231,5 +234,54 @@ async fn what_she_makes_of_them_is_unsaid_with_what_they_took_back() {
     .unwrap();
     let said = head().await;
     assert!(!said.contains("VIEW") && !said.contains("OPEN"), "{said}");
+    schema.drop().await;
+}
+
+/// What ended is said with the words it stood in; and those words rested
+/// on a memory too: taken back, the whole line goes, what stood and what
+/// ended it, though the memory of what ended it is still held.
+#[tokio::test]
+async fn what_ended_is_unsaid_with_the_words_it_stood_in() {
+    let Some(schema) = schema("memory_nodes_ended_was").await else {
+        return;
+    };
+    let db = &schema.db;
+    let stood = stands(
+        db,
+        r#"{"whose":"them","set":[],"end":[],"add":[{"topic":"跑步","text":"每周三晚上夜跑"}]}"#,
+        "每周三晚上夜跑",
+    )
+    .await;
+    let ending = stands(
+        db,
+        r#"{"whose":"them","set":[],"end":[1],"add":[]}"#,
+        "膝盖伤了，不夜跑了",
+    )
+    .await;
+    let found = recollect(db, &[&ending]).await;
+    let ended = saying(&found.named, "no longer");
+    assert_eq!(ended.len(), 1, "{:?}", found.named);
+    assert!(
+        ended[0].starts_with("跑步: no longer: 每周三晚上夜跑, since "),
+        "{ended:?}"
+    );
+    // What it stood on let go, with nothing in its place.
+    db.execute_unprepared(&format!(
+        "UPDATE agent_memories SET invalid_reason = 'superseded', invalid_at = now(), \
+         superseded_by = NULL WHERE id = '{stood}'"
+    ))
+    .await
+    .unwrap();
+    let found = recollect(db, &[&ending]).await;
+    assert!(
+        saying(&found.named, "no longer").is_empty(),
+        "{:?}",
+        found.named
+    );
+    assert!(
+        saying(&found.named, "每周三晚上夜跑").is_empty(),
+        "{:?}",
+        found.named
+    );
     schema.drop().await;
 }

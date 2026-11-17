@@ -82,6 +82,18 @@ pub(crate) struct Shown {
     /// Those a head names that they took back or had her let go
     /// ([`known::Named::taken_back`]).
     pub taken_back: HashSet<String>,
+    /// What stood, by (node, item), before the latest version of that item:
+    /// its last version that was not an ending. For an item that ended,
+    /// the words of what ended, which the head no longer keeps.
+    pub stood: HashMap<(String, String), Stood>,
+}
+
+/// One earlier version of how a thing stood: its words, and the memories
+/// it rested on.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Stood {
+    pub text: String,
+    pub because: Value,
 }
 
 impl Shown {
@@ -278,7 +290,58 @@ pub(crate) async fn shown<C: ConnectionTrait>(
             row.try_get::<Value>("", "node")?,
         ));
     }
-    let named: BTreeSet<String> = heads.iter().flat_map(|head| named_by(&head.4)).collect();
+    // What stood before each item that ended, in one read of the audience:
+    // the head keeps only the fact that ended it.
+    let ended: HashSet<(&str, &str)> = heads
+        .iter()
+        .flat_map(|head| {
+            head.4["standing"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter(|(_, item)| item["value"]["ended"].as_bool() == Some(true))
+                .map(|(item, _)| (head.0.as_str(), item.as_str()))
+        })
+        .collect();
+    let mut stood = HashMap::new();
+    if !ended.is_empty() {
+        let rows = db
+            .query_all_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT DISTINCT ON (node_id, body::jsonb->>'item') node_id, \
+                   body::jsonb->>'item' AS item, body::jsonb->>'text' AS text, \
+                   COALESCE(body::jsonb->'because', '[]'::jsonb) AS because \
+                 FROM agent_node_rows \
+                 WHERE user_id = $1 AND audience = $2 AND kind = 'node.standing' AND body <> '' \
+                   AND COALESCE((body::jsonb->>'ended')::boolean, false) = false \
+                 ORDER BY node_id, body::jsonb->>'item', at DESC, hlc DESC",
+                [user_id.into(), audience.into()],
+            ))
+            .await?;
+        for row in &rows {
+            let node: String = row.try_get("", "node_id")?;
+            let item: Option<String> = row.try_get("", "item")?;
+            let text: Option<String> = row.try_get("", "text")?;
+            let (Some(item), Some(text)) = (item, text) else {
+                continue;
+            };
+            if ended.contains(&(node.as_str(), item.as_str())) && !text.trim().is_empty() {
+                let because = row.try_get::<Value>("", "because")?;
+                stood.insert(
+                    (node, item),
+                    Stood {
+                        text: text.trim().to_string(),
+                        because,
+                    },
+                );
+            }
+        }
+    }
+    let named: BTreeSet<String> = heads
+        .iter()
+        .flat_map(|head| named_by(&head.4))
+        .chain(stood.values().flat_map(|was: &Stood| cited(&was.because)))
+        .collect();
     // One read of every memory the heads name: held, taken back, learned.
     let named = known::named(db, named.into_iter().collect()).await?;
     let held: BTreeSet<String> = named
@@ -341,6 +404,7 @@ pub(crate) async fn shown<C: ConnectionTrait>(
         memories,
         learned,
         taken_back,
+        stood,
     })
 }
 

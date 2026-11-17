@@ -104,13 +104,18 @@ pub(super) fn now(text: &str, dated: &str, by_rule: bool) -> String {
     }
 }
 
-/// One ended thing, as a line: the fact that ended it (`text`: the row
-/// keeps that, not what stood) and since when. Said as what changed, so
-/// the fact is not read as the thing that ended (`ended: 搬到上海了` reads
-/// as the move being over): the node's older entries are what no longer
-/// stands, and this is why.
-pub(super) fn ended(text: &str, dated: &str) -> String {
-    format!("no longer as it stood here, {dated}: {text}")
+/// One ended thing, as a line: what no longer stands (`was`, the words it
+/// stood in before it ended), since when, and the fact that ended it
+/// (`text`, which is all the head keeps of it). Said so, the fact is not
+/// read as the thing that ended (`ended: 搬到上海了` reads as the move
+/// being over), nor the ending as the whole node's, beside what still
+/// stands there. Its earlier words not kept (their row forgotten): only
+/// that it is no longer as it stood.
+pub(super) fn ended(text: &str, dated: &str, was: Option<&str>) -> String {
+    match was {
+        Some(was) => format!("no longer: {was}, {dated}: {text}"),
+        None => format!("no longer as it stood here, {dated}: {text}"),
+    }
 }
 
 /// One item of how their life stands, under its node's `name` when it has
@@ -127,11 +132,11 @@ pub(super) fn resident(name: &str, text: &str, dated: &str) -> String {
 pub(super) const MOST_ENDED: usize = 2;
 
 /// The ended things on `node`, newest first, at most `most`: the words of
-/// each and its line, with since when (`since`, by item; one with none is
-/// left out).
+/// each and its line, with since when and what stood before it (`said`, by
+/// item; one with none is left out).
 pub(super) fn ended_lines(
     node: &Node,
-    since: impl Fn(&str) -> Option<String>,
+    said: impl Fn(&str) -> Option<(String, Option<String>)>,
     most: usize,
 ) -> Vec<(String, String)> {
     let Some(standing) = node.head.get("standing").and_then(|all| all.as_object()) else {
@@ -151,7 +156,10 @@ pub(super) fn ended_lines(
         .collect();
     over.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
     over.into_iter()
-        .filter_map(|(_, item, text)| Some((text.to_string(), ended(text, &since(item)?))))
+        .filter_map(|(_, item, text)| {
+            let (dated, was) = said(item)?;
+            Some((text.to_string(), ended(text, &dated, was.as_deref())))
+        })
         .take(most)
         .collect()
 }
@@ -232,8 +240,8 @@ mod tests {
         assert_eq!(line, "now, since 08-11: 每晚练琴一小时");
         assert!(now("在写报告", "since 11-16", true).contains("their computer"));
         assert_eq!(
-            ended("搬到上海了", "since 10-18"),
-            "no longer as it stood here, since 10-18: 搬到上海了"
+            ended("搬到上海了", "since 10-18", Some("住在北京朝阳")),
+            "no longer: 住在北京朝阳, since 10-18: 搬到上海了"
         );
         assert_eq!(
             resident("工作", "在趣养做运营", "since 09-01"),
@@ -245,7 +253,8 @@ mod tests {
         );
         for line in [
             line,
-            ended("x", "since 2025"),
+            ended("x", "since 2025", None),
+            ended("x", "since 2025", Some("y")),
             resident("a", "b", "since 2025"),
         ] {
             assert!(!line.starts_with('[') && !line.contains('('), "{line}");
@@ -284,17 +293,23 @@ mod tests {
             "now": {"at": 50, "author": "rule",
                 "value": {"text": "在写报告", "because": [], "ended": true}},
         }));
-        let since = |item: &str| Some(format!("since 10-{}", &item[item.len() - 1..]));
+        // Of the first, the words it stood in are known; of the other, not.
+        let first = item(0);
+        let since = |item: &str| {
+            let was = (item == first).then(|| "每周三晚上夜跑".to_string());
+            Some(("since 10-18".to_string(), was))
+        };
         let all = ended_lines(&node, since, MOST_ENDED);
         assert_eq!(all.len(), 2, "{all:?}");
         assert_eq!(all[0].0, "膝盖伤了，不夜跑了");
-        assert!(
-            all[0]
-                .1
-                .starts_with("no longer as it stood here, since 10-"),
-            "{all:?}"
+        assert_eq!(
+            all[0].1,
+            "no longer: 每周三晚上夜跑, since 10-18: 膝盖伤了，不夜跑了"
         );
-        assert!(all[0].1.ends_with(": 膝盖伤了，不夜跑了"), "{all:?}");
+        assert_eq!(
+            all[1].1,
+            "no longer as it stood here, since 10-18: 健身卡到期，没续"
+        );
         assert_eq!(all[1].0, "健身卡到期，没续");
         assert_eq!(ended_lines(&node, since, 1).len(), 1);
         // No day to say: not said.

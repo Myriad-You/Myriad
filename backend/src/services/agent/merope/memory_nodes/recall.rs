@@ -172,13 +172,20 @@ impl Lines<'_> {
     }
 
     /// What ended on `node` ([`super::since::ended_lines`]): the words of each and its
-    /// line, with since when. One resting on nothing is not said.
+    /// line, with since when and what stood before it. One resting on
+    /// nothing is not said; nor one whose earlier words rested on a memory
+    /// they took back: the whole line goes, what stood and what ended it.
     fn ended(&self, node: &super::shown::Node) -> Vec<(String, String)> {
         let since = |item: &str| {
             let rests_on = cited(&node.head["standing"][item]["value"]["because"]);
-            (!rests_on.is_empty())
-                .then(|| self.since(node, item))
-                .flatten()
+            if rests_on.is_empty() {
+                return None;
+            }
+            let was = self.shown.stood.get(&(node.id.clone(), item.to_string()));
+            if was.is_some_and(|was| self.shown.unsaid(&was.because)) {
+                return None;
+            }
+            Some((self.since(node, item)?, was.map(|was| was.text.clone())))
         };
         super::since::ended_lines(node, since, super::since::MOST_ENDED)
     }
