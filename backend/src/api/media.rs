@@ -113,7 +113,7 @@ pub struct RemoteMediaBody {
 /// POST /api/media/remote
 ///
 /// 笔记里贴进来、导入进来的外站图片：后端下载下来存成站点媒体（来源「导入」，私有），
-/// 正文换成本站地址后博客才显示得出来。同样内容只存一份。
+/// 正文换成本站地址，外站删图也不受影响。同样内容只存一份。
 pub async fn import_remote_media(
     State(db): State<DatabaseConnection>,
     AdminClaims(claims): AdminClaims,

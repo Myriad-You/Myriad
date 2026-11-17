@@ -43,10 +43,7 @@ pub(crate) async fn extract_steam_library_items(
                         item.get("appid").and_then(|v| v.as_u64()),
                     ) {
                         // Steam 游戏封面；代理交给 card_visuals 出口 normalize
-                        let cover = format!(
-                            "https://cdn.cloudflare.steamstatic.com/steam/apps/{}/header.jpg",
-                            appid
-                        );
+                        let cover = crate::services::steam_assets::cover_url(appid as i64);
                         game_map.insert(name.to_string(), cover);
                     }
                 }

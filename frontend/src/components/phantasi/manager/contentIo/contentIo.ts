@@ -268,7 +268,7 @@ export async function importTransferFile(
     let imported = 0
     let skipped = 0
     // 正文里的外站图片（旧站 wp-content/uploads 这类）先存进本站，地址换好再建笔记：
-    // 博客只显示本站图片。整次导入共用一份记录，几篇引用同一张图只存一次。
+    // 旧站多半要关。整次导入共用一份记录，几篇引用同一张图只存一次。
     const saveImage = rememberSaves(images.save ?? saveRemoteImage, {
       giveUpAfter: IMPORT_IMAGE_GIVE_UP,
     })

@@ -392,7 +392,8 @@ async fn send_message_waiting_once(
     parse_telegram_ok_payload(status, &body).map(|_| ())
 }
 
-/// Her reply in a group, threaded under the message that spoke to her.
+/// Her reply in a group, threaded under the message that spoke to her. With
+/// the bot off the line is refused (`Permanent`), so it is not kept as said.
 pub async fn send_group_reply(
     token: &str,
     chat_id: i64,
@@ -409,7 +410,7 @@ pub async fn send_group_reply(
         config.telegram_bot_enabled
     };
     if !enabled {
-        return Ok(());
+        return Err(ConnectFailureKind::Permanent);
     }
     let mut payload = serde_json::json!({
         "chat_id": chat_id,
@@ -799,5 +800,20 @@ mod tests {
         assert!(status.has_token);
         publish_phase(TelegramBotPhase::Online).await;
         assert_eq!(current_status().await.phase, TelegramBotPhase::Online);
+    }
+
+    /// With the bot off a group line is refused before any request, so it
+    /// is not kept as said; an empty line is nothing to send.
+    #[tokio::test]
+    async fn a_group_line_with_the_bot_off_is_refused() {
+        // The bot is off by default.
+        assert_eq!(
+            send_group_reply("", -100, "hi", &[], Some(1), None).await,
+            Err(ConnectFailureKind::Permanent)
+        );
+        assert_eq!(
+            send_group_reply("", -100, "", &[], None, None).await,
+            Ok(())
+        );
     }
 }
