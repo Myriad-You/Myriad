@@ -75,37 +75,96 @@ impl Senses {
 /// list does not name is deleted (and counted, never its value). A chat
 /// window's row (its facts carry who) keeps only the first line of its
 /// summary and no screen_text: a child from before put others' words there.
+/// Facts that are not an object, or a summary that is not text, are deleted
+/// whole.
 fn keep_screen_fields(row: &mut Value) {
-    keep_look("presence", "safeFacts", row);
-}
-
-/// What `screenFields` lets a look at the screen in a frame of type `t` say:
-/// its facts under `facts_key`, and its summary.
-pub(super) fn keep_look(t: &'static str, facts_key: &str, look: &mut Value) {
-    let Some(look) = look.as_object_mut() else {
+    let t = "presence";
+    let Some(row) = row.as_object_mut() else {
         return;
     };
+    if row.get("safeFacts").is_some_and(|facts| !facts.is_object()) {
+        row.remove("safeFacts");
+        super::counts::screen_key_deleted(t, "safeFacts");
+    }
+    if row
+        .get("summary")
+        .is_some_and(|summary| !summary.is_string())
+    {
+        row.remove("summary");
+        super::counts::screen_key_deleted(t, "summary");
+    }
     let mut chat = false;
-    if let Some(facts) = look.get_mut(facts_key).and_then(Value::as_object_mut) {
-        facts.retain(|key, _| {
-            let kept = super::counts::screen_fact(key);
-            if !kept {
-                super::counts::screen_key_deleted(t, key);
-            }
-            kept
-        });
+    if let Some(facts) = row.get_mut("safeFacts").and_then(Value::as_object_mut) {
+        keep_facts(t, facts, false);
         chat = facts.contains_key("who");
-        if chat && facts.remove("screen_text").is_some() {
-            super::counts::screen_key_deleted(t, "screen_text");
-        }
     }
     if chat
-        && let Some(Value::String(summary)) = look.get_mut("summary")
+        && let Some(Value::String(summary)) = row.get_mut("summary")
         && let Some((first, _)) = summary.split_once('\n')
     {
         *summary = first.to_string();
         super::counts::screen_key_deleted(t, "summary");
     }
+}
+
+/// The facts `screenFields` names, and with `plain` only text cut to the
+/// contract's length, numbers and yes/no; a chat window's (who) never its
+/// screen_text. What goes is counted by key, never its value.
+fn keep_facts(t: &'static str, facts: &mut serde_json::Map<String, Value>, plain: bool) {
+    let max_chars = super::contract::CONTRACT.limits.max_text_chars;
+    facts.retain(|key, value| {
+        let named = super::counts::screen_fact(key);
+        let kept = named
+            && (!plain || matches!(value, Value::String(_) | Value::Number(_) | Value::Bool(_)));
+        if !kept {
+            super::counts::screen_key_deleted(t, key);
+        }
+        kept
+    });
+    if plain {
+        for (key, value) in facts.iter_mut() {
+            if let Value::String(text) = value
+                && text.chars().count() > max_chars
+            {
+                *text = text.chars().take(max_chars).collect();
+                super::counts::screen_key_deleted(t, key);
+            }
+        }
+    }
+    if facts.contains_key("who") && facts.remove("screen_text").is_some() {
+        super::counts::screen_key_deleted(t, "screen_text");
+    }
+}
+
+/// What a `screen.look` result may say, built anew: its facts (an object, of
+/// plain values) and the first line of its summary; anything else beside
+/// them is left out and counted. `None` when it is not of that shape at all:
+/// none of it is read.
+pub(super) fn look_result(result: &Value) -> Option<Value> {
+    let t = "call.result";
+    let given = result.as_object()?;
+    let mut facts = given.get("facts")?.as_object()?.clone();
+    keep_facts(t, &mut facts, true);
+    let mut kept = serde_json::Map::new();
+    kept.insert("facts".into(), Value::Object(facts));
+    match given.get("summary") {
+        Some(Value::String(summary)) => {
+            let first = summary.split('\n').next().unwrap_or_default();
+            if first.len() != summary.len() {
+                super::counts::screen_key_deleted(t, "summary");
+            }
+            kept.insert("summary".into(), Value::String(first.to_string()));
+        }
+        Some(_) => super::counts::screen_key_deleted(t, "summary"),
+        None => {}
+    }
+    for key in given
+        .keys()
+        .filter(|key| !matches!(key.as_str(), "facts" | "summary"))
+    {
+        super::counts::screen_key_deleted(t, key);
+    }
+    Some(Value::Object(kept))
 }
 
 #[cfg(test)]
@@ -209,6 +268,26 @@ mod tests {
                 "{key}"
             );
         }
+    }
+
+    #[test]
+    fn a_screen_row_of_another_shape_loses_what_it_cannot_say() {
+        let senses = Senses::of(&["perception.screen".to_string()]);
+        let body = json!({ "perception": [
+            { "sourceId": "screen_look", "kind": "screen",
+              "summary": { "said": "Ann: see you at 7" },
+              "safeFacts": "Ann: see you at 7" },
+        ]});
+        let kept = senses.admit(&body);
+        let row = &kept["perception"][0];
+        assert_eq!(row["sourceId"], "screen_look");
+        assert!(row.get("safeFacts").is_none());
+        assert!(row.get("summary").is_none());
+        let keys = super::super::counts::screen_keys();
+        assert!(
+            keys.iter()
+                .any(|(t, key, _)| *t == "presence" && key == "safeFacts")
+        );
     }
 
     #[test]

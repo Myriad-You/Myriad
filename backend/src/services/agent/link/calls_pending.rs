@@ -98,7 +98,10 @@ impl Answer {
 struct Pending {
     device_id: String,
     action: String,
+    version: u64,
     long: bool,
+    /// Its `deadlineAt` on the host's clock: past it, it is not sent again.
+    deadline_at: i64,
     /// The ask as it is sent, every time.
     body: Value,
     /// The link it was last sent on; `None` while never sent.
@@ -119,6 +122,16 @@ fn pending<T>(f: impl FnOnce(&mut HashMap<String, Pending>) -> T) -> T {
         Ok(mut all) => f(&mut all),
         Err(poisoned) => f(&mut poisoned.into_inner()),
     }
+}
+
+/// How many of her calls to `device_id` still wait on their answer.
+#[cfg(test)]
+pub(super) fn waiting_on(device_id: &str) -> usize {
+    pending(|all| {
+        all.values()
+            .filter(|one| one.device_id == device_id)
+            .count()
+    })
 }
 
 fn timed_out<T>(f: impl FnOnce(&mut HashMap<String, (Record, Instant)>) -> T) -> T {
@@ -142,8 +155,11 @@ fn audience(of: &Value) -> (String, Option<String>) {
 }
 
 /// She asks the owner's device `device_id` to do `action` for `of`
-/// (`call.ask`'s `for`) with `args`, and waits for how it came out. The one
-/// row of the call is kept, and it is counted on her status page.
+/// (`call.ask`'s `for`) with `args`, and waits for how it came out; `most_ms`
+/// gives it less time than the contract's most. The call runs on by itself:
+/// a caller that stops waiting (its step timed out, or was cancelled) leaves
+/// it to end as calls do, its one row kept and counted on her status page,
+/// and a long one is cancelled.
 pub(crate) async fn ask(
     db: &DatabaseConnection,
     owner: i32,
@@ -151,20 +167,54 @@ pub(crate) async fn ask(
     action: &str,
     of: &Value,
     args: Value,
+    most_ms: Option<u64>,
 ) -> Answer {
+    let (answer, answered) = oneshot::channel();
+    tokio::spawn(run(
+        db.clone(),
+        owner,
+        device_id.to_string(),
+        action.to_string(),
+        of.clone(),
+        args,
+        most_ms,
+        answer,
+    ));
+    answered
+        .await
+        .unwrap_or_else(|_| Answer::failed("internal_error"))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run(
+    db: DatabaseConnection,
+    owner: i32,
+    device_id: String,
+    action: String,
+    of: Value,
+    args: Value,
+    most_ms: Option<u64>,
+    mut caller: oneshot::Sender<Answer>,
+) {
     let call_id = format!("call_{}", uuid::Uuid::new_v4().simple());
     let asked_at = crate::clock::now();
-    let spec = myriad_her_link::call_spec(action);
+    let spec = myriad_her_link::call_spec(&action);
+    let call = Call {
+        owner,
+        device_id: &device_id,
+        call_id: &call_id,
+        action: &action,
+    };
     let answer = match spec {
-        Some(spec) => asking(owner, device_id, &call_id, action, spec, of, args, asked_at).await,
+        Some(spec) => asking(&call, spec, &of, args, asked_at, most_ms, &mut caller).await,
         None => Answer::failed("call_unknown"),
     };
-    let (for_kind, for_group) = audience(of);
+    let (for_kind, for_group) = audience(&of);
     let record = Record {
-        call_id,
+        call_id: call_id.clone(),
         owner,
-        device_id: device_id.to_string(),
-        action: action.to_string(),
+        device_id: device_id.clone(),
+        action: action.clone(),
         version: spec.map_or(0, |spec| spec.version),
         for_kind,
         for_group,
@@ -173,7 +223,7 @@ pub(crate) async fn ask(
         ended_at: crate::clock::now(),
         late: false,
     };
-    if let Err(error) = calls_store::record(db, &record).await {
+    if let Err(error) = calls_store::record(&db, &record).await {
         tracing::warn!(%error, device = %device_id, action, "[link] her call to a device is not kept");
     }
     if answer.outcome == Outcome::Failed("call_timeout") {
@@ -185,29 +235,41 @@ pub(crate) async fn ask(
     let outcome = answer.outcome.name();
     let code = answer.outcome.code().unwrap_or_default();
     crate::services::agent::alive::called(
-        super::calls::kind(action),
+        super::calls::kind(&action),
         answer.outcome.code().unwrap_or(outcome),
     );
     tracing::info!(device = %device_id, action, outcome, code, "[link] her call to a device ended");
-    answer
+    let _ = caller.send(answer);
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn asking(
+/// Who asks what of which device, under which callId.
+struct Call<'a> {
     owner: i32,
-    device_id: &str,
-    call_id: &str,
-    action: &str,
+    device_id: &'a str,
+    call_id: &'a str,
+    action: &'a str,
+}
+
+async fn asking(
+    call: &Call<'_>,
     spec: &myriad_her_link::CallSpec,
     of: &Value,
     args: Value,
     asked_at: chrono::DateTime<chrono::Utc>,
+    shorter: Option<u64>,
+    caller: &mut oneshot::Sender<Answer>,
 ) -> Answer {
+    let Call {
+        owner,
+        device_id,
+        call_id,
+        action,
+    } = *call;
     // Whom it is for, before anything is asked.
     if let Err(code) = myriad_her_link::call_allowed(action, of) {
         return Answer::failed(code);
     }
-    let most = most_ms(action);
+    let most = shorter.map_or_else(|| most_ms(action), |shorter| shorter.min(most_ms(action)));
     let deadline_at = asked_at.timestamp_millis() + most as i64;
     let body = json!({
         "callId": call_id,
@@ -224,7 +286,9 @@ async fn asking(
             Pending {
                 device_id: device_id.to_string(),
                 action: action.to_string(),
+                version: spec.version,
                 long: spec.long,
+                deadline_at,
                 body: body.clone(),
                 link: None,
                 accepted: false,
@@ -242,10 +306,25 @@ async fn asking(
     let deadline = now + Duration::from_millis(most) + grace();
     let accept_by = now + accept_within();
     let mut waits_accepted = spec.long;
+    let mut caller_here = spec.long;
     tokio::pin!(answered);
     loop {
         tokio::select! {
             answer = &mut answered => return answer.unwrap_or_else(|_| Answer::failed("internal_error")),
+            // No one waits for a long one any more: it is cancelled, and what
+            // comes of it is still kept.
+            () = caller.closed(), if caller_here => {
+                caller_here = false;
+                let cancel_now = pending(|all| {
+                    all.get_mut(call_id)
+                        .filter(|one| !one.cancelled)
+                        .map(|one| one.cancelled = true)
+                        .is_some()
+                });
+                if cancel_now {
+                    super::send_calls_frame(device_id, cancel(call_id));
+                }
+            }
             () = tokio::time::sleep_until(accept_by), if waits_accepted => {
                 waits_accepted = false;
                 let unaccepted = pending(|all| {
@@ -282,15 +361,25 @@ pub(super) fn sent(call_id: &str, link: u64) {
     });
 }
 
-/// How a `call.result` says the call came out, the result of a look at the
-/// screen kept to what `screenFields` lets it say.
-fn answer_of(action: &str, body: &Value) -> Answer {
+/// How a `call.result` says the call came out. One that names another
+/// action or version than was asked is the receiver's own failure; so is a
+/// look at the screen not of the shape `screenFields` lets it have, and one
+/// that is, keeps only what it lets it say.
+fn answer_of(action: &str, version: u64, body: &Value) -> Answer {
+    if body["action"].as_str() != Some(action) || body["version"].as_u64() != Some(version) {
+        return Answer::failed("internal_error");
+    }
     match body["outcome"].as_str() {
         Some("done") => {
-            let mut result = body.get("result").cloned().unwrap_or_else(|| json!({}));
-            if action == "screen.look" {
-                super::senses::keep_look("call.result", "facts", &mut result);
-            }
+            let result = body.get("result").cloned().unwrap_or_else(|| json!({}));
+            let result = if action == "screen.look" {
+                match super::senses::look_result(&result) {
+                    Some(kept) => kept,
+                    None => return Answer::failed("internal_error"),
+                }
+            } else {
+                result
+            };
             Answer {
                 outcome: Outcome::Done,
                 result: Some(result),
@@ -326,7 +415,7 @@ pub(super) async fn result(db: &DatabaseConnection, device_id: &str, body: &Valu
         if ours { all.remove(call_id) } else { None }
     });
     if let Some(mut one) = waiting {
-        let answer = answer_of(&one.action, body);
+        let answer = answer_of(&one.action, one.version, body);
         if let Some(waits) = one.answer.take() {
             let _ = waits.send(answer);
         }
@@ -341,7 +430,7 @@ pub(super) async fn result(db: &DatabaseConnection, device_id: &str, body: &Valu
     let Some((mut record, _)) = late else {
         return;
     };
-    let answer = answer_of(&record.action, body);
+    let answer = answer_of(&record.action, record.version, body);
     record.outcome = answer.outcome;
     record.ended_at = crate::clock::now();
     record.late = true;
@@ -370,7 +459,7 @@ pub(super) fn accepted(device_id: &str, body: &Value) {
 /// `sender` (under the registry's lock, right after `call.granted`). Its
 /// calls of an action not granted now and never sent end `call_not_granted`;
 /// a long one sent is cancelled. Those sent on an earlier link and granted
-/// now go again, same callId and deadline.
+/// now go again, same callId and deadline, unless their deadline has passed.
 pub(super) fn regranted(
     device_id: &str,
     link: u64,
@@ -378,6 +467,7 @@ pub(super) fn regranted(
     sender: &mpsc::Sender<Outgoing>,
 ) {
     let mut dropped = Vec::new();
+    let now_ms = crate::clock::now().timestamp_millis();
     pending(|all| {
         all.retain(|call_id, one| {
             if one.device_id != device_id {
@@ -393,7 +483,7 @@ pub(super) fn regranted(
                 }
                 return true;
             }
-            if one.link.is_some_and(|sent_on| sent_on != link) {
+            if one.link.is_some_and(|sent_on| sent_on != link) && now_ms <= one.deadline_at {
                 let again = Outgoing::reliable("call.ask", call_id.clone(), one.body.clone());
                 if sender.try_send(again).is_ok() {
                     one.link = Some(link);
@@ -407,23 +497,35 @@ pub(super) fn regranted(
     }
 }
 
-/// The device is not one any more: its calls never sent end not granted;
-/// one sent ends by its deadline.
+/// The device is not one any more (under the registry's lock, as its link
+/// is let go): every call of hers to it ends now, its row kept. One never
+/// sent was not granted; one sent may have happened (unknown), and a result
+/// that still comes is not read.
 pub(super) fn forget_device(device_id: &str) {
-    let dropped: Vec<_> = pending(|all| {
-        let never_sent: Vec<String> = all
+    let ended: Vec<_> = pending(|all| {
+        let ours: Vec<String> = all
             .iter()
-            .filter(|(_, one)| one.device_id == device_id && one.link.is_none())
+            .filter(|(_, one)| one.device_id == device_id)
             .map(|(call_id, _)| call_id.clone())
             .collect();
-        never_sent
-            .iter()
+        ours.iter()
             .filter_map(|call_id| all.remove(call_id))
-            .filter_map(|mut one| one.answer.take())
+            .filter_map(|mut one| {
+                let sent = one.link.is_some();
+                one.answer.take().map(|waits| (waits, sent))
+            })
             .collect()
     });
-    for waits in dropped {
-        let _ = waits.send(Answer::failed("call_not_granted"));
+    for (waits, sent) in ended {
+        let answer = if sent {
+            Answer {
+                outcome: Outcome::Unknown,
+                result: None,
+            }
+        } else {
+            Answer::failed("call_not_granted")
+        };
+        let _ = waits.send(answer);
     }
 }
 
@@ -460,30 +562,42 @@ mod tests {
         assert_eq!(contract["callAudiences"], json!(AUDIENCES));
     }
 
+    fn said(body: Value) -> Value {
+        let mut said = json!({ "callId": "c", "action": "screen.look", "version": 1 });
+        said.as_object_mut()
+            .unwrap()
+            .extend(body.as_object().unwrap().clone());
+        said
+    }
+
     #[test]
     fn a_result_says_only_an_outcome_and_a_code_and_a_look_only_what_it_may() {
         let failed = answer_of(
             "screen.look",
-            &json!({ "callId": "c", "action": "screen.look", "version": 1,
-                     "outcome": "failed", "error": { "code": "not_now" } }),
+            1,
+            &said(json!({ "outcome": "failed", "error": { "code": "not_now" } })),
         );
         assert_eq!(failed, Answer::failed("not_now"));
         // A code the contract does not name is the receiver's own failure.
         let odd = answer_of(
             "screen.look",
-            &json!({ "outcome": "failed", "error": { "code": "a long story of what went wrong" } }),
+            1,
+            &said(
+                json!({ "outcome": "failed", "error": { "code": "a long story of what went wrong" } }),
+            ),
         );
         assert_eq!(odd, Answer::failed("internal_error"));
         assert_eq!(
-            answer_of("screen.look", &json!({ "outcome": "unknown" })).outcome,
+            answer_of("screen.look", 1, &said(json!({ "outcome": "unknown" }))).outcome,
             Outcome::Unknown
         );
         let look = answer_of(
             "screen.look",
-            &json!({ "outcome": "done", "result": {
+            1,
+            &said(json!({ "outcome": "done", "result": {
                 "facts": { "app": "WeChat", "who": "Ann", "screen_text": "what Ann wrote", "clipboard": "x" },
                 "summary": "Talking with Ann about dinner\nAnn: see you at 7",
-            }}),
+            }})),
         );
         assert_eq!(
             look.result,
@@ -499,6 +613,49 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_result_of_another_action_or_version_or_shape_is_not_read() {
+        // Another version than was asked, or another action.
+        let other_version = json!({ "callId": "c", "action": "screen.look", "version": 2,
+                                    "outcome": "done", "result": { "facts": { "app": "Mail" } } });
+        assert_eq!(
+            answer_of("screen.look", 1, &other_version),
+            Answer::failed("internal_error")
+        );
+        let other_action = json!({ "callId": "c", "action": "voice.speak", "version": 1,
+                                   "outcome": "done", "result": { "delivered": true } });
+        assert_eq!(
+            answer_of("screen.look", 1, &other_action),
+            Answer::failed("internal_error")
+        );
+        // Facts that are not an object: nothing of it is read.
+        let text_facts = said(json!({ "outcome": "done",
+            "result": { "facts": "Ann: see you at 7", "summary": "Mail" } }));
+        assert_eq!(
+            answer_of("screen.look", 1, &text_facts),
+            Answer::failed("internal_error")
+        );
+        // Keys beside facts and summary, values that are not plain, and a
+        // summary's further lines are left out and counted.
+        let wide = said(json!({ "outcome": "done", "result": {
+            "facts": { "app": "Mail", "topic": ["Ann", "see you at 7"], "private": false },
+            "summary": "Mail\nAnn: see you at 7",
+            "screen_text": "Ann: see you at 7",
+        }}));
+        assert_eq!(
+            answer_of("screen.look", 1, &wide).result,
+            Some(json!({ "facts": { "app": "Mail", "private": false }, "summary": "Mail" }))
+        );
+        let keys = super::super::counts::screen_keys();
+        for key in ["screen_text", "topic", "summary"] {
+            assert!(
+                keys.iter()
+                    .any(|(t, one, _)| *t == "call.result" && one == key),
+                "{key}"
+            );
+        }
+    }
+
     fn waiting(call_id: &str, device_id: &str, link: Option<u64>) -> oneshot::Receiver<Answer> {
         let (answer, answered) = oneshot::channel();
         pending(|all| {
@@ -507,7 +664,9 @@ mod tests {
                 Pending {
                     device_id: device_id.into(),
                     action: "screen.look".into(),
+                    version: 1,
                     long: false,
+                    deadline_at: crate::clock::now().timestamp_millis() + 60_000,
                     body: json!({}),
                     link,
                     accepted: false,
@@ -520,7 +679,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_call_never_sent_ends_not_granted_when_its_action_or_device_goes() {
+    async fn a_call_never_sent_ends_not_granted_and_a_removed_devices_calls_end_at_once() {
         let (sender, mut sent) = mpsc::channel(4);
         let never = waiting("call_never_sent", "dev_withdrawn", None);
         let sent_one = waiting("call_sent_short", "dev_withdrawn", Some(7));
@@ -532,11 +691,42 @@ mod tests {
         pending(|all| all.remove("call_sent_short"));
         drop(sent_one);
 
+        // A call sent on an earlier link whose deadline passed is not sent again.
+        let (answer, _answered) = oneshot::channel();
+        pending(|all| {
+            all.insert(
+                "call_expired".into(),
+                Pending {
+                    device_id: "dev_expired".into(),
+                    action: "screen.look".into(),
+                    version: 1,
+                    long: false,
+                    deadline_at: crate::clock::now().timestamp_millis() - 1,
+                    body: json!({}),
+                    link: Some(1),
+                    accepted: false,
+                    cancelled: false,
+                    answer: Some(answer),
+                },
+            )
+        });
+        let granted = [super::super::calls::Action {
+            name: "screen.look".into(),
+            version: 1,
+        }];
+        regranted("dev_expired", 2, &granted, &sender);
+        assert!(sent.try_recv().is_err());
+        pending(|all| all.remove("call_expired"));
+
+        // A removed device: nothing of it waits on.
         let never = waiting("call_never_sent_2", "dev_removed", None);
-        let _sent_one = waiting("call_sent_2", "dev_removed", Some(3));
+        let sent_one = waiting("call_sent_2", "dev_removed", Some(3));
         forget_device("dev_removed");
         assert_eq!(never.await.unwrap(), Answer::failed("call_not_granted"));
-        assert!(pending(|all| all.remove("call_sent_2")).is_some());
+        assert_eq!(sent_one.await.unwrap().outcome, Outcome::Unknown);
+        assert!(pending(|all| !all
+            .values()
+            .any(|one| one.device_id == "dev_removed")));
     }
 
     #[test]

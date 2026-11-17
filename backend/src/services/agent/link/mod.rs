@@ -129,8 +129,11 @@ struct CallsLink {
     /// last is told, so an older reading of the owner's approval never
     /// overwrites a newer one.
     turn: u64,
-    /// What it was last told it is granted; `None` until it was told, and
-    /// nothing is asked of it before.
+    /// What it was last told it is granted.
+    told: Option<Vec<calls::Action>>,
+    /// What may be asked of it now: what it was told, less what the owner is
+    /// taking back. `None` until it was told, or when telling it failed:
+    /// nothing is asked of it then.
     granted: Option<Vec<calls::Action>>,
 }
 
@@ -226,6 +229,7 @@ fn takes_calls(device_id: &str, id: u64, sender: mpsc::Sender<connection::Outgoi
                 sender,
                 offered: None,
                 turn: 0,
+                told: None,
                 granted: None,
             });
         }
@@ -275,18 +279,38 @@ fn grant_calls(device_id: &str, id: u64, turn: u64, granted: Vec<calls::Action>)
     else {
         return;
     };
-    if calls.granted.as_ref() == Some(&granted) {
+    if calls.told.as_ref() == Some(&granted) && calls.granted.as_ref() == Some(&granted) {
         return;
     }
     match calls.sender.try_send(calls::granted_frame(&granted)) {
         Ok(()) => {
             // Then what changes for the calls waiting on it.
             calls_pending::regranted(device_id, id, &granted, &calls.sender);
+            calls.told = Some(granted.clone());
             calls.granted = Some(granted);
         }
+        // Not told: nothing is asked of it until it is.
         Err(error) => {
-            tracing::warn!(%error, device = %device_id, "[link] what it is granted could not be told; told when it changes again");
+            calls.granted = None;
+            tracing::warn!(%error, device = %device_id, "[link] what it is granted could not be told; nothing is asked of it until it is");
         }
+    }
+}
+
+/// The owner is taking `group` back for their device: from now on nothing
+/// of it is asked there, before the decision is even written; the device
+/// is told once it is.
+fn withhold_calls(owner: i32, device_id: &str, group: &str) {
+    if let Ok(mut open) = OPEN.lock()
+        && let Some(granted) = open
+            .get_mut(device_id)
+            .filter(|link| link.owner == owner)
+            .and_then(|link| link.calls.as_mut())
+            .and_then(|calls| calls.granted.as_mut())
+    {
+        granted.retain(|action| {
+            myriad_her_link::call_spec(&action.name).is_none_or(|spec| spec.group != group)
+        });
     }
 }
 
@@ -520,12 +544,19 @@ fn forget(device_id: &str, id: u64) {
 /// Closes the device's link, if it has one open, saying why. A device that
 /// is not one any more keeps nothing waiting for it.
 pub(crate) fn disconnect(device_id: &str, why: Close) {
-    if matches!(why, Close::Revoked | Close::OwnerChanged) {
+    let gone = matches!(why, Close::Revoked | Close::OwnerChanged);
+    if gone {
         say::forget_device(device_id);
         act::forget_device(device_id);
-        calls_pending::forget_device(device_id);
     }
-    let open = OPEN.lock().ok().and_then(|mut open| open.remove(device_id));
+    let open = OPEN.lock().ok().and_then(|mut open| {
+        // Her calls to it end as its link goes, under the same lock: none is
+        // sent to it after.
+        if gone {
+            calls_pending::forget_device(device_id);
+        }
+        open.remove(device_id)
+    });
     if let Some(open) = open {
         let _ = open.close.send(why);
     }

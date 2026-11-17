@@ -4005,6 +4005,7 @@ async fn her_conversations_and_proposals_reach_the_app() {
 /// Frames until the first of type `t`, skipping the rest (cards, mood).
 #[tokio::test]
 async fn a_device_is_told_what_it_may_be_asked_and_told_again_when_the_owner_changes_it() {
+    let _calls = calls_turn().await;
     let Some(site) = site().await else {
         return;
     };
@@ -4076,6 +4077,7 @@ async fn a_device_is_told_what_it_may_be_asked_and_told_again_when_the_owner_cha
 
 #[tokio::test]
 async fn a_device_asks_only_her_host_and_is_answered_and_a_link_without_calls_is_refused_them() {
+    let _calls = calls_turn().await;
     let Some(site) = site().await else {
         return;
     };
@@ -4141,6 +4143,26 @@ async fn offering(site: &Site, token: &str, actions: &[&str]) -> (Child, Value) 
     (child, granted)
 }
 
+/// Her calls go through one registry of links shared by every test, and
+/// the owner is the same: tests that link devices for calls take turns.
+static CALLS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// This test's turn at her calls, once the links an earlier one left are
+/// gone.
+async fn calls_turn() -> tokio::sync::MutexGuard<'static, ()> {
+    let turn = CALLS.lock().await;
+    for _ in 0..250 {
+        if ["screen.look", "work.run"]
+            .iter()
+            .all(|action| super::granted_devices(OWNER, action).is_empty())
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    turn
+}
+
 /// Her call, asked in the background: what it came to, when it does.
 fn her_call(
     site: &Site,
@@ -4151,7 +4173,9 @@ fn her_call(
 ) -> tokio::task::JoinHandle<super::calls_pending::Answer> {
     let db = site.db.clone();
     let device_id = device_id.to_string();
-    tokio::spawn(async move { super::calls::ask(&db, OWNER, &device_id, action, &of, args).await })
+    tokio::spawn(
+        async move { super::calls::ask(&db, OWNER, &device_id, action, &of, args, None).await },
+    )
 }
 
 /// Nothing more came on the link: a ping is answered next.
@@ -4162,6 +4186,7 @@ async fn nothing_else(child: &mut Child) {
 
 #[tokio::test]
 async fn she_looks_at_a_linked_devices_screen_and_keeps_only_how_it_went() {
+    let _calls = calls_turn().await;
     let Some(site) = site().await else {
         return;
     };
@@ -4248,13 +4273,23 @@ async fn she_looks_at_a_linked_devices_screen_and_keeps_only_how_it_went() {
 
 #[tokio::test]
 async fn a_call_is_refused_at_once_when_the_device_is_away_or_it_is_not_for_the_owner() {
+    let _calls = calls_turn().await;
     let Some(site) = site().await else {
         return;
     };
     let (mac, token) = device(&site.db, "Mac").await;
     let owner = json!({ "kind": "owner" });
     // Not linked: unavailable at once, and nothing waits for it.
-    let away = super::calls::ask(&site.db, OWNER, &mac.id, "screen.look", &owner, json!({})).await;
+    let away = super::calls::ask(
+        &site.db,
+        OWNER,
+        &mac.id,
+        "screen.look",
+        &owner,
+        json!({}),
+        None,
+    )
+    .await;
     assert_eq!(
         away,
         super::calls_pending::Answer::failed("call_unavailable")
@@ -4262,7 +4297,16 @@ async fn a_call_is_refused_at_once_when_the_device_is_away_or_it_is_not_for_the_
     // Linked, but it has not said what it can do: not told anything yet.
     let mut child = Child::open(&site, &token).await;
     child.hello_with(&["calls"]).await;
-    let early = super::calls::ask(&site.db, OWNER, &mac.id, "screen.look", &owner, json!({})).await;
+    let early = super::calls::ask(
+        &site.db,
+        OWNER,
+        &mac.id,
+        "screen.look",
+        &owner,
+        json!({}),
+        None,
+    )
+    .await;
     assert_eq!(
         early,
         super::calls_pending::Answer::failed("call_unavailable")
@@ -4282,8 +4326,16 @@ async fn a_call_is_refused_at_once_when_the_device_is_away_or_it_is_not_for_the_
         json!({ "kind": "group", "groupId": "telegram:-100" }),
         json!({ "kind": "other" }),
     ] {
-        let refused =
-            super::calls::ask(&site.db, OWNER, &mac.id, "screen.look", &of, json!({})).await;
+        let refused = super::calls::ask(
+            &site.db,
+            OWNER,
+            &mac.id,
+            "screen.look",
+            &of,
+            json!({}),
+            None,
+        )
+        .await;
         assert_eq!(
             refused,
             super::calls_pending::Answer::failed("wrong_audience")
@@ -4294,7 +4346,16 @@ async fn a_call_is_refused_at_once_when_the_device_is_away_or_it_is_not_for_the_
         .await
         .unwrap();
     child.expect("call.granted").await;
-    let off = super::calls::ask(&site.db, OWNER, &mac.id, "screen.look", &owner, json!({})).await;
+    let off = super::calls::ask(
+        &site.db,
+        OWNER,
+        &mac.id,
+        "screen.look",
+        &owner,
+        json!({}),
+        None,
+    )
+    .await;
     assert_eq!(
         off,
         super::calls_pending::Answer::failed("call_not_granted")
@@ -4329,6 +4390,7 @@ async fn a_call_is_refused_at_once_when_the_device_is_away_or_it_is_not_for_the_
 
 #[tokio::test]
 async fn a_call_times_out_on_the_hosts_clock_and_what_comes_after_changes_its_row() {
+    let _calls = calls_turn().await;
     let Some(site) = site().await else {
         return;
     };
@@ -4374,8 +4436,165 @@ async fn a_call_times_out_on_the_hosts_clock_and_what_comes_after_changes_its_ro
     site.close().await;
 }
 
+/// Her calls to `device_id` kept so far, once there are `n`.
+async fn kept_calls(site: &Site, n: usize) -> Vec<super::calls_store::Kept> {
+    for _ in 0..200 {
+        let kept = super::calls_store::recent(&site.db, OWNER, 10)
+            .await
+            .unwrap();
+        if kept.len() >= n {
+            return kept;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("{n} calls were not kept");
+}
+
+#[tokio::test]
+async fn a_call_no_one_waits_on_any_more_ends_by_itself_kept_once_and_is_not_sent_again() {
+    let _calls = calls_turn().await;
+    let Some(site) = site().await else {
+        return;
+    };
+    super::calls_pending::times_in_test(300, 100, 5_000);
+    let (mac, token) = device(&site.db, "Mac").await;
+    let (mut child, _) = offering(&site, &token, &["screen.look"]).await;
+    let call = her_call(
+        &site,
+        &mac.id,
+        "screen.look",
+        json!({ "kind": "owner" }),
+        json!({}),
+    );
+    child.expect("call.ask").await;
+    // The step that asked gave up: what it was waiting on is dropped.
+    call.abort();
+    let _ = call.await;
+    let kept = kept_calls(&site, 1).await;
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].error_code.as_deref(), Some("call_timeout"));
+    assert_eq!(super::calls_pending::waiting_on(&mac.id), 0);
+    // A new link is not asked it again.
+    drop(child);
+    let (mut child, _) = offering(&site, &token, &["screen.look"]).await;
+    nothing_else(&mut child).await;
+    assert_eq!(kept_calls(&site, 1).await.len(), 1);
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn a_result_not_of_what_was_asked_or_not_of_its_shape_is_not_read() {
+    let _calls = calls_turn().await;
+    let Some(site) = site().await else {
+        return;
+    };
+    let (mac, token) = device(&site.db, "Mac").await;
+    let (mut child, _) = offering(&site, &token, &["screen.look"]).await;
+    let answered = async |child: &mut Child, body: Value| {
+        let call = her_call(
+            &site,
+            &mac.id,
+            "screen.look",
+            json!({ "kind": "owner" }),
+            json!({}),
+        );
+        let call_id = child.expect("call.ask").await["body"]["callId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let mut body = body;
+        body["callId"] = json!(call_id);
+        child
+            .send("call.result", Some(&format!("{call_id}.result")), body)
+            .await;
+        call.await.unwrap()
+    };
+    let done = |version: u64, result: Value| json!({ "action": "screen.look", "version": version, "outcome": "done", "result": result });
+    // Another version than was asked, or another action: the host's own failure.
+    let other = answered(&mut child, done(2, json!({ "facts": { "app": "Finder" } }))).await;
+    assert_eq!(
+        other,
+        super::calls_pending::Answer::failed("internal_error")
+    );
+    // (At its own version another action's result must be of its shape:
+    // the frame is refused before it is read, as is a key beside facts
+    // and summary at the version asked; those are `answer_of`'s tests.)
+    let mut renamed = done(9, json!({ "facts": { "app": "Finder" } }));
+    renamed["action"] = json!("notify.post");
+    let renamed = answered(&mut child, renamed).await;
+    assert_eq!(
+        renamed,
+        super::calls_pending::Answer::failed("internal_error")
+    );
+    // Facts not an object: none of it is read.
+    let flat = answered(&mut child, done(1, json!({ "facts": "Finder" }))).await;
+    assert_eq!(flat, super::calls_pending::Answer::failed("internal_error"));
+    // Of its shape: only what screenFields lets it say, plain values, the
+    // summary's first line.
+    let long = "x".repeat(super::contract::CONTRACT.limits.max_text_chars + 10);
+    let kept = answered(
+        &mut child,
+        done(
+            1,
+            json!({ "facts": { "app": "Finder", "window_title": { "raw": "Downloads" }, "screen_text": long },
+                    "summary": "In Finder\nwith secret notes" }),
+        ),
+    )
+    .await;
+    assert_eq!(kept.outcome, super::calls_store::Outcome::Done);
+    let result = kept.result.unwrap();
+    assert_eq!(result["facts"]["app"], "Finder");
+    assert!(result["facts"].get("window_title").is_none());
+    assert_eq!(
+        result["facts"]["screen_text"]
+            .as_str()
+            .unwrap()
+            .chars()
+            .count(),
+        super::contract::CONTRACT.limits.max_text_chars
+    );
+    assert_eq!(result["summary"], "In Finder");
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn removing_a_device_ends_its_calls_at_once_and_each_is_kept() {
+    let _calls = calls_turn().await;
+    let Some(site) = site().await else {
+        return;
+    };
+    super::calls_pending::times_in_test(10_000, 100, 5_000);
+    let (mac, token) = device(&site.db, "Mac").await;
+    let (mut child, _) = offering(&site, &token, &["screen.look"]).await;
+    let call = her_call(
+        &site,
+        &mac.id,
+        "screen.look",
+        json!({ "kind": "owner" }),
+        json!({}),
+    );
+    child.expect("call.ask").await;
+    devices::revoke(&site.db, OWNER, &mac.id, RevokeReason::ByOwner)
+        .await
+        .unwrap();
+    // Sent: it may have been done, so unknown, at once.
+    let answer = tokio::time::timeout(Duration::from_secs(2), call)
+        .await
+        .expect("ended at once")
+        .unwrap();
+    assert_eq!(answer.outcome, super::calls_store::Outcome::Unknown);
+    let kept = kept_calls(&site, 1).await;
+    assert_eq!(kept[0].outcome.as_str(), "unknown");
+    assert_eq!(super::calls_pending::waiting_on(&mac.id), 0);
+    assert_eq!(child.closed().await, (4001, "revoked".to_string()));
+    site.close().await;
+}
+
 #[tokio::test]
 async fn an_unknown_outcome_is_not_asked_again_and_a_call_cut_off_goes_again_on_the_next_link() {
+    let _calls = calls_turn().await;
     let Some(site) = site().await else {
         return;
     };
@@ -4441,6 +4660,7 @@ async fn an_unknown_outcome_is_not_asked_again_and_a_call_cut_off_goes_again_on_
 
 #[tokio::test]
 async fn taking_an_action_back_cancels_a_long_call_after_telling_what_is_granted() {
+    let _calls = calls_turn().await;
     let Some(site) = site().await else {
         return;
     };
@@ -4509,6 +4729,7 @@ async fn taking_an_action_back_cancels_a_long_call_after_telling_what_is_granted
 
 #[tokio::test]
 async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_in_a_group() {
+    let _calls = calls_turn().await;
     let Some(site) = site().await else {
         return;
     };

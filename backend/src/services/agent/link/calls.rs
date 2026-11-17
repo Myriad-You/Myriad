@@ -139,6 +139,9 @@ pub(crate) use super::calls_pending::{ask, sweep};
 /// A Work capability of a device (`device.<action>`) the person `user_id`
 /// can use now: a device of theirs is linked and was told it is granted
 /// the action. Apart from the site's own grants, which do not know devices.
+/// Read from this process's links: where Work runs in a process apart from
+/// the web one that holds them, it is never usable there (closed, not
+/// open); the site runs as one process.
 pub(crate) fn usable(user_id: i32, capability_id: &str) -> bool {
     capability_id.strip_prefix("device.").is_some_and(|action| {
         enabled(action) && !super::granted_devices(user_id, action).is_empty()
@@ -171,7 +174,7 @@ pub(crate) async fn work(
         Some(group) => json!({ "kind": "group", "groupId": group }),
         None => json!({ "kind": "owner" }),
     };
-    let answer = ask(db, user_id, &device_id, action, &of, json!({})).await;
+    let answer = ask(db, user_id, &device_id, action, &of, json!({}), None).await;
     match answer.outcome {
         calls_store::Outcome::Done => Ok(answer.result.unwrap_or_else(|| json!({}))),
         calls_store::Outcome::Failed(code) => Err(format!("{code}: the device did not do it")),
@@ -229,11 +232,16 @@ pub(crate) async fn set_approved(
     group: &str,
     approved: bool,
 ) -> Result<bool, sea_orm::DbErr> {
-    if !calls_store::set_approved(db, owner, device_id, group, approved).await? {
-        return Ok(false);
+    // Taken back at once, before it is written: nothing of it is asked in
+    // between. Given, it is told once written.
+    if !approved {
+        super::withhold_calls(owner, device_id, group);
     }
+    let set = calls_store::set_approved(db, owner, device_id, group, approved).await;
+    // Told what stands, written or not (a write that failed gives back what
+    // was withheld).
     grants_changed(db, owner, device_id).await;
-    Ok(true)
+    set
 }
 
 /// A child asked the host to do something (`call.ask` up). The site provides
