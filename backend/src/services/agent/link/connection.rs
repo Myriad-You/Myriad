@@ -867,9 +867,10 @@ impl Link {
         self.reply(frame("welcome", welcome));
         if sync {
             let abi = crate::services::her_log::relay::peer_abi(&capabilities);
-            self.relay = Some(crate::services::her_log::relay::Session::of(&capabilities));
-            // Paging starts over on this link.
-            super::counts::pages_closed(&self.device.id);
+            self.relay = Some(
+                crate::services::her_log::relay::Session::of(&capabilities)
+                    .on_link(self.registered),
+            );
             // Which core this side of hers reads; once every side reads a
             // rule's rows and `node.standing`, what the site kept of them
             // on its side goes too.
@@ -2237,8 +2238,10 @@ impl Link {
                 self.owner,
                 &self.device.id,
             );
-            super::counts::pages_closed(&self.device.id);
         }
+        // Pages of her log this link sent are on their way no more, whether
+        // another link of the device took over or not: those are its own.
+        super::counts::pages_closed(&self.device.id, self.registered);
         // Lent nothing more; what was lent here and not acked is the
         // site's again.
         if let Some(token) = self.lends.take() {

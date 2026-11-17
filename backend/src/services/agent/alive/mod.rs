@@ -626,6 +626,16 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
                         "lastAt": passed.last_at.map(|at| at.to_rfc3339()),
                     }))
                     .collect::<Vec<_>>(),
+                // Its links closed for a page of its that could not be
+                // settled (the database failing on it): in a row since one
+                // was named back, and in all. Many in a row is a device
+                // reconnecting and sending the page again into a fault.
+                "logPagesUnsettled": crate::services::agent::link::counts::pages_unsettled_by(&device.id)
+                    .map(|unsettled| json!({
+                        "inARow": unsettled.in_a_row,
+                        "closes": unsettled.closes.count,
+                        "lastAt": unsettled.closes.last_at.map(|at| at.to_rfc3339()),
+                    })),
             })
         })
         .collect();

@@ -23,6 +23,9 @@ use crate::services::agent::AgentProgressEvent;
 use crate::services::agent::merope::{MoodTransition, PerformanceDirective};
 use crate::services::persona_sync::devices::{self, Device, RevokeReason};
 
+#[path = "page_link_tests.rs"]
+mod page_link_tests;
+
 const FIXTURES_JSON: &str = include_str!("../../../../../core/shared/her_link_fixtures.json");
 
 fn fixtures() -> Vec<Value> {

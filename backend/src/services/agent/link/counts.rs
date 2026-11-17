@@ -4,8 +4,10 @@
 //! (`link.dropped`), per device, frame type and reason, and of those the
 //! reliable ones its ack had covered (not read, though acked), the
 //! `log.vector` frames of her log that got no page (`log.pages`), per
-//! device and why, and when each page still on its way was sent, per device
-//! and audience kind. Counts and when, never a value.
+//! device and why, when each page still on its way was sent, per device
+//! and audience kind, and the links closed for a page of the device's that
+//! could not be settled, in a row and in all. Counts and when, never a
+//! value.
 
 use std::collections::BTreeMap;
 use std::sync::{LazyLock, Mutex};
@@ -44,8 +46,19 @@ struct Counts {
     unread: BTreeMap<String, BTreeMap<&'static str, Count>>,
     /// device → why → log.vector frames that got no page.
     pages: BTreeMap<String, BTreeMap<&'static str, Count>>,
-    /// device → audience → when the page of it on its way was sent.
-    open: BTreeMap<String, BTreeMap<String, DateTime<Utc>>>,
+    /// device → audience → the link that sent the page of it on its way,
+    /// and when.
+    open: BTreeMap<String, BTreeMap<String, (u64, DateTime<Utc>)>>,
+    /// device → links closed for a page that could not be settled.
+    unsettled: BTreeMap<String, Unsettled>,
+}
+
+/// Links of a device closed for a page of its that could not be settled:
+/// how many in a row (since one was last named back), and in all.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Unsettled {
+    pub(crate) in_a_row: u64,
+    pub(crate) closes: Count,
 }
 
 static COUNTS: LazyLock<Mutex<Counts>> = LazyLock::new(Mutex::default);
@@ -158,9 +171,9 @@ pub(crate) fn page_passed(device_id: &str, why: &'static str) {
     });
 }
 
-/// A page of `audience` went to a device: on its way until it is named,
-/// let go, or the link closes.
-pub(crate) fn page_opened(device_id: &str, audience: &str) {
+/// A page of `audience` went to a device on the link numbered `link`: on
+/// its way until it is named, let go, or that link closes.
+pub(crate) fn page_opened(device_id: &str, link: u64, audience: &str) {
     let now = crate::clock::now();
     with(|counts| {
         if !counts.open.contains_key(device_id) && counts.open.len() >= DEVICES_AT_MOST {
@@ -170,15 +183,26 @@ pub(crate) fn page_opened(device_id: &str, audience: &str) {
             .open
             .entry(device_id.to_string())
             .or_default()
-            .insert(audience.to_string(), now);
+            .insert(audience.to_string(), (link, now));
     });
 }
 
-/// The page of `audience` on its way to a device is not any more.
-pub(crate) fn page_closed(device_id: &str, audience: &str) {
+/// The page of `audience` the link numbered `link` sent a device is not on
+/// its way any more. One another link of the device sent stays.
+pub(crate) fn page_closed(device_id: &str, link: u64, audience: &str) {
+    forget_open(device_id, |at, (by, _)| by == link && at == audience);
+}
+
+/// The link numbered `link` of a device closed: no page it sent is on its
+/// way. Those of a link that took over from it stay.
+pub(crate) fn pages_closed(device_id: &str, link: u64) {
+    forget_open(device_id, |_, (by, _)| by == link);
+}
+
+fn forget_open(device_id: &str, gone: impl Fn(&str, (u64, DateTime<Utc>)) -> bool) {
     with(|counts| {
         if let Some(open) = counts.open.get_mut(device_id) {
-            open.remove(audience);
+            open.retain(|audience, page| !gone(audience, *page));
             if open.is_empty() {
                 counts.open.remove(device_id);
             }
@@ -186,11 +210,32 @@ pub(crate) fn page_closed(device_id: &str, audience: &str) {
     });
 }
 
-/// A device's link closed, or a new one began: no page is on its way.
-pub(crate) fn pages_closed(device_id: &str) {
+/// A link of a device is to close: a page of the device's could not be
+/// settled.
+pub(crate) fn page_unsettled(device_id: &str) {
+    let now = crate::clock::now();
     with(|counts| {
-        counts.open.remove(device_id);
+        if !counts.unsettled.contains_key(device_id) && counts.unsettled.len() >= DEVICES_AT_MOST {
+            return;
+        }
+        let unsettled = counts.unsettled.entry(device_id.to_string()).or_default();
+        unsettled.in_a_row += 1;
+        unsettled.closes.add(now);
     });
+}
+
+/// A page of a device's was named back: closes since are a new row.
+pub(crate) fn page_settled(device_id: &str) {
+    with(|counts| {
+        if let Some(unsettled) = counts.unsettled.get_mut(device_id) {
+            unsettled.in_a_row = 0;
+        }
+    });
+}
+
+/// The links of a device closed for a page that could not be settled.
+pub(crate) fn pages_unsettled_by(device_id: &str) -> Option<Unsettled> {
+    with(|counts| counts.unsettled.get(device_id).copied())
 }
 
 /// When each page still on its way to a device was sent, by the kind of
@@ -202,7 +247,7 @@ pub(crate) fn pages_open_by(device_id: &str) -> Vec<(String, DateTime<Utc>)> {
             .get(device_id)
             .map(|open| {
                 open.iter()
-                    .map(|(audience, at)| {
+                    .map(|(audience, (_, at))| {
                         (
                             audience.split(':').next().unwrap_or_default().to_string(),
                             *at,
