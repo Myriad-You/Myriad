@@ -94,6 +94,67 @@ async fn upkeep_with_nothing_due_asks_and_writes_nothing() {
 }
 
 #[tokio::test]
+async fn an_upkeep_cut_off_writes_nothing_and_waits_after_twice() {
+    let Some(schema) = schema("memory_nodes_upkeep_cut_off").await else {
+        return;
+    };
+    let db = &schema.db;
+    let node = topic(db, "houseplants", &[("m1", "has a fern")]).await;
+    let marks = "SELECT COUNT(*) AS n FROM agent_node_rows WHERE kind = 'node.upkept'";
+    let cut_off = || {
+        answering(&[("memory_node_upkeep", r#"{"actions":[]}"#)]);
+        g0::with(|world| world.cut_off.insert("memory_node_upkeep".into(), 1));
+    };
+    // Cut off: no mark, the node still due, asked again at the next upkeep.
+    cut_off();
+    upkeep::tick(db).await;
+    assert_eq!(asked("memory_node_upkeep"), 1);
+    assert_eq!(count(db, marks).await, 0, "not marked as gone over");
+    cut_off();
+    upkeep::tick(db).await;
+    assert_eq!(asked("memory_node_upkeep"), 1, "asked again once");
+    assert_eq!(count(db, marks).await, 0);
+    // Twice with nothing new on it: it waits.
+    answering(&[("memory_node_upkeep", r#"{"actions":[]}"#)]);
+    upkeep::tick(db).await;
+    assert_eq!(asked("memory_node_upkeep"), 0, "waits after twice");
+    // A day on, asked again; answered whole, it is gone over and let go.
+    let record = format!("{OTHER}:{}:{node}", talk());
+    let mut value: Value =
+        crate::services::runtime_registry::get(db, upkeep::CUT_OFF_NAMESPACE, &record)
+            .await
+            .unwrap()
+            .expect("what was cut off is kept");
+    assert_eq!(value["times"], 2);
+    value["at"] = json!(crate::clock::now().timestamp() - 86_401);
+    crate::services::runtime_registry::put(
+        db,
+        upkeep::CUT_OFF_NAMESPACE,
+        &record,
+        crate::services::runtime_registry::RegistryIdentity {
+            subject_id: Some(OTHER),
+            owner_id: Some(OTHER),
+            tapp_id: None,
+            runtime_id: None,
+        },
+        &value,
+        crate::clock::now().timestamp() + 86_400,
+    )
+    .await
+    .unwrap();
+    answering(&[("memory_node_upkeep", r#"{"actions":[]}"#)]);
+    upkeep::tick(db).await;
+    assert_eq!(asked("memory_node_upkeep"), 1);
+    assert_eq!(count(db, marks).await, 1);
+    let left: Option<Value> =
+        crate::services::runtime_registry::get(db, upkeep::CUT_OFF_NAMESPACE, &record)
+            .await
+            .unwrap();
+    assert!(left.is_none(), "answered whole, let go");
+    schema.drop().await;
+}
+
+#[tokio::test]
 async fn forgetting_a_memory_takes_its_entry_and_an_empty_topic() {
     let Some(schema) = schema("memory_nodes_forget").await else {
         return;

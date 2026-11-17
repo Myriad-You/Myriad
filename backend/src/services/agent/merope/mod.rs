@@ -86,6 +86,8 @@ pub use ingest::{
     allow_existing_notify, is_enabled, spawn as spawn_ingest, spawn_presence,
     tick_speak_intents,
 };
+/// How many of her answers of each kind were cut off at their output limit.
+pub(crate) use call::cut_off as answers_cut_off;
 pub(crate) use ingest::{InPerson, Told, in_person, spawn_told};
 #[cfg(test)]
 pub(crate) use ingest::apply_task_mood;

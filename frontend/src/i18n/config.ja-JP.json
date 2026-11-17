@@ -979,6 +979,7 @@
   "agentAliveSettledFailed": "失敗",
   "agentAliveSettling": "会話の整理で起きた問題",
   "agentAliveSettlingFailures": "回答が読めなかった {unreadable} 回、聞き直し {again} 回。未整理のまま残した {left} 件、次回に持ち越した {brought} 件。整理できずそのまま長期に残したメモ {kept} 件（統合・重複排除なし）",
+  "agentAliveCutOff": "出力上限で途切れた回答",
   "agentAliveStanding": "「いまの暮らし」を最後に書いた時刻",
   "agentAliveStandingFailed": "その手順でのモデル呼び出し失敗",
   "agentAliveStandingFailedCount": "{n} 回、直近は{ago}",

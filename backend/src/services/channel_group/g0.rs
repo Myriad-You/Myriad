@@ -36,6 +36,9 @@ pub(crate) struct World {
     /// How long the model takes to answer, by operation, in order (none
     /// given: at once).
     pub delays: HashMap<String, VecDeque<f64>>,
+    /// How many of the next answers of an operation stop at their output
+    /// limit, in place of the answer.
+    pub cut_off: HashMap<String, u32>,
     /// What she sees in a picture, by its key.
     pub seen: HashMap<String, myriad_merope::seeing::Seen>,
     /// Text sends (counted from 0) the platform refuses.
@@ -90,6 +93,7 @@ impl World {
             claimed: HashSet::new(),
             models: HashMap::new(),
             delays: HashMap::new(),
+            cut_off: HashMap::new(),
             seen: HashMap::new(),
             refused: HashSet::new(),
             unreachable: HashSet::new(),
@@ -304,6 +308,19 @@ pub(crate) fn delay(operation: &str) -> Option<f64> {
             .and_then(VecDeque::pop_front)
     })
     .flatten()
+}
+
+/// Whether this answer of `operation` stops at its output limit, as the
+/// scene says.
+pub(crate) fn cut_off(operation: &str) -> bool {
+    with(|world| match world.cut_off.get_mut(operation) {
+        Some(left) if *left > 0 => {
+            *left -= 1;
+            true
+        }
+        _ => false,
+    })
+    .unwrap_or(false)
 }
 
 /// A send to the platform; whether it took it.
