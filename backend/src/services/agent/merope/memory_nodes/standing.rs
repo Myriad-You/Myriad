@@ -7,11 +7,11 @@
 //!
 //! - **After a stretch is gone over** ([`after_settled`]): each fact it
 //!   kept, one call each, in the order kept.
-//! - **What she knew before stands first** ([`build`]): in a talk where none
-//!   of hers stands yet, before the first stretch's facts are read, each of
-//!   her nodes there with none of hers on it, once. A rule's 「现在」 (where
-//!   a session is `now`) is not hers, and the site owner's talk holds those
-//!   from the start.
+//! - **What she knew before stands first** ([`build`]): each node a
+//!   stretch's facts are put on that has never held an item of hers, before
+//!   those facts are read; by node, not by talk (the core's `build_due`).
+//!   A rule's 「现在」 (where a session is `now`) is not hers, and the site
+//!   owner's talk holds those from the start.
 //! - **Kept on the site's side** (`Sync::Local`) while a side of the
 //!   owner's would refuse it, written to go once every side reads it
 //!   (`share::sync_for`); what was kept before goes then too
@@ -23,8 +23,8 @@
 use std::collections::{BTreeMap, HashMap};
 
 use myriad_nodes::stands::{
-    self, BuildDueInput, BuildInput, BuildReadInput, FactIn, KnownIn, NodeIn, StandingRowIn,
-    StepInput, StepPrepared, StepRead, StepReadInput,
+    self, BuildDueInput, BuildInput, BuildReadInput, DueNodeIn, FactIn, KnownIn, NodeIn,
+    StandingRowIn, StepInput, StepPrepared, StepRead, StepReadInput,
 };
 use sea_orm::DatabaseConnection;
 
@@ -41,33 +41,50 @@ pub(super) fn day_of(micros: i64) -> Option<String> {
     })
 }
 
-/// The authors and items of `owner`'s `audience`'s 「现在」 rows, each
-/// once: her line on a repository is hers but no one's life, and only the
-/// core tells them apart. A forgotten row (a stub, its body gone) stands
-/// for nothing.
-async fn standing_authors(
+/// Each of `nodes` (of `owner`'s `audience`) with the authors and items of
+/// its 「现在」 rows, each once, ended ones too: her line on a repository
+/// is hers but no one's life, and only the core tells them apart. A
+/// forgotten row (a stub, its body gone) stands for nothing.
+async fn standing_on(
     db: &DatabaseConnection,
     owner: i32,
     audience: &str,
-) -> Result<Vec<StandingRowIn>, Error> {
+    nodes: &[String],
+) -> Result<Vec<DueNodeIn>, Error> {
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT DISTINCT author, \
+            "SELECT DISTINCT node_id, author, \
              CASE WHEN body LIKE '{%' THEN body::jsonb->>'item' END AS item FROM agent_node_rows \
-             WHERE user_id = $1 AND audience = $2 AND kind = $3 AND body <> ''",
-            [owner.into(), audience.into(), stands::KIND.into()],
+             WHERE user_id = $1 AND audience = $2 AND kind = $3 AND body <> '' \
+             AND node_id = ANY($4)",
+            [
+                owner.into(),
+                audience.into(),
+                stands::KIND.into(),
+                nodes.to_vec().into(),
+            ],
         ))
         .await?;
-    rows.iter()
-        .map(|row| {
-            Ok(StandingRowIn {
-                author: row.try_get("", "author")?,
-                item: row.try_get("", "item")?,
-            })
+    let mut on: Vec<DueNodeIn> = nodes
+        .iter()
+        .map(|node| DueNodeIn {
+            node: node.clone(),
+            standing: Vec::new(),
         })
-        .collect()
+        .collect();
+    for row in &rows {
+        let node: String = row.try_get("", "node_id")?;
+        let standing = StandingRowIn {
+            author: row.try_get("", "author")?,
+            item: row.try_get("", "item")?,
+        };
+        if let Some(due) = on.iter_mut().find(|due| due.node == node) {
+            due.standing.push(standing);
+        }
+    }
+    Ok(on)
 }
 
 /// Times the fast model is asked before what it was asked goes unanswered:
@@ -231,9 +248,24 @@ pub(crate) async fn build(
     leave_out: &[String],
     pen: &Thought,
 ) -> Result<usize, Error> {
+    Box::pin(build_on(db, user_id, owner, audience, leave_out, None, pen)).await
+}
+
+/// [`build`], on `only` those nodes when given.
+async fn build_on(
+    db: &DatabaseConnection,
+    user_id: i32,
+    owner: i32,
+    audience: &str,
+    leave_out: &[String],
+    only: Option<&[String]>,
+    pen: &Thought,
+) -> Result<usize, Error> {
     let mut written = 0;
     for head in read::heads(db, owner, audience, None).await? {
-        if !matches!(head.kind.as_deref(), Some("topic") | Some("person")) {
+        if !matches!(head.kind.as_deref(), Some("topic") | Some("person"))
+            || only.is_some_and(|only| !only.contains(&head.node_id))
+        {
             continue;
         }
         let Some(folded) = read::node(db, owner, audience, &head.node_id).await? else {
@@ -325,18 +357,36 @@ pub(crate) async fn after_settled(
     pen: &Thought,
 ) -> Result<usize, Error> {
     let mut written = 0;
-    // None of hers stands here yet (what she kept before 「现在」 was
-    // written): first how things stood before this stretch, so what it
-    // changes is changed, not only started.
-    let due = BuildDueInput {
-        facts: facts.len(),
-        standing: standing_authors(db, owner, audience).await?,
-    };
-    if stands::build_due(&due) {
+    // A node a fact is put on that none of hers ever stood on (what she
+    // kept there before 「现在」 was written): first how things stood there
+    // before this stretch, so what it changes is changed, not only started.
+    let mut touched: Vec<String> = Vec::new();
+    for fact in facts {
+        if let Some(node) = placements::placement(db, &fact.memory)
+            .await?
+            .and_then(|placement| placement.node_id)
+            && !touched.contains(&node)
+        {
+            touched.push(node);
+        }
+    }
+    let due = stands::build_due(&BuildDueInput {
+        nodes: standing_on(db, owner, audience, &touched).await?,
+    });
+    if due.due {
         let kept: Vec<String> = facts.iter().map(|fact| fact.memory.clone()).collect();
         // Boxed, as is `ask` below: in the debug build the site runs, this
         // frame would otherwise hold room for each of them on the stack.
-        written += Box::pin(build(db, user_id, owner, audience, &kept, pen)).await?;
+        written += Box::pin(build_on(
+            db,
+            user_id,
+            owner,
+            audience,
+            &kept,
+            Some(&due.nodes),
+            pen,
+        ))
+        .await?;
     }
     let heads: HashMap<String, read::Head> = read::heads(db, owner, audience, None)
         .await?

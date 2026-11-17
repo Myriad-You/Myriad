@@ -875,3 +875,74 @@ async fn what_she_knew_before_stands_first_and_a_new_fact_ends_it() {
     assert_eq!(sinces, vec![json!("2026-08-21"), json!(today)]);
     schema.drop().await;
 }
+
+/// What she knew on a node goes first, by node: one built elsewhere in the
+/// talk does not stand for a node a new fact is put on; a node one of hers
+/// stood on is not built again; and one built to nothing is gone over again
+/// the next time a fact is put on it.
+#[tokio::test]
+async fn what_she_knew_on_a_node_stands_first_whatever_stands_elsewhere() {
+    let Some(schema) = schema("memory_nodes_standing_by_node").await else {
+        return;
+    };
+    let db = &schema.db;
+    let under = |name: &str| {
+        Some(GoesUnder::New {
+            name: name.into(),
+            aliases: Vec::new(),
+        })
+    };
+    let step_nothing = r#"{"whose":"them","set":[],"end":[],"add":[]}"#;
+    // One of hers stands on 跑步; 咖啡 holds a memory, none of hers.
+    answering(&[
+        (
+            "memory_standing_step",
+            r#"{"whose":"them","set":[],"end":[],"add":[{"topic":"跑步","text":"每周三晚上夜跑"}]}"#,
+        ),
+        ("memory_standing_step", step_nothing),
+    ]);
+    settle(
+        db,
+        vec![
+            update("每周三晚上夜跑", &[], under("跑步")),
+            update("常去春山咖啡看书", &[], under("咖啡")),
+        ],
+    )
+    .await;
+    assert_eq!(asked("memory_standing_build"), 0, "nothing on them before");
+    assert_eq!(standing_rows(db).await.len(), 1);
+    // A fact on 咖啡: built first though 跑步 stands; built to nothing.
+    answering(&[
+        ("memory_standing_build", r#"{"items":[]}"#),
+        ("memory_standing_step", step_nothing),
+    ]);
+    settle(db, vec![update("春山咖啡周末人很多", &[], under("咖啡"))]).await;
+    assert_eq!(asked("memory_standing_build"), 1, "by node, not by talk");
+    assert_eq!(standing_rows(db).await.len(), 1);
+    // Built to nothing, so gone over again: this time something stands.
+    answering(&[
+        (
+            "memory_standing_build",
+            r#"{"items":[{"whose":"them","text":"常去春山咖啡看书","because":[1]}]}"#,
+        ),
+        ("memory_standing_step", step_nothing),
+    ]);
+    settle(db, vec![update("春山咖啡换了新的店长", &[], under("咖啡"))]).await;
+    assert_eq!(asked("memory_standing_build"), 1, "built to nothing: again");
+    assert_eq!(standing_rows(db).await.len(), 2);
+    // Both now hold one of hers: neither is built again.
+    answering(&[
+        ("memory_standing_step", step_nothing),
+        ("memory_standing_step", step_nothing),
+    ]);
+    settle(
+        db,
+        vec![
+            update("夜跑改到周四了", &[], under("跑步")),
+            update("春山咖啡要搬家", &[], under("咖啡")),
+        ],
+    )
+    .await;
+    assert_eq!(asked("memory_standing_build"), 0, "stood on: not again");
+    schema.drop().await;
+}
