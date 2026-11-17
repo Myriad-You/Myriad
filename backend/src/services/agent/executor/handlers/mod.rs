@@ -35,6 +35,9 @@ pub struct HandlerContext<'a> {
     /// The group chat the run happens in (`RequestContext::venue`): a call
     /// to a device made there is for that group. Server-set only.
     pub venue: Option<String>,
+    /// Run with nobody there to answer (`RequestContext::unattended`): with
+    /// an autonomy cap, her own doing, which a call to a device says.
+    pub unattended: bool,
 }
 
 /// What a confirmation card shows: the capability, for a name in the reader's language, and
@@ -81,13 +84,12 @@ pub(crate) async fn execute_local_capability(
     match category {
         // What she asks of the owner's device goes over her link.
         CapabilityCategory::DataRead if capability_id.starts_with("device.") => {
-            crate::services::agent::link::calls::work(
-                ctx.db,
-                capability_id,
-                ctx.user_id,
-                ctx.venue.as_deref(),
-            )
-            .await
+            let run = crate::services::agent::link::calls::WorkFor {
+                user_id: ctx.user_id,
+                venue: ctx.venue.as_deref(),
+                her_own: ctx.autonomy_permission_cap.is_some() || ctx.unattended,
+            };
+            crate::services::agent::link::calls::work(ctx.db, capability_id, run).await
         }
         CapabilityCategory::DataRead => data_read::execute(capability_id, params, ctx).await,
         CapabilityCategory::DataWrite => data_write::execute(capability_id, params, ctx).await,

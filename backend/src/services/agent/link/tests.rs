@@ -11,6 +11,7 @@ use sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::{self, Message, client::IntoClientRequest};
 
+use super::calls::WorkFor;
 use super::connection::{Hello, Inbound, Input, Resume, accepted, acting, mood_frame, with_images};
 use super::contract::{
     CHILD_FRAMES, CONTRACT, CONTRACT_JSON, Close, HOST_ERROR_CODES, HOST_FRAMES, Timing,
@@ -4178,6 +4179,15 @@ fn her_call(
     )
 }
 
+/// Work run by the site's owner, asking themself.
+fn for_owner(venue: Option<&str>) -> WorkFor<'_> {
+    WorkFor {
+        user_id: OWNER,
+        venue,
+        her_own: false,
+    }
+}
+
 /// Nothing more came on the link: a ping is answered next.
 async fn nothing_else(child: &mut Child) {
     child.send("ping", None, json!({})).await;
@@ -4736,7 +4746,7 @@ async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_i
     let look = "device.screen.look";
     let (mac, token) = device(&site.db, "Mac").await;
     assert!(!super::calls::usable(OWNER, look));
-    let away = super::calls::work(&site.db, look, OWNER, None).await;
+    let away = super::calls::work(&site.db, look, for_owner(None)).await;
     assert!(away.unwrap_err().starts_with("call_unavailable"));
     let (mut child, _) = offering(&site, &token, &["screen.look"]).await;
     assert!(super::calls::usable(OWNER, look));
@@ -4744,14 +4754,50 @@ async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_i
     assert!(!super::calls::usable(OWNER + 1, look));
     assert!(!super::calls::usable(OWNER, "device.work.run"));
     // In a group: refused before anything is asked.
-    let group = super::calls::work(&site.db, look, OWNER, Some("telegram:-100")).await;
+    let group = super::calls::work(&site.db, look, for_owner(Some("telegram:-100"))).await;
     assert!(group.unwrap_err().starts_with("wrong_audience"));
+    // Her own doing, or someone else's run: the screen is only the owner's
+    // to ask for, so refused too, and each kept as whom it was for.
+    let own = WorkFor {
+        her_own: true,
+        ..for_owner(None)
+    };
+    assert!(
+        super::calls::work(&site.db, look, own)
+            .await
+            .unwrap_err()
+            .starts_with("wrong_audience")
+    );
+    let other = WorkFor {
+        user_id: OWNER + 1,
+        ..for_owner(None)
+    };
+    assert!(
+        super::calls::work(&site.db, look, other)
+            .await
+            .unwrap_err()
+            .starts_with("wrong_audience")
+    );
+    let kinds: Vec<_> = super::calls_store::recent(&site.db, OWNER, 10)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|one| one.error_code.as_deref() == Some("wrong_audience"))
+        .map(|one| one.for_kind)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    assert_eq!(kinds, ["group", "other", "own"]);
     nothing_else(&mut child).await;
     // For the owner: asked, and what it may say comes back.
     let db = site.db.clone();
-    let asked = tokio::spawn(async move { super::calls::work(&db, look, OWNER, None).await });
+    let asked = tokio::spawn(async move { super::calls::work(&db, look, for_owner(None)).await });
     let ask = child.expect("call.ask").await;
     assert_eq!(ask["body"]["for"], json!({ "kind": "owner" }));
+    // Work gives it less time than the contract's most, and waits less
+    // than its step does.
+    let deadline = ask["body"]["deadlineAt"].as_i64().unwrap();
+    assert!(deadline <= crate::clock::now().timestamp_millis() + 10_000);
     let call_id = ask["body"]["callId"].as_str().unwrap().to_string();
     child
         .send(
@@ -4764,6 +4810,26 @@ async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_i
     assert_eq!(
         asked.await.unwrap().unwrap(),
         json!({ "facts": { "app": "Safari", "window_title": "Myriad" } })
+    );
+    // It may have happened: Work is told the outcome is unknown, so the
+    // step is not done again.
+    let db = site.db.clone();
+    let asked = tokio::spawn(async move { super::calls::work(&db, look, for_owner(None)).await });
+    let call_id = child.expect("call.ask").await["body"]["callId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "screen.look", "version": 1, "outcome": "unknown" }),
+        )
+        .await;
+    let unknown = asked.await.unwrap().unwrap_err();
+    assert!(
+        unknown.starts_with(myriad_agent_rules::OUTCOME_UNKNOWN_PREFIX),
+        "{unknown}"
     );
     // The owner turns it off: Work no longer sees it.
     super::calls::set_approved(&site.db, OWNER, &mac.id, "screen", false)

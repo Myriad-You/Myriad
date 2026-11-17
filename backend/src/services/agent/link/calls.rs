@@ -11,6 +11,7 @@
 //! so every ask of a child's is answered failed.
 
 use std::cell::RefCell;
+use std::time::Duration;
 
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
@@ -148,40 +149,86 @@ pub(crate) fn usable(user_id: i32, capability_id: &str) -> bool {
     })
 }
 
-/// Work asked a device's capability: she asks it of the device of
-/// `user_id`'s they are at, for them, or for the group the run is in
-/// (`venue`). Work is told the result of one done; otherwise a code and
-/// what it means, never the device's words.
+/// How long a look at the screen asked from Work is given (its deadlineAt),
+/// and how long Work waits for it: under the step's own time, so the step
+/// never gives up first. A call still running when Work stops waiting ends
+/// by itself, its row kept.
+const WORK_DEADLINE_MS: u64 = 10_000;
+const WORK_WAITS_MS: u64 = WORK_DEADLINE_MS + 2_000;
+
+/// What Work was running for, as `for` says it (`callAudiences`).
+pub(crate) struct WorkFor<'a> {
+    pub user_id: i32,
+    /// The group chat the run is in.
+    pub venue: Option<&'a str>,
+    /// Her own doing: accepted by her autonomy, or an instruction come due
+    /// with no one there. Not the owner asking.
+    pub her_own: bool,
+}
+
+/// Work asked a device's capability. Only the site owner's devices are
+/// asked; she asks the one they are at, for whom the run is: someone
+/// else's run is for other, a group's for that group, her own doing own,
+/// and only the owner's asking is for the owner. A call not for one the
+/// action allows is refused and kept as any other. Work is told the result
+/// of one done; otherwise a code and what it means, never the device's
+/// words; one that may have happened says so (outcome unknown), so it is
+/// not asked again.
 pub(crate) async fn work(
     db: &DatabaseConnection,
     capability_id: &str,
-    user_id: i32,
-    venue: Option<&str>,
+    run: WorkFor<'_>,
 ) -> Result<Value, String> {
+    let unknown = |detail: &str| format!("{} {detail}", myriad_agent_rules::OUTCOME_UNKNOWN_PREFIX);
     let Some(action) = capability_id
         .strip_prefix("device.")
         .filter(|action| enabled(action))
     else {
         return Err("call_unknown: this is not something she asks a device".into());
     };
-    let devices = super::granted_devices(user_id, action);
-    let Some(device_id) = super::pick::device(user_id, &devices).cloned() else {
+    let site_owner = match crate::services::principal::site_owner_id(db).await {
+        Ok(Some(owner)) => owner,
+        Ok(None) => return Err("call_unavailable: the site has no owner".into()),
+        Err(_) => return Err("call_unavailable: the site owner could not be read".into()),
+    };
+    let devices = super::granted_devices(site_owner, action);
+    let Some(device_id) = super::pick::device(site_owner, &devices).cloned() else {
         return Err(
-            "call_unavailable: no device of theirs is linked and lets her do this now".into(),
+            "call_unavailable: no device of the owner's is linked and lets her do this now".into(),
         );
     };
-    let of = match venue {
-        Some(group) => json!({ "kind": "group", "groupId": group }),
-        None => json!({ "kind": "owner" }),
+    let of = if run.user_id != site_owner {
+        json!({ "kind": "other" })
+    } else if let Some(group) = run.venue {
+        json!({ "kind": "group", "groupId": group })
+    } else if run.her_own {
+        json!({ "kind": "own" })
+    } else {
+        json!({ "kind": "owner" })
     };
-    let answer = ask(db, user_id, &device_id, action, &of, json!({}), None).await;
+    let asked = ask(
+        db,
+        site_owner,
+        &device_id,
+        action,
+        &of,
+        json!({}),
+        Some(WORK_DEADLINE_MS),
+    );
+    let answer = match tokio::time::timeout(Duration::from_millis(WORK_WAITS_MS), asked).await {
+        Ok(answer) => answer,
+        Err(_) => return Err(unknown("the device has not answered by its deadline")),
+    };
     match answer.outcome {
         calls_store::Outcome::Done => Ok(answer.result.unwrap_or_else(|| json!({}))),
+        // Sent, and nothing sure came back: it may have happened.
+        calls_store::Outcome::Failed(code @ ("call_timeout" | "internal_error")) => Err(unknown(
+            &format!("{code}: the device did not say how it went"),
+        )),
         calls_store::Outcome::Failed(code) => Err(format!("{code}: the device did not do it")),
-        calls_store::Outcome::Unknown => Err(
-            "unknown: the device lost track midway, so it may have happened; do not ask it again"
-                .into(),
-        ),
+        calls_store::Outcome::Unknown => Err(unknown(
+            "the device lost track midway, so it may have happened; do not ask it again",
+        )),
     }
 }
 

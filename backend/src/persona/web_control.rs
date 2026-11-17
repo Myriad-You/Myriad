@@ -39,6 +39,9 @@ struct Call {
     /// The group chat the run happens in, for a call to a device.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     venue: Option<String>,
+    /// Run with nobody there to answer, for a call to a device.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    unattended: bool,
 }
 
 pub(crate) fn is_web_owned(capability: &str) -> bool {
@@ -209,6 +212,7 @@ async fn execute(db: &sea_orm::DatabaseConnection, call: Call) -> Result<Value, 
         execution_context: None,
         autonomy_permission_cap: call.autonomy_permission_cap,
         venue: call.venue,
+        unattended: call.unattended,
     };
     // Deliberately bypass the remote-dispatch wrapper: this is the state owner.
     agent::executor::handlers::execute_local_capability(
@@ -235,6 +239,7 @@ pub async fn call(
         autonomy_permission_cap: context.autonomy_permission_cap.clone(),
         params: params.clone(),
         venue: context.venue.clone(),
+        unattended: context.unattended,
     })
     .map_err(|_| "Could not encode web capability")?;
     if body.len() > MAX_REQUEST {

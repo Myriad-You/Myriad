@@ -912,6 +912,11 @@ impl Agent {
                 .context
                 .as_ref()
                 .and_then(|context| context.venue.clone()),
+            unattended: state
+                .request
+                .context
+                .as_ref()
+                .is_some_and(|context| context.unattended),
         };
         let timeout = super::executor_utils_pure::step_timeout_secs(
             step.timeout_ms,
