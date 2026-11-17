@@ -2981,6 +2981,38 @@ fn moment(body: Value) -> super::moment::Moment {
     serde_json::from_value(body).unwrap()
 }
 
+/// A look at a chat window that comes as a moment keeps none of what anyone
+/// else wrote there, as a look that comes any other way: only the first
+/// line of its summary, and a fact that would carry their words is refused
+/// with the moment.
+#[test]
+fn a_moment_of_a_chat_window_keeps_none_of_what_others_wrote() {
+    use crate::services::agent::merope::gates;
+    let mut body = moment_body(gates::SCREEN_EVENT);
+    body["safeFacts"] = json!({ "who": "Ann", "app": "Messages" });
+    for (summary, kept) in [
+        ("Ann wrote\nAnn: see you at 7", "Ann wrote"),
+        ("Ann wrote\u{2029}Ann: see you at 7", "Ann wrote"),
+        ("Ann wrote\u{0B}Ann: see you at 7", "Ann wrote"),
+    ] {
+        body["summary"] = summary.into();
+        let mut read = moment(body.clone());
+        assert!(read.readable());
+        read.keep_screen_fields();
+        assert_eq!(read.summary, kept);
+        assert_eq!(read.safe_facts.get("who").map(String::as_str), Some("Ann"));
+    }
+    let mut words = body.clone();
+    words["safeFacts"]["screen_text"] = "Ann: see you at 7".into();
+    assert!(!moment(words).readable());
+    // Another app's summary is its own: kept whole.
+    body["safeFacts"] = json!({ "app": "Xcode" });
+    body["summary"] = "Xcode\nPen.swift".into();
+    let mut read = moment(body);
+    read.keep_screen_fields();
+    assert_eq!(read.summary, "Xcode\nPen.swift");
+}
+
 /// Only the kinds a child tells, within the contract's limits; a memory only
 /// for the kind that may keep one, whatever the child says.
 #[test]

@@ -72,11 +72,12 @@ impl Senses {
 }
 
 /// A look at the screen says only what `screenFields` lets it: a fact the
-/// list does not name is deleted (and counted, never its value). A chat
-/// window's row (its facts carry who) keeps only the first line of its
+/// list does not name, or not a plain value, is deleted (and counted, never
+/// its value), text cut to the contract's length. A chat window's row (its
+/// facts carry who, of whatever shape) keeps only the first line of its
 /// summary and no screen_text: a child from before put others' words there.
-/// Facts that are not an object, or a summary that is not text, are deleted
-/// whole.
+/// The summary is never longer than the contract's text. Facts that are not
+/// an object, or a summary that is not text, are deleted whole.
 fn keep_screen_fields(row: &mut Value) {
     let t = "presence";
     let Some(row) = row.as_object_mut() else {
@@ -96,19 +97,28 @@ fn keep_screen_fields(row: &mut Value) {
     let chat = row
         .get_mut("safeFacts")
         .and_then(Value::as_object_mut)
-        .is_some_and(|facts| keep_facts(t, facts, false));
-    if chat
-        && let Some(Value::String(summary)) = row.get_mut("summary")
-        && let Some(first) = cut_to_first_line(summary)
-    {
-        *summary = first;
-        super::counts::screen_key_deleted(t, "summary");
+        .is_some_and(|facts| keep_facts(t, facts, true));
+    if let Some(Value::String(summary)) = row.get_mut("summary") {
+        let max_chars = super::contract::CONTRACT.limits.max_text_chars;
+        let first = chat.then(|| cut_to_first_line(summary)).flatten();
+        let cut = first.unwrap_or_else(|| summary.clone());
+        let cut: String = cut.chars().take(max_chars).collect();
+        if cut.len() != summary.len() {
+            *summary = cut;
+            super::counts::screen_key_deleted(t, "summary");
+        }
     }
+}
+
+/// Whether facts with these keys are of a chat window: the device says so
+/// by telling who (`who`), whatever else it tells.
+pub(super) fn chat_window<'a>(mut keys: impl Iterator<Item = &'a str>) -> bool {
+    keys.any(|key| key == "who")
 }
 
 /// A text up to its first line break of any kind (`\n`, `\r`, a vertical
 /// tab, a form feed, NEL, U+2028, U+2029); `None` when it has none.
-fn cut_to_first_line(text: &str) -> Option<String> {
+pub(super) fn cut_to_first_line(text: &str) -> Option<String> {
     let at = text.find([
         '\n', '\r', '\u{0B}', '\u{0C}', '\u{85}', '\u{2028}', '\u{2029}',
     ])?;
@@ -122,7 +132,7 @@ fn cut_to_first_line(text: &str) -> Option<String> {
 /// one whose `who` is not a plain value is still a chat. True for a chat.
 fn keep_facts(t: &'static str, facts: &mut serde_json::Map<String, Value>, plain: bool) -> bool {
     let max_chars = super::contract::CONTRACT.limits.max_text_chars;
-    let chat = facts.contains_key("who");
+    let chat = chat_window(facts.keys().map(String::as_str));
     facts.retain(|key, value| {
         let named = super::counts::screen_fact(key);
         let kept = named
@@ -315,25 +325,60 @@ mod tests {
         .unwrap();
         assert_eq!(look["facts"], json!({ "app": "Messages" }));
         assert_eq!(look["summary"], "Ann");
-        // Any line break ends the summary, and it is never longer than text is.
+        // Any line break ends the summary, each of them, and it is never
+        // longer than text is.
         let max_chars = super::super::contract::CONTRACT.limits.max_text_chars;
-        for (summary, kept) in [("Ann\rsee you", "Ann"), ("Ann\r\nsee you", "Ann")] {
+        let breaks = [
+            "\n", "\r", "\r\n", "\u{0B}", "\u{0C}", "\u{85}", "\u{2028}", "\u{2029}",
+        ];
+        for line_break in breaks {
+            let summary = format!("Ann{line_break}see you");
             let look = look_result(&json!({ "facts": {}, "summary": summary })).unwrap();
-            assert_eq!(look["summary"], kept);
+            assert_eq!(look["summary"], "Ann", "{line_break:?}");
         }
         let long = "x".repeat(max_chars + 5);
         let look = look_result(&json!({ "facts": {}, "summary": long })).unwrap();
         assert_eq!(look["summary"].as_str().unwrap().chars().count(), max_chars);
-        // The same on what a child senses there.
+        // The same on what a child senses there: a chat by who of any
+        // shape, its summary to the first break of any kind.
         let senses = Senses::of(&["perception.screen".to_string()]);
+        for line_break in breaks {
+            for who in [json!("Ann"), json!(["Ann"])] {
+                let kept = senses.admit(&json!({ "perception": [
+                    { "sourceId": "screen_chat", "kind": "screen",
+                      "summary": format!("Ann wrote{line_break}see you at 7"),
+                      "safeFacts": { "who": who, "screen_text": "see you at 7", "app": "Messages" } },
+                ]}));
+                let row = &kept["perception"][0];
+                let facts = if who.is_string() {
+                    json!({ "who": "Ann", "app": "Messages" })
+                } else {
+                    json!({ "app": "Messages" })
+                };
+                assert_eq!(row["safeFacts"], facts, "{line_break:?} {who}");
+                assert_eq!(row["summary"], "Ann wrote", "{line_break:?} {who}");
+            }
+        }
+        // Another app there: only plain values, text and summary within the
+        // contract's length, its summary whole otherwise.
         let kept = senses.admit(&json!({ "perception": [
-            { "sourceId": "screen_chat", "kind": "screen",
-              "summary": "Ann wrote\rsee you at 7",
-              "safeFacts": { "who": "Ann", "screen_text": "see you at 7" } },
+            { "sourceId": "screen_look", "kind": "screen",
+              "summary": format!("Xcode\n{}", "y".repeat(max_chars)),
+              "safeFacts": { "app": { "name": "Xcode" }, "screen_text": "z".repeat(max_chars + 1) } },
         ]}));
         let row = &kept["perception"][0];
-        assert_eq!(row["safeFacts"], json!({ "who": "Ann" }));
-        assert_eq!(row["summary"], "Ann wrote");
+        assert!(row["safeFacts"].get("app").is_none());
+        assert_eq!(
+            row["safeFacts"]["screen_text"]
+                .as_str()
+                .unwrap()
+                .chars()
+                .count(),
+            max_chars
+        );
+        let summary = row["summary"].as_str().unwrap();
+        assert!(summary.starts_with("Xcode\n"));
+        assert_eq!(summary.chars().count(), max_chars);
     }
 
     #[test]

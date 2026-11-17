@@ -88,18 +88,29 @@ impl Moment {
     }
 
     /// A look at the screen keeps only the facts `screenFields` names; the
-    /// rest are deleted and counted (never their values).
+    /// rest are deleted and counted (never their values). One of a chat
+    /// window (its facts tell who, as on every other way a look comes)
+    /// keeps only the first line of its summary: what anyone else wrote
+    /// there is not hers to keep. No fact of it carries their words: a key
+    /// with a part such as `text` is not one a moment may have
+    /// ([`fact_key`]), so a `screen_text` never gets this far.
     pub(super) fn keep_screen_fields(&mut self) {
         if self.kind != crate::services::agent::merope::gates::SCREEN_EVENT {
             return;
         }
+        let t = "moment";
+        let chat = super::senses::chat_window(self.safe_facts.keys().map(String::as_str));
         self.safe_facts.retain(|key, _| {
             let kept = super::counts::screen_fact(key);
             if !kept {
-                super::counts::screen_key_deleted("moment", key);
+                super::counts::screen_key_deleted(t, key);
             }
             kept
         });
+        if chat && let Some(first) = super::senses::cut_to_first_line(&self.summary) {
+            self.summary = first;
+            super::counts::screen_key_deleted(t, "summary");
+        }
     }
 
     /// What she decides to remember of it may become a memory: only for a
