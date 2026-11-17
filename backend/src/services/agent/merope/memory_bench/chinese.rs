@@ -299,6 +299,8 @@ pub(super) fn the_implicit_memory_set_reads_as_the_bench_needs() {
     // Each says what answering it needs, the fact that decides it last:
     // whether that was written, recalled and in front of her is checked
     // line by line, not by any one line of the talk it came from.
+    // No word of one character: it is found inside other words (裁 in 总裁),
+    // and a need would read as met by a line that says nothing of it.
     for question in &set {
         assert!(
             !question.needs.is_empty()
@@ -306,7 +308,7 @@ pub(super) fn the_implicit_memory_set_reads_as_the_bench_needs() {
                     !words.is_empty()
                         && words
                             .iter()
-                            .all(|word| word.split('&').all(|part| !part.trim().is_empty()))
+                            .all(|word| word.split('&').all(|part| part.trim().chars().count() > 1))
                 }),
             "{}",
             question.question_id

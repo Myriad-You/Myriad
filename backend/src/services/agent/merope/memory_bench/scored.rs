@@ -128,8 +128,13 @@ pub(super) fn report(
                 let [.., needing, recalled, shown] = slot;
                 (
                     kind,
-                    json!({"questions": n, "runs": run, "written": written,
-                            "retrieved": retrieved, "right": right, "every": every,
+                    // `writtenAny`, `retrievedAny`: a run counts when any
+                    // one answering fact was written or recalled, so they
+                    // read high. `recalledNeeded`, `shownNeeded`: of the
+                    // `needing` runs, those with every needed fact, checked
+                    // line by line.
+                    json!({"questions": n, "runs": run, "writtenAny": written,
+                            "retrievedAny": retrieved, "right": right, "every": every,
                             "needing": needing, "recalledNeeded": recalled,
                             "shownNeeded": shown}),
                 )

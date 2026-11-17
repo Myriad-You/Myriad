@@ -403,14 +403,18 @@ pub(super) struct Answered {
 
 impl Answered {
     /// Every line she answered on, however it came: how things stand, what
-    /// she recalled, what she scrolled back to. What a question needs is
-    /// looked for here to tell whether it was in front of her at all.
+    /// she recalled, the list code made when she went through all of a
+    /// kind, what she scrolled back to. What a question needs is looked for
+    /// here to tell whether it was in front of her at all. A run that only
+    /// recalled, or was answered as another run answered, keeps nothing
+    /// scrolled back to or listed: for it this is short of them.
     pub(super) fn shown(&self) -> Vec<String> {
+        let sections = [&self.through, &self.scrolled];
         self.standing
             .iter()
             .chain(&self.recalled)
             .map(String::as_str)
-            .chain(self.scrolled.iter().flat_map(|scrolled| scrolled.lines()))
+            .chain(sections.into_iter().flatten().flat_map(|text| text.lines()))
             .map(str::to_string)
             .collect()
     }
