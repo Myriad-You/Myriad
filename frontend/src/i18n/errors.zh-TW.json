@@ -668,6 +668,7 @@
     "mind_elsewhere": "她這會兒回不了話：在你的另一台裝置上，或者剛回到這裡、還在補齊那邊寫下的內容。",
     "left_for_her": "這句話留下了，她在那台裝置上看得到。",
     "device_host_later": "讓她住到一台裝置上要等以後的版本。",
+    "call_group_unknown": "裝置沒有這個權限組。",
     "move_not_agreed": "那台裝置還沒同意讓她住過去。",
     "move_mismatch": "傳上來的和封存的不一樣，沒有繼續。",
     "move_backup_missing": "那台裝置還沒把第一份每日備份存到站點，先等它存好。",

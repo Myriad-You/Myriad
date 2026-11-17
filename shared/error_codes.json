@@ -1774,6 +1774,7 @@
     "merge_changed",
     "retired_unknown",
     "device_host_later",
+    "call_group_unknown",
     "move_not_agreed",
     "move_mismatch",
     "move_failed",

@@ -668,6 +668,7 @@
     "mind_elsewhere": "Elle ne peut pas répondre ici pour l'instant : elle est sur un autre de tes appareils, ou vient de revenir et récupère encore ce qu'elle a écrit là-bas.",
     "left_for_her": "Ton message est gardé ; elle le voit sur cet appareil.",
     "device_host_later": "La faire vivre sur un appareil viendra dans une version ultérieure.",
+    "call_group_unknown": "Ce groupe d’autorisations n’existe pas pour les appareils.",
     "move_not_agreed": "Cet appareil n'a pas encore accepté.",
     "move_mismatch": "Ce qui est arrivé n'est pas ce qui a été scellé : le déménagement ne continue pas.",
     "move_backup_missing": "Cet appareil n'a pas encore déposé ici sa première sauvegarde quotidienne ; attendez-la.",

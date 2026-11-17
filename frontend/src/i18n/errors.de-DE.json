@@ -668,6 +668,7 @@
     "mind_elsewhere": "Sie kann hier gerade nicht antworten: Sie ist auf einem anderen deiner Geräte oder gerade zurückgekommen und holt noch nach, was sie dort geschrieben hat.",
     "left_for_her": "Deine Nachricht ist gespeichert; sie sieht sie auf dem anderen Gerät.",
     "device_host_later": "Sie auf einem Gerät wohnen zu lassen, kommt in einer späteren Version.",
+    "call_group_unknown": "Diese Berechtigungsgruppe gibt es für Geräte nicht.",
     "move_not_agreed": "Das Gerät hat noch nicht zugestimmt.",
     "move_mismatch": "Was angekommen ist, entspricht nicht dem Versiegelten; der Umzug ging nicht weiter.",
     "move_backup_missing": "Das Gerät hat seine erste tägliche Sicherung noch nicht hier abgelegt; warte darauf.",

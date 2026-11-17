@@ -668,6 +668,7 @@
     "mind_elsewhere": "她这会儿回不了话：在你的另一台设备上，或者刚回到这里、还在补齐那边写下的内容。",
     "left_for_her": "这句话留下了，她在那台设备上看得到。",
     "device_host_later": "让她住到一台设备上要等以后的版本。",
+    "call_group_unknown": "设备没有这个权限组。",
     "move_not_agreed": "那台设备还没同意让她住过去。",
     "move_mismatch": "传上来的和封存的不一样，没有继续。",
     "move_backup_missing": "那台设备还没把第一份每日备份存到站点，先等它存好。",
