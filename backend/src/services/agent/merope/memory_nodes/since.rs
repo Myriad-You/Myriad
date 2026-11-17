@@ -18,7 +18,10 @@
 //! 晚上夜跑`) read as how things are; said first, with its day, they read as
 //! what was before it ([`ended_lines`]). Only what she concluded is said: a
 //! rule's item is what a device showed for a while, and its ending is
-//! nothing about their life.
+//! nothing about their life. A memory they had her forget takes the rows
+//! resting on it with it (`super::forget`); one they took back or let go
+//! keeps its rows, so it is the caller's `said` that says nothing for an
+//! item resting on one, and it is left out.
 //!
 //! Days are written as a fact's is (`store::as_known`): month and day, the
 //! year only when it is not this one.

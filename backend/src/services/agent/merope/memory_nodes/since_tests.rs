@@ -285,3 +285,111 @@ async fn what_ended_is_unsaid_with_the_words_it_stood_in() {
     );
     schema.drop().await;
 }
+
+async fn memory(db: &sea_orm::DatabaseConnection, id: &str, set: &str) {
+    db.execute_unprepared(&format!(
+        "UPDATE agent_memories SET {set} WHERE id = '{id}'"
+    ))
+    .await
+    .unwrap();
+}
+
+/// A version is written with the one before it in view, so its words may
+/// carry what the earlier one rested on though it names only its own
+/// memory: taken back, the earlier one's memory takes the item with it,
+/// standing or ended, and so does one replaced by a memory taken back.
+/// The words an ended item stood in are those its ending was written
+/// over; that version forgotten, the line says only that it ended.
+#[tokio::test]
+async fn an_earlier_versions_memory_taken_back_takes_the_item() {
+    let Some(schema) = schema("memory_nodes_versions").await else {
+        return;
+    };
+    let db = &schema.db;
+    let first = stands(
+        db,
+        r#"{"whose":"them","set":[],"end":[],"add":[{"topic":"跑步","text":"每周三晚上夜跑"}]}"#,
+        "每周三晚上夜跑",
+    )
+    .await;
+    stands(
+        db,
+        r#"{"whose":"them","set":[{"item":1,"text":"每周五晚上夜跑"}],"end":[],"add":[]}"#,
+        "夜跑改到周五了",
+    )
+    .await;
+    let now = |resident: Vec<String>| saying(&resident, "每周五晚上夜跑").len();
+    assert_eq!(now(recollect(db, &[]).await.resident), 1);
+    // The first version's memory let go: the second, written over it, is
+    // not said either.
+    let let_go = "invalid_reason = 'superseded', invalid_at = now(), superseded_by = NULL";
+    let held = "invalid_reason = NULL, invalid_at = NULL, superseded_by = NULL";
+    memory(db, &first, let_go).await;
+    assert_eq!(now(recollect(db, &[]).await.resident), 0);
+    memory(db, &first, held).await;
+    assert_eq!(now(recollect(db, &[]).await.resident), 1);
+
+    // Ended: the line names the version the ending was written over.
+    let ending = stands(
+        db,
+        r#"{"whose":"them","set":[],"end":[1],"add":[]}"#,
+        "膝盖伤了，不夜跑了",
+    )
+    .await;
+    let ended = |named: Vec<String>| {
+        saying(&named, "no longer")
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    };
+    let lines = ended(recollect(db, &[&ending]).await.named);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines[0].starts_with("跑步: no longer: 每周五晚上夜跑, since "),
+        "{lines:?}"
+    );
+    // The first version's memory replaced by another (one no version of
+    // the item names) that was then taken back: taken back with it, and the
+    // whole line goes.
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_memories SELECT * FROM jsonb_populate_record(NULL::agent_memories, \
+           (SELECT to_jsonb(m) || '{{\"id\": \"mem_replacer\", \"content\": \"其实是周四\"}}'::jsonb \
+            FROM agent_memories m WHERE m.id = '{first}'))"
+    ))
+    .await
+    .unwrap();
+    memory(
+        db,
+        &first,
+        "invalid_reason = 'superseded', invalid_at = now(), superseded_by = 'mem_replacer'",
+    )
+    .await;
+    assert_eq!(ended(recollect(db, &[&ending]).await.named).len(), 1);
+    memory(
+        db,
+        "mem_replacer",
+        "invalid_reason = 'deleted', invalid_at = now()",
+    )
+    .await;
+    assert!(ended(recollect(db, &[&ending]).await.named).is_empty());
+    memory(db, &first, held).await;
+    assert_eq!(ended(recollect(db, &[&ending]).await.named).len(), 1);
+
+    // The version it stood in forgotten (a stub, no body): the line says
+    // only that it is no longer as it stood.
+    let stubbed = db
+        .execute_unprepared(
+            "UPDATE agent_node_rows SET body = '' WHERE kind = 'node.standing' \
+             AND body <> '' AND body::jsonb->>'text' = '每周五晚上夜跑'",
+        )
+        .await
+        .unwrap();
+    assert_eq!(stubbed.rows_affected(), 1);
+    let lines = ended(recollect(db, &[&ending]).await.named);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines[0].starts_with("跑步: no longer as it stood here, since "),
+        "{lines:?}"
+    );
+    schema.drop().await;
+}

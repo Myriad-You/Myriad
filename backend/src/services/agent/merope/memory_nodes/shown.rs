@@ -82,19 +82,19 @@ pub(crate) struct Shown {
     /// Those a head names that they took back or had her let go
     /// ([`known::Named::taken_back`]).
     pub taken_back: HashSet<String>,
-    /// What stood, by (node, item), before the latest version of that item:
-    /// its last version that was not an ending. For an item that ended,
-    /// the words of what ended, which the head no longer keeps.
-    pub stood: HashMap<(String, String), Stood>,
+    /// The words an ended item stood in, by (node, item): the version its
+    /// ending was written over, which the head no longer keeps. None of one
+    /// whose earlier version is forgotten, or is not to be found.
+    pub stood: HashMap<(String, String), String>,
+    /// Every memory any version of an item of 「现在」 ever rested on, by
+    /// (node, item): a version is written with the one before it in view,
+    /// so its words may carry what an earlier one rested on.
+    pub grounds: HashMap<(String, String), Vec<String>>,
 }
 
-/// One earlier version of how a thing stood: its words, and the memories
-/// it rested on.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct Stood {
-    pub text: String,
-    pub because: Value,
-}
+/// The words an ended thing stood in, at most: a line says which thing it
+/// was, not all of it.
+const STOOD_CHARS: usize = 80;
 
 impl Shown {
     pub(crate) fn node(&self, id: &str) -> Option<&Node> {
@@ -148,6 +148,19 @@ impl Shown {
     /// stands.
     pub(crate) fn unsaid(&self, because: &Value) -> bool {
         cited(because).iter().any(|id| self.taken_back.contains(id))
+    }
+
+    /// Whether `item` of `node`'s 「现在」, resting now on `because`, is no
+    /// longer to be said: they took back a memory it rests on, or one any
+    /// earlier version of it rested on ([`Shown::grounds`]). This hides an
+    /// item whose words were since rewritten clear of what was taken back,
+    /// until it is written again: too much hidden, never too little.
+    pub(crate) fn unsaid_item(&self, node: &str, item: &str, because: &Value) -> bool {
+        self.unsaid(because)
+            || self
+                .grounds
+                .get(&(node.to_string(), item.to_string()))
+                .is_some_and(|ids| ids.iter().any(|id| self.taken_back.contains(id)))
     }
 
     /// The live memory row an item of a head (a view, an open item) rests
@@ -264,6 +277,118 @@ fn named_by(head: &Value) -> Vec<String> {
     entries.chain(items).collect()
 }
 
+/// Of the items of 「现在」 on `heads` (node id first, head last): every
+/// memory any version of each ever rested on, and of an ended one the
+/// words it stood in. One read, of those nodes and items only; a version
+/// forgotten (a stub, no body) gives nothing. A node gone into another
+/// keeps its rows under its old id: nothing is found for it, and its ended
+/// line says only that it is no longer as it stood.
+#[allow(clippy::type_complexity)]
+async fn versions<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    audience: &str,
+    heads: &[(String, Option<String>, Option<String>, String, Value)],
+) -> Result<
+    (
+        HashMap<(String, String), Vec<String>>,
+        HashMap<(String, String), String>,
+    ),
+    Error,
+> {
+    let items = |head: &Value| -> Vec<(String, Value)> {
+        head["standing"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(item, held)| (item.clone(), held.clone()))
+            .collect()
+    };
+    let nodes: Vec<String> = heads
+        .iter()
+        .filter(|head| !items(&head.4).is_empty())
+        .map(|head| head.0.clone())
+        .collect();
+    let names: BTreeSet<String> = heads
+        .iter()
+        .flat_map(|head| items(&head.4))
+        .map(|(item, _)| item)
+        .collect();
+    let (mut grounds, mut stood) = (HashMap::new(), HashMap::new());
+    if nodes.is_empty() {
+        return Ok((grounds, stood));
+    }
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT node_id, row_id, \
+               (CASE WHEN body = '' THEN NULL ELSE body::jsonb END) AS body \
+             FROM agent_node_rows \
+             WHERE user_id = $1 AND audience = $2 AND kind = 'node.standing' \
+               AND node_id = ANY($3) \
+               AND (CASE WHEN body = '' THEN NULL ELSE body::jsonb->>'item' END) = ANY($4)",
+            [
+                user_id.into(),
+                audience.into(),
+                nodes.into(),
+                names.into_iter().collect::<Vec<_>>().into(),
+            ],
+        ))
+        .await?;
+    // Each version by its row: its node and item, and its body.
+    let mut by_row: HashMap<String, (String, String, Value)> = HashMap::new();
+    for row in &rows {
+        let Some(body) = row.try_get::<Option<Value>>("", "body")? else {
+            continue;
+        };
+        let Some(item) = body["item"].as_str().map(str::to_string) else {
+            continue;
+        };
+        let node: String = row.try_get("", "node_id")?;
+        let rests_on: &mut Vec<String> = grounds.entry((node.clone(), item.clone())).or_default();
+        for id in cited(&body["because"]) {
+            if !rests_on.contains(&id) {
+                rests_on.push(id);
+            }
+        }
+        by_row.insert(row.try_get("", "row_id")?, (node, item, body));
+    }
+    // What an ended item stood in: the version its ending names as the one
+    // it was written over (`base`), not whichever was written last.
+    for (node, _, _, _, head) in heads {
+        for (item, held) in items(head) {
+            if held["value"]["ended"].as_bool() != Some(true) {
+                continue;
+            }
+            let over = held["row"]
+                .as_str()
+                .and_then(|row| by_row.get(row))
+                .map(|(_, _, ending)| ending["base"].clone())
+                .unwrap_or_default();
+            let was = over
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|row| by_row.get(row.as_str()?))
+                .filter(|(on, of, body)| {
+                    on == node && *of == item && body["ended"].as_bool() != Some(true)
+                })
+                .filter_map(|(_, _, body)| body["text"].as_str().map(str::trim))
+                .find(|text| !text.is_empty());
+            if let Some(was) = was {
+                let cut: String = was.chars().take(STOOD_CHARS).collect();
+                let was = if cut.len() < was.len() {
+                    format!("{cut}…")
+                } else {
+                    cut
+                };
+                stood.insert((node.clone(), item), was);
+            }
+        }
+    }
+    Ok((grounds, stood))
+}
+
 /// `user_id`'s `audience` as she may be shown it; `about`: the node of
 /// 「关于你」 there, if it is a private talk.
 pub(crate) async fn shown<C: ConnectionTrait>(
@@ -290,57 +415,14 @@ pub(crate) async fn shown<C: ConnectionTrait>(
             row.try_get::<Value>("", "node")?,
         ));
     }
-    // What stood before each item that ended, in one read of the audience:
-    // the head keeps only the fact that ended it.
-    let ended: HashSet<(&str, &str)> = heads
-        .iter()
-        .flat_map(|head| {
-            head.4["standing"]
-                .as_object()
-                .into_iter()
-                .flatten()
-                .filter(|(_, item)| item["value"]["ended"].as_bool() == Some(true))
-                .map(|(item, _)| (head.0.as_str(), item.as_str()))
-        })
-        .collect();
-    let mut stood = HashMap::new();
-    if !ended.is_empty() {
-        let rows = db
-            .query_all_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT DISTINCT ON (node_id, body::jsonb->>'item') node_id, \
-                   body::jsonb->>'item' AS item, body::jsonb->>'text' AS text, \
-                   COALESCE(body::jsonb->'because', '[]'::jsonb) AS because \
-                 FROM agent_node_rows \
-                 WHERE user_id = $1 AND audience = $2 AND kind = 'node.standing' AND body <> '' \
-                   AND COALESCE((body::jsonb->>'ended')::boolean, false) = false \
-                 ORDER BY node_id, body::jsonb->>'item', at DESC, hlc DESC",
-                [user_id.into(), audience.into()],
-            ))
-            .await?;
-        for row in &rows {
-            let node: String = row.try_get("", "node_id")?;
-            let item: Option<String> = row.try_get("", "item")?;
-            let text: Option<String> = row.try_get("", "text")?;
-            let (Some(item), Some(text)) = (item, text) else {
-                continue;
-            };
-            if ended.contains(&(node.as_str(), item.as_str())) && !text.trim().is_empty() {
-                let because = row.try_get::<Value>("", "because")?;
-                stood.insert(
-                    (node, item),
-                    Stood {
-                        text: text.trim().to_string(),
-                        because,
-                    },
-                );
-            }
-        }
-    }
+    // Every version of what stands or ended on these heads, in one read:
+    // what each ever rested on, and of an ended one the words it stood in,
+    // which the head no longer keeps.
+    let (grounds, stood) = versions(db, user_id, audience, &heads).await?;
     let named: BTreeSet<String> = heads
         .iter()
         .flat_map(|head| named_by(&head.4))
-        .chain(stood.values().flat_map(|was: &Stood| cited(&was.because)))
+        .chain(grounds.values().flatten().cloned())
         .collect();
     // One read of every memory the heads name: held, taken back, learned.
     let named = known::named(db, named.into_iter().collect()).await?;
@@ -405,6 +487,7 @@ pub(crate) async fn shown<C: ConnectionTrait>(
         learned,
         taken_back,
         stood,
+        grounds,
     })
 }
 

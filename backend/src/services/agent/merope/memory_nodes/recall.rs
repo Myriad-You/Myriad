@@ -173,8 +173,9 @@ impl Lines<'_> {
 
     /// What ended on `node` ([`super::since::ended_lines`]): the words of each and its
     /// line, with since when and what stood before it. One resting on
-    /// nothing is not said; nor one whose earlier words rested on a memory
-    /// they took back: the whole line goes, what stood and what ended it.
+    /// nothing is not said; nor one any version of which rested on a memory
+    /// they took back ([`Lines::since`]): the whole line goes, what stood
+    /// and what ended it.
     fn ended(&self, node: &super::shown::Node) -> Vec<(String, String)> {
         let since = |item: &str| {
             let rests_on = cited(&node.head["standing"][item]["value"]["because"]);
@@ -182,24 +183,22 @@ impl Lines<'_> {
                 return None;
             }
             let was = self.shown.stood.get(&(node.id.clone(), item.to_string()));
-            if was.is_some_and(|was| self.shown.unsaid(&was.because)) {
-                return None;
-            }
-            Some((self.since(node, item)?, was.map(|was| was.text.clone())))
+            Some((self.since(node, item)?, was.cloned()))
         };
         super::since::ended_lines(node, since, super::since::MOST_ENDED)
     }
 
     /// Since when `item` on `node` stands or ended, as its line says it
     /// ([`super::since::dated`]): told the latest day she learned a memory
-    /// it rests on, held or since replaced. None when any of them was taken
-    /// back ([`Shown::unsaid`]): it is then not said at all, standing or
+    /// it rests on, held or since replaced. None when any of them, or any
+    /// an earlier version of it rested on, was taken back
+    /// ([`Shown::unsaid_item`]): it is then not said at all, standing or
     /// ended.
     fn since(&self, node: &super::shown::Node, item: &str) -> Option<String> {
         let standing = node.head.get("standing")?.get(item)?;
         let value = standing.get("value")?;
         let because = value.get("because").unwrap_or(&serde_json::Value::Null);
-        if self.shown.unsaid(because) {
+        if self.shown.unsaid_item(&node.id, item, because) {
             return None;
         }
         let learned = cited(because)
@@ -279,7 +278,9 @@ fn standing_of(shown: &Shown, node: &super::shown::Node) -> Vec<PickStanding> {
                 .iter()
                 // One resting on what they took back is not hers to say:
                 // the core never counts or picks it.
-                .filter(|(_, version)| !shown.unsaid(&version["value"]["because"]))
+                .filter(|(item, version)| {
+                    !shown.unsaid_item(&node.id, item, &version["value"]["because"])
+                })
                 .filter_map(|(item, version)| {
                     let value = version.get("value");
                     Some(PickStanding {
