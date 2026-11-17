@@ -849,8 +849,11 @@ async fn a_child_is_told_only_what_the_site_takes_and_its_dropped_frames_are_cou
     let welcome = child
         .hello_with(&["calls", "glance", "versions", "streams", "touch"])
         .await;
-    // Calls, glance and versions are not made on the site yet.
-    assert_eq!(welcome["body"]["capabilities"], json!(["streams", "touch"]));
+    // Glance and versions are not made on the site yet.
+    assert_eq!(
+        welcome["body"]["capabilities"],
+        json!(["calls", "streams", "touch"])
+    );
     child
         .send(
             "stream.event",
@@ -4000,6 +4003,129 @@ async fn her_conversations_and_proposals_reach_the_app() {
 // --- Her host asking the app to act (H2e) ----------------------------------
 
 /// Frames until the first of type `t`, skipping the rest (cards, mood).
+#[tokio::test]
+async fn a_device_is_told_what_it_may_be_asked_and_told_again_when_the_owner_changes_it() {
+    let Some(site) = site().await else {
+        return;
+    };
+    let (mac, token) = device(&site.db, "Mac").await;
+    let mut child = Child::open(&site, &token).await;
+    child.hello_with(&["rig", "calls"]).await;
+    child
+        .send(
+            "call.offer",
+            None,
+            json!({ "actions": [
+                { "name": "screen.look", "version": 1 },
+                { "name": "work.run", "version": 1 },
+                { "name": "notify.post", "version": 1 },
+            ]}),
+        )
+        .await;
+    // Only what is enabled here and approved: a look at the screen, which
+    // is on until the owner turns it off. Nothing of the host's to ask.
+    let granted = child.expect("call.granted").await;
+    assert_eq!(
+        granted["body"],
+        json!({ "actions": [{ "name": "screen.look", "version": 1 }], "providing": [] })
+    );
+    // The owner takes it back: told at once on the same link.
+    assert!(
+        super::calls::set_approved(&site.db, OWNER, &mac.id, "screen", false)
+            .await
+            .unwrap()
+    );
+    let granted = child.expect("call.granted").await;
+    assert_eq!(granted["body"]["actions"], json!([]));
+    // Deciding the same again tells nothing new.
+    super::calls::set_approved(&site.db, OWNER, &mac.id, "screen", false)
+        .await
+        .unwrap();
+    child.send("ping", None, json!({})).await;
+    child.expect("pong").await;
+    // What it is shown on the device page.
+    assert_eq!(
+        super::calls::groups_json(&site.db, &mac.id).await.unwrap(),
+        json!([{ "group": "screen", "approved": false }])
+    );
+    // A new link offers again and is told what stands.
+    drop(child);
+    let mut child = Child::open(&site, &token).await;
+    child.hello_with(&["calls"]).await;
+    child
+        .send(
+            "call.offer",
+            None,
+            json!({ "actions": [{ "name": "screen.look", "version": 1 }] }),
+        )
+        .await;
+    assert_eq!(
+        child.expect("call.granted").await["body"]["actions"],
+        json!([])
+    );
+    super::calls::set_approved(&site.db, OWNER, &mac.id, "screen", true)
+        .await
+        .unwrap();
+    assert_eq!(
+        child.expect("call.granted").await["body"]["actions"],
+        json!([{ "name": "screen.look", "version": 1 }])
+    );
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn a_device_asks_only_her_host_and_is_answered_and_a_link_without_calls_is_refused_them() {
+    let Some(site) = site().await else {
+        return;
+    };
+    let (_, token) = device(&site.db, "Mac").await;
+    let mut child = Child::open(&site, &token).await;
+    child.hello_with(&["calls"]).await;
+    let ask = |call_id: &str, action: &str| {
+        json!({ "callId": call_id, "action": action, "version": 1,
+                "args": {}, "for": { "kind": "owner" },
+                "deadlineAt": crate::clock::now().timestamp_millis() + 30_000 })
+    };
+    // The site provides nothing yet: a host action is not granted it.
+    child
+        .send("call.ask", Some("up-1"), ask("up-1", "group.read"))
+        .await;
+    let answer = child.expect("call.result").await;
+    assert_eq!(answer["id"], "up-1.result");
+    assert_eq!(
+        answer["body"],
+        json!({ "callId": "up-1", "action": "group.read", "version": 1,
+                "outcome": "failed", "error": { "code": "call_not_granted" } })
+    );
+    // A device's own action is never passed to another device.
+    child
+        .send("call.ask", Some("up-2"), ask("up-2", "screen.look"))
+        .await;
+    let answer = child.expect("call.result").await;
+    assert_eq!(answer["body"]["error"], json!({ "code": "call_unknown" }));
+    // A frame the shared core refuses is a bad frame.
+    child
+        .send("call.offer", None, json!({ "actions": [], "extra": true }))
+        .await;
+    assert_eq!(child.expect("error").await["body"]["code"], "bad_frame");
+    drop(child);
+
+    // A link that did not list calls is refused their frames.
+    let mut child = Child::open(&site, &token).await;
+    child.hello_with(&["rig"]).await;
+    child
+        .send(
+            "call.offer",
+            None,
+            json!({ "actions": [{ "name": "screen.look", "version": 1 }] }),
+        )
+        .await;
+    assert_eq!(child.expect("error").await["body"]["code"], "bad_frame");
+    drop(child);
+    site.close().await;
+}
+
 async fn until(child: &mut Child, t: &str) -> Value {
     loop {
         let frame = child.next().await;

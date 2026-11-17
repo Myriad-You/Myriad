@@ -78,8 +78,19 @@ async fn device_list(db: &DatabaseConnection, owner: i32) -> Result<Value, HttpE
     } else {
         None
     };
+    // What she may ask of each live device: the owner's say, per group.
+    let mut shown = Vec::with_capacity(list.len());
+    for device in &list {
+        let mut one = device_json(device, now);
+        if device.revoked_at.is_none() {
+            one["callGroups"] = crate::services::agent::link::calls::groups_json(db, &device.id)
+                .await
+                .map_err(store_failed)?;
+        }
+        shown.push(one);
+    }
     Ok(json!({
-        "devices": list.iter().map(|device| device_json(device, now)).collect::<Vec<_>>(),
+        "devices": shown,
         "host": host,
         "import": import,
         "backups": backups,
@@ -821,6 +832,41 @@ pub async fn remove_device(
     Ok(Json(
         json!({ "device": device_json(&removed, crate::clock::now()) }),
     ))
+}
+
+#[derive(Deserialize)]
+pub struct CallGroupRequest {
+    approved: bool,
+}
+
+/// PUT /api/agent/devices/{device_id}/calls/{group}: the owner lets her ask
+/// the device for what a permission group of her calls holds, or takes it
+/// back (`screen`: a look at its screen). The device is told at once.
+pub async fn set_call_group(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path((device_id, group)): Path<(String, String)>,
+    Json(request): Json<CallGroupRequest>,
+) -> Result<Json<Value>, HttpError> {
+    let owner = super::persona::require_site_owner(&claims, &db).await?;
+    use crate::services::agent::link::calls;
+    if !calls::shown_groups().contains(&group.as_str()) {
+        return Err(HttpError::from((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "No such permission group", "code": "call_group_unknown" })),
+        )));
+    }
+    let set = calls::set_approved(&db, owner, &device_id, &group, request.approved)
+        .await
+        .map_err(store_failed)?;
+    if !set {
+        return Err(HttpError::from((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "No such device", "code": "device_not_found" })),
+        )));
+    }
+    tracing::info!(device = %device_id, group = %group, approved = request.approved, "[sync] the owner changed what she may ask of a device");
+    Ok(Json(device_list(&db, owner).await?))
 }
 
 /// DELETE /api/agent/devices/{device_id}/record: the owner forgets a device

@@ -51,7 +51,8 @@
 
 mod act;
 mod body;
-// Read by her calls to a device (`calls`), which come next.
+pub(crate) mod calls;
+// Its records are written by her calls to a device, which come next.
 #[cfg_attr(not(test), allow(dead_code))]
 mod calls_store;
 mod connection;
@@ -115,6 +116,23 @@ struct Open {
     /// Where her log's frames for this device go, once its welcome said
     /// sync on.
     log: Option<mpsc::Sender<connection::Outgoing>>,
+    /// What it can be asked to do and was told it is granted, once the
+    /// child listed `calls`.
+    calls: Option<CallsLink>,
+}
+
+/// A link that takes her calls (`calls`).
+struct CallsLink {
+    sender: mpsc::Sender<connection::Outgoing>,
+    /// What its `call.offer` said it can do; `None` before it said.
+    offered: Option<Vec<calls::Action>>,
+    /// Counts each working out of what it is granted: only the one started
+    /// last is told, so an older reading of the owner's approval never
+    /// overwrites a newer one.
+    turn: u64,
+    /// What it was last told it is granted; `None` until it was told, and
+    /// nothing is asked of it before.
+    granted: Option<Vec<calls::Action>>,
 }
 
 /// The open link of each device, by device id.
@@ -136,6 +154,7 @@ fn open(device_id: &str, owner: i32) -> (u64, oneshot::Receiver<Close>) {
             acts: None,
             host: None,
             log: None,
+            calls: None,
         };
         if let Some(previous) = open.insert(device_id.to_string(), link) {
             let _ = previous.close.send(Close::Replaced);
@@ -196,6 +215,74 @@ fn takes_host(
     if let Ok(mut open) = OPEN.lock() {
         if let Some(link) = open.get_mut(device_id).filter(|link| link.id == id) {
             link.host = Some((sender, frozen));
+        }
+    }
+}
+
+/// The link `id` takes her calls (it listed `calls`), sent through `sender`.
+fn takes_calls(device_id: &str, id: u64, sender: mpsc::Sender<connection::Outgoing>) {
+    if let Ok(mut open) = OPEN.lock() {
+        if let Some(link) = open.get_mut(device_id).filter(|link| link.id == id) {
+            link.calls = Some(CallsLink {
+                sender,
+                offered: None,
+                turn: 0,
+                granted: None,
+            });
+        }
+    }
+}
+
+/// The child on link `id` said what it can be asked to do: the turn of the
+/// working out of what it is granted that follows.
+fn calls_offered(device_id: &str, id: u64, offered: Vec<calls::Action>) -> Option<u64> {
+    let mut open = OPEN.lock().ok()?;
+    let calls = open
+        .get_mut(device_id)
+        .filter(|link| link.id == id)?
+        .calls
+        .as_mut()?;
+    calls.offered = Some(offered);
+    calls.turn += 1;
+    Some(calls.turn)
+}
+
+/// What the owner's device is granted is to be worked out again: its link,
+/// the turn, and what it offered there; `None` when it is not linked or has
+/// not offered anything yet.
+fn calls_regrant(owner: i32, device_id: &str) -> Option<(u64, u64, Vec<calls::Action>)> {
+    let mut open = OPEN.lock().ok()?;
+    let link = open.get_mut(device_id).filter(|link| link.owner == owner)?;
+    let id = link.id;
+    let calls = link.calls.as_mut()?;
+    let offered = calls.offered.clone()?;
+    calls.turn += 1;
+    Some((id, calls.turn, offered))
+}
+
+/// What turn `turn` worked out link `id` is granted: told it when it is the
+/// latest turn and it is not what the link was last told. Sent while the
+/// registry is held, so what goes out is in the order it was decided, and
+/// ahead of any ask that relies on it.
+fn grant_calls(device_id: &str, id: u64, turn: u64, granted: Vec<calls::Action>) {
+    let Ok(mut open) = OPEN.lock() else {
+        return;
+    };
+    let Some(calls) = open
+        .get_mut(device_id)
+        .filter(|link| link.id == id)
+        .and_then(|link| link.calls.as_mut())
+        .filter(|calls| calls.turn == turn)
+    else {
+        return;
+    };
+    if calls.granted.as_ref() == Some(&granted) {
+        return;
+    }
+    match calls.sender.try_send(calls::granted_frame(&granted)) {
+        Ok(()) => calls.granted = Some(granted),
+        Err(error) => {
+            tracing::warn!(%error, device = %device_id, "[link] what it is granted could not be told; told when it changes again");
         }
     }
 }

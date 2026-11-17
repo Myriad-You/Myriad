@@ -107,6 +107,24 @@ export function AgentDevicesGroup() {
     [c.agentDevicesRemoveFailed, fail, load],
   )
 
+  // Whether she may look at its screen: the owner's privacy consent per
+  // device, on until turned off; the device is told at once.
+  const setScreen = useCallback(
+    async (device: SyncDevice, approved: boolean) => {
+      setWorking(true)
+      try {
+        setList(
+          await agentService.setDeviceCallGroup(device.id, 'screen', approved),
+        )
+      } catch (error) {
+        fail(error, c.agentDevicesScreenFailed)
+      } finally {
+        setWorking(false)
+      }
+    },
+    [c.agentDevicesScreenFailed, fail],
+  )
+
   const forget = useCallback(
     async (device: SyncDevice) => {
       setWorking(true)
@@ -570,6 +588,10 @@ export function AgentDevicesGroup() {
     } else if (device.stale && !device.connected) {
       badges.push({ label: c.agentDevicesStale, tone: 'warn' })
     }
+    const screen = device.callGroups?.find((one) => one.group === 'screen')
+    if (!device.revokedAt && screen && !screen.approved) {
+      badges.push({ label: c.agentDevicesScreenOff, tone: 'muted' })
+    }
     return {
       id: device.id,
       title: device.name,
@@ -597,6 +619,19 @@ export function AgentDevicesGroup() {
             },
           ]
         : [
+            ...(screen
+              ? [
+                  {
+                    key: 'screen',
+                    label: screen.approved
+                      ? c.agentDevicesScreenStop
+                      : c.agentDevicesScreenAllow,
+                    onClick: () => void setScreen(device, !screen.approved),
+                    disabled: working,
+                    variant: 'secondary' as const,
+                  },
+                ]
+              : []),
             {
               key: 'remove',
               label: c.agentDevicesRemove,

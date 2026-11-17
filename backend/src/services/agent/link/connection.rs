@@ -32,9 +32,9 @@ const QUEUED_FRAMES: usize = 256;
 
 /// Capabilities of the contract the site does not take yet: a child that
 /// lists them is not told they were accepted, so it never sends their
-/// frames to a host that would not read them (calls, glance, versions: core
-/// #116, made on the site later).
-const NOT_YET: [&str; 3] = ["calls", "glance", "versions"];
+/// frames to a host that would not read them (glance, versions: core #116,
+/// made on the site later).
+const NOT_YET: [&str; 2] = ["glance", "versions"];
 
 /// How soon after the ack a child's `link.dropped` still points at the
 /// reliable frame acked last of its type (a child tells it at once).
@@ -83,7 +83,7 @@ fn conversations_every() -> std::time::Duration {
 #[derive(Clone)]
 pub(super) struct Outgoing {
     pub(super) t: &'static str,
-    id: Option<String>,
+    pub(super) id: Option<String>,
     pub(super) body: Value,
 }
 
@@ -252,6 +252,7 @@ pub(super) async fn serve_with(
         nodes: false,
         proposals: None,
         acts: false,
+        calls: false,
         wardrobe: None,
         live: None,
         host: false,
@@ -360,6 +361,9 @@ struct Link {
     proposals: Option<Vec<(String, &'static str, i64)>>,
     /// The child said it takes `act`: the owner lets the site ask it to act.
     acts: bool,
+    /// The child listed `calls`: it says what it can be asked to do
+    /// (`call.offer`) and is told what it is granted (`super::calls`).
+    calls: bool,
     /// Her wardrobe as the child was last told it, once it said it takes
     /// `wardrobe.list`.
     wardrobe: Option<Vec<Value>>,
@@ -687,6 +691,9 @@ impl Link {
             // Taken whatever this link said: a run's end may come after its
             // owner turned the switch off (the request must be this device's).
             "act.result" => self.act_result(inbound).await,
+            "call.offer" | "call.ask" | "call.cancel" if self.calls => {
+                self.call_frame(text, inbound).await
+            }
             "ping" => self.reply(frame("pong", json!({}))),
             "ack" | "pong" => {}
             // A sync family's frame: her log's relay takes it while she
@@ -1049,6 +1056,11 @@ impl Link {
             for (id, body) in super::act::pending(&self.device.id) {
                 self.reply(Outgoing::reliable("act.request", id, body));
             }
+        }
+        // Her calls: it says what it can be asked to do once welcomed.
+        if capabilities.iter().any(|capability| capability == "calls") {
+            self.calls = true;
+            super::takes_calls(&self.device.id, self.registered, self.tx.clone());
         }
         // Her proposals as cards there.
         if capabilities
@@ -1930,6 +1942,34 @@ impl Link {
     }
 
     /// `act.result`: what became of a request to act.
+    /// A frame of the call family from a child that listed `calls`, as the
+    /// shared core reads it: one it refuses is a bad frame.
+    async fn call_frame(&mut self, text: &str, inbound: Inbound) {
+        let read = serde_json::from_str::<Value>(text)
+            .is_ok_and(|frame| super::contract::core_check(&frame).is_ok());
+        if !read {
+            self.error("bad_frame", Some(inbound.seq));
+            return;
+        }
+        match inbound.t.as_str() {
+            "call.offer" => {
+                let offered = super::calls::offered(&inbound.body);
+                super::calls::offer(&self.db, &self.device.id, self.registered, offered).await;
+            }
+            // Nothing is provided to be asked of the host yet; every ask
+            // gets its one answer, never passed to another device.
+            "call.ask" => {
+                if let Some(answer) = super::calls::answer_ask(&inbound.body) {
+                    let code = answer.body["error"]["code"].as_str().unwrap_or_default();
+                    tracing::info!(device = %self.device.id, code, "[link] a device's call was answered failed");
+                    self.reply(answer);
+                }
+            }
+            // Nothing it asked runs on the host: nothing to stop.
+            _ => {}
+        }
+    }
+
     async fn act_result(&mut self, inbound: Inbound) {
         let seq = inbound.seq;
         let Some(id) = inbound.id.filter(|id| valid_id(id)) else {

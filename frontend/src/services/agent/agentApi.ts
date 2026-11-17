@@ -77,6 +77,11 @@ export interface SyncDevice {
   connected?: boolean
   /** Her link closed it for speaking another protocol: the app on it is to be updated. */
   appOutdated?: boolean
+  /**
+   * What she may ask of it, per permission group the owner decides (live
+   * devices only): `screen` is a look at its screen, on until turned off.
+   */
+  callGroups?: { group: string; approved: boolean }[]
 }
 
 /** A move of her between ends, in progress (her host lease). */
@@ -752,6 +757,18 @@ class AgentService {
   async removeSyncDevice(id: string): Promise<{ device: SyncDevice }> {
     return apiService.delete(
       `${this.baseUrl}/devices/${encodeURIComponent(id)}`,
+    )
+  }
+
+  /** Lets her ask the device for what `group` holds, or takes it back. */
+  async setDeviceCallGroup(
+    id: string,
+    group: string,
+    approved: boolean,
+  ): Promise<SyncDeviceList> {
+    return apiService.put(
+      `${this.baseUrl}/devices/${encodeURIComponent(id)}/calls/${encodeURIComponent(group)}`,
+      { approved },
     )
   }
 

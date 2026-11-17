@@ -733,6 +733,13 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
             )),
         )
         .route(
+            "/devices/{device_id}/calls/{group}",
+            put(super::devices::set_call_group).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
+        .route(
             "/devices/{device_id}/record",
             delete(super::devices::forget_device).route_layer(from_fn_with_state(
                 app_state.clone(),
