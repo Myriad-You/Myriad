@@ -296,11 +296,14 @@ async fn apply_one<C: ConnectionTrait + sea_orm::TransactionTrait>(
                 .await?;
             if let Some(holder) = &duplicate {
                 unified::retire_in_favor_of(db, user_id, &settles, "settled", Some(holder)).await?;
-            } else {
-                // Taken back with nothing in its place: what rests on it on
+            } else if keep != Keep::Note {
+                // Taken back, plainly, with nothing in its place: what they
+                // took back going over a stretch (`tookBack`), or a line
+                // that keeps nothing and only lets go. What rests on it on
                 // her nodes, or on what it replaced, goes as when it is
-                // forgotten (its words may carry what was taken back). The
-                // memory goes whatever happens there.
+                // forgotten (its words may carry what was taken back); the
+                // memory goes whatever happens there. A correction in a
+                // line that keeps a new fact beside it is no taking back.
                 super::super::memory_nodes::forget::forget_taken_back(db, &targets).await;
             }
         }

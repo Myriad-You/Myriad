@@ -1481,3 +1481,85 @@ async fn a_correction_taken_back_elsewhere_takes_back_what_it_corrected() {
     assert_eq!(standing_stubs(db).await, 2, "v1 and v2");
     schema.drop().await;
 }
+
+/// `update` kept as `keep` says, in a transaction of its own: whether it
+/// was.
+async fn kept(db: &DatabaseConnection, update: &ChatMemoryUpdate, keep: Keep) -> bool {
+    let transaction = db.begin().await.unwrap();
+    let applied = store::apply_chat_memory_update_on(
+        &transaction,
+        OTHER,
+        crate::clock::now().fixed_offset(),
+        update,
+        &Audience::private(OTHER),
+        keep,
+    )
+    .await
+    .unwrap();
+    transaction.commit().await.unwrap();
+    applied
+}
+
+/// A line that corrects a short note with a new fact beside it
+/// (「周五去看牙」 → 「改到周六看牙」, the correction going first on its
+/// own, as a line's answer is read) replaces the note and takes nothing
+/// back on her nodes; a line that only takes the note back forgets what
+/// rests on it. (Her nodes hold only what is kept for good; the note is
+/// put on one here so that what would go can be seen.)
+#[tokio::test]
+async fn a_correction_in_a_line_is_no_taking_back() {
+    for (name, corrected, stubs) in [
+        ("memory_nodes_line_correction", true, 0),
+        ("memory_nodes_line_let_go", false, 1),
+    ] {
+        let Some(schema) = schema(name).await else {
+            return;
+        };
+        let db = &schema.db;
+        assert!(kept(db, &update("周五去看牙", &[], None), Keep::Note).await);
+        let note = memory_id(db, "周五去看牙").await;
+        topic(db, "看牙", &[(note.as_str(), "周五去看牙")]).await;
+        let mut updates = vec![ChatMemoryUpdate {
+            fact: None,
+            evidence: None,
+            ..update("", &["周五去看牙"], None)
+        }];
+        if corrected {
+            updates.push(update("改到周六看牙", &[], None));
+        }
+        let updates = ChatMemoryUpdates {
+            updates,
+            ..ChatMemoryUpdates::default()
+        };
+        let transaction = db.begin().await.unwrap();
+        assert!(
+            store::apply_chat_memory_updates_on(
+                &transaction,
+                OTHER,
+                crate::clock::now().fixed_offset(),
+                &updates,
+                &Audience::private(OTHER),
+                Keep::Note,
+            )
+            .await
+            .unwrap(),
+            "{name}"
+        );
+        transaction.commit().await.unwrap();
+        for (content, held) in [("周五去看牙", 0), ("改到周六看牙", i64::from(corrected))]
+        {
+            let sql = format!(
+                "SELECT count(*) AS n FROM agent_memories WHERE content = '{content}' \
+                 AND invalid_at IS NULL"
+            );
+            assert_eq!(count(db, &sql).await, held, "{name}: {content}");
+        }
+        let entries = count(
+            db,
+            "SELECT count(*) AS n FROM agent_node_rows WHERE kind = 'node.entry' AND body = ''",
+        )
+        .await;
+        assert_eq!(entries, stubs, "{name}");
+        schema.drop().await;
+    }
+}
