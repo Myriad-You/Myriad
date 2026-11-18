@@ -1,0 +1,725 @@
+[
+ {
+  "question_id": "zh-lapse-cold",
+  "question_type": "lapsed",
+  "question": "这周末想去爬山 有推荐的线路吗",
+  "answer": "用户九月下旬感冒发烧，之后再没提起，到十一月早该好了。应正常推荐爬山线路，可以顺口问一句身体好全了没；当成用户还在感冒、劝别去爬山算错；说不知道用户情况也算错。",
+  "question_date": "2026/11/07 (Sat) 21:00",
+  "haystack_dates": [
+   "2026/09/20 (Sun) 22:10"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "感冒了 嗓子疼 烧到三十八度",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "多喝水 早点睡"
+    },
+    {
+     "role": "user",
+     "content": "明天请假在家躺着",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "好好休息"
+    },
+    {
+     "role": "user",
+     "content": "刚点了份白粥外卖",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "清淡点好"
+    }
+   ]
+  ],
+  "needs": [
+   [
+    "感冒",
+    "发烧",
+    "三十八度"
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-lapse-trip",
+  "question_type": "lapsed",
+  "question": "今晚想吃火锅 附近有推荐的吗",
+  "answer": "用户九月初说要去成都出差两周，早就该回来了。应按用户在家附近来答（或顺口问出差回来没）；当成用户还在成都、推荐成都的火锅店算错。",
+  "question_date": "2026/11/10 (Tue) 21:00",
+  "haystack_dates": [
+   "2026/09/02 (Wed) 21:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "下周一开始去成都出差 要待两周",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "出差辛苦"
+    },
+    {
+     "role": "user",
+     "content": "住的酒店在春熙路附近",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那边吃的多"
+    },
+    {
+     "role": "user",
+     "content": "今天把行李箱翻出来了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "别忘带充电器"
+    }
+   ]
+  ],
+  "needs": [
+   [
+    "成都",
+    "出差"
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-lapse-renovation",
+  "question_type": "lapsed",
+  "question": "周末想请两个朋友来家里吃饭 做几个菜合适",
+  "answer": "用户七月初说家里装修三个月、先住妈妈家，到十一月中旬早该装完搬回去了。应按在自己家请客来答，可以顺口问装修好了没；当成还在装修、家里没法请客算错。",
+  "question_date": "2026/11/15 (Sun) 21:00",
+  "haystack_dates": [
+   "2026/07/05 (Sun) 20:40"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "家里开始装修了 这三个月先住我妈那",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "住妈妈家有饭吃"
+    },
+    {
+     "role": "user",
+     "content": "每天下班还得绕过去看一眼进度",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "辛苦了"
+    },
+    {
+     "role": "user",
+     "content": "今天挑了半天瓷砖",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "选好了吗"
+    }
+   ]
+  ],
+  "needs": [
+   [
+    "装修"
+   ],
+   [
+    "三个月",
+    "我妈那",
+    "妈妈家"
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-lapse-exam",
+  "question_type": "lapsed",
+  "question": "今晚下班后有点空 干点啥好",
+  "answer": "用户八月说在准备教资笔试，十月二十五号考，考试已经过了。应按考完了来答，可以问一句考得怎么样；当成还在备考、建议继续复习算错。",
+  "question_date": "2026/11/12 (Thu) 21:00",
+  "haystack_dates": [
+   "2026/08/10 (Mon) 22:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "在准备教资考试 十月二十五号笔试",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "加油"
+    },
+    {
+     "role": "user",
+     "content": "每天下班学两小时 周末刷题",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "很自律了"
+    },
+    {
+     "role": "user",
+     "content": "今天公司楼下新开了家奶茶",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "好喝吗"
+    }
+   ]
+  ],
+  "needs": [
+   [
+    "教资",
+    "笔试"
+   ],
+   [
+    "十月二十五",
+    "10月25"
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-lapse-ankle",
+  "question_type": "lapsed",
+  "question": "这周末天气好 想出去活动活动 有啥建议",
+  "answer": "用户十月初崴了脚、医生说两三周别运动，到十一月下旬早该好了。应正常给活动建议，可以顺口问一句脚好全了没；当成脚还伤着、劝别动算错。",
+  "question_date": "2026/11/20 (Fri) 21:00",
+  "haystack_dates": [
+   "2026/10/01 (Thu) 19:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "打球崴了脚 肿得跟馒头似的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "冰敷了吗"
+    },
+    {
+     "role": "user",
+     "content": "医生说两三周别运动",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那就好好养"
+    },
+    {
+     "role": "user",
+     "content": "国庆的计划全泡汤了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "下次补上"
+    }
+   ]
+  ],
+  "needs": [
+   [
+    "崴了脚",
+    "崴脚"
+   ],
+   [
+    "两三周"
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-lapse-sugar",
+  "question_type": "lapsed",
+  "question": "朋友过生日 想订个蛋糕 推荐什么口味",
+  "answer": "用户九月初说医生让一个月不吃甜的、在戒糖，到十一月中旬早过了那一个月。应正常推荐蛋糕口味（是给朋友的），可以顺口提一句；当成用户还在戒糖、劝别吃甜的算错。",
+  "question_date": "2026/11/14 (Sat) 21:00",
+  "haystack_dates": [
+   "2026/09/01 (Tue) 21:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "体检血糖有点高 医生让我一个月别吃甜的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那就忍一忍"
+    },
+    {
+     "role": "user",
+     "content": "奶茶也戒了 好痛苦",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "一个月很快的"
+    },
+    {
+     "role": "user",
+     "content": "今天地铁好挤",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "早高峰都这样"
+    }
+   ]
+  ],
+  "needs": [
+   [
+    "戒糖",
+    "别吃甜",
+    "不吃甜"
+   ],
+   [
+    "一个月"
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-unsaid-guitar",
+  "question_type": "unsaid-change",
+  "question": "今晚有空 你说我干点啥",
+  "answer": "用户一直每天晚上练吉他一小时，但十月中旬右手腕做了手术打了石膏、医生说六周别用力，现在多半还弹不了。应考虑到手腕（不建议弹琴，或先问手腕恢复得怎样）；照旧建议练会吉他算错。",
+  "question_date": "2026/11/01 (Sun) 21:00",
+  "haystack_dates": [
+   "2026/08/03 (Mon) 22:00",
+   "2026/10/15 (Thu) 20:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "每天晚上练一小时吉他 雷打不动",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "手指磨出茧了吧"
+    },
+    {
+     "role": "user",
+     "content": "最近在扒一首民谣",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "扒完弹给我听"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "右手腕做了个小手术 打着石膏",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "啊 疼吗"
+    },
+    {
+     "role": "user",
+     "content": "医生说六周别用力",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那就好好养着"
+    },
+    {
+     "role": "user",
+     "content": "吃饭都得用左手",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "练练也挺好"
+    }
+   ]
+  ],
+  "needs": [
+   [
+    "吉他"
+   ],
+   [
+    "手腕",
+    "石膏"
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-unsaid-commute",
+  "question_type": "unsaid-change",
+  "question": "明天降温 早上通勤要注意点啥",
+  "answer": "用户以前每天骑车上班四十分钟，但十月搬了家、新家离公司二十公里还要过江，多半不再骑车了。应按新的通勤来答（或问现在怎么去上班）；照旧按骑车四十分钟提醒（戴手套、骑车防风）算错。",
+  "question_date": "2026/11/18 (Wed) 21:00",
+  "haystack_dates": [
+   "2026/07/12 (Sun) 21:00",
+   "2026/10/20 (Tue) 22:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "每天骑车上班 四十分钟 当锻炼了",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "省钱又健身"
+    },
+    {
+     "role": "user",
+     "content": "今天骑到一半下雨了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "淋湿没"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "搬家了 新家离公司二十公里",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "远了不少"
+    },
+    {
+     "role": "user",
+     "content": "中间还要过一次江",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "早高峰过江很堵吧"
+    },
+    {
+     "role": "user",
+     "content": "新家附近有个大超市",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "买东西方便了"
+    }
+   ]
+  ],
+  "needs": [
+   [
+    "骑车"
+   ],
+   [
+    "搬家",
+    "二十公里"
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-unsaid-lunch",
+  "question_type": "unsaid-change",
+  "question": "周日想备一周的菜 有什么推荐",
+  "answer": "用户以前每天自己带午饭，但后来公司搬进园区、有免费食堂三餐都管，多半不用再带午饭了。备菜建议应考虑到午饭有食堂（只备晚饭或问一句还带不带饭）；照旧按每天带午饭的五份便当来备算错。",
+  "question_date": "2026/11/08 (Sun) 21:00",
+  "haystack_dates": [
+   "2026/08/16 (Sun) 20:30",
+   "2026/10/12 (Mon) 21:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "每天自己带饭 中午微波炉热一下",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "省钱又健康"
+    },
+    {
+     "role": "user",
+     "content": "周日晚上一口气做好五天的",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "厉害"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "公司搬到园区了 有免费食堂",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "福利不错"
+    },
+    {
+     "role": "user",
+     "content": "一日三餐都管 还挺好吃",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那太好了"
+    },
+    {
+     "role": "user",
+     "content": "就是离地铁站远了点",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "可以骑共享单车"
+    }
+   ]
+  ],
+  "needs": [
+   [
+    "带饭"
+   ],
+   [
+    "食堂"
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-unsaid-dog",
+  "question_type": "unsaid-change",
+  "question": "明早几点起比较好 想作息规律一点",
+  "answer": "用户以前每天早上六点起来遛狗跑五公里，但后来把狗送去了爸妈乡下，早上多半不用遛狗了。应考虑到这点（不按遛狗来安排，或问一句）；照旧建议早起遛狗跑步算错。",
+  "question_date": "2026/11/11 (Wed) 21:00",
+  "haystack_dates": [
+   "2026/07/20 (Mon) 21:30",
+   "2026/09/28 (Mon) 20:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "每天早上六点起来遛狗 顺便跑五公里",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "狗狗也锻炼了"
+    },
+    {
+     "role": "user",
+     "content": "它跑得比我还快",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "哈哈"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "把狗狗送去我爸妈乡下了 那边院子大",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "它会喜欢的"
+    },
+    {
+     "role": "user",
+     "content": "城里太憋屈了 它天天拆家",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "乡下自由多了"
+    },
+    {
+     "role": "user",
+     "content": "有点舍不得",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "过年回去就能见"
+    }
+   ]
+  ],
+  "needs": [
+   [
+    "遛狗"
+   ],
+   [
+    "乡下",
+    "爸妈"
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-unsaid-shift",
+  "question_type": "unsaid-change",
+  "question": "都晚上十一点了 你说我现在该干嘛",
+  "answer": "用户以前上夜班、每天早上八点下班，但十月转岗去做培训、跟着行政时间上班了，现在晚上十一点应该是准备睡觉。应按白天上班的作息来答；照旧当成要去上夜班或刚起床算错。",
+  "question_date": "2026/11/09 (Mon) 23:00",
+  "haystack_dates": [
+   "2026/08/05 (Wed) 09:00",
+   "2026/10/08 (Thu) 19:30"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "刚下夜班 早上八点才到家",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "快去睡"
+    },
+    {
+     "role": "user",
+     "content": "上夜班一年多了 生物钟早乱了",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "辛苦"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "转岗了 去做新员工培训",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "恭喜"
+    },
+    {
+     "role": "user",
+     "content": "以后跟着行政时间 朝九晚六",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "终于能正常睡觉了"
+    },
+    {
+     "role": "user",
+     "content": "今天第一次讲课 有点紧张",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "讲得怎么样"
+    }
+   ]
+  ],
+  "needs": [
+   [
+    "夜班"
+   ],
+   [
+    "转岗",
+    "朝九晚六"
+   ]
+  ]
+ },
+ {
+  "question_id": "zh-unsaid-gym",
+  "question_type": "unsaid-change",
+  "question": "今天周三 晚上下班后安排点啥",
+  "answer": "用户以前每周一三五去公司楼下健身房，但十一月起被外派到深圳分公司半年，人在深圳、用不了公司楼下那家。应考虑到外派（不建议去楼下健身房，或问一句深圳那边有没有地方练）；照旧建议去公司楼下健身房算错。",
+  "question_date": "2026/11/25 (Wed) 21:00",
+  "haystack_dates": [
+   "2026/08/24 (Mon) 21:00",
+   "2026/10/25 (Sun) 22:00"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "每周一三五下班去公司楼下健身房",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "坚持得不错"
+    },
+    {
+     "role": "user",
+     "content": "最近在练深蹲",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "注意膝盖"
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "下个月起外派去深圳分公司 半年",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "要搬过去吗"
+    },
+    {
+     "role": "user",
+     "content": "公司给租了房 十一月一号报到",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "挺好的"
+    },
+    {
+     "role": "user",
+     "content": "在收拾行李",
+     "has_answer": false
+    },
+    {
+     "role": "assistant",
+     "content": "冬天衣服可以少带"
+    }
+   ]
+  ],
+  "needs": [
+   [
+    "健身房"
+   ],
+   [
+    "外派",
+    "深圳"
+   ]
+  ]
+ }
+]
