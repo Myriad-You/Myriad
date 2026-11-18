@@ -459,8 +459,22 @@ pub fn landed_since_reflection(user_id: i32, present: &Audience) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
+
+    /// How she is with `user_id` in `present`, as a reflection just left
+    /// her: for tests of what a turn then shows.
+    pub(crate) fn hold(user_id: i32, present: &Audience, inner: &str) {
+        AFTER
+            .lock()
+            .unwrap()
+            .insert(key(user_id, present), (inner.into(), Instant::now()));
+    }
+
+    /// Lets go of what [`hold`] held.
+    pub(crate) fn let_go(user_id: i32, present: &Audience) {
+        AFTER.lock().unwrap().remove(&key(user_id, present));
+    }
 
     #[test]
     fn what_they_said_after_her_state_was_written_is_newer_than_it() {
