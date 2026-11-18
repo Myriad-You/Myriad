@@ -153,6 +153,15 @@ pub(crate) async fn refresh<C: ConnectionTrait>(
             .as_ref()
             .map(|aliases| aliases.current.value.clone())
             .unwrap_or_default();
+        let status = status_of(node);
+        // Forgotten, taken back, folded into another or left empty: what
+        // upkeep kept of it built to nothing goes with it.
+        if matches!(
+            status.as_str(),
+            "forgotten" | "retracted" | "absorbed" | "dormant"
+        ) {
+            super::unbuilt::went(db, user_id, audience, &node.id).await?;
+        }
         db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "INSERT INTO agent_node_heads \
@@ -176,7 +185,7 @@ pub(crate) async fn refresh<C: ConnectionTrait>(
                     .map(|name| name.current.value.clone())
                     .into(),
                 Value::from(aliases).into(),
-                status_of(node).into(),
+                status.into(),
                 value.into(),
                 now.into(),
             ],
@@ -192,6 +201,7 @@ pub(crate) async fn refresh<C: ConnectionTrait>(
             [user_id.into(), audience.into(), gone.clone().into()],
         ))
         .await?;
+        super::unbuilt::went(db, user_id, audience, &gone).await?;
         changed.push(gone);
     }
     changed.sort();

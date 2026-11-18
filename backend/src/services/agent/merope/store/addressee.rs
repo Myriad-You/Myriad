@@ -80,19 +80,24 @@ fn overlay_settled_at(
     state
 }
 
-/// Where her mood toward this person settles: her usual, lowered by what
-/// still stings with them, so a hurt does not fade from her face in days
-/// while it still stings in her words.
-async fn baseline_toward<C>(db: &C, user_id: i32) -> Result<AffectBaseline, anyhow::Error>
+/// Where her mood toward this person settles (`myriad_merope::affect::
+/// baseline`): her persona's start, her arousal as her own days have made
+/// it (her undertone), her valence lowered by what still stings with them,
+/// so a hurt does not fade from her face in days while it still stings in
+/// her words. Her state toward anyone and the anchor her log carries both
+/// settle toward it.
+pub(crate) async fn baseline_toward<C>(db: &C, user_id: i32) -> Result<AffectBaseline, anyhow::Error>
 where
     C: ConnectionTrait,
 {
     let base = load_affect_baseline(db).await?;
     let weighs = super::super::sore::weighs_on(db, user_id).await?;
-    Ok(AffectBaseline {
-        mood: (base.mood - weighs).max(0.0),
-        ..base
-    })
+    let undertone = super::super::undertone::kept(db).await;
+    Ok(myriad_merope::affect::baseline(
+        base,
+        undertone.as_ref(),
+        weighs,
+    ))
 }
 
 pub async fn get_or_create_state<C>(

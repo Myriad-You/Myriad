@@ -729,7 +729,11 @@ async fn speaks(
         persona_name: "她".into(),
         addressee_user_id: 701,
         interaction_mode: crate::services::agent::AgentInteractionMode::Chat,
-        mood: 65.0,
+        mood: myriad_merope::speaking::mood_tone_instruction(
+            65.0,
+            myriad_merope::affect::DEFAULT_AROUSAL,
+        )
+        .into(),
         activity: "idle".into(),
         do_not_disturb: false,
         has_active_work: false,

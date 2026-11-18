@@ -44,6 +44,38 @@ async fn a_private_talk_reads_her_nodes() {
     schema.drop().await;
 }
 
+/// How she was a moment ago with them already says how she feels toward
+/// them, so her mood is not said again; her day is facts of her own and
+/// stands beside it.
+#[tokio::test]
+async fn her_day_stands_beside_how_she_was_a_moment_ago() {
+    let Some(schema) = owned("speaking_day_beside_inner").await else {
+        return;
+    };
+    let db = &schema.db;
+    crate::services::channel_group::g0::enter(crate::services::channel_group::g0::World::new(0.5));
+    seed(db).await;
+    let present = Audience::private(SEVEN);
+    super::super::inner::tests::hold(SEVEN, &present, "刚才聊得挺开心");
+    let sections =
+        speaking_prompt_from_db(db, SEVEN, Turn::Chat("今天过得怎么样"), &present, None).await;
+    crate::services::channel_group::g0::leave();
+    super::super::inner::tests::let_go(SEVEN, &present);
+    let titled_as = |title: &str| sections.iter().filter(|s| s.starts_with(title)).count();
+    assert_eq!(
+        titled_as("## Inside you a moment ago\n"),
+        1,
+        "{sections:#?}"
+    );
+    assert_eq!(titled_as("## Your day\n"), 1, "{sections:#?}");
+    assert_eq!(
+        titled_as("## How you feel toward them\n"),
+        0,
+        "{sections:#?}"
+    );
+    schema.drop().await;
+}
+
 /// Her prompt for speaking up to account 7 in the group, as [`prompt`].
 async fn prompt_in_group(db: &sea_orm::DatabaseConnection) -> Vec<String> {
     let present = Audience::group(GROUP, SEVEN);

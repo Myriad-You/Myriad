@@ -55,9 +55,11 @@ pub(super) async fn at_hand(db: &DatabaseConnection) -> Option<AtHand> {
     })
 }
 
-/// Whose things keep getting to her lately, a line each, at most `most`.
-pub async fn keeps_getting_to_her(db: &DatabaseConnection, most: usize) -> Vec<String> {
-    taste(db).await.liked_by(most)
+/// Whose things keep getting to her lately and whose keep not being for
+/// her, a line each, at most `most` of each.
+pub async fn what_landed(db: &DatabaseConnection, most: usize) -> (Vec<String>, Vec<String>) {
+    let taste = taste(db).await;
+    (taste.liked_by(most), taste.not_for_her_by(most))
 }
 
 /// Her taste as the site's owner looks into her: whose things keep getting
@@ -196,6 +198,7 @@ pub(super) async fn choice_input(
         "yourPace": pace,
         "sameThingLately": myriad_merope::doing::same_run(&kinds),
         "keepsGettingToYou": taste.liked_by(3),
+        "keepsNotBeingForYou": taste.not_for_her_by(3),
         "yourViews": views_for(db, options).await,
         "yourWants": super::super::wants::lines(&super::super::wants::open(db).await),
         "whoYouHaveBeen": super::super::self_story::current(db).await,

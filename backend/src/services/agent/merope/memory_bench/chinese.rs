@@ -444,3 +444,52 @@ fn reads_as_implicit(questions: &[Question]) {
         }
     }
 }
+
+/// The set on how long a thing holds (tests/merope/memory-lasting-zh.json):
+/// what lasts only a while and has most likely passed (`lapsed`), and what
+/// held for long that a later fact makes unlikely now (`unsaid-change`),
+/// six of each, each graded by its own rule, each saying what answering it
+/// needs, the talk in order before the question.
+#[test]
+pub(super) fn the_lasting_set_reads_as_the_bench_needs() {
+    let set: Vec<Question> = serde_json::from_str(include_str!(
+        "../../../../../../tests/merope/memory-lasting-zh.json"
+    ))
+    .unwrap();
+    let mut counted: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut ids = std::collections::BTreeSet::new();
+    for question in &set {
+        let id = question.question_id.as_str();
+        assert!(ids.insert(id), "{id}");
+        *counted.entry(question.question_type.as_str()).or_default() += 1;
+        assert_eq!(rule_key(question), question.question_type, "{id}");
+        assert!(
+            prompts()["grade"]["rules"][rule_key(question)].is_string(),
+            "{id}"
+        );
+        assert!(
+            !question.needs.is_empty()
+                && question
+                    .needs
+                    .iter()
+                    .flatten()
+                    .all(|word| word.chars().count() > 1),
+            "{id}"
+        );
+        let dates: Vec<_> = question
+            .haystack_dates
+            .iter()
+            .map(|date| date_of(date))
+            .collect();
+        assert_eq!(dates.len(), question.haystack_sessions.len(), "{id}");
+        assert!(dates.windows(2).all(|pair| pair[0] <= pair[1]), "{id}");
+        assert!(
+            dates.last().unwrap() < &date_of(&question.question_date),
+            "{id}"
+        );
+    }
+    assert_eq!(
+        counted,
+        BTreeMap::from([("lapsed", 6), ("unsaid-change", 6)])
+    );
+}

@@ -67,6 +67,24 @@ impl Day {
         }
     }
 
+    /// Her schema, to put in what a scene needs beforehand.
+    pub(super) fn db(&self) -> &DatabaseConnection {
+        &self.db
+    }
+
+    /// How today has left her so far, as her own state reads it now: read
+    /// from her schema alone, nothing of the site's.
+    pub(super) async fn today_left_her(&self) -> Option<String> {
+        tokio::time::sleep(STATE_SETTLES).await;
+        super::super::super::clock::in_zone(self.zone, async {
+            super::super::super::self_state::current(&self.db)
+                .await
+                .facts_view()
+                .today_left_you
+        })
+        .await
+    }
+
     /// Someone she knows as `known`, with the talks that made it so.
     pub(super) async fn person(&self, name: &str, known: Known) -> i32 {
         let user_id = super::super::new_user(&self.db, name).await;

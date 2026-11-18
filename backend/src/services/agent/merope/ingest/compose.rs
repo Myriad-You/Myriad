@@ -56,8 +56,14 @@ pub(super) async fn compose_line(
         .model()
         .await
         .ok()?;
-    let (system, prompt) =
-        proactive_prompt(db, user_id, &intent.gist, intent.happened.as_deref()).await;
+    // What she recalls for it is part of saying it, and paid as such.
+    let (system, prompt) = crate::services::ai_cost_ledger::with_site_ai_ledger(
+        user_id,
+        "merope",
+        "speak_recall",
+        proactive_prompt(db, user_id, &intent.gist, intent.happened.as_deref()),
+    )
+    .await;
     let made = match voice {
         Some((omni, out)) => {
             let aloud = crate::services::omni_voice::said_aloud(&format!("{system}\n\n{prompt}"));

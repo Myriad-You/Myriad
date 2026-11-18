@@ -26,6 +26,8 @@ const SHARING: &str = "g_3333333333";
 const HOLLOW: &str = "g_4444444444";
 /// The grant of the card test alone.
 const CARDS: &str = "g_5555555555";
+/// The grant of the test of an empty answer kept alone.
+const EMPTY: &str = "g_4444444455";
 /// The grant of the test of what comes together alone: it drops its grant
 /// at the end, which every test in this process then sees dropped.
 const TOGETHER: &str = "g_6666666666";
@@ -316,6 +318,51 @@ async fn what_waits_on_the_owners_answer_is_theirs_to_decide_when_her_answers_ar
         .map(|reply| reply.read.as_deref())
         .collect();
     assert_eq!(reads, [Some("hollow"), Some("hollow")]);
+    schema.drop().await;
+}
+
+/// The form with nothing in it where every change is one she leaves to
+/// itself is her answer: asked once, not again. A question that waits on
+/// the owner's own answer still comes to them to decide, never as a nod;
+/// the ledger keeps the answer as the empty form she was taken at.
+#[tokio::test]
+async fn an_empty_answer_that_leaves_all_to_itself_is_not_asked_again() {
+    let Some(schema) = schema().await else {
+        return;
+    };
+    let db = &schema.db;
+    let empty = r#"{"changes":[{"change":1,"verdict":"no_need","about":"","suggestion":null,"because":[],"missing":null,"ownerMustSay":false}],"say":null}"#;
+    answering(&[empty]);
+    let asked = myriad_her_link::now::read_session(&json!({
+        "grant": EMPTY,
+        "session": "s-1",
+        "change": "asked",
+        "occurredAt": 1_760_000_000_000_i64,
+        "tool": "coding-agent",
+        "remote": "github.com/me/repo",
+        "title": "Split the store",
+        "waitingOn": "owner",
+        "fromOwner": OWNERS_WORDS,
+        "fromAgent": "Committed locally. Push now? (push / wait)",
+    }))
+    .unwrap();
+    take(db, OWNER, DEVICE, asked).await.unwrap();
+    let node = looked_under(db, EMPTY).await;
+    let view = node["views"].as_object().unwrap().values().next().unwrap();
+    assert!(
+        view["value"]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("要你定"),
+        "{view}"
+    );
+    let ledger = keep::ledger_of(db, OWNER).await;
+    let reads: Vec<Option<&str>> = ledger[0]
+        .replies
+        .iter()
+        .map(|reply| reply.read.as_deref())
+        .collect();
+    assert_eq!(reads, [Some("hollow_kept")]);
     schema.drop().await;
 }
 

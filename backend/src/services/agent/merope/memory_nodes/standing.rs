@@ -11,7 +11,9 @@
 //!   stretch's facts are put on that has never held an item of hers, before
 //!   those facts are read; by node, not by talk (the core's `build_due`).
 //!   A rule's 「现在」 (where a session is `now`) is not hers, and the site
-//!   owner's talk holds those from the start.
+//!   owner's talk holds those from the start. A node no stretch has put a
+//!   fact on since is built at upkeep ([`build_waiting`],
+//!   `super::unbuilt`).
 //! - **Kept on the site's side** (`Sync::Local`) while a side of the
 //!   owner's would refuse it, written to go once every side reads it
 //!   (`share::sync_for`); what was kept before goes then too
@@ -46,13 +48,13 @@ pub(super) fn day_of(micros: i64) -> Option<String> {
 /// is hers but no one's life, and only the core tells them apart. A
 /// forgotten row (a stub, its body gone) stands for nothing, nor does one
 /// hidden as resting on a memory they took back ([`super::hidden`]).
-async fn standing_on(
-    db: &DatabaseConnection,
+pub(super) async fn standing_on<C: sea_orm::ConnectionTrait>(
+    db: &C,
     owner: i32,
     audience: &str,
     nodes: &[String],
 ) -> Result<Vec<DueNodeIn>, Error> {
-    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    use sea_orm::{DatabaseBackend, Statement};
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -213,12 +215,15 @@ async fn ask(
 }
 
 /// Writes `read`'s rows, a node at a time: a node that cannot take its rows
-/// leaves the others. How many were written.
+/// leaves the others. A node's first building (`building`) is left out on
+/// a node one of hers stands on by the time it is written: a stretch and
+/// upkeep may build the same node at once. How many were written.
 async fn write_rows(
     db: &DatabaseConnection,
     owner: i32,
     audience: &str,
     read: StepRead,
+    building: bool,
     pen: &Thought,
 ) -> usize {
     let mut by_node: Vec<(String, Vec<RowIn>)> = Vec::new();
@@ -237,7 +242,13 @@ async fn write_rows(
     }
     let mut written = 0;
     for (node, rows) in by_node {
-        match write::write(db, owner, audience, &rows, Some(pen)).await {
+        let beside = write::Beside {
+            unless_built: building,
+            ..Default::default()
+        };
+        match write::write_with(db, owner, audience, &rows, Some(pen), &beside).await {
+            // Left out whole: one of hers stood there by then.
+            Ok(done) if building && done.rows.is_empty() => {}
             Ok(_) => written += rows.len(),
             Err(error) => {
                 let total = counted(&NOT_WRITTEN);
@@ -261,10 +272,58 @@ pub(crate) async fn build(
     leave_out: &[String],
     pen: &Thought,
 ) -> Result<usize, Error> {
-    Box::pin(build_on(db, user_id, owner, audience, leave_out, None, pen)).await
+    let built = Box::pin(build_on(
+        db, user_id, owner, audience, leave_out, None, None, pen,
+    ))
+    .await?;
+    Ok(built.written)
 }
 
-/// [`build`], on `only` those nodes when given.
+/// Each topic or person of `user_id`'s `audience` (their own) that holds
+/// nothing of hers yet and has something new on it since it was last built
+/// to nothing (`super::unbuilt`), built at upkeep, at most `at_most` calls
+/// when given. How many calls were made.
+pub(crate) async fn build_waiting(
+    db: &DatabaseConnection,
+    user_id: i32,
+    audience: &str,
+    at_most: Option<usize>,
+    pen: &Thought,
+) -> Result<usize, Error> {
+    let waiting = super::unbuilt::waiting(db, user_id, audience).await?;
+    if waiting.is_empty() {
+        return Ok(0);
+    }
+    let built = Box::pin(build_on(
+        db,
+        user_id,
+        user_id,
+        audience,
+        &[],
+        Some(&waiting),
+        at_most,
+        pen,
+    ))
+    .await?;
+    if built.written > 0 {
+        tracing::info!(
+            asked = built.asked,
+            written = built.written,
+            "[memory-nodes] how things stand built at upkeep"
+        );
+    }
+    Ok(built.asked)
+}
+
+/// What [`build_on`] did: rows written, and calls made.
+struct BuiltOn {
+    written: usize,
+    asked: usize,
+}
+
+/// [`build`], on `only` those nodes when given, at most `at_most` calls
+/// when given.
+#[allow(clippy::too_many_arguments)]
 async fn build_on(
     db: &DatabaseConnection,
     user_id: i32,
@@ -272,18 +331,28 @@ async fn build_on(
     audience: &str,
     leave_out: &[String],
     only: Option<&[String]>,
+    at_most: Option<usize>,
     pen: &Thought,
-) -> Result<usize, Error> {
-    let mut written = 0;
+) -> Result<BuiltOn, Error> {
+    let mut built = BuiltOn {
+        written: 0,
+        asked: 0,
+    };
     for head in read::heads(db, owner, audience, None).await? {
         if !matches!(head.kind.as_deref(), Some("topic") | Some("person"))
             || only.is_some_and(|only| !only.contains(&head.node_id))
         {
             continue;
         }
+        if at_most.is_some_and(|at_most| built.asked >= at_most) {
+            break;
+        }
         let Some(folded) = read::node(db, owner, audience, &head.node_id).await? else {
             continue;
         };
+        // Which entries it holds as read: kept if it is built to nothing,
+        // so it is not asked again until they change.
+        let seen = super::unbuilt::seen(&folded);
         let ids: Vec<String> = read::entries_of(&folded)
             .into_iter()
             .flat_map(|entry| entry.memories)
@@ -310,8 +379,15 @@ async fn build_on(
         };
         let prepared = stands::build_prepare(input.clone())?;
         if prepared.skip {
+            // Nothing to go by (nothing on it held): not read again at each
+            // upkeep until something on it changes. Not when a stretch left
+            // its facts out: the step after reads those.
+            if leave_out.is_empty() {
+                super::unbuilt::built_empty(db, owner, audience, &head.node_id, &seen).await;
+            }
             continue;
         }
+        built.asked += 1;
         let Some(output) = ask(
             user_id,
             "memory_standing_build",
@@ -337,6 +413,9 @@ async fn build_on(
                 total,
                 "[memory-nodes] how things stand on a node not built: the answer read as nothing"
             );
+            // As one built to nothing: the same again is not asked hour
+            // after hour.
+            super::unbuilt::built_empty(db, owner, audience, &head.node_id, &seen).await;
             continue;
         }
         // Items of the answer the core left out: how many, and why; never
@@ -349,11 +428,15 @@ async fn build_on(
                 "[memory-nodes] how things stand on a node: items left out"
             );
         }
+        if read.rows.is_empty() {
+            super::unbuilt::built_empty(db, owner, audience, &head.node_id, &seen).await;
+            continue;
+        }
         let started = read.rows.clone();
-        written += write_rows(db, owner, audience, read, pen).await;
+        built.written += write_rows(db, owner, audience, read, true, pen).await;
         super::kept::started(db, owner, audience, &started).await;
     }
-    Ok(written)
+    Ok(built)
 }
 
 /// What each fact a stretch of `user_id`'s private talk kept does to how
@@ -403,9 +486,11 @@ pub(crate) async fn after_settled(
             audience,
             &kept,
             Some(&due.nodes),
+            None,
             pen,
         ))
-        .await?;
+        .await?
+        .written;
     }
     let heads: HashMap<String, read::Head> = read::heads(db, owner, audience, None)
         .await?
@@ -459,7 +544,7 @@ pub(crate) async fn after_settled(
             );
         }
         let still = read.still_so.clone();
-        written += write_rows(db, owner, audience, read, pen).await;
+        written += write_rows(db, owner, audience, read, false, pen).await;
         super::kept::seen(db, owner, audience, &fact.memory, &still).await;
     }
     Ok(written)

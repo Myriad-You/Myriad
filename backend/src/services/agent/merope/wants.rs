@@ -151,6 +151,20 @@ where
     }
 }
 
+/// Whether a want that ended (a row of [`ENDED`]) came true, or she let it
+/// go; none for any other row.
+pub(super) fn came_true(row: &crate::models::entities::agent_memories::Model) -> Option<bool> {
+    if row.source != ENDED {
+        return None;
+    }
+    let evidence: Value = serde_json::from_str(row.evidence.as_deref()?).ok()?;
+    match evidence.get("ended").and_then(Value::as_str)? {
+        "came_true" => Some(true),
+        "let_go" => Some(false),
+        _ => None,
+    }
+}
+
 /// How a want ended, kept as part of her life.
 async fn ended(db: &DatabaseConnection, want: &Want, how: &str, came_true: bool) {
     let reason = if came_true { "came_true" } else { "let_go" };

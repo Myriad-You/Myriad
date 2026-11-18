@@ -205,6 +205,9 @@ pub(crate) async fn of_kind<C: ConnectionTrait>(
         Kind::OwnerState => owner_state(db, owner).await?.into_iter().collect(),
         Kind::Pace => pace(db).await?.into_iter().collect(),
         Kind::Present => present(db).await?.into_iter().collect(),
+        // Her undertone goes with her once every end reads it: until then
+        // a move or an export carrying one would be refused whole.
+        Kind::Undertone => Vec::new(),
         Kind::ProactiveLine => proactive_lines(db, owner).await?,
         Kind::SpeechSaid => speech_said(db, owner).await?,
         Kind::Wearing => wearing(db).await?.into_iter().collect(),
@@ -1252,14 +1255,9 @@ async fn anchor<C: ConnectionTrait>(db: &C, owner: i32) -> Result<Option<EntityV
     else {
         return Ok(None);
     };
-    let base = her::load_affect_baseline(db)
+    let base = her::baseline_toward(db, owner)
         .await
         .map_err(|error| DbErr::Custom(format!("affect baseline: {error}")))?;
-    let weighs = her::sore_weighs_on(db, owner).await?;
-    let base = myriad_merope::affect::AffectBaseline {
-        mood: (base.mood - weighs).max(0.0),
-        ..base
-    };
     let at = state.mood_settled_at.max(state.emotion_settled_at);
     let hours = |since: DateTime<FixedOffset>| ((at - since).num_seconds().max(0) as f64) / 3600.0;
     let settled = myriad_merope::affect::settle(

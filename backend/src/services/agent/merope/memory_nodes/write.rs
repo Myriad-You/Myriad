@@ -60,6 +60,10 @@ pub(crate) struct Beside {
     /// writes them again as shared ([`super::share`]): they never left
     /// the site and took no count, so no side misses them.
     pub unshared: Vec<String>,
+    /// The rows build a node's first 「现在」: read again under the lock,
+    /// those on a node one of hers stands on by now are left out (a
+    /// stretch and upkeep may build the same node at once).
+    pub unless_built: bool,
 }
 
 impl Beside {
@@ -356,7 +360,7 @@ pub(crate) async fn write_with(
         None => (audience, rows, beside),
     };
     let moved_to = redirected.as_ref().map(|moved| moved.partner.as_str());
-    let batch = prepare_all(audience, rows)?;
+    let mut batch = prepare_all(audience, rows)?;
     lock(&txn, user_id, audience).await?;
     unshare(&txn, user_id, audience, &beside.unshared).await?;
     // Her own and the site owner's talk go into her log as well, while she
@@ -364,6 +368,14 @@ pub(crate) async fn write_with(
     let into_log = logged::into_log(&txn, user_id, audience).await?;
     if let Some(owner) = &into_log {
         logged::catch_up(&txn, her_log::keys::root(), owner, audience).await?;
+    }
+    if beside.unless_built {
+        let mut nodes: Vec<String> = batch.iter().map(|row| row.node.clone()).collect();
+        nodes.dedup();
+        let due = myriad_nodes::stands::build_due(&myriad_nodes::stands::BuildDueInput {
+            nodes: super::standing::standing_on(&txn, user_id, audience, &nodes).await?,
+        });
+        batch.retain(|row| due.nodes.contains(&row.node));
     }
     if batch.is_empty() {
         beside.keep(&txn, user_id, audience).await?;

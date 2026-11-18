@@ -133,6 +133,7 @@ mod since;
 pub(crate) mod sorting;
 pub(crate) mod standing;
 pub(crate) mod take_back_check;
+pub(crate) mod unbuilt;
 pub(crate) mod upkeep;
 pub(crate) mod write;
 
@@ -230,3 +231,9 @@ mod kept_tests;
 
 #[cfg(test)]
 mod take_back_check_tests;
+
+#[cfg(test)]
+mod unbuilt_tests;
+
+#[cfg(test)]
+mod sore_closed_tests;

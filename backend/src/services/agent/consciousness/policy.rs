@@ -9,6 +9,7 @@ pub enum DecisionPolicyError {
     PayloadMismatch,
     EmptyWorkProposal,
     DoNotDisturb,
+    NotGranted,
 }
 
 impl fmt::Display for DecisionPolicyError {
@@ -21,6 +22,7 @@ impl fmt::Display for DecisionPolicyError {
             Self::PayloadMismatch => "decision payload does not match its selected action",
             Self::EmptyWorkProposal => "work proposal fields must not be empty",
             Self::DoNotDisturb => "do-not-disturb blocks proactive speech and questions",
+            Self::NotGranted => "a work proposal needs a permission granted to them",
         })
     }
 }
@@ -31,7 +33,10 @@ impl Error for DecisionPolicyError {}
 ///
 /// This is intentionally stricter than prompting: a malformed or disallowed
 /// decision is rejected before any persistence, transcript, notification, or
-/// Work hand-off occurs.
+/// Work hand-off occurs. She is not told what she may not do; it is held
+/// here: Work is proposed only for someone with a granted permission (the
+/// runtime-filtered set, never a declared or approved one), since nothing
+/// could run it for anyone else.
 pub fn validate_decision(
     decision: &ConsciousnessDecision,
     snapshot: &SelfSnapshot,
@@ -73,6 +78,9 @@ pub fn validate_decision(
         {
             return Err(DecisionPolicyError::EmptyWorkProposal);
         }
+        if snapshot.granted_permissions.is_empty() {
+            return Err(DecisionPolicyError::NotGranted);
+        }
     }
 
     if snapshot.do_not_disturb
@@ -102,7 +110,7 @@ mod tests {
             persona_name: "Arael".into(),
             addressee_user_id: 7,
             interaction_mode: AgentInteractionMode::Chat,
-            mood: 70.0,
+            mood: "You feel at ease with them.".into(),
             activity: "idle".into(),
             do_not_disturb,
             has_active_work: false,
@@ -186,10 +194,17 @@ mod tests {
             device_id: None,
             device_name: None,
         });
-        assert_eq!(validate_decision(&value, &snapshot(false)), Ok(()));
-        value.memory = Some("the user likes quiet hours".into());
+        // Nothing granted to them: nothing could run it.
         assert_eq!(
             validate_decision(&value, &snapshot(false)),
+            Err(DecisionPolicyError::NotGranted)
+        );
+        let mut granted = snapshot(false);
+        granted.granted_permissions = vec!["agent.execute".into()];
+        assert_eq!(validate_decision(&value, &granted), Ok(()));
+        value.memory = Some("the user likes quiet hours".into());
+        assert_eq!(
+            validate_decision(&value, &granted),
             Err(DecisionPolicyError::PayloadMismatch)
         );
     }

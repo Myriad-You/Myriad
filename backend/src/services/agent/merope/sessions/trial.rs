@@ -195,7 +195,7 @@ async fn ask_of(soul: &str, material: Material, waits: Vec<bool>) -> Option<Answ
         println!("raw (try {attempt}): {raw}");
         match looks::read(&raw, &material) {
             Read::Good(answer) => {
-                let answer = looks::settle(answer, &waits);
+                let answer = looks::settle(answer, &waits, &[]);
                 for (at, judgment) in answer.judgments.iter().enumerate() {
                     match judgment {
                         Some(judgment) => {

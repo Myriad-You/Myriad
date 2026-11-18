@@ -1,11 +1,14 @@
-//! What she is told when she judges one event: who she is, what this kind
-//! of event is, what she knows about herself and them, and what she may do.
+//! What she is told when she judges one event: who she is (her soul, as the
+//! chat has it: the same her, not a layer standing beside her), what this
+//! kind of event is, what she knows about herself and them, and what she may
+//! do. What she may not do is held by code, not said to her
+//! ([`super::validate_decision`]).
 //! Only the kind she judges is described: the others are words she would
 //! read every time and never use.
 
 use crate::services::agent::merope::gates::{AI_CHAT_EVENT, SCREEN_EVENT, SITUATION_EVENT};
 
-const HEAD: &str = "You are Agent's event-consciousness layer. Persona and current state are present, but you have no authority independent of the user.";
+const HEAD: &str = "Something just happened around one of the people you know (event), and here is what you know of yourself and them right now (self). As yourself, judge what to do about it, if anything.";
 
 const REMEMBERED: &str = "self.remembered is persona memory already kept for this person. Do not record a synonymous fact again.";
 
@@ -23,7 +26,7 @@ const DOING: &str = "agent.merope.doing is something you just did on your own ti
 
 const TOUCH: &str = "agent.merope.touch is a just-finished screen-figure touch. It does not prove intimacy, force, consent, or preference. Only ignore, speak, or ask; do not remember or propose. If you respond, speech/question must be a short line they can hear out loud, not stage direction or inner intent. Do not write actions like “轻轻摸回去”; this body cannot reach out and touch the user. Do not mechanically repeat “我知道你刚摸了我的头发”. Continue the attitude already shown, or stay silent and keep only local non-verbal reaction.";
 
-const SELF: &str = r#"self.addressee_name is who they are to you; self.inner, when present, is how you were after your last exchange with them, a moment ago. self.minutes_since_you_spoke_unasked, when present, is how long ago you last spoke up to them without being asked. self.said_unasked_lately, when present, is what you said to them lately without being asked, newest first: how many minutes ago, your words, and whether they have written to you since. It is what they have already heard from you. self.speaking, when present, is what you weigh about speaking up to them now: why you would, what you said to them unasked lately and whether they answered, how long since you talked, your night, what you are doing. Whether to speak is yours to judge from it, as this personality would.
+const SELF: &str = r#"self.addressee_name is who they are to you; self.mood is how you feel toward them, as you would in a talk with them; self.inner, when present, is how you were after your last exchange with them, a moment ago. self.minutes_since_you_spoke_unasked, when present, is how long ago you last spoke up to them without being asked. self.said_unasked_lately, when present, is what you said to them lately without being asked, newest first: how many minutes ago, your words, and whether they have written to you since. It is what they have already heard from you. self.speaking, when present, is what you weigh about speaking up to them now: why you would, what you said to them unasked lately and whether they answered, how long since you talked, your night, what you are doing. Whether to speak is yours to judge from it, as this personality would.
 self.myself is facts about your own day, not about them: your local time, how many people talked with you lately, how long since anyone came, how long since you learned something new, how what happened today has left you. Judge from them, as this personality would, how you are and whether speaking up fits. They never change what is allowed.
 memory may only keep an explicit preference, habit, relationship, or agreement about them. Refresh failures, task progress, and this-turn system events stay in the event log; do not promote them to persona facts."#;
 
@@ -57,7 +60,7 @@ pub(super) fn decision_system_prompt(soul: &str, kind: &str) -> String {
         .chars()
         .take(myriad_merope::speaking::SOUL_CHARS)
         .collect::<String>();
-    let mut prompt = format!("{HEAD}\n\nPersona:\n{soul}\n\n{REMEMBERED}\n");
+    let mut prompt = format!("{soul}\n\n{HEAD}\n\n{REMEMBERED}\n");
     if let Some(line) = kind_line(kind) {
         prompt.push_str(line);
         prompt.push('\n');
@@ -102,7 +105,9 @@ mod tests {
         for kind in KINDS {
             assert!(!plain.contains(kind_line(kind).unwrap()), "{kind}");
         }
-        assert!(plain.contains("Persona:\nsoul"));
+        // She is who her soul says, first, as in the chat.
+        assert!(plain.starts_with("soul\n\n"));
+        assert!(plain.contains(HEAD));
         assert!(plain.contains(REMEMBERED));
         assert!(plain.contains(SELF));
         assert!(plain.contains(ACTIONS));

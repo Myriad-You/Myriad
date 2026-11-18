@@ -51,9 +51,11 @@ pub mod sync {
     pub(crate) use crate::services::agent::merope::doing::PRESENT_NAMESPACE;
     pub(crate) use crate::services::agent::merope::pace::NAMESPACE as PACE_NAMESPACE;
     pub(crate) use crate::services::agent::merope::serial::NAMESPACE as SERIAL_NAMESPACE;
-    pub(crate) use crate::services::agent::merope::sore::weighs_on as sore_weighs_on;
     pub(crate) use crate::services::agent::merope::soup::GAMES_NAMESPACE as SOUP_NAMESPACE;
-    pub(crate) use crate::services::agent::merope::store::load_affect_baseline;
+    pub(crate) use crate::services::agent::merope::store::baseline_toward;
+    pub(crate) use crate::services::agent::merope::undertone::{
+        NAMESPACE as UNDERTONE_NAMESPACE, RECORD as UNDERTONE_RECORD,
+    };
     pub(crate) use crate::services::agent::merope::vitals::NAMESPACE as VITALS_NAMESPACE;
 }
 

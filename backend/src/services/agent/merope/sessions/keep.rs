@@ -547,8 +547,8 @@ pub(super) struct Looked {
 
 /// How one answer came, as its source said: why the model stopped and how
 /// many tokens it wrote (neither when it did not say, or no answer came);
-/// and how it read (`good`, `bad_grounds`, `unreadable`, `hollow`; none
-/// when no answer came).
+/// and how it read (`good`, `bad_grounds`, `unreadable`, `hollow`,
+/// `hollow_kept`; none when no answer came).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Reply {

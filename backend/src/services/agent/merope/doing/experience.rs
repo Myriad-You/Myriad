@@ -33,6 +33,13 @@ pub(in crate::services::agent::merope) fn experience_line(
     Experience::of(row).map(|experience| experience.line_felt())
 }
 
+/// Whether a row of her own experience landed hard, and how far
+/// (`myriad_merope::undertone::gap`): none for a row that is no experience
+/// of hers, `Some(None)` for one that did not.
+pub(in crate::services::agent::merope) fn gap_of(row: &unified_row::Model) -> Option<Option<f64>> {
+    Experience::of(row).map(|experience| myriad_merope::undertone::gap(experience.reaction, &experience.kept))
+}
+
 /// What a row of her own experience was and how it landed with her, as
 /// anyone may see it.
 pub(in crate::services::agent::merope) fn thing_and_reaction(

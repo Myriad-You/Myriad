@@ -49,7 +49,7 @@ use myriad_persona_sync::{
     entity::{
         AffectAnchorBody, AffectEventBody, ConversationBody, DiaryBody, Embedding, EmbeddingModel,
         FieldHistoryBody, IntentionBody, MemoryBody, MemoryVenue, OutfitBody, OwnerStateBody,
-        PaceBody, Picture, PresentBody, ProactiveLineBody, SpeechSaidBody, StickerBody,
+        PaceBody, Picture, PresentBody, ProactiveLineBody, SpeechSaidBody, StickerBody, UndertoneBody,
         WearingBody,
     },
     hlc,
@@ -2195,6 +2195,18 @@ async fn land(
             ));
         }
         count(Kind::Pace);
+    }
+    if let Some(entity) = of(Kind::Undertone).first() {
+        let undertone: UndertoneBody = entity
+            .body_as()
+            .map_err(|error| ImportError::Mismatch(error.to_string()))?;
+        registry.push((
+            her::UNDERTONE_NAMESPACE,
+            her::UNDERTONE_RECORD.into(),
+            serde_json::to_value(undertone).map_err(ImportError::failed)?,
+            keep(KEEP_DAYS),
+        ));
+        count(Kind::Undertone);
     }
     if let Some(entity) = of(Kind::Present).first() {
         let present: PresentBody = entity
