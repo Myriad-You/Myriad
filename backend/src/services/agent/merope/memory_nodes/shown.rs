@@ -90,6 +90,9 @@ pub(crate) struct Shown {
     /// (node, item): a version is written with the one before it in view,
     /// so its words may carry what an earlier one rested on.
     pub grounds: HashMap<(String, String), Vec<String>>,
+    /// The memories that showed an item of 「现在」 still holding, by (node,
+    /// item), latest learned first (`super::kept`).
+    pub kept: HashMap<(String, String), Vec<String>>,
 }
 
 /// The words an ended thing stood in, at most: a line says which thing it
@@ -139,6 +142,17 @@ impl Shown {
         (!self.taken_back.contains(id))
             .then(|| self.learned.get(id).copied())
             .flatten()
+    }
+
+    /// The latest day `item` of `node`'s 「现在」 was seen to still hold:
+    /// when she learned the latest memory that showed it, of those not
+    /// taken back and still to be found.
+    pub(crate) fn still_so(&self, node: &str, item: &str) -> Option<i64> {
+        self.kept
+            .get(&(node.to_string(), item.to_string()))?
+            .iter()
+            .filter_map(|id| self.told_of(id))
+            .max()
     }
 
     /// Whether what rests on the memories `because` names is no longer to
@@ -419,10 +433,13 @@ pub(crate) async fn shown<C: ConnectionTrait>(
     // what each ever rested on, and of an ended one the words it stood in,
     // which the head no longer keeps.
     let (grounds, stood) = versions(db, user_id, audience, &heads).await?;
+    let on: BTreeSet<String> = grounds.keys().map(|(node, _)| node.clone()).collect();
+    let kept = super::kept::on_nodes(db, user_id, audience, on.into_iter().collect()).await?;
     let named: BTreeSet<String> = heads
         .iter()
         .flat_map(|head| named_by(&head.4))
         .chain(grounds.values().flatten().cloned())
+        .chain(kept.values().flatten().cloned())
         .collect();
     // One read of every memory the heads name: held, taken back, learned.
     let named = known::named(db, named.into_iter().collect()).await?;
@@ -488,6 +505,7 @@ pub(crate) async fn shown<C: ConnectionTrait>(
         taken_back,
         stood,
         grounds,
+        kept,
     })
 }
 

@@ -482,3 +482,58 @@ async fn recollect_as(
     let recalled = ranked(db, found).await;
     recall::recollect(&turn.shown, &turn.own, &recalled, None, now)
 }
+
+/// A fact put to what stands and leaving it standing (the core's
+/// `stillSo`, noted in `agent_node_kept`) says until when it was seen so:
+/// the line carries since when and that day, not the day told besides.
+/// That fact taken back, the line is as it was before it.
+#[tokio::test]
+async fn what_was_seen_to_still_hold_says_until_when() {
+    let Some(schema) = schema("memory_nodes_still_so").await else {
+        return;
+    };
+    let db = &schema.db;
+    let said = stands(
+        db,
+        r#"{"whose":"them","set":[],"end":[],"add":[{"topic":"跑步","text":"每周三晚上夜跑"}]}"#,
+        "每周三晚上夜跑",
+    )
+    .await;
+    let seen = stands(
+        db,
+        r#"{"whose":"them","set":[],"end":[],"add":[]}"#,
+        "跑步时听播客",
+    )
+    .await;
+    let ago = |days: i64| crate::clock::now() - chrono::Duration::days(days);
+    let (told, again) = (ago(21), ago(7));
+    for (id, at) in [(&said, told), (&seen, again)] {
+        memory(db, id, &format!("created_at = '{}'", at.to_rfc3339())).await;
+    }
+    let day = |at: chrono::DateTime<chrono::Utc>| clock::date_of(&at).format("%m-%d").to_string();
+    let line = |resident: Vec<String>| {
+        let lines = saying(&resident, "每周三晚上夜跑");
+        assert_eq!(lines.len(), 1, "{resident:?}");
+        lines[0].to_string()
+    };
+    let start = |at| format!("跑步, since {}", day(at));
+    let resident = line(recollect(db, &[]).await.resident);
+    assert!(
+        resident.starts_with(&start(told))
+            && resident.contains(&format!(", still so on {}：", day(again)))
+            && !resident.contains("told"),
+        "{resident}"
+    );
+
+    // What showed it taken back (let go on another end, not swept here):
+    // as it was, since the day told.
+    let let_go = "invalid_reason = 'superseded', invalid_at = now(), superseded_by = NULL, \
+                  updated_at = '2000-01-01'";
+    memory(db, &seen, let_go).await;
+    let resident = line(recollect(db, &[]).await.resident);
+    assert!(
+        resident.starts_with(&start(told)) && !resident.contains("still so"),
+        "{resident}"
+    );
+    schema.drop().await;
+}

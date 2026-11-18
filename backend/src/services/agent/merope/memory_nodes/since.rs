@@ -10,7 +10,10 @@
 //! that day. So a line here always carries the day it was told, and the
 //! day it began beside it only when that is another: told in November that
 //! they left in August, it reads `since 2026-08, told 11-10`, and a fact of
-//! September is plainly the earlier word.
+//! September is plainly the earlier word. Seen to still hold on a later
+//! day (a fact put to it left it standing: `super::kept`), that day takes
+//! the place of the day told, for it is how new the line is:
+//! `since 2025, still so on 09-18`.
 //!
 //! What stood on a node and has ended (a `node.standing` item whose latest
 //! version is `ended`) keeps the fact that ended it as its words (the core's
@@ -41,10 +44,15 @@ use crate::services::agent::merope::clock::Zone;
 /// built later than what it rests on). With nothing it rests on to say
 /// when it was told (it names no memory, or none is kept any more), the
 /// day its row was written (`at`) stands for the day told: the latest it
-/// can have been. `year`: this one, left out of a whole day in it.
+/// can have been. Seen to still hold on a later day than it was told
+/// (`still`, the day she learned the latest memory that showed it:
+/// `super::kept`), that day takes the place of the day told: it is how new
+/// the line is, and a line carries two days at most, since when and until
+/// when it was seen so. `year`: this one, left out of a whole day in it.
 pub(super) fn dated(
     since: Option<&Value>,
     learned: Option<i64>,
+    still: Option<i64>,
     at: i64,
     zone: &Zone,
     year: i32,
@@ -62,27 +70,23 @@ pub(super) fn dated(
         .filter(|day| stands::is_day(day))
         .map(str::to_string)
         .or_else(|| since.and_then(|since| since.as_i64()).map(day_of));
-    let told = learned.map(day_of);
-    match (began, told) {
-        (Some(began), Some(told)) if began.as_str() < told.as_str() => {
-            format!("since {}, told {}", short(&began, year), short(&told, year))
+    // Nothing it rests on to say when it was told: no later than the day
+    // its row was written.
+    let told = day_of(learned.unwrap_or(at));
+    let from = match began {
+        Some(began) if began.as_str() < told.as_str() => began,
+        _ => told.clone(),
+    };
+    match still.map(day_of) {
+        Some(still) if still.as_str() > told.as_str() => {
+            format!(
+                "since {}, still so on {}",
+                short(&from, year),
+                short(&still, year)
+            )
         }
-        (_, Some(told)) => format!("since {}", short(&told, year)),
-        // Nothing it rests on to say when it was told: no later than the
-        // day its row was written.
-        (began, None) => {
-            let written = day_of(at);
-            match began {
-                Some(began) if began.as_str() < written.as_str() => {
-                    format!(
-                        "since {}, told {}",
-                        short(&began, year),
-                        short(&written, year)
-                    )
-                }
-                _ => format!("since {}", short(&written, year)),
-            }
-        }
+        _ if from != told => format!("since {}, told {}", short(&from, year), short(&told, year)),
+        _ => format!("since {}", short(&told, year)),
     }
 }
 
@@ -195,12 +199,12 @@ mod tests {
             ("2026-08", "since 2026-08, told 11-10"),
             ("2025", "since 2025, told 11-10"),
         ] {
-            let dated = dated(Some(&json!(began)), Some(told), written, &zone, 2026);
+            let dated = dated(Some(&json!(began)), Some(told), None, written, &zone, 2026);
             assert_eq!(dated, shown);
         }
         let began = json!(micros(&zone, 8, 3));
         assert_eq!(
-            dated(Some(&began), Some(told), written, &zone, 2026),
+            dated(Some(&began), Some(told), None, written, &zone, 2026),
             "since 08-03, told 11-10"
         );
         // One day, none of its own, one that is no day, or one after the
@@ -213,25 +217,68 @@ mod tests {
             Some(json!(null)),
         ] {
             assert_eq!(
-                dated(since.as_ref(), Some(told), written, &zone, 2026),
+                dated(since.as_ref(), Some(told), None, written, &zone, 2026),
                 "since 11-10"
             );
         }
         // Nothing it rests on to say when: told no later than the day it
         // was written, which the line carries as every line does.
         assert_eq!(
-            dated(Some(&json!("2026-08")), None, written, &zone, 2026),
+            dated(Some(&json!("2026-08")), None, None, written, &zone, 2026),
             "since 2026-08, told 11-16"
         );
         assert_eq!(
-            dated(Some(&json!("2026-12-01")), None, written, &zone, 2026),
+            dated(Some(&json!("2026-12-01")), None, None, written, &zone, 2026),
             "since 11-16"
         );
-        assert_eq!(dated(None, None, written, &zone, 2026), "since 11-16");
+        assert_eq!(dated(None, None, None, written, &zone, 2026), "since 11-16");
         // Another year is written out.
         assert_eq!(
-            dated(None, Some(told), written, &zone, 2027),
+            dated(None, Some(told), None, written, &zone, 2027),
             "since 2026-11-10"
+        );
+    }
+
+    /// Seen to still hold on a later day than it was told, the line says
+    /// since when and until when it was seen so: two days, never three.
+    /// Seen so on the day told or before, nothing changes.
+    #[test]
+    fn what_was_seen_to_still_hold_says_until_when() {
+        let zone = clock::zone();
+        let (told, written) = (micros(&zone, 9, 1), micros(&zone, 11, 16));
+        let still = Some(micros(&zone, 9, 18));
+        let dated = |since: Option<serde_json::Value>, learned, still, year| {
+            dated(since.as_ref(), learned, still, written, &zone, year)
+        };
+        assert_eq!(
+            dated(Some(json!("2025")), Some(told), still, 2026),
+            "since 2025, still so on 09-18"
+        );
+        assert_eq!(
+            dated(None, Some(told), still, 2026),
+            "since 09-01, still so on 09-18"
+        );
+        // Its own day after the day told: from the day told.
+        assert_eq!(
+            dated(Some(json!("2026-10-01")), Some(told), still, 2026),
+            "since 09-01, still so on 09-18"
+        );
+        // Nothing it rests on to say when it was told: from the day written,
+        // seen so later still.
+        assert_eq!(
+            dated(None, None, Some(micros(&zone, 11, 17)), 2026),
+            "since 11-16, still so on 11-17"
+        );
+        // Seen so no later than it was told: as before.
+        for earlier in [told, micros(&zone, 8, 30)] {
+            assert_eq!(
+                dated(Some(json!("2025")), Some(told), Some(earlier), 2026),
+                "since 2025, told 09-01"
+            );
+        }
+        assert_eq!(
+            dated(Some(json!("2025")), Some(told), still, 2027),
+            "since 2025, still so on 2026-09-18"
         );
     }
 

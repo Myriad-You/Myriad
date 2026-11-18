@@ -352,6 +352,37 @@ pub(crate) async fn forget_node<C: ConnectionTrait>(
     Ok(())
 }
 
+/// What was noted on `nodes` of `user_id`'s `audience`: by (node, item),
+/// the memories that showed it still holding, latest learned first. One
+/// read, of those nodes only; whether each memory still stands to be said
+/// is the reader's to tell, with the rest it names.
+pub(crate) async fn on_nodes<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    audience: &str,
+    nodes: Vec<String>,
+) -> Result<HashMap<(String, String), Vec<String>>, Error> {
+    let mut kept: HashMap<(String, String), Vec<String>> = HashMap::new();
+    if nodes.is_empty() {
+        return Ok(kept);
+    }
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT node_id, item, by_memory FROM agent_node_kept \
+             WHERE user_id = $1 AND audience = $2 AND node_id = ANY($3) \
+             ORDER BY node_id, item, at DESC, by_memory DESC",
+            [user_id.into(), audience.into(), nodes.into()],
+        ))
+        .await?;
+    for row in &rows {
+        kept.entry((row.try_get("", "node_id")?, row.try_get("", "item")?))
+            .or_default()
+            .push(row.try_get("", "by_memory")?);
+    }
+    Ok(kept)
+}
+
 /// What was noted of `node`'s items of `user_id`'s `audience`, item by
 /// item, latest first: (item, memory, Unix microseconds learned).
 #[cfg(test)]
