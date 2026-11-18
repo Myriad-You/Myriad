@@ -364,9 +364,12 @@ async fn ask(owner: i32, asking: &LookAsk) -> (Option<Answer>, Vec<String>, Vec<
 
 /// How an answer read, for the ledger: `good`, `bad_grounds`,
 /// `unreadable`, or `hollow` (it holds to the schema, but every change in
-/// it says nothing of what it is about: the form with nothing in it).
+/// it says nothing of what it is about: the form with nothing in it);
+/// `hollow_kept` when that form is still her answer (every change in it
+/// one she leaves to itself), so it is not asked again.
 fn read_word(raw: &str, read: &Read) -> &'static str {
     match read {
+        Read::Good(_) if looks::hollow(raw) => "hollow_kept",
         _ if looks::hollow(raw) => "hollow",
         Read::Good(_) => "good",
         Read::BadGrounds => "bad_grounds",
@@ -399,7 +402,7 @@ async fn look(
         keep::ledger(db, owner, pictures, &asking.material, answers, replies).await;
     }
     let answer = match answer {
-        Some(answer) => looks::settle(answer, &asking.waits),
+        Some(answer) => looks::settle(answer, &asking.waits, &asking.decides),
         None => Answer {
             judgments: vec![None; pictures.len()],
             line: None,
