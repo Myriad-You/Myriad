@@ -549,6 +549,19 @@ async fn what_was_seen_to_still_hold_says_until_when() {
         "{resident}"
     );
 
+    // Corrected by a later fact, what showed it showed nothing: as it was.
+    // Gone over into another note, it still counts.
+    for (reason, still) in [("superseded", false), ("settled", true)] {
+        let over = format!(
+            "invalid_reason = '{reason}', invalid_at = now(), superseded_by = '{said}', \
+             updated_at = '2000-01-01'"
+        );
+        memory(db, &seen, &over).await;
+        let resident = line(recollect(db, &[]).await.resident);
+        assert!(resident.starts_with(&start(told)), "{reason}: {resident}");
+        assert_eq!(resident.contains("still so"), still, "{reason}: {resident}");
+    }
+
     // Ended, it holds no longer: a note of it left behind (one written as
     // it ended, before the ending was in) says nothing on its line.
     let held = "invalid_reason = NULL, invalid_at = NULL, superseded_by = NULL";

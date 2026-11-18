@@ -93,6 +93,10 @@ pub(crate) struct Shown {
     /// The memories that showed an item of 「现在」 still holding, by (node,
     /// item), latest learned first (`super::kept`).
     pub kept: HashMap<(String, String), Vec<String>>,
+    /// Those a head or a note of 「现在」 names that a later fact replaced
+    /// ([`known::Named::replaced`]): what they were put to, they were
+    /// corrected on.
+    pub replaced: HashSet<String>,
 }
 
 /// The words an ended thing stood in, at most: a line says which thing it
@@ -145,13 +149,15 @@ impl Shown {
     }
 
     /// The latest day `item` of `node`'s 「现在」 was seen to still hold:
-    /// when she learned the latest memory that showed it, of those that
-    /// still tell when it was said ([`Shown::told_of`]: not taken back,
-    /// whether held or since replaced).
+    /// when she learned the latest memory that showed it, of those neither
+    /// taken back nor replaced by a later fact: a corrected one showed
+    /// nothing, as the core trusts none of the fact that corrected it.
+    /// Gone over into another note, it still counts.
     pub(crate) fn still_so(&self, node: &str, item: &str) -> Option<i64> {
         self.kept
             .get(&(node.to_string(), item.to_string()))?
             .iter()
+            .filter(|id| !self.replaced.contains(*id))
             .filter_map(|id| self.told_of(id))
             .max()
     }
@@ -454,6 +460,11 @@ pub(crate) async fn shown<C: ConnectionTrait>(
         .filter(|(_, row)| row.taken_back)
         .map(|(id, _)| id.clone())
         .collect();
+    let replaced: HashSet<String> = named
+        .iter()
+        .filter(|(_, row)| row.replaced)
+        .map(|(id, _)| id.clone())
+        .collect();
     let memories = if held.is_empty() {
         HashMap::new()
     } else {
@@ -507,6 +518,7 @@ pub(crate) async fn shown<C: ConnectionTrait>(
         stood,
         grounds,
         kept,
+        replaced,
     })
 }
 
