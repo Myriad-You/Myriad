@@ -386,7 +386,14 @@ async fn look(
     if pictures.is_empty() || crate::services::persona_sync::lease::paused("a look at sessions") {
         return Ok(kept);
     }
-    let asking = asking_of(db, owner, pictures).await?;
+    // What she recalls for it is part of the look, and paid as such.
+    let asking = crate::services::ai_cost_ledger::with_site_ai_ledger(
+        owner,
+        "sessions",
+        "session_look_recall",
+        asking_of(db, owner, pictures),
+    )
+    .await?;
     let (answer, answers, replies) = ask(owner, &asking).await;
     if !answers.is_empty() {
         keep::ledger(db, owner, pictures, &asking.material, answers, replies).await;

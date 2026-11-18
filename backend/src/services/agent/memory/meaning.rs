@@ -390,12 +390,22 @@ fn fill_behind<T: Text + Send + Sync + 'static>(missing: Vec<T>) {
     if missing.is_empty() || FILLING.swap(true, Ordering::AcqRel) {
         return;
     }
+    // Paid by whatever recall found them missing.
+    let paid_by = crate::services::ai_cost_ledger::current_ai_attribution();
     tokio::spawn(async move {
-        if let (Ok(db), Some(meaning)) = (
-            crate::services::process_db::database(),
-            Meaning::current().await,
-        ) {
-            embed_and_keep(&db, &meaning, &missing, FILL_BEHIND_WITHIN).await;
+        let fill = async {
+            if let (Ok(db), Some(meaning)) = (
+                crate::services::process_db::database(),
+                Meaning::current().await,
+            ) {
+                embed_and_keep(&db, &meaning, &missing, FILL_BEHIND_WITHIN).await;
+            }
+        };
+        match paid_by {
+            Some(paid_by) => {
+                crate::services::ai_cost_ledger::with_ai_ledger_attribution(paid_by, fill).await
+            }
+            None => fill.await,
         }
         FILLING.store(false, Ordering::Release);
     });

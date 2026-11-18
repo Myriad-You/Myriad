@@ -15,7 +15,7 @@ use super::{
     evaluate_autonomy_grant, skips_user_review, validate_decision,
 };
 
-const DECISION_REQUEST_TIMEOUT: Duration = Duration::from_secs(4);
+/// How long a decision has, all of it: one request may take all of it.
 const DECISION_TOTAL_TIMEOUT: Duration = Duration::from_secs(5);
 const DECISION_SCHEMA_NAME: &str = "agent_consciousness_decision";
 /// Most a decision may write, thinking included. A decision is a few dozen
@@ -110,16 +110,11 @@ pub async fn consider_event(
     // A touch decision's speech plays as she wrote it: her own voice. Every
     // other decision is a typed judgment; its gist is voiced later.
     let analyzer = if event.kind == "agent.merope.touch" {
-        crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
-            DECISION_REQUEST_TIMEOUT,
-        ))
-        .await
-        .map(crate::services::analyzer::AiAnalyzer::with_light_thinking)
+        crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(None)
+            .await
+            .map(crate::services::analyzer::AiAnalyzer::with_light_thinking)
     } else {
-        crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(
-            DECISION_REQUEST_TIMEOUT,
-        ))
-        .await
+        crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(None).await
     };
     let Some(analyzer) = analyzer else {
         tracing::debug!("[Consciousness] strict Lite unavailable; decision skipped");
@@ -841,16 +836,12 @@ mod tests {
             "self": {},
         })
         .to_string();
-        let thinking_little = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(
-            Some(super::DECISION_REQUEST_TIMEOUT),
-        )
-        .await
-        .expect("the judgment model");
-        let told_nothing = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
-            super::DECISION_REQUEST_TIMEOUT,
-        ))
-        .await
-        .expect("Lite");
+        let thinking_little = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(None)
+            .await
+            .expect("the judgment model");
+        let told_nothing = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(None)
+            .await
+            .expect("Lite");
         println!(
             "models: little={} nothing={}",
             thinking_little.model_name(),
