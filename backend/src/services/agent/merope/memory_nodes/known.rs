@@ -106,6 +106,10 @@ pub(crate) struct Named {
     /// nothing in its place. One a later fact replaced is not (the same
     /// line `chat_lines` draws for their words).
     pub taken_back: bool,
+    /// A later fact replaced it: corrected, it changed (`superseded` with
+    /// what replaced it named). Not one gone over into another
+    /// (`settled`), nor one taken back.
+    pub replaced: bool,
     /// The day she learned it, Unix microseconds ([`learned`]): held or
     /// not, that is when it was said.
     pub learned: i64,
@@ -176,6 +180,8 @@ pub(crate) async fn named<C: ConnectionTrait>(
             format!(
                 "WITH RECURSIVE {} \
                  SELECT h.id, (h.invalid_at IS NULL AND h.superseded_by IS NULL) AS held, \
+                   (h.invalid_reason IS NOT DISTINCT FROM 'superseded' \
+                     AND h.superseded_by IS NOT NULL) AS replaced, \
                    h.id IN (SELECT id FROM taken_back) AS taken_back, \
                    COALESCE((SELECT sure FROM taken_back t WHERE t.id = h.id), true) AS sure, \
                    LEAST(h.created_at, min(n.created_at)) AS at \
@@ -198,6 +204,7 @@ pub(crate) async fn named<C: ConnectionTrait>(
                 Named {
                     held: row.try_get("", "held")?,
                     taken_back: row.try_get("", "taken_back")?,
+                    replaced: row.try_get("", "replaced")?,
                     learned: at.timestamp_micros(),
                     sure: row.try_get("", "sure")?,
                 },
@@ -230,6 +237,7 @@ pub(crate) async fn named<C: ConnectionTrait>(
                 Named {
                     held: false,
                     taken_back: true,
+                    replaced: false,
                     learned: 0,
                     sure,
                 },

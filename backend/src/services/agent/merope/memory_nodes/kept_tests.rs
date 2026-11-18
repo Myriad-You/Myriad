@@ -359,3 +359,42 @@ async fn standing_row(
     .await
     .unwrap();
 }
+
+/// A memory a later fact replaced is known as replaced; one gone over into
+/// another, one taken back, one held, one not here are not.
+#[tokio::test]
+async fn a_memory_a_later_fact_replaced_is_known_as_replaced() {
+    let Some(schema) = schema("memory_nodes_known_replaced").await else {
+        return;
+    };
+    let db = &schema.db;
+    for (id, reason, by) in [
+        ("old", "'superseded'", "'new'"),
+        ("note", "'settled'", "'new'"),
+        ("back", "'superseded'", "NULL"),
+        ("new", "NULL", "NULL"),
+    ] {
+        db.execute_unprepared(&format!(
+            "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, valid_from, \
+             created_at, updated_at, invalid_at, invalid_reason, superseded_by) VALUES ('{id}', \
+             {OTHER}, 'fact', '{id}', 'chat', 'private', now(), now(), now(), \
+             CASE WHEN {reason} IS NULL THEN NULL ELSE now() END, {reason}, {by})"
+        ))
+        .await
+        .unwrap();
+    }
+    let named = super::known::named(
+        db,
+        ["old", "note", "back", "new", "gone"]
+            .map(String::from)
+            .to_vec(),
+    )
+    .await
+    .unwrap();
+    let replaced: Vec<&str> = ["old", "note", "back", "new", "gone"]
+        .into_iter()
+        .filter(|id| named[*id].replaced)
+        .collect();
+    assert_eq!(replaced, ["old"]);
+    schema.drop().await;
+}
