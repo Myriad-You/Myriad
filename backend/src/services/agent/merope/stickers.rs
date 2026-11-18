@@ -228,6 +228,7 @@ pub async fn make_sticker(
                 venue = venue.unwrap_or("anywhere"),
                 "[Merope] made a sticker"
             );
+            cite_pictures(db).await;
             Some(model)
         }
         Err(error) => {
@@ -503,6 +504,14 @@ pub async fn made_this_month(db: &DatabaseConnection) -> usize {
 /// How many more she can make this month.
 pub async fn left_this_month(db: &DatabaseConnection) -> usize {
     MONTHLY.saturating_sub(made_this_month(db).await)
+}
+
+/// Her stickers' pictures cited in the media library at once, so none can be
+/// deleted there while she still has it (the cleanup loop catches up too).
+async fn cite_pictures(db: &DatabaseConnection) {
+    if let Err(error) = crate::services::media::cite_sticker_pictures(db).await {
+        tracing::warn!(%error, "[Merope] could not cite her stickers' pictures");
+    }
 }
 
 /// She sent it.

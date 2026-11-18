@@ -105,6 +105,7 @@ pub async fn keep(
     match row.insert(db).await {
         Ok(model) => {
             tracing::info!(%venue, only_there = seen.only_there, "[Merope] kept a sticker someone sent");
+            super::cite_pictures(db).await;
             Some(model)
         }
         Err(error) => {

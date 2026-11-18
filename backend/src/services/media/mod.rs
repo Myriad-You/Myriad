@@ -43,9 +43,9 @@ pub(crate) use cite::{
     bind_restored_dashboard_layout, bind_restored_site_image, sync_note_history_refs,
 };
 pub use error::MediaError;
-pub use maintenance::maintain;
 #[cfg(test)]
 pub use maintenance::prune_references;
+pub use maintenance::{cite_sticker_pictures, maintain};
 pub use origins::configured_origins;
 #[cfg(test)]
 pub use references::active_count;
