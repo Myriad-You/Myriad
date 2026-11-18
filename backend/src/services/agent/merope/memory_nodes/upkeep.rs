@@ -12,7 +12,8 @@
 //! every other account's at most [`PER_DAY`] calls a day, counted in the
 //! runtime registry ([`DAY_NAMESPACE`]) so a restart does not reset it.
 //! Nothing due and nothing in the inbox: no call, no row. Only private
-//! talks for now; only while her mind is here.
+//! talks for now; only while her mind is here. A node holding nothing of
+//! hers in 「现在」 yet is built first (`super::unbuilt`).
 //!
 //! An answer cut off at its output limit is not hers to read: nothing is
 //! written, not even the mark, and the node stays due. Cut off twice with
@@ -387,11 +388,39 @@ pub(crate) async fn tick(db: &DatabaseConnection) {
                 tracing::info!("[memory-nodes] no upkeep: her mind is on another device");
                 return Ok(0);
             };
-            let calls = run(db, user_id, &audience, at_most, &pen).await?;
+            // A node with something on it and nothing of hers standing
+            // there is built first (`super::unbuilt`): in the site owner's
+            // talk however many wait, in another's within the day's calls.
+            let built = match super::standing::build_waiting(
+                db,
+                user_id,
+                &audience,
+                (!owners).then_some(at_most),
+                &pen,
+            )
+            .await
+            {
+                Ok(built) => built,
+                Err(error) => {
+                    tracing::warn!(%error, "[memory-nodes] how things stand not built at upkeep");
+                    0
+                }
+            };
+            let left = if owners {
+                at_most
+            } else {
+                // Counted before upkeep goes on, so a failure there does
+                // not leave them out of the day's calls.
+                if built > 0 {
+                    count_calls(db, user_id, &audience, built as u32).await?;
+                }
+                at_most.saturating_sub(built)
+            };
+            let calls = run(db, user_id, &audience, left, &pen).await?;
             if !owners && calls > 0 {
                 count_calls(db, user_id, &audience, calls as u32).await?;
             }
-            Ok::<usize, Error>(calls)
+            Ok::<usize, Error>(built + calls)
         }
         .await;
         match result {
