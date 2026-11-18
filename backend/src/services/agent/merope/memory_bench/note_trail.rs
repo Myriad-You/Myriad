@@ -149,7 +149,7 @@ impl Trail {
 /// bench only): how many notes it went over, why it stopped and how many
 /// tokens it put out (thinking included) as its source said, how long it is
 /// and how long the call took; one that could not be read kept as it came,
-/// with why: not JSON, or JSON without `lasting` or `replaces` as lists.
+/// with why: not JSON, or JSON without `lasting` or `tookBack` as lists.
 pub(super) fn keep_settle_call(
     raw: &str,
     read: bool,
@@ -166,7 +166,7 @@ pub(super) fn keep_settle_call(
         _ if read => "read",
         Err(_) => "not json",
         Ok(answer) if !list(answer, "lasting") => "no lasting",
-        Ok(answer) if !list(answer, "replaces") => "no replaces",
+        Ok(answer) if !list(answer, "tookBack") => "no tookBack",
         Ok(_) => "other",
     };
     let lasting = answer

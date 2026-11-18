@@ -194,9 +194,17 @@ pub(in crate::services::agent::merope) async fn settle(
                 &myriad_merope::chat_remember::settle_schema(),
             )
             .await?;
-    let (lasting, replaces) = myriad_merope::chat_remember::parse_settle(
+    let myriad_merope::chat_remember::Settled {
+        lasting,
+        took_back,
+        unkept_replaces,
+    } = myriad_merope::chat_remember::parse_settle(
         &raw,
         &theirs,
+        &conversation
+            .iter()
+            .map(|(theirs, _)| *theirs)
+            .collect::<Vec<_>>(),
         &known,
         notes.len(),
         offered.len(),
@@ -212,12 +220,35 @@ pub(in crate::services::agent::merope) async fn settle(
             "[Merope] chat settle: facts in another language than they spoke were left to their notes"
         );
     }
+    // What only facts not kept said they replaced stays as it was: how
+    // many, never what.
+    if unkept_replaces > 0 {
+        tracing::info!(
+            entries = unkept_replaces,
+            "[chat-remember] what facts not kept would have replaced stays as it was"
+        );
+    }
     let left = myriad_merope::chat_remember::settle_left(&raw, &lasting, notes.len());
-    if lasting.is_empty() && replaces.is_empty() && left.is_empty() {
+    if lasting.is_empty() && took_back.is_empty() && left.is_empty() {
         return Ok(nothing());
     }
     let mut updates = ChatMemoryUpdates::default();
     let mut settled = Vec::new();
+    // What they took back first, with nothing in its place: let go as a
+    // taking back, never as replaced by a fact kept beside it. Each on its
+    // own: one already gone does not keep the others from going.
+    for one in took_back {
+        settled.push(Vec::new());
+        updates.updates.push(ChatMemoryUpdate {
+            standing: Default::default(),
+            fact: None,
+            supersedes: vec![one.entry],
+            evidence: None,
+            concepts: Vec::new(),
+            topic: None,
+            cues: Vec::new(),
+        });
+    }
     for item in lasting {
         let mut from: Vec<String> = item
             .from
@@ -230,12 +261,8 @@ pub(in crate::services::agent::merope) async fn settle(
         updates.updates.push(ChatMemoryUpdate {
             standing: item.standing.clone(),
             fact: Some(compact_summary(&item.fact)),
-            // What it changes goes with the first: it says how it is now.
-            supersedes: if updates.updates.is_empty() {
-                replaces.clone()
-            } else {
-                Vec::new()
-            },
+            // What it says has changed: it says how it is now.
+            supersedes: item.replaces.clone(),
             evidence: Some(item.evidence),
             concepts: unified::clean_concepts(
                 serde_json::from_value(item.concepts).unwrap_or_default(),

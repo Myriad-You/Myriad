@@ -457,9 +457,24 @@ async fn go_over(
                     tally.failed += 1;
                     continue;
                 };
+                // What each lasting fact replaces and what they took back,
+                // together: either no longer holds.
+                let supersedes: Vec<Value> = answer["lasting"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .flat_map(|fact| fact["replaces"].as_array().cloned().unwrap_or_default())
+                    .chain(
+                        answer["tookBack"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .map(|one| one.get("entry").unwrap_or(one).clone()),
+                    )
+                    .collect();
                 let shaped = json!({
                     "facts": answer["lasting"],
-                    "supersedes": answer["replaces"],
+                    "supersedes": supersedes,
                 });
                 keep(
                     &shaped.to_string(),
