@@ -234,3 +234,6 @@ mod take_back_check_tests;
 
 #[cfg(test)]
 mod unbuilt_tests;
+
+#[cfg(test)]
+mod sore_closed_tests;

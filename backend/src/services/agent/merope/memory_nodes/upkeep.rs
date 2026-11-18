@@ -364,6 +364,8 @@ pub(crate) async fn tick(db: &DatabaseConnection) {
     // too, in case they say nothing more (`take_back_check`).
     if crate::services::her_log::pen::think().is_some() {
         super::take_back_check::go_over_waiting(db).await;
+        // What could not be put on her nodes when it was kept.
+        super::hanging::hang_later(db).await;
     }
     let talks = match audiences(db).await {
         Ok(talks) => talks,
@@ -598,7 +600,12 @@ pub(crate) async fn run(
             taken_out: read.placed.clone(),
             ..Beside::default()
         };
-        if let Err(error) = write_with(db, user_id, audience, &rows, Some(pen), &beside).await {
+        let written = write_with(db, user_id, audience, &rows, Some(pen), &beside).await;
+        if written.is_ok() {
+            // What still stings that she closed there: let go of.
+            super::hanging::closed(db, user_id, audience, &rows).await;
+        }
+        if let Err(error) = written {
             tracing::warn!(%error, "[memory-nodes] her upkeep could not be written");
             // The mark alone, saying so; without one the node stays as it was.
             let mark = rows.last().filter(|row| row.kind == "node.upkept").cloned();
