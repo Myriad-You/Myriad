@@ -232,6 +232,12 @@ pub(super) async fn forget_one<C: ConnectionTrait>(
     node: &str,
     what: Forgets<'_>,
 ) -> Result<(), Error> {
+    // What was noted of what goes: the node's items, or the item of a
+    // version (read before it is stubbed).
+    match what {
+        Forgets::Node => super::kept::forget_node(db, user_id, audience, node).await?,
+        Forgets::Row(row) => super::kept::row_forgotten(db, user_id, audience, row).await?,
+    }
     let (source, object) = match what {
         Forgets::Node => ("forget".to_string(), format!("node:{node}")),
         Forgets::Row(row) => (
@@ -343,6 +349,8 @@ pub(crate) async fn forget<C: ConnectionTrait>(
     inbox::forget_citing(db, &refs).await?;
     // Her intents resting on the lines, or on the rows, go with them.
     super::intent_store::forget_resting_on(db, lines, memories).await?;
+    // What they showed to still hold goes too.
+    super::kept::forget(db, memories).await?;
     let mut by_audience: BTreeMap<(i32, String), (BTreeSet<String>, BTreeSet<String>)> =
         BTreeMap::new();
     for (user_id, audience, node, row) in citing(db, &refs).await? {

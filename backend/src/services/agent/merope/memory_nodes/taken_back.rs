@@ -559,8 +559,9 @@ async fn sweep(
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            // On her nodes (an intent too), and in her inbox: a memory only
-            // an inbox item or an intent names is found as well.
+            // On her nodes (an intent too), in her inbox, and in what was
+            // seen to still hold: a memory only one of those names is found
+            // as well.
             "SELECT DISTINCT substr(cited.ref, 8) AS id FROM ( \
                SELECT c.ref FROM agent_node_rows r \
                CROSS JOIN LATERAL jsonb_array_elements_text( \
@@ -575,7 +576,10 @@ async fn sweep(
                SELECT c.ref FROM agent_node_inbox i \
                CROSS JOIN LATERAL jsonb_array_elements_text( \
                  COALESCE(i.item->'refs', '[]'::jsonb)) AS c(ref) \
-               WHERE i.user_id = $1 AND i.audience = $2) cited \
+               WHERE i.user_id = $1 AND i.audience = $2 \
+               UNION ALL \
+               SELECT 'memory:' || k.by_memory FROM agent_node_kept k \
+               WHERE k.user_id = $1 AND k.audience = $2) cited \
              WHERE cited.ref LIKE 'memory:%'",
             [user_id.into(), audience.into()],
         ))

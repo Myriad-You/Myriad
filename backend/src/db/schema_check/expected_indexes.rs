@@ -702,6 +702,12 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             is_unique: false,
         },
         IndexDef {
+            name: "idx_agent_node_kept_memory".into(),
+            table: "agent_node_kept".into(),
+            columns: vec!["by_memory".into()],
+            is_unique: false,
+        },
+        IndexDef {
             name: "idx_agent_node_heads_status".into(),
             table: "agent_node_heads".into(),
             columns: vec!["user_id".into(), "audience".into(), "status".into()],

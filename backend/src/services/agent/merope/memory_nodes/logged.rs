@@ -192,7 +192,9 @@ pub(crate) async fn take_in(
     for audience in [owner.personal(), OWN.to_string()] {
         let txn = db.begin().await?;
         write::lock(&txn, owner.user, &audience).await?;
-        // What the log made stubs of goes here too.
+        // What the log made stubs of goes here too, and what was noted of
+        // an item it made a stub of a version of.
+        super::kept::log_forgotten(&txn, owner.user, &audience).await?;
         let stubbed = txn
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
@@ -293,7 +295,7 @@ pub(crate) async fn take_in(
                     node.clone().into(),
                     row.id.clone().into(),
                     row.kind.clone().into(),
-                    text.into(),
+                    text.clone().into(),
                     said_by.into(),
                     author.into(),
                     at.into(),
@@ -305,6 +307,12 @@ pub(crate) async fn take_in(
                 ],
             ))
             .await?;
+            // A version of an item from another end: what was noted of it
+            // here goes, as when it is written here.
+            super::kept::row_written(&txn, owner.user, &audience, &node, &row.kind, &text).await?;
+            if row.kind == "forget" && row.object.starts_with("node:") {
+                super::kept::forget_node(&txn, owner.user, &audience, &node).await?;
+            }
             nodes.insert(row.id.clone(), node);
             came += 1;
         }

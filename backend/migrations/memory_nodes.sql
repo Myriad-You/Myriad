@@ -118,3 +118,21 @@ CREATE TABLE IF NOT EXISTS agent_node_migrations (
     started_at TIMESTAMPTZ NOT NULL,
     finished_at TIMESTAMPTZ
 );
+-- How long what stands of a life has been seen to still hold
+-- (`memory_nodes::kept`): an item of a 「现在」 a fact was put to and left
+-- standing (the core's `stillSo`), or that a build started, with the memory
+-- that showed it (`by_memory`) and when that memory was learned (`at`).
+-- The latest three by `at` per item. An item's go when it is set or ended,
+-- a memory's when it is forgotten or taken back, a node's with the node.
+-- Not on her log: other ends do not get it.
+CREATE TABLE IF NOT EXISTS agent_node_kept (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    audience TEXT NOT NULL,
+    node_id VARCHAR(64) NOT NULL,
+    item TEXT NOT NULL,
+    by_memory VARCHAR(64) NOT NULL,
+    at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (user_id, audience, node_id, item, by_memory)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_node_kept_memory
+    ON agent_node_kept (by_memory);

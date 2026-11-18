@@ -81,6 +81,7 @@ fn test_folded_extension_tables_in_expected_schema() {
         "agent_topic_nodes",
         "agent_memory_topics",
         "agent_node_rows",
+        "agent_node_kept",
         "agent_node_heads",
         "agent_node_placements",
         "agent_node_inbox",
@@ -696,6 +697,7 @@ VALUES ('dev_schema_fixture', 2147483647, 'old Mac', 'parent', 'h', 'mys_fixture
 DROP TABLE agent_affect_anchor;
 DROP TABLE agent_affect_events;
 DROP TABLE agent_persona_field_history;
+DROP TABLE agent_node_kept;
 INSERT INTO agent_persona (id, name, updated_at) VALUES ('site', 'Merope', NOW());
 ALTER TABLE agent_persona DROP COLUMN zone, DROP COLUMN field_revs;
 INSERT INTO agent_memories (id, kind, content, source, venue, valid_from, created_at, updated_at)
@@ -712,6 +714,20 @@ ALTER TABLE agent_proactive_messages DROP COLUMN say_id, DROP COLUMN metadata;
     ensure_schema(&db)
         .await
         .expect("schema heal must put back missing indexes");
+    // A database from before what was seen to still hold gets its table back.
+    let kept = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT to_regclass('agent_node_kept') IS NOT NULL AS there",
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(kept.try_get::<bool>("", "there").unwrap());
+    // On a database that ran 004 and was healed, the file runs again as it is.
+    db.execute_unprepared(include_str!("../../../migrations/memory_nodes.sql"))
+        .await
+        .expect("memory_nodes.sql runs again on a migrated database");
     let index = db.query_one_raw(Statement::from_string(DatabaseBackend::Postgres,
         "SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_phantasi_items_source_recent'"))
         .await.unwrap().unwrap();

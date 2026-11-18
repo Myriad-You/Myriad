@@ -106,6 +106,7 @@ pub(crate) mod intending;
 pub(crate) mod intent_store;
 pub(crate) mod intents_due;
 pub(crate) mod intents_run;
+pub(crate) mod kept;
 pub(crate) mod known;
 pub(crate) mod logged;
 pub(crate) mod migrate;
@@ -219,3 +220,6 @@ mod logged_tests;
 
 #[cfg(test)]
 mod since_tests;
+
+#[cfg(test)]
+mod kept_tests;
