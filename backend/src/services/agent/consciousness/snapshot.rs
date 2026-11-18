@@ -84,7 +84,11 @@ pub async fn capture_self_snapshot(
         ),
         addressee_user_id: user_id,
         interaction_mode,
-        mood: merope::clamp_mood(state.mood),
+        mood: myriad_merope::speaking::mood_tone_instruction(
+            merope::clamp_mood(state.mood),
+            state.arousal,
+        )
+        .into(),
         activity: merope::current_activity(&state).to_string(),
         do_not_disturb: merope::effective_do_not_disturb(&state),
         has_active_work: run_hub::user_has_executing_run(user_id).await,

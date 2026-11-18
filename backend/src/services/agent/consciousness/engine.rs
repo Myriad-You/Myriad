@@ -561,7 +561,7 @@ mod tests {
             persona_name: "Arael".into(),
             addressee_user_id: 7,
             interaction_mode: AgentInteractionMode::Chat,
-            mood: 70.0,
+            mood: "You feel at ease with them.".into(),
             activity: "idle".into(),
             do_not_disturb: false,
             has_active_work: false,

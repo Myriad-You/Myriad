@@ -402,9 +402,10 @@ pub(super) async fn her_state(
     myself: &self_state::SelfState,
     sections: &mut Vec<String>,
 ) -> Option<String> {
-    // Her state after the last exchange already weighs how she has been and
-    // how her day went; the raw facts would say it twice, and can say it
-    // differently.
+    // Her state after the last exchange already weighs how she feels toward
+    // them; the raw mood would say it twice, and can say it differently.
+    // Her day is facts of her own, not how she feels toward anyone: it
+    // stands beside her inner state.
     let compiled = match turn {
         Turn::Chat(_) => inner::current(user_id, present),
         _ => None,
@@ -446,7 +447,7 @@ pub(super) async fn her_state(
             sections.push(block);
         }
     }
-    if !matches!(turn, Turn::Plain) && compiled.is_none() {
+    if !matches!(turn, Turn::Plain) {
         sections.push(self_state::format_day_section(&myself.facts));
     }
     inner_block

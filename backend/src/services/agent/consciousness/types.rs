@@ -114,7 +114,9 @@ pub struct SelfSnapshot {
     pub persona_name: String,
     pub addressee_user_id: i32,
     pub interaction_mode: AgentInteractionMode,
-    pub mood: f64,
+    /// How she feels toward them, in the words a talk with them says it
+    /// (never the number it is kept as).
+    pub mood: String,
     pub activity: String,
     pub do_not_disturb: bool,
     pub has_active_work: bool,

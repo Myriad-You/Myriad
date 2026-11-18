@@ -908,7 +908,11 @@ fn event_context(case: &Case) -> (event::ConsciousnessEvent, event::SelfSnapshot
         persona_name: default_name(),
         addressee_user_id: 701,
         interaction_mode: super::AgentInteractionMode::Chat,
-        mood: case.mood.unwrap_or(65.0),
+        mood: myriad_merope::speaking::mood_tone_instruction(
+            case.mood.unwrap_or(65.0),
+            myriad_merope::affect::DEFAULT_AROUSAL,
+        )
+        .into(),
         activity: if case.activity.is_empty() {
             "idle".into()
         } else {
