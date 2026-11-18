@@ -145,8 +145,9 @@ impl Shown {
     }
 
     /// The latest day `item` of `node`'s 「现在」 was seen to still hold:
-    /// when she learned the latest memory that showed it, of those not
-    /// taken back and still to be found.
+    /// when she learned the latest memory that showed it, of those that
+    /// still tell when it was said ([`Shown::told_of`]: not taken back,
+    /// whether held or since replaced).
     pub(crate) fn still_so(&self, node: &str, item: &str) -> Option<i64> {
         self.kept
             .get(&(node.to_string(), item.to_string()))?

@@ -209,7 +209,11 @@ impl Lines<'_> {
         Some(super::since::dated(
             value.get("since"),
             learned,
-            self.shown.still_so(&node.id, item),
+            // Ended, it holds no longer: whatever was noted of it says
+            // nothing (its notes go as it ends, but not always first).
+            (value.get("ended").and_then(|ended| ended.as_bool()) != Some(true))
+                .then(|| self.shown.still_so(&node.id, item))
+                .flatten(),
             standing.get("at")?.as_i64()?,
             &self.zone,
             self.year,
