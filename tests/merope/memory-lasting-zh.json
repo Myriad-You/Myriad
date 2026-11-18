@@ -36,6 +36,15 @@
     {
      "role": "assistant",
      "content": "清淡点好"
+    },
+    {
+     "role": "user",
+     "content": "我住杭州 本来这周末还想去爬山的",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "先把病养好"
     }
    ]
   ],
@@ -84,6 +93,15 @@
     {
      "role": "assistant",
      "content": "别忘带充电器"
+    },
+    {
+     "role": "user",
+     "content": "我在杭州住了五年了 这次是第一次去成都",
+     "has_answer": true
+    },
+    {
+     "role": "assistant",
+     "content": "那可以好好逛逛"
     }
    ]
   ],
