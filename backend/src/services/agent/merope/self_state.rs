@@ -264,7 +264,8 @@ async fn recent_contacts(
 
 /// Every push of her emotion toward anyone since she got up `since_up`
 /// minutes ago: how far each change moved it. Turns that only let her
-/// settle are not pushes.
+/// settle are not pushes. What landed hard in her own time since then
+/// pushes it too (`undertone::gaps_between`); what was only fine does not.
 async fn pushes_since_up(
     db: &DatabaseConnection,
     now: DateTime<Utc>,
@@ -272,7 +273,7 @@ async fn pushes_since_up(
 ) -> Result<Vec<myriad_merope::elsewhere::Push>, sea_orm::DbErr> {
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
     let since = now - chrono::Duration::minutes(i64::from(since_up));
-    Ok(db
+    let mut pushes: Vec<myriad_merope::elsewhere::Push> = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT at, (after->>'emotion')::float8 - (before->>'emotion')::float8 AS moved \
@@ -291,7 +292,11 @@ async fn pushes_since_up(
                 valence: row.try_get::<f64>("", "moved").ok()?,
             })
         })
-        .collect())
+        .collect();
+    let (own, _) =
+        super::undertone::gaps_between(db, since.fixed_offset(), now.fixed_offset()).await;
+    pushes.extend(own);
+    Ok(pushes)
 }
 
 /// Her own day as plain facts (`myriad_merope::speaking::format_day_section`).

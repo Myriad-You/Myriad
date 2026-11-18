@@ -515,9 +515,8 @@ pub(super) async fn her_own(
         if let Some(block) = wants::section(&wants::open(db).await, super::super::clock::now()) {
             sections.push(block);
         }
-        if let Some(block) =
-            format_taste_section(&doing::keeps_getting_to_her(db, TASTE_SHOWN).await)
-        {
+        let (liked_by, not_for_her) = doing::what_landed(db, TASTE_SHOWN).await;
+        if let Some(block) = format_taste_section(&liked_by, &not_for_her) {
             sections.push(block);
         }
     }

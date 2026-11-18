@@ -74,6 +74,7 @@ pub(in crate::services::agent) mod strangers;
 pub(in crate::services::agent) mod threads;
 pub(in crate::services::agent) mod timing;
 pub(in crate::services::agent) mod touch;
+mod undertone;
 mod upkeep;
 pub(in crate::services::agent) mod views;
 mod vitals;

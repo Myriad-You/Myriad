@@ -27,7 +27,7 @@ use myriad_persona_sync::{
     entity::{
         AffectAnchorBody, AffectEventBody, ConversationBody, DiaryBody, FieldHistoryBody,
         IntentionBody, MemoryBody, MemoryVenue, OutfitBody, OwnerStateBody, PaceBody, Picture,
-        PresentBody, ProactiveLineBody, SpeechSaidBody, StickerBody, WearingBody,
+        PresentBody, ProactiveLineBody, SpeechSaidBody, StickerBody, UndertoneBody, WearingBody,
     },
     hlc,
     merge::{self, Device, MergeInput, MergePlan, Side},
@@ -884,6 +884,15 @@ async fn land(
                 keep(KEEP_DAYS),
             ));
         }
+    }
+    for write in written(Kind::Undertone) {
+        let undertone: UndertoneBody = entity_of(write)?.body_as().map_err(bad)?;
+        registry.push((
+            her::UNDERTONE_NAMESPACE,
+            her::UNDERTONE_RECORD.into(),
+            serde_json::to_value(undertone).map_err(bad)?,
+            keep(KEEP_DAYS),
+        ));
     }
     for write in written(Kind::Present) {
         let present: PresentBody = entity_of(write)?.body_as().map_err(bad)?;

@@ -13,6 +13,9 @@
 //! - **What she wants.** From what she did and heard this past week, what
 //!   she would like to have happen, and what moved, came true or she let
 //!   go of (see `wants`).
+//! - **Her undertone.** Yesterday of her own (what she did, what landed
+//!   hard, the time she spent and lazed; no one in it) is folded into
+//!   where her arousal settles (see `undertone`). No model.
 //! - **Who she has been.** Once a week she looks back over what she did and
 //!   writes who she has been lately, from those records alone (see
 //!   `self_story`).
@@ -136,6 +139,8 @@ pub async fn tick(db: DatabaseConnection) {
     super::others::let_fade(&db).await;
     // Yesterday in numbers, once: kept to see how she is changing.
     super::vitals::go_over(&db).await;
+    // Yesterday of her own folded into her undertone, once.
+    super::undertone::go_over(&db).await;
     fill_old_concepts(&db, owner).await;
 }
 
