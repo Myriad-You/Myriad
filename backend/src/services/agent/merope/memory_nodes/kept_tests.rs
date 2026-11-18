@@ -1,7 +1,7 @@
 //! What was seen to still hold (`agent_node_kept`), on a database of its
 //! own: a fact that leaves an item standing notes it, the latest three per
 //! item; setting or ending the item, forgetting the memory or its row,
-//! taking it back on another end lets them go, and they move with its talk.
+//! taking it back (once confirmed) lets them go, and they move with its talk.
 
 use sea_orm::ConnectionTrait;
 
@@ -97,13 +97,22 @@ async fn what_a_fact_leaves_standing_is_noted_until_it_changes() {
         .unwrap();
     assert!(noted(db).await.is_empty());
 
-    // Taken back on another end, cited by nothing but what was seen: the
-    // sweep finds it there.
+    // Taken back, cited by nothing but what was seen: only hidden until
+    // the second look agrees (`take_back_check`), then the sweep finds it
+    // there.
     let taken = stands(db, LEFT, "跑完喝了杯冰美式").await;
     assert_eq!(noted(db).await, [taken.clone()]);
     db.execute_unprepared(&format!(
         "UPDATE agent_memories SET invalid_reason = 'superseded', invalid_at = now(), \
          superseded_by = NULL, updated_at = now() WHERE id = '{taken}'"
+    ))
+    .await
+    .unwrap();
+    forget::taken_back_here(db, OTHER, &talk()).await.unwrap();
+    assert_eq!(noted(db).await, [taken.clone()]);
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_takeback_check (user_id, memory_id, state, at) \
+         VALUES ({OTHER}, '{taken}', 'confirmed', now())"
     ))
     .await
     .unwrap();
@@ -358,4 +367,43 @@ async fn standing_row(
     ))
     .await
     .unwrap();
+}
+
+/// A memory a later fact replaced is known as replaced; one gone over into
+/// another, one taken back, one held, one not here are not.
+#[tokio::test]
+async fn a_memory_a_later_fact_replaced_is_known_as_replaced() {
+    let Some(schema) = schema("memory_nodes_known_replaced").await else {
+        return;
+    };
+    let db = &schema.db;
+    for (id, reason, by) in [
+        ("old", "'superseded'", "'new'"),
+        ("note", "'settled'", "'new'"),
+        ("back", "'superseded'", "NULL"),
+        ("new", "NULL", "NULL"),
+    ] {
+        db.execute_unprepared(&format!(
+            "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, valid_from, \
+             created_at, updated_at, invalid_at, invalid_reason, superseded_by) VALUES ('{id}', \
+             {OTHER}, 'fact', '{id}', 'chat', 'private', now(), now(), now(), \
+             CASE WHEN {reason} IS NULL THEN NULL ELSE now() END, {reason}, {by})"
+        ))
+        .await
+        .unwrap();
+    }
+    let named = super::known::named(
+        db,
+        ["old", "note", "back", "new", "gone"]
+            .map(String::from)
+            .to_vec(),
+    )
+    .await
+    .unwrap();
+    let replaced: Vec<&str> = ["old", "note", "back", "new", "gone"]
+        .into_iter()
+        .filter(|id| named[*id].replaced)
+        .collect();
+    assert_eq!(replaced, ["old"]);
+    schema.drop().await;
 }

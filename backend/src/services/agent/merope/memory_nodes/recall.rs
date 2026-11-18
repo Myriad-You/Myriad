@@ -190,7 +190,8 @@ impl Lines<'_> {
 
     /// Since when `item` on `node` stands or ended, as its line says it
     /// ([`super::since::dated`]): told the latest day she learned a memory
-    /// it rests on, held or since replaced. None when any of them, or any
+    /// it rests on, held or since replaced, and seen to still hold the latest
+    /// day one not since corrected showed it so ([`Shown::still_so`]). None when any of them, or any
     /// an earlier version of it rested on, was taken back
     /// ([`Shown::unsaid_item`]): it is then not said at all, standing or
     /// ended.
@@ -208,6 +209,11 @@ impl Lines<'_> {
         Some(super::since::dated(
             value.get("since"),
             learned,
+            // Ended, it holds no longer: whatever was noted of it says
+            // nothing (its notes go as it ends, but not always first).
+            (value.get("ended").and_then(|ended| ended.as_bool()) != Some(true))
+                .then(|| self.shown.still_so(&node.id, item))
+                .flatten(),
             standing.get("at")?.as_i64()?,
             &self.zone,
             self.year,

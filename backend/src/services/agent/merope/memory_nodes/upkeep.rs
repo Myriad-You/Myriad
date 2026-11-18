@@ -359,6 +359,11 @@ pub(crate) async fn tick(db: &DatabaseConnection) {
     // What a stretch could not place first, so what it puts in the inbox is
     // filed with the rest.
     super::placing::backlog::place_later(db).await;
+    // What they took back and nobody has looked at again yet: asked here
+    // too, in case they say nothing more (`take_back_check`).
+    if crate::services::her_log::pen::think().is_some() {
+        super::take_back_check::go_over_waiting(db).await;
+    }
     let talks = match audiences(db).await {
         Ok(talks) => talks,
         Err(error) => {
@@ -435,10 +440,13 @@ pub(crate) async fn run(
     // Nothing resting on a memory they took back is gone over again.
     super::forget::taken_back_here(db, user_id, audience).await?;
     while calls < at_most {
-        let kept = heads::rows_of(db, user_id, audience).await?;
+        // What rests on a memory they took back is not gone over: hidden
+        // until the second look forgets it (`super::hidden`).
+        let kept = super::hidden::rows_of(db, user_id, audience).await?;
         let bodies = heads::bodies(&kept)?;
         let rows: Vec<myriad_persona_log::Row> = kept.into_iter().map(|kept| kept.row).collect();
-        let waiting = inbox::waiting(db, user_id, audience, UPKEEP_INBOX as u64).await?;
+        let waiting =
+            super::hidden::inbox_waiting(db, user_id, audience, UPKEEP_INBOX as u64).await?;
         let due = if rows.is_empty() {
             Vec::new()
         } else {

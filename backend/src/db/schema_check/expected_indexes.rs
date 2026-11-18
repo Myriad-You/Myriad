@@ -708,6 +708,18 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             is_unique: false,
         },
         IndexDef {
+            name: "idx_agent_takeback_check_state".into(),
+            table: "agent_takeback_check".into(),
+            columns: vec!["state".into(), "user_id".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_agent_takeback_check_memory".into(),
+            table: "agent_takeback_check".into(),
+            columns: vec!["memory_id".into()],
+            is_unique: false,
+        },
+        IndexDef {
             name: "idx_agent_node_heads_status".into(),
             table: "agent_node_heads".into(),
             columns: vec!["user_id".into(), "audience".into(), "status".into()],

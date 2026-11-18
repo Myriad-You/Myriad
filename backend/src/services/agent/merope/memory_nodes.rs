@@ -99,6 +99,9 @@ pub(crate) mod group_context;
 pub(crate) mod group_facts;
 pub(crate) mod hanging;
 mod heads;
+pub(crate) mod hidden;
+#[cfg(test)]
+mod hidden_tests;
 pub(crate) mod home_intents;
 pub(crate) mod homes;
 pub(crate) mod inbox;
@@ -129,6 +132,7 @@ pub(crate) mod shown;
 mod since;
 pub(crate) mod sorting;
 pub(crate) mod standing;
+pub(crate) mod take_back_check;
 pub(crate) mod upkeep;
 pub(crate) mod write;
 
@@ -223,3 +227,6 @@ mod since_tests;
 
 #[cfg(test)]
 mod kept_tests;
+
+#[cfg(test)]
+mod take_back_check_tests;

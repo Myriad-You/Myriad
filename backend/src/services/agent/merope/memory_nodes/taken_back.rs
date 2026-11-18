@@ -275,6 +275,47 @@ async fn with_what_they_replaced<C: ConnectionTrait>(
 }
 
 /// What rests on the memories `memories` they took back, and on each they
+/// replaced ([`with_what_they_replaced`]), hidden on her nodes at once
+/// (their heads written again, [`super::super::hidden`]) in a savepoint of
+/// `db`'s transaction, before the second look forgets it or not. If this
+/// fails, it is undone alone, and the sweep before her nodes are next read
+/// hides it ([`taken_back_here`]: the memory was let go since).
+pub(crate) async fn hide_taken_back<C: ConnectionTrait + TransactionTrait>(
+    db: &C,
+    memories: &[String],
+) {
+    if memories.is_empty() {
+        return;
+    }
+    let result = async {
+        let savepoint = db.begin().await?;
+        let hidden = async {
+            let line = with_what_they_replaced(&savepoint, memories).await?;
+            for (user_id, audience) in super::super::hidden::citing(&savepoint, &line).await? {
+                super::super::hidden::rewrite(&savepoint, user_id, &audience).await?;
+            }
+            Ok::<(), Error>(())
+        }
+        .await;
+        match hidden {
+            Ok(()) => savepoint.commit().await.map_err(Error::from),
+            Err(error) => {
+                savepoint.rollback().await?;
+                Err(error)
+            }
+        }
+    }
+    .await;
+    if let Err(error) = result {
+        tracing::warn!(
+            memories = memories.len(),
+            kind = error_kind(&error),
+            "[memory-nodes] what rests on memories taken back is left to the sweep to hide"
+        );
+    }
+}
+
+/// What rests on the memories `memories` they took back, and on each they
 /// replaced ([`with_what_they_replaced`]), forgotten on her nodes in a
 /// savepoint of `db`'s transaction. The memories are let go whatever
 /// happens here: if this fails, it is undone alone, counted, and the sweep
@@ -321,10 +362,13 @@ pub(crate) async fn forget_taken_back<C: ConnectionTrait + TransactionTrait>(
 }
 
 /// What rests in `user_id`'s `audience` on a memory they took back
-/// (「当我没说」, or deleted), forgotten as if it were forgotten now
-/// ([`forget`]): taking a memory back forgets it there at once, but one
-/// taken back on another of her ends, or before forgetting reached 「现在」,
-/// left it. Run before what is here is read for her (a stretch's facts,
+/// (「当我没说」, confirmed by the second look, `take_back_check`), or
+/// deleted, forgotten as if it were forgotten now ([`forget`]): confirming
+/// forgets it there at once, but one whose forgetting failed, or that came
+/// before forgetting reached 「现在」, left it. One taken back on another of
+/// her ends, or here before the second look, is only hidden: her nodes
+/// here are written again as they read with it hidden ([`super::super::hidden`]).
+/// Run before what is here is read for her (a stretch's facts,
 /// her upkeep), in a transaction of its own.
 ///
 /// An error stops what was to follow (nothing resting on what they took
@@ -482,7 +526,8 @@ pub(crate) fn sweep_again(user_id: i32) {
 
 /// [`taken_back_here`] before `user_id`'s `audience` is read for her turn
 /// or her intents there are read or acted on, when anything of theirs was
-/// taken back, put aside or forgotten since it was last swept (here, on
+/// taken back (or a taking back confirmed), put aside or forgotten since it
+/// was last swept (here, on
 /// another end, or as forgetting on her nodes failed), one of theirs waits
 /// in [`LEFT_TO_SWEEP`], or it was not swept since the site started or
 /// since another end's records landed: so a summary sentence, a view, what
@@ -513,7 +558,9 @@ pub(crate) async fn before_reading(
                     WHERE user_id = $1 AND (invalid_reason = 'deleted' \
                           OR (invalid_reason = 'superseded' AND superseded_by IS NULL))), \
                    (SELECT max(forgotten_at) FROM agent_forgotten \
-                    WHERE user_id = $1 AND what = $2)) AS at, \
+                    WHERE user_id = $1 AND what = $2), \
+                   (SELECT max(at) FROM agent_takeback_check \
+                    WHERE user_id = $1 AND state = 'confirmed')) AS at, \
                    EXISTS (SELECT 1 FROM unnest($3::text[]) AS left_(id) \
                      WHERE EXISTS (SELECT 1 FROM agent_memories m \
                                    WHERE m.id = left_.id AND m.user_id = $1) \
@@ -588,16 +635,25 @@ async fn sweep(
         .iter()
         .map(|row| row.try_get::<String>("", "id"))
         .collect::<Result<_, _>>()?;
-    let taken_back: Vec<String> = super::super::known::named(db, ids)
-        .await?
-        .into_iter()
+    let named = super::super::known::named(db, ids).await?;
+    let taken_back: Vec<String> = named
+        .iter()
         // Not here and with no mark of being forgotten, it may only not
-        // have come yet: hidden where she reads, but nothing is forgotten.
-        .filter(|(_, named)| named.taken_back && named.sure)
-        .map(|(id, _)| id)
+        // have come yet; only judged taken back, the second look has not
+        // agreed (`take_back_check`), or it was taken back before there
+        // was one: hidden where she reads, but nothing is forgotten.
+        .filter(|(_, named)| named.taken_back && named.forgets)
+        .map(|(id, _)| id.clone())
         .collect();
+    // Hidden only: her nodes here are written again as they read with it
+    // hidden ([`super::super::hidden`]), nothing forgotten.
+    // Written hidden before: written again, so what came back shows.
+    let hidden = named
+        .values()
+        .any(|named| named.taken_back && !named.forgets)
+        || super::super::hidden::written_hidden(user_id, audience);
     let left = left_resting(db, user_id, audience).await?;
-    if taken_back.is_empty() && left == 0 {
+    if taken_back.is_empty() && left == 0 && !hidden {
         return Ok(());
     }
     let txn = db.begin().await?;
@@ -607,13 +663,17 @@ async fn sweep(
     if left > 0 {
         super::forget_rows(&txn, user_id, audience, &BTreeSet::new(), BTreeSet::new()).await?;
     }
+    if hidden {
+        super::super::hidden::rewrite(&txn, user_id, audience).await?;
+    }
     txn.commit().await?;
     SWEPT.fetch_add(1, Relaxed);
     // What was left to the sweep is done now, as far as these go.
     tracing::info!(
         memories = taken_back.len(),
         left,
-        "[memory-nodes] what rested on memories taken back, or on entries forgotten before, forgotten"
+        hidden,
+        "[memory-nodes] what rested on memories taken back, or on entries forgotten before, forgotten (or only hidden)"
     );
     Ok(())
 }

@@ -482,3 +482,125 @@ async fn recollect_as(
     let recalled = ranked(db, found).await;
     recall::recollect(&turn.shown, &turn.own, &recalled, None, now)
 }
+
+/// A fact put to what stands and leaving it standing (the core's
+/// `stillSo`, noted in `agent_node_kept`) says until when it was seen so:
+/// the line carries since when and that day, not the day told besides.
+/// That fact taken back, the line is as it was before it.
+#[tokio::test]
+async fn what_was_seen_to_still_hold_says_until_when() {
+    let Some(schema) = schema("memory_nodes_still_so").await else {
+        return;
+    };
+    let db = &schema.db;
+    let said = stands(
+        db,
+        r#"{"whose":"them","set":[],"end":[],"add":[{"topic":"跑步","text":"每周三晚上夜跑"}]}"#,
+        "每周三晚上夜跑",
+    )
+    .await;
+    let seen = stands(
+        db,
+        r#"{"whose":"them","set":[],"end":[],"add":[]}"#,
+        "跑步时听播客",
+    )
+    .await;
+    let ago = |days: i64| crate::clock::now() - chrono::Duration::days(days);
+    let (told, again) = (ago(21), ago(7));
+    for (id, at) in [(&said, told), (&seen, again)] {
+        memory(db, id, &format!("created_at = '{}'", at.to_rfc3339())).await;
+    }
+    // As the line writes a day: the year only when it is not this one.
+    let day = |at: chrono::DateTime<chrono::Utc>| {
+        use chrono::Datelike;
+        let (date, year) = (
+            clock::date_of(&at),
+            clock::date_of(&crate::clock::now()).year(),
+        );
+        let form = if date.year() == year {
+            "%m-%d"
+        } else {
+            "%Y-%m-%d"
+        };
+        date.format(form).to_string()
+    };
+    let line = |resident: Vec<String>| {
+        let lines = saying(&resident, "每周三晚上夜跑");
+        assert_eq!(lines.len(), 1, "{resident:?}");
+        lines[0].to_string()
+    };
+    let start = |at| format!("跑步, since {}", day(at));
+    let resident = line(recollect(db, &[]).await.resident);
+    assert!(
+        resident.starts_with(&start(told))
+            && resident.contains(&format!(", still so on {}：", day(again)))
+            && !resident.contains("told"),
+        "{resident}"
+    );
+
+    // What showed it taken back (let go on another end, not swept here):
+    // as it was, since the day told.
+    let let_go = "invalid_reason = 'superseded', invalid_at = now(), superseded_by = NULL, \
+                  updated_at = '2000-01-01'";
+    memory(db, &seen, let_go).await;
+    let resident = line(recollect(db, &[]).await.resident);
+    assert!(
+        resident.starts_with(&start(told)) && !resident.contains("still so"),
+        "{resident}"
+    );
+
+    // Corrected by a later fact, what showed it showed nothing: as it was.
+    // Gone over into another note, it still counts.
+    for (reason, still) in [("superseded", false), ("settled", true)] {
+        let over = format!(
+            "invalid_reason = '{reason}', invalid_at = now(), superseded_by = '{said}', \
+             updated_at = '2000-01-01'"
+        );
+        memory(db, &seen, &over).await;
+        let resident = line(recollect(db, &[]).await.resident);
+        assert!(resident.starts_with(&start(told)), "{reason}: {resident}");
+        assert_eq!(resident.contains("still so"), still, "{reason}: {resident}");
+    }
+
+    // Ended, it holds no longer: a note of it left behind (one written as
+    // it ended, before the ending was in) says nothing on its line.
+    let held = "invalid_reason = NULL, invalid_at = NULL, superseded_by = NULL";
+    memory(db, &seen, held).await;
+    let left = db
+        .query_all_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT audience, node_id, item FROM agent_node_kept",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(left.len(), 1);
+    let ending = stands(
+        db,
+        r#"{"whose":"them","set":[],"end":[1],"add":[]}"#,
+        "膝盖伤了，不夜跑了",
+    )
+    .await;
+    // Told of its ending before the note's memory was learned: were the
+    // note read, its day would be the later.
+    memory(
+        db,
+        &ending,
+        &format!("created_at = '{}'", ago(14).to_rfc3339()),
+    )
+    .await;
+    let column = |name: &str| left[0].try_get::<String>("", name).unwrap();
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_node_kept (user_id, audience, node_id, item, by_memory, at) \
+         VALUES ({OTHER}, '{}', '{}', '{}', '{seen}', now())",
+        column("audience"),
+        column("node_id"),
+        column("item"),
+    ))
+    .await
+    .unwrap();
+    let found = recollect(db, &[&ending]).await;
+    let ended = saying(&found.named, "no longer");
+    assert_eq!(ended.len(), 1, "{:?}", found.named);
+    assert!(!ended[0].contains("still so"), "{ended:?}");
+    schema.drop().await;
+}

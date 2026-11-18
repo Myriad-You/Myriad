@@ -229,7 +229,7 @@ async fn may_now(
         .filter(|held| held.waiting() && held.action != Some(Action::Work))
         .collect();
     let due: BTreeSet<(String, String)> = if waiting.iter().any(|held| held.trigger.is_some()) {
-        let rows = heads::rows_of(db, user_id, audience).await?;
+        let rows = super::hidden::rows_of(db, user_id, audience).await?;
         intents::due(DueInput {
             bodies: heads::bodies(&rows)?,
             rows: rows.into_iter().map(|kept| kept.row).collect(),
@@ -470,7 +470,7 @@ pub(crate) fn resident_section(resident: &[String]) -> Option<String> {
         .collect();
     section(
         "How their life stands now",
-        "How things stand in their life now, as you keep it, each with since when, and with the day they told you where that is another day. An item is as new as the day it was told: where a fact below, or a line of theirs you looked back to, is dated later than that and says otherwise, that is the later; where it is dated earlier, this is.",
+        "How things stand in their life now, as you keep it, each with since when, and with the day they told you where that is another day, or instead the latest day it was seen to still be so where that is later. An item is as new as the latest day on it: where a fact below, or a line of theirs you looked back to, is dated later than that and says otherwise, that is the later; where it is dated earlier, this is.",
         "standing_now",
         &lines,
     )

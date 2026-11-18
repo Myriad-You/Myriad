@@ -106,6 +106,10 @@ pub(crate) struct Named {
     /// nothing in its place. One a later fact replaced is not (the same
     /// line `chat_lines` draws for their words).
     pub taken_back: bool,
+    /// A later fact replaced it: corrected, it changed (`superseded` with
+    /// what replaced it named). Not one gone over into another
+    /// (`settled`), nor one taken back.
+    pub replaced: bool,
     /// The day she learned it, Unix microseconds ([`learned`]): held or
     /// not, that is when it was said.
     pub learned: i64,
@@ -115,6 +119,11 @@ pub(crate) struct Named {
     /// counts as taken back, so nothing resting on it is shown, but nothing
     /// is forgotten for it.
     pub sure: bool,
+    /// Whether what rests on it may be forgotten on her nodes: it was
+    /// deleted, forgotten (the mark forgetting keeps), or taken back and
+    /// the second look agreed ([`super::take_back_check`]). One only judged
+    /// taken back is hidden ([`Self::taken_back`]), never forgotten.
+    pub forgets: bool,
 }
 
 /// How far a memory row is followed to what replaced it, and what replaced
@@ -133,7 +142,8 @@ const TAKEN_BACK_STEPS: i32 = 64;
 /// correction. A line whose next row is not here (forgotten on another
 /// end, or not come yet) is taken back too; `sure` only when forgetting
 /// kept that row's mark (`memory::forgotten`), as for a row not here
-/// ([`Named::sure`]).
+/// ([`Named::sure`]). `forgets` when what rests on it may be forgotten
+/// ([`Named::forgets`]): deleted, forgotten, or taken back and confirmed.
 pub(crate) fn taken_back_sql(seeds: &str) -> String {
     format!(
         "taken_back_line(start, id, user_id, superseded_by, reason, depth) AS ( \
@@ -144,14 +154,18 @@ pub(crate) fn taken_back_sql(seeds: &str) -> String {
            FROM taken_back_line l JOIN agent_memories n ON n.id = l.superseded_by \
              AND n.user_id IS NOT DISTINCT FROM l.user_id \
            WHERE l.depth < {TAKEN_BACK_STEPS}), \
-         taken_back(id, sure) AS ( \
-           SELECT start, bool_or(sure) FROM ( \
-             SELECT start, true AS sure FROM taken_back_line \
+         taken_back(id, sure, forgets) AS ( \
+           SELECT start, bool_or(sure), bool_or(forgets) FROM ( \
+             SELECT start, true AS sure, \
+               reason = 'deleted' OR EXISTS (SELECT 1 FROM agent_takeback_check c \
+                 WHERE c.memory_id = taken_back_line.id AND c.state = 'confirmed') AS forgets \
+             FROM taken_back_line \
              WHERE reason = 'deleted' OR (reason = 'superseded' AND superseded_by IS NULL) \
              UNION ALL \
-             SELECT l.start, EXISTS (SELECT 1 FROM agent_forgotten f \
-                                     WHERE f.what = 'memory' AND f.mark = l.superseded_by) \
-             FROM taken_back_line l \
+             SELECT l.start, f.forgotten, f.forgotten FROM taken_back_line l \
+             CROSS JOIN LATERAL (SELECT EXISTS (SELECT 1 FROM agent_forgotten f \
+                                 WHERE f.what = 'memory' AND f.mark = l.superseded_by) \
+                                 AS forgotten) f \
              WHERE l.superseded_by IS NOT NULL AND NOT EXISTS ( \
                SELECT 1 FROM agent_memories n WHERE n.id = l.superseded_by \
                  AND n.user_id IS NOT DISTINCT FROM l.user_id)) gone \
@@ -176,8 +190,12 @@ pub(crate) async fn named<C: ConnectionTrait>(
             format!(
                 "WITH RECURSIVE {} \
                  SELECT h.id, (h.invalid_at IS NULL AND h.superseded_by IS NULL) AS held, \
+                   (h.invalid_reason IS NOT DISTINCT FROM 'superseded' \
+                     AND h.superseded_by IS NOT NULL) AS replaced, \
                    h.id IN (SELECT id FROM taken_back) AS taken_back, \
                    COALESCE((SELECT sure FROM taken_back t WHERE t.id = h.id), true) AS sure, \
+                   COALESCE((SELECT forgets FROM taken_back t WHERE t.id = h.id), false) \
+                     AS forgets, \
                    LEAST(h.created_at, min(n.created_at)) AS at \
                  FROM agent_memories h \
                  LEFT JOIN agent_memories n \
@@ -198,8 +216,10 @@ pub(crate) async fn named<C: ConnectionTrait>(
                 Named {
                     held: row.try_get("", "held")?,
                     taken_back: row.try_get("", "taken_back")?,
+                    replaced: row.try_get("", "replaced")?,
                     learned: at.timestamp_micros(),
                     sure: row.try_get("", "sure")?,
+                    forgets: row.try_get("", "forgets")?,
                 },
             ))
         })
@@ -230,8 +250,10 @@ pub(crate) async fn named<C: ConnectionTrait>(
                 Named {
                     held: false,
                     taken_back: true,
+                    replaced: false,
                     learned: 0,
                     sure,
+                    forgets: sure,
                 },
             );
         }

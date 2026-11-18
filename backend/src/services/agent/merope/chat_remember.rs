@@ -41,7 +41,7 @@ pub fn should_extract_chat_remember_against(user_text: &str, existing: &[String]
 // Nobody waits on this: generous enough to ride out a stalled provider.
 const EXTRACT_TIMEOUT: Duration = Duration::from_secs(45);
 
-fn memory_user_text(text: &str) -> Option<String> {
+pub(crate) fn memory_user_text(text: &str) -> Option<String> {
     let text = super::ingest::redact_event_text(text)
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -95,6 +95,11 @@ pub struct ChatMemoryUpdates {
     /// Whether the line said anything new beside what it let go of: what it
     /// lets go of is then corrected, not taken back.
     pub said_new: SaidNew,
+    /// Their message (`agent_messages.id`) that took back what an update
+    /// lets go of, by the update's place in `updates`: what the second look
+    /// before forgetting on her nodes reads (`memory_nodes::take_back_check`).
+    /// None known, it is only let go.
+    pub taken_back_in: std::collections::BTreeMap<usize, i32>,
 }
 
 /// What a line said beside what it let go of ([`ChatMemoryUpdates::said_new`]).

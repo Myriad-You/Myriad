@@ -468,6 +468,7 @@ pub(super) async fn over_time(
             said: updates.said,
             put_onto: updates.put_onto,
             said_new: super::super::chat_remember::SaidNew::Nothing,
+            taken_back_in: Default::default(),
         };
         if !hers.said.is_empty() || !hers.put_onto.is_empty() {
             apply_at(db, user_id, present, at, &hers).await;

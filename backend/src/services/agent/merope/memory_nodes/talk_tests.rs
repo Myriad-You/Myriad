@@ -1206,7 +1206,7 @@ async fn a_summary_resting_on_what_goes_goes_with_it() {
 /// 「工作」 as [`work_stands`] leaves it, and a summary her upkeep wrote on
 /// it resting on the entry of 「同事小王在追她」: that memory, the node,
 /// the entry's row.
-async fn summed_up(db: &DatabaseConnection) -> (String, String, String) {
+pub(super) async fn summed_up(db: &DatabaseConnection) -> (String, String, String) {
     work_stands(db, "同事小王在追她", "在趣养做运营，同事小王在追她").await;
     let wooed = memory_id(db, "同事小王在追她").await;
     let entry: String = db
@@ -1312,7 +1312,23 @@ async fn take_back(db: &DatabaseConnection, content: &str) -> bool {
     .await
     .unwrap();
     transaction.commit().await.unwrap();
+    // As if the second look agreed (`take_back_check`).
+    super::take_back_check::confirmed_now(db, OTHER).await;
     applied
+}
+
+/// What was let go as taken back here, the second look agreeing
+/// (`take_back_check`), then swept: forgotten for good.
+pub(super) async fn confirmed(db: &DatabaseConnection) {
+    db.execute_unprepared(
+        "INSERT INTO agent_takeback_check (user_id, memory_id, state, at) \
+         SELECT user_id, id, 'confirmed', now() FROM agent_memories \
+         WHERE invalid_reason = 'superseded' AND superseded_by IS NULL AND user_id IS NOT NULL \
+         ON CONFLICT (user_id, memory_id) DO UPDATE SET state = 'confirmed', at = now()",
+    )
+    .await
+    .unwrap();
+    forget::taken_back_here(db, OTHER, &talk()).await.unwrap();
 }
 
 /// The versions of how their life stands forgotten (stubs).
@@ -1480,6 +1496,9 @@ async fn a_correction_taken_back_elsewhere_takes_back_what_it_corrected() {
         !shown.contains("周五") && !shown.contains("周六"),
         "{shown}"
     );
+    // Hidden only, nothing forgotten, until the second look agrees.
+    assert_eq!(standing_stubs(db).await, 0, "only hidden");
+    confirmed(db).await;
     assert_eq!(standing_stubs(db).await, 2, "v1 and v2");
     schema.drop().await;
 }
@@ -1950,6 +1969,14 @@ async fn a_correction_in_a_line_is_no_taking_back() {
             "SELECT count(*) AS n FROM agent_node_rows WHERE kind = 'node.entry' AND body = ''",
         )
         .await;
+        // Hidden only until the second look agrees (`take_back_check`).
+        assert_eq!(entries, 0, "{name}: only hidden");
+        super::take_back_check::confirmed_now(db, OTHER).await;
+        let entries = count(
+            db,
+            "SELECT count(*) AS n FROM agent_node_rows WHERE kind = 'node.entry' AND body = ''",
+        )
+        .await;
         assert_eq!(entries, stubs, "{name}");
         schema.drop().await;
     }
@@ -2031,6 +2058,14 @@ async fn a_line_lets_go_of_what_she_knows_for_good_as_what_it_said() {
             said_new == SaidNew::Nothing,
             "{name}"
         );
+        let entries = count(
+            db,
+            "SELECT count(*) AS n FROM agent_node_rows WHERE kind = 'node.entry' AND body = ''",
+        )
+        .await;
+        // Hidden only until the second look agrees (`take_back_check`).
+        assert_eq!(entries, 0, "{name}: only hidden");
+        super::take_back_check::confirmed_now(db, OTHER).await;
         let entries = count(
             db,
             "SELECT count(*) AS n FROM agent_node_rows WHERE kind = 'node.entry' AND body = ''",

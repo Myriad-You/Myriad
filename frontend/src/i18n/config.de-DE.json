@@ -985,6 +985,8 @@
   "agentAliveForgetting": "Bereinigung ihrer Notizen nach Zurücknehmen oder Vergessen",
   "agentAliveForgettingCounts": "{left} Erinnerungen warten auf die Bereinigung, {swept} Bereinigungen durchgeführt, {errors}-mal mit Fehler abgebrochen, {out} Fassungen verworfen, weil ihre Grundlage weg war, {unkept}-mal Korrekturen nicht übernommen, weil ihre neue Tatsache nicht hielt",
   "agentAliveForgettingStuck": "Die Bereinigung ist {n}-mal in Folge fehlgeschlagen: in diesem Gespräch werden ihre Notizen nicht gelesen.",
+  "agentAliveTakeBackChecks": "Zweiter Blick, bevor Zurückgenommenes aus ihren Notizen verschwindet",
+  "agentAliveTakeBackChecksCounts": "{pending} warten auf den zweiten Blick, {changed} nur losgelassen als Änderung oder keins von beidem, {unsure} nur losgelassen ohne Antwort",
   "agentAliveStanding": "Zuletzt „sein Leben jetzt“ geschrieben",
   "agentAliveStandingFailed": "Fehlgeschlagene Modellaufrufe dabei",
   "agentAliveStandingFailedCount": "{n}, zuletzt {ago}",

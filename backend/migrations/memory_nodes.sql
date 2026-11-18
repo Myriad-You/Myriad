@@ -136,3 +136,26 @@ CREATE TABLE IF NOT EXISTS agent_node_kept (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_node_kept_memory
     ON agent_node_kept (by_memory);
+-- What they took back, as the model judged it, before what rests on it on
+-- her nodes is forgotten (`memory_nodes::take_back_check`): the memory is let
+-- go at once and hidden where she reads; forgetting what rests on it, which
+-- cannot be undone, waits for a second look at their line (`said_ref`, its
+-- `agent_messages` id; never its words). `state` is pending, confirmed (it is
+-- forgotten), changed (it was a change or neither: only let go) or unsure
+-- (no line to look at, or no answer after three tries: only let go). Only a
+-- confirmed one is forgotten by the sweep; one taken back before this with
+-- no row here is only hidden.
+CREATE TABLE IF NOT EXISTS agent_takeback_check (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    memory_id VARCHAR(64) NOT NULL REFERENCES agent_memories(id) ON DELETE CASCADE,
+    said_ref INTEGER,
+    state VARCHAR(16) NOT NULL,
+    tries SMALLINT NOT NULL DEFAULT 0,
+    at TIMESTAMPTZ NOT NULL,
+    asked_at TIMESTAMPTZ,
+    PRIMARY KEY (user_id, memory_id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_takeback_check_state
+    ON agent_takeback_check (state, user_id);
+CREATE INDEX IF NOT EXISTS idx_agent_takeback_check_memory
+    ON agent_takeback_check (memory_id);

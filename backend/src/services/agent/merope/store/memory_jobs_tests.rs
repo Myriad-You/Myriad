@@ -3,10 +3,12 @@ use super::*;
 use crate::services::agent::memory::unified::Audience;
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, IntoActiveModel};
 
-#[path = "memory_jobs_settle_tests.rs"]
-mod settle;
 #[path = "memory_jobs_her_tests.rs"]
 mod her;
+#[path = "memory_jobs_settle_tests.rs"]
+mod settle;
+#[path = "memory_jobs_take_back_tests.rs"]
+mod take_back;
 
 async fn fixture() -> Option<crate::db::IsolatedSchema> {
     let url = crate::db::test_url(&["MYRIAD_MEROPE_TEST_DATABASE_URL"])?;
@@ -63,6 +65,7 @@ fn fact() -> Effect {
             said: vec![],
             put_onto: vec![],
             said_new: Default::default(),
+            taken_back_in: Default::default(),
         },
     )
 }
@@ -81,6 +84,7 @@ fn fact_of(fact: &str) -> Effect {
             said: vec![],
             put_onto: vec![],
             said_new: Default::default(),
+            taken_back_in: Default::default(),
         },
     )
 }
@@ -648,6 +652,7 @@ async fn taking_back_lets_go_of_what_she_knows_for_good() {
             said: vec![],
             put_onto: vec![],
             said_new: Default::default(),
+            taken_back_in: Default::default(),
         }
     };
     let Effect::Chat(lasting) = fact_of(known) else {

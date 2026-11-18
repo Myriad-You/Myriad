@@ -587,6 +587,13 @@ async fn what_only_her_inbox_or_an_intent_names_goes_when_it_is_taken_back() {
     )
     .await
     .unwrap();
+    // And the second look agreed (`take_back_check`).
+    db.execute_unprepared(
+        "INSERT INTO agent_takeback_check (user_id, memory_id, state, at) \
+         SELECT user_id, id, 'confirmed', now() FROM agent_memories WHERE content LIKE 'fern %'",
+    )
+    .await
+    .unwrap();
     forget::taken_back_here(db, OTHER, &talk()).await.unwrap();
     assert!(held(db).await.is_empty(), "no intent rests on what went");
     assert_eq!(

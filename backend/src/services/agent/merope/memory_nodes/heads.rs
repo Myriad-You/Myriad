@@ -118,13 +118,17 @@ pub(crate) fn status_of(node: &Node) -> String {
 }
 
 /// Rewrites every head of `user_id`'s `audience` that `folded` changes, and
-/// takes away any it no longer has. The node ids of those rewritten.
+/// takes away any it no longer has. The node ids of those rewritten. What
+/// rests on a memory they took back is written hidden
+/// ([`super::hidden::folded`]): the heads are what she reads.
 pub(crate) async fn refresh<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
     audience: &str,
     folded: &Folded,
 ) -> Result<Vec<String>, Error> {
+    let hidden = super::hidden::folded(db, user_id, audience, folded, true).await?;
+    let folded = hidden.as_ref().unwrap_or(folded);
     let kept = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,

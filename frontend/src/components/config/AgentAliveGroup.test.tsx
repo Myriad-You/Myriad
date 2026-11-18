@@ -32,7 +32,7 @@ function alive(change: (shown: HerAlive) => void = () => {}): HerAlive {
         { name: 'her own time', everySecs: 60, ranAt: '2026-11-16T03:59:50Z', runs: 180, endedAt: '2026-11-16T03:59:51Z', running: false, failedAt: null, failures: 0, skippedAt: null, skippedWhy: null, skips: 0, overdue: false },
       ],
     },
-    memory: { settledAt: null, settledOutcome: null, standingWrittenAt: null, standingFailures: null, standingFailed: 0, standingFailedAt: null, settlingFailures: { unreadable: 2, asked_again: 3, left_unread: 1, brought_along: 1, kept_unsettled: 4 }, cutOff: { chat_remember: 1, memory_node_upkeep: 2 }, unplaced: { kept: 3, placed_later: 2, failed: 1, errors: 4, let_go: 5 }, forgetting: { left_to_sweep: 1, swept: 6, sweep_errors: 2, left_out: 3, sweep_errors_in_a_row: 0 }, correctionsUnkept: 4 },
+    memory: { settledAt: null, settledOutcome: null, standingWrittenAt: null, standingFailures: null, standingFailed: 0, standingFailedAt: null, settlingFailures: { unreadable: 2, asked_again: 3, left_unread: 1, brought_along: 1, kept_unsettled: 4 }, cutOff: { chat_remember: 1, memory_node_upkeep: 2 }, unplaced: { kept: 3, placed_later: 2, failed: 1, errors: 4, let_go: 5 }, forgetting: { left_to_sweep: 1, swept: 6, sweep_errors: 2, left_out: 3, sweep_errors_in_a_row: 0 }, correctionsUnkept: 4, takeBackChecks: { pending: 2, changed: 1, unsure: 3 } },
     ends: [
       {
         id: 'dev_a',
@@ -109,6 +109,7 @@ test('shows whether she is living, with the three capability layers apart', asyn
     assert.match(text(), /回答被输出上限截断chat_remember 1 · memory_node_upkeep 2/)
     assert.match(text(), /没放上节点的话记下待补放 3 段，补放成功 2 批、又失败 1 批、出错停下 4 次，超过 7 天没放成丢掉 5 句/)
     assert.match(text(), /收回或忘掉后节点上的清理还等着扫的 1 条，扫清 6 次，扫时出错停下 2 次，写入时因依据已不在而丢掉的版本 3 个，新事实不成立没做的改口 4 次/)
+    assert.match(text(), /收回后节点上的再次确认等着再问一次的 2 条，判成变了或都不是、只放下的 1 条，问不出结果、只放下的 3 条/)
     assert.doesNotMatch(text(), /连续出错/)
     assert.match(text(), /落后 12 行/)
     // What it told of frames: none dropped; two of hers acked and not read.
