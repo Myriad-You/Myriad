@@ -20,27 +20,39 @@ pub async fn learn_judge_model_kind() {
     else {
         return;
     };
-    let model = source.model.trim().to_owned();
+    learn(&source.base_url, source.model.trim()).await;
+}
+
+/// Asks `base_url`'s source what kind `model` is, once at a time: a
+/// judgment that comes while it is being asked waits for the answer (at
+/// most [`ASK_TIMEOUT`]) rather than going on not knowing, when it would
+/// send a decisions model chat. When the source does not say, the model is
+/// marked so (`remember_model_unsaid`): judgments stay on Lite until it does.
+async fn learn(base_url: &str, model: &str) {
     // An alias (`~typesafe/jev-latest`) has no listing of its own.
-    if model.starts_with('~') || crate::config::model_kind(&model).is_some() {
+    if model.starts_with('~') || crate::config::model_kind(model).is_some() {
         return;
     }
-    static TRIED: std::sync::Mutex<Option<(String, Instant)>> = std::sync::Mutex::new(None);
-    if let Ok(mut tried) = TRIED.lock() {
-        if tried
+    static TRIED: tokio::sync::Mutex<Option<(String, Instant)>> =
+        tokio::sync::Mutex::const_new(None);
+    let mut tried = TRIED.lock().await;
+    if crate::config::model_kind(model).is_some()
+        || tried
             .as_ref()
-            .is_some_and(|(last, at)| *last == model && at.elapsed() < RETRY_AFTER)
-        {
-            return;
-        }
-        *tried = Some((model.clone(), Instant::now()));
+            .is_some_and(|(last, at)| last == model && at.elapsed() < RETRY_AFTER)
+    {
+        return;
     }
-    match ask(&source.base_url, &model).await {
+    *tried = Some((model.to_owned(), Instant::now()));
+    match ask(base_url, model).await {
         Some(decisions) => {
             tracing::info!(model, decisions, "[ModelKind] Judgment model kind learned");
-            crate::config::remember_model_kind(&model, decisions);
+            crate::config::remember_model_kind(model, decisions);
         }
-        None => tracing::debug!(model, "[ModelKind] Source did not say; asking again later"),
+        None => {
+            tracing::debug!(model, "[ModelKind] Source did not say; asking again later");
+            crate::config::remember_model_unsaid(model);
+        }
     }
 }
 
@@ -86,5 +98,69 @@ mod tests {
         assert!(answers_decisions(&decisions));
         assert!(!answers_decisions(&chat));
         assert!(!answers_decisions(&json!({"error": {"code": 404}})));
+    }
+
+    /// A source that answers every ask after a moment: with `listing`, or
+    /// an error when there is none.
+    async fn source(listing: Option<serde_json::Value>) -> String {
+        use axum::response::IntoResponse;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let router = axum::Router::new().fallback(move || {
+            let listing = listing.clone();
+            async move {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                match listing {
+                    Some(listing) => axum::Json(listing).into_response(),
+                    None => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+                }
+            }
+        });
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        format!("http://{address}/api/v1")
+    }
+
+    /// The model a small judgment would be sent to, `model` judging.
+    fn judged_by(model: &str) -> String {
+        crate::config::DynamicConfig {
+            lite_ai_model: "lite/own-model".to_string(),
+            aux_judge_model: model.to_string(),
+            ..crate::config::DynamicConfig::default()
+        }
+        .resolve_lite_judge_ai_config()
+        .map(|resolved| resolved.model)
+        .unwrap_or_default()
+    }
+
+    #[tokio::test]
+    async fn a_judgment_that_comes_while_the_source_is_asked_waits_for_its_answer() {
+        let model = "acme/slow-decide-1";
+        let base = source(Some(
+            json!({"data": {"architecture": {"output_modalities": ["decisions"]}}}),
+        ))
+        .await;
+        let (first, second) = tokio::join!(
+            async {
+                learn(&base, model).await;
+                judged_by(model)
+            },
+            async {
+                learn(&base, model).await;
+                judged_by(model)
+            },
+        );
+        assert_eq!(first, "lite/own-model");
+        assert_eq!(second, "lite/own-model", "the second is not sent it as chat");
+    }
+
+    #[tokio::test]
+    async fn while_its_source_has_not_said_a_judgment_model_is_not_sent_chat() {
+        let model = "acme/unsaid-1";
+        let base = source(None).await;
+        assert_eq!(judged_by(model), model, "never asked: as before");
+        learn(&base, model).await;
+        assert_eq!(judged_by(model), "lite/own-model");
+        crate::config::remember_model_kind(model, false);
+        assert_eq!(judged_by(model), model, "said it is chat: its own");
     }
 }
