@@ -18,7 +18,7 @@ pub fn catalog_reference_labels(consumer_types: &[String]) -> Vec<String> {
         match kind.as_str() {
             "note_draft" | "note_published" | "note_history" => push(&mut labels, "notes"),
             "rss_item" | "federation_activity" => push(&mut labels, "articles"),
-            "sticker" => push(&mut labels, "sticker"),
+            "sticker" | "merope_sticker" => push(&mut labels, "sticker"),
             "channel_message" => push(&mut labels, "channel"),
             "persona_outfit" | "persona_portrait" => push(&mut labels, "persona"),
             _ => push(&mut labels, "site"),
@@ -72,6 +72,7 @@ mod tests {
                 "note_draft".into(),
                 "note_history".into(),
                 "sticker".into(),
+                "merope_sticker".into(),
                 "channel_message".into(),
                 "persona_portrait".into(),
                 "site_wallpaper".into(),

@@ -20,6 +20,7 @@ const CONSUMER_TYPES: &[&str] = &[
     "persona_outfit",
     "persona_portrait",
     "sticker",
+    "merope_sticker",
     "site_wallpaper",
     "site_setting",
     "ai_task",

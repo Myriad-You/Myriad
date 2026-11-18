@@ -1,17 +1,62 @@
 //! Bounded maintenance, owned by the process cleanup loop on every worker.
 use super::{MediaError, MediaService};
 use crate::models::entities::media_assets;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, QueryFilter,
+    QueryOrder, QuerySelect, Statement,
+};
 
 pub async fn maintain(db: &DatabaseConnection) -> Result<(), MediaError> {
     let service = MediaService::from_data_paths(crate::services::data_paths::paths());
     let recovery = service.recover_expired(db, 16).await;
     let deletions = retry_deletions(&service, db, 16).await;
+    let stickers = cite_sticker_pictures(db).await;
     let refs = prune_references(db, 500).await;
-    recovery.map(|_| ()).and(deletions).and(refs.map(|_| ()))
+    recovery
+        .map(|_| ())
+        .and(deletions)
+        .and(stickers.map(|_| ()))
+        .and(refs.map(|_| ()))
 }
 
-/// References whose consumer can no longer show the media. Conversation
+/// The consumer her stickers cite their pictures as, one per sticker.
+pub(super) const STICKER_CONSUMER: &str = "merope_sticker";
+
+/// The media asset sticker `s` is drawn as, by its public id: only at the
+/// canonical address `/media/assets/<public id>/<file>`.
+const STICKER_PICTURE: &str = "CASE \
+    WHEN btrim(s.asset_id) ~ '^/media/assets/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/' \
+    THEN substring(btrim(s.asset_id) FROM 15 FOR 36)::uuid END";
+
+/// Every sticker of hers (kept from a group, drawn, or brought by a device)
+/// cites the picture it is drawn as, so the media library never offers to
+/// delete a picture she can still send. Stickers are written from many
+/// places; this one statement covers them all and is safe to run again and
+/// again: it only adds what is missing. A reference the sticker no longer
+/// needs goes with the others in [`prune_references`]. Only a picture at its
+/// canonical address and still ready is cited.
+pub async fn cite_sticker_pictures(db: &impl ConnectionTrait) -> Result<u64, MediaError> {
+    let result = db
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"
+INSERT INTO media_references
+    (asset_id, consumer_type, consumer_id, slot, requires_public, expires_at, created_at)
+SELECT m.id, $1, s.id, 'picture', m.exposure = 'public', NULL, $2::timestamptz
+FROM merope_stickers s
+JOIN media_assets m ON m.public_id = {sticker_picture}
+WHERE m.state = 'ready'
+ON CONFLICT (asset_id, consumer_type, consumer_id, slot) DO NOTHING
+"#
+            .replace("{sticker_picture}", STICKER_PICTURE),
+            [STICKER_CONSUMER.into(), crate::clock::now().into()],
+        ))
+        .await?;
+    Ok(result.rows_affected())
+}
+
+/// References whose consumer can no longer show the media: a sticker gone
+/// or drawn as another picture now among them. Conversation
 /// messages go away by cascade with their session, so their references are
 /// pruned here rather than at every delete site. Expired references are kept
 /// a day for diagnosis. Run inputs bound before they expired on their own are
@@ -22,7 +67,6 @@ pub async fn maintain(db: &DatabaseConnection) -> Result<(), MediaError> {
 /// 两件确定的事：已发布行已经不在，且同一用户有一条以该 Create 为对象的本地
 /// Delete（只有撤回会写）。还在已发布列表里的、从没撤回过的都不碰。
 pub async fn prune_references(db: &DatabaseConnection, limit: u64) -> Result<u64, MediaError> {
-    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
     let result = db
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -40,6 +84,10 @@ DELETE FROM media_references WHERE id IN (
            AND NOT EXISTS (SELECT 1 FROM federation_channel_messages m
                            WHERE m.id = CASE WHEN r.consumer_id ~ '^federation_channel_messages:[0-9]+$'
                                         THEN substring(r.consumer_id FROM 29)::int END))
+       OR (r.consumer_type = 'merope_sticker'
+           AND NOT EXISTS (SELECT 1 FROM merope_stickers s
+                           JOIN media_assets a ON a.public_id = {sticker_picture}
+                           WHERE s.id = r.consumer_id AND a.id = r.asset_id))
        OR (r.consumer_type = 'tapp_storage'
            AND NOT EXISTS (SELECT 1 FROM tapp_storage s
                            WHERE s.id = CASE WHEN r.consumer_id ~ '^[0-9]+$'
@@ -62,7 +110,8 @@ DELETE FROM media_references WHERE id IN (
                              WHERE d.is_local AND d.activity_type = 'Delete')))
     LIMIT $1
 )
-"#,
+"#
+            .replace("{sticker_picture}", STICKER_PICTURE),
             [(limit.clamp(1, 5000) as i64).into(), crate::clock::now().into()],
         ))
         .await?;
@@ -82,7 +131,6 @@ pub(super) async fn retry_deletions(
         .await?;
     for row in rows {
         // Touch before retry so a permanently failing file cannot starve others.
-        use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
         db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "UPDATE media_assets SET updated_at = $2::timestamptz WHERE id = $1 AND state = 'deleting'",

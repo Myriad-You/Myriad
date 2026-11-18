@@ -203,6 +203,31 @@ pub fn remember_model_kind(model: &str, decisions: bool) {
     if let Ok(mut known) = DECISIONS_MODELS.write() {
         known.insert(model.trim().to_owned(), decisions);
     }
+    if let Ok(mut unsaid) = UNSAID_MODELS.write() {
+        unsaid.remove(model.trim());
+    }
+}
+
+/// Models whose source was asked what kind they are and did not say (it
+/// could not be reached in time, or answered nothing readable).
+static UNSAID_MODELS: std::sync::LazyLock<
+    std::sync::RwLock<std::collections::HashSet<String>>,
+> = std::sync::LazyLock::new(Default::default);
+
+/// Records that `model`'s source was asked and did not say, until it does.
+pub fn remember_model_unsaid(model: &str) {
+    if model_kind(model).is_none()
+        && let Ok(mut unsaid) = UNSAID_MODELS.write()
+    {
+        unsaid.insert(model.trim().to_owned());
+    }
+}
+
+/// Whether `model`'s source was asked and has not said what kind it is.
+fn model_unsaid(model: &str) -> bool {
+    UNSAID_MODELS
+        .read()
+        .is_ok_and(|unsaid| unsaid.contains(model.trim()))
 }
 
 /// 解析后的 AI 配置（已根据 tier 确定具体的 provider/key/model）
@@ -1514,7 +1539,9 @@ impl DynamicConfig {
     /// judgment model only answers decisions (it writes no text).
     pub fn resolve_lite_judge_ai_config(&self) -> Option<ResolvedAiConfig> {
         let judge = self.aux_judge_model.trim();
-        if judge.is_empty() || is_decisions_model(judge) {
+        // Asked and not told: it may be a decisions model, which chat would
+        // only fail; Lite answers until its source says.
+        if judge.is_empty() || is_decisions_model(judge) || model_unsaid(judge) {
             return self.resolve_strict_lite_ai_config();
         }
         self.place_judge(judge)

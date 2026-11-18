@@ -1437,6 +1437,69 @@ async fn postgres_references_of_gone_consumers_are_pruned() {
     f.close().await;
 }
 
+/// 她的贴纸引用自己的图：补登记只增、可以反复跑；贴纸还在，图就删不掉也撤不回公开；
+/// 贴纸没了或换了图，引用随清理放掉，图才能删。读不到、不在本站的图不登记。
+#[tokio::test]
+async fn postgres_her_stickers_keep_their_pictures() {
+    let Some(f) = Fixture::new().await else {
+        return;
+    };
+    let kept = f.service.publish(&f.db, f.image().await.id).await.unwrap();
+    let drawn = f.image().await;
+    let gone = f.image().await;
+    f.service.delete(&f.db, gone.id).await.unwrap();
+    let at = |asset: &MediaAsset| format!("/media/assets/{}/sticker.png", asset.public_id);
+    f.db.execute_unprepared(&format!(
+        "INSERT INTO merope_stickers (id, picture, meaning, venue, asset_id, identity) VALUES
+         ('kept', 'p', 'm', NULL, '{}', 'kept'),
+         ('kept-in-a-group', 'p', 'm', 'onebot:1', ' {} ', 'kept'),
+         ('drawn', 'p', 'm', NULL, '{}', 'her'),
+         ('lost', 'p', 'm', NULL, '{}', 'kept'),
+         ('outside', 'p', 'm', NULL, 'https://example.com/a.png', 'her'),
+         ('odd', 'p', 'm', NULL, '/media/assets/not-a-uuid/sticker.png', 'her')",
+        at(&kept),
+        at(&kept),
+        at(&drawn),
+        at(&gone)
+    ))
+    .await
+    .unwrap();
+    assert_eq!(maintenance::cite_sticker_pictures(&f.db).await.unwrap(), 3);
+    assert_eq!(
+        maintenance::cite_sticker_pictures(&f.db).await.unwrap(),
+        0,
+        "only adds what is missing"
+    );
+    assert_eq!(maintenance::prune_references(&f.db, 100).await.unwrap(), 0);
+    assert_eq!(references::active_count(&f.db, kept.id).await.unwrap(), 2);
+    assert_eq!(
+        f.service.delete(&f.db, kept.id).await.unwrap_err(),
+        MediaError::InUse
+    );
+    assert_eq!(
+        f.service.unpublish(&f.db, kept.id).await.unwrap_err(),
+        MediaError::PublicInUse
+    );
+    assert_eq!(
+        f.service.delete(&f.db, drawn.id).await.unwrap_err(),
+        MediaError::InUse
+    );
+    f.db.execute_unprepared(
+        "DELETE FROM merope_stickers WHERE id = 'kept-in-a-group';
+         UPDATE merope_stickers SET asset_id = 'https://example.com/b.png' WHERE id = 'drawn'",
+    )
+    .await
+    .unwrap();
+    assert_eq!(maintenance::prune_references(&f.db, 100).await.unwrap(), 2);
+    assert_eq!(maintenance::cite_sticker_pictures(&f.db).await.unwrap(), 0);
+    assert_eq!(references::active_count(&f.db, kept.id).await.unwrap(), 1);
+    assert_eq!(
+        f.service.delete(&f.db, drawn.id).await.unwrap(),
+        DeleteOutcome::Deleted
+    );
+    f.close().await;
+}
+
 /// 撤回修复之前撤回的帖子：已发布行没了、且有以原 Create 为对象的本地 Delete
 /// 时，引用被释放；仍在发布的、没有 Delete 的、别人的 Delete、远端活动都不动。
 #[tokio::test]
