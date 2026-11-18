@@ -104,15 +104,22 @@ pub(in crate::services::agent::merope) async fn settle(
         ))
         .await
         .map_err(|_| Failure::Storage)?;
-    let mut conversation: Vec<(bool, String)> = lines
+    // Each line with its message, so a line they took something back in is
+    // known by its message (`take_back_check`).
+    let mut said: Vec<(i32, bool, String)> = lines
         .iter()
         .filter_map(|row| {
+            let id: i32 = row.try_get("", "id").ok()?;
             let role: String = row.try_get("", "role").ok()?;
             let content: String = row.try_get("", "content").ok()?;
-            Some((role == "user", content))
+            Some((id, role == "user", content))
         })
         .collect();
-    conversation.reverse();
+    said.reverse();
+    let conversation: Vec<(bool, String)> = said
+        .iter()
+        .map(|(_, theirs, text)| (*theirs, text.clone()))
+        .collect();
     let mut placed = Vec::new();
     let mut site_owner = None;
     if nodes {
@@ -239,6 +246,11 @@ pub(in crate::services::agent::merope) async fn settle(
     // own: one already gone does not keep the others from going.
     for one in took_back {
         settled.push(Vec::new());
+        if let Some((message, _, _)) = one.said.and_then(|index| said.get(index)) {
+            updates
+                .taken_back_in
+                .insert(updates.updates.len(), *message);
+        }
         updates.updates.push(ChatMemoryUpdate {
             standing: Default::default(),
             fact: None,

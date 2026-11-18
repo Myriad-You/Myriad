@@ -44,7 +44,8 @@ pub(super) fn day_of(micros: i64) -> Option<String> {
 /// Each of `nodes` (of `owner`'s `audience`) with the authors and items of
 /// its 「现在」 rows, each once, ended ones too: her line on a repository
 /// is hers but no one's life, and only the core tells them apart. A
-/// forgotten row (a stub, its body gone) stands for nothing.
+/// forgotten row (a stub, its body gone) stands for nothing, nor does one
+/// hidden as resting on a memory they took back ([`super::hidden`]).
 async fn standing_on(
     db: &DatabaseConnection,
     owner: i32,
@@ -55,7 +56,7 @@ async fn standing_on(
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT DISTINCT node_id, author, \
+            "SELECT row_id, node_id, author, \
              CASE WHEN body LIKE '{%' THEN body::jsonb->>'item' END AS item FROM agent_node_rows \
              WHERE user_id = $1 AND audience = $2 AND kind = $3 AND body <> '' \
              AND node_id = ANY($4)",
@@ -74,8 +75,20 @@ async fn standing_on(
             standing: Vec::new(),
         })
         .collect();
+    let hidden = if rows.is_empty() {
+        Default::default()
+    } else {
+        super::hidden::going_of(db, owner, audience).await?
+    };
+    let mut seen = std::collections::HashSet::new();
     for row in &rows {
+        let id: String = row.try_get("", "row_id")?;
         let node: String = row.try_get("", "node_id")?;
+        let author: String = row.try_get("", "author")?;
+        let item: Option<String> = row.try_get("", "item")?;
+        if hidden.contains(&id) || !seen.insert((node.clone(), author, item)) {
+            continue;
+        }
         let standing = StandingRowIn {
             author: row.try_get("", "author")?,
             item: row.try_get("", "item")?,

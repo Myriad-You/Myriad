@@ -82,6 +82,7 @@ fn test_folded_extension_tables_in_expected_schema() {
         "agent_memory_topics",
         "agent_node_rows",
         "agent_node_kept",
+        "agent_takeback_check",
         "agent_node_heads",
         "agent_node_placements",
         "agent_node_inbox",
@@ -698,6 +699,7 @@ DROP TABLE agent_affect_anchor;
 DROP TABLE agent_affect_events;
 DROP TABLE agent_persona_field_history;
 DROP TABLE agent_node_kept;
+DROP TABLE agent_takeback_check;
 INSERT INTO agent_persona (id, name, updated_at) VALUES ('site', 'Merope', NOW());
 ALTER TABLE agent_persona DROP COLUMN zone, DROP COLUMN field_revs;
 INSERT INTO agent_memories (id, kind, content, source, venue, valid_from, created_at, updated_at)

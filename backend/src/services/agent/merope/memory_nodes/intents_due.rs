@@ -89,10 +89,11 @@ async fn due_in(
     audience: &str,
     now: DateTime<Utc>,
 ) -> Result<Vec<ToRun>, Error> {
-    // What rests on what they took back goes before an intent is acted on
-    // or said ([`super::forget::before_reading`]); if it cannot, none is.
+    // What rests on what they took back goes, or is hidden, before an
+    // intent is acted on or said ([`super::forget::before_reading`]); if it
+    // cannot, none is.
     super::forget::before_reading(db, user_id, audience).await?;
-    let rows = heads::rows_of(db, user_id, audience).await?;
+    let rows = super::hidden::rows_of(db, user_id, audience).await?;
     let due = intents::due(DueInput {
         bodies: heads::bodies(&rows)?,
         rows: rows.into_iter().map(|kept| kept.row).collect(),

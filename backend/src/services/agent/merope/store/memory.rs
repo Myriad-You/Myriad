@@ -91,8 +91,9 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<
         keep
     };
     let mut kept = false;
-    for update in &updates.updates {
-        kept |= apply_chat_memory_update_on(db, user_id, input_at, update, present, keep).await?;
+    for (index, update) in updates.updates.iter().enumerate() {
+        let said = updates.taken_back_in.get(&index).copied();
+        kept |= apply_one(db, user_id, input_at, update, present, keep, &[], said).await?;
     }
     if (updates.said.is_empty() && updates.put_onto.is_empty())
         || !chat_memory_input_is_current(db, user_id, input_at, present).await?
@@ -148,6 +149,9 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<
     Ok(kept)
 }
 
+/// One update alone, as [`apply_chat_memory_updates_on`] applies each, with
+/// no line it was taken back in.
+#[cfg(test)]
 pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<
     C: ConnectionTrait + sea_orm::TransactionTrait,
 >(
@@ -158,7 +162,7 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<
     present: &crate::services::agent::memory::unified::Audience,
     keep: Keep,
 ) -> Result<bool, anyhow::Error> {
-    apply_one(db, user_id, input_at, update, present, keep, &[]).await
+    apply_one(db, user_id, input_at, update, present, keep, &[], None).await
 }
 
 /// A stretch gone over: what it keeps for good, each with the short notes it
@@ -178,7 +182,18 @@ pub(in crate::services::agent::merope) async fn settle_chat_memory_on<
     let mut kept = false;
     for (index, update) in updates.updates.iter().enumerate() {
         let notes = settled.get(index).map_or(&[][..], Vec::as_slice);
-        kept |= apply_one(db, user_id, last, update, present, Keep::Lasting, notes).await?;
+        let said = updates.taken_back_in.get(&index).copied();
+        kept |= apply_one(
+            db,
+            user_id,
+            last,
+            update,
+            present,
+            Keep::Lasting,
+            notes,
+            said,
+        )
+        .await?;
     }
     Ok(kept)
 }
@@ -191,6 +206,7 @@ async fn apply_one<C: ConnectionTrait + sea_orm::TransactionTrait>(
     present: &crate::services::agent::memory::unified::Audience,
     keep: Keep,
     settling: &[String],
+    said: Option<i32>,
 ) -> Result<bool, anyhow::Error> {
     if user_id <= 0 || (update.fact.is_none() && update.supersedes.is_empty()) {
         return Ok(false);
@@ -310,12 +326,15 @@ async fn apply_one<C: ConnectionTrait + sea_orm::TransactionTrait>(
             } else if keep != Keep::Note {
                 // Taken back, plainly, with nothing in its place: what they
                 // took back going over a stretch (`tookBack`), or a line
-                // that keeps nothing and only lets go. What rests on it on
-                // her nodes, or on what it replaced, goes as when it is
-                // forgotten (its words may carry what was taken back); the
-                // memory goes whatever happens there. A correction in a
-                // line that keeps a new fact beside it is no taking back.
-                super::super::memory_nodes::forget::forget_taken_back(db, &targets).await;
+                // that keeps nothing and only lets go. The memory goes now,
+                // and what rests on it is hidden where she reads. Forgetting
+                // that on her nodes (or what rests on what it replaced)
+                // cannot be undone: it waits for a second look at their
+                // line, once this is committed (`take_back_check`). A
+                // correction in a line that keeps a new fact beside it is
+                // no taking back.
+                super::super::memory_nodes::take_back_check::hold(db, user_id, &targets, said)
+                    .await?;
             }
         }
     }

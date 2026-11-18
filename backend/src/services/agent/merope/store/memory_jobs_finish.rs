@@ -9,6 +9,33 @@ pub(in crate::services::agent::merope) async fn finish(
     claim: &Claim,
     result: Result<Effect, Failure>,
 ) -> anyhow::Result<()> {
+    // What a line that only lets go took back is looked at again with that
+    // line (`take_back_check`): its message, found before the transaction
+    // takes a connection of its own.
+    let said_alone = match (&result, &claim.job.data) {
+        (
+            Ok(Effect::Chat(update)),
+            Some(Payload::Chat {
+                input_at,
+                present,
+                user_text,
+                lines,
+                ..
+            }),
+        ) if update.updates.iter().any(|one| one.fact.is_none()) => {
+            let from = lines.iter().min().copied().unwrap_or(*input_at);
+            super::super::super::memory_nodes::take_back_check::their_line(
+                db,
+                claim.job.owner,
+                present,
+                user_text,
+                from,
+                *input_at,
+            )
+            .await
+        }
+        _ => None,
+    };
     let tx = db.begin().await?;
     lock(&tx).await?;
     let now = now(&tx).await?;
@@ -75,13 +102,18 @@ pub(in crate::services::agent::merope) async fn finish(
                 settling::over(&job);
             }
             outcome = match result {
-                Ok(Effect::Chat(update)) => {
+                Ok(Effect::Chat(mut update)) => {
                     let Some(Payload::Chat {
                         input_at, present, ..
                     }) = &job.data
                     else {
                         anyhow::bail!("wrong memory job kind");
                     };
+                    if let Some(said) = said_alone {
+                        update.taken_back_in = (0..update.updates.len())
+                            .map(|index| (index, said))
+                            .collect();
+                    }
                     if super::super::apply_chat_memory_updates_on(
                         &tx,
                         job.owner,
@@ -171,6 +203,16 @@ pub(in crate::services::agent::merope) async fn finish(
     }
     save(&tx, &claim.id, &job, now).await?;
     tx.commit().await?;
+    // What they took back here (or before, with no answer yet) is looked at
+    // again, now that letting it go is committed.
+    if outcome != "paused"
+        && matches!(
+            claim.job.data,
+            Some(Payload::Chat { .. } | Payload::Settle { .. })
+        )
+    {
+        super::super::super::memory_nodes::take_back_check::go_over(db, job.owner).await;
+    }
     tracing::info!(job = claim.id, attempt = claim.job.attempts, %outcome, "[Merope] memory job");
     if matches!(claim.job.data, Some(Payload::Settle { .. })) && outcome != "paused" {
         crate::services::agent::alive::settled(&outcome);

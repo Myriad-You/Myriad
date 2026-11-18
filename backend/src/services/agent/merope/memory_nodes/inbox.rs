@@ -71,13 +71,29 @@ pub(crate) async fn waiting<C: ConnectionTrait>(
     audience: &str,
     limit: u64,
 ) -> Result<Vec<Item>, Error> {
+    waiting_from(db, user_id, audience, limit, 0).await
+}
+
+/// [`waiting`], past the oldest `skipped`.
+pub(crate) async fn waiting_from<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    audience: &str,
+    limit: u64,
+    skipped: u64,
+) -> Result<Vec<Item>, Error> {
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT day, id, item FROM agent_node_inbox \
              WHERE user_id = $1 AND audience = $2 AND placed_at IS NULL \
-             ORDER BY day, created_at, id LIMIT $3",
-            [user_id.into(), audience.into(), (limit as i64).into()],
+             ORDER BY day, created_at, id LIMIT $3 OFFSET $4",
+            [
+                user_id.into(),
+                audience.into(),
+                (limit as i64).into(),
+                (skipped as i64).into(),
+            ],
         ))
         .await?;
     rows.iter()

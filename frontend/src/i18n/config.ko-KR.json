@@ -985,6 +985,8 @@
   "agentAliveForgetting": "취소·잊은 뒤 노트 정리",
   "agentAliveForgettingCounts": "정리 대기 {left}개, 정리한 횟수 {swept}번, 오류로 멈춤 {errors}번, 근거가 사라져 쓰지 않은 버전 {out}개, 새 사실이 성립하지 않아 하지 않은 정정 {unkept}번",
   "agentAliveForgettingStuck": "정리가 {n}번 연속 실패: 그 대화에서는 그녀의 노트를 읽지 못합니다.",
+  "agentAliveTakeBackChecks": "취소한 뒤 노트 재확인",
+  "agentAliveTakeBackChecksCounts": "다시 확인을 기다리는 {pending}개, 바뀌었거나 둘 다 아니라고 보고 내려놓기만 한 {changed}개, 답이 나오지 않아 내려놓기만 한 {unsure}개",
   "agentAliveStanding": "「지금의 생활」을 마지막으로 쓴 때",
   "agentAliveStandingFailed": "그 단계의 모델 호출 실패",
   "agentAliveStandingFailedCount": "{n}번, 가장 최근은 {ago}",

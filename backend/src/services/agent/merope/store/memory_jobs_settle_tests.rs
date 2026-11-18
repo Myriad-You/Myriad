@@ -84,6 +84,7 @@ fn settled(updates: Vec<ChatMemoryUpdate>, settled: Vec<Vec<String>>) -> Effect 
             said: vec![],
             put_onto: vec![],
             said_new: Default::default(),
+            taken_back_in: Default::default(),
         },
         settled,
         rest: None,

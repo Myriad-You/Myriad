@@ -1015,6 +1015,20 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
+            name: "agent_takeback_check".to_string(),
+            columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("memory_id", "character varying").not_null(),
+                ColumnDef::new("said_ref", "integer"),
+                ColumnDef::new("state", "character varying").not_null(),
+                ColumnDef::new("tries", "smallint")
+                    .not_null()
+                    .default_value("0"),
+                ColumnDef::new("at", "timestamp with time zone").not_null(),
+                ColumnDef::new("asked_at", "timestamp with time zone"),
+            ],
+        },
+        TableDef {
             name: "agent_node_heads".to_string(),
             columns: vec![
                 ColumnDef::new("user_id", "integer").not_null(),

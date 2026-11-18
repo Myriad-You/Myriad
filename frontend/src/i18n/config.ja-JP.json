@@ -985,6 +985,8 @@
   "agentAliveForgetting": "取り消し・忘却後のノート整理",
   "agentAliveForgettingCounts": "掃除待ち {left} 件、掃除できた {swept} 回、エラーで中断 {errors} 回、根拠が消えていたため書かなかった版 {out} 件、新しい事実が成り立たず見送った言い直し {unkept} 回",
   "agentAliveForgettingStuck": "掃除が {n} 回連続で失敗：その会話では彼女のノートが読めていません。",
+  "agentAliveTakeBackChecks": "取り消し後のノートの再確認",
+  "agentAliveTakeBackChecksCounts": "もう一度確かめるのを待っている {pending} 件、変わった・どちらでもないと判断して手放しただけの {changed} 件、答えが出ず手放しただけの {unsure} 件",
   "agentAliveStanding": "「いまの暮らし」を最後に書いた時刻",
   "agentAliveStandingFailed": "その手順でのモデル呼び出し失敗",
   "agentAliveStandingFailedCount": "{n} 回、直近は{ago}",

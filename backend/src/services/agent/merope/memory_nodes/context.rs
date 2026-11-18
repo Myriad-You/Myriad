@@ -229,7 +229,7 @@ async fn may_now(
         .filter(|held| held.waiting() && held.action != Some(Action::Work))
         .collect();
     let due: BTreeSet<(String, String)> = if waiting.iter().any(|held| held.trigger.is_some()) {
-        let rows = heads::rows_of(db, user_id, audience).await?;
+        let rows = super::hidden::rows_of(db, user_id, audience).await?;
         intents::due(DueInput {
             bodies: heads::bodies(&rows)?,
             rows: rows.into_iter().map(|kept| kept.row).collect(),

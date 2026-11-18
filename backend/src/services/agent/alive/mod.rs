@@ -701,6 +701,12 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
             // error, versions left out as they were written for resting on
             // what went (`memory_nodes::forget::failures`). Counts only.
             "forgetting": crate::services::agent::merope::memory_nodes::forget::failures(),
+            // What they took back, waiting for the second look before what
+            // rests on it is forgotten, only let go as a change or neither,
+            // and left unsure (`memory_nodes::take_back_check`), over
+            // everyone. Counts only; null when they could not be read.
+            "takeBackChecks":
+                crate::services::agent::merope::memory_nodes::take_back_check::counts(db).await,
             // Lines whose corrections were left undone since the site started, their
             // new fact not holding up (`chat_remember::corrections_unkept`).
             "correctionsUnkept": crate::services::agent::merope::chat_remember::corrections_unkept(),

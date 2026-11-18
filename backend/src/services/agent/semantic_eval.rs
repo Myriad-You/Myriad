@@ -835,6 +835,7 @@ fn cases() -> Vec<Case> {
                 | "heard"
                 | "already"
                 | "settle"
+                | "take_back_check"
                 | "sense"
                 | "joke_sticker"
                 | "meme_sticker"
@@ -1201,6 +1202,18 @@ fn request(case: &Case) -> Value {
             json!({"system":already_system(),"schema":already_schema(),
                 "schemaName":ALREADY_SCHEMA_NAME,"input":already_input(&[(case.input.as_str(), known)])})
         }
+        "take_back_check" => {
+            // Their line is the input, what she kept the first remembered;
+            // the answers that would be right are `actions`.
+            use myriad_merope::take_back_check as check;
+            let kept = case
+                .remembered
+                .first()
+                .map(String::as_str)
+                .unwrap_or_default();
+            json!({"system":check::system(),"schema":check::schema(),
+                "schemaName":check::SCHEMA_NAME,"input":check::input(&case.input, kept)})
+        }
         "settle" => {
             let (system, schema, input) =
                 memory::settle_probe(&settle_lines(case), &case.lately, &case.remembered);
@@ -1408,7 +1421,8 @@ fn request(case: &Case) -> Value {
 fn is_judgment(case: &Case) -> bool {
     match case.kind.as_str() {
         "memory" | "touch" | "wonder" | "doing_choice" | "soup_judge" | "serial_guess"
-        | "explore_step" | "explore_compare" | "sense" | "already" | "settle" => true,
+        | "explore_step" | "explore_compare" | "sense" | "already" | "settle"
+        | "take_back_check" => true,
         "event" => case.event_kind != "agent.merope.touch",
         _ => false,
     }
@@ -1650,6 +1664,12 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
                 "behavior_failure"
             }
         }
+        // Exact: only an answer it is right to forget on is `takes_back`.
+        "take_back_check" => match myriad_merope::take_back_check::read(output) {
+            None => "output_invalid",
+            Some(says) if case.actions.iter().any(|right| right == says.as_str()) => "pass",
+            Some(_) => "behavior_failure",
+        },
         // What lasts is judged by the reviewer; what it replaces is exact.
         "settle" => {
             let theirs = settle_lines(case)
@@ -2812,7 +2832,7 @@ fn cases_use_production_contracts_and_replay_hashes_include_rubrics() {
     let cases = cases();
     assert_eq!(
         cases.iter().filter(|c| c.kind != "touch").count(),
-        75 + MIND_CASES
+        84 + MIND_CASES
     );
     for mut case in cases {
         let request = request(&case);

@@ -125,7 +125,10 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// 2026.11.18.1：「现在」的项看过仍成立的记号 `agent_node_kept`（哪条记忆、什么时候听说的；每项留最近
 /// 3 条，项被改或结束、记忆被忘或收回、节点被忘时删；不进她的日志），随 004 与
 /// `ensure_memory_nodes_tables` 一起建（`memory_nodes.sql`）。旧二进制不认识它也照常启动。
-pub const SCHEMA_VERSION: &str = "2026.11.18.1";
+/// 2026.11.18.2：收回的第二次判断 `agent_takeback_check`（哪条记忆、那句话的消息 id、判断到哪一步；不存
+/// 原话；只有确认过的收回才在节点上忘掉），随 004 与 `ensure_memory_nodes_tables` 一起建
+/// （`memory_nodes.sql`）。旧二进制不认识它也照常启动。
+pub const SCHEMA_VERSION: &str = "2026.11.18.2";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);

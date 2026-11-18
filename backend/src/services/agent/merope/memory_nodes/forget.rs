@@ -40,7 +40,7 @@ pub(crate) use taken_back::left_to_sweep_holds;
 use taken_back::of_a_life;
 pub(super) use taken_back::resting_on_what_went;
 pub(crate) use taken_back::{
-    Failures, before_reading, failures, forget_taken_back, taken_back_here,
+    Failures, before_reading, failures, forget_taken_back, hide_taken_back, taken_back_here,
 };
 pub(crate) use taken_back::{error_kind, sweep_again};
 
@@ -319,7 +319,7 @@ pub(super) async fn forget_one<C: ConnectionTrait>(
 }
 
 /// Whether `node` is a topic she started that holds no entry any more.
-fn empty_topic(node: &myriad_nodes::Node) -> bool {
+pub(super) fn empty_topic(node: &myriad_nodes::Node) -> bool {
     !node.forgotten
         && node.absorbed_into.is_none()
         && node.entries.is_empty()

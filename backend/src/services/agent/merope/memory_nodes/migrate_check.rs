@@ -53,6 +53,10 @@ async fn folded<C: ConnectionTrait>(
     audience: &str,
 ) -> Result<(BTreeMap<String, BTreeSet<String>>, usize), Error> {
     let folded = heads::fold_rows(&heads::rows_of(db, user_id, audience).await?)?;
+    // As the heads are written: hidden where it rests on a memory taken back.
+    let folded = super::hidden::folded(db, user_id, audience, &folded, false)
+        .await?
+        .unwrap_or(folded);
     let mut on: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut differ = 0;
     for node in folded.nodes.iter().filter(|node| node.audience == audience) {

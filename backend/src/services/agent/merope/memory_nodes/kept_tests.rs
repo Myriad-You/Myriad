@@ -1,7 +1,7 @@
 //! What was seen to still hold (`agent_node_kept`), on a database of its
 //! own: a fact that leaves an item standing notes it, the latest three per
 //! item; setting or ending the item, forgetting the memory or its row,
-//! taking it back on another end lets them go, and they move with its talk.
+//! taking it back (once confirmed) lets them go, and they move with its talk.
 
 use sea_orm::ConnectionTrait;
 
@@ -97,13 +97,22 @@ async fn what_a_fact_leaves_standing_is_noted_until_it_changes() {
         .unwrap();
     assert!(noted(db).await.is_empty());
 
-    // Taken back on another end, cited by nothing but what was seen: the
-    // sweep finds it there.
+    // Taken back, cited by nothing but what was seen: only hidden until
+    // the second look agrees (`take_back_check`), then the sweep finds it
+    // there.
     let taken = stands(db, LEFT, "跑完喝了杯冰美式").await;
     assert_eq!(noted(db).await, [taken.clone()]);
     db.execute_unprepared(&format!(
         "UPDATE agent_memories SET invalid_reason = 'superseded', invalid_at = now(), \
          superseded_by = NULL, updated_at = now() WHERE id = '{taken}'"
+    ))
+    .await
+    .unwrap();
+    forget::taken_back_here(db, OTHER, &talk()).await.unwrap();
+    assert_eq!(noted(db).await, [taken.clone()]);
+    db.execute_unprepared(&format!(
+        "INSERT INTO agent_takeback_check (user_id, memory_id, state, at) \
+         VALUES ({OTHER}, '{taken}', 'confirmed', now())"
     ))
     .await
     .unwrap();

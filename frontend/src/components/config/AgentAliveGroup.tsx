@@ -449,6 +449,16 @@ export function AgentAliveGroup() {
                 })
               : c.agentAliveNone}
           </dd>
+          <dt>{c.agentAliveTakeBackChecks}</dt>
+          <dd>
+            {memory.takeBackChecks && Object.values(memory.takeBackChecks).some((count) => count > 0)
+              ? format(c.agentAliveTakeBackChecksCounts, {
+                  pending: String(memory.takeBackChecks.pending),
+                  changed: String(memory.takeBackChecks.changed),
+                  unsure: String(memory.takeBackChecks.unsure),
+                })
+              : c.agentAliveNone}
+          </dd>
           <dt>{c.agentAliveStanding}</dt>
           <dd>{ago(memory.standingWrittenAt)}</dd>
           <dt>{c.agentAliveStandingFailed}</dt>

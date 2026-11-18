@@ -985,6 +985,8 @@
   "agentAliveForgetting": "收回或忘掉後節點上的清理",
   "agentAliveForgettingCounts": "還等著掃的 {left} 條，掃清 {swept} 次，掃時出錯停下 {errors} 次，寫入時因依據已不在而丟掉的版本 {out} 個，新事實不成立沒做的改口 {unkept} 次",
   "agentAliveForgettingStuck": "清理已連續出錯 {n} 次：出錯的那段對話裡讀不到她的節點。",
+  "agentAliveTakeBackChecks": "收回後節點上的再次確認",
+  "agentAliveTakeBackChecksCounts": "等著再問一次的 {pending} 條，判成變了或都不是、只放下的 {changed} 條，問不出結果、只放下的 {unsure} 條",
   "agentAliveStanding": "上次寫「他現在的生活」",
   "agentAliveStandingFailed": "這一步問模型失敗",
   "agentAliveStandingFailedCount": "{n} 次，最近一次 {ago}",

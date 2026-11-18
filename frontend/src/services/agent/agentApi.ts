@@ -317,6 +317,13 @@ export interface HerAlive {
      * fact not holding up: what they corrected stays as it was.
      */
     correctionsUnkept?: number
+    /**
+     * What they took back, over everyone: waiting for the second look before
+     * what rests on it on her notes is forgotten, only let go as a change or
+     * neither, and left unsure (no line to look at, or no answer). Null when
+     * they could not be read.
+     */
+    takeBackChecks?: { pending: number, changed: number, unsure: number } | null
   }
   ends: HerAliveEnd[]
   /**
