@@ -711,6 +711,7 @@ DROP TABLE IF EXISTS agent_node_migrations;
 DROP TABLE IF EXISTS agent_node_instructions;
 DROP TABLE IF EXISTS agent_node_inbox;
 DROP TABLE IF EXISTS agent_node_placements;
+DROP TABLE IF EXISTS agent_node_kept;
 DROP TABLE IF EXISTS agent_node_heads;
 DROP TABLE IF EXISTS agent_node_rows;
 DROP TABLE IF EXISTS agent_memory_topics;

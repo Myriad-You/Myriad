@@ -1004,6 +1004,17 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
+            name: "agent_node_kept".to_string(),
+            columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("audience", "text").not_null(),
+                ColumnDef::new("node_id", "character varying").not_null(),
+                ColumnDef::new("item", "text").not_null(),
+                ColumnDef::new("by_memory", "character varying").not_null(),
+                ColumnDef::new("at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
             name: "agent_node_heads".to_string(),
             columns: vec![
                 ColumnDef::new("user_id", "integer").not_null(),

@@ -318,6 +318,7 @@ pub(super) async fn move_talk<C: ConnectionTrait>(
         ))
         .await?;
     }
+    super::kept::moved(db, user_id, &from, &to).await?;
     // The heads, folded again where the rows now are.
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,

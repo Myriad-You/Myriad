@@ -288,7 +288,15 @@ async fn insert<C: ConnectionTrait>(
         ],
     ))
     .await?;
-    Ok(())
+    super::kept::row_written(
+        db,
+        user_id,
+        &row.audience,
+        &prepared.node,
+        &row.kind,
+        &prepared.body,
+    )
+    .await
 }
 
 /// Keeps `txn`; a batch that moved the site owner's talk then has this

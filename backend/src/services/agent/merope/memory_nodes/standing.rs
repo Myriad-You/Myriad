@@ -336,7 +336,9 @@ async fn build_on(
                 "[memory-nodes] how things stand on a node: items left out"
             );
         }
+        let started = read.rows.clone();
         written += write_rows(db, owner, audience, read, pen).await;
+        super::kept::started(db, owner, audience, &started).await;
     }
     Ok(written)
 }
@@ -443,7 +445,9 @@ pub(crate) async fn after_settled(
                 "[memory-nodes] how another person's life stands left as it is"
             );
         }
+        let still = read.still_so.clone();
         written += write_rows(db, owner, audience, read, pen).await;
+        super::kept::seen(db, owner, audience, &fact.memory, &still).await;
     }
     Ok(written)
 }

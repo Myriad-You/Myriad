@@ -1658,15 +1658,28 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
                 .map(|(_, text)| text.split_whitespace().collect::<Vec<_>>().join(" "))
                 .collect::<Vec<_>>()
                 .join("\n");
-            let Some((lasting, mut replaces)) = myriad_merope::chat_remember::parse_settle(
+            let Some(myriad_merope::chat_remember::Settled {
+                lasting, took_back, ..
+            }) = myriad_merope::chat_remember::parse_settle(
                 output,
                 &theirs,
+                &settle_lines(case)
+                    .iter()
+                    .map(|(theirs, _)| *theirs)
+                    .collect::<Vec<_>>(),
                 &case.remembered,
                 case.lately.len(),
                 0,
-            ) else {
+            )
+            else {
                 return "output_invalid";
             };
+            // Replaced or taken back, it no longer holds.
+            let mut replaces: Vec<String> = lasting
+                .iter()
+                .flat_map(|fact| fact.replaces.iter().cloned())
+                .chain(took_back.into_iter().map(|one| one.entry))
+                .collect();
             let mut expected = case.supersedes.clone();
             replaces.sort();
             expected.sort();
@@ -2799,7 +2812,7 @@ fn cases_use_production_contracts_and_replay_hashes_include_rubrics() {
     let cases = cases();
     assert_eq!(
         cases.iter().filter(|c| c.kind != "touch").count(),
-        73 + MIND_CASES
+        75 + MIND_CASES
     );
     for mut case in cases {
         let request = request(&case);

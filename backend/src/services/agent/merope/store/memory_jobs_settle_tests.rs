@@ -261,22 +261,29 @@ async fn notes_of_a_fact_past_the_most_kept_are_kept_as_they_are() {
             serde_json::json!({
                 "fact": format!("他说{text}"), "evidence": text, "from": [index],
                 "concepts": [], "whenFor": [], "topic": null,
-                "happened": null, "state": null, "open": null,
+                "happened": null, "state": null, "open": null, "replaces": [],
             })
         })
         .collect();
     let answer = serde_json::json!({
-        "lasting": lasting, "replaces": [], "moment": [], "known": [],
+        "lasting": lasting, "tookBack": [], "moment": [], "known": [],
     });
     // The last fact holds on its own: only the most kept leaves it out.
     let theirs = said.join("\n");
     let parse = |answer: &serde_json::Value| {
-        myriad_merope::chat_remember::parse_settle(&answer.to_string(), &theirs, &[], said.len(), 0)
-            .expect("read")
-            .0
+        myriad_merope::chat_remember::parse_settle(
+            &answer.to_string(),
+            &theirs,
+            &[],
+            &[],
+            said.len(),
+            0,
+        )
+        .expect("read")
+        .lasting
     };
     let alone = serde_json::json!({
-        "lasting": [lasting.last()], "replaces": [], "moment": [], "known": [],
+        "lasting": [lasting.last()], "tookBack": [], "moment": [], "known": [],
     });
     assert_eq!(parse(&alone)[0].from, [said.len() - 1]);
     let kept = parse(&answer);
@@ -355,7 +362,7 @@ async fn the_earliest_lines_of_a_long_stretch_are_not_shown_but_placed_later() {
         .entry("chat_settle".into())
         .or_default()
         .push_back(Some(
-            r#"{"lasting":[],"replaces":[],"moment":[0],"known":[]}"#.into(),
+            r#"{"lasting":[],"tookBack":[],"moment":[0],"known":[]}"#.into(),
         ));
     // Placed as they are shown: only those not shown are left.
     world

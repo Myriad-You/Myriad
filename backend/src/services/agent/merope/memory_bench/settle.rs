@@ -248,6 +248,10 @@ async fn settle_pass(
         let parsed = myriad_merope::chat_remember::parse_settle(
             &raw,
             &theirs,
+            &turns
+                .iter()
+                .map(|turn| turn.role == "user")
+                .collect::<Vec<_>>(),
             &known,
             notes.len(),
             offered.len(),
@@ -267,7 +271,15 @@ async fn settle_pass(
             None => went = "going over not read",
         }
     }
-    let Some((raw, (kept, replaces))) = read else {
+    let Some((
+        raw,
+        myriad_merope::chat_remember::Settled {
+            lasting: kept,
+            took_back,
+            ..
+        },
+    )) = read
+    else {
         for index in 0..notes.len() {
             trail.went(first + index, went, None);
         }
@@ -282,6 +294,22 @@ async fn settle_pass(
     // The rows of the notes each update was put together from.
     let row = |index: usize| rows.get(index).cloned().flatten();
     let mut from_rows: Vec<Vec<String>> = Vec::new();
+    // What they took back first, with nothing in its place, each on its
+    // own, as production does.
+    for one in took_back {
+        from_rows.push(Vec::new());
+        updates
+            .updates
+            .push(super::super::chat_remember::ChatMemoryUpdate {
+                standing: Default::default(),
+                topic: None,
+                cues: Vec::new(),
+                fact: None,
+                supersedes: vec![one.entry],
+                evidence: None,
+                concepts: Vec::new(),
+            });
+    }
     for item in kept {
         from_rows.push(item.from.iter().filter_map(|index| row(*index)).collect());
         let fact = super::super::ingest::compact_summary(&item.fact);
@@ -294,12 +322,8 @@ async fn settle_pass(
                 cues: item.when_for,
                 topic: super::super::chat_remember::settle::goes_under(&item.topic, &offered),
                 fact: Some(fact.clone()),
-                // What it changes goes with the first: it says how it is now.
-                supersedes: if updates.updates.is_empty() {
-                    replaces.clone()
-                } else {
-                    Vec::new()
-                },
+                // What it says has changed, as production keeps it.
+                supersedes: item.replaces.clone(),
                 evidence: Some(item.evidence.clone()),
                 concepts: crate::services::agent::memory::unified::clean_concepts(
                     serde_json::from_value(item.concepts).unwrap_or_default(),

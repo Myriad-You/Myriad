@@ -122,7 +122,10 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// （没落过的组按 `calls.defaultApproved`），和每次调用一行的记录 `agent_device_calls`（不存参数、
 /// 结果和设备原文，留 30 天）；两张都随设备行级联删除（`persona_sync.sql`，随 004 与
 /// `ensure_persona_sync_tables` 一起建）。旧二进制不认识它们也照常启动：比对只查缺的，不查多的。
-pub const SCHEMA_VERSION: &str = "2026.11.17.1";
+/// 2026.11.18.1：「现在」的项看过仍成立的记号 `agent_node_kept`（哪条记忆、什么时候听说的；每项留最近
+/// 3 条，项被改或结束、记忆被忘或收回、节点被忘时删；不进她的日志），随 004 与
+/// `ensure_memory_nodes_tables` 一起建（`memory_nodes.sql`）。旧二进制不认识它也照常启动。
+pub const SCHEMA_VERSION: &str = "2026.11.18.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
