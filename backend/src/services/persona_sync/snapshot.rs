@@ -390,10 +390,11 @@ async fn stickers<C: ConnectionTrait>(
         let url: String = row.try_get("", "asset_id")?;
         let created_at: DateTime<FixedOffset> = row.try_get("", "created_at")?;
         // A picture the site cannot read still crosses, marked so: the
-        // other side can say so instead of losing the sticker silently.
+        // other side can say so instead of losing the sticker silently. The
+        // log says so once, not at every snapshot.
         let image = pictures.picture_at(&url).await;
-        if image.is_unreadable() {
-            tracing::warn!(sticker = %id, "[sync] a sticker's picture cannot be read");
+        if assets::newly_unreadable(&format!("sticker:{id}"), &image) {
+            tracing::warn!(sticker = %id, %url, "[sync] a sticker's picture cannot be read");
         }
         let body = StickerBody {
             picture: row.try_get("", "picture")?,
@@ -462,7 +463,7 @@ async fn persona<C: ConnectionTrait>(
         .filter(|url| !url.is_empty())
     {
         let picture = pictures.picture_at(avatar).await;
-        if picture.is_unreadable() {
+        if assets::newly_unreadable("sticker avatar", &picture) {
             tracing::warn!("[sync] her sticker avatar cannot be read");
         }
         fields.insert(
@@ -524,7 +525,7 @@ async fn outfits<C: ConnectionTrait>(
         let portrait = match portrait_url {
             Some(url) => {
                 let picture = pictures.picture_at(&url).await;
-                if picture.is_unreadable() {
+                if assets::newly_unreadable(&format!("outfit:{id}"), &picture) {
                     tracing::warn!(outfit = %id, "[sync] an outfit's portrait cannot be read");
                 }
                 Some(picture)

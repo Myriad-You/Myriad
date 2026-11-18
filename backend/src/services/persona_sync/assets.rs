@@ -12,7 +12,7 @@
 //! in its place.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{LazyLock, Mutex},
     time::{Duration, Instant},
 };
@@ -39,6 +39,26 @@ static PICTURES: LazyLock<Mutex<HashMap<String, (Instant, AssetRef)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 pub const PICTURE_TTL: Duration = Duration::from_secs(600);
 pub(super) const PICTURES_KEPT: usize = 4096;
+
+/// What has been said to have a picture the site cannot read, by name: one
+/// that stays unreadable is said once, not at every snapshot.
+static UNREADABLE: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// Whether `what`'s `picture` being unreadable is news: the first time it
+/// cannot be read, and again only once it has been read in between.
+pub(super) fn newly_unreadable(what: &str, picture: &Picture) -> bool {
+    let Ok(mut said) = UNREADABLE.lock() else {
+        return picture.is_unreadable();
+    };
+    if !picture.is_unreadable() {
+        said.remove(what);
+        return false;
+    }
+    if said.len() >= PICTURES_KEPT && !said.contains(what) {
+        said.clear();
+    }
+    said.insert(what.to_string())
+}
 
 /// Where the site's pictures are read from, and where an outside picture is
 /// copied to: the site's database, its owner, the image cache an outside
@@ -281,4 +301,39 @@ pub async fn find(pictures: &Pictures, id: &str) -> Result<Option<Source>, DbErr
 pub async fn image_bytes(pictures: &Pictures, url: &str, id: &str) -> Option<Vec<u8>> {
     let (bytes, _) = pictures.bytes(url).await?;
     (sha256_hex(&bytes) == id).then_some(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn image() -> Picture {
+        Picture::Image(AssetRef {
+            id: "0".repeat(64),
+            kind: AssetType::Image,
+            bytes: 1,
+            media_type: "image/png".to_string(),
+        })
+    }
+
+    #[test]
+    fn a_picture_that_stays_unreadable_is_said_once() {
+        let what = "sticker:stays-unreadable";
+        assert!(newly_unreadable(what, &Picture::unreadable()));
+        assert!(!newly_unreadable(what, &Picture::unreadable()));
+        assert!(!newly_unreadable(what, &Picture::unreadable()));
+        assert!(
+            newly_unreadable("sticker:another", &Picture::unreadable()),
+            "each by its own name"
+        );
+    }
+
+    #[test]
+    fn a_picture_read_again_is_said_again_when_it_is_lost() {
+        let what = "sticker:read-again";
+        assert!(!newly_unreadable(what, &image()));
+        assert!(newly_unreadable(what, &Picture::unreadable()));
+        assert!(!newly_unreadable(what, &image()));
+        assert!(newly_unreadable(what, &Picture::unreadable()));
+    }
 }
