@@ -768,6 +768,17 @@ impl Link {
                 capabilities.push(capability.clone());
             }
         }
+        // What this link may do, by name only: a reconnect that changed it
+        // tells a changed setting from a reset link.
+        tracing::debug!(device = %self.device.id, ?capabilities, "[link] hello capabilities granted");
+        let dropped: Vec<&String> = hello
+            .capabilities
+            .iter()
+            .filter(|capability| !capabilities.contains(capability))
+            .collect();
+        if !dropped.is_empty() {
+            tracing::debug!(device = %self.device.id, ?dropped, "[link] hello capabilities not taken");
+        }
         // The device she lives on, as her host (H3e-7).
         if let Some(lease) = lease
             .as_ref()
