@@ -60,6 +60,21 @@ pub(super) fn newly_unreadable(what: &str, picture: &Picture) -> bool {
     said.insert(what.to_string())
 }
 
+/// `url` as a log may show it: no query or fragment (an outside address
+/// can carry access parameters there) and no user or password.
+pub(super) fn shown(url: &str) -> String {
+    let url = url.trim();
+    let bare = url.find(['?', '#']).map_or(url, |at| &url[..at]);
+    match url::Url::parse(bare) {
+        Ok(mut parsed) if parsed.has_host() => {
+            let _ = parsed.set_username("");
+            let _ = parsed.set_password(None);
+            parsed.to_string()
+        }
+        _ => bare.to_string(),
+    }
+}
+
 /// Where the site's pictures are read from, and where an outside picture is
 /// copied to: the site's database, its owner, the image cache an outside
 /// picture is fetched through and the media library it is kept in.
@@ -314,6 +329,20 @@ mod tests {
             bytes: 1,
             media_type: "image/png".to_string(),
         })
+    }
+
+    #[test]
+    fn a_logged_address_keeps_no_query_fragment_or_credentials() {
+        assert_eq!(
+            shown(" /media/assets/3d06441a-6259-451e-a3df-3e4870b1f406/sticker.png "),
+            "/media/assets/3d06441a-6259-451e-a3df-3e4870b1f406/sticker.png"
+        );
+        assert_eq!(
+            shown("https://user:secret@cdn.example/a/b.png?token=abc&x=1#frag"),
+            "https://cdn.example/a/b.png"
+        );
+        assert_eq!(shown("/media/x.png#a?b"), "/media/x.png");
+        assert_eq!(shown("not a url?key=1"), "not a url");
     }
 
     #[test]

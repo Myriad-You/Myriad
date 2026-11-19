@@ -394,6 +394,7 @@ async fn stickers<C: ConnectionTrait>(
         // log says so once, not at every snapshot.
         let image = pictures.picture_at(&url).await;
         if assets::newly_unreadable(&format!("sticker:{id}"), &image) {
+            let url = assets::shown(&url);
             tracing::warn!(sticker = %id, %url, "[sync] a sticker's picture cannot be read");
         }
         let body = StickerBody {
@@ -464,7 +465,8 @@ async fn persona<C: ConnectionTrait>(
     {
         let picture = pictures.picture_at(avatar).await;
         if assets::newly_unreadable("sticker avatar", &picture) {
-            tracing::warn!("[sync] her sticker avatar cannot be read");
+            let url = assets::shown(avatar);
+            tracing::warn!(%url, "[sync] her sticker avatar cannot be read");
         }
         fields.insert(
             "stickerAvatar".to_string(),
@@ -526,7 +528,8 @@ async fn outfits<C: ConnectionTrait>(
             Some(url) => {
                 let picture = pictures.picture_at(&url).await;
                 if assets::newly_unreadable(&format!("outfit:{id}"), &picture) {
-                    tracing::warn!(outfit = %id, "[sync] an outfit's portrait cannot be read");
+                    let url = assets::shown(&url);
+                    tracing::warn!(outfit = %id, %url, "[sync] an outfit's portrait cannot be read");
                 }
                 Some(picture)
             }
