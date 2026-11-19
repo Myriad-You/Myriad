@@ -707,6 +707,12 @@ async fn insert<C: ConnectionTrait>(db: &C, user: i32, row: &Row, from: &str) ->
         ],
     ))
     .await?;
+    // A row of the site's own, or one a file brought: new here and lacking
+    // on every end, which hear of it once this transaction commits
+    // (`wrote`). Rows taken from an end are told where they are taken.
+    if from == NODE || from == crate::services::persona_sync::import::FROM_FILE {
+        super::wrote::signal(db, user, &row.audience).await?;
+    }
     Ok(())
 }
 

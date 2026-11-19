@@ -1191,6 +1191,159 @@ async fn a_computer_that_listed_deputy_is_given_one_once_it_keeps_up() {
     site.close().await;
 }
 
+/// What the site writes in her log itself is told on the links that sync
+/// her, with no reconnecting: once its batch commits, each end hears the
+/// site's vector of that audience and asks for what it lacks; so it does of
+/// rows a file brought. A group's rows are not told to the partner's
+/// computer, which does not hold them.
+#[tokio::test]
+async fn an_end_hears_of_rows_the_site_writes_itself_while_linked() {
+    use crate::services::her_log::{self, store};
+    let Some(site) = site().await else {
+        return;
+    };
+    let _turn = her_log::lend::SERIAL.lock().await;
+    her_log::test_settings::set(her_log::Settings {
+        enabled: true,
+        ..her_log::Settings::default()
+    });
+    store::start(&site.db, OWNER).await.unwrap();
+    let (_, mac) = device(&site.db, "MacBook").await;
+    let mut mac = Child::open(&site, &mac).await;
+    let welcome = mac.hello_with(&["partner", "log2"]).await;
+    assert_eq!(welcome["body"]["sync"], "on");
+    let personal = format!("personal:{}", welcome["body"]["partner"].as_str().unwrap());
+    let before = store::holdings(&site.db, OWNER, &personal).await.unwrap();
+    for audience in [personal.as_str(), "own:"] {
+        let held = store::holdings(&site.db, OWNER, audience).await.unwrap();
+        mac.send(
+            "log.vector",
+            None,
+            json!({ "audience": audience, "vector": held.vector }),
+        )
+        .await;
+    }
+    mac.send("ping", None, json!({})).await;
+    until(&mut mac, "pong").await;
+
+    // The site writes in a group, then in the owner's private talk (her
+    // records compared with her log, as the site does by itself).
+    let owner = her_log::owner(&site.db, OWNER).await.unwrap();
+    let root = her_log::keys::root();
+    store::write_owners(
+        &site.db,
+        root,
+        &owner,
+        "group:onebot:1",
+        None,
+        "segment:site_group",
+        "segment.open",
+        &json!({ "at": 1, "place": "group" }),
+    )
+    .await
+    .unwrap();
+    site.db
+        .execute_unprepared(&format!(
+            "INSERT INTO agent_diary (id, user_id, content, source, created_at) \
+             VALUES ('d1', {OWNER}, '一起看了雨', 'chat', now())"
+        ))
+        .await
+        .unwrap();
+    let synced = her_log::state::sync(&site.db, root, OWNER).await.unwrap();
+    assert!(synced.written >= 1, "{synced:?}");
+    let ours = store::holdings(&site.db, OWNER, &personal).await.unwrap();
+    assert_ne!(ours.vector, before.vector);
+
+    // One vector of the private talk, nothing of the group's before it.
+    let told = loop {
+        let frame = until(&mut mac, "log.vector").await;
+        let audience = frame["body"]["audience"].as_str().unwrap().to_string();
+        assert!(!audience.starts_with("group:"), "{frame}");
+        if audience == personal {
+            break frame;
+        }
+    };
+    assert_eq!(told["body"]["vector"], json!(ours.vector));
+    // It asks for what it lacks and gets the row.
+    mac.send(
+        "log.vector",
+        None,
+        json!({ "audience": personal, "vector": before.vector }),
+    )
+    .await;
+    let rows = loop {
+        let frame = mac.next().await;
+        assert!(
+            !frame["body"]["audience"]
+                .as_str()
+                .is_some_and(|audience| audience.starts_with("group:")),
+            "{frame}"
+        );
+        if frame["t"] == "log.rows" {
+            break frame;
+        }
+    };
+    assert_eq!(rows["body"]["audience"], personal.as_str());
+    assert!(
+        rows["body"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["object"] == "state:diary:d1"),
+        "{rows}"
+    );
+
+    // Rows a file brings are as new here: the end hears of them too.
+    let row: myriad_persona_log::Row = serde_json::from_value(json!({
+        "version": 1, "id": "file_r1", "origin": "dev_old", "author": "owner",
+        "dseq": 1, "hlc": "001761200000000-000000-dev_old",
+        "audience": "own:", "object": "memory:m1", "kind": "memory.write",
+        "payload": { "ref": "doc:file_r1" }, "replicate": "shared",
+    }))
+    .unwrap();
+    let body = json!({ "at": 1_761_200_000_000i64, "kind": "fact", "text": "从文件来的事" });
+    let batch: myriad_nodes::wire::Batch = serde_json::from_value(json!({
+        "audience": "own:",
+        "rows": [row],
+        "payloads": [{
+            "ref": "doc:file_r1",
+            "data": base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                myriad_persona_sync::canonical::canonical_bytes(&body),
+            ),
+        }],
+    }))
+    .unwrap();
+    let taken = store::take(
+        &site.db,
+        root,
+        &owner,
+        crate::services::persona_sync::import::FROM_FILE,
+        batch,
+        &Default::default(),
+        her_log::now(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(taken.added.len(), 1, "{:?}", taken.not_taken);
+    let told = loop {
+        let frame = until(&mut mac, "log.vector").await;
+        assert!(
+            !frame["body"]["audience"]
+                .as_str()
+                .unwrap()
+                .starts_with("group:"),
+            "{frame}"
+        );
+        if frame["body"]["audience"] == "own:" && frame["body"]["vector"]["dev_old"] == 1 {
+            break frame;
+        }
+    };
+    let own = store::holdings(&site.db, OWNER, "own:").await.unwrap();
+    assert_eq!(told["body"]["vector"], json!(own.vector));
+    site.close().await;
+}
+
 /// While she syncs, what a group or a private chat says is lent on the
 /// link of the computer holding her, when its hello listed `lend`. Its ack makes a lend her mind's there,
 /// and her line for it is answered (here no chat app takes it). A lend the

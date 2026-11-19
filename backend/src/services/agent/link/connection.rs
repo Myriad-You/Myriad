@@ -930,6 +930,9 @@ impl Link {
                     tracing::warn!(%error, device = %self.device.id, "[link] which core this side reads is not kept");
                 }
             }
+            // What the site writes itself is told on this link from now
+            // on, as rows another end sends are.
+            crate::services::her_log::wrote::listen(&self.db).await;
             super::takes_log(&self.device.id, self.registered, self.tx.clone());
             // What a group or a private chat says may be lent to her mind
             // here while this device holds her (`her_log::lend`), when it

@@ -437,7 +437,11 @@ fn batch_id() -> String {
     format!("rows_{}", &uuid::Uuid::new_v4().simple().to_string()[..20])
 }
 
-fn vector_body(audience: &str, holdings: &myriad_persona_log::Holdings, ask: &[String]) -> Value {
+pub(super) fn vector_body(
+    audience: &str,
+    holdings: &myriad_persona_log::Holdings,
+    ask: &[String],
+) -> Value {
     let mut body = json!({ "audience": audience, "vector": holdings.vector });
     if !holdings.beyond.is_empty() {
         body["beyond"] = json!(holdings.beyond);

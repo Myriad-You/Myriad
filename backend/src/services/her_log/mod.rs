@@ -74,6 +74,7 @@ pub mod state;
 pub mod store;
 pub mod stuck;
 pub mod talk;
+pub mod wrote;
 
 #[cfg(test)]
 mod tests;
