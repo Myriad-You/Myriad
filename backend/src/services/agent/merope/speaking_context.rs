@@ -691,6 +691,9 @@ pub async fn her_state_for_anyone() -> Vec<String> {
     };
     let myself = self_state::current(&db).await;
     let mut sections = vec![self_state::format_day_section(&myself.facts)];
+    if let Some(seen) = super::on_mind::seen_by(&db, super::on_mind::Before::Anyone).await {
+        sections.push(myriad_merope::on_mind::section(&seen));
+    }
     sections.extend(super::timing::past_bedtime());
     sections
 }

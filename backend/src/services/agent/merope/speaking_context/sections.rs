@@ -449,6 +449,15 @@ pub(super) async fn her_state(
     }
     if !matches!(turn, Turn::Plain) {
         sections.push(self_state::format_day_section(&myself.facts));
+        // Where her thoughts were: about someone, only they hear what.
+        let before = if present.is_group() {
+            on_mind::Before::Anyone
+        } else {
+            on_mind::Before::Private(user_id)
+        };
+        if let Some(seen) = on_mind::seen_by(db, before).await {
+            sections.push(myriad_merope::on_mind::section(&seen));
+        }
     }
     inner_block
 }

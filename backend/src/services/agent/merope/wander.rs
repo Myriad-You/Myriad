@@ -94,6 +94,7 @@ pub async fn tick(db: DatabaseConnection) {
         return;
     }
     let myself = super::self_state::current(&db).await;
+    let on_mind = super::on_mind::now(&db).await;
     let now = crate::clock::now();
     for user_id in crate::services::agent::consciousness::present_users() {
         if user_id <= 0 || !super::is_logged_in_addressee(user_id) {
@@ -126,6 +127,22 @@ pub async fn tick(db: DatabaseConnection) {
             now,
         ) {
             continue;
+        }
+        // What is on her mind, if it is theirs to hear and she has not gone
+        // back to it with them since she last thought it further.
+        if let Some(mind) = &on_mind
+            && let Some(line) = myriad_merope::on_mind::tell_line(
+                mind,
+                super::on_mind::Before::Private(user_id),
+            )
+        {
+            let key = format!("on_mind:{}:{}", mind.since.timestamp(), mind.steps);
+            if !thought_at.contains_key(&key) {
+                note_thought(user_id, key, now);
+                tracing::info!(user_id, "[Merope] her mind went back to what is on it");
+                super::spawn_ingest(user_id, THOUGHT_EVENT, line);
+                continue;
+            }
         }
         let mut roll = rand::random::<f64>;
         let landed = unified::wander(
