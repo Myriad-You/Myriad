@@ -40,6 +40,12 @@ pub(in crate::services::agent::merope) fn gap_of(row: &unified_row::Model) -> Op
     Experience::of(row).map(|experience| myriad_merope::undertone::gap(experience.reaction, &experience.kept))
 }
 
+/// Her note on a row of her own experience, when it was the thing `key`.
+pub(in crate::services::agent::merope) fn note_on(row: &unified_row::Model, key: &str) -> Option<String> {
+    let experience = Experience::of(row)?;
+    (experience.key == key).then(|| experience.noted(&row.content))
+}
+
 /// What a row of her own experience was and how it landed with her, as
 /// anyone may see it.
 pub(in crate::services::agent::merope) fn thing_and_reaction(

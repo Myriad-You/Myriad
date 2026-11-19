@@ -88,6 +88,10 @@ struct Inner {
     /// into soreSpots).
     #[serde(default)]
     mended: Vec<usize>,
+    /// In private: what of it will keep turning over in her head after
+    /// they go (see `on_mind`).
+    #[serde(default, rename = "onMind")]
+    on_mind: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
@@ -262,10 +266,13 @@ async fn compile(
     if private || in_group.is_some() {
         input["openThreads"] = json!(super::threads::as_input(&threads));
     }
+    if private && let Some(on_mind) = super::on_mind::seen_by(db, super::on_mind::Before::Private(user_id)).await {
+        input[myriad_merope::on_mind::INPUT] = json!(on_mind);
+    }
     input["soreSpots"] = json!(super::sore::as_input(&sores, crate::clock::now()));
     let input = input.to_string();
     let (system_prompt, answer_schema) = if private {
-        (system_for(&soul, true), schema_for(true))
+        private_contract(&soul)
     } else if in_group.is_some() {
         (system_for_group(&soul), schema_for_group())
     } else {
@@ -309,6 +316,8 @@ async fn compile(
         if let Some(told) = reflected.told_you.as_deref() {
             super::making_sense::remember_told_by(db, user_id, told).await;
         }
+        let stays = myriad_merope::on_mind::read_ask(reflected.on_mind.as_ref());
+        super::on_mind::offered(db, stays, Some(user_id), myriad_merope::on_mind::FROM_TALK).await;
     }
     // Made right first, then what got to her this time, kept where it
     // happened.
@@ -333,6 +342,16 @@ struct Reflection {
     told_you: Option<String>,
     hurt: Option<Hurt>,
     mended: Vec<usize>,
+    on_mind: Option<serde_json::Value>,
+}
+
+/// The reflection in private: with threads, sore spots and what stays on
+/// her mind.
+fn private_contract(soul: &str) -> (String, Value) {
+    (
+        format!("{}{}", system_for(soul, true), myriad_merope::on_mind::IN_REFLECTION),
+        myriad_merope::on_mind::with_ask(schema_for(true)),
+    )
 }
 
 fn parse_reflection(raw: &str) -> Option<Reflection> {
@@ -357,6 +376,7 @@ fn parse_reflection(raw: &str) -> Option<Reflection> {
             .filter(|told| !told.is_empty() && told != "null"),
         hurt: parsed.hurt.filter(|hurt| !hurt.what.trim().is_empty()),
         mended: parsed.mended,
+        on_mind: parsed.on_mind,
     })
 }
 
@@ -374,7 +394,7 @@ pub(crate) fn probe_contract(soul: &str) -> (String, Value) {
 /// The private reflection, with threads, for the semantic suite.
 #[cfg(test)]
 pub(crate) fn threads_probe_contract(soul: &str) -> (String, Value) {
-    (system_for(soul, true), schema_for(true))
+    private_contract(soul)
 }
 
 /// (inner, kept threads as (about, dueInHours), done indexes), if the
@@ -606,6 +626,17 @@ pub(super) mod tests {
         );
         assert!(parse(r#"{"inner":"   "}"#).is_none());
         assert!(parse(r#"{"inner":"x","reply":"y"}"#).is_none());
+        // What stays on her mind rides on the private reflection.
+        let (system, schema) = private_contract("你是小灯。");
+        assert!(system.contains(myriad_merope::on_mind::INPUT));
+        assert!(schema["required"].as_array().unwrap().contains(&json!("onMind")));
+        let stays = parse_reflection(r#"{"inner":"嗯。","onMind":"他说的那句话"}"#)
+            .unwrap()
+            .on_mind;
+        assert_eq!(
+            myriad_merope::on_mind::read_ask(stays.as_ref()).as_deref(),
+            Some("他说的那句话")
+        );
         let long = format!(r#"{{"inner":"{}"}}"#, "累".repeat(400));
         assert_eq!(parse(&long).unwrap().chars().count(), MAX_INNER_CHARS);
     }

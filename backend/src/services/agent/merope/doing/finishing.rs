@@ -18,6 +18,14 @@ pub(super) async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
             longings,
         ));
     }
+    // What is on her mind now, as anyone may see it: what she writes here
+    // is hers, and every conversation may hear it.
+    if let Some(on_mind) = super::super::on_mind::seen_by(db, super::super::on_mind::Before::Anyone).await {
+        alongside.push((
+            format!("What is on your mind now ({})", myriad_merope::on_mind::INPUT),
+            on_mind,
+        ));
+    }
     let input = digest_input(
         intake.material.as_deref(),
         intake.limit,
@@ -38,9 +46,11 @@ pub(super) async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
         &soul,
         &what,
         picked_for(&done.thing, &done.why),
-        &intake.how,
+        &format!("{}{}", intake.how, myriad_merope::on_mind::IN_DIGEST),
     );
-    let schema = digest_schema(&intake.asks);
+    let mut asks = intake.asks.clone();
+    asks.push(myriad_merope::on_mind::ask());
+    let schema = digest_schema(&asks);
     let ask = || {
         call::Ask::new(Voice::Hers, owner, "doing_digest")
             .within(CALL_TIMEOUT)
@@ -57,7 +67,7 @@ pub(super) async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
     let Ok(raw) = raw else {
         return;
     };
-    let Some((digest, wrote)) = read_digest(&raw, &intake.asks) else {
+    let Some((digest, mut wrote)) = read_digest(&raw, &asks) else {
         tracing::warn!(kind = %done.thing.key(), "[Merope] what stayed with her came back unreadable; not kept");
         return;
     };
@@ -65,6 +75,7 @@ pub(super) async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
     if impression.is_empty() {
         return;
     }
+    let stays = myriad_merope::on_mind::read_ask(wrote.remove(myriad_merope::on_mind::FIELD).as_ref());
     let reached = intake.reached;
     let kept = sources::after(db, owner, &done.thing, &wrote, intake.carry).await;
     let evidence = Experience {
@@ -84,7 +95,9 @@ pub(super) async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
     )
     .await
     {
-        Ok(Some(_)) => {}
+        Ok(Some(_)) => {
+            super::super::on_mind::offered(db, stays, None, &done.thing.key()).await;
+        }
         Ok(None) => return,
         Err(error) => {
             tracing::warn!(%error, kind = %done.thing.key(), "[Merope] could not keep what she did");

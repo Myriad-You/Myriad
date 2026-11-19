@@ -227,6 +227,11 @@ pub async fn tick(db: DatabaseConnection) {
     if changed {
         keep_now(&db).await;
     }
+    // Lazing about with something on her mind, she thinks it further now
+    // and then; nothing on it, nothing to think.
+    if !asleep && lazing().is_some() {
+        super::on_mind::think_on(&db, owner);
+    }
     // After a restart the hour's count comes back from what she wrote down.
     if LIFE.lock().is_ok_and(|life| life.hour.is_none()) {
         let hour = hour_of(now);

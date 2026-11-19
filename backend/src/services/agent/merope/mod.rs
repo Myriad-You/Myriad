@@ -42,6 +42,7 @@ pub(in crate::services::agent) mod motion;
 pub(in crate::services::agent) mod motion_preview;
 pub(in crate::services::agent) mod nodes;
 pub(in crate::services::agent) mod observe;
+mod on_mind;
 pub(in crate::services::agent) mod onboarding_ai;
 mod other_groups;
 pub(in crate::services::agent) mod others;
