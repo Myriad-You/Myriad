@@ -362,7 +362,10 @@ pub(super) async fn put_card(
     };
     let task = task_id(owner, picture).ok()?;
     let language = language(db, owner).await;
-    let at = crate::clock::now().timestamp_millis();
+    // The moment of the picture it is about, not of her judgment: an end
+    // that sees the session sends a choice pressed on it back only while
+    // the card is of the session's latest picture (the same `occurredAt`).
+    let at = picture.session.occurred_at;
     let card = match myriad_nodes::look_cards::decision(myriad_nodes::look_cards::DecisionInput {
         task: task.clone(),
         told: told(picture),
@@ -409,7 +412,7 @@ async fn settle(
     let settled = myriad_nodes::look_cards::settled(myriad_nodes::look_cards::SettledInput {
         card: now.card,
         told: told(picture),
-        at: crate::clock::now().timestamp_millis(),
+        at: picture.session.occurred_at,
         language: language.to_string(),
     });
     if let Ok(card) = &settled
@@ -462,7 +465,7 @@ pub(super) async fn session_cards(db: &DatabaseConnection, owner: i32, picture: 
         match myriad_nodes::look_cards::status(myriad_nodes::look_cards::StatusInput {
             task: task.clone(),
             told: told(picture),
-            at: crate::clock::now().timestamp_millis(),
+            at: session.occurred_at,
             language: language.clone(),
         }) {
             Ok(Some(card)) => {

@@ -755,6 +755,9 @@ async fn her_card_comes_at_once_moves_to_her_line_and_settles_as_the_session_goe
     let held = cards::now(db, OWNER, &id).await.unwrap().unwrap();
     assert_eq!(held.card.kind, "decide");
     assert!(held.waiting);
+    // Of the picture it is about: an end that sees the session sends a
+    // choice back only while the card is of its latest picture.
+    assert_eq!(held.card.at, 1_760_000_000_000);
     assert!(
         held.card.title.contains("Split the store"),
         "{}",
@@ -840,6 +843,7 @@ async fn her_card_comes_at_once_moves_to_her_line_and_settles_as_the_session_goe
     assert_eq!(lines[2], ("card".to_string(), id.clone(), true));
     let asks = cards::now(db, OWNER, &id).await.unwrap().unwrap();
     assert!(asks.waiting && asks.answered.is_none());
+    assert_eq!(asks.card.at, 1_760_000_100_000);
 
     // Answered in the session instead: it went on, and the card settles.
     take(
@@ -852,6 +856,7 @@ async fn her_card_comes_at_once_moves_to_her_line_and_settles_as_the_session_goe
     .unwrap();
     let settled = cards::now(db, OWNER, &id).await.unwrap().unwrap();
     assert!(!settled.waiting);
+    assert_eq!(settled.card.at, 1_760_000_150_000);
     assert!(
         settled
             .card
@@ -875,6 +880,7 @@ async fn her_card_comes_at_once_moves_to_her_line_and_settles_as_the_session_goe
         .find(|card| card.kind == "status")
         .expect("a status card");
     assert!(!status.waiting);
+    assert_eq!(status.at, 1_760_000_200_000);
 
     // An open question she has no answer to: only going to the session,
     // so it waits on nobody here; the session going on still settles it.
@@ -897,6 +903,7 @@ async fn her_card_comes_at_once_moves_to_her_line_and_settles_as_the_session_goe
     let open = open.expect("her card on the open question");
     assert!(!open.waiting);
     assert_eq!(open.card.actions.len(), 1);
+    assert_eq!(open.card.at, 1_760_000_250_000);
     take(
         db,
         OWNER,
@@ -908,6 +915,7 @@ async fn her_card_comes_at_once_moves_to_her_line_and_settles_as_the_session_goe
     let went_on = cards::now(db, OWNER, &id).await.unwrap().unwrap();
     assert_ne!(went_on.version, open.version);
     assert_ne!(went_on.card.state, open.card.state);
+    assert_eq!(went_on.card.at, 1_760_000_300_000);
     schema.drop().await;
 }
 
