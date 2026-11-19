@@ -413,7 +413,11 @@ async fn run_for(
     who: (i32, &str),
     answering: Vec<String>,
 ) -> Outcome {
-    let written = write_for(db, models.0, question, name, who, answering).await;
+    // `MEROPE_MEMORY_BENCH_WRITE_THINKING`: written thinking as asked.
+    let written = crate::services::analyzer::write_thinking::when_asked(write_for(
+        db, models.0, question, name, who, answering,
+    ))
+    .await;
     answer_for(db, models, question, name, who, written, None).await
 }
 

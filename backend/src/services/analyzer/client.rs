@@ -283,6 +283,10 @@ impl AiAnalyzer {
     }
 
     fn remember_refusal(&self, shape: RequestShape) {
+        #[cfg(test)]
+        if super::write_thinking::active() {
+            return;
+        }
         let key = format!("{}#{}", self.capability_key(), shape.tag());
         if let Ok(mut seen) = shape_memo().write() {
             if seen.get(&key).is_none() {
@@ -493,6 +497,9 @@ impl AiAnalyzer {
         {
             object.insert("usage".into(), serde_json::json!({"include": true}));
         }
+        // A memory bench writing with thinking asked otherwise (`write_thinking`).
+        #[cfg(test)]
+        super::write_thinking::apply(self.provider, &mut body);
         Ok(body)
     }
 

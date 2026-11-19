@@ -15,6 +15,8 @@ mod transport;
 
 #[cfg(test)]
 pub(crate) mod probe;
+#[cfg(test)]
+pub(crate) mod write_thinking;
 
 pub use client::AiAnalyzer;
 pub use sse::StreamCut;

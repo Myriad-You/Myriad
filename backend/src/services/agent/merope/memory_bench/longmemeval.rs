@@ -44,6 +44,8 @@ pub(super) async fn her_memory_on_longmemeval() {
         })
         .collect();
     let (judge, lite) = the_models().await;
+    // Read before anything is paid for: a value it does not take stops here.
+    let write_thinking = crate::services::analyzer::write_thinking::asked();
     // `MEROPE_MEMORY_BENCH_READER=<model>`: also answer and grade the wide
     // way with that model on Lite's provider, as published results did.
     let reader = match std::env::var("MEROPE_MEMORY_BENCH_READER") {
@@ -151,6 +153,12 @@ pub(super) async fn her_memory_on_longmemeval() {
     report["notStarted"] = json!(not_started);
     report["spent"] = crate::services::ai_cost_ledger::spent::take();
     report["lite"] = lite_in_use().await;
+    // Asked from what an earlier run wrote, nothing here was written.
+    report["writeThinking"] = json!(
+        write_thinking
+            .filter(|_| from_written.is_none())
+            .map(|thinking| format!("{thinking:?}"))
+    );
     println!("{}", report["scores"]);
     std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
 }
@@ -200,16 +208,17 @@ async fn on_its_own(
         None => {
             let own = crate::db::IsolatedSchema::migrated(url, "memory_bench").await;
             let user_id = new_user(&own.db, &name).await;
+            // `MEROPE_MEMORY_BENCH_WRITE_THINKING`: written thinking as asked.
             let (written, write_failed) = failures_in(ROUND.scope(
                 round,
-                write_for(
+                crate::services::analyzer::write_thinking::when_asked(write_for(
                     &own.db,
                     models.0,
                     question,
                     &name,
                     (user_id, &name),
                     Vec::new(),
-                ),
+                )),
             ))
             .await;
             let kept = match keeping {
