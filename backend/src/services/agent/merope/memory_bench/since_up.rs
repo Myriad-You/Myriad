@@ -39,6 +39,7 @@ use crate::services::agent::{
 };
 
 mod day;
+mod on_mind;
 mod undertone;
 
 use day::Day;

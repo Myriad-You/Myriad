@@ -54,7 +54,7 @@ pub async fn now(db: &DatabaseConnection) -> Option<OnMind> {
         .flatten()
 }
 
-async fn keep(db: &DatabaseConnection, on_mind: &OnMind) {
+pub(super) async fn keep(db: &DatabaseConnection, on_mind: &OnMind) {
     let keep_until = (crate::clock::now() + chrono::Duration::days(KEEP_DAYS)).timestamp();
     if let Err(error) = crate::services::runtime_registry::put(
         db, NAMESPACE, RECORD, identity(), on_mind, keep_until,
@@ -109,7 +109,7 @@ pub fn think_on(db: &DatabaseConnection, owner: i32) {
     });
 }
 
-async fn step(db: &DatabaseConnection, owner: i32) {
+pub(super) async fn step(db: &DatabaseConnection, owner: i32) {
     let now = crate::clock::now();
     let Some(mut on_mind) = self::now(db).await.filter(|on_mind| on_mind.step_due(now)) else {
         return;
