@@ -108,6 +108,7 @@ fn test_folded_extension_tables_in_expected_schema() {
         "agent_log_full_links",
         "agent_lease_grants",
         "agent_lease_ends",
+        "agent_lease_deputies",
         "agent_affect_events",
         "agent_affect_anchor",
         "agent_persona_field_history",

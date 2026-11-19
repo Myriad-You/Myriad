@@ -575,6 +575,8 @@ pub async fn sync_off(
     now: i64,
 ) -> Result<Option<Grant>, Error> {
     store::stop(db, owner).await?;
+    // No end goes on as her temporary host past it.
+    super::deputy::withdraw_all(db).await?;
     match standing(db).await? {
         Some(grant) if grant.holder.is_some() && !grant.held_by(NODE) => {}
         _ => return Ok(None),
@@ -594,15 +596,30 @@ pub async fn sync_off(
     }
 }
 
-/// `lease.epoch`: where her mind is, for every device.
+/// `lease.epoch`: where her mind is, for every device, with the move a
+/// freeze is for. `issued` and `from` (the standing grant's, so a temporary
+/// host holds that grant whole to read its lease by) go only to an end that
+/// listed `deputy`: the link takes them off for any other, whose core
+/// refuses a field it does not know ([`DEPUTY_ONLY`]).
 pub fn epoch_body(grant: &Grant, settings: &Settings) -> Value {
-    json!({
+    let mut body = json!({
         "epoch": grant.epoch,
         "holder": grant.holder,
         "how": how_name(grant.how),
         "stopAfter": settings.stop_after_micros,
-    })
+        "issued": grant.issued,
+    });
+    if let Some(moving) = &grant.moving {
+        body["move"] = json!(moving);
+    }
+    if let Some(from) = &grant.from {
+        body["from"] = json!(from);
+    }
+    body
 }
+
+/// The fields of `lease.epoch` only an end that listed `deputy` is sent.
+pub const DEPUTY_ONLY: [&str; 2] = ["issued", "from"];
 
 /// `lease.grant`: to the new holder.
 pub fn grant_body(grant: &Grant, settings: &Settings) -> Value {

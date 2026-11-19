@@ -261,6 +261,9 @@ async fn of_grant<C: ConnectionTrait>(
         owner_here_at: None,
         stop_after: Some(settings.stop_after_micros),
         stopped_at: None,
+        // The server is never anyone's temporary host.
+        deputy: None,
+        host_unreachable_since: None,
     })?;
     if !matches!(state, myriad_persona_log::Here::Thinking) {
         return Ok(Pen::Away {

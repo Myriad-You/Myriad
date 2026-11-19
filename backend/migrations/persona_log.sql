@@ -268,6 +268,29 @@ CREATE TABLE IF NOT EXISTS agent_lease_ends (
     stopped_at BIGINT
 );
 
+-- The deputies the server gave the owner's host cores (her temporary host,
+-- services/her_log/deputy.rs): each lets the end it names (`holder`) go on
+-- as her for a while when it loses the server, its rows written under
+-- `under`, the epoch that stood then, between `issued` (the server's clock
+-- as it gave it) and `until_micros`. `ord` is where it stood among those given
+-- then, 1 first (the end the owner used last); shown only, for now. Her
+-- rows are placed against these and only these: one an end shows that is
+-- not here counts for nothing. `issued_at` is the server's wall time, what
+-- the hourly renewal goes by; `received_at` when the end said it took it.
+-- They go with the end (removed) and with her lease (syncing off).
+CREATE TABLE IF NOT EXISTS agent_lease_deputies (
+    holder VARCHAR(64) NOT NULL,
+    issued VARCHAR(96) NOT NULL,
+    under BIGINT NOT NULL CHECK (under >= 1),
+    until_micros BIGINT NOT NULL,
+    ord INTEGER NOT NULL CHECK (ord >= 1),
+    issued_at TIMESTAMPTZ NOT NULL,
+    received_at TIMESTAMPTZ,
+    PRIMARY KEY (holder, issued)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_lease_deputies_holder_issued_at
+    ON agent_lease_deputies (holder, issued_at DESC);
+
 -- What the partner and she said in private on another of the owner's ends,
 -- kept in the site's own conversations as copies (D6-e): `origin` is the
 -- end that wrote the line (none for a line said here), `log_row` the row of

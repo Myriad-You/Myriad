@@ -89,6 +89,7 @@ pub(crate) use contract::{Close, Timing};
 pub(crate) use conversations::{
     heard_change as conversations_changed, heard_nothing_for_a_while as conversations_unheard,
 };
+pub(crate) use pick::ranked as ranked_devices;
 pub(crate) use say::{Say, SayKind, can_say, say};
 
 /// The largest frame a child may send.

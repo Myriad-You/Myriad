@@ -1111,6 +1111,86 @@ async fn her_log_goes_over_the_link_while_she_syncs() {
     site.close().await;
 }
 
+/// Her temporary host over the link: only a computer that listed `deputy`
+/// is told the standing grant's clock in `lease.epoch`, and, once it keeps
+/// up with her log, given a deputy, which it says it took with
+/// `lease.taken`. One that did not list it is told neither.
+#[tokio::test]
+async fn a_computer_that_listed_deputy_is_given_one_once_it_keeps_up() {
+    use crate::services::her_log::deputy;
+    let Some(site) = site().await else {
+        return;
+    };
+    let _turn = crate::services::her_log::lend::SERIAL.lock().await;
+    crate::services::her_log::test_settings::set(crate::services::her_log::Settings {
+        enabled: true,
+        ..crate::services::her_log::Settings::default()
+    });
+    crate::services::her_log::store::start(&site.db, OWNER)
+        .await
+        .unwrap();
+    let standing = crate::services::her_log::lease::current(&site.db)
+        .await
+        .unwrap();
+    let (mac_device, mac) = device(&site.db, "MacBook").await;
+    let (_, mini) = device(&site.db, "Mac mini").await;
+    let mut mac = Child::open(&site, &mac).await;
+    let welcome = mac.hello_with(&["partner", "log2", "deputy"]).await;
+    assert_eq!(welcome["body"]["sync"], "on");
+    let personal = format!("personal:{}", welcome["body"]["partner"].as_str().unwrap());
+    let epoch = until(&mut mac, "lease.epoch").await;
+    assert_eq!(epoch["body"]["epoch"], standing.epoch);
+    assert_eq!(epoch["body"]["issued"], json!(standing.issued));
+    let mut mini = Child::open(&site, &mini).await;
+    mini.hello_with(&["partner", "log2"]).await;
+    let told = until(&mut mini, "lease.epoch").await;
+    assert_eq!(told["body"]["epoch"], standing.epoch);
+    assert!(told["body"].get("issued").is_none(), "{told}");
+    assert!(told["body"].get("from").is_none(), "{told}");
+
+    // It holds what the site holds of both.
+    for audience in [personal.as_str(), "own:"] {
+        let held = crate::services::her_log::store::holdings(&site.db, OWNER, audience)
+            .await
+            .unwrap();
+        mac.send(
+            "log.vector",
+            None,
+            json!({ "audience": audience, "vector": held.vector }),
+        )
+        .await;
+    }
+    let given = until(&mut mac, deputy::FRAME).await;
+    let body = &given["body"]["deputy"];
+    assert_eq!(body["holder"], mac_device.id.as_str());
+    assert_eq!(body["under"], standing.epoch);
+    assert_eq!(body["order"], 1);
+    let id = given["id"].as_str().unwrap().to_string();
+    mac.send("lease.taken", None, json!({ "of": deputy::FRAME, "id": id }))
+        .await;
+    // Taken twice counts once.
+    mac.send("lease.taken", None, json!({ "of": deputy::FRAME, "id": id }))
+        .await;
+    mac.send("ping", None, json!({})).await;
+    until(&mut mac, "pong").await;
+    let kept = deputy::for_holders(&site.db, &[mac_device.id.as_str()])
+        .await
+        .unwrap();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(json!(kept[0]), *body);
+    let row = site
+        .db
+        .query_one_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT COUNT(*) FILTER (WHERE received_at IS NOT NULL) AS taken FROM agent_lease_deputies",
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.try_get::<i64>("", "taken").unwrap(), 1);
+    site.close().await;
+}
+
 /// While she syncs, what a group or a private chat says is lent on the
 /// link of the computer holding her, when its hello listed `lend`. Its ack makes a lend her mind's there,
 /// and her line for it is answered (here no chat app takes it). A lend the

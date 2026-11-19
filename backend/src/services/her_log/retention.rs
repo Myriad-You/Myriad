@@ -119,6 +119,7 @@ pub async fn sweep(
             "DELETE FROM agent_log_clock; \
              DELETE FROM agent_log_full_links; \
              DELETE FROM agent_lease_ends; \
+             DELETE FROM agent_lease_deputies; \
              TRUNCATE agent_lease_grants;",
         )
         .await?;

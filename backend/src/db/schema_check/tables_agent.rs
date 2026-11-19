@@ -1429,6 +1429,18 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
+            name: "agent_lease_deputies".to_string(),
+            columns: vec![
+                ColumnDef::new("holder", "character varying").not_null(),
+                ColumnDef::new("issued", "character varying").not_null(),
+                ColumnDef::new("under", "bigint").not_null(),
+                ColumnDef::new("until_micros", "bigint").not_null(),
+                ColumnDef::new("ord", "integer").not_null(),
+                ColumnDef::new("issued_at", "timestamp with time zone").not_null(),
+                ColumnDef::new("received_at", "timestamp with time zone"),
+            ],
+        },
+        TableDef {
             name: "agent_kept_for_her".to_string(),
             columns: vec![
                 ColumnDef::new("id", "bigint").not_null(),

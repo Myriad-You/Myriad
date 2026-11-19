@@ -249,6 +249,7 @@ pub(super) async fn serve_with(
         now_choices: false,
         cards: false,
         images: false,
+        deputy: false,
         nodes: false,
         proposals: None,
         acts: false,
@@ -356,6 +357,9 @@ struct Link {
     cards: bool,
     /// The child said it sends `images`: what the owner shows her, with their input.
     images: bool,
+    /// It listed `deputy` (her temporary host): its `lease.epoch` carries
+    /// the standing grant's `issued`, which another end's core refuses.
+    deputy: bool,
     /// The child said it takes `nodes`: it is kept current with her nodes.
     nodes: bool,
     /// Her open proposals as the child was last told them, once it said it
@@ -483,7 +487,15 @@ impl Link {
         }
     }
 
-    async fn send(&mut self, sink: &mut Sink, outgoing: Outgoing) -> bool {
+    async fn send(&mut self, sink: &mut Sink, mut outgoing: Outgoing) -> bool {
+        if outgoing.t == "lease.epoch"
+            && !self.deputy
+            && let Some(body) = outgoing.body.as_object_mut()
+        {
+            for field in crate::services::her_log::lease::DEPUTY_ONLY {
+                body.remove(field);
+            }
+        }
         self.sent += 1;
         let mut envelope = json!({
             "v": CONTRACT.encoding.frame_version,
@@ -972,6 +984,9 @@ impl Link {
             .iter()
             .any(|capability| capability == "moments");
         self.images = capabilities.iter().any(|capability| capability == "images");
+        self.deputy = capabilities
+            .iter()
+            .any(|capability| capability == crate::services::her_log::deputy::CAPABILITY);
         self.streams = capabilities
             .iter()
             .any(|capability| capability == "streams");
@@ -2163,6 +2178,21 @@ impl Link {
         }
         if self.hello {
             self.reply(frame("ping", json!({})));
+        }
+        // Her temporary host's deputy, renewed every hour while it keeps up.
+        if self.sync
+            && let Some(session) = self.relay.as_mut()
+        {
+            let out = crate::services::her_log::relay::renew(
+                &self.db,
+                &crate::services::her_log::current_settings(),
+                self.owner,
+                &self.device.id,
+                session,
+                crate::clock::now().timestamp_micros(),
+            )
+            .await;
+            self.deliver(out);
         }
         // What it wears changed on the host (its set's rig was made again,
         // or the set left her wardrobe).

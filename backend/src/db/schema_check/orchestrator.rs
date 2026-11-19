@@ -128,7 +128,11 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// 2026.11.18.2：收回的第二次判断 `agent_takeback_check`（哪条记忆、那句话的消息 id、判断到哪一步；不存
 /// 原话；只有确认过的收回才在节点上忘掉），随 004 与 `ensure_memory_nodes_tables` 一起建
 /// （`memory_nodes.sql`）。旧二进制不认识它也照常启动。
-pub const SCHEMA_VERSION: &str = "2026.11.18.2";
+/// 2026.11.19.1：临时主机的代理凭证 `agent_lease_deputies`（发给哪一端、发证时站着的那一任、
+/// 服务端发证时钟、到期（微秒）、次序、发证墙钟、设备回执时间），归类她的行时只认这里的记录；
+/// 随设备移除和她的租约（同步关闭）一起删，随 004 与 `ensure_persona_log_tables` 一起建
+/// （`persona_log.sql`）。旧二进制不认识它也照常启动。
+pub const SCHEMA_VERSION: &str = "2026.11.19.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);

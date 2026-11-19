@@ -247,6 +247,10 @@ pub async fn revoke<C: ConnectionTrait + TransactionTrait>(
         // She lived on it, or was moving with it: the lease says so now
         // (vacant, or as she was before the move), and every process hears.
         super::lease::device_gone(db, &device.id).await?;
+        // Its deputies (her temporary host there) go with it.
+        crate::services::her_log::deputy::withdraw(db, &device.id)
+            .await
+            .map_err(|error| DbErr::Custom(format!("a removed device's deputies: {error}")))?;
         use crate::services::agent::link::{Close, disconnect};
         // The reason the link was allowed is gone: the device forgets its token.
         let close = match why {

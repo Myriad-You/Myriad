@@ -137,6 +137,9 @@ pub struct Session {
     /// The link's number (`link::open`): what the status page keeps of a
     /// page on its way is this link's, and only this link lets it go.
     link: u64,
+    /// Whether its end keeps up with her log and what it was given on this
+    /// link, when its hello listed `deputy` (her temporary host).
+    deputy: Option<super::deputy::Watch>,
 }
 
 /// The most rows asked again for an audience keeps waiting on a link: as
@@ -174,6 +177,7 @@ impl Session {
             asks: BTreeMap::new(),
             unsettled: false,
             link: 0,
+            deputy: None,
         }
     }
 
@@ -196,6 +200,7 @@ impl Session {
         Self {
             full: listed(FULL),
             pages: listed(PAGES),
+            deputy: listed(super::deputy::CAPABILITY).then(super::deputy::Watch::default),
             ..Self::new(peer_abi(capabilities))
         }
     }
@@ -349,6 +354,83 @@ pub fn encode(out: &Outgoing, seq: u64, ack: u64, at_ms: i64) -> Result<String, 
     myriad_her_link::check(&frame, &roles(&SERVER_ROLES))
         .map(|checked| checked.canonical)
         .map_err(|refusal| Error::Refused(format!("{}: {}", refusal.code, refusal.detail)))
+}
+
+/// A deputy for `device` when one is due on its link (`session`), as the
+/// frame that takes it there; none when none is, or when giving one failed
+/// (said here: it is tried again on its next log.vector or heartbeat).
+async fn deputize(
+    db: &DatabaseConnection,
+    owner: &Owner,
+    device: &str,
+    session: &mut Session,
+    now: i64,
+) -> Option<Outgoing> {
+    let watch = session.deputy.as_mut()?;
+    match super::deputy::give(db, owner, device, watch, now).await {
+        Ok(Some(deputy)) => {
+            tracing::info!(
+                device,
+                under = deputy.under,
+                order = deputy.order,
+                "[her-log] a deputy was given"
+            );
+            Some(Outgoing {
+                to: To::Sender,
+                t: super::deputy::FRAME,
+                id: Some(super::deputy::frame_id(&deputy)),
+                body: json!({ "deputy": deputy }),
+            })
+        }
+        Ok(None) => None,
+        Err(error) => {
+            tracing::warn!(%error, device, "[her-log] a deputy was not given");
+            None
+        }
+    }
+}
+
+/// Every heartbeat of a link that syncs: a deputy for its end when one is
+/// due (the hourly renewal), while her log on the server is on for `user`.
+pub async fn renew(
+    db: &DatabaseConnection,
+    settings: &Settings,
+    user: i32,
+    device: &str,
+    session: &mut Session,
+    now: i64,
+) -> Vec<Outgoing> {
+    if session.deputy.is_none() || !settings.enabled {
+        return Vec::new();
+    }
+    // Nothing more is read while it does not keep up; one is due again an
+    // hour on, or as soon as another epoch stands (a new grant).
+    let Some(watch) = session.deputy.as_ref().filter(|watch| watch.keeps_up()) else {
+        return Vec::new();
+    };
+    match lease::standing(db).await {
+        Ok(Some(standing)) if standing.held_by(NODE) && watch.due(standing.epoch, now) => {}
+        Ok(_) => return Vec::new(),
+        Err(error) => {
+            tracing::warn!(%error, device, "[her-log] whether a deputy is due could not be read");
+            return Vec::new();
+        }
+    }
+    let owner = match store::account(db, user).await {
+        Ok(Some(account)) if account.on() => super::owner(db, user).await,
+        Ok(_) => return Vec::new(),
+        Err(error) => Err(error),
+    };
+    match owner {
+        Ok(owner) => deputize(db, &owner, device, session, now)
+            .await
+            .into_iter()
+            .collect(),
+        Err(error) => {
+            tracing::warn!(%error, device, "[her-log] whether a deputy is due could not be read");
+            Vec::new()
+        }
+    }
 }
 
 fn batch_id() -> String {
@@ -627,10 +709,15 @@ async fn answer(
                 ask,
                 after,
             };
-            vector(
+            let mut out = vector(
                 db, root, &owner, device, &side, session, &audience, asked, now,
             )
-            .await
+            .await?;
+            // Once it keeps up, a deputy (her temporary host).
+            if host {
+                out.extend(deputize(db, &owner, device, session, now).await);
+            }
+            Ok(out)
         }
         "log.rows" => {
             let audience = audience_of(body)?;
@@ -769,6 +856,24 @@ async fn answer(
             };
             moved(db, settings, user, request, seq, now).await
         }
+        // It has read a lease.grant or a lease.deputy through and keeps it:
+        // only this, never an ack, says so (`deputy`).
+        "lease.taken" => {
+            let id = body["id"].as_str().unwrap_or_default();
+            match body["of"].as_str() {
+                Some(super::deputy::FRAME) => {
+                    let taken = match super::deputy::issued_of(id) {
+                        Some(issued) => super::deputy::received(db, device, &issued).await?,
+                        None => false,
+                    };
+                    if !taken {
+                        tracing::info!(device, "[her-log] a deputy it says it took is none the server gave it");
+                    }
+                }
+                _ => tracing::info!(device, of = ?body["of"].as_str(), "[her-log] a lease frame was taken"),
+            }
+            Ok(Vec::new())
+        }
         "lease.place" => {
             let place = body["place"].as_str().filter(|place| !place.is_empty());
             let owner_here = body["ownerHere"].as_bool().unwrap_or(false);
@@ -900,6 +1005,9 @@ async fn vector(
         Vec::new()
     };
     let ours = store::holdings(db, owner.user, audience).await?;
+    if let Some(watch) = session.deputy.as_mut() {
+        watch.heard(owner, audience, theirs, &ours.vector);
+    }
     // How far a side has her log, by origin: counts only, no rows. What a
     // check after a forget reads to see the side has the forget row.
     tracing::debug!(
@@ -1091,9 +1199,21 @@ async fn rows(
     let sent = batch.rows.len();
     // Where her rows of it stand against the lease as it arrives (the
     // log's rules, as its fold reads them): a side writing after it gave
-    // her back is taken all the same, and only counted here.
+    // her back is taken all the same, and only counted here. A row a
+    // temporary host wrote is placed against the deputies kept here alone.
     let standings = if batch.rows.iter().any(|row| row.author == Author::Her) {
-        myriad_persona_log::lease::standings(&batch.rows, &lease::history(db).await?)
+        let origins: BTreeSet<&str> = batch
+            .rows
+            .iter()
+            .filter(|row| row.author == Author::Her)
+            .map(|row| row.origin.as_str())
+            .collect();
+        let origins: Vec<&str> = origins.into_iter().collect();
+        myriad_persona_log::lease::standings(
+            &batch.rows,
+            &lease::history(db).await?,
+            &super::deputy::for_holders(db, &origins).await?,
+        )
     } else {
         Vec::new()
     };
@@ -1130,6 +1250,7 @@ async fn rows(
             added = added.len(),
             after_handover = placed(Stand::AfterHandover),
             not_holder = placed(Stand::NotHolder),
+            concurrent = placed(Stand::Concurrent),
             "[her-log] a batch of her log was taken"
         );
     }

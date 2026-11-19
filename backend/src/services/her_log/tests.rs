@@ -34,6 +34,10 @@ use super::{
 #[path = "page_tests.rs"]
 mod page_tests;
 
+/// Her temporary host's deputies: kept, given, renewed and withdrawn.
+#[path = "deputy_tests.rs"]
+mod deputy_tests;
+
 const OWNER: i32 = 41;
 /// The partner's private talk: `personal:<partner id>` ([`PARTNER`]).
 const PERSONAL: &str = "personal:partner_019b76daa80000112233445566778899";
@@ -441,6 +445,7 @@ impl Side {
         let folded = fold(FoldInput {
             rows: self.log(audience),
             leases: leases.to_vec(),
+            deputies: Vec::new(),
             ledger: self.ledger.clone(),
         })
         .unwrap();
@@ -512,6 +517,7 @@ async fn server_fold(db: &DatabaseConnection, audience: &str, leases: &[Grant]) 
     let folded = fold(FoldInput {
         rows: store::rows(db, OWNER, audience).await.unwrap(),
         leases: leases.to_vec(),
+        deputies: Vec::new(),
         ledger: store::ledger(db, OWNER, audience).await.unwrap(),
     })
     .unwrap();
@@ -1290,12 +1296,13 @@ async fn what_her_mind_wrote_before_a_takeover_is_taken_when_it_comes_back() {
         let rows = store::rows(db, OWNER, audience).await.unwrap();
         assert!(rows.iter().any(|row| &row.id == id), "{audience}");
         assert!(
-            myriad_persona_log::lease::standings(&rows, &history).is_empty(),
+            myriad_persona_log::lease::standings(&rows, &history, &[]).is_empty(),
             "{audience}: hers, standing normal"
         );
         let folded = fold(FoldInput {
             rows,
             leases: history.clone(),
+            deputies: Vec::new(),
             ledger: store::ledger(db, OWNER, audience).await.unwrap(),
         })
         .unwrap();
