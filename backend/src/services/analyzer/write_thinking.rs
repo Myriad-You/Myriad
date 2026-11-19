@@ -1,18 +1,15 @@
 //! Memory bench only (`MEROPE_MEMORY_BENCH_WRITE_THINKING`): her writing
 //! asked to think otherwise than production asks, to see what its thinking
-//! buys. `default`: no thinking parameter and no effort, as a model's own
-//! default is (Haiku 5.5 thinks adaptively at effort medium); `off`:
-//! thinking turned off. Compiled into test builds only, so production asks
-//! as it always has. Meant for `her_memory_on_longmemeval`: the long
-//! background bench writes partly outside it and does not record it, so it
-//! is not set there.
+//! buys. Unset, it is written as production writes it (the model's own
+//! thinking, `call::Voice::Keeping`); `off`: thinking turned off. Compiled
+//! into test builds only, so production asks as it always has. Meant for
+//! `her_memory_on_longmemeval`: the long background bench writes partly
+//! outside it and does not record it, so it is not set there.
 
 use super::AiProvider;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Thinking {
-    /// No thinking parameter or effort: the model's own default.
-    Default,
     /// Thinking turned off.
     Off,
 }
@@ -26,9 +23,8 @@ tokio::task_local! {
 pub(crate) fn asked() -> Option<Thinking> {
     match std::env::var("MEROPE_MEMORY_BENCH_WRITE_THINKING").as_deref() {
         Err(_) | Ok("") => None,
-        Ok("default") => Some(Thinking::Default),
         Ok("off") => Some(Thinking::Off),
-        Ok(other) => panic!("MEROPE_MEMORY_BENCH_WRITE_THINKING is default or off, not {other}"),
+        Ok(other) => panic!("MEROPE_MEMORY_BENCH_WRITE_THINKING is off or unset, not {other}"),
     }
 }
 
@@ -63,7 +59,6 @@ fn set(thinking: Thinking, body: &mut serde_json::Value) {
         return;
     };
     match thinking {
-        Thinking::Default => object.remove("thinking"),
         // Haiku 5.5 takes `disabled` at effort high or below; with no
         // effort it is the model's own.
         Thinking::Off => object.insert("thinking".into(), serde_json::json!({"type": "disabled"})),
@@ -101,19 +96,12 @@ async fn only_anthropic_bodies_inside_the_scope_are_asked_otherwise() {
             })
             .await
     };
-    let (anthropic, other, light) = within(Thinking::Default).await;
-    assert_eq!(
-        anthropic,
-        serde_json::json!({"output_config": {"format": {"type": "json_schema"}}})
-    );
-    assert_eq!(other, deep(), "other providers are left as asked");
-    assert_eq!(light, serde_json::json!({}));
     let (anthropic, other, light) = within(Thinking::Off).await;
     assert_eq!(
         anthropic,
         serde_json::json!({"thinking": {"type": "disabled"},
             "output_config": {"format": {"type": "json_schema"}}})
     );
-    assert_eq!(other, deep());
+    assert_eq!(other, deep(), "other providers are left as asked");
     assert_eq!(light, serde_json::json!({"thinking": {"type": "disabled"}}));
 }

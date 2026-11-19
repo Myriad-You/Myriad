@@ -498,7 +498,7 @@ pub(super) async fn extract(
         turn,
         input_at.with_timezone(&super::clock::zone()),
     );
-    let raw = super::call::Ask::new(super::call::Voice::Thorough, user_id, "chat_remember")
+    let raw = super::call::Ask::new(super::call::Voice::Keeping, user_id, "chat_remember")
         .within(EXTRACT_TIMEOUT)
         // At most 2,483 measured, thinking included.
         .output_at_most(6000)

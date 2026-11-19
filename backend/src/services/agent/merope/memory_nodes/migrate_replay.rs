@@ -49,7 +49,8 @@ pub(crate) const OPERATION: &str = "memory_node_migrate_sort";
 /// is on it), and each fact's answer.
 const TOPIC_TOKENS: u64 = 60;
 const ANSWER_TOKENS: u64 = 30;
-/// Her thinking on one ask (deep thinking): uncertain.
+/// Her thinking on one ask (measured when she thought it through; she
+/// now thinks less, so this errs high): uncertain.
 const THINKING_TOKENS: u64 = 1500;
 /// The prompt's framing of each fact (its number and day).
 const FACT_FRAME_TOKENS: u64 = 6;

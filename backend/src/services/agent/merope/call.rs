@@ -25,10 +25,15 @@ pub(super) enum Voice {
     Hers,
     /// Her voice, thinking as long as the provider likes.
     HersAtLength,
-    /// Her voice, thinking it through: making sense of what people mean,
-    /// and what she keeps of it. Slower; for calls where a wrong reading
-    /// costs more than the wait.
+    /// Her voice, thinking it through: making sense of what people mean
+    /// (who someone is, what a word or a bit means here). Slower; for calls
+    /// where a wrong reading costs more than the wait.
     Thorough,
+    /// Her voice, keeping what was said: writing it down, settling it after
+    /// a chat, keeping her topics in order. The model thinks as it does by
+    /// default (Haiku 5.5: adaptively, at effort medium); asked to think it
+    /// through, the memory bench kept no better for a fifth more.
+    Keeping,
     /// The stronger model, thinking it through: reading a stretch of a
     /// group's talk once, which everything she keeps of it rests on.
     Reading,
@@ -229,7 +234,7 @@ impl Ask {
                     .ok_or_else(|| self.failed(Failure::Unavailable))?
                     .with_light_thinking()
             }
-            Voice::HersAtLength => {
+            Voice::HersAtLength | Voice::Keeping => {
                 crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(self.timeout))
                     .await
                     .ok_or_else(|| self.failed(Failure::Unavailable))?

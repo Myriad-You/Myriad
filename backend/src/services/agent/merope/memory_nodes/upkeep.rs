@@ -545,7 +545,7 @@ pub(crate) async fn run(
         let shown = serde_json::to_string(&upkeep::prepare(input.clone())?)
             .map_err(|_| Error::Refused("what she is shown does not serialize".into()))?;
         calls += 1;
-        let answer = Ask::new(Voice::Thorough, user_id, OPERATION)
+        let answer = Ask::new(Voice::Keeping, user_id, OPERATION)
             .within(TIMEOUT)
             // At most 5,683 measured, thinking included, but a live upkeep
             // was cut off at 10,000 with under a thousand characters said:

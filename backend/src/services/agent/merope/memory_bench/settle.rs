@@ -216,15 +216,14 @@ async fn settle_pass(
         "topics": super::super::chat_remember::settle::shown_topics(&offered),
     })
     .to_string();
-    // Asked as production asks it (`call::Voice::Thorough`: thinking
-    // hard), and tried again as production tries a stretch again, an
+    // Asked as production asks it (`call::Voice::Keeping`: the model's own
+    // thinking), and tried again as production tries a stretch again, an
     // unreadable answer too, as many times.
-    let thorough = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
+    let keeping = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
         super::super::chat_remember::settle::SETTLE_TIMEOUT,
     ))
-    .await
-    .map(|analyzer| analyzer.with_deep_thinking());
-    let model = thorough.as_ref().unwrap_or(judge);
+    .await;
+    let model = keeping.as_ref().unwrap_or(judge);
     let mut read = None;
     let mut went = "going over failed";
     for _ in 0..super::super::store::memory_jobs::MAX_ATTEMPTS {

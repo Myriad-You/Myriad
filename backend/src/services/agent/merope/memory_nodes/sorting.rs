@@ -255,7 +255,7 @@ pub(crate) async fn answer(
                 .to_string(),
         ),
     })?;
-    let Ok(raw) = Ask::new(Voice::Thorough, user_id, operation)
+    let Ok(raw) = Ask::new(Voice::Keeping, user_id, operation)
         .within(TIMEOUT)
         .json_raw(
             &prepared.system,
