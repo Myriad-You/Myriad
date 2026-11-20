@@ -82,8 +82,7 @@ fn swapped(prompt: String, swaps: &[(&str, &str)]) -> String {
     })
 }
 
-const EVIDENCE_LINE: &str =
-    "must be a contiguous verbatim excerpt from userText where they stated it. Do not cite reply.";
+const EVIDENCE_LINE: &str = "must be a contiguous verbatim excerpt from userText where they stated it. Do not cite reply for these.";
 
 /// The window way: their line still, with the talk before it in view
 /// (`theirs`, their words in it, for the examples' language).
@@ -92,7 +91,7 @@ fn window_prompt(known: &[String], theirs: &str) -> String {
         extract_system_prompt(known, Examples::for_words(theirs)),
         &[
             (
-                "before is what you said just before their message: use it only to understand what userText answers (a short reply to your question), still taking the fact from userText.",
+                "before is what you said just before their message: for facts, use it only to understand what userText answers (a short reply to your question), still taking the fact from userText.",
                 "conversation is the talk just before userText, oldest first (who: them or you): use it to understand userText; a short line often completes something they said a moment ago, and the fact may then rest on their earlier lines too. Take facts only from what they stated, never from your lines.",
             ),
             (
@@ -110,17 +109,17 @@ fn talk_prompt(known: &[String], theirs: &str) -> String {
         extract_system_prompt(known, Examples::for_words(theirs)),
         &[
             (
-                "from this message of theirs.",
-                "from this stretch of talk with them.",
+                "from this exchange: what they told you in their message, and what you yourself said back in your reply.",
+                "from this stretch of talk with them: what they told you, and what you yourself said back.",
             ),
             (
                 "taken only from what they explicitly stated in userText;",
                 "taken only from what they explicitly stated in their lines (who: them);",
             ),
             (
-                "reply is context only; never treat your guesses as their facts. \
-before is what you said just before their message: use it only to understand what userText answers (a short reply to your question), still taking the fact from userText.",
-                "conversation is the stretch in order, oldest first; your lines (who: you) are context only, never treat your guesses as their facts. A fact is often spread over several of their short lines; put it together.",
+                "For facts, reply is context only: never treat your guesses as their facts. said and own are taken from reply. \
+before is what you said just before their message: for facts, use it only to understand what userText answers (a short reply to your question), still taking the fact from userText.",
+                "conversation is the stretch in order, oldest first; for facts your lines (who: you) are context only, never treat your guesses as their facts; said and own are taken from your lines. A fact is often spread over several of their short lines; put it together.",
             ),
             (
                 EVIDENCE_LINE,
@@ -130,6 +129,8 @@ before is what you said just before their message: use it only to understand wha
                 "with evidence a contiguous verbatim excerpt from reply.",
                 "with evidence a contiguous verbatim excerpt from your lines.",
             ),
+            // own's evidence: the only "from reply," in the prompt.
+            ("excerpt from reply,", "excerpt from your lines,"),
             (
                 "with evidence a contiguous verbatim excerpt from userText.",
                 "with evidence a contiguous verbatim excerpt from their lines.",
@@ -661,7 +662,7 @@ fn both_ways_still_swap_into_productions_prompt() {
         assert!(prompt.contains("' / '"));
         assert!(prompt.contains("- 喜欢咖啡"));
     }
-    assert!(talk_prompt(&[], "我不喝咖啡了").contains("from this stretch of talk with them."));
+    assert!(talk_prompt(&[], "我不喝咖啡了").contains("from this stretch of talk with them:"));
 }
 
 #[test]

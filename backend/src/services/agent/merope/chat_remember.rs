@@ -546,10 +546,17 @@ pub(super) async fn extract(
         turn,
         input_at.with_timezone(&super::clock::zone()),
     );
-    // What she already said of herself that her reply touches: what is
-    // there already is not kept again (`own`'s `yours`).
+    // What she already said of herself that this exchange touches: what is
+    // there already is not kept again, what changed is (`own`'s `yours`).
+    // Looked up by their line and what she said before as well as her
+    // reply: a short answer ("it grew on me") does not name what it is about.
     if !reply.trim().is_empty() {
-        let yours: Vec<String> = super::store::said_of_herself(db, reply, YOURS_SHOWN)
+        let exchange = [user_text, turn.before.as_deref().unwrap_or(""), reply]
+            .into_iter()
+            .filter(|part| !part.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let yours: Vec<String> = super::store::said_of_herself(db, &exchange, YOURS_SHOWN)
             .await
             .into_iter()
             .map(|said| said.said)
