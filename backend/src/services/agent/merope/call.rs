@@ -307,6 +307,13 @@ impl Ask {
         tracing::warn!(owner = self.owner, operation = self.operation, source = self.source,
             outcome = %failure, retryable = failure.retryable(), "[Merope] model call failed");
         crate::services::agent::alive::model_failed(self.operation);
+        // An answer that cannot be read, or one cut off, is still an answer:
+        // her status counts calls with none at all.
+        if matches!(failure, Failure::InvalidOutput | Failure::CutOff) {
+            crate::services::agent::alive::model_answered();
+        } else {
+            crate::services::agent::alive::model_unanswered();
+        }
         failure
     }
 
@@ -403,7 +410,10 @@ impl Model {
         }
         match result {
             Ok(Ok(_)) if whole && cut_off => Err(self.ask.failed(Failure::CutOff)),
-            Ok(Ok(raw)) => Ok(raw),
+            Ok(Ok(raw)) => {
+                crate::services::agent::alive::model_answered();
+                Ok(raw)
+            }
             Ok(Err(error)) => Err(self.ask.failed(Failure::classify(&error))),
             Err(_) => Err(self.ask.failed(Failure::Timeout)),
         }
@@ -574,6 +584,30 @@ mod tests {
             assert!(ask.answered(&stopped(stop), Some(10)), "{stop}");
         }
         assert_eq!(cut_off().get("test_cut_off_counted"), Some(&3));
+    }
+
+    #[test]
+    fn her_status_counts_calls_with_no_answer_and_an_unreadable_one_is_an_answer() {
+        let ask = || Ask::new(Voice::Judge, 7, "test_unanswered_counted");
+        for failure in [
+            Failure::Unavailable,
+            Failure::Timeout,
+            Failure::Transport,
+            Failure::Upstream,
+            Failure::RateLimited,
+            Failure::Rejected,
+            Failure::StreamInterrupted,
+            Failure::Quota,
+            Failure::Unknown,
+        ] {
+            ask().failed(failure);
+        }
+        assert_eq!(crate::services::agent::alive::unanswered_in_a_row(), 9);
+        ask().failed(Failure::InvalidOutput);
+        assert_eq!(crate::services::agent::alive::unanswered_in_a_row(), 0);
+        ask().failed(Failure::Timeout);
+        ask().failed(Failure::CutOff);
+        assert_eq!(crate::services::agent::alive::unanswered_in_a_row(), 0);
     }
 
     #[tokio::test]

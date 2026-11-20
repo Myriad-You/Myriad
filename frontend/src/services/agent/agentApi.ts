@@ -77,11 +77,39 @@ export interface SyncDevice {
   connected?: boolean
   /** Her link closed it for speaking another protocol: the app on it is to be updated. */
   appOutdated?: boolean
+  /** What its link last said it runs; null before its link opened since the site kept it. */
+  versions?: DeviceVersions | null
   /**
    * What she may ask of it, per permission group the owner decides (live
    * devices only): `screen` is a look at its screen, on until turned off.
    */
   callGroups?: { group: string; approved: boolean }[]
+}
+
+/** A device's versions as its link last said them (`link.versions`). */
+export interface DeviceVersions {
+  /** Its app, from its hello or what it said. */
+  app: { name: string; version: string } | null
+  /** It said what it runs; false for an app from before versions were said. */
+  said: boolean
+  contract: number | null
+  core: { abi: number; commit: string } | null
+  /**
+   * Against the site: the same build, behind it (an older core or contract),
+   * ahead of it (the site is to be updated), or apart (another build).
+   */
+  compared: 'same' | 'behind' | 'ahead' | 'apart' | null
+  /** The site's reading: `partial` when its link does not carry `stopped`. */
+  usable: 'full' | 'partial' | null
+  stopped: string[] | null
+  saidAt: string | null
+}
+
+/** What the site runs, which each device's versions are read against. */
+export interface SiteVersions {
+  contract: number
+  core: { abi: number; commit: string | null }
+  app: { name: string; version: string }
 }
 
 /** A move of her between ends, in progress (her host lease). */
@@ -267,6 +295,16 @@ export interface HerAlive {
       skips: number
       overdue: boolean
     }[]
+    /** One of her drivers stuck while the others run, as said to the owner. */
+    stalledFrom?: string | null
+    /** Whether her model answers her calls; an unreadable answer counts as one. */
+    answers?: {
+      answeredAt: string | null
+      unansweredInARow: number
+      unansweredSince: string | null
+      alarmedFrom: string | null
+      alarmAfter: number
+    }
   }
   memory: {
     settledAt: string | null
@@ -356,6 +394,8 @@ export interface SyncDeviceList {
   herStays?: boolean
   /** The site's last check of its own clock; null while off or not run yet. */
   serverClock?: ServerClock | null
+  /** What the site runs. */
+  versions?: SiteVersions
   limit: number
 }
 

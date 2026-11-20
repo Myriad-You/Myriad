@@ -21,6 +21,12 @@
 //! before it knows the host (or this process) was not running in between:
 //! that stretch is kept apart, as one the host stopped for, and her ten
 //! minutes start over from the look that found it.
+//!
+//! Two troubles short of her stopping are said the same way, each once and
+//! once more when it has been gone for [`WELL_SECS`] ([`Held`]): one of her
+//! drivers stuck while the others run ([`stalled`]), and her model not
+//! answering her at all ([`UNANSWERED_IN_A_ROW`]). An answer that cannot be
+//! read is an answer: that trouble is the model's, and its own counts show.
 
 use serde::{Deserialize, Serialize};
 
@@ -39,6 +45,10 @@ pub const WELL_SECS: i64 = 60 * 60;
 pub const SLEPT_SECS: i64 = 60;
 /// How long the stretches she stopped for are kept.
 pub const GAPS_KEPT_SECS: i64 = 24 * 60 * 60;
+/// Her calls to her model in a row with no answer at all, held for at
+/// least [`QUIET_SECS`]: said. Ten in a row is not one slow minute: her
+/// chat alone asks several times a turn, her own life every few minutes.
+pub const UNANSWERED_IN_A_ROW: u64 = 10;
 
 /// What the watch keeps between looks.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -66,6 +76,87 @@ pub struct Watch {
     /// The stretches the host itself stopped for (asleep, or this process
     /// down), (from, to), the last day's. Not hers.
     pub host_stops: Vec<(i64, i64)>,
+    /// One of her drivers stuck while the others run.
+    pub stalled: Held,
+    /// Her model not answering her.
+    pub unanswered: Held,
+}
+
+/// A trouble said once while it holds, and once more when it has been gone
+/// for [`WELL_SECS`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Held {
+    /// Since when it holds, as said.
+    pub from: Option<i64>,
+    /// Since when it has been gone, after it was said.
+    pub well_from: Option<i64>,
+}
+
+/// What a trouble has to say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Turn {
+    Began { from: i64 },
+    Ended { from: i64, since: i64 },
+}
+
+/// Which trouble, and what it has to say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Trouble {
+    Stalled(Turn),
+    Unanswered(Turn),
+}
+
+impl Held {
+    /// One look: `holds_from` is since when the trouble has held, none when
+    /// it does not hold now.
+    pub fn look(&mut self, now: i64, holds_from: Option<i64>) -> Option<Turn> {
+        match (self.from, holds_from) {
+            (None, Some(from)) => {
+                self.from = Some(from);
+                self.well_from = None;
+                Some(Turn::Began { from })
+            }
+            (Some(_), Some(_)) => {
+                self.well_from = None;
+                None
+            }
+            (Some(from), None) => {
+                let since = *self.well_from.get_or_insert(now);
+                if now - since >= WELL_SECS {
+                    *self = Self::default();
+                    Some(Turn::Ended { from, since })
+                } else {
+                    None
+                }
+            }
+            (None, None) => None,
+        }
+    }
+}
+
+/// Of her drivers that tick on their own (`every` seconds, last let
+/// through at `ran_at`), how many are stuck as of `now`, and since when the
+/// longest stuck one has been: none let through for three of its own
+/// rounds, and never less than [`QUIET_SECS`]. A driver's ticks run one
+/// after another, so one stuck in a tick is one not let through. `base` is
+/// when the watch could first have seen it run (this process started, she
+/// came to live here, the host woke).
+pub fn stalled(
+    beats: impl IntoIterator<Item = (u64, Option<i64>)>,
+    base: i64,
+    now: i64,
+) -> (usize, Option<i64>) {
+    beats
+        .into_iter()
+        .filter_map(|(every, ran_at)| {
+            let from = ran_at.unwrap_or(base).max(base);
+            let allowed = (3 * every as i64).max(QUIET_SECS);
+            (now - from >= allowed).then_some(from)
+        })
+        .fold((0, None), |(count, earliest): (usize, Option<i64>), from| {
+            (count + 1, Some(earliest.map_or(from, |at| at.min(from))))
+        })
 }
 
 /// What one look sees.
@@ -158,6 +249,42 @@ impl Watch {
             }
             _ => None,
         }
+    }
+
+    /// When the watch could first have seen her drivers run, as of a look
+    /// that started at `started_at`: this process started, she came to live
+    /// here, the host woke.
+    pub fn watching_from(&self, started_at: i64) -> i64 {
+        started_at
+            .max(self.should_since.unwrap_or(i64::MIN))
+            .max(self.woke_at.unwrap_or(i64::MIN))
+    }
+
+    /// The troubles short of her stopping, looked at after [`Self::look`]
+    /// at the same `now`: `stalled_from` since when one of her drivers has
+    /// been stuck ([`stalled`]), `unanswered_from` since when her model has
+    /// not answered her ([`UNANSWERED_IN_A_ROW`]). While nothing of hers
+    /// runs, a stuck driver is that alarm's, not one of its own: it is not
+    /// looked at.
+    pub fn look_troubles(
+        &mut self,
+        now: i64,
+        stalled_from: Option<i64>,
+        unanswered_from: Option<i64>,
+    ) -> Vec<Trouble> {
+        if self.should_since.is_none() {
+            return Vec::new();
+        }
+        let mut said = Vec::new();
+        if self.gap_from.is_none() && self.alarmed_from.is_none() {
+            said.extend(self.stalled.look(now, stalled_from).map(Trouble::Stalled));
+        }
+        said.extend(
+            self.unanswered
+                .look(now, unanswered_from)
+                .map(Trouble::Unanswered),
+        );
+        said
     }
 
     /// How many stretches she stopped for in the last day, and their

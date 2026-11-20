@@ -397,7 +397,7 @@ fn memory_calls_and_ends_are_counted_without_their_words() {
     assert_eq!(with(|state| state.ends["dev_a"].behind.len()), 2);
 }
 
-async fn fixture() -> Option<crate::federation::test_db::SchemaDb> {
+pub(super) async fn fixture() -> Option<crate::federation::test_db::SchemaDb> {
     let fixture = crate::federation::test_db::SchemaDb::new_or_media().await?;
     sea_orm::ConnectionTrait::execute_unprepared(
         &fixture.db,

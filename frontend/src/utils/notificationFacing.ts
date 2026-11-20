@@ -157,6 +157,11 @@ export function notificationFacingTitle(notification: AppNotification): string {
       const status = metaString(notification, 'status')
       if (status === 'her_life_stopped') return t.noticeHerLifeStopped
       if (status === 'her_life_back') return t.noticeHerLifeBack
+      // Part of her life stuck, or her model not answering her, or back.
+      if (status === 'her_drivers_stalled') return t.noticeHerDriversStalled
+      if (status === 'her_drivers_back') return t.noticeHerDriversBack
+      if (status === 'her_model_unanswered') return t.noticeHerModelUnanswered
+      if (status === 'her_model_back') return t.noticeHerModelBack
       break
     }
     default:
@@ -258,6 +263,32 @@ export function notificationFacingBody(notification: AppNotification): string {
       return fill(t.noticeHerLifeBackBody, {
         time: when('since'),
         n: typeof seconds === 'number' ? Math.round(seconds / 60) : 0,
+      })
+    }
+    const minutes = (key: string) => {
+      const seconds = notification.metadata?.[key]
+      return typeof seconds === 'number' ? Math.round(seconds / 60) : 0
+    }
+    if (status === 'her_drivers_stalled') {
+      const drivers = notification.metadata?.drivers
+      return fill(t.noticeHerDriversStalledBody, {
+        time: when('from'),
+        n: typeof drivers === 'number' ? drivers : 1,
+      })
+    }
+    if (status === 'her_drivers_back') {
+      return fill(t.noticeHerDriversBackBody, {
+        time: when('since'),
+        n: minutes('lasted_secs'),
+      })
+    }
+    if (status === 'her_model_unanswered') {
+      return fill(t.noticeHerModelUnansweredBody, { time: when('from') })
+    }
+    if (status === 'her_model_back') {
+      return fill(t.noticeHerModelBackBody, {
+        time: when('since'),
+        n: minutes('lasted_secs'),
       })
     }
   }
