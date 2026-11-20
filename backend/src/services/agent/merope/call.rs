@@ -129,7 +129,11 @@ impl Failure {
                 if error.is_decode() {
                     return Self::InvalidOutput;
                 }
-                if error.is_connect() || error.is_body() {
+                // A request that never got its answer is the network's as
+                // a refused connection is: one held open that drops while
+                // it is sent ("connection error: timed out"), or a source
+                // that closes it before replying.
+                if error.is_connect() || error.is_body() || error.is_request() {
                     return Self::Transport;
                 }
             }
@@ -554,6 +558,27 @@ mod tests {
         }
         server.abort();
         let _ = server.await;
+        // A source that takes the connection and drops it unanswered: the
+        // request is never answered, and it is tried again.
+        let dropping = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let dropped_at = dropping.local_addr().unwrap();
+        let dropper = tokio::spawn(async move {
+            while let Ok((stream, _)) = dropping.accept().await {
+                drop(stream);
+            }
+        });
+        let error = client
+            .get(format!("http://{dropped_at}/"))
+            .send()
+            .await
+            .unwrap_err();
+        assert!(error.is_request() && !error.is_connect() && !error.is_timeout());
+        assert_eq!(
+            Failure::classify(&anyhow::Error::from(error).context("outer")),
+            Failure::Transport
+        );
+        dropper.abort();
+        let _ = dropper.await;
         for failure in [
             Failure::Rejected,
             Failure::RateLimited,

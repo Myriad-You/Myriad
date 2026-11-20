@@ -109,18 +109,28 @@ pub(super) async fn standing_on<C: sea_orm::ConnectionTrait>(
 ///
 /// Asked again here, after a wait, rather than kept to ask at the next
 /// stretch: a fact kept for later would be one more copy for forgetting to
-/// reach, and this runs behind her reply, where a wait costs nobody.
-const ASKED: usize = 3;
+/// reach, and this runs behind her reply, where a wait costs nobody. As
+/// many times, after as long, as a memory job is tried again
+/// (`store::memory_jobs`), so a connection that dropped for half a minute is
+/// waited out here as there.
+const ASKED: usize = super::super::store::memory_jobs::MAX_ATTEMPTS as usize;
 
-/// How long before each ask again: the second after 2 s, the third after
-/// 8 s, so a provider down for a moment is past it.
-#[cfg(not(test))]
-const WAIT_BEFORE: [std::time::Duration; ASKED - 1] = [
-    std::time::Duration::from_secs(2),
-    std::time::Duration::from_secs(8),
-];
-#[cfg(test)]
-const WAIT_BEFORE: [std::time::Duration; ASKED - 1] = [std::time::Duration::ZERO; ASKED - 1];
+/// How long before asking again after the `failed`th ask failed: as long as
+/// a memory job waits (`store::memory_jobs::again_in`). Not at all in a test
+/// build, outside a memory bench question, whose network is real.
+fn wait_before(failed: usize) -> std::time::Duration {
+    let failed = u8::try_from(failed).unwrap_or(u8::MAX);
+    let wait = std::time::Duration::from_secs(
+        super::super::store::memory_jobs::again_in(failed).unsigned_abs(),
+    );
+    #[cfg(test)]
+    let wait = if crate::services::ai_cost_ledger::spent::counting() {
+        wait
+    } else {
+        std::time::Duration::ZERO
+    };
+    wait
+}
 
 /// How writing 「现在」 went wrong since the site started, for its status:
 /// calls asked again, asks that got no answer at all (what they would have
@@ -174,9 +184,14 @@ async fn ask(
     if prepared.skip {
         return None;
     }
+    // In a memory bench question, what a failed ask failed of, kept until an
+    // answer makes up for it: one dropped connection, waited out, does not
+    // cost the question.
+    #[cfg(test)]
+    let mut before = Vec::new();
     for asked in 1..=ASKED {
         if asked > 1 {
-            tokio::time::sleep(WAIT_BEFORE[asked - 2]).await;
+            tokio::time::sleep(wait_before(asked - 1)).await;
         }
         let answer =
             super::super::call::Ask::new(super::super::call::Voice::Judge, user_id, operation)
@@ -186,8 +201,22 @@ async fn ask(
                     &prepared.input,
                     schema_name,
                     &prepared.schema,
-                )
-                .await;
+                );
+        #[cfg(not(test))]
+        let answer = answer.await;
+        #[cfg(test)]
+        let answer = {
+            use crate::services::ai_cost_ledger::spent;
+            let (answer, failed) = spent::failures_in(answer).await;
+            match answer {
+                Ok(_) => {
+                    spent::made_up_for(std::mem::take(&mut before));
+                    spent::said(failed);
+                }
+                Err(_) => before.extend(failed),
+            }
+            answer
+        };
         match answer {
             Ok(answer) => return Some(answer),
             // What failed, not what was asked: no words of theirs.
@@ -211,6 +240,8 @@ async fn ask(
             }
         }
     }
+    #[cfg(test)]
+    crate::services::ai_cost_ledger::spent::said(before);
     None
 }
 
@@ -708,5 +739,26 @@ mod tests {
         let after = failures();
         assert_eq!(after.asked_again - before.asked_again, 1);
         assert_eq!(after.unanswered, before.unanswered);
+    }
+
+    /// In a memory bench question an ask again waits as a memory job does,
+    /// 5 s and then 30 s, and an answer that comes leaves the run unfailed.
+    #[tokio::test(start_paused = true)]
+    async fn in_a_bench_question_an_ask_again_waits_as_a_memory_job_does() {
+        let _one = COUNTING.lock().await;
+        answering(vec![None, None, Some("{\"items\":[]}")]);
+        let started = tokio::time::Instant::now();
+        let (answer, failed) = crate::services::ai_cost_ledger::spent::failures_in(ask(
+            7,
+            "memory_standing_step",
+            "standing_step",
+            STEP_OUTPUT,
+            &prepared(),
+        ))
+        .await;
+        crate::services::channel_group::g0::leave();
+        assert_eq!(answer.as_deref(), Some("{\"items\":[]}"));
+        assert_eq!(started.elapsed(), std::time::Duration::from_secs(35));
+        assert!(failed.is_empty(), "{failed:?}");
     }
 }

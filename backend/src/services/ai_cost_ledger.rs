@@ -713,6 +713,65 @@ pub(crate) mod spent {
         (out, failed)
     }
 
+    /// `attempt` made as production makes a memory job again: up to `most`
+    /// tries while `again` says the one made is to be made again, waiting
+    /// `wait(n)` after the `n`th. The failures of a try that a later one
+    /// makes up for are counted as retried, not said for the run: one
+    /// dropped connection, ridden out as production rides it out, does not
+    /// cost a whole question. When none comes through, all of them are said.
+    pub(crate) async fn tried_as_production_tries<T, F: std::future::Future<Output = T>>(
+        most: u8,
+        wait: impl Fn(u8) -> std::time::Duration,
+        mut attempt: impl FnMut() -> F,
+        again: impl Fn(&T) -> bool,
+    ) -> T {
+        let mut before = Vec::new();
+        let mut tried = 1;
+        loop {
+            let (out, failed) = failures_in(attempt()).await;
+            if !again(&out) {
+                made_up_for(before);
+                said(failed);
+                return out;
+            }
+            before.extend(failed);
+            if tried >= most {
+                said(before);
+                return out;
+            }
+            tokio::time::sleep(wait(tried)).await;
+            tried += 1;
+        }
+    }
+
+    /// Whether a `failures_in` is counting the failures said here: a
+    /// question of the memory bench is being run.
+    pub(crate) fn counting() -> bool {
+        HERE.try_with(|_| ()).is_ok()
+    }
+
+    /// Failures of tries a later try made up for: counted as retried, not
+    /// said for the run.
+    pub(crate) fn made_up_for(failed: Vec<String>) {
+        for failure in failed {
+            eprintln!("model call retried: {failure}");
+            *BECAUSE
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .entry(format!("retried: {failure}"))
+                .or_default() += 1;
+        }
+    }
+
+    /// Failures said again for the `failures_in` around this one.
+    pub(crate) fn said(failed: Vec<String>) {
+        let _ = HERE.try_with(|here| {
+            here.lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .extend(failed)
+        });
+    }
+
     /// `fut`, its calls counted as `step` unless an outer step is set.
     pub(super) async fn during<F: std::future::Future>(step: &str, fut: F) -> F::Output {
         if STEP.try_with(|_| ()).is_ok() {
@@ -987,6 +1046,48 @@ mod tests {
         })
         .await;
         assert_eq!(failed, ["m: HTTP 503", "e: timeout"]);
+    }
+
+    #[tokio::test]
+    async fn a_try_made_again_that_comes_through_does_not_fail_the_run() {
+        use super::spent::{because, failures_in, tried_as_production_tries};
+        let quick = |_| std::time::Duration::ZERO;
+        // Dropped once, then through: the dropped try is not the run's.
+        let tries = std::cell::Cell::new(0);
+        let (out, failed) = failures_in(tried_as_production_tries(
+            3,
+            quick,
+            || {
+                tries.set(tries.get() + 1);
+                let now = tries.get();
+                async move {
+                    if now == 1 {
+                        because("m", &anyhow::anyhow!("connection error: timed out"));
+                    }
+                    now
+                }
+            },
+            |now| *now == 1,
+        ))
+        .await;
+        assert_eq!((out, failed.len()), (2, 0));
+        // Never through: every try's failure is the run's, and no more
+        // tries than asked.
+        let tries = std::cell::Cell::new(0);
+        let ((), failed) = failures_in(tried_as_production_tries(
+            3,
+            quick,
+            || {
+                tries.set(tries.get() + 1);
+                async { because("m", &anyhow::anyhow!("operation timed out")) }
+            },
+            |_| true,
+        ))
+        .await;
+        assert_eq!(
+            (tries.get(), failed),
+            (3, vec!["m: timeout".to_string(); 3])
+        );
     }
 
     #[tokio::test]
