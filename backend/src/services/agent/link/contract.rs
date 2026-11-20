@@ -23,6 +23,8 @@ pub(super) const CONTRACT_JSON: &str =
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(not(test), allow(dead_code))]
 pub(super) struct Contract {
+    /// The contract's own version, which `link.versions` says.
+    pub schema_version: u32,
     pub protocol: u32,
     pub path: String,
     pub timing: TimingSpec,

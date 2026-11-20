@@ -555,6 +555,21 @@ export function AgentDevicesGroup() {
       tone: live.length === 0 ? 'muted' : 'default',
     },
   ]
+  // Whether the ends that said what they run all run the site's build.
+  const said = live.filter((device) => device.versions?.said)
+  if (said.length > 0) {
+    const builds = new Set(
+      said.map((device) => `${device.versions?.core?.abi}:${device.versions?.core?.commit}`),
+    )
+    const aligned =
+      builds.size === 1 && said.every((device) => device.versions?.compared === 'same')
+    stats.push({
+      key: 'versions',
+      label: c.agentDevicesStatVersions,
+      value: aligned ? c.agentDevicesVersionsAligned : c.agentDevicesVersionsMixed,
+      tone: aligned ? 'default' : 'warn',
+    })
+  }
 
   const removedWhy = (device: SyncDevice) =>
     device.revokedReason === 'device_left'
@@ -588,6 +603,38 @@ export function AgentDevicesGroup() {
     } else if (device.stale && !device.connected) {
       badges.push({ label: c.agentDevicesStale, tone: 'warn' })
     }
+    // How what it runs stands against the site's, as its link last said.
+    const versions = device.revokedAt ? null : device.versions
+    if (versions?.said) {
+      const compared =
+        versions.compared === 'behind'
+          ? { label: c.agentDevicesVersionBehind, tone: 'warn' as const }
+          : versions.compared === 'ahead'
+            ? { label: c.agentDevicesVersionAhead, tone: 'warn' as const }
+            : versions.compared === 'apart'
+              ? { label: c.agentDevicesVersionApart, tone: 'muted' as const }
+              : null
+      if (compared) badges.push(compared)
+      if (versions.usable === 'partial') {
+        badges.push({ label: c.agentDevicesVersionPartial, tone: 'warn' })
+      }
+    } else if (versions && !device.appOutdated) {
+      badges.push({ label: c.agentDevicesVersionUnsaid, tone: 'muted' })
+    }
+    const versionLine = versions
+      ? [
+          versions.app ? `${versions.app.name} ${versions.app.version}` : null,
+          versions.core
+            ? format(c.agentDevicesCore, {
+                abi: String(versions.core.abi),
+                commit: versions.core.commit.slice(0, 7),
+              })
+            : null,
+          versions.usable === 'partial' && versions.stopped?.length
+            ? format(c.agentDevicesVersionStopped, { what: versions.stopped.join(', ') })
+            : null,
+        ].filter((part): part is string => part !== null)
+      : []
     const screen = device.callGroups?.find((one) => one.group === 'screen')
     if (!device.revokedAt && screen && !screen.approved) {
       badges.push({ label: c.agentDevicesScreenOff, tone: 'muted' })
@@ -595,7 +642,11 @@ export function AgentDevicesGroup() {
     return {
       id: device.id,
       title: device.name,
-      subtitle: `${device.tokenHint}… · ${format(c.agentDevicesAdded, { time: when(device.createdAt) })}`,
+      subtitle: [
+        `${device.tokenHint}…`,
+        format(c.agentDevicesAdded, { time: when(device.createdAt) }),
+        ...versionLine,
+      ].join(' · '),
       // Connected now, or when it last was: her link records it as it opens.
       meta: device.connected
         ? c.agentDevicesConnected

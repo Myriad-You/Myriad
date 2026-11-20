@@ -843,6 +843,115 @@ async fn device(db: &DatabaseConnection, name: &str) -> (Device, String) {
     devices::add(db, OWNER, name).await.unwrap()
 }
 
+/// An end that lists `versions` hears what the site runs, says what it
+/// runs, and is told the site's reading: here an older core, whose rows of
+/// a later ABI do not go. What it said is kept on its device for the
+/// owner's devices page, read against the site's; one the shared core does
+/// not read is a bad frame. An end that says nothing of them shows its app
+/// alone.
+#[tokio::test]
+async fn an_end_says_what_it_runs_and_is_told_how_the_site_reads_it() {
+    use super::versions;
+    let Some(site) = site().await else {
+        return;
+    };
+    let (mac, token) = device(&site.db, "Mac").await;
+    let mut child = Child::open(&site, &token).await;
+    let welcome = child
+        .hello_with(&["calls", "versions", "log2", "log3"])
+        .await;
+    assert!(
+        welcome["body"]["capabilities"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("versions")),
+        "{welcome}"
+    );
+    if let Some(commit) = versions::site_commit() {
+        let ours = until(&mut child, "link.versions").await;
+        assert_eq!(ours["body"]["core"]["commit"], commit);
+        assert_eq!(ours["body"]["core"]["abi"], versions::site_abi());
+        assert_eq!(
+            ours["body"]["contract"],
+            super::contract::CONTRACT.schema_version
+        );
+    }
+    let contract = super::contract::CONTRACT.schema_version;
+    let older = versions::site_abi() - 1;
+    // Not what the shared core reads: a commit is 40 hex digits.
+    child
+        .send(
+            "link.versions",
+            None,
+            json!({ "contract": contract, "core": { "abi": older, "commit": "abc" },
+                    "app": { "name": "MyriadNative", "version": "1.2.3" }, "actions": {} }),
+        )
+        .await;
+    let refused = until(&mut child, "error").await;
+    assert_eq!(refused["body"]["code"], "bad_frame");
+    child
+        .send(
+            "link.versions",
+            None,
+            json!({ "contract": contract,
+                    "core": { "abi": older, "commit": "1111111111111111111111111111111111111111" },
+                    "app": { "name": "MyriadNative", "version": "1.2.3" }, "actions": {} }),
+        )
+        .await;
+    let verdict = until(&mut child, "link.verdict").await;
+    assert_eq!(verdict["body"]["usable"], "partial");
+    let later: Vec<String> = (4..=versions::site_abi())
+        .map(|abi| format!("log{abi}"))
+        .collect();
+    assert_eq!(verdict["body"]["stopped"], json!(later));
+    let kept = devices::list(&site.db, OWNER)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|device| device.id == mac.id)
+        .unwrap();
+    let shown = versions::shown(kept.link_versions.as_ref());
+    assert_eq!(shown["said"], true);
+    assert_eq!(shown["compared"], "behind");
+    assert_eq!(shown["core"]["abi"], older);
+    assert_eq!(shown["usable"], "partial");
+    assert_eq!(shown["app"]["version"], "1.2.3");
+
+    // An app from before: its hello names it, and it says nothing more.
+    let (old, token) = device(&site.db, "Old Mac").await;
+    let mut before = Child::open(&site, &token).await;
+    before
+        .send(
+            "hello",
+            None,
+            json!({ "protocol": 2, "role": "child", "surface": "app",
+                    "capabilities": ["calls"],
+                    "app": { "name": "MyriadNative", "version": "0.9.0" } }),
+        )
+        .await;
+    before.expect("welcome").await;
+    before.send("ping", None, json!({})).await;
+    // No link.versions to an end that did not list it.
+    loop {
+        let frame = before.next().await;
+        assert_ne!(frame["t"], "link.versions", "{frame}");
+        if frame["t"] == "pong" {
+            break;
+        }
+    }
+    let kept = devices::list(&site.db, OWNER)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|device| device.id == old.id)
+        .unwrap();
+    let shown = versions::shown(kept.link_versions.as_ref());
+    assert_eq!(shown["said"], false);
+    assert_eq!(shown["app"]["version"], "0.9.0");
+    assert!(shown["compared"].is_null());
+    site.close().await;
+}
+
 #[tokio::test]
 async fn a_child_is_told_only_what_the_site_takes_and_its_dropped_frames_are_counted() {
     let Some(site) = site().await else {
@@ -851,9 +960,9 @@ async fn a_child_is_told_only_what_the_site_takes_and_its_dropped_frames_are_cou
     let (mac, token) = device(&site.db, "Mac").await;
     let mut child = Child::open(&site, &token).await;
     let welcome = child
-        .hello_with(&["calls", "glance", "versions", "streams", "touch"])
+        .hello_with(&["calls", "glance", "streams", "touch"])
         .await;
-    // Glance and versions are not made on the site yet.
+    // Glance is not made on the site yet.
     assert_eq!(
         welcome["body"]["capabilities"],
         json!(["calls", "streams", "touch"])

@@ -70,6 +70,7 @@ mod proposals;
 mod say;
 mod senses;
 mod turns;
+pub(crate) mod versions;
 
 #[cfg(test)]
 mod tests;

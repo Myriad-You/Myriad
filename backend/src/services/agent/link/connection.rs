@@ -32,9 +32,9 @@ const QUEUED_FRAMES: usize = 256;
 
 /// Capabilities of the contract the site does not take yet: a child that
 /// lists them is not told they were accepted, so it never sends their
-/// frames to a host that would not read them (glance, versions: core #116,
-/// made on the site later).
-const NOT_YET: [&str; 2] = ["glance", "versions"];
+/// frames to a host that would not read them (glance: core #116, made on
+/// the site later).
+pub(super) const NOT_YET: [&str; 1] = ["glance"];
 
 /// How soon after the ack a child's `link.dropped` still points at the
 /// reliable frame acked last of its type (a child tells it at once).
@@ -250,6 +250,7 @@ pub(super) async fn serve_with(
         cards: false,
         images: false,
         deputy: false,
+        versions: None,
         nodes: false,
         proposals: None,
         acts: false,
@@ -360,6 +361,9 @@ struct Link {
     /// It listed `deputy` (her temporary host): its `lease.epoch` carries
     /// the standing grant's `issued`, which another end's core refuses.
     deputy: bool,
+    /// It listed `versions`: what its hello listed, for the site's reading
+    /// of the versions it says (`link.versions`, `super::versions`).
+    versions: Option<super::versions::Listed>,
     /// The child said it takes `nodes`: it is kept current with her nodes.
     nodes: bool,
     /// Her open proposals as the child was last told them, once it said it
@@ -601,6 +605,39 @@ impl Link {
         }
     }
 
+    /// The end said what it runs: kept on its device with the site's
+    /// reading, which it is told (`link.verdict`). One the shared core does
+    /// not read is a bad frame.
+    async fn versions_said(&mut self, text: &str, inbound: Inbound) {
+        let read = serde_json::from_str::<Value>(text)
+            .is_ok_and(|frame| super::contract::core_check(&frame).is_ok());
+        let said = serde_json::from_value::<super::versions::Said>(inbound.body)
+            .ok()
+            .filter(|_| read);
+        let (Some(said), Some(listed)) = (said, self.versions.as_ref()) else {
+            self.error("bad_frame", Some(inbound.seq));
+            return;
+        };
+        let (usable, stopped) = super::versions::verdict(&said, listed);
+        tracing::info!(
+            device = %self.device.id,
+            abi = said.core.abi,
+            contract = said.contract,
+            compared = super::versions::compared(&said),
+            usable,
+            ?stopped,
+            "[link] an end said what it runs"
+        );
+        let kept = super::versions::kept(&said, usable, &stopped);
+        if let Err(error) = devices::versions_said(&self.db, &self.device.id, kept).await {
+            tracing::warn!(%error, device = %self.device.id, "[link] what the end runs could not be kept");
+        }
+        self.reply(Outgoing::latest(
+            "link.verdict",
+            super::versions::verdict_body(usable, &stopped),
+        ));
+    }
+
     fn error(&mut self, code: &str, frame_seq: Option<u64>) {
         let mut body = json!({ "code": code });
         if let Some(seq) = frame_seq {
@@ -712,6 +749,7 @@ impl Link {
             // Taken whatever this link said: a run's end may come after its
             // owner turned the switch off (the request must be this device's).
             "act.result" => self.act_result(inbound).await,
+            "link.versions" if self.versions.is_some() => self.versions_said(text, inbound).await,
             "call.offer" | "call.ask" | "call.cancel" | "call.result" | "call.accepted"
             | "call.progress" | "call.event"
                 if self.calls =>
@@ -811,6 +849,17 @@ impl Link {
         }
         self.hello = true;
         self.app_current().await;
+        // Its app as its hello says it; what it runs comes after, when it
+        // says its versions (`link.versions`), or never, from an app before.
+        let app = hello.app.as_ref().and_then(|app| {
+            Some(json!({
+                "name": app.get("name")?.as_str()?,
+                "version": app.get("version")?.as_str()?,
+            }))
+        });
+        if let Err(error) = devices::versions_heard(&self.db, &self.device.id, app).await {
+            tracing::warn!(%error, device = %self.device.id, "[link] its app's version could not be kept");
+        }
         crate::services::agent::alive::linked(crate::services::agent::alive::Hello {
             device_id: &self.device.id,
             name: &self.device.name,
@@ -888,6 +937,24 @@ impl Link {
             }
         }
         self.reply(frame("welcome", welcome));
+        // Both listed versions: the site says what it runs, and reads what
+        // the end says it runs when it does.
+        if capabilities
+            .iter()
+            .any(|capability| capability == super::versions::CAPABILITY)
+        {
+            self.versions = Some(super::versions::Listed {
+                declared: hello.capabilities.clone(),
+                granted: capabilities.clone(),
+            });
+            match super::versions::ours() {
+                Some(ours) => self.reply(frame("link.versions", ours)),
+                None => tracing::info!(
+                    device = %self.device.id,
+                    "[link] the site's core commit was not read at build: it says no versions of its own"
+                ),
+            }
+        }
         if sync {
             let abi = crate::services::her_log::relay::peer_abi(&capabilities);
             self.relay = Some(

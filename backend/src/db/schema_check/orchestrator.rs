@@ -132,7 +132,10 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// 服务端发证时钟、到期（微秒）、次序、发证墙钟、设备回执时间），归类她的行时只认这里的记录；
 /// 随设备移除和她的租约（同步关闭）一起删，随 004 与 `ensure_persona_log_tables` 一起建
 /// （`persona_log.sql`）。旧二进制不认识它也照常启动。
-pub const SCHEMA_VERSION: &str = "2026.11.19.1";
+/// 2026.11.20.1：`agent_sync_devices` 加 `link_versions`（它的链接上次说的版本：hello 里的 App，
+/// 说过 `link.versions` 之后加上核心、契约和站点的判断；只有名字和数字），设备页据此显示落后、
+/// 比站点新、各端不齐（`persona_sync.sql`，旧库走通用 ADD）。旧二进制不认识它也照常启动。
+pub const SCHEMA_VERSION: &str = "2026.11.20.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);

@@ -71,6 +71,11 @@ pub struct Device {
     /// When her link last closed it for speaking another protocol: the app
     /// on it is to be updated. Cleared by its next hello the site takes.
     pub app_outdated_at: Option<DateTime<FixedOffset>>,
+    /// What its link last said of the versions it runs: its app (hello)
+    /// and, once it said them (`link.versions`), its core and contract with
+    /// the site's reading (`agent::link::versions`). None before its link
+    /// opened since this was kept.
+    pub link_versions: Option<serde_json::Value>,
 }
 
 impl Device {
@@ -93,12 +98,13 @@ impl Device {
             revoked_at: row.try_get("", "revoked_at")?,
             revoked_reason: row.try_get("", "revoked_reason")?,
             app_outdated_at: row.try_get("", "app_outdated_at")?,
+            link_versions: row.try_get("", "link_versions")?,
         })
     }
 }
 
 const COLUMNS: &str = "id, user_id, name, token_hint, lineage, created_at, last_seen_at, \
-                       revoked_at, revoked_reason, app_outdated_at";
+                       revoked_at, revoked_reason, app_outdated_at, link_versions";
 
 /// 32 random bytes as a fixed-width base62 number.
 fn base62(bytes: [u8; 32]) -> String {
@@ -395,6 +401,37 @@ pub async fn seen<C: ConnectionTrait>(db: &C, id: &str) -> Result<(), DbErr> {
     Ok(())
 }
 
+/// Its link took a hello: what it last said of its versions starts again
+/// with the app the hello names (none when it named none).
+pub async fn versions_heard<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+    app: Option<serde_json::Value>,
+) -> Result<(), DbErr> {
+    db.execute_raw(statement(
+        "UPDATE agent_sync_devices SET link_versions = $2 WHERE id = $1",
+        vec![id.into(), serde_json::json!({ "app": app }).into()],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// It said what it runs on its link (`link.versions`): kept beside its app,
+/// with the site's reading.
+pub async fn versions_said<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+    said: serde_json::Value,
+) -> Result<(), DbErr> {
+    db.execute_raw(statement(
+        "UPDATE agent_sync_devices \
+         SET link_versions = COALESCE(link_versions, '{}'::jsonb) || $2 WHERE id = $1",
+        vec![id.into(), said.into()],
+    ))
+    .await?;
+    Ok(())
+}
+
 /// Her link closed the device for speaking another protocol (`outdated`), or
 /// took its hello: what its devices page says of the app on it.
 pub async fn app_outdated<C: ConnectionTrait>(
@@ -559,6 +596,7 @@ mod tests {
             revoked_at: None,
             revoked_reason: None,
             app_outdated_at: None,
+            link_versions: None,
         };
         assert!(!device.stale(now));
         device.last_seen_at = at(31);
