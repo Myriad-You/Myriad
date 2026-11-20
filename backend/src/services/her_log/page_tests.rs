@@ -774,3 +774,40 @@ async fn a_page_on_its_way_is_its_links() {
     assert!(open().is_empty());
     schema.drop().await;
 }
+
+/// On a link that does not page, a side holding no more after the rows it
+/// lacked went to it refused them: the same log.vector gets nothing again,
+/// until the server holds more or the side does.
+#[tokio::test]
+async fn a_link_without_pages_does_not_send_what_was_refused_again() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
+    let Some(schema) = schema("her_log_no_headway").await else {
+        return;
+    };
+    let db = &schema.db;
+    let mut mac = many_rows(db, 20).await;
+    let mut win = Side::new("dev_win_refuses");
+    let asking = win.vector(PERSONAL);
+    let first = answers(db, &mut win, &asking, LATER).await;
+    assert!(!row_ids(&first).is_empty());
+    // It took none of them and says so: nothing again.
+    assert!(answers(db, &mut win, &asking, LATER).await.is_empty());
+    assert!(answers(db, &mut win, &asking, LATER).await.is_empty());
+    // The server holds more: all of it goes.
+    written(db, &mut mac, (PERSONAL, "m"), 1, 1, T0 + 5000).await;
+    let again = answers(db, &mut win, &asking, LATER).await;
+    assert!(row_ids(&again).len() > row_ids(&first).len());
+    // It takes them: holding more, it lacks nothing.
+    for frame in of_kind(&again, "log.rows") {
+        let _ = win.take(frame);
+    }
+    holds_all(&win, &mac, PERSONAL);
+    let caught_up = win.vector(PERSONAL);
+    assert!(row_ids(&answers(db, &mut win, &caught_up, LATER).await).is_empty());
+    let passed: BTreeMap<&str, u64> = counts::pages_passed_by("dev_win_refuses")
+        .into_iter()
+        .map(|(why, passed)| (why, passed.count))
+        .collect();
+    assert_eq!(passed.get("no_headway"), Some(&2));
+    schema.drop().await;
+}
