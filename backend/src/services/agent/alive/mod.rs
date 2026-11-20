@@ -716,6 +716,18 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
                         "lastAt": passed.last_at.map(|at| at.to_rfc3339()),
                     }))
                     .collect::<Vec<_>>(),
+                // Rows of her log it said it did not take, by the kind of
+                // audience and why: batches told and their rows.
+                "logRefused": crate::services::agent::link::counts::log_refused_by(&device.id)
+                    .into_iter()
+                    .map(|(kind, reason, refused)| json!({
+                        "audience": kind,
+                        "reason": reason,
+                        "batches": refused.batches.count,
+                        "rows": refused.rows,
+                        "lastAt": refused.batches.last_at.map(|at| at.to_rfc3339()),
+                    }))
+                    .collect::<Vec<_>>(),
                 // Its links closed for a page of its that could not be
                 // settled (the database failing on it): in a row since one
                 // was named back, and in all. Many in a row is a device

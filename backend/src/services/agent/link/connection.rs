@@ -1694,13 +1694,45 @@ impl Link {
     /// Taken once it is written; a resend of one already written is told so
     /// again and reaches her no second time.
     /// A child's event (`streams`): the host reads `link.dropped`, a frame
-    /// it dropped, and counts it; any other it ignores. The core checked
-    /// its fields against the registration.
+    /// it dropped, and `log.refused`, rows of her log it did not take, and
+    /// counts them; any other it ignores. The core checked its fields
+    /// against the registration.
     fn stream_event(&mut self, inbound: &Inbound) {
-        if inbound.body["name"] != "link.dropped" || inbound.body["version"] != 1 {
+        if inbound.body["version"] != 1 {
             return;
         }
-        let told = &inbound.body["body"];
+        match inbound.body["name"].as_str() {
+            Some("link.dropped") => self.child_dropped(&inbound.body["body"]),
+            Some("log.refused") => self.log_refused(inbound.id.as_deref(), &inbound.body["body"]),
+            _ => {}
+        }
+    }
+
+    /// `log.refused`: of a batch of her log this child settled, rows it did
+    /// not take, by audience kind and reason. Logged and counted once per
+    /// event (a batch told again after a reconnect is the same event); it
+    /// carries nothing of a row, and nothing of one is kept. Only from an
+    /// end that keeps her log, the only one that is sent rows.
+    fn log_refused(&self, id: Option<&str>, told: &Value) {
+        let (Some(id), Some(kind), Some(reason), Some(rows)) = (
+            id,
+            told["kind"].as_str(),
+            told["reason"].as_str(),
+            told["rows"].as_u64(),
+        ) else {
+            return;
+        };
+        if !self.keeps_log {
+            return;
+        }
+        if super::counts::log_refused(&self.device.id, id, kind, reason, rows) {
+            tracing::info!(device = %self.device.id, kind, reason, rows, "[link] the child did not take rows of her log");
+        }
+    }
+
+    /// `link.dropped`: a frame the child dropped, counted; a reliable one
+    /// its ack covered is taken as not read.
+    fn child_dropped(&mut self, told: &Value) {
         let (Some(t), Some(reason)) = (told["t"].as_str(), told["reason"].as_str()) else {
             return;
         };

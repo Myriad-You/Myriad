@@ -1561,6 +1561,63 @@ async fn an_end_that_keeps_no_log_hears_only_where_her_mind_is() {
 /// place it does not keep (past a gap too), so its rows there go on from
 /// it; never for the partner's own talk, which the PC keeps itself.
 #[tokio::test]
+async fn rows_of_her_log_a_child_did_not_take_are_counted_by_kind_and_why_once_per_batch() {
+    use crate::services::her_log::{self, relay, store};
+    let Some(site) = site().await else {
+        return;
+    };
+    let _turn = her_log::lend::SERIAL.lock().await;
+    her_log::test_settings::set(her_log::Settings {
+        enabled: true,
+        ..her_log::Settings::default()
+    });
+    store::start(&site.db, OWNER).await.unwrap();
+    let (mac_device, mac) = device(&site.db, "MacBook").await;
+    let (phone_device, phone) = device(&site.db, "Phone").await;
+    let mut mac = Child::open(&site, &mac).await;
+    let mut phone = Child::open(&site, &phone).await;
+    let top = relay::peer_abi(&CONTRACT.capabilities);
+    let logs: Vec<String> = (2..=top).map(|abi| format!("log{abi}")).collect();
+    let mut listed: Vec<&str> = logs.iter().map(String::as_str).collect();
+    listed.extend(["partner", "streams"]);
+    assert_eq!(mac.hello_with(&listed).await["body"]["sync"], "on");
+    let welcome = phone.hello_with(&["partner", "streams"]).await;
+    assert_eq!(welcome["body"]["sync"], "on");
+    let told = [
+        ("rf_b1_local", "personal", "local", 3),
+        // The same batch told again (after a reconnect it keeps its id).
+        ("rf_b1_local", "personal", "local", 3),
+        ("rf_b2_local", "personal", "local", 2),
+        ("rf_b3_ahead", "group", "clock_ahead", 4),
+    ];
+    for (id, kind, reason, rows) in told {
+        let event = json!({ "name": "log.refused", "version": 1, "at": 1_760_141_100_000_i64,
+                            "body": { "kind": kind, "reason": reason, "rows": rows } });
+        mac.send("stream.event", Some(id), event).await;
+    }
+    // An end that keeps no log is sent no rows: what it tells is not counted.
+    let event = json!({ "name": "log.refused", "version": 1, "at": 1_760_141_100_000_i64,
+                        "body": { "kind": "own", "reason": "batch", "rows": 1 } });
+    phone.send("stream.event", Some("rf_p1_batch"), event).await;
+    for child in [&mut mac, &mut phone] {
+        child.send("ping", None, json!({})).await;
+        until(child, "pong").await;
+    }
+    let told = super::counts::log_refused_by(&mac_device.id);
+    let of = |kind: &str, reason: &str| {
+        told.iter()
+            .find(|(at, why, _)| *at == kind && *why == reason)
+            .map(|(_, _, refused)| (refused.batches.count, refused.rows))
+    };
+    assert_eq!(of("personal", "local"), Some((2, 5)));
+    assert_eq!(of("group", "clock_ahead"), Some((1, 4)));
+    assert_eq!(told.len(), 2);
+    assert!(super::counts::log_refused_by(&phone_device.id).is_empty());
+    drop((mac, phone));
+    site.close().await;
+}
+
+#[tokio::test]
 async fn a_lend_says_where_the_pcs_rows_there_go_on_from() {
     use crate::services::her_log::lend;
     let Some(site) = site().await else {

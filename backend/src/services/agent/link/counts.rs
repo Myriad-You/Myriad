@@ -5,9 +5,10 @@
 //! reliable ones its ack had covered (not read, though acked), the
 //! `log.vector` frames of her log that got no page (`log.pages`), per
 //! device and why, when each page still on its way was sent, per device
-//! and audience kind, and the links closed for a page of the device's that
-//! could not be settled, in a row and in all. Counts and when, never a
-//! value.
+//! and audience kind, the links closed for a page of the device's that
+//! could not be settled, in a row and in all, and the rows of her log a
+//! child told it did not take (`log.refused`), per device, audience kind
+//! and reason. Counts and when, never a value.
 
 use std::collections::BTreeMap;
 use std::sync::{LazyLock, Mutex};
@@ -51,6 +52,19 @@ struct Counts {
     open: BTreeMap<String, BTreeMap<String, (u64, DateTime<Utc>)>>,
     /// device → links closed for a page that could not be settled.
     unsettled: BTreeMap<String, Unsettled>,
+    /// device → (audience kind, reason) → rows of her log it did not take.
+    refused: BTreeMap<String, BTreeMap<(&'static str, &'static str), Refused>>,
+}
+
+/// Rows of her log a device told it did not take, for one audience kind
+/// and reason: the batches told (each event once), and their rows.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Refused {
+    pub(crate) batches: Count,
+    pub(crate) rows: u64,
+    /// The last event's id, so a batch told again after a reconnect (the
+    /// same id, made from the batch's) is not counted twice.
+    last: String,
 }
 
 /// Links of a device closed for a page of its that could not be settled:
@@ -259,6 +273,57 @@ pub(crate) fn pages_open_by(device_id: &str) -> Vec<(String, DateTime<Utc>)> {
     })
 }
 
+/// A child did not take `rows` rows of a batch of her log (`log.refused`,
+/// event `id`): counted when `kind` is one of `logAudiences` and `reason`
+/// one of `refuseReasons`, once per event. Whether it was counted.
+pub(super) fn log_refused(device_id: &str, id: &str, kind: &str, reason: &str, rows: u64) -> bool {
+    fn named(list: &'static [String], told: &str) -> Option<&'static str> {
+        list.iter().find(|known| *known == told).map(String::as_str)
+    }
+    let (Some(kind), Some(reason)) = (
+        named(&CONTRACT.log_audiences, kind),
+        named(&CONTRACT.refuse_reasons, reason),
+    ) else {
+        return false;
+    };
+    let now = crate::clock::now();
+    with(|counts| {
+        if !counts.refused.contains_key(device_id) && counts.refused.len() >= DEVICES_AT_MOST {
+            return false;
+        }
+        let refused = counts
+            .refused
+            .entry(device_id.to_string())
+            .or_default()
+            .entry((kind, reason))
+            .or_default();
+        if refused.last == id {
+            return false;
+        }
+        refused.last = id.to_string();
+        refused.batches.add(now);
+        refused.rows += rows;
+        true
+    })
+}
+
+/// The rows of her log one device told it did not take, per audience kind
+/// and reason.
+pub(crate) fn log_refused_by(device_id: &str) -> Vec<(&'static str, &'static str, Refused)> {
+    with(|counts| {
+        counts
+            .refused
+            .get(device_id)
+            .map(|kinds| {
+                kinds
+                    .iter()
+                    .map(|((kind, reason), refused)| (*kind, *reason, refused.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    })
+}
+
 /// The `log.vector` frames of one device that got no page, by why.
 pub(crate) fn pages_passed_by(device_id: &str) -> Vec<(&'static str, Count)> {
     with(|counts| {
@@ -335,6 +400,29 @@ mod tests {
         assert_eq!(of(UNNAMED, "bad_frame"), Some(2));
         assert_eq!(told.len(), 2);
         assert!(dropped_by("counts_device_never").is_empty());
+    }
+
+    #[test]
+    fn rows_of_her_log_not_taken_are_counted_once_per_event_and_only_as_the_contract_names() {
+        let device = "counts_device_refuses";
+        assert!(log_refused(device, "rf_b1_local", "personal", "local", 3));
+        // The same batch told again after a reconnect.
+        assert!(!log_refused(device, "rf_b1_local", "personal", "local", 3));
+        assert!(log_refused(device, "rf_b2_local", "personal", "local", 2));
+        assert!(log_refused(device, "rf_b3_batch", "group", "batch", 5));
+        // An audience itself, or a reason the contract does not name.
+        assert!(!log_refused(device, "rf_b4", "grp_123", "batch", 1));
+        assert!(!log_refused(device, "rf_b5", "own", "tired", 1));
+        let told = log_refused_by(device);
+        let of = |kind: &str, reason: &str| {
+            told.iter()
+                .find(|(at, why, _)| *at == kind && *why == reason)
+                .map(|(_, _, refused)| (refused.batches.count, refused.rows))
+        };
+        assert_eq!(of("personal", "local"), Some((2, 5)));
+        assert_eq!(of("group", "batch"), Some((1, 5)));
+        assert_eq!(told.len(), 2);
+        assert!(log_refused_by("counts_device_never").is_empty());
     }
 
     #[test]
