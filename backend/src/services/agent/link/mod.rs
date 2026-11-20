@@ -124,6 +124,8 @@ struct Open {
 /// A link that takes her calls (`calls`).
 struct CallsLink {
     sender: mpsc::Sender<connection::Outgoing>,
+    /// The device's name, as the owner named it.
+    name: String,
     /// What its `call.offer` said it can do; `None` before it said.
     offered: Option<Vec<calls::Action>>,
     /// Counts each working out of what it is granted: only the one started
@@ -223,11 +225,12 @@ fn takes_host(
 }
 
 /// The link `id` takes her calls (it listed `calls`), sent through `sender`.
-fn takes_calls(device_id: &str, id: u64, sender: mpsc::Sender<connection::Outgoing>) {
+fn takes_calls(device_id: &str, id: u64, sender: mpsc::Sender<connection::Outgoing>, name: String) {
     if let Ok(mut open) = OPEN.lock() {
         if let Some(link) = open.get_mut(device_id).filter(|link| link.id == id) {
             link.calls = Some(CallsLink {
                 sender,
+                name,
                 offered: None,
                 turn: 0,
                 told: None,
@@ -355,17 +358,26 @@ fn send_calls_frame(device_id: &str, outgoing: connection::Outgoing) {
 
 /// The owner's devices whose link was told it is granted `action` now.
 pub(crate) fn granted_devices(owner: i32, action: &str) -> Vec<String> {
+    granted_named(owner, action)
+        .into_iter()
+        .map(|(device, _)| device)
+        .collect()
+}
+
+/// The owner's devices granted `action` now, each with its name.
+fn granted_named(owner: i32, action: &str) -> Vec<(String, String)> {
     OPEN.lock()
         .map(|open| {
             open.iter()
                 .filter(|(_, link)| link.owner == owner)
-                .filter(|(_, link)| {
-                    link.calls
+                .filter_map(|(device, link)| {
+                    let calls = link.calls.as_ref()?;
+                    calls
+                        .granted
                         .as_ref()
-                        .and_then(|calls| calls.granted.as_ref())
                         .is_some_and(|granted| granted.iter().any(|one| one.name == action))
+                        .then(|| (device.clone(), calls.name.clone()))
                 })
-                .map(|(device, _)| device.clone())
                 .collect()
         })
         .unwrap_or_default()

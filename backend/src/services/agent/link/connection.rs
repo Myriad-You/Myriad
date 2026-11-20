@@ -1104,7 +1104,12 @@ impl Link {
         // Her calls: it says what it can be asked to do once welcomed.
         if capabilities.iter().any(|capability| capability == "calls") {
             self.calls = true;
-            super::takes_calls(&self.device.id, self.registered, self.tx.clone());
+            super::takes_calls(
+                &self.device.id,
+                self.registered,
+                self.tx.clone(),
+                self.device.name.clone(),
+            );
         }
         // Her proposals as cards there.
         if capabilities

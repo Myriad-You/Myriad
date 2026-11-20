@@ -4292,21 +4292,28 @@ async fn a_device_is_told_what_it_may_be_asked_and_told_again_when_the_owner_cha
             ]}),
         )
         .await;
-    // Only what is enabled here and approved: a look at the screen, which
-    // is on until the owner turns it off. Nothing of the host's to ask.
+    // Only what is enabled here and approved: a look at the screen and a
+    // notification, on until the owner turns them off; a whole run waits
+    // for the owner. Nothing of the host's to ask.
     let granted = child.expect("call.granted").await;
     assert_eq!(
         granted["body"],
-        json!({ "actions": [{ "name": "screen.look", "version": 1 }], "providing": [] })
+        json!({ "actions": [
+            { "name": "screen.look", "version": 1 },
+            { "name": "notify.post", "version": 1 },
+        ], "providing": [] })
     );
-    // The owner takes it back: told at once on the same link.
+    // The owner takes one back: told at once on the same link.
     assert!(
         super::calls::set_approved(&site.db, OWNER, &mac.id, "screen", false)
             .await
             .unwrap()
     );
     let granted = child.expect("call.granted").await;
-    assert_eq!(granted["body"]["actions"], json!([]));
+    assert_eq!(
+        granted["body"]["actions"],
+        json!([{ "name": "notify.post", "version": 1 }])
+    );
     // Deciding the same again tells nothing new.
     super::calls::set_approved(&site.db, OWNER, &mac.id, "screen", false)
         .await
@@ -4316,7 +4323,12 @@ async fn a_device_is_told_what_it_may_be_asked_and_told_again_when_the_owner_cha
     // What it is shown on the device page.
     assert_eq!(
         super::calls::groups_json(&site.db, &mac.id).await.unwrap(),
-        json!([{ "group": "screen", "approved": false }])
+        json!([
+            { "group": "screen", "approved": false },
+            { "group": "notify", "approved": true },
+            { "group": "voice", "approved": true },
+            { "group": "work", "approved": false },
+        ])
     );
     // A new link offers again and is told what stands.
     drop(child);
@@ -4421,7 +4433,7 @@ static CALLS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 async fn calls_turn() -> tokio::sync::MutexGuard<'static, ()> {
     let turn = CALLS.lock().await;
     for _ in 0..250 {
-        if ["screen.look", "work.run"]
+        if ["screen.look", "notify.post", "voice.speak", "work.run"]
             .iter()
             .all(|action| super::granted_devices(OWNER, action).is_empty())
         {
@@ -5099,7 +5111,7 @@ async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_i
     let look = "device.screen.look";
     let (mac, token) = device(&site.db, "Mac").await;
     assert!(!super::calls::usable(OWNER, look));
-    let away = super::calls::work(&site.db, look, for_owner(None)).await;
+    let away = super::calls::work(&site.db, look, &params(&[]), for_owner(None)).await;
     assert!(away.unwrap_err().starts_with("call_unavailable"));
     let (mut child, _) = offering(&site, &token, &["screen.look"]).await;
     assert!(super::calls::usable(OWNER, look));
@@ -5107,7 +5119,13 @@ async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_i
     assert!(!super::calls::usable(OWNER + 1, look));
     assert!(!super::calls::usable(OWNER, "device.work.run"));
     // In a group: refused before anything is asked.
-    let group = super::calls::work(&site.db, look, for_owner(Some("telegram:-100"))).await;
+    let group = super::calls::work(
+        &site.db,
+        look,
+        &params(&[]),
+        for_owner(Some("telegram:-100")),
+    )
+    .await;
     assert!(group.unwrap_err().starts_with("wrong_audience"));
     // Her own doing, or someone else's run: the screen is only the owner's
     // to ask for, so refused too, and each kept as whom it was for.
@@ -5116,7 +5134,7 @@ async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_i
         ..for_owner(None)
     };
     assert!(
-        super::calls::work(&site.db, look, own)
+        super::calls::work(&site.db, look, &params(&[]), own)
             .await
             .unwrap_err()
             .starts_with("wrong_audience")
@@ -5126,7 +5144,7 @@ async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_i
         ..for_owner(None)
     };
     assert!(
-        super::calls::work(&site.db, look, other)
+        super::calls::work(&site.db, look, &params(&[]), other)
             .await
             .unwrap_err()
             .starts_with("wrong_audience")
@@ -5144,7 +5162,10 @@ async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_i
     nothing_else(&mut child).await;
     // For the owner: asked, and what it may say comes back.
     let db = site.db.clone();
-    let asked = tokio::spawn(async move { super::calls::work(&db, look, for_owner(None)).await });
+    let asked =
+        tokio::spawn(
+            async move { super::calls::work(&db, look, &params(&[]), for_owner(None)).await },
+        );
     let ask = child.expect("call.ask").await;
     assert_eq!(ask["body"]["for"], json!({ "kind": "owner" }));
     // Work gives it less time than the contract's most, and waits less
@@ -5167,7 +5188,10 @@ async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_i
     // It may have happened: Work is told the outcome is unknown, so the
     // step is not done again.
     let db = site.db.clone();
-    let asked = tokio::spawn(async move { super::calls::work(&db, look, for_owner(None)).await });
+    let asked =
+        tokio::spawn(
+            async move { super::calls::work(&db, look, &params(&[]), for_owner(None)).await },
+        );
     let call_id = child.expect("call.ask").await["body"]["callId"]
         .as_str()
         .unwrap()
@@ -5194,6 +5218,308 @@ async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_i
     site.close().await;
 }
 
+/// What Work gives a step, by name.
+fn params(pairs: &[(&str, Value)]) -> std::collections::HashMap<String, Value> {
+    pairs
+        .iter()
+        .map(|(name, value)| (name.to_string(), value.clone()))
+        .collect()
+}
+
+#[tokio::test]
+async fn work_notifies_and_says_aloud_on_a_device_for_the_owner_or_herself_only() {
+    let _calls = calls_turn().await;
+    let Some(site) = site().await else {
+        return;
+    };
+    let (notify, speak) = ("device.notify.post", "device.voice.speak");
+    let (_mac, token) = device(&site.db, "Mac").await;
+    let (mut child, granted) = offering(&site, &token, &["notify.post", "voice.speak"]).await;
+    // Both are on until the owner turns them off.
+    assert_eq!(
+        granted["body"]["actions"],
+        json!([{ "name": "notify.post", "version": 1 }, { "name": "voice.speak", "version": 1 }])
+    );
+    assert!(super::calls::usable(OWNER, notify) && super::calls::usable(OWNER, speak));
+    let line = params(&[("text", json!("The tea is ready."))]);
+    // In a group: refused before anything is asked.
+    let group = super::calls::work(&site.db, speak, &line, for_owner(Some("telegram:-100"))).await;
+    assert!(group.unwrap_err().starts_with("wrong_audience"));
+    // What the contract needs is missing: nothing is asked.
+    let half = params(&[("title", json!("Myriad"))]);
+    let missing = super::calls::work(&site.db, notify, &half, for_owner(None)).await;
+    assert!(missing.unwrap_err().starts_with("bad_args: body"));
+    nothing_else(&mut child).await;
+
+    // Her own doing: a notification asked with only its contract's args,
+    // held back by the device's do-not-disturb, told as a code and its
+    // meaning, never the device's words.
+    let db = site.db.clone();
+    let asked = tokio::spawn(async move {
+        let note = params(&[
+            ("title", json!("Myriad")),
+            ("body", json!("I finished reading it.")),
+            ("kind", json!("urgent")),
+        ]);
+        let own = WorkFor {
+            her_own: true,
+            ..for_owner(None)
+        };
+        super::calls::work(&db, "device.notify.post", &note, own).await
+    });
+    let ask = child.expect("call.ask").await;
+    assert_eq!(ask["body"]["action"], "notify.post");
+    assert_eq!(ask["body"]["for"], json!({ "kind": "own" }));
+    assert_eq!(
+        ask["body"]["args"],
+        json!({ "title": "Myriad", "body": "I finished reading it." })
+    );
+    let deadline = ask["body"]["deadlineAt"].as_i64().unwrap();
+    assert!(deadline <= crate::clock::now().timestamp_millis() + 10_000);
+    let call_id = ask["body"]["callId"].as_str().unwrap().to_string();
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "notify.post", "version": 1, "outcome": "failed",
+                    "error": { "code": "not_now" } }),
+        )
+        .await;
+    let held = asked.await.unwrap().unwrap_err();
+    assert!(
+        held.starts_with("not_now: the device held it back"),
+        "{held}"
+    );
+
+    // For the owner: a line said aloud is given up to a minute, and one
+    // the device stopped before its end comes back done, not heard out.
+    let db = site.db.clone();
+    let asked = tokio::spawn(async move {
+        super::calls::work(&db, "device.voice.speak", &line, for_owner(None)).await
+    });
+    let ask = child.expect("call.ask").await;
+    assert_eq!(ask["body"]["args"], json!({ "text": "The tea is ready." }));
+    let now = crate::clock::now().timestamp_millis();
+    let deadline = ask["body"]["deadlineAt"].as_i64().unwrap();
+    assert!(
+        deadline > now + 50_000 && deadline <= now + 60_000,
+        "{deadline}"
+    );
+    let call_id = ask["body"]["callId"].as_str().unwrap().to_string();
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "voice.speak", "version": 1, "outcome": "done",
+                    "result": { "delivered": false } }),
+        )
+        .await;
+    assert_eq!(asked.await.unwrap().unwrap(), json!({ "delivered": false }));
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn a_mac_granted_a_whole_run_takes_her_proposal_as_a_call() {
+    use crate::services::agent::consciousness::{AcceptSource, IntentStatus, IntentStore};
+    let _calls = calls_turn().await;
+    let Some(site) = site().await else {
+        return;
+    };
+    let (mac, token) = device(&site.db, "Mac").await;
+    let store = IntentStore::new(site.db.clone());
+    for id in ["int_done", "int_busy", "int_back", "int_gone", "int_maybe"] {
+        let mut record = proposal_record_at(1, id, IntentStatus::Proposed);
+        record.proposal.device_id = Some(mac.id.clone());
+        record.created_at = crate::clock::now();
+        record.updated_at = record.created_at;
+        record.expires_at = Some(record.created_at + chrono::Duration::hours(24));
+        store.create_proposed(record).await.unwrap();
+    }
+    let accepted = |id: &'static str| {
+        let store = store.clone();
+        async move {
+            store
+                .mark_accepted(id, OWNER, AcceptSource::User)
+                .await
+                .unwrap()
+        }
+    };
+    let status = |id: &'static str| {
+        let store = store.clone();
+        async move { store.find(id, OWNER).await.unwrap() }
+    };
+    // Until it is so, waits for the proposal to be `want`.
+    let until_status = |id: &'static str, want: IntentStatus| {
+        let store = store.clone();
+        async move {
+            for _ in 0..200 {
+                let now = store.find(id, OWNER).await.unwrap();
+                if now.status == want {
+                    return now;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            panic!("{id} never became {want:?}");
+        }
+    };
+    let (mut child, granted) = offering(&site, &token, &["work.run"]).await;
+    // A whole run waits for the owner's word: until then it is no Mac
+    // her proposals run on.
+    assert_eq!(granted["body"]["actions"], json!([]));
+    assert!(super::macs(OWNER).is_empty());
+    super::calls::set_approved(&site.db, OWNER, &mac.id, "work", true)
+        .await
+        .unwrap();
+    child.expect("call.granted").await;
+    let macs = super::macs(OWNER);
+    assert_eq!(macs.len(), 1);
+    assert_eq!(
+        (macs[0].device_id.as_str(), macs[0].name.as_str()),
+        (mac.id.as_str(), "Mac")
+    );
+
+    // Asked as a call, not a request: the proposal runs, and the run's end
+    // is its end. One run at a time.
+    let done = accepted("int_done").await;
+    let run = super::act_request(&site.db, &done, None).await.unwrap();
+    assert!(run.starts_with("run_"), "{run}");
+    let ask = until(&mut child, "call.ask").await;
+    assert_eq!(ask["body"]["action"], "work.run");
+    assert_eq!(ask["body"]["for"], json!({ "kind": "owner" }));
+    assert_eq!(ask["body"]["args"]["proposalId"], "int_done");
+    assert!(ask["body"]["args"].get("maxRunMs").is_none());
+    assert_eq!(status("int_done").await.status, IntentStatus::Running);
+    let busy = accepted("int_busy").await;
+    assert_eq!(
+        super::act_request(&site.db, &busy, None).await,
+        Err("act_busy")
+    );
+    let call_id = ask["body"]["callId"].as_str().unwrap().to_string();
+    child
+        .send("call.accepted", None, json!({ "callId": call_id }))
+        .await;
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "work.run", "version": 1, "outcome": "done",
+                    "result": { "status": "completed" } }),
+        )
+        .await;
+    until_status("int_done", IntentStatus::Completed).await;
+
+    // Not done, the contract says: back to accepted, to ask again.
+    let back = accepted("int_back").await;
+    super::act_request(&site.db, &back, None).await.unwrap();
+    let call_id = until(&mut child, "call.ask").await["body"]["callId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "work.run", "version": 1, "outcome": "failed",
+                    "error": { "code": "not_now" } }),
+        )
+        .await;
+    until_status("int_back", IntentStatus::Accepted).await;
+
+    // Dismissed on the site: no one waits for it, so it is cancelled there.
+    let gone = accepted("int_gone").await;
+    super::act_request(&site.db, &gone, None).await.unwrap();
+    let call_id = until(&mut child, "call.ask").await["body"]["callId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    child
+        .send("call.accepted", None, json!({ "callId": call_id }))
+        .await;
+    assert!(super::cancel_for_proposal(OWNER, "int_gone"));
+    assert_eq!(
+        until(&mut child, "call.cancel").await["body"]["callId"],
+        call_id
+    );
+
+    // It may have happened: failed, and never asked again by itself.
+    let maybe = accepted("int_maybe").await;
+    super::act_request(&site.db, &maybe, None).await.unwrap();
+    let call_id = until(&mut child, "call.ask").await["body"]["callId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    child
+        .send("call.accepted", None, json!({ "callId": call_id }))
+        .await;
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "work.run", "version": 1, "outcome": "unknown" }),
+        )
+        .await;
+    let failed = until_status("int_maybe", IntentStatus::Failed).await;
+    assert_eq!(failed.result_summary.as_deref(), Some("outcome_unknown"));
+    drop(child);
+    site.close().await;
+}
+
+#[test]
+fn a_run_asked_as_a_call_ends_her_proposal_only_by_how_it_ended() {
+    use super::calls_pending::Answer;
+    use super::calls_store::Outcome;
+    use crate::services::agent::consciousness::IntentStatus;
+    let done = |status: &str| Answer {
+        outcome: Outcome::Done,
+        result: Some(json!({ "status": status })),
+    };
+    let failed = |code: &'static str| super::act::run_ended(&Answer::failed(code));
+    assert_eq!(
+        super::act::run_ended(&done("completed")),
+        Some((IntentStatus::Completed, None))
+    );
+    assert_eq!(
+        super::act::run_ended(&done("failed")),
+        Some((IntentStatus::Failed, None))
+    );
+    assert_eq!(
+        failed("call_cancelled"),
+        Some((IntentStatus::Abandoned, Some("act_cancelled".into())))
+    );
+    assert_eq!(
+        failed("declined"),
+        Some((IntentStatus::Abandoned, Some("declined".into())))
+    );
+    assert_eq!(
+        failed("call_timeout"),
+        Some((IntentStatus::Failed, Some("act_timeout".into())))
+    );
+    assert_eq!(
+        failed("internal_error"),
+        Some((IntentStatus::Failed, Some("outcome_unknown".into())))
+    );
+    let unknown = Answer {
+        outcome: Outcome::Unknown,
+        result: None,
+    };
+    assert_eq!(
+        super::act::run_ended(&unknown),
+        Some((IntentStatus::Failed, Some("outcome_unknown".into())))
+    );
+    // The contract says these were not done: the proposal goes back.
+    for code in [
+        "call_unavailable",
+        "call_not_granted",
+        "call_unknown",
+        "version_unsupported",
+        "wrong_audience",
+        "not_now",
+    ] {
+        assert_eq!(failed(code), None, "{code}");
+    }
+}
+
 async fn until(child: &mut Child, t: &str) -> Value {
     loop {
         let frame = child.next().await;
@@ -5206,6 +5532,8 @@ async fn until(child: &mut Child, t: &str) -> Value {
 #[tokio::test]
 async fn her_host_asks_a_mac_that_lets_it_to_act() {
     use crate::services::agent::consciousness::{AcceptSource, IntentStatus, IntentStore};
+    // A Mac granted a whole run as a call is one her proposals run on too.
+    let _calls = calls_turn().await;
     let Some(site) = site().await else {
         return;
     };
