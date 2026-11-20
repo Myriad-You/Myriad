@@ -223,7 +223,8 @@ async fn settle_pass(
     let keeping = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
         super::super::chat_remember::settle::SETTLE_TIMEOUT,
     ))
-    .await;
+    .await
+    .map(super::super::call::keeping);
     let model = keeping.as_ref().unwrap_or(judge);
     let (known, theirs, input, offered) = (&known, &theirs, &input, &offered);
     let read = crate::services::ai_cost_ledger::spent::tried_as_production_tries(

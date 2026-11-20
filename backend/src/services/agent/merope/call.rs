@@ -238,10 +238,18 @@ impl Ask {
                     .ok_or_else(|| self.failed(Failure::Unavailable))?
                     .with_light_thinking()
             }
-            Voice::HersAtLength | Voice::Keeping => {
+            Voice::HersAtLength => {
                 crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(self.timeout))
                     .await
                     .ok_or_else(|| self.failed(Failure::Unavailable))?
+            }
+            Voice::Keeping => {
+                let analyzer = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(
+                    Some(self.timeout),
+                )
+                .await
+                .ok_or_else(|| self.failed(Failure::Unavailable))?;
+                keeping(analyzer)
             }
             Voice::Thorough => {
                 crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(self.timeout))
@@ -480,6 +488,21 @@ impl Model {
 
 /// Who pays for what she does on her own, with no one asking: the site
 /// owner. None when the site has no owner to bill.
+/// Output a keeping call may take, thinking included, where it names none:
+/// the room it had when it was asked to think it through. Its own thinking
+/// comes out of the same allowance, and what it writes is long (a settle
+/// put out 3,284 tokens on average); left at Anthropic's own 4096, the
+/// thinking used it all and no answer came.
+pub(super) const KEEPING_OUTPUT: u32 = 16_000;
+
+/// `analyzer` as [`Voice::Keeping`] asks: no thinking asked for, and
+/// [`KEEPING_OUTPUT`] to answer in unless the call names its own.
+pub(super) fn keeping(
+    analyzer: crate::services::analyzer::AiAnalyzer,
+) -> crate::services::analyzer::AiAnalyzer {
+    analyzer.with_output_limit(KEEPING_OUTPUT)
+}
+
 pub(super) async fn site_owner() -> Option<i32> {
     crate::services::ai_cost_ledger::resolve_site_owner_id()
         .await
@@ -667,6 +690,59 @@ mod tests {
         assert_eq!(ask.timeout, DEFAULT_TIMEOUT);
         let ask = ask.billed_as("touch").within(Duration::from_secs(2));
         assert_eq!((ask.source, ask.timeout), ("touch", Duration::from_secs(2)));
+    }
+
+    /// A keeping call asks for no thinking and names 16,000 tokens to answer
+    /// in: Anthropic's own 4096 left a settle no room past its thinking.
+    #[tokio::test]
+    async fn a_keeping_call_has_room_past_its_thinking() {
+        use axum::{Router, routing::post};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sent, mut received) = tokio::sync::mpsc::unbounded_channel::<Value>();
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().fallback(post(move |body: axum::Json<Value>| {
+                    let _ = sent.send(body.0);
+                    async { axum::http::StatusCode::BAD_REQUEST }
+                })),
+            )
+            .await
+            .unwrap();
+        });
+        let analyzer = || {
+            crate::services::analyzer::AiAnalyzer::new(
+                crate::services::analyzer::AiProvider::Anthropic,
+                "test".into(),
+                "keeping-test".into(),
+                Some(format!("http://{address}")),
+            )
+        };
+        let schema = serde_json::json!({"type": "object"});
+        // Every body the call sent, a request it made again included.
+        let mut sent_by = async |analyzer: crate::services::analyzer::AiAnalyzer| {
+            let _ = analyzer
+                .analyze_json_as("s", "i", "n", Some(&schema), true)
+                .await;
+            let mut bodies = Vec::new();
+            while let Ok(body) = received.try_recv() {
+                bodies.push(body);
+            }
+            assert!(!bodies.is_empty());
+            bodies
+        };
+        for body in sent_by(keeping(analyzer().await)).await {
+            assert_eq!(body["max_tokens"], 16_000, "{body}");
+            assert!(body.get("thinking").is_none(), "{body}");
+            assert!(body["output_config"].get("effort").is_none(), "{body}");
+        }
+        // A call that names its own limit keeps it.
+        for body in sent_by(keeping(analyzer().await).with_output_limit(6000)).await {
+            assert_eq!(body["max_tokens"], 6000, "{body}");
+        }
+        server.abort();
+        let _ = server.await;
     }
 
     #[test]
