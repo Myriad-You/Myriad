@@ -107,22 +107,22 @@ export function AgentDevicesGroup() {
     [c.agentDevicesRemoveFailed, fail, load],
   )
 
-  // Whether she may look at its screen: the owner's privacy consent per
-  // device, on until turned off; the device is told at once.
-  const setScreen = useCallback(
-    async (device: SyncDevice, approved: boolean) => {
+  // What she may ask of it, per permission group (screen, notify, voice,
+  // work): the owner's say on this device; the device is told at once.
+  const setGroup = useCallback(
+    async (device: SyncDevice, group: string, approved: boolean) => {
       setWorking(true)
       try {
         setList(
-          await agentService.setDeviceCallGroup(device.id, 'screen', approved),
+          await agentService.setDeviceCallGroup(device.id, group, approved),
         )
       } catch (error) {
-        fail(error, c.agentDevicesScreenFailed)
+        fail(error, c.agentDevicesCallGroupFailed)
       } finally {
         setWorking(false)
       }
     },
-    [c.agentDevicesScreenFailed, fail],
+    [c.agentDevicesCallGroupFailed, fail],
   )
 
   const forget = useCallback(
@@ -635,9 +635,39 @@ export function AgentDevicesGroup() {
             : null,
         ].filter((part): part is string => part !== null)
       : []
-    const screen = device.callGroups?.find((one) => one.group === 'screen')
-    if (!device.revokedAt && screen && !screen.approved) {
-      badges.push({ label: c.agentDevicesScreenOff, tone: 'muted' })
+    // The groups the site shows, in its order. Work starts off, so its being
+    // off is no news: no badge for it, only its button.
+    const groupText: Record<
+      string,
+      { off?: string; stop: string; allow: string }
+    > = {
+      screen: {
+        off: c.agentDevicesScreenOff,
+        stop: c.agentDevicesScreenStop,
+        allow: c.agentDevicesScreenAllow,
+      },
+      notify: {
+        off: c.agentDevicesNotifyOff,
+        stop: c.agentDevicesNotifyStop,
+        allow: c.agentDevicesNotifyAllow,
+      },
+      voice: {
+        off: c.agentDevicesVoiceOff,
+        stop: c.agentDevicesVoiceStop,
+        allow: c.agentDevicesVoiceAllow,
+      },
+      work: { stop: c.agentDevicesWorkStop, allow: c.agentDevicesWorkAllow },
+    }
+    const groups = (device.callGroups ?? []).flatMap((one) => {
+      const text = groupText[one.group]
+      return text ? [{ ...one, text }] : []
+    })
+    if (!device.revokedAt) {
+      for (const one of groups) {
+        if (!one.approved && one.text.off) {
+          badges.push({ label: one.text.off, tone: 'muted' })
+        }
+      }
     }
     return {
       id: device.id,
@@ -670,19 +700,13 @@ export function AgentDevicesGroup() {
             },
           ]
         : [
-            ...(screen
-              ? [
-                  {
-                    key: 'screen',
-                    label: screen.approved
-                      ? c.agentDevicesScreenStop
-                      : c.agentDevicesScreenAllow,
-                    onClick: () => void setScreen(device, !screen.approved),
-                    disabled: working,
-                    variant: 'secondary' as const,
-                  },
-                ]
-              : []),
+            ...groups.map((one) => ({
+              key: one.group,
+              label: one.approved ? one.text.stop : one.text.allow,
+              onClick: () => void setGroup(device, one.group, !one.approved),
+              disabled: working,
+              variant: 'secondary' as const,
+            })),
             {
               key: 'remove',
               label: c.agentDevicesRemove,
