@@ -806,6 +806,8 @@
     "zoomImage": "Agrandir",
     "saidOn": "Sur « {name} »",
     "saidOnUnknown": "Sur un autre de vos appareils",
+    "leftRead": "Lu",
+    "reacted": "A réagi {emoji}",
     "pictures": "(a envoyé {count} images)",
     "forgetLine": "Oublier",
     "confirmForgetLine": "Elle oublie cette phrase et ce qu’elle en a retenu ; en synchronisation, partout.",

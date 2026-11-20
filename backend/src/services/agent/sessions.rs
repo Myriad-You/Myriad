@@ -405,7 +405,8 @@ async fn said_in_private(
             source: Source::Reply,
             called: true,
             thing: None,
-            text: content,
+            // Her words only: a line she left, or only reacted to, said nothing.
+            text: &myriad_merope::unanswered::read(content).said,
         },
         out,
         None,

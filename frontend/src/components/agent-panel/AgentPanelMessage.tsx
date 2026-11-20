@@ -288,6 +288,22 @@ export const AgentPanelMessage: React.FC<AgentPanelMessageProps> = React.memo(
         data-split-lines={splitsLines ? 'true' : undefined}
         data-typed={message.typing !== undefined ? 'true' : undefined}
       >
+        {isAssistant && (message.left || message.reaction) ? (
+          // What she did with their line, under it: read and left (已读),
+          // or the reaction she put on it.
+          <p className="agent-panel-her-took" data-took={message.left ? 'left' : 'react'}>
+            {message.left ? (
+              t.agentPanel.leftRead
+            ) : (
+              <span
+                role="img"
+                aria-label={format(t.agentPanel.reacted, { emoji: message.reaction ?? '' })}
+              >
+                {message.reaction}
+              </span>
+            )}
+          </p>
+        ) : null}
         {showsBody ? (
           <div
             ref={bubbleRef}

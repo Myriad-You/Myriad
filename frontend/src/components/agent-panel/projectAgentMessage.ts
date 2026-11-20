@@ -6,6 +6,7 @@ import {
   peelThoughtFromContent,
   splitThinkContent,
 } from './agentThinking'
+import { herTurnMarks } from './herTurnMarks'
 import { changedMessageIndices } from './useMessageState'
 
 function projectState(message: ChatMessage): AgentMessage['state'] {
@@ -89,9 +90,11 @@ export function projectAgentMessage(message: ChatMessage): AgentMessage {
     fromTags && (!fromExec || fromTags.length >= fromExec.length)
       ? fromTags
       : fromExec
-  const content = nonemptyContent(
-    peelThoughtFromContent(tagged.content, thought ?? ''),
-  )
+  const peeled = peelThoughtFromContent(tagged.content, thought ?? '')
+  // What she did with their line rides in her turn as a mark, never shown
+  // as words: she left it (已读), or put a reaction on it.
+  const took = message.role === 'assistant' ? herTurnMarks(peeled) : undefined
+  const content = nonemptyContent(took ? took.text : peeled)
   const workOffer = workOfferFromData(message.data)
   return {
     workPlan: message.taskExecution?.workPlan ?? workPlanFromData(message.data),
@@ -117,6 +120,8 @@ export function projectAgentMessage(message: ChatMessage): AgentMessage {
     at: message.createdAt.getTime(),
     ...(message.saidOn ? { saidOn: message.saidOn } : {}),
     ...(message.pictures ? { pictures: message.pictures } : {}),
+    ...(took?.left ? { left: true } : {}),
+    ...(took?.reaction ? { reaction: took.reaction } : {}),
     ...(message.typing !== undefined ? { typing: message.typing } : {}),
     ...(message.cardLine ? { cardLine: message.cardLine } : {}),
     ...(message.suggestions?.length

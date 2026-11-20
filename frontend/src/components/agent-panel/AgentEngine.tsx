@@ -136,6 +136,7 @@ import { planAgentUndo } from './agentUndo'
 import { isHousekeepingStep, readConfirmationDetail } from './confirmationDetail'
 import { executionStepsFromHistory } from './engineTypes'
 import { FrontendActionQueue } from './frontendActionQueue'
+import { herTurnMarks } from './herTurnMarks'
 import { BODY_INLINE_CHARS, BodyWriter, prepareMessageBody, releaseMessageBody } from './messageBody'
 import { retainHotMessages } from './messageBudget'
 import { prepareChatBody } from './prepareChatBody'
@@ -1910,7 +1911,8 @@ export const AgentEngine: React.FC = () => {
         ...(mergedImageUrls.length > 0 ? { imageUrls: mergedImageUrls } : {}),
       })
 
-      const spokenReply = displayMessage || response.message
+      // Her words only: a line she left, or only reacted to, says nothing.
+      const spokenReply = herTurnMarks(displayMessage || response.message).text
       const staleChat =
         mode === 'chat' &&
         generation > 0 &&
@@ -1921,7 +1923,7 @@ export const AgentEngine: React.FC = () => {
       if (isSuccess && !staleChat) {
         deliverTurnLine(mode, {
           messageId,
-          text: speechOutput === 'external' || turnSpeechAlreadyFed(messageId)
+          text: speechOutput === 'external' || turnSpeechAlreadyFed(messageId) || !spokenReply
             ? undefined
             : spokenReply,
           locale,

@@ -3232,6 +3232,20 @@ html[data-perf-mode='exlight'] .agent-panel-thinking-sweep {
   font-variant-numeric: tabular-nums;
 }
 
+/* What she did with the owner's line, shown under it on their side: read
+   and left (已读), or the reaction she put on it. */
+.agent-panel-her-took {
+  place-self: end;
+  margin: -2px 0 0;
+  color: var(--text-muted, #9ca3af);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.agent-panel-her-took[data-took='react'] {
+  font-size: 15px;
+}
+
 /* A line said on another end: the pictures stayed there. */
 .agent-panel-message-pictures {
   color: var(--text-muted, #9ca3af);

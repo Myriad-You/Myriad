@@ -806,6 +806,8 @@
     "zoomImage": "View larger",
     "saidOn": "On “{name}”",
     "saidOnUnknown": "On another of your devices",
+    "leftRead": "Read",
+    "reacted": "Reacted {emoji}",
     "pictures": "(sent {count} pictures)",
     "forgetLine": "Forget",
     "confirmForgetLine": "She forgets this line and what she took from it; while syncing, it goes on every end.",
