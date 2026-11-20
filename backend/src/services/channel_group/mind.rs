@@ -545,6 +545,10 @@ pub async fn names_here(db: &DatabaseConnection, venue: &str) -> HashMap<i32, St
     else {
         return HashMap::new();
     };
+    // Official QQ group ids are group-scoped, not the C2C openid.
+    if platform == ChannelPlatform::Qq {
+        return HashMap::new();
+    }
     let now = now().timestamp_micros();
     let people = with_group(venue, |group| core::people(group, now)).unwrap_or_default();
     let mut names = HashMap::new();
