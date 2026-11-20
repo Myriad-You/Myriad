@@ -13,7 +13,8 @@ async fn prompt(db: &sea_orm::DatabaseConnection) -> Vec<String> {
     let present = Audience::private(SEVEN);
     let sections =
         speaking_prompt_from_db(db, SEVEN, Turn::Event("聊起阳台上的植物"), &present, None).await;
-    sections
+    assert!(put_together_in_part_order(&sections), "{sections:#?}");
+    texts(sections)
         .into_iter()
         .filter(|section| !section.starts_with("## Now\n"))
         .collect()
@@ -57,10 +58,12 @@ async fn her_day_stands_beside_how_she_was_a_moment_ago() {
     seed(db).await;
     let present = Audience::private(SEVEN);
     super::super::inner::tests::hold(SEVEN, &present, "刚才聊得挺开心");
-    let sections =
+    let parts =
         speaking_prompt_from_db(db, SEVEN, Turn::Chat("今天过得怎么样"), &present, None).await;
     crate::services::channel_group::g0::leave();
     super::super::inner::tests::let_go(SEVEN, &present);
+    assert!(put_together_in_part_order(&parts), "{parts:#?}");
+    let sections = texts(parts);
     let titled_as = |title: &str| sections.iter().filter(|s| s.starts_with(title)).count();
     assert_eq!(
         titled_as("## Inside you a moment ago\n"),
@@ -87,7 +90,8 @@ async fn prompt_in_group(db: &sea_orm::DatabaseConnection) -> Vec<String> {
         Some("七"),
     )
     .await;
-    sections
+    assert!(put_together_in_part_order(&sections), "{sections:#?}");
+    texts(sections)
         .into_iter()
         .filter(|section| !section.starts_with("## Now\n"))
         .collect()
@@ -135,4 +139,16 @@ async fn a_group_reads_its_own_nodes() {
         assert!(!on.contains(never), "{never}:\n{on}");
     }
     schema.drop().await;
+}
+
+/// Her sections come out in the order of their parts (but how their words
+/// just landed, which a private chat moves last): laid out by part, a
+/// private chat's prompt is what putting them together in turn made it.
+fn put_together_in_part_order(parts: &Parts) -> bool {
+    parts
+        .iter()
+        .filter(|(part, _)| *part != Part::JustNow)
+        .collect::<Vec<_>>()
+        .windows(2)
+        .all(|pair| pair[0].0 <= pair[1].0)
 }

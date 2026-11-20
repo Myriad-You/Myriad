@@ -5,8 +5,21 @@
 
 use super::*;
 
+pub use myriad_merope::private_prompt::Part;
+
 mod between;
 mod sections;
+
+/// Her sections for a turn, each with where it goes in a private chat's
+/// prompt ([`myriad_merope::private_prompt`]), in the order they were put
+/// together.
+pub type Parts = Vec<(Part, String)>;
+
+/// The sections alone, in the order they were put together: for prompts
+/// other than a private chat's.
+fn texts(parts: Parts) -> Vec<String> {
+    parts.into_iter().map(|(_, text)| text).collect()
+}
 
 pub fn format_addressee_label(
     user_id: i32,
@@ -185,68 +198,6 @@ pub(super) async fn talk_rhythm(
     known
 }
 
-/// How her lines to this person differ from theirs to her (see
-/// `myriad_merope::contrast`), from their latest chat messages anywhere and
-/// her latest answers (not work: a report is not how she talks). Looked up
-/// at most every few minutes per person.
-async fn how_she_differs_with(db: &sea_orm::DatabaseConnection, user_id: i32) -> Option<String> {
-    use myriad_merope::contrast::{Counts, describe, overused};
-    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value as SeaValue};
-    static TOLD: std::sync::LazyLock<
-        std::sync::Mutex<std::collections::HashMap<i32, (std::time::Instant, Option<String>)>>,
-    > = std::sync::LazyLock::new(Default::default);
-    const FRESH_FOR: std::time::Duration = std::time::Duration::from_secs(10 * 60);
-    const PEOPLE_KEPT: usize = 4096;
-    const LATEST: i32 = 400;
-    if let Some((_, told)) = TOLD
-        .lock()
-        .ok()?
-        .get(&user_id)
-        .filter(|(at, _)| at.elapsed() < FRESH_FOR)
-    {
-        return told.clone();
-    }
-    let rows = db
-        .query_all_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT m.role, m.content FROM agent_messages m \
-             JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
-               AND m.role IN ('user', 'assistant') \
-               AND (m.metadata->>'piece') IS NULL \
-             ORDER BY m.created_at DESC LIMIT $2",
-            vec![SeaValue::Int(Some(user_id)), SeaValue::Int(Some(LATEST))],
-        ))
-        .await
-        .ok()?;
-    let (mut theirs, mut hers) = (Counts::default(), Counts::default());
-    for row in &rows {
-        let (Ok(role), Ok(content)) = (
-            row.try_get::<String>("", "role"),
-            row.try_get::<String>("", "content"),
-        ) else {
-            continue;
-        };
-        // Each line of hers went as a message of its own.
-        let counts = if role == "user" {
-            &mut theirs
-        } else {
-            &mut hers
-        };
-        for line in content.lines() {
-            counts.add(line);
-        }
-    }
-    let told = describe(&overused(&hers, &theirs));
-    if let Ok(mut cache) = TOLD.lock() {
-        if cache.len() >= PEOPLE_KEPT {
-            cache.retain(|_, (at, _)| at.elapsed() < FRESH_FOR);
-        }
-        cache.insert(user_id, (std::time::Instant::now(), told.clone()));
-    }
-    told
-}
-
 /// Her talks with others since she got up (see `myriad_merope::elsewhere`),
 /// as the section that tells them. In a group, where people outside the
 /// community may be reading, only her talks in other groups, by the group's
@@ -370,10 +321,11 @@ pub(super) async fn since_she_got_up(
 
 /// Prompt sections for whoever this turn is speaking to. Empty when Merope is off.
 pub async fn speaking_prompt(user_id: i32) -> Vec<String> {
-    speaking_prompt_with_query(user_id, None).await
+    texts(speaking_parts_with_query(user_id, None).await)
 }
 
-pub async fn speaking_prompt_with_query(user_id: i32, query: Option<&str>) -> Vec<String> {
+/// A private chat turn's sections, each with where it goes.
+pub async fn speaking_parts_with_query(user_id: i32, query: Option<&str>) -> Parts {
     let present = crate::services::agent::memory::unified::Audience::private(user_id);
     speaking_prompt_for_turn(user_id, query, &present, None).await
 }
@@ -389,7 +341,7 @@ pub async fn speaking_prompt_in_group(
     known_as: Option<&str>,
 ) -> Vec<String> {
     let present = crate::services::agent::memory::unified::Audience::group(venue, user_id);
-    speaking_prompt_for_turn(user_id, Some(query), &present, known_as).await
+    texts(speaking_prompt_for_turn(user_id, Some(query), &present, known_as).await)
 }
 
 /// Who is present for this request: a group when the server placed the turn
@@ -416,20 +368,21 @@ async fn speaking_prompt_for_turn(
     query: Option<&str>,
     present: &crate::services::agent::memory::unified::Audience,
     known_as: Option<&str>,
-) -> Vec<String> {
+) -> Parts {
     if !is_enabled().await {
         return Vec::new();
     }
     if user_id < 0 {
-        return vec![guest_speaking_section()];
+        return vec![(Part::Addressee, guest_speaking_section())];
     }
     if !is_logged_in_addressee(user_id) {
         return Vec::new();
     }
     let Ok(db) = crate::services::process_db::database() else {
-        return vec![addressee_speaking_section(&format_addressee_label(
-            user_id, None, None,
-        ))];
+        return vec![(
+            Part::Addressee,
+            addressee_speaking_section(&format_addressee_label(user_id, None, None)),
+        )];
     };
     let turn = match query.filter(|query| !query.trim().is_empty()) {
         Some(words) => Turn::Chat(words),
@@ -451,7 +404,7 @@ pub async fn speaking_prompt_for_event(
         return Vec::new();
     }
     let present = crate::services::agent::memory::unified::Audience::private(user_id);
-    speaking_prompt_from_db(db, user_id, Turn::Event(summary), &present, None).await
+    texts(speaking_prompt_from_db(db, user_id, Turn::Event(summary), &present, None).await)
 }
 
 /// Sections for writing to them first while they are away (see `reach`):
@@ -465,7 +418,7 @@ pub async fn speaking_prompt_to_reach(
         return Vec::new();
     }
     let present = crate::services::agent::memory::unified::Audience::private(user_id);
-    speaking_prompt_from_db(db, user_id, Turn::Event(about), &present, None).await
+    texts(speaking_prompt_from_db(db, user_id, Turn::Event(about), &present, None).await)
 }
 
 /// Why she is about to speak.
@@ -637,7 +590,7 @@ async fn speaking_prompt_from_db(
     turn: Turn<'_>,
     present: &crate::services::agent::memory::unified::Audience,
     known_as: Option<&str>,
-) -> Vec<String> {
+) -> Parts {
     // In a group, people outside the community may be reading: nothing
     // private to anyone — the person's diary, her unprompted lines to them,
     // what was on her mind — is brought in, and memory is what the group heard.
@@ -648,11 +601,14 @@ async fn speaking_prompt_from_db(
         Some(name) if group => name.to_string(),
         _ => resolve_addressee_label(db, user_id).await,
     };
-    let mut sections = vec![if group {
-        group_speaking_section(&addressee)
-    } else {
-        addressee_speaking_section(&addressee)
-    }];
+    let mut sections = vec![(
+        Part::Addressee,
+        if group {
+            group_speaking_section(&addressee)
+        } else {
+            addressee_speaking_section(&addressee)
+        },
+    )];
     // What she keeps of a private talk on her nodes, read once for the
     // turn.
     let nodes = match turn {
@@ -678,7 +634,7 @@ async fn speaking_prompt_from_db(
     if matches!(turn, Turn::Chat(_)) {
         between::chat_extras(db, user_id, turn, present, &mut sections).await;
     }
-    sections.extend(inner_block);
+    sections.extend(inner_block.map(|block| (Part::InnerMomentAgo, block)));
     sections
 }
 

@@ -4,6 +4,7 @@ use super::super::agent_header::*;
 use super::super::response_agent;
 use super::super::types::*;
 use crate::services::agent::chat_prompt::ChatTurnPrompt;
+use crate::services::agent::merope::Part;
 
 type ChatDelivery =
     std::sync::Arc<std::sync::Mutex<super::super::motion_overlay::ChatMotionDelivery>>;
@@ -510,28 +511,14 @@ impl Agent {
             .await
             .unwrap_or_default();
         // A group turn is her group mind's own (`group_turn`): this is a
-        // private chat's.
-        let sections = crate::services::agent::merope::speaking_prompt_with_query(
+        // private chat's. Each section goes where its part says
+        // (`myriad_merope::private_prompt`): how she is this moment last,
+        // nearest their words, what she answers from.
+        let mut parts = crate::services::agent::merope::speaking_parts_with_query(
             request.user_id,
             Some(request.raw_input.as_str()),
         )
         .await;
-        // How she is this moment goes last, nearest their words: what she
-        // answers from, not one more thing among the rest.
-        let (moment, sections): (Vec<String>, Vec<String>) = sections
-            .into_iter()
-            .partition(|section| myriad_merope::speaking::is_her_moment(section));
-        let moment = moment.join("\n\n");
-        let with_moment = |block: String| {
-            if moment.is_empty() {
-                block
-            } else if block.is_empty() {
-                moment.clone()
-            } else {
-                format!("{block}\n\n{moment}")
-            }
-        };
-        let mut merope_block = crate::services::agent::merope::speaking_prompt_plain(&sections);
         // A chat app has no wardrobe of hers to change and no player of
         // theirs to run: those sections are for a private chat on the site,
         // where they are really there.
@@ -547,7 +534,6 @@ impl Agent {
                 .as_ref()
                 .and_then(|context| context.session_id.as_deref())
                 .unwrap_or("");
-            let mut blocks: Vec<String> = Vec::new();
             if !in_app {
                 if let Some(wardrobe) = crate::services::agent::merope::chat_wardrobe_section(
                     &self.db,
@@ -556,7 +542,7 @@ impl Agent {
                 )
                 .await
                 {
-                    blocks.push(wardrobe);
+                    parts.push((Part::Wardrobe, wardrobe));
                 }
                 let music = request
                     .context
@@ -573,7 +559,7 @@ impl Agent {
                     player.push('\n');
                     player.push_str(line);
                 }
-                blocks.push(player);
+                parts.push((Part::Player, player));
                 // Songs she could put on for them, where there is a player.
                 if music.is_some() {
                     if let Some(section) = crate::services::agent::chat_music::offer_songs(
@@ -583,7 +569,7 @@ impl Agent {
                     )
                     .await
                     {
-                        blocks.push(section);
+                        parts.push((Part::Songs, section));
                     }
                 }
             }
@@ -593,14 +579,17 @@ impl Agent {
                 Some(section) => Some(section),
                 None => crate::services::agent::merope::soup::offer(request).await,
             };
-            blocks.extend(game);
+            parts.extend(game.map(|game| (Part::Game, game)));
             // The panel's one conversation: she can hand work off there too.
             if let Some(chat) = request
                 .context
                 .as_ref()
                 .and_then(|context| context.panel_work.as_ref())
             {
-                blocks.push(crate::services::agent::delegate::section(chat));
+                parts.push((
+                    Part::Handoff,
+                    crate::services::agent::delegate::section(chat),
+                ));
             }
             // A private IM chat: she can hand work off.
             if let Some(chat) = request
@@ -608,10 +597,16 @@ impl Agent {
                 .as_ref()
                 .and_then(|context| context.channel_chat.as_ref())
             {
-                blocks.push(crate::services::agent::delegate::section(chat));
-                blocks.push(myriad_merope::speaking::chat_app_section().to_string());
+                parts.push((
+                    Part::Handoff,
+                    crate::services::agent::delegate::section(chat),
+                ));
+                parts.push((
+                    Part::ChatApp,
+                    myriad_merope::speaking::chat_app_section().to_string(),
+                ));
                 if let Some(away) = &chat.came_while_away {
-                    blocks.push(format!("## While you were away\n{away}"));
+                    parts.push((Part::WhileAway, format!("## While you were away\n{away}")));
                 }
                 // How they type to her (how people in a chat app usually
                 // do, until they have said enough).
@@ -621,12 +616,15 @@ impl Agent {
                     .and_then(|context| context.conversation_history.as_deref())
                     .and_then(crate::services::agent::merope::their_typing)
                     .unwrap_or(myriad_merope::talk_shape::CHAT_APP_USUAL);
-                blocks.push(myriad_merope::talk_shape::describe(&room, "How they type"));
+                parts.push((
+                    Part::HowTheyType,
+                    myriad_merope::talk_shape::describe(&room, "How they type"),
+                ));
                 // No player there: a song goes as its link.
                 if let Some(songs) =
                     crate::services::agent::chat_music::offer_song_links(&self.db).await
                 {
-                    blocks.push(songs);
+                    parts.push((Part::SongLinks, songs));
                 }
                 // Stickers of her, to send there.
                 if let Some(stickers) = crate::services::agent::merope::stickers::section(
@@ -637,7 +635,7 @@ impl Agent {
                 )
                 .await
                 {
-                    blocks.push(stickers);
+                    parts.push((Part::Stickers, stickers));
                 }
             } else if crate::services::agent::merope::chat_typing::in_messages(
                 request.context.as_ref(),
@@ -645,19 +643,21 @@ impl Agent {
                 // Typed here a message at a time: she types as she does in a
                 // chat app, the way they type to her (how people in a chat
                 // app usually do, until they have said enough).
-                blocks.push(myriad_merope::speaking::chat_app_section().to_string());
+                parts.push((
+                    Part::ChatApp,
+                    myriad_merope::speaking::chat_app_section().to_string(),
+                ));
                 let room = request
                     .context
                     .as_ref()
                     .and_then(|context| context.conversation_history.as_deref())
                     .and_then(crate::services::agent::merope::their_typing)
                     .unwrap_or(myriad_merope::talk_shape::CHAT_APP_USUAL);
-                blocks.push(myriad_merope::talk_shape::describe(&room, "How they type"));
+                parts.push((
+                    Part::HowTheyType,
+                    myriad_merope::talk_shape::describe(&room, "How they type"),
+                ));
             }
-            if !merope_block.is_empty() {
-                blocks.insert(0, merope_block);
-            }
-            merope_block = blocks.join("\n\n");
         }
         let supplied = request
             .context
@@ -675,11 +675,7 @@ impl Agent {
                 crate::services::agent::merope::doing::now_line(&doing, crate::clock::now());
             let told = myriad_merope::speaking::already_told(&about, &hers);
             if let Some(section) = myriad_merope::speaking::format_already_told_section(&told) {
-                merope_block = if merope_block.is_empty() {
-                    section
-                } else {
-                    format!("{merope_block}\n\n{section}")
-                };
+                parts.push((Part::AlreadyTold, section));
             }
         }
         // A habit of hers in this talk, when one shows: known, not ordered.
@@ -689,11 +685,7 @@ impl Agent {
             .map(|message| message.content.as_str())
             .collect();
         if let Some(section) = myriad_merope::speaking::format_habits_section(&her_replies) {
-            merope_block = if merope_block.is_empty() {
-                section
-            } else {
-                format!("{merope_block}\n\n{section}")
-            };
+            parts.push((Part::Habits, section));
         }
         // Coming back after a while: how she greeted them the last times
         // they did, so a greeting of hers she says every time is known to her.
@@ -709,11 +701,7 @@ impl Agent {
             let openers =
                 crate::services::agent::merope::her_openers(&self.db, request.user_id).await;
             if let Some(section) = myriad_merope::speaking::format_openers_section(&openers) {
-                merope_block = if merope_block.is_empty() {
-                    section
-                } else {
-                    format!("{merope_block}\n\n{section}")
-                };
+                parts.push((Part::Openers, section));
             }
         }
         // Words and memes in the talk that she looked up before: she knows
@@ -729,11 +717,7 @@ impl Agent {
         if let Some(section) =
             crate::services::agent::merope::memes::section_for(&self.db, &talk).await
         {
-            merope_block = if merope_block.is_empty() {
-                section
-            } else {
-                format!("{merope_block}\n\n{section}")
-            };
+            parts.push((Part::Memes, section));
         }
         let history = crate::services::agent::merope::with_said_unprompted(
             &self.db,
@@ -757,12 +741,13 @@ impl Agent {
                 )
             })
         {
-            merope_block = format!("{merope_block}\n\n{block}");
+            parts.push((Part::SinceTheyWrote, block));
         }
         if on_call(request) {
-            merope_block = format!(
-                "{merope_block}\n\n## On a call\nThis reply is spoken aloud on a live voice call: talk, do not write. No lists, no markup, short sentences."
-            );
+            parts.push((
+                Part::OnCall,
+                "## On a call\nThis reply is spoken aloud on a live voice call: talk, do not write. No lists, no markup, short sentences.".to_string(),
+            ));
         }
 
         let custom = request
@@ -802,7 +787,7 @@ impl Agent {
         }
         crate::services::agent::chat_prompt::chat_turn_prompt(
             &soul,
-            &with_moment(merope_block),
+            &parts,
             &history,
             &request.raw_input,
             &perception,

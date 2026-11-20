@@ -364,7 +364,8 @@ pub use speaking_context::{
     audience_for, her_openers, her_state_for_anyone, resolve_addressee_label, speaking_prompt,
     speaking_prompt_for_event,
     speaking_prompt_in_group, speaking_prompt_plain, speaking_prompt_to_reach,
-    speaking_prompt_with_query, their_typing, with_said_unprompted,
+    speaking_parts_with_query, their_typing, with_said_unprompted,
+    Part,
 };
 #[cfg(test)]
 pub use speaking_context::{format_addressee_label, merge_said_unprompted, said_as_heard};

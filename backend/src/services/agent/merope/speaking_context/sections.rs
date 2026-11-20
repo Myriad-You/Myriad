@@ -13,11 +13,11 @@ pub(super) async fn who_they_are(
     turn: Turn<'_>,
     present: &crate::services::agent::memory::unified::Audience,
     nodes: Option<&NodeTurn>,
-    sections: &mut Vec<String>,
+    sections: &mut Vec<(Part, String)>,
 ) {
     let group = present.is_group();
     if !group && let Some(differs) = how_she_differs_with(db, user_id).await {
-        sections.push(differs);
+        sections.push((Part::Differs, differs));
     }
     // What they told her about herself is on 「她自己」 in their talk, when
     // her nodes are read.
@@ -27,10 +27,10 @@ pub(super) async fn who_they_are(
         None => None,
     };
     if let Some(told) = told {
-        sections.push(told);
+        sections.push((Part::ToldHer, told));
     }
     if let Some(nodes) = nodes {
-        sections.extend(nodes.her_head_section());
+        sections.extend(nodes.her_head_section().map(|block| (Part::HerHead, block)));
     }
     // How long the two of them have known each other is between them; so
     // is how often they talk, when this time or lately is unlike it.
@@ -47,13 +47,13 @@ pub(super) async fn who_they_are(
             section.push('\n');
             section.push_str(&line);
         }
-        sections.push(section);
+        sections.push((Part::Acquaintance, section));
     }
     // Whether it reads like them typing, here.
     if matches!(turn, Turn::Chat(_))
         && let Some(block) = likeness::section(db, user_id, present.group_id()).await
     {
-        sections.push(block);
+        sections.push((Part::Likeness, block));
     }
 }
 
@@ -67,7 +67,7 @@ pub(super) async fn recollection(
     present: &crate::services::agent::memory::unified::Audience,
     myself: &self_state::SelfState,
     nodes: Option<&NodeTurn>,
-    sections: &mut Vec<String>,
+    sections: &mut Vec<(Part, String)>,
 ) -> (bool, bool) {
     let group = present.is_group();
     // Before answering what they said, she thinks what to try to remember.
@@ -159,15 +159,18 @@ pub(super) async fn recollection(
             recalled.named.clone()
         };
         if let Some(block) = format_remembered_section(&named) {
-            sections.push(block);
+            sections.push((Part::Remembered, block));
             if thorough {
-                sections.push(myriad_merope::speaking::format_going_through_all_section());
+                sections.push((
+                    Part::GoingThroughAll,
+                    myriad_merope::speaking::format_going_through_all_section(),
+                ));
             }
         }
         // What their words brought to mind, apart from what they named: the
         // stuff of callbacks and unexpected remarks, hers to use or not.
         if let Some(block) = format_brought_to_mind_section(&recalled.brought_to_mind) {
-            sections.push(block);
+            sections.push((Part::BroughtToMind, block));
         }
     }
     // In a group, the same person in her other groups: where she knows them
@@ -175,7 +178,7 @@ pub(super) async fn recollection(
     if let (Some(here), Turn::Chat(words) | Turn::Event(words)) = (present.group_id(), turn)
         && let Some(block) = other_groups::they_section(db, user_id, here, words).await
     {
-        sections.push(block);
+        sections.push((Part::TheirOtherGroups, block));
     }
     // Asked about what was said in detail, or for all of it, she scrolls
     // back through the chat.
@@ -238,7 +241,7 @@ pub(super) async fn recollection(
         };
         let found = super::super::chat_near::beside(found, near);
         if let Some(block) = myriad_merope::remembering::looked_back_section(&found) {
-            sections.push(fenced(block));
+            sections.push((Part::LookedBack, fenced(block)));
         }
     }
     // In a group, the group's own days and talk: nothing private.
@@ -249,7 +252,7 @@ pub(super) async fn recollection(
         let found =
             chat_days::turn_back(db, chat_days::Place::In(venue), user_id, &query, words).await;
         if let Some(block) = myriad_merope::remembering::looked_back_in_group_section(&found) {
-            sections.push(fenced(block));
+            sections.push((Part::LookedBackInGroup, fenced(block)));
         }
     }
     (her_life, opening)
@@ -322,27 +325,34 @@ fn from_her_nodes(
     recollection: recall::Recollection,
     recalled: &store::Recalled,
     cues: Option<&myriad_merope::remembering::Cues>,
-    sections: &mut Vec<String>,
+    sections: &mut Vec<(Part, String)>,
 ) {
-    sections.extend(super::super::memory_nodes::context::resident_section(
-        &recollection.resident,
-    ));
+    sections.extend(
+        super::super::memory_nodes::context::resident_section(&recollection.resident)
+            .map(|block| (Part::Resident, block)),
+    );
     if let Some(block) = format_remembered_section(&recollection.named) {
-        sections.push(block);
+        sections.push((Part::Remembered, block));
         if cues.is_some_and(|cues| cues.thorough) {
-            sections.push(
+            sections.push((
+                Part::GoingThroughAll,
                 recollection
                     .listed
                     .unwrap_or_else(myriad_merope::speaking::format_going_through_all_section),
-            );
+            ));
         }
     }
-    sections.extend(super::super::memory_nodes::context::heard_section(
-        &recollection.heard,
-    ));
-    sections.extend(nodes.ongoing_section(&recollection.picked));
+    sections.extend(
+        super::super::memory_nodes::context::heard_section(&recollection.heard)
+            .map(|block| (Part::HeardOfThem, block)),
+    );
+    sections.extend(
+        nodes
+            .ongoing_section(&recollection.picked)
+            .map(|block| (Part::Ongoing, block)),
+    );
     if let Some(block) = format_brought_to_mind_section(&recalled.brought_to_mind) {
-        sections.push(block);
+        sections.push((Part::BroughtToMind, block));
     }
 }
 
@@ -353,7 +363,7 @@ pub(super) async fn their_recent(
     user_id: i32,
     group: bool,
     state: &crate::models::entities::agent_addressee_state::Model,
-    sections: &mut Vec<String>,
+    sections: &mut Vec<(Part, String)>,
 ) {
     let diary = if group {
         Ok(Vec::new())
@@ -373,19 +383,19 @@ pub(super) async fn their_recent(
             .filter(|content| !content.is_empty())
             .collect();
         if let Some(block) = format_recent_section(&contents) {
-            sections.push(block);
+            sections.push((Part::Recent, block));
         }
     }
     // What they are doing on the site is theirs: not for a group to hear.
     if !group && let Some(block) = format_activity_section(current_activity(&state)) {
-        sections.push(block);
+        sections.push((Part::Activity, block));
     }
     // What the site's owner is playing, to the owner alone.
     if !group {
         if let Some(block) = playing::now_for(user_id, super::super::clock::now())
             .and_then(|line| format_playing_section(&line))
         {
-            sections.push(block);
+            sections.push((Part::Playing, block));
         }
     }
 }
@@ -400,7 +410,7 @@ pub(super) async fn her_state(
     present: &crate::services::agent::memory::unified::Audience,
     state: &crate::models::entities::agent_addressee_state::Model,
     myself: &self_state::SelfState,
-    sections: &mut Vec<String>,
+    sections: &mut Vec<(Part, String)>,
 ) -> Option<String> {
     // Her state after the last exchange already weighs how she feels toward
     // them; the raw mood would say it twice, and can say it differently.
@@ -411,12 +421,12 @@ pub(super) async fn her_state(
         _ => None,
     };
     if compiled.is_none() {
-        sections.push(format_mood_section(state.mood, state.arousal));
+        sections.push((Part::Mood, format_mood_section(state.mood, state.arousal)));
     }
     // What happened to her with others since she got up: her inner state
     // was written facing this person alone, so it does not have it.
     if let Some(block) = since_she_got_up(db, user_id, present).await {
-        sections.push(block);
+        sections.push((Part::SinceUp, block));
     }
     // Her inner state goes last, nearest their words, so it is what she
     // answers from; without it, how the words landed stands here instead.
@@ -432,20 +442,21 @@ pub(super) async fn her_state(
     };
     if inner_block.is_none() || landed_since {
         if let Some(block) = format_emotion_section(state.emotion, state.emotion_arousal) {
-            sections.push(block);
+            sections.push((Part::JustNow, block));
         }
     }
     if !matches!(turn, Turn::Plain) {
-        sections.push(speaking_prompts::format_now_section(
-            super::super::clock::local_now(),
+        sections.push((
+            Part::Now,
+            speaking_prompts::format_now_section(super::super::clock::local_now()),
         ));
         // Woken, or still up talking: by her hours she would be asleep.
         if let Some(block) = super::super::timing::past_bedtime() {
-            sections.push(block);
+            sections.push((Part::PastBedtime, block));
         }
     }
     if !matches!(turn, Turn::Plain) {
-        sections.push(self_state::format_day_section(&myself.facts));
+        sections.push((Part::Day, self_state::format_day_section(&myself.facts)));
         // Where her thoughts were: about someone, only they hear what.
         let before = if present.is_group() {
             on_mind::Before::Anyone
@@ -453,7 +464,7 @@ pub(super) async fn her_state(
             on_mind::Before::Private(user_id)
         };
         if let Some(seen) = on_mind::seen_by(db, before).await {
-            sections.push(myriad_merope::on_mind::section(&seen));
+            sections.push((Part::OnMind, myriad_merope::on_mind::section(&seen)));
         }
     }
     inner_block
@@ -466,13 +477,13 @@ pub(super) async fn what_she_found(
     user_id: i32,
     turn: Turn<'_>,
     present: &crate::services::agent::memory::unified::Audience,
-    sections: &mut Vec<String>,
+    sections: &mut Vec<(Part, String)>,
 ) {
     // How hard she has been going at her own things, when it says something.
     if !matches!(turn, Turn::Plain)
         && let Some(block) = pace::conversation_section(db).await
     {
-        sections.push(block);
+        sections.push((Part::Pace, block));
     }
     if let Turn::Chat(words) | Turn::Event(words) = turn {
         let found = crate::services::agent::memory::unified::recall(
@@ -489,13 +500,13 @@ pub(super) async fn what_she_found(
         .map(|note| note.content)
         .collect::<Vec<_>>();
         if let Some(block) = format_found_out_section(&found) {
-            sections.push(block);
+            sections.push((Part::FoundOut, block));
         }
         // In a group, what she heard in any group about things: where, and when.
         if let Some(here) = present.group_id() {
             let heard = super::super::heard::brought_back(db, here, words, HEARD_LIMIT).await;
             if let Some(block) = myriad_merope::heard::section(&heard) {
-                sections.push(block);
+                sections.push((Part::HeardInGroups, block));
             }
         }
     }
@@ -507,23 +518,23 @@ pub(super) async fn her_own(
     db: &sea_orm::DatabaseConnection,
     turn: Turn<'_>,
     her_life: bool,
-    sections: &mut Vec<String>,
+    sections: &mut Vec<(Part, String)>,
 ) {
     // Her own life: hers, heard wherever she is, in mind when the moment
     // asks for it.
     if her_life {
         if let Some(block) = format_own_days_section(&life::recent_days(db, OWN_DAYS_LIMIT).await) {
-            sections.push(block);
+            sections.push((Part::OwnDays, block));
         }
         if let Some(block) = format_self_story_section(&self_story::current(db).await) {
-            sections.push(block);
+            sections.push((Part::SelfStory, block));
         }
         if let Some(block) = wants::section(&wants::open(db).await, super::super::clock::now()) {
-            sections.push(block);
+            sections.push((Part::Wants, block));
         }
         let (liked_by, not_for_her) = doing::what_landed(db, TASTE_SHOWN).await;
         if let Some(block) = format_taste_section(&liked_by, &not_for_her) {
-            sections.push(block);
+            sections.push((Part::Taste, block));
         }
     }
     // Her own time is about public things, so any audience may hear it.
@@ -540,8 +551,70 @@ pub(super) async fn her_own(
     };
     let now = doing::now_text(super::super::clock::now());
     if let Some(block) = format_doing_section(now.as_deref(), &lately) {
-        sections.push(block);
+        sections.push((Part::Doing, block));
     }
+}
+
+/// How her lines to this person differ from theirs to her (see
+/// `myriad_merope::contrast`), from their latest chat messages anywhere and
+/// her latest answers (not work: a report is not how she talks). Looked up
+/// at most every few minutes per person.
+async fn how_she_differs_with(db: &sea_orm::DatabaseConnection, user_id: i32) -> Option<String> {
+    use myriad_merope::contrast::{Counts, describe, overused};
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value as SeaValue};
+    static TOLD: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<i32, (std::time::Instant, Option<String>)>>,
+    > = std::sync::LazyLock::new(Default::default);
+    const FRESH_FOR: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+    const PEOPLE_KEPT: usize = 4096;
+    const LATEST: i32 = 400;
+    if let Some((_, told)) = TOLD
+        .lock()
+        .ok()?
+        .get(&user_id)
+        .filter(|(at, _)| at.elapsed() < FRESH_FOR)
+    {
+        return told.clone();
+    }
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT m.role, m.content FROM agent_messages m \
+             JOIN agent_sessions s ON s.id = m.session_id \
+             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
+               AND m.role IN ('user', 'assistant') \
+               AND (m.metadata->>'piece') IS NULL \
+             ORDER BY m.created_at DESC LIMIT $2",
+            vec![SeaValue::Int(Some(user_id)), SeaValue::Int(Some(LATEST))],
+        ))
+        .await
+        .ok()?;
+    let (mut theirs, mut hers) = (Counts::default(), Counts::default());
+    for row in &rows {
+        let (Ok(role), Ok(content)) = (
+            row.try_get::<String>("", "role"),
+            row.try_get::<String>("", "content"),
+        ) else {
+            continue;
+        };
+        // Each line of hers went as a message of its own.
+        let counts = if role == "user" {
+            &mut theirs
+        } else {
+            &mut hers
+        };
+        for line in content.lines() {
+            counts.add(line);
+        }
+    }
+    let told = describe(&overused(&hers, &theirs));
+    if let Ok(mut cache) = TOLD.lock() {
+        if cache.len() >= PEOPLE_KEPT {
+            cache.retain(|_, (at, _)| at.elapsed() < FRESH_FOR);
+        }
+        cache.insert(user_id, (std::time::Instant::now(), told.clone()));
+    }
+    told
 }
 
 #[cfg(test)]

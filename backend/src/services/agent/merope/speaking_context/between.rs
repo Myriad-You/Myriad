@@ -15,7 +15,7 @@ pub(super) async fn between_them(
     present: &crate::services::agent::memory::unified::Audience,
     opening: bool,
     nodes: Option<&NodeTurn>,
-    sections: &mut Vec<String>,
+    sections: &mut Vec<(Part, String)>,
 ) {
     let group = present.is_group();
     let words = match turn {
@@ -36,7 +36,7 @@ pub(super) async fn between_them(
         }
     };
     if let Some(block) = shared {
-        sections.push(block);
+        sections.push((Part::Bits, block));
     }
     // What the last days in this group were like: the group's own.
     if let Some(venue) = present.group_id() {
@@ -45,21 +45,26 @@ pub(super) async fn between_them(
             None => bits::days_in(db, venue, GROUP_DAYS, words).await,
         };
         if let Some(block) = format_group_days_section(&days) {
-            sections.push(block);
+            sections.push((Part::GroupDays, block));
         }
     }
     // What the talk brings back of her other groups' own bits and days.
     if let (Some(venue), Some(words)) = (present.group_id(), words)
         && let Some(block) = other_groups::theirs_section(db, venue, words).await
     {
-        sections.push(block);
+        sections.push((Part::OtherGroupsOwn, block));
     }
     // How she comes across: with them, or in this group, each heard only
     // where it was found.
     if let Some(nodes) = nodes {
-        sections.extend(nodes.lands_section(super::super::clock::now()));
-        sections.extend(nodes.us_section(super::super::clock::now()));
-        sections.extend(nodes.about_head_section());
+        let now = super::super::clock::now();
+        sections.extend(nodes.lands_section(now).map(|block| (Part::Lands, block)));
+        sections.extend(nodes.us_section(now).map(|block| (Part::Us, block)));
+        sections.extend(
+            nodes
+                .about_head_section()
+                .map(|block| (Part::AboutHead, block)),
+        );
     }
     let lands = match (nodes, present.group_id()) {
         (Some(_), _) => None,
@@ -74,7 +79,7 @@ pub(super) async fn between_them(
             group,
         )
     {
-        sections.push(block);
+        sections.push((Part::Lands, block));
     }
     // What they are to her: private, never in a group.
     if !group && nodes.is_none() {
@@ -88,7 +93,7 @@ pub(super) async fn between_them(
                     .map(|(first, at)| (first.as_str(), at.with_timezone(&chrono::Utc))),
                 super::super::clock::now(),
             ) {
-                sections.push(block);
+                sections.push((Part::Us, block));
             }
         }
     }
@@ -99,11 +104,15 @@ pub(super) async fn between_them(
     match present.group_id() {
         // From her nodes: on 「关于你」, and theirs in each group.
         None if nodes.is_some() => {
-            sections.extend(nodes.and_then(|nodes| sore::section(&nodes.sores, now)));
+            sections.extend(
+                nodes
+                    .and_then(|nodes| sore::section(&nodes.sores, now))
+                    .map(|block| (Part::Sores, block)),
+            );
         }
         None => {
             if let Some(block) = sore::section(&sore::open_all(db, user_id).await, now) {
-                sections.push(block);
+                sections.push((Part::Sores, block));
             }
         }
         Some(venue) => {
@@ -113,10 +122,10 @@ pub(super) async fn between_them(
                 None => sore::section(&sore::open_in_group(db, venue, Some(user_id)).await, now),
             };
             if let Some(block) = here {
-                sections.push(block);
+                sections.push((Part::Sores, block));
             }
             if let Some(block) = sore::carried_section(&sore::open_all(db, user_id).await, now) {
-                sections.push(block);
+                sections.push((Part::Carried, block));
             }
         }
     }
@@ -160,14 +169,18 @@ pub(super) async fn between_them(
                 .then(|| threads::section(&open, now, &super::super::clock::zone()))
                 .flatten()
         };
-        sections.extend(block);
+        sections.extend(block.map(|block| (Part::Threads, block)));
     }
-    sections.extend(nodes.and_then(NodeTurn::intents_section));
+    sections.extend(
+        nodes
+            .and_then(NodeTurn::intents_section)
+            .map(|block| (Part::Intents, block)),
+    );
     // What she thinks of what their words touch: hers, the same whoever asks.
     if let Some(words) = words {
         let views = views::touched(db, words, VIEWS_LIMIT).await;
         if let Some(block) = format_views_section(&views) {
-            sections.push(block);
+            sections.push((Part::Views, block));
         }
     }
 }
@@ -179,7 +192,7 @@ pub(super) async fn chat_extras(
     user_id: i32,
     turn: Turn<'_>,
     present: &crate::services::agent::memory::unified::Audience,
-    sections: &mut Vec<String>,
+    sections: &mut Vec<(Part, String)>,
 ) {
     let group = present.is_group();
     // One mouth: what was on her mind belongs to the conversation she is
@@ -196,7 +209,7 @@ pub(super) async fn chat_extras(
             .flatten()
             .and_then(|(gap, known)| format_curious_section(&gap, known))
         {
-            sections.push(block);
+            sections.push((Part::Curious, block));
         }
     }
     let on_mind = (!group)
@@ -204,7 +217,7 @@ pub(super) async fn chat_extras(
         .flatten();
     if let Some(segment) = on_mind {
         if let Some(block) = format_on_your_mind_section(&segment.inner) {
-            sections.push(block);
+            sections.push((Part::Attention, block));
         }
     }
 }
