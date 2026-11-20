@@ -1,0 +1,102 @@
+//! What she says about herself is hers: kept once, with no one on it, and
+//! brought back by any talk that touches it, whoever she is talking to.
+
+use super::*;
+use crate::models::entities::agent_memories;
+use crate::services::agent::memory::unified::{self, Audience, Concept};
+use crate::services::agent::merope::chat_remember::{ChatMemoryUpdates, Said};
+
+#[tokio::test]
+async fn what_she_says_of_herself_is_hers_anywhere() {
+    let Some(url) = crate::db::test_url(&["MYRIAD_MEROPE_TEST_DATABASE_URL"]) else {
+        return;
+    };
+    let schema = crate::db::IsolatedSchema::migrated(&url, "store_own_said").await;
+    let db = schema.db.clone();
+    let user_id = (Uuid::new_v4().as_u128() % 1_000_000_000) as i32 + 1;
+    db.execute_unprepared(&format!(
+        "INSERT INTO users (id, username) VALUES ({user_id}, 'own_said_{user_id}')"
+    ))
+    .await
+    .unwrap();
+    let (_, state) = update_affect(&db, user_id, true, AffectChange::utterance())
+        .await
+        .unwrap();
+    let input_at = state.last_user_message_at.unwrap();
+    let updates = ChatMemoryUpdates {
+        said: vec![
+            Said {
+                said: "我在追《北窗》，看到第五集".into(),
+                evidence: "刚看到第五集".into(),
+                hers: true,
+                concepts: vec![Concept {
+                    name: "北窗".into(),
+                    aliases: vec!["North Window".into()],
+                }],
+            },
+            Said {
+                said: "我推荐了「夜航」这首歌".into(),
+                evidence: "试试「夜航」".into(),
+                hers: false,
+                concepts: Vec::new(),
+            },
+        ],
+        ..Default::default()
+    };
+    let apply = |updates: ChatMemoryUpdates| {
+        let db = db.clone();
+        async move {
+            let transaction = db.begin().await.unwrap();
+            let kept = apply_chat_memory_updates_on(
+                &transaction,
+                user_id,
+                input_at,
+                &updates,
+                &Audience::private(user_id),
+                Keep::Note,
+            )
+            .await
+            .unwrap();
+            transaction.commit().await.unwrap();
+            kept
+        }
+    };
+    assert!(apply(updates.clone()).await);
+    let hers = unified::own_rows(&db, myriad_merope::own_said::SOURCE, 10)
+        .await
+        .unwrap();
+    assert_eq!(hers.len(), 1, "only what is about herself is hers");
+    assert_eq!(hers[0].content, "我在追《北窗》，看到第五集");
+    assert_eq!(hers[0].user_id, None);
+    assert_eq!(hers[0].venue, unified::OWN_VENUE);
+    // What she told them stays where she said it.
+    let told = agent_memories::Entity::find()
+        .filter(agent_memories::Column::Source.eq(SAID_SOURCE))
+        .all(&db)
+        .await
+        .unwrap();
+    assert_eq!(told.len(), 1);
+    assert_eq!(told[0].user_id, Some(user_id));
+    // Said again, kept once.
+    assert!(
+        !apply(ChatMemoryUpdates {
+            said: vec![updates.said[0].clone()],
+            ..Default::default()
+        })
+        .await
+    );
+    assert_eq!(
+        unified::own_rows(&db, myriad_merope::own_said::SOURCE, 10)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    // Anyone's talk that touches it brings it back, in any chat or group:
+    // what she said about herself is looked up by the talk alone.
+    let recalled = said_of_herself(&db, "你看过《北窗》吗", 3).await;
+    assert_eq!(recalled.len(), 1);
+    assert_eq!(recalled[0].said, "我在追《北窗》，看到第五集");
+    assert!(myriad_merope::own_said::section(&recalled).is_some());
+    assert!(said_of_herself(&db, "今天吃什么", 3).await.is_empty());
+}

@@ -509,8 +509,16 @@ pub(super) async fn what_she_found(
                 sections.push((Part::HeardInGroups, block));
             }
         }
+        // What she said about herself before, to anyone, anywhere: hers.
+        let said = super::super::store::said_of_herself(db, words, SAID_OF_HERSELF_LIMIT).await;
+        if let Some(block) = myriad_merope::own_said::section(&said) {
+            sections.push((Part::SaidOfHerself, block));
+        }
     }
 }
+
+/// What she said about herself a turn brings back, at most.
+const SAID_OF_HERSELF_LIMIT: usize = 3;
 
 /// Her own life: her days, her story, what she wants, what keeps getting to
 /// her, when the moment asks for it; and what she is doing, and did lately.

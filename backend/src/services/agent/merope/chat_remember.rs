@@ -41,6 +41,9 @@ pub fn should_extract_chat_remember_against(user_text: &str, existing: &[String]
 // Nobody waits on this: generous enough to ride out a stalled provider.
 const EXTRACT_TIMEOUT: Duration = Duration::from_secs(45);
 
+/// What she already said of herself the extraction sees, at most.
+const YOURS_SHOWN: usize = 5;
+
 pub(crate) fn memory_user_text(text: &str) -> Option<String> {
     let text = super::ingest::redact_event_text(text)
         .split_whitespace()
@@ -76,11 +79,17 @@ pub struct ChatMemoryUpdate {
     pub standing: myriad_merope::happened::Standing,
 }
 
-/// Something she told them that she would remember having said.
+/// Something she told them that she would remember having said; or, when
+/// `hers`, something she said about herself (what she watched and how far,
+/// what she likes, what she did, what she thinks): kept as her own, with
+/// what it is about, so she says the same to anyone, anywhere
+/// (`myriad_merope::own_said`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Said {
     pub said: String,
     pub evidence: String,
+    pub hers: bool,
+    pub concepts: Vec<crate::services::agent::memory::unified::Concept>,
 }
 
 /// What one message leaves her: single updates applied in order (a
@@ -228,6 +237,45 @@ pub fn parse_chat_memory_updates(
         out.said.push(Said {
             said: line,
             evidence: evidence.to_string(),
+            hers: false,
+            concepts: Vec::new(),
+        });
+    }
+    // What she said about herself, as much as she did: hers. Older answers
+    // have none; one that does not quote her reply is dropped.
+    let own = value
+        .get("own")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for item in &own {
+        let (Some(line), Some(evidence)) = (
+            item.get("line").and_then(serde_json::Value::as_str),
+            item.get("evidence").and_then(serde_json::Value::as_str),
+        ) else {
+            continue;
+        };
+        let line = compact_summary(line);
+        let evidence = evidence.trim();
+        if line.is_empty()
+            || line.chars().count() > myriad_merope::chat_remember::MAX_OWN_CHARS
+            || evidence.chars().filter(|ch| ch.is_alphanumeric()).count() < 2
+            || !reply.contains(evidence)
+            || out.said.iter().any(|said| said.hers && said.said == line)
+        {
+            continue;
+        }
+        let concepts = item
+            .get("concepts")
+            .cloned()
+            .and_then(|concepts| serde_json::from_value(concepts).ok())
+            .map(crate::services::agent::memory::unified::clean_concepts)
+            .unwrap_or_default();
+        out.said.push(Said {
+            said: line,
+            evidence: evidence.to_string(),
+            hers: true,
+            concepts,
         });
     }
     // Older answers have none; one that does not quote them is dropped.
@@ -492,12 +540,27 @@ pub(super) async fn extract(
         return Ok(Effect::NoChange);
     }
     // Recovery retains the date of the original assertion.
-    let input = extract_input(
+    let mut input = extract_input(
         user_text,
         reply,
         turn,
         input_at.with_timezone(&super::clock::zone()),
     );
+    // What she already said of herself that her reply touches: what is
+    // there already is not kept again (`own`'s `yours`).
+    if !reply.trim().is_empty() {
+        let yours: Vec<String> = super::store::said_of_herself(db, reply, YOURS_SHOWN)
+            .await
+            .into_iter()
+            .map(|said| said.said)
+            .collect();
+        if !yours.is_empty()
+            && let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&input)
+        {
+            value["yours"] = json!(yours);
+            input = value.to_string();
+        }
+    }
     let raw = super::call::Ask::new(super::call::Voice::Keeping, user_id, "chat_remember")
         .within(EXTRACT_TIMEOUT)
         // At most 2,483 measured, thinking included.
@@ -830,6 +893,12 @@ mod tests {
             "said": [
                 {"said": "我推荐了「夜航」这首歌", "evidence": "我推荐你试试「夜航」这首歌"},
                 {"said": "我说过要陪他跑步", "evidence": "陪你跑步"}
+            ],
+            "own": [
+                {"line": "我下班路上听「夜航」", "evidence": "下班路上听", "concepts": [{"name": "夜航", "aliases": []}]},
+                // Not in her reply: dropped.
+                {"line": "我也修过自行车", "evidence": "我也修过", "concepts": []},
+                {"line": "我下班路上听「夜航」", "evidence": "下班路上听", "concepts": []}
             ]
         })
         .to_string();
@@ -852,9 +921,14 @@ mod tests {
                 "换了工作"
             ]
         );
-        // What she said is kept only when her reply says it.
-        assert_eq!(updates.said.len(), 1);
+        // What she said is kept only when her reply says it; what she said
+        // about herself is hers, once.
+        assert_eq!(updates.said.len(), 2);
         assert_eq!(updates.said[0].said, "我推荐了「夜航」这首歌");
+        assert!(!updates.said[0].hers);
+        assert_eq!(updates.said[1].said, "我下班路上听「夜航」");
+        assert!(updates.said[1].hers);
+        assert_eq!(updates.said[1].concepts[0].name, "夜航");
         assert_eq!(
             updates.combined().supersedes,
             vec!["在银行上班".to_string()]

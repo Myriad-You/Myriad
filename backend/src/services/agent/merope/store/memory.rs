@@ -125,7 +125,34 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<
             .is_some();
         }
     }
+    // What she said about herself is hers: heard anywhere, naming no one
+    // (`myriad_merope::own_said`). The same words again are kept once.
+    let mut held_own: Vec<String> = Vec::new();
+    if updates.said.iter().any(|said| said.hers) {
+        held_own = unified::own_rows(db, myriad_merope::own_said::SOURCE, 300)
+            .await?
+            .into_iter()
+            .map(|row| row.content)
+            .collect();
+    }
     for said in &updates.said {
+        if said.hers {
+            if held_own.contains(&said.said) {
+                continue;
+            }
+            let evidence = serde_json::json!({ "said": said.evidence }).to_string();
+            kept |= unified::remember_own(
+                db,
+                &said.said,
+                &evidence,
+                said.concepts.clone(),
+                myriad_merope::own_said::SOURCE,
+            )
+            .await?
+            .is_some();
+            held_own.push(said.said.clone());
+            continue;
+        }
         let remembered = unified::remember(
             db,
             unified::NewMemory {
@@ -148,6 +175,33 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<
     }
     Ok(kept)
 }
+
+/// What she said about herself that `talk` touches, by its words or its
+/// meaning, best first, at most `limit`: hers, so whoever she said it to and
+/// wherever (`myriad_merope::own_said`). Each with how long ago.
+pub(crate) async fn said_of_herself<C: ConnectionTrait>(
+    db: &C,
+    talk: &str,
+    limit: usize,
+) -> Vec<myriad_merope::own_said::Recalled> {
+    use crate::services::agent::memory::unified;
+    let rows = unified::own_rows(db, myriad_merope::own_said::SOURCE, 300)
+        .await
+        .unwrap_or_default();
+    let now = crate::services::agent::memory::utc_now();
+    unified::named_among(db, rows, talk, limit)
+        .await
+        .into_iter()
+        .map(|row| myriad_merope::own_said::Recalled {
+            said: row.content,
+            ago: myriad_merope::doing::ago_text(now - row.created_at.with_timezone(&chrono::Utc)),
+        })
+        .collect()
+}
+
+#[cfg(test)]
+#[path = "memory_own_tests.rs"]
+mod own_tests;
 
 /// One update alone, as [`apply_chat_memory_updates_on`] applies each, with
 /// no line it was taken back in.
