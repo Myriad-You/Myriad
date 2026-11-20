@@ -253,7 +253,7 @@ impl Day {
                 "How you feel toward them",
                 "Since you got up",
                 "Your day",
-                "On your mind",
+                "What has been on your mind",
             ],
         )
         .join("\n\n");

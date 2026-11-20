@@ -85,7 +85,8 @@ pub(in super::super) async fn on_mind_thought_on_and_seen_by_whom() {
             .await;
         checks.push((
             "what she was thinking of is there for them".into(),
-            prompt.contains("## On your mind") && prompt.contains("那首歌为什么最后一句没唱完"),
+            prompt.contains(myriad_merope::on_mind::HEADING)
+                && prompt.contains("那首歌为什么最后一句没唱完"),
         ));
     }
 
