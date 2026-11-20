@@ -1275,11 +1275,19 @@ async fn a_computer_that_listed_deputy_is_given_one_once_it_keeps_up() {
     assert_eq!(body["under"], standing.epoch);
     assert_eq!(body["order"], 1);
     let id = given["id"].as_str().unwrap().to_string();
-    mac.send("lease.taken", None, json!({ "of": deputy::FRAME, "id": id }))
-        .await;
+    mac.send(
+        "lease.taken",
+        None,
+        json!({ "of": deputy::FRAME, "id": id }),
+    )
+    .await;
     // Taken twice counts once.
-    mac.send("lease.taken", None, json!({ "of": deputy::FRAME, "id": id }))
-        .await;
+    mac.send(
+        "lease.taken",
+        None,
+        json!({ "of": deputy::FRAME, "id": id }),
+    )
+    .await;
     mac.send("ping", None, json!({})).await;
     until(&mut mac, "pong").await;
     let kept = deputy::for_holders(&site.db, &[mac_device.id.as_str()])
@@ -1450,6 +1458,96 @@ async fn an_end_hears_of_rows_the_site_writes_itself_while_linked() {
     };
     let own = store::holdings(&site.db, OWNER, "own:").await.unwrap();
     assert_eq!(told["body"]["vector"], json!(own.vector));
+    site.close().await;
+}
+
+/// An end that keeps no log (it listed no `logN`: a child core) is welcomed
+/// with sync on like any other, but is no side of her log: it is not told
+/// of rows, a vector of its is refused, and it does not hold back a row
+/// only the newer cores read. Where her mind is it is told, as every
+/// device is.
+#[tokio::test]
+async fn an_end_that_keeps_no_log_hears_only_where_her_mind_is() {
+    use crate::services::her_log::{self, relay, store};
+    let Some(site) = site().await else {
+        return;
+    };
+    let _turn = her_log::lend::SERIAL.lock().await;
+    her_log::test_settings::set(her_log::Settings {
+        enabled: true,
+        ..her_log::Settings::default()
+    });
+    store::start(&site.db, OWNER).await.unwrap();
+    let (_, mac) = device(&site.db, "MacBook").await;
+    let (_, phone) = device(&site.db, "Phone").await;
+    let mut mac = Child::open(&site, &mac).await;
+    let mut phone = Child::open(&site, &phone).await;
+    let top = relay::peer_abi(&CONTRACT.capabilities);
+    let logs: Vec<String> = (2..=top).map(|abi| format!("log{abi}")).collect();
+    let mut listed: Vec<&str> = logs.iter().map(String::as_str).collect();
+    listed.push("partner");
+    let welcome = mac.hello_with(&listed).await;
+    assert_eq!(welcome["body"]["sync"], "on");
+    let personal = format!("personal:{}", welcome["body"]["partner"].as_str().unwrap());
+    let welcome = phone.hello_with(&["partner"]).await;
+    assert_eq!(welcome["body"]["sync"], "on");
+    for child in [&mut mac, &mut phone] {
+        child.send("ping", None, json!({})).await;
+        until(child, "pong").await;
+    }
+    // Only the Mac is a side: a row of the newest core may go to all.
+    assert!(relay::every_side_reads(&site.db, OWNER, top).await.unwrap());
+
+    // The site writes in the owner's private talk: the Mac is told.
+    let owner = her_log::owner(&site.db, OWNER).await.unwrap();
+    store::write_owners(
+        &site.db,
+        her_log::keys::root(),
+        &owner,
+        &personal,
+        None,
+        "segment:site_private",
+        "segment.open",
+        &json!({ "at": 1, "place": "private" }),
+    )
+    .await
+    .unwrap();
+    loop {
+        let frame = until(&mut mac, "log.vector").await;
+        if frame["body"]["audience"] == personal.as_str() {
+            break;
+        }
+    }
+    // Not the phone; and its own vector is refused: a log.vector comes from
+    // a host core, which it is not (the core's check, before whose
+    // audience it is).
+    phone
+        .send(
+            "log.vector",
+            None,
+            json!({ "audience": personal, "vector": {} }),
+        )
+        .await;
+    let refused = loop {
+        let frame = phone.next().await;
+        assert_ne!(frame["t"], "log.vector", "{frame}");
+        assert_ne!(frame["t"], "log.rows", "{frame}");
+        if frame["t"] == "error" {
+            break frame;
+        }
+    };
+    assert_eq!(refused["body"]["code"], "bad_frame", "{refused}");
+
+    // Where her mind is goes to every device.
+    super::tell_log_links(
+        OWNER,
+        "lease.epoch",
+        json!({ "epoch": 9, "holder": "node", "how": "first" }),
+    );
+    for child in [&mut mac, &mut phone] {
+        let told = until(child, "lease.epoch").await;
+        assert_eq!(told["body"]["epoch"], 9);
+    }
     site.close().await;
 }
 

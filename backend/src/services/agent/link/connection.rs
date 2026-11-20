@@ -260,6 +260,7 @@ pub(super) async fn serve_with(
         host: false,
         sync: false,
         relay: None,
+        keeps_log: false,
         lends: None,
         core_refused: HashSet::new(),
     };
@@ -388,6 +389,10 @@ struct Link {
     sync: bool,
     /// While it syncs: what her log's relay remembers of this link session.
     relay: Option<crate::services::her_log::relay::Session>,
+    /// The end keeps her log (`relay::keeps_log`): a side of it. One that
+    /// keeps none is a child core to her log's relay, and takes only where
+    /// her mind is of the sync families.
+    keeps_log: bool,
     /// While it syncs: this link as her lends know it (`her_log::lend::open`).
     lends: Option<u64>,
     /// What the shared core refused of the child's frames on this link and
@@ -550,8 +555,13 @@ impl Link {
             &settings,
             self.owner,
             &self.device.id,
-            // Every end that dials in is the app on a computer.
-            myriad_persona_log::Core::Pc,
+            // An end that keeps her log is the app on a computer; one that
+            // keeps none is a child core, and holds no audience.
+            if self.keeps_log {
+                myriad_persona_log::Core::Pc
+            } else {
+                myriad_persona_log::Core::Child
+            },
             session,
             &frame,
             crate::clock::now().timestamp_micros(),
@@ -596,9 +606,16 @@ impl Link {
                 To::Sender => self.reply(outgoing),
                 To::Device(device) if device == self.device.id => self.reply(outgoing),
                 To::Device(device) => super::send_log(self.owner, &device, outgoing),
-                To::Hosts => super::send_log_all(self.owner, &self.device.id, outgoing),
+                To::Hosts => {
+                    super::send_log_all(self.owner, &self.device.id, super::Reach::Sides, outgoing)
+                }
                 To::Everyone => {
-                    super::send_log_all(self.owner, &self.device.id, outgoing.clone());
+                    super::send_log_all(
+                        self.owner,
+                        &self.device.id,
+                        super::Reach::Everyone,
+                        outgoing.clone(),
+                    );
                     self.reply(outgoing);
                 }
             }
@@ -961,51 +978,59 @@ impl Link {
                 crate::services::her_log::relay::Session::of(&capabilities)
                     .on_link(self.registered),
             );
-            // Which core this side of hers reads; once every side reads a
-            // rule's rows and `node.standing`, what the site kept of them
-            // on its side goes too.
-            match crate::services::her_log::relay::remember_side(
-                &self.db,
-                self.owner,
-                &self.device.id,
-                abi,
-            )
-            .await
-            {
-                Ok(()) => {
-                    let db = self.db.clone();
-                    let owner = self.owner;
-                    tokio::spawn(async move {
-                        match crate::services::agent::merope::memory_nodes::share::share_kept(
-                            &db, owner,
-                        )
-                        .await
-                        {
-                            Ok(0) => {}
-                            Ok(shared) => tracing::info!(
-                                shared,
-                                "[link] what was kept on the site's side is shared now"
-                            ),
-                            Err(error) => tracing::warn!(
-                                %error,
-                                "[link] what was kept on the site's side is not shared yet"
-                            ),
-                        }
-                    });
+            // An end that keeps no log is no side of hers: it is not
+            // counted among the sides that read a row, nor told of the
+            // site's own rows; of the sync families it takes where her mind
+            // is (`lease.epoch`), which goes to every device.
+            let keeps_log = crate::services::her_log::relay::keeps_log(&capabilities);
+            self.keeps_log = keeps_log;
+            if keeps_log {
+                // Which core this side of hers reads; once every side reads a
+                // rule's rows and `node.standing`, what the site kept of them
+                // on its side goes too.
+                match crate::services::her_log::relay::remember_side(
+                    &self.db,
+                    self.owner,
+                    &self.device.id,
+                    abi,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        let db = self.db.clone();
+                        let owner = self.owner;
+                        tokio::spawn(async move {
+                            match crate::services::agent::merope::memory_nodes::share::share_kept(
+                                &db, owner,
+                            )
+                            .await
+                            {
+                                Ok(0) => {}
+                                Ok(shared) => tracing::info!(
+                                    shared,
+                                    "[link] what was kept on the site's side is shared now"
+                                ),
+                                Err(error) => tracing::warn!(
+                                    %error,
+                                    "[link] what was kept on the site's side is not shared yet"
+                                ),
+                            }
+                        });
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, device = %self.device.id, "[link] which core this side reads is not kept");
+                    }
                 }
-                Err(error) => {
-                    tracing::warn!(%error, device = %self.device.id, "[link] which core this side reads is not kept");
-                }
+                // What the site writes itself is told on this link from now
+                // on, as rows another end sends are.
+                crate::services::her_log::wrote::listen(&self.db).await;
             }
-            // What the site writes itself is told on this link from now
-            // on, as rows another end sends are.
-            crate::services::her_log::wrote::listen(&self.db).await;
-            super::takes_log(&self.device.id, self.registered, self.tx.clone());
+            super::takes_log(&self.device.id, self.registered, self.tx.clone(), keeps_log);
             // What a group or a private chat says may be lent to her mind
             // here while this device holds her (`her_log::lend`), when it
             // said it thinks with lends (`lend`). Each lend goes once, as a
             // reliable frame; its ack makes it her mind's.
-            if capabilities.iter().any(|capability| capability == "lend") {
+            if keeps_log && capabilities.iter().any(|capability| capability == "lend") {
                 let (lend_tx, mut lent) = tokio::sync::mpsc::unbounded_channel();
                 self.lends = Some(crate::services::her_log::lend::open(
                     &self.device.id,

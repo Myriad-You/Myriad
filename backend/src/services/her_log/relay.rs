@@ -262,6 +262,16 @@ pub fn peer_abi(capabilities: &[String]) -> u32 {
         .unwrap_or(1)
 }
 
+/// Whether the other side of a link keeps her log: it listed `log2` or a
+/// later `logN`, as every end whose shared core keeps a log has since
+/// protocol 2 (whose cores were ABI 4 from the start). One that listed none
+/// is a child core (`myriad_persona_log::Core::Child`): of the sync
+/// families it takes only where her mind is (`lease.epoch`, to every
+/// device), and is no side of her log.
+pub fn keeps_log(capabilities: &[String]) -> bool {
+    peer_abi(capabilities) >= 2
+}
+
 /// The core ABI each of the owner's devices last synced her log with, by
 /// device: a side of hers is a device that synced, until it is removed.
 const SIDES: &str = "her_log_side_abi";
