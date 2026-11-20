@@ -27,10 +27,12 @@
 //! While she lives on the site her mind stays on it ([`minds_go_to_devices`]):
 //! a computer linked to it is a child, asked for what it can do, and none
 //! is handed her mind for being where the owner is. To live on one is a
-//! move. The grants, the takeover and the moves stay as they are.
+//! move. The grants and the moves stay as they are; the server no longer
+//! takes her over (core ABI 5), and grants of a takeover from before stay
+//! in her history.
 
 use myriad_persona_log::lease::{
-    self as rules, Grant, How, MoveInput, Moved, OwnerPlace, Refusal, Request, Through,
+    self as rules, Grant, How, MoveInput, Moved, Refusal, Request, Through,
 };
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, QueryResult, Statement, TransactionTrait,
@@ -245,12 +247,7 @@ pub(crate) async fn for_move<C: ConnectionTrait>(
     let moved = rules::decide(MoveInput {
         lease,
         request: request.clone(),
-        now: super::now(),
         issued: store::next_rev(db).await?,
-        holder_last_seen: None,
-        holder_place: None,
-        owner_place: None,
-        stop_after: None,
     })?;
     let mut grant = match moved {
         Moved::Granted(grant) => grant,
@@ -294,9 +291,6 @@ pub struct End {
     pub host: bool,
     /// Server microseconds.
     pub heard_at: Option<i64>,
-    pub place: Option<String>,
-    pub owner_since: Option<i64>,
-    pub owner_seen_at: Option<i64>,
 }
 
 fn end_of(row: QueryResult) -> Result<End, Error> {
@@ -304,17 +298,13 @@ fn end_of(row: QueryResult) -> Result<End, Error> {
         device_id: row.try_get("", "device_id")?,
         host: row.try_get::<String>("", "core")? == "host",
         heard_at: row.try_get("", "heard_at")?,
-        place: row.try_get("", "place")?,
-        owner_since: row.try_get("", "owner_since")?,
-        owner_seen_at: row.try_get("", "owner_seen_at")?,
     })
 }
 
 async fn ends<C: ConnectionTrait>(db: &C) -> Result<Vec<End>, Error> {
     db.query_all_raw(Statement::from_string(
         DatabaseBackend::Postgres,
-        "SELECT device_id, core, heard_at, place, owner_since, owner_seen_at \
-         FROM agent_lease_ends ORDER BY device_id",
+        "SELECT device_id, core, heard_at FROM agent_lease_ends ORDER BY device_id",
     ))
     .await?
     .into_iter()
@@ -397,13 +387,6 @@ pub async fn stopped<C: ConnectionTrait>(
     Ok(())
 }
 
-/// How long the link may be quiet before the server counts it gone: the
-/// holder believes itself in reach until then.
-fn link_silence_micros() -> i64 {
-    let silence = crate::services::agent::link::Timing::from_contract().silence();
-    i64::try_from(silence.as_micros()).unwrap_or(i64::MAX)
-}
-
 /// What a move did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
@@ -415,7 +398,9 @@ pub enum Outcome {
     NotAHost,
 }
 
-/// Asks to move the lease as `request` says, at the server's time `now`.
+/// Asks to move the lease as `request` says. `settings` and `now` are no
+/// longer read (the rule took them only to take her over); the callers go
+/// with the rest of the handover in step 3.
 pub async fn request(
     db: &DatabaseConnection,
     settings: &Settings,
@@ -429,9 +414,9 @@ pub async fn request(
 /// give theirs) instead of the server's next.
 pub(super) async fn request_issued(
     db: &DatabaseConnection,
-    settings: &Settings,
+    _settings: &Settings,
     request: Request,
-    now: i64,
+    _now: i64,
     issued: Option<myriad_persona_sync::Rev>,
 ) -> Result<Outcome, Error> {
     let txn = db.begin().await?;
@@ -453,41 +438,19 @@ pub(super) async fn request_issued(
         }
         // She lives on a device the site let its copy go to, or is not
         // here: no host core may take her mind but by a move.
-        Request::Handover { .. } | Request::Force { .. } | Request::Takeover { .. }
-            if !copy_live(&txn).await? =>
-        {
+        Request::Handover { .. } | Request::Force { .. } if !copy_live(&txn).await? => {
             txn.commit().await?;
             return Ok(Outcome::NotAHost);
         }
         _ => {}
     }
-    let holder = ends.iter().find(|end| lease.held_by(&end.device_id));
-    // The owner's freshest sighting by any other end.
-    let owner_place = ends
-        .iter()
-        .filter(|end| !lease.held_by(&end.device_id))
-        .filter_map(|end| {
-            Some(OwnerPlace {
-                place: end.place.clone()?,
-                since: end.owner_since?,
-                seen_at: end.owner_seen_at?,
-            })
-        })
-        .max_by_key(|place| place.seen_at);
     let moved = rules::decide(MoveInput {
         lease: lease.clone(),
         request,
-        now,
         issued: match issued {
             Some(issued) => issued,
             None => store::next_rev(&txn).await?,
         },
-        holder_last_seen: holder
-            .and_then(|end| end.heard_at)
-            .map(|heard| heard.saturating_add(link_silence_micros())),
-        holder_place: holder.and_then(|end| end.place.clone()),
-        owner_place,
-        stop_after: Some(settings.stop_after_micros),
     })?;
     let outcome = match moved {
         Moved::Granted(grant) => {
@@ -500,9 +463,10 @@ pub(super) async fn request_issued(
     Ok(outcome)
 }
 
-/// Takes her mind over when the rule allows it: the holder out of reach
-/// for the stop time and the owner proven elsewhere. Run every so often
-/// while her log on the server is on. The grant when it moved.
+/// Brings her mind back from a device that held it from before she stayed
+/// on the site. Run every so often while her log on the server is on. The
+/// grant when it moved. (The server no longer takes her over for the
+/// owner being elsewhere: core ABI 5.)
 pub async fn watch(
     db: &DatabaseConnection,
     settings: &Settings,
@@ -545,22 +509,7 @@ pub async fn watch(
         }
         return Ok(Some(grant));
     }
-    match request(
-        db,
-        settings,
-        Request::Takeover {
-            server: NODE.to_string(),
-        },
-        now,
-    )
-    .await
-    {
-        Ok(Outcome::Granted(grant)) => Ok(Some(grant)),
-        Ok(_) => Ok(None),
-        // No sighting of the holder at all: nothing to decide on.
-        Err(Error::Refused(_)) => Ok(None),
-        Err(error) => Err(error),
-    }
+    Ok(None)
 }
 
 /// The owner turned syncing her log off: her mind moves between host cores

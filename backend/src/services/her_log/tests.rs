@@ -1148,207 +1148,6 @@ async fn while_off_no_frame_is_taken() {
     schema.drop().await;
 }
 
-/// The holder goes quiet, the owner shows up somewhere else: the server
-/// takes her over only once the stop time has passed for both, tells the
-/// devices with the stop time, and tells the old holder on its return.
-#[tokio::test]
-async fn the_server_takes_over_only_when_the_holder_has_stopped() {
-    let _minds = lease::minds_go_to_devices_in_test(true);
-    let Some(schema) = schema("her_log_takeover").await else {
-        return;
-    };
-    let db = &schema.db;
-    let settings = on();
-    let mut mac = Side::new("dev_mac");
-    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
-    exchange(db, &mut mac, vec![ask], T0).await;
-    lease::place(db, "dev_mac", Some("home"), true, T0)
-        .await
-        .unwrap();
-    mac.write(
-        PERSONAL,
-        "node:walk",
-        "node.created",
-        Author::Her,
-        Some("a walk"),
-        T0,
-    );
-    sync(db, &mut mac, PERSONAL, T0).await;
-
-    // The owner's phone, a child, sees them out from a minute later.
-    lease::place(db, "dev_phone", Some("office"), true, T0 + MINUTE)
-        .await
-        .unwrap();
-    for minutes in [1, 3] {
-        lease::place(db, "dev_phone", Some("office"), true, T0 + minutes * MINUTE)
-            .await
-            .unwrap();
-        assert_eq!(
-            lease::watch(db, &settings, T0 + minutes * MINUTE)
-                .await
-                .unwrap(),
-            None,
-            "{minutes} minutes"
-        );
-    }
-    lease::place(db, "dev_phone", Some("office"), true, T0 + 5 * MINUTE)
-        .await
-        .unwrap();
-    let grant = lease::watch(db, &settings, T0 + 5 * MINUTE)
-        .await
-        .unwrap()
-        .expect("taken over");
-    assert_eq!(
-        (grant.holder.as_deref(), grant.how),
-        (Some(NODE), myriad_persona_log::How::Takeover)
-    );
-
-    let welcome = relay::welcome(db, &settings, "dev_mac").await.unwrap();
-    let frames: Vec<Value> = welcome.iter().map(delivered).collect();
-    assert_eq!(frames[0]["t"], "lease.epoch");
-    assert_eq!(frames[0]["body"]["stopAfter"], settings.stop_after_micros);
-    assert_eq!(frames[1]["t"], "lease.takeover");
-    assert_eq!(frames[1]["body"]["through"], json!({ PERSONAL: 1 }));
-    // The phone, which never held her, is only told where she is.
-    assert_eq!(
-        relay::welcome(db, &settings, "dev_phone")
-            .await
-            .unwrap()
-            .len(),
-        1
-    );
-    schema.drop().await;
-}
-
-/// Her mind on the Mac is taken over while it is out of reach; what it
-/// wrote before it stopped and had not sent comes up once it is back, in
-/// the partner's private talk and in a group alike: taken (not refused as
-/// from a computer that is not her mind), and folded on the server as hers,
-/// one her catching up, not two. Until then the server's her did not know
-/// it.
-#[tokio::test]
-async fn what_her_mind_wrote_before_a_takeover_is_taken_when_it_comes_back() {
-    let _minds = lease::minds_go_to_devices_in_test(true);
-    let Some(schema) = schema("her_log_takeover_late").await else {
-        return;
-    };
-    let db = &schema.db;
-    let settings = on();
-    let mut mac = Side::new("dev_mac");
-    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
-    exchange(db, &mut mac, vec![ask], T0).await;
-    lease::place(db, "dev_mac", Some("home"), true, T0)
-        .await
-        .unwrap();
-    mac.write(
-        PERSONAL,
-        "node:walk",
-        "node.created",
-        Author::Her,
-        Some("a walk"),
-        T0,
-    );
-    sync(db, &mut mac, PERSONAL, T0).await;
-    // Written before it went out of reach, never sent.
-    let late = mac.write(
-        PERSONAL,
-        "node:rain",
-        "node.created",
-        Author::Her,
-        Some("rain"),
-        T0 + 1,
-    );
-    let late_group = mac.write(
-        GROUP,
-        "case:loud",
-        "case.verdict",
-        Author::Her,
-        Some("too loud"),
-        T0 + 2,
-    );
-
-    for minutes in [1, 3, 5] {
-        lease::place(db, "dev_phone", Some("office"), true, T0 + minutes * MINUTE)
-            .await
-            .unwrap();
-    }
-    lease::watch(db, &settings, T0 + 5 * MINUTE)
-        .await
-        .unwrap()
-        .expect("taken over");
-    assert!(
-        !store::rows(db, OWNER, PERSONAL)
-            .await
-            .unwrap()
-            .iter()
-            .any(|row| row.id == late.id)
-    );
-
-    // Back: it sends what it wrote.
-    sync(db, &mut mac, PERSONAL, T0 + 6 * MINUTE).await;
-    let frame = mac.rows_frame(GROUP, mac.log(GROUP));
-    exchange(db, &mut mac, vec![frame], T0 + 6 * MINUTE).await;
-    let history = lease::history(db).await.unwrap();
-    for (audience, id, object) in [
-        (PERSONAL, &late.id, "node:rain"),
-        (GROUP, &late_group.id, "case:loud"),
-    ] {
-        let rows = store::rows(db, OWNER, audience).await.unwrap();
-        assert!(rows.iter().any(|row| &row.id == id), "{audience}");
-        assert!(
-            myriad_persona_log::lease::standings(&rows, &history, &[]).is_empty(),
-            "{audience}: hers, standing normal"
-        );
-        let folded = fold(FoldInput {
-            rows,
-            leases: history.clone(),
-            deputies: Vec::new(),
-            ledger: store::ledger(db, OWNER, audience).await.unwrap(),
-        })
-        .unwrap();
-        let folded = serde_json::to_value(folded).unwrap();
-        let object = folded["objects"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|folded| folded["object"] == object)
-            .unwrap_or_else(|| panic!("{audience}: {object} folded"));
-        assert!(object["rows"].as_array().unwrap().contains(&json!(id)));
-        assert_ne!(object["concurrent"], true, "{audience}");
-    }
-
-    // A row of hers at an epoch it never held is still not taken there.
-    let mut win = Side::new("dev_win");
-    win.epoch = history
-        .iter()
-        .find(|grant| grant.held_by("dev_mac"))
-        .map(|grant| grant.epoch);
-    let stray = win.write(
-        GROUP,
-        "case:quiet",
-        "case.verdict",
-        Author::Her,
-        Some("x"),
-        T0 + 6 * MINUTE,
-    );
-    let frame = win.rows_frame(GROUP, vec![stray]);
-    let outs = relay::take(
-        db,
-        &root(),
-        &settings,
-        OWNER,
-        "dev_win",
-        Core::Pc,
-        &mut relay::Session::default(),
-        &frame,
-        T0 + 6 * MINUTE,
-    )
-    .await
-    .unwrap();
-    assert_eq!(delivered(&outs[0])["body"]["code"], "not_holder");
-    schema.drop().await;
-}
-
 /// What the partner says to her in private goes into her log as their own
 /// lines (D6), with her mind wherever it is: one segment a conversation,
 /// opened before its first line, each line with its message's id and the
@@ -1881,10 +1680,9 @@ async fn syncing_off_brings_her_mind_back_from_a_device() {
     schema.drop().await;
 }
 
-/// The shared lease cases (`core/crates/conformance/v1/lease/move.json`) run
-/// through the server's wiring: the lease, the holder and the owner's
-/// sighting put where the server keeps them, the move asked as the server
-/// asks it. Every case answers as recorded.
+/// The shared lease cases (`core/crates/conformance/v2/lease/move.json`) run
+/// through the server's wiring: the lease put where the server keeps it,
+/// the move asked as the server asks it. Every case answers as recorded.
 #[tokio::test]
 async fn the_lease_conformance_cases_pass_through_the_servers_wiring() {
     let _minds = lease::minds_go_to_devices_in_test(true);
@@ -1893,10 +1691,9 @@ async fn the_lease_conformance_cases_pass_through_the_servers_wiring() {
     };
     let db = &schema.db;
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../core/crates/conformance/v1/lease/move.json");
+        .join("../core/crates/conformance/v2/lease/move.json");
     let file: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     assert_eq!(file["call"], "lease.move");
-    let silence = 30 * 1_000_000;
     let mut ran = 0;
     for case in file["cases"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
@@ -1923,40 +1720,6 @@ async fn the_lease_conformance_cases_pass_through_the_servers_wiring() {
         ))
         .await
         .unwrap();
-        if let Some(last_seen) = input["holderLastSeen"].as_i64() {
-            lease::heard(
-                db,
-                standing.holder.as_deref().unwrap(),
-                Some(lease::Core::Host),
-                last_seen - silence,
-            )
-            .await
-            .unwrap();
-        }
-        if let Some(place) = input["holderPlace"].as_str() {
-            db.execute_raw(sea_orm::Statement::from_sql_and_values(
-                sea_orm::DatabaseBackend::Postgres,
-                "INSERT INTO agent_lease_ends (device_id, core, place) VALUES ($1, 'host', $2) \
-                 ON CONFLICT (device_id) DO UPDATE SET place = EXCLUDED.place",
-                [standing.holder.clone().into(), place.into()],
-            ))
-            .await
-            .unwrap();
-        }
-        if let Some(owner) = input.get("ownerPlace") {
-            db.execute_raw(sea_orm::Statement::from_sql_and_values(
-                sea_orm::DatabaseBackend::Postgres,
-                "INSERT INTO agent_lease_ends (device_id, core, place, owner_since, owner_seen_at) \
-                 VALUES ('dev_phone', 'child', $1, $2, $3)",
-                [
-                    owner["place"].as_str().unwrap().into(),
-                    owner["since"].as_i64().unwrap().into(),
-                    owner["seenAt"].as_i64().unwrap().into(),
-                ],
-            ))
-            .await
-            .unwrap();
-        }
         // The cores the cases move her to are host cores.
         db.execute_unprepared(
             "INSERT INTO agent_lease_ends (device_id, core) VALUES ('dev_mac', 'host'), ('dev_win', 'host') \
@@ -1964,33 +1727,16 @@ async fn the_lease_conformance_cases_pass_through_the_servers_wiring() {
         )
         .await
         .unwrap();
-        let settings = Settings {
-            stop_after_micros: input["stopAfter"].as_i64().unwrap_or(180_000_000),
-            ..on()
-        };
+        let settings = on();
         let request: myriad_persona_log::Request =
             serde_json::from_value(input["request"].clone()).unwrap();
         let issued: Rev = input["issued"].as_str().unwrap().parse().unwrap();
-        let bad_stop = myriad_persona_log::lease::stop_after(input["stopAfter"].as_i64()).is_err();
-        let got = if bad_stop {
-            // The server never runs with such a setting (`Settings` refuses it).
-            json!({ "error": "bad_input" })
-        } else {
-            match lease::request_issued(
-                db,
-                &settings,
-                request,
-                input["now"].as_i64().unwrap(),
-                Some(issued),
-            )
-            .await
-            {
-                Ok(lease::Outcome::Granted(grant)) => json!({ "granted": grant }),
-                Ok(lease::Outcome::Refused(refusal)) => json!({ "refused": refusal }),
-                Ok(lease::Outcome::NotAHost) => panic!("{name}: not a host"),
-                Err(super::Error::Refused(_)) => json!({ "error": "bad_input" }),
-                Err(error) => panic!("{name}: {error}"),
-            }
+        let got = match lease::request_issued(db, &settings, request, T0, Some(issued)).await {
+            Ok(lease::Outcome::Granted(grant)) => json!({ "granted": grant }),
+            Ok(lease::Outcome::Refused(refusal)) => json!({ "refused": refusal }),
+            Ok(lease::Outcome::NotAHost) => panic!("{name}: not a host"),
+            Err(super::Error::Refused(_)) => json!({ "error": "bad_input" }),
+            Err(error) => panic!("{name}: {error}"),
         };
         assert_eq!(
             canonical_bytes(&got),
@@ -1999,7 +1745,7 @@ async fn the_lease_conformance_cases_pass_through_the_servers_wiring() {
         );
         ran += 1;
     }
-    assert!(ran >= 15);
+    assert!(ran >= 10);
     schema.drop().await;
 }
 
@@ -3265,84 +3011,6 @@ async fn handed_back_she_catches_up_before_she_thinks() {
             .iter()
             .any(|held| held.id == row.id && held.kind == "speech.said")
     );
-    super::pen::reset_for_test();
-    schema.drop().await;
-}
-
-/// The Mac holds her and drops off the network; the owner's phone says, by
-/// `lease.place`, they are somewhere else. Within the stop time nothing
-/// moves; past it the server takes her and thinks again.
-#[tokio::test]
-async fn the_server_takes_her_back_from_a_mac_cut_off_with_the_owner_elsewhere() {
-    let _minds = lease::minds_go_to_devices_in_test(true);
-    let Some(schema) = schema("her_log_pen_takeover").await else {
-        return;
-    };
-    let db = &schema.db;
-    let settings = on();
-    super::pen::reset_for_test();
-    settled(db).await;
-    let mut mac = Side::new("dev_mac");
-    let ask = mac.frame("lease.ask", None, json!({ "why": "place" }));
-    let here = mac.frame(
-        "lease.place",
-        None,
-        json!({ "place": "pl_home", "ownerHere": true }),
-    );
-    exchange(db, &mut mac, vec![ask, here], T0).await;
-    assert!(super::pen::think().is_none());
-
-    let mut phone = Side::new("dev_phone");
-    let out = phone.frame(
-        "lease.place",
-        None,
-        json!({ "place": "pl_out", "ownerHere": true }),
-    );
-    let root = root();
-    for minutes in [1, 3] {
-        let at = T0 + minutes * MINUTE;
-        relay::take(
-            db,
-            &root,
-            &settings,
-            OWNER,
-            "dev_phone",
-            Core::Child,
-            &mut phone.link,
-            &out,
-            at,
-        )
-        .await
-        .unwrap();
-        assert_eq!(
-            lease::watch(db, &settings, at).await.unwrap(),
-            None,
-            "{minutes} min"
-        );
-        settled(db).await;
-        assert!(super::pen::think().is_none(), "{minutes} min");
-    }
-    let at = T0 + 5 * MINUTE;
-    relay::take(
-        db,
-        &root,
-        &settings,
-        OWNER,
-        "dev_phone",
-        Core::Child,
-        &mut phone.link,
-        &out,
-        at,
-    )
-    .await
-    .unwrap();
-    let grant = lease::watch(db, &settings, at)
-        .await
-        .unwrap()
-        .expect("taken over");
-    assert_eq!(grant.how, myriad_persona_log::How::Takeover);
-    assert_eq!(settled(db).await, super::pen::Pen::Here);
-    assert!(super::pen::think().is_some());
     super::pen::reset_for_test();
     schema.drop().await;
 }
