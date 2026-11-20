@@ -4,7 +4,7 @@ use sea_orm::DatabaseConnection;
 
 use super::agent_footer::*;
 use super::agent_header::*;
-use super::motion_overlay::{round_motion_style, utterance_index_in_session};
+use super::motion_overlay::round_motion_style;
 use super::types::*;
 
 impl Agent {
@@ -44,13 +44,10 @@ impl Agent {
 
         crate::services::agent::consciousness::remember_turn_presence(&request);
         crate::services::agent::merope::mark_activity(&self.db, user_id, "thinking").await;
-        let (mood_transition, memory_input_at) = crate::services::agent::merope::note_user_turn(
-            &self.db,
-            &request,
-            utterance_index_in_session(&request),
-        )
-        .await
-        .unzip();
+        let (mood_transition, memory_input_at) =
+            crate::services::agent::merope::note_user_turn(&self.db, &request)
+                .await
+                .unzip();
         let round_motion_style = round_motion_style(&request, mood_transition.as_ref()).await;
 
         // Chat does not consume Pro and must not emit Recipe/tool calls.
@@ -131,13 +128,10 @@ impl Agent {
 
         crate::services::agent::consciousness::remember_turn_presence(&request);
         crate::services::agent::merope::mark_activity(&self.db, user_id, "thinking").await;
-        let (mood_transition, memory_input_at) = crate::services::agent::merope::note_user_turn(
-            &self.db,
-            &request,
-            utterance_index_in_session(&request),
-        )
-        .await
-        .unzip();
+        let (mood_transition, memory_input_at) =
+            crate::services::agent::merope::note_user_turn(&self.db, &request)
+                .await
+                .unzip();
         let round_motion_style = round_motion_style(&request, mood_transition.as_ref()).await;
 
         if let Some(mood) = mood_transition.clone() {

@@ -259,18 +259,14 @@ pub struct AffectChange {
 }
 
 impl AffectChange {
-    /// One turn of their words: praise or scolding lands less the more turns
-    /// came before it in the session; otherwise she only settles.
-    pub fn utterance(utterance_index: u32, praised: bool, scolded: bool) -> Self {
+    /// One turn of their words as it lands: she only settles. How the words
+    /// made her feel is her appraisal of them, after ([`Self::appraisal`]).
+    /// (`user_praise` / `user_scold` rows are from before, when words matched
+    /// a list moved her.)
+    pub fn utterance() -> Self {
         Self {
-            cause: if scolded {
-                "user_scold"
-            } else if praised {
-                "user_praise"
-            } else {
-                "user_turn"
-            },
-            impulse: AffectImpulse::utterance(utterance_index, praised, scolded),
+            cause: "user_turn",
+            impulse: AffectImpulse::None,
         }
     }
 

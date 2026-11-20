@@ -148,7 +148,7 @@ impl Day {
             let prompt = super::super::super::clock::in_zone(
                 self.zone,
                 super::super::super::clock::as_of(at, async {
-                    super::super::super::note_user_turn(&db, &request, index as u32).await;
+                    super::super::super::note_user_turn(&db, &request).await;
                     if let Ok(state) =
                         super::super::super::store::get_or_create_state(&db, user_id).await
                     {

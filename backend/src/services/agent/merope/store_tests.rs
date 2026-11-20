@@ -110,14 +110,9 @@ async fn appraisal_commit_rechecks_input_after_waiting_for_the_database_lock() {
     }
     // Each change of her affect is recorded beside it.
     db.execute_unprepared(&affect_log_ddl()).await.unwrap();
-    let (_, first) = super::update_affect(
-        &db,
-        7001,
-        true,
-        super::AffectChange::utterance(0, false, false),
-    )
-    .await
-    .unwrap();
+    let (_, first) = super::update_affect(&db, 7001, true, super::AffectChange::utterance())
+        .await
+        .unwrap();
     let input_at = first.last_user_message_at.unwrap();
     super::set_activity(&db, 7001, "talking").await.unwrap();
     let (_, applied) = super::update_utterance_appraisal(
@@ -168,14 +163,9 @@ async fn appraisal_commit_rechecks_input_after_waiting_for_the_database_lock() {
 
     let mut previous = second;
     for _ in 0..16 {
-        let (_, current) = super::update_affect(
-            &db,
-            7001,
-            true,
-            super::AffectChange::utterance(0, false, false),
-        )
-        .await
-        .unwrap();
+        let (_, current) = super::update_affect(&db, 7001, true, super::AffectChange::utterance())
+            .await
+            .unwrap();
         assert!(current.updated_at.timestamp_millis() > previous.updated_at.timestamp_millis());
         assert!(current.last_user_message_at > previous.last_user_message_at);
         previous = current;
@@ -809,18 +799,18 @@ async fn her_affect_replayed_from_its_changes_is_what_she_feels() {
         }
     };
 
-    // Praised on the first turn (the row is made), then turns that only let
-    // her settle, a failed task, music, and an appraisal of their words, at
-    // uneven moments (part seconds included).
+    // A turn that only lets her settle (the row is made), another, a failed
+    // task, music, one more turn and an appraisal of their words, at uneven
+    // moments (part seconds included).
     as_of(
         at(0, 0),
-        update_affect(&db, user_id, true, AffectChange::utterance(0, true, false)),
+        update_affect(&db, user_id, true, AffectChange::utterance()),
     )
     .await
     .unwrap();
     as_of(
         at(90, 250_000),
-        update_affect(&db, user_id, true, AffectChange::utterance(1, false, false)),
+        update_affect(&db, user_id, true, AffectChange::utterance()),
     )
     .await
     .unwrap();
@@ -841,7 +831,7 @@ async fn her_affect_replayed_from_its_changes_is_what_she_feels() {
     assert!(!again.credited);
     let (_, turn) = as_of(
         at(18_000, 500_000),
-        update_affect(&db, user_id, true, AffectChange::utterance(2, false, true)),
+        update_affect(&db, user_id, true, AffectChange::utterance()),
     )
     .await
     .unwrap();
