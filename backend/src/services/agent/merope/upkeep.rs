@@ -29,7 +29,7 @@ pub async fn tick(db: DatabaseConnection) {
     if super::is_enabled().await {
         super::chat_remember::cues::write_missing(&db).await;
         super::memory_nodes::sorting::sort_missing(&db).await;
-        super::memory_nodes::upkeep::tick(&db).await;
+        super::memory_nodes::upkeep::at_upkeep(&db).await;
         // The owner's private talk given vectors before their next turn, so
         // their first words have lines to be near (`chat_near`).
         if let Some(owner) = super::call::site_owner().await {

@@ -135,6 +135,8 @@ pub(crate) mod standing;
 pub(crate) mod take_back_check;
 pub(crate) mod unbuilt;
 pub(crate) mod upkeep;
+mod upkeep_candidates;
+mod upkeep_prompt;
 pub(crate) mod write;
 
 pub(crate) use prepare::{Author, RowIn};
