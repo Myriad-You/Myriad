@@ -20,6 +20,13 @@
 //! ([`order`]) is who the owner used last, the way a call picks its end
 //! (`link::pick`); for now that is only shown.
 //!
+//! One goes again, the same, until its end's `lease.taken` names it
+//! ([`received`]): the newest it was given, while it is for the epoch that
+//! stands and has not run out ([`unreceived`]). On a link, once its end
+//! keeps up, before any new one; then every [`RESEND_EVERY_MICROS`] its
+//! heartbeat finds it still not taken. One a newer has replaced, or run out,
+//! does not go again.
+//!
 //! An end removed takes its deputies with it ([`withdraw`]), and syncing
 //! turned off takes them all ([`withdraw_all`]): the reason they were given
 //! is gone. That she knows she is a temporary host is the end's (its host
@@ -50,6 +57,10 @@ pub const RUNS_MICROS: i64 = myriad_persona_log::lease::DEPUTY_MAX_MICROS;
 /// How often an end that keeps up is given a new one on the same link.
 pub const RENEW_EVERY_MICROS: i64 = 60 * 60 * 1_000_000;
 
+/// How often one not taken yet goes again on the same link: a few
+/// heartbeats, long enough for its `lease.taken` to come back.
+pub const RESEND_EVERY_MICROS: i64 = 60 * 1_000_000;
+
 /// The id the deputy's frame goes by, made once per deputy and the same if
 /// it goes again: its clock, which [`issued_of`] reads back.
 pub fn frame_id(deputy: &Deputy) -> String {
@@ -72,6 +83,11 @@ pub struct Watch {
     /// The server's time (microseconds) it was last given one on this link,
     /// and the epoch that one stands under.
     given: Option<(i64, u64)>,
+    /// The one sent on this link its end has not said it took, and when it
+    /// last went.
+    waiting: Option<(Rev, i64)>,
+    /// Whether one not taken from before was looked for on this link.
+    looked: bool,
 }
 
 impl Watch {
@@ -117,8 +133,37 @@ impl Watch {
             })
     }
 
+    /// Whether the one not taken yet goes again now, at the server's time
+    /// `now`: it keeps up, and on this link none was looked for yet, or the
+    /// one sent waits a [`RESEND_EVERY_MICROS`] or more.
+    pub fn again_due(&self, now: i64) -> bool {
+        self.keeps_up()
+            && (!self.looked
+                || self
+                    .waiting
+                    .as_ref()
+                    .is_some_and(|(_, at)| now.saturating_sub(*at) >= RESEND_EVERY_MICROS))
+    }
+
+    /// Its end said it took the one issued at `issued`.
+    pub fn taken(&mut self, issued: &Rev) {
+        if self
+            .waiting
+            .as_ref()
+            .is_some_and(|(waiting, _)| waiting == issued)
+        {
+            self.waiting = None;
+        }
+    }
+
     fn gave(&mut self, deputy: &Deputy, now: i64) {
         self.given = Some((now, deputy.under));
+        self.sent(Some(deputy), now);
+    }
+
+    fn sent(&mut self, deputy: Option<&Deputy>, now: i64) {
+        self.waiting = deputy.map(|deputy| (deputy.issued.clone(), now));
+        self.looked = true;
     }
 }
 
@@ -266,6 +311,57 @@ pub async fn give(
     txn.commit().await?;
     watch.gave(&deputy, now);
     Ok(Some(deputy))
+}
+
+/// The newest deputy issued to `holder`, when its end has not said it took
+/// it, it is for the epoch that stands while her mind is on the site, and
+/// it runs at `now` (microseconds): the one that goes again. None when a
+/// newer replaced it, or it was taken, or it ran out.
+pub async fn unreceived<C: ConnectionTrait>(
+    db: &C,
+    holder: &str,
+    now: i64,
+) -> Result<Option<Deputy>, Error> {
+    let Some(standing) = lease::standing(db).await? else {
+        return Ok(None);
+    };
+    if !standing.held_by(NODE) {
+        return Ok(None);
+    }
+    let Some(row) = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            format!(
+                "SELECT {COLUMNS}, received_at IS NOT NULL AS taken FROM agent_lease_deputies \
+                 WHERE holder = $1 ORDER BY issued_at DESC, issued DESC LIMIT 1"
+            ),
+            [holder.into()],
+        ))
+        .await?
+    else {
+        return Ok(None);
+    };
+    let taken: bool = row.try_get("", "taken")?;
+    let deputy = deputy_of(row)?;
+    Ok((!taken && deputy.under == standing.epoch && deputy.until > now).then_some(deputy))
+}
+
+/// The deputy `device` was given and has not said it took, when it goes
+/// again on its link (`watch`) at the server's time `now`
+/// ([`Watch::again_due`], [`unreceived`]): the same, by the same id. None
+/// otherwise.
+pub async fn again(
+    db: &DatabaseConnection,
+    device: &str,
+    watch: &mut Watch,
+    now: i64,
+) -> Result<Option<Deputy>, Error> {
+    if !watch.again_due(now) {
+        return Ok(None);
+    }
+    let deputy = unreceived(db, device, now).await?;
+    watch.sent(deputy.as_ref(), now);
+    Ok(deputy)
 }
 
 /// `holder` said it took the deputy issued at `issued`. False when there is

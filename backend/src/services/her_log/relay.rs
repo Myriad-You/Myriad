@@ -54,7 +54,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use myriad_nodes::wire::{ASK_ROWS, Batch};
 use myriad_persona_log::{
     Core, Holder, Vector,
-    lease::{Refusal as MoveRefusal, Request, Through},
+    lease::{Grant, Refusal as MoveRefusal, Request, Through},
     row::{Audience, Author},
 };
 use sea_orm::DatabaseConnection;
@@ -143,6 +143,11 @@ pub struct Session {
     /// On a link that does not page: by audience, what the side and the
     /// site held when rows it lacked last went to it (`Sent`).
     sent: BTreeMap<String, Sent>,
+    /// To an end that listed `deputy`: the grant its end holds her by that
+    /// went on this link, by epoch, and when it last went ([`grant_again`]).
+    grant_sent: Option<(u64, i64)>,
+    /// The epoch of the grant its `lease.taken` named on this link.
+    grant_taken: Option<u64>,
 }
 
 /// Rows a side lacked went to it on a link that does not page, when it held
@@ -194,6 +199,8 @@ impl Session {
             link: 0,
             deputy: None,
             sent: BTreeMap::new(),
+            grant_sent: None,
+            grant_taken: None,
         }
     }
 
@@ -382,17 +389,46 @@ pub fn encode(out: &Outgoing, seq: u64, ack: u64, at_ms: i64) -> Result<String, 
         .map_err(|refusal| Error::Refused(format!("{}: {}", refusal.code, refusal.detail)))
 }
 
-/// A deputy for `device` when one is due on its link (`session`), as the
-/// frame that takes it there; none when none is, or when giving one failed
-/// (said here: it is tried again on its next log.vector or heartbeat).
+/// The frame a deputy goes to its end in, by its own id.
+fn deputy_frame(deputy: &super::deputy::Deputy) -> Outgoing {
+    Outgoing {
+        to: To::Sender,
+        t: super::deputy::FRAME,
+        id: Some(super::deputy::frame_id(deputy)),
+        body: json!({ "deputy": deputy }),
+    }
+}
+
+/// The deputies for `device` on its link (`session`), as the frames that
+/// take them there: first the one it was given and has not said it took,
+/// again, when that is due; then a new one when one is due. None when
+/// neither is, or when either failed (said here: tried again on its next
+/// log.vector or heartbeat).
 async fn deputize(
     db: &DatabaseConnection,
     owner: &Owner,
     device: &str,
     session: &mut Session,
     now: i64,
-) -> Option<Outgoing> {
-    let watch = session.deputy.as_mut()?;
+) -> Vec<Outgoing> {
+    let Some(watch) = session.deputy.as_mut() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    match super::deputy::again(db, device, watch, now).await {
+        Ok(Some(deputy)) => {
+            tracing::info!(
+                device,
+                under = deputy.under,
+                "[her-log] a deputy not taken yet went again"
+            );
+            out.push(deputy_frame(&deputy));
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(%error, device, "[her-log] a deputy not taken yet could not be read");
+        }
+    }
     match super::deputy::give(db, owner, device, watch, now).await {
         Ok(Some(deputy)) => {
             tracing::info!(
@@ -401,23 +437,78 @@ async fn deputize(
                 order = deputy.order,
                 "[her-log] a deputy was given"
             );
-            Some(Outgoing {
-                to: To::Sender,
-                t: super::deputy::FRAME,
-                id: Some(super::deputy::frame_id(&deputy)),
-                body: json!({ "deputy": deputy }),
-            })
+            out.push(deputy_frame(&deputy));
         }
-        Ok(None) => None,
+        Ok(None) => {}
         Err(error) => {
             tracing::warn!(%error, device, "[her-log] a deputy was not given");
-            None
+        }
+    }
+    out
+}
+
+/// To an end that listed `deputy`, the grant it holds her by (`standing`),
+/// again, until its `lease.taken` names it (`lease.grant`): on each link
+/// once, then every [`super::deputy::RESEND_EVERY_MICROS`] it is not taken.
+/// Only while her mind may go to a device (`lease::minds_go_to_devices`):
+/// one holding her from before is brought back, not handed its grant again.
+fn grant_again(
+    settings: &Settings,
+    device: &str,
+    session: &mut Session,
+    standing: Option<&Grant>,
+    now: i64,
+) -> Option<Outgoing> {
+    if session.deputy.is_none() || !lease::minds_go_to_devices() {
+        return None;
+    }
+    let grant = standing.filter(|grant| grant.held_by(device) && device != NODE)?;
+    if session.grant_taken == Some(grant.epoch)
+        || session.grant_sent.is_some_and(|(epoch, at)| {
+            epoch == grant.epoch && now.saturating_sub(at) < super::deputy::RESEND_EVERY_MICROS
+        })
+    {
+        return None;
+    }
+    session.grant_sent = Some((grant.epoch, now));
+    tracing::info!(
+        device,
+        epoch = grant.epoch,
+        "[her-log] a grant not taken yet went again"
+    );
+    Some(Outgoing {
+        to: To::Sender,
+        t: "lease.grant",
+        id: Some(grant.epoch.to_string()),
+        body: lease::grant_body(grant, settings),
+    })
+}
+
+/// A grant `out` sends on this link to its end (`device`), which listed
+/// `deputy`: it waits there for its `lease.taken` ([`grant_again`]).
+fn granted_here(device: &str, session: &mut Session, out: &[Outgoing], now: i64) {
+    if session.deputy.is_none() {
+        return;
+    }
+    for sent in out {
+        let here = match &sent.to {
+            To::Sender => true,
+            To::Device(to) => to == device,
+            To::Everyone | To::Hosts => false,
+        };
+        if here
+            && sent.t == "lease.grant"
+            && let Some(epoch) = sent.id.as_deref().and_then(|id| id.parse().ok())
+        {
+            session.grant_sent = Some((epoch, now));
         }
     }
 }
 
-/// Every heartbeat of a link that syncs: a deputy for its end when one is
-/// due (the hourly renewal), while her log on the server is on for `user`.
+/// Every heartbeat of a link that syncs, while her log on the server is on
+/// for `user`: to its end, the deputy it has not said it took, again, and a
+/// new one when one is due (the hourly renewal); the grant it holds her by
+/// and has not said it took, again ([`grant_again`]).
 pub async fn renew(
     db: &DatabaseConnection,
     settings: &Settings,
@@ -429,34 +520,46 @@ pub async fn renew(
     if session.deputy.is_none() || !settings.enabled {
         return Vec::new();
     }
-    // Nothing more is read while it does not keep up; one is due again an
-    // hour on, or as soon as another epoch stands (a new grant).
-    let Some(watch) = session.deputy.as_ref().filter(|watch| watch.keeps_up()) else {
-        return Vec::new();
-    };
-    match lease::standing(db).await {
-        Ok(Some(standing)) if standing.held_by(NODE) && watch.due(standing.epoch, now) => {}
-        Ok(_) => return Vec::new(),
+    let standing = match lease::standing(db).await {
+        Ok(standing) => standing,
         Err(error) => {
             tracing::warn!(%error, device, "[her-log] whether a deputy is due could not be read");
             return Vec::new();
         }
+    };
+    // Nothing more is read while none is due: a deputy is due again an
+    // hour on, as soon as another epoch stands (a new grant), or while one
+    // waits for its lease.taken; none while it does not keep up.
+    let deputy_due = session.deputy.as_ref().is_some_and(|watch| {
+        watch.again_due(now)
+            || standing
+                .as_ref()
+                .is_some_and(|standing| standing.held_by(NODE) && watch.due(standing.epoch, now))
+    });
+    let grant_due = lease::minds_go_to_devices()
+        && standing.as_ref().is_some_and(|grant| grant.held_by(device));
+    if !deputy_due && !grant_due {
+        return Vec::new();
     }
     let owner = match store::account(db, user).await {
         Ok(Some(account)) if account.on() => super::owner(db, user).await,
         Ok(_) => return Vec::new(),
         Err(error) => Err(error),
     };
-    match owner {
-        Ok(owner) => deputize(db, &owner, device, session, now)
-            .await
-            .into_iter()
-            .collect(),
+    let owner = match owner {
+        Ok(owner) => owner,
         Err(error) => {
             tracing::warn!(%error, device, "[her-log] whether a deputy is due could not be read");
-            Vec::new()
+            return Vec::new();
         }
+    };
+    let mut out: Vec<Outgoing> = grant_again(settings, device, session, standing.as_ref(), now)
+        .into_iter()
+        .collect();
+    if deputy_due {
+        out.extend(deputize(db, &owner, device, session, now).await);
     }
+    out
 }
 
 fn batch_id() -> String {
@@ -743,9 +846,20 @@ async fn answer(
                 db, root, &owner, device, &side, session, &audience, asked, now,
             )
             .await?;
-            // Once it keeps up, a deputy (her temporary host).
+            // Once it keeps up, a deputy (her temporary host); and the grant
+            // it holds her by, until it says it took it.
             if host {
                 out.extend(deputize(db, &owner, device, session, now).await);
+                if session.deputy.is_some() && lease::minds_go_to_devices() {
+                    let standing = lease::standing(db).await?;
+                    out.extend(grant_again(
+                        settings,
+                        device,
+                        session,
+                        standing.as_ref(),
+                        now,
+                    ));
+                }
             }
             Ok(out)
         }
@@ -814,12 +928,14 @@ async fn answer(
                     epoch = standing.epoch,
                     "[her-log] her holder asked again: its grant was sent again"
                 );
-                return Ok(vec![Outgoing {
+                let out = vec![Outgoing {
                     to: To::Sender,
                     t: "lease.grant",
                     id: Some(standing.epoch.to_string()),
                     body: lease::grant_body(&standing, settings),
-                }]);
+                }];
+                granted_here(device, session, &out, now);
+                return Ok(out);
             }
             let request = match body["why"].as_str() {
                 Some("force") => {
@@ -863,13 +979,18 @@ async fn answer(
                     };
                     let out = moved(db, settings, user, request, seq, now).await;
                     super::pen::handed(db, settings, user).await?;
+                    if let Ok(out) = &out {
+                        granted_here(device, session, out, now);
+                    }
                     return out;
                 }
                 // Asking another holder to give her up is not done yet: no
                 // answer, as the contract allows.
                 _ => return Ok(Vec::new()),
             };
-            moved(db, settings, user, request, seq, now).await
+            let out = moved(db, settings, user, request, seq, now).await?;
+            granted_here(device, session, &out, now);
+            Ok(out)
         }
         "lease.yield" => {
             lease::heard(db, device, Some(Seen::Host), now).await?;
@@ -884,7 +1005,9 @@ async fn answer(
                 to,
                 through: (!through.is_empty()).then_some(through),
             };
-            moved(db, settings, user, request, seq, now).await
+            let out = moved(db, settings, user, request, seq, now).await?;
+            granted_here(device, session, &out, now);
+            Ok(out)
         }
         // It has read a lease.grant or a lease.deputy through and keeps it:
         // only this, never an ack, says so (`deputy`).
@@ -893,12 +1016,27 @@ async fn answer(
             match body["of"].as_str() {
                 Some(super::deputy::FRAME) => {
                     let taken = match super::deputy::issued_of(id) {
-                        Some(issued) => super::deputy::received(db, device, &issued).await?,
+                        Some(issued) => {
+                            let taken = super::deputy::received(db, device, &issued).await?;
+                            if let Some(watch) = session.deputy.as_mut().filter(|_| taken) {
+                                watch.taken(&issued);
+                            }
+                            taken
+                        }
                         None => false,
                     };
                     if !taken {
                         tracing::info!(device, "[her-log] a deputy it says it took is none the server gave it");
                     }
+                }
+                Some("lease.grant") => {
+                    if let Ok(epoch) = id.parse::<u64>() {
+                        session.grant_taken = Some(epoch);
+                        if session.grant_sent.is_some_and(|(sent, _)| sent == epoch) {
+                            session.grant_sent = None;
+                        }
+                    }
+                    tracing::info!(device, "[her-log] a grant was taken");
                 }
                 _ => tracing::info!(device, of = ?body["of"].as_str(), "[her-log] a lease frame was taken"),
             }
