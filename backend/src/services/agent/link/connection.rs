@@ -32,9 +32,9 @@ const QUEUED_FRAMES: usize = 256;
 
 /// Capabilities of the contract the site does not take yet: a child that
 /// lists them is not told they were accepted, so it never sends their
-/// frames to a host that would not read them (glance, versions: core #116,
-/// made on the site later).
-const NOT_YET: [&str; 2] = ["glance", "versions"];
+/// frames to a host that would not read them (glance: core #116, made on
+/// the site later).
+pub(super) const NOT_YET: [&str; 1] = ["glance"];
 
 /// How soon after the ack a child's `link.dropped` still points at the
 /// reliable frame acked last of its type (a child tells it at once).
@@ -250,6 +250,7 @@ pub(super) async fn serve_with(
         cards: false,
         images: false,
         deputy: false,
+        versions: None,
         nodes: false,
         proposals: None,
         acts: false,
@@ -259,6 +260,7 @@ pub(super) async fn serve_with(
         host: false,
         sync: false,
         relay: None,
+        keeps_log: false,
         lends: None,
         core_refused: HashSet::new(),
     };
@@ -360,6 +362,9 @@ struct Link {
     /// It listed `deputy` (her temporary host): its `lease.epoch` carries
     /// the standing grant's `issued`, which another end's core refuses.
     deputy: bool,
+    /// It listed `versions`: what its hello listed, for the site's reading
+    /// of the versions it says (`link.versions`, `super::versions`).
+    versions: Option<super::versions::Listed>,
     /// The child said it takes `nodes`: it is kept current with her nodes.
     nodes: bool,
     /// Her open proposals as the child was last told them, once it said it
@@ -384,6 +389,10 @@ struct Link {
     sync: bool,
     /// While it syncs: what her log's relay remembers of this link session.
     relay: Option<crate::services::her_log::relay::Session>,
+    /// The end keeps her log (`relay::keeps_log`): a side of it. One that
+    /// keeps none is a child core to her log's relay, and takes only where
+    /// her mind is of the sync families.
+    keeps_log: bool,
     /// While it syncs: this link as her lends know it (`her_log::lend::open`).
     lends: Option<u64>,
     /// What the shared core refused of the child's frames on this link and
@@ -546,8 +555,13 @@ impl Link {
             &settings,
             self.owner,
             &self.device.id,
-            // Every end that dials in is the app on a computer.
-            myriad_persona_log::Core::Pc,
+            // An end that keeps her log is the app on a computer; one that
+            // keeps none is a child core, and holds no audience.
+            if self.keeps_log {
+                myriad_persona_log::Core::Pc
+            } else {
+                myriad_persona_log::Core::Child
+            },
             session,
             &frame,
             crate::clock::now().timestamp_micros(),
@@ -592,13 +606,53 @@ impl Link {
                 To::Sender => self.reply(outgoing),
                 To::Device(device) if device == self.device.id => self.reply(outgoing),
                 To::Device(device) => super::send_log(self.owner, &device, outgoing),
-                To::Hosts => super::send_log_all(self.owner, &self.device.id, outgoing),
+                To::Hosts => {
+                    super::send_log_all(self.owner, &self.device.id, super::Reach::Sides, outgoing)
+                }
                 To::Everyone => {
-                    super::send_log_all(self.owner, &self.device.id, outgoing.clone());
+                    super::send_log_all(
+                        self.owner,
+                        &self.device.id,
+                        super::Reach::Everyone,
+                        outgoing.clone(),
+                    );
                     self.reply(outgoing);
                 }
             }
         }
+    }
+
+    /// The end said what it runs: kept on its device with the site's
+    /// reading, which it is told (`link.verdict`). One the shared core does
+    /// not read is a bad frame.
+    async fn versions_said(&mut self, text: &str, inbound: Inbound) {
+        let read = serde_json::from_str::<Value>(text)
+            .is_ok_and(|frame| super::contract::core_check(&frame).is_ok());
+        let said = serde_json::from_value::<super::versions::Said>(inbound.body)
+            .ok()
+            .filter(|_| read);
+        let (Some(said), Some(listed)) = (said, self.versions.as_ref()) else {
+            self.error("bad_frame", Some(inbound.seq));
+            return;
+        };
+        let (usable, stopped) = super::versions::verdict(&said, listed);
+        tracing::info!(
+            device = %self.device.id,
+            abi = said.core.abi,
+            contract = said.contract,
+            compared = super::versions::compared(&said),
+            usable,
+            ?stopped,
+            "[link] an end said what it runs"
+        );
+        let kept = super::versions::kept(&said, usable, &stopped);
+        if let Err(error) = devices::versions_said(&self.db, &self.device.id, kept).await {
+            tracing::warn!(%error, device = %self.device.id, "[link] what the end runs could not be kept");
+        }
+        self.reply(Outgoing::latest(
+            "link.verdict",
+            super::versions::verdict_body(usable, &stopped),
+        ));
     }
 
     fn error(&mut self, code: &str, frame_seq: Option<u64>) {
@@ -712,6 +766,7 @@ impl Link {
             // Taken whatever this link said: a run's end may come after its
             // owner turned the switch off (the request must be this device's).
             "act.result" => self.act_result(inbound).await,
+            "link.versions" if self.versions.is_some() => self.versions_said(text, inbound).await,
             "call.offer" | "call.ask" | "call.cancel" | "call.result" | "call.accepted"
             | "call.progress" | "call.event"
                 if self.calls =>
@@ -811,6 +866,17 @@ impl Link {
         }
         self.hello = true;
         self.app_current().await;
+        // Its app as its hello says it; what it runs comes after, when it
+        // says its versions (`link.versions`), or never, from an app before.
+        let app = hello.app.as_ref().and_then(|app| {
+            Some(json!({
+                "name": app.get("name")?.as_str()?,
+                "version": app.get("version")?.as_str()?,
+            }))
+        });
+        if let Err(error) = devices::versions_heard(&self.db, &self.device.id, app).await {
+            tracing::warn!(%error, device = %self.device.id, "[link] its app's version could not be kept");
+        }
         crate::services::agent::alive::linked(crate::services::agent::alive::Hello {
             device_id: &self.device.id,
             name: &self.device.name,
@@ -888,57 +954,83 @@ impl Link {
             }
         }
         self.reply(frame("welcome", welcome));
+        // Both listed versions: the site says what it runs, and reads what
+        // the end says it runs when it does.
+        if capabilities
+            .iter()
+            .any(|capability| capability == super::versions::CAPABILITY)
+        {
+            self.versions = Some(super::versions::Listed {
+                declared: hello.capabilities.clone(),
+                granted: capabilities.clone(),
+            });
+            match super::versions::ours() {
+                Some(ours) => self.reply(frame("link.versions", ours)),
+                None => tracing::info!(
+                    device = %self.device.id,
+                    "[link] the site's core commit was not read at build: it says no versions of its own"
+                ),
+            }
+        }
         if sync {
             let abi = crate::services::her_log::relay::peer_abi(&capabilities);
             self.relay = Some(
                 crate::services::her_log::relay::Session::of(&capabilities)
                     .on_link(self.registered),
             );
-            // Which core this side of hers reads; once every side reads a
-            // rule's rows and `node.standing`, what the site kept of them
-            // on its side goes too.
-            match crate::services::her_log::relay::remember_side(
-                &self.db,
-                self.owner,
-                &self.device.id,
-                abi,
-            )
-            .await
-            {
-                Ok(()) => {
-                    let db = self.db.clone();
-                    let owner = self.owner;
-                    tokio::spawn(async move {
-                        match crate::services::agent::merope::memory_nodes::share::share_kept(
-                            &db, owner,
-                        )
-                        .await
-                        {
-                            Ok(0) => {}
-                            Ok(shared) => tracing::info!(
-                                shared,
-                                "[link] what was kept on the site's side is shared now"
-                            ),
-                            Err(error) => tracing::warn!(
-                                %error,
-                                "[link] what was kept on the site's side is not shared yet"
-                            ),
-                        }
-                    });
+            // An end that keeps no log is no side of hers: it is not
+            // counted among the sides that read a row, nor told of the
+            // site's own rows; of the sync families it takes where her mind
+            // is (`lease.epoch`), which goes to every device.
+            let keeps_log = crate::services::her_log::relay::keeps_log(&capabilities);
+            self.keeps_log = keeps_log;
+            if keeps_log {
+                // Which core this side of hers reads; once every side reads a
+                // rule's rows and `node.standing`, what the site kept of them
+                // on its side goes too.
+                match crate::services::her_log::relay::remember_side(
+                    &self.db,
+                    self.owner,
+                    &self.device.id,
+                    abi,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        let db = self.db.clone();
+                        let owner = self.owner;
+                        tokio::spawn(async move {
+                            match crate::services::agent::merope::memory_nodes::share::share_kept(
+                                &db, owner,
+                            )
+                            .await
+                            {
+                                Ok(0) => {}
+                                Ok(shared) => tracing::info!(
+                                    shared,
+                                    "[link] what was kept on the site's side is shared now"
+                                ),
+                                Err(error) => tracing::warn!(
+                                    %error,
+                                    "[link] what was kept on the site's side is not shared yet"
+                                ),
+                            }
+                        });
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, device = %self.device.id, "[link] which core this side reads is not kept");
+                    }
                 }
-                Err(error) => {
-                    tracing::warn!(%error, device = %self.device.id, "[link] which core this side reads is not kept");
-                }
+                // What the site writes itself is told on this link from now
+                // on, as rows another end sends are.
+                crate::services::her_log::wrote::listen(&self.db).await;
             }
-            // What the site writes itself is told on this link from now
-            // on, as rows another end sends are.
-            crate::services::her_log::wrote::listen(&self.db).await;
-            super::takes_log(&self.device.id, self.registered, self.tx.clone());
+            super::takes_log(&self.device.id, self.registered, self.tx.clone(), keeps_log);
             // What a group or a private chat says may be lent to her mind
             // here while this device holds her (`her_log::lend`), when it
             // said it thinks with lends (`lend`). Each lend goes once, as a
             // reliable frame; its ack makes it her mind's.
-            if capabilities.iter().any(|capability| capability == "lend") {
+            if keeps_log && capabilities.iter().any(|capability| capability == "lend") {
                 let (lend_tx, mut lent) = tokio::sync::mpsc::unbounded_channel();
                 self.lends = Some(crate::services::her_log::lend::open(
                     &self.device.id,
@@ -1104,7 +1196,12 @@ impl Link {
         // Her calls: it says what it can be asked to do once welcomed.
         if capabilities.iter().any(|capability| capability == "calls") {
             self.calls = true;
-            super::takes_calls(&self.device.id, self.registered, self.tx.clone());
+            super::takes_calls(
+                &self.device.id,
+                self.registered,
+                self.tx.clone(),
+                self.device.name.clone(),
+            );
         }
         // Her proposals as cards there.
         if capabilities
@@ -1597,13 +1694,45 @@ impl Link {
     /// Taken once it is written; a resend of one already written is told so
     /// again and reaches her no second time.
     /// A child's event (`streams`): the host reads `link.dropped`, a frame
-    /// it dropped, and counts it; any other it ignores. The core checked
-    /// its fields against the registration.
+    /// it dropped, and `log.refused`, rows of her log it did not take, and
+    /// counts them; any other it ignores. The core checked its fields
+    /// against the registration.
     fn stream_event(&mut self, inbound: &Inbound) {
-        if inbound.body["name"] != "link.dropped" || inbound.body["version"] != 1 {
+        if inbound.body["version"] != 1 {
             return;
         }
-        let told = &inbound.body["body"];
+        match inbound.body["name"].as_str() {
+            Some("link.dropped") => self.child_dropped(&inbound.body["body"]),
+            Some("log.refused") => self.log_refused(inbound.id.as_deref(), &inbound.body["body"]),
+            _ => {}
+        }
+    }
+
+    /// `log.refused`: of a batch of her log this child settled, rows it did
+    /// not take, by audience kind and reason. Logged and counted once per
+    /// event (a batch told again after a reconnect is the same event); it
+    /// carries nothing of a row, and nothing of one is kept. Only from an
+    /// end that keeps her log, the only one that is sent rows.
+    fn log_refused(&self, id: Option<&str>, told: &Value) {
+        let (Some(id), Some(kind), Some(reason), Some(rows)) = (
+            id,
+            told["kind"].as_str(),
+            told["reason"].as_str(),
+            told["rows"].as_u64(),
+        ) else {
+            return;
+        };
+        if !self.keeps_log {
+            return;
+        }
+        if super::counts::log_refused(&self.device.id, id, kind, reason, rows) {
+            tracing::info!(device = %self.device.id, kind, reason, rows, "[link] the child did not take rows of her log");
+        }
+    }
+
+    /// `link.dropped`: a frame the child dropped, counted; a reliable one
+    /// its ack covered is taken as not read.
+    fn child_dropped(&mut self, told: &Value) {
         let (Some(t), Some(reason)) = (told["t"].as_str(), told["reason"].as_str()) else {
             return;
         };

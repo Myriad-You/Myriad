@@ -189,6 +189,68 @@ pub async fn first_words_said(
         .collect())
 }
 
+/// How many of their lines after her first words make up what they said
+/// back, and how much of it she reads.
+const REPLY_LINES: i64 = 3;
+const REPLY_CHARS: usize = 200;
+
+/// What they said back to her last first words to `user_id` under
+/// `event_key`, by when she wrote: their first lines to her in private
+/// within `within_hours` after (a group's talk does not count), joined and
+/// cut short. A time she wrote that they did not answer is absent.
+pub async fn first_words_replies(
+    db: &DatabaseConnection,
+    event_key: &str,
+    user_id: i32,
+    within_hours: i64,
+    limit: i64,
+) -> Result<std::collections::HashMap<chrono::DateTime<Utc>, String>, sea_orm::DbErr> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT p.created_at, \
+               (SELECT string_agg(r.content, E'\\n' ORDER BY r.created_at) FROM \
+                 (SELECT m.content, m.created_at FROM agent_messages m \
+                   JOIN agent_sessions s ON s.id = m.session_id \
+                   WHERE s.user_id = p.user_id AND s.context->>'mode' = 'chat' \
+                     AND s.context->>'venue' IS NULL AND m.role = 'user' \
+                     AND m.created_at > p.created_at \
+                     AND m.created_at <= p.created_at + make_interval(hours => $3) \
+                   ORDER BY m.created_at LIMIT $5) r) AS replied \
+             FROM agent_proactive_messages p \
+             WHERE p.role = 'assistant' AND p.event_key = $2 AND p.user_id = $1 \
+             ORDER BY p.created_at DESC LIMIT $4",
+            [
+                user_id.into(),
+                event_key.into(),
+                (within_hours as i32).into(),
+                limit.into(),
+                REPLY_LINES.into(),
+            ],
+        ))
+        .await?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| {
+            let at = row
+                .try_get::<chrono::DateTime<chrono::FixedOffset>>("", "created_at")
+                .ok()?
+                .with_timezone(&Utc);
+            let replied = row.try_get::<Option<String>>("", "replied").ok()??;
+            let replied = replied.trim();
+            if replied.is_empty() {
+                return None;
+            }
+            let mut cut: String = replied.chars().take(REPLY_CHARS).collect();
+            if replied.chars().count() > REPLY_CHARS {
+                cut.push('…');
+            }
+            Some((at, cut))
+        })
+        .collect())
+}
+
 pub async fn latest_open_session(
     db: &DatabaseConnection,
     user_id: i32,
@@ -319,6 +381,71 @@ mod tests {
         );
         assert!(said[0].0 > said[1].0, "newest first");
         assert_eq!(super::said_lately(db, 51, 1).await.unwrap().len(), 1);
+        fixture.close().await;
+    }
+
+    /// What they said back to her first words: their first three private
+    /// lines within the day, in order, cut short when long; a group's talk,
+    /// another person's chat, a line after the day, a time they never
+    /// answered and her first words of another kind give nothing.
+    #[tokio::test]
+    async fn first_words_come_back_with_what_they_said_back() {
+        let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+            return;
+        };
+        let db = &fixture.db;
+        for statement in [
+            "INSERT INTO users (id, username) VALUES (61, 'owner61'), (62, 'guest62')",
+            "INSERT INTO agent_sessions (id, user_id, title, context, message_count, archived, \
+             created_at, last_active_at) VALUES \
+             ('r_own', 61, NULL, '{\"mode\":\"chat\"}', 1, false, '2026-11-01Z', '2026-11-01Z'), \
+             ('r_grp', 61, NULL, '{\"mode\":\"chat\",\"venue\":\"telegram:-1\"}', 1, false, \
+              '2026-11-01Z', '2026-11-01Z'), \
+             ('r_other', 62, NULL, '{\"mode\":\"chat\"}', 1, false, '2026-11-01Z', '2026-11-01Z')",
+            "INSERT INTO agent_proactive_messages (user_id, role, content, event_key, notified, \
+             created_at) VALUES \
+             (61, 'assistant', '周末在干嘛呀？', 'agent.merope.reach', false, '2026-11-01T10:00:00Z'), \
+             (61, 'assistant', '数个数', 'agent.merope.reach', false, '2026-11-03T10:00:00Z'), \
+             (61, 'assistant', '说长点', 'agent.merope.reach', false, '2026-11-04T10:00:00Z'), \
+             (61, 'assistant', '今天上课咋样？', 'agent.merope.reach', false, '2026-11-05T10:00:00Z'), \
+             (61, 'assistant', '别的事', 'agent.merope.other', false, '2026-11-06T10:00:00Z')",
+            "INSERT INTO agent_messages (session_id, role, content, created_at) VALUES \
+             ('r_own', 'user', '周末别主动找我哈', '2026-11-01T10:05:00Z'), \
+             ('r_own', 'assistant', '好嘞', '2026-11-01T10:06:00Z'), \
+             ('r_own', 'user', '陪孩子呢', '2026-11-01T10:07:00Z'), \
+             ('r_grp', 'user', '群里的话', '2026-11-01T10:08:00Z'), \
+             ('r_own', 'user', '一', '2026-11-03T10:01:00Z'), \
+             ('r_own', 'user', '二', '2026-11-03T10:02:00Z'), \
+             ('r_own', 'user', '三', '2026-11-03T10:03:00Z'), \
+             ('r_own', 'user', '四', '2026-11-03T10:04:00Z'), \
+             ('r_own', 'user', repeat('长', 250), '2026-11-04T10:01:00Z'), \
+             ('r_other', 'user', '别人的私聊', '2026-11-05T10:05:00Z'), \
+             ('r_own', 'user', '回别的事', '2026-11-06T10:30:00Z'), \
+             ('r_own', 'user', '隔了两天才说', '2026-11-07T12:00:00Z')",
+        ] {
+            db.execute_unprepared(statement).await.unwrap();
+        }
+        let replies = super::first_words_replies(db, "agent.merope.reach", 61, 24, 6)
+            .await
+            .unwrap();
+        let mut got: Vec<(String, &str)> = replies
+            .iter()
+            .map(|(at, line)| (at.to_rfc3339(), line.as_str()))
+            .collect();
+        got.sort();
+        let long = format!("{}…", "长".repeat(200));
+        assert_eq!(
+            got,
+            [
+                (
+                    "2026-11-01T10:00:00+00:00".to_string(),
+                    "周末别主动找我哈\n陪孩子呢"
+                ),
+                // Their first three lines, not the fourth.
+                ("2026-11-03T10:00:00+00:00".to_string(), "一\n二\n三"),
+                ("2026-11-04T10:00:00+00:00".to_string(), long.as_str()),
+            ]
+        );
         fixture.close().await;
     }
 }

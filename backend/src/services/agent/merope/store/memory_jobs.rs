@@ -10,6 +10,12 @@ const EVENTS: &str = "merope_memory_events";
 const RETENTION: i64 = 86_400;
 const CAPACITY: i64 = 2048;
 pub(in crate::services::agent::merope) const MAX_ATTEMPTS: u8 = 3;
+/// How long a job that failed on its `attempts`th try waits for the next, in
+/// seconds: a moment after the first, longer after that, so a connection
+/// that dropped for half a minute is waited out, not tried into.
+pub(in crate::services::agent::merope) fn again_in(attempts: u8) -> i64 {
+    if attempts == 1 { 5 } else { 30 }
+}
 /// How long a claim is held: longer than any job is let run
 /// (`memory_jobs::tick`), so an answer that comes in time is never let go
 /// for coming late. A process that dies holding one, its job waits this long.

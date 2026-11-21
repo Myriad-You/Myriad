@@ -389,6 +389,21 @@ export function AgentAliveGroup() {
             </tbody>
           </table>
         )}
+        {life.answers ? (
+          <p
+            className="setting-hint agent-alive-answers"
+            data-late={life.answers.alarmedFrom ? 'true' : 'false'}
+          >
+            {life.answers.unansweredInARow > 0 && life.answers.unansweredSince
+              ? format(c.agentAliveUnanswered, {
+                  n: String(life.answers.unansweredInARow),
+                  ago: ago(life.answers.unansweredSince),
+                })
+              : life.answers.answeredAt
+                ? format(c.agentAliveAnsweredAt, { ago: ago(life.answers.answeredAt) })
+                : c.agentAliveNotAskedYet}
+          </p>
+        ) : null}
       </section>
 
       <section className="agent-alive-part">

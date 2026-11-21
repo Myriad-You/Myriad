@@ -20,9 +20,14 @@ CREATE TABLE IF NOT EXISTS agent_sync_devices (
     revoked_reason VARCHAR(32),
     -- When her link last closed it for speaking another protocol (its app is
     -- to be updated); cleared by its next hello the site takes.
-    app_outdated_at TIMESTAMPTZ
+    app_outdated_at TIMESTAMPTZ,
+    -- What its link last said of the versions it runs: its app (hello) and,
+    -- once it said them (link.versions), its core and contract with the
+    -- site's reading. Names and numbers only.
+    link_versions JSONB
 );
 ALTER TABLE agent_sync_devices ADD COLUMN IF NOT EXISTS app_outdated_at TIMESTAMPTZ;
+ALTER TABLE agent_sync_devices ADD COLUMN IF NOT EXISTS link_versions JSONB;
 CREATE INDEX IF NOT EXISTS idx_agent_sync_devices_user_created
     ON agent_sync_devices (user_id, created_at DESC);
 -- The parent/child flag of the old design, retired: a database from before

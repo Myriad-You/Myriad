@@ -352,11 +352,16 @@ async fn answer(
         mark_delivery(&db, &chat_session_id_for_mark, &run_id, CUT_OFF_UNSENT).await;
         return;
     };
-    let message = response
-        .get("message")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .unwrap_or("");
+    // Her words only: a line she left goes unanswered here, and a reaction
+    // cannot be put on a private line from here yet.
+    let message = myriad_merope::unanswered::read(
+        response
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+    )
+    .said;
+    let message = message.trim();
     // Most turns go as one message, and a few in a row when something grabs
     // her, typed the way they type to her, typing each first.
     use crate::services::agent::merope::chat_typing;

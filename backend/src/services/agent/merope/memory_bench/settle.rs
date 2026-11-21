@@ -7,7 +7,9 @@ use super::*;
 /// What one of their lines leaves, taken by production's own extraction
 /// (`chat_remember::extract`: what she already has and what they told her
 /// last shown, then checked against what she has but was not shown) but not
-/// kept: a short note, in the settle way.
+/// kept: a short note, in the settle way. Tried again as production tries
+/// the job again (`store::memory_jobs::again_in`), when what failed it is
+/// what production tries again for.
 async fn note_turn(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
@@ -17,17 +19,16 @@ async fn note_turn(
     at: chrono::DateTime<chrono::FixedOffset>,
 ) -> Option<super::super::chat_remember::ChatMemoryUpdates> {
     use super::super::memory_jobs::Effect;
-    match super::super::chat_remember::extract(
-        db,
-        user_id,
-        text,
-        reply,
-        at,
-        present,
-        &super::super::TurnContext::default(),
+    use super::super::store::memory_jobs::{MAX_ATTEMPTS, again_in};
+    let turn = super::super::TurnContext::default();
+    let noted = crate::services::ai_cost_ledger::spent::tried_as_production_tries(
+        MAX_ATTEMPTS,
+        |tried| std::time::Duration::from_secs(again_in(tried).unsigned_abs()),
+        || super::super::chat_remember::extract(db, user_id, text, reply, at, present, &turn),
+        |noted| noted.as_ref().is_err_and(|failure| failure.retryable()),
     )
-    .await
-    {
+    .await;
+    match noted {
         Ok(Effect::Chat(updates)) => Some(updates),
         Ok(_) => None,
         Err(error) => {
@@ -218,71 +219,78 @@ async fn settle_pass(
     .to_string();
     // Asked as production asks it (`call::Voice::Keeping`: the model's own
     // thinking), and tried again as production tries a stretch again, an
-    // unreadable answer too, as many times.
+    // unreadable answer too, as many times, after as long.
     let keeping = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
         super::super::chat_remember::settle::SETTLE_TIMEOUT,
     ))
-    .await;
+    .await
+    .map(super::super::call::keeping);
     let model = keeping.as_ref().unwrap_or(judge);
-    let mut read = None;
-    let mut went = "going over failed";
-    for _ in 0..super::super::store::memory_jobs::MAX_ATTEMPTS {
-        let started = std::time::Instant::now();
-        let (answer, reported) = crate::services::ai_cost_ledger::reporting(model.analyze_json(
-            &myriad_merope::chat_remember::settle_system_prompt(
-                &known,
-                myriad_merope::chat_remember::Examples::for_words(&theirs),
-            ),
-            &input,
-            myriad_merope::chat_remember::SETTLE_SCHEMA_NAME,
-            Some(&myriad_merope::chat_remember::settle_schema()),
-        ))
-        .await;
-        let Ok(raw) =
-            answer.inspect_err(|error| eprintln!("bench call failed: settling: {error:#}"))
-        else {
-            went = "going over failed";
-            continue;
-        };
-        let parsed = myriad_merope::chat_remember::parse_settle(
-            &raw,
-            &theirs,
-            &turns
-                .iter()
-                .map(|turn| turn.role == "user")
-                .collect::<Vec<_>>(),
-            &known,
-            notes.len(),
-            offered.len(),
-        );
-        super::note_trail::keep_settle_call(
-            &raw,
-            parsed.is_some(),
-            notes.len(),
-            reported.as_ref(),
-            started.elapsed(),
-        );
-        match parsed {
-            Some(answer) => {
-                read = Some((raw, answer));
-                break;
-            }
-            None => went = "going over not read",
-        }
-    }
-    let Some((
+    let (known, theirs, input, offered) = (&known, &theirs, &input, &offered);
+    let read = crate::services::ai_cost_ledger::spent::tried_as_production_tries(
+        super::super::store::memory_jobs::MAX_ATTEMPTS,
+        |tried| {
+            std::time::Duration::from_secs(
+                super::super::store::memory_jobs::again_in(tried).unsigned_abs(),
+            )
+        },
+        || async move {
+            let started = std::time::Instant::now();
+            let (answer, reported) =
+                crate::services::ai_cost_ledger::reporting(model.analyze_json(
+                    &myriad_merope::chat_remember::settle_system_prompt(
+                        known,
+                        myriad_merope::chat_remember::Examples::for_words(theirs),
+                    ),
+                    input,
+                    myriad_merope::chat_remember::SETTLE_SCHEMA_NAME,
+                    Some(&myriad_merope::chat_remember::settle_schema()),
+                ))
+                .await;
+            let raw = answer.map_err(|error| {
+                eprintln!("bench call failed: settling: {error:#}");
+                "going over failed"
+            })?;
+            let parsed = myriad_merope::chat_remember::parse_settle(
+                &raw,
+                theirs,
+                &turns
+                    .iter()
+                    .map(|turn| turn.role == "user")
+                    .collect::<Vec<_>>(),
+                known,
+                notes.len(),
+                offered.len(),
+            );
+            super::note_trail::keep_settle_call(
+                &raw,
+                parsed.is_some(),
+                notes.len(),
+                reported.as_ref(),
+                started.elapsed(),
+            );
+            parsed
+                .map(|answer| (raw, answer))
+                .ok_or("going over not read")
+        },
+        Result::is_err,
+    )
+    .await;
+    let (
         raw,
         myriad_merope::chat_remember::Settled {
             lasting: kept,
             took_back,
             ..
         },
-    )) = read
-    else {
-        for index in 0..notes.len() {
-            trail.went(first + index, went, None);
+    ) = match read {
+        Ok(read) => read,
+        Err(went) => {
+            for index in 0..notes.len() {
+                trail.went(first + index, went, None);
+            }
+            return None;
         }
-        return None;
     };
     let left = myriad_merope::chat_remember::settle_left(&raw, &kept, notes.len());
     trail_went(trail, &raw, &kept, &left, notes, first);

@@ -299,11 +299,11 @@ async fn she_moves_to_a_device_and_back_and_finds_others_as_she_left_them() {
 
 /// With her log synced (C2-a), a move to a Mac keeps the site's copy of
 /// her: her mind goes to the Mac and the Mac is one of her host cores, her
-/// own parts stay here, and once the Mac is out of reach with the owner
-/// seen elsewhere the server takes her mind back, as from any host core
-/// (isolated schemas; skipped without a database).
+/// own parts stay here (isolated schemas; skipped without a database). The
+/// server no longer takes her mind back for the owner being elsewhere (core
+/// ABI 5).
 #[tokio::test]
-async fn with_her_log_synced_a_move_to_a_device_keeps_her_here_and_her_mind_comes_back() {
+async fn with_her_log_synced_a_move_to_a_device_keeps_her_here() {
     let _minds = crate::services::her_log::lease::minds_go_to_devices_in_test(true);
     let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
         return;
@@ -388,30 +388,6 @@ async fn with_her_log_synced_a_move_to_a_device_keeps_her_here_and_her_mind_come
         .await,
         1,
         "the Mac is one of her host cores"
-    );
-
-    // The Mac goes out of reach at home; the owner's phone sees them out.
-    let t0 = her_log::now();
-    let minute = 60_000_000;
-    her_log::lease::place(db, &mac.id, Some("home"), true, t0)
-        .await
-        .unwrap();
-    for minutes in [1, 3, 5] {
-        her_log::lease::place(db, "dev_phone", Some("office"), true, t0 + minutes * minute)
-            .await
-            .unwrap();
-    }
-    let grant = her_log::lease::watch(db, &settings, t0 + 5 * minute)
-        .await
-        .unwrap()
-        .expect("taken back");
-    assert_eq!(
-        (grant.holder.as_deref(), grant.how),
-        (Some(lease::SITE), myriad_persona_log::How::Takeover)
-    );
-    assert_eq!(
-        lease::read(db).await.unwrap().unwrap().place(),
-        lease::Where::Here
     );
     fixture.close().await;
 }

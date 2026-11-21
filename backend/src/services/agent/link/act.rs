@@ -18,6 +18,14 @@
 //! while asked, accepted again when refused or not picked up, and completed,
 //! failed or closed when the run ends. What the run did comes up as an
 //! experience (`started: host`), as any Work there does.
+//!
+//! A Mac that lists `calls` and was granted a whole run (`work.run`, the
+//! owner's `work` group) is asked it as a call instead (`calls_pending`):
+//! taken within `callAcceptMs`, given `longCallMaxMs` with the owner's
+//! confirming, cancelled when the proposal is dismissed. Its result says only
+//! how the run ended; one the contract says was not done takes the proposal
+//! back to accepted, anything else ends it, and one that may have happened is
+//! never asked again by itself.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
@@ -31,6 +39,8 @@ use crate::services::agent::consciousness::{
     AcceptSource, IntentRecord, IntentStatus, IntentStore,
 };
 
+use super::calls_pending::Answer;
+use super::calls_store::Outcome;
 use super::connection::Outgoing;
 use super::contract::{CONTRACT, valid_id};
 
@@ -65,6 +75,28 @@ static ACTS: LazyLock<Mutex<HashMap<String, Act>>> = LazyLock::new(|| Mutex::new
 /// until they link again.
 static RESTING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 
+/// A whole run asked of a Mac as a call (`calls`).
+const RUN: &str = "work.run";
+
+/// A proposal running on a Mac as a call: the Mac, and what stops waiting
+/// for it (which cancels it there).
+struct Run {
+    owner: i32,
+    device_id: String,
+    stop: Option<tokio::task::AbortHandle>,
+}
+
+/// Proposals running on a Mac as a call, by proposal id.
+static RUNS: LazyLock<Mutex<HashMap<String, Run>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Whether the Mac runs one of her proposals now, either way.
+fn busy(acts: &HashMap<String, Act>, device_id: &str) -> bool {
+    acts.values().any(|act| act.device_id == device_id)
+        || RUNS
+            .lock()
+            .is_ok_and(|runs| runs.values().any(|run| run.device_id == device_id))
+}
+
 fn pickup() -> Duration {
     Duration::from_millis(CONTRACT.timing.act_pickup_ms)
 }
@@ -73,12 +105,18 @@ fn max_run() -> Duration {
     Duration::from_millis(CONTRACT.timing.act_max_run_ms)
 }
 
-/// The owner's Macs that take requests now, by name.
+/// The owner's Macs that take requests now, or a whole run as a call, by
+/// name.
 pub(crate) fn macs(owner: i32) -> Vec<Mac> {
     let mut macs: Vec<Mac> = super::act_links(owner)
         .into_iter()
         .map(|(device_id, name, _)| Mac { device_id, name })
         .collect();
+    for (device_id, name) in super::granted_named(owner, RUN) {
+        if !macs.iter().any(|mac| mac.device_id == device_id) {
+            macs.push(Mac { device_id, name });
+        }
+    }
     macs.sort_by(|a, b| a.name.cmp(&b.name).then(a.device_id.cmp(&b.device_id)));
     macs
 }
@@ -119,12 +157,15 @@ pub(crate) async fn request_accepting(
 /// The call between ends this is, as `alive` counts them.
 const CALL: &str = "act.request";
 
-/// Counts a request as asked, or as the code why it was not.
+/// Counts a request as asked, or as the code why it was not. A run asked
+/// as a call is counted as calls are.
 fn counted(asked: Result<String, &'static str>) -> Result<String, &'static str> {
-    crate::services::agent::alive::called(
-        CALL,
-        asked.as_ref().map_or_else(|code| *code, |_| "asked"),
-    );
+    if !asked.as_ref().is_ok_and(|id| id.starts_with("run_")) {
+        crate::services::agent::alive::called(
+            CALL,
+            asked.as_ref().map_or_else(|code| *code, |_| "asked"),
+        );
+    }
     asked
 }
 
@@ -142,8 +183,17 @@ async fn ask(
         _ => return Err("host_moved"),
     }
     let owner = proposal.user_id;
-    let resting = RESTING.lock().map(|set| set.clone()).unwrap_or_default();
     let wanted = proposal.proposal.device_id.as_deref();
+    // A Mac granted a whole run as a call takes it as one; `act.request` is
+    // for one that does not list calls.
+    let called: Vec<String> = super::granted_devices(owner, RUN)
+        .into_iter()
+        .filter(|device| wanted.is_none_or(|wanted| wanted == device))
+        .collect();
+    if let Some(device_id) = super::pick::device(owner, &called).cloned() {
+        return run_as_call(db, proposal, cap, accept, device_id).await;
+    }
+    let resting = RESTING.lock().map(|set| set.clone()).unwrap_or_default();
     let Some((device_id, _, sender)) = super::act_links(owner)
         .into_iter()
         .filter(|(device, _, _)| !resting.contains(device))
@@ -172,7 +222,7 @@ async fn ask(
         let Ok(mut acts) = ACTS.lock() else {
             return Err("act_unavailable");
         };
-        if acts.values().any(|act| act.device_id == device_id) {
+        if busy(&acts, &device_id) {
             return Err("act_busy");
         }
         acts.insert(
@@ -189,6 +239,22 @@ async fn ask(
             },
         );
     }
+    if !running(db, proposal, accept).await {
+        if let Ok(mut acts) = ACTS.lock() {
+            acts.remove(&id);
+        }
+        return Err("proposal_unknown");
+    }
+    // A full queue leaves it to the next heartbeat; it is kept either way.
+    let _ = sender.try_send(Outgoing::reliable("act.request", id.clone(), body));
+    tracing::info!(device = %device_id, proposal = %proposal.id, act = %id, "[link] asked the Mac to act");
+    Ok(id)
+}
+
+/// The proposal accepted (when `accept`) and running; false when it moved
+/// on meanwhile.
+async fn running(db: &DatabaseConnection, proposal: &IntentRecord, accept: bool) -> bool {
+    let owner = proposal.user_id;
     let store = IntentStore::new(db.clone());
     let accepted = if accept {
         store
@@ -207,15 +273,140 @@ async fn ask(
     };
     if let Err(error) = moved {
         tracing::info!(%error, proposal = %proposal.id, "[link] proposal moved before the Mac was asked");
-        if let Ok(mut acts) = ACTS.lock() {
-            acts.remove(&id);
+        return false;
+    }
+    true
+}
+
+/// Asks Mac `device_id` to run the proposal as a call (`work.run`), and
+/// marks it running; a task waits for how it ends and moves it on. The Ok
+/// is the run's id here.
+async fn run_as_call(
+    db: &DatabaseConnection,
+    proposal: &IntentRecord,
+    cap: Option<Vec<String>>,
+    accept: bool,
+    device_id: String,
+) -> Result<String, &'static str> {
+    let owner = proposal.user_id;
+    let mut args = json!({
+        "proposalId": proposal.id,
+        "title": proposal.proposal.title,
+        "instruction": proposal.proposal.instruction,
+    });
+    if !proposal.proposal.expected_outcome.trim().is_empty() {
+        args["expectedOutcome"] = proposal.proposal.expected_outcome.clone().into();
+    }
+    if let Some(cap) = cap {
+        args["cap"] = super::contract::cap_for_mac(cap).into();
+    }
+    // One run at a time per Mac, either way it is asked.
+    {
+        let Ok(acts) = ACTS.lock() else {
+            return Err("act_unavailable");
+        };
+        if busy(&acts, &device_id) {
+            return Err("act_busy");
+        }
+        let Ok(mut runs) = RUNS.lock() else {
+            return Err("act_unavailable");
+        };
+        runs.insert(
+            proposal.id.clone(),
+            Run {
+                owner,
+                device_id: device_id.clone(),
+                stop: None,
+            },
+        );
+    }
+    if !running(db, proposal, accept).await {
+        if let Ok(mut runs) = RUNS.lock() {
+            runs.remove(&proposal.id);
         }
         return Err("proposal_unknown");
     }
-    // A full queue leaves it to the next heartbeat; it is kept either way.
-    let _ = sender.try_send(Outgoing::reliable("act.request", id.clone(), body));
-    tracing::info!(device = %device_id, proposal = %proposal.id, act = %id, "[link] asked the Mac to act");
-    Ok(id)
+    let waiting = {
+        let db = db.clone();
+        let device_id = device_id.clone();
+        let proposal_id = proposal.id.clone();
+        tokio::spawn(async move {
+            // For the owner: her proposals for their Mac are theirs.
+            let answer = super::calls_pending::ask(
+                &db,
+                owner,
+                &device_id,
+                RUN,
+                &json!({ "kind": "owner" }),
+                args,
+                None,
+            )
+            .await;
+            let ours = RUNS
+                .lock()
+                .ok()
+                .and_then(|mut runs| runs.remove(&proposal_id))
+                .is_some();
+            if ours {
+                ended(&db, owner, &proposal_id, &answer).await;
+            }
+        })
+    };
+    // Dismissed meanwhile (or over already): no one waits for it.
+    let kept = RUNS.lock().is_ok_and(|mut runs| {
+        runs.get_mut(&proposal.id)
+            .map(|run| run.stop = Some(waiting.abort_handle()))
+            .is_some()
+    });
+    if !kept {
+        waiting.abort();
+    }
+    tracing::info!(device = %device_id, proposal = %proposal.id, "[link] asked the Mac to run it as a call");
+    Ok(format!("run_{}", proposal.id))
+}
+
+/// How a run asked as a call leaves her proposal: with no word of the
+/// device's, only how it ended (`act_*` as a request's, `declined`,
+/// `outcome_unknown`). None takes it back to accepted: the contract says
+/// it was not done.
+pub(super) fn run_ended(answer: &Answer) -> Option<(IntentStatus, Option<String>)> {
+    let said = |code: &str| Some(code.to_string());
+    match answer.outcome {
+        Outcome::Done => match answer
+            .result
+            .as_ref()
+            .and_then(|result| result["status"].as_str())
+        {
+            Some("completed") => Some((IntentStatus::Completed, None)),
+            _ => Some((IntentStatus::Failed, None)),
+        },
+        Outcome::Failed("call_cancelled") => Some((IntentStatus::Abandoned, said("act_cancelled"))),
+        Outcome::Failed("declined") => Some((IntentStatus::Abandoned, said("declined"))),
+        Outcome::Failed("call_timeout") => Some((IntentStatus::Failed, said("act_timeout"))),
+        Outcome::Failed("internal_error") | Outcome::Unknown => {
+            Some((IntentStatus::Failed, said("outcome_unknown")))
+        }
+        Outcome::Failed(_) => None,
+    }
+}
+
+async fn ended(db: &DatabaseConnection, owner: i32, proposal_id: &str, answer: &Answer) {
+    let store = IntentStore::new(db.clone());
+    match run_ended(answer) {
+        Some((status, said)) => {
+            tracing::info!(proposal = %proposal_id, ?status, "[link] the Mac's run ended");
+            if let Err(error) = store
+                .transition(proposal_id, owner, status, None, None, said)
+                .await
+            {
+                // Dismissed on the site meanwhile.
+                tracing::info!(%error, proposal = %proposal_id, "[link] the proposal had moved on");
+            }
+        }
+        None => {
+            let _ = store.reclaim_running_to_accepted(proposal_id, owner).await;
+        }
+    }
 }
 
 /// The device's requests it has not acked, to send again.
@@ -375,6 +566,20 @@ pub(super) async fn result(
 /// Stops the request running the proposal, when the owner dismissed it on
 /// the site; false when no Mac runs it.
 pub(crate) fn cancel_for_proposal(owner: i32, proposal_id: &str) -> bool {
+    // Asked as a call: no one waits for it any more, so it is cancelled
+    // there (`calls_pending`).
+    let run = RUNS.lock().ok().and_then(|mut runs| {
+        runs.get(proposal_id)
+            .is_some_and(|run| run.owner == owner)
+            .then(|| runs.remove(proposal_id))
+            .flatten()
+    });
+    if let Some(run) = run {
+        if let Some(stop) = run.stop {
+            stop.abort();
+        }
+        return true;
+    }
     let found = ACTS.lock().ok().and_then(|acts| {
         acts.iter()
             .find(|(_, act)| act.owner == owner && act.proposal_id == proposal_id)

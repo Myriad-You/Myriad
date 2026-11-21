@@ -129,7 +129,11 @@ impl Failure {
                 if error.is_decode() {
                     return Self::InvalidOutput;
                 }
-                if error.is_connect() || error.is_body() {
+                // A request that never got its answer is the network's as
+                // a refused connection is: one held open that drops while
+                // it is sent ("connection error: timed out"), or a source
+                // that closes it before replying.
+                if error.is_connect() || error.is_body() || error.is_request() {
                     return Self::Transport;
                 }
             }
@@ -234,10 +238,18 @@ impl Ask {
                     .ok_or_else(|| self.failed(Failure::Unavailable))?
                     .with_light_thinking()
             }
-            Voice::HersAtLength | Voice::Keeping => {
+            Voice::HersAtLength => {
                 crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(self.timeout))
                     .await
                     .ok_or_else(|| self.failed(Failure::Unavailable))?
+            }
+            Voice::Keeping => {
+                let analyzer = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(
+                    Some(self.timeout),
+                )
+                .await
+                .ok_or_else(|| self.failed(Failure::Unavailable))?;
+                keeping(analyzer)
             }
             Voice::Thorough => {
                 crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(self.timeout))
@@ -307,6 +319,13 @@ impl Ask {
         tracing::warn!(owner = self.owner, operation = self.operation, source = self.source,
             outcome = %failure, retryable = failure.retryable(), "[Merope] model call failed");
         crate::services::agent::alive::model_failed(self.operation);
+        // An answer that cannot be read, or one cut off, is still an answer:
+        // her status counts calls with none at all.
+        if matches!(failure, Failure::InvalidOutput | Failure::CutOff) {
+            crate::services::agent::alive::model_answered();
+        } else {
+            crate::services::agent::alive::model_unanswered();
+        }
         failure
     }
 
@@ -403,7 +422,10 @@ impl Model {
         }
         match result {
             Ok(Ok(_)) if whole && cut_off => Err(self.ask.failed(Failure::CutOff)),
-            Ok(Ok(raw)) => Ok(raw),
+            Ok(Ok(raw)) => {
+                crate::services::agent::alive::model_answered();
+                Ok(raw)
+            }
             Ok(Err(error)) => Err(self.ask.failed(Failure::classify(&error))),
             Err(_) => Err(self.ask.failed(Failure::Timeout)),
         }
@@ -466,6 +488,21 @@ impl Model {
 
 /// Who pays for what she does on her own, with no one asking: the site
 /// owner. None when the site has no owner to bill.
+/// Output a keeping call may take, thinking included, where it names none:
+/// the room it had when it was asked to think it through. Its own thinking
+/// comes out of the same allowance, and what it writes is long (a settle
+/// put out 3,284 tokens on average); left at Anthropic's own 4096, the
+/// thinking used it all and no answer came.
+pub(super) const KEEPING_OUTPUT: u32 = 16_000;
+
+/// `analyzer` as [`Voice::Keeping`] asks: no thinking asked for, and
+/// [`KEEPING_OUTPUT`] to answer in unless the call names its own.
+pub(super) fn keeping(
+    analyzer: crate::services::analyzer::AiAnalyzer,
+) -> crate::services::analyzer::AiAnalyzer {
+    analyzer.with_output_limit(KEEPING_OUTPUT)
+}
+
 pub(super) async fn site_owner() -> Option<i32> {
     crate::services::ai_cost_ledger::resolve_site_owner_id()
         .await
@@ -544,6 +581,27 @@ mod tests {
         }
         server.abort();
         let _ = server.await;
+        // A source that takes the connection and drops it unanswered: the
+        // request is never answered, and it is tried again.
+        let dropping = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let dropped_at = dropping.local_addr().unwrap();
+        let dropper = tokio::spawn(async move {
+            while let Ok((stream, _)) = dropping.accept().await {
+                drop(stream);
+            }
+        });
+        let error = client
+            .get(format!("http://{dropped_at}/"))
+            .send()
+            .await
+            .unwrap_err();
+        assert!(error.is_request() && !error.is_connect() && !error.is_timeout());
+        assert_eq!(
+            Failure::classify(&anyhow::Error::from(error).context("outer")),
+            Failure::Transport
+        );
+        dropper.abort();
+        let _ = dropper.await;
         for failure in [
             Failure::Rejected,
             Failure::RateLimited,
@@ -574,6 +632,30 @@ mod tests {
             assert!(ask.answered(&stopped(stop), Some(10)), "{stop}");
         }
         assert_eq!(cut_off().get("test_cut_off_counted"), Some(&3));
+    }
+
+    #[test]
+    fn her_status_counts_calls_with_no_answer_and_an_unreadable_one_is_an_answer() {
+        let ask = || Ask::new(Voice::Judge, 7, "test_unanswered_counted");
+        for failure in [
+            Failure::Unavailable,
+            Failure::Timeout,
+            Failure::Transport,
+            Failure::Upstream,
+            Failure::RateLimited,
+            Failure::Rejected,
+            Failure::StreamInterrupted,
+            Failure::Quota,
+            Failure::Unknown,
+        ] {
+            ask().failed(failure);
+        }
+        assert_eq!(crate::services::agent::alive::unanswered_in_a_row(), 9);
+        ask().failed(Failure::InvalidOutput);
+        assert_eq!(crate::services::agent::alive::unanswered_in_a_row(), 0);
+        ask().failed(Failure::Timeout);
+        ask().failed(Failure::CutOff);
+        assert_eq!(crate::services::agent::alive::unanswered_in_a_row(), 0);
     }
 
     #[tokio::test]
@@ -608,6 +690,59 @@ mod tests {
         assert_eq!(ask.timeout, DEFAULT_TIMEOUT);
         let ask = ask.billed_as("touch").within(Duration::from_secs(2));
         assert_eq!((ask.source, ask.timeout), ("touch", Duration::from_secs(2)));
+    }
+
+    /// A keeping call asks for no thinking and names 16,000 tokens to answer
+    /// in: Anthropic's own 4096 left a settle no room past its thinking.
+    #[tokio::test]
+    async fn a_keeping_call_has_room_past_its_thinking() {
+        use axum::{Router, routing::post};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sent, mut received) = tokio::sync::mpsc::unbounded_channel::<Value>();
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().fallback(post(move |body: axum::Json<Value>| {
+                    let _ = sent.send(body.0);
+                    async { axum::http::StatusCode::BAD_REQUEST }
+                })),
+            )
+            .await
+            .unwrap();
+        });
+        let analyzer = || {
+            crate::services::analyzer::AiAnalyzer::new(
+                crate::services::analyzer::AiProvider::Anthropic,
+                "test".into(),
+                "keeping-test".into(),
+                Some(format!("http://{address}")),
+            )
+        };
+        let schema = serde_json::json!({"type": "object"});
+        // Every body the call sent, a request it made again included.
+        let mut sent_by = async |analyzer: crate::services::analyzer::AiAnalyzer| {
+            let _ = analyzer
+                .analyze_json_as("s", "i", "n", Some(&schema), true)
+                .await;
+            let mut bodies = Vec::new();
+            while let Ok(body) = received.try_recv() {
+                bodies.push(body);
+            }
+            assert!(!bodies.is_empty());
+            bodies
+        };
+        for body in sent_by(keeping(analyzer().await)).await {
+            assert_eq!(body["max_tokens"], 16_000, "{body}");
+            assert!(body.get("thinking").is_none(), "{body}");
+            assert!(body["output_config"].get("effort").is_none(), "{body}");
+        }
+        // A call that names its own limit keeps it.
+        for body in sent_by(keeping(analyzer().await).with_output_limit(6000)).await {
+            assert_eq!(body["max_tokens"], 6000, "{body}");
+        }
+        server.abort();
+        let _ = server.await;
     }
 
     #[test]

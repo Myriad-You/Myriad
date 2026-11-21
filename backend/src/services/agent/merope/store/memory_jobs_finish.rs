@@ -73,7 +73,7 @@ pub(in crate::services::agent::merope) async fn finish(
             if let (Some(data), Some(next)) = (&mut job.data, job.next.take()) {
                 data.fold(next);
             }
-            job.ready = now + if job.attempts == 1 { 5 } else { 30 };
+            job.ready = now + again_in(job.attempts);
             job.lease = 0;
             job.token = None;
             job.outcome = Some(outcome.clone());

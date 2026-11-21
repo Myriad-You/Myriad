@@ -140,6 +140,21 @@ pub struct Session {
     /// Whether its end keeps up with her log and what it was given on this
     /// link, when its hello listed `deputy` (her temporary host).
     deputy: Option<super::deputy::Watch>,
+    /// On a link that does not page: by audience, what the side and the
+    /// site held when rows it lacked last went to it (`Sent`).
+    sent: BTreeMap<String, Sent>,
+}
+
+/// Rows a side lacked went to it on a link that does not page, when it held
+/// `vector` and `beyond` and the site `ours`. A log.vector after them that
+/// says it still holds just that, while the site holds no more, means it
+/// refused them: they do not go again on this link until either side holds
+/// something else (`no_headway`, as a page that made none).
+#[derive(Debug, Clone, PartialEq)]
+struct Sent {
+    vector: Vector,
+    beyond: BTreeMap<String, Vec<u64>>,
+    ours: Vector,
 }
 
 /// The most rows asked again for an audience keeps waiting on a link: as
@@ -178,6 +193,7 @@ impl Session {
             unsettled: false,
             link: 0,
             deputy: None,
+            sent: BTreeMap::new(),
         }
     }
 
@@ -260,6 +276,16 @@ pub fn peer_abi(capabilities: &[String]) -> u32 {
         .filter(|abi| *abi >= 2)
         .max()
         .unwrap_or(1)
+}
+
+/// Whether the other side of a link keeps her log: it listed `log2` or a
+/// later `logN`, as every end whose shared core keeps a log has since
+/// protocol 2 (whose cores were ABI 4 from the start). One that listed none
+/// is a child core (`myriad_persona_log::Core::Child`): of the sync
+/// families it takes only where her mind is (`lease.epoch`, to every
+/// device), and is no side of her log.
+pub fn keeps_log(capabilities: &[String]) -> bool {
+    peer_abi(capabilities) >= 2
 }
 
 /// The core ABI each of the owner's devices last synced her log with, by
@@ -1038,6 +1064,23 @@ async fn vector(
             }),
         ));
     } else {
+        // No headway on a link that does not page: what went is what it
+        // refused. Rows it asks for again by id still go.
+        let now_holds = Sent {
+            vector: theirs.clone(),
+            beyond: beyond.clone(),
+            ours: ours.vector.clone(),
+        };
+        if !session.pages && ask.is_empty() && session.sent.get(audience) == Some(&now_holds) {
+            tracing::info!(
+                device,
+                audience = kind_of(audience),
+                why = "no_headway",
+                "[her-log] a log.vector got no rows"
+            );
+            crate::services::agent::link::counts::page_passed(device, "no_headway");
+            return Ok(Vec::new());
+        }
         let paging = session.pages.then(|| store::Paging {
             batches: page_batches(),
             beyond: &beyond,
@@ -1068,6 +1111,18 @@ async fn vector(
                 session.asks.remove(audience);
             } else {
                 session.asks.insert(audience.to_string(), ask_left);
+            }
+        }
+        if !session.pages {
+            let lacked = sent
+                .batches
+                .iter()
+                .flat_map(|batch| &batch.rows)
+                .any(|row| !asked.contains(&row.id));
+            if lacked {
+                session.sent.insert(audience.to_string(), now_holds);
+            } else {
+                session.sent.remove(audience);
             }
         }
         if session.pages

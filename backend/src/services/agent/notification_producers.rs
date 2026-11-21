@@ -282,6 +282,80 @@ impl NotificationManager {
         self.upsert(notification).await;
     }
 
+    /// A trouble short of her stopping began or ended (`alive::watch`): one
+    /// of her drivers stuck while the others run, or her model not
+    /// answering her. One notification a trouble, changed in place when it
+    /// ends. Times and counts only.
+    pub async fn notify_her_trouble(
+        &self,
+        owner: i32,
+        trouble: crate::services::agent::alive::watch::Trouble,
+        stalled: usize,
+    ) {
+        use crate::services::agent::alive::watch::{Trouble, Turn};
+        let at = |seconds: i64| {
+            chrono::DateTime::from_timestamp(seconds, 0)
+                .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+                .unwrap_or_default()
+        };
+        let (kind, turn) = match trouble {
+            Trouble::Stalled(turn) => ("drivers_stalled", turn),
+            Trouble::Unanswered(turn) => ("model_unanswered", turn),
+        };
+        let (priority, title, body, metadata) = match (kind, turn) {
+            ("drivers_stalled", Turn::Began { from }) => (
+                NotificationPriority::High,
+                "One of her drivers is stuck".to_string(),
+                format!(
+                    "{stalled} of her own drivers have not run since {}, while the rest of her life runs.",
+                    at(from)
+                ),
+                serde_json::json!({
+                    "action": ACTION_OPEN_AGENT_MANAGE,
+                    "status": "her_drivers_stalled",
+                    "from": at(from),
+                    "drivers": stalled,
+                }),
+            ),
+            (_, Turn::Began { from }) => (
+                NotificationPriority::High,
+                "Her model is not answering her".to_string(),
+                format!("Her calls to her model have had no answer since {}.", at(from)),
+                serde_json::json!({
+                    "action": ACTION_OPEN_AGENT_MANAGE,
+                    "status": "her_model_unanswered",
+                    "from": at(from),
+                }),
+            ),
+            (_, Turn::Ended { from, since }) => (
+                NotificationPriority::Normal,
+                if kind == "drivers_stalled" {
+                    "Her drivers run again".to_string()
+                } else {
+                    "Her model answers her again".to_string()
+                },
+                format!("It began at {} and has been gone since {}.", at(from), at(since)),
+                serde_json::json!({
+                    "action": ACTION_OPEN_AGENT_MANAGE,
+                    "status": if kind == "drivers_stalled" { "her_drivers_back" } else { "her_model_back" },
+                    "from": at(from),
+                    "since": at(since),
+                    "lasted_secs": since - from,
+                }),
+            ),
+        };
+        let mut notification = Notification::new(
+            owner,
+            NotificationType::SystemInfo,
+            priority,
+            title,
+            body,
+        )
+        .with_event(NotificationEventKey::SystemInfo, metadata);
+        notification.id = format!("her_{kind}_u{owner}");
+        self.upsert(notification).await;
+    }
+
     /// Skill 自动淘汰 / AI 改进完成时通知管理员
     pub async fn notify_skill_evolution(&self, skill_id: &str, action: &str, detail: &str) {
         let (title, event, priority) = match action {

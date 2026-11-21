@@ -61,15 +61,16 @@ pub(crate) mod counts;
 mod experience;
 mod moment;
 mod moment_repeats;
-mod now;
 mod nodes;
 mod notices;
+mod now;
 mod outfit;
 mod pick;
 mod proposals;
 mod say;
 mod senses;
 mod turns;
+pub(crate) mod versions;
 
 #[cfg(test)]
 mod tests;
@@ -85,7 +86,7 @@ pub(crate) use act::{
 };
 pub(crate) use body::perform_say;
 pub(crate) use connection::serve;
-pub(crate) use contract::{Close, Timing};
+pub(crate) use contract::Close;
 pub(crate) use conversations::{
     heard_change as conversations_changed, heard_nothing_for_a_while as conversations_unheard,
 };
@@ -116,6 +117,9 @@ struct Open {
     /// Where her log's frames for this device go, once its welcome said
     /// sync on.
     log: Option<mpsc::Sender<connection::Outgoing>>,
+    /// It keeps her log (`relay::keeps_log`): frames for her log's sides
+    /// go to it, not only those for every device.
+    keeps_log: bool,
     /// What it can be asked to do and was told it is granted, once the
     /// child listed `calls`.
     calls: Option<CallsLink>,
@@ -124,6 +128,8 @@ struct Open {
 /// A link that takes her calls (`calls`).
 struct CallsLink {
     sender: mpsc::Sender<connection::Outgoing>,
+    /// The device's name, as the owner named it.
+    name: String,
     /// What its `call.offer` said it can do; `None` before it said.
     offered: Option<Vec<calls::Action>>,
     /// Counts each working out of what it is granted: only the one started
@@ -157,6 +163,7 @@ fn open(device_id: &str, owner: i32) -> (u64, oneshot::Receiver<Close>) {
             acts: None,
             host: None,
             log: None,
+            keeps_log: false,
             calls: None,
         };
         if let Some(previous) = open.insert(device_id.to_string(), link) {
@@ -223,11 +230,12 @@ fn takes_host(
 }
 
 /// The link `id` takes her calls (it listed `calls`), sent through `sender`.
-fn takes_calls(device_id: &str, id: u64, sender: mpsc::Sender<connection::Outgoing>) {
+fn takes_calls(device_id: &str, id: u64, sender: mpsc::Sender<connection::Outgoing>, name: String) {
     if let Ok(mut open) = OPEN.lock() {
         if let Some(link) = open.get_mut(device_id).filter(|link| link.id == id) {
             link.calls = Some(CallsLink {
                 sender,
+                name,
                 offered: None,
                 turn: 0,
                 told: None,
@@ -355,28 +363,64 @@ fn send_calls_frame(device_id: &str, outgoing: connection::Outgoing) {
 
 /// The owner's devices whose link was told it is granted `action` now.
 pub(crate) fn granted_devices(owner: i32, action: &str) -> Vec<String> {
+    granted_named(owner, action)
+        .into_iter()
+        .map(|(device, _)| device)
+        .collect()
+}
+
+/// The owner's devices granted `action` now, each with its name.
+fn granted_named(owner: i32, action: &str) -> Vec<(String, String)> {
     OPEN.lock()
         .map(|open| {
             open.iter()
                 .filter(|(_, link)| link.owner == owner)
-                .filter(|(_, link)| {
-                    link.calls
+                .filter_map(|(device, link)| {
+                    let calls = link.calls.as_ref()?;
+                    calls
+                        .granted
                         .as_ref()
-                        .and_then(|calls| calls.granted.as_ref())
                         .is_some_and(|granted| granted.iter().any(|one| one.name == action))
+                        .then(|| (device.clone(), calls.name.clone()))
                 })
-                .map(|(device, _)| device.clone())
                 .collect()
         })
         .unwrap_or_default()
 }
 
 /// The link `id` syncs her log: what the relay sends this device goes
-/// through `sender`.
-fn takes_log(device_id: &str, id: u64, sender: mpsc::Sender<connection::Outgoing>) {
+/// through `sender`; only where her mind is, when it keeps no log.
+fn takes_log(
+    device_id: &str,
+    id: u64,
+    sender: mpsc::Sender<connection::Outgoing>,
+    keeps_log: bool,
+) {
     if let Ok(mut open) = OPEN.lock() {
         if let Some(link) = open.get_mut(device_id).filter(|link| link.id == id) {
             link.log = Some(sender);
+            link.keeps_log = keeps_log;
+        }
+    }
+}
+
+/// Which of the owner's links that sync her a frame of the sync families
+/// goes to: the sides of her log (the ends that keep it), or every device
+/// (where her mind is, `lease.epoch`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    Sides,
+    Everyone,
+}
+
+impl Reach {
+    /// The lease family's frames are every device's: each shows where she
+    /// is from them. The rest go to the sides of her log.
+    fn of(t: &str) -> Self {
+        if t.starts_with("lease.") {
+            Self::Everyone
+        } else {
+            Self::Sides
         }
     }
 }
@@ -394,13 +438,14 @@ fn send_log(owner: i32, device_id: &str, outgoing: connection::Outgoing) {
 }
 
 /// A frame of her log to each of the owner's other devices whose link syncs
-/// now (every end that dials in is a computer, so each is a host).
-fn send_log_all(owner: i32, except: &str, outgoing: connection::Outgoing) {
+/// now and that `reach` names.
+fn send_log_all(owner: i32, except: &str, reach: Reach, outgoing: connection::Outgoing) {
     let senders: Vec<mpsc::Sender<connection::Outgoing>> = OPEN
         .lock()
         .map(|open| {
             open.iter()
                 .filter(|(device, link)| link.owner == owner && device.as_str() != except)
+                .filter(|(_, link)| reach == Reach::Everyone || link.keeps_log)
                 .filter_map(|(_, link)| link.log.clone())
                 .collect()
         })
@@ -414,7 +459,7 @@ fn send_log_all(owner: i32, except: &str, outgoing: connection::Outgoing) {
 /// by the server itself rather than as an answer on a link (her mind taken
 /// back from a holder that never caught up: `her_log::stuck`).
 pub(crate) fn tell_log_links(owner: i32, t: &'static str, body: serde_json::Value) {
-    send_log_all(owner, "", connection::frame(t, body));
+    send_log_all(owner, "", Reach::of(t), connection::frame(t, body));
 }
 
 /// Where she lives changed: each child is told she is not here (frozen or

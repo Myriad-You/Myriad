@@ -806,6 +806,8 @@
     "zoomImage": "拡大",
     "saidOn": "「{name}」で",
     "saidOnUnknown": "あなたの別のデバイスで",
+    "leftRead": "既読",
+    "reacted": "{emoji} でリアクション",
     "pictures": "（画像 {count} 枚）",
     "forgetLine": "忘れる",
     "confirmForgetLine": "この一言と、そこから覚えたことを彼女は忘れます。同期中なら両方の端末から消えます。",

@@ -12,6 +12,8 @@ pub(crate) mod watch;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod troubles_tests;
 
 use std::collections::BTreeMap;
 use std::sync::{LazyLock, Mutex};
@@ -69,6 +71,18 @@ pub struct Memory {
     pub standing_failed_at: Option<i64>,
 }
 
+/// Whether her model answers her: her calls through `merope::call`, an
+/// answer that cannot be read counted as an answer.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Answers {
+    /// When it last answered.
+    pub answered_at: Option<i64>,
+    /// Calls in a row with no answer since, and since when.
+    pub unanswered_in_a_row: u64,
+    pub unanswered_since: Option<i64>,
+}
+
 /// One end that said hello.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -100,6 +114,7 @@ pub struct State {
     /// Calls between ends: kind, then the hour it fell in, then how it
     /// came out.
     pub calls: BTreeMap<String, BTreeMap<i64, BTreeMap<String, u64>>>,
+    pub answers: Answers,
     pub watch: watch::Watch,
     /// When this process started keeping this.
     #[serde(skip)]
@@ -222,6 +237,41 @@ pub fn model_failed(operation: &str) {
         state.memory.standing_failed += 1;
         state.memory.standing_failed_at = Some(now);
     });
+}
+
+/// Her model answered a call of hers (readable or not).
+pub fn model_answered() {
+    let now = now();
+    with(|state| {
+        state.answers.answered_at = Some(now);
+        state.answers.unanswered_in_a_row = 0;
+        state.answers.unanswered_since = None;
+    });
+}
+
+/// A call of hers got no answer at all: none to be had, it timed out, or
+/// the model's side refused or failed.
+pub fn model_unanswered() {
+    let now = now();
+    with(|state| {
+        state.answers.unanswered_in_a_row += 1;
+        state.answers.unanswered_since.get_or_insert(now);
+    });
+}
+
+/// Her calls in a row with no answer, as counted now.
+#[cfg(test)]
+pub(crate) fn unanswered_in_a_row() -> u64 {
+    with(|state| state.answers.unanswered_in_a_row)
+}
+
+/// Since when her model has not answered her, once that is a trouble
+/// (`watch::UNANSWERED_IN_A_ROW` in a row, for `watch::QUIET_SECS`).
+fn unanswered_from(answers: &Answers, now: i64) -> Option<i64> {
+    answers.unanswered_since.filter(|since| {
+        answers.unanswered_in_a_row >= watch::UNANSWERED_IN_A_ROW
+            && now - since >= watch::QUIET_SECS
+    })
 }
 
 /// What an end's hello had, read into what is shown only: nothing here
@@ -366,6 +416,9 @@ fn merge(state: &mut State, kept: State, now: i64) {
     if state.memory == Memory::default() {
         state.memory = kept.memory;
     }
+    if state.answers == Answers::default() {
+        state.answers = kept.answers;
+    }
     for (device, end) in kept.ends {
         state.ends.entry(device).or_insert(end);
     }
@@ -403,7 +456,7 @@ async fn keep(db: &DatabaseConnection) {
 pub async fn look(db: DatabaseConnection, looks: u64) {
     let should_live = persona_on().await && host_is_here(lease::current().as_ref());
     let now = now();
-    let said = with(|state| {
+    let (said, troubles) = with(|state| {
         let started_at = *state.started_at.get_or_insert(now);
         let seen = watch::Seen {
             now,
@@ -411,8 +464,32 @@ pub async fn look(db: DatabaseConnection, looks: u64) {
             should_live,
             lived_at: lived_at(state),
         };
-        state.watch.look(seen)
+        let said = state.watch.look(seen);
+        let (stalled, stalled_from) = watch::stalled(
+            state
+                .drivers
+                .values()
+                .filter_map(|beat| beat.every.map(|every| (every, beat.ran_at))),
+            state.watch.watching_from(started_at),
+            now,
+        );
+        let unanswered_from = unanswered_from(&state.answers, now);
+        let troubles = state
+            .watch
+            .look_troubles(now, stalled_from, unanswered_from);
+        (said, (troubles, stalled))
     });
+    let (troubles, stalled) = troubles;
+    for trouble in &troubles {
+        match trouble {
+            watch::Trouble::Stalled(watch::Turn::Began { .. })
+            | watch::Trouble::Unanswered(watch::Turn::Began { .. }) => {
+                tracing::warn!(?trouble, stalled, "[alive] a trouble of hers began");
+            }
+            _ => tracing::info!(?trouble, "[alive] a trouble of hers ended"),
+        }
+        say_trouble(&db, *trouble, stalled).await;
+    }
     if let Some(said) = said {
         match said {
             watch::Said::Stopped { from } => {
@@ -427,7 +504,7 @@ pub async fn look(db: DatabaseConnection, looks: u64) {
         }
         say(&db, said).await;
         keep(&db).await;
-    } else if looks.is_multiple_of(SAVED_EVERY_LOOKS) {
+    } else if !troubles.is_empty() || looks.is_multiple_of(SAVED_EVERY_LOOKS) {
         keep(&db).await;
     }
 }
@@ -446,6 +523,19 @@ async fn say(db: &DatabaseConnection, said: watch::Said) {
         return;
     };
     manager.notify_her_life(owner, said).await;
+}
+
+/// Tells the site's owner of a trouble short of her stopping: one
+/// notification a trouble, changed in place when it ends.
+/// `stalled`: how many of her drivers are stuck now.
+async fn say_trouble(db: &DatabaseConnection, trouble: watch::Trouble, stalled: usize) {
+    let Ok(Some(owner)) = crate::services::principal::site_owner_id(db).await else {
+        return;
+    };
+    let Some(manager) = crate::services::agent::notifications::get_notification_manager() else {
+        return;
+    };
+    manager.notify_her_trouble(owner, trouble, stalled).await;
 }
 
 fn at(seconds: Option<i64>) -> Value {
@@ -626,6 +716,18 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
                         "lastAt": passed.last_at.map(|at| at.to_rfc3339()),
                     }))
                     .collect::<Vec<_>>(),
+                // Rows of her log it said it did not take, by the kind of
+                // audience and why: batches told and their rows.
+                "logRefused": crate::services::agent::link::counts::log_refused_by(&device.id)
+                    .into_iter()
+                    .map(|(kind, reason, refused)| json!({
+                        "audience": kind,
+                        "reason": reason,
+                        "batches": refused.batches.count,
+                        "rows": refused.rows,
+                        "lastAt": refused.batches.last_at.map(|at| at.to_rfc3339()),
+                    }))
+                    .collect::<Vec<_>>(),
                 // Its links closed for a page of its that could not be
                 // settled (the database failing on it): in a row since one
                 // was named back, and in all. Many in a row is a device
@@ -671,6 +773,18 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
             // The host itself asleep or this process down: not hers.
             "hostStops": { "count": host_stops, "secs": host_stop_secs },
             "drivers": drivers,
+            // One of her drivers stuck while the others run, as said to the
+            // site's owner (`watch::stalled`).
+            "stalledFrom": at(state.watch.stalled.from),
+            // Whether her model answers her calls; an answer that cannot be
+            // read counts as one.
+            "answers": {
+                "answeredAt": at(state.answers.answered_at),
+                "unansweredInARow": state.answers.unanswered_in_a_row,
+                "unansweredSince": at(state.answers.unanswered_since),
+                "alarmedFrom": at(state.watch.unanswered.from),
+                "alarmAfter": watch::UNANSWERED_IN_A_ROW,
+            },
         },
         "memory": {
             "settledAt": at(state.memory.settled_at),

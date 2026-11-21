@@ -23,6 +23,8 @@ pub(super) const CONTRACT_JSON: &str =
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(not(test), allow(dead_code))]
 pub(super) struct Contract {
+    /// The contract's own version, which `link.versions` says.
+    pub schema_version: u32,
     pub protocol: u32,
     pub path: String,
     pub timing: TimingSpec,
@@ -35,6 +37,11 @@ pub(super) struct Contract {
     pub work_places: Vec<String>,
     pub act_statuses: Vec<String>,
     pub drop_reasons: Vec<String>,
+    /// The kinds of her log's audiences (`log.refused` names one, never an
+    /// audience itself).
+    pub log_audiences: Vec<String>,
+    /// Why a child did not take rows of her log (`log.refused`).
+    pub refuse_reasons: Vec<String>,
     pub screen_fields: ScreenFields,
     pub moments: MomentRules,
     pub cap_names: CapNames,

@@ -26,6 +26,7 @@ impl Agent {
             }
         };
         crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
+        let took = myriad_merope::unanswered::read(&reply);
         let handed_off = crate::services::agent::delegate::split(&reply).1;
         let sticker = myriad_merope::stickers::split_sticker_directive(&reply).1;
         let (reply, music) = publish_model_outfit_overlay(&self.db, &request, &reply, None).await;
@@ -61,8 +62,8 @@ impl Agent {
         return attach_motion_to_result(
             Ok(AgentResponse {
                 response_type: AgentResponseType::Answer,
-                message: reply.clone(),
-                data: Some(
+                message: with_what_she_did(&reply, &took),
+                data: Some(with_took(
                     chat_reply_with_overlay(
                         &self.db,
                         &request,
@@ -71,7 +72,8 @@ impl Agent {
                         sticker,
                     )
                     .await,
-                ),
+                    &took,
+                )),
                 data_display: None,
                 suggestions: vec![],
                 task: None,
@@ -184,7 +186,7 @@ impl Agent {
 
         // Persistence still precedes chat context construction, but must
         // not stand in front of the character's immediate reaction.
-        let (reply, handed_off, sticker) = match self
+        let (reply, handed_off, sticker, took) = match self
             .stream_strict_lite_chat_response(
                 &request,
                 &progress_tx,
@@ -193,6 +195,7 @@ impl Agent {
             .await
         {
             Ok(reply) => {
+                let took = myriad_merope::unanswered::read(&reply);
                 let handed_off = crate::services::agent::delegate::split(&reply).1;
                 let sticker = myriad_merope::stickers::split_sticker_directive(&reply).1;
                 (
@@ -201,6 +204,7 @@ impl Agent {
                         .0,
                     handed_off,
                     sticker,
+                    took,
                 )
             }
             Err(error) => {
@@ -320,7 +324,8 @@ impl Agent {
         // cannot overwrite a semantic baseline published concurrently. No cues
         // are replayed, and none of this stands in front of text completion.
         // Not on her face (a venue or a channel), nothing here acts it.
-        if !refined {
+        // She left their line: she does not act anything out for it either.
+        if !refined && !took.quiet {
             if let Some(mood) = mood_transition.filter(|_| seen) {
                 let delivery_context = motion_context(
                     &request,
@@ -342,11 +347,11 @@ impl Agent {
 
         return Ok(AgentResponse {
             response_type: AgentResponseType::Answer,
-            message: reply.clone(),
-            data: Some(
-                chat_reply_with_overlay(&self.db, &request, &reply, &handed_off, sticker)
-                    .await,
-            ),
+            message: with_what_she_did(&reply, &took),
+            data: Some(with_took(
+                chat_reply_with_overlay(&self.db, &request, &reply, &handed_off, sticker).await,
+                &took,
+            )),
             data_display: None,
             suggestions: vec![],
             task: None,
@@ -354,6 +359,30 @@ impl Agent {
             performance,
         });
     }
+}
+
+/// Her reply as it is kept and shown: her words, with the mark of what she
+/// did with their line (left it, or put a reaction on it) on a line of its
+/// own (see `myriad_merope::unanswered`). Kept so, the conversation she has
+/// next time shows the mark she wrote for a turn she left or reacted in.
+fn with_what_she_did(words: &str, took: &myriad_merope::unanswered::Reply) -> String {
+    let words = if took.quiet { "" } else { words };
+    myriad_merope::unanswered::marked(words, took.kept().as_deref())
+}
+
+/// What she did with their line, for whoever shows or carries out her turn:
+/// `left` when she read it and left it, `react` with the reaction she put
+/// on it.
+fn with_took(mut data: Value, took: &myriad_merope::unanswered::Reply) -> Value {
+    if let Some(object) = data.as_object_mut() {
+        if took.quiet {
+            object.insert("left".into(), Value::Bool(true));
+        }
+        if let Some(emoji) = took.react {
+            object.insert("react".into(), Value::String(emoji.to_string()));
+        }
+    }
+    data
 }
 
 fn chat_music_frontend_action(
@@ -534,4 +563,26 @@ async fn publish_model_outfit_overlay(
             .await;
     }
     (spoken, music)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use myriad_merope::unanswered::read;
+
+    #[test]
+    fn what_she_did_with_their_line_is_kept_with_her_turn() {
+        // Left: only the mark is kept, so next time she sees she did not answer.
+        let left = read("[[quiet]]");
+        assert_eq!(with_what_she_did("", &left), "[[quiet]]");
+        assert_eq!(with_took(json!({}), &left), json!({ "left": true }));
+        // A reaction rides after her words, or alone.
+        let reacted = read("好诶\n[[react:👍]]");
+        assert_eq!(with_what_she_did("好诶", &reacted), "好诶\n[[react:👍]]");
+        assert_eq!(with_took(json!({}), &reacted), json!({ "react": "👍" }));
+        assert_eq!(with_what_she_did("", &read("[[react:😁]]")), "[[react:😁]]");
+        // Only words: kept as they are.
+        assert_eq!(with_what_she_did("去吧", &read("去吧")), "去吧");
+        assert_eq!(with_took(json!({}), &read("去吧")), json!({}));
+    }
 }

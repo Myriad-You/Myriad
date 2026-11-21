@@ -166,10 +166,12 @@ pub async fn resolve_speaking_soul() -> Option<String> {
 }
 
 /// Returns the persisted mood transition for this utterance, if Merope applied.
+/// Their words only let her settle as they land; how they made her feel is
+/// hers to judge, after ([`appraisal::spawn`]), never read off the words by a
+/// rule.
 pub async fn note_user_turn(
     db: &sea_orm::DatabaseConnection,
     request: &crate::services::agent::UserRequest,
-    utterance_index: u32,
 ) -> Option<(MoodTransition, chrono::DateTime<chrono::FixedOffset>)> {
     let user_id = request.user_id;
     let text = &request.raw_input;
@@ -189,17 +191,11 @@ pub async fn note_user_turn(
     if !is_enabled().await {
         return None;
     }
-    let (praised, scolded) = detect_mood_cue(text);
-    let (previous, saved) = update_affect(
-        db,
-        user_id,
-        true,
-        AffectChange::utterance(utterance_index, praised, scolded),
-    )
-    .await
-    .ok()?;
+    let (previous, saved) = update_affect(db, user_id, true, AffectChange::utterance())
+        .await
+        .ok()?;
     let after = store::affect_from_state(&saved);
-    if !praised && !scolded && !text.trim().is_empty() {
+    if !text.trim().is_empty() {
         appraisal::spawn(db.clone(), request, &saved);
     }
     // Held for what she keeps of them as they land: a line she does not get
@@ -228,17 +224,10 @@ pub async fn note_user_turn(
             "跟这个人的心情掉到了极低",
         );
     }
-    let cause = if scolded {
-        "user_scold"
-    } else if praised {
-        "user_praise"
-    } else {
-        "user_turn"
-    };
     let transition = MoodTransition::from_affect(
         &previous,
         &store::affect_from_state(&saved),
-        cause,
+        "user_turn",
         saved
             .updated_at
             .with_timezone(&chrono::Utc)
@@ -375,7 +364,8 @@ pub use speaking_context::{
     audience_for, her_openers, her_state_for_anyone, resolve_addressee_label, speaking_prompt,
     speaking_prompt_for_event,
     speaking_prompt_in_group, speaking_prompt_plain, speaking_prompt_to_reach,
-    speaking_prompt_with_query, their_typing, with_said_unprompted,
+    speaking_parts_with_query, their_typing, with_said_unprompted,
+    Part,
 };
 #[cfg(test)]
 pub use speaking_context::{format_addressee_label, merge_said_unprompted, said_as_heard};
@@ -389,7 +379,7 @@ pub use gates::{IngestSight, decide_ingest};
 #[cfg(test)]
 pub use state::Affect;
 pub use state::{
-    MUSIC_LISTENING_MIN_SECS, MoodTransition, clamp_mood, detect_mood_cue, effective_activity,
+    MUSIC_LISTENING_MIN_SECS, MoodTransition, clamp_mood, effective_activity,
     is_extremely_low, mood_band,
 };
 

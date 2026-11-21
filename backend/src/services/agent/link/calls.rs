@@ -9,8 +9,14 @@
 //! that link, and again whenever it changes. Only she asks a device; a
 //! device asks only her host, and the site provides nothing to be asked yet,
 //! so every ask of a child's is answered failed.
+//!
+//! She asks a device from Work (a look at the screen, a notification, a line
+//! said aloud: [`WORK_ACTIONS`]) and from a proposal for the owner's Mac
+//! (`work.run`, `act`). Nothing of it calls a model on the site: what it
+//! costs is the Work step's or the device's own.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::time::Duration;
 
 use sea_orm::DatabaseConnection;
@@ -21,7 +27,11 @@ use super::connection::Outgoing;
 
 /// The actions she may ask a device to do now. The contract's other child
 /// actions are known (a device's offer of them is kept) but not granted.
-const ENABLED: &[&str] = &["screen.look"];
+const ENABLED: &[&str] = &["screen.look", "notify.post", "voice.speak", "work.run"];
+
+/// The actions Work asks a device for, one step each (`device.<action>`):
+/// a whole run (`work.run`) is asked by a proposal, not by a step.
+const WORK_ACTIONS: &[&str] = &["screen.look", "notify.post", "voice.speak"];
 
 thread_local! {
     /// What this test's links enable instead of [`ENABLED`] (each test has
@@ -144,17 +154,67 @@ pub(crate) use super::calls_pending::{ask, sweep};
 /// the web one that holds them, it is never usable there (closed, not
 /// open); the site runs as one process.
 pub(crate) fn usable(user_id: i32, capability_id: &str) -> bool {
-    capability_id.strip_prefix("device.").is_some_and(|action| {
+    work_action(capability_id).is_some_and(|action| {
         enabled(action) && !super::granted_devices(user_id, action).is_empty()
     })
 }
 
-/// How long a look at the screen asked from Work is given (its deadlineAt),
-/// and how long Work waits for it: under the step's own time, so the step
-/// never gives up first. A call still running when Work stops waiting ends
-/// by itself, its row kept.
-const WORK_DEADLINE_MS: u64 = 10_000;
-const WORK_WAITS_MS: u64 = WORK_DEADLINE_MS + 2_000;
+/// The action of a Work capability of a device (`device.<action>`).
+fn work_action(capability_id: &str) -> Option<&str> {
+    capability_id
+        .strip_prefix("device.")
+        .filter(|action| WORK_ACTIONS.contains(action))
+}
+
+/// How long a call asked from Work is given (its deadlineAt): under the
+/// step's own time, so the step never gives up first. A line said aloud is
+/// given the most a call that is not long may have: the device stops one it
+/// cannot finish by then and says it was not heard out.
+fn work_deadline_ms(action: &str) -> u64 {
+    match action {
+        "voice.speak" => myriad_her_link::call_most_ms(action),
+        _ => 10_000,
+    }
+}
+
+/// How much longer than its deadline Work waits for a call. One still
+/// running when Work stops waiting ends by itself, its row kept.
+const WORK_WAITS_MORE_MS: u64 = 2_000;
+
+/// What Work gives `action`, as its args: only the fields the contract
+/// names, each of what it says; the Err is what is missing.
+fn work_args(action: &str, params: &HashMap<String, Value>) -> Result<Value, String> {
+    let text = |name: &str| -> Result<String, String> {
+        params
+            .get(name)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| format!("bad_args: {name} is needed, as text"))
+    };
+    Ok(match action {
+        "notify.post" => json!({ "title": text("title")?, "body": text("body")? }),
+        "voice.speak" => json!({ "text": text("text")? }),
+        _ => json!({}),
+    })
+}
+
+/// What a call that was not done means, as Work is told it: never the
+/// device's words.
+fn not_done(code: &str) -> &'static str {
+    match code {
+        "not_now" => "the device held it back now (its do-not-disturb or its own bounds)",
+        "declined" => "the owner said no on the device, or did not answer there",
+        "call_not_granted" => "the owner has not let her do this on that device",
+        "call_unavailable" => "no device of the owner's is linked and lets her do this now",
+        "wrong_audience" => {
+            "this is only for the owner or her own life, never for a group or anyone else"
+        }
+        "call_cancelled" => "it was stopped before it was done",
+        _ => "the device does not do this",
+    }
+}
 
 /// What Work was running for, as `for` says it (`callAudiences`).
 pub(crate) struct WorkFor<'a> {
@@ -177,15 +237,14 @@ pub(crate) struct WorkFor<'a> {
 pub(crate) async fn work(
     db: &DatabaseConnection,
     capability_id: &str,
+    params: &HashMap<String, Value>,
     run: WorkFor<'_>,
 ) -> Result<Value, String> {
     let unknown = |detail: &str| format!("{} {detail}", myriad_agent_rules::OUTCOME_UNKNOWN_PREFIX);
-    let Some(action) = capability_id
-        .strip_prefix("device.")
-        .filter(|action| enabled(action))
-    else {
+    let Some(action) = work_action(capability_id).filter(|action| enabled(action)) else {
         return Err("call_unknown: this is not something she asks a device".into());
     };
+    let args = work_args(action, params)?;
     let site_owner = match crate::services::principal::site_owner_id(db).await {
         Ok(Some(owner)) => owner,
         Ok(None) => return Err("call_unavailable: the site has no owner".into()),
@@ -193,9 +252,10 @@ pub(crate) async fn work(
     };
     let devices = super::granted_devices(site_owner, action);
     let Some(device_id) = super::pick::device(site_owner, &devices).cloned() else {
-        return Err(
-            "call_unavailable: no device of the owner's is linked and lets her do this now".into(),
-        );
+        return Err(format!(
+            "call_unavailable: {}",
+            not_done("call_unavailable")
+        ));
     };
     let of = if run.user_id != site_owner {
         json!({ "kind": "other" })
@@ -206,16 +266,18 @@ pub(crate) async fn work(
     } else {
         json!({ "kind": "owner" })
     };
+    let deadline_ms = work_deadline_ms(action);
     let asked = ask(
         db,
         site_owner,
         &device_id,
         action,
         &of,
-        json!({}),
-        Some(WORK_DEADLINE_MS),
+        args,
+        Some(deadline_ms),
     );
-    let answer = match tokio::time::timeout(Duration::from_millis(WORK_WAITS_MS), asked).await {
+    let waits = Duration::from_millis(deadline_ms + WORK_WAITS_MORE_MS);
+    let answer = match tokio::time::timeout(waits, asked).await {
         Ok(answer) => answer,
         Err(_) => return Err(unknown("the device has not answered by its deadline")),
     };
@@ -225,7 +287,7 @@ pub(crate) async fn work(
         calls_store::Outcome::Failed(code @ ("call_timeout" | "internal_error")) => Err(unknown(
             &format!("{code}: the device did not say how it went"),
         )),
-        calls_store::Outcome::Failed(code) => Err(format!("{code}: the device did not do it")),
+        calls_store::Outcome::Failed(code) => Err(format!("{code}: {}", not_done(code))),
         calls_store::Outcome::Unknown => Err(unknown(
             "the device lost track midway, so it may have happened; do not ask it again",
         )),
@@ -349,18 +411,75 @@ mod tests {
             action("notify.post", 1),
             action("work.run", 1),
         ];
-        // Only screen.look is enabled; screen is approved until turned off.
-        assert_eq!(granted(&offered, &[]), vec![action("screen.look", 1)]);
-        assert!(granted(&offered, &[("screen".into(), false)]).is_empty());
-        // Another version than the contract's is not asked for.
-        assert!(granted(&[action("screen.look", 2)], &[]).is_empty());
-        // Enabled but not approved: work waits for the owner.
-        enable_in_test(&["screen.look", "work.run"]);
-        assert_eq!(granted(&offered, &[]), vec![action("screen.look", 1)]);
+        // screen and notify are approved until turned off; work waits for
+        // the owner.
+        assert_eq!(
+            granted(&offered, &[]),
+            vec![action("screen.look", 1), action("notify.post", 1)]
+        );
+        assert_eq!(
+            granted(&offered, &[("screen".into(), false)]),
+            vec![action("notify.post", 1)]
+        );
         assert_eq!(
             granted(&offered, &[("work".into(), true)]),
-            vec![action("screen.look", 1), action("work.run", 1)]
+            vec![
+                action("screen.look", 1),
+                action("notify.post", 1),
+                action("work.run", 1)
+            ]
         );
+        // Another version than the contract's is not asked for.
+        assert!(granted(&[action("screen.look", 2)], &[]).is_empty());
+        // Not enabled here: not granted, whatever the owner decided.
+        enable_in_test(&["screen.look"]);
+        assert_eq!(
+            granted(&offered, &[("work".into(), true)]),
+            vec![action("screen.look", 1)]
+        );
+    }
+
+    #[test]
+    fn work_gives_each_action_only_its_contract_args() {
+        let params = |pairs: &[(&str, Value)]| -> HashMap<String, Value> {
+            pairs
+                .iter()
+                .map(|(name, value)| (name.to_string(), value.clone()))
+                .collect()
+        };
+        assert_eq!(work_args("screen.look", &params(&[])).unwrap(), json!({}));
+        assert_eq!(
+            work_args(
+                "notify.post",
+                &params(&[
+                    ("title", json!(" Myriad ")),
+                    ("body", json!("The build finished.")),
+                    ("kind", json!("urgent")),
+                ])
+            )
+            .unwrap(),
+            json!({ "title": "Myriad", "body": "The build finished." })
+        );
+        assert!(
+            work_args("notify.post", &params(&[("title", json!("Myriad"))]))
+                .unwrap_err()
+                .starts_with("bad_args: body")
+        );
+        assert_eq!(
+            work_args("voice.speak", &params(&[("text", json!("Tea is ready."))])).unwrap(),
+            json!({ "text": "Tea is ready." })
+        );
+        assert!(work_args("voice.speak", &params(&[("text", json!("  "))])).is_err());
+        // A line said aloud is given what a call that is not long may have.
+        assert_eq!(work_deadline_ms("voice.speak"), 60_000);
+        assert_eq!(work_deadline_ms("notify.post"), 10_000);
+    }
+
+    #[test]
+    fn a_whole_run_is_not_a_step_of_work() {
+        assert_eq!(work_action("device.notify.post"), Some("notify.post"));
+        assert_eq!(work_action("device.work.run"), None);
+        assert_eq!(work_action("screen.look"), None);
     }
 
     #[test]

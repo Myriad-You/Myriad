@@ -30,6 +30,9 @@ pub(crate) fn device_json(device: &Device, now: chrono::DateTime<Utc>) -> Value 
         // Her link closed it for speaking another protocol: the app on it is
         // to be updated (said by this, never by the close's reason).
         "appOutdated": device.revoked_at.is_none() && device.app_outdated_at.is_some(),
+        // What its link last said it runs, and how that stands against the
+        // site's (`versions` beside the list).
+        "versions": crate::services::agent::link::versions::shown(device.link_versions.as_ref()),
         // Its link to her is open now (lastSeenAt is when it last was).
         "connected": device.revoked_at.is_none()
             && crate::services::agent::link::is_open(&device.id),
@@ -108,6 +111,8 @@ async fn device_list(db: &DatabaseConnection, owner: i32) -> Result<Value, HttpE
         // run yet), for the warning when it is wrong.
         "serverClock": crate::services::server_clock::shown(),
         "limit": devices::MAX_DEVICES,
+        // What the site runs, which each device's versions are read against.
+        "versions": crate::services::agent::link::versions::site_json(),
     }))
 }
 

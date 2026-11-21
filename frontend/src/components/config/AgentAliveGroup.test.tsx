@@ -150,6 +150,29 @@ test('shows whether she is living, with the three capability layers apart', asyn
     assert.match(text(), /清理已连续出错 3 次：出错的那段对话里读不到她的节点。/)
     const stuck = [...dom.window.document.querySelectorAll('.agent-alive-rows dd')].find(dd => /连续出错/.test(dd.textContent ?? ''))
     assert.equal(stuck?.getAttribute('data-late'), 'true')
+
+    // Her model: no answers line from a site without one; then answered;
+    // then not answering, past the alarm, marked.
+    assert.equal(dom.window.document.querySelector('.agent-alive-answers'), null)
+    const answers = (unansweredInARow: number, alarmedFrom: string | null) =>
+      alive((next) => {
+        next.life.answers = {
+          answeredAt: '2026-11-16T03:58:00Z',
+          unansweredInARow,
+          unansweredSince: unansweredInARow > 0 ? '2026-11-16T03:45:00Z' : null,
+          alarmedFrom,
+          alarmAfter: 10,
+        }
+      })
+    shown = answers(0, null)
+    await render()
+    const line = () => dom.window.document.querySelector('.agent-alive-answers')
+    assert.equal(line()?.textContent, '她的模型上次回答在 2 分钟前')
+    assert.equal(line()?.getAttribute('data-late'), 'false')
+    shown = answers(12, '2026-11-16T03:45:00Z')
+    await render()
+    assert.equal(line()?.textContent, '她的模型连续 12 次没回答，最早一次在 15 分钟前')
+    assert.equal(line()?.getAttribute('data-late'), 'true')
   }
   finally {
     await act(async () => root.unmount())

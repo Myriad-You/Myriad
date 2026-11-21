@@ -82,6 +82,28 @@ pub(in super::super) async fn go_over(
             if answer_here {
                 trail.answer_line(&text, taken.len(), false);
             }
+            // What she said and what they suggested she try are kept as
+            // they are, as the line is gone over: kept later, a line before
+            // the last one with a note would no longer be current.
+            let hers = super::super::super::chat_remember::ChatMemoryUpdates {
+                updates: Vec::new(),
+                said: updates.said.clone(),
+                put_onto: updates.put_onto.clone(),
+                said_new: super::super::super::chat_remember::SaidNew::Nothing,
+                taken_back_in: Default::default(),
+            };
+            if (!hers.said.is_empty() || !hers.put_onto.is_empty())
+                && apply_at(db, user_id, present, at, &hers).await.is_some()
+            {
+                *kept += 1;
+                if answer_here {
+                    answering.extend(
+                        hers.said
+                            .iter()
+                            .map(|said| super::super::super::ingest::compact_summary(&said.said)),
+                    );
+                }
+            }
             row_of.extend(keep_as_notes(db, user_id, present, at, &taken).await);
             noted.extend(
                 taken
@@ -93,28 +115,6 @@ pub(in super::super) async fn go_over(
             short.push((at, updates, answer_here));
         }
         let over_at = session_at + chrono::Duration::minutes(turns.len() as i64);
-        // What she said and what they suggested she try are kept as they are.
-        for (at, updates, answer_here) in &short {
-            let hers = super::super::super::chat_remember::ChatMemoryUpdates {
-                updates: Vec::new(),
-                said: updates.said.clone(),
-                put_onto: updates.put_onto.clone(),
-                said_new: super::super::super::chat_remember::SaidNew::Nothing,
-                taken_back_in: Default::default(),
-            };
-            if (!hers.said.is_empty() || !hers.put_onto.is_empty())
-                && apply_at(db, user_id, present, *at, &hers).await.is_some()
-            {
-                *kept += 1;
-                if *answer_here {
-                    answering.extend(
-                        hers.said
-                            .iter()
-                            .map(|said| super::super::super::ingest::compact_summary(&said.said)),
-                    );
-                }
-            }
-        }
         let mut settled = Vec::new();
         if !notes.is_empty() {
             let answer_lines: String = turns

@@ -806,6 +806,8 @@
     "zoomImage": "看大图",
     "saidOn": "在「{name}」上",
     "saidOnUnknown": "在你的另一台设备上",
+    "leftRead": "已读",
+    "reacted": "给这句点了 {emoji}",
     "pictures": "（发了 {count} 张图）",
     "forgetLine": "忘掉",
     "confirmForgetLine": "她会忘掉这句话和由它记下的事；同步着的话，两端都会删掉。",

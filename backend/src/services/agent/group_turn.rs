@@ -146,13 +146,9 @@ pub async fn begin(db: &DatabaseConnection, start: Start) -> Option<Begun> {
         .scope(async {
             super::consciousness::remember_turn_presence(&request);
             super::merope::mark_activity(db, user_id, "thinking").await;
-            let memory_input_at = super::merope::note_user_turn(
-                db,
-                &request,
-                super::motion_overlay::utterance_index_in_session(&request),
-            )
-            .await
-            .map(|(_, at)| at);
+            let memory_input_at = super::merope::note_user_turn(db, &request)
+                .await
+                .map(|(_, at)| at);
             let sections = super::merope::speaking_prompt_in_group(
                 user_id,
                 &request.raw_input,

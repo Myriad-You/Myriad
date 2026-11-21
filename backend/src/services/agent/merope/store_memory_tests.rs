@@ -183,7 +183,7 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         return;
     };
     let db = schema.db.clone();
-    let (_, state) = update_affect(&db, user_id, true, AffectChange::utterance(0, false, false))
+    let (_, state) = update_affect(&db, user_id, true, AffectChange::utterance())
         .await
         .unwrap();
     let input_at = state.last_user_message_at.unwrap();
@@ -407,7 +407,7 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         vec![dated("现在不喝咖啡")]
     );
     // A fresh explicit user assertion may re-establish a withdrawn preference.
-    let (_, second) = update_affect(&db, user_id, true, AffectChange::utterance(0, false, false))
+    let (_, second) = update_affect(&db, user_id, true, AffectChange::utterance())
         .await
         .unwrap();
     let second_input = second.last_user_message_at.unwrap();

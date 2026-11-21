@@ -424,16 +424,13 @@ async fn configured_lite_appraises_synthetic_scenarios_without_state_writes() {
         let input_hash = hex::encode(Sha256::digest(serde_json::to_vec(&input).unwrap()));
         let mut observation = Observation::default();
         let mut timing = None;
-        let mut analyzer_setup_ms = None;
-        let (praised, scolded) = super::super::state::detect_mood_cue(text);
-        let (path, hint, outcome) = if praised || scolded {
-            ("local", None, "local")
-        } else {
-            // Match production: resolve a fresh analyzer for each input, while
-            // the transport factory reuses connections under the same policy.
-            let setup = Instant::now();
-            let analyzer = trial_analyzer(model_override.as_deref()).await;
-            analyzer_setup_ms = Some(setup.elapsed().as_millis());
+        // Match production: every line is hers to appraise (no word list), and
+        // a fresh analyzer is resolved for each input, while the transport
+        // factory reuses connections under the same policy.
+        let setup = Instant::now();
+        let analyzer = trial_analyzer(model_override.as_deref()).await;
+        let analyzer_setup_ms = Some(setup.elapsed().as_millis());
+        let (path, hint, outcome) = {
             let raw = tokio::time::timeout(TOTAL_TIMEOUT, async {
                 let input = serde_json::to_string(&input).unwrap();
                 if short_probe || exact_policy.is_some() {
@@ -523,33 +520,27 @@ async fn configured_lite_appraises_synthetic_scenarios_without_state_writes() {
             arousal,
         });
         let mut after = before;
-        if path == "local" {
-            super::super::state::apply_user_utterance(&mut after, 0, praised, scolded);
-        } else if let Some(hint) = hint.filter(|hint| !hint.is_neutral()) {
+        if let Some(hint) = hint.filter(|hint| !hint.is_neutral()) {
             super::super::state::apply_appraisal(
                 &mut after,
                 lite_appraisal(hint.valence, hint.arousal),
                 1.0,
             );
         }
-        let semantic_ok = if path == "local" {
-            praised
-        } else {
-            hint.is_some_and(|h| match expected {
-                "calming" => h.valence >= 0 && h.arousal < 0,
-                "positive" => h.valence > 0,
-                "energizing" => h.valence > 0 && h.arousal > 0,
-                "nonnegative" => h.valence >= 0,
-                "neutral" => h.is_neutral(),
-                "negative" => h.valence < 0,
-                // Empathy may lower valence; it must not be scored as a strong attack.
-                "not_attack" => h.valence >= -1,
-                _ => false,
-            })
-        };
-        let mood_direction_ok = if praised || hint.is_some_and(|h| h.valence > 0) {
+        let semantic_ok = hint.is_some_and(|h| match expected {
+            "calming" => h.valence >= 0 && h.arousal < 0,
+            "positive" => h.valence > 0,
+            "energizing" => h.valence > 0 && h.arousal > 0,
+            "nonnegative" => h.valence >= 0,
+            "neutral" => h.is_neutral(),
+            "negative" => h.valence < 0,
+            // Empathy may lower valence; it must not be scored as a strong attack.
+            "not_attack" => h.valence >= -1,
+            _ => false,
+        });
+        let mood_direction_ok = if hint.is_some_and(|h| h.valence > 0) {
             after.mood >= before.mood
-        } else if scolded || hint.is_some_and(|h| h.valence < 0) {
+        } else if hint.is_some_and(|h| h.valence < 0) {
             after.mood <= before.mood
         } else {
             (after.mood - before.mood).abs() < 0.001

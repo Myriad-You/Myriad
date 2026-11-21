@@ -185,6 +185,49 @@ describe('notificationFacing', () => {
     assert.match(seoBody, /新的简介/)
   })
 
+  it('says her troubles short of her stopping by their status, counts only', () => {
+    const copy = currentCopy().errors
+    const from = '2026-11-20T01:00:00Z'
+    const since = '2026-11-20T02:00:00Z'
+    const said = (status: string, extra: Record<string, unknown>) =>
+      notice('English title', 'English body', 'system.info', { status, ...extra })
+    const stalled = said('her_drivers_stalled', { from, drivers: 2 })
+    assert.equal(notificationFacingTitle(stalled), copy.noticeHerDriversStalled)
+    assert.equal(
+      notificationFacingBody(stalled),
+      formatCurrent(copy.noticeHerDriversStalledBody, {
+        time: new Date(from).toLocaleString(),
+        n: 2,
+      }),
+    )
+    const stalledBack = said('her_drivers_back', { from, since, lasted_secs: 1830 })
+    assert.equal(notificationFacingTitle(stalledBack), copy.noticeHerDriversBack)
+    assert.equal(
+      notificationFacingBody(stalledBack),
+      formatCurrent(copy.noticeHerDriversBackBody, {
+        time: new Date(since).toLocaleString(),
+        n: 31,
+      }),
+    )
+    const unanswered = said('her_model_unanswered', { from })
+    assert.equal(notificationFacingTitle(unanswered), copy.noticeHerModelUnanswered)
+    assert.equal(
+      notificationFacingBody(unanswered),
+      formatCurrent(copy.noticeHerModelUnansweredBody, {
+        time: new Date(from).toLocaleString(),
+      }),
+    )
+    const answered = said('her_model_back', { from, since, lasted_secs: 600 })
+    assert.equal(notificationFacingTitle(answered), copy.noticeHerModelBack)
+    assert.equal(
+      notificationFacingBody(answered),
+      formatCurrent(copy.noticeHerModelBackBody, {
+        time: new Date(since).toLocaleString(),
+        n: 10,
+      }),
+    )
+  })
+
   it('maps leftover skill evolution Chinese bodies', () => {
     const improved = notificationFacingBody(
       notice(

@@ -81,16 +81,16 @@ pub(crate) async fn execute_local_capability(
     params: &HashMap<String, Value>,
     ctx: &HandlerContext<'_>,
 ) -> Result<Value, String> {
+    // What she asks of the owner's device goes over her link, whatever it is.
+    if capability_id.starts_with("device.") {
+        let run = crate::services::agent::link::calls::WorkFor {
+            user_id: ctx.user_id,
+            venue: ctx.venue.as_deref(),
+            her_own: ctx.autonomy_permission_cap.is_some() || ctx.unattended,
+        };
+        return crate::services::agent::link::calls::work(ctx.db, capability_id, params, run).await;
+    }
     match category {
-        // What she asks of the owner's device goes over her link.
-        CapabilityCategory::DataRead if capability_id.starts_with("device.") => {
-            let run = crate::services::agent::link::calls::WorkFor {
-                user_id: ctx.user_id,
-                venue: ctx.venue.as_deref(),
-                her_own: ctx.autonomy_permission_cap.is_some() || ctx.unattended,
-            };
-            crate::services::agent::link::calls::work(ctx.db, capability_id, run).await
-        }
         CapabilityCategory::DataRead => data_read::execute(capability_id, params, ctx).await,
         CapabilityCategory::DataWrite => data_write::execute(capability_id, params, ctx).await,
         CapabilityCategory::AiProcess => {
@@ -262,6 +262,8 @@ mod coverage {
         map.insert(
             CapabilityCategory::UiControl,
             HashSet::from([
+                "device.notify.post",
+                "device.voice.speak",
                 "tapp.ui",
                 "tapp.understand",
                 "tapp.interact",
@@ -321,7 +323,7 @@ mod coverage {
         );
         assert_eq!(
             registry.get_all().len(),
-            124,
+            126,
             "update handler_ids_by_category when adding a capability"
         );
     }

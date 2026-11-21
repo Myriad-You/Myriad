@@ -107,22 +107,22 @@ export function AgentDevicesGroup() {
     [c.agentDevicesRemoveFailed, fail, load],
   )
 
-  // Whether she may look at its screen: the owner's privacy consent per
-  // device, on until turned off; the device is told at once.
-  const setScreen = useCallback(
-    async (device: SyncDevice, approved: boolean) => {
+  // What she may ask of it, per permission group (screen, notify, voice,
+  // work): the owner's say on this device; the device is told at once.
+  const setGroup = useCallback(
+    async (device: SyncDevice, group: string, approved: boolean) => {
       setWorking(true)
       try {
         setList(
-          await agentService.setDeviceCallGroup(device.id, 'screen', approved),
+          await agentService.setDeviceCallGroup(device.id, group, approved),
         )
       } catch (error) {
-        fail(error, c.agentDevicesScreenFailed)
+        fail(error, c.agentDevicesCallGroupFailed)
       } finally {
         setWorking(false)
       }
     },
-    [c.agentDevicesScreenFailed, fail],
+    [c.agentDevicesCallGroupFailed, fail],
   )
 
   const forget = useCallback(
@@ -555,6 +555,21 @@ export function AgentDevicesGroup() {
       tone: live.length === 0 ? 'muted' : 'default',
     },
   ]
+  // Whether the ends that said what they run all run the site's build.
+  const said = live.filter((device) => device.versions?.said)
+  if (said.length > 0) {
+    const builds = new Set(
+      said.map((device) => `${device.versions?.core?.abi}:${device.versions?.core?.commit}`),
+    )
+    const aligned =
+      builds.size === 1 && said.every((device) => device.versions?.compared === 'same')
+    stats.push({
+      key: 'versions',
+      label: c.agentDevicesStatVersions,
+      value: aligned ? c.agentDevicesVersionsAligned : c.agentDevicesVersionsMixed,
+      tone: aligned ? 'default' : 'warn',
+    })
+  }
 
   const removedWhy = (device: SyncDevice) =>
     device.revokedReason === 'device_left'
@@ -588,14 +603,80 @@ export function AgentDevicesGroup() {
     } else if (device.stale && !device.connected) {
       badges.push({ label: c.agentDevicesStale, tone: 'warn' })
     }
-    const screen = device.callGroups?.find((one) => one.group === 'screen')
-    if (!device.revokedAt && screen && !screen.approved) {
-      badges.push({ label: c.agentDevicesScreenOff, tone: 'muted' })
+    // How what it runs stands against the site's, as its link last said.
+    const versions = device.revokedAt ? null : device.versions
+    if (versions?.said) {
+      const compared =
+        versions.compared === 'behind'
+          ? { label: c.agentDevicesVersionBehind, tone: 'warn' as const }
+          : versions.compared === 'ahead'
+            ? { label: c.agentDevicesVersionAhead, tone: 'warn' as const }
+            : versions.compared === 'apart'
+              ? { label: c.agentDevicesVersionApart, tone: 'muted' as const }
+              : null
+      if (compared) badges.push(compared)
+      if (versions.usable === 'partial') {
+        badges.push({ label: c.agentDevicesVersionPartial, tone: 'warn' })
+      }
+    } else if (versions && !device.appOutdated) {
+      badges.push({ label: c.agentDevicesVersionUnsaid, tone: 'muted' })
+    }
+    const versionLine = versions
+      ? [
+          versions.app ? `${versions.app.name} ${versions.app.version}` : null,
+          versions.core
+            ? format(c.agentDevicesCore, {
+                abi: String(versions.core.abi),
+                commit: versions.core.commit.slice(0, 7),
+              })
+            : null,
+          versions.usable === 'partial' && versions.stopped?.length
+            ? format(c.agentDevicesVersionStopped, { what: versions.stopped.join(', ') })
+            : null,
+        ].filter((part): part is string => part !== null)
+      : []
+    // The groups the site shows, in its order. Work starts off, so its being
+    // off is no news: no badge for it, only its button.
+    const groupText: Record<
+      string,
+      { off?: string; stop: string; allow: string }
+    > = {
+      screen: {
+        off: c.agentDevicesScreenOff,
+        stop: c.agentDevicesScreenStop,
+        allow: c.agentDevicesScreenAllow,
+      },
+      notify: {
+        off: c.agentDevicesNotifyOff,
+        stop: c.agentDevicesNotifyStop,
+        allow: c.agentDevicesNotifyAllow,
+      },
+      voice: {
+        off: c.agentDevicesVoiceOff,
+        stop: c.agentDevicesVoiceStop,
+        allow: c.agentDevicesVoiceAllow,
+      },
+      work: { stop: c.agentDevicesWorkStop, allow: c.agentDevicesWorkAllow },
+    }
+    const groups = (device.callGroups ?? []).flatMap((one) => {
+      const text = groupText[one.group]
+      return text ? [{ ...one, text }] : []
+    })
+    if (!device.revokedAt) {
+      for (const one of groups) {
+        if (!one.approved && one.text.off) {
+          badges.push({ label: one.text.off, tone: 'muted' })
+        }
+      }
     }
     return {
       id: device.id,
       title: device.name,
-      subtitle: `${device.tokenHint}… · ${format(c.agentDevicesAdded, { time: when(device.createdAt) })}`,
+      subtitle: [
+        `${device.tokenHint}…`,
+        format(c.agentDevicesAdded, { time: when(device.createdAt) }),
+        ...versionLine,
+      ].join(' · '),
       // Connected now, or when it last was: her link records it as it opens.
       meta: device.connected
         ? c.agentDevicesConnected
@@ -619,19 +700,13 @@ export function AgentDevicesGroup() {
             },
           ]
         : [
-            ...(screen
-              ? [
-                  {
-                    key: 'screen',
-                    label: screen.approved
-                      ? c.agentDevicesScreenStop
-                      : c.agentDevicesScreenAllow,
-                    onClick: () => void setScreen(device, !screen.approved),
-                    disabled: working,
-                    variant: 'secondary' as const,
-                  },
-                ]
-              : []),
+            ...groups.map((one) => ({
+              key: one.group,
+              label: one.approved ? one.text.stop : one.text.allow,
+              onClick: () => void setGroup(device, one.group, !one.approved),
+              disabled: working,
+              variant: 'secondary' as const,
+            })),
             {
               key: 'remove',
               label: c.agentDevicesRemove,

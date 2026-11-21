@@ -806,6 +806,8 @@
     "zoomImage": "크게 보기",
     "saidOn": "「{name}」에서",
     "saidOnUnknown": "당신의 다른 기기에서",
+    "leftRead": "읽음",
+    "reacted": "{emoji} 반응",
     "pictures": "(사진 {count}장)",
     "forgetLine": "잊기",
     "confirmForgetLine": "그녀는 이 말과 거기서 기억한 것을 잊어요. 동기화 중이면 양쪽 모두에서 지워져요.",

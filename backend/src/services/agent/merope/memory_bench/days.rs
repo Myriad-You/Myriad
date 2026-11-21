@@ -174,7 +174,7 @@ async fn live_days(days: &[&[&str]], name: &str) -> Lived {
             };
             let agent = crate::services::agent::Agent::new(db.clone()).await;
             let prompt = super::super::clock::as_of(as_of(at), async {
-                super::super::note_user_turn(&db, &request, index as u32).await;
+                super::super::note_user_turn(&db, &request).await;
                 // How the words land with her, waited on here; production
                 // lets it finish on its own.
                 if let Ok(state) = super::super::store::get_or_create_state(&db, user_id).await {

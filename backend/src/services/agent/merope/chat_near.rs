@@ -41,9 +41,10 @@ const FILL_CHARS: usize = 60_000;
 /// How long a request for vectors behind the reply may take.
 const FILL_WITHIN: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// A line as she is shown it, and as it is embedded: its lines joined, up
-/// to what a message of hers read whole may be
-/// ([`super::remembering::READ_WHOLE_CHARS`]).
+/// A line as it is embedded, and as she is shown one of theirs: its lines
+/// joined, up to what a message of hers read whole may be
+/// ([`super::remembering::READ_WHOLE_CHARS`]). One of hers she is shown
+/// skimmed instead ([`super::remembering::her_reply`]).
 fn shown(content: &str) -> String {
     let whole = content
         .lines()
@@ -252,10 +253,22 @@ async fn reach(
         .map(|index| {
             let line = &lines[index];
             let who = if line.hers { Who::You } else { Who::They };
+            // Her own long reply is skimmed as looking back by words does
+            // (its start, what names it, its end); what is embedded stays
+            // `shown`, so the vectors kept still match.
+            let text = if line.hers {
+                super::remembering::her_reply(
+                    &line.content,
+                    asked,
+                    super::remembering::READ_WHOLE_CHARS,
+                )
+            } else {
+                shown(&line.content)
+            };
             (
                 super::chat_lines::found_on(super::chat_lines::day(&line.at), line.replaced),
                 who,
-                shown(&line.content),
+                text,
             )
         })
         .collect();

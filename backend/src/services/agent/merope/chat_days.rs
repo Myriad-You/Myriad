@@ -394,7 +394,12 @@ fn read_days(
             found.push((
                 super::chat_lines::found_on(date.to_string(), !*hers && replaced.contains(at)),
                 if *hers { Who::You } else { Who::They },
-                myriad_merope::remembering::excerpt(text, looking_for, SHOWN_CHARS),
+                if *hers {
+                    // Her own reply read through, as looking back by words does.
+                    super::remembering::her_reply(text, looking_for, super::remembering::HERS_CHARS)
+                } else {
+                    myriad_merope::remembering::excerpt(text, looking_for, SHOWN_CHARS)
+                },
             ));
         }
     }

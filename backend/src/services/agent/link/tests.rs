@@ -843,6 +843,115 @@ async fn device(db: &DatabaseConnection, name: &str) -> (Device, String) {
     devices::add(db, OWNER, name).await.unwrap()
 }
 
+/// An end that lists `versions` hears what the site runs, says what it
+/// runs, and is told the site's reading: here an older core, whose rows of
+/// a later ABI do not go. What it said is kept on its device for the
+/// owner's devices page, read against the site's; one the shared core does
+/// not read is a bad frame. An end that says nothing of them shows its app
+/// alone.
+#[tokio::test]
+async fn an_end_says_what_it_runs_and_is_told_how_the_site_reads_it() {
+    use super::versions;
+    let Some(site) = site().await else {
+        return;
+    };
+    let (mac, token) = device(&site.db, "Mac").await;
+    let mut child = Child::open(&site, &token).await;
+    let welcome = child
+        .hello_with(&["calls", "versions", "log2", "log3"])
+        .await;
+    assert!(
+        welcome["body"]["capabilities"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("versions")),
+        "{welcome}"
+    );
+    if let Some(commit) = versions::site_commit() {
+        let ours = until(&mut child, "link.versions").await;
+        assert_eq!(ours["body"]["core"]["commit"], commit);
+        assert_eq!(ours["body"]["core"]["abi"], versions::site_abi());
+        assert_eq!(
+            ours["body"]["contract"],
+            super::contract::CONTRACT.schema_version
+        );
+    }
+    let contract = super::contract::CONTRACT.schema_version;
+    let older = versions::site_abi() - 1;
+    // Not what the shared core reads: a commit is 40 hex digits.
+    child
+        .send(
+            "link.versions",
+            None,
+            json!({ "contract": contract, "core": { "abi": older, "commit": "abc" },
+                    "app": { "name": "MyriadNative", "version": "1.2.3" }, "actions": {} }),
+        )
+        .await;
+    let refused = until(&mut child, "error").await;
+    assert_eq!(refused["body"]["code"], "bad_frame");
+    child
+        .send(
+            "link.versions",
+            None,
+            json!({ "contract": contract,
+                    "core": { "abi": older, "commit": "1111111111111111111111111111111111111111" },
+                    "app": { "name": "MyriadNative", "version": "1.2.3" }, "actions": {} }),
+        )
+        .await;
+    let verdict = until(&mut child, "link.verdict").await;
+    assert_eq!(verdict["body"]["usable"], "partial");
+    let later: Vec<String> = (4..=versions::site_abi())
+        .map(|abi| format!("log{abi}"))
+        .collect();
+    assert_eq!(verdict["body"]["stopped"], json!(later));
+    let kept = devices::list(&site.db, OWNER)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|device| device.id == mac.id)
+        .unwrap();
+    let shown = versions::shown(kept.link_versions.as_ref());
+    assert_eq!(shown["said"], true);
+    assert_eq!(shown["compared"], "behind");
+    assert_eq!(shown["core"]["abi"], older);
+    assert_eq!(shown["usable"], "partial");
+    assert_eq!(shown["app"]["version"], "1.2.3");
+
+    // An app from before: its hello names it, and it says nothing more.
+    let (old, token) = device(&site.db, "Old Mac").await;
+    let mut before = Child::open(&site, &token).await;
+    before
+        .send(
+            "hello",
+            None,
+            json!({ "protocol": 2, "role": "child", "surface": "app",
+                    "capabilities": ["calls"],
+                    "app": { "name": "MyriadNative", "version": "0.9.0" } }),
+        )
+        .await;
+    before.expect("welcome").await;
+    before.send("ping", None, json!({})).await;
+    // No link.versions to an end that did not list it.
+    loop {
+        let frame = before.next().await;
+        assert_ne!(frame["t"], "link.versions", "{frame}");
+        if frame["t"] == "pong" {
+            break;
+        }
+    }
+    let kept = devices::list(&site.db, OWNER)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|device| device.id == old.id)
+        .unwrap();
+    let shown = versions::shown(kept.link_versions.as_ref());
+    assert_eq!(shown["said"], false);
+    assert_eq!(shown["app"]["version"], "0.9.0");
+    assert!(shown["compared"].is_null());
+    site.close().await;
+}
+
 #[tokio::test]
 async fn a_child_is_told_only_what_the_site_takes_and_its_dropped_frames_are_counted() {
     let Some(site) = site().await else {
@@ -851,9 +960,9 @@ async fn a_child_is_told_only_what_the_site_takes_and_its_dropped_frames_are_cou
     let (mac, token) = device(&site.db, "Mac").await;
     let mut child = Child::open(&site, &token).await;
     let welcome = child
-        .hello_with(&["calls", "glance", "versions", "streams", "touch"])
+        .hello_with(&["calls", "glance", "streams", "touch"])
         .await;
-    // Glance and versions are not made on the site yet.
+    // Glance is not made on the site yet.
     assert_eq!(
         welcome["body"]["capabilities"],
         json!(["calls", "streams", "touch"])
@@ -1166,11 +1275,19 @@ async fn a_computer_that_listed_deputy_is_given_one_once_it_keeps_up() {
     assert_eq!(body["under"], standing.epoch);
     assert_eq!(body["order"], 1);
     let id = given["id"].as_str().unwrap().to_string();
-    mac.send("lease.taken", None, json!({ "of": deputy::FRAME, "id": id }))
-        .await;
+    mac.send(
+        "lease.taken",
+        None,
+        json!({ "of": deputy::FRAME, "id": id }),
+    )
+    .await;
     // Taken twice counts once.
-    mac.send("lease.taken", None, json!({ "of": deputy::FRAME, "id": id }))
-        .await;
+    mac.send(
+        "lease.taken",
+        None,
+        json!({ "of": deputy::FRAME, "id": id }),
+    )
+    .await;
     mac.send("ping", None, json!({})).await;
     until(&mut mac, "pong").await;
     let kept = deputy::for_holders(&site.db, &[mac_device.id.as_str()])
@@ -1344,6 +1461,96 @@ async fn an_end_hears_of_rows_the_site_writes_itself_while_linked() {
     site.close().await;
 }
 
+/// An end that keeps no log (it listed no `logN`: a child core) is welcomed
+/// with sync on like any other, but is no side of her log: it is not told
+/// of rows, a vector of its is refused, and it does not hold back a row
+/// only the newer cores read. Where her mind is it is told, as every
+/// device is.
+#[tokio::test]
+async fn an_end_that_keeps_no_log_hears_only_where_her_mind_is() {
+    use crate::services::her_log::{self, relay, store};
+    let Some(site) = site().await else {
+        return;
+    };
+    let _turn = her_log::lend::SERIAL.lock().await;
+    her_log::test_settings::set(her_log::Settings {
+        enabled: true,
+        ..her_log::Settings::default()
+    });
+    store::start(&site.db, OWNER).await.unwrap();
+    let (_, mac) = device(&site.db, "MacBook").await;
+    let (_, phone) = device(&site.db, "Phone").await;
+    let mut mac = Child::open(&site, &mac).await;
+    let mut phone = Child::open(&site, &phone).await;
+    let top = relay::peer_abi(&CONTRACT.capabilities);
+    let logs: Vec<String> = (2..=top).map(|abi| format!("log{abi}")).collect();
+    let mut listed: Vec<&str> = logs.iter().map(String::as_str).collect();
+    listed.push("partner");
+    let welcome = mac.hello_with(&listed).await;
+    assert_eq!(welcome["body"]["sync"], "on");
+    let personal = format!("personal:{}", welcome["body"]["partner"].as_str().unwrap());
+    let welcome = phone.hello_with(&["partner"]).await;
+    assert_eq!(welcome["body"]["sync"], "on");
+    for child in [&mut mac, &mut phone] {
+        child.send("ping", None, json!({})).await;
+        until(child, "pong").await;
+    }
+    // Only the Mac is a side: a row of the newest core may go to all.
+    assert!(relay::every_side_reads(&site.db, OWNER, top).await.unwrap());
+
+    // The site writes in the owner's private talk: the Mac is told.
+    let owner = her_log::owner(&site.db, OWNER).await.unwrap();
+    store::write_owners(
+        &site.db,
+        her_log::keys::root(),
+        &owner,
+        &personal,
+        None,
+        "segment:site_private",
+        "segment.open",
+        &json!({ "at": 1, "place": "private" }),
+    )
+    .await
+    .unwrap();
+    loop {
+        let frame = until(&mut mac, "log.vector").await;
+        if frame["body"]["audience"] == personal.as_str() {
+            break;
+        }
+    }
+    // Not the phone; and its own vector is refused: a log.vector comes from
+    // a host core, which it is not (the core's check, before whose
+    // audience it is).
+    phone
+        .send(
+            "log.vector",
+            None,
+            json!({ "audience": personal, "vector": {} }),
+        )
+        .await;
+    let refused = loop {
+        let frame = phone.next().await;
+        assert_ne!(frame["t"], "log.vector", "{frame}");
+        assert_ne!(frame["t"], "log.rows", "{frame}");
+        if frame["t"] == "error" {
+            break frame;
+        }
+    };
+    assert_eq!(refused["body"]["code"], "bad_frame", "{refused}");
+
+    // Where her mind is goes to every device.
+    super::tell_log_links(
+        OWNER,
+        "lease.epoch",
+        json!({ "epoch": 9, "holder": "node", "how": "first" }),
+    );
+    for child in [&mut mac, &mut phone] {
+        let told = until(child, "lease.epoch").await;
+        assert_eq!(told["body"]["epoch"], 9);
+    }
+    site.close().await;
+}
+
 /// While she syncs, what a group or a private chat says is lent on the
 /// link of the computer holding her, when its hello listed `lend`. Its ack makes a lend her mind's there,
 /// and her line for it is answered (here no chat app takes it). A lend the
@@ -1353,6 +1560,63 @@ async fn an_end_hears_of_rows_the_site_writes_itself_while_linked() {
 /// A lend tells the PC the highest count of its rows the site holds in a
 /// place it does not keep (past a gap too), so its rows there go on from
 /// it; never for the partner's own talk, which the PC keeps itself.
+#[tokio::test]
+async fn rows_of_her_log_a_child_did_not_take_are_counted_by_kind_and_why_once_per_batch() {
+    use crate::services::her_log::{self, relay, store};
+    let Some(site) = site().await else {
+        return;
+    };
+    let _turn = her_log::lend::SERIAL.lock().await;
+    her_log::test_settings::set(her_log::Settings {
+        enabled: true,
+        ..her_log::Settings::default()
+    });
+    store::start(&site.db, OWNER).await.unwrap();
+    let (mac_device, mac) = device(&site.db, "MacBook").await;
+    let (phone_device, phone) = device(&site.db, "Phone").await;
+    let mut mac = Child::open(&site, &mac).await;
+    let mut phone = Child::open(&site, &phone).await;
+    let top = relay::peer_abi(&CONTRACT.capabilities);
+    let logs: Vec<String> = (2..=top).map(|abi| format!("log{abi}")).collect();
+    let mut listed: Vec<&str> = logs.iter().map(String::as_str).collect();
+    listed.extend(["partner", "streams"]);
+    assert_eq!(mac.hello_with(&listed).await["body"]["sync"], "on");
+    let welcome = phone.hello_with(&["partner", "streams"]).await;
+    assert_eq!(welcome["body"]["sync"], "on");
+    let told = [
+        ("rf_b1_local", "personal", "local", 3),
+        // The same batch told again (after a reconnect it keeps its id).
+        ("rf_b1_local", "personal", "local", 3),
+        ("rf_b2_local", "personal", "local", 2),
+        ("rf_b3_ahead", "group", "clock_ahead", 4),
+    ];
+    for (id, kind, reason, rows) in told {
+        let event = json!({ "name": "log.refused", "version": 1, "at": 1_760_141_100_000_i64,
+                            "body": { "kind": kind, "reason": reason, "rows": rows } });
+        mac.send("stream.event", Some(id), event).await;
+    }
+    // An end that keeps no log is sent no rows: what it tells is not counted.
+    let event = json!({ "name": "log.refused", "version": 1, "at": 1_760_141_100_000_i64,
+                        "body": { "kind": "own", "reason": "batch", "rows": 1 } });
+    phone.send("stream.event", Some("rf_p1_batch"), event).await;
+    for child in [&mut mac, &mut phone] {
+        child.send("ping", None, json!({})).await;
+        until(child, "pong").await;
+    }
+    let told = super::counts::log_refused_by(&mac_device.id);
+    let of = |kind: &str, reason: &str| {
+        told.iter()
+            .find(|(at, why, _)| *at == kind && *why == reason)
+            .map(|(_, _, refused)| (refused.batches.count, refused.rows))
+    };
+    assert_eq!(of("personal", "local"), Some((2, 5)));
+    assert_eq!(of("group", "clock_ahead"), Some((1, 4)));
+    assert_eq!(told.len(), 2);
+    assert!(super::counts::log_refused_by(&phone_device.id).is_empty());
+    drop((mac, phone));
+    site.close().await;
+}
+
 #[tokio::test]
 async fn a_lend_says_where_the_pcs_rows_there_go_on_from() {
     use crate::services::her_log::lend;
@@ -4292,21 +4556,28 @@ async fn a_device_is_told_what_it_may_be_asked_and_told_again_when_the_owner_cha
             ]}),
         )
         .await;
-    // Only what is enabled here and approved: a look at the screen, which
-    // is on until the owner turns it off. Nothing of the host's to ask.
+    // Only what is enabled here and approved: a look at the screen and a
+    // notification, on until the owner turns them off; a whole run waits
+    // for the owner. Nothing of the host's to ask.
     let granted = child.expect("call.granted").await;
     assert_eq!(
         granted["body"],
-        json!({ "actions": [{ "name": "screen.look", "version": 1 }], "providing": [] })
+        json!({ "actions": [
+            { "name": "screen.look", "version": 1 },
+            { "name": "notify.post", "version": 1 },
+        ], "providing": [] })
     );
-    // The owner takes it back: told at once on the same link.
+    // The owner takes one back: told at once on the same link.
     assert!(
         super::calls::set_approved(&site.db, OWNER, &mac.id, "screen", false)
             .await
             .unwrap()
     );
     let granted = child.expect("call.granted").await;
-    assert_eq!(granted["body"]["actions"], json!([]));
+    assert_eq!(
+        granted["body"]["actions"],
+        json!([{ "name": "notify.post", "version": 1 }])
+    );
     // Deciding the same again tells nothing new.
     super::calls::set_approved(&site.db, OWNER, &mac.id, "screen", false)
         .await
@@ -4316,7 +4587,12 @@ async fn a_device_is_told_what_it_may_be_asked_and_told_again_when_the_owner_cha
     // What it is shown on the device page.
     assert_eq!(
         super::calls::groups_json(&site.db, &mac.id).await.unwrap(),
-        json!([{ "group": "screen", "approved": false }])
+        json!([
+            { "group": "screen", "approved": false },
+            { "group": "notify", "approved": true },
+            { "group": "voice", "approved": true },
+            { "group": "work", "approved": false },
+        ])
     );
     // A new link offers again and is told what stands.
     drop(child);
@@ -4421,7 +4697,7 @@ static CALLS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 async fn calls_turn() -> tokio::sync::MutexGuard<'static, ()> {
     let turn = CALLS.lock().await;
     for _ in 0..250 {
-        if ["screen.look", "work.run"]
+        if ["screen.look", "notify.post", "voice.speak", "work.run"]
             .iter()
             .all(|action| super::granted_devices(OWNER, action).is_empty())
         {
@@ -5099,7 +5375,7 @@ async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_i
     let look = "device.screen.look";
     let (mac, token) = device(&site.db, "Mac").await;
     assert!(!super::calls::usable(OWNER, look));
-    let away = super::calls::work(&site.db, look, for_owner(None)).await;
+    let away = super::calls::work(&site.db, look, &params(&[]), for_owner(None)).await;
     assert!(away.unwrap_err().starts_with("call_unavailable"));
     let (mut child, _) = offering(&site, &token, &["screen.look"]).await;
     assert!(super::calls::usable(OWNER, look));
@@ -5107,7 +5383,13 @@ async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_i
     assert!(!super::calls::usable(OWNER + 1, look));
     assert!(!super::calls::usable(OWNER, "device.work.run"));
     // In a group: refused before anything is asked.
-    let group = super::calls::work(&site.db, look, for_owner(Some("telegram:-100"))).await;
+    let group = super::calls::work(
+        &site.db,
+        look,
+        &params(&[]),
+        for_owner(Some("telegram:-100")),
+    )
+    .await;
     assert!(group.unwrap_err().starts_with("wrong_audience"));
     // Her own doing, or someone else's run: the screen is only the owner's
     // to ask for, so refused too, and each kept as whom it was for.
@@ -5116,7 +5398,7 @@ async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_i
         ..for_owner(None)
     };
     assert!(
-        super::calls::work(&site.db, look, own)
+        super::calls::work(&site.db, look, &params(&[]), own)
             .await
             .unwrap_err()
             .starts_with("wrong_audience")
@@ -5126,7 +5408,7 @@ async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_i
         ..for_owner(None)
     };
     assert!(
-        super::calls::work(&site.db, look, other)
+        super::calls::work(&site.db, look, &params(&[]), other)
             .await
             .unwrap_err()
             .starts_with("wrong_audience")
@@ -5144,7 +5426,10 @@ async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_i
     nothing_else(&mut child).await;
     // For the owner: asked, and what it may say comes back.
     let db = site.db.clone();
-    let asked = tokio::spawn(async move { super::calls::work(&db, look, for_owner(None)).await });
+    let asked =
+        tokio::spawn(
+            async move { super::calls::work(&db, look, &params(&[]), for_owner(None)).await },
+        );
     let ask = child.expect("call.ask").await;
     assert_eq!(ask["body"]["for"], json!({ "kind": "owner" }));
     // Work gives it less time than the contract's most, and waits less
@@ -5167,7 +5452,10 @@ async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_i
     // It may have happened: Work is told the outcome is unknown, so the
     // step is not done again.
     let db = site.db.clone();
-    let asked = tokio::spawn(async move { super::calls::work(&db, look, for_owner(None)).await });
+    let asked =
+        tokio::spawn(
+            async move { super::calls::work(&db, look, &params(&[]), for_owner(None)).await },
+        );
     let call_id = child.expect("call.ask").await["body"]["callId"]
         .as_str()
         .unwrap()
@@ -5194,6 +5482,308 @@ async fn work_sees_a_look_at_the_screen_only_while_a_device_lets_her_and_never_i
     site.close().await;
 }
 
+/// What Work gives a step, by name.
+fn params(pairs: &[(&str, Value)]) -> std::collections::HashMap<String, Value> {
+    pairs
+        .iter()
+        .map(|(name, value)| (name.to_string(), value.clone()))
+        .collect()
+}
+
+#[tokio::test]
+async fn work_notifies_and_says_aloud_on_a_device_for_the_owner_or_herself_only() {
+    let _calls = calls_turn().await;
+    let Some(site) = site().await else {
+        return;
+    };
+    let (notify, speak) = ("device.notify.post", "device.voice.speak");
+    let (_mac, token) = device(&site.db, "Mac").await;
+    let (mut child, granted) = offering(&site, &token, &["notify.post", "voice.speak"]).await;
+    // Both are on until the owner turns them off.
+    assert_eq!(
+        granted["body"]["actions"],
+        json!([{ "name": "notify.post", "version": 1 }, { "name": "voice.speak", "version": 1 }])
+    );
+    assert!(super::calls::usable(OWNER, notify) && super::calls::usable(OWNER, speak));
+    let line = params(&[("text", json!("The tea is ready."))]);
+    // In a group: refused before anything is asked.
+    let group = super::calls::work(&site.db, speak, &line, for_owner(Some("telegram:-100"))).await;
+    assert!(group.unwrap_err().starts_with("wrong_audience"));
+    // What the contract needs is missing: nothing is asked.
+    let half = params(&[("title", json!("Myriad"))]);
+    let missing = super::calls::work(&site.db, notify, &half, for_owner(None)).await;
+    assert!(missing.unwrap_err().starts_with("bad_args: body"));
+    nothing_else(&mut child).await;
+
+    // Her own doing: a notification asked with only its contract's args,
+    // held back by the device's do-not-disturb, told as a code and its
+    // meaning, never the device's words.
+    let db = site.db.clone();
+    let asked = tokio::spawn(async move {
+        let note = params(&[
+            ("title", json!("Myriad")),
+            ("body", json!("I finished reading it.")),
+            ("kind", json!("urgent")),
+        ]);
+        let own = WorkFor {
+            her_own: true,
+            ..for_owner(None)
+        };
+        super::calls::work(&db, "device.notify.post", &note, own).await
+    });
+    let ask = child.expect("call.ask").await;
+    assert_eq!(ask["body"]["action"], "notify.post");
+    assert_eq!(ask["body"]["for"], json!({ "kind": "own" }));
+    assert_eq!(
+        ask["body"]["args"],
+        json!({ "title": "Myriad", "body": "I finished reading it." })
+    );
+    let deadline = ask["body"]["deadlineAt"].as_i64().unwrap();
+    assert!(deadline <= crate::clock::now().timestamp_millis() + 10_000);
+    let call_id = ask["body"]["callId"].as_str().unwrap().to_string();
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "notify.post", "version": 1, "outcome": "failed",
+                    "error": { "code": "not_now" } }),
+        )
+        .await;
+    let held = asked.await.unwrap().unwrap_err();
+    assert!(
+        held.starts_with("not_now: the device held it back"),
+        "{held}"
+    );
+
+    // For the owner: a line said aloud is given up to a minute, and one
+    // the device stopped before its end comes back done, not heard out.
+    let db = site.db.clone();
+    let asked = tokio::spawn(async move {
+        super::calls::work(&db, "device.voice.speak", &line, for_owner(None)).await
+    });
+    let ask = child.expect("call.ask").await;
+    assert_eq!(ask["body"]["args"], json!({ "text": "The tea is ready." }));
+    let now = crate::clock::now().timestamp_millis();
+    let deadline = ask["body"]["deadlineAt"].as_i64().unwrap();
+    assert!(
+        deadline > now + 50_000 && deadline <= now + 60_000,
+        "{deadline}"
+    );
+    let call_id = ask["body"]["callId"].as_str().unwrap().to_string();
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "voice.speak", "version": 1, "outcome": "done",
+                    "result": { "delivered": false } }),
+        )
+        .await;
+    assert_eq!(asked.await.unwrap().unwrap(), json!({ "delivered": false }));
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn a_mac_granted_a_whole_run_takes_her_proposal_as_a_call() {
+    use crate::services::agent::consciousness::{AcceptSource, IntentStatus, IntentStore};
+    let _calls = calls_turn().await;
+    let Some(site) = site().await else {
+        return;
+    };
+    let (mac, token) = device(&site.db, "Mac").await;
+    let store = IntentStore::new(site.db.clone());
+    for id in ["int_done", "int_busy", "int_back", "int_gone", "int_maybe"] {
+        let mut record = proposal_record_at(1, id, IntentStatus::Proposed);
+        record.proposal.device_id = Some(mac.id.clone());
+        record.created_at = crate::clock::now();
+        record.updated_at = record.created_at;
+        record.expires_at = Some(record.created_at + chrono::Duration::hours(24));
+        store.create_proposed(record).await.unwrap();
+    }
+    let accepted = |id: &'static str| {
+        let store = store.clone();
+        async move {
+            store
+                .mark_accepted(id, OWNER, AcceptSource::User)
+                .await
+                .unwrap()
+        }
+    };
+    let status = |id: &'static str| {
+        let store = store.clone();
+        async move { store.find(id, OWNER).await.unwrap() }
+    };
+    // Until it is so, waits for the proposal to be `want`.
+    let until_status = |id: &'static str, want: IntentStatus| {
+        let store = store.clone();
+        async move {
+            for _ in 0..200 {
+                let now = store.find(id, OWNER).await.unwrap();
+                if now.status == want {
+                    return now;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            panic!("{id} never became {want:?}");
+        }
+    };
+    let (mut child, granted) = offering(&site, &token, &["work.run"]).await;
+    // A whole run waits for the owner's word: until then it is no Mac
+    // her proposals run on.
+    assert_eq!(granted["body"]["actions"], json!([]));
+    assert!(super::macs(OWNER).is_empty());
+    super::calls::set_approved(&site.db, OWNER, &mac.id, "work", true)
+        .await
+        .unwrap();
+    child.expect("call.granted").await;
+    let macs = super::macs(OWNER);
+    assert_eq!(macs.len(), 1);
+    assert_eq!(
+        (macs[0].device_id.as_str(), macs[0].name.as_str()),
+        (mac.id.as_str(), "Mac")
+    );
+
+    // Asked as a call, not a request: the proposal runs, and the run's end
+    // is its end. One run at a time.
+    let done = accepted("int_done").await;
+    let run = super::act_request(&site.db, &done, None).await.unwrap();
+    assert!(run.starts_with("run_"), "{run}");
+    let ask = until(&mut child, "call.ask").await;
+    assert_eq!(ask["body"]["action"], "work.run");
+    assert_eq!(ask["body"]["for"], json!({ "kind": "owner" }));
+    assert_eq!(ask["body"]["args"]["proposalId"], "int_done");
+    assert!(ask["body"]["args"].get("maxRunMs").is_none());
+    assert_eq!(status("int_done").await.status, IntentStatus::Running);
+    let busy = accepted("int_busy").await;
+    assert_eq!(
+        super::act_request(&site.db, &busy, None).await,
+        Err("act_busy")
+    );
+    let call_id = ask["body"]["callId"].as_str().unwrap().to_string();
+    child
+        .send("call.accepted", None, json!({ "callId": call_id }))
+        .await;
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "work.run", "version": 1, "outcome": "done",
+                    "result": { "status": "completed" } }),
+        )
+        .await;
+    until_status("int_done", IntentStatus::Completed).await;
+
+    // Not done, the contract says: back to accepted, to ask again.
+    let back = accepted("int_back").await;
+    super::act_request(&site.db, &back, None).await.unwrap();
+    let call_id = until(&mut child, "call.ask").await["body"]["callId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "work.run", "version": 1, "outcome": "failed",
+                    "error": { "code": "not_now" } }),
+        )
+        .await;
+    until_status("int_back", IntentStatus::Accepted).await;
+
+    // Dismissed on the site: no one waits for it, so it is cancelled there.
+    let gone = accepted("int_gone").await;
+    super::act_request(&site.db, &gone, None).await.unwrap();
+    let call_id = until(&mut child, "call.ask").await["body"]["callId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    child
+        .send("call.accepted", None, json!({ "callId": call_id }))
+        .await;
+    assert!(super::cancel_for_proposal(OWNER, "int_gone"));
+    assert_eq!(
+        until(&mut child, "call.cancel").await["body"]["callId"],
+        call_id
+    );
+
+    // It may have happened: failed, and never asked again by itself.
+    let maybe = accepted("int_maybe").await;
+    super::act_request(&site.db, &maybe, None).await.unwrap();
+    let call_id = until(&mut child, "call.ask").await["body"]["callId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    child
+        .send("call.accepted", None, json!({ "callId": call_id }))
+        .await;
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            json!({ "callId": call_id, "action": "work.run", "version": 1, "outcome": "unknown" }),
+        )
+        .await;
+    let failed = until_status("int_maybe", IntentStatus::Failed).await;
+    assert_eq!(failed.result_summary.as_deref(), Some("outcome_unknown"));
+    drop(child);
+    site.close().await;
+}
+
+#[test]
+fn a_run_asked_as_a_call_ends_her_proposal_only_by_how_it_ended() {
+    use super::calls_pending::Answer;
+    use super::calls_store::Outcome;
+    use crate::services::agent::consciousness::IntentStatus;
+    let done = |status: &str| Answer {
+        outcome: Outcome::Done,
+        result: Some(json!({ "status": status })),
+    };
+    let failed = |code: &'static str| super::act::run_ended(&Answer::failed(code));
+    assert_eq!(
+        super::act::run_ended(&done("completed")),
+        Some((IntentStatus::Completed, None))
+    );
+    assert_eq!(
+        super::act::run_ended(&done("failed")),
+        Some((IntentStatus::Failed, None))
+    );
+    assert_eq!(
+        failed("call_cancelled"),
+        Some((IntentStatus::Abandoned, Some("act_cancelled".into())))
+    );
+    assert_eq!(
+        failed("declined"),
+        Some((IntentStatus::Abandoned, Some("declined".into())))
+    );
+    assert_eq!(
+        failed("call_timeout"),
+        Some((IntentStatus::Failed, Some("act_timeout".into())))
+    );
+    assert_eq!(
+        failed("internal_error"),
+        Some((IntentStatus::Failed, Some("outcome_unknown".into())))
+    );
+    let unknown = Answer {
+        outcome: Outcome::Unknown,
+        result: None,
+    };
+    assert_eq!(
+        super::act::run_ended(&unknown),
+        Some((IntentStatus::Failed, Some("outcome_unknown".into())))
+    );
+    // The contract says these were not done: the proposal goes back.
+    for code in [
+        "call_unavailable",
+        "call_not_granted",
+        "call_unknown",
+        "version_unsupported",
+        "wrong_audience",
+        "not_now",
+    ] {
+        assert_eq!(failed(code), None, "{code}");
+    }
+}
+
 async fn until(child: &mut Child, t: &str) -> Value {
     loop {
         let frame = child.next().await;
@@ -5206,6 +5796,8 @@ async fn until(child: &mut Child, t: &str) -> Value {
 #[tokio::test]
 async fn her_host_asks_a_mac_that_lets_it_to_act() {
     use crate::services::agent::consciousness::{AcceptSource, IntentStatus, IntentStore};
+    // A Mac granted a whole run as a call is one her proposals run on too.
+    let _calls = calls_turn().await;
     let Some(site) = site().await else {
         return;
     };

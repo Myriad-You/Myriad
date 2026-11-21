@@ -32,6 +32,53 @@ pub fn register(registry: &mut CapabilityRegistry) {
         estimated_duration_ms: Some(5_000),
         ..Default::default()
     });
+    registry.register(Capability {
+        id: "device.notify.post".to_string(),
+        name: "Notify on the computer".to_string(),
+        description: "A notification on the owner's computer, through its own do-not-disturb: held back now, it is not shown. For the owner or her own doing, never in a group.".to_string(),
+        category: CapabilityCategory::UiControl,
+        supported_actions: vec![IntentAction::Execute],
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "title": { "type": "string", "description": "A short title" },
+                "body": { "type": "string", "description": "What the notification says" }
+            },
+            "required": ["title", "body"],
+            "additionalProperties": false
+        }),
+        output_schema: json!({
+            "type": "object",
+            "properties": { "shown": { "type": "boolean" } }
+        }),
+        required_permissions: Vec::new(),
+        requires_ai: false,
+        estimated_duration_ms: Some(2_000),
+        ..Default::default()
+    });
+    registry.register(Capability {
+        id: "device.voice.speak".to_string(),
+        name: "Say aloud on the computer".to_string(),
+        description: "She says text aloud on the owner's computer, in her own voice there: delivered says whether it was heard out (a long text may be stopped before its end). For the owner or her own doing, never in a group.".to_string(),
+        category: CapabilityCategory::UiControl,
+        supported_actions: vec![IntentAction::Execute],
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "text": { "type": "string", "description": "What she says" }
+            },
+            "required": ["text"],
+            "additionalProperties": false
+        }),
+        output_schema: json!({
+            "type": "object",
+            "properties": { "delivered": { "type": "boolean" } }
+        }),
+        required_permissions: Vec::new(),
+        requires_ai: false,
+        estimated_duration_ms: Some(20_000),
+        ..Default::default()
+    });
 }
 
 #[cfg(test)]

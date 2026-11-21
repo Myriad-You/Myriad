@@ -482,7 +482,18 @@ async fn would_write(
             .unwrap_or_default()
             .into_iter()
             .collect();
-    let first_words: Vec<(String, Option<bool>, Option<String>)> = super::store::first_words(
+    // And what they said back: how they took being written to (「周末别主动
+    // 找我」) may by now be past the latest memories and lines she sees.
+    let replied = super::store::first_words_replies(
+        db,
+        EVENT_KEY,
+        user_id,
+        myriad_merope::others::ANSWERED_WITHIN_HOURS,
+        FIRST_WORDS_SHOWN,
+    )
+    .await
+    .unwrap_or_default();
+    let first_words: Vec<myriad_merope::others::FirstWords> = super::store::first_words(
         db,
         EVENT_KEY,
         Some(user_id),
@@ -498,6 +509,7 @@ async fn would_write(
             myriad_merope::doing::ago_text(now - at),
             answered,
             said.get(&at).cloned(),
+            replied.get(&at).cloned(),
         )
     })
     .collect();
