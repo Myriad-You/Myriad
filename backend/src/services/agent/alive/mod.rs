@@ -177,6 +177,18 @@ pub fn ran(driver: &'static str) {
     });
 }
 
+/// A tick let through is still going (a long one, such as a night of her
+/// upkeep, says so as it goes): it is let through still, not stuck, and
+/// not another run.
+pub fn still_going(driver: &'static str) {
+    let now = now();
+    with(|state| {
+        if let Some(beat) = state.drivers.get_mut(driver) {
+            beat.ran_at = Some(now);
+        }
+    });
+}
+
 /// A driver asked and was passed over: she is at `place`, not here.
 pub fn skipped(driver: &'static str, place: &Where) {
     let now = now();
