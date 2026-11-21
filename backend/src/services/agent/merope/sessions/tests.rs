@@ -139,6 +139,22 @@ async fn looked_under(db: &DatabaseConnection, grant: &str) -> String {
     panic!("no look was kept");
 }
 
+/// Waits for the look under way to keep what it made of `grant`'s
+/// `session`, and to put it in her inbox: a look keeps one session after
+/// another.
+async fn made_under(db: &DatabaseConnection, grant: &str, session: &str) {
+    let item = myriad_nodes::sessions::session_ref(DEVICE, grant, session);
+    for _ in 0..100 {
+        if made_of(db, grant, session).await.is_some()
+            && inbox_of(db).await.iter().any(|(_, id, _)| *id == item)
+        {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("no look was kept of {session}");
+}
+
 /// What waits in every inbox: (audience, id, item).
 async fn inbox_of(db: &DatabaseConnection) -> Vec<(String, String, Value)> {
     db.query_all_raw(Statement::from_string(
@@ -394,6 +410,74 @@ async fn a_dropped_grant_is_forgotten_for_good() {
     schema.drop().await;
 }
 
+/// What she placed from a session on a node of hers names its grant (core
+/// `InboxItem::refs`), so it goes when the grant is dropped; the node and
+/// what else is on it stay, even under a key that starts as a session's
+/// task does.
+#[tokio::test]
+async fn what_she_placed_from_a_session_goes_with_its_grant() {
+    use crate::services::agent::merope::memory_nodes::{Author, RowIn, write};
+    let Some(schema) = schema().await else {
+        return;
+    };
+    let db = &schema.db;
+    let audience = owners();
+    let key = "minted:store-split";
+    let node = myriad_nodes::node_id(&audience, key).unwrap();
+    let grant = myriad_nodes::sessions::grant_ref(DEVICE, GRANT);
+    let session = myriad_nodes::sessions::session_ref(DEVICE, GRANT, "s-1");
+    let span = |item: &str, text: &str, refs: Vec<String>| RowIn {
+        id: myriad_nodes::entries::row_id_from("node.span", &node, item, ""),
+        node: node.clone(),
+        kind: "node.span".into(),
+        body: json!({
+            "version": 1, "sync": "shared", "saidBy": ["third_party"],
+            "audience": audience, "text": text, "refs": refs,
+        }),
+        author: Author::Her,
+    };
+    let rows = [
+        RowIn {
+            id: "c1".into(),
+            node: node.clone(),
+            kind: "node.created".into(),
+            body: json!({
+                "version": 1, "sync": "shared", "saidBy": ["her"],
+                "kind": "topic", "key": key, "name": "拆存储",
+            }),
+            author: Author::Her,
+        },
+        span(
+            &session,
+            "存储拆成两半了，还没推送。",
+            vec![grant.clone(), session.clone()],
+        ),
+        span("message:m1", "说好周末再推。", vec!["message:m1".into()]),
+    ];
+    let pen = crate::services::her_log::pen::think().expect("her mind is here in tests");
+    write::write(db, OWNER, &audience, &rows, Some(&pen))
+        .await
+        .unwrap();
+    let said = |text: &'static str| async move {
+        count(
+            db,
+            &format!("SELECT count(*) AS n FROM agent_node_rows WHERE body LIKE '%{text}%'"),
+        )
+        .await
+    };
+    assert_eq!(said("存储拆成两半").await, 1);
+
+    forget_grant(db, OWNER, DEVICE, GRANT).await.unwrap();
+    assert_eq!(
+        said("存储拆成两半").await,
+        0,
+        "what came of the session goes"
+    );
+    assert_eq!(said("说好周末再推").await, 1, "the rest of her node stays");
+    assert_eq!(said("拆存储").await, 1, "and the node itself");
+    schema.drop().await;
+}
+
 /// A grant dropped stays dropped across a restart: a change told late under
 /// it (the device sent it before it heard of the drop) is never taken.
 #[tokio::test]
@@ -491,7 +575,7 @@ async fn what_comes_together_is_looked_at_once_and_kept_word_for_word() {
     assert!(made.starts_with("要你定：它问要不要推送"), "{made}");
     // Nothing for them is no card, and still hers to keep in mind: both
     // wait in her inbox, one item a session.
-    assert!(made_of(db, grant, "s-2").await.is_some());
+    made_under(db, grant, "s-2").await;
     let inbox = inbox_of(db).await;
     let texts: Vec<&str> = inbox
         .iter()

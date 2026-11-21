@@ -35,7 +35,7 @@ use std::collections::BTreeSet;
 use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionSession, TransactionTrait};
 use serde::{Deserialize, Serialize};
 
-use super::memory_nodes::{Error, audience, forget, inbox};
+use super::memory_nodes::{Error, audience, forget, inbox, minted_by_rule};
 use crate::services::runtime_registry::{self as registry, RegistryIdentity};
 
 /// The latest picture of each session, by device, grant and session.
@@ -318,7 +318,12 @@ pub(crate) async fn forget_grant<C: ConnectionTrait + TransactionTrait>(
     let audience = audience::private_talk(owner, Some(owner));
     // Under the audience's lock, as every forget.
     let txn = db.begin().await?;
-    forget::forget_named(&txn, owner, &audience, &grant_ref, "minted:s").await?;
+    // A session's own task goes whole; a node of hers that holds what she
+    // placed from it keeps the rest.
+    forget::forget_named(&txn, owner, &audience, &grant_ref, |key| {
+        minted_by_rule(key, "minted:s")
+    })
+    .await?;
     txn.commit().await?;
     // Her cards on its tasks, and on the repositories they were in: her
     // line on a repository rested on them too.

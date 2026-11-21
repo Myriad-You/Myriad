@@ -197,7 +197,11 @@ fn written_on_a_life(kept: &[heads::KeptRow], mut gone: BTreeSet<String>) -> BTr
 }
 
 /// Rows of `user_id` made stubs: no payload, no body.
-pub(super) async fn stub<C: ConnectionTrait>(db: &C, user_id: i32, rows: &[Row]) -> Result<(), Error> {
+pub(super) async fn stub<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    rows: &[Row],
+) -> Result<(), Error> {
     // A forget is never a stub: it holds no words.
     for row in rows
         .iter()
@@ -394,7 +398,14 @@ async fn forget_rows<C: ConnectionTrait>(
         .map(|kept| kept.row.clone())
         .collect();
     for row in doomed.iter().filter(|row| !row.forgotten) {
-        forget_one(db, user_id, &audience, &row_node(row), Forgets::Row(&row.id)).await?;
+        forget_one(
+            db,
+            user_id,
+            &audience,
+            &row_node(row),
+            Forgets::Row(&row.id),
+        )
+        .await?;
     }
     stub(db, user_id, &doomed).await?;
     // What held them: the nodes they were written on, or went into.
@@ -449,7 +460,7 @@ fn names(kept: &heads::KeptRow, reference: &str) -> bool {
 
 /// Forgets for good, in `user_id`'s `audience`, everything that names
 /// `reference` (a device's grant to tell her of its sessions): a node whose
-/// key starts with `whole` that such a row is on goes whole, every other
+/// key is `whole` that such a row is on goes whole, every other
 /// row that names it goes alone. A node it only added to stays, with what
 /// it holds of anything else: a forgotten node never comes back under its
 /// key, and a repository is one whole for every grant. The person's own
@@ -459,7 +470,7 @@ pub(crate) async fn forget_named<C: ConnectionTrait>(
     user_id: i32,
     audience: &str,
     reference: &str,
-    whole: &str,
+    whole: impl Fn(&str) -> bool,
 ) -> Result<(), Error> {
     write::lock(db, user_id, audience).await?;
     let kept = heads::rows_of(db, user_id, audience).await?;
@@ -479,7 +490,7 @@ pub(crate) async fn forget_named<C: ConnectionTrait>(
         .filter(|kept| !kept.row.forgotten && names(kept, reference))
     {
         let node = row_node(&kept.row);
-        if key_of(&node).starts_with(whole) {
+        if whole(&key_of(&node)) {
             wholes.insert(node);
         } else {
             alone.push(kept.row.clone());

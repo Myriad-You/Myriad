@@ -139,6 +139,7 @@ mod upkeep_candidates;
 mod upkeep_cut_off;
 pub(crate) mod write;
 
+pub(crate) use heads::minted_by_rule;
 pub(crate) use prepare::{Author, RowIn};
 pub(crate) use write::{Beside, Written, write, write_with};
 

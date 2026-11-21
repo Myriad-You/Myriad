@@ -411,6 +411,22 @@ async fn language_of<C: ConnectionTrait>(db: &C, user_id: i32) -> Option<String>
     })
 }
 
+/// What else a coding-agent session's item rests on (its grant): what
+/// she places from it names that too, so it goes when the grant is
+/// forgotten. Other items cite their own words in `refs`, which a span
+/// placed from them does not carry.
+fn rests_on(item: &inbox::Item) -> Vec<String> {
+    if !item.id.starts_with("session:") {
+        return Vec::new();
+    }
+    item.refs
+        .iter()
+        .filter(|rest| **rest != item.id)
+        .take(upkeep::INBOX_REFS)
+        .cloned()
+        .collect()
+}
+
 fn run_token() -> String {
     format!("u{}", &uuid::Uuid::new_v4().simple().to_string()[..24])
 }
@@ -520,6 +536,7 @@ pub(crate) async fn run(
                     said_by: item.said_by.clone(),
                     text: item.text.clone(),
                     audience: None,
+                    refs: rests_on(item),
                 })
                 .collect(),
             today: Some(today.format("%Y-%m-%d").to_string()),

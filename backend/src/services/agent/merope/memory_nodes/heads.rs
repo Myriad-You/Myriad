@@ -94,12 +94,29 @@ fn empty_by_rule(node: &Node) -> bool {
 /// (`minted:l…`) or a repository (`repo:`). A session is not a thing of
 /// hers, so such a node is set aside: kept as it is, row for row, and
 /// shown nowhere (not recalled, not offered to her upkeep, not on the
-/// page) unless what to do with what is on it is decided another way.
+/// page) unless what to do with what is on it is decided another way. One
+/// that holds a span stays: what was said there was placed on it, and is
+/// not hidden with it.
 fn set_aside(node: &Node) -> bool {
     node.created_by == Some(myriad_persona_log::row::Author::Rule)
+        && node.spans.is_empty()
         && node.key.as_deref().is_some_and(|key| {
-            key.starts_with("minted:s") || key.starts_with("minted:l") || key.starts_with("repo:")
+            minted_by_rule(key, "minted:s")
+                || minted_by_rule(key, "minted:l")
+                || key.starts_with("repo:")
         })
+}
+
+/// Whether `key` is `mark` and the 24 hex a rule mints after it (a
+/// session's task `minted:s…`, a folder `minted:l…`), not a name of hers
+/// that only starts the same (`minted:summer-trip`).
+pub(crate) fn minted_by_rule(key: &str, mark: &str) -> bool {
+    key.strip_prefix(mark).is_some_and(|token| {
+        token.len() == 24
+            && token
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    })
 }
 
 fn word<T: serde::Serialize>(value: &T) -> Option<String> {
