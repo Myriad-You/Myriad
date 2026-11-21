@@ -328,6 +328,25 @@ async fn a_driver_passed_over_is_written_down() {
     assert!(beat.ended_at.is_some() && beat.failed_at.is_some());
 }
 
+/// A long tick that says it is still going is let through still: not
+/// another run, and nothing is made up for a driver never let through.
+#[test]
+fn a_long_tick_still_going_is_not_another_run() {
+    const DRIVER: &str = "a long driver of hers in a test";
+    ticks_every(DRIVER, Duration::from_secs(3600));
+    ran(DRIVER);
+    let before = with(|state| state.drivers[DRIVER].clone());
+    still_going(DRIVER);
+    let after = with(|state| state.drivers[DRIVER].clone());
+    assert_eq!(after.runs, before.runs);
+    assert!(after.ran_at >= before.ran_at);
+    assert_eq!(after.ended_at, None, "still going");
+    still_going("a driver of hers never let through");
+    assert!(with(|state| !state
+        .drivers
+        .contains_key("a driver of hers never let through")));
+}
+
 #[test]
 fn memory_calls_and_ends_are_counted_without_their_words() {
     settled("applied");
