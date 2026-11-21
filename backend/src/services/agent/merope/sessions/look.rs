@@ -436,7 +436,11 @@ async fn look(
                 super::forget_grant(db, owner, &picture.device, &picture.session.grant).await?;
             }
         } else {
-            // Nothing for them: looked at, nothing to keep.
+            // Nothing for them: looked at, and what she made of it kept
+            // for her (her inbox) while her mind is here.
+            if crate::services::her_log::pen::think().is_some() {
+                keep::made(db, owner, picture, &judgment).await?;
+            }
             kept[at] = true;
         }
     }

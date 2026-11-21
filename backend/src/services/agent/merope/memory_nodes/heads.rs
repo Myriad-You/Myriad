@@ -89,6 +89,36 @@ fn empty_by_rule(node: &Node) -> bool {
         && node.parts.is_none_or(|parts| parts.total == 0)
 }
 
+/// A node the rules made of the owner's coding-agent sessions before
+/// sessions went to her inbox: a session as a task (`minted:s…`), a folder
+/// (`minted:l…`) or a repository (`repo:`). A session is not a thing of
+/// hers, so such a node is set aside: kept as it is, row for row, and
+/// shown nowhere (not recalled, not offered to her upkeep, not on the
+/// page) unless what to do with what is on it is decided another way. One
+/// that holds a span stays: what was said there was placed on it, and is
+/// not hidden with it.
+fn set_aside(node: &Node) -> bool {
+    node.created_by == Some(myriad_persona_log::row::Author::Rule)
+        && node.spans.is_empty()
+        && node.key.as_deref().is_some_and(|key| {
+            minted_by_rule(key, "minted:s")
+                || minted_by_rule(key, "minted:l")
+                || key.starts_with("repo:")
+        })
+}
+
+/// Whether `key` is `mark` and the 24 hex a rule mints after it (a
+/// session's task `minted:s…`, a folder `minted:l…`), not a name of hers
+/// that only starts the same (`minted:summer-trip`).
+pub(crate) fn minted_by_rule(key: &str, mark: &str) -> bool {
+    key.strip_prefix(mark).is_some_and(|token| {
+        token.len() == 24
+            && token
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    })
+}
+
 fn word<T: serde::Serialize>(value: &T) -> Option<String> {
     serde_json::to_value(value)
         .ok()
@@ -97,13 +127,17 @@ fn word<T: serde::Serialize>(value: &T) -> Option<String> {
 
 /// Where a node stands, in one word: gone (`forgotten`, `retracted`,
 /// `absorbed`), a bare name a rule made that holds nothing now (`dormant`),
-/// or its status (absent reads as `active`).
+/// one the rules made of a session, set aside (`set_aside`), or its status
+/// (absent reads as `active`).
 pub(crate) fn status_of(node: &Node) -> String {
     if node.forgotten {
         return "forgotten".into();
     }
     if empty_by_rule(node) {
         return "dormant".into();
+    }
+    if set_aside(node) {
+        return "set_aside".into();
     }
     if !node.retracted.is_empty() {
         return "retracted".into();
@@ -132,20 +166,29 @@ pub(crate) async fn refresh<C: ConnectionTrait>(
     let kept = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT node_id, node FROM agent_node_heads WHERE user_id = $1 AND audience = $2",
+            "SELECT node_id, node, status FROM agent_node_heads WHERE user_id = $1 AND audience = $2",
             [user_id.into(), audience.into()],
         ))
         .await?;
-    let mut before: BTreeMap<String, Value> = BTreeMap::new();
+    // A head whose node is as it was and whose word for where it stands
+    // is too stays: one whose word changed (how a word is said changed
+    // here) is written again.
+    let mut before: BTreeMap<String, (Value, String)> = BTreeMap::new();
     for row in kept {
-        before.insert(row.try_get("", "node_id")?, row.try_get("", "node")?);
+        before.insert(
+            row.try_get("", "node_id")?,
+            (row.try_get("", "node")?, row.try_get("", "status")?),
+        );
     }
     let now = crate::clock::now().fixed_offset();
     let mut changed = Vec::new();
     for node in folded.nodes.iter().filter(|node| node.audience == audience) {
         let value = serde_json::to_value(node)
             .map_err(|_| Error::Refused("a folded node does not serialize".into()))?;
-        if before.remove(&node.id).as_ref() == Some(&value) {
+        if before
+            .remove(&node.id)
+            .is_some_and(|(was, status)| was == value && status == status_of(node))
+        {
             continue;
         }
         let aliases = node
@@ -158,7 +201,7 @@ pub(crate) async fn refresh<C: ConnectionTrait>(
         // upkeep kept of it built to nothing goes with it.
         if matches!(
             status.as_str(),
-            "forgotten" | "retracted" | "absorbed" | "dormant"
+            "forgotten" | "retracted" | "absorbed" | "dormant" | "set_aside"
         ) {
             super::unbuilt::went(db, user_id, audience, &node.id).await?;
         }

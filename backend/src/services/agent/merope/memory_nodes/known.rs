@@ -59,7 +59,10 @@ impl Known {
 
 /// Whether a node of this status is still there.
 pub(crate) fn is_live(status: &str) -> bool {
-    !matches!(status, "absorbed" | "forgotten" | "retracted" | "dormant")
+    !matches!(
+        status,
+        "absorbed" | "forgotten" | "retracted" | "dormant" | "set_aside"
+    )
 }
 
 fn memory_of(entry: &Value) -> Vec<String> {

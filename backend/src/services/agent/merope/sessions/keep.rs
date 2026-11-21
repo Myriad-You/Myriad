@@ -1,24 +1,40 @@
-//! What comes of her look, kept: each change's card on its task, the one
-//! line she would say, and the look itself (what she was shown and what the
-//! model answered, word for word) in the owner's ledger for a week.
+//! What comes of her look, kept: each change's card, what she made of it
+//! (beside her nodes, for her next look at the session, and in her inbox
+//! for her upkeep), the one line she would say, and the look itself (what
+//! she was shown and what the model answered, word for word) in the
+//! owner's ledger for a week. A card's suggestion is that card's, never a
+//! view of hers on a node.
 
 use myriad_her_link::now::{Change, Session};
 use myriad_nodes::sessions;
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 
 use super::{Picture, audience};
-use crate::services::agent::merope::memory_nodes::{
-    Error,
-    prepare::{Author, RowIn},
-    read, write,
-};
+use crate::services::agent::merope::memory_nodes::{Error, inbox};
 use crate::services::runtime_registry::{self as registry, RegistryIdentity};
 use myriad_nodes::session_look::{Judgment, Material, Verdict, card_text};
 
 /// Her looks, word for word, by owner.
 const LEDGER: &str = "agent_session_look";
+/// What she made of each session last time she looked, by device, grant
+/// and session: shown to her the next time. Kept as long as its picture.
+const MADE: &str = "agent_session_made";
+const MADE_SECS: i64 = 14 * 24 * 60 * 60;
+
+/// What she made of one session, as she last said it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Made {
+    device: String,
+    grant: String,
+    text: String,
+}
+
+fn made_id(picture: &Picture) -> String {
+    let session = &picture.session;
+    format!("{}/{}/{}", picture.device, session.grant, session.session)
+}
 /// How long a look is kept in it.
 const LEDGER_SECS: i64 = 7 * 24 * 60 * 60;
 
@@ -48,26 +64,29 @@ fn view_id(session: &Session) -> String {
 /// What she made of this session last time, if anything.
 pub(super) async fn before(
     db: &DatabaseConnection,
-    owner: i32,
+    _owner: i32,
     picture: &Picture,
 ) -> Result<Option<String>, Error> {
-    let node = task_node(db, owner, picture).await?;
-    Ok(node
-        .as_ref()
-        .and_then(|node| node.get("views"))
-        .and_then(Value::as_object)
-        .and_then(|views| {
-            views
-                .values()
-                .filter_map(|held| {
-                    Some((
-                        held["at"].as_i64()?,
-                        held["value"]["text"].as_str()?.to_string(),
-                    ))
-                })
-                .max()
-        })
-        .map(|(_, text)| text))
+    Ok(registry::get::<Made>(db, MADE, &made_id(picture))
+        .await?
+        .map(|made| made.text))
+}
+
+/// Every record of what she made of a dropped grant's sessions goes.
+pub(super) async fn forget_made<C: ConnectionTrait>(
+    db: &C,
+    owner: i32,
+    device: &str,
+    grant: &str,
+) -> Result<(), Error> {
+    for row in registry::list(db, MADE, Some(owner), None).await? {
+        if serde_json::from_value::<Made>(row.payload)
+            .is_ok_and(|made| made.device == device && made.grant == grant)
+        {
+            registry::delete(db, MADE, &row.record_id).await?;
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn task_id(owner: i32, picture: &Picture) -> Result<String, Error> {
@@ -77,99 +96,80 @@ pub(super) fn task_id(owner: i32, picture: &Picture) -> Result<String, Error> {
     Ok(myriad_nodes::node_id(&audience, &task_key)?)
 }
 
-async fn task_node(
-    db: &DatabaseConnection,
-    owner: i32,
-    picture: &Picture,
-) -> Result<Option<Value>, Error> {
-    let audience = audience::private_talk(owner, Some(owner));
-    let task = task_id(owner, picture)?;
-    read::node(db, owner, &audience, &task).await
-}
-
-/// Keeps her card on `picture`'s task: what she made of this change, on the
-/// grounds she was shown. False when it was not kept (her mind is not
-/// here).
+/// Keeps what she made of this change: for her next look at the session,
+/// and in her inbox, where her upkeep judges whether it is worth a node and
+/// which. False when it was not kept (her mind is not here). Nothing of it
+/// goes on a node now: a card's suggestion is not a view of hers.
 pub(super) async fn card(
     db: &DatabaseConnection,
     owner: i32,
     picture: &Picture,
     judgment: &Judgment,
-    material: &Material,
+    _material: &Material,
 ) -> Result<bool, Error> {
     // What she made of it is hers: kept only while her mind is here.
-    let Some(pen) = crate::services::her_log::pen::think() else {
+    if crate::services::her_log::pen::think().is_none() {
         return Ok(false);
-    };
-    let session = &picture.session;
-    let audience = audience::private_talk(owner, Some(owner));
-    let task = task_id(owner, picture)?;
-    let node = read::node(db, owner, &audience, &task).await?;
-    let view = view_id(session);
-    let base: Vec<String> = node
-        .as_ref()
-        .and_then(|node| node["views"].get(&view))
-        .and_then(|held| held["base"].as_array())
-        .map(|ids| {
-            ids.iter()
-                .filter_map(|id| id.as_str().map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default();
-    let grant = sessions::grant_ref(&picture.device, &session.grant);
-    let mut because = material.evidence(&judgment.because);
-    if because.is_empty() {
-        because = vec![sessions::session_ref(
-            &picture.device,
-            &session.grant,
-            &session.session,
-        )];
     }
-    // The grant it came under, so a drop finds it as every row of it.
-    because.push(grant);
-    because.sort();
-    because.dedup();
-    // On the task as it was made: kept on the site's side while the task is.
-    let sync = node
-        .as_ref()
-        .and_then(sessions::created_sync)
-        .unwrap_or_else(|| myriad_nodes::Sync::Local(crate::services::her_log::NODE.to_string()));
-    let row = RowIn {
-        id: myriad_nodes::entries::row_id_from(
-            "node.view_changed",
-            &task,
-            &view,
-            &session.occurred_at.to_string(),
-        ),
-        node: task.clone(),
-        kind: "node.view_changed".into(),
-        body: json!({
-            "version": myriad_nodes::BODY_VERSION, "sync": sync, "saidBy": ["her"],
-            "base": base, "view": view, "text": card_text(judgment), "because": because,
-        }),
-        author: Author::Her,
-    };
-    write::write(db, owner, &audience, &[row], Some(&pen)).await?;
+    made(db, owner, picture, judgment).await?;
     Ok(true)
 }
 
+/// What she made of a change, kept for her next look at the session and
+/// put in her inbox: of every change she said something of, a card or not.
+pub(super) async fn made(
+    db: &DatabaseConnection,
+    owner: i32,
+    picture: &Picture,
+    judgment: &Judgment,
+) -> Result<(), Error> {
+    let session = &picture.session;
+    registry::put(
+        db,
+        MADE,
+        &made_id(picture),
+        RegistryIdentity {
+            subject_id: Some(owner),
+            owner_id: Some(owner),
+            tapp_id: None,
+            runtime_id: Some(&picture.device),
+        },
+        &Made {
+            device: picture.device.clone(),
+            grant: session.grant.clone(),
+            text: card_text(judgment),
+        },
+        crate::clock::now().timestamp() + MADE_SECS,
+    )
+    .await?;
+    let Some(item) = sessions::inbox_item(
+        &picture.device,
+        &session.grant,
+        &session.session,
+        &judgment.about,
+    )?
+    else {
+        return Ok(());
+    };
+    let audience = audience::private_talk(owner, Some(owner));
+    let day = crate::services::agent::merope::clock::today();
+    inbox::put_session(db, owner, &audience, day, &item).await
+}
+
 /// Her line on each repository of the look (`repos`, of the changes in
-/// `looked`): written on the repository's node as hers, while her mind is
-/// here, and its progress card put before the owner, the day's counts its
-/// facts. A repository the rules have not made a node of yet is passed by.
+/// `looked`): its progress card put before the owner, the day's counts its
+/// facts, while her mind is here. It is the card's: nothing of it goes on
+/// a node, so her line said again and again is no heap of versions.
 pub(super) async fn progress(
     db: &DatabaseConnection,
     owner: i32,
-    looked: &[Picture],
+    _looked: &[Picture],
     material: &Material,
     repos: &[myriad_nodes::session_look::RepoNow],
 ) {
-    if repos.is_empty() {
+    if repos.is_empty() || crate::services::her_log::pen::think().is_none() {
         return;
     }
-    let Some(pen) = crate::services::her_log::pen::think() else {
-        return;
-    };
     let audience = audience::private_talk(owner, Some(owner));
     let language = language(db, owner).await;
     let pictures = super::pictures(db, owner).await;
@@ -187,32 +187,15 @@ pub(super) async fn progress(
         else {
             continue;
         };
-        let Ok(node_id) = myriad_nodes::node_id(&audience, &repo.key) else {
-            continue;
-        };
-        let Ok(Some(node)) = read::node(db, owner, &audience, &node_id).await else {
-            continue;
-        };
-        let standing = &node["standing"][myriad_nodes::look_progress::ITEM];
-        let base: Vec<String> = standing["base"]
-            .as_array()
-            .map(|ids| {
-                ids.iter()
-                    .filter_map(|id| id.as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let sync = sessions::created_sync(&node).unwrap_or_else(|| {
-            myriad_nodes::Sync::Local(crate::services::her_log::NODE.to_string())
-        });
         let made = match myriad_nodes::look_progress::progress(
             myriad_nodes::look_progress::ProgressInput {
                 audience: audience.clone(),
                 key: repo.key.clone(),
                 name: repo.name.clone(),
                 text: said.text.clone(),
-                base,
-                sync,
+                base: Vec::new(),
+                // Only the card is kept, on the site.
+                sync: myriad_nodes::Sync::Local(crate::services::her_log::NODE.to_string()),
                 told: told.clone(),
                 asking: asking.clone(),
                 since,
@@ -226,54 +209,9 @@ pub(super) async fn progress(
                 continue;
             }
         };
-        let again = nothing_new(standing, &made.row.body, looked, &repo.key);
-        let row = RowIn {
-            id: made.row.id,
-            node: made.node,
-            kind: made.row.kind,
-            body: made.row.body,
-            author: Author::Her,
-        };
-        if !again && let Err(error) = write::write(db, owner, &audience, &[row], Some(&pen)).await {
-            tracing::warn!(%error, "[Merope] her line on a repository was not written");
-            continue;
-        }
         if let Err(error) = crate::services::agent::merope::cards::put(db, owner, made.card).await {
             tracing::warn!(%error, "[Merope] a repository's progress card was not put");
         }
-    }
-}
-
-/// Whether her line on the repository `key` (`standing`, as it stands)
-/// stands as it is rather than be written again as `body`, from a look at
-/// the changes `looked`: it is hers and `body` rests on nothing it did not
-/// rest on already, and either no session of the repository came to the
-/// end of a round in the look (one asking the owner something has not got
-/// further) or it says the same words. Only its card's counts may have
-/// moved.
-pub(super) fn nothing_new(standing: &Value, body: &Value, looked: &[Picture], key: &str) -> bool {
-    let held: Vec<&Value> = standing["value"]["because"]
-        .as_array()
-        .map(|ids| ids.iter().collect())
-        .unwrap_or_default();
-    let new_ground = standing["author"] != "her"
-        || !body["because"]
-            .as_array()
-            .is_some_and(|ids| ids.iter().all(|id| held.contains(&id)));
-    let round_done = looked.iter().any(|picture| {
-        matches!(picture.session.change, Change::Finished | Change::Failed)
-            && repo_key_of(picture).as_deref() == Some(key)
-    });
-    !new_ground && (!round_done || standing["value"]["text"] == body["text"])
-}
-
-/// The key of the repository `picture`'s session is in, as the rows a
-/// rule writes of it name it (`super::take`).
-fn repo_key_of(picture: &Picture) -> Option<String> {
-    match (&picture.session.remote, &picture.session.folder) {
-        (Some(remote), _) => myriad_nodes::repo_key(remote).ok(),
-        (_, Some(folder)) => Some(sessions::folder_key(&picture.device, folder)),
-        (None, None) => None,
     }
 }
 
@@ -650,7 +588,3 @@ pub(super) async fn ledger_of(db: &DatabaseConnection, owner: i32) -> Vec<Looked
         .filter_map(|row| serde_json::from_value(row.payload).ok())
         .collect()
 }
-
-#[cfg(test)]
-#[path = "keep_tests.rs"]
-mod tests;

@@ -105,7 +105,7 @@ pub(super) async fn waiting(
         .filter(|head| {
             !matches!(
                 head.status.as_str(),
-                "forgotten" | "retracted" | "absorbed" | "dormant"
+                "forgotten" | "retracted" | "absorbed" | "dormant" | "set_aside"
             )
         })
         .map(|head| head.node_id)

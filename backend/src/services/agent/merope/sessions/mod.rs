@@ -1,8 +1,12 @@
 //! The owner's coding-agent sessions on their devices, told as they change
-//! (her link's `now` family): kept on her nodes by the core's rules, with
-//! no model (`myriad_nodes::sessions`). The repository is a whole, each
-//! session a task under it; what a session said and did is written by the
-//! rule, never as hers.
+//! (her link's `now` family). A session is not a thing of hers, so nothing
+//! of it goes on her nodes by a rule: its latest picture is kept beside
+//! them, and what she made of a change when she looked at it waits in her
+//! inbox, one item per session (`myriad_nodes::sessions::inbox_item`), for
+//! her upkeep to judge whether it has a state of its own worth a node and
+//! which node it belongs on. The nodes the rules made before
+//! (`minted:s…` tasks under a repository) stay as they are, and grow no
+//! more.
 //!
 //! Three changes are thought over: a session that asks the owner, one that
 //! failed, and one that finished. Those that come together are looked at
@@ -25,18 +29,13 @@ mod keep;
 mod look;
 
 use myriad_her_link::now::{Change, Session};
-use myriad_nodes::sessions::{self, SessionInput};
+use myriad_nodes::sessions;
 use std::collections::BTreeSet;
 
 use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionSession, TransactionTrait};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
-use super::memory_nodes::{
-    Error, audience, forget,
-    prepare::{Author, RowIn},
-    read, write,
-};
+use super::memory_nodes::{Error, audience, forget, inbox, minted_by_rule};
 use crate::services::runtime_registry::{self as registry, RegistryIdentity};
 
 /// The latest picture of each session, by device, grant and session.
@@ -48,8 +47,9 @@ const PICTURE_SECS: i64 = 14 * 24 * 60 * 60;
 /// what it finds may be.
 const GRANTS: &str = "agent_session_grant";
 const GRANT_SECS: i64 = 100 * 365 * 24 * 60 * 60;
-/// The repository nodes of each device's folders with no remote, which
-/// go with the device. Holds no words.
+/// The repository nodes the rules made, before sessions went to her inbox,
+/// of each device's folders with no remote: they go with the device. Holds
+/// no words; nothing is added to it any more.
 const FOLDERS: &str = "agent_session_folder";
 /// The grants the owner dropped, kept across restarts: a change told late
 /// under one of them is never taken again. Holds no words.
@@ -94,34 +94,10 @@ fn identity(owner: i32, device: &str) -> RegistryIdentity<'_> {
     }
 }
 
-/// Whether `row` is the task's `node.standing` saying where it stands in
-/// the words and state it already stands in, by a rule. Each change brings
-/// one (its id comes from when it changed), so a session telling the same
-/// thing again and again would heap up versions saying the same: only a
-/// change of words, of state, or an end is written. When it began standing
-/// so (its `since`) stays the first one's.
-fn stands_as_it_did(task_node: Option<&Value>, task: &str, row: &RowIn) -> bool {
-    if row.kind != "node.standing" || row.node != task {
-        return false;
-    }
-    let Some(item) = row.body.get("item").and_then(Value::as_str) else {
-        return false;
-    };
-    let Some(now) = task_node.and_then(|node| node.get("standing")?.get(item)) else {
-        return false;
-    };
-    let value = &now["value"];
-    let ended = |at: &Value| at.get("ended").and_then(Value::as_bool).unwrap_or(false);
-    now["author"] == "rule"
-        && value["text"] == row.body["text"]
-        && value.get("state") == row.body.get("state")
-        && ended(value) == ended(&row.body)
-}
-
-/// Takes one change of a session the owner's `device` told: kept on her
-/// nodes by the rules, then looked at when it asks them, failed or
-/// finished, unless it came late. A change older than the one kept changes nothing. While
-/// her mind is on another end the site keeps none of it: that end does.
+/// Takes one change of a session the owner's `device` told: its picture
+/// kept, then looked at when it asks them, failed or finished, unless it
+/// came late. A change older than the one kept changes nothing. While her
+/// mind is on another end the site keeps none of it: that end does.
 pub(crate) async fn take(
     db: &DatabaseConnection,
     owner: i32,
@@ -146,60 +122,11 @@ pub(crate) async fn take(
     {
         return Ok(());
     }
-    let audience = audience::private_talk(owner, Some(owner));
-    let repo_key = match (&session.remote, &session.folder) {
-        (Some(remote), _) => myriad_nodes::repo_key(remote)?,
-        (_, Some(folder)) => sessions::folder_key(device, folder),
-        (None, None) => return Ok(()),
-    };
-    let repo = myriad_nodes::node_id(&audience, &repo_key)?;
-    let task_key = sessions::task_key(device, &session.grant, &session.session);
-    let task = myriad_nodes::node_id(&audience, &task_key)?;
-    let repo_node = read::node(db, owner, &audience, &repo).await?;
-    let repo_known = repo_node.is_some();
-    let repo_sync = repo_node.as_ref().and_then(sessions::created_sync);
-    let task_node = read::node(db, owner, &audience, &task).await?;
-    let task_known = task_node.as_ref().and_then(sessions::task_known);
-    let rows = sessions::session_rows(SessionInput {
-        audience: audience.clone(),
-        device: device.to_string(),
-        session: session.clone(),
-        repo_known,
-        repo_sync,
-        task: task_known,
-        // Kept on the site's side until every side it syncs with reads
-        // rows a rule wrote (log3).
-        sync: super::memory_nodes::share::sync_for(db, owner).await,
-    })?;
-    let rows: Vec<RowIn> = rows
-        .rows
-        .into_iter()
-        .map(|placed| RowIn {
-            id: placed.row.id,
-            node: placed.node,
-            kind: placed.row.kind,
-            body: placed.row.body,
-            author: Author::Rule,
-        })
-        // Where it stands, said as it was already: no new version of it.
-        .filter(|row| !stands_as_it_did(task_node.as_ref(), &task, row))
-        .collect();
+    if session.remote.is_none() && session.folder.is_none() {
+        return Ok(());
+    }
     // Found before anything is kept: a removed device's grants are found
     // by these.
-    if session.remote.is_none() {
-        registry::put(
-            db,
-            FOLDERS,
-            &format!("{device}/{repo}"),
-            identity(owner, device),
-            &Folder {
-                device: device.to_string(),
-                node: repo.clone(),
-            },
-            crate::clock::now().timestamp() + GRANT_SECS,
-        )
-        .await?;
-    }
     registry::put(
         db,
         GRANTS,
@@ -212,7 +139,6 @@ pub(crate) async fn take(
         crate::clock::now().timestamp() + GRANT_SECS,
     )
     .await?;
-    write::write(db, owner, &audience, &rows, None).await?;
     let picture = Picture {
         device: device.to_string(),
         session,
@@ -386,10 +312,18 @@ pub(crate) async fn forget_grant<C: ConnectionTrait + TransactionTrait>(
     let grant_ref = sessions::grant_ref(device, grant);
     crate::services::agent::consciousness::withdraw_speak_intents(owner, &grant_ref);
     keep::forget_ledger(db, owner, device, grant).await?;
+    keep::forget_made(db, owner, device, grant).await?;
+    // What she made of its sessions, still in her inbox.
+    inbox::forget_citing(db, std::slice::from_ref(&grant_ref)).await?;
     let audience = audience::private_talk(owner, Some(owner));
     // Under the audience's lock, as every forget.
     let txn = db.begin().await?;
-    forget::forget_named(&txn, owner, &audience, &grant_ref, "minted:s").await?;
+    // A session's own task goes whole; a node of hers that holds what she
+    // placed from it keeps the rest.
+    forget::forget_named(&txn, owner, &audience, &grant_ref, |key| {
+        minted_by_rule(key, "minted:s")
+    })
+    .await?;
     txn.commit().await?;
     // Her cards on its tasks, and on the repositories they were in: her
     // line on a repository rested on them too.

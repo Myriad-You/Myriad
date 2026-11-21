@@ -298,7 +298,7 @@ pub(crate) async fn run(
                 facts.push(entries::Fact {
                     memory: under.memory,
                     text: under.text,
-                    said_by: vec![facts::said_by(&under.speaker)],
+                    said_by: vec![facts::said_by(&under.speaker, &under.source)],
                     refs,
                     revision: String::new(),
                     audience: None,

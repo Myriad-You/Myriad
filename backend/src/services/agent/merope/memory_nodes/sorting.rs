@@ -299,8 +299,12 @@ pub(crate) async fn answer(
         facts::Fact {
             memory: row.id.clone(),
             text: row.content.clone(),
-            said_by: audience::said_by(audience, who)
-                .unwrap_or_else(|| facts::said_by(&row.speaker)),
+            // What was brought in, looked up or seen is a third party's
+            // wherever it is kept.
+            said_by: match facts::said_by(&row.speaker, &row.source) {
+                myriad_nodes::SaidBy::ThirdParty => myriad_nodes::SaidBy::ThirdParty,
+                said => audience::said_by(audience, who).unwrap_or(said),
+            },
             placement,
             standing,
         }

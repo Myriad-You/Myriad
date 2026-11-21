@@ -3777,7 +3777,9 @@ async fn a_session_change_is_taken_once_and_its_grant_dropped_for_good() {
         db.query_one_raw(sea_orm::Statement::from_string(
             sea_orm::DatabaseBackend::Postgres,
             format!(
-                "SELECT count(*) AS n FROM agent_node_rows WHERE user_id = {OWNER} AND body LIKE '%{said}%'"
+                "SELECT (SELECT count(*) FROM agent_node_rows WHERE user_id = {OWNER} AND body LIKE '%{said}%') \
+                 + (SELECT count(*) FROM runtime_registry WHERE namespace = 'agent_session_picture' \
+                    AND payload::text LIKE '%{said}%') AS n"
             ),
         ))
         .await

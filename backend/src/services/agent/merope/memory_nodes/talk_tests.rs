@@ -1657,9 +1657,11 @@ async fn a_line_written_on_what_a_removed_grant_took_stays() {
     write::write(db, OTHER, &talk(), &[first], Some(&pen))
         .await
         .unwrap();
-    forget::forget_named(db, OTHER, &talk(), &removed, "no-such-key/")
-        .await
-        .unwrap();
+    forget::forget_named(db, OTHER, &talk(), &removed, |key| {
+        key.starts_with("no-such-key/")
+    })
+    .await
+    .unwrap();
     let progress = "SELECT count(*) AS n FROM agent_node_rows WHERE body LIKE '%进度二%'";
     write::write(
         db,

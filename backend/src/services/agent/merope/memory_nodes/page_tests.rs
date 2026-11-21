@@ -197,6 +197,8 @@ async fn a_name_they_set_is_theirs_and_upkeep_holds_against_it() {
         node: Some(node.clone()),
         candidates: Vec::new(),
         inbox: Vec::new(),
+        today: None,
+        language: None,
     })
     .unwrap();
     assert!(prepared.node.unwrap().partner_set.contains(&Head::Name));
