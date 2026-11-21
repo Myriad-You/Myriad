@@ -49,8 +49,25 @@ use crate::services::her_log::pen::Thought;
 use crate::services::runtime_registry as registry;
 
 /// The nights her nodes were gone over, by her date (`clock::her_date`):
-/// once a night.
+/// once a night, done when a run went through; one that broke off or
+/// could not go over an audience is tried once more that night
+/// ([`NIGHT_TRIES`]).
 const NIGHT_NAMESPACE: &str = "merope_memory_node_upkeep_night";
+/// Runs a night may start, at most: the first, and one more after a run
+/// that did not go through.
+const NIGHT_TRIES: u32 = 2;
+/// The driver this goes on under (`persona::drivers`): a long night tells
+/// her watch it is still going after every node.
+const DRIVER: &str = "her upkeep";
+
+/// How tonight's going over stands.
+#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+struct Night {
+    /// Runs started, a run that broke off with the process too.
+    tries: u32,
+    /// A run went through.
+    done: bool,
+}
 /// Calls a day for an account other than the site owner's, at most.
 pub(crate) const PER_DAY: u32 = 6;
 /// Audiences gone over in one upkeep, at most: the site owner's first.
@@ -244,20 +261,22 @@ pub(crate) async fn count_calls<C: ConnectionTrait>(
 
 /// Whether her nodes are to be gone over now: she is asleep, and they have
 /// not been yet this night.
-async fn nights_upkeep_due<C: ConnectionTrait>(db: &C) -> Result<bool, Error> {
+/// Tonight's going over, when she is asleep and it is still to run.
+async fn nights_upkeep_due<C: ConnectionTrait>(db: &C) -> Result<Option<Night>, Error> {
     if crate::services::agent::merope::timing::asleep_now().is_none() {
-        return Ok(false);
+        return Ok(None);
     }
-    Ok(registry::get::<bool>(db, NIGHT_NAMESPACE, &night_key())
+    let night = registry::get::<Night>(db, NIGHT_NAMESPACE, &night_key())
         .await?
-        .is_none())
+        .unwrap_or_default();
+    Ok((!night.done && night.tries < NIGHT_TRIES).then_some(night))
 }
 
 fn night_key() -> String {
     crate::services::agent::merope::timing::her_date().to_string()
 }
 
-async fn night_done<C: ConnectionTrait>(db: &C) -> Result<(), Error> {
+async fn keep_night<C: ConnectionTrait>(db: &C, night: Night) -> Result<(), Error> {
     registry::put(
         db,
         NIGHT_NAMESPACE,
@@ -268,7 +287,7 @@ async fn night_done<C: ConnectionTrait>(db: &C) -> Result<(), Error> {
             tapp_id: None,
             runtime_id: None,
         },
-        &true,
+        &night,
         crate::clock::now().timestamp() + 3 * 86_400,
     )
     .await?;
@@ -279,29 +298,42 @@ async fn night_done<C: ConnectionTrait>(db: &C) -> Result<(), Error> {
 /// her nodes once a night, the first time it finds her asleep.
 pub(crate) async fn at_upkeep(db: &DatabaseConnection) {
     meanwhile(db).await;
-    match nights_upkeep_due(db).await {
-        Ok(true) => {}
-        Ok(false) => return,
+    let mut night = match nights_upkeep_due(db).await {
+        Ok(Some(night)) => night,
+        Ok(None) => return,
         Err(error) => {
             tracing::warn!(%error, "[memory-nodes] upkeep could not tell whether tonight's ran");
             return;
         }
-    }
+    };
     if crate::services::her_log::pen::think().is_none() {
         return;
     }
-    if let Err(error) = night_done(db).await {
-        tracing::warn!(%error, "[memory-nodes] tonight's upkeep not marked; not going over");
+    // Counted before it goes on, so a run the process broke off is one of
+    // the night's tries too.
+    night.tries += 1;
+    if let Err(error) = keep_night(db, night).await {
+        tracing::warn!(%error, "[memory-nodes] tonight's upkeep not counted; not going over");
         return;
     }
-    go_over(db).await;
+    if !go_over(db).await {
+        tracing::warn!(
+            tries = night.tries,
+            "[memory-nodes] tonight's upkeep did not go through; tried again within the night"
+        );
+        return;
+    }
+    night.done = true;
+    if let Err(error) = keep_night(db, night).await {
+        tracing::warn!(%error, "[memory-nodes] tonight's upkeep went through and is not marked");
+    }
 }
 
 /// One whole upkeep now, whatever the hour: what waits to be placed or
 /// hung, and her nodes.
 pub(crate) async fn tick(db: &DatabaseConnection) {
     meanwhile(db).await;
-    go_over(db).await;
+    let _ = go_over(db).await;
 }
 
 /// What waits to be placed or hung, each hour.
@@ -318,15 +350,17 @@ async fn meanwhile(db: &DatabaseConnection) {
     }
 }
 
-/// Her nodes of every private talk with something due or waiting.
-async fn go_over(db: &DatabaseConnection) {
+/// Her nodes of every private talk with something due or waiting; whether
+/// every one went through.
+async fn go_over(db: &DatabaseConnection) -> bool {
     let talks = match audiences(db).await {
         Ok(talks) => talks,
         Err(error) => {
             tracing::warn!(%error, "[memory-nodes] upkeep could not find what to go over");
-            return;
+            return false;
         }
     };
+    let mut through = true;
     for (user_id, audience) in talks {
         let owners = audience == audience::owners_talk();
         let result = async {
@@ -380,9 +414,13 @@ async fn go_over(db: &DatabaseConnection) {
         match result {
             Ok(calls) if calls > 0 => tracing::info!(calls, owners, "[memory-nodes] upkeep ran"),
             Ok(_) => {}
-            Err(error) => tracing::warn!(%error, "[memory-nodes] upkeep stopped"),
+            Err(error) => {
+                through = false;
+                tracing::warn!(%error, "[memory-nodes] upkeep stopped")
+            }
         }
     }
+    through
 }
 
 /// How long what she made of a session waits in her inbox, at most: as
@@ -481,6 +519,8 @@ pub(crate) async fn run(
             })?
             .due
         };
+        // However long the night, her watch hears it is still going.
+        crate::services::agent::alive::still_going(DRIVER);
         let mut target = None;
         let mut cut_before = None;
         let due_nodes: Vec<String> = due
