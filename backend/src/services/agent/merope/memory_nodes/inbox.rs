@@ -6,6 +6,10 @@
 //! An item is her few words for the span (`text`), who said what in it,
 //! and where its words are (`refs`, `message:<id>`); its id is the first of
 //! those, so the same span is one item however often it is kept.
+//!
+//! What she made of one of the owner's coding-agent sessions waits here too
+//! (`session:s…`, [`put_session`]): one item per session, a third party's,
+//! until her upkeep puts it on a node or the session's picture is gone.
 
 use chrono::NaiveDate;
 use myriad_nodes::SaidBy;
@@ -61,6 +65,80 @@ pub(super) async fn add<C: ConnectionTrait>(
         ))
         .await?;
     }
+    Ok(())
+}
+
+/// Keeps what she made of one of the owner's coding-agent sessions
+/// (`myriad_nodes::sessions::inbox_item`) under `day`: one item per
+/// session, her latest line in place of one still waiting, and a new one
+/// once the last was put on a node. Whether it is worth a node of its own,
+/// and which, is hers at her upkeep.
+pub(crate) async fn put_session<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    audience: &str,
+    day: NaiveDate,
+    item: &myriad_nodes::sessions::SessionItem,
+) -> Result<(), Error> {
+    let kept = Item {
+        day: Some(day),
+        id: item.id.clone(),
+        said_by: item.said_by.clone(),
+        text: item.text.clone(),
+        refs: item.refs.clone(),
+        from: None,
+        to: None,
+    };
+    let value = serde_json::to_value(&kept)
+        .map_err(|_| Error::Refused("an inbox item does not serialize".into()))?;
+    // The one still waiting from an earlier day gives way to this one.
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "DELETE FROM agent_node_inbox \
+         WHERE user_id = $1 AND audience = $2 AND id = $3 AND day <> $4 AND placed_at IS NULL",
+        [
+            user_id.into(),
+            audience.into(),
+            item.id.clone().into(),
+            day.into(),
+        ],
+    ))
+    .await?;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO agent_node_inbox (user_id, audience, day, id, item) \
+         VALUES ($1, $2, $3, $4, $5) \
+         ON CONFLICT (user_id, audience, day, id) DO UPDATE \
+         SET item = EXCLUDED.item, placed_at = NULL, created_at = now()",
+        [
+            user_id.into(),
+            audience.into(),
+            day.into(),
+            item.id.clone().into(),
+            value.into(),
+        ],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// What she made of a session and never put on a node goes once the
+/// session's own picture is gone (`before` a day): it was what she knew of
+/// a program's work, and nothing of it was hers to keep.
+pub(crate) async fn let_go_of_sessions<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    audience: &str,
+    before: NaiveDate,
+) -> Result<(), Error> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "DELETE FROM agent_node_inbox \
+         WHERE user_id = $1 AND audience = $2 AND id LIKE 'session:%' \
+           AND day < $3 AND placed_at IS NULL",
+        [user_id.into(), audience.into(), before.into()],
+    ))
+    .await?;
     Ok(())
 }
 
@@ -134,7 +212,7 @@ pub(super) async fn take_out<C: ConnectionTrait>(
 }
 
 /// Every item whose words are among `refs`, whoever's: gone with them.
-pub(super) async fn forget_citing<C: ConnectionTrait>(
+pub(crate) async fn forget_citing<C: ConnectionTrait>(
     db: &C,
     refs: &[String],
 ) -> Result<(), Error> {

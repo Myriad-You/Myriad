@@ -1,7 +1,7 @@
 //! The four sessions 工程管理 tried by hand (11-11), told as `now.session`
 //! frames with the same content and looked at the site's own way, on the
 //! site's own model: what each change is routed to, the rows the rules
-//! write, and the model's raw answer where a change is looked at (each on
+//! write (none since sessions go to her inbox), and the model's raw answer where a change is looked at (each on
 //! its own, as they came hours apart).
 //!
 //! Expected before running: A, B, C nothing for the owner and nothing said
@@ -137,34 +137,11 @@ fn route(picture: &Picture) -> &'static str {
     }
 }
 
-fn rules(picture: &Picture) -> Vec<String> {
-    let audience = audience::private_talk(1, Some(1));
-    sessions::session_rows(SessionInput {
-        audience,
-        device: picture.device.clone(),
-        session: picture.session.clone(),
-        repo_known: false,
-        repo_sync: None,
-        task: None,
-        sync: myriad_nodes::Sync::Local("site".into()),
-    })
-    .unwrap()
-    .rows
-    .iter()
-    .map(|placed| {
-        let body = &placed.row.body;
-        let what = body
-            .get("text")
-            .or_else(|| body.get("name"))
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        format!(
-            "{} {}",
-            placed.row.kind,
-            what.chars().take(60).collect::<String>()
-        )
-    })
-    .collect()
+/// The rows a rule writes of it on her nodes: none, since a session went
+/// to her inbox instead (`super::take`). Kept so the trial still prints
+/// what it did before.
+fn rules(_picture: &Picture) -> Vec<String> {
+    Vec::new()
 }
 
 async fn model() -> crate::services::analyzer::AiAnalyzer {
