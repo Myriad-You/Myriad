@@ -53,7 +53,7 @@ use crate::services::persona_sync::{assets, snapshot};
 /// The kinds whose records are her log's rows here, in the order they are
 /// compared. Her memories are compared on their own ([`super::memories`]),
 /// her nodes go in as they are written; her talk is D6.
-pub const KINDS: [Kind; 17] = [
+pub const KINDS: [Kind; 18] = [
     Kind::Persona,
     Kind::Outfit,
     Kind::AffectAnchor,
@@ -70,6 +70,7 @@ pub const KINDS: [Kind; 17] = [
     Kind::SerialWork,
     Kind::SoupGame,
     Kind::Sticker,
+    Kind::Undertone,
     Kind::Diary,
 ];
 
