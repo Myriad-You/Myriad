@@ -92,17 +92,24 @@ fn random_topic_key() -> String {
     )
 }
 
+/// The name a person's own node goes by: the name they chose to be shown
+/// by, else their account name.
 pub(super) async fn person_name<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<String, Error> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT username FROM users WHERE id = $1",
+            "SELECT display_name, username FROM users WHERE id = $1",
             [user_id.into()],
         ))
         .await?;
-    Ok(row
-        .and_then(|row| row.try_get::<String>("", "username").ok())
-        .filter(|name| !name.trim().is_empty())
+    let named = |column: &str| {
+        row.as_ref()
+            .and_then(|row| row.try_get::<Option<String>>("", column).ok().flatten())
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty())
+    };
+    Ok(named("display_name")
+        .or_else(|| named("username"))
         .unwrap_or_else(|| format!("user {user_id}")))
 }
 
@@ -308,13 +315,12 @@ pub(crate) async fn put_about(
     Ok(placed)
 }
 
-/// Who said a memory, as the core tags it in a private talk.
-pub(crate) fn said_by(speaker: &str) -> SaidBy {
-    if speaker == "agent" {
-        SaidBy::Her
-    } else {
-        SaidBy::Partner
-    }
+/// Who said a memory, as the core tags it in a private talk: by its
+/// speaker and where it came from (`source`), so what was brought in,
+/// looked up or seen is never the partner's word to her
+/// (`myriad_nodes::tags::said_by_of`).
+pub(crate) fn said_by(speaker: &str, source: &str) -> SaidBy {
+    myriad_nodes::tags::said_by_of(speaker, source)
 }
 
 /// Who said a memory, as the core tags it in `audience`: in a group,
@@ -325,7 +331,7 @@ fn said_by_in(audience: &str, speaker: &str) -> SaidBy {
     } else {
         audience::Speaker::Person
     };
-    audience::said_by(audience, who).unwrap_or_else(|| said_by(speaker))
+    audience::said_by(audience, who).unwrap_or_else(|| said_by(speaker, "chat"))
 }
 
 /// Where the memory a memory replaced was put, if it was.

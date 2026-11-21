@@ -1,4 +1,4 @@
-//! The owner's sessions on her nodes, on a database of their own
+//! The owner's sessions beside her nodes and in her inbox, on a database of their own
 //! (`MYRIAD_MEDIA_TEST_DATABASE_URL`, an isolated schema each), with the
 //! model's answers given by the test (`channel_group::g0`).
 
@@ -18,9 +18,6 @@ const DEVICE: &str = "dev_mac";
 const GRANT: &str = "g_0123456789";
 /// Another grant: what a drop leaves behind in this process is by grant.
 const ASKING: &str = "g_1111111111";
-/// The grant of the sharing test alone: what another test drops is
-/// dropped for every test in this process (`look::grant_dropped`).
-const SHARING: &str = "g_3333333333";
 /// The grant of the hollow-answer test alone: one question is looked at
 /// once in this process (`look::LOOKED`).
 const HOLLOW: &str = "g_4444444444";
@@ -35,8 +32,6 @@ const TOGETHER: &str = "g_6666666666";
 const PROGRESS: &str = "g_7777777777";
 /// The grant of the status-card test alone.
 const ENDED: &str = "g_8888888888";
-/// The grant of the test of a state told again alone.
-const AGAIN: &str = "g_9999999999";
 /// What the owner said to it: theirs alone.
 const OWNERS_WORDS: &str = "把存储拆开然后提交";
 /// What another session sent it, with someone else's name in it.
@@ -118,62 +113,62 @@ fn owners() -> String {
     audience::private_talk(OWNER, Some(OWNER))
 }
 
-fn task() -> String {
-    task_of(GRANT)
-}
-
-fn task_of(grant: &str) -> String {
-    myriad_nodes::node_id(&owners(), &sessions::task_key(DEVICE, grant, "s-1")).unwrap()
+/// What she made of `grant`'s session `s-1`, as kept for her next look.
+async fn made_of(db: &DatabaseConnection, grant: &str, session: &str) -> Option<String> {
+    let mut told = under(grant, "asked", 2);
+    told.session = session.into();
+    let picture = Picture {
+        device: DEVICE.into(),
+        session: told,
+    };
+    keep::before(db, OWNER, &picture).await.unwrap()
 }
 
 /// Waits for the look under way to keep what it made of it.
-async fn looked(db: &DatabaseConnection) -> Value {
+async fn looked(db: &DatabaseConnection) -> String {
     looked_under(db, ASKING).await
 }
 
-async fn looked_under(db: &DatabaseConnection, grant: &str) -> Value {
+async fn looked_under(db: &DatabaseConnection, grant: &str) -> String {
     for _ in 0..100 {
-        if let Some(node) = read::node(db, OWNER, &owners(), &task_of(grant))
-            .await
-            .unwrap()
-            && node["views"]
-                .as_object()
-                .is_some_and(|views| !views.is_empty())
-        {
-            return node;
+        if let Some(made) = made_of(db, grant, "s-1").await {
+            return made;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     panic!("no look was kept");
 }
 
-/// Where a node stands, as every reader of her nodes sees it.
-async fn head_status(db: &DatabaseConnection, node: &str) -> String {
-    db.query_one_raw(Statement::from_sql_and_values(
+/// What waits in every inbox: (audience, id, item).
+async fn inbox_of(db: &DatabaseConnection) -> Vec<(String, String, Value)> {
+    db.query_all_raw(Statement::from_string(
         DatabaseBackend::Postgres,
-        "SELECT status FROM agent_node_heads WHERE node_id = $1",
-        [node.into()],
+        "SELECT audience, id, item FROM agent_node_inbox WHERE placed_at IS NULL ORDER BY id"
+            .to_string(),
     ))
     .await
     .unwrap()
-    .unwrap()
-    .try_get::<String>("", "status")
-    .unwrap()
+    .iter()
+    .map(|row| {
+        (
+            row.try_get("", "audience").unwrap(),
+            row.try_get("", "id").unwrap(),
+            row.try_get("", "item").unwrap(),
+        )
+    })
+    .collect()
 }
 
-/// Every word of every row the site keeps of her nodes, wherever.
-async fn rows_say(db: &DatabaseConnection, words: &str) -> i64 {
-    count(
-        db,
-        &format!("SELECT count(*) AS n FROM agent_node_rows WHERE body LIKE '%{words}%'"),
-    )
-    .await
+/// Every row of her nodes the site keeps, wherever.
+async fn node_rows(db: &DatabaseConnection) -> i64 {
+    count(db, "SELECT count(*) AS n FROM agent_node_rows").await
 }
 
-/// A session that asks the owner lands on her nodes by rules, in the
-/// owner's private talk only, waiting on them; she looks at it once, and
-/// grounds that name what she was not shown are asked again. Nothing of it
-/// is anywhere a group, a visitor or her own audience reads.
+/// A session that asks the owner puts nothing on her nodes: she looks at
+/// it once (grounds that name what she was not shown are asked again), and
+/// what she made of it waits in the owner's private talk's inbox alone, a
+/// third party's, for her upkeep to judge. Nothing of it is anywhere a
+/// group, a visitor or her own audience reads.
 #[tokio::test]
 async fn an_asking_session_is_kept_for_the_owner_alone_and_looked_at_once() {
     let Some(schema) = schema().await else {
@@ -189,7 +184,7 @@ async fn an_asking_session_is_kept_for_the_owner_alone_and_looked_at_once() {
     take(db, OWNER, DEVICE, under(ASKING, "asked", 1_760_000_000_000))
         .await
         .unwrap();
-    let node = looked(db).await;
+    let made = looked(db).await;
     assert_eq!(g0::leave().unwrap().models["session_look"].len(), 0);
     // Both answers are in the owner's ledger, word for word.
     let ledger = keep::ledger_of(db, OWNER).await;
@@ -198,53 +193,27 @@ async fn an_asking_session_is_kept_for_the_owner_alone_and_looked_at_once() {
     assert!(ledger[0].answers[0].contains("[99]"));
     // How each came beside it: why it stopped and what it wrote, as said.
     assert_eq!(ledger[0].replies.len(), 2);
-    // Waiting on them: an open item, and how it stands now, by rule.
-    let open = node["open"].as_object().unwrap();
-    assert_eq!(open.len(), 1);
-    assert!(open.values().all(|item| item["author"] == "rule"));
-    assert_eq!(node["standing"]["now"]["author"], "rule");
-    // Her view: theirs to nod to at least, on grounds she was shown.
-    let view = node["views"].as_object().unwrap().values().next().unwrap();
-    assert_eq!(view["author"], "her");
+    // What she made of it: theirs to nod to at least.
+    assert!(made.starts_with("你点头就行"), "{made}");
+    // Nothing on her nodes: a session is not a thing of hers.
+    assert_eq!(node_rows(db).await, 0);
+    // What she made of it waits in the owner's private talk's inbox alone,
+    // one item for the session, a third party's, in her words.
+    let inbox = inbox_of(db).await;
+    assert_eq!(inbox.len(), 1, "{inbox:?}");
+    assert_eq!(inbox[0].0, owners());
+    assert_eq!(inbox[0].1, sessions::session_ref(DEVICE, ASKING, "s-1"));
+    assert_eq!(inbox[0].2["saidBy"], json!(["third_party"]));
+    assert_eq!(inbox[0].2["text"], "它问要不要推送");
     assert!(
-        view["value"]["text"]
-            .as_str()
-            .unwrap()
-            .starts_with("你点头就行")
-    );
-    assert!(
-        view["value"]["because"]
+        inbox[0].2["refs"]
             .as_array()
             .unwrap()
             .iter()
-            .all(|reference| {
-                let reference = reference.as_str().unwrap();
-                reference.starts_with("session:") || reference.starts_with("grant:")
-            })
-    );
-    // Kept on the site's side until both ends read rows a rule wrote.
-    assert_eq!(
-        count(
-            db,
-            "SELECT count(*) AS n FROM agent_node_rows WHERE dseq IS NOT NULL"
-        )
-        .await,
-        0
-    );
-    // Only the owner's private talk holds it.
-    assert_eq!(
-        count(
-            db,
-            &format!(
-                "SELECT count(*) AS n FROM agent_node_rows WHERE user_id <> {OWNER} OR audience <> '{}'",
-                owners()
-            )
-        )
-        .await,
-        0
+            .any(|reference| reference == &json!(sessions::grant_ref(DEVICE, ASKING)))
     );
     let ours = shown::shown(db, OWNER, &owners(), None).await.unwrap();
-    assert!(ours.node(&task_of(ASKING)).is_some());
+    assert!(ours.nodes.is_empty());
     let elsewhere = [
         (OWNER, audience::group("telegram:-100123")),
         (OWNER, audience::OWN.to_string()),
@@ -266,11 +235,11 @@ async fn an_asking_session_is_kept_for_the_owner_alone_and_looked_at_once() {
         .await
         .unwrap();
     tokio::time::sleep(Duration::from_millis(200)).await;
-    let again = read::node(db, OWNER, &owners(), &task_of(ASKING))
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(again["views"], node["views"]);
+    assert_eq!(
+        made_of(db, ASKING, "s-1").await.as_deref(),
+        Some(made.as_str())
+    );
+    assert_eq!(inbox_of(db).await.len(), 1);
     schema.drop().await;
 }
 
@@ -302,15 +271,8 @@ async fn what_waits_on_the_owners_answer_is_theirs_to_decide_when_her_answers_ar
     }))
     .unwrap();
     take(db, OWNER, DEVICE, asked).await.unwrap();
-    let node = looked_under(db, HOLLOW).await;
-    let view = node["views"].as_object().unwrap().values().next().unwrap();
-    assert!(
-        view["value"]["text"]
-            .as_str()
-            .unwrap()
-            .starts_with("要你定"),
-        "{view}"
-    );
+    let made = looked_under(db, HOLLOW).await;
+    assert!(made.starts_with("要你定"), "{made}");
     let ledger = keep::ledger_of(db, OWNER).await;
     let reads: Vec<Option<&str>> = ledger[0]
         .replies
@@ -347,15 +309,8 @@ async fn an_empty_answer_that_leaves_all_to_itself_is_not_asked_again() {
     }))
     .unwrap();
     take(db, OWNER, DEVICE, asked).await.unwrap();
-    let node = looked_under(db, EMPTY).await;
-    let view = node["views"].as_object().unwrap().values().next().unwrap();
-    assert!(
-        view["value"]["text"]
-            .as_str()
-            .unwrap()
-            .starts_with("要你定"),
-        "{view}"
-    );
+    let made = looked_under(db, EMPTY).await;
+    assert!(made.starts_with("要你定"), "{made}");
     let ledger = keep::ledger_of(db, OWNER).await;
     let reads: Vec<Option<&str>> = ledger[0]
         .replies
@@ -366,50 +321,42 @@ async fn an_empty_answer_that_leaves_all_to_itself_is_not_asked_again() {
     schema.drop().await;
 }
 
-/// A grant the owner ends is forgotten for good: the task, every row that
-/// names it, the words, the pictures; the repository stays a bare name the
-/// sessions of a later grant come back to. A removed device's grants go
-/// too, and its folders with no remote.
+/// A grant the owner ends is forgotten for good: the pictures, what she
+/// made of its sessions, beside her nodes and in her inbox. A removed
+/// device's grants go too. Nothing of a session is ever on her nodes.
 #[tokio::test]
 async fn a_dropped_grant_is_forgotten_for_good() {
     let Some(schema) = schema().await else {
         return;
     };
     let db = &schema.db;
-    // No model: nothing is looked at, the rules still keep it.
+    // No model: nothing is looked at; only the picture is kept.
     take(db, OWNER, DEVICE, session("started", 1_760_000_000_000))
         .await
         .unwrap();
     take(db, OWNER, DEVICE, session("finished", 1_760_000_100_000))
         .await
         .unwrap();
-    assert!(rows_say(db, OWNERS_WORDS).await > 0);
-    assert_eq!(pictures(db, OWNER).await.len(), 1);
-    let repo = myriad_nodes::node_id(&owners(), "repo:github.com/me/repo").unwrap();
-    let made = read::node(db, OWNER, &owners(), &repo)
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(!made["entries"].as_array().unwrap().is_empty());
+    assert_eq!(node_rows(db).await, 0);
+    let kept = pictures(db, OWNER).await;
+    assert_eq!(kept.len(), 1);
+    // What a look would have kept of it.
+    let judgment: myriad_nodes::session_look::Judgment = serde_json::from_value(json!({
+        "verdict": "no_need", "about": "把存储拆开了", "suggestion": "", "because": [],
+        "missing": null, "ownerMustSay": false,
+    }))
+    .unwrap();
+    keep::made(db, OWNER, &kept[0], &judgment).await.unwrap();
+    assert!(made_of(db, GRANT, "s-1").await.is_some());
+    assert_eq!(inbox_of(db).await.len(), 1);
 
     forget_grant(db, OWNER, DEVICE, GRANT).await.unwrap();
-    for words in [OWNERS_WORDS, PEERS_WORDS, "Split the store", "Push now"] {
-        assert_eq!(rows_say(db, words).await, 0, "{words}");
-    }
     assert!(pictures(db, OWNER).await.is_empty());
-    let left = shown::shown(db, OWNER, &owners(), None).await.unwrap();
-    assert!(left.node(&task()).is_none());
-    let bare = read::node(db, OWNER, &owners(), &repo)
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(bare["entries"].as_array().is_none_or(Vec::is_empty));
-    // The bare name is shown nowhere: not recalled, not in what she is
-    // told, not on the page.
-    assert!(left.node(&repo).is_none());
-    assert_eq!(head_status(db, &repo).await, "dormant");
+    assert_eq!(made_of(db, GRANT, "s-1").await, None);
+    assert!(inbox_of(db).await.is_empty());
 
-    // A later grant: the same repository, a new task under it.
+    // A later grant, a session with no remote too: still nothing on her
+    // nodes.
     let later = "g_9876543210";
     take(
         db,
@@ -424,16 +371,11 @@ async fn a_dropped_grant_is_forgotten_for_good() {
     folder.remote = None;
     folder.folder = Some("scratch".into());
     take(db, OWNER, DEVICE, folder).await.unwrap();
-    let back = shown::shown(db, OWNER, &owners(), None).await.unwrap();
-    let task = myriad_nodes::node_id(&owners(), &sessions::task_key(DEVICE, later, "s-1")).unwrap();
-    assert!(back.node(&task).is_some());
-    assert!(back.node(&repo).is_some());
-    let scratch =
-        myriad_nodes::node_id(&owners(), &sessions::folder_key(DEVICE, "scratch")).unwrap();
-    assert!(back.node(&scratch).is_some());
+    assert_eq!(pictures(db, OWNER).await.len(), 2);
+    assert_eq!(node_rows(db).await, 0);
 
-    // The device removed: every grant it was given, and its folder; what it
-    // tells after that is not taken.
+    // The device removed: every grant it was given; what it tells after
+    // that is not taken.
     crate::services::persona_sync::devices::revoke(
         db,
         OWNER,
@@ -443,108 +385,12 @@ async fn a_dropped_grant_is_forgotten_for_good() {
     .await
     .unwrap()
     .unwrap();
-    assert_eq!(rows_say(db, OWNERS_WORDS).await, 0);
+    assert!(pictures(db, OWNER).await.is_empty());
     take(db, OWNER, DEVICE, under(later, "asked", 1_760_000_300_000))
         .await
         .unwrap();
-    assert_eq!(rows_say(db, OWNERS_WORDS).await, 0);
     assert!(pictures(db, OWNER).await.is_empty());
-    let gone = shown::shown(db, OWNER, &owners(), None).await.unwrap();
-    assert!(gone.node(&task).is_none());
-    assert!(gone.node(&scratch).is_none());
-    assert!(gone.node(&repo).is_none());
-    assert_eq!(head_status(db, &repo).await, "dormant");
-    schema.drop().await;
-}
-
-/// Kept on the site's side while no side of hers is known to read a
-/// rule's rows, or one reads less; once every side reads them, what was
-/// kept goes as shared, each row once under its own id, the nodes as they
-/// were, and what comes later is written shared. A drop still forgets it.
-#[tokio::test]
-async fn kept_rows_go_shared_once_every_side_reads_them() {
-    let Some(schema) = schema().await else {
-        return;
-    };
-    let db = &schema.db;
-    use crate::services::agent::merope::memory_nodes::share;
-    use crate::services::her_log::relay;
-    take(
-        db,
-        OWNER,
-        DEVICE,
-        under(SHARING, "started", 1_760_000_000_000),
-    )
-    .await
-    .unwrap();
-    take(
-        db,
-        OWNER,
-        DEVICE,
-        under(SHARING, "quiet", 1_760_000_100_000),
-    )
-    .await
-    .unwrap();
-    let all = "SELECT count(*) AS n FROM agent_node_rows";
-    let local = "SELECT count(*) AS n FROM agent_node_rows WHERE dseq IS NULL";
-    let kept = count(db, all).await;
-    assert!(kept > 0);
-    assert_eq!(count(db, local).await, kept);
-    let before = read::node(db, OWNER, &owners(), &task_of(SHARING))
-        .await
-        .unwrap()
-        .unwrap();
-    // A side on an older core: still kept here.
-    relay::remember_side(db, OWNER, DEVICE, 2).await.unwrap();
-    assert_eq!(share::share_kept(db, OWNER).await.unwrap(), 0);
-    assert_eq!(count(db, local).await, kept);
-
-    relay::remember_side(db, OWNER, DEVICE, 3).await.unwrap();
-    assert_eq!(share::share_kept(db, OWNER).await.unwrap() as i64, kept);
-    assert_eq!(count(db, all).await, kept);
-    assert_eq!(count(db, local).await, 0);
-    assert_eq!(
-        count(
-            db,
-            "SELECT count(DISTINCT dseq) AS n FROM agent_node_rows WHERE body LIKE '%\"sync\":\"shared\"%'"
-        )
-        .await,
-        kept
-    );
-    let after = read::node(db, OWNER, &owners(), &task_of(SHARING))
-        .await
-        .unwrap()
-        .unwrap();
-    for part in ["entries", "open"] {
-        assert_eq!(
-            before[part].as_array().map(Vec::len),
-            after[part].as_array().map(Vec::len),
-            "{part}"
-        );
-    }
-    assert_eq!(
-        before["standing"]["now"]["value"],
-        after["standing"]["now"]["value"]
-    );
-    // Once is all.
-    assert_eq!(share::share_kept(db, OWNER).await.unwrap(), 0);
-    // What comes later is shared from the first: working again, a new
-    // version of where it stands (the same state again writes none).
-    take(
-        db,
-        OWNER,
-        DEVICE,
-        under(SHARING, "started", 1_760_000_200_000),
-    )
-    .await
-    .unwrap();
-    assert!(count(db, all).await > kept);
-    assert_eq!(count(db, local).await, 0);
-
-    forget_grant(db, OWNER, DEVICE, SHARING).await.unwrap();
-    for words in [OWNERS_WORDS, PEERS_WORDS, "Split the store"] {
-        assert_eq!(rows_say(db, words).await, 0, "{words}");
-    }
+    assert_eq!(node_rows(db).await, 0);
     schema.drop().await;
 }
 
@@ -565,22 +411,20 @@ async fn a_late_change_under_a_dropped_grant_is_refused_after_a_restart() {
     )
     .await
     .unwrap();
-    assert!(rows_say(db, OWNERS_WORDS).await > 0);
+    assert_eq!(pictures(db, OWNER).await.len(), 1);
     forget_grant(db, OWNER, DEVICE, grant).await.unwrap();
-    assert_eq!(rows_say(db, OWNERS_WORDS).await, 0);
+    assert!(pictures(db, OWNER).await.is_empty());
     look::restarted();
     take(db, OWNER, DEVICE, under(grant, "asked", 1_760_000_100_000))
         .await
         .unwrap();
-    assert_eq!(rows_say(db, OWNERS_WORDS).await, 0);
     assert!(pictures(db, OWNER).await.is_empty());
-    let left = shown::shown(db, OWNER, &owners(), None).await.unwrap();
-    assert!(left.node(&task_of(grant)).is_none());
+    assert_eq!(node_rows(db).await, 0);
     schema.drop().await;
 }
 
-/// A question told late keeps its card by the rules, waiting on the owner,
-/// and is not looked at: what it asked may be answered by now.
+/// A question told late is not looked at: what it asked may be answered
+/// by now.
 #[tokio::test]
 async fn a_question_told_late_keeps_its_card_and_is_not_looked_at() {
     let Some(schema) = schema().await else {
@@ -610,28 +454,10 @@ async fn a_question_told_late_keeps_its_card_and_is_not_looked_at() {
         1,
         "no look was asked"
     );
-    let node = read::node(db, OWNER, &owners(), &task_of(late))
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(
-        node["views"]
-            .as_object()
-            .is_none_or(|views| views.is_empty()),
-        "{node}"
-    );
-    assert_eq!(
-        count(
-            db,
-            &format!(
-                "SELECT count(*) AS n FROM agent_node_rows WHERE node_id = '{}' AND kind = 'node.open_item'",
-                task_of(late)
-            ),
-        )
-        .await,
-        1,
-        "its question waits on the owner"
-    );
+    // Not looked at: nothing she made of it, nothing on her nodes.
+    assert_eq!(made_of(db, late, "s-1").await, None);
+    assert!(inbox_of(db).await.is_empty());
+    assert_eq!(node_rows(db).await, 0);
     schema.drop().await;
 }
 
@@ -656,30 +482,24 @@ async fn what_comes_together_is_looked_at_once_and_kept_word_for_word() {
     let mut done = under(grant, "finished", at + 1);
     done.session = "s-2".into();
     take(db, OWNER, DEVICE, done).await.unwrap();
-    let node = looked_under(db, grant).await;
+    let made = looked_under(db, grant).await;
     assert_eq!(
         g0::leave().unwrap().models["session_look"].len(),
         0,
         "one look for both"
     );
-    let view = node["views"].as_object().unwrap().values().next().unwrap();
+    assert!(made.starts_with("要你定：它问要不要推送"), "{made}");
+    // Nothing for them is no card, and still hers to keep in mind: both
+    // wait in her inbox, one item a session.
+    assert!(made_of(db, grant, "s-2").await.is_some());
+    let inbox = inbox_of(db).await;
+    let texts: Vec<&str> = inbox
+        .iter()
+        .map(|(_, _, item)| item["text"].as_str().unwrap())
+        .collect();
     assert!(
-        view["value"]["text"]
-            .as_str()
-            .unwrap()
-            .starts_with("要你定：它问要不要推送")
-    );
-    let finished =
-        myriad_nodes::node_id(&owners(), &sessions::task_key(DEVICE, grant, "s-2")).unwrap();
-    let finished = read::node(db, OWNER, &owners(), &finished)
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(
-        finished["views"]
-            .as_object()
-            .is_none_or(|views| views.is_empty()),
-        "nothing for them: no card"
+        texts.contains(&"它问要不要推送") && texts.contains(&"写完了"),
+        "{texts:?}"
     );
     let ledger = keep::ledger_of(db, OWNER).await;
     assert_eq!(ledger.len(), 1);
@@ -919,11 +739,11 @@ async fn her_card_comes_at_once_moves_to_her_line_and_settles_as_the_session_goe
     schema.drop().await;
 }
 
-/// Her line on the repository of what she looked at goes on its node as
-/// hers, and its progress card comes before the owner at once: the day's
-/// counts its facts, her line its view, asking nothing.
+/// Her line on the repository of what she looked at is its progress card,
+/// before the owner at once: the day's counts its facts, her line its view,
+/// asking nothing. Nothing of it goes on a node.
 #[tokio::test]
-async fn her_line_on_the_repository_is_hers_on_its_node_and_a_progress_card() {
+async fn her_line_on_the_repository_is_a_progress_card_and_on_no_node() {
     use crate::services::agent::merope::cards;
     let Some(schema) = schema().await else {
         return;
@@ -960,14 +780,7 @@ async fn her_line_on_the_repository_is_hers_on_its_node_and_a_progress_card() {
     }
     let progress = progress.expect("a progress card");
     assert!(!progress.waiting);
-    let repo = myriad_nodes::node_id(&owners(), "repo:github.com/me/repo").unwrap();
-    let node = read::node(db, OWNER, &owners(), &repo)
-        .await
-        .unwrap()
-        .expect("the repository");
-    let held = &node["standing"][myriad_nodes::look_progress::ITEM];
-    assert_eq!(held["author"], "her", "{held}");
-    assert_eq!(held["value"]["text"], "拆仓库做到一半，在等你定推不推");
+    assert_eq!(node_rows(db).await, 0);
 
     // Her card that it needs them (`decide`) still waits: its task is one
     // the progress counts take as waiting on them, until they answer it.
@@ -996,12 +809,6 @@ async fn her_line_on_the_repository_is_hers_on_its_node_and_a_progress_card() {
     forget_grant(db, OWNER, DEVICE, PROGRESS).await.unwrap();
     let left = cards::lately(db, OWNER, 10).await.unwrap();
     assert!(left.is_empty(), "{left:?}");
-    let node = read::node(db, OWNER, &owners(), &repo).await.unwrap();
-    assert!(
-        node.as_ref()
-            .is_none_or(|node| node["standing"][myriad_nodes::look_progress::ITEM].is_null()),
-        "{node:?}"
-    );
     schema.drop().await;
 }
 
@@ -1046,50 +853,5 @@ async fn her_line_on_a_session_that_ended_carries_its_status_card() {
         .expect("the status card");
     let held = cards::now(db, OWNER, &card).await.unwrap().unwrap();
     assert_eq!(held.card.kind, "status");
-    schema.drop().await;
-}
-
-/// A session telling where it stands, the same again and again, keeps one
-/// version of it on its task: only a new state or new words are a new one.
-#[tokio::test]
-async fn where_a_session_stands_told_again_is_one_version() {
-    let Some(schema) = schema().await else {
-        return;
-    };
-    let db = &schema.db;
-    let versions = || async {
-        count(
-            db,
-            &format!(
-                "SELECT count(*) AS n FROM agent_node_rows WHERE kind = 'node.standing' \
-                 AND author = 'rule' AND node_id = '{}'",
-                task_of(AGAIN)
-            ),
-        )
-        .await
-    };
-    for at in [1_000, 2_000, 3_000] {
-        take(db, OWNER, DEVICE, under(AGAIN, "started", at))
-            .await
-            .unwrap();
-    }
-    assert_eq!(versions().await, 1, "working, told three times: one");
-    take(db, OWNER, DEVICE, under(AGAIN, "quiet", 4_000))
-        .await
-        .unwrap();
-    assert_eq!(versions().await, 2, "gone quiet: a new one");
-    take(db, OWNER, DEVICE, under(AGAIN, "quiet", 5_000))
-        .await
-        .unwrap();
-    assert_eq!(versions().await, 2, "still quiet: none");
-    take(db, OWNER, DEVICE, under(AGAIN, "started", 6_000))
-        .await
-        .unwrap();
-    assert_eq!(versions().await, 3, "working again: a new one");
-    let node = read::node(db, OWNER, &owners(), &task_of(AGAIN))
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(node["standing"][sessions::NOW]["value"]["state"], "working");
     schema.drop().await;
 }
