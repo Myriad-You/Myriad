@@ -273,8 +273,9 @@ pub async fn look_back(
     shown.dedup();
     // Of what she said, the one that most names it is read whole: asked what
     // exactly she gave (the fifth bottle, the seventh job), a person reads
-    // their own long message through, not the few lines that matched. Only
-    // that one: the rest are cut as before.
+    // their own long message through, not the few lines that matched. Her
+    // other messages found are read through too, only less of a long one:
+    // a list she gave cut after its second item hides what came last.
     let whole = named.first().and_then(|(_, index)| {
         [*index, index + 1]
             .into_iter()
@@ -285,7 +286,9 @@ pub async fn look_back(
         .map(|index| {
             let (at, hers, content) = &chat[index];
             let text = if whole == Some(index) {
-                read_whole(content, query, SHOWN_CHARS)
+                her_reply(content, query, READ_WHOLE_CHARS)
+            } else if *hers {
+                her_reply(content, query, HERS_CHARS)
             } else if myriad_merope::remembering::overlap(query, content) == 0 {
                 content
                     .lines()
@@ -317,28 +320,105 @@ pub async fn look_back(
     merge_found(by_words, by_day)
 }
 
-/// One of her messages read through: a long one whole, up to
-/// [`READ_WHOLE_CHARS`]; one no longer than `shown` as any other is cut.
-fn read_whole(content: &str, query: &str, shown: usize) -> String {
-    let whole = content
+/// One of her messages read through, up to `most`: whole when it fits;
+/// longer, what it opens with, the lines that name `query` and how it
+/// ends, with what lies between left out, as a person skims their own long
+/// reply: a list cut at its tail would lose its last items, the ones most
+/// often asked after.
+pub(in crate::services::agent::merope) fn her_reply(
+    content: &str,
+    query: &str,
+    most: usize,
+) -> String {
+    const AROUND: usize = 2;
+    let lines: Vec<&str> = content
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>()
-        .join(" / ");
-    if whole.chars().count() <= shown {
-        return if myriad_merope::remembering::overlap(query, content) == 0 {
-            whole
+        .collect();
+    let whole = lines.join(" / ");
+    if whole.chars().count() <= most {
+        return whole;
+    }
+    let best = lines
+        .iter()
+        .enumerate()
+        .max_by_key(|(index, line)| {
+            (
+                myriad_merope::remembering::overlap(query, line),
+                std::cmp::Reverse(*index),
+            )
+        })
+        .map_or(0, |(index, _)| index);
+    let mut kept = vec![false; lines.len()];
+    for keep in &mut kept[best.saturating_sub(AROUND)..(best + AROUND + 1).min(lines.len())] {
+        *keep = true;
+    }
+    if skimmed(&lines, &kept).chars().count() > most {
+        // Even the lines that name it are too long: its start and its end.
+        let chars: Vec<char> = whole.chars().collect();
+        let half = most / 2;
+        return format!(
+            "{} … {}",
+            chars[..half].iter().collect::<String>(),
+            chars[chars.len() - half..].iter().collect::<String>()
+        );
+    }
+    // From its start and its end in turn, a line at a time, while it fits.
+    let (mut from_start, mut start_open, mut end_open) = (true, true, true);
+    while start_open || end_open {
+        let at_start = start_open && (from_start || !end_open);
+        let next = if at_start {
+            kept.iter().position(|keep| !keep)
         } else {
-            myriad_merope::remembering::excerpt(content, query, shown)
+            kept.iter().rposition(|keep| !keep)
         };
+        let Some(next) = next else {
+            break;
+        };
+        kept[next] = true;
+        if skimmed(&lines, &kept).chars().count() > most {
+            kept[next] = false;
+            if at_start {
+                start_open = false;
+            } else {
+                end_open = false;
+            }
+        }
+        from_start = !from_start;
     }
-    let mut read: String = whole.chars().take(READ_WHOLE_CHARS).collect();
-    if whole.chars().count() > READ_WHOLE_CHARS {
-        read.push_str(" …");
-    }
-    read
+    skimmed(&lines, &kept)
 }
+
+/// The kept lines of a message, " / " between lines read on, " … " where
+/// lines were left out.
+fn skimmed(lines: &[&str], kept: &[bool]) -> String {
+    let mut out = String::new();
+    let mut left_out = false;
+    for (line, keep) in lines.iter().zip(kept) {
+        if !keep {
+            left_out = true;
+            continue;
+        }
+        if out.is_empty() {
+            if left_out {
+                out.push_str("… ");
+            }
+        } else {
+            out.push_str(if left_out { " … " } else { " / " });
+        }
+        out.push_str(line);
+        left_out = false;
+    }
+    if left_out {
+        out.push_str(" …");
+    }
+    out
+}
+
+/// Her other messages found looking back are read this far at most: a list
+/// of a dozen items with a line on each fits.
+pub(in crate::services::agent::merope) const HERS_CHARS: usize = 1_500;
 
 /// Her one long message read whole is read this far at most: longer than
 /// nearly every reply (the longest in a long chat test is under 5,000).
@@ -584,8 +664,10 @@ pub async fn ranked_with(
 
 #[cfg(test)]
 mod tests {
-    /// Her long message is read through to its end; a short one is cut as
-    /// any other; a very long one stops at the most read whole.
+    /// Her long message is read through to its end; a list she gave is no
+    /// longer cut after the lines that matched (the last of the venues she
+    /// named was out of sight); past what fits, the middle is left out, not
+    /// the end, and the lines that name what is looked for stay.
     #[test]
     fn her_long_message_is_read_whole() {
         let list: String = (1..=30)
@@ -594,14 +676,50 @@ mod tests {
             + "31. Absinthe";
         let cut = myriad_merope::remembering::excerpt(&list, "bottle", 600);
         assert!(!cut.contains("Absinthe"));
-        assert!(super::read_whole(&list, "bottle", 600).ends_with("31. Absinthe"));
-        let short = "Roscioli, for a quiet dinner";
-        assert_eq!(
-            super::read_whole(short, "dinner", 600),
-            myriad_merope::remembering::excerpt(short, "dinner", 600)
+        assert!(
+            super::her_reply(&list, "bottle", super::READ_WHOLE_CHARS).ends_with("31. Absinthe")
         );
-        let long = "很长的一句\n".repeat(2_000);
-        assert!(super::read_whole(&long, "长", 600).chars().count() <= super::READ_WHOLE_CHARS + 2);
+        let venues = "Sure! Here are some popular venues in Portland that host indie music shows:\n\
+                      1. Mississippi Studios\n2. Doug Fir Lounge\n3. Holocene\n4. Wonder Ballroom\n5. Revolution Hall";
+        assert!(
+            myriad_merope::remembering::excerpt(
+                venues,
+                "popular venues Portland indie music shows",
+                600
+            )
+            .ends_with(" …")
+        );
+        assert_eq!(
+            super::her_reply(
+                venues,
+                "popular venues Portland indie music shows",
+                super::HERS_CHARS
+            ),
+            venues
+                .lines()
+                .map(str::trim)
+                .collect::<Vec<_>>()
+                .join(" / ")
+        );
+        // Too long: its start, the line asked about, and its end.
+        let long: String = (1..=200)
+            .map(|n| format!("{n}. line number {n} of a long reply\n"))
+            .collect();
+        let long = long.replace("100. line number 100", "100. the Absinthe bottle");
+        let skimmed = super::her_reply(&long, "Absinthe", 1_500);
+        assert!(
+            skimmed.chars().count() <= 1_500,
+            "{}",
+            skimmed.chars().count()
+        );
+        assert!(skimmed.starts_with("1. line number 1 of"));
+        assert!(skimmed.contains("100. the Absinthe bottle"));
+        assert!(skimmed.ends_with("200. line number 200 of a long reply"));
+        assert_eq!(skimmed.matches(" … ").count(), 2);
+        // One line too long to skim by lines: its start and its end.
+        let one = "很长的一句".repeat(2_000);
+        let ends = super::her_reply(&one, "长", 600);
+        assert!(ends.chars().count() <= 603 && ends.starts_with("很长") && ends.ends_with("一句"));
     }
 
     use super::*;
