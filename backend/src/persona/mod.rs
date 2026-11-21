@@ -185,12 +185,12 @@ pub async fn start(db: DatabaseConnection) -> anyhow::Result<()> {
     // Upkeep of her records goes on where she lives, like her nights above.
     let upkeep_db = db.clone();
     drivers.periodic(
-        "her upkeep",
+        agent::merope::memory_nodes::upkeep::DRIVER,
         Duration::from_secs(60 * 60),
         Duration::from_secs(10 * 60),
         move || {
             her_own(
-                "her upkeep",
+                agent::merope::memory_nodes::upkeep::DRIVER,
                 agent::merope::lifecycle::upkeep::tick(upkeep_db.clone()),
             )
         },

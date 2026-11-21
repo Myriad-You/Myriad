@@ -304,7 +304,7 @@ pub(crate) async fn build(
     pen: &Thought,
 ) -> Result<usize, Error> {
     let built = Box::pin(build_on(
-        db, user_id, owner, audience, leave_out, None, None, pen,
+        db, user_id, owner, audience, leave_out, None, None, None, pen,
     ))
     .await?;
     Ok(built.written)
@@ -333,6 +333,7 @@ pub(crate) async fn build_waiting(
         &[],
         Some(&waiting),
         at_most,
+        Some(super::upkeep::DRIVER),
         pen,
     ))
     .await?;
@@ -353,7 +354,8 @@ struct BuiltOn {
 }
 
 /// [`build`], on `only` those nodes when given, at most `at_most` calls
-/// when given.
+/// when given; under the driver `going`, when given, its watch hears it is
+/// still going before every call (a long night of her upkeep).
 #[allow(clippy::too_many_arguments)]
 async fn build_on(
     db: &DatabaseConnection,
@@ -363,6 +365,7 @@ async fn build_on(
     leave_out: &[String],
     only: Option<&[String]>,
     at_most: Option<usize>,
+    going: Option<&'static str>,
     pen: &Thought,
 ) -> Result<BuiltOn, Error> {
     let mut built = BuiltOn {
@@ -419,6 +422,9 @@ async fn build_on(
             continue;
         }
         built.asked += 1;
+        if let Some(driver) = going {
+            crate::services::agent::alive::still_going(driver);
+        }
         let Some(output) = ask(
             user_id,
             "memory_standing_build",
@@ -517,6 +523,7 @@ pub(crate) async fn after_settled(
             audience,
             &kept,
             Some(&due.nodes),
+            None,
             None,
             pen,
         ))

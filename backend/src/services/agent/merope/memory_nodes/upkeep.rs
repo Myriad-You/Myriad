@@ -58,7 +58,7 @@ const NIGHT_NAMESPACE: &str = "merope_memory_node_upkeep_night";
 const NIGHT_TRIES: u32 = 2;
 /// The driver this goes on under (`persona::drivers`): a long night tells
 /// her watch it is still going after every node.
-const DRIVER: &str = "her upkeep";
+pub(crate) const DRIVER: &str = "her upkeep";
 
 /// How tonight's going over stands.
 #[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
