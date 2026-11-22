@@ -71,7 +71,7 @@ pub async fn said_of_herself_heard_by<C: ConnectionTrait>(
     Ok(rows)
 }
 
-/// Where the one-time sorting of old rows keeps when it first ran.
+/// Where the one-time sorting of old rows marks that it ran.
 const SORTED_NAMESPACE: &str = "memory.said_of_herself";
 const SORTED_KEY: &str = "scoped_from";
 /// How long before a row her reply may have been said, at most.
@@ -84,19 +84,31 @@ pub struct SortedOut {
     pub to_private: u64,
     /// Said in a group: left hers.
     pub stayed_hers: u64,
-    /// No reply of hers says it: no longer brought back (kept, not deleted).
+    /// No reply of hers says it, or replies in more than one place do: no
+    /// longer brought back (kept, not deleted).
     pub let_go: u64,
 }
 
-/// Once, at startup: what she said of herself before it was kept by where
-/// she said it was all kept as her own, heard anywhere. Each such row is
-/// matched to her reply it came from (its evidence is an excerpt of it):
-/// said in private, it goes to that private chat; said in a group, it stays
-/// hers; matched to no reply, it is no longer brought back, its words kept.
-/// Only rows from before the first run are looked at, so running it again
-/// changes nothing.
-pub async fn sort_out_old_said_of_herself<C: ConnectionTrait>(db: &C) -> Result<SortedOut, DbErr> {
+/// Once, at the first start that has it: what she said of herself before it
+/// was kept by where she said it was all kept as her own, heard anywhere.
+/// Each such row the site wrote is matched to her reply it came from (its
+/// evidence is an excerpt of it): said in private, it goes to that private
+/// chat; said in a group, it stays hers; matched to no reply, or to replies
+/// in more than one place, it is no longer brought back, its words kept.
+/// Rows another end wrote are that end's to sort. It runs in one
+/// transaction with its mark, so a later start does nothing.
+///
+/// Her log (`her_log::memories`) follows what it does without being told:
+/// a row moved into someone else's private chat leaves what her log keeps
+/// and goes out retired; one moved into the site owner's own private chat
+/// keeps its digest (which does not hold where it was learned), so the
+/// other ends keep it as hers. On the site it ran with no such row at all,
+/// so this is not carried further.
+pub async fn sort_out_old_said_of_herself(
+    db: &sea_orm::DatabaseConnection,
+) -> Result<SortedOut, DbErr> {
     use crate::services::runtime_registry as registry;
+    use sea_orm::TransactionTrait;
     let now = crate::clock::now().fixed_offset();
     let identity = registry::RegistryIdentity {
         subject_id: None,
@@ -104,27 +116,35 @@ pub async fn sort_out_old_said_of_herself<C: ConnectionTrait>(db: &C) -> Result<
         tapp_id: None,
         runtime_id: None,
     };
-    // Kept for a century: the bound must not move.
+    // Kept for a century: it marks that this ran.
     let kept_until = now.timestamp() + 100 * 365 * 24 * 3600;
-    registry::put_if_absent(db, SORTED_NAMESPACE, SORTED_KEY, identity, &now, kept_until).await?;
-    let Some(before) =
-        registry::get::<chrono::DateTime<chrono::FixedOffset>>(db, SORTED_NAMESPACE, SORTED_KEY)
-            .await?
-    else {
+    let txn = db.begin().await?;
+    if !registry::put_if_absent(
+        &txn,
+        SORTED_NAMESPACE,
+        SORTED_KEY,
+        identity,
+        &now,
+        kept_until,
+    )
+    .await?
+    {
+        txn.commit().await?;
         return Ok(SortedOut::default());
-    };
+    }
     let rows = agent_memories::Entity::find()
         .filter(agent_memories::Column::UserId.is_null())
         .filter(agent_memories::Column::Venue.eq(OWN_VENUE))
         .filter(agent_memories::Column::Source.eq(myriad_merope::own_said::SOURCE))
+        .filter(agent_memories::Column::Origin.eq(ORIGIN_SITE))
         .filter(agent_memories::Column::InvalidAt.is_null())
-        .filter(agent_memories::Column::CreatedAt.lt(before))
-        .all(db)
+        .filter(agent_memories::Column::CreatedAt.lt(now))
+        .all(&txn)
         .await?;
     let mut sorted = SortedOut::default();
     for row in rows {
-        match said_where(db, &row).await? {
-            Some((user_id, None)) if user_id > 0 => {
+        match said_where(&txn, &row).await? {
+            Some(Said::Private(user_id)) => {
                 agent_memories::ActiveModel {
                     id: Set(row.id.clone()),
                     user_id: Set(Some(user_id)),
@@ -133,12 +153,12 @@ pub async fn sort_out_old_said_of_herself<C: ConnectionTrait>(db: &C) -> Result<
                     updated_at: Set(now),
                     ..Default::default()
                 }
-                .update(db)
+                .update(&txn)
                 .await?;
                 sorted.to_private += 1;
             }
-            Some((_, Some(_))) => sorted.stayed_hers += 1,
-            _ => {
+            Some(Said::InGroup) => sorted.stayed_hers += 1,
+            None => {
                 agent_memories::ActiveModel {
                     id: Set(row.id.clone()),
                     invalid_at: Set(Some(now)),
@@ -146,12 +166,13 @@ pub async fn sort_out_old_said_of_herself<C: ConnectionTrait>(db: &C) -> Result<
                     updated_at: Set(now),
                     ..Default::default()
                 }
-                .update(db)
+                .update(&txn)
                 .await?;
                 sorted.let_go += 1;
             }
         }
     }
+    txn.commit().await?;
     if sorted != SortedOut::default() {
         tracing::info!(
             ?sorted,
@@ -161,13 +182,22 @@ pub async fn sort_out_old_said_of_herself<C: ConnectionTrait>(db: &C) -> Result<
     Ok(sorted)
 }
 
-/// Where she said what `row` keeps: the person she was talking to and the
-/// group it was in (none in private), by her latest reply before it that
-/// holds its evidence.
+/// Where she said something.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Said {
+    /// In a private chat with this account.
+    Private(i32),
+    InGroup,
+}
+
+/// Where she said what `row` keeps: the one place whose replies of hers
+/// shortly before it hold its evidence. None when no reply does, or replies
+/// in more than one place do (a short excerpt can be said to two people;
+/// guessing would put one friend's words in front of another).
 async fn said_where<C: ConnectionTrait>(
     db: &C,
     row: &agent_memories::Model,
-) -> Result<Option<(i32, Option<String>)>, DbErr> {
+) -> Result<Option<Said>, DbErr> {
     let evidence = row
         .evidence
         .as_deref()
@@ -178,16 +208,17 @@ async fn said_where<C: ConnectionTrait>(
     if evidence.is_empty() {
         return Ok(None);
     }
-    let found = db
-        .query_one_raw(sea_orm::Statement::from_sql_and_values(
+    let places = db
+        .query_all_raw(sea_orm::Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Postgres,
-            "SELECT s.user_id, s.context->>'venue' AS venue FROM agent_messages m \
-             JOIN agent_sessions s ON s.id = m.session_id \
+            "SELECT DISTINCT s.context->>'venue' AS venue, \
+               CASE WHEN s.context->>'venue' IS NULL THEN s.user_id END AS user_id \
+             FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
              WHERE m.role = 'assistant' AND s.context->>'mode' = 'chat' \
                AND m.created_at <= $2 + interval '5 minutes' \
                AND m.created_at >= $2 - make_interval(hours => $3) \
                AND position($1 in regexp_replace(m.content, '\\s+', ' ', 'g')) > 0 \
-             ORDER BY m.created_at DESC LIMIT 1",
+             LIMIT 2",
             [
                 evidence.into(),
                 row.created_at.into(),
@@ -195,11 +226,16 @@ async fn said_where<C: ConnectionTrait>(
             ],
         ))
         .await?;
-    Ok(found.and_then(|found| {
-        let user_id = found.try_get::<i32>("", "user_id").ok()?;
-        let venue = found.try_get::<Option<String>>("", "venue").ok()?;
-        Some((user_id, venue))
-    }))
+    let [place] = places.as_slice() else {
+        return Ok(None);
+    };
+    let venue = place.try_get::<Option<String>>("", "venue")?;
+    let user_id = place.try_get::<Option<i32>>("", "user_id")?;
+    Ok(match (venue, user_id) {
+        (Some(_), _) => Some(Said::InGroup),
+        (None, Some(user_id)) if user_id > 0 => Some(Said::Private(user_id)),
+        _ => None,
+    })
 }
 
 #[cfg(test)]
@@ -252,7 +288,8 @@ mod tests {
 
     /// Kept as hers before it was kept by where she said it: said in
     /// private goes to that chat, said in a group stays hers, matched to
-    /// nothing is no longer brought back; a second run changes nothing.
+    /// nothing or to two places is no longer brought back, another end's is
+    /// left to it; a second start does nothing.
     #[tokio::test]
     async fn old_rows_go_where_she_said_them_once() {
         let Some(url) = crate::db::test_url(&["MYRIAD_MEMORY_TEST_DATABASE_URL"]) else {
@@ -261,8 +298,8 @@ mod tests {
         let schema = crate::db::IsolatedSchema::migrated(&url, "said_of_herself_old").await;
         let db = schema.db.clone();
         let base = (uuid::Uuid::new_v4().as_u128() % 1_000_000_000) as i32 + 10;
-        let (alone, member) = (base, base + 1);
-        for user_id in [alone, member] {
+        let (alone, member, friend) = (base, base + 1, base + 2);
+        for user_id in [alone, member, friend] {
             db.execute_unprepared(&format!(
                 "INSERT INTO users (id, username) VALUES ({user_id}, 'said_old_{user_id}')"
             ))
@@ -271,11 +308,23 @@ mod tests {
         }
         session(&db, "s_private", alone, r#"{"mode":"chat"}"#).await;
         session(&db, "s_group", member, r#"{"mode":"chat","venue":"qq:42"}"#).await;
+        session(&db, "s_friend", friend, r#"{"mode":"chat"}"#).await;
         reply(&db, "s_private", "嗯我在追《北窗》，刚看到 第五集啦").await;
         reply(&db, "s_group", "我在读《白塔》，读到一半，太慢了").await;
+        // The same few words to two people: whose it was cannot be told.
+        reply(&db, "s_private", "我也喜欢下雨天").await;
+        reply(&db, "s_friend", "哈哈我也喜欢下雨天").await;
         let in_private = hers(&db, "我在追《北窗》，看到第五集", "刚看到 第五集").await;
         let in_group = hers(&db, "我在读《白塔》，读到一半", "读到一半").await;
         let nowhere = hers(&db, "我养过一只猫", "我养过一只猫").await;
+        let to_both = hers(&db, "我喜欢下雨天", "我也喜欢下雨天").await;
+        // Another end's row of the same: that end sorts its own.
+        let theirs = hers(&db, "我在看《北窗》", "刚看到 第五集").await;
+        db.execute_unprepared(&format!(
+            "UPDATE agent_memories SET origin = 'dev_mac', evidence = NULL WHERE id = '{theirs}'"
+        ))
+        .await
+        .unwrap();
 
         let sorted = sort_out_old_said_of_herself(&db).await.unwrap();
         assert_eq!(
@@ -283,7 +332,7 @@ mod tests {
             SortedOut {
                 to_private: 1,
                 stayed_hers: 1,
-                let_go: 1
+                let_go: 2
             }
         );
         let moved = row(&db, &in_private).await;
@@ -296,6 +345,9 @@ mod tests {
         let gone = row(&db, &nowhere).await;
         assert!(gone.invalid_at.is_some());
         assert_eq!(gone.content, "我养过一只猫", "its words are kept");
+        assert!(row(&db, &to_both).await.invalid_at.is_some());
+        let left = row(&db, &theirs).await;
+        assert_eq!((left.venue.as_str(), left.invalid_at), (OWN_VENUE, None));
 
         // Heard where she said it now.
         let heard = |present: Audience| {
@@ -313,14 +365,18 @@ mod tests {
         };
         assert_eq!(
             heard(Audience::private(alone)).await,
-            ["我在读《白塔》，读到一半", "我在追《北窗》，看到第五集"]
+            [
+                "我在看《北窗》",
+                "我在读《白塔》，读到一半",
+                "我在追《北窗》，看到第五集"
+            ]
         );
         assert_eq!(
             heard(Audience::private(member)).await,
-            ["我在读《白塔》，读到一半"]
+            ["我在看《北窗》", "我在读《白塔》，读到一半"]
         );
 
-        // What is kept after the first run is not looked at; nothing changes.
+        // A later start does nothing, not even with a row it would move.
         let later = hers(&db, "我在追《北窗》，看到第六集", "刚看到 第五集").await;
         let all = || {
             agent_memories::Entity::find()
@@ -329,7 +385,7 @@ mod tests {
         };
         let before = all().await.unwrap();
         let again = sort_out_old_said_of_herself(&db).await.unwrap();
-        assert_eq!((again.to_private, again.let_go), (0, 0));
+        assert_eq!(again, SortedOut::default());
         assert_eq!(before, all().await.unwrap());
         assert_eq!(row(&db, &later).await.venue, OWN_VENUE);
         schema.drop().await;

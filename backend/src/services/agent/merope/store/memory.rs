@@ -178,8 +178,6 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<
 }
 
 /// What she said about herself that `talk` touches, by its words or its
-/// meaning, best first, at most `limit`: hers, so whoever she said it to and
-/// What she said about herself that `talk` touches, by its words or its
 /// meaning, best first, at most `limit`: of what `present` may hear (her own,
 /// and in private what she said to these same people).
 pub(crate) async fn said_of_herself<C: ConnectionTrait>(

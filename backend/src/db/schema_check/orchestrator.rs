@@ -401,8 +401,13 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     ensure_topic_nodes_tables(db).await?;
     ensure_memory_nodes_tables(db).await?;
     // Once: what she said of herself, kept as hers before it was kept by
-    // where she said it, goes where she said it.
-    crate::services::agent::memory::unified::sort_out_old_said_of_herself(db).await?;
+    // where she said it, goes where she said it. Not worth keeping the site
+    // down for: a failure is logged and tried again at the next start.
+    if let Err(error) =
+        crate::services::agent::memory::unified::sort_out_old_said_of_herself(db).await
+    {
+        tracing::warn!(%error, "Memory: old rows of what she said of herself not sorted");
+    }
     unlink_note_docs_without_article(db).await?;
     drop_retired_columns(db).await?;
     ensure_user_lifecycle(db).await?;
