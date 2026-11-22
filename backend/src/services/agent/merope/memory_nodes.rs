@@ -136,9 +136,10 @@ pub(crate) mod take_back_check;
 pub(crate) mod unbuilt;
 pub(crate) mod upkeep;
 mod upkeep_candidates;
-mod upkeep_prompt;
+mod upkeep_cut_off;
 pub(crate) mod write;
 
+pub(crate) use heads::minted_by_rule;
 pub(crate) use prepare::{Author, RowIn};
 pub(crate) use write::{Beside, Written, write, write_with};
 
