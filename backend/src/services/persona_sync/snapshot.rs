@@ -22,7 +22,8 @@ use myriad_persona_sync::{
         ConversationLine, DiaryBody, Embedding, EmbeddingModel, FieldHistoryBody, IntentionBody,
         LinePicture, MemoryAudience, MemoryBody, MemoryVenue, OutfitBody, OwnerStateBody, PACE_ID,
         PERSONA_ID, PRESENT_ID, PaceBody, PresentBody, PresentDoing, PresentLazing,
-        ProactiveLineBody, SOUP_GAME_ID, SpeechSaidBody, StickerBody, WearingBody, Worn,
+        ProactiveLineBody, SOUP_GAME_ID, SpeechSaidBody, StickerBody, UNDERTONE_ID, UndertoneBody,
+        WearingBody, Worn,
     },
     hlc,
     persona::{PersonaBody, PersonaField},
@@ -205,9 +206,7 @@ pub(crate) async fn of_kind<C: ConnectionTrait>(
         Kind::OwnerState => owner_state(db, owner).await?.into_iter().collect(),
         Kind::Pace => pace(db).await?.into_iter().collect(),
         Kind::Present => present(db).await?.into_iter().collect(),
-        // Her undertone goes with her once every end reads it: until then
-        // a move or an export carrying one would be refused whole.
-        Kind::Undertone => Vec::new(),
+        Kind::Undertone => undertone(db).await?.into_iter().collect(),
         Kind::ProactiveLine => proactive_lines(db, owner).await?,
         Kind::SpeechSaid => speech_said(db, owner).await?,
         Kind::Wearing => wearing(db).await?.into_iter().collect(),
@@ -931,6 +930,28 @@ async fn pace<C: ConnectionTrait>(db: &C) -> Result<Option<EntityVersion>, DbErr
         Kind::Pace,
         PACE_ID,
         site_rev(newest),
+        State::Live,
+        &body,
+    ))
+}
+
+/// Her undertone, as the site last folded it (`merope/undertone.rs`).
+async fn undertone<C: ConnectionTrait>(db: &C) -> Result<Option<EntityVersion>, DbErr> {
+    let Some((_, payload, updated_at)) = registry(db, her::UNDERTONE_NAMESPACE)
+        .await?
+        .into_iter()
+        .find(|(record, _, _)| record == her::UNDERTONE_RECORD)
+    else {
+        return Ok(None);
+    };
+    let Ok(body) = serde_json::from_value::<UndertoneBody>(payload) else {
+        tracing::warn!("[sync] her undertone does not read; left out");
+        return Ok(None);
+    };
+    Ok(entity(
+        Kind::Undertone,
+        UNDERTONE_ID,
+        site_rev(updated_at),
         State::Live,
         &body,
     ))

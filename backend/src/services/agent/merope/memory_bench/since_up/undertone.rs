@@ -88,6 +88,59 @@ fn song(id: &str, name: &str, reaction: &str) -> Value {
     })
 }
 
+/// What the scene spent on her models so far, as her ledger has it.
+async fn spent(db: &DatabaseConnection) {
+    let row = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT count(*)::bigint AS calls, coalesce(sum(cost_micro_usd), 0)::bigint AS micro, \
+             coalesce(sum(input_tokens), 0)::bigint AS input, coalesce(sum(output_tokens), 0)::bigint AS output \
+             FROM ai_cost_ledger",
+        ))
+        .await
+        .ok()
+        .flatten();
+    if let Some(row) = row {
+        let get = |name: &str| row.try_get::<i64>("", name).unwrap_or_default();
+        println!(
+            "spent: {} calls, ${:.4}, {} in / {} out tokens",
+            get("calls"),
+            get("micro") as f64 / 1e6,
+            get("input"),
+            get("output"),
+        );
+    }
+    let failed = db
+        .query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT coalesce(source, '') AS source, coalesce(operation, '') AS operation, \
+             coalesce(model, '') AS model, coalesce(error_code, '') AS error_code \
+             FROM ai_cost_ledger WHERE status = 'failed'",
+        ))
+        .await
+        .unwrap_or_default();
+    for row in failed {
+        let get = |name: &str| row.try_get::<String>("", name).unwrap_or_default();
+        println!(
+            "failed: {} / {} on {} ({})",
+            get("source"),
+            get("operation"),
+            get("model"),
+            get("error_code"),
+        );
+    }
+}
+
+/// A part of a serial she did not care for, after a guess it bore out wrong.
+fn chapter(index: usize, said: &str, happened: &str) -> Value {
+    json!({
+        "key": format!("serial:pg-1:{index}"),
+        "thing": { "kind": "chapter", "serial": "pg-1", "title": "T", "author": "A", "index": index, "total": 9 },
+        "reaction": "not_for_me",
+        "guessed": { "said": said, "held": "no", "happened": happened },
+    })
+}
+
 /// None of her numbers in what the model is given.
 fn no_numbers(prompt: &str) -> bool {
     !["activation", "undertone", "arousal", "valence", "\"tone\""]
@@ -137,6 +190,7 @@ pub(in super::super) async fn undertone_a_month_alone() {
         checks.push((format!("#{}: a reply", run + 1), !reply.trim().is_empty()));
     }
     println!("today left her: {:?}", day.today_left_her().await);
+    spent(day.db()).await;
     day.end().await;
     tell(&checks);
 }
@@ -158,12 +212,12 @@ pub(in super::super) async fn undertone_a_good_week_and_a_bad_week() {
         (
             "undertone-bad-week",
             vec![lived(80.0, 200.0, 6, 0, 3); 7],
-            vec![json!({
-                "key": "serial:pg-1:2",
-                "thing": { "kind": "chapter", "serial": "pg-1", "title": "T", "author": "A", "index": 2, "total": 9 },
-                "reaction": "not_for_me",
-                "guessed": { "said": "凶手是管家", "held": "no", "happened": "不是管家" },
-            })],
+            // One guess gone wrong is below what she would put into words
+            // (`elsewhere::own_feeling_words`); two are not.
+            vec![
+                chapter(2, "凶手是管家", "不是管家"),
+                chapter(3, "管家在撒谎", "管家说的是真的"),
+            ],
         ),
     ] {
         let mut day = Day::begin(name, 120..240, if settled.is_empty() { 3100 } else { 3200 }).await;
@@ -185,6 +239,7 @@ pub(in super::super) async fn undertone_a_good_week_and_a_bad_week() {
         println!("{name}: today left her {left:?}");
         checks.push((format!("{name}: today's own gaps reach how today left her"), left.is_some()));
         settled.push(base);
+        spent(day.db()).await;
         day.end().await;
     }
     checks.push((
@@ -237,6 +292,7 @@ pub(in super::super) async fn undertone_smooth_weeks_then_a_jab() {
             }
         }
     }
+    spent(day.db()).await;
     day.end().await;
     tell(&checks);
 }

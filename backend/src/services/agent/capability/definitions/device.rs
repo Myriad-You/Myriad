@@ -97,6 +97,31 @@ mod tests {
         }
     }
 
+    /// Every device capability runs where her link to the devices is: a
+    /// persona worker of its own process hands each to the web process.
+    #[test]
+    fn every_device_capability_is_the_web_process_own() {
+        let registry = crate::services::agent::capability::CapabilityRegistry::new();
+        let mut ids: Vec<&str> = registry
+            .get_all()
+            .into_iter()
+            .map(|cap| cap.id.as_str())
+            .filter(|id| id.starts_with("device."))
+            .collect();
+        ids.sort_unstable();
+        assert_eq!(
+            ids,
+            [
+                "device.notify.post",
+                "device.screen.look",
+                "device.voice.speak"
+            ]
+        );
+        for id in ids {
+            assert!(crate::persona::web_control::is_web_owned(id), "{id}");
+        }
+    }
+
     /// Her chat turns use no tools: only Work calls the model with tools, so
     /// what she may ask of a device is never offered to a chat turn.
     #[test]

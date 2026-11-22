@@ -167,11 +167,10 @@ async fn the_night_folds_her_day_and_every_baseline_reads_it() {
     go_over(&db).await;
     assert_eq!(kept(&db).await, Some(folded), "a night folds a day once");
 
-    // Until every end reads it, her undertone stays on the site: it is
-    // none of her log's kinds, and what a move or an export carries has
-    // none of it.
+    // Her undertone goes with her: it is one of her log's kinds, and what
+    // a move or an export carries has it.
     use myriad_persona_sync::Kind;
-    assert!(!crate::services::her_log::state::KINDS.contains(&Kind::Undertone));
+    assert!(crate::services::her_log::state::KINDS.contains(&Kind::Undertone));
     let pictures = crate::services::persona_sync::assets::Pictures::new(&db, someone);
     let carried = crate::services::persona_sync::snapshot::of_kind(
         &db,
@@ -183,7 +182,7 @@ async fn the_night_folds_her_day_and_every_baseline_reads_it() {
     )
     .await
     .unwrap();
-    assert!(carried.is_empty(), "{carried:?}");
+    assert_eq!(carried.len(), 1, "{carried:?}");
 
     let after = super::super::store::baseline_toward(&db, someone).await.unwrap();
     assert_eq!(after.mood, before.mood, "valence is not opened");

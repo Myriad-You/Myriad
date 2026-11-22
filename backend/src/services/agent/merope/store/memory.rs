@@ -125,11 +125,12 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<
             .is_some();
         }
     }
-    // What she said about herself is hers: heard anywhere, naming no one
-    // (`myriad_merope::own_said`). The same words again are kept once.
+    // What she said about herself is hers, naming no one: said in a group,
+    // heard anywhere; said in private, only there (`own_said::kept_for`).
+    // The same words again are kept once.
     let mut held_own: Vec<String> = Vec::new();
     if updates.said.iter().any(|said| said.hers) {
-        held_own = unified::own_rows(db, myriad_merope::own_said::SOURCE, 300)
+        held_own = unified::said_of_herself_heard_by(db, present, 300)
             .await?
             .into_iter()
             .map(|row| row.content)
@@ -141,12 +142,12 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<
                 continue;
             }
             let evidence = serde_json::json!({ "said": said.evidence }).to_string();
-            kept |= unified::remember_own(
+            kept |= unified::remember_said_of_herself(
                 db,
+                present,
                 &said.said,
                 &evidence,
                 said.concepts.clone(),
-                myriad_merope::own_said::SOURCE,
             )
             .await?
             .is_some();
@@ -177,15 +178,16 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<
 }
 
 /// What she said about herself that `talk` touches, by its words or its
-/// meaning, best first, at most `limit`: hers, so whoever she said it to and
-/// wherever (`myriad_merope::own_said`). Each with how long ago.
+/// meaning, best first, at most `limit`: of what `present` may hear (her own,
+/// and in private what she said to these same people).
 pub(crate) async fn said_of_herself<C: ConnectionTrait>(
     db: &C,
+    present: &crate::services::agent::memory::unified::Audience,
     talk: &str,
     limit: usize,
 ) -> Vec<myriad_merope::own_said::Recalled> {
     use crate::services::agent::memory::unified;
-    let rows = unified::own_rows(db, myriad_merope::own_said::SOURCE, 300)
+    let rows = unified::said_of_herself_heard_by(db, present, 300)
         .await
         .unwrap_or_default();
     let now = crate::services::agent::memory::utc_now();

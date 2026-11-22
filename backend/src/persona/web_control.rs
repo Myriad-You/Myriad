@@ -59,6 +59,8 @@ pub(crate) fn is_web_owned(capability: &str) -> bool {
             | "system.metrics"
             // Her link to the owner's devices lives in the web process.
             | "device.screen.look"
+            | "device.notify.post"
+            | "device.voice.speak"
     )
 }
 

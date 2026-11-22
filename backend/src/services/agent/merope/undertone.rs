@@ -6,10 +6,9 @@
 //! with people does (`self_state`). Once a night the days not yet in are
 //! folded into her undertone, from her own rows alone (her experiences,
 //! how her wants ended, the minutes she spent and lazed): none of it is
-//! about anyone. It is kept in the runtime registry; once every end reads
-//! it, it goes with her log as one of her records
-//! (`persona_sync::snapshot`). Every place her mood settles reads it
-//! (`store::addressee::baseline_toward`).
+//! about anyone. It is kept in the runtime registry, so it goes with her
+//! log as one of her records (`persona_sync::snapshot`), and every place
+//! her mood settles reads it (`store::addressee::baseline_toward`).
 
 use chrono::{DateTime, FixedOffset, NaiveDate, Utc};
 use sea_orm::{ConnectionTrait, DatabaseConnection};

@@ -556,7 +556,7 @@ pub(super) async fn extract(
             .filter(|part| !part.trim().is_empty())
             .collect::<Vec<_>>()
             .join("\n");
-        let yours: Vec<String> = super::store::said_of_herself(db, &exchange, YOURS_SHOWN)
+        let yours: Vec<String> = super::store::said_of_herself(db, present, &exchange, YOURS_SHOWN)
             .await
             .into_iter()
             .map(|said| said.said)

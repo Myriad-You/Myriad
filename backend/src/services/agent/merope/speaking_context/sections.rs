@@ -497,6 +497,8 @@ pub(super) async fn what_she_found(
         .await
         .unwrap_or_default()
         .into_iter()
+        // What she said of herself here has its own section.
+        .filter(|note| note.source != myriad_merope::own_said::SOURCE)
         .map(|note| note.content)
         .collect::<Vec<_>>();
         if let Some(block) = format_found_out_section(&found) {
@@ -509,8 +511,9 @@ pub(super) async fn what_she_found(
                 sections.push((Part::HeardInGroups, block));
             }
         }
-        // What she said about herself before, to anyone, anywhere: hers.
-        let said = super::super::store::said_of_herself(db, words, SAID_OF_HERSELF_LIMIT).await;
+        // What she said about herself before: in any group, or here.
+        let said =
+            super::super::store::said_of_herself(db, present, words, SAID_OF_HERSELF_LIMIT).await;
         if let Some(block) = myriad_merope::own_said::section(&said) {
             sections.push((Part::SaidOfHerself, block));
         }

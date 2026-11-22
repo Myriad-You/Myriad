@@ -27,6 +27,7 @@ mod evidence;
 mod lookup;
 mod own;
 mod recall;
+mod said_of_herself;
 mod upkeep;
 mod venue;
 
@@ -35,6 +36,7 @@ pub use evidence::*;
 pub use lookup::*;
 pub use own::*;
 pub use recall::*;
+pub use said_of_herself::*;
 pub use upkeep::*;
 pub use venue::*;
 
