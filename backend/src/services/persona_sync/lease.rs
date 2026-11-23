@@ -1492,8 +1492,10 @@ pub fn mind_moved() {
 
 /// [`reload`], first making a lease vacant whose device is not the site
 /// owner's any more ([`settle_orphan`]), and then settling what devices
-/// already removed still hold of her ([`removed`], which may wait a moment
-/// and announces what it changes): what the listener does each time.
+/// already removed still hold of her ([`removed`], which announces what it
+/// changes): what the listener does each time. While that waits, a few
+/// seconds at most for each device left unsettled, an announcement is heard
+/// that much later.
 async fn reload_settled(db: &DatabaseConnection) {
     if let Err(error) = settle_orphan(db).await {
         tracing::warn!(%error, "[host] could not check the device she lives on");

@@ -16,8 +16,9 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr, TransactionSession, Tr
 use super::{Lease, Move, State, rows, statement};
 use crate::services::persona_sync::{devices, import, merge, moves};
 
-/// How long it waits for what another holds (an import landing) before it is
-/// left for later. Longer in the tests: in one database they hold each
+/// How long it waits for each thing another holds (the imports, a row of
+/// theirs, her lease, the rows) before it is left for later: a few seconds
+/// in all at most, not one. Longer in the tests: in one database they hold each
 /// other's locks, and the ones about waiting say how long themselves.
 pub(in crate::services::persona_sync) const WAIT: Duration = if cfg!(test) {
     Duration::from_secs(30)
@@ -110,8 +111,9 @@ impl Ended {
     }
 }
 
-/// Settles every removed device that still holds something of her. One that
-/// cannot be now is left for the next time.
+/// Settles every removed device that still holds something of her, one after
+/// another, each for a few seconds at most ([`WAIT`]). One that cannot be now
+/// is left for the next time.
 pub(super) async fn settle_all(db: &DatabaseConnection) -> Result<(), DbErr> {
     for device in unsettled(db).await? {
         match settle(db, &device).await {
