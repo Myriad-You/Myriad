@@ -588,8 +588,25 @@ impl Link {
                 let began = Instant::now();
                 let _working = self.wire.working(At::Frame(text.clone()));
                 let why = self.take(text.as_str(), answered).await;
+                let vector = self
+                    .relay
+                    .as_mut()
+                    .and_then(crate::services::her_log::relay::Session::answered);
                 if let Some(took_ms) = held_up(began) {
-                    tracing::info!(device = %self.device.id, t = frame_type(text.as_str()), took_ms, "[link] a frame held the link up");
+                    tracing::info!(
+                        device = %self.device.id,
+                        t = frame_type(text.as_str()),
+                        took_ms,
+                        held = vector.map(|vector| vector.held),
+                        rows = vector.map(|vector| vector.rows),
+                        batches = vector.map(|vector| vector.batches),
+                        bodies = vector.map(|vector| vector.page.bodies),
+                        holdings_ms = vector.map(|vector| vector.holdings_ms),
+                        read_ms = vector.map(|vector| vector.page.read_ms),
+                        bodies_ms = vector.map(|vector| vector.page.bodies_ms),
+                        pack_ms = vector.map(|vector| vector.page.pack_ms),
+                        "[link] a frame held the link up"
+                    );
                 }
                 why
             }
