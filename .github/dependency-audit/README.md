@@ -35,6 +35,7 @@ trees when auditing nested packages like `updater/`).
 | RUSTSEC | Package | Reason |
 | --- | --- | --- |
 | `RUSTSEC-2023-0071` | `rsa` | Medium timing side channel with no fixed release; track `rsa` / `jsonwebtoken`. |
+| `RUSTSEC-2026-0459` | `libsqlite3-sys` | Medium. In the lockfile only through `sqlx-sqlite`, which nothing builds (Postgres only). CI fails if it is built. Drop once the lockfile has 0.39 or later. |
 
 ### Frontend (`frontend/pnpm-workspace.yaml`)
 
@@ -59,6 +60,9 @@ cargo audit
 # rust_decimal 1.43 dropped the unused rkyv 0.7 dep (RUSTSEC-2026-0235).
 # This must stay empty; CI fails if rkyv re-enters the resolved graph.
 cargo tree -i rkyv --target all --locked
+
+# libsqlite3-sys (RUSTSEC-2026-0459) is only in the lockfile; this must stay empty too.
+cargo tree -i libsqlite3-sys --target all --workspace --all-features --locked
 
 # Frontend
 (cd frontend && pnpm audit --audit-level high)
