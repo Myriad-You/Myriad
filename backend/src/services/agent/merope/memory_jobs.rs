@@ -20,6 +20,12 @@ pub(super) enum Payload {
         /// lands, and again with her reply) is not repeated.
         #[serde(default)]
         lines: Vec<chrono::DateTime<chrono::FixedOffset>>,
+        /// What it keeps is kept for good, not as short notes: a private
+        /// talk's lines that going over from what was said could not read
+        /// (`store::memory_jobs::settling::leave_unread`), written down one
+        /// by one instead.
+        #[serde(default)]
+        for_good: bool,
     },
     /// One person's stretch of talk in one place, gone over once it is over
     /// (see `chat_remember::settle`): from its first line to its latest.
@@ -27,6 +33,11 @@ pub(super) enum Payload {
         present: crate::services::agent::memory::unified::Audience,
         from: chrono::DateTime<chrono::FixedOffset>,
         last: chrono::DateTime<chrono::FixedOffset>,
+        /// Their lines waiting, each with whether she has answered it: each
+        /// is one line waiting, and her answer another
+        /// ([`Payload::waiting`]). Once.
+        #[serde(default)]
+        heard: Vec<(chrono::DateTime<chrono::FixedOffset>, bool)>,
     },
     Stranger {
         venue: String,
@@ -40,16 +51,24 @@ impl Payload {
     /// Their lines join in order; her reply, when there is one, is added.
     pub(super) fn fold(&mut self, later: Payload) {
         if let (
-            Payload::Settle { from, last, .. },
+            Payload::Settle {
+                from, last, heard, ..
+            },
             Payload::Settle {
                 from: added_from,
                 last: added_last,
+                heard: added_heard,
                 ..
             },
         ) = (&mut *self, &later)
         {
             *from = (*from).min(*added_from);
             *last = (*last).max(*added_last);
+            for one in added_heard {
+                if !heard.contains(one) {
+                    heard.push(*one);
+                }
+            }
             return;
         }
         let (
@@ -60,6 +79,7 @@ impl Payload {
                 present,
                 turn,
                 lines,
+                for_good,
             },
             Payload::Chat {
                 user_text: added_text,
@@ -67,6 +87,7 @@ impl Payload {
                 input_at: added_at,
                 turn: added_turn,
                 lines: added_lines,
+                for_good: added_for_good,
                 ..
             },
         ) = (self, later)
@@ -74,6 +95,7 @@ impl Payload {
             return;
         };
         let _ = present;
+        *for_good |= added_for_good;
         if lines.is_empty() {
             lines.push(*input_at);
         }
@@ -109,6 +131,19 @@ impl Payload {
         *input_at = (*input_at).max(added_at);
     }
 
+    /// Lines of a stretch waiting to be gone over, theirs and her answers
+    /// together (`myriad_merope::settle_raw::box_is_full`).
+    pub(super) fn waiting(&self) -> usize {
+        match self {
+            Payload::Settle { heard, .. } => {
+                let theirs: std::collections::BTreeSet<_> =
+                    heard.iter().map(|(at, _)| at).collect();
+                theirs.len() + heard.iter().filter(|(_, answered)| *answered).count()
+            }
+            _ => 0,
+        }
+    }
+
     /// Held as it landed, before she has answered.
     pub(super) fn awaits_reply(&self) -> bool {
         matches!(self, Payload::Chat { reply, .. } if reply.trim().is_empty())
@@ -125,6 +160,16 @@ pub(super) enum Effect {
         updates: chat_remember::ChatMemoryUpdates,
         settled: Vec<Vec<String>>,
         rest: Option<chrono::DateTime<chrono::FixedOffset>>,
+    },
+    /// A private talk's pass gone over from what was said
+    /// (`chat_remember::settle_raw`): as [`Effect::Settle`], with the lines
+    /// it read, kept on the job once it is written so the next stretch does
+    /// not go over them again.
+    SettledFromLines {
+        updates: chat_remember::ChatMemoryUpdates,
+        settled: Vec<Vec<String>>,
+        rest: Option<chrono::DateTime<chrono::FixedOffset>>,
+        read: Vec<(chrono::DateTime<chrono::FixedOffset>, i32)>,
     },
     Stranger {
         previous: Option<String>,
@@ -232,6 +277,66 @@ pub(crate) async fn tick(db: DatabaseConnection) {
     }))
     .await;
 }
+/// How another part of her that needed a private talk gone over fared
+/// ([`hurry`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Hurried {
+    /// Nothing of theirs was waiting.
+    Nothing,
+    /// Gone over in time.
+    Done,
+    /// Not in time ([`myriad_merope::settle_raw::HURRY_WAIT_SECS`]): it goes
+    /// on without it, and the stretch is gone over all the same.
+    Late,
+}
+
+static HURRIED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static HURRIED_LATE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Talks gone over because another part of her needed them, and how many
+/// of those were not in time, since the site started.
+pub(crate) fn hurried() -> (u64, u64) {
+    use std::sync::atomic::Ordering::Relaxed;
+    (HURRIED.load(Relaxed), HURRIED_LATE.load(Relaxed))
+}
+
+/// Another part of her needs what they said in this private talk (reaching
+/// out to them, her own day, another end opening it): what is waiting is
+/// gone over now, and waited on a while. The caller does not go over it
+/// itself; late, it goes on without it.
+pub(super) async fn hurry(
+    db: &DatabaseConnection,
+    owner: i32,
+    present: &crate::services::agent::memory::unified::Audience,
+) -> Hurried {
+    use std::sync::atomic::Ordering::Relaxed;
+    if present.is_group() {
+        return Hurried::Nothing;
+    }
+    let id = key(&["settle", &owner.to_string(), &present.venue()]);
+    let Ok(Some(from)) = queue::hurry(db, &id, owner).await else {
+        return Hurried::Nothing;
+    };
+    HURRIED.fetch_add(1, Relaxed);
+    // Taken up now rather than at the next tick.
+    let ticking = db.clone();
+    super::background::spawn("a talk hurried, gone over", async move {
+        tick(ticking).await;
+    });
+    let until = tokio::time::Instant::now()
+        + Duration::from_secs(myriad_merope::settle_raw::HURRY_WAIT_SECS);
+    loop {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        if !queue::still_waiting(db, &id, from).await.unwrap_or(true) {
+            return Hurried::Done;
+        }
+        if tokio::time::Instant::now() >= until {
+            HURRIED_LATE.fetch_add(1, Relaxed);
+            return Hurried::Late;
+        }
+    }
+}
+
 async fn prepare(db: &DatabaseConnection, claim: &queue::Claim) -> Result<Effect, Failure> {
     if !super::is_enabled().await {
         return Ok(Effect::Paused);
@@ -259,6 +364,24 @@ async fn prepare(db: &DatabaseConnection, claim: &queue::Claim) -> Result<Effect
                 *input_at,
                 present,
                 turn,
+            )
+            .await
+        }
+        // A private talk is gone over from what was said; elsewhere, from
+        // the short notes taken line by line.
+        Payload::Settle {
+            present,
+            from,
+            last,
+            ..
+        } if !present.is_group() => {
+            chat_remember::settle_raw::settle_raw(
+                db,
+                claim.job.owner,
+                present,
+                *from,
+                *last,
+                claim.job.read.as_ref(),
             )
             .await
         }

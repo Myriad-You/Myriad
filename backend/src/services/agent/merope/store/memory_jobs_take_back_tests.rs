@@ -156,6 +156,7 @@ async fn their_line(db: &DatabaseConnection, id: &str, text: &str) -> Claim {
             present: Audience::private(7),
             turn: TurnContext::default(),
             lines: vec![input],
+            for_good: false,
         },
         None,
     )
@@ -274,6 +275,7 @@ async fn a_stretch_holds_what_they_took_back_with_the_line_it_names() {
             present: Audience::private(7),
             from: began,
             last: began,
+            heard: Vec::new(),
         },
         None,
     )

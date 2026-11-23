@@ -36,6 +36,24 @@ pub(in crate::services::agent::merope) async fn finish(
         }
         _ => None,
     };
+    // Gone over from what was said: written as any stretch is, and what it
+    // read kept on the job with it.
+    let (result, read) = match result {
+        Ok(Effect::SettledFromLines {
+            updates,
+            settled,
+            rest,
+            read,
+        }) => (
+            Ok(Effect::Settle {
+                updates,
+                settled,
+                rest,
+            }),
+            Some(read),
+        ),
+        result => (result, None),
+    };
     let tx = db.begin().await?;
     lock(&tx).await?;
     let now = now(&tx).await?;
@@ -93,6 +111,9 @@ pub(in crate::services::agent::merope) async fn finish(
             job.outcome = Some(outcome.clone());
         }
         result => {
+            if let (Some(read), Ok(Effect::Settle { .. })) = (&read, &result) {
+                job.read = Some(job.read.take().unwrap_or_default().with(read));
+            }
             // More notes than are gone over at once: the rest goes on.
             let goes_on = match &result {
                 Ok(Effect::Settle { rest, .. }) => *rest,
@@ -104,7 +125,10 @@ pub(in crate::services::agent::merope) async fn finish(
             outcome = match result {
                 Ok(Effect::Chat(mut update)) => {
                     let Some(Payload::Chat {
-                        input_at, present, ..
+                        input_at,
+                        present,
+                        for_good,
+                        ..
                     }) = &job.data
                     else {
                         anyhow::bail!("wrong memory job kind");
@@ -120,10 +144,28 @@ pub(in crate::services::agent::merope) async fn finish(
                         *input_at,
                         &update,
                         present,
-                        super::super::Keep::Note,
+                        if *for_good {
+                            super::super::Keep::Lasting
+                        } else {
+                            super::super::Keep::Note
+                        },
                     )
                     .await?
                     {
+                        // Kept for good: on her nodes as what a stretch
+                        // keeps is.
+                        if *for_good {
+                            kept_as_they_were = Some(settling::Kept {
+                                owner: job.owner,
+                                present: present.clone(),
+                                facts: update
+                                    .updates
+                                    .iter()
+                                    .filter_map(|one| one.fact.as_deref())
+                                    .map(super::super::super::ingest::compact_summary)
+                                    .collect(),
+                            });
+                        }
                         "applied".into()
                     } else {
                         "stale_or_duplicate".into()
@@ -169,6 +211,7 @@ pub(in crate::services::agent::merope) async fn finish(
                 }
                 Ok(Effect::NoChange) => "no_change".into(),
                 Ok(Effect::Paused) => unreachable!("put back above"),
+                Ok(Effect::SettledFromLines { .. }) => unreachable!("written as a stretch above"),
                 Err(failure) => {
                     // Its notes stay notes and go with the next stretch.
                     kept_as_they_were = settling::leave_unread(&tx, &mut job).await?;

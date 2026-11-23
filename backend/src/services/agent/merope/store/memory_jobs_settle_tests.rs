@@ -71,6 +71,7 @@ async fn stretch_from(
         present: Audience::private(7),
         from: at,
         last: at,
+        heard: Vec::new(),
     };
     enqueue(db, id, 7, payload, None).await.unwrap();
     due(db, id).await;

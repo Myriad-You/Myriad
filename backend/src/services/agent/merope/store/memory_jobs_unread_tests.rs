@@ -85,6 +85,7 @@ async fn notes_of_a_stretch_never_read_go_with_the_next() {
         present: Audience::private(7),
         from: at,
         last: at,
+        heard: Vec::new(),
     };
     for _ in 0..2 {
         enqueue(db, "settle", 7, line(later), None).await.unwrap();
@@ -329,6 +330,7 @@ async fn a_stretch_is_put_back_while_she_is_off() {
         present: Audience::private(7),
         from: meanwhile,
         last: meanwhile,
+        heard: Vec::new(),
     };
     enqueue(db, "settle", 7, line, None).await.unwrap();
     finish(db, &taken, Ok(Effect::Paused)).await.unwrap();
@@ -377,5 +379,90 @@ async fn a_stretch_is_put_back_while_she_is_off() {
     .await
     .unwrap();
     assert_eq!(went(db).await["周末要搬家"], holds("周末要搬家"));
+    schema.drop().await;
+}
+
+/// A private talk's lines never read, brought along by two stretches after
+/// them and still not read: they go back to be written down one by one,
+/// the old way, kept for good; what came after waits as before.
+#[tokio::test]
+async fn lines_never_read_go_back_to_be_written_one_by_one() {
+    let Some(schema) = fixture().await else {
+        return;
+    };
+    let db = &schema.db;
+    // Whole seconds, as the table keeps when lines were said.
+    let now = chrono::DateTime::from_timestamp(crate::clock::now().timestamp(), 0)
+        .unwrap()
+        .fixed_offset();
+    let ago = |minutes| now - chrono::Duration::minutes(minutes);
+    db.execute_unprepared(
+        "INSERT INTO agent_sessions (id, user_id, title, context, message_count, archived, \
+         created_at, last_active_at) VALUES ('unread-talk', 7, 't', '{\"mode\":\"chat\"}'::jsonb, \
+         0, false, NOW(), NOW())",
+    )
+    .await
+    .unwrap();
+    for (role, text, minutes) in [
+        ("user", "周末要搬家", 120),
+        ("assistant", "搬去哪里呀", 119),
+        ("user", "在学吉他", 60),
+        // The last stretch's own: not brought along.
+        ("user", "明天要考试", 20),
+    ] {
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO agent_messages (session_id, role, content, metadata, created_at) \
+             VALUES ('unread-talk', $1, $2, '{}'::jsonb, $3)",
+            [role.into(), text.into(), ago(minutes).into()],
+        ))
+        .await
+        .unwrap();
+    }
+    let before = settling::from_lines();
+    never_read(db, stretch_from(db, "settle", ago(121)).await).await;
+    for began in [ago(61), ago(30)] {
+        never_read(db, stretch_from(db, "settle", began).await).await;
+    }
+    let one = async |at: chrono::DateTime<chrono::FixedOffset>| {
+        let id = memory_jobs::key(&["chat", "7", "private", &at.timestamp_micros().to_string()]);
+        registry::get::<Job>(db, NAMESPACE, &id).await.unwrap()
+    };
+    for (at, said, answer) in [
+        (ago(120), "周末要搬家", "搬去哪里呀"),
+        (ago(60), "在学吉他", ""),
+    ] {
+        let queued = one(at).await.expect("back in the queue");
+        // Not fenced by what was gone over since.
+        crate::services::agent::merope::store::memory::mark_applied(
+            db,
+            7,
+            now,
+            &Audience::private(7),
+        )
+        .await
+        .unwrap();
+        assert!(current(db, &queued, false).await.unwrap());
+        let Some(Payload::Chat {
+            user_text,
+            reply,
+            input_at,
+            for_good,
+            ..
+        }) = queued.data
+        else {
+            panic!("written down one by one");
+        };
+        assert!(for_good, "kept for good");
+        assert_eq!(
+            (user_text.as_str(), reply.as_str(), input_at),
+            (said, answer, at)
+        );
+    }
+    assert!(one(ago(20)).await.is_none(), "the last stretch's own waits");
+    let job = loaded(db, "settle").await;
+    assert_eq!(job.unread_from, Some(ago(30)), "brought no further back");
+    assert_eq!(job.unread_times, 0);
+    assert!(settling::from_lines().one_by_one >= before.one_by_one + 2);
     schema.drop().await;
 }

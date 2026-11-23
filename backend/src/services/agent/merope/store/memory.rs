@@ -96,10 +96,27 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<
         kept |= apply_one(db, user_id, input_at, update, present, keep, &[], said).await?;
     }
     if (updates.said.is_empty() && updates.put_onto.is_empty())
-        || !chat_memory_input_is_current(db, user_id, input_at, present).await?
+        || (keep != Keep::Lasting
+            && !chat_memory_input_is_current(db, user_id, input_at, present).await?)
     {
         return Ok(kept);
     }
+    kept |= keep_what_she_said(db, user_id, updates, present).await?;
+    if kept && keep != Keep::Lasting {
+        mark_applied(db, user_id, input_at, present).await?;
+    }
+    Ok(kept)
+}
+
+/// What she said worth keeping having said, and what they put her onto,
+/// of `updates`: kept once each.
+async fn keep_what_she_said<C: ConnectionTrait + sea_orm::TransactionTrait>(
+    db: &C,
+    user_id: i32,
+    updates: &super::super::chat_remember::ChatMemoryUpdates,
+    present: &crate::services::agent::memory::unified::Audience,
+) -> Result<bool, anyhow::Error> {
+    let mut kept = false;
     use crate::services::agent::memory::unified;
     // What they put her onto is hers now, as what she heard in a group is:
     // about the thing, no one named.
@@ -170,9 +187,6 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<
         )
         .await?;
         kept |= remembered.is_some();
-    }
-    if kept {
-        mark_applied(db, user_id, input_at, present).await?;
     }
     Ok(kept)
 }
@@ -251,6 +265,8 @@ pub(in crate::services::agent::merope) async fn settle_chat_memory_on<
         )
         .await?;
     }
+    // A private talk gone over from what was said: what she said too.
+    kept |= keep_what_she_said(db, user_id, updates, present).await?;
     Ok(kept)
 }
 
@@ -436,7 +452,7 @@ pub(crate) async fn chat_memory_input_is_current<C: ConnectionTrait>(
 
 /// What they said at `input_at` has been gone over: anything older that
 /// arrives late may no longer change what she knows.
-async fn mark_applied<C: ConnectionTrait>(
+pub(super) async fn mark_applied<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
     input_at: chrono::DateTime<chrono::FixedOffset>,

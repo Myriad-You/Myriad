@@ -427,32 +427,43 @@ async fn queue_chat_words(
     if !is_logged_in_addressee(user_id) || !should_extract_chat_remember(&user_text) {
         return;
     }
-    // One job per person and place: their lines fold into it in order.
-    let id = super::memory_jobs::key(&["chat", &user_id.to_string(), &present.venue()]);
-    let data = super::memory_jobs::Payload::Chat {
-        user_text,
-        reply,
-        input_at,
-        present: present.clone(),
-        turn,
-        lines: vec![input_at],
-    };
-    if !matches!(
-        tokio::time::timeout(
-            Duration::from_secs(2),
-            super::store::memory_jobs::enqueue(db, &id, user_id, data, None)
-        )
-        .await,
-        Ok(Ok(()))
-    ) {
-        tracing::warn!(user_id, outcome = "enqueue_failed", "[Merope] chat memory");
+    // In a private talk nothing is taken line by line: the talk itself is
+    // what she has of it for now, and the stretch is gone over from what
+    // was said (`settle_raw`). Elsewhere, one job per person and place:
+    // their lines fold into it in order.
+    let private = !present.is_group();
+    let answered = !reply.trim().is_empty();
+    if !private {
+        let id = super::memory_jobs::key(&["chat", &user_id.to_string(), &present.venue()]);
+        let data = super::memory_jobs::Payload::Chat {
+            user_text: user_text.clone(),
+            reply,
+            input_at,
+            present: present.clone(),
+            turn,
+            lines: vec![input_at],
+            for_good: false,
+        };
+        if !matches!(
+            tokio::time::timeout(
+                Duration::from_secs(2),
+                super::store::memory_jobs::enqueue(db, &id, user_id, data, None)
+            )
+            .await,
+            Ok(Ok(()))
+        ) {
+            tracing::warn!(user_id, outcome = "enqueue_failed", "[Merope] chat memory");
+        }
     }
-    // And the stretch it belongs to, gone over once it is over.
+    // And the stretch it belongs to, gone over once it is over (or once
+    // the box is full, or a line is needed at once).
     let id = super::memory_jobs::key(&["settle", &user_id.to_string(), &present.venue()]);
+    let at_once = private && myriad_merope::settle_raw::at_once(&user_text).is_some();
     let data = super::memory_jobs::Payload::Settle {
-        present,
+        present: present.clone(),
         from: input_at,
         last: input_at,
+        heard: vec![(input_at, answered)],
     };
     if !matches!(
         tokio::time::timeout(
@@ -463,6 +474,14 @@ async fn queue_chat_words(
         Ok(Ok(()))
     ) {
         tracing::warn!(user_id, outcome = "enqueue_failed", "[Merope] chat settle");
+    }
+    // Needed at once: gone over now, with this line (nothing is judged so
+    // yet, `myriad_merope::settle_raw::at_once`). Nobody waits on it here.
+    if at_once && answered {
+        let db = db.clone();
+        super::background::spawn("a line needed at once, gone over", async move {
+            super::memory_jobs::hurry(&db, user_id, &present).await;
+        });
     }
 }
 
@@ -1143,4 +1162,5 @@ pub(super) mod cues;
 mod replay;
 
 pub(in crate::services::agent::merope) mod settle;
+pub(in crate::services::agent::merope) mod settle_raw;
 pub(super) use settle::settle;

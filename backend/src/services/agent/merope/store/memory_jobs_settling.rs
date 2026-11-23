@@ -78,6 +78,7 @@ static ASKED_AGAIN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64:
 static LEFT_UNREAD: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static BROUGHT_ALONG: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static KEPT_UNSETTLED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static ONE_BY_ONE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// [`Failures`] so far.
 pub(crate) fn failures() -> Failures {
@@ -88,6 +89,37 @@ pub(crate) fn failures() -> Failures {
         left_unread: LEFT_UNREAD.load(Relaxed),
         brought_along: BROUGHT_ALONG.load(Relaxed),
         kept_unsettled: KEPT_UNSETTLED.load(Relaxed),
+    }
+}
+
+/// A private talk gone over from what was said, since the site started:
+/// their lines asked about again for being accounted for nowhere, those
+/// still accounted for nowhere after (they stay as said), lines sent back
+/// to be written one by one ([`leave_unread`]), talks gone over
+/// because another part of her needed them, and of those, how many were
+/// not in time. Counts only, never what was said.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FromLines {
+    pub(crate) asked_again: u64,
+    pub(crate) left: u64,
+    /// Their lines left unread after being brought along twice, sent back
+    /// to be written down one by one.
+    pub(crate) one_by_one: u64,
+    pub(crate) hurried: u64,
+    pub(crate) hurried_late: u64,
+}
+
+/// [`FromLines`] so far.
+pub(crate) fn from_lines() -> FromLines {
+    let (left, asked_again) = super::super::super::chat_remember::settle_raw::unaccounted();
+    let (hurried, hurried_late) = super::super::super::memory_jobs::hurried();
+    FromLines {
+        asked_again,
+        left,
+        one_by_one: ONE_BY_ONE.load(std::sync::atomic::Ordering::Relaxed),
+        hurried,
+        hurried_late,
     }
 }
 
@@ -116,6 +148,7 @@ pub(super) async fn leave_unread(
         from,
         last,
         present,
+        ..
     }) = &job.data
     else {
         return Ok(None);
@@ -127,19 +160,33 @@ pub(super) async fn leave_unread(
         Some(brought) if brought.times >= BROUGHT_AT_MOST => {
             // On its own: what cannot be kept so is left unread as before,
             // never holding up the rest of the queue.
+            // A private talk is not noted line by line: what it brought
+            // along goes back to be written down one by one, the old way,
+            // and kept for good, on this same transaction (notes from
+            // before it was not are kept as they are, as before).
             let inner = sea_orm::TransactionTrait::begin(db).await?;
-            match keep_as_they_are(
-                &inner,
-                job.owner,
-                &present,
-                last,
-                brought.since,
-                brought.own,
-            )
-            .await
-            {
-                Ok(facts) => {
+            let kept_now = async {
+                let facts = keep_as_they_are(
+                    &inner,
+                    job.owner,
+                    &present,
+                    last,
+                    brought.since,
+                    brought.own,
+                )
+                .await?;
+                let lines = if present.is_group() {
+                    0
+                } else {
+                    one_by_one(&inner, job.owner, brought.since, brought.own).await?
+                };
+                anyhow::Ok((facts, lines))
+            }
+            .await;
+            match kept_now {
+                Ok((facts, lines)) => {
                     inner.commit().await?;
+                    counted(&ONE_BY_ONE, lines as u64);
                     kept = facts.len();
                     kept_as = Some(Kept {
                         owner: job.owner,
@@ -154,7 +201,7 @@ pub(super) async fn leave_unread(
                     inner.rollback().await?;
                     tracing::warn!(
                         owner = job.owner,
-                        "[Merope] notes left unread could not be kept as they were: they wait"
+                        "[Merope] notes or lines left unread could not be kept: they wait"
                     );
                     job.unread_from = Some(brought.since);
                     job.unread_times = brought.times;
@@ -271,6 +318,79 @@ pub(super) fn put_back(job: &mut Job) {
     }
     job.unread_from = Some(brought.since);
     job.unread_times = brought.times.saturating_sub(1);
+}
+
+/// A private talk's lines from `since` until `until`, theirs and her
+/// answers, back in the queue to be written down the old way, line by line
+/// (`memory_jobs::Payload::Chat`), each on its own and kept for good: put
+/// there on `db`, with what lets the stretch go. How many of their lines.
+async fn one_by_one(
+    db: &sea_orm::DatabaseTransaction,
+    owner: i32,
+    since: chrono::DateTime<chrono::FixedOffset>,
+    until: chrono::DateTime<chrono::FixedOffset>,
+) -> anyhow::Result<usize> {
+    use sea_orm::{DatabaseBackend, Statement};
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT m.role, m.content, m.created_at FROM agent_messages m \
+             JOIN agent_sessions s ON s.id = m.session_id \
+             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND (s.context->>'venue') IS NULL \
+               AND m.role IN ('user', 'assistant') AND (m.metadata->>'piece') IS NULL \
+               AND m.created_at >= $2 AND m.created_at < $3 \
+             ORDER BY m.created_at, m.id",
+            [owner.into(), since.into(), until.into()],
+        ))
+        .await?;
+    let present = crate::services::agent::memory::unified::Audience::private(owner);
+    let mut theirs = 0;
+    for (index, row) in rows.iter().enumerate() {
+        let role: String = row.try_get("", "role")?;
+        if role != "user" {
+            continue;
+        }
+        let text: String = row.try_get("", "content")?;
+        let at: chrono::DateTime<chrono::FixedOffset> = row.try_get("", "created_at")?;
+        let Some(text) = super::super::super::chat_remember::memory_user_text(&text) else {
+            continue;
+        };
+        // Her answer to it, when the next line is hers.
+        let reply = match rows.get(index + 1) {
+            Some(next) if next.try_get::<String>("", "role")? == "assistant" => {
+                super::super::super::ingest::compact_summary(
+                    &next.try_get::<String>("", "content")?,
+                )
+            }
+            _ => String::new(),
+        };
+        // A job each, so each is read by the day it was said on, and none
+        // folds into the next.
+        let id = super::super::super::memory_jobs::key(&[
+            "chat",
+            &owner.to_string(),
+            &present.venue(),
+            &at.timestamp_micros().to_string(),
+        ]);
+        super::enqueue_in(
+            db,
+            &id,
+            owner,
+            Payload::Chat {
+                user_text: text,
+                reply,
+                input_at: at,
+                present: present.clone(),
+                turn: Default::default(),
+                lines: vec![at],
+                for_good: true,
+            },
+            None,
+        )
+        .await?;
+        theirs += 1;
+    }
+    Ok(theirs)
 }
 
 /// The notes of `owner` here from `since` until `until`, kept for good as

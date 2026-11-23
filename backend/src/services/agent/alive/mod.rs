@@ -810,6 +810,11 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
             // started, by kind (`settling::failures`).
             "settlingFailures":
                 crate::services::agent::merope::store::memory_jobs::settling::failures(),
+            // A private talk gone over from what was said: lines asked
+            // about again, lines still accounted for nowhere, talks hurried
+            // and hurried too late (`settling::from_lines`). Counts only.
+            "settlingFromLines":
+                crate::services::agent::merope::store::memory_jobs::settling::from_lines(),
             // How asking for vectors went unanswered since the site started:
             // ahead of recall, in recall, for lines by meaning, filling rows
             // (`meaning::failures`).

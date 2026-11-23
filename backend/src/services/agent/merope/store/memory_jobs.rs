@@ -25,9 +25,9 @@ const _: () = assert!(LEASE as u64 > super::super::memory_jobs::SETTLE_LIMIT.as_
 /// over without it.
 const HELD_FOR: i64 = 120;
 /// Quiet this long, and a stretch of talk is over and gone over.
-const SETTLES_AFTER: i64 = 180;
+const SETTLES_AFTER: i64 = myriad_merope::settle_raw::QUIET_SECS as i64;
 /// Talk that never goes quiet is still gone over this long after it began.
-const SETTLES_AT_MOST: i64 = 1200;
+const SETTLES_AT_MOST: i64 = myriad_merope::settle_raw::AT_MOST_SECS as i64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(in crate::services::agent::merope) struct Job {
@@ -68,6 +68,10 @@ pub(in crate::services::agent::merope) struct Job {
     /// where the notes not gone over yet begin.
     #[serde(default)]
     pub said_from: Option<chrono::DateTime<chrono::FixedOffset>>,
+    /// A private talk: the lines gone over lately, kept from one stretch to
+    /// the next (`chat_remember::settle_raw::Read`).
+    #[serde(default)]
+    pub read: Option<super::super::chat_remember::settle_raw::Read>,
 }
 /// Which her a job was taken up for: the site's copy's lineage
 /// (`persona_sync::lease::lineage`), none while there is no copy.
@@ -207,18 +211,32 @@ pub(in crate::services::agent::merope) async fn enqueue(
 ) -> anyhow::Result<()> {
     let tx = db.begin().await?;
     lock(&tx).await?;
-    let now = now(&tx).await?;
-    let Some(epoch) = epoch(&tx, owner, false).await? else {
+    enqueue_in(&tx, id, owner, data, event).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// [`enqueue`] on a transaction that already holds [`lock`]: written with
+/// it, or not at all.
+pub(super) async fn enqueue_in(
+    tx: &sea_orm::DatabaseTransaction,
+    id: &str,
+    owner: i32,
+    data: Payload,
+    event: Option<&str>,
+) -> anyhow::Result<()> {
+    let now = now(tx).await?;
+    let Some(epoch) = epoch(tx, owner, false).await? else {
         return Ok(());
     };
-    let persona = super::get_persona_on(&tx).await?.map(|row| row.updated_at);
-    let her = Her::now(&tx).await?;
+    let persona = super::get_persona_on(tx).await?.map(|row| row.updated_at);
+    let her = Her::now(tx).await?;
     if let Some(event) = event {
-        if registry::get::<bool>(&tx, EVENTS, event).await?.is_some() {
+        if registry::get::<bool>(tx, EVENTS, event).await?.is_some() {
             return Ok(());
         }
     }
-    let mut existing = registry::get::<Job>(&tx, NAMESPACE, id).await?;
+    let mut existing = registry::get::<Job>(tx, NAMESPACE, id).await?;
     if existing.as_ref().is_some_and(|job| {
         !same_her(job, &her, persona) || job.epoch != epoch || job.owner != owner
     }) {
@@ -236,6 +254,7 @@ pub(in crate::services::agent::merope) async fn enqueue(
     let unread = existing
         .as_ref()
         .and_then(|job| Some((job.unread_from?, job.unread_times)));
+    let read = existing.as_ref().and_then(|job| job.read.clone());
     let mut job = existing
         .filter(|job| job.data.is_some() || job.next.is_some())
         .unwrap_or(Job {
@@ -256,7 +275,11 @@ pub(in crate::services::agent::merope) async fn enqueue(
         unread_times: 0,
         brought: None,
         said_from: None,
+        read: None,
     });
+    if job.read.is_none() {
+        job.read = read;
+    }
     // The same her: noted as she is now, should she have been born since.
     // Not while there is no persona: a copy may be on its way in then.
     if persona.is_some() {
@@ -280,15 +303,14 @@ pub(in crate::services::agent::merope) async fn enqueue(
             None => *slot = Some(data),
         }
         if !in_flight {
-            let due = (now + SETTLES_AFTER).min(began + SETTLES_AT_MOST).max(now);
+            let due = settle_due(job.data.as_ref(), now, began);
             job.ready = if job.attempts == 0 {
                 due
             } else {
                 job.ready.max(due)
             };
         }
-        save(&tx, id, &job, now).await?;
-        tx.commit().await?;
+        save(tx, id, &job, now).await?;
         return Ok(());
     }
     if let Payload::Chat { .. } = data {
@@ -309,8 +331,7 @@ pub(in crate::services::agent::merope) async fn enqueue(
                 job.ready.max(now)
             };
         }
-        save(&tx, id, &job, now).await?;
-        tx.commit().await?;
+        save(tx, id, &job, now).await?;
         return Ok(());
     }
     match (&mut job.data, data) {
@@ -331,7 +352,7 @@ pub(in crate::services::agent::merope) async fn enqueue(
             exchanges.extend(added);
             *stranger = latest;
             *count = count_exchange(
-                &tx,
+                tx,
                 &myriad_merope::strangers::talks_key(venue, &stranger.who),
                 now,
             )
@@ -353,7 +374,7 @@ pub(in crate::services::agent::merope) async fn enqueue(
             } = &mut data
             {
                 *count = count_exchange(
-                    &tx,
+                    tx,
                     &myriad_merope::strangers::talks_key(venue, &stranger.who),
                     now,
                 )
@@ -363,10 +384,10 @@ pub(in crate::services::agent::merope) async fn enqueue(
             *slot = Some(data);
         }
     }
-    save(&tx, id, &job, now).await?;
+    save(tx, id, &job, now).await?;
     if let Some(event) = event {
         registry::put(
-            &tx,
+            tx,
             EVENTS,
             event,
             registry::RegistryIdentity {
@@ -380,7 +401,6 @@ pub(in crate::services::agent::merope) async fn enqueue(
         )
         .await?;
     }
-    tx.commit().await?;
     Ok(())
 }
 async fn count_exchange(db: &impl ConnectionTrait, id: &str, now: i64) -> anyhow::Result<i64> {
@@ -490,14 +510,76 @@ pub(in crate::services::agent::merope) async fn current(
     {
         return Ok(false);
     }
+    // Lines of a stretch that could not be read are kept for good, as a
+    // stretch is: not fenced by lines gone over since.
     if let Some(Payload::Chat {
-        input_at, present, ..
+        input_at,
+        present,
+        for_good: false,
+        ..
     }) = &job.data
     {
         return Ok(super::chat_memory_input_is_current(db, job.owner, *input_at, present).await?);
     }
     Ok(true)
 }
+/// When a stretch that `began` then is gone over: once they go quiet, but
+/// never past a while after it began; in a private talk at once when its
+/// box is full (`myriad_merope::settle_raw::box_is_full`).
+fn settle_due(data: Option<&Payload>, now: i64, began: i64) -> i64 {
+    let full = matches!(data, Some(Payload::Settle { present, .. }) if !present.is_group())
+        && data.is_some_and(|data| myriad_merope::settle_raw::box_is_full(data.waiting()));
+    if full {
+        return now;
+    }
+    (now + SETTLES_AFTER).min(began + SETTLES_AT_MOST).max(now)
+}
+
+/// Another part of her needs what was said in `id`'s stretch: it is gone
+/// over now rather than once they go quiet. Where its lines not yet gone
+/// over begin, when there are any of theirs (none, nothing to hurry); a
+/// stretch being gone over already is waited on as it is, and one that
+/// failed keeps its wait before the next try.
+pub(in crate::services::agent::merope) async fn hurry(
+    db: &DatabaseConnection,
+    id: &str,
+    owner: i32,
+) -> anyhow::Result<Option<chrono::DateTime<chrono::FixedOffset>>> {
+    let tx = db.begin().await?;
+    lock(&tx).await?;
+    let now = now(&tx).await?;
+    let Some(mut job) = registry::get::<Job>(&tx, NAMESPACE, id).await? else {
+        return Ok(None);
+    };
+    let Some(Payload::Settle { from, heard, .. }) = &job.data else {
+        return Ok(None);
+    };
+    if job.owner != owner || heard.is_empty() {
+        return Ok(None);
+    }
+    let from = *from;
+    let in_flight = job.token.is_some() && job.lease > now;
+    if !in_flight && job.attempts == 0 && job.ready > now {
+        job.ready = now;
+        save(&tx, id, &job, now).await?;
+    }
+    tx.commit().await?;
+    Ok(Some(from))
+}
+
+/// Whether `id`'s stretch that began `from` is still waiting to be gone
+/// over: once it is, it holds nothing, or what came after.
+pub(in crate::services::agent::merope) async fn still_waiting(
+    db: &DatabaseConnection,
+    id: &str,
+    from: chrono::DateTime<chrono::FixedOffset>,
+) -> anyhow::Result<bool> {
+    Ok(matches!(
+        registry::get::<Job>(db, NAMESPACE, id).await?,
+        Some(Job { data: Some(Payload::Settle { from: now, .. }), .. }) if now == from
+    ))
+}
+
 /// Once what was gone over is done, what arrived meanwhile is next.
 fn promote_next(job: &mut Job, now: i64) {
     let Some(next) = job.next.take() else {
@@ -508,8 +590,8 @@ fn promote_next(job: &mut Job, now: i64) {
         None => {
             job.ready = if next.awaits_reply() {
                 now + HELD_FOR
-            } else if matches!(next, Payload::Settle { .. }) {
-                now + SETTLES_AFTER
+            } else if let Payload::Settle { from, .. } = &next {
+                settle_due(Some(&next), now, from.timestamp())
             } else {
                 now
             };

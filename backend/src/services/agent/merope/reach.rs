@@ -211,6 +211,14 @@ async fn first_words_as(
     if !goes_on(&admission) {
         return None;
     }
+    // What they said lately and was not gone over yet is gone over first,
+    // so what she writes knows it (waited on a while, then without it).
+    super::memory_jobs::hurry(
+        db,
+        user_id,
+        &crate::services::agent::memory::unified::Audience::private(user_id),
+    )
+    .await;
     let talk = recent_talk(db, user_id).await;
     let about = would_write(db, user_id, &reason, &talk, facts(&admission)).await?;
     let own = puzzle.as_ref().map(|made| made.surface.as_str());

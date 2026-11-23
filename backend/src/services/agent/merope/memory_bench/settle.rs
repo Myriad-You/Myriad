@@ -442,6 +442,20 @@ pub(super) async fn over_time(
     session_at: chrono::DateTime<chrono::FixedOffset>,
     turns: &[Turn],
 ) -> (Vec<String>, Vec<(String, String)>, Vec<String>) {
+    // A private talk is gone over from what was said, as production goes
+    // over it now: no short notes.
+    if on_nodes(present) {
+        let raw = Box::pin(raw::session(
+            db,
+            user_id,
+            present,
+            session_at,
+            turns,
+            &mut super::note_trail::Trail::off(),
+        ))
+        .await;
+        return (Vec::new(), raw.lasting, Vec::new());
+    }
     let mut notes: Vec<super::super::chat_remember::ChatMemoryUpdate> = Vec::new();
     let mut noted_at = Vec::new();
     for (index, turn) in turns.iter().enumerate() {
@@ -509,6 +523,7 @@ const SETTLE_KNOWN: usize = 40;
 
 mod going_over;
 pub(super) use going_over::go_over;
+mod raw;
 
 #[cfg(test)]
 mod tests {

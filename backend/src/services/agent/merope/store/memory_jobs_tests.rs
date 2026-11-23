@@ -9,6 +9,8 @@ mod her;
 mod settle;
 #[path = "memory_jobs_take_back_tests.rs"]
 mod take_back;
+#[path = "memory_jobs_raw_tests.rs"]
+mod raw;
 
 async fn fixture() -> Option<crate::db::IsolatedSchema> {
     let url = crate::db::test_url(&["MYRIAD_MEROPE_TEST_DATABASE_URL"])?;
@@ -44,6 +46,7 @@ async fn chat(db: &DatabaseConnection, id: &str, audience: Audience) {
             present: audience,
             turn: TurnContext::default(),
             lines: vec![input],
+            for_good: false,
         },
         None,
     )
@@ -244,6 +247,7 @@ async fn durable_memory_retries_are_finite_and_revalidate_input_her_and_session(
             present: Audience::private(7),
             turn: TurnContext::default(),
             lines: vec![earlier_at],
+            for_good: false,
         },
         None,
     )
@@ -271,6 +275,7 @@ async fn durable_memory_folds_a_persons_lines_and_keeps_those_said_meanwhile() {
         present: Audience::private(7),
         turn: TurnContext::default(),
         lines: vec![at],
+        for_good: false,
     };
     let (first, second, third) = (at(3), at(2), at(1));
     // Held as it lands: not gone over before she answers.
@@ -528,6 +533,7 @@ async fn durable_memory_settles_a_stretch_once_it_is_over() {
         present: Audience::private(7),
         from: at,
         last: at,
+        heard: Vec::new(),
     };
     enqueue(db, "settle", 7, stretch(began), None)
         .await
