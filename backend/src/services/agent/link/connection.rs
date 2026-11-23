@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use futures::stream::SplitSink;
-use futures::{SinkExt, StreamExt};
+use futures::{FutureExt, SinkExt, StreamExt};
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -25,6 +25,8 @@ use crate::services::agent::{AgentInteractionMode, AgentProgressEvent};
 use crate::services::persona_sync::devices::{self, Device, Refused};
 
 use super::contract::{CONTRACT, Close, Timing, valid_id};
+use super::ended::Ended;
+use super::held_up::{frame_type, held_up};
 use super::turns::{self, Turn};
 
 /// Frames a run follower or the mood follower may have waiting.
@@ -211,7 +213,7 @@ pub(super) async fn serve_with(
     db: DatabaseConnection,
     device: Device,
     timing: Timing,
-) {
+) -> Ended {
     let (registered, closed) = super::open(&device.id, device.user_id);
     let (sink, stream) = socket.split();
     let (tx, rx) = mpsc::channel(QUEUED_FRAMES);
@@ -265,7 +267,8 @@ pub(super) async fn serve_with(
         core_refused: HashSet::new(),
     };
     tracing::info!(device = %link.device.id, "[link] opened");
-    let why = link.run(sink, stream, rx, closed).await;
+    let ended = link.run(sink, stream, rx, closed).await;
+    let why = ended.here();
     // Closed for speaking another protocol: its devices page says the app on
     // it is to be updated, until a hello of it is taken.
     if why == Some(Close::UnsupportedProtocol)
@@ -282,9 +285,12 @@ pub(super) async fn serve_with(
     super::forget(&link.device.id, registered);
     tracing::info!(
         device = %link.device.id,
-        why = why.map_or("closed by the child", Close::name),
+        why = ended.why(),
+        code = %ended.code(),
+        reason = %ended.reason(),
         "[link] closed"
     );
+    ended
 }
 
 struct Link {
@@ -409,15 +415,30 @@ struct Live {
 }
 
 type Sink = SplitSink<WebSocket, Message>;
+type Stream = futures::stream::SplitStream<WebSocket>;
+
+/// How a link ended whose socket would take no more: by the child's close
+/// frame when one had come and was not read yet.
+fn unsent(stream: &mut Stream) -> Ended {
+    for _ in 0..QUEUED_FRAMES {
+        match stream.next().now_or_never() {
+            Some(Some(Ok(Message::Close(frame)))) => return Ended::by_child(frame),
+            Some(Some(Ok(_))) => {}
+            Some(Some(Err(error))) => return Ended::cut(&error.to_string()),
+            Some(None) | None => break,
+        }
+    }
+    Ended::cut("a frame could not be sent")
+}
 
 impl Link {
     async fn run(
         &mut self,
         mut sink: Sink,
-        mut stream: futures::stream::SplitStream<WebSocket>,
+        mut stream: Stream,
         mut rx: mpsc::Receiver<Outgoing>,
         mut closed: oneshot::Receiver<Close>,
-    ) -> Option<Close> {
+    ) -> Ended {
         let hello_by = tokio::time::sleep(self.timing.hello);
         tokio::pin!(hello_by);
         let mut beat = tokio::time::interval_at(
@@ -442,7 +463,12 @@ impl Link {
                 incoming = stream.next() => match incoming {
                     Some(Ok(Message::Text(text))) => {
                         self.last_heard = Instant::now();
-                        self.take(text.as_str()).await
+                        let began = Instant::now();
+                        let why = self.take(text.as_str()).await;
+                        if let Some(took_ms) = held_up(began) {
+                            tracing::info!(device = %self.device.id, t = frame_type(text.as_str()), took_ms, "[link] a frame held the link up");
+                        }
+                        why
                     }
                     Some(Ok(Message::Binary(_))) => {
                         self.last_heard = Instant::now();
@@ -453,14 +479,23 @@ impl Link {
                         self.last_heard = Instant::now();
                         None
                     }
-                    Some(Ok(Message::Close(_)) | Err(_)) | None => return None,
+                    Some(Ok(Message::Close(frame))) => return Ended::by_child(frame),
+                    Some(Err(error)) => return Ended::cut(&error.to_string()),
+                    None => return Ended::cut("the socket ended"),
                 },
                 Some(outgoing) = rx.recv() => {
                     self.queue.push(outgoing);
                     None
                 }
                 () = &mut hello_by, if !self.hello => Some(Close::Timeout),
-                _ = beat.tick() => self.beat().await,
+                _ = beat.tick() => {
+                    let began = Instant::now();
+                    let why = self.beat().await;
+                    if let Some(took_ms) = held_up(began) {
+                        tracing::info!(device = %self.device.id, took_ms, "[link] the heartbeat held the link up");
+                    }
+                    why
+                }
                 _ = keep.tick(), if self.live.is_some() => {
                     self.keep_conversations().await;
                     None
@@ -481,7 +516,7 @@ impl Link {
             let queued = std::mem::take(&mut self.queue);
             for outgoing in queued {
                 if !self.send(&mut sink, outgoing).await {
-                    return None;
+                    return unsent(&mut stream);
                 }
             }
             if let Some(why) = why {
@@ -491,7 +526,7 @@ impl Link {
                         reason: why.name().into(),
                     })))
                     .await;
-                return Some(why);
+                return Ended::Here(why);
             }
         }
     }

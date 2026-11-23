@@ -20,29 +20,31 @@ pub(crate) struct Lately {
 }
 
 impl Lately {
-    /// How she is told of it: a fact, never their words.
+    /// How she is told of it: a fact, never their words. A title already
+    /// says what kind of card it is (「要你定：…」「做完了：…」), so the
+    /// kind is not said again; only a card with no title is named by it.
     pub fn told(&self) -> String {
-        let kind = match self.kind.as_str() {
-            "decide" => "要你定",
-            "nod" => "你点头就行",
-            "status" => "进度",
-            "progress" => "仓库进度",
-            other => other,
+        let named = if self.title.trim().is_empty() {
+            match self.kind.as_str() {
+                "decide" => "要你定",
+                "nod" => "你点头就行",
+                "status" => "进度",
+                "progress" => "仓库进度",
+                other => other,
+            }
+        } else {
+            &self.title
         };
         match (&self.chosen, self.waiting) {
-            (Some((label, true)), _) => {
-                format!("卡片「{}」（{kind}）：站长选了「{label}」", self.title)
+            (Some((label, true)), _) => format!("卡片「{named}」：站长选了「{label}」"),
+            (Some((label, false)), true) => {
+                format!("卡片「{named}」：站长在更早的一版上选了「{label}」，新的一版还在等站长")
             }
-            (Some((label, false)), true) => format!(
-                "卡片「{}」（{kind}）：站长在更早的一版上选了「{label}」，新的一版还在等站长",
-                self.title
-            ),
-            (Some((label, false)), false) => format!(
-                "卡片「{}」（{kind}）：站长在更早的一版上选了「{label}」",
-                self.title
-            ),
-            (None, true) => format!("卡片「{}」（{kind}）：还在等站长", self.title),
-            (None, false) => format!("卡片「{}」（{kind}）：不用站长答", self.title),
+            (Some((label, false)), false) => {
+                format!("卡片「{named}」：站长在更早的一版上选了「{label}」")
+            }
+            (None, true) => format!("卡片「{named}」：还在等站长"),
+            (None, false) => format!("卡片「{named}」：不用站长答"),
         }
     }
 }
@@ -96,4 +98,65 @@ pub(crate) async fn lately<C: ConnectionTrait>(
             }
         })
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Lately;
+
+    fn card(kind: &str, title: &str, waiting: bool, chosen: Option<(&str, bool)>) -> Lately {
+        Lately {
+            id: "card_1".to_string(),
+            at: 0,
+            title: title.to_string(),
+            kind: kind.to_string(),
+            waiting,
+            chosen: chosen.map(|(label, now)| (label.to_string(), now)),
+        }
+    }
+
+    #[test]
+    fn a_card_is_told_by_its_title_and_its_kind_only_when_it_has_none() {
+        let told = [
+            card("decide", "要你定：现在推送吗", false, Some(("推送", true))),
+            card("nod", "等你点头：拆开存储", true, Some(("好", false))),
+            card("progress", "接着在做：整理记忆", false, None),
+            card("status", "卡住了：导入立绘", true, None),
+        ]
+        .map(|one| one.told());
+        assert_eq!(
+            told,
+            [
+                "卡片「要你定：现在推送吗」：站长选了「推送」",
+                "卡片「等你点头：拆开存储」：站长在更早的一版上选了「好」，新的一版还在等站长",
+                "卡片「接着在做：整理记忆」：不用站长答",
+                "卡片「卡住了：导入立绘」：还在等站长",
+            ]
+        );
+        for line in &told {
+            for kind in ["（要你定）", "（你点头就行）", "（进度）", "（仓库进度）"]
+            {
+                assert!(!line.contains(kind), "{line}");
+            }
+        }
+
+        let untitled = [
+            card("decide", "", true, None),
+            card("nod", " ", false, Some(("好", false))),
+            card("status", "", false, None),
+            card("progress", "", true, None),
+            card("question", "", true, None),
+        ]
+        .map(|one| one.told());
+        assert_eq!(
+            untitled,
+            [
+                "卡片「要你定」：还在等站长",
+                "卡片「你点头就行」：站长在更早的一版上选了「好」",
+                "卡片「进度」：不用站长答",
+                "卡片「仓库进度」：还在等站长",
+                "卡片「question」：还在等站长",
+            ]
+        );
+    }
 }

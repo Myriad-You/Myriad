@@ -461,9 +461,24 @@ fn answer_of(action: &str, version: u64, body: &Value) -> Answer {
     }
 }
 
+/// What a seen action's done result comes to once the action is no longer
+/// granted to the device (contract `calls.seen`: the screen, a picture, a
+/// recording): `call_not_granted`, and what it carries is dropped unread.
+/// `None` for any other result, read as it says.
+fn withheld(device_id: &str, action: &str, version: u64, body: &Value) -> Option<Answer> {
+    (body["outcome"].as_str() == Some("done")
+        && myriad_her_link::call_seen(action)
+        && !super::granted_now(device_id, action, version))
+    .then(|| {
+        tracing::info!(device = %device_id, %action, "[link] what a device saw came after the owner took it back: not kept");
+        Answer::failed("call_not_granted")
+    })
+}
+
 /// A device answered one of her calls (`call.result`). Only the device it
 /// was asked of answers it; one that comes after the call was counted timed
-/// out changes its row to what happened.
+/// out changes its row to what happened. What a device saw is kept only
+/// while the action is granted to it (`withheld`).
 pub(super) async fn result(db: &DatabaseConnection, device_id: &str, body: &Value) {
     let Some(call_id) = body["callId"].as_str() else {
         return;
@@ -475,7 +490,8 @@ pub(super) async fn result(db: &DatabaseConnection, device_id: &str, body: &Valu
         if ours { all.remove(call_id) } else { None }
     });
     if let Some(mut one) = waiting {
-        let answer = answer_of(&one.action, one.version, body);
+        let answer = withheld(device_id, &one.action, one.version, body)
+            .unwrap_or_else(|| answer_of(&one.action, one.version, body));
         if let Some(waits) = one.answer.take() {
             let _ = waits.send(answer);
         }
@@ -486,7 +502,8 @@ pub(super) async fn result(db: &DatabaseConnection, device_id: &str, body: &Valu
         let one = all
             .get_mut(call_id)
             .filter(|one| one.record.device_id == device_id && !one.record.late)?;
-        let answer = answer_of(&one.record.action, one.record.version, body);
+        let answer = withheld(device_id, &one.record.action, one.record.version, body)
+            .unwrap_or_else(|| answer_of(&one.record.action, one.record.version, body));
         one.record.outcome = answer.outcome;
         one.record.ended_at = crate::clock::now();
         one.record.late = true;
@@ -523,8 +540,10 @@ pub(super) fn accepted(device_id: &str, body: &Value) {
 /// Link `link` of the device was just told it is granted `granted`, through
 /// `sender` (under the registry's lock, right after `call.granted`). Its
 /// calls of an action not granted now and never sent end `call_not_granted`;
-/// a long one sent is cancelled. Those sent on an earlier link and granted
-/// now go again, same callId and deadline, unless their deadline has passed.
+/// so does a short one sent of a seen action (`calls.seen`), whose result
+/// would not be kept now (`withheld`); a long one sent is cancelled. Those
+/// sent on an earlier link and granted now go again, same callId and
+/// deadline, unless their deadline has passed.
 pub(super) fn regranted(
     device_id: &str,
     link: u64,
@@ -539,7 +558,7 @@ pub(super) fn regranted(
                 return true;
             }
             if !granted.iter().any(|action| action.name == one.action) {
-                if one.link.is_none() {
+                if one.link.is_none() || (!one.long && myriad_her_link::call_seen(&one.action)) {
                     dropped.extend(one.answer.take());
                     return false;
                 }
@@ -747,10 +766,18 @@ mod tests {
     async fn a_call_never_sent_ends_not_granted_and_a_removed_devices_calls_end_at_once() {
         let (sender, mut sent) = mpsc::channel(4);
         let never = waiting("call_never_sent", "dev_withdrawn", None);
+        let look = waiting("call_sent_look", "dev_withdrawn", Some(7));
         let sent_one = waiting("call_sent_short", "dev_withdrawn", Some(7));
+        pending(|all| {
+            if let Some(one) = all.get_mut("call_sent_short") {
+                one.action = "notify.post".into();
+            }
+        });
         regranted("dev_withdrawn", 7, &[], &sender);
         assert_eq!(never.await.unwrap(), Answer::failed("call_not_granted"));
-        // One sent is not dropped, and a short one is not cancelled.
+        // A look sent ends not granted: what it saw would not be kept now.
+        assert_eq!(look.await.unwrap(), Answer::failed("call_not_granted"));
+        // Any other one sent is not dropped, and a short one is not cancelled.
         assert!(pending(|all| all.contains_key("call_sent_short")));
         assert!(sent.try_recv().is_err());
         pending(|all| all.remove("call_sent_short"));
@@ -792,6 +819,29 @@ mod tests {
         assert!(pending(|all| !all
             .values()
             .any(|one| one.device_id == "dev_removed")));
+    }
+
+    #[test]
+    fn what_a_device_saw_is_kept_only_while_it_is_granted_there() {
+        // No link of this device is granted anything now.
+        let done = json!({ "outcome": "done", "result": { "facts": { "app": "Mail" } } });
+        assert_eq!(
+            withheld("dev_not_linked", "screen.look", 1, &done),
+            Some(Answer::failed("call_not_granted"))
+        );
+        // What happened is read as it says: a notification shown, or a look
+        // that did not see anything.
+        assert_eq!(
+            withheld(
+                "dev_not_linked",
+                "notify.post",
+                1,
+                &json!({ "outcome": "done", "result": { "shown": true } })
+            ),
+            None
+        );
+        let failed = json!({ "outcome": "failed", "error": { "code": "not_now" } });
+        assert_eq!(withheld("dev_not_linked", "screen.look", 1, &failed), None);
     }
 
     #[test]

@@ -57,8 +57,10 @@ mod calls_store;
 mod connection;
 mod contract;
 mod conversations;
+mod ended;
 pub(crate) mod counts;
 mod experience;
+mod held_up;
 mod moment;
 mod moment_repeats;
 mod nodes;
@@ -359,6 +361,22 @@ fn send_calls_frame(device_id: &str, outgoing: connection::Outgoing) {
     {
         let _ = calls.sender.try_send(outgoing);
     }
+}
+
+/// Whether the device's link may be asked `action` at `version` now: what it
+/// was told it is granted, less what the owner is taking back. A seen action's
+/// result is kept only then (contract `calls.seen`).
+fn granted_now(device_id: &str, action: &str, version: u64) -> bool {
+    OPEN.lock().is_ok_and(|open| {
+        open.get(device_id)
+            .and_then(|link| link.calls.as_ref())
+            .and_then(|calls| calls.granted.as_ref())
+            .is_some_and(|granted| {
+                granted
+                    .iter()
+                    .any(|one| one.name == action && one.version == version)
+            })
+    })
 }
 
 /// The owner's devices whose link was told it is granted `action` now.

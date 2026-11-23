@@ -2340,11 +2340,15 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
     site.close().await;
 }
 
-#[tokio::test]
-async fn a_quiet_child_is_let_go() {
-    let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
-        return;
-    };
+/// A site that serves one device's link at `timing`, and how each link ended.
+async fn site_of_one(
+    timing: Timing,
+) -> Option<(
+    Site,
+    String,
+    tokio::sync::mpsc::UnboundedReceiver<super::ended::Ended>,
+)> {
+    let fixture = crate::federation::test_db::SchemaDb::new_or_media().await?;
     let db = fixture.db.clone();
     db.execute_unprepared(&format!(
         "INSERT INTO users (id, username, is_admin, is_owner) VALUES ({OWNER}, 'owner{OWNER}', true, true)"
@@ -2353,31 +2357,81 @@ async fn a_quiet_child_is_let_go() {
     .unwrap();
     crate::services::principal::invalidate_site_owner_cache();
     let (mac, token) = device(&db, "Mac").await;
-    let timing = Timing {
-        heartbeat: Duration::from_millis(100),
-        missed: 2,
-        hello: Duration::from_millis(300),
-    };
+    let (told, ends) = tokio::sync::mpsc::unbounded_channel();
     let link_db = db.clone();
     let app = axum::Router::new().route(
         "/api/agent/link",
         axum::routing::get(move |upgrade: axum::extract::ws::WebSocketUpgrade| {
-            let (db, device) = (link_db.clone(), mac.clone());
+            let (db, device, told) = (link_db.clone(), mac.clone(), told.clone());
             async move {
-                upgrade.on_upgrade(move |socket| {
-                    super::connection::serve_with(socket, db, device, timing)
+                upgrade.on_upgrade(move |socket| async move {
+                    let ended = super::connection::serve_with(socket, db, device, timing).await;
+                    let _ = told.send(ended);
                 })
             }
         }),
     );
-    let site = serve_app(db, fixture, app).await;
+    Some((serve_app(db, fixture, app).await, token, ends))
+}
+
+#[tokio::test]
+async fn a_quiet_child_is_let_go() {
+    let Some((site, token, mut ends)) = site_of_one(Timing {
+        heartbeat: Duration::from_millis(100),
+        missed: 2,
+        hello: Duration::from_millis(300),
+    })
+    .await
+    else {
+        return;
+    };
     let mut child = Child::open(&site, &token).await;
     assert_eq!(child.closed().await, (4408, "timeout".to_string()));
+    let ended = ends.recv().await.unwrap();
+    assert_eq!((ended.why(), ended.code().as_str()), ("timeout", "4408"));
     // After hello the host pings; a child that never answers is gone.
     let mut child = Child::open(&site, &token).await;
     let welcome = child.hello().await;
     assert_eq!(welcome["body"]["heartbeatMs"], 100);
     assert_eq!(child.closed().await, (4408, "timeout".to_string()));
+    site.close().await;
+}
+
+#[tokio::test]
+async fn how_a_child_left_is_known_by_its_close_number() {
+    let Some((site, token, mut ends)) = site_of_one(Timing::from_contract()).await else {
+        return;
+    };
+    // It said goodbye: the number and the words it gave.
+    let mut child = Child::open(&site, &token).await;
+    child.hello().await;
+    child
+        .raw(Message::Close(Some(tungstenite::protocol::CloseFrame {
+            code: 1001.into(),
+            reason: "going away".into(),
+        })))
+        .await;
+    let ended = ends.recv().await.unwrap();
+    assert_eq!(
+        (ended.why(), ended.code().as_str(), ended.reason()),
+        ("closed by the child", "1001", "going away")
+    );
+    // It was just gone.
+    let mut child = Child::open(&site, &token).await;
+    child.hello().await;
+    drop(child);
+    let ended = ends.recv().await.unwrap();
+    assert_eq!((ended.why(), ended.code().as_str()), ("cut off", "none"));
+    // Another link of its took its place: the site's own close.
+    let mut first = Child::open(&site, &token).await;
+    first.hello().await;
+    let mut second = Child::open(&site, &token).await;
+    second.hello().await;
+    let ended = ends.recv().await.unwrap();
+    assert_eq!(
+        (ended.why(), ended.code()),
+        ("replaced", Close::Replaced.code().to_string())
+    );
     site.close().await;
 }
 
@@ -4657,6 +4711,19 @@ async fn a_device_asks_only_her_host_and_is_answered_and_a_link_without_calls_is
         .await;
     let answer = child.expect("call.result").await;
     assert_eq!(answer["body"]["error"], json!({ "code": "wrong_audience" }));
+    // A version of an action the contract does not have is answered so, at
+    // the version the site reads: not refused as a bad frame on the way.
+    let mut newer = ask("up-1v", "group.read");
+    newer["version"] = json!(2);
+    newer["for"] = json!({ "kind": "group", "groupId": "g42" });
+    child.send("call.ask", Some("up-1v"), newer).await;
+    let answer = child.expect("call.result").await;
+    assert_eq!(answer["id"], "up-1v.result");
+    assert_eq!(
+        answer["body"]["error"],
+        json!({ "code": "version_unsupported" })
+    );
+    assert_eq!(answer["body"]["version"], 1);
     // A device's own action is never passed to another device.
     child
         .send("call.ask", Some("up-2"), ask("up-2", "screen.look"))
@@ -6732,8 +6799,12 @@ fn asking_card(title: &str) -> myriad_persona_log::payloads::CardVersion {
             .map(|(id, label)| CardAction {
                 id: (*id).into(),
                 label: (*label).into(),
+                effects: Vec::new(),
+                undo: None,
+                icon: None,
             })
             .collect(),
+        idle: None,
     }
 }
 

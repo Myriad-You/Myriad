@@ -3985,8 +3985,12 @@ async fn her_cards_go_into_her_log_and_answers_from_the_mac_count_here() {
                 .map(|(id, label)| CardAction {
                     id: (*id).into(),
                     label: (*label).into(),
+                    effects: Vec::new(),
+                    undo: None,
+                    icon: None,
                 })
                 .collect(),
+            idle: None,
         }
     };
     let card_rows = "SELECT count(*) FROM agent_log_rows WHERE kind LIKE 'card.%'";
