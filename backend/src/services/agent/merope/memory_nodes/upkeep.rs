@@ -118,7 +118,8 @@ pub(crate) fn system_prompt() -> String {
      you see changed it, with `reason` (why you see it differently now): name the view you \
      change (`view`), none for a new one. A view changes only on what the partner or you said, \
      outside a group; on anything else (a page, a video, another program, a group, only the \
-     head) it stays as it was. What the partner set (`partnerSet`, `byPartner`, a note or a \
+     head) it stays as it was. A view marked `keptElsewhere` is one another review of yours keeps \
+     up: leave it as it is. What the partner set (`partnerSet`, `byPartner`, a note or a \
      relation the partner made) stands: do not change it; when you think it is wrong, raise a \
      `hand` in your own words. When `due` says `clash` or `mutual_block`, raise a `hand` to \
      tell them. Nothing is decided by how many times something came up. Every action rests on \
