@@ -26,6 +26,9 @@ use crate::services::persona_sync::devices::{self, Device, RevokeReason};
 #[path = "page_link_tests.rs"]
 mod page_link_tests;
 
+#[path = "vector_link_tests.rs"]
+mod vector_link_tests;
+
 #[path = "conformance_link_tests.rs"]
 mod conformance_link_tests;
 
