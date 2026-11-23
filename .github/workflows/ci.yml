@@ -244,6 +244,15 @@ jobs:
       # default-members from hiding a package from this gate.
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # See the schema-drift job: the backend's test build may be short of memory.
+      - name: More swap for the backend's test build
+        continue-on-error: true
+        run: |
+          sudo fallocate -l 10G /mnt/swap-tests
+          sudo chmod 600 /mnt/swap-tests
+          sudo mkswap /mnt/swap-tests
+          sudo swapon /mnt/swap-tests
+          free -m
       # Runs the whole suite, not just `cargo test tapp`. None of these tests
       # need a database — they were simply never wired into CI, so ~900 of them
       # had never run here.
@@ -393,9 +402,10 @@ jobs:
           workspaces: .
           shared-key: workspace
           save-if: false
-      # The backend's test binary is built only here. The machine stopped
-      # answering in the step below more than once and no log was kept; memory
-      # for that build is the likely reason.
+      # The machine stopped answering in the step below more than once and no
+      # log was kept, and once, in the backend job, it was shut down while the
+      # backend's tests were being built; memory for that build is the likely
+      # reason.
       - name: More swap for the backend's test build
         continue-on-error: true
         run: |
