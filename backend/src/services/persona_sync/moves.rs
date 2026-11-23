@@ -213,8 +213,16 @@ pub(crate) async fn confirm_to_device_with(
             if let MoveError::Failed(what) = &error {
                 tracing::error!(what, move_id = %id, "[move] could not seal her for the device; called off");
             }
-            let _ = lease::cancel(db, id, None).await;
+            let called_off = lease::cancel(db, id, None).await;
             lease::reload(db).await;
+            // Called off already while she was being sealed, by the owner or
+            // with its device: what was sealed since goes too. Committed (an
+            // answer was lost), the copy kept may be all the site has of her.
+            if matches!(called_off, Err(MoveError::Unknown))
+                && !lease::is_done(db, id).await.unwrap_or(true)
+            {
+                forget_files(id).await;
+            }
             Err(error)
         }
     }

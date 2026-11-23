@@ -337,29 +337,29 @@ async fn an_applied_move(own: &Own) -> (String, String, String) {
         .await
         .unwrap();
     let id = started.moving.unwrap().id;
-    let digest = "a".repeat(64);
     lease::agree(&own.db, &id, &mac.id).await.unwrap();
     lease::confirm(&own.db, &id).await.unwrap();
-    lease::sealed(&own.db, &id, &digest).await.unwrap();
+    let digest = applied(own, &mac.id, &id, &born.lineage).await;
+    (mac.id, id, digest)
+}
+
+/// The confirmed move `id` is applied on `mac`; its digest.
+async fn applied(own: &Own, mac: &str, id: &str, lineage: &str) -> String {
+    let digest = "a".repeat(64);
+    lease::sealed(&own.db, id, &digest).await.unwrap();
     for phase in [lease::Phase::Transferring, lease::Phase::Applied] {
-        lease::device_step(&own.db, &id, &mac.id, phase)
-            .await
-            .unwrap();
+        lease::device_step(&own.db, id, mac, phase).await.unwrap();
     }
     own.db
         .execute_raw(sql(
             "INSERT INTO agent_host_backups (id, device_id, day, lineage, epoch, digest, bytes, \
              received, complete, created_at, updated_at) \
              VALUES ('bk_1', $1, '2026-11-23', $2, 1, $3, 1, 1, true, NOW(), NOW())",
-            [
-                mac.id.clone().into(),
-                born.lineage.into(),
-                digest.clone().into(),
-            ],
+            [mac.into(), lineage.into(), digest.clone().into()],
         ))
         .await
         .unwrap();
-    (mac.id, id, digest)
+    digest
 }
 
 #[tokio::test]
@@ -438,6 +438,104 @@ async fn a_move_committed_before_its_device_was_removed_is_still_told_so() {
         .unwrap();
     assert_eq!(told.place(), lease::Where::Vacant);
     own.close().await;
+}
+
+/// The owner confirmed her move to a Mac, and while she is being sealed for
+/// it (her reply under way is waited for) `meanwhile` comes. What sealing her
+/// then said, and the move's files.
+async fn confirmed_and_meanwhile<F: Future<Output = ()>>(
+    own: &Own,
+    confirming: i32,
+    meanwhile: impl FnOnce(String, String) -> F,
+) -> (Result<lease::Lease, lease::MoveError>, Files) {
+    use crate::services::agent::run_hub;
+    let (mac, _) = devices::add(&own.db, 41, "Mac").await.unwrap();
+    let started = lease::start(&own.db, lease::Kind::Move, &mac.id, lease::Starter::Owner)
+        .await
+        .unwrap();
+    let id = started.moving.unwrap().id;
+    lease::agree(&own.db, &id, &mac.id).await.unwrap();
+    // A reply of someone no other test is, or theirs would wait for it.
+    let reply = run_hub::create_live_run_for_test(confirming).await;
+    let (db, moving) = (own.db.clone(), id.clone());
+    let confirmed = tokio::spawn(async move {
+        moves::confirm_to_device(&db, confirming, &moving, "留在站点的".into()).await
+    });
+    for _ in 0..400 {
+        if lease::read(&own.db).await.unwrap().unwrap().frozen {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(lease::read(&own.db).await.unwrap().unwrap().frozen);
+    let files = Files::of(&[&id]);
+    meanwhile(mac.id, id).await;
+    reply.abort_execution().await;
+    (confirmed.await.unwrap(), files)
+}
+
+/// Called off while she is being sealed, with its device or by the owner:
+/// what is sealed of her after that, with its key in the clear, goes too.
+#[tokio::test]
+async fn what_is_sealed_after_a_move_was_called_off_does_not_stay() {
+    for (by, confirming) in [("removed", 414_101), ("cancelled", 414_102)] {
+        let Some(own) = Own::with_her().await else {
+            return;
+        };
+        let db = own.db.clone();
+        let (told, files) = confirmed_and_meanwhile(&own, confirming, |mac, id| async move {
+            if by == "removed" {
+                remove(&db, &mac).await.unwrap().unwrap().settled.unwrap();
+            } else {
+                lease::cancel(&db, &id, None).await.unwrap();
+            }
+        })
+        .await;
+        assert!(
+            matches!(told, Err(lease::MoveError::Unknown)),
+            "{by}: {told:?}"
+        );
+        files.are_gone();
+        own.is_settled(by).await;
+        own.close().await;
+    }
+}
+
+/// Committed while that was not heard here: the copy the site keeps of her
+/// stays, whatever moved since.
+#[tokio::test]
+async fn the_copy_kept_of_a_move_that_was_committed_stays() {
+    for (since, confirming) in [(false, 414_103), (true, 414_104)] {
+        let Some(own) = Own::with_her().await else {
+            return;
+        };
+        let born = lease::read(&own.db).await.unwrap().unwrap();
+        let db = own.db.clone();
+        let (told, files) = confirmed_and_meanwhile(&own, confirming, |mac, id| {
+            let own = &own;
+            async move {
+                let digest = applied(own, &mac, &id, &born.lineage).await;
+                moves::commit_to_device(&db, 41, &id, &mac, &digest)
+                    .await
+                    .unwrap();
+                if since {
+                    db.execute_unprepared(
+                        "INSERT INTO agent_her_moves (id, kind, from_holder, to_holder, phase, \
+                         started_by, started_at, updated_at, done_at, done_epoch) \
+                         SELECT 'mv_later', kind, from_holder, to_holder, phase, started_by, \
+                         started_at, updated_at, done_at + INTERVAL '1 hour', done_epoch + 1 \
+                         FROM agent_her_moves",
+                    )
+                    .await
+                    .unwrap();
+                }
+            }
+        })
+        .await;
+        assert!(told.is_err(), "{told:?}");
+        assert_eq!(files.kept(), ["her-moved"], "{since}");
+        own.close().await;
+    }
 }
 
 /// She lives on `a`; what is asked of her from another device is `imp_1`.
@@ -962,7 +1060,12 @@ async fn an_import_another_device_sends_goes_with_the_move_it_carries() {
     let asked = lease::reclaiming(&txn, &import, &other.id).await.unwrap();
     txn.commit().await.unwrap();
     let files = Files::of(&[&import, &asked.moving.unwrap().id]);
+    let logged = Logged::start();
     own.remove(&mac.id).await.unwrap().unwrap();
+    let said = logged.warned("that import is let go");
+    drop(logged);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].contains(&format!("import={import}")), "{said:?}");
     let here = lease::read(&own.db).await.unwrap().unwrap();
     assert_eq!((here.place(), here.moving), (lease::Where::Vacant, None));
     assert_eq!(own.left_of_her().await, (0, 0));
@@ -1063,7 +1166,9 @@ async fn her_way_back_from_a_removed_device_is_said_to_be_let_go() {
         let logged = Logged::start();
         own.remove(&mac.id).await.unwrap().unwrap();
         let said = logged.warned("on her way back");
+        let others = logged.warned("that import is let go");
         drop(logged);
+        assert!(others.is_empty(), "no other device sent it: {others:?}");
         assert_eq!(said.len(), 1, "{come}: {said:?}");
         assert!(said[0].contains(&format!("import={import}")), "{said:?}");
         assert!(
@@ -1148,8 +1253,18 @@ impl Files {
             std::fs::create_dir_all(file.parent().unwrap()).unwrap();
             std::fs::write(file, b"kept").unwrap();
         }
-        assert_eq!(files.len(), 5);
+        let each = |id: &&str| if import::is_import(id) { 2 } else { 3 };
+        assert_eq!(files.len(), ids.iter().map(each).sum::<usize>());
         Self(files)
+    }
+
+    /// What is there of them, by the beginning of its name.
+    fn kept(&self) -> Vec<&str> {
+        let there = self.0.iter().filter(|file| file.exists());
+        there
+            .map(|file| file.file_name().unwrap().to_str().unwrap())
+            .map(|name| name.split("-mv_").next().unwrap())
+            .collect()
     }
 
     fn are_kept(&self) {

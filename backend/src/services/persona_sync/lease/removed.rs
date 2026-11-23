@@ -54,10 +54,16 @@ pub(in crate::services::persona_sync) async fn settle_within<
         }
     };
     txn.commit().await?;
-    for back in &ended.back {
-        back.told(device).await;
+    // On its own: who asked may have gone by now, and the next time there is
+    // nothing left to settle.
+    let device = device.to_string();
+    let seen_to = tokio::spawn(async move {
+        ended.told(&device).await;
+        ended.forget_files().await;
+    });
+    if let Err(error) = seen_to.await {
+        tracing::error!(%error, "[host] what a removed device kept on disk was not seen to");
     }
-    ended.forget_files().await;
     Ok(())
 }
 
@@ -94,13 +100,28 @@ pub(super) struct Ended {
     imports: Vec<String>,
     moving: Option<String>,
     back: Vec<Back>,
+    /// The import of another device that went with the move it carried.
+    carried: Option<String>,
 }
 
 impl Ended {
+    /// The import the move carried, when another device sent it: one the
+    /// removed device sent went already.
     async fn import<C: ConnectionTrait>(&mut self, db: &C, id: &str) -> Result<(), DbErr> {
-        import::drop_session(db, id).await?;
-        self.imports.push(id.to_string());
+        if import::drop_session(db, id).await? {
+            self.imports.push(id.to_string());
+            self.carried = Some(id.to_string());
+        }
         Ok(())
+    }
+
+    async fn told(&self, device: &str) {
+        for back in &self.back {
+            back.told(device).await;
+        }
+        if let Some(import) = &self.carried {
+            tracing::warn!(import = %import, device, "[host] a device was removed while another was sending her back from its backup: that import is let go, the backup is kept");
+        }
     }
 
     /// What they kept on disk goes, as when they are called off: the sealed
