@@ -116,6 +116,18 @@ pub(super) fn forget(key: &FileKey, path: &str) {
     files().forget(key, path)
 }
 
+/// One upload at a time, for the process. What an upload waits on is the
+/// host's uplink: files sent together only share it, each taking as many
+/// times longer and running into its request's time limit (four
+/// decompositions at once on a megabit do). The wait here is not counted
+/// against that limit. Calls sent together that carry the same bytes (a job's
+/// four judgements each carry its front decomposition) also send them once:
+/// the ones that waited find them on the Space.
+pub(super) fn uploading() -> &'static tokio::sync::Mutex<()> {
+    static UPLOADING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    &UPLOADING
+}
+
 /// A file's path on its Space, from the URL it is downloaded at
 /// (`…/gradio_api/file=<path>`): for an answer that gives a URL and no path.
 pub(super) fn path_of_url(url: &Url) -> Option<String> {
@@ -243,6 +255,14 @@ mod tests {
         assert_eq!(path(&key).as_deref(), Some("/tmp/gradio/k/keyforms.json"));
         forget(&key, "/tmp/gradio/k/keyforms.json");
         assert!(path(&key).is_none());
+    }
+
+    #[test]
+    fn files_go_up_one_at_a_time() {
+        let first = uploading().try_lock().expect("free");
+        assert!(uploading().try_lock().is_err());
+        drop(first);
+        assert!(uploading().try_lock().is_ok());
     }
 
     #[test]

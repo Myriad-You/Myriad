@@ -81,10 +81,18 @@ pub(super) async fn run_figure(
     let [upper, middle, lower] = plan.crops;
     let tiles = plan.tiles;
     let head = async {
-        let middle = tile_decomposition(client, &cache, "middle", middle).await?;
-        update(id, |job| job.done += 1);
-        let lower = tile_decomposition(client, &cache, "lower", lower).await?;
-        update(id, |job| job.done += 1);
+        // The waist's tile and the legs' need nothing of each other: decomposed together.
+        let cache = &cache;
+        let tile = |name: &'static str, picture: Vec<u8>| async move {
+            let psd = tile_decomposition(client, cache, name, picture).await?;
+            update(id, |job| job.done += 1);
+            ApiResult::Ok(psd)
+        };
+        let [middle, lower]: [Vec<u8>; 2] =
+            all_or_first_error([tile("middle", middle), tile("lower", lower)])
+                .await?
+                .try_into()
+                .expect("two tiles");
         let upper = image_generation::ImageReference {
             bytes: axum::body::Bytes::from(upper),
             media_type: "image/png".to_string(),

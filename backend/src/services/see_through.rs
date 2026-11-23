@@ -28,6 +28,16 @@ const MAX_CONTROL_RESPONSE_BYTES: usize = 512 * 1024;
 /// A figure stitched from tiles is a PSD at its enlarged picture's size.
 const MAX_PSD_BYTES: usize = 96 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+/// How long a call waits for its answer when others of its job may be ahead
+/// of it in the Space's queue: a job sends its decompositions, their checks
+/// and its turns' judgements together, and a Space that runs one at a time
+/// answers the last only after all the others.
+const QUEUE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+/// How many decompositions are sent to the Space at once. A full-body job
+/// sends six together at most (its head's four turns and its body's two); a
+/// ZeroGPU Space runs one caller's on separate GPUs, and one that does not
+/// queues them.
+const DECOMPOSE_AT_ONCE: usize = 6;
 /// Asking the Space whether a file it was sent before is still there.
 const FILE_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 /// Super-resolution runs on the Space's CPUs: minutes for a large picture.
@@ -267,7 +277,22 @@ pub fn configured_hf_token(config: &crate::config::DynamicConfig) -> Option<Stri
         })
 }
 
-fn inference_gate() -> &'static tokio::sync::Semaphore {
+fn decompose_gate() -> &'static tokio::sync::Semaphore {
+    static GATE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
+    GATE.get_or_init(|| tokio::sync::Semaphore::new(DECOMPOSE_AT_ONCE))
+}
+
+/// A place among the decompositions sent at once, or `Busy`: the caller
+/// decides whether to wait.
+fn decompose_permit() -> Result<tokio::sync::SemaphorePermit<'static>, SeeThroughError> {
+    decompose_gate()
+        .try_acquire()
+        .map_err(|_| SeeThroughError::Busy)
+}
+
+/// One fit at a time. It runs on the Space's CPUs, so it is not held up by,
+/// and does not hold up, the decompositions on its GPUs.
+fn fit_gate() -> &'static tokio::sync::Semaphore {
     static GATE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
     GATE.get_or_init(|| tokio::sync::Semaphore::new(1))
 }
@@ -309,9 +334,7 @@ impl SeeThroughClient {
         media_type: &str,
         options: DecomposeOptions,
     ) -> Result<DecomposeOutput, SeeThroughError> {
-        let _permit = inference_gate()
-            .try_acquire()
-            .map_err(|_| SeeThroughError::Busy)?;
+        let _permit = decompose_permit()?;
         let options = options.validate()?;
         validate_image(&image, media_type)?;
 
@@ -359,9 +382,7 @@ impl SeeThroughClient {
             ])
         };
         let event_id = self.start(endpoint, data).await?;
-        let data = self
-            .await_data(endpoint, &event_id, REQUEST_TIMEOUT)
-            .await?;
+        let data = self.await_data(endpoint, &event_id, QUEUE_TIMEOUT).await?;
         let psd = self
             .download_psd(output_file_at(&self.space, &data, 0)?)
             .await?;
@@ -372,7 +393,7 @@ impl SeeThroughClient {
     /// four decompositions of the head turned toward image right and left,
     /// raised and lowered. Returns the keys (JSON) and the front decomposition
     /// with what the turns uncover baked in. Waits its turn behind a running
-    /// decomposition rather than refusing.
+    /// fit rather than refusing.
     /// Keys for the turned decompositions. `pictures` are the five drawings
     /// that were decomposed (front, then as `turned`): the fit matches the
     /// keys against them, not only against the decompositions.
@@ -382,7 +403,7 @@ impl SeeThroughClient {
         turned: [Vec<u8>; 4],
         pictures: [(Vec<u8>, String); 5],
     ) -> Result<TurnKeyformsOutput, SeeThroughError> {
-        let _permit = inference_gate()
+        let _permit = fit_gate()
             .acquire()
             .await
             .map_err(|_| SeeThroughError::Busy)?;
@@ -466,7 +487,7 @@ impl SeeThroughClient {
             "meta": { "_type": "gradio.FileData" }
         });
         let event_id = self.start("check", json!([file])).await?;
-        let data = self.await_data("check", &event_id, REQUEST_TIMEOUT).await?;
+        let data = self.await_data("check", &event_id, QUEUE_TIMEOUT).await?;
         data.as_array()
             .and_then(|values| values.first())
             .cloned()
@@ -559,7 +580,7 @@ impl SeeThroughClient {
         let data = json!([front_psd, turned_psd, front_png, turned_png, side]);
         let event_id = self.start("judge_turn", data).await?;
         let data = self
-            .await_data("judge_turn", &event_id, REQUEST_TIMEOUT)
+            .await_data("judge_turn", &event_id, QUEUE_TIMEOUT)
             .await?;
         data.as_array()
             .and_then(|values| values.first())
@@ -942,19 +963,13 @@ impl SeeThroughClient {
     ) -> Result<String, SeeThroughError> {
         let length = bytes.len() as u64;
         let key = self.file_key(bytes.clone(), name).await;
-        if let Some(key) = &key
-            && let Some(path) = remote_files::path(key)
-        {
-            if self.still_there(&path, length).await {
-                tracing::info!(
-                    space = self.space.name(),
-                    name,
-                    bytes = length,
-                    "already on the See-through Space; not uploaded"
-                );
-                return Ok(path);
-            }
-            remote_files::forget(key, &path);
+        if let Some(path) = self.on_space(key.as_ref(), name, length).await {
+            return Ok(path);
+        }
+        // One upload at a time; a call that went first may have sent these bytes meanwhile.
+        let _uploading = remote_files::uploading().lock().await;
+        if let Some(path) = self.on_space(key.as_ref(), name, length).await {
+            return Ok(path);
         }
         // Hand the shared buffer to the request body; no copy of the file.
         let part = multipart::Part::stream_with_length(reqwest::Body::from(bytes), length)
@@ -983,6 +998,24 @@ impl SeeThroughClient {
             remote_files::remember(key, &path);
         }
         Ok(path)
+    }
+
+    /// Where the Space already has these bytes, when it still does; a path it
+    /// no longer serves is forgotten.
+    async fn on_space(&self, key: Option<&FileKey>, name: &str, length: u64) -> Option<String> {
+        let key = key?;
+        let path = remote_files::path(key)?;
+        if !self.still_there(&path, length).await {
+            remote_files::forget(key, &path);
+            return None;
+        }
+        tracing::info!(
+            space = self.space.name(),
+            name,
+            bytes = length,
+            "already on the See-through Space; not uploaded"
+        );
+        Some(path)
     }
 
     /// What names these bytes on this Space; hashed off the async threads (a
@@ -1581,6 +1614,19 @@ data: [{"url":"https://24yearsold-see-through-demo.hf.space/gradio_api/file=/tmp
         }]);
         let file = output_file_at(&own, &apart, 0).unwrap();
         assert_eq!(file.path, None);
+    }
+
+    #[test]
+    fn decompositions_share_six_places_and_the_fit_has_its_own() {
+        let held: Vec<_> = (0..DECOMPOSE_AT_ONCE)
+            .map(|_| decompose_permit().expect("a place is free"))
+            .collect();
+        // Full: the caller is told so and waits (decompose_waiting), as before with one place.
+        assert!(matches!(decompose_permit(), Err(SeeThroughError::Busy)));
+        // The fit is not behind the decompositions.
+        assert!(fit_gate().try_acquire().is_ok());
+        drop(held);
+        assert!(decompose_permit().is_ok());
     }
 
     #[test]

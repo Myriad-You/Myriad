@@ -328,7 +328,7 @@ pub(super) async fn decompose_checked(
     Ok((best.expect("at least one decomposition").1, true))
 }
 
-/// A decomposition, waiting its turn while another one holds the Space.
+/// A decomposition, waiting its turn while as many as are sent at once are running.
 pub(super) async fn decompose_waiting(
     client: &see_through::SeeThroughClient,
     image: axum::body::Bytes,

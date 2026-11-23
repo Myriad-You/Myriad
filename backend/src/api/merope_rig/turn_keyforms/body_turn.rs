@@ -9,17 +9,20 @@
 //! 每张图的躯干实际往哪边走（`turned`）；转错的那张不用，用另一张的拟合左右镜像
 //! 代替（`mirrored`），两张都错就拿不到身体关键形。
 //!
-//! 和头部的半身流程同时跑（不改任务进度）。图与拆层按全身的图存在缓存里；拟合
-//! 每次重做。拿不到身体关键形时，全身照常只带头部关键形；重心关键形只和身体
+//! 和头部的半身流程同时跑（不改任务进度），左右两张图一起画、一起拆。图与拆层按
+//! 全身的图存在缓存里；拟合每次重做。拿不到身体关键形时，全身照常只带头部关键形；重心关键形只和身体
 //! 关键形一起用。这一步的失败不让整个任务失败。
 
-use std::io::Cursor;
+use std::{
+    io::Cursor,
+    sync::atomic::{AtomicU8, Ordering},
+};
 
 use serde_json::Value;
 
 use super::{
-    ApiResult, BodyProgress, Stage, TurnCache, decompose_waiting, draw_turn, internal_error,
-    see_through_error, update,
+    ApiResult, BodyProgress, Stage, TurnCache, all_or_first_error, decompose_waiting, draw_turn,
+    internal_error, kept_or_made, see_through_error, update,
 };
 use crate::services::{image_generation, see_through};
 
@@ -164,52 +167,42 @@ async fn make(
         bytes: axum::body::Bytes::from(padded),
         media_type: "image/png".to_string(),
     };
-    let mut drawn = Vec::new();
-    for side in BODY_SIDES {
+    // The two sides are drawn together, then decomposed together; each is
+    // counted as it comes, and both are finished before a failure is looked at.
+    let done = AtomicU8::new(0);
+    let came = |stage: Stage| report(stage, done.fetch_add(1, Ordering::Relaxed) + 1, 2);
+    let (padded, came) = (&padded, &came);
+    let drawings = BODY_SIDES.map(|side| async move {
         let file = format!("{}-{side}.png", motion.cache());
-        let png = match cache.read(&file).await.filter(|png| !png.is_empty()) {
-            Some(png) => png,
-            None => {
-                let png = draw_turn(
-                    user_id,
-                    generation,
-                    &motion.prompt(side),
-                    &padded,
-                    size.0,
-                    size.1,
-                )
-                .await?;
-                let png = cropped(&png, place)?;
-                cache.write(&file, &png).await;
-                png
-            }
-        };
-        drawn.push(png);
-        report(Stage::Generating, drawn.len() as u8, 2);
-    }
+        let png = kept_or_made(cache, &file, async {
+            let prompt = motion.prompt(side);
+            let png = draw_turn(user_id, generation, &prompt, padded, size.0, size.1).await?;
+            cropped(&png, place)
+        })
+        .await?;
+        came(Stage::Generating);
+        ApiResult::Ok(png)
+    });
+    let drawn = all_or_first_error(drawings).await?;
     tracing::info!(job = %id, ?motion, "body keys: decomposing");
     report(Stage::Decomposing, 0, 2);
-    let mut turned = Vec::new();
-    for (side, png) in BODY_SIDES.iter().zip(&drawn) {
+    done.store(0, Ordering::Relaxed);
+    let pictures = &drawn;
+    let decompositions = [0, 1].map(|at| async move {
+        let (side, png) = (BODY_SIDES[at], &pictures[at]);
         let file = format!("{}-{side}.psd", motion.cache());
-        let psd = match cache.read(&file).await.filter(|psd| !psd.is_empty()) {
-            Some(psd) => psd,
-            None => {
-                // The head's decompositions run meanwhile; this one waits its turn on the Space.
-                let psd = decompose_waiting(
-                    client,
-                    axum::body::Bytes::from(png.clone()),
-                    "image/png",
-                    see_through::DecomposeOptions::default(),
-                )
-                .await?;
-                cache.write(&file, &psd).await;
-                psd
-            }
-        };
-        turned.push(psd);
-        report(Stage::Decomposing, turned.len() as u8, 2);
-    }
+        // The head's decompositions run meanwhile; with no place free on
+        // the Space this one waits its turn.
+        let psd = kept_or_made(cache, &file, async {
+            let picture = axum::body::Bytes::from(png.clone());
+            let options = see_through::DecomposeOptions::default();
+            decompose_waiting(client, picture, "image/png", options).await
+        })
+        .await?;
+        came(Stage::Decomposing);
+        ApiResult::Ok(psd)
+    });
+    let turned = all_or_first_error(decompositions).await?;
     tracing::info!(job = %id, ?motion, "body keys: fitting");
     report(Stage::Fitting, 0, 1);
     let [right_psd, left_psd]: [Vec<u8>; 2] = turned.try_into().expect("two sides");
