@@ -112,6 +112,11 @@ impl Own {
 
     /// Until something here waits on a lock.
     async fn something_waits(&self) {
+        self.waiting(1).await;
+    }
+
+    /// Until `many` here wait on a lock.
+    async fn waiting(&self, many: i64) {
         for _ in 0..400 {
             let waiting = self
                 .count(
@@ -119,7 +124,7 @@ impl Own {
                      WHERE datname = current_database() AND wait_event_type = 'Lock'",
                 )
                 .await;
-            if waiting > 0 {
+            if waiting >= many {
                 return;
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
@@ -322,11 +327,9 @@ async fn letting_her_go_waits_for_memory_work_before_it_takes_her_lease() {
     own.close().await;
 }
 
-#[tokio::test]
-async fn the_commit_of_a_move_waits_for_memory_work_before_it_takes_her_lease() {
-    let Some(own) = Own::with_her().await else {
-        return;
-    };
+/// A device, a move to it that only its commit is left of, and that move's
+/// digest.
+async fn an_applied_move(own: &Own) -> (String, String, String) {
     let (mac, _) = devices::add(&own.db, 41, "Mac").await.unwrap();
     let born = lease::read(&own.db).await.unwrap().unwrap();
     let started = lease::start(&own.db, lease::Kind::Move, &mac.id, lease::Starter::Owner)
@@ -349,15 +352,24 @@ async fn the_commit_of_a_move_waits_for_memory_work_before_it_takes_her_lease() 
              VALUES ('bk_1', $1, '2026-11-23', $2, 1, $3, 1, 1, true, NOW(), NOW())",
             [
                 mac.id.clone().into(),
-                born.lineage.clone().into(),
+                born.lineage.into(),
                 digest.clone().into(),
             ],
         ))
         .await
         .unwrap();
+    (mac.id, id, digest)
+}
+
+#[tokio::test]
+async fn the_commit_of_a_move_waits_for_memory_work_before_it_takes_her_lease() {
+    let Some(own) = Own::with_her().await else {
+        return;
+    };
+    let (mac, id, digest) = an_applied_move(&own).await;
     let holding = own.db.begin().await.unwrap();
     lock_persona_on(&holding).await.unwrap();
-    let (db, device) = (own.db.clone(), mac.id.clone());
+    let (db, device) = (own.db.clone(), mac.clone());
     let moved = own
         .waits_without_her_lease(holding, async move {
             moves::commit_to_device(&db, 41, &id, &device, &digest)
@@ -365,12 +377,38 @@ async fn the_commit_of_a_move_waits_for_memory_work_before_it_takes_her_lease() 
                 .unwrap()
         })
         .await;
-    assert_eq!(moved.place(), lease::Where::Elsewhere(mac.id.clone()));
+    assert_eq!(moved.place(), lease::Where::Elsewhere(mac));
     assert_eq!(
         own.count("SELECT COUNT(*)::BIGINT AS n FROM agent_persona")
             .await,
         0
     );
+    own.close().await;
+}
+
+/// Its device was removed, what that leaves of her not settled yet: the move
+/// to it is not committed.
+#[tokio::test]
+async fn a_move_to_a_device_just_removed_is_not_committed() {
+    let Some(own) = Own::with_her().await else {
+        return;
+    };
+    let (mac, id, digest) = an_applied_move(&own).await;
+    let holding = own.imports_held().await;
+    assert!(own.remove(&mac).await.unwrap().is_some());
+    let refused = moves::commit_to_device(&own.db, 41, &id, &mac, &digest).await;
+    assert!(
+        matches!(refused, Err(lease::MoveError::Unknown)),
+        "{refused:?}"
+    );
+    assert_eq!(
+        own.count("SELECT COUNT(*)::BIGINT AS n FROM agent_persona")
+            .await,
+        1
+    );
+    holding.commit().await.unwrap();
+    lease::removed::settle_all(&own.db).await.unwrap();
+    own.is_settled("removed").await;
     own.close().await;
 }
 
@@ -511,6 +549,22 @@ async fn an_import_called_off_leaves_the_site_as_it_was() {
 /// When the deputy of [`Own::a_device_moving`] was issued.
 const ISSUED: &str = "001764000000000-000000-site";
 
+/// Removes the device, waiting a second for what another holds, as the site
+/// does: what is held in a database of the test's own is held on purpose.
+async fn remove(
+    db: &DatabaseConnection,
+    id: &str,
+) -> Result<Option<devices::Removed>, sea_orm::DbErr> {
+    devices::remove(
+        db,
+        41,
+        id,
+        devices::RevokeReason::ByOwner,
+        Duration::from_secs(1),
+    )
+    .await
+}
+
 impl Own {
     /// The imports, held as by one that is landing.
     async fn imports_held(&self) -> DatabaseTransaction {
@@ -557,7 +611,14 @@ impl Own {
     }
 
     async fn remove(&self, id: &str) -> Result<Option<devices::Device>, sea_orm::DbErr> {
-        devices::revoke(&self.db, 41, id, devices::RevokeReason::ByOwner).await
+        match remove(&self.db, id).await? {
+            Some(devices::Removed {
+                again: true,
+                settled: Err(error),
+                ..
+            }) => Err(error),
+            removed => Ok(removed.map(|removed| removed.device)),
+        }
     }
 
     /// The device is one no more, and what it left of her stands as it did.
@@ -645,7 +706,7 @@ async fn a_device_is_removed_at_once_while_an_import_lands() {
     grants::lock(&holding).await.unwrap();
     let removing = tokio::spawn({
         let (db, id) = (own.db.clone(), mac.clone());
-        async move { devices::revoke(&db, 41, &id, devices::RevokeReason::ByOwner).await }
+        async move { remove(&db, &id).await }
     });
     let closed = tokio::time::timeout(Duration::from_secs(30), link)
         .await
@@ -660,7 +721,9 @@ async fn a_device_is_removed_at_once_while_an_import_lands() {
         .expect("removed while the import lands")
         .unwrap()
         .unwrap();
-    assert_eq!(removed.map(|device| device.id), Some(mac));
+    let removed = removed.unwrap();
+    assert_eq!((removed.device.id, removed.again), (mac.clone(), false));
+    assert!(removed.settled.is_err());
     own.is_removed_and_not_settled(&token, "the import still lands")
         .await;
     // Its deputy is no one's: nothing is placed against it, it cannot be
@@ -761,6 +824,195 @@ async fn a_device_whose_deputies_cannot_be_withdrawn_is_not_removed() {
     own.remove(&mac).await.unwrap().unwrap();
     own.is_settled("removed").await;
     own.close().await;
+}
+
+/// Removed again, it has no link left, one that slipped in either.
+#[tokio::test]
+async fn a_device_removed_again_has_its_link_closed_again() {
+    use crate::services::agent::link::{Close, opened};
+    let Some(own) = Own::with_her().await else {
+        return;
+    };
+    lease::read(&own.db).await.unwrap().unwrap();
+    let (mac, _) = own.a_device_moving("mac").await;
+    own.remove(&mac).await.unwrap().unwrap();
+    let step = own.failing_at_each_step().await[0];
+    own.failing(step).await;
+    for (reason, close) in [
+        ("owner_revoked", Close::Revoked),
+        ("device_left", Close::Revoked),
+        ("owner_changed", Close::OwnerChanged),
+    ] {
+        own.db
+            .execute_raw(sql(
+                "UPDATE agent_sync_devices SET revoked_reason = $2 WHERE id = $1",
+                [mac.clone().into(), reason.into()],
+            ))
+            .await
+            .unwrap();
+        let link = opened(&mac, 41);
+        // Closed first: settling what it left fails here.
+        assert!(own.remove(&mac).await.is_err());
+        let closed = tokio::time::timeout(Duration::from_secs(10), link)
+            .await
+            .expect("its link closes")
+            .unwrap();
+        assert_eq!(closed, close, "{reason}");
+    }
+    own.close().await;
+}
+
+/// Two requests of a device of a former owner at once: one removes it, the
+/// other finds it removed; both are refused for what it is, settled or not.
+#[tokio::test]
+async fn a_former_owners_device_is_refused_as_one_though_it_is_not_settled() {
+    let Some(own) = Own::with_her().await else {
+        return;
+    };
+    let (mac, token) = devices::add(&own.db, 42, "Old Mac").await.unwrap();
+    let step = own.failing_at_each_step().await[0];
+    own.failing(step).await;
+    let holding = own.db.begin().await.unwrap();
+    holding
+        .execute_raw(sql(
+            "SELECT id FROM agent_sync_devices WHERE id = $1 FOR UPDATE",
+            [mac.id.clone().into()],
+        ))
+        .await
+        .unwrap();
+    let mut asking = Vec::new();
+    for _ in 0..2 {
+        let (db, token, id) = (own.db.clone(), token.clone(), mac.id.clone());
+        asking.push(tokio::spawn(async move {
+            devices::authenticate(&db, &token, Some(41))
+                .await
+                .map_err(|refused| format!("{refused:?}"))
+                .err()
+                .map(|refused| (refused, id))
+        }));
+    }
+    let (db, id) = (own.db.clone(), mac.id.clone());
+    asking.push(tokio::spawn(async move {
+        devices::recheck(&db, &id, Some(41))
+            .await
+            .map_err(|refused| format!("{refused:?}"))
+            .err()
+            .map(|refused| (refused, id))
+    }));
+    own.waiting(3).await;
+    holding.commit().await.unwrap();
+    for asked in asking {
+        let refused = asked.await.unwrap();
+        assert_eq!(refused, Some(("OwnerChanged".to_string(), mac.id.clone())));
+    }
+    own.close().await;
+}
+
+/// She lives on a device and is on her way back from its backup, sent by
+/// another: the device removed, that import goes with the move it carried,
+/// and what both kept on disk.
+#[tokio::test]
+async fn an_import_another_device_sends_goes_with_the_move_it_carries() {
+    let Some(own) = Own::with_her().await else {
+        return;
+    };
+    let (mac, _) = devices::add(&own.db, 41, "Mac").await.unwrap();
+    let (other, _) = devices::add(&own.db, 41, "Other").await.unwrap();
+    lease::seed(&own.db, &mac.id, "l-1", 9, lease::State::Away)
+        .await
+        .unwrap();
+    let import = format!("imp_{}", uuid::Uuid::new_v4().simple());
+    own.db
+        .execute_raw(sql(
+            "INSERT INTO agent_host_import (id, source, device_id, phase, created_at, updated_at) \
+             VALUES ($1, 'device', $2, 'transferring', NOW(), NOW())",
+            [import.clone().into(), other.id.clone().into()],
+        ))
+        .await
+        .unwrap();
+    let txn = own.db.begin().await.unwrap();
+    let asked = lease::reclaiming(&txn, &import, &other.id).await.unwrap();
+    txn.commit().await.unwrap();
+    let files = Files::of(&[&import, &asked.moving.unwrap().id]);
+    own.remove(&mac.id).await.unwrap().unwrap();
+    let here = lease::read(&own.db).await.unwrap().unwrap();
+    assert_eq!((here.place(), here.moving), (lease::Where::Vacant, None));
+    assert_eq!(own.left_of_her().await, (0, 0));
+    files.are_gone();
+    own.close().await;
+}
+
+/// The sealed copy of her, its key and what an import sent so far do not
+/// stay on disk with nothing that names them; kept while it is not settled.
+#[tokio::test]
+async fn what_a_move_and_an_import_kept_goes_once_their_device_is_settled() {
+    let Some(own) = Own::with_her().await else {
+        return;
+    };
+    let (mac, id, _) = an_applied_move(&own).await;
+    let import = format!("imp_{}", uuid::Uuid::new_v4().simple());
+    own.db
+        .execute_raw(sql(
+            "INSERT INTO agent_host_import (id, source, device_id, phase, created_at, updated_at) \
+             VALUES ($1, 'device', $2, 'proposed', NOW(), NOW())",
+            [import.clone().into(), mac.clone().into()],
+        ))
+        .await
+        .unwrap();
+    let files = Files::of(&[&import, &id]);
+    let holding = own.imports_held().await;
+    own.remove(&mac).await.unwrap().unwrap();
+    files.are_kept();
+    holding.commit().await.unwrap();
+    lease::removed::settle_all(&own.db).await.unwrap();
+    own.is_settled("settled").await;
+    files.are_gone();
+    own.close().await;
+}
+
+/// As an import, a merge or a move keeps them on disk.
+struct Files(Vec<std::path::PathBuf>);
+
+impl Files {
+    fn of(ids: &[&str]) -> Self {
+        let agent = &crate::services::data_paths::paths().agent;
+        let mut files = Vec::new();
+        for id in ids {
+            files.extend([
+                agent.join("import").join(id).join("her.her-archive"),
+                agent
+                    .join("retired")
+                    .join(format!("her-before-merge-{id}.her-archive")),
+                agent.join("moves").join(id).join("her.her-archive"),
+                agent.join("moves").join(id).join("key"),
+                agent.join("retired").join(moves::retired_name(id)),
+            ]);
+        }
+        // Only what each kind keeps: an import's, or a move's.
+        files.retain(|file| {
+            let import = file.to_string_lossy().contains("imp_");
+            let path = file.to_string_lossy();
+            import == (path.contains("/import/") || path.contains("her-before-merge-"))
+        });
+        for file in &files {
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, b"kept").unwrap();
+        }
+        assert_eq!(files.len(), 5);
+        Self(files)
+    }
+
+    fn are_kept(&self) {
+        for file in &self.0 {
+            assert!(file.exists(), "{}", file.display());
+        }
+    }
+
+    fn are_gone(&self) {
+        for file in &self.0 {
+            assert!(!file.exists(), "{}", file.display());
+        }
+    }
 }
 
 /// As the listener does when it starts and from time to time.

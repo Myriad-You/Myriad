@@ -187,7 +187,7 @@ async fn same_once(db: &DatabaseConnection, rows: &[&Row], before: impl AsyncFn(
         .unwrap();
     assert_eq!(opened.len(), kept.len());
     for ((row, _), opened) in sealed.iter().zip(&opened) {
-        assert_eq!(opened, &raw[&row.id], "{}", row.object);
+        assert!(opened == &raw[&row.id], "{}", row.object);
     }
     new.len()
 }

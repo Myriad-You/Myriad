@@ -2,10 +2,11 @@
 //! it, her living on it, her mind on it, a deputy given to it as it was
 //! removed. Removing it takes its token and its deputies back first, on their
 //! own ([`devices::revoke`]); this comes after, in one transaction, in the
-//! order of [`order`](super::order). Until it goes
-//! through, all of that stands as it did, and it is done again: when the
-//! device is removed once more or forgotten, and from time to time by the
-//! listener ([`settle_all`]). Done twice it changes nothing.
+//! order of [`order`](super::order), and then what an import or a move that
+//! ended with it kept on disk goes. Until it goes through, all of that stands
+//! as it did, and it is done again: when the device is removed once more or
+//! forgotten, and from time to time by the listener ([`settle_all`]). Done
+//! twice it changes nothing.
 
 use std::time::Duration;
 
@@ -13,11 +14,16 @@ use chrono::{DateTime, FixedOffset, Utc};
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr, TransactionSession, TransactionTrait};
 
 use super::{Lease, Move, State, rows, statement};
-use crate::services::persona_sync::devices;
+use crate::services::persona_sync::{devices, import, merge, moves};
 
 /// How long it waits for what another holds (an import landing) before it is
-/// left for later.
-const WAIT: Duration = Duration::from_secs(1);
+/// left for later. Longer in the tests: in one database they hold each
+/// other's locks, and the ones about waiting say how long themselves.
+pub(in crate::services::persona_sync) const WAIT: Duration = if cfg!(test) {
+    Duration::from_secs(30)
+} else {
+    Duration::from_secs(1)
+};
 
 /// Settles what `device` left of her, if it is a removed one.
 pub(in crate::services::persona_sync) async fn settle<C: ConnectionTrait + TransactionTrait>(
@@ -27,16 +33,40 @@ pub(in crate::services::persona_sync) async fn settle<C: ConnectionTrait + Trans
     settle_within(db, device, WAIT).await
 }
 
-pub(super) async fn settle_within<C: ConnectionTrait + TransactionTrait>(
+pub(in crate::services::persona_sync) async fn settle_within<
+    C: ConnectionTrait + TransactionTrait,
+>(
     db: &C,
     device: &str,
     wait: Duration,
 ) -> Result<(), DbErr> {
     let txn = db.begin().await?;
+    let ended = match settle_on(&txn, device, wait).await {
+        Ok(Some(ended)) => ended,
+        Ok(None) => return txn.rollback().await,
+        Err(error) => {
+            if let Err(undone) = txn.rollback().await {
+                tracing::debug!(error = %undone, "[host] settling a removed device was not rolled back here");
+            }
+            return Err(error);
+        }
+    };
+    txn.commit().await?;
+    ended.forget_files().await;
+    Ok(())
+}
+
+/// Within the transaction that settles `device`; None when it is not a
+/// removed one.
+async fn settle_on<C: ConnectionTrait>(
+    txn: &C,
+    device: &str,
+    wait: Duration,
+) -> Result<Option<Ended>, DbErr> {
     txn.execute_unprepared(&format!("SET LOCAL lock_timeout = {}", wait.as_millis()))
         .await?;
     // The imports it was sending go with it, and then her lease moves.
-    crate::services::persona_sync::import::hold_all(&txn).await?;
+    import::hold_all(txn).await?;
     let Some(removed_at) = txn
         .query_one_raw(statement(
             "SELECT revoked_at FROM agent_sync_devices WHERE id = $1 AND revoked_at IS NOT NULL",
@@ -46,11 +76,38 @@ pub(super) async fn settle_within<C: ConnectionTrait + TransactionTrait>(
         .map(|row| row.try_get::<DateTime<FixedOffset>>("", "revoked_at"))
         .transpose()?
     else {
-        return Ok(());
+        return Ok(None);
     };
-    device_gone(&txn, device, removed_at.with_timezone(&Utc)).await?;
-    devices::withdraw_deputies(&txn, device).await?;
-    txn.commit().await
+    let ended = device_gone(txn, device, removed_at.with_timezone(&Utc)).await?;
+    devices::withdraw_deputies(txn, device).await?;
+    Ok(Some(ended))
+}
+
+/// The imports and the move that ended with a removed device.
+#[derive(Debug, Default)]
+pub(super) struct Ended {
+    imports: Vec<String>,
+    moving: Option<String>,
+}
+
+impl Ended {
+    async fn import<C: ConnectionTrait>(&mut self, db: &C, id: &str) -> Result<(), DbErr> {
+        import::drop_session(db, id).await?;
+        self.imports.push(id.to_string());
+        Ok(())
+    }
+
+    /// What they kept on disk goes, as when they are called off: the sealed
+    /// copy of her and its key, what an import sent so far.
+    async fn forget_files(self) {
+        for import in &self.imports {
+            import::forget_files(import).await;
+            merge::forget_retired(import).await;
+        }
+        if let Some(moving) = &self.moving {
+            moves::forget_files(moving).await;
+        }
+    }
 }
 
 /// Settles every removed device that still holds something of her. One that
@@ -132,9 +189,8 @@ impl<'a> What<'a> {
                 || moving.device() == device
                 || (moving.from == device && moving.started_at <= removed_at)
         });
-        let arriving = with_it.is_some_and(|moving| {
-            crate::services::persona_sync::import::is_import(&moving.id) && moving.was.is_none()
-        });
+        let arriving =
+            with_it.is_some_and(|moving| import::is_import(&moving.id) && moving.was.is_none());
         if lease.lives_on(device) {
             return match (moving, with_it) {
                 (Some(_), Some(_)) if arriving => Some(Self::Arriving),
@@ -151,7 +207,8 @@ impl<'a> What<'a> {
 }
 
 /// The device was removed at `removed_at`: the imports it was sending go, a
-/// move with it is called off, the device she lived on leaves the site not
+/// move with it is called off (with the import that carries her, whichever
+/// device sends that), the device she lived on leaves the site not
 /// knowing where she is (vacant), her mind on it comes back to the site
 /// while she lives here; nothing of her comes back to life here otherwise.
 /// In the caller's transaction, which holds the imports already.
@@ -159,30 +216,45 @@ pub(super) async fn device_gone<C: ConnectionTrait>(
     db: &C,
     device: &str,
     removed_at: DateTime<Utc>,
-) -> Result<(), DbErr> {
+) -> Result<Ended, DbErr> {
     rows::lock(db).await?;
-    db.execute_raw(statement(
-        "DELETE FROM agent_host_import WHERE device_id = $1 AND phase <> 'committed'",
-        vec![device.into()],
-    ))
-    .await?;
+    let mut ended = Ended::default();
+    for row in db
+        .query_all_raw(statement(
+            "DELETE FROM agent_host_import WHERE device_id = $1 AND phase <> 'committed' \
+             RETURNING id",
+            vec![device.into()],
+        ))
+        .await?
+    {
+        ended.imports.push(row.try_get("", "id")?);
+    }
     let Some(lease) = super::read(db).await? else {
-        return Ok(());
+        return Ok(ended);
     };
     let state = match What::left(&lease, device, removed_at) {
-        None => return Ok(()),
+        None => return Ok(ended),
         // Called off, the site as it was (no her).
         Some(What::Arriving) => {
             rows::hold_still(db, false, None).await?;
-            return rows::forget_copy(db).await;
+            rows::forget_copy(db).await?;
+            return Ok(ended);
         }
-        Some(What::Mind) => return rows::to_site(db, None).await,
+        Some(What::Mind) => {
+            rows::to_site(db, None).await?;
+            return Ok(ended);
+        }
         Some(What::Home) => State::Vacant,
         Some(What::Moving(moving)) => moving.was.unwrap_or(lease.state),
     };
-    if lease.moving.is_some() {
+    if let Some(moving) = &lease.moving {
+        if let Some(import) = &moving.import {
+            ended.import(db, import).await?;
+        }
+        ended.moving = Some(moving.id.clone());
         rows::drop_move(db).await?;
     }
     rows::set_copy(db, state).await?;
-    rows::hold_still(db, false, None).await
+    rows::hold_still(db, false, None).await?;
+    Ok(ended)
 }

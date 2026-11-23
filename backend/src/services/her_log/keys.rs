@@ -216,8 +216,8 @@ pub struct Kept<'a> {
     pub sealed: &'a [u8],
 }
 
-/// What became of a kept payload.
-#[derive(Debug, PartialEq, Eq)]
+/// What became of a kept payload. Never in the log: it may be what it says.
+#[derive(PartialEq, Eq)]
 pub enum Opened {
     /// What it says.
     Says(Vec<u8>),

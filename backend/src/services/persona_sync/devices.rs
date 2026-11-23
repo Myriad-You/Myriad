@@ -237,6 +237,34 @@ pub async fn revoke<C: ConnectionTrait + TransactionTrait>(
     id: &str,
     why: RevokeReason,
 ) -> Result<Option<Device>, DbErr> {
+    match remove(db, user_id, id, why, super::lease::removed::WAIT).await? {
+        Some(Removed {
+            again: true,
+            settled: Err(error),
+            ..
+        }) => Err(error),
+        removed => Ok(removed.map(|removed| removed.device)),
+    }
+}
+
+/// A device removed now, or before.
+pub(super) struct Removed {
+    pub device: Device,
+    /// It had been removed already.
+    pub again: bool,
+    /// Whether what it leaves of her was settled: it is one no more either
+    /// way.
+    pub settled: Result<(), DbErr>,
+}
+
+/// [`revoke`], waiting `wait` for what holds what it leaves.
+pub(super) async fn remove<C: ConnectionTrait + TransactionTrait>(
+    db: &C,
+    user_id: i32,
+    id: &str,
+    why: RevokeReason,
+    wait: std::time::Duration,
+) -> Result<Option<Removed>, DbErr> {
     let txn = db.begin().await?;
     let taken_back = txn
         .query_one_raw(statement(
@@ -255,34 +283,41 @@ pub async fn revoke<C: ConnectionTrait + TransactionTrait>(
         .as_ref()
         .map(Device::from_row)
         .transpose()?;
-    if let Some(device) = &taken_back {
-        // Its deputies (her temporary host there) go with it.
-        withdraw_deputies(&txn, &device.id).await?;
-    }
-    txn.commit().await?;
-    let Some(device) = taken_back else {
-        let before = db
-            .query_one_raw(statement(
-                &format!(
-                    "SELECT {COLUMNS} FROM agent_sync_devices \
-                     WHERE id = $1 AND user_id = $2 AND revoked_at IS NOT NULL"
-                ),
-                vec![id.into(), user_id.into()],
-            ))
-            .await?
-            .as_ref()
-            .map(Device::from_row)
-            .transpose()?;
-        if let Some(device) = &before {
-            super::lease::removed::settle(db, &device.id).await?;
+    let again = taken_back.is_none();
+    let device = match taken_back {
+        Some(device) => {
+            // Its deputies (her temporary host there) go with it.
+            withdraw_deputies(&txn, &device.id).await?;
+            txn.commit().await?;
+            device
         }
-        return Ok(before);
+        None => {
+            txn.rollback().await?;
+            let before = db
+                .query_one_raw(statement(
+                    &format!(
+                        "SELECT {COLUMNS} FROM agent_sync_devices \
+                         WHERE id = $1 AND user_id = $2 AND revoked_at IS NOT NULL"
+                    ),
+                    vec![id.into(), user_id.into()],
+                ))
+                .await?
+                .as_ref()
+                .map(Device::from_row)
+                .transpose()?;
+            let Some(device) = before else {
+                return Ok(None);
+            };
+            device
+        }
     };
     use crate::services::agent::link::{Close, disconnect};
     // The reason the link was allowed is gone: the device forgets its token.
-    let close = match why {
-        RevokeReason::OwnerChanged => Close::OwnerChanged,
-        RevokeReason::ByOwner | RevokeReason::DeviceLeft => Close::Revoked,
+    let owner_changed = RevokeReason::OwnerChanged.as_str();
+    let close = if device.revoked_reason.as_deref() == Some(owner_changed) {
+        Close::OwnerChanged
+    } else {
+        Close::Revoked
     };
     disconnect(&device.id, close);
     // What it told of the owner's coding-agent sessions goes for good:
@@ -296,10 +331,28 @@ pub async fn revoke<C: ConnectionTrait + TransactionTrait>(
     }
     // She lived on it, or was moving with it: the lease says so now (vacant,
     // or as she was before the move), and every process hears.
-    if let Err(error) = super::lease::removed::settle(db, &device.id).await {
+    let settled = super::lease::removed::settle_within(db, &device.id, wait).await;
+    if let Err(error) = &settled {
         tracing::warn!(%error, device = %device.id, "[devices] what a removed device left of her is not settled yet");
     }
-    Ok(Some(device))
+    Ok(Some(Removed {
+        device,
+        again,
+        settled,
+    }))
+}
+
+/// Removes a device of an owner the site no longer has: it is refused
+/// whether or not what it leaves of her is settled by now.
+async fn remove_former<C: ConnectionTrait + TransactionTrait>(
+    db: &C,
+    device: &Device,
+) -> Result<(), DbErr> {
+    let why = RevokeReason::OwnerChanged;
+    let wait = super::lease::removed::WAIT;
+    remove(db, device.user_id, &device.id, why, wait)
+        .await
+        .map(drop)
 }
 
 /// Every deputy of a removed device goes.
@@ -312,9 +365,9 @@ pub(super) async fn withdraw_deputies<C: ConnectionTrait>(db: &C, id: &str) -> R
 
 /// Forgets a removed device of the owner's: its row goes, so it leaves the
 /// list. Only a removed one: a live device is removed first ([`revoke`]),
-/// which is what closes its link; her lease is settled by now. Its backups stay
-/// (they are how she is taken back). `false` when there is no such removed
-/// device.
+/// which is what closes its link. What it left of her is settled first, or it
+/// is not forgotten. Its backups stay (they are how she is taken back).
+/// `false` when there is no such removed device.
 pub async fn forget<C: ConnectionTrait + TransactionTrait>(
     db: &C,
     user_id: i32,
@@ -344,6 +397,17 @@ pub async fn forget<C: ConnectionTrait + TransactionTrait>(
         ))
         .await?;
     Ok(gone.rows_affected() > 0)
+}
+
+/// Whether `id` is a device, not a removed one.
+pub(super) async fn is_one<C: ConnectionTrait>(db: &C, id: &str) -> Result<bool, DbErr> {
+    Ok(db
+        .query_one_raw(statement(
+            "SELECT 1 AS one FROM agent_sync_devices WHERE id = $1 AND revoked_at IS NULL",
+            vec![id.into()],
+        ))
+        .await?
+        .is_some())
 }
 
 /// Why a request's token is not a device's.
@@ -393,7 +457,7 @@ pub async fn authenticate<C: ConnectionTrait + TransactionTrait>(
     }
     let owner = owner.ok_or(Refused::NoOwner)?;
     if device.user_id != owner {
-        revoke(db, device.user_id, &device.id, RevokeReason::OwnerChanged).await?;
+        remove_former(db, &device).await?;
         return Err(Refused::OwnerChanged);
     }
     Ok(device)
@@ -420,7 +484,7 @@ pub async fn recheck<C: ConnectionTrait + TransactionTrait>(
     }
     let owner = owner.ok_or(Refused::NoOwner)?;
     if device.user_id != owner {
-        revoke(db, device.user_id, &device.id, RevokeReason::OwnerChanged).await?;
+        remove_former(db, &device).await?;
         return Err(Refused::OwnerChanged);
     }
     Ok(device)

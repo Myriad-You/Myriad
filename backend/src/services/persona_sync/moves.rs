@@ -354,6 +354,11 @@ pub(crate) async fn commit_to_device_with(
             .map_err(|error| MoveError::Failed(error.to_string()))?;
     }
     let lease = lease::hold(&txn).await?.ok_or(MoveError::Unknown)?;
+    // Asked just before the device was removed: what that leaves of her is
+    // settled under her lease, after this.
+    if !super::devices::is_one(&txn, device).await? {
+        return Err(MoveError::Unknown);
+    }
     if lease.done.as_ref().is_some_and(|done| done.id == id) && lease.holder == device {
         txn.commit().await?;
         return Ok(lease);
