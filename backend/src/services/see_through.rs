@@ -12,6 +12,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{sync::OnceLock, time::Duration};
 
+mod remote_files;
+use remote_files::FileKey;
+
 /// Myriad's copy of the demo, serving `decompose`: used unless the owner names
 /// another Space. Calls count against the caller's ZeroGPU quota, not its owner's.
 pub const DEFAULT_SPACE: &str = "SomekawaHitomi/see-through-demo";
@@ -25,6 +28,8 @@ const MAX_CONTROL_RESPONSE_BYTES: usize = 512 * 1024;
 /// A figure stitched from tiles is a PSD at its enlarged picture's size.
 const MAX_PSD_BYTES: usize = 96 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+/// Asking the Space whether a file it was sent before is still there.
+const FILE_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 /// Super-resolution runs on the Space's CPUs: minutes for a large picture.
 const UPSCALE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// Fitting the turn keys runs on the Space's CPU for many minutes.
@@ -354,8 +359,12 @@ impl SeeThroughClient {
             ])
         };
         let event_id = self.start(endpoint, data).await?;
-        let output_url = self.await_output(endpoint, &event_id).await?;
-        let psd = self.download_psd(output_url).await?;
+        let data = self
+            .await_data(endpoint, &event_id, REQUEST_TIMEOUT)
+            .await?;
+        let psd = self
+            .download_psd(output_file_at(&self.space, &data, 0)?)
+            .await?;
         Ok(DecomposeOutput { psd })
     }
 
@@ -423,15 +432,15 @@ impl SeeThroughClient {
         let data = self
             .await_data("keyforms", &event_id, KEYFORMS_TIMEOUT)
             .await?;
-        let keys_url = output_file_url_at(&self.space, &data, 0)?;
-        let psd_url = output_file_url_at(&self.space, &data, 1)?;
+        let keys = output_file_at(&self.space, &data, 0)?;
+        let psd = output_file_at(&self.space, &data, 1)?;
         let keyforms = self
-            .download(keys_url, "keyforms download", MAX_KEYFORMS_JSON_BYTES)
+            .download(keys, "keyforms download", MAX_KEYFORMS_JSON_BYTES)
             .await?;
         serde_json::from_slice::<Value>(&keyforms).map_err(|_| {
             SeeThroughError::InvalidOutput("See-through returned invalid keyforms".to_string())
         })?;
-        let psd = self.download_psd(psd_url).await?;
+        let psd = self.download_psd(psd).await?;
         Ok(TurnKeyformsOutput { keyforms, psd })
     }
 
@@ -584,9 +593,9 @@ impl SeeThroughClient {
         let data = self
             .await_data("upscale", &event_id, UPSCALE_TIMEOUT)
             .await?;
-        let url = output_file_url_at(&self.space, &data, 0)?;
+        let file = output_file_at(&self.space, &data, 0)?;
         Ok(Some(
-            self.download(url, "upscaled picture download", MAX_IMAGE_BYTES)
+            self.download(file, "upscaled picture download", MAX_IMAGE_BYTES)
                 .await?,
         ))
     }
@@ -634,9 +643,9 @@ impl SeeThroughClient {
         })?;
         let mut crops = Vec::with_capacity(3);
         for index in 1..=3 {
-            let url = output_file_url_at(&self.space, &data, index)?;
+            let file = output_file_at(&self.space, &data, index)?;
             crops.push(
-                self.download(url, "tile picture download", MAX_IMAGE_BYTES)
+                self.download(file, "tile picture download", MAX_IMAGE_BYTES)
                     .await?,
             );
         }
@@ -683,8 +692,8 @@ impl SeeThroughClient {
         let data = self
             .await_data("figure_stitch", &event_id, REQUEST_TIMEOUT)
             .await?;
-        let url = output_file_url_at(&self.space, &data, 0)?;
-        self.download_psd(url).await
+        let file = output_file_at(&self.space, &data, 0)?;
+        self.download_psd(file).await
     }
 
     /// The Space's `figure_keys`: turn keys fitted on a standing figure's head
@@ -718,9 +727,9 @@ impl SeeThroughClient {
         let data = self
             .await_data("figure_keys", &event_id, REQUEST_TIMEOUT)
             .await?;
-        let keys_url = output_file_url_at(&self.space, &data, 0)?;
+        let keys = output_file_at(&self.space, &data, 0)?;
         let keyforms = self
-            .download(keys_url, "keyforms download", MAX_KEYFORMS_JSON_BYTES)
+            .download(keys, "keyforms download", MAX_KEYFORMS_JSON_BYTES)
             .await?;
         serde_json::from_slice::<Value>(&keyforms).map_err(|_| {
             SeeThroughError::InvalidOutput("See-through returned invalid keyforms".to_string())
@@ -760,8 +769,8 @@ impl SeeThroughClient {
         let data = self
             .await_data("figure_hair", &event_id, REQUEST_TIMEOUT)
             .await?;
-        let url = output_file_url_at(&self.space, &data, 0)?;
-        self.download_psd(url).await
+        let file = output_file_at(&self.space, &data, 0)?;
+        self.download_psd(file).await
     }
 
     /// A standing figure's body turn keys (`/body_keys`): its decomposition
@@ -813,9 +822,9 @@ impl SeeThroughClient {
         let data = self
             .await_data("body_keys", &event_id, KEYFORMS_TIMEOUT)
             .await?;
-        let keys_url = output_file_url_at(&self.space, &data, 0)?;
+        let keys = output_file_at(&self.space, &data, 0)?;
         let keyforms = self
-            .download(keys_url, "body keys download", MAX_KEYFORMS_JSON_BYTES)
+            .download(keys, "body keys download", MAX_KEYFORMS_JSON_BYTES)
             .await?;
         serde_json::from_slice::<Value>(&keyforms).map_err(|_| {
             SeeThroughError::InvalidOutput("See-through returned invalid body keys".to_string())
@@ -908,31 +917,8 @@ impl SeeThroughClient {
                 "See-through accepts PNG, JPEG, or WebP portraits".to_string(),
             )
         })?;
-        // Hand the shared buffer to the request body; no copy of the portrait.
-        let length = image.len() as u64;
-        let part = multipart::Part::stream_with_length(reqwest::Body::from(image), length)
-            .file_name(format!("character.{extension}"))
-            .mime_str(media_type)
-            .map_err(|error| SeeThroughError::InvalidInput(error.to_string()))?;
-        let response = self
-            .authenticated(self.client.post(self.space.url("/gradio_api/upload")))
-            .multipart(multipart::Form::new().part("files", part))
-            .send()
+        self.upload_named(image, &format!("character.{extension}"), media_type)
             .await
-            .map_err(transport_error)?;
-        let body = successful_body(response, "upload", MAX_CONTROL_RESPONSE_BYTES).await?;
-        let paths: Vec<String> = serde_json::from_slice(&body).map_err(|_| {
-            SeeThroughError::InvalidOutput(
-                "See-through upload returned an invalid response".to_string(),
-            )
-        })?;
-        let path = paths.into_iter().next().ok_or_else(|| {
-            SeeThroughError::InvalidOutput(
-                "See-through upload did not return a file path".to_string(),
-            )
-        })?;
-        validate_remote_temp_path(&path)?;
-        Ok(path)
     }
 
     async fn upload_file(
@@ -941,7 +927,36 @@ impl SeeThroughClient {
         name: &str,
         media_type: &str,
     ) -> Result<String, SeeThroughError> {
+        self.upload_named(axum::body::Bytes::from(bytes), name, media_type)
+            .await
+    }
+
+    /// The file's path on the Space: where the Space already has these bytes
+    /// (it answered a call with them, or was sent them before) when it still
+    /// does, else where this upload puts them.
+    async fn upload_named(
+        &self,
+        bytes: axum::body::Bytes,
+        name: &str,
+        media_type: &str,
+    ) -> Result<String, SeeThroughError> {
         let length = bytes.len() as u64;
+        let key = self.file_key(bytes.clone(), name).await;
+        if let Some(key) = &key
+            && let Some(path) = remote_files::path(key)
+        {
+            if self.still_there(&path, length).await {
+                tracing::info!(
+                    space = self.space.name(),
+                    name,
+                    bytes = length,
+                    "already on the See-through Space; not uploaded"
+                );
+                return Ok(path);
+            }
+            remote_files::forget(key, &path);
+        }
+        // Hand the shared buffer to the request body; no copy of the file.
         let part = multipart::Part::stream_with_length(reqwest::Body::from(bytes), length)
             .file_name(name.to_string())
             .mime_str(media_type)
@@ -964,7 +979,55 @@ impl SeeThroughClient {
             )
         })?;
         validate_remote_temp_path(&path)?;
+        if let Some(key) = key {
+            remote_files::remember(key, &path);
+        }
         Ok(path)
+    }
+
+    /// What names these bytes on this Space; hashed off the async threads (a
+    /// decomposition is tens of megabytes). None only if that task was lost:
+    /// the file is then sent as if never seen.
+    async fn file_key(&self, bytes: axum::body::Bytes, name: &str) -> Option<FileKey> {
+        let space = self.space.name().to_string();
+        let name = name.to_string();
+        tokio::task::spawn_blocking(move || FileKey::new(&space, &bytes, &name))
+            .await
+            .ok()
+    }
+
+    /// Whether the Space still serves `length` bytes at `path` (it loses its
+    /// files when it restarts): one byte of it asked for. Anything but a clear
+    /// yes, a failed request included, reads as gone, and the file is uploaded.
+    async fn still_there(&self, path: &str, length: u64) -> bool {
+        let Ok(url) = Url::parse(&self.space.url(&format!("/gradio_api/file={path}"))) else {
+            return false;
+        };
+        if validate_output_url(&self.space, &url).is_err() {
+            return false;
+        }
+        let response = self
+            .authenticated(self.client.get(url))
+            .header(reqwest::header::RANGE, "bytes=0-0")
+            .timeout(FILE_PROBE_TIMEOUT)
+            .send()
+            .await;
+        let Ok(response) = response else {
+            return false;
+        };
+        let header = |name: reqwest::header::HeaderName| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+        };
+        // The body is left unread: a server that ignores the range would send the whole file.
+        remote_files::found(
+            response.status(),
+            header(reqwest::header::CONTENT_RANGE),
+            header(reqwest::header::CONTENT_LENGTH),
+            length,
+        )
     }
 
     /// The finished call's output values, waiting up to `timeout` for them.
@@ -995,19 +1058,27 @@ impl SeeThroughClient {
         }
     }
 
+    /// A file a call answered with. Its bytes are then known to be on the
+    /// Space at its path, so a later call is given them by that path.
     async fn download(
         &self,
-        url: Url,
+        file: OutputFile,
         stage: &'static str,
         limit: usize,
     ) -> Result<Vec<u8>, SeeThroughError> {
-        validate_output_url(&self.space, &url)?;
+        validate_output_url(&self.space, &file.url)?;
         let response = self
-            .authenticated(self.client.get(url))
+            .authenticated(self.client.get(file.url))
             .send()
             .await
             .map_err(transport_error)?;
-        successful_body(response, stage, limit).await
+        let bytes = axum::body::Bytes::from(successful_body(response, stage, limit).await?);
+        if let Some(path) = file.path
+            && let Some(key) = self.file_key(bytes.clone(), &path).await
+        {
+            remote_files::remember(key, &path);
+        }
+        Ok(bytes.into())
     }
 
     async fn start(&self, endpoint: &str, data: Value) -> Result<String, SeeThroughError> {
@@ -1030,36 +1101,8 @@ impl SeeThroughClient {
         Ok(response.event_id)
     }
 
-    async fn await_output(&self, endpoint: &str, event_id: &str) -> Result<Url, SeeThroughError> {
-        let response = self
-            .authenticated(
-                self.client.get(
-                    self.space
-                        .url(&format!("/gradio_api/call/{endpoint}/{event_id}")),
-                ),
-            )
-            .send()
-            .await
-            .map_err(transport_error)?;
-        let body = successful_body(response, "event stream", MAX_CONTROL_RESPONSE_BYTES).await?;
-        let terminal = parse_terminal_event(&body)?;
-        match terminal {
-            TerminalEvent::Complete(data) => output_file_url(&self.space, &data),
-            TerminalEvent::Error(message) => {
-                tracing::warn!(endpoint, ?message, "See-through rejected a job");
-                Err(SeeThroughError::Rejected(message))
-            }
-        }
-    }
-
-    async fn download_psd(&self, url: Url) -> Result<Vec<u8>, SeeThroughError> {
-        validate_output_url(&self.space, &url)?;
-        let response = self
-            .authenticated(self.client.get(url))
-            .send()
-            .await
-            .map_err(transport_error)?;
-        let psd = successful_body(response, "PSD download", MAX_PSD_BYTES).await?;
+    async fn download_psd(&self, file: OutputFile) -> Result<Vec<u8>, SeeThroughError> {
+        let psd = self.download(file, "PSD download", MAX_PSD_BYTES).await?;
         validate_psd(&psd)?;
         Ok(psd)
     }
@@ -1250,11 +1293,20 @@ fn serves_endpoint(info: &Value, endpoint: &str) -> bool {
         .is_some_and(|named| named.contains_key(&format!("/{endpoint}")))
 }
 
-fn output_file_url(space: &Space, data: &Value) -> Result<Url, SeeThroughError> {
-    output_file_url_at(space, data, 0)
+/// A file a call answered with: where to download it, and its path on the
+/// Space when the answer tells one (`path`, or else the URL's; none when the
+/// two name different files).
+#[derive(Debug)]
+struct OutputFile {
+    url: Url,
+    path: Option<String>,
 }
 
-fn output_file_url_at(space: &Space, data: &Value, index: usize) -> Result<Url, SeeThroughError> {
+fn output_file_at(
+    space: &Space,
+    data: &Value,
+    index: usize,
+) -> Result<OutputFile, SeeThroughError> {
     let file = data
         .as_array()
         .and_then(|values| values.get(index))
@@ -1279,7 +1331,17 @@ fn output_file_url_at(space: &Space, data: &Value, index: usize) -> Result<Url, 
         ));
     };
     validate_output_url(space, &url)?;
-    Ok(url)
+    let told = file
+        .get("path")
+        .and_then(Value::as_str)
+        .filter(|path| validate_remote_temp_path(path).is_ok())
+        .map(str::to_string);
+    let path = match (told, remote_files::path_of_url(&url)) {
+        // What is downloaded is the URL's file: a path naming another is not where its bytes are.
+        (Some(told), Some(downloaded)) if told != downloaded => None,
+        (told, downloaded) => told.or(downloaded),
+    };
+    Ok(OutputFile { url, path })
 }
 
 fn validate_output_url(space: &Space, url: &Url) -> Result<(), SeeThroughError> {
@@ -1377,8 +1439,13 @@ data: [{"url":"https://24yearsold-see-through-demo.hf.space/gradio_api/file=/tmp
             panic!("complete event expected")
         };
         let demo = Space::parse(PUBLIC_DEMO_SPACE).unwrap();
-        let url = output_file_url(&demo, &data).unwrap();
-        assert_eq!(url.host_str(), Some("24yearsold-see-through-demo.hf.space"));
+        let file = output_file_at(&demo, &data, 0).unwrap();
+        assert_eq!(
+            file.url.host_str(),
+            Some("24yearsold-see-through-demo.hf.space")
+        );
+        // The answer gave no path: the URL tells where the file is on the Space.
+        assert_eq!(file.path.as_deref(), Some("/tmp/gradio/a/output.psd"));
 
         assert!(matches!(
             parse_terminal_event(b"event: error\ndata: null\n\n").unwrap(),
@@ -1396,14 +1463,14 @@ data: [{"url":"https://24yearsold-see-through-demo.hf.space/gradio_api/file=/tmp
         let malicious = json!([{
             "url": "https://attacker.example/gradio_api/file=/tmp/gradio/a/output.psd"
         }]);
-        assert!(output_file_url(&demo, &malicious).is_err());
+        assert!(output_file_at(&demo, &malicious, 0).is_err());
         // Another Space's file is not this Space's output either.
         let other = json!([{
             "url": "https://somekawahitomi-see-through-demo.hf.space/gradio_api/file=/tmp/gradio/a/output.psd"
         }]);
-        assert!(output_file_url(&demo, &other).is_err());
+        assert!(output_file_at(&demo, &other, 0).is_err());
         let own = Space::parse(DEFAULT_SPACE).unwrap();
-        assert!(output_file_url(&own, &other).is_ok());
+        assert!(output_file_at(&own, &other, 0).is_ok());
         assert!(validate_remote_temp_path("/tmp/gradio/a/input.png").is_ok());
         assert!(validate_remote_temp_path("/tmp/gradio/../secret").is_err());
     }
@@ -1482,6 +1549,38 @@ data: [{"url":"https://24yearsold-see-through-demo.hf.space/gradio_api/file=/tmp
             Space::parse(DEFAULT_SPACE).unwrap().runtime_url(),
             "https://huggingface.co/api/spaces/SomekawaHitomi/see-through-demo/runtime"
         );
+    }
+
+    #[test]
+    fn an_answered_file_is_known_by_its_path_on_the_space() {
+        let own = Space::parse(DEFAULT_SPACE).unwrap();
+        let host = "https://somekawahitomi-see-through-demo.hf.space";
+        // The answer's own path first.
+        let both = json!([{
+            "path": "/tmp/gradio/a/output.psd",
+            "url": format!("{host}/gradio_api/file=/tmp/gradio/a/output.psd")
+        }]);
+        let file = output_file_at(&own, &both, 0).unwrap();
+        assert_eq!(file.path.as_deref(), Some("/tmp/gradio/a/output.psd"));
+        // A path alone is also where it is downloaded from.
+        let path_only = json!([{ "path": "/tmp/gradio/b/keyforms.json" }]);
+        let file = output_file_at(&own, &path_only, 0).unwrap();
+        assert_eq!(file.path.as_deref(), Some("/tmp/gradio/b/keyforms.json"));
+        assert!(file.url.path().ends_with("/tmp/gradio/b/keyforms.json"));
+        // A path outside Gradio's temporary files is not one to name later.
+        let elsewhere = json!([{
+            "path": "/home/user/app/output.psd",
+            "url": format!("{host}/gradio_api/file=/home/user/app/output.psd")
+        }]);
+        let file = output_file_at(&own, &elsewhere, 0).unwrap();
+        assert_eq!(file.path, None);
+        // A path that is not the downloaded file's is not where the downloaded bytes are.
+        let apart = json!([{
+            "path": "/tmp/gradio/a/output.psd",
+            "url": format!("{host}/gradio_api/file=/tmp/gradio/c/output.psd")
+        }]);
+        let file = output_file_at(&own, &apart, 0).unwrap();
+        assert_eq!(file.path, None);
     }
 
     #[test]
