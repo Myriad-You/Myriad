@@ -389,9 +389,11 @@ pub(super) fn answer_ask(body: &Value, taken_at: u64) -> Option<Outgoing> {
     let code = match received.verdict {
         myriad_her_link::CallVerdict::Fail(code) => code,
         // Nothing the site provides runs here yet: one it may be asked to do
-        // can only be one it says it provides, and that list is empty.
+        // can only be one it says it provides, and that list is empty. Were
+        // it reached, it is the site's own failure (`call_unavailable` is for
+        // an end that is not linked).
         myriad_her_link::CallVerdict::Do | myriad_her_link::CallVerdict::Hold => {
-            "call_unavailable"
+            "internal_error"
         }
     };
     Some(Outgoing::reliable(

@@ -4657,6 +4657,19 @@ async fn a_device_asks_only_her_host_and_is_answered_and_a_link_without_calls_is
         .await;
     let answer = child.expect("call.result").await;
     assert_eq!(answer["body"]["error"], json!({ "code": "wrong_audience" }));
+    // A version of an action the contract does not have is answered so, at
+    // the version the site reads: not refused as a bad frame on the way.
+    let mut newer = ask("up-1v", "group.read");
+    newer["version"] = json!(2);
+    newer["for"] = json!({ "kind": "group", "groupId": "g42" });
+    child.send("call.ask", Some("up-1v"), newer).await;
+    let answer = child.expect("call.result").await;
+    assert_eq!(answer["id"], "up-1v.result");
+    assert_eq!(
+        answer["body"]["error"],
+        json!({ "code": "version_unsupported" })
+    );
+    assert_eq!(answer["body"]["version"], 1);
     // A device's own action is never passed to another device.
     child
         .send("call.ask", Some("up-2"), ask("up-2", "screen.look"))
