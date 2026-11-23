@@ -69,6 +69,7 @@ mod now;
 mod outfit;
 mod pick;
 mod proposals;
+mod reading;
 mod say;
 mod senses;
 mod turns;

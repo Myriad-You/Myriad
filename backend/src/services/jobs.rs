@@ -791,6 +791,11 @@ mod tests {
             "per-row lease heartbeat; aborted when that delivery finishes",
         ),
         (
+            "src/services/agent/link/reading.rs",
+            1,
+            "per-link socket reader; aborted when the link drops it (Reading)",
+        ),
+        (
             "src/services/agent/work_loop/store.rs",
             1,
             "per-task lease heartbeat; aborted when the lease drops",

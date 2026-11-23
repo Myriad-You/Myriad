@@ -5,9 +5,8 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use axum::extract::ws::{CloseFrame, Message, WebSocket};
-use futures::stream::SplitSink;
-use futures::{FutureExt, SinkExt, StreamExt};
+use axum::extract::ws::{CloseFrame, WebSocket};
+use futures::StreamExt;
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -27,6 +26,7 @@ use crate::services::persona_sync::devices::{self, Device, Refused};
 use super::contract::{CONTRACT, Close, Timing, valid_id};
 use super::ended::Ended;
 use super::held_up::{frame_type, held_up};
+use super::reading::{self, Came, Wire};
 use super::turns::{self, Turn};
 
 /// Frames a run follower or the mood follower may have waiting.
@@ -216,6 +216,8 @@ pub(super) async fn serve_with(
 ) -> Ended {
     let (registered, closed) = super::open(&device.id, device.user_id);
     let (sink, stream) = socket.split();
+    let wire = Wire::new(sink);
+    let (frames, _reading) = reading::read(stream, wire.clone());
     let (tx, rx) = mpsc::channel(QUEUED_FRAMES);
     let mut link = Link {
         db,
@@ -225,10 +227,9 @@ pub(super) async fn serve_with(
         timing,
         tx,
         queue: Vec::new(),
-        sent: 0,
+        wire: wire.clone(),
         heard: 0,
         hello: false,
-        last_heard: Instant::now(),
         follows: HashMap::new(),
         moods: None,
         registered,
@@ -268,7 +269,7 @@ pub(super) async fn serve_with(
         let_go: false,
     };
     tracing::info!(device = %link.device.id, "[link] opened");
-    let ended = link.run(sink, stream, rx, closed).await;
+    let ended = link.run(frames, rx, closed).await;
     let why = ended.here();
     // Closed for speaking another protocol: its devices page says the app on
     // it is to be updated, until a hello of it is taken.
@@ -306,11 +307,11 @@ struct Link {
     tx: mpsc::Sender<Outgoing>,
     /// What the frame just taken answers with, sent before anything else.
     queue: Vec<Outgoing>,
-    /// The last seq this end sent, and the highest the child sent.
-    sent: u64,
+    /// The socket's way out.
+    wire: Arc<Wire>,
+    /// The highest seq of the child's taken up.
     heard: u64,
     hello: bool,
-    last_heard: Instant,
     /// The run each followed turn is being sent from.
     follows: HashMap<String, tokio::task::AbortHandle>,
     moods: Option<tokio::task::AbortHandle>,
@@ -418,28 +419,21 @@ struct Live {
     told: HashMap<String, String>,
 }
 
-type Sink = SplitSink<WebSocket, Message>;
-type Stream = futures::stream::SplitStream<WebSocket>;
-
-/// How a link ended whose socket would take no more: by the child's close
-/// frame when one had come and was not read yet.
-fn unsent(stream: &mut Stream) -> Ended {
-    for _ in 0..QUEUED_FRAMES {
-        match stream.next().now_or_never() {
-            Some(Some(Ok(Message::Close(frame)))) => return Ended::by_child(frame),
-            Some(Some(Ok(_))) => {}
-            Some(Some(Err(error))) => return Ended::cut(&error.to_string()),
-            Some(None) | None => break,
-        }
+/// Why the link was let go, when it was: what waits behind is not worked
+/// through then.
+fn let_go(closed: &mut oneshot::Receiver<Close>) -> Option<Close> {
+    use oneshot::error::TryRecvError;
+    match closed.try_recv() {
+        Ok(why) => Some(why),
+        Err(TryRecvError::Closed) => Some(Close::Unavailable),
+        Err(TryRecvError::Empty) => None,
     }
-    Ended::cut("a frame could not be sent")
 }
 
 impl Link {
     async fn run(
         &mut self,
-        mut sink: Sink,
-        mut stream: Stream,
+        mut frames: mpsc::Receiver<Came>,
         mut rx: mpsc::Receiver<Outgoing>,
         mut closed: oneshot::Receiver<Close>,
     ) -> Ended {
@@ -464,28 +458,18 @@ impl Link {
                     }
                     Some(why.unwrap_or(Close::Unavailable))
                 }
-                incoming = stream.next() => match incoming {
-                    Some(Ok(Message::Text(text))) => {
-                        self.last_heard = Instant::now();
-                        let began = Instant::now();
-                        let why = self.take(text.as_str()).await;
-                        if let Some(took_ms) = held_up(began) {
-                            tracing::info!(device = %self.device.id, t = frame_type(text.as_str()), took_ms, "[link] a frame held the link up");
-                        }
-                        why
-                    }
-                    Some(Ok(Message::Binary(_))) => {
-                        self.last_heard = Instant::now();
-                        self.error("binary_unsupported", None);
-                        None
-                    }
-                    Some(Ok(Message::Ping(_) | Message::Pong(_))) => {
-                        self.last_heard = Instant::now();
-                        None
-                    }
-                    Some(Ok(Message::Close(frame))) => return Ended::by_child(frame),
-                    Some(Err(error)) => return Ended::cut(&error.to_string()),
+                came = frames.recv() => match came {
+                    Some(Came::Ended(ended)) => return ended,
                     None => return Ended::cut("the socket ended"),
+                    Some(came) => match let_go(&mut closed) {
+                        Some(why) => {
+                            while let Ok(outgoing) = rx.try_recv() {
+                                self.queue.push(outgoing);
+                            }
+                            Some(why)
+                        }
+                        None => self.work_through(came).await,
+                    },
                 },
                 Some(outgoing) = rx.recv() => {
                     self.queue.push(outgoing);
@@ -526,19 +510,23 @@ impl Link {
             } else {
                 why
             };
+            self.wire.settled(self.heard);
             let queued = std::mem::take(&mut self.queue);
             for outgoing in queued {
-                if !self.send(&mut sink, outgoing).await {
-                    return unsent(&mut stream);
+                if !self.send(outgoing).await {
+                    return reading::unsent(&mut frames).await;
                 }
+            }
+            if self.hello {
+                self.wire.welcomed();
             }
             if let Some(why) = why {
                 let began = Instant::now();
-                let _ = sink
-                    .send(Message::Close(Some(CloseFrame {
+                self.wire
+                    .close(CloseFrame {
                         code: why.code(),
                         reason: why.name().into(),
-                    })))
+                    })
                     .await;
                 self.sending_held_up("close", began);
                 return Ended::Here(why);
@@ -546,7 +534,26 @@ impl Link {
         }
     }
 
-    async fn send(&mut self, sink: &mut Sink, mut outgoing: Outgoing) -> bool {
+    /// What came, worked through.
+    async fn work_through(&mut self, came: Came) -> Option<Close> {
+        match came {
+            Came::Text { text, answered, .. } => {
+                let began = Instant::now();
+                let why = self.take(text.as_str(), answered).await;
+                if let Some(took_ms) = held_up(began) {
+                    tracing::info!(device = %self.device.id, t = frame_type(text.as_str()), took_ms, "[link] a frame held the link up");
+                }
+                why
+            }
+            Came::Binary => {
+                self.error("binary_unsupported", None);
+                None
+            }
+            Came::Ended(_) => None,
+        }
+    }
+
+    async fn send(&mut self, mut outgoing: Outgoing) -> bool {
         if outgoing.t == "lease.epoch"
             && !self.deputy
             && let Some(body) = outgoing.body.as_object_mut()
@@ -555,33 +562,22 @@ impl Link {
                 body.remove(field);
             }
         }
-        self.sent += 1;
-        let mut envelope = json!({
-            "v": CONTRACT.encoding.frame_version,
-            "t": outgoing.t,
-            "seq": self.sent,
-            "ack": self.heard,
-            "at": crate::clock::now().timestamp_millis(),
-            "body": outgoing.body,
-        });
-        if let Some(id) = outgoing.id {
-            self.unacked.retain(|(_, sent)| *sent != id);
-            self.unacked.push((self.sent, id.clone()));
-            self.said.insert(id.clone());
-            self.sent_as.insert(id.clone(), outgoing.t);
-            envelope["id"] = id.into();
-        }
-        // What the host builds is the contract's; one the core refuses is the
-        // host's mistake, and goes out as it did before the core read frames.
-        if let Err(refusal) = super::contract::core_check(&envelope) {
-            tracing::warn!(t = outgoing.t, code = %refusal.code, detail = %refusal.detail, "[link] the shared core refuses a frame the host sends");
-        }
+        let Outgoing { t, id, body } = outgoing;
+        let (unacked, said, sent_as) = (&mut self.unacked, &mut self.said, &mut self.sent_as);
+        let kept = id.clone();
         let began = Instant::now();
-        let sent = sink
-            .send(Message::Text(envelope.to_string().into()))
-            .await
-            .is_ok();
-        self.sending_held_up(outgoing.t, began);
+        let sent = self
+            .wire
+            .send(t, id, body, |seq| {
+                if let Some(id) = kept {
+                    unacked.retain(|(_, sent)| *sent != id);
+                    unacked.push((seq, id.clone()));
+                    said.insert(id.clone());
+                    sent_as.insert(id, t);
+                }
+            })
+            .await;
+        self.sending_held_up(t, began);
         sent
     }
 
@@ -762,7 +758,9 @@ impl Link {
     }
 
     /// A text frame from the child; `Some` closes the link.
-    async fn take(&mut self, text: &str) -> Option<Close> {
+    /// A frame of the child's; `answered`, a ping already answered as it was
+    /// read.
+    async fn take(&mut self, text: &str, answered: bool) -> Option<Close> {
         self.core_reads(text);
         let Ok(inbound) = serde_json::from_str::<Inbound>(text) else {
             if !self.hello {
@@ -771,6 +769,8 @@ impl Link {
             self.error("bad_frame", None);
             return None;
         };
+        #[cfg(test)]
+        reading::held::wait(&self.device.id, &inbound.t).await;
         let heard = self.heard;
         self.heard = heard.max(inbound.seq);
         let kept = self.acked(inbound.ack);
@@ -807,8 +807,8 @@ impl Link {
         // Her host's link carries nothing but the heartbeat and acks.
         if self.host {
             match inbound.t.as_str() {
-                "ping" => self.reply(frame("pong", json!({}))),
-                "ack" | "pong" => {}
+                "ping" if !answered => self.reply(frame("pong", json!({}))),
+                "ping" | "ack" | "pong" => {}
                 _ => self.error("bad_frame", Some(inbound.seq)),
             }
             return None;
@@ -848,8 +848,8 @@ impl Link {
                     self.let_go = true;
                 }
             }
-            "ping" => self.reply(frame("pong", json!({}))),
-            "ack" | "pong" => {}
+            "ping" if !answered => self.reply(frame("pong", json!({}))),
+            "ping" | "ack" | "pong" => {}
             // A sync family's frame: her log's relay takes it while she
             // syncs; a link whose welcome said sync off is told that.
             t if self.sync && myriad_her_link::needs_sync(t) => {
@@ -2374,7 +2374,7 @@ impl Link {
 
     /// Every heartbeat: the child is still there, and the device still one.
     async fn beat(&mut self) -> Option<Close> {
-        if self.last_heard.elapsed() > self.timing.silence() {
+        if self.wire.silent(self.timing.silence()) {
             return Some(Close::Timeout);
         }
         let owner = match crate::services::principal::site_owner_id(&self.db).await {

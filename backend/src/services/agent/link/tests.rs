@@ -767,6 +767,13 @@ impl Child {
         self.seq
     }
 
+    /// A ping too long to be answered as it is read (`reading`): its pong
+    /// comes in its turn, once what was sent before it is worked through.
+    async fn ping_in_turn(&mut self) {
+        self.send("ping", None, json!({ "pad": "x".repeat(600) }))
+            .await;
+    }
+
     async fn raw(&mut self, message: Message) {
         self.socket.send(message).await.unwrap();
     }
@@ -933,7 +940,7 @@ async fn an_end_says_what_it_runs_and_is_told_how_the_site_reads_it() {
         )
         .await;
     before.expect("welcome").await;
-    before.send("ping", None, json!({})).await;
+    before.ping_in_turn().await;
     // No link.versions to an end that did not list it.
     loop {
         let frame = before.next().await;
@@ -996,7 +1003,7 @@ async fn a_child_is_told_only_what_the_site_takes_and_its_dropped_frames_are_cou
                     "body": {} }),
         )
         .await;
-    child.send("ping", None, json!({})).await;
+    child.ping_in_turn().await;
     child.expect("pong").await;
     let told = super::counts::dropped_by(&mac.id);
     let of = |t: &str, reason: &str| {
@@ -1030,7 +1037,7 @@ async fn a_line_the_app_acked_but_could_not_read_is_counted_and_not_said_there_a
     assert!(super::say(OWNER, &mac.id, line("say_unread_1")));
     assert_eq!(child.expect("say").await["id"], "say_unread_1");
     // Its ack covers the line (a cumulative ack), though it could not read it.
-    child.send("ping", None, json!({})).await;
+    child.ping_in_turn().await;
     child.expect("pong").await;
     child
         .send(
@@ -1040,7 +1047,7 @@ async fn a_line_the_app_acked_but_could_not_read_is_counted_and_not_said_there_a
                     "body": { "t": "say", "reason": "bad_frame" } }),
         )
         .await;
-    child.send("ping", None, json!({})).await;
+    child.ping_in_turn().await;
     child.expect("pong").await;
     let unread = super::counts::unread_by(&mac.id);
     assert_eq!(unread.len(), 1);
@@ -1218,7 +1225,7 @@ async fn her_log_goes_over_the_link_while_she_syncs() {
     let refused = mac.expect("error").await;
     assert_eq!(refused["body"]["code"], "not_holder");
     assert_eq!(refused["body"]["ref"], seq);
-    mac.send("ping", None, json!({})).await;
+    mac.ping_in_turn().await;
     mac.expect("pong").await;
     site.close().await;
 }
@@ -1291,7 +1298,7 @@ async fn a_computer_that_listed_deputy_is_given_one_once_it_keeps_up() {
         json!({ "of": deputy::FRAME, "id": id }),
     )
     .await;
-    mac.send("ping", None, json!({})).await;
+    mac.ping_in_turn().await;
     until(&mut mac, "pong").await;
     let kept = deputy::for_holders(&site.db, &[mac_device.id.as_str()])
         .await
@@ -1343,7 +1350,7 @@ async fn an_end_hears_of_rows_the_site_writes_itself_while_linked() {
         )
         .await;
     }
-    mac.send("ping", None, json!({})).await;
+    mac.ping_in_turn().await;
     until(&mut mac, "pong").await;
 
     // The site writes in a group, then in the owner's private talk (her
@@ -1495,7 +1502,7 @@ async fn an_end_that_keeps_no_log_hears_only_where_her_mind_is() {
     let welcome = phone.hello_with(&["partner"]).await;
     assert_eq!(welcome["body"]["sync"], "on");
     for child in [&mut mac, &mut phone] {
-        child.send("ping", None, json!({})).await;
+        child.ping_in_turn().await;
         until(child, "pong").await;
     }
     // Only the Mac is a side: a row of the newest core may go to all.
@@ -1603,7 +1610,7 @@ async fn rows_of_her_log_a_child_did_not_take_are_counted_by_kind_and_why_once_p
                         "body": { "kind": "own", "reason": "batch", "rows": 1 } });
     phone.send("stream.event", Some("rf_p1_batch"), event).await;
     for child in [&mut mac, &mut phone] {
-        child.send("ping", None, json!({})).await;
+        child.ping_in_turn().await;
         until(child, "pong").await;
     }
     let told = super::counts::log_refused_by(&mac_device.id);
@@ -1779,7 +1786,7 @@ async fn what_she_is_lent_goes_to_the_computer_holding_her() {
     assert_eq!(lent["body"]["messages"][0]["from"], "m7");
     let group_lend = lent["id"].as_str().unwrap().to_string();
     assert_eq!(lend::taken(&group_lend), Some(false));
-    mac.send("ping", None, json!({})).await;
+    mac.ping_in_turn().await;
     until(&mut mac, "pong").await;
     assert_eq!(lend::taken(&group_lend), Some(true));
     mac.send(
@@ -2015,7 +2022,7 @@ async fn hello_welcome_and_what_the_link_will_not_take() {
     assert_eq!(keys(&welcome), keys(&fixture("welcome")));
     assert_eq!(keys(body), keys(&fixture("welcome")["body"]));
     // Her persona is off on this site: no mood follows the welcome.
-    child.send("ping", None, json!({})).await;
+    child.ping_in_turn().await;
     child.expect("pong").await;
     // What it does not know, it says so and stays up.
     let teleport = child.send("teleport", None, json!({})).await;
@@ -2048,7 +2055,7 @@ async fn hello_welcome_and_what_the_link_will_not_take() {
         child.expect("error").await["body"],
         json!({ "code": "binary_unsupported" })
     );
-    child.send("ping", None, json!({})).await;
+    child.ping_in_turn().await;
     child.expect("pong").await;
 
     // A handshake that is not one closes the link, saying why.
@@ -2268,7 +2275,7 @@ async fn the_device_she_lives_on_is_her_host_on_its_link() {
     assert_eq!(welcome["body"]["hostEpoch"], 2);
     assert_eq!(welcome["body"]["lineage"], born.lineage.as_str());
     // Her host's link carries nothing but the heartbeat.
-    host.send("ping", None, json!({})).await;
+    host.ping_in_turn().await;
     host.expect("pong").await;
     let input = host
         .send(
@@ -2435,6 +2442,156 @@ async fn how_a_child_left_is_known_by_its_close_number() {
     site.close().await;
 }
 
+/// A frame no contract has: answered with an error naming its seq, in turn.
+async fn unknown(child: &mut Child, t: &str) -> u64 {
+    child.send(t, None, json!({})).await
+}
+
+#[tokio::test]
+async fn a_ping_is_answered_while_a_frame_takes_long_and_the_frames_keep_their_order() {
+    // The site gives a child up after 200 ms of nothing heard.
+    let Some((site, token, mut ends)) = site_of_one(Timing {
+        heartbeat: Duration::from_millis(100),
+        missed: 2,
+        hello: Duration::from_secs(5),
+    })
+    .await
+    else {
+        return;
+    };
+    let mac = devices::list(&site.db, OWNER).await.unwrap()[0].id.clone();
+    let mut child = Child::open(&site, &token).await;
+    child.hello_with(&[]).await;
+    let (begun, go) = super::reading::held::next(&mac, "takes.long");
+    let long = unknown(&mut child, "takes.long").await;
+    let after = unknown(&mut child, "waits.behind").await;
+    begun.await.unwrap();
+    // As long as it takes, each ping has its pong at once, acking nothing
+    // that is not worked through; and nothing else goes ahead of its turn.
+    let began = std::time::Instant::now();
+    while began.elapsed() < Duration::from_secs(1) {
+        child.send("ping", None, json!({})).await;
+        let pong = tokio::time::timeout(Duration::from_secs(5), until(&mut child, "pong"))
+            .await
+            .expect("a pong within 5 seconds");
+        assert!(pong["ack"].as_u64().unwrap() < long, "{pong}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    go.send(()).unwrap();
+    for seq in [long, after] {
+        let error = until(&mut child, "error").await;
+        assert_eq!(
+            error["body"],
+            json!({ "code": "unknown_frame", "ref": seq })
+        );
+    }
+    // Its pings were heard: the link stays, and everything is acked in turn.
+    child.ping_in_turn().await;
+    let pong = until(&mut child, "pong").await;
+    assert!(pong["ack"].as_u64().unwrap() > after);
+    assert!(ends.try_recv().is_err());
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn more_frames_than_wait_hold_the_socket_back_and_none_is_lost() {
+    let Some((site, token, mut ends)) = site_of_one(Timing {
+        heartbeat: Duration::from_millis(100),
+        missed: 2,
+        hello: Duration::from_secs(5),
+    })
+    .await
+    else {
+        return;
+    };
+    let mac = devices::list(&site.db, OWNER).await.unwrap()[0].id.clone();
+    let mut child = Child::open(&site, &token).await;
+    child.hello_with(&[]).await;
+    let (begun, go) = super::reading::held::next(&mac, "takes.long");
+    let mut sent = vec![unknown(&mut child, "takes.long").await];
+    begun.await.unwrap();
+    for _ in 0..600 {
+        sent.push(unknown(&mut child, "waits.behind").await);
+    }
+    // Longer than the site would wait for a child that is silent: it is the
+    // site that is behind.
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    go.send(()).unwrap();
+    for seq in sent {
+        let error = until(&mut child, "error").await;
+        assert_eq!(error["body"]["ref"], seq, "{error}");
+    }
+    assert!(ends.try_recv().is_err());
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn a_device_taken_back_has_nothing_worked_through_that_waited_behind_a_long_frame() {
+    let Some(site) = site().await else {
+        return;
+    };
+    let (mac, token) = device(&site.db, "Mac").await;
+    let mut child = Child::open(&site, &token).await;
+    child.hello_with(&[]).await;
+    let (begun, go) = super::reading::held::next(&mac.id, "takes.long");
+    let long = unknown(&mut child, "takes.long").await;
+    for _ in 0..20 {
+        unknown(&mut child, "waits.behind").await;
+    }
+    // Read already, not only sent: the ping behind them is answered.
+    child.send("ping", None, json!({})).await;
+    child.expect("pong").await;
+    begun.await.unwrap();
+    super::disconnect(&mac.id, Close::Revoked);
+    go.send(()).unwrap();
+    let mut errors = Vec::new();
+    let close = loop {
+        let message = tokio::time::timeout(WAIT, child.socket.next())
+            .await
+            .expect("a close in time")
+            .expect("a close")
+            .expect("a close");
+        match message {
+            Message::Close(close) => break close.expect("a reason"),
+            Message::Text(text) => {
+                let frame: Value = serde_json::from_str(text.as_str()).unwrap();
+                errors.extend(frame["body"]["ref"].as_u64());
+            }
+            _ => {}
+        }
+    };
+    assert_eq!(u16::from(close.code), Close::Revoked.code());
+    assert_eq!(errors, [long]);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn what_a_child_sent_before_it_left_is_worked_through_first() {
+    let Some((site, token, mut ends)) = site_of_one(Timing::from_contract()).await else {
+        return;
+    };
+    let mac = devices::list(&site.db, OWNER).await.unwrap()[0].id.clone();
+    let mut child = Child::open(&site, &token).await;
+    child.hello_with(&[]).await;
+    let (begun, go) = super::reading::held::next(&mac, "said.last");
+    unknown(&mut child, "said.last").await;
+    child
+        .raw(Message::Close(Some(tungstenite::protocol::CloseFrame {
+            code: 1001.into(),
+            reason: "going away".into(),
+        })))
+        .await;
+    begun.await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(ends.try_recv().is_err());
+    go.send(()).unwrap();
+    let ended = ends.recv().await.unwrap();
+    assert_eq!(ended.code(), "1001");
+    site.close().await;
+}
+
 #[tokio::test]
 async fn an_input_starts_a_run_for_the_owner_and_streams_it() {
     let Some(site) = site().await else {
@@ -2520,7 +2677,7 @@ async fn an_input_starts_a_run_for_the_owner_and_streams_it() {
     let again = child.expect("run.accepted").await;
     assert_eq!(again["body"]["duplicate"], true);
     assert_eq!(again["body"]["runId"], run_id.as_str());
-    child.send("ping", None, json!({})).await;
+    child.ping_in_turn().await;
     child.expect("pong").await;
 
     // Asked for by its turn alone (a child that never read its run.accepted):
@@ -2537,7 +2694,7 @@ async fn an_input_starts_a_run_for_the_owner_and_streams_it() {
     assert_eq!(told["body"]["duplicate"], true);
     assert_eq!(told["body"]["runId"], run_id.as_str());
     assert_eq!(told["body"]["sessionId"], accepted["body"]["sessionId"]);
-    child.send("ping", None, json!({})).await;
+    child.ping_in_turn().await;
     child.expect("pong").await;
 
     // Turns the host does not start.
@@ -2824,12 +2981,12 @@ async fn her_lines_go_to_the_app_they_are_using_her_on() {
     assert_eq!(again, [first_id.as_str(), "spk_greeting1", "spk_thought1"]);
     // Acked, they are gone.
     child.send("ack", None, json!({})).await;
-    child.send("ping", None, json!({})).await;
+    child.ping_in_turn().await;
     child.expect("pong").await;
     drop(child);
     let mut child = Child::open(&site, &token).await;
     child.hello_with(&["rig", "say"]).await;
-    child.send("ping", None, json!({})).await;
+    child.ping_in_turn().await;
     child.expect("pong").await;
     // One not acked in time is dropped: by then they are not here either.
     assert!(
@@ -2849,7 +3006,7 @@ async fn her_lines_go_to_the_app_they_are_using_her_on() {
     super::say::age_all(&mac.id);
     let mut child = Child::open(&site, &token).await;
     child.hello_with(&["rig", "say"]).await;
-    child.send("ping", None, json!({})).await;
+    child.ping_in_turn().await;
     child.expect("pong").await;
 
     // A child that does not take `say`: her lines go where they went before.
@@ -2896,7 +3053,7 @@ async fn her_lines_go_to_the_app_they_are_using_her_on() {
         deliver_first_words(&site.db, OWNER, Route::Site, "嗨").await,
         None
     );
-    child.send("ping", None, json!({})).await;
+    child.ping_in_turn().await;
     child.expect("pong").await;
     // Back on the Mac (its window comes to the front): the app again.
     tokio::time::sleep(Duration::from_millis(5)).await;
@@ -3002,7 +3159,7 @@ async fn the_app_is_directed_while_it_says_her_reply() {
     let observe = json!({ "runId": run_id, "upcomingText": "下午去散了步。",
         "rig": { "expression": "warm", "pageVisible": true, "faceVisible": true } });
     child.send("playback.observe", None, observe).await;
-    child.send("ping", None, json!({})).await;
+    child.ping_in_turn().await;
     child.expect("pong").await;
     assert_eq!(
         run.playback_direction
@@ -3051,7 +3208,7 @@ async fn the_app_is_directed_while_it_says_her_reply() {
     child
         .send("playback.end", None, json!({ "runId": run_id }))
         .await;
-    child.send("ping", None, json!({})).await;
+    child.ping_in_turn().await;
     child.expect("pong").await;
     assert!(run.playback_direction.read_after(2).await.closed);
     assert!(!run.playback_direction.publish(directive.clone()));
@@ -3075,7 +3232,7 @@ async fn the_app_is_directed_while_it_says_her_reply() {
     child
         .send("speech.delivered", Some("sd_body1"), delivered)
         .await;
-    child.send("ping", None, json!({})).await;
+    child.ping_in_turn().await;
     child.expect("pong").await;
     let metadata = site
         .db
@@ -4641,7 +4798,7 @@ async fn a_device_is_told_what_it_may_be_asked_and_told_again_when_the_owner_cha
     super::calls::set_approved(&site.db, OWNER, &mac.id, "screen", false)
         .await
         .unwrap();
-    child.send("ping", None, json!({})).await;
+    child.ping_in_turn().await;
     child.expect("pong").await;
     // What it is shown on the device page.
     assert_eq!(
@@ -4813,7 +4970,7 @@ fn for_owner(venue: Option<&str>) -> WorkFor<'_> {
 
 /// Nothing more came on the link: a ping is answered next.
 async fn nothing_else(child: &mut Child) {
-    child.send("ping", None, json!({})).await;
+    child.ping_in_turn().await;
     child.expect("pong").await;
 }
 
