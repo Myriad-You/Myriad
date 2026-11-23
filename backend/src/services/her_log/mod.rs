@@ -56,6 +56,7 @@
 pub mod assets;
 pub mod cards;
 pub mod deputy;
+mod gone;
 // Parts of these the relay does not reach yet outside the tests.
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod full;
