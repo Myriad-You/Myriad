@@ -116,7 +116,7 @@ async fn a_card_comes_once_changes_in_place_and_asks_anew_on_a_new_line() {
     assert_eq!(told.len(), 1);
     assert_eq!(
         told[0].told(),
-        "卡片「发版说明里写不写已知问题」（要你定）：站长选了「照这样」"
+        "卡片「发版说明里写不写已知问题」：站长选了「照这样」"
     );
 
     // It asks again: on a new line, which holds the card whole.
