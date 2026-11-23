@@ -153,6 +153,39 @@ fn holds_all(side: &Side, mac: &Side, audience: &str) {
     assert_eq!(side.fold(audience, &[]), mac.fold(audience, &[]));
 }
 
+/// What a log.vector was answered with, for the log: counts, and once.
+#[tokio::test]
+async fn what_a_vector_was_answered_with_is_told_once() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
+    let Some(schema) = schema("her_log_answered").await else {
+        return;
+    };
+    let db = &schema.db;
+    let _pages = relay::pages_in_test(1);
+    many_rows(db, 290).await;
+    let held: u64 = store::holdings(db, OWNER, PERSONAL)
+        .await
+        .unwrap()
+        .vector
+        .values()
+        .sum();
+    let mut air = Side::new("dev_air");
+    air.link = paging();
+    let asking = air.vector(PERSONAL);
+    let frames = answers(db, &mut air, &asking, LATER).await;
+    let answered = air.link.answered().unwrap();
+    assert_eq!(
+        (answered.held, answered.batches, answered.rows),
+        (held, 1, row_ids(&frames).len())
+    );
+    assert!(answered.rows > 0 && answered.page.bodies >= answered.rows);
+    assert_eq!(air.link.answered(), None);
+    // Not a vector the site had a page for: the same one again.
+    answers(db, &mut air, &asking, LATER).await;
+    assert_eq!(air.link.answered(), None);
+    schema.drop().await;
+}
+
 #[tokio::test]
 async fn a_computer_far_behind_takes_her_log_a_page_at_a_time() {
     let _minds = lease::minds_go_to_devices_in_test(true);

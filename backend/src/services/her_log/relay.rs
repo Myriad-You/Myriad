@@ -50,6 +50,7 @@
 //! holder to give her up when another core asks for her.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::Instant;
 
 use myriad_nodes::wire::{ASK_ROWS, Batch};
 use myriad_persona_log::{
@@ -148,6 +149,21 @@ pub struct Session {
     grant_sent: Option<(u64, i64)>,
     /// The epoch of the grant its `lease.taken` named on this link.
     grant_taken: Option<u64>,
+    /// What answering the last frame came to, until the link asks.
+    answered: Option<Answered>,
+}
+
+/// What a `log.vector` was answered with, for the log of a link it held up:
+/// counts and times, never what it carries. The batches are sent after.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Answered {
+    /// The rows the site holds of that audience.
+    pub held: u64,
+    pub rows: usize,
+    pub batches: usize,
+    /// Reading what the site holds, before the page.
+    pub holdings_ms: u64,
+    pub page: store::Took,
 }
 
 /// Rows a side lacked went to it on a link that does not page, when it held
@@ -201,7 +217,14 @@ impl Session {
             sent: BTreeMap::new(),
             grant_sent: None,
             grant_taken: None,
+            answered: None,
         }
+    }
+
+    /// What the last frame was answered with, when it was a `log.vector`
+    /// the site had a page for or nothing lacking: once.
+    pub fn answered(&mut self) -> Option<Answered> {
+        self.answered.take()
     }
 
     /// This session, of the link numbered `link`.
@@ -1172,7 +1195,13 @@ async fn vector(
     } else {
         Vec::new()
     };
+    let began = Instant::now();
     let ours = store::holdings(db, owner.user, audience).await?;
+    let mut answered = Answered {
+        held: ours.vector.values().sum(),
+        holdings_ms: began.elapsed().as_millis() as u64,
+        ..Answered::default()
+    };
     if let Some(watch) = session.deputy.as_mut() {
         watch.heard(owner, audience, theirs, &ours.vector);
     }
@@ -1187,7 +1216,7 @@ async fn vector(
     );
     crate::services::agent::alive::log_heard(device, audience, theirs, &ours.vector);
     let mut out = Vec::new();
-    let held: u64 = ours.vector.values().sum();
+    let held = answered.held;
     // A link is given only to one that said it downloads by it: one that
     // did not would drop it and never catch up (a Mac did, 2026-11-14).
     if theirs.is_empty() && session.full && held as usize > FULL_AFTER_ROWS {
@@ -1224,7 +1253,7 @@ async fn vector(
             beyond: &beyond,
         });
         let asked: BTreeSet<String> = ask.iter().cloned().collect();
-        let mut sent = store::send_page(
+        let (mut sent, took) = store::send_page(
             db,
             root,
             owner,
@@ -1298,6 +1327,10 @@ async fn vector(
                 "[her-log] rows about the partner under another id went as stubs: a fault in the log"
             );
         }
+        answered.page = took;
+        answered.batches = sent.batches.len();
+        answered.rows = sent.batches.iter().map(|batch| batch.rows.len()).sum();
+        let began = Instant::now();
         for batch in sent.batches {
             out.push(Outgoing {
                 to: To::Sender,
@@ -1307,7 +1340,9 @@ async fn vector(
                     .map_err(|_| Error::Refused("a batch does not write".into()))?,
             });
         }
+        answered.page.pack_ms += began.elapsed().as_millis() as u64;
     }
+    session.answered = Some(answered);
     out.push(Outgoing::back(
         "log.vector",
         vector_body(audience, &ours, &[]),

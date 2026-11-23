@@ -230,6 +230,17 @@ pub(super) async fn finish<C: ConnectionTrait>(db: &C, epoch: i64) -> Result<(),
     Ok(())
 }
 
+/// Whether the move `id` was committed.
+pub(super) async fn is_done<C: ConnectionTrait>(db: &C, id: &str) -> Result<bool, DbErr> {
+    let done = db
+        .query_one_raw(statement(
+            "SELECT 1 AS done FROM agent_her_moves WHERE id = $1 AND done_at IS NOT NULL",
+            vec![id.into()],
+        ))
+        .await?;
+    Ok(done.is_some())
+}
+
 /// The grant that stands, if one was ever issued.
 pub(super) async fn standing<C: ConnectionTrait>(
     db: &C,
