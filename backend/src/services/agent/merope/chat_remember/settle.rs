@@ -190,6 +190,7 @@ pub(in crate::services::agent::merope) async fn settle(
     );
     let raw =
         super::super::call::Ask::new(super::super::call::Voice::Keeping, user_id, "chat_settle")
+            .cached(super::super::call::SETTLE_CACHE)
             .within(SETTLE_TIMEOUT)
             .json_raw(
                 &myriad_merope::chat_remember::settle_system_prompt(

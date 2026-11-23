@@ -1,5 +1,6 @@
 //! AI analysis service using Google Gemini API or OpenAI-compatible API.
 
+mod cached_system;
 mod client;
 mod embeddings;
 mod gemini;
@@ -16,8 +17,11 @@ mod transport;
 #[cfg(test)]
 pub(crate) mod probe;
 #[cfg(test)]
+mod refusal_said;
+#[cfg(test)]
 pub(crate) mod write_thinking;
 
+pub use cached_system::CachedSystem;
 pub use client::AiAnalyzer;
 pub use sse::StreamCut;
 pub use types::*;

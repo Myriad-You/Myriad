@@ -169,7 +169,32 @@ pub(super) struct Ask {
     strict: bool,
     /// The output limit it names, thinking included; see [`Ask::output_at_most`].
     output: Option<u32>,
+    /// The part of its system prompt the provider caches; see [`Ask::cached`].
+    cached: Option<crate::services::analyzer::CachedSystem>,
 }
+
+/// Writing down what someone said ([`myriad_merope::chat_remember::extract_system_prompt`]):
+/// its instructions and examples, before what she knows of them.
+pub(super) const REMEMBER_CACHE: crate::services::analyzer::CachedSystem =
+    crate::services::analyzer::CachedSystem {
+        until: Some("Known:\n"),
+        session: "memory-remember",
+    };
+/// Going over a stretch ([`myriad_merope::chat_remember::settle_system_prompt`]):
+/// its instructions, before what she knows for good.
+pub(super) const SETTLE_CACHE: crate::services::analyzer::CachedSystem =
+    crate::services::analyzer::CachedSystem {
+        until: Some("Known for good:\n"),
+        session: "memory-settle",
+    };
+/// How things stand on a topic: its system prompt is the same throughout.
+/// Long enough to cache with the schema it is asked with, which the
+/// provider puts before it; asked without one, it is not cached.
+pub(super) const STANDING_CACHE: crate::services::analyzer::CachedSystem =
+    crate::services::analyzer::CachedSystem {
+        until: None,
+        session: "memory-standing",
+    };
 
 impl Ask {
     /// Billed to `owner` under Merope, as `operation`.
@@ -182,6 +207,17 @@ impl Ask {
             timeout: DEFAULT_TIMEOUT,
             strict: false,
             output: None,
+            cached: None,
+        }
+    }
+
+    /// For the memory writing steps, made again and again with the same
+    /// instructions first: that part of the system prompt cached by the
+    /// provider. Her talk is not cached.
+    pub(super) fn cached(self, cached: crate::services::analyzer::CachedSystem) -> Self {
+        Self {
+            cached: Some(cached),
+            ..self
         }
     }
 
@@ -273,6 +309,10 @@ impl Ask {
         };
         let analyzer = match self.output {
             Some(tokens) => analyzer.with_output_limit(tokens),
+            None => analyzer,
+        };
+        let analyzer = match self.cached {
+            Some(cached) => analyzer.with_cached_system(cached),
             None => analyzer,
         };
         Ok(Model {
@@ -515,6 +555,10 @@ pub(super) use myriad_merope::answer::parse;
 #[cfg(test)]
 #[path = "call_future_sizes_tests.rs"]
 mod future_sizes_tests;
+
+#[cfg(test)]
+#[path = "call_cache_tests.rs"]
+mod cache_tests;
 
 #[cfg(test)]
 mod tests {

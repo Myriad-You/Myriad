@@ -355,6 +355,8 @@ pub async fn record_ai_call_reported(
         .await;
     };
     let (input_tokens, output_tokens) = reported.tokens();
+    #[cfg(test)]
+    spent::cached(reported.usage);
     record_tokens(
         provider,
         model,
@@ -611,6 +613,9 @@ pub(crate) mod spent {
     /// [`crate::services::ai_pricing`]), and how many answers had a cost
     /// and how many did not.
     static CHARGED: Mutex<(f64, u64, u64)> = Mutex::new((0.0, 0, 0));
+    /// Prompt tokens read from a provider's cache and written to one, by
+    /// what each call was for (inside `BY_STEP`'s input tokens).
+    static CACHED: Mutex<BTreeMap<String, (u64, u64)>> = Mutex::new(BTreeMap::new());
     /// The same dollars over the whole process: never taken.
     static CHARGED_ALL: Mutex<f64> = Mutex::new(0.0);
     /// The models of answers that had no cost (no price, or no usage):
@@ -828,12 +833,30 @@ pub(crate) mod spent {
             output_tokens,
             failed,
         );
-        let step = STEP
-            .try_with(|step| step.clone())
+        count(&BY_STEP, step_now(), input_tokens, output_tokens, failed);
+    }
+
+    /// What a call's answers read from a provider's cache and wrote to it,
+    /// kept by the step its tokens are.
+    pub(super) fn cached(usage: crate::services::ai_pricing::Usage) {
+        if usage.cache_read + usage.cache_write == 0 {
+            return;
+        }
+        let mut cached = CACHED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let entry = cached.entry(step_now()).or_default();
+        entry.0 += usage.cache_read;
+        entry.1 += usage.cache_write;
+    }
+
+    /// What the call being made is for: its bench step, else its ledger
+    /// operation.
+    fn step_now() -> String {
+        STEP.try_with(|step| step.clone())
             .ok()
             .or_else(|| super::current_ai_attribution().map(|attribution| attribution.operation))
-            .unwrap_or_else(|| "unlabeled".to_string());
-        count(&BY_STEP, step, input_tokens, output_tokens, failed);
+            .unwrap_or_else(|| "unlabeled".to_string())
     }
 
     /// Why a call to `model` failed, said and counted: a timeout, which
@@ -978,6 +1001,14 @@ pub(crate) mod spent {
             ),
             "by_model": lines(spent),
             "by_step": lines(by_step),
+            "cachedByStep": std::mem::take(
+                &mut *CACHED.lock().unwrap_or_else(|poisoned| poisoned.into_inner()),
+            )
+            .into_iter()
+            .map(|(step, (read, written))| {
+                (step, serde_json::json!({"read": read, "written": written}))
+            })
+            .collect::<serde_json::Map<_, _>>(),
             "total": line(total),
             "failedBecause": because,
             "charged": {"usd": charged.0, "answersWithCost": charged.1,

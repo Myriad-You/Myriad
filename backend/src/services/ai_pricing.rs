@@ -85,13 +85,19 @@ impl Usage {
         self.cache_read += other.cache_read;
     }
 
-    /// Field by field the larger: a stream says its counts more than once,
-    /// each time as they stand so far.
+    /// The larger: a stream says its counts more than once, each time as
+    /// they stand so far. The prompt's are one count in parts, taken
+    /// together (the same prompt said once whole and once in parts is not
+    /// both): the larger prompt's, and of the same prompt, the one saying
+    /// more of it was cached.
     pub fn widen(&mut self, other: Usage) {
-        self.input = self.input.max(other.input);
+        let prompt = |usage: &Usage| (usage.prompt(), usage.cache_write + usage.cache_read);
+        if prompt(&other) > prompt(self) {
+            self.input = other.input;
+            self.cache_write = other.cache_write;
+            self.cache_read = other.cache_read;
+        }
         self.output = self.output.max(other.output);
-        self.cache_write = self.cache_write.max(other.cache_write);
-        self.cache_read = self.cache_read.max(other.cache_read);
     }
 }
 
@@ -114,11 +120,23 @@ pub fn usage_of(answer: &Value) -> Option<Usage> {
             ..Usage::default()
         });
     }
-    let input = count("prompt_tokens")?;
+    // OpenAI-shaped (OpenRouter): what was read from a cache or written to
+    // one is inside `prompt_tokens`, told apart in `prompt_tokens_details`.
+    let prompt = count("prompt_tokens")?;
+    let details = |name: &str| {
+        usage
+            .get("prompt_tokens_details")
+            .and_then(|details| details.get(name))
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+    };
+    let cache_read = details("cached_tokens").min(prompt);
+    let cache_write = details("cache_write_tokens").min(prompt - cache_read);
     Some(Usage {
-        input,
+        input: prompt - cache_read - cache_write,
         output: count("completion_tokens").unwrap_or(0),
-        ..Usage::default()
+        cache_write,
+        cache_read,
     })
 }
 
@@ -224,6 +242,59 @@ mod tests {
         };
         let cost = cost_usd("claude-sonnet-5-5", &cached).unwrap();
         assert!((cost - (100.0 + 1250.0 + 1000.0) * 2.0 / 1e6).abs() < 1e-12);
+    }
+
+    #[test]
+    fn openrouter_tells_what_its_prompt_read_from_and_wrote_to_a_cache() {
+        let answer = json!({"usage": {"prompt_tokens": 3000, "completion_tokens": 500,
+            "prompt_tokens_details": {"cached_tokens": 2200, "cache_write_tokens": 0}}});
+        assert_eq!(
+            usage_of(&answer),
+            Some(Usage {
+                input: 800,
+                output: 500,
+                cache_write: 0,
+                cache_read: 2200,
+            })
+        );
+        let first = json!({"usage": {"prompt_tokens": 3000, "completion_tokens": 5,
+            "prompt_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 2200}}});
+        let first = usage_of(&first).unwrap();
+        assert_eq!(
+            (first.input, first.cache_write, first.prompt()),
+            (800, 2200, 3000)
+        );
+    }
+
+    /// A stream that says its prompt whole first and in parts at its end (or
+    /// the other way round) has one prompt, and every event's output.
+    #[test]
+    fn a_prompt_said_twice_in_a_stream_is_one_prompt() {
+        let whole = Usage {
+            input: 3000,
+            output: 1,
+            ..Usage::default()
+        };
+        let parts = Usage {
+            input: 800,
+            output: 500,
+            cache_write: 0,
+            cache_read: 2200,
+        };
+        for (first, then) in [(whole, parts), (parts, whole)] {
+            let mut usage = Usage::default();
+            usage.widen(first);
+            usage.widen(then);
+            assert_eq!(usage, parts);
+            assert_eq!(usage.prompt(), 3000);
+        }
+        // An event saying only how far the output has got.
+        let mut usage = parts;
+        usage.widen(Usage {
+            output: 900,
+            ..Usage::default()
+        });
+        assert_eq!((usage.prompt(), usage.output), (3000, 900));
     }
 
     #[test]

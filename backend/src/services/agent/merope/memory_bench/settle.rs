@@ -224,7 +224,8 @@ async fn settle_pass(
         super::super::chat_remember::settle::SETTLE_TIMEOUT,
     ))
     .await
-    .map(super::super::call::keeping);
+    .map(super::super::call::keeping)
+    .map(|keeping| keeping.with_cached_system(super::super::call::SETTLE_CACHE));
     let model = keeping.as_ref().unwrap_or(judge);
     let (known, theirs, input, offered) = (&known, &theirs, &input, &offered);
     let read = crate::services::ai_cost_ledger::spent::tried_as_production_tries(

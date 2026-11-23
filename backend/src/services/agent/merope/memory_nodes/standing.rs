@@ -195,6 +195,7 @@ async fn ask(
         }
         let answer =
             super::super::call::Ask::new(super::super::call::Voice::Judge, user_id, operation)
+                .cached(super::super::call::STANDING_CACHE)
                 .output_at_most(output)
                 .json_raw(
                     &prepared.system,
