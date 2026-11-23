@@ -26,7 +26,7 @@ use crate::services::persona_sync::devices::{self, Device, Refused};
 use super::contract::{CONTRACT, Close, Timing, valid_id};
 use super::ended::Ended;
 use super::held_up::{frame_type, held_up};
-use super::reading::{self, Came, Wire};
+use super::reading::{self, At, Came, Wire};
 use super::turns::{self, Turn};
 
 /// Frames a run follower or the mood follower may have waiting.
@@ -216,8 +216,8 @@ pub(super) async fn serve_with(
 ) -> Ended {
     let (registered, closed) = super::open(&device.id, device.user_id);
     let (sink, stream) = socket.split();
-    let wire = Wire::new(sink);
-    let (frames, _reading) = reading::read(stream, wire.clone());
+    let wire = Wire::new(sink, &device.id, registered);
+    let (frames, _reading) = reading::read(stream, wire.clone(), timing.heartbeat);
     let (tx, rx) = mpsc::channel(QUEUED_FRAMES);
     let mut link = Link {
         db,
@@ -430,6 +430,12 @@ fn let_go(closed: &mut oneshot::Receiver<Close>) -> Option<Close> {
     }
 }
 
+/// How a link ended that was let go before that was seen: as it was let go.
+/// A newer link of the device keeps what it reports of itself then.
+fn ended_unless_let_go(ended: Ended, closed: &mut oneshot::Receiver<Close>) -> Ended {
+    let_go(closed).map_or(ended, Ended::Here)
+}
+
 impl Link {
     async fn run(
         &mut self,
@@ -459,8 +465,8 @@ impl Link {
                     Some(why.unwrap_or(Close::Unavailable))
                 }
                 came = frames.recv() => match came {
-                    Some(Came::Ended(ended)) => return ended,
-                    None => return Ended::cut("the socket ended"),
+                    Some(Came::Ended(ended)) => return ended_unless_let_go(ended, &mut closed),
+                    None => return ended_unless_let_go(Ended::cut("the socket ended"), &mut closed),
                     Some(came) => match let_go(&mut closed) {
                         Some(why) => {
                             while let Ok(outgoing) = rx.try_recv() {
@@ -478,6 +484,7 @@ impl Link {
                 () = &mut hello_by, if !self.hello => Some(Close::Timeout),
                 _ = beat.tick() => {
                     let began = Instant::now();
+                    let _working = self.wire.working(At::Own("heartbeat"));
                     let why = self.beat().await;
                     if let Some(took_ms) = held_up(began) {
                         tracing::info!(device = %self.device.id, took_ms, "[link] the heartbeat held the link up");
@@ -496,6 +503,7 @@ impl Link {
                 }
                 heard = nodes_changed.recv(), if self.nodes => {
                     if self.nodes_changed(heard, &mut nodes_changed) {
+                        let _working = self.wire.working(At::Own("her nodes"));
                         self.tell_nodes().await;
                     }
                     None
@@ -514,7 +522,10 @@ impl Link {
             let queued = std::mem::take(&mut self.queue);
             for outgoing in queued {
                 if !self.send(outgoing).await {
-                    return reading::unsent(&mut frames).await;
+                    return match why {
+                        Some(why) => Ended::Here(why),
+                        None => self.unsent(&mut frames, &mut closed).await,
+                    };
                 }
             }
             if self.hello {
@@ -534,11 +545,43 @@ impl Link {
         }
     }
 
+    /// The socket takes no more: what the child sent before is worked through
+    /// all the same, in its order, with nothing said to it, until it is seen
+    /// how the link ended.
+    async fn unsent(
+        &mut self,
+        frames: &mut mpsc::Receiver<Came>,
+        closed: &mut oneshot::Receiver<Close>,
+    ) -> Ended {
+        self.queue.clear();
+        loop {
+            let came = tokio::time::timeout(reading::LAST_WORDS, frames.recv()).await;
+            let came = match came {
+                Ok(Some(Came::Ended(ended))) => return ended_unless_let_go(ended, closed),
+                Ok(Some(came)) => came,
+                Ok(None) | Err(_) => {
+                    return ended_unless_let_go(Ended::cut("a frame could not be sent"), closed);
+                }
+            };
+            if let Some(why) = let_go(closed) {
+                return Ended::Here(why);
+            }
+            if let Some(why) = self.work_through(came).await {
+                return Ended::Here(why);
+            }
+            if self.let_go {
+                return Ended::Here(closed.await.unwrap_or(Close::Unavailable));
+            }
+            self.queue.clear();
+        }
+    }
+
     /// What came, worked through.
     async fn work_through(&mut self, came: Came) -> Option<Close> {
         match came {
             Came::Text { text, answered, .. } => {
                 let began = Instant::now();
+                let _working = self.wire.working(At::Frame(text.clone()));
                 let why = self.take(text.as_str(), answered).await;
                 if let Some(took_ms) = held_up(began) {
                     tracing::info!(device = %self.device.id, t = frame_type(text.as_str()), took_ms, "[link] a frame held the link up");
@@ -591,6 +634,7 @@ impl Link {
     /// Her conversations kept, as a step of the link's loop.
     async fn conversations_step(&mut self) {
         let began = Instant::now();
+        let _working = self.wire.working(At::Own("her conversations"));
         self.keep_conversations().await;
         if let Some(took_ms) = held_up(began) {
             tracing::info!(device = %self.device.id, took_ms, "[link] her conversations held the link up");
@@ -757,9 +801,8 @@ impl Link {
         }
     }
 
-    /// A text frame from the child; `Some` closes the link.
-    /// A frame of the child's; `answered`, a ping already answered as it was
-    /// read.
+    /// A text frame of the child's; `answered`, a ping already answered as it
+    /// was read. `Some` closes the link.
     async fn take(&mut self, text: &str, answered: bool) -> Option<Close> {
         self.core_reads(text);
         let Ok(inbound) = serde_json::from_str::<Inbound>(text) else {

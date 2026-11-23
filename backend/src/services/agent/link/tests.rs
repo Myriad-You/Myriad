@@ -2449,9 +2449,9 @@ async fn unknown(child: &mut Child, t: &str) -> u64 {
 
 #[tokio::test]
 async fn a_ping_is_answered_while_a_frame_takes_long_and_the_frames_keep_their_order() {
-    // The site gives a child up after 200 ms of nothing heard.
+    // The site gives a child up after a second of nothing heard.
     let Some((site, token, mut ends)) = site_of_one(Timing {
-        heartbeat: Duration::from_millis(100),
+        heartbeat: Duration::from_millis(500),
         missed: 2,
         hello: Duration::from_secs(5),
     })
@@ -2469,7 +2469,7 @@ async fn a_ping_is_answered_while_a_frame_takes_long_and_the_frames_keep_their_o
     // As long as it takes, each ping has its pong at once, acking nothing
     // that is not worked through; and nothing else goes ahead of its turn.
     let began = std::time::Instant::now();
-    while began.elapsed() < Duration::from_secs(1) {
+    while began.elapsed() < Duration::from_secs(2) {
         child.send("ping", None, json!({})).await;
         let pong = tokio::time::timeout(Duration::from_secs(5), until(&mut child, "pong"))
             .await
@@ -2528,43 +2528,165 @@ async fn more_frames_than_wait_hold_the_socket_back_and_none_is_lost() {
 }
 
 #[tokio::test]
+async fn a_child_that_sends_other_frames_while_one_takes_long_hears_the_site() {
+    // A child gives the site up after a second of nothing heard, and pings
+    // only when it sent nothing for half of one.
+    let heartbeat = Duration::from_millis(500);
+    let Some((site, token, mut ends)) = site_of_one(Timing {
+        heartbeat,
+        missed: 2,
+        hello: Duration::from_secs(5),
+    })
+    .await
+    else {
+        return;
+    };
+    let mac = devices::list(&site.db, OWNER).await.unwrap()[0].id.clone();
+    let mut child = Child::open(&site, &token).await;
+    child.hello_with(&[]).await;
+    let (begun, go) = super::reading::held::next(&mac, "takes.long");
+    let mut sent = vec![unknown(&mut child, "takes.long").await];
+    begun.await.unwrap();
+    let mut pings = 0;
+    while pings < 4 {
+        sent.push(unknown(&mut child, "waits.behind").await);
+        let Ok(message) =
+            tokio::time::timeout(Duration::from_millis(50), child.socket.next()).await
+        else {
+            assert!(sent.len() < 400, "the site is not heard: {pings} pings");
+            continue;
+        };
+        let Message::Text(text) = message.unwrap().unwrap() else {
+            continue;
+        };
+        let frame: Value = serde_json::from_str(text.as_str()).unwrap();
+        core_check(&frame).unwrap_or_else(|refusal| panic!("{refusal:?}: {frame}"));
+        assert_eq!(frame["t"], "ping", "{frame}");
+        child.heard += 1;
+        assert_eq!(frame["seq"], child.heard);
+        // It acks nothing that is not worked through.
+        assert!(frame["ack"].as_u64().unwrap() < sent[0], "{frame}");
+        pings += 1;
+    }
+    go.send(()).unwrap();
+    for seq in sent {
+        let error = until(&mut child, "error").await;
+        assert_eq!(error["body"]["ref"], seq, "{error}");
+    }
+    assert!(ends.try_recv().is_err());
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn a_frame_that_does_not_end_keeps_the_link_up_no_more_and_is_logged_as_it_does_not() {
+    let longest = Duration::from_millis(700);
+    super::reading::LONGEST_IN_TEST.with(|most| most.set(Some(longest)));
+    let heartbeat = Duration::from_millis(200);
+    let Some((site, token, _ends)) = site_of_one(Timing {
+        heartbeat,
+        missed: 50,
+        hello: Duration::from_secs(5),
+    })
+    .await
+    else {
+        return;
+    };
+    let logged = Logged::start();
+    let mac = devices::list(&site.db, OWNER).await.unwrap()[0].id.clone();
+    let mut child = Child::open(&site, &token).await;
+    child.hello_with(&[]).await;
+    let (begun, go) = super::reading::held::next(&mac, "never.ends");
+    unknown(&mut child, "never.ends").await;
+    begun.await.unwrap();
+    tokio::time::sleep(longest + heartbeat * 2).await;
+    // Whatever was sent till then.
+    while let Ok(Some(message)) =
+        tokio::time::timeout(Duration::from_millis(20), child.socket.next()).await
+    {
+        if matches!(message.unwrap(), Message::Text(_)) {
+            child.heard += 1;
+        }
+    }
+    // Logged while it is stuck, and nothing keeps the link up: the child
+    // hears nothing, and gives the link up in time.
+    let stuck = || {
+        logged
+            .text()
+            .lines()
+            .filter(|line| {
+                line.contains("a step of the link has not ended")
+                    && line.contains(&mac)
+                    && line.contains("never.ends")
+            })
+            .count()
+    };
+    assert_eq!(stuck(), 1, "{}", logged.text());
+    child.send("ping", None, json!({})).await;
+    let heard = tokio::time::timeout(heartbeat * 5, child.socket.next()).await;
+    assert!(heard.is_err(), "{heard:?}");
+    // It ended after all: the link goes on.
+    go.send(()).unwrap();
+    until(&mut child, "error").await;
+    until(&mut child, "pong").await;
+    assert_eq!(stuck(), 1);
+    super::reading::LONGEST_IN_TEST.with(|most| most.set(None));
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
 async fn a_device_taken_back_has_nothing_worked_through_that_waited_behind_a_long_frame() {
     let Some(site) = site().await else {
         return;
     };
-    let (mac, token) = device(&site.db, "Mac").await;
-    let mut child = Child::open(&site, &token).await;
-    child.hello_with(&[]).await;
-    let (begun, go) = super::reading::held::next(&mac.id, "takes.long");
-    let long = unknown(&mut child, "takes.long").await;
-    for _ in 0..20 {
-        unknown(&mut child, "waits.behind").await;
-    }
-    // Read already, not only sent: the ping behind them is answered.
-    child.send("ping", None, json!({})).await;
-    child.expect("pong").await;
-    begun.await.unwrap();
-    super::disconnect(&mac.id, Close::Revoked);
-    go.send(()).unwrap();
-    let mut errors = Vec::new();
-    let close = loop {
-        let message = tokio::time::timeout(WAIT, child.socket.next())
-            .await
-            .expect("a close in time")
-            .expect("a close")
-            .expect("a close");
-        match message {
-            Message::Close(close) => break close.expect("a reason"),
-            Message::Text(text) => {
-                let frame: Value = serde_json::from_str(text.as_str()).unwrap();
-                errors.extend(frame["body"]["ref"].as_u64());
-            }
-            _ => {}
+    // Which of what is ready goes first is chance: again and again.
+    for _ in 0..8 {
+        let (mac, token) = device(&site.db, "Mac").await;
+        let mut child = Child::open(&site, &token).await;
+        child.hello_with(&[]).await;
+        let (begun, go) = super::reading::held::next(&mac.id, "takes.long");
+        let long = unknown(&mut child, "takes.long").await;
+        for _ in 0..20 {
+            unknown(&mut child, "waits.behind").await;
         }
-    };
-    assert_eq!(u16::from(close.code), Close::Revoked.code());
-    assert_eq!(errors, [long]);
+        // Read already, not only sent: the ping behind them is answered.
+        child.send("ping", None, json!({})).await;
+        child.expect("pong").await;
+        begun.await.unwrap();
+        super::disconnect(&mac.id, Close::Revoked);
+        // No device's any more: what it sends is not answered.
+        child.send("ping", None, json!({})).await;
+        let answered = tokio::time::timeout(Duration::from_millis(100), child.socket.next()).await;
+        assert!(answered.is_err(), "{answered:?}");
+        go.send(()).unwrap();
+        let mut errors = Vec::new();
+        let close = loop {
+            let message = tokio::time::timeout(WAIT, child.socket.next())
+                .await
+                .expect("a close in time")
+                .expect("a close")
+                .expect("a close");
+            match message {
+                Message::Close(close) => break close.expect("a reason"),
+                Message::Text(text) => {
+                    let frame: Value = serde_json::from_str(text.as_str()).unwrap();
+                    errors.extend(frame["body"]["ref"].as_u64());
+                }
+                _ => {}
+            }
+        };
+        assert_eq!(u16::from(close.code), Close::Revoked.code());
+        assert_eq!(errors, [long]);
+    }
     site.close().await;
+}
+
+fn goodbye() -> Message {
+    Message::Close(Some(tungstenite::protocol::CloseFrame {
+        code: 1001.into(),
+        reason: "going away".into(),
+    }))
 }
 
 #[tokio::test]
@@ -2574,22 +2696,109 @@ async fn what_a_child_sent_before_it_left_is_worked_through_first() {
     };
     let mac = devices::list(&site.db, OWNER).await.unwrap()[0].id.clone();
     let mut child = Child::open(&site, &token).await;
-    child.hello_with(&[]).await;
-    let (begun, go) = super::reading::held::next(&mac, "said.last");
-    unknown(&mut child, "said.last").await;
-    child
-        .raw(Message::Close(Some(tungstenite::protocol::CloseFrame {
-            code: 1001.into(),
-            reason: "going away".into(),
-        })))
-        .await;
+    child.hello_with(&["streams"]).await;
+    let (begun, go) = super::reading::held::next(&mac, "said.first");
+    let left = super::reading::held::end(&mac);
+    // Answered with an error, which cannot be sent: its close is read by
+    // then, and nothing goes after that.
+    unknown(&mut child, "said.first").await;
+    for (id, reason) in [
+        ("drop_second", "unknown_frame"),
+        ("drop_third", "bad_frame"),
+    ] {
+        child
+            .send(
+                "stream.event",
+                Some(id),
+                json!({ "name": "link.dropped", "version": 1, "at": 1_760_141_100_000_i64,
+                        "body": { "t": "say", "reason": reason } }),
+            )
+            .await;
+        unknown(&mut child, "said.between").await;
+    }
+    child.raw(goodbye()).await;
     begun.await.unwrap();
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    left.await.unwrap();
     assert!(ends.try_recv().is_err());
+    assert!(super::counts::dropped_by(&mac).is_empty());
     go.send(()).unwrap();
     let ended = ends.recv().await.unwrap();
     assert_eq!(ended.code(), "1001");
+    // What it sent did what it does, though nothing could be said to it.
+    let mut told: Vec<_> = super::counts::dropped_by(&mac)
+        .into_iter()
+        .map(|(t, reason, count)| (t, reason, count.count))
+        .collect();
+    told.sort_unstable();
+    assert_eq!(told, [("say", "bad_frame", 1), ("say", "unknown_frame", 1)]);
     site.close().await;
+}
+
+#[tokio::test]
+async fn a_link_taken_over_as_its_child_leaves_it_ends_as_taken_over() {
+    let Some((site, token, mut ends)) = site_of_one(Timing::from_contract()).await else {
+        return;
+    };
+    let mac = devices::list(&site.db, OWNER).await.unwrap()[0].id.clone();
+    // Seen on the close that came, and on a frame that could not be sent;
+    // which of what is ready goes first is chance: again and again.
+    for round in 0..16 {
+        let mut child = Child::open(&site, &token).await;
+        child.hello_with(&[]).await;
+        let last = if round % 2 == 0 { "pong" } else { "said.last" };
+        let (begun, go) = super::reading::held::next(&mac, last);
+        let left = super::reading::held::end(&mac);
+        unknown(&mut child, last).await;
+        child.raw(goodbye()).await;
+        begun.await.unwrap();
+        left.await.unwrap();
+        let mut next = Child::open(&site, &token).await;
+        next.hello_with(&[]).await;
+        go.send(()).unwrap();
+        let ended = ends.recv().await.unwrap();
+        assert_eq!(ended.why(), "replaced", "{last}");
+        next.raw(goodbye()).await;
+        assert_eq!(ends.recv().await.unwrap().code(), "1001");
+    }
+    site.close().await;
+}
+
+/// What this thread logs while it lives, as text (a test's runtime is its
+/// own thread).
+struct Logged {
+    buffer: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    _guard: tracing::subscriber::DefaultGuard,
+}
+
+impl Logged {
+    fn start() -> Self {
+        #[derive(Clone)]
+        struct Buffer(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Buffer {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let buffer = Buffer(std::sync::Arc::default());
+        let writer = buffer.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || writer.clone())
+            .with_max_level(tracing::Level::INFO)
+            .with_ansi(false)
+            .finish();
+        Self {
+            buffer: buffer.0,
+            _guard: tracing::subscriber::set_default(subscriber),
+        }
+    }
+
+    fn text(&self) -> String {
+        String::from_utf8(self.buffer.lock().unwrap().clone()).unwrap()
+    }
 }
 
 #[tokio::test]
