@@ -69,6 +69,7 @@ mod now;
 mod outfit;
 mod pick;
 mod proposals;
+mod reading;
 mod say;
 mod senses;
 mod turns;
@@ -184,6 +185,12 @@ fn takes_say(device_id: &str, id: u64, sender: mpsc::Sender<connection::Outgoing
             link.playback = playback;
         }
     }
+}
+
+/// Whether the link `id` is still the device's: not taken over, not closed.
+fn is_link(device_id: &str, id: u64) -> bool {
+    OPEN.lock()
+        .is_ok_and(|open| open.get(device_id).is_some_and(|link| link.id == id))
 }
 
 /// The link `id` cannot read `say` (it told `link.dropped`): her lines are

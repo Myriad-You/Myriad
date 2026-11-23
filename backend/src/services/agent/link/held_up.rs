@@ -1,5 +1,7 @@
 //! Steps of a link that held it up: its loop does one thing at a time, so
-//! while a step runs no ping goes out, and a child that misses two leaves.
+//! while a step runs nothing else of it is worked through. (The child's pings
+//! are answered as they are read, `reading`, which also logs a step that has
+//! not ended long after.)
 
 use std::time::Duration;
 
