@@ -25,7 +25,6 @@ struct Own {
 
 impl Own {
     async fn new(migrated: bool) -> Option<Self> {
-        use migration::MigratorTrait;
         let url = crate::db::test_url(&[
             "FEDERATION_TEST_DATABASE_URL",
             "MYRIAD_SCHEMA_DRIFT_DB",
