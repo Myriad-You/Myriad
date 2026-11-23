@@ -2132,7 +2132,8 @@ impl Link {
             // Nothing is provided to be asked of the host yet; every ask
             // gets its one answer, never passed to another device.
             "call.ask" => {
-                if let Some(answer) = super::calls::answer_ask(&inbound.body) {
+                let taken_at = crate::clock::now().timestamp_millis().max(0) as u64;
+                if let Some(answer) = super::calls::answer_ask(&inbound.body, taken_at) {
                     let code = answer.body["error"]["code"].as_str().unwrap_or_default();
                     tracing::info!(device = %self.device.id, code, "[link] a device's call was answered failed");
                     self.reply(answer);
