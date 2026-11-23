@@ -146,8 +146,14 @@ pub(super) fn apply_persona_update(
     active
 }
 
-/// Acquire before locking the persona row when a transaction may replace her.
+/// Acquire before locking the persona row when a transaction may replace her,
+/// and before her lease (`persona_sync::lease::order`).
 pub(crate) async fn lock_persona_on(db: &impl ConnectionTrait) -> anyhow::Result<()> {
+    #[cfg(test)]
+    {
+        use crate::services::persona_sync::lease::order;
+        order::check(db, order::Lock::MemoryWork).await?;
+    }
     memory_jobs::lock(db).await
 }
 
@@ -183,7 +189,7 @@ async fn write_persona_on<C>(
 where
     C: ConnectionTrait,
 {
-    memory_jobs::lock(db).await?;
+    lock_persona_on(db).await?;
     let (name, personality) = normalize_persona_fields(&name, &personality);
     if let Some(existing) = get_persona_on(db).await? {
         let before = existing.clone();
@@ -313,7 +319,7 @@ where
     C: ConnectionTrait,
 {
     use sea_orm::{DatabaseBackend, Statement};
-    memory_jobs::lock(db).await?;
+    lock_persona_on(db).await?;
     memory_jobs::forget(db).await?;
     let synced = crate::services::persona_sync::SYNCED_MEMORY;
     for sql in [
@@ -371,7 +377,7 @@ async fn clear_on<C>(db: &C, held_too: bool) -> Result<(), anyhow::Error>
 where
     C: ConnectionTrait,
 {
-    memory_jobs::lock(db).await?;
+    lock_persona_on(db).await?;
     memory_jobs::forget(db).await?;
     agent_proactive_messages::Entity::delete_many()
         .exec(db)

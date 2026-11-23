@@ -23,6 +23,8 @@
 //! that key's row no longer opens. Keys never leave this module: not in a
 //! row, a frame, an answer, an error or the log.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
@@ -113,7 +115,8 @@ async fn audience_key<C: ConnectionTrait>(
             [user.into(), audience.into()],
         )
     };
-    if db.query_one_raw(read()).await?.is_none() {
+    let mut row = db.query_one_raw(read()).await?;
+    if row.is_none() {
         let fresh: [u8; KEY_BYTES] = rand::random();
         let sealed = root.seal(&BASE64.encode(fresh)).map_err(|_| Error::Key)?;
         db.execute_raw(Statement::from_sql_and_values(
@@ -128,12 +131,11 @@ async fn audience_key<C: ConnectionTrait>(
             ],
         ))
         .await?;
+        // Read back: if another writer made it first, its key is the one.
+        row = db.query_one_raw(read()).await?;
     }
-    // Read back: if another writer made it first, its key is the one.
-    let row = db
-        .query_one_raw(read())
-        .await?
-        .ok_or_else(|| Error::Db(sea_orm::DbErr::RecordNotFound("audience key".into())))?;
+    let row =
+        row.ok_or_else(|| Error::Db(sea_orm::DbErr::RecordNotFound("audience key".into())))?;
     let sealed: String = row.try_get("", "sealed")?;
     let plain = root.open(&sealed).map_err(|_| Error::Key)?;
     key_of(&BASE64.decode(plain).map_err(|_| Error::Key)?)
@@ -207,8 +209,82 @@ pub async fn seal_payload<C: ConnectionTrait>(
     seal_with(&key, data, &payload_aad(user, row_id))
 }
 
-/// The payload of row `row_id` about `object`, opened. None when its
-/// object's key is gone (forgotten).
+/// A kept payload: the row it is of, what that is about, and how it is kept.
+pub struct Kept<'a> {
+    pub object: &'a str,
+    pub row_id: &'a str,
+    pub sealed: &'a [u8],
+}
+
+/// What became of a kept payload. Never in the log: it may be what it says.
+#[derive(PartialEq, Eq)]
+pub enum Opened {
+    /// What it says.
+    Says(Vec<u8>),
+    /// Its object's key is gone (forgotten).
+    Gone,
+    /// It, its object's key or its audience's does not open.
+    Not,
+}
+
+/// Payloads of `user`'s `audience`, opened, in the order given. The
+/// audience's key is read once and the objects' keys in one query: for this
+/// call, kept nowhere after it.
+pub async fn open_payloads<C: ConnectionTrait>(
+    db: &C,
+    root: &dyn Root,
+    user: i32,
+    audience: &str,
+    kept: &[Kept<'_>],
+) -> Result<Vec<Opened>, Error> {
+    let objects: BTreeSet<&str> = kept.iter().map(|kept| kept.object).collect();
+    if objects.is_empty() {
+        return Ok(Vec::new());
+    }
+    let objects: Vec<String> = objects.into_iter().map(str::to_string).collect();
+    let mut sealed: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    for row in db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT object, sealed FROM agent_log_object_keys \
+             WHERE user_id = $1 AND audience = $2 AND object = ANY($3)",
+            [user.into(), audience.into(), objects.into()],
+        ))
+        .await?
+    {
+        sealed.insert(row.try_get("", "object")?, row.try_get("", "sealed")?);
+    }
+    if sealed.is_empty() {
+        return Ok(kept.iter().map(|_| Opened::Gone).collect());
+    }
+    let wrap = match audience_key(db, root, user, audience).await {
+        Ok(wrap) => Some(wrap),
+        Err(Error::Key) => None,
+        Err(error) => return Err(error),
+    };
+    let keys: BTreeMap<String, Option<[u8; KEY_BYTES]>> = sealed
+        .into_iter()
+        .map(|(object, sealed)| {
+            let key = wrap.and_then(|wrap| {
+                let key = open_with(&wrap, &sealed, &object_aad(user, audience, &object)).ok()?;
+                key_of(&key).ok()
+            });
+            (object, key)
+        })
+        .collect();
+    Ok(kept
+        .iter()
+        .map(|kept| match keys.get(kept.object) {
+            None => Opened::Gone,
+            Some(None) => Opened::Not,
+            Some(Some(key)) => open_with(key, kept.sealed, &payload_aad(user, kept.row_id))
+                .map_or(Opened::Not, Opened::Says),
+        })
+        .collect())
+}
+
+/// [`open_payloads`] as it was, one at a time: what the tests hold it to.
+#[cfg(test)]
 pub async fn open_payload<C: ConnectionTrait>(
     db: &C,
     root: &dyn Root,

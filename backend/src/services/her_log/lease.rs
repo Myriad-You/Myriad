@@ -168,7 +168,8 @@ async fn insert<C: ConnectionTrait>(db: &C, grant: &Grant) -> Result<(), Error> 
     Ok(())
 }
 
-/// The lease moves one at a time.
+/// The lease moves one at a time. After the imports and queued memory work
+/// when a transaction takes those too (`persona_sync::lease::order`).
 pub(crate) async fn lock<C: ConnectionTrait>(db: &C) -> Result<(), Error> {
     db.execute_unprepared("SELECT pg_advisory_xact_lock(hashtextextended('myriad-her-lease', 0))")
         .await?;

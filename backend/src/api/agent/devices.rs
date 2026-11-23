@@ -816,7 +816,8 @@ pub async fn delete_backup(
     Ok(Json(device_list(&db, owner).await?))
 }
 
-/// DELETE /api/agent/devices/{device_id}
+/// DELETE /api/agent/devices/{device_id}. Again for one removed already: what
+/// its removal left is seen to.
 pub async fn remove_device(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
@@ -1055,6 +1056,99 @@ mod tests {
             .await
             .unwrap();
 
+        fixture.close().await;
+    }
+
+    /// What the owner takes back on the devices page ends as they are told
+    /// (an isolated schema; skipped without a test database): a device she
+    /// was moving with, removed, leaves her where she is; the one she lives
+    /// on, removed, leaves the site not knowing where she is; a copy let go
+    /// takes her own parts and leaves others'.
+    #[tokio::test]
+    async fn a_device_removed_and_her_let_go() {
+        use sea_orm::ConnectionTrait;
+        let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+            return;
+        };
+        let db = fixture.db.clone();
+        db.execute_unprepared(
+            "INSERT INTO users (id, username, is_admin, is_owner) VALUES \
+             (41, 'owner41', true, true), (42, 'guest42', false, false); \
+             INSERT INTO agent_persona (id, name, updated_at) VALUES ('site', 'Merope', NOW()); \
+             INSERT INTO agent_memories (id, user_id, kind, content, speaker, source, venue, \
+             audience, concepts, valid_from, created_at, updated_at) VALUES \
+             ('m_member', 42, 'fact', '他养了一只猫', 'user', 'chat', 'private', '[42]', '[]', \
+              NOW(), NOW(), NOW())",
+        )
+        .await
+        .unwrap();
+        crate::services::principal::invalidate_site_owner_cache();
+        let remove = |id: String| {
+            let db = db.clone();
+            async move { answer(remove_device(State(db), Extension(claims(41)), Path(id)).await).await }
+        };
+        let (mac, _) = devices::add(&db, 41, "Mac").await.unwrap();
+        lease::read(&db).await.unwrap().unwrap();
+        start(&db, 41, "merge", &mac.id).await.unwrap();
+        let removed = remove(mac.id.clone()).await.unwrap();
+        assert_eq!(removed["device"]["id"], json!(mac.id));
+        let here = lease::read(&db).await.unwrap().unwrap();
+        assert_eq!(
+            (here.place(), here.moving),
+            (lease::Where::Here, None),
+            "the move with it is called off"
+        );
+        // Removed again: what its removal left is seen to again; only a
+        // device that never was one is not found.
+        let again = remove(mac.id).await.unwrap();
+        assert_eq!(again["device"], removed["device"]);
+        let (status, body) = remove("dev_none".into()).await.unwrap_err();
+        assert_eq!(
+            (status, body["code"].as_str()),
+            (StatusCode::NOT_FOUND, Some("device_not_found"))
+        );
+
+        let let_go = || {
+            let db = db.clone();
+            async move { answer(let_her_go(State(db), Extension(claims(41))).await).await }
+        };
+        assert!(let_go().await.is_err(), "she has not moved out");
+        lease::move_out(&db).await.unwrap();
+        let_go().await.unwrap();
+        assert_eq!(
+            lease::read(&db).await.unwrap().unwrap().place(),
+            lease::Where::Vacant
+        );
+        let left = |what: &str| {
+            let (db, what) = (
+                db.clone(),
+                format!("SELECT COUNT(*)::BIGINT AS n FROM {what}"),
+            );
+            async move {
+                db.query_one_raw(sea_orm::Statement::from_string(
+                    sea_orm::DatabaseBackend::Postgres,
+                    what,
+                ))
+                .await
+                .unwrap()
+                .unwrap()
+                .try_get::<i64>("", "n")
+                .unwrap()
+            }
+        };
+        assert_eq!(left("agent_persona").await, 0);
+        assert_eq!(left("agent_memories WHERE id = 'm_member'").await, 1);
+
+        let (other, _) = devices::add(&db, 41, "Other").await.unwrap();
+        lease::seed(&db, &other.id, "l-1", 9, lease::State::Away)
+            .await
+            .unwrap();
+        remove(other.id).await.unwrap();
+        assert_eq!(
+            lease::read(&db).await.unwrap().unwrap().place(),
+            lease::Where::Vacant
+        );
+        crate::services::principal::invalidate_site_owner_cache();
         fixture.close().await;
     }
 }

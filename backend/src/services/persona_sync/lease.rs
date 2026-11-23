@@ -44,6 +44,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 mod old_lease;
+pub(crate) mod order;
+pub(super) mod removed;
 mod rows;
 
 pub use old_lease::take_old_lease;
@@ -730,6 +732,8 @@ pub async fn cancel(
     device: Option<&str>,
 ) -> Result<Option<Lease>, MoveError> {
     let txn = db.begin().await?;
+    // The import it may carry goes with it ([`order`]).
+    super::import::hold_all(&txn).await?;
     let lease = locked(&txn).await?.ok_or(MoveError::Unknown)?;
     let moving = lease
         .moving
@@ -1189,56 +1193,9 @@ pub(super) async fn import_confirmed(
     Ok(write(txn, lease.state, true, Some(&moving)).await?)
 }
 
-/// The device she lives on was removed (or its owner is not the site's any
-/// more): the site does not know where she is now (vacant). A move with that
-/// device is called off; nothing of her comes back to life here. Her mind
-/// on it, while she lives here, comes back to the site.
-pub(super) async fn device_gone<C: ConnectionTrait>(db: &C, device: &str) -> Result<(), DbErr> {
-    rows::lock(db).await?;
-    db.execute_raw(statement(
-        "DELETE FROM agent_host_import WHERE device_id = $1 AND phase <> 'committed'",
-        vec![device.into()],
-    ))
-    .await?;
-    let Some(lease) = read(db).await? else {
-        return Ok(());
-    };
-    let with_it = lease.moving.as_ref().filter(|moving| {
-        moving.to == device || moving.via.as_deref() == Some(device) || moving.from == device
-    });
-    // Her way into a site that had none, from it: called off, the site as
-    // it was (no her).
-    if let Some(moving) = with_it
-        && super::import::is_import(&moving.id)
-        && moving.was.is_none()
-        && lease.lives_on(device)
-    {
-        rows::hold_still(db, false, None).await?;
-        return rows::forget_copy(db).await;
-    }
-    let state = if lease.lives_on(device) {
-        // She lived on it: where she is now is not known here.
-        Some(State::Vacant)
-    } else {
-        // A move to it, a merge from it, or a reclaim it was sending:
-        // called off, she is where she was.
-        with_it.map(|moving| moving.was.unwrap_or(lease.state))
-    };
-    if let Some(state) = state {
-        if lease.moving.is_some() {
-            rows::drop_move(db).await?;
-        }
-        rows::set_copy(db, state).await?;
-        rows::hold_still(db, false, None).await?;
-    } else if lease.state == State::Live && lease.holder == device && !lease.frozen {
-        rows::to_site(db, None).await?;
-    }
-    Ok(())
-}
-
 /// She lives on a device the site's owner no longer has (removed, or
-/// another owner's): vacant, what [`device_gone`] does when the device is
-/// removed, for an owner change found later. Read from time to time.
+/// another owner's): vacant, what removing the device does ([`removed`]),
+/// for an owner change found later. Read from time to time.
 pub async fn settle_orphan(db: &DatabaseConnection) -> Result<(), DbErr> {
     let Some(lease) = read(db).await? else {
         return Ok(());
@@ -1302,8 +1259,12 @@ pub async fn undo_move_out(db: &DatabaseConnection) -> Result<Lease, MoveError> 
 
 /// She moved out and the owner lets this copy go, in the transaction that
 /// does: the site does not have her now (vacant), her lineage kept for what
-/// is left of others here (Q2).
+/// is left of others here (Q2). What else of her goes in that transaction is
+/// under the lock on queued memory work, taken before her lease ([`order`]).
 pub async fn let_go_on(txn: &sea_orm::DatabaseTransaction) -> Result<Lease, MoveError> {
+    crate::services::agent::merope::api::store::lock_persona_on(txn)
+        .await
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
     let lease = locked(txn).await?.ok_or(MoveError::NoHer)?;
     if lease.state != State::MovedOut {
         return Err(MoveError::Unknown);
@@ -1530,12 +1491,19 @@ pub fn mind_moved() {
 }
 
 /// [`reload`], first making a lease vacant whose device is not the site
-/// owner's any more ([`settle_orphan`]): what the listener does each time.
+/// owner's any more ([`settle_orphan`]), and then settling what devices
+/// already removed still hold of her ([`removed`], which announces what it
+/// changes): what the listener does each time. While that waits, a few
+/// seconds at most for each device left unsettled, an announcement is heard
+/// that much later.
 async fn reload_settled(db: &DatabaseConnection) {
     if let Err(error) = settle_orphan(db).await {
         tracing::warn!(%error, "[host] could not check the device she lives on");
     }
     reload(db).await;
+    if let Err(error) = removed::settle_all(db).await {
+        tracing::warn!(%error, "[host] could not check what removed devices left of her");
+    }
 }
 
 /// Keeps this process's copy of the lease: read now, again on each
@@ -1686,9 +1654,9 @@ pub(crate) async fn seed<C: ConnectionTrait>(
     epoch: i64,
     state: State,
 ) -> Result<Lease, DbErr> {
+    rows::lock(db).await?;
     rows::forget_copy(db).await?;
     rows::put_copy(db, lineage, state).await?;
-    rows::lock(db).await?;
     match rows::standing(db).await? {
         None => rows::begin_with(db, holder, epoch).await?,
         Some(grant) if grant.held_by(holder) => {}
@@ -2148,7 +2116,13 @@ mod tests {
 
         // A move to the site she lives on... the device is removed: vacant,
         // and nothing comes back to life here.
-        device_gone(db, "dev_a").await.unwrap();
+        {
+            let txn = db.begin().await.unwrap();
+            removed::device_gone(&txn, "dev_a", crate::clock::now())
+                .await
+                .unwrap();
+            txn.commit().await.unwrap();
+        }
         let vacant = read(db).await.unwrap().unwrap();
         assert_eq!(
             (vacant.place(), vacant.lineage.as_str()),

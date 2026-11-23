@@ -519,9 +519,25 @@ pub async fn shown_for_device<C: ConnectionTrait>(db: &C, device: &str) -> Resul
         .map_or(Value::Null, |session| session.json(None)))
 }
 
-pub(super) async fn one_at_a_time(txn: &DatabaseTransaction) -> Result<(), DbErr> {
+/// One transaction at a time brings her in. Before every other lock of hers
+/// ([`lease::order`]).
+pub(super) async fn one_at_a_time<C: ConnectionTrait>(txn: &C) -> Result<(), DbErr> {
+    #[cfg(test)]
+    lease::order::check(txn, lease::order::Lock::Imports).await?;
     txn.execute_raw(statement(
         "SELECT pg_advisory_xact_lock(hashtext('agent_host_import'))",
+        vec![],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// [`one_at_a_time`], with every import's row: before her lease, for what may
+/// end an import once it holds her lease ([`lease::order`]).
+pub(super) async fn hold_all<C: ConnectionTrait>(txn: &C) -> Result<(), DbErr> {
+    one_at_a_time(txn).await?;
+    txn.query_all_raw(statement(
+        "SELECT id FROM agent_host_import ORDER BY id FOR UPDATE",
         vec![],
     ))
     .await?;
@@ -704,7 +720,7 @@ async fn propose_reclaim(
     proposal: Proposal,
 ) -> Result<Session, ImportError> {
     let txn = db.begin().await?;
-    one_at_a_time(&txn).await?;
+    hold_all(&txn).await?;
     let held = lease::hold(&txn).await?.ok_or(ImportError::NoHer)?;
     if held.lineage != proposal.lineage {
         return Err(ImportError::Mismatch("another lineage".into()));
@@ -1038,6 +1054,13 @@ pub async fn received(
         .filter(|session| session.id == id && session.device_id.as_deref() == Some(device))
         .ok_or(ImportError::Unknown)?;
     let staged = staged_count(db, id).await?;
+    let files = files_here(id).await;
+    Ok(json!({ "import": session.json(None), "staged": staged, "files": files }))
+}
+
+/// The files of her kept for an import so far, each by its asset id (a rig's
+/// two as `asset/file`).
+async fn files_here(id: &str) -> Vec<String> {
     let mut files = Vec::new();
     if let Ok(mut entries) = tokio::fs::read_dir(import_dir(id).join("assets")).await {
         while let Ok(Some(entry)) = entries.next_entry().await {
@@ -1057,7 +1080,21 @@ pub async fn received(
         }
     }
     files.sort();
-    Ok(json!({ "import": session.json(None), "staged": staged, "files": files }))
+    files
+}
+
+/// How many pictures and rigs an import has whole.
+pub(super) async fn assets_here(id: &str) -> usize {
+    let files = files_here(id).await;
+    files
+        .iter()
+        .filter(|file| match file.split_once('/') {
+            None => true,
+            Some((asset, name)) => {
+                name == RIG_MANIFEST_FILE && files.contains(&format!("{asset}/{RIG_ATLAS_FILE}"))
+            }
+        })
+        .count()
 }
 
 /// Her, as one side holds her whole: entities, vectors, the files by asset

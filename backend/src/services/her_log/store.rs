@@ -838,31 +838,34 @@ pub(crate) async fn bodies<C: ConnectionTrait>(
     {
         sealed.insert(result.try_get("", "row_id")?, result.try_get("", "sealed")?);
     }
-    for row in rows {
-        let Some(sealed) = sealed.get(&row.id) else {
-            continue;
-        };
-        let opened = match keys::open_payload(
-            db,
-            root,
-            user,
-            audience,
-            &row.object,
-            &row.id,
-            sealed,
-        )
-        .await
-        {
-            Ok(opened) => opened,
+    let kept: Vec<(&Row, keys::Kept)> = rows
+        .iter()
+        .filter_map(|row| {
+            let sealed = sealed.get(&row.id)?;
+            Some((
+                *row,
+                keys::Kept {
+                    object: &row.object,
+                    row_id: &row.id,
+                    sealed,
+                },
+            ))
+        })
+        .collect();
+    let (rows, kept): (Vec<&Row>, Vec<keys::Kept>) = kept.into_iter().unzip();
+    let opened = keys::open_payloads(db, root, user, audience, &kept).await?;
+    for (row, opened) in rows.into_iter().zip(opened) {
+        let data = match opened {
+            keys::Opened::Says(data) => data,
+            keys::Opened::Gone => continue,
             // One body that does not open goes without it (`no_body`);
             // the rest still go.
-            Err(Error::Key) => {
+            keys::Opened::Not => {
                 tracing::warn!(row = %row.id, "[her-log] a kept body does not open; its row goes without it");
-                None
+                continue;
             }
-            Err(error) => return Err(error),
         };
-        if let Some(body) = opened.and_then(|data| serde_json::from_slice::<Value>(&data).ok()) {
+        if let Ok(body) = serde_json::from_slice::<Value>(&data) {
             out.insert(row.id.clone(), body);
         }
     }

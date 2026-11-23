@@ -225,7 +225,8 @@ pub async fn issue<C: ConnectionTrait>(
 }
 
 /// Every deputy issued to any of `holders`, oldest first: what her rows
-/// from them are placed against.
+/// from them are placed against. One of a removed device counts for nothing
+/// (one given just as it was removed is withdrawn a moment later).
 pub async fn for_holders<C: ConnectionTrait>(
     db: &C,
     holders: &[&str],
@@ -237,7 +238,9 @@ pub async fn for_holders<C: ConnectionTrait>(
     db.query_all_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         format!(
-            "SELECT {COLUMNS} FROM agent_lease_deputies WHERE holder = ANY($1) \
+            "SELECT {COLUMNS} FROM agent_lease_deputies l WHERE holder = ANY($1) \
+             AND NOT EXISTS (SELECT 1 FROM agent_sync_devices d \
+                             WHERE d.id = l.holder AND d.revoked_at IS NOT NULL) \
              ORDER BY issued_at, holder"
         ),
         [holders.into()],

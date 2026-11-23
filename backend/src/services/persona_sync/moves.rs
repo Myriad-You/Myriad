@@ -347,10 +347,22 @@ pub(crate) async fn commit_to_device_with(
         to_device_allowed(db, settings, owner).await?;
     }
     let txn = db.begin().await?;
+    // The site's copy of her goes with it: before her lease ([`lease::order`]).
+    if !keep {
+        crate::services::agent::merope::api::store::lock_persona_on(&txn)
+            .await
+            .map_err(|error| MoveError::Failed(error.to_string()))?;
+    }
     let lease = lease::hold(&txn).await?.ok_or(MoveError::Unknown)?;
+    // Committed already: she lives on it, removed since or not.
     if lease.done.as_ref().is_some_and(|done| done.id == id) && lease.holder == device {
         txn.commit().await?;
         return Ok(lease);
+    }
+    // Asked just before the device was removed: what that leaves of her is
+    // settled under her lease, after this.
+    if !super::devices::is_one(&txn, device).await? {
+        return Err(MoveError::Unknown);
     }
     let moving = lease
         .moving
@@ -382,9 +394,6 @@ pub(crate) async fn commit_to_device_with(
         tracing::info!(move_id = %id, device, epoch = written.epoch, "[move] her mind is on the device now; the site keeps its copy (her log is synced)");
         return Ok(written);
     }
-    crate::services::agent::merope::api::store::lock_persona_on(&txn)
-        .await
-        .map_err(|error| MoveError::Failed(error.to_string()))?;
     crate::services::agent::merope::retire_her_on(&txn, owner)
         .await
         .map_err(|error| MoveError::Failed(error.to_string()))?;
@@ -432,7 +441,7 @@ pub async fn report_frozen(
     frozen: Frozen,
 ) -> Result<import::Session, ImportError> {
     let txn = db.begin().await?;
-    import::one_at_a_time(&txn).await?;
+    import::hold_all(&txn).await?;
     let lease = lease::hold(&txn).await?.ok_or(ImportError::Unknown)?;
     let moving = lease
         .moving

@@ -10,7 +10,7 @@ use chrono::{DateTime, Duration, FixedOffset, Utc};
 use rand::Rng;
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, QueryResult, Statement,
-    TransactionTrait,
+    TransactionSession, TransactionTrait,
 };
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
@@ -224,15 +224,49 @@ pub async fn list<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<Vec<Device
     .collect()
 }
 
-/// Removes a live device of the owner's, closing its link if one is open.
-/// `None` when there is no such live device.
+/// Removes a device of the owner's: it is one no more from here on (its token
+/// is no one's, its deputies go, its link closes), whatever else is going on:
+/// neither the imports nor her lease are waited for. What it leaves of her
+/// comes after ([`lease::removed`](super::lease::removed)), waits for
+/// what holds it and, failing, is seen to later. `None` when the owner has
+/// no such device. One removed already is left removed, as it was; what its
+/// removal left is seen to again, and failing at that is told.
 pub async fn revoke<C: ConnectionTrait + TransactionTrait>(
     db: &C,
     user_id: i32,
     id: &str,
     why: RevokeReason,
 ) -> Result<Option<Device>, DbErr> {
-    let removed = db
+    match remove(db, user_id, id, why, super::lease::removed::WAIT).await? {
+        Some(Removed {
+            again: true,
+            settled: Err(error),
+            ..
+        }) => Err(error),
+        removed => Ok(removed.map(|removed| removed.device)),
+    }
+}
+
+/// A device removed now, or before.
+pub(super) struct Removed {
+    pub device: Device,
+    /// It had been removed already.
+    pub again: bool,
+    /// Whether what it leaves of her was settled: it is one no more either
+    /// way.
+    pub settled: Result<(), DbErr>,
+}
+
+/// [`revoke`], waiting `wait` for what holds what it leaves.
+pub(super) async fn remove<C: ConnectionTrait + TransactionTrait>(
+    db: &C,
+    user_id: i32,
+    id: &str,
+    why: RevokeReason,
+    wait: std::time::Duration,
+) -> Result<Option<Removed>, DbErr> {
+    let txn = db.begin().await?;
+    let taken_back = txn
         .query_one_raw(statement(
             &format!(
                 "UPDATE agent_sync_devices SET revoked_at = $4::timestamptz, revoked_reason = $3 \
@@ -249,39 +283,91 @@ pub async fn revoke<C: ConnectionTrait + TransactionTrait>(
         .as_ref()
         .map(Device::from_row)
         .transpose()?;
-    if let Some(device) = &removed {
-        // She lived on it, or was moving with it: the lease says so now
-        // (vacant, or as she was before the move), and every process hears.
-        super::lease::device_gone(db, &device.id).await?;
-        // Its deputies (her temporary host there) go with it.
-        crate::services::her_log::deputy::withdraw(db, &device.id)
-            .await
-            .map_err(|error| DbErr::Custom(format!("a removed device's deputies: {error}")))?;
-        use crate::services::agent::link::{Close, disconnect};
-        // The reason the link was allowed is gone: the device forgets its token.
-        let close = match why {
-            RevokeReason::OwnerChanged => Close::OwnerChanged,
-            RevokeReason::ByOwner | RevokeReason::DeviceLeft => Close::Revoked,
-        };
-        disconnect(&device.id, close);
-        // What it told of the owner's coding-agent sessions goes for good:
-        // the reason it was kept (the device watching for them) is gone.
-        // Not now: again when the owner forgets the device ([`forget`]) or
-        // any of their devices tells a session.
-        if let Err(error) =
-            crate::services::agent::merope::sessions::forget_device(db, user_id, &device.id).await
-        {
-            tracing::warn!(%error, device = %device.id, "[devices] a removed device's sessions are not forgotten yet");
+    let again = taken_back.is_none();
+    let device = match taken_back {
+        Some(device) => {
+            // Its deputies (her temporary host there) go with it.
+            withdraw_deputies(&txn, &device.id).await?;
+            txn.commit().await?;
+            device
         }
+        None => {
+            txn.rollback().await?;
+            let before = db
+                .query_one_raw(statement(
+                    &format!(
+                        "SELECT {COLUMNS} FROM agent_sync_devices \
+                         WHERE id = $1 AND user_id = $2 AND revoked_at IS NOT NULL"
+                    ),
+                    vec![id.into(), user_id.into()],
+                ))
+                .await?
+                .as_ref()
+                .map(Device::from_row)
+                .transpose()?;
+            let Some(device) = before else {
+                return Ok(None);
+            };
+            device
+        }
+    };
+    use crate::services::agent::link::{Close, disconnect};
+    // The reason the link was allowed is gone: the device forgets its token.
+    let owner_changed = RevokeReason::OwnerChanged.as_str();
+    let close = if device.revoked_reason.as_deref() == Some(owner_changed) {
+        Close::OwnerChanged
+    } else {
+        Close::Revoked
+    };
+    disconnect(&device.id, close);
+    // What it told of the owner's coding-agent sessions goes for good:
+    // the reason it was kept (the device watching for them) is gone.
+    // Not now: again when the owner forgets the device ([`forget`]) or
+    // any of their devices tells a session.
+    if let Err(error) =
+        crate::services::agent::merope::sessions::forget_device(db, user_id, &device.id).await
+    {
+        tracing::warn!(%error, device = %device.id, "[devices] a removed device's sessions are not forgotten yet");
     }
-    Ok(removed)
+    // She lived on it, or was moving with it: the lease says so now (vacant,
+    // or as she was before the move), and every process hears.
+    let settled = super::lease::removed::settle_within(db, &device.id, wait).await;
+    if let Err(error) = &settled {
+        tracing::warn!(%error, device = %device.id, "[devices] what a removed device left of her is not settled yet");
+    }
+    Ok(Some(Removed {
+        device,
+        again,
+        settled,
+    }))
+}
+
+/// Removes a device of an owner the site no longer has: it is refused
+/// whether or not what it leaves of her is settled by now.
+async fn remove_former<C: ConnectionTrait + TransactionTrait>(
+    db: &C,
+    device: &Device,
+) -> Result<(), DbErr> {
+    let why = RevokeReason::OwnerChanged;
+    let wait = super::lease::removed::WAIT;
+    remove(db, device.user_id, &device.id, why, wait)
+        .await
+        .map(drop)
+}
+
+/// Every deputy of a removed device goes.
+pub(super) async fn withdraw_deputies<C: ConnectionTrait>(db: &C, id: &str) -> Result<(), DbErr> {
+    crate::services::her_log::deputy::withdraw(db, id)
+        .await
+        .map(drop)
+        .map_err(|error| DbErr::Custom(format!("a removed device's deputies: {error}")))
 }
 
 /// Forgets a removed device of the owner's: its row goes, so it leaves the
 /// list. Only a removed one: a live device is removed first ([`revoke`]),
-/// which is what closes its link and settles her lease. Its backups stay
-/// (they are how she is taken back). `false` when there is no such removed
-/// device.
+/// which is what closes its link. What it left of her is settled first, or it
+/// is not forgotten. Its backups stay (they are how she is taken back).
+/// `false` when there is no such removed device.
 pub async fn forget<C: ConnectionTrait + TransactionTrait>(
     db: &C,
     user_id: i32,
@@ -297,6 +383,9 @@ pub async fn forget<C: ConnectionTrait + TransactionTrait>(
         .await?
         .is_some();
     if removed {
+        // And what it left of her, if removing it did not see to that: once
+        // its row is gone nothing tells it was removed.
+        super::lease::removed::settle(db, id).await?;
         crate::services::agent::merope::sessions::forget_device(db, user_id, id)
             .await
             .map_err(|error| DbErr::Custom(format!("a removed device's sessions: {error}")))?;
@@ -308,6 +397,17 @@ pub async fn forget<C: ConnectionTrait + TransactionTrait>(
         ))
         .await?;
     Ok(gone.rows_affected() > 0)
+}
+
+/// Whether `id` is a device, not a removed one.
+pub(super) async fn is_one<C: ConnectionTrait>(db: &C, id: &str) -> Result<bool, DbErr> {
+    Ok(db
+        .query_one_raw(statement(
+            "SELECT 1 AS one FROM agent_sync_devices WHERE id = $1 AND revoked_at IS NULL",
+            vec![id.into()],
+        ))
+        .await?
+        .is_some())
 }
 
 /// Why a request's token is not a device's.
@@ -357,7 +457,7 @@ pub async fn authenticate<C: ConnectionTrait + TransactionTrait>(
     }
     let owner = owner.ok_or(Refused::NoOwner)?;
     if device.user_id != owner {
-        revoke(db, device.user_id, &device.id, RevokeReason::OwnerChanged).await?;
+        remove_former(db, &device).await?;
         return Err(Refused::OwnerChanged);
     }
     Ok(device)
@@ -384,7 +484,7 @@ pub async fn recheck<C: ConnectionTrait + TransactionTrait>(
     }
     let owner = owner.ok_or(Refused::NoOwner)?;
     if device.user_id != owner {
-        revoke(db, device.user_id, &device.id, RevokeReason::OwnerChanged).await?;
+        remove_former(db, &device).await?;
         return Err(Refused::OwnerChanged);
     }
     Ok(device)
@@ -535,12 +635,20 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert!(
-            revoke(db, 41, &other.id, RevokeReason::ByOwner)
-                .await
-                .unwrap()
-                .is_none()
-        );
+        // Removed again, it stays as it was removed; another's is not found.
+        let again = revoke(db, 41, &other.id, RevokeReason::DeviceLeft)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(again.revoked_reason.as_deref(), Some("owner_revoked"));
+        for (user, id) in [(42, other.id.as_str()), (41, "dev_none")] {
+            assert!(
+                revoke(db, user, id, RevokeReason::ByOwner)
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        }
         // A removed device can be forgotten; a live one, or another owner's, not.
         assert!(!forget(db, 41, &mac.id).await.unwrap(), "live");
         assert!(!forget(db, 42, &other.id).await.unwrap(), "not 42's");
