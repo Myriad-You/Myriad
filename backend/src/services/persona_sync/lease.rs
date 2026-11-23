@@ -44,6 +44,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 mod old_lease;
+pub(crate) mod order;
 mod rows;
 
 pub use old_lease::take_old_lease;
@@ -730,6 +731,8 @@ pub async fn cancel(
     device: Option<&str>,
 ) -> Result<Option<Lease>, MoveError> {
     let txn = db.begin().await?;
+    // The import it may carry goes with it ([`order`]).
+    super::import::hold_all(&txn).await?;
     let lease = locked(&txn).await?.ok_or(MoveError::Unknown)?;
     let moving = lease
         .moving
@@ -1302,8 +1305,12 @@ pub async fn undo_move_out(db: &DatabaseConnection) -> Result<Lease, MoveError> 
 
 /// She moved out and the owner lets this copy go, in the transaction that
 /// does: the site does not have her now (vacant), her lineage kept for what
-/// is left of others here (Q2).
+/// is left of others here (Q2). What else of her goes in that transaction is
+/// under the lock on queued memory work, taken before her lease ([`order`]).
 pub async fn let_go_on(txn: &sea_orm::DatabaseTransaction) -> Result<Lease, MoveError> {
+    crate::services::agent::merope::api::store::lock_persona_on(txn)
+        .await
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
     let lease = locked(txn).await?.ok_or(MoveError::NoHer)?;
     if lease.state != State::MovedOut {
         return Err(MoveError::Unknown);
@@ -1686,9 +1693,9 @@ pub(crate) async fn seed<C: ConnectionTrait>(
     epoch: i64,
     state: State,
 ) -> Result<Lease, DbErr> {
+    rows::lock(db).await?;
     rows::forget_copy(db).await?;
     rows::put_copy(db, lineage, state).await?;
-    rows::lock(db).await?;
     match rows::standing(db).await? {
         None => rows::begin_with(db, holder, epoch).await?,
         Some(grant) if grant.held_by(holder) => {}

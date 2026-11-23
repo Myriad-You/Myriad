@@ -44,9 +44,9 @@ pub async fn take_old_lease(db: &DatabaseConnection) -> Result<(), DbErr> {
             // Living on a device, or frozen on her way in from one.
             _ => State::Away,
         };
-        rows::put_copy(&txn, &lineage, copy).await?;
         // Her lease names the end the row named, at its epoch or later.
         rows::lock(&txn).await?;
+        rows::put_copy(&txn, &lineage, copy).await?;
         match rows::standing(&txn).await? {
             None => rows::begin_with(&txn, &holder, epoch).await?,
             Some(grant) if grant.held_by(&holder) => {}

@@ -519,9 +519,25 @@ pub async fn shown_for_device<C: ConnectionTrait>(db: &C, device: &str) -> Resul
         .map_or(Value::Null, |session| session.json(None)))
 }
 
-pub(super) async fn one_at_a_time(txn: &DatabaseTransaction) -> Result<(), DbErr> {
+/// One transaction at a time brings her in. Before every other lock of hers
+/// ([`lease::order`]).
+pub(super) async fn one_at_a_time<C: ConnectionTrait>(txn: &C) -> Result<(), DbErr> {
+    #[cfg(test)]
+    lease::order::check(txn, lease::order::Lock::Imports).await?;
     txn.execute_raw(statement(
         "SELECT pg_advisory_xact_lock(hashtext('agent_host_import'))",
+        vec![],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// [`one_at_a_time`], with every import's row: before her lease, for what may
+/// end an import once it holds her lease ([`lease::order`]).
+pub(super) async fn hold_all<C: ConnectionTrait>(txn: &C) -> Result<(), DbErr> {
+    one_at_a_time(txn).await?;
+    txn.query_all_raw(statement(
+        "SELECT id FROM agent_host_import ORDER BY id FOR UPDATE",
         vec![],
     ))
     .await?;
@@ -704,7 +720,7 @@ async fn propose_reclaim(
     proposal: Proposal,
 ) -> Result<Session, ImportError> {
     let txn = db.begin().await?;
-    one_at_a_time(&txn).await?;
+    hold_all(&txn).await?;
     let held = lease::hold(&txn).await?.ok_or(ImportError::NoHer)?;
     if held.lineage != proposal.lineage {
         return Err(ImportError::Mismatch("another lineage".into()));
