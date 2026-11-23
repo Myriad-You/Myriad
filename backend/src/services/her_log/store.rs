@@ -763,7 +763,8 @@ pub struct Took {
 
 /// [`send`], a page at a time when `page` is given: only the bodies a page
 /// can hold are opened, at most a full batch of rows for each of its
-/// batches.
+/// batches. With it, what the log it was made of holds: none read for a side
+/// that may not hold the audience.
 #[allow(clippy::too_many_arguments)]
 pub async fn send_page<C: ConnectionTrait>(
     db: &C,
@@ -775,14 +776,16 @@ pub async fn send_page<C: ConnectionTrait>(
     to: &Holder,
     peer_abi: u32,
     page: Option<Paging<'_>>,
-) -> Result<(wire::Sent, Took), Error> {
+) -> Result<(wire::Sent, Took, Option<Holdings>), Error> {
     let user = owner.user;
     let mut took = Took::default();
     let began = Instant::now();
-    let rows = if to.holds(audience) {
-        rows(db, user, audience).await?
+    let (rows, held) = if to.holds(audience) {
+        let rows = rows(db, user, audience).await?;
+        let held = vector::holdings(&rows)?;
+        (rows, Some(held))
     } else {
-        Vec::new()
+        (Vec::new(), None)
     };
     took.read_ms = began.elapsed().as_millis() as u64;
     // The bodies the batches may carry: what it lacks, what it asks for
@@ -837,7 +840,7 @@ pub async fn send_page<C: ConnectionTrait>(
         elsewhere,
     })?;
     took.pack_ms = began.elapsed().as_millis() as u64;
-    Ok((sent, took))
+    Ok((sent, took, held))
 }
 
 /// The payloads of `rows`, opened and read as JSON, by row id. One whose key

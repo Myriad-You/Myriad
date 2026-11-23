@@ -1196,7 +1196,7 @@ async fn vector(
         Vec::new()
     };
     let began = Instant::now();
-    let ours = store::holdings(db, owner.user, audience).await?;
+    let mut ours = store::holdings(db, owner.user, audience).await?;
     let mut answered = Answered {
         held: ours.vector.values().sum(),
         holdings_ms: began.elapsed().as_millis() as u64,
@@ -1253,7 +1253,9 @@ async fn vector(
             beyond: &beyond,
         });
         let asked: BTreeSet<String> = ask.iter().cloned().collect();
-        let (mut sent, took) = store::send_page(
+        #[cfg(test)]
+        crate::services::agent::link::held::wait(device, "a page of log.vector").await;
+        let (mut sent, took, of) = store::send_page(
             db,
             root,
             owner,
@@ -1265,6 +1267,12 @@ async fn vector(
             paging,
         )
         .await?;
+        // The page is of what the log held as it was read, after the count
+        // above: said with it, or the side would send the rows kept in
+        // between back.
+        if let Some(of) = of {
+            ours = of;
+        }
         // More to go: the last batch names the page, which the side names
         // in its next log.vector once it has settled that batch. The rows
         // asked again for that did not fit wait in the session for the
