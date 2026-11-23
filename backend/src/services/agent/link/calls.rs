@@ -101,14 +101,22 @@ pub(super) fn granted(offered: &[Action], decided: &[(String, bool)]) -> Vec<Act
         .collect()
 }
 
+/// What the site provides to be asked of it on a link (`call.granted`'s
+/// `providing`), `(name, version)`: nothing yet. What it says it provides and
+/// how it answers a device's ask ([`answer_ask`]) come from this one list.
+const PROVIDING: &[(&str, u64)] = &[];
+
 /// `call.granted`: what it may be asked to do, and what it may ask of the
-/// host (nothing yet).
+/// host ([`PROVIDING`]).
 pub(super) fn granted_frame(granted: &[Action]) -> Outgoing {
     Outgoing::latest(
         "call.granted",
         json!({
             "actions": granted.iter().map(Action::json).collect::<Vec<_>>(),
-            "providing": [],
+            "providing": PROVIDING
+                .iter()
+                .map(|(name, version)| json!({ "name": name, "version": version }))
+                .collect::<Vec<_>>(),
         }),
     )
 }
@@ -353,16 +361,38 @@ pub(crate) async fn set_approved(
     set
 }
 
-/// A child asked the host to do something (`call.ask` up). The site provides
-/// nothing yet: an action the host does is not granted it, anything else
-/// the host does not do. Answered with the one `call.result` every ask gets.
-pub(super) fn answer_ask(body: &Value) -> Option<Outgoing> {
+/// A child asked the host to do something (`call.ask` up), taken at
+/// `taken_at` (milliseconds, the host's clock). Whether it is done is the
+/// shared core's to say (`myriad_her_link::host_call_receive`): the site
+/// provides nothing yet ([`PROVIDING`]), so every ask is answered failed, with
+/// the one `call.result` every ask gets: a device's action or one no contract
+/// registers is `call_unknown`; a host action at a version the contract does
+/// not have, `version_unsupported` with the host's; one not for whom it is
+/// asked for, `wrong_audience`; any other host action, `call_not_granted`.
+pub(super) fn answer_ask(body: &Value, taken_at: u64) -> Option<Outgoing> {
     let call_id = body["callId"].as_str()?;
     let action = body["action"].as_str()?;
     let version = body["version"].as_u64()?;
-    let code = match myriad_her_link::call_spec(action) {
-        Some(spec) if spec.by == "host" => "call_not_granted",
-        _ => "call_unknown",
+    let deadline_at = body["deadlineAt"].as_u64()?;
+    let providing: Vec<(String, u64)> = PROVIDING
+        .iter()
+        .map(|(name, version)| (name.to_string(), *version))
+        .collect();
+    let received = myriad_her_link::host_call_receive(
+        action,
+        version,
+        &body["for"],
+        deadline_at,
+        taken_at,
+        &providing,
+    );
+    let code = match received.verdict {
+        myriad_her_link::CallVerdict::Fail(code) => code,
+        // Nothing the site provides runs here yet: one it may be asked to do
+        // can only be one it says it provides, and that list is empty.
+        myriad_her_link::CallVerdict::Do | myriad_her_link::CallVerdict::Hold => {
+            "call_unavailable"
+        }
     };
     Some(Outgoing::reliable(
         "call.result",
@@ -370,7 +400,7 @@ pub(super) fn answer_ask(body: &Value) -> Option<Outgoing> {
         json!({
             "callId": call_id,
             "action": action,
-            "version": version,
+            "version": received.version,
             "outcome": "failed",
             "error": { "code": code },
         }),
@@ -484,21 +514,30 @@ mod tests {
 
     #[test]
     fn a_childs_ask_is_answered_failed_with_only_a_code() {
-        let host = answer_ask(&json!({
-            "callId": "c-up-1", "action": "model.chat", "version": 1,
-            "args": { "messages": [] }, "for": { "kind": "owner" }, "deadlineAt": 1_900_000_000_000u64,
-        }))
-        .unwrap();
+        let ask = |call_id: &str, action: &str, version: u64, of: Value| {
+            json!({
+                "callId": call_id, "action": action, "version": version,
+                "args": {}, "for": of, "deadlineAt": 1_900_000_000_000u64,
+            })
+        };
+        let owner = json!({ "kind": "owner" });
+        let answer = |body: Value| answer_ask(&body, 1_899_999_990_000).unwrap();
+        let host = answer(ask("c-up-1", "model.chat", 1, owner.clone()));
         assert_eq!(host.id.as_deref(), Some("c-up-1.result"));
         assert_eq!(
             host.body,
             json!({ "callId": "c-up-1", "action": "model.chat", "version": 1, "outcome": "failed", "error": { "code": "call_not_granted" } })
         );
-        let child = answer_ask(&json!({
-            "callId": "c-up-2", "action": "screen.look", "version": 1,
-            "args": {}, "for": { "kind": "owner" }, "deadlineAt": 1_900_000_000_000u64,
-        }))
-        .unwrap();
+        let child = answer(ask("c-up-2", "screen.look", 1, owner.clone()));
         assert_eq!(child.body["error"], json!({ "code": "call_unknown" }));
+        // What the shared core holds every receiver to, the site too: the
+        // version first, then for whom it is.
+        let newer = answer(ask("c-up-3", "group.read", 2, json!({ "kind": "group", "groupId": "g42" })));
+        assert_eq!(newer.body["error"], json!({ "code": "version_unsupported" }));
+        assert_eq!(newer.body["version"], 1);
+        let for_owner = answer(ask("c-up-4", "group.read", 1, owner));
+        assert_eq!(for_owner.body["error"], json!({ "code": "wrong_audience" }));
+        // Nothing is provided to be asked of it, and call.granted says so.
+        assert_eq!(granted_frame(&[]).body["providing"], json!([]));
     }
 }

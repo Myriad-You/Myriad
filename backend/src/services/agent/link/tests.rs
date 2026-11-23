@@ -4640,16 +4640,23 @@ async fn a_device_asks_only_her_host_and_is_answered_and_a_link_without_calls_is
                 "deadlineAt": crate::clock::now().timestamp_millis() + 30_000 })
     };
     // The site provides nothing yet: a host action is not granted it.
-    child
-        .send("call.ask", Some("up-1"), ask("up-1", "group.read"))
-        .await;
+    let mut chat = ask("up-1", "model.chat");
+    chat["args"] = json!({ "messages": [] });
+    child.send("call.ask", Some("up-1"), chat).await;
     let answer = child.expect("call.result").await;
     assert_eq!(answer["id"], "up-1.result");
     assert_eq!(
         answer["body"],
-        json!({ "callId": "up-1", "action": "group.read", "version": 1,
+        json!({ "callId": "up-1", "action": "model.chat", "version": 1,
                 "outcome": "failed", "error": { "code": "call_not_granted" } })
     );
+    // A group's action asked for the owner is not for whom it is
+    // (`host_call_receive`, as every receiver judges it).
+    child
+        .send("call.ask", Some("up-1g"), ask("up-1g", "group.read"))
+        .await;
+    let answer = child.expect("call.result").await;
+    assert_eq!(answer["body"]["error"], json!({ "code": "wrong_audience" }));
     // A device's own action is never passed to another device.
     child
         .send("call.ask", Some("up-2"), ask("up-2", "screen.look"))
