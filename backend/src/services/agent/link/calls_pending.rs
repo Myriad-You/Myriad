@@ -540,8 +540,10 @@ pub(super) fn accepted(device_id: &str, body: &Value) {
 /// Link `link` of the device was just told it is granted `granted`, through
 /// `sender` (under the registry's lock, right after `call.granted`). Its
 /// calls of an action not granted now and never sent end `call_not_granted`;
-/// a long one sent is cancelled. Those sent on an earlier link and granted
-/// now go again, same callId and deadline, unless their deadline has passed.
+/// so does a short one sent of a seen action (`calls.seen`), whose result
+/// would not be kept now (`withheld`); a long one sent is cancelled. Those
+/// sent on an earlier link and granted now go again, same callId and
+/// deadline, unless their deadline has passed.
 pub(super) fn regranted(
     device_id: &str,
     link: u64,
@@ -556,7 +558,7 @@ pub(super) fn regranted(
                 return true;
             }
             if !granted.iter().any(|action| action.name == one.action) {
-                if one.link.is_none() {
+                if one.link.is_none() || (!one.long && myriad_her_link::call_seen(&one.action)) {
                     dropped.extend(one.answer.take());
                     return false;
                 }
@@ -764,10 +766,18 @@ mod tests {
     async fn a_call_never_sent_ends_not_granted_and_a_removed_devices_calls_end_at_once() {
         let (sender, mut sent) = mpsc::channel(4);
         let never = waiting("call_never_sent", "dev_withdrawn", None);
+        let look = waiting("call_sent_look", "dev_withdrawn", Some(7));
         let sent_one = waiting("call_sent_short", "dev_withdrawn", Some(7));
+        pending(|all| {
+            if let Some(one) = all.get_mut("call_sent_short") {
+                one.action = "notify.post".into();
+            }
+        });
         regranted("dev_withdrawn", 7, &[], &sender);
         assert_eq!(never.await.unwrap(), Answer::failed("call_not_granted"));
-        // One sent is not dropped, and a short one is not cancelled.
+        // A look sent ends not granted: what it saw would not be kept now.
+        assert_eq!(look.await.unwrap(), Answer::failed("call_not_granted"));
+        // Any other one sent is not dropped, and a short one is not cancelled.
         assert!(pending(|all| all.contains_key("call_sent_short")));
         assert!(sent.try_recv().is_err());
         pending(|all| all.remove("call_sent_short"));
