@@ -186,6 +186,11 @@ async fn first_words_as(
     db: &DatabaseConnection,
     user_id: i32,
 ) -> Option<(Reason, String, String, Wish)> {
+    // What they asked her not to keep is held to what she would bring up
+    // first; until it is, nothing is.
+    if !super::asked::old::done_first(db, user_id).await {
+        return None;
+    }
     let now = super::clock::now();
     // Those that are her intents come due as intents instead (`memory_nodes::home_intents`).
     let threads = super::memory_nodes::home_intents::not_intents(
@@ -211,12 +216,46 @@ async fn first_words_as(
     if !goes_on(&admission) {
         return None;
     }
+    // What they said lately and was not gone over yet is gone over first,
+    // so what she writes knows it (waited on a while, then without it).
+    super::memory_jobs::hurry(
+        db,
+        user_id,
+        &crate::services::agent::memory::unified::Audience::private(user_id),
+    )
+    .await;
+    // Going over it may have found them asking her not to keep something.
+    if !still_to_bring_up(db, user_id, &reason).await {
+        return None;
+    }
     let talk = recent_talk(db, user_id).await;
     let about = would_write(db, user_id, &reason, &talk, facts(&admission)).await?;
     let own = puzzle.as_ref().map(|made| made.surface.as_str());
     let last_talked = last.map(|last| myriad_merope::doing::ago_text(now - last));
     let line = compose(db, user_id, &about, own, &talk, last_talked.as_deref()).await?;
     Some((reason, about, line, wish))
+}
+
+/// Whether what `reason` would bring up of theirs still stands, with what
+/// they asked her not to keep held to it; that cannot be told, it is asked
+/// about again later.
+async fn still_to_bring_up(db: &DatabaseConnection, user_id: i32, reason: &Reason) -> bool {
+    let open = if super::asked::old::done_first(db, user_id).await {
+        threads::kept(db, user_id).await.ok()
+    } else {
+        None
+    };
+    let Some(open) = open else {
+        if let Ok(mut asked) = ASKED.lock() {
+            asked.remove(&user_id);
+        }
+        return false;
+    };
+    reason
+        .due
+        .iter()
+        .chain(&reason.wished)
+        .all(|thread| open.iter().any(|one| one.id == thread.id))
 }
 
 #[cfg(test)]

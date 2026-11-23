@@ -5,6 +5,7 @@
 //! anything.
 
 use super::*;
+use crate::services::agent::merope::group::{bits, heard_later};
 use crate::services::runtime_registry::{RegistryIdentity, RegistryRow};
 use sea_orm::DbErr;
 
@@ -227,6 +228,7 @@ pub(super) async fn take_in_heard(
     owner: i32,
     venue: &str,
     stretch: Vec<(chrono::DateTime<chrono::FixedOffset>, String, String, bool)>,
+    speakers: Vec<(String, String)>,
 ) {
     #[cfg(test)]
     if g0::on() {
@@ -241,7 +243,82 @@ pub(super) async fn take_in_heard(
             }),
         );
     }
-    crate::services::agent::merope::group::bits::go_over_stretch(db, owner, venue, stretch).await;
+    let people = accounts(db, venue, speakers.clone()).await;
+    let heard = bits::go_over_stretch(db, owner, venue, stretch.clone(), people.as_deref(), None);
+    let Err(not_told) = heard.await else {
+        return;
+    };
+    let later = heard_later::later(db, owner, venue, stretch, speakers, not_told.read).await;
+    if let Err(error) = later {
+        tracing::warn!(%error, %venue, "[Group] a stretch not told of could not be kept for later");
+        heard_later::let_go();
+    }
+}
+
+/// A line of a group's stretch at hand: when, who, what, hers.
+type Said = (chrono::DateTime<chrono::FixedOffset>, String, String, bool);
+
+/// With less than this left of it, a stretch is not tried again: about as
+/// long as till it would be.
+const LAST_TRY: chrono::Duration = chrono::Duration::minutes(12);
+
+/// A stretch put by as it was read (`heard_later`), again. An `Err`: not told
+/// now either. Let go of, nothing of it kept, once it is too long ago or was
+/// asked of to no answer time after time (`gives_up`).
+pub(crate) async fn heard_again(
+    db: &DatabaseConnection,
+    owner: i32,
+    venue: &str,
+    stretch: &[Said],
+    speakers: &[(String, String)],
+    read: &bits::Read,
+    gives_up: bool,
+) -> Result<(), bits::NotTold> {
+    let heard = crate::clock::now().fixed_offset() - read.at;
+    if gives_up || heard > heard_later::HEARD_FOR - LAST_TRY {
+        heard_later::let_go();
+        tracing::warn!(%venue, "[Group] a stretch never told of is let go: nothing of it is kept");
+        return Ok(());
+    }
+    let people = accounts(db, venue, speakers.to_vec()).await;
+    bits::go_over_stretch(
+        db,
+        owner,
+        venue,
+        stretch.to_vec(),
+        people.as_deref(),
+        Some(read),
+    )
+    .await
+}
+
+/// Those of `speakers` (who, as the platform knows them, and their name
+/// there) she has an account of; `None` when that could not be read.
+async fn accounts(
+    db: &DatabaseConnection,
+    venue: &str,
+    speakers: Vec<(String, String)>,
+) -> Option<Vec<(i32, String)>> {
+    let platform = venue
+        .split_once(':')
+        .and_then(|(slug, _)| platform_of(slug));
+    let Some(platform) = platform.filter(|platform| *platform != ChannelPlatform::Qq) else {
+        return Some(Vec::new());
+    };
+    let mut people = Vec::new();
+    for (from, name) in speakers {
+        let who = crate::services::channel_pairing::lookup_openid(
+            db,
+            PairingChannel::of(platform),
+            &from,
+        )
+        .await
+        .ok()?;
+        if let PairingLookup::Paired { user_id } = who {
+            people.push((user_id, name));
+        }
+    }
+    Some(people)
 }
 
 /// Her speaking soul.

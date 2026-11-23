@@ -34,6 +34,7 @@ use myriad_merope::bits::{
 
 mod days;
 mod lands;
+mod not_kept;
 mod us;
 
 pub use days::*;
@@ -246,10 +247,15 @@ async fn review(
     let Ok(raw) = raw else {
         return (true, false, 0);
     };
-    let Some(changes) = parse(&raw) else {
+    let Some(mut changes) = parse(&raw) else {
         tracing::warn!("[Merope] a night's going over came back unreadable");
         return (true, true, 0);
     };
+    if let Circle::Person(user_id) = circle
+        && !not_kept::leave_out_of_a_day(db, *user_id, &mut changes).await
+    {
+        return (true, false, 0);
+    }
     match circle {
         Circle::Person(user_id) => {
             put_us(db, *user_id, &changes.us, now_us.as_ref()).await;

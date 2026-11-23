@@ -81,14 +81,67 @@ pub async fn adopt(
     keys: &[String],
     user_id: i32,
 ) {
+    // With something asked of her, they are held to it first, in their own
+    // time (no one who pairs waits on it).
+    let held = super::asked::anything(db, user_id).await;
     for key in keys {
-        let who = format!("{}:{}", platform.slug(), key);
-        match unified::adopt_unowned(db, SOURCE, &evidence_marker(&who), user_id, "chat").await {
-            Ok(0) => {}
-            Ok(taken) => tracing::info!(user_id, taken, "[Merope] notes from groups taken over"),
-            Err(error) => tracing::warn!(%error, "[Merope] could not take over notes from groups"),
+        let marker = evidence_marker(&format!("{}:{}", platform.slug(), key));
+        let taken = if held {
+            super::store::memory_jobs::enqueue(
+                db,
+                &super::memory_jobs::key(&["adopt", &user_id.to_string(), &marker]),
+                user_id,
+                super::memory_jobs::Payload::Adopt { marker },
+                None,
+            )
+            .await
+        } else {
+            take_over(db, user_id, &marker).await
+        };
+        if let Err(error) = taken {
+            tracing::warn!(%error, "[Merope] could not take over notes from groups");
         }
     }
+}
+
+async fn take_over(db: &DatabaseConnection, user_id: i32, marker: &str) -> anyhow::Result<()> {
+    let taken = unified::adopt_unowned(db, SOURCE, marker, user_id, "chat").await?;
+    if taken > 0 {
+        tracing::info!(user_id, taken, "[Merope] notes from groups taken over");
+    }
+    Ok(())
+}
+
+/// What she noted in groups of `user_id`, whom she knows now (`marker`),
+/// theirs ([`adopt`]): not what they asked her not to keep. An `Err`: not all
+/// of it could be told now, and none of it is theirs yet; with `gives_up`,
+/// it stays as it is.
+pub(super) async fn adopt_held(
+    db: &DatabaseConnection,
+    user_id: i32,
+    marker: &str,
+    until: std::time::Instant,
+    gives_up: bool,
+) -> Result<(), super::memory_jobs::Failure> {
+    use super::memory_jobs::Failure;
+    let storage = |_| Failure::Storage;
+    let notes = unified::unowned_about(db, SOURCE, marker)
+        .await
+        .map_err(storage)?;
+    let texts: Vec<String> = notes.iter().map(|note| note.content.clone()).collect();
+    let told = super::asked::told_of(db, user_id, None, &texts, until).await;
+    for index in &told.out {
+        let note = &notes[*index];
+        unified::retire_unowned_in_favor_of(db, &note.venue, &note.id, "retracted", None)
+            .await
+            .map_err(storage)?;
+    }
+    if !told.untold.is_empty() {
+        return told.let_be(gives_up);
+    }
+    take_over(db, user_id, marker)
+        .await
+        .map_err(|_| Failure::Storage)
 }
 
 /// The stored venue of a group (`telegram:-100123` → `group:telegram:-100123`).
@@ -409,5 +462,112 @@ mod tests {
         .unwrap();
         assert!(in_private.is_empty());
         isolated.drop().await;
+    }
+
+    /// A note on someone met in a group, theirs once they pair: not one saying
+    /// what they asked not to keep, and none of them while that is not told.
+    #[tokio::test]
+    async fn what_was_noted_of_them_before_is_held_to_it_when_it_becomes_theirs() {
+        use crate::services::agent::merope::asked::tests::asks;
+        use crate::services::channel_group::g0;
+        use crate::services::channel_platform::ChannelPlatform;
+        use sea_orm::ConnectionTrait;
+        const THEM: i32 = 7;
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
+            return;
+        };
+        let schema = crate::db::IsolatedSchema::migrated(&url, "stranger_asked").await;
+        let db = &schema.db;
+        db.execute_unprepared("INSERT INTO users (id, username) VALUES (7, 'seven')")
+            .await
+            .unwrap();
+        asks(db, THEM, "不要记和房东吵架的事").await;
+        for (group, note) in [("group:qq:42", "跟房东闹过"), ("group:qq:43", "在学做面包")]
+        {
+            unified::remember_in_venue(
+                db,
+                group,
+                note,
+                r#"{"who":"onebot:111","name":"某人"}"#,
+                SOURCE,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        }
+        let theirs = async || {
+            let mut kept: Vec<String> = unified::active_in(
+                db,
+                THEM,
+                &unified::Audience::group("qq:42", THEM),
+                &[unified::MemoryKind::Fact],
+            )
+            .await
+            .unwrap()
+            .into_iter()
+            .chain(
+                unified::active_in(
+                    db,
+                    THEM,
+                    &unified::Audience::group("qq:43", THEM),
+                    &[unified::MemoryKind::Fact],
+                )
+                .await
+                .unwrap(),
+            )
+            .map(|row| row.content)
+            .collect();
+            kept.sort();
+            kept
+        };
+        // Paired: theirs only once they are held to it, however long that
+        // takes; no one waits on it.
+        adopt(db, ChannelPlatform::OneBot, &["111".to_string()], THEM).await;
+        assert!(theirs().await.is_empty());
+        let becomes = async |answers: &[&str]| {
+            let mut world = g0::World::new(0.5);
+            world.models.insert(
+                "not_to_keep".into(),
+                answers.iter().map(|one| Some(one.to_string())).collect(),
+            );
+            g0::enter(world);
+            crate::services::agent::merope::memory_jobs::tick(db.clone()).await;
+            g0::leave();
+            db.execute_unprepared(
+                "UPDATE runtime_registry SET payload = \
+                   jsonb_set(jsonb_set(payload, '{ready}', '0'), '{lease}', '0') \
+                 WHERE namespace = 'merope_asked_jobs'",
+            )
+            .await
+            .unwrap();
+        };
+        // However it fails: none is theirs, none is let go, and it is tried
+        // again.
+        for answers in [
+            &[][..],
+            &["!rejected"],
+            &["!quota"],
+            &["!rateLimited"],
+            &["嗯"; 9],
+            &["!refused"; 3],
+        ] {
+            becomes(answers).await;
+            assert!(theirs().await.is_empty(), "{answers:?}");
+            let notes = unified::unowned_about(db, SOURCE, "onebot:111")
+                .await
+                .unwrap();
+            assert_eq!(notes.len(), 2, "{answers:?}");
+        }
+        // Which comes first is the database's: found by what each says.
+        let notes = unified::unowned_about(db, SOURCE, "onebot:111")
+            .await
+            .unwrap();
+        let about = notes
+            .iter()
+            .position(|note| note.content == "跟房东闹过")
+            .unwrap();
+        becomes(&[&format!(r#"{{"drop":[{about}]}}"#)]).await;
+        assert_eq!(theirs().await, ["在学做面包"]);
+        schema.drop().await;
     }
 }

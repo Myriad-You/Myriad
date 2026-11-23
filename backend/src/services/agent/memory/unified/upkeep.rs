@@ -13,8 +13,10 @@ pub async fn without_concepts<C: ConnectionTrait>(
         .filter(agent_memories::Column::UserId.eq(user_id))
         .filter(agent_memories::Column::InvalidAt.is_null())
         .filter(sea_orm::sea_query::Expr::cust("concepts = '[]'::jsonb"))
-        // Kept apart, never recalled by association: written without concepts.
+        // Kept apart, never recalled by association: written without concepts;
+        // nor is what they asked her not to keep.
         .filter(agent_memories::Column::Source.is_not_in(KEPT_APART))
+        .filter(agent_memories::Column::Source.ne(ASKED_SOURCE))
         .order_by_asc(agent_memories::Column::CreatedAt)
         .limit(limit)
         .all(db)
@@ -37,6 +39,7 @@ pub async fn people_without_concepts<C: ConnectionTrait>(
         .filter(agent_memories::Column::InvalidAt.is_null())
         .filter(sea_orm::sea_query::Expr::cust("concepts = '[]'::jsonb"))
         .filter(agent_memories::Column::Source.is_not_in(KEPT_APART))
+        .filter(agent_memories::Column::Source.ne(ASKED_SOURCE))
         .limit(limit)
         .into_tuple()
         .all(db)

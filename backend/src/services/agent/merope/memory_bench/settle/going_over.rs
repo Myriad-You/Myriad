@@ -27,6 +27,18 @@ pub(in super::super) async fn go_over(
     let mut as_rows: Vec<(chrono::DateTime<chrono::FixedOffset>, Vec<String>)> = Vec::new();
     for (session_at, turns, present) in sessions {
         let (session_at, present) = (*session_at, present);
+        // A private talk is gone over from what was said, as production
+        // goes over it now: no notes to keep or let fade.
+        if on_nodes(present) {
+            let raw = Box::pin(super::raw::session(
+                db, user_id, present, session_at, turns, trail,
+            ))
+            .await;
+            *kept += raw.written;
+            answering.extend(raw.answering);
+            trail.close(db, user_id, present).await;
+            continue;
+        }
         // Notes of a session long enough before this one have faded
         // (the bench's stand-in for fading, as when they ask).
         let (faded, fresh): (Vec<_>, Vec<_>) = std::mem::take(&mut as_rows)
@@ -91,6 +103,8 @@ pub(in super::super) async fn go_over(
                 put_onto: updates.put_onto.clone(),
                 said_new: super::super::super::chat_remember::SaidNew::Nothing,
                 taken_back_in: Default::default(),
+                said_from: Default::default(),
+                asked: Default::default(),
             };
             if (!hers.said.is_empty() || !hers.put_onto.is_empty())
                 && apply_at(db, user_id, present, at, &hers).await.is_some()
@@ -201,6 +215,8 @@ pub(in super::super) async fn go_over(
                     put_onto: Vec::new(),
                     said_new: updates.said_new,
                     taken_back_in: Default::default(),
+                    said_from: Default::default(),
+                    asked: Default::default(),
                 };
                 if !facts.updates.is_empty()
                     && apply_at(db, user_id, present, at, &facts).await.is_some()

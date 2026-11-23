@@ -41,6 +41,9 @@ pub struct AiAnalyzer {
     /// The output limit a request names when its call names none, on every
     /// protocol; see [`AiAnalyzer::with_output_limit`].
     pub(super) output_limit: Option<u32>,
+    /// The part of its system prompt the provider caches; see
+    /// [`AiAnalyzer::with_cached_system`].
+    pub(super) cached_system: Option<super::CachedSystem>,
 }
 
 /// The output limit of a deep-thinking ask that names none: the answer is
@@ -416,6 +419,7 @@ impl AiAnalyzer {
             deep_thinking: false,
             output_cap: None,
             output_limit: None,
+            cached_system: None,
         }
     }
 
@@ -438,6 +442,15 @@ impl AiAnalyzer {
     /// for the whole limit.
     pub fn with_output_limit(mut self, tokens: u32) -> Self {
         self.output_limit = Some(tokens);
+        self
+    }
+
+    /// For a kind of call made again and again with the same instructions
+    /// first (the memory writing steps): that part of its system prompt
+    /// marked for the provider to cache, where the provider takes the mark
+    /// (`cached_system`). What the model reads is the same.
+    pub fn with_cached_system(mut self, cached: super::CachedSystem) -> Self {
+        self.cached_system = Some(cached);
         self
     }
 
@@ -497,6 +510,15 @@ impl AiAnalyzer {
             && let Some(object) = body.as_object_mut()
         {
             object.insert("max_tokens".into(), serde_json::json!(cap));
+        }
+        if let Some(cached) = self.cached_system {
+            super::cached_system::apply(
+                &mut body,
+                self.provider,
+                self.base_url.as_deref(),
+                &self.model,
+                cached,
+            );
         }
         // A memory bench keeps what OpenRouter says each call cost.
         #[cfg(test)]
@@ -1190,6 +1212,17 @@ impl AiAnalyzer {
             }
 
             if matches!(mode, JsonMode::Structured(_)) && not_taken(&result) {
+                #[cfg(test)]
+                if let Err(failure) = &result {
+                    eprintln!(
+                        "structured output refused, ${:.4} charged by then: {}",
+                        crate::services::ai_cost_ledger::spent::charged_so_far(),
+                        super::refusal_said::said(
+                            &failure.error.to_string(),
+                            &[system, prompt, &self.api_key],
+                        ),
+                    );
+                }
                 let status = result.as_ref().err().and_then(|failure| failure.status);
                 tracing::warn!(
                     provider = self.provider.as_str(),

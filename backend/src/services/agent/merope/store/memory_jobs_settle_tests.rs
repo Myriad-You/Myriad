@@ -8,7 +8,7 @@ use crate::services::agent::memory::unified;
 #[path = "memory_jobs_passes_tests.rs"]
 mod passes;
 #[path = "memory_jobs_unread_tests.rs"]
-mod unread;
+pub(super) mod unread;
 
 async fn note(db: &DatabaseConnection, text: &str, source: &'static str) {
     unified::remember(
@@ -71,10 +71,11 @@ async fn stretch_from(
         present: Audience::private(7),
         from: at,
         last: at,
+        heard: Vec::new(),
     };
     enqueue(db, id, 7, payload, None).await.unwrap();
     due(db, id).await;
-    claim(db).await.unwrap().expect("a stretch over")
+    claim_of(db, id).await.expect("a stretch over")
 }
 
 fn settled(updates: Vec<ChatMemoryUpdate>, settled: Vec<Vec<String>>) -> Effect {
@@ -85,6 +86,8 @@ fn settled(updates: Vec<ChatMemoryUpdate>, settled: Vec<Vec<String>>) -> Effect 
             put_onto: vec![],
             said_new: Default::default(),
             taken_back_in: Default::default(),
+            said_from: Default::default(),
+            asked: Default::default(),
         },
         settled,
         rest: None,
@@ -131,7 +134,7 @@ fn holds(text: &str) -> Option<(String, String)> {
 
 /// Each way a note can go once its stretch is gone over: put together into
 /// a fact, kept word for word, passed over and kept as it is, left to the
-/// moment, already known, kept in a fact that could not be written, and a
+/// moment, already known, kept in a fact whose target is gone, and a
 /// stretch that failed on the way and was gone over again.
 #[tokio::test]
 async fn every_note_has_somewhere_to_go_once_its_stretch_is_gone_over() {
@@ -171,7 +174,7 @@ async fn every_note_has_somewhere_to_go_once_its_stretch_is_gone_over() {
             lasting("喜欢喝乌龙茶", &[]),
             // Already known for good, in those words.
             lasting("在学日语", &[]),
-            // What it changes is already gone: nothing is written.
+            // What it changes is already gone: kept all the same.
             lasting("搬到了新加坡", &["住在马来西亚"]),
         ],
         ids,
@@ -182,7 +185,7 @@ async fn every_note_has_somewhere_to_go_once_its_stretch_is_gone_over() {
         Went::from([
             ("今天有点累".to_string(), None),
             ("下周去大阪出差".to_string(), holds("下周去大阪出差")),
-            ("住在新加坡".to_string(), None),
+            ("住在新加坡".to_string(), holds("搬到了新加坡")),
             ("在学日语。".to_string(), holds("在学日语")),
             ("养了一只猫叫年糕".to_string(), holds("家里有只橘猫叫年糕")),
             ("喜欢喝乌龙茶".to_string(), holds("喜欢喝乌龙茶")),

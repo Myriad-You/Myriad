@@ -226,7 +226,7 @@ async fn left_for_her(db: &DatabaseConnection, user_id: i32, req: &ProcessReques
     .await
     {
         Ok(session) => {
-            crate::services::agent::sessions::persist_user_message_from(
+            crate::services::agent::sessions::persist_user_message_left_for_her(
                 db, &session, &req.input, "web",
             )
             .await

@@ -161,6 +161,15 @@ async fn wonder_and_find_out(
     else {
         return;
     };
+    // Nothing to look up of what they asked her not to keep: what it turned
+    // up would be kept.
+    let about = format!("{query} {}", wonder.why.as_deref().unwrap_or_default());
+    if super::asked::to_keep(&db, user_id, vec![about], String::clone)
+        .await
+        .is_none_or(|about| about.is_empty())
+    {
+        return;
+    }
     // Re-read grants after the model wait and claim against the current day.
     if !super::is_enabled().await
         || !crate::services::agent::get_user_permissions(&db, user_id)

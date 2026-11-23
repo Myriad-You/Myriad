@@ -25,13 +25,18 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::Value;
 
 use super::{Error, forget, heads::KeptRow};
+use crate::services::agent::merope::chat_lines;
 
-/// Every memory `value` names (`memory:<id>`), wherever in it.
+/// What a line of theirs is named by.
+const LINE_REF: &str = "message:";
+
+/// Every memory and every line `value` names (`memory:<id>`,
+/// `message:<id>`), wherever in it.
 fn named_in(value: &Value, into: &mut BTreeSet<String>) {
     match value {
         Value::String(text) => {
-            if let Some(id) = text.strip_prefix(MEMORY_REF) {
-                into.insert(id.to_string());
+            if text.starts_with(MEMORY_REF) || text.starts_with(LINE_REF) {
+                into.insert(text.clone());
             }
         }
         Value::Array(items) => items.iter().for_each(|item| named_in(item, into)),
@@ -40,15 +45,44 @@ fn named_in(value: &Value, into: &mut BTreeSet<String>) {
     }
 }
 
-/// Of the memories `ids`, those here that they took back (or deleted), as
-/// references (`memory:<id>`). One held is never taken back: only those
+/// Of the memories and the lines of `user_id`'s that `refs` name, those that
+/// they took back (or deleted), and the lines that went with those
+/// (`chat_lines`), as references. A memory held is never taken back: only those
 /// let go are read for it, so a node naming none costs one look. One not
 /// here (not come yet from another end, or forgotten there) is not hidden
 /// here: [`super::shown`] keeps it unsaid, and forgetting reaches it once
 /// its mark comes, as before the second look.
 async fn taken_back<C: ConnectionTrait>(
     db: &C,
-    ids: BTreeSet<String>,
+    user_id: i32,
+    refs: BTreeSet<String>,
+) -> Result<BTreeSet<String>, Error> {
+    let lines: Vec<String> = refs
+        .iter()
+        .filter(|reference| reference.starts_with(LINE_REF))
+        .cloned()
+        .collect();
+    let mut gone = BTreeSet::new();
+    if !lines.is_empty() {
+        let went = chat_lines::taken_back_with(db, user_id, |_| true).await?;
+        gone.extend(lines.into_iter().filter(|line| {
+            line.strip_prefix(LINE_REF)
+                .and_then(|id| id.parse().ok())
+                .is_some_and(|id: i32| went.contains(&id))
+        }));
+    }
+    let ids: Vec<String> = refs
+        .iter()
+        .filter_map(|reference| reference.strip_prefix(MEMORY_REF))
+        .map(str::to_string)
+        .collect();
+    gone.extend(memories_taken_back(db, ids).await?);
+    Ok(gone)
+}
+
+async fn memories_taken_back<C: ConnectionTrait>(
+    db: &C,
+    ids: Vec<String>,
 ) -> Result<BTreeSet<String>, Error> {
     if ids.is_empty() {
         return Ok(BTreeSet::new());
@@ -58,7 +92,7 @@ async fn taken_back<C: ConnectionTrait>(
             DatabaseBackend::Postgres,
             "SELECT m.id FROM agent_memories m \
              WHERE m.id = ANY($1::text[]) AND m.invalid_at IS NOT NULL",
-            [ids.into_iter().collect::<Vec<_>>().into()],
+            [ids.into()],
         ))
         .await?
         .iter()
@@ -75,18 +109,25 @@ async fn taken_back<C: ConnectionTrait>(
         .collect())
 }
 
-/// The memories `kept` rests on that they took back, as references.
+/// What `kept` (`user_id`'s) rests on that they took back, as references
+/// ([`taken_back`]).
 pub(super) async fn gone_in<C: ConnectionTrait>(
     db: &C,
+    user_id: i32,
     kept: &[KeptRow],
 ) -> Result<BTreeSet<String>, Error> {
+    taken_back(db, user_id, names_in(kept)).await
+}
+
+/// Every memory and line `kept` names.
+fn names_in(kept: &[KeptRow]) -> BTreeSet<String> {
     let mut ids = BTreeSet::new();
     for body in kept.iter().filter_map(|kept| kept.body.as_deref()) {
         if let Ok(body) = serde_json::from_str::<Value>(body) {
             named_in(&body, &mut ids);
         }
     }
-    taken_back(db, ids).await
+    ids
 }
 
 /// The references a row of `kind` rests on: an entry's or a span's
@@ -110,7 +151,7 @@ fn rests_on(kind: &str, body: &Value) -> Vec<String> {
     }
 }
 
-/// The rows of `kept` that go with `gone` (memory references), as
+/// The rows of `kept` that go with `gone` (references), as
 /// [`super::forget`] would forget them: entries, spans and versions citing
 /// one, and every version resting on those or written on them; her
 /// intents resting on one.
@@ -128,10 +169,14 @@ fn going(kept: &[KeptRow], gone: &BTreeSet<String>) -> BTreeSet<String> {
         else {
             continue;
         };
-        if rests_on(&row.row.kind, &body)
-            .iter()
-            .any(|reference| gone.contains(reference))
-        {
+        // With a line that went, only what was made of the line itself
+        // ([`forget::OF_A_LINE`]): not a fact or an intent, which may be of
+        // the other thing it said.
+        if rests_on(&row.row.kind, &body).iter().any(|reference| {
+            gone.contains(reference)
+                && (reference.starts_with(MEMORY_REF)
+                    || forget::OF_A_LINE.contains(&row.row.kind.as_str()))
+        }) {
             if row.row.kind == "node.intent" {
                 intents.insert(row.row.id.clone());
             } else {
@@ -147,8 +192,7 @@ fn going(kept: &[KeptRow], gone: &BTreeSet<String>) -> BTreeSet<String> {
     doomed
 }
 
-/// `kept` as it reads with what rests on `gone` (memory references)
-/// forgotten: each row that would go ([`going`]) a stub, as forgetting
+/// `kept` as it reads with what rests on `gone` (references) forgotten: each row that would go ([`going`]) a stub, as forgetting
 /// makes it, and nothing written.
 pub(super) fn hide(kept: Vec<KeptRow>, gone: &BTreeSet<String>) -> Vec<KeptRow> {
     let doomed = going(&kept, gone);
@@ -173,15 +217,52 @@ fn stubbed(kept: Vec<KeptRow>, doomed: &BTreeSet<String>) -> Vec<KeptRow> {
         .collect()
 }
 
+/// Of `refs`, the lines of a stretch of `user_id`'s private talk still to be
+/// judged by what they asked her not to keep (`asked::lines`): not read here
+/// until it is.
+async fn not_judged<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    refs: &BTreeSet<String>,
+) -> Result<BTreeSet<String>, Error> {
+    let waiting =
+        crate::services::agent::merope::asked::lines::waiting(db, Some(user_id), None).await?;
+    let ids: Vec<i32> = refs
+        .iter()
+        .filter_map(|reference| reference.strip_prefix(LINE_REF)?.parse().ok())
+        .collect();
+    if waiting.is_empty() || ids.is_empty() {
+        return Ok(BTreeSet::new());
+    }
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT id, created_at FROM agent_messages WHERE id = ANY($1)",
+            [ids.into()],
+        ))
+        .await?;
+    let mut lines = BTreeSet::new();
+    for row in &rows {
+        let at = row.try_get("", "created_at")?;
+        if waiting.iter().any(|stretch| stretch.holds(user_id, at)) {
+            lines.insert(format!("{LINE_REF}{}", row.try_get::<i32>("", "id")?));
+        }
+    }
+    Ok(lines)
+}
+
 /// Every row of `user_id`'s `audience`, with what rests on a memory they
-/// took back hidden ([`hide`]): her rows as they are read for her.
+/// took back hidden ([`hide`]), or on lines not judged yet ([`not_judged`]):
+/// her rows as they are read for her.
 pub(crate) async fn rows_of<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
     audience: &str,
 ) -> Result<Vec<KeptRow>, Error> {
     let kept = super::heads::rows_of(db, user_id, audience).await?;
-    let gone = gone_in(db, &kept).await?;
+    let refs = names_in(&kept);
+    let mut gone = taken_back(db, user_id, refs.clone()).await?;
+    gone.extend(not_judged(db, user_id, &refs).await?);
     Ok(hide(kept, &gone))
 }
 
@@ -193,7 +274,7 @@ pub(crate) async fn going_of<C: ConnectionTrait>(
     audience: &str,
 ) -> Result<BTreeSet<String>, Error> {
     let kept = super::heads::rows_of(db, user_id, audience).await?;
-    let gone = gone_in(db, &kept).await?;
+    let gone = gone_in(db, user_id, &kept).await?;
     Ok(going(&kept, &gone))
 }
 
@@ -242,7 +323,7 @@ fn mark_written(user_id: i32, audience: &str, hidden: bool) {
 
 /// `folded` (`user_id`'s `audience`) as it reads with what rests on a
 /// memory they took back hidden: folded again from the rows hidden, and a
-/// topic of hers that held what goes and holds no entry now gone, as
+/// topic of hers that held what goes and holds nothing now gone, as
 /// forgetting leaves it ([`super::forget`]). None when nothing it names was
 /// taken back: it stands as it is. `writing` when the heads are written
 /// with it ([`super::heads::refresh`]): kept as how they were last written.
@@ -259,7 +340,7 @@ pub(super) async fn folded<C: ConnectionTrait>(
             .map_err(|_| Error::Refused("a folded node does not serialize".into()))?;
         named_in(&value, &mut ids);
     }
-    let gone = taken_back(db, ids).await?;
+    let gone = taken_back(db, user_id, ids).await?;
     if gone.is_empty() {
         if writing {
             mark_written(user_id, audience, false);
@@ -308,15 +389,17 @@ pub(super) async fn rewrite<C: ConnectionTrait>(
 }
 
 /// The accounts and audiences with a row of her nodes resting on any of
-/// `memories`: an entry or span naming one, a version or an intent resting
-/// on one.
+/// `memories`, or of the lines `lines` that went with them: an entry or span
+/// naming one, a version or an intent resting on one.
 pub(super) async fn citing<C: ConnectionTrait>(
     db: &C,
     memories: &[String],
+    lines: &HashSet<i32>,
 ) -> Result<Vec<(i32, String)>, Error> {
     let refs: Vec<String> = memories
         .iter()
         .map(|id| format!("{MEMORY_REF}{id}"))
+        .chain(lines.iter().map(|id| format!("{LINE_REF}{id}")))
         .collect();
     if refs.is_empty() {
         return Ok(Vec::new());
@@ -357,7 +440,7 @@ pub(crate) async fn inbox_waiting<C: ConnectionTrait>(
     loop {
         let page = super::inbox::waiting_from(db, user_id, audience, limit, skipped).await?;
         let read = page.len() as u64;
-        shown.extend(inbox(db, page).await?);
+        shown.extend(inbox(db, user_id, page).await?);
         if shown.len() as u64 >= limit || read < limit {
             break;
         }
@@ -367,18 +450,21 @@ pub(crate) async fn inbox_waiting<C: ConnectionTrait>(
     Ok(shown)
 }
 
-/// Of the inbox items `items`, those resting on no memory they took back.
+/// Of the inbox items `items` (`user_id`'s), those resting on nothing they
+/// took back, nor on lines not judged yet ([`not_judged`]).
 pub(crate) async fn inbox<C: ConnectionTrait>(
     db: &C,
+    user_id: i32,
     items: Vec<super::inbox::Item>,
 ) -> Result<Vec<super::inbox::Item>, Error> {
     let ids: BTreeSet<String> = items
         .iter()
         .flat_map(|item| item.refs.iter())
-        .filter_map(|reference| reference.strip_prefix(MEMORY_REF))
-        .map(str::to_string)
+        .filter(|reference| reference.starts_with(MEMORY_REF) || reference.starts_with(LINE_REF))
+        .cloned()
         .collect();
-    let gone = taken_back(db, ids).await?;
+    let mut gone = taken_back(db, user_id, ids.clone()).await?;
+    gone.extend(not_judged(db, user_id, &ids).await?);
     Ok(items
         .into_iter()
         .filter(|item| !item.refs.iter().any(|reference| gone.contains(reference)))

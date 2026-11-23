@@ -24,7 +24,18 @@ async fn note_turn(
     let noted = crate::services::ai_cost_ledger::spent::tried_as_production_tries(
         MAX_ATTEMPTS,
         |tried| std::time::Duration::from_secs(again_in(tried).unsigned_abs()),
-        || super::super::chat_remember::extract(db, user_id, text, reply, at, present, &turn),
+        || {
+            super::super::chat_remember::extract(
+                db,
+                user_id,
+                text,
+                reply,
+                at,
+                present,
+                &turn,
+                super::super::chat_remember::Tried::Again,
+            )
+        },
         |noted| noted.as_ref().is_err_and(|failure| failure.retryable()),
     )
     .await;
@@ -224,7 +235,8 @@ async fn settle_pass(
         super::super::chat_remember::settle::SETTLE_TIMEOUT,
     ))
     .await
-    .map(super::super::call::keeping);
+    .map(super::super::call::keeping)
+    .map(|keeping| keeping.with_cached_system(super::super::call::SETTLE_CACHE));
     let model = keeping.as_ref().unwrap_or(judge);
     let (known, theirs, input, offered) = (&known, &theirs, &input, &offered);
     let read = crate::services::ai_cost_ledger::spent::tried_as_production_tries(
@@ -441,6 +453,20 @@ pub(super) async fn over_time(
     session_at: chrono::DateTime<chrono::FixedOffset>,
     turns: &[Turn],
 ) -> (Vec<String>, Vec<(String, String)>, Vec<String>) {
+    // A private talk is gone over from what was said, as production goes
+    // over it now: no short notes.
+    if on_nodes(present) {
+        let raw = Box::pin(raw::session(
+            db,
+            user_id,
+            present,
+            session_at,
+            turns,
+            &mut super::note_trail::Trail::off(),
+        ))
+        .await;
+        return (Vec::new(), raw.lasting, Vec::new());
+    }
     let mut notes: Vec<super::super::chat_remember::ChatMemoryUpdate> = Vec::new();
     let mut noted_at = Vec::new();
     for (index, turn) in turns.iter().enumerate() {
@@ -476,6 +502,8 @@ pub(super) async fn over_time(
             put_onto: updates.put_onto,
             said_new: super::super::chat_remember::SaidNew::Nothing,
             taken_back_in: Default::default(),
+            said_from: Default::default(),
+            asked: Default::default(),
         };
         if !hers.said.is_empty() || !hers.put_onto.is_empty() {
             apply_at(db, user_id, present, at, &hers).await;
@@ -508,6 +536,7 @@ const SETTLE_KNOWN: usize = 40;
 
 mod going_over;
 pub(super) use going_over::go_over;
+mod raw;
 
 #[cfg(test)]
 mod tests {

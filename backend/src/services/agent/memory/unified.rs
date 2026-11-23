@@ -15,13 +15,14 @@
 
 use myriad_agent_rules::memory::audience as rules;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait,
-    ExprTrait, QueryFilter, QueryOrder, QuerySelect,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend, DbErr,
+    EntityTrait, ExprTrait, QueryFilter, QueryOrder, QuerySelect, Statement,
 };
 use serde_json::json;
 
 use crate::models::entities::agent_memories;
 
+mod asked;
 mod cues;
 mod evidence;
 mod lookup;
@@ -31,6 +32,7 @@ mod said_of_herself;
 mod upkeep;
 mod venue;
 
+pub use asked::*;
 pub use cues::{cues_of, keep_cues, without_cues};
 pub use evidence::*;
 pub use lookup::*;
@@ -365,11 +367,21 @@ pub const SHORT_NOTE_SOURCE: &str = "chat_note";
 /// never fades it: that end decides, as it wrote it.
 pub const SYNC_SOURCE: &str = "sync";
 
+/// What someone asked her not to keep from now on ("don't keep anything
+/// about my ex"): a fact of theirs like any other, except that it never
+/// fades, and that she is always shown it when she keeps something of them
+/// ([`asked_not_to_keep`]).
+pub const ASKED_SOURCE: &str = "asked";
+
 /// Where a Work lesson or pattern the extraction drew from one run is kept
 /// until it holds: recalled by Work alone, until a run it was shown in is
 /// done or the admin confirms it, and then kept under `work` (see
 /// `work_memory`).
 pub const WORK_TRIED_SOURCE: &str = "work_tried";
+
+/// Who hears what only holds back (`ASKED_SOURCE`): no account, so a build
+/// that does not know its source says nothing from it either.
+pub(crate) const NO_ONE: i32 = 0;
 
 /// Whether a row is a short note that has faded: it no longer comes to mind.
 pub(crate) fn faded_note(
@@ -464,7 +476,10 @@ async fn active_rows<C: ConnectionTrait>(
 ) -> Result<Vec<agent_memories::Model>, DbErr> {
     let mut query = agent_memories::Entity::find()
         .filter(agent_memories::Column::UserId.eq(user_id))
-        .filter(agent_memories::Column::InvalidAt.is_null());
+        .filter(agent_memories::Column::InvalidAt.is_null())
+        // What they asked her not to keep is read only where it holds back
+        // what is kept (`asked_not_to_keep`), never to say anything from.
+        .filter(agent_memories::Column::Source.ne(ASKED_SOURCE));
     if !kinds.is_empty() {
         query = query
             .filter(agent_memories::Column::Kind.is_in(kinds.iter().map(|kind| kind.as_str())));
@@ -633,6 +648,22 @@ async fn insert_new<C: ConnectionTrait>(
     Ok(id)
 }
 
+/// The memory `id`, written now, quotes lines the first of which was said at
+/// `at`: its words are looked for from then (`origins`).
+pub async fn said_first_at<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+    at: chrono::DateTime<chrono::FixedOffset>,
+) -> Result<(), DbErr> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_memories SET valid_from = LEAST(valid_from, $2) WHERE id = $1",
+        [id.into(), at.into()],
+    ))
+    .await?;
+    Ok(())
+}
+
 /// A person's active memories of `kinds` (all when empty), newest first,
 /// without counting them as used.
 pub async fn active<C: ConnectionTrait>(
@@ -727,6 +758,7 @@ async fn fade_excess<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<(), DbE
     let mut rows = agent_memories::Entity::find()
         .filter(agent_memories::Column::UserId.eq(user_id))
         .filter(agent_memories::Column::Origin.eq(ORIGIN_SITE))
+        .filter(agent_memories::Column::Source.ne(ASKED_SOURCE))
         .filter(agent_memories::Column::InvalidAt.is_null())
         .all(db)
         .await?;

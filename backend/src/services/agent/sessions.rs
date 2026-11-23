@@ -169,14 +169,56 @@ pub(crate) async fn persist_user_message_from(
     content: &str,
     place: &str,
 ) -> Result<(), String> {
+    persist_user_message_as(db, session_id, content, place, None).await
+}
+
+/// [`persist_user_message_from`], of a line her mind on another device
+/// hears: noted as that, so what is kept of it is kept there alone
+/// (`merope::chat_remember::settle_raw` reads it as context only).
+pub(crate) async fn persist_user_message_left_for_her(
+    db: &DatabaseConnection,
+    session_id: &str,
+    content: &str,
+    place: &str,
+) -> Result<(), String> {
+    let left = serde_json::json!({ "leftForHer": true });
+    persist_user_message_as(db, session_id, content, place, Some(left)).await
+}
+
+/// `metadata`, with whether she was there as the line was said: with her
+/// switch off, or she on another of her ends, it was said to no one of hers,
+/// and nothing of it is kept as hers (`merope::chat_remember::settle_raw`
+/// reads it as context only).
+async fn with_her_or_not(metadata: Option<Value>) -> Option<Value> {
+    if crate::services::agent::merope::is_enabled().await {
+        return metadata;
+    }
+    match metadata {
+        None => Some(json!({ "withoutHer": true })),
+        Some(Value::Object(mut metadata)) => {
+            metadata.insert("withoutHer".into(), true.into());
+            Some(Value::Object(metadata))
+        }
+        other => other,
+    }
+}
+
+async fn persist_user_message_as(
+    db: &DatabaseConnection,
+    session_id: &str,
+    content: &str,
+    place: &str,
+    metadata: Option<Value>,
+) -> Result<(), String> {
     let now = crate::clock::now().fixed_offset();
+    let metadata = with_her_or_not(metadata).await;
     let msg = agent_messages::ActiveModel {
         id: sea_orm::ActiveValue::NotSet,
         session_id: Set(session_id.to_string()),
         task_id: Set(None),
         role: Set("user".to_string()),
         content: Set(content.to_string()),
-        metadata: Set(None),
+        metadata: Set(metadata),
         created_at: Set(now),
         origin: Set(None),
         log_row: Set(None),
@@ -306,6 +348,7 @@ async fn persist_message_at(
     at: sea_orm::prelude::DateTimeWithTimeZone,
 ) -> Result<i32, String> {
     let now = crate::clock::now().fixed_offset();
+    let metadata = with_her_or_not(metadata).await;
     let cited_metadata = metadata.clone();
     let msg = agent_messages::ActiveModel {
         id: sea_orm::ActiveValue::NotSet,

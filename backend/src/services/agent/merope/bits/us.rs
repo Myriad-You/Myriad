@@ -77,6 +77,7 @@ fn us_of(row: crate::models::entities::agent_memories::Model) -> Us {
         .unwrap_or_default();
     let before = evidence
         .get("before")
+        .filter(|_| !is_withheld(&evidence, "before"))
         .and_then(Value::as_str)
         .map(str::to_string);
     Us {
@@ -91,18 +92,86 @@ fn us_of(row: crate::models::entities::agent_memories::Model) -> Us {
 /// replaces: that one as before, and where it all started, which the one
 /// it replaces carries, or was.
 pub(super) fn us_evidence_after(was: &crate::models::entities::agent_memories::Model) -> Value {
-    let first = was
+    let evidence: Value = was
         .evidence
         .as_deref()
-        .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
-        .and_then(|evidence| evidence.get("first").cloned())
+        .and_then(|evidence| serde_json::from_str(evidence).ok())
+        .unwrap_or_default();
+    let first = evidence
+        .get("first")
+        .cloned()
         .unwrap_or_else(|| json!({ "us": was.content, "at": was.created_at.to_rfc3339() }));
-    json!({ "before": was.content, "first": first })
+    let mut after = json!({ "before": was.content, "first": first });
+    if is_withheld(&evidence, "first") {
+        after[WITHHELD] = json!(["first"]);
+    }
+    after
+}
+
+/// Of what a version keeps of those before, the keys she is not shown any
+/// more: they asked her not to keep it ([`withhold_us_before`]). Still kept,
+/// so it can come back.
+const WITHHELD: &str = "withheld";
+
+fn is_withheld(evidence: &Value, key: &str) -> bool {
+    evidence
+        .get(WITHHELD)
+        .and_then(Value::as_array)
+        .is_some_and(|keys| keys.iter().any(|one| one == key))
+}
+
+/// What `row` says she made of them before, the last time and at first, each
+/// with the keys it is kept under.
+pub(in crate::services::agent::merope) fn us_before(
+    row: &crate::models::entities::agent_memories::Model,
+) -> Vec<(Vec<&'static str>, String)> {
+    if row.source != super::US_SOURCE {
+        return Vec::new();
+    }
+    let us = us_of(row.clone());
+    let mut said: Vec<(Vec<&'static str>, String)> =
+        (us.before.into_iter().map(|before| (vec!["before"], before))).collect();
+    if let Some((first, _)) = us.first {
+        match said.iter_mut().find(|(_, before)| *before == first) {
+            Some((keys, _)) => keys.push("first"),
+            None => said.push((vec!["first"], first)),
+        }
+    }
+    said
+}
+
+/// Of `row`, what she made of them before under `keys` ([`us_before`]) is
+/// not shown her any more.
+pub(in crate::services::agent::merope) async fn withhold_us_before(
+    db: &DatabaseConnection,
+    row: &crate::models::entities::agent_memories::Model,
+    keys: &[&str],
+) -> Result<(), sea_orm::DbErr> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_memories \
+         SET evidence = jsonb_set(evidence::jsonb, ARRAY[$4], \
+               COALESCE(evidence::jsonb -> $4, '[]'::jsonb) || to_jsonb($5::text[]))::text, \
+             updated_at = $2 \
+         WHERE id = $1 AND source = $3",
+        [
+            row.id.clone().into(),
+            crate::clock::now().fixed_offset().into(),
+            super::US_SOURCE.into(),
+            WITHHELD.into(),
+            (keys.iter().map(|key| key.to_string()).collect::<Vec<_>>()).into(),
+        ],
+    ))
+    .await?;
+    Ok(())
 }
 
 /// How she first put what they are to her, kept with each later version.
 pub(super) fn first_of(evidence: &Value) -> Option<(String, DateTime<FixedOffset>)> {
-    let first = evidence.get("first")?;
+    let first = evidence
+        .get("first")
+        .filter(|_| !is_withheld(evidence, "first"))?;
     Some((
         first.get("us")?.as_str()?.to_string(),
         DateTime::parse_from_rfc3339(first.get("at")?.as_str()?).ok()?,

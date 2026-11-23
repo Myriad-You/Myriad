@@ -8,7 +8,7 @@ use super::super::call;
 use super::super::ingest::compact_summary;
 use super::{ChatMemoryUpdate, ChatMemoryUpdates};
 
-const ALREADY_TIMEOUT: Duration = Duration::from_secs(15);
+pub(super) const TIMEOUT: Duration = Duration::from_secs(15);
 /// A fact she had looks like a new one when this much of the shorter is in
 /// both, or this much and the new fact's subject is named in it.
 const LOOKS_ALIKE: f64 = 0.5;
@@ -29,6 +29,37 @@ pub(super) async fn check_against_unshown(
     present: &crate::services::agent::memory::unified::Audience,
     shown: &[String],
     updates: &mut ChatMemoryUpdates,
+    within: Duration,
+) {
+    if !within.is_zero() {
+        check(db, user_id, present, shown, updates, within, false).await;
+    }
+}
+
+/// [`check_against_unshown`] of a talk gone over: against what she kept for
+/// good from talks here alone, which is all going over changes, in the time
+/// `within` (none left, both are kept).
+pub(super) async fn check_for_good(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    present: &crate::services::agent::memory::unified::Audience,
+    shown: &[String],
+    updates: &mut ChatMemoryUpdates,
+    within: Duration,
+) {
+    if !within.is_zero() {
+        check(db, user_id, present, shown, updates, within, true).await;
+    }
+}
+
+async fn check(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    present: &crate::services::agent::memory::unified::Audience,
+    shown: &[String],
+    updates: &mut ChatMemoryUpdates,
+    within: Duration,
+    going_over: bool,
 ) {
     use crate::services::agent::memory::unified;
     use myriad_merope::chat_remember::{
@@ -56,6 +87,7 @@ pub(super) async fn check_against_unshown(
         .collect();
     let unshown: Vec<Unshown> = rows
         .into_iter()
+        .filter(|row| !going_over || row.source == "chat")
         .map(|row| Unshown {
             text: compact_summary(&row.content),
             concepts: row.concepts,
@@ -68,7 +100,10 @@ pub(super) async fn check_against_unshown(
                 .any(|update| update.supersedes.contains(&known.text))
         })
         .collect();
-    let pairs = alike_unshown(&updates.updates, &unshown);
+    // What they asked her not to keep stands on its own words: never the
+    // same as, or replacing, something she knows.
+    let mut pairs = alike_unshown(&updates.updates, &unshown);
+    pairs.retain(|(index, _)| !updates.asked.contains(index));
     if pairs.is_empty() {
         return;
     }
@@ -79,7 +114,7 @@ pub(super) async fn check_against_unshown(
         })
         .collect();
     let Ok(raw) = call::Ask::new(call::Voice::Judge, user_id, "chat_already")
-        .within(ALREADY_TIMEOUT)
+        .within(within)
         // At most 410 measured, thinking included.
         .output_at_most(1024)
         .json_raw(
@@ -93,7 +128,9 @@ pub(super) async fn check_against_unshown(
         return;
     };
     let verdicts = parse_already(&raw, pairs.len());
-    if let Some((index, known)) = settle_already(&mut updates.updates, &pairs, &verdicts) {
+    if let Some((index, known)) =
+        settle_already(&mut updates.updates, &pairs, &verdicts, going_over)
+    {
         let names = about.get(&known).cloned().unwrap_or_default();
         let related = updates.updates[index].supersedes.iter().any(|old| {
             about
@@ -189,15 +226,19 @@ pub(super) fn alike_unshown(
 /// with what she had, with nothing to say which is, is kept as the fact
 /// holding both, in place of the one she had (the first such pair says it).
 /// A fact both already had and replacing something is already had: nothing
-/// is replaced on its account. A short note takes the place only of short
+/// is replaced on its account, and one she had is replaced once, by the
+/// first of them. A short note takes the place only of short
 /// notes; what she knows for good waits for the stretch to be gone over.
 /// When the line, its new fact one she already had and nothing else new,
 /// now corrects what it lets go of to that one: where the correction is,
-/// and the one she had.
+/// and the one she had. Of a talk gone over (`going_over`), only a fact that
+/// says itself what it replaces corrects anything: to the one she had, when
+/// it is one.
 pub(super) fn settle_already(
     updates: &mut Vec<ChatMemoryUpdate>,
     pairs: &[(usize, String)],
     verdicts: &[myriad_merope::chat_remember::Already],
+    going_over: bool,
 ) -> Option<(usize, String)> {
     use myriad_merope::chat_remember::Already;
     let had: std::collections::HashSet<usize> = pairs
@@ -214,6 +255,8 @@ pub(super) fn settle_already(
         .map(|((_, known), _)| known)
         .collect();
     let mut held_both = std::collections::HashSet::new();
+    // Replaced by one fact: another that would is kept beside it.
+    let mut replaced: std::collections::HashSet<&String> = std::collections::HashSet::new();
     for ((index, known), verdict) in pairs.iter().zip(verdicts) {
         if had.contains(index) {
             continue;
@@ -222,8 +265,9 @@ pub(super) fn settle_already(
             continue;
         };
         match verdict {
-            Already::Replaces => {}
-            Already::Unclear(together) if held_both.insert(*index) => {
+            Already::Replaces if replaced.insert(known) => {}
+            Already::Unclear(together) if !replaced.contains(known) && held_both.insert(*index) => {
+                replaced.insert(known);
                 update.fact = Some(together.clone());
             }
             _ => continue,
@@ -232,19 +276,32 @@ pub(super) fn settle_already(
             update.supersedes.push(known.clone());
         }
     }
+    let corrects: Vec<usize> = (0..updates.len())
+        .filter(|index| !updates[*index].supersedes.is_empty())
+        .collect();
     for index in had {
         if let Some(update) = updates.get_mut(index) {
             update.fact = None;
+            // Of a talk gone over, a fact says itself what it replaces: that
+            // is replaced by the one she had, whatever else is told, never
+            // taken back.
+            if going_over && !update.supersedes.is_empty() {
+                update.fact = pairs
+                    .iter()
+                    .zip(verdicts)
+                    .find(|((of, _), verdict)| *of == index && **verdict == Already::Same)
+                    .map(|((_, known), _)| known.clone());
+            }
         }
     }
     // A correction whose new fact she already had, and nothing else new:
     // what it lets go of is replaced by the one she had, not taken back.
-    // With more than one she had, which it is goes unsaid.
-    if let [known] = had_known.into_iter().collect::<Vec<_>>()[..]
+    // With more than one she had, which it is goes unsaid. Of a talk gone
+    // over, what a line lets go of is its own.
+    if !going_over
+        && let [known] = had_known.into_iter().collect::<Vec<_>>()[..]
         && updates.iter().all(|update| update.fact.is_none())
-        && let Some(correction) = updates
-            .iter_mut()
-            .find(|update| !update.supersedes.is_empty())
+        && let Some(correction) = corrects.first().and_then(|index| updates.get_mut(*index))
     {
         correction.fact = Some(known.clone());
         updates.retain(|update| update.fact.is_some() || !update.supersedes.is_empty());

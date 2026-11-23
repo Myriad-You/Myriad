@@ -85,6 +85,7 @@ async fn notes_of_a_stretch_never_read_go_with_the_next() {
         present: Audience::private(7),
         from: at,
         last: at,
+        heard: Vec::new(),
     };
     for _ in 0..2 {
         enqueue(db, "settle", 7, line(later), None).await.unwrap();
@@ -138,7 +139,10 @@ async fn a_stretch_never_finished_is_left_unread() {
 }
 
 /// Every try of the stretch `claimed` answered unreadably.
-pub(super) async fn never_read(db: &DatabaseConnection, mut claimed: Claim) {
+pub(in crate::services::agent::merope::store::memory_jobs) async fn never_read(
+    db: &DatabaseConnection,
+    mut claimed: Claim,
+) {
     for attempt in 1..=MAX_ATTEMPTS {
         finish(
             db,
@@ -149,7 +153,7 @@ pub(super) async fn never_read(db: &DatabaseConnection, mut claimed: Claim) {
         .unwrap();
         if attempt < MAX_ATTEMPTS {
             due(db, "settle").await;
-            claimed = claim(db).await.unwrap().expect("tried again");
+            claimed = claim_of(db, "settle").await.expect("tried again");
         }
     }
 }
@@ -309,6 +313,122 @@ async fn notes_are_kept_as_they_are_when_the_last_stretch_never_finished() {
     schema.drop().await;
 }
 
+/// Of someone who asked her not to keep something: notes till they are
+/// judged, however that fails, then kept for good but for what is of it.
+#[tokio::test]
+async fn notes_left_unread_of_someone_who_asked_are_held_to_it_first() {
+    use crate::services::agent::merope::asked::{tests::asks, unread};
+    use crate::services::channel_group::g0;
+    let Some(schema) = fixture().await else {
+        return;
+    };
+    let db = &schema.db;
+    asks(db, 7, "不要记和房东吵架的事").await;
+    let now = crate::clock::now().fixed_offset();
+    let ago = |minutes| now - chrono::Duration::minutes(minutes);
+    noted_at(db, "周末要搬家", ago(120)).await;
+    noted_at(db, "房东又来吵", ago(119)).await;
+    for minutes in [121, 61, 30] {
+        never_read(db, stretch_from(db, "settle", ago(minutes)).await).await;
+    }
+    let both = async || {
+        let went = went(db).await;
+        (went["周末要搬家"].clone(), went["房东又来吵"].clone())
+    };
+    assert_eq!(both().await, (None, None), "still notes");
+    let (id, job): (String, Job) = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT record_id, payload FROM runtime_registry WHERE namespace = $1 \
+             AND payload->'data'->'LeftUnread' IS NOT NULL",
+            [ASKED_NAMESPACE.into()],
+        ))
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| {
+            (
+                row.try_get("", "record_id").unwrap(),
+                serde_json::from_value(row.try_get("", "payload").unwrap()).unwrap(),
+            )
+        })
+        .next()
+        .expect("to be judged");
+    assert!(job.data.as_ref().unwrap().by_what_they_asked(), "{id}");
+    let Some(Payload::LeftUnread {
+        present,
+        last,
+        since,
+        until,
+    }) = job.data
+    else {
+        unreachable!()
+    };
+    let left = settling::notes_left(db, 7, &present, since, until)
+        .await
+        .unwrap();
+    assert_eq!(left.len(), 2);
+    let of_it = left
+        .iter()
+        .position(|note| note.content.contains("房东"))
+        .unwrap();
+    let judged = async |answers: &[&str], gives_up: bool| {
+        let mut world = g0::World::new(0.5);
+        world.models.insert(
+            "not_to_keep".into(),
+            answers.iter().map(|one| Some(one.to_string())).collect(),
+        );
+        g0::enter(world);
+        let told_by = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        let done = unread::keep(db, 7, &present, last, (since, until), told_by, gives_up).await;
+        g0::leave();
+        done.is_ok()
+    };
+    for answer in ["!rejected", "!rateLimited", "嗯"] {
+        assert!(!judged(&[answer; 9], false).await);
+        assert_eq!(both().await, (None, None), "{answer}");
+    }
+    // Let be: they stay notes.
+    assert!(judged(&["嗯"; 9], true).await);
+    assert_eq!(both().await, (None, None));
+    let drop = format!(r#"{{"drop":[{of_it}]}}"#);
+    assert!(judged(&[&drop], false).await);
+    // The one kept for good; the other let go for nothing, and never kept.
+    let rows = db
+        .query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT note.content, note.invalid_at IS NOT NULL AS gone, \
+               note.superseded_by IS NULL AS for_nothing, kept.content AS kept \
+             FROM agent_memories note \
+             LEFT JOIN agent_memories kept ON kept.content = note.content \
+               AND kept.source = 'chat' AND kept.invalid_at IS NULL \
+             WHERE note.source = 'chat_note' ORDER BY note.created_at",
+        ))
+        .await
+        .unwrap();
+    let went: Vec<(String, bool, bool, Option<String>)> = rows
+        .iter()
+        .map(|row| {
+            (
+                row.try_get("", "content").unwrap(),
+                row.try_get("", "gone").unwrap(),
+                row.try_get("", "for_nothing").unwrap(),
+                row.try_get("", "kept").unwrap(),
+            )
+        })
+        .collect();
+    let moving = "周末要搬家".to_string();
+    assert_eq!(
+        went,
+        [
+            (moving.clone(), true, false, Some(moving)),
+            ("房东又来吵".into(), true, true, None),
+        ]
+    );
+    assert!(judged(&[], false).await, "nothing left to judge");
+    schema.drop().await;
+}
+
 /// Her switch went off while a stretch was being gone over: it is put back
 /// as it was before it was taken up, its notes still notes, what it
 /// brought along left unread again (and so waiting as long as such notes
@@ -329,6 +449,7 @@ async fn a_stretch_is_put_back_while_she_is_off() {
         present: Audience::private(7),
         from: meanwhile,
         last: meanwhile,
+        heard: Vec::new(),
     };
     enqueue(db, "settle", 7, line, None).await.unwrap();
     finish(db, &taken, Ok(Effect::Paused)).await.unwrap();
@@ -377,5 +498,90 @@ async fn a_stretch_is_put_back_while_she_is_off() {
     .await
     .unwrap();
     assert_eq!(went(db).await["周末要搬家"], holds("周末要搬家"));
+    schema.drop().await;
+}
+
+/// A private talk's lines never read, brought along by two stretches after
+/// them and still not read: they go back to be written down one by one,
+/// the old way, kept for good; what came after waits as before.
+#[tokio::test]
+async fn lines_never_read_go_back_to_be_written_one_by_one() {
+    let Some(schema) = fixture().await else {
+        return;
+    };
+    let db = &schema.db;
+    // Whole seconds, as the table keeps when lines were said.
+    let now = chrono::DateTime::from_timestamp(crate::clock::now().timestamp(), 0)
+        .unwrap()
+        .fixed_offset();
+    let ago = |minutes| now - chrono::Duration::minutes(minutes);
+    db.execute_unprepared(
+        "INSERT INTO agent_sessions (id, user_id, title, context, message_count, archived, \
+         created_at, last_active_at) VALUES ('unread-talk', 7, 't', '{\"mode\":\"chat\"}'::jsonb, \
+         0, false, NOW(), NOW())",
+    )
+    .await
+    .unwrap();
+    for (role, text, minutes) in [
+        ("user", "周末要搬家", 120),
+        ("assistant", "搬去哪里呀", 119),
+        ("user", "在学吉他", 60),
+        // The last stretch's own: not brought along.
+        ("user", "明天要考试", 20),
+    ] {
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO agent_messages (session_id, role, content, metadata, created_at) \
+             VALUES ('unread-talk', $1, $2, '{}'::jsonb, $3)",
+            [role.into(), text.into(), ago(minutes).into()],
+        ))
+        .await
+        .unwrap();
+    }
+    let before = settling::from_lines();
+    never_read(db, stretch_from(db, "settle", ago(121)).await).await;
+    for began in [ago(61), ago(30)] {
+        never_read(db, stretch_from(db, "settle", began).await).await;
+    }
+    let one = async |at: chrono::DateTime<chrono::FixedOffset>| {
+        let id = memory_jobs::key(&["chat", "7", "private", &at.timestamp_micros().to_string()]);
+        registry::get::<Job>(db, NAMESPACE, &id).await.unwrap()
+    };
+    for (at, said, answer) in [
+        (ago(120), "周末要搬家", "搬去哪里呀"),
+        (ago(60), "在学吉他", ""),
+    ] {
+        let queued = one(at).await.expect("back in the queue");
+        // Not fenced by what was gone over since.
+        crate::services::agent::merope::store::memory::mark_applied(
+            db,
+            7,
+            now,
+            &Audience::private(7),
+        )
+        .await
+        .unwrap();
+        assert!(current(db, &queued, false).await.unwrap());
+        let Some(Payload::Chat {
+            user_text,
+            reply,
+            input_at,
+            for_good,
+            ..
+        }) = queued.data
+        else {
+            panic!("written down one by one");
+        };
+        assert!(for_good, "kept for good");
+        assert_eq!(
+            (user_text.as_str(), reply.as_str(), input_at),
+            (said, answer, at)
+        );
+    }
+    assert!(one(ago(20)).await.is_none(), "the last stretch's own waits");
+    let job = loaded(db, "settle").await;
+    assert_eq!(job.unread_from, Some(ago(30)), "brought no further back");
+    assert_eq!(job.unread_times, 0);
+    assert!(settling::from_lines().one_by_one >= before.one_by_one + 2);
     schema.drop().await;
 }

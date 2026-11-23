@@ -9,6 +9,10 @@ mod her;
 mod settle;
 #[path = "memory_jobs_take_back_tests.rs"]
 mod take_back;
+#[path = "memory_jobs_raw_tests.rs"]
+mod raw;
+#[path = "memory_jobs_not_kept_tests.rs"]
+mod not_kept;
 
 async fn fixture() -> Option<crate::db::IsolatedSchema> {
     let url = crate::db::test_url(&["MYRIAD_MEROPE_TEST_DATABASE_URL"])?;
@@ -44,6 +48,7 @@ async fn chat(db: &DatabaseConnection, id: &str, audience: Audience) {
             present: audience,
             turn: TurnContext::default(),
             lines: vec![input],
+            for_good: false,
         },
         None,
     )
@@ -66,6 +71,8 @@ fn fact() -> Effect {
             put_onto: vec![],
             said_new: Default::default(),
             taken_back_in: Default::default(),
+            said_from: Default::default(),
+            asked: Default::default(),
         },
     )
 }
@@ -85,6 +92,8 @@ fn fact_of(fact: &str) -> Effect {
             put_onto: vec![],
             said_new: Default::default(),
             taken_back_in: Default::default(),
+            said_from: Default::default(),
+            asked: Default::default(),
         },
     )
 }
@@ -93,8 +102,18 @@ async fn loaded(db: &DatabaseConnection, id: &str) -> Job {
 }
 async fn due(db: &DatabaseConnection, id: &str) {
     db.execute_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
-        "UPDATE runtime_registry SET payload = jsonb_set(jsonb_set(payload, '{ready}', '0'), '{lease}', '0') WHERE namespace=$1 AND record_id=$2",
-        [NAMESPACE.into(), id.into()])).await.unwrap();
+        "UPDATE runtime_registry SET payload = jsonb_set(jsonb_set(payload, '{ready}', '0'), '{lease}', '0') WHERE namespace = ANY($1) AND record_id = $2",
+        [vec![NAMESPACE.to_string(), ASKED_NAMESPACE.to_string()].into(), id.into()])).await.unwrap();
+}
+/// The job `id` taken up, whatever else is due before it (its lines to be
+/// judged, of someone who asked).
+async fn claim_of(db: &DatabaseConnection, id: &str) -> Option<Claim> {
+    while let Some(claimed) = claim(db).await.unwrap() {
+        if claimed.id == id {
+            return Some(claimed);
+        }
+    }
+    None
 }
 async fn facts(db: &DatabaseConnection) -> i64 {
     db.query_one_raw(Statement::from_string(
@@ -244,6 +263,7 @@ async fn durable_memory_retries_are_finite_and_revalidate_input_her_and_session(
             present: Audience::private(7),
             turn: TurnContext::default(),
             lines: vec![earlier_at],
+            for_good: false,
         },
         None,
     )
@@ -271,6 +291,7 @@ async fn durable_memory_folds_a_persons_lines_and_keeps_those_said_meanwhile() {
         present: Audience::private(7),
         turn: TurnContext::default(),
         lines: vec![at],
+        for_good: false,
     };
     let (first, second, third) = (at(3), at(2), at(1));
     // Held as it lands: not gone over before she answers.
@@ -528,6 +549,7 @@ async fn durable_memory_settles_a_stretch_once_it_is_over() {
         present: Audience::private(7),
         from: at,
         last: at,
+        heard: Vec::new(),
     };
     enqueue(db, "settle", 7, stretch(began), None)
         .await
@@ -653,6 +675,8 @@ async fn taking_back_lets_go_of_what_she_knows_for_good() {
             put_onto: vec![],
             said_new: Default::default(),
             taken_back_in: Default::default(),
+            said_from: Default::default(),
+            asked: Default::default(),
         }
     };
     let Effect::Chat(lasting) = fact_of(known) else {

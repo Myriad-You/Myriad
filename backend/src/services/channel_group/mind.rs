@@ -550,7 +550,12 @@ pub async fn names_here(db: &DatabaseConnection, venue: &str) -> HashMap<i32, St
         return HashMap::new();
     }
     let now = now().timestamp_micros();
-    let people = with_group(venue, |group| core::people(group, now)).unwrap_or_default();
+    // As it is in mind: asking after a group does not bring it there.
+    let people = GROUPS
+        .lock()
+        .ok()
+        .and_then(|groups| Some(core::people(&groups.get(venue)?.group, now)))
+        .unwrap_or_default();
     let mut names = HashMap::new();
     for (name, from) in people {
         if let Ok(PairingLookup::Paired { user_id }) =

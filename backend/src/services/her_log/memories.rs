@@ -48,7 +48,9 @@ use sea_orm::{
 use serde_json::{Value, json};
 
 use super::{Error, NODE, Owner, keys, state, store};
-use crate::services::agent::memory::unified::{self, ORIGIN_SITE, OWN_VENUE, SYNC_SOURCE};
+use crate::services::agent::memory::unified::{
+    self, ASKED_SOURCE, NO_ONE, ORIGIN_SITE, OWN_VENUE, SYNC_SOURCE,
+};
 
 /// What a comparison of her memories wrote.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -186,6 +188,10 @@ async fn site_source<C: ConnectionTrait>(db: &C, source: &str) -> Result<bool, E
     if source == SYNC_SOURCE {
         return Ok(false);
     }
+    // Asked of her wherever she is: never taken for a fact.
+    if source == ASKED_SOURCE {
+        return Ok(true);
+    }
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -230,14 +236,15 @@ async fn memories<C: ConnectionTrait>(db: &C, owner: &Owner) -> Result<Vec<Memor
     for row in rows {
         let venue: String = row.try_get("", "venue")?;
         // Her own are kept with no account (`unified::own`); a private one
-        // only the owner was in: another account's talk never goes in.
+        // only the owner was in: another account's talk never goes in. What
+        // they asked her not to keep is heard by no one, and is theirs.
         let members: Value = row.try_get("", "audience")?;
         if venue != OWN_VENUE
-            && members
-                .as_array()
-                .into_iter()
-                .flatten()
-                .any(|member| member.as_i64() != Some(i64::from(owner.user)))
+            && members.as_array().into_iter().flatten().any(|member| {
+                ![owner.user, NO_ONE]
+                    .map(i64::from)
+                    .contains(&member.as_i64().unwrap_or(-1))
+            })
         {
             continue;
         }
@@ -306,6 +313,11 @@ pub(super) async fn compare(
     for memory in &memories {
         let object = memory.object();
         here.insert(object.clone());
+        // What they asked her not to keep stays here: an end that does not
+        // know it as that would tell it as any fact.
+        if memory.source.as_deref() == Some(ASKED_SOURCE) {
+            continue;
+        }
         let digest = memory.digest();
         let had = known.get(&object);
         let skipped = format!("skipped:{}", memory.words());
@@ -657,6 +669,14 @@ pub async fn take_in(
                 _ => SYNC_SOURCE.to_string(),
             };
             let speaker = speaker_here(folded.write.speaker, own);
+            // What they asked her not to keep is heard by no one, here too.
+            let heard_by = if own {
+                json!([])
+            } else if source == ASKED_SOURCE {
+                json!([NO_ONE])
+            } else {
+                json!([owner.user])
+            };
             let mut memory = Memory {
                 id: id.to_string(),
                 audience: audience.clone(),
@@ -709,7 +729,7 @@ pub async fn take_in(
                     memory.kind.clone().into(),
                     memory.text.clone().into(),
                     if own { OWN_VENUE } else { "private" }.into(),
-                    if own { json!([]) } else { json!([owner.user]) }.into(),
+                    heard_by.into(),
                     Value::from(concepts).into(),
                     at(memory.written_at).into(),
                     invalid_at.into(),
@@ -741,3 +761,7 @@ pub async fn take_in(
     }
     Ok(taken)
 }
+
+#[cfg(test)]
+#[path = "memories_asked_tests.rs"]
+mod asked_tests;

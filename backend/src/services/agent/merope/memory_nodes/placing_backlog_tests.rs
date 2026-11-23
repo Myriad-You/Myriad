@@ -65,7 +65,11 @@ async fn what_placing_could_not_place_is_placed_at_her_upkeep() {
         return;
     };
     let db = &schema.db;
-    let lines = said(db, &["my fern got new leaves", "that's lovely"]).await;
+    let lines = said(
+        db,
+        &["my fern got new leaves", "that's lovely", "said to no one"],
+    )
+    .await;
     // Cut off: nothing placed, kept to place later.
     answering(&[("memory_node_place", "{}")]);
     g0::with(|world| world.cut_off.insert("memory_node_place".into(), 1));
@@ -79,6 +83,14 @@ async fn what_placing_could_not_place_is_placed_at_her_upkeep() {
             .is_empty(),
         "nothing placed yet"
     );
+    // Said while she was off: no part of it.
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_messages SET metadata = '{\"withoutHer\": true}' WHERE id = $1",
+        [lines[2].id.into()],
+    ))
+    .await
+    .unwrap();
     let before = failures();
     // At her upkeep: placed, and let go.
     answering(&[(
@@ -91,7 +103,7 @@ async fn what_placing_could_not_place_is_placed_at_her_upkeep() {
     assert_eq!(waiting.len(), 1);
     assert_eq!(
         waiting[0].refs,
-        lines
+        lines[..2]
             .iter()
             .map(|line| format!("message:{}", line.id))
             .collect::<Vec<_>>()

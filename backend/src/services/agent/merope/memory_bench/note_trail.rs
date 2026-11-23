@@ -196,6 +196,34 @@ pub(super) fn keep_settle_call(
     }
 }
 
+/// Each private session's pass gone over from what was said, on the same
+/// file as [`keep_settle_call`]: how long it took, and, read, how many of
+/// their lines were asked about again and how many still accounted for
+/// nowhere (`None`: out of tries).
+pub(super) fn keep_raw_settle_call(took: std::time::Duration, lines: Option<(usize, usize)>) {
+    let Some(path) = std::env::var_os("MEROPE_MEMORY_BENCH_UNREAD_SETTLE") else {
+        return;
+    };
+    let line = json!({
+        "why": if lines.is_some() { "read" } else { "failed" },
+        "fromLines": true,
+        "askedAgain": lines.map(|(again, _)| again),
+        "left": lines.map(|(_, left)| left),
+        "tookMs": took.as_millis() as u64,
+    })
+    .to_string()
+        + "\n";
+    use std::io::Write;
+    if let Err(error) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|mut file| file.write_all(line.as_bytes()))
+    {
+        eprintln!("settle call not kept: {error}");
+    }
+}
+
 /// What she keeps of them for good here now, as going over writes it.
 async fn held(
     db: &sea_orm::DatabaseConnection,

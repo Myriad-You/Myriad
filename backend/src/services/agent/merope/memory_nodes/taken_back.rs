@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, TransactionSession, TransactionTrait};
 
 use super::Error;
+use super::lines::{lines_cited, lines_of};
 
 /// How forgetting what rests on a memory taken back went since the site
 /// started, for her status: memories taken back whose nodes could not be
@@ -291,7 +292,10 @@ pub(crate) async fn hide_taken_back<C: ConnectionTrait + TransactionTrait>(
         let savepoint = db.begin().await?;
         let hidden = async {
             let line = with_what_they_replaced(&savepoint, memories).await?;
-            for (user_id, audience) in super::super::hidden::citing(&savepoint, &line).await? {
+            let lines = lines_of(&savepoint, &line).await?;
+            for (user_id, audience) in
+                super::super::hidden::citing(&savepoint, &line, &lines).await?
+            {
                 super::super::hidden::rewrite(&savepoint, user_id, &audience).await?;
             }
             Ok::<(), Error>(())
@@ -317,7 +321,8 @@ pub(crate) async fn hide_taken_back<C: ConnectionTrait + TransactionTrait>(
 
 /// What rests on the memories `memories` they took back, and on each they
 /// replaced ([`with_what_they_replaced`]), forgotten on her nodes in a
-/// savepoint of `db`'s transaction. The memories are let go whatever
+/// savepoint of `db`'s transaction; what rests only on the lines they were
+/// said in stays hidden ([`super::lines`]). The memories are let go whatever
 /// happens here: if this fails, it is undone alone, counted, and the sweep
 /// before her nodes are next read or gone over forgets it
 /// ([`taken_back_here`]).
@@ -332,7 +337,14 @@ pub(crate) async fn forget_taken_back<C: ConnectionTrait + TransactionTrait>(
         let savepoint = db.begin().await?;
         let forgotten = async {
             let line = with_what_they_replaced(&savepoint, memories).await?;
-            super::forget(&savepoint, &line, &[]).await
+            let lines = lines_of(&savepoint, &line).await?;
+            super::forget(&savepoint, &line, &[]).await?;
+            // What was made of the lines they said it in is only hidden.
+            for (user_id, audience) in super::super::hidden::citing(&savepoint, &[], &lines).await?
+            {
+                super::super::hidden::rewrite(&savepoint, user_id, &audience).await?;
+            }
+            Ok::<(), Error>(())
         }
         .await;
         match forgotten {
@@ -652,6 +664,7 @@ async fn sweep(
         .values()
         .any(|named| named.taken_back && !named.forgets)
         || super::super::hidden::written_hidden(user_id, audience);
+    let hidden = hidden || lines_cited(db, user_id, audience).await?;
     let left = left_resting(db, user_id, audience).await?;
     if taken_back.is_empty() && left == 0 && !hidden {
         return Ok(());

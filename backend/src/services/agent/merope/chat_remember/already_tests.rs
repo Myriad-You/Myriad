@@ -75,7 +75,7 @@ async fn judged(prefix: &str, had: (&str, &str), new: (&str, &str)) -> Option<Ch
         .or_default()
         .push_back(Some(r#"{"pairs":[{"i":0,"verdict":"same"}]}"#.to_string()));
     g0::enter(world);
-    super::check_against_unshown(db, THEM, &present, &[], &mut updates).await;
+    super::check_against_unshown(db, THEM, &present, &[], &mut updates, super::TIMEOUT).await;
     g0::leave();
     schema.drop().await;
     Some(updates)

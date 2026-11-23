@@ -178,6 +178,7 @@ async fn lines(
              WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NULL \
                AND m.role IN ('user', 'assistant') AND (m.metadata->>'piece') IS NULL \
+               AND COALESCE(m.metadata->>'withoutHer', '') <> 'true' \
                AND m.created_at >= $2 AND m.created_at <= $3 \
              ORDER BY m.created_at, m.id LIMIT $4",
             [

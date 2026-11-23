@@ -22,6 +22,9 @@
 //! them; in a group, there. What is on her mind about people is part of how
 //! an exchange left her.
 
+#[path = "inner_not_kept.rs"]
+mod not_kept;
+
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
@@ -284,7 +287,8 @@ async fn compile(
         .json_raw(&system_prompt, &input, SCHEMA_NAME, &answer_schema)
         .await
         .ok()?;
-    let reflected = parse_reflection(&raw)?;
+    let mut reflected = parse_reflection(&raw)?;
+    not_kept::leave_out(db, user_id, &mut reflected).await;
     let done: Vec<String> = reflected
         .done
         .iter()

@@ -450,15 +450,15 @@ pub(super) async fn her_day_in_a_group_a_stretch_at_a_time() {
         ],
     );
     let as_of = |hour: i64| (today + chrono::Duration::hours(hour)).with_timezone(&chrono::Utc);
-    super::super::clock::as_of(
+    let _ = super::super::clock::as_of(
         as_of(10),
-        super::super::bits::go_over_stretch(&db, keeper, venue, morning),
+        super::super::bits::go_over_stretch(&db, keeper, venue, morning, Some(&[]), None),
     )
     .await;
     let after_morning = super::super::bits::days_in(&db, venue, 10, None).await;
-    super::super::clock::as_of(
+    let _ = super::super::clock::as_of(
         as_of(21),
-        super::super::bits::go_over_stretch(&db, keeper, venue, evening),
+        super::super::bits::go_over_stretch(&db, keeper, venue, evening, Some(&[]), None),
     )
     .await;
     let days = super::super::bits::days_in(&db, venue, 10, None).await;

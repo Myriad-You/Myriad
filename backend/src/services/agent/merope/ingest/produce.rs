@@ -310,6 +310,17 @@ pub(super) async fn take_in(
         .as_ref()
         .and_then(|value| value.decision.memory.as_deref())
         .filter(|_| told.is_none() || keeps_memory);
+    // Their talk with another AI is their words: nothing of it they asked
+    // her not to keep. Not told, none is kept.
+    let memory = match memory {
+        Some(text) if keeps_memory_of(event_key) => {
+            super::super::asked::to_keep(db, user_id, vec![text.to_string()], String::clone)
+                .await
+                .and_then(|mut kept| kept.pop())
+        }
+        memory => memory.map(str::to_string),
+    };
+    let memory = memory.as_deref();
 
     // What happened, kept with anything she remembers from it.
     let gathered_from = format!("{event_key}: {summary}");

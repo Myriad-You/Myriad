@@ -29,9 +29,11 @@ pub const PULL_MAX_BYTES: usize = 4 * 1024 * 1024;
 pub const ASSET_MAX_BYTES: u64 = 24 * 1024 * 1024;
 
 /// The memories that cross, for the owner `$1`: her own, and the owner's
-/// private ones heard by the owner alone.
-pub(crate) const SYNCED_MEMORY: &str = "(venue = 'own' OR (venue = 'private' AND user_id = $1 \
-     AND audience <@ jsonb_build_array($1::int)))";
+/// private ones heard by the owner alone. Not what they asked her not to
+/// keep (`unified::ASKED_SOURCE`): an end that does not know it as that
+/// would tell it as any fact. It stays, and holds here.
+pub(crate) const SYNCED_MEMORY: &str = "((venue = 'own' OR (venue = 'private' AND user_id = $1 \
+     AND audience <@ jsonb_build_array($1::int))) AND source IS DISTINCT FROM 'asked')";
 
 /// What the site holds of her, for deciding whether it is empty.
 pub async fn holdings<C: ConnectionTrait>(db: &C, owner: i32) -> Result<Holdings, DbErr> {

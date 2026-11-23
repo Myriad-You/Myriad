@@ -9,6 +9,7 @@ use serde_json::json;
 use super::talk_tests::{OTHER, answering, asked, count, schema};
 use super::{Author, RowIn, audience, forget, take_back_check, write};
 use crate::services::agent::merope::chat_lines::tests::{line, session};
+use crate::services::channel_group::g0;
 use crate::services::her_log::pen;
 
 /// The site owner, here.
@@ -307,5 +308,54 @@ async fn the_sweep_forgets_what_was_confirmed_in_each_audience() {
     forget::taken_back_here(db, OWNER, &group).await.unwrap();
     forget::taken_back_here(db, OWNER, &owners).await.unwrap();
     assert_eq!(entries(db, OWNER, &owners).await, (0, 1));
+    schema.drop().await;
+}
+
+/// A long line is asked about once, with all they said in it; one too long
+/// for that is only let go. Nothing is waited for past the time there is.
+#[tokio::test]
+async fn a_long_line_is_asked_about_whole_and_in_time() {
+    let Some(schema) = schema("memory_nodes_take_back_long").await else {
+        return;
+    };
+    let db = &schema.db;
+    session(db, "s7", OTHER, Some(r#"{"mode":"chat"}"#), false).await;
+    let long = format!("{}上面那个当我没说", "今天走了很远的路。".repeat(400));
+    let too_long = format!("{}那个当我没说", "长".repeat(12_000));
+    for (id, said) in [("a", &long), ("b", &too_long)] {
+        memory(db, id, OTHER, &format!("记着的 {id}")).await;
+        let said = line(db, "s7", "user", said, 3, None).await;
+        let_go(db, &[id]).await;
+        take_back_check::hold(db, OTHER, &[id.into()], Some(said))
+            .await
+            .unwrap();
+    }
+    // Slower than the time there is: left as it was.
+    let soon = || std::time::Instant::now() + std::time::Duration::from_millis(200);
+    let answers = [("take_back_check", r#"{"says":"takes_back"}"#); 4];
+    answering(&answers);
+    g0::with(|world| {
+        world
+            .delays
+            .insert("take_back_check".into(), vec![1.0; 4].into())
+    });
+    assert!(!take_back_check::go_over_until(db, OTHER, soon()).await);
+    assert_eq!(state(db, "a").await, take_back_check::PENDING);
+    db.execute_unprepared("UPDATE agent_takeback_check SET asked_at = NULL")
+        .await
+        .unwrap();
+    answering(&answers);
+    take_back_check::go_over(db, OTHER).await;
+    let shown: Vec<String> = g0::leave()
+        .unwrap()
+        .log
+        .iter()
+        .filter(|line| line["what"]["operation"] == "take_back_check")
+        .map(|line| line["what"]["input"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(shown.len(), 1);
+    assert!(shown[0].contains(&long), "{}", shown[0]);
+    assert_eq!(state(db, "a").await, take_back_check::CONFIRMED);
+    assert_eq!(state(db, "b").await, take_back_check::UNSURE);
     schema.drop().await;
 }

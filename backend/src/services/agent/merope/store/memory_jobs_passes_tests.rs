@@ -130,6 +130,7 @@ async fn a_pass_waits_for_talk_that_came_meanwhile() {
         present: Audience::private(7),
         from: ago(0),
         last: ago(0),
+        heard: Vec::new(),
     };
     enqueue(db, "settle", 7, line, None).await.unwrap();
     finish(db, &first, Ok(going_on(vec![], vec![], ago(41))))

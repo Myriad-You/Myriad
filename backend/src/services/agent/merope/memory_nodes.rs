@@ -137,6 +137,7 @@ pub(crate) mod unbuilt;
 pub(crate) mod upkeep;
 mod upkeep_candidates;
 mod upkeep_cut_off;
+mod upkeep_not_kept;
 pub(crate) mod write;
 
 pub(crate) use heads::minted_by_rule;
@@ -234,6 +235,11 @@ mod kept_tests;
 
 #[cfg(test)]
 mod take_back_check_tests;
+#[cfg(test)]
+mod taken_back_lines_tests;
+
+#[cfg(test)]
+mod asked_old_tests;
 
 #[cfg(test)]
 mod unbuilt_tests;

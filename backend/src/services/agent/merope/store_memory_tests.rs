@@ -348,25 +348,45 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         .unwrap()
         .unwrap();
     assert!(settle(&addition, vec![tea.id]).await);
-    // What she knows for good is changed all at once or not at all.
-    let invalid = ChatMemoryUpdate {
+    // What it names that is not there is left out of it; it is kept.
+    let of_none = ChatMemoryUpdate {
         standing: Default::default(),
         topic: None,
         cues: Vec::new(),
-        fact: Some("不应写入".into()),
-        supersedes: vec!["喜欢茶".into(), "不存在的事实".into()],
+        fact: Some("也喜欢果汁".into()),
+        supersedes: vec!["不存在的事实".into()],
         evidence: Some("更正".into()),
         concepts: vec![],
     };
-    assert!(!settle(&invalid, Vec::new()).await);
-    assert_eq!(
-        recall_remembered(&db, user_id, None, 8)
+    assert!(settle(&of_none, Vec::new()).await);
+    let there = recall_remembered(&db, user_id, None, 8).await.unwrap();
+    assert_eq!(there.len(), 3, "nothing else is replaced");
+    // Of what it names, what is there is replaced and the rest left out.
+    let of_some = ChatMemoryUpdate {
+        fact: Some("只喜欢果汁".into()),
+        supersedes: vec!["也喜欢果汁".into(), "不存在的事实".into()],
+        ..of_none
+    };
+    assert!(settle(&of_some, Vec::new()).await);
+    let there = recall_remembered(&db, user_id, None, 8).await.unwrap();
+    assert_eq!(there.len(), 3, "{there:?}");
+    assert!(there.contains(&dated("只喜欢果汁")) && !there.contains(&dated("也喜欢果汁")));
+    let juice = async |content: &str| {
+        agent_memories::Entity::find()
+            .filter(agent_memories::Column::UserId.eq(user_id))
+            .filter(agent_memories::Column::Content.eq(content))
+            .one(&db)
             .await
             .unwrap()
-            .len(),
-        2,
-        "invalid edit is atomic"
-    );
+            .unwrap()
+    };
+    let (was, only) = (juice("也喜欢果汁").await, juice("只喜欢果汁").await);
+    assert_eq!(was.invalid_reason.as_deref(), Some("superseded"));
+    assert_eq!(was.superseded_by.as_deref(), Some(only.id.as_str()));
+    assert!(only.invalid_at.is_none());
+    db.execute_unprepared("DELETE FROM agent_memories WHERE content LIKE '%喜欢果汁'")
+        .await
+        .unwrap();
 
     // A line that only takes something back lets it go wherever it is
     // kept, as a line is gone over.

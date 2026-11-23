@@ -82,14 +82,21 @@ pub(crate) async fn weighs_on<C: sea_orm::ConnectionTrait>(
 }
 
 pub async fn open_all(db: &DatabaseConnection, user_id: i32) -> Vec<Sore> {
+    kept(db, user_id).await.unwrap_or_default()
+}
+
+/// [`open_all`], or why it could not be read.
+pub(super) async fn kept(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> Result<Vec<Sore>, sea_orm::DbErr> {
     let mut sores: Vec<Sore> = unified::latest_of(db, user_id, SOURCE, MAX_OPEN as u64 * 3)
-        .await
-        .unwrap_or_default()
+        .await?
         .iter()
         .filter_map(sore_of)
         .collect();
     sores.sort_by_key(|sore| sore.since);
-    sores
+    Ok(sores)
 }
 
 /// Sore spots born in a group (`venue` as sessions keep it), oldest first:

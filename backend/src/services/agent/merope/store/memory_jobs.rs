@@ -5,7 +5,33 @@ use crate::services::runtime_registry as registry;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde::{Deserialize, Serialize};
 
-pub(super) const NAMESPACE: &str = "merope_memory_jobs";
+pub(in crate::services::agent::merope) const NAMESPACE: &str = "merope_memory_jobs";
+/// What is judged by what they asked her not to keep, apart from the rest:
+/// a build that knows nothing of it never reads it, and takes the rest up as
+/// it did.
+pub(in crate::services::agent::merope) const ASKED_NAMESPACE: &str = "merope_asked_jobs";
+/// Rows of the queue that could not be read since the site started, each
+/// passed over: the rest go on.
+static PASSED_OVER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// [`PASSED_OVER`] so far.
+pub(crate) fn passed_over() -> u64 {
+    PASSED_OVER.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Counted and told of once a row, however often the queue is looked at.
+fn pass_over(id: &str) {
+    static SEEN: std::sync::Mutex<std::collections::BTreeSet<String>> =
+        std::sync::Mutex::new(std::collections::BTreeSet::new());
+    let mut seen = SEEN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !seen.insert(id.to_string()) {
+        return;
+    }
+    let so_far = PASSED_OVER.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    tracing::warn!(job = id, so_far, "[Merope] a memory job could not be read");
+}
 const EVENTS: &str = "merope_memory_events";
 const RETENTION: i64 = 86_400;
 const CAPACITY: i64 = 2048;
@@ -21,13 +47,18 @@ pub(in crate::services::agent::merope) fn again_in(attempts: u8) -> i64 {
 /// for coming late. A process that dies holding one, its job waits this long.
 const LEASE: i64 = 120;
 const _: () = assert!(LEASE as u64 > super::super::memory_jobs::SETTLE_LIMIT.as_secs() + 5);
+/// A job tried until it is done ([`Job::until_done`]), past the tries the
+/// others have: this often.
+const UNTIL_DONE_EVERY: i64 = 600;
+/// One read again each time it is tried, not told again: this often.
+const READ_AGAIN_EVERY: i64 = 3_600;
 /// How long words held as they land wait for her answer before they are gone
 /// over without it.
 const HELD_FOR: i64 = 120;
 /// Quiet this long, and a stretch of talk is over and gone over.
-const SETTLES_AFTER: i64 = 180;
+const SETTLES_AFTER: i64 = myriad_merope::settle_raw::QUIET_SECS as i64;
 /// Talk that never goes quiet is still gone over this long after it began.
-const SETTLES_AT_MOST: i64 = 1200;
+const SETTLES_AT_MOST: i64 = myriad_merope::settle_raw::AT_MOST_SECS as i64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(in crate::services::agent::merope) struct Job {
@@ -47,6 +78,14 @@ pub(in crate::services::agent::merope) struct Job {
     pub lease: i64,
     pub token: Option<String>,
     pub attempts: u8,
+    /// How often it was asked of what they asked not to keep, to no answer
+    /// that will do (`Failure::untold`), since when, and when last.
+    #[serde(default)]
+    pub untold: u8,
+    #[serde(default)]
+    pub untold_since: Option<i64>,
+    #[serde(default)]
+    pub untold_at: Option<i64>,
     pub claimed_count: usize,
     pub outcome: Option<String>,
     /// What the same person said while this was being gone over: it is gone
@@ -68,7 +107,68 @@ pub(in crate::services::agent::merope) struct Job {
     /// where the notes not gone over yet begin.
     #[serde(default)]
     pub said_from: Option<chrono::DateTime<chrono::FixedOffset>>,
+    /// A private talk: the lines gone over lately, kept from one stretch to
+    /// the next (`chat_remember::settle_raw::Read`).
+    #[serde(default)]
+    pub read: Option<super::super::chat_remember::settle_raw::Read>,
 }
+impl Job {
+    /// Tried until it is done, and kept until then.
+    fn until_done(&self) -> bool {
+        self.data.as_ref().is_some_and(Payload::by_what_they_asked)
+    }
+
+    /// Whether what it is of is not asked about any more, should it get no
+    /// answer that will do again: asked so often, or so long, to none, while
+    /// other judgments got theirs.
+    fn gives_up(&self, now: i64) -> bool {
+        use super::super::memory_jobs::{GIVES_UP_AFTER, GIVES_UP_AFTER_SECS};
+        self.untold_since(now).is_some_and(|since| {
+            (self.untold >= GIVES_UP_AFTER || now - since >= GIVES_UP_AFTER_SECS)
+                && super::super::call::judged_since(since)
+        })
+    }
+
+    /// Since when it has been asked to no answer that will do; not over a
+    /// day with no such try in it (away, or the account refused).
+    fn untold_since(&self, now: i64) -> Option<i64> {
+        self.untold_since
+            .filter(|_| self.untold_at.is_some_and(|last| now - last <= RETENTION))
+    }
+
+    /// Asked again, to no answer that will do.
+    fn untold(&mut self, failure: &Failure, now: i64) {
+        if self.untold_since(now).is_none() {
+            self.untold = 0;
+            self.untold_since = Some(now);
+        }
+        self.untold_at = Some(now);
+        // Refused, it is only a while till it is given up on.
+        self.untold = self.untold.saturating_add(u8::from(!failure.refused()));
+    }
+
+    fn told(&mut self) {
+        self.untold = 0;
+        self.untold_since = None;
+        self.untold_at = None;
+    }
+
+    /// Not told by what they asked, when last tried: what comes meanwhile
+    /// must not shorten the wait.
+    fn not_told(&self) -> bool {
+        (self.outcome.as_deref()).is_some_and(|outcome| outcome.starts_with("not_told_"))
+    }
+
+    /// Where it waits.
+    fn namespace(&self) -> &'static str {
+        if self.until_done() {
+            ASKED_NAMESPACE
+        } else {
+            NAMESPACE
+        }
+    }
+}
+
 /// Which her a job was taken up for: the site's copy's lineage
 /// (`persona_sync::lease::lineage`), none while there is no copy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,6 +200,8 @@ fn same_her(job: &Job, her: &Her, persona: Option<chrono::DateTime<chrono::Fixed
 pub(in crate::services::agent::merope) struct Claim {
     pub id: String,
     pub job: Job,
+    /// As it was taken up ([`Job::gives_up`]): the same to its end.
+    pub gives_up: bool,
 }
 
 /// Also taken first by persona replacement/deletion, and by forgetting a
@@ -112,38 +214,6 @@ pub(in crate::services::agent) async fn lock(db: &impl ConnectionTrait) -> anyho
     .await?;
     Ok(())
 }
-/// Forgetting: drops every job of `owner`'s still holding `quote` in the
-/// words it is to go over, so nothing still queued writes it back. A job
-/// being gone over is fenced too: its finish finds no job and writes
-/// nothing. Run after [`lock`], on the forgetting's transaction.
-pub(in crate::services::agent) async fn forget_holding(
-    db: &impl ConnectionTrait,
-    owner: i32,
-    quote: &str,
-) -> Result<u64, sea_orm::DbErr> {
-    let holds = |path: &str| {
-        format!(
-            "position($3 in regexp_replace(coalesce(payload #>> '{{{path}}}', ''), '\\s+', ' ', 'g')) > 0"
-        )
-    };
-    let sql = format!(
-        "DELETE FROM runtime_registry WHERE namespace = $1 AND (payload ->> 'owner')::int = $2 \
-         AND ({} OR {} OR {} OR {})",
-        holds("data,Chat,user_text"),
-        holds("data,Chat,reply"),
-        holds("next,Chat,user_text"),
-        holds("next,Chat,reply"),
-    );
-    Ok(db
-        .execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            sql,
-            [NAMESPACE.into(), owner.into(), quote.into()],
-        ))
-        .await?
-        .rows_affected())
-}
-
 /// Now in seconds, by the site's clock (it was the database's).
 async fn now(_db: &impl ConnectionTrait) -> anyhow::Result<i64> {
     Ok(crate::clock::now().timestamp())
@@ -166,7 +236,7 @@ async fn epoch(db: &impl ConnectionTrait, owner: i32, locked: bool) -> anyhow::R
 async fn save(db: &impl ConnectionTrait, id: &str, job: &Job, now: i64) -> anyhow::Result<()> {
     registry::put(
         db,
-        NAMESPACE,
+        job.namespace(),
         id,
         registry::RegistryIdentity {
             subject_id: Some(job.owner),
@@ -175,10 +245,15 @@ async fn save(db: &impl ConnectionTrait, id: &str, job: &Job, now: i64) -> anyho
             runtime_id: None,
         },
         job,
-        now + if job.unread_from.is_some() {
-            settling::WAITS
-        } else {
-            RETENTION
+        match &job.data {
+            // As long as a group's lines are at hand.
+            Some(Payload::GroupHeard { read, .. }) => {
+                (read.at + super::super::memory_jobs::HEARD_FOR).timestamp()
+            }
+            // Its lines wait for it.
+            _ if job.until_done() => now + 100 * 365 * RETENTION,
+            _ if job.unread_from.is_some() => now + settling::WAITS,
+            _ => now + RETENTION,
         },
     )
     .await?;
@@ -187,9 +262,18 @@ async fn save(db: &impl ConnectionTrait, id: &str, job: &Job, now: i64) -> anyho
 pub(in crate::services::agent::merope) async fn forget(
     db: &impl ConnectionTrait,
 ) -> anyhow::Result<()> {
-    for namespace in [NAMESPACE, EVENTS] {
-        registry::delete_matching(db, namespace, None, None, None, None).await?;
-    }
+    // Not what is still to be held to what they asked her not to keep
+    // ([`Payload::only_holds_to_it`]).
+    registry::delete_matching(db, EVENTS, None, None, None, None).await?;
+    registry::delete_matching(db, NAMESPACE, None, None, None, None).await?;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "DELETE FROM runtime_registry WHERE namespace = $1 \
+           AND (payload->'data'->'LeftUnread' IS NOT NULL \
+             OR payload->'data'->'GroupHeard' IS NOT NULL)",
+        [ASKED_NAMESPACE.into()],
+    ))
+    .await?;
     Ok(())
 }
 
@@ -207,24 +291,41 @@ pub(in crate::services::agent::merope) async fn enqueue(
 ) -> anyhow::Result<()> {
     let tx = db.begin().await?;
     lock(&tx).await?;
-    let now = now(&tx).await?;
-    let Some(epoch) = epoch(&tx, owner, false).await? else {
+    enqueue_in(&tx, id, owner, data, event).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// [`enqueue`] on a transaction that already holds [`lock`]: written with
+/// it, or not at all.
+pub(super) async fn enqueue_in(
+    tx: &sea_orm::DatabaseTransaction,
+    id: &str,
+    owner: i32,
+    data: Payload,
+    event: Option<&str>,
+) -> anyhow::Result<()> {
+    let now = now(tx).await?;
+    let Some(epoch) = epoch(tx, owner, false).await? else {
         return Ok(());
     };
-    let persona = super::get_persona_on(&tx).await?.map(|row| row.updated_at);
-    let her = Her::now(&tx).await?;
+    let persona = super::get_persona_on(tx).await?.map(|row| row.updated_at);
+    let her = Her::now(tx).await?;
     if let Some(event) = event {
-        if registry::get::<bool>(&tx, EVENTS, event).await?.is_some() {
+        if registry::get::<bool>(tx, EVENTS, event).await?.is_some() {
             return Ok(());
         }
     }
-    let mut existing = registry::get::<Job>(&tx, NAMESPACE, id).await?;
+    let by_asked = data.by_what_they_asked();
+    let space = if by_asked { ASKED_NAMESPACE } else { NAMESPACE };
+    let mut existing = registry::get::<Job>(tx, space, id).await?;
     if existing.as_ref().is_some_and(|job| {
         !same_her(job, &her, persona) || job.epoch != epoch || job.owner != owner
     }) {
         existing = None;
     }
-    if existing.as_ref().is_none_or(|job| job.data.is_none()) {
+    // What they asked holds however much waits.
+    if !by_asked && existing.as_ref().is_none_or(|job| job.data.is_none()) {
         let count: i64 = tx.query_one_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
             "SELECT COUNT(*) AS count FROM runtime_registry WHERE namespace = $1 AND expires_at > $2 AND payload->'data' <> 'null'::jsonb",
             [NAMESPACE.into(), now.into()])).await?.unwrap().try_get("", "count")?;
@@ -236,27 +337,35 @@ pub(in crate::services::agent::merope) async fn enqueue(
     let unread = existing
         .as_ref()
         .and_then(|job| Some((job.unread_from?, job.unread_times)));
+    let read = existing.as_ref().and_then(|job| job.read.clone());
     let mut job = existing
         .filter(|job| job.data.is_some() || job.next.is_some())
         .unwrap_or(Job {
-        owner,
-        persona,
-        her: None,
-        epoch,
-        data: None,
-        ready: now,
-        last_arrival: now,
-        lease: 0,
-        token: None,
-        attempts: 0,
-        claimed_count: 0,
-        outcome: None,
-        next: None,
-        unread_from: None,
-        unread_times: 0,
-        brought: None,
-        said_from: None,
-    });
+            owner,
+            persona,
+            her: None,
+            epoch,
+            data: None,
+            ready: now,
+            last_arrival: now,
+            lease: 0,
+            token: None,
+            attempts: 0,
+            untold: 0,
+            untold_since: None,
+            untold_at: None,
+            claimed_count: 0,
+            outcome: None,
+            next: None,
+            unread_from: None,
+            unread_times: 0,
+            brought: None,
+            said_from: None,
+            read: None,
+        });
+    if job.read.is_none() {
+        job.read = read;
+    }
     // The same her: noted as she is now, should she have been born since.
     // Not while there is no persona: a copy may be on its way in then.
     if persona.is_some() {
@@ -274,26 +383,33 @@ pub(in crate::services::agent::merope) async fn enqueue(
             Some(Payload::Settle { from, .. }) if !in_flight => from.timestamp(),
             _ => from.timestamp(),
         };
-        let slot = if in_flight { &mut job.next } else { &mut job.data };
+        let slot = if in_flight {
+            &mut job.next
+        } else {
+            &mut job.data
+        };
         match slot {
             Some(earlier) => earlier.fold(data),
             None => *slot = Some(data),
         }
         if !in_flight {
-            let due = (now + SETTLES_AFTER).min(began + SETTLES_AT_MOST).max(now);
-            job.ready = if job.attempts == 0 {
+            let due = settle_due(job.data.as_ref(), now, began);
+            job.ready = if job.attempts == 0 && !job.not_told() {
                 due
             } else {
                 job.ready.max(due)
             };
         }
-        save(&tx, id, &job, now).await?;
-        tx.commit().await?;
+        save(tx, id, &job, now).await?;
         return Ok(());
     }
     if let Payload::Chat { .. } = data {
         let held = data.awaits_reply();
-        let slot = if in_flight { &mut job.next } else { &mut job.data };
+        let slot = if in_flight {
+            &mut job.next
+        } else {
+            &mut job.data
+        };
         match slot {
             Some(earlier) => earlier.fold(data),
             None => *slot = Some(data),
@@ -303,14 +419,13 @@ pub(in crate::services::agent::merope) async fn enqueue(
             // answer makes it ready; a failed attempt keeps its backoff.
             job.ready = if held {
                 job.ready.max(now + HELD_FOR)
-            } else if job.attempts == 0 {
+            } else if job.attempts == 0 && !job.not_told() {
                 now
             } else {
                 job.ready.max(now)
             };
         }
-        save(&tx, id, &job, now).await?;
-        tx.commit().await?;
+        save(tx, id, &job, now).await?;
         return Ok(());
     }
     match (&mut job.data, data) {
@@ -331,7 +446,7 @@ pub(in crate::services::agent::merope) async fn enqueue(
             exchanges.extend(added);
             *stranger = latest;
             *count = count_exchange(
-                &tx,
+                tx,
                 &myriad_merope::strangers::talks_key(venue, &stranger.who),
                 now,
             )
@@ -353,7 +468,7 @@ pub(in crate::services::agent::merope) async fn enqueue(
             } = &mut data
             {
                 *count = count_exchange(
-                    &tx,
+                    tx,
                     &myriad_merope::strangers::talks_key(venue, &stranger.who),
                     now,
                 )
@@ -363,10 +478,10 @@ pub(in crate::services::agent::merope) async fn enqueue(
             *slot = Some(data);
         }
     }
-    save(&tx, id, &job, now).await?;
+    save(tx, id, &job, now).await?;
     if let Some(event) = event {
         registry::put(
-            &tx,
+            tx,
             EVENTS,
             event,
             registry::RegistryIdentity {
@@ -380,7 +495,6 @@ pub(in crate::services::agent::merope) async fn enqueue(
         )
         .await?;
     }
-    tx.commit().await?;
     Ok(())
 }
 async fn count_exchange(db: &impl ConnectionTrait, id: &str, now: i64) -> anyhow::Result<i64> {
@@ -404,13 +518,18 @@ pub(in crate::services::agent::merope) async fn claim(
     let mut kept = Vec::new();
     // The shared advisory lock makes claim atomic across processes; expired
     // leases are eligible without a separate recovery pass.
-    let rows = tx.query_all_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
-        "SELECT record_id, payload FROM runtime_registry WHERE namespace = $1 AND expires_at > $2 AND payload->'data' <> 'null'::jsonb AND (payload->>'ready')::BIGINT <= $2 AND (payload->>'lease')::BIGINT <= $2 ORDER BY updated_at LIMIT 16",
-        [NAMESPACE.into(), now.into()])).await?;
-    for row in rows {
+    let mut unread: Vec<String> = Vec::new();
+    while let Some(row) = tx.query_one_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
+        "SELECT record_id, payload FROM runtime_registry WHERE namespace = ANY($1) AND expires_at > $2 AND payload->'data' <> 'null'::jsonb AND (payload->>'ready')::BIGINT <= $2 AND (payload->>'lease')::BIGINT <= $2 AND record_id <> ALL($3) ORDER BY updated_at LIMIT 1",
+        [vec![NAMESPACE.to_string(), ASKED_NAMESPACE.to_string()].into(), now.into(), unread.clone().into()])).await? {
         let id: String = row.try_get("", "record_id")?;
-        let mut job: Job = serde_json::from_value(row.try_get("", "payload")?)?;
-        if job.attempts >= MAX_ATTEMPTS {
+        let Ok(mut job) = serde_json::from_value::<Job>(row.try_get("", "payload")?) else {
+            // Another build's, or broken: left as it is, the rest go on.
+            pass_over(&id);
+            unread.push(id);
+            continue;
+        };
+        if job.attempts >= MAX_ATTEMPTS && !job.until_done() {
             // A process may die on its final attempt. Retire just its first
             // batch; exchanges appended meanwhile still deserve a turn.
             let count = job.claimed_count;
@@ -419,6 +538,7 @@ pub(in crate::services::agent::merope) async fn claim(
             if matches!(job.data, Some(Payload::Settle { .. })) && current(&tx, &job, true).await? {
                 kept.extend(settling::leave_unread(&tx, &mut job).await?);
             }
+            judge_lines(&tx, &job).await?;
             consume(&mut job, count, now, "attempts_exhausted");
             job.brought = None;
             promote_next(&mut job, now);
@@ -429,7 +549,7 @@ pub(in crate::services::agent::merope) async fn claim(
             Some(Payload::Stranger { exchanges, .. }) => exchanges.len().min(8),
             _ => 0,
         };
-        job.attempts += 1;
+        job.attempts = job.attempts.saturating_add(1);
         job.lease = now + LEASE;
         job.token = Some(uuid::Uuid::new_v4().to_string());
         settling::bring_along(&mut job);
@@ -439,7 +559,8 @@ pub(in crate::services::agent::merope) async fn claim(
         }
         tx.commit().await?;
         on_nodes_meanwhile(db, kept);
-        return Ok(Some(Claim { id, job }));
+        let gives_up = job.gives_up(now);
+        return Ok(Some(Claim { id, job, gives_up }));
     }
     tx.commit().await?;
     on_nodes_meanwhile(db, kept);
@@ -476,6 +597,9 @@ pub(in crate::services::agent::merope) async fn current(
     job: &Job,
     locked: bool,
 ) -> anyhow::Result<bool> {
+    if (job.data.as_ref()).is_some_and(Payload::only_holds_to_it) {
+        return Ok(true);
+    }
     if locked {
         // Fence direct row updates as well as the coordinated reset path.
         db.query_one_raw(Statement::from_string(
@@ -490,14 +614,31 @@ pub(in crate::services::agent::merope) async fn current(
     {
         return Ok(false);
     }
+    // Lines of a stretch that could not be read are kept for good, as a
+    // stretch is: not fenced by lines gone over since.
     if let Some(Payload::Chat {
-        input_at, present, ..
+        input_at,
+        present,
+        for_good: false,
+        ..
     }) = &job.data
     {
         return Ok(super::chat_memory_input_is_current(db, job.owner, *input_at, present).await?);
     }
     Ok(true)
 }
+/// When a stretch that `began` then is gone over: once they go quiet, but
+/// never past a while after it began; in a private talk at once when its
+/// box is full (`myriad_merope::settle_raw::box_is_full`).
+fn settle_due(data: Option<&Payload>, now: i64, began: i64) -> i64 {
+    let full = matches!(data, Some(Payload::Settle { present, .. }) if !present.is_group())
+        && data.is_some_and(|data| myriad_merope::settle_raw::box_is_full(data.waiting()));
+    if full {
+        return now;
+    }
+    (now + SETTLES_AFTER).min(began + SETTLES_AT_MOST).max(now)
+}
+
 /// Once what was gone over is done, what arrived meanwhile is next.
 fn promote_next(job: &mut Job, now: i64) {
     let Some(next) = job.next.take() else {
@@ -508,8 +649,8 @@ fn promote_next(job: &mut Job, now: i64) {
         None => {
             job.ready = if next.awaits_reply() {
                 now + HELD_FOR
-            } else if matches!(next, Payload::Settle { .. }) {
-                now + SETTLES_AFTER
+            } else if let Payload::Settle { from, .. } = &next {
+                settle_due(Some(&next), now, from.timestamp())
             } else {
                 now
             };
@@ -529,6 +670,7 @@ fn consume(job: &mut Job, count: usize, now: i64, outcome: &str) {
     }
     job.said_from = None;
     job.attempts = 0;
+    job.told();
     job.token = None;
     job.lease = 0;
     job.ready = match &job.data {
@@ -543,6 +685,18 @@ fn consume(job: &mut Job, count: usize, now: i64, outcome: &str) {
 #[path = "memory_jobs_finish.rs"]
 mod finishing;
 pub(in crate::services::agent::merope) use finishing::finish;
+
+#[path = "memory_jobs_forgetting.rs"]
+mod forgetting;
+pub(in crate::services::agent) use forgetting::forget_holding;
+
+#[path = "memory_jobs_asked.rs"]
+mod asked;
+use asked::{judge_lines, judge_old};
+
+#[path = "memory_jobs_hurry.rs"]
+mod hurrying;
+pub(in crate::services::agent::merope) use hurrying::{WaitingFor, hurry, waiting_for};
 
 #[path = "memory_jobs_settling.rs"]
 pub(in crate::services::agent) mod settling;
