@@ -38,6 +38,10 @@ mod page_tests;
 #[path = "deputy_tests.rs"]
 mod deputy_tests;
 
+/// Kept payloads opened together: what one at a time gave.
+#[path = "bodies_tests.rs"]
+mod bodies_tests;
+
 const OWNER: i32 = 41;
 /// The partner's private talk: `personal:<partner id>` ([`PARTNER`]).
 const PERSONAL: &str = "personal:partner_019b76daa80000112233445566778899";
