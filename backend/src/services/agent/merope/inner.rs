@@ -397,17 +397,17 @@ pub(crate) fn threads_probe_contract(soul: &str) -> (String, Value) {
     private_contract(soul)
 }
 
-/// (inner, kept threads as (about, dueInHours), done indexes), if the
-/// reflection honors the contract.
+/// (inner, what the kept threads are about, done indexes), if the reflection
+/// honors the contract.
 #[cfg(test)]
-pub(crate) fn parse_threads(raw: &str) -> Option<(String, Vec<(String, Option<i64>)>, Vec<usize>)> {
+pub(crate) fn parse_threads(raw: &str) -> Option<(String, Vec<String>, Vec<usize>)> {
     parse_reflection(raw).map(|reflected| {
         (
             reflected.inner,
             reflected
                 .keep
                 .into_iter()
-                .map(|kept| (kept.about, kept.due_in_hours))
+                .map(|kept| kept.about)
                 .collect(),
             reflected.done,
         )
@@ -597,11 +597,11 @@ pub(super) mod tests {
         assert!(!system_for("你是小灯。", false).contains("openThreads"));
         assert_eq!(schema_for(false), super::schema());
         let (inner, kept, done) = parse_threads(
-            r#"{"inner":"有点替他紧张。","keep":[{"about":"考试","then":"问他考得怎么样","dueInHours":30}],"done":[0],"wrong":null}"#,
+            r#"{"inner":"有点替他紧张。","keep":[{"about":"考试","then":"问他考得怎么样","when":"at","inHours":12}],"done":[0],"wrong":null}"#,
         )
         .unwrap();
         assert_eq!(inner, "有点替他紧张。");
-        assert_eq!(kept, vec![("考试".to_string(), Some(30))]);
+        assert_eq!(kept, vec!["考试".to_string()]);
         assert_eq!(done, vec![0]);
         assert!(system.contains("not a difference of taste or opinion"));
         let wrong = parse_reflection(

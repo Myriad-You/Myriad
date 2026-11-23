@@ -10,7 +10,8 @@
 //! with them, and apart from ordinary memory. They are what she brings up
 //! when they talk, what she opens with when they come back, and a reason to
 //! write to them first when they are away (see `reach`). A thread past its
-//! time by a few days, or undated and untouched for two weeks, fades.
+//! time by a few days, or undated and untouched for two weeks, fades; one
+//! that had to be done by a time goes when that time has passed.
 //!
 //! A group has its own: after answering someone there she notices, the same
 //! way, what she would come back to in that group (someone there has an
@@ -24,6 +25,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::services::agent::memory::unified::{self, Audience, Concept};
+use myriad_merope::inner::{Due, MAX_DUE_HOURS, When};
 use myriad_merope::threads::{MAX_ABOUT_CHARS, MAX_OPEN, MAX_THEN_CHARS};
 pub use myriad_merope::threads::{Thread, section};
 use std::collections::HashSet;
@@ -56,8 +58,48 @@ fn thread_of(row: &crate::models::entities::agent_memories::Model) -> Option<Thr
     })
 }
 
+/// What a thread's row keeps beside what she would say.
+fn evidence_of(about: &str, due: Due, hers: bool) -> Value {
+    let mut evidence =
+        json!({ "about": about, "due": due.at.map(|at| at.to_rfc3339()), "hers": hers });
+    if let Some(until) = due.until {
+        evidence["until"] = json!(until.to_rfc3339());
+    }
+    evidence
+}
+
+/// Whether what it was for had to be done by a time before `now`: a nudge
+/// is of no use any more.
+fn passed(row: &crate::models::entities::agent_memories::Model, now: DateTime<Utc>) -> bool {
+    row.evidence
+        .as_deref()
+        .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
+        .and_then(|evidence| DateTime::parse_from_rfc3339(evidence["until"].as_str()?).ok())
+        .is_some_and(|until| until <= now)
+}
+
+/// This person's threads whose time to be done by has passed fade, and her
+/// intents from them with them.
+pub async fn let_pass(db: &DatabaseConnection, user_id: i32, now: DateTime<Utc>) {
+    let ids: Vec<String> = unified::venue_source_rows(
+        db,
+        Some(user_id),
+        &Audience::private(user_id).venue(),
+        SOURCE,
+        MAX_OPEN as u64 * 2,
+    )
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .filter(|row| passed(row, now))
+    .map(|row| row.id)
+    .collect();
+    close(db, user_id, &ids, "faded").await;
+}
+
 /// What is on her mind about this person, oldest first.
 pub async fn open(db: &DatabaseConnection, user_id: i32) -> Vec<Thread> {
+    let now = super::clock::now();
     let mut threads: Vec<Thread> = unified::venue_source_rows(
         db,
         Some(user_id),
@@ -68,6 +110,7 @@ pub async fn open(db: &DatabaseConnection, user_id: i32) -> Vec<Thread> {
     .await
     .unwrap_or_default()
     .iter()
+    .filter(|row| !passed(row, now))
     .filter_map(thread_of)
     .collect();
     threads.reverse();
@@ -107,12 +150,8 @@ pub async fn keep_in_group(db: &DatabaseConnection, venue: &str, kept: &Kept, no
     let held = open_in_group(db, venue).await;
     let (replaced, crowded) = make_room(&held, &about);
     close_in_group(db, venue, &crowded, "faded").await;
-    let due = kept
-        .due_in_hours
-        .filter(|hours| (0..=24 * 60).contains(hours))
-        .map(|hours| now + chrono::Duration::hours(hours));
-    let evidence = json!({ "about": about, "due": due.map(|due| due.to_rfc3339()), "hers": false })
-        .to_string();
+    let due = kept.comes.due(now);
+    let evidence = evidence_of(&about, due, false).to_string();
     let stored = group_venue(venue);
     let kept = unified::remember_in_venue(db, &stored, &then, &evidence, SOURCE)
         .await
@@ -180,7 +219,7 @@ pub async fn wish(db: &DatabaseConnection, user_id: i32, about: &str, then: &str
     let kept = Kept {
         about: about.to_string(),
         then: then.to_string(),
-        due_in_hours: None,
+        comes: Comes::In(None),
     };
     put(db, user_id, &kept, crate::clock::now(), true, None).await;
 }
@@ -218,18 +257,15 @@ async fn put(
     if about.is_empty() || then.is_empty() {
         return;
     }
+    // One gone by makes way: the same thing to be done again is a new one.
+    let_pass(db, user_id, now).await;
     let held = open(db, user_id).await;
     let (replaced, crowded) = make_room(&held, &about);
     // Past the limit the oldest fade: nothing took their place.
     if !crowded.is_empty() {
         let _ = unified::retire(db, user_id, &crowded, "faded").await;
     }
-    let due = kept
-        .due_in_hours
-        .filter(|hours| (0..=24 * 60).contains(hours))
-        .map(|hours| now + chrono::Duration::hours(hours));
-    let mut evidence =
-        json!({ "about": about, "due": due.map(|due| due.to_rfc3339()), "hers": hers });
+    let mut evidence = evidence_of(&about, kept.comes.due(now), hers);
     if let Some(from) = from {
         evidence["from"] = json!(from);
     }
@@ -290,13 +326,65 @@ pub async fn close(db: &DatabaseConnection, user_id: i32, ids: &[String], reason
 
 /// A thread as her reflection after an exchange reports it.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(from = "Reported")]
 pub struct Kept {
     pub about: String,
     pub then: String,
-    /// Hours from now until it would be natural to bring it up; none for
-    /// whenever it fits.
-    pub due_in_hours: Option<i64>,
+    pub comes: Comes,
+}
+
+/// When it would be natural to bring it up.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Comes {
+    /// So many hours from now; none for whenever it fits. A group's.
+    In(Option<i64>),
+    /// As its moment says (`myriad_merope::inner::due`): in private.
+    From(When, Option<f64>),
+}
+
+impl Comes {
+    /// When she would bring it up, kept at `now`, and until when.
+    fn due(self, now: DateTime<Utc>) -> Due {
+        match self {
+            Self::In(hours) => Due {
+                at: hours
+                    .filter(|hours| (0..=MAX_DUE_HOURS).contains(hours))
+                    .map(|hours| now + chrono::Duration::hours(hours)),
+                until: None,
+            },
+            Self::From(when, in_hours) => {
+                myriad_merope::inner::due(when, in_hours, now, &super::clock::zone())
+            }
+        }
+    }
+}
+
+/// The shapes it answers in: in private, when the moment is; in a group, the
+/// hours until she would bring it up.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct Reported {
+    about: String,
+    then: String,
+    #[serde(default)]
+    due_in_hours: Option<i64>,
+    #[serde(default)]
+    when: Option<When>,
+    #[serde(default)]
+    in_hours: Option<f64>,
+}
+
+impl From<Reported> for Kept {
+    fn from(said: Reported) -> Self {
+        Self {
+            about: said.about,
+            then: said.then,
+            comes: match said.when {
+                Some(when) => Comes::From(when, said.in_hours),
+                None => Comes::In(said.due_in_hours),
+            },
+        }
+    }
 }
 
 /// The open threads as her reflection sees them, numbered for `done`.
@@ -308,9 +396,10 @@ pub fn as_input(threads: &[Thread]) -> Vec<Value> {
         .collect()
 }
 
-/// Threads past their time by a few days, or undated and untouched for
-/// two weeks, fade; but not those that are her intents
-/// (`memory_nodes::home_intents`): those wait for her as intents.
+/// Threads past their time by a few days, or undated and untouched for two
+/// weeks, fade; but not those that are her intents
+/// (`memory_nodes::home_intents`): those wait for her as intents. Those past
+/// the time they had to be done by fade either way.
 pub async fn let_fade(db: &DatabaseConnection) {
     let now = crate::clock::now();
     let rows = unified::active_from_source(db, SOURCE)
@@ -320,14 +409,15 @@ pub async fn let_fade(db: &DatabaseConnection) {
     let mut people = std::collections::BTreeSet::new();
     let mut intents = std::collections::HashMap::new();
     for row in rows {
+        let passed = passed(&row, now);
         let stale = match thread_of(&row).and_then(|thread| thread.due) {
             Some(due) => due + PAST_DUE < now,
             None => row.updated_at.with_timezone(&Utc) + UNDATED < now,
         };
-        if !stale {
+        if !stale && !passed {
             continue;
         }
-        if let Some(user_id) = row.user_id {
+        if let Some(user_id) = row.user_id.filter(|_| !passed) {
             if let std::collections::hash_map::Entry::Vacant(entry) = intents.entry(user_id) {
                 entry.insert(super::memory_nodes::home_intents::as_intents(db, user_id).await);
             }
@@ -397,7 +487,7 @@ mod tests {
         let exam = Kept {
             about: "阿明的考试".into(),
             then: "问阿明考得怎么样".into(),
-            due_in_hours: Some(20),
+            comes: Comes::In(Some(20)),
         };
         keep_in_group(&db, here, &exam, now).await;
         let open = open_in_group(&db, here).await;
@@ -414,7 +504,7 @@ mod tests {
         );
 
         let moved = Kept {
-            due_in_hours: Some(1),
+            comes: Comes::In(Some(1)),
             ..exam.clone()
         };
         keep_in_group(&db, here, &moved, now).await;
@@ -464,7 +554,7 @@ mod tests {
         let kept = |about: &str, then: &str| Kept {
             about: about.into(),
             then: then.into(),
-            due_in_hours: None,
+            comes: Comes::In(None),
         };
         let now = crate::clock::now();
         let venue = "telegram:-1003";
@@ -520,7 +610,19 @@ mod tests {
         let kept: Kept =
             serde_json::from_str(r#"{"about":"考试","then":"问他考得怎么样","dueInHours":30}"#)
                 .unwrap();
-        assert_eq!(kept.due_in_hours, Some(30));
+        assert_eq!(kept.comes, Comes::In(Some(30)));
+        for (when, hours, said) in [
+            (When::By, "26", Some(26.0)),
+            (When::At, "14.5", Some(14.5)),
+            (When::Whenever, "null", None),
+        ] {
+            let kept: Kept = serde_json::from_str(&format!(
+                r#"{{"about":"方案","then":"问他写完没有","when":{},"inHours":{hours}}}"#,
+                serde_json::to_string(&when).unwrap()
+            ))
+            .unwrap();
+            assert_eq!(kept.comes, Comes::From(when, said));
+        }
         assert!(
             serde_json::from_str::<Kept>(r#"{"about":"x","then":"y","dueInHours":1,"extra":1}"#)
                 .is_err()

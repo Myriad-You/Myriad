@@ -13,7 +13,7 @@ use super::talk_tests::{OTHER, schema, talk};
 use super::{audience, intents_due, write};
 use crate::models::entities::agent_memories;
 use crate::services::agent::memory::{manage, unified};
-use crate::services::agent::merope::threads::{self, Kept};
+use crate::services::agent::merope::threads::{self, Comes, Kept};
 use crate::services::channel_group::g0;
 use crate::services::her_log::pen;
 
@@ -51,7 +51,7 @@ fn kept(about: &str, then: &str, hours: Option<i64>) -> Kept {
     Kept {
         about: about.into(),
         then: then.into(),
-        due_in_hours: hours,
+        comes: Comes::In(hours),
     }
 }
 
@@ -246,6 +246,69 @@ async fn a_thread_comes_due_as_her_intent_not_the_old_way() {
     assert_eq!(intents(db).await[0].status, IntentStatus::Said);
     assert_eq!(reason(db, &exam).await.as_deref(), Some("intent_said"));
     assert!(threads::open(db, OTHER).await.is_empty());
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn what_had_to_be_done_by_a_time_gone_by_is_let_go_unsaid() {
+    let Some(schema) = schema("memory_nodes_home_until").await else {
+        return;
+    };
+    let db = &schema.db;
+    pen::reset_for_test();
+    let rent = grown(
+        db,
+        "房租这两天要交",
+        Kept {
+            about: "房租".into(),
+            then: "提醒一下房租".into(),
+            comes: Comes::From(myriad_merope::inner::When::By, Some(48.0)),
+        },
+    )
+    .await;
+    let due = threads::open(db, OTHER).await[0].due.unwrap();
+    assert!(due < now() + Duration::hours(48));
+    assert!(intents(db).await[0].waiting());
+    // She was not there to say it in time: it goes, unsaid.
+    let later = now() + Duration::hours(49);
+    g0::enter(g0::World::new(0.5));
+    assert!(intents_due::tick_at(db, later).await.is_empty());
+    let log = g0::leave().expect("a world").log;
+    assert!(
+        !log.iter()
+            .any(|line| line["what"]["operation"] == "intent_raise")
+    );
+    assert_eq!(intents(db).await[0].status, IntentStatus::Dropped);
+    assert_eq!(reason(db, &rent).await.as_deref(), Some("faded"));
+    assert!(threads::open(db, OTHER).await.is_empty());
+
+    // With no time to bring it up unasked, it goes the same way.
+    let coupon_by = |hours: f64| Kept {
+        about: "外卖".into(),
+        then: "提醒用外卖券".into(),
+        comes: Comes::From(myriad_merope::inner::When::By, Some(hours)),
+    };
+    let coupon = grown(db, "外卖券还有半小时过期", coupon_by(0.5)).await;
+    let waiting = |held: &Vec<Held>| held.iter().filter(|held| held.waiting()).count();
+    assert_eq!(waiting(&intents(db).await), 1);
+    let later = now() + Duration::hours(1);
+    g0::enter(g0::World::new(0.5));
+    assert!(intents_due::tick_at(db, later).await.is_empty());
+    g0::leave();
+    assert_eq!(waiting(&intents(db).await), 0);
+    assert_eq!(reason(db, &coupon).await.as_deref(), Some("faded"));
+
+    // A thread that is only a thread is not read once its time has passed,
+    // and the same thing to be done again is kept anew.
+    let parcel = Kept {
+        about: "快递".into(),
+        then: "提醒取快递".into(),
+        comes: Comes::From(myriad_merope::inner::When::By, Some(48.0)),
+    };
+    threads::keep(db, OTHER, &parcel, now() - Duration::hours(49)).await;
+    assert!(threads::open(db, OTHER).await.is_empty());
+    threads::keep(db, OTHER, &parcel, now()).await;
+    assert_eq!(threads::open(db, OTHER).await.len(), 1);
     schema.drop().await;
 }
 
