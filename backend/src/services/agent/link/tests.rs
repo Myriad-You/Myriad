@@ -5154,6 +5154,154 @@ async fn a_turn_worked_out_before_a_group_is_taken_back_never_puts_it_back() {
     site.close().await;
 }
 
+/// A look's done result, as the device sends it.
+fn saw_safari(call_id: &str) -> Value {
+    json!({ "callId": call_id, "action": "screen.look", "version": 1, "outcome": "done",
+            "result": { "facts": { "app": "Safari" } } })
+}
+
+#[tokio::test]
+async fn a_look_that_comes_on_a_link_already_let_go_waits_for_the_next() {
+    let _calls = calls_turn().await;
+    let Some(site) = site().await else {
+        return;
+    };
+    super::calls_pending::times_in_test(10_000, 100, 5_000);
+    let (mac, token) = device(&site.db, "Mac").await;
+    let (mut child, _) = offering(&site, &token, &["screen.look"]).await;
+    let look = || {
+        her_call(
+            &site,
+            &mac.id,
+            "screen.look",
+            json!({ "kind": "owner" }),
+            json!({}),
+        )
+    };
+    let call = look();
+    let call_id = child.expect("call.ask").await["body"]["callId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // The registry let the link go; its loop has not heard so yet, and the
+    // result reaches it first.
+    let let_go = super::OPEN.lock().unwrap().remove(&mac.id).unwrap();
+    let seq = child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            saw_safari(&call_id),
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!call.is_finished());
+    assert_eq!(super::calls_pending::waiting_on(&mac.id), 1);
+    // Nothing the link still sends acks it, so the device keeps it.
+    let sender = &let_go.calls.as_ref().unwrap().sender;
+    sender
+        .try_send(super::connection::frame("pong", json!({})))
+        .unwrap();
+    let _ = let_go.close.send(Close::Replaced);
+    let last = child.expect("pong").await;
+    assert!(last["ack"].as_u64().unwrap() < seq, "{last}");
+    assert_eq!(child.closed().await, (4003, "replaced".to_string()));
+    // On the next link, told it is granted: asked again, and answered.
+    let (mut child, _) = offering(&site, &token, &["screen.look"]).await;
+    assert_eq!(child.expect("call.ask").await["body"]["callId"], call_id);
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            saw_safari(&call_id),
+        )
+        .await;
+    assert_eq!(
+        call.await.unwrap().result,
+        Some(json!({ "facts": { "app": "Safari" } }))
+    );
+    drop(child);
+    site.close().await;
+}
+
+#[tokio::test]
+async fn a_look_asked_before_the_screen_was_taken_back_is_not_of_what_is_given_after() {
+    let _calls = calls_turn().await;
+    let Some(site) = site().await else {
+        return;
+    };
+    super::calls_pending::times_in_test(10_000, 100, 5_000);
+    let (mac, token) = device(&site.db, "Mac").await;
+    let (mut child, _) = offering(&site, &token, &["screen.look"]).await;
+    let look = || {
+        her_call(
+            &site,
+            &mac.id,
+            "screen.look",
+            json!({ "kind": "owner" }),
+            json!({}),
+        )
+    };
+    let approve = async |approved: bool| {
+        super::calls::set_approved(&site.db, OWNER, &mac.id, "screen", approved)
+            .await
+            .unwrap();
+    };
+    let not_granted = super::calls_pending::Answer::failed("call_not_granted");
+    // Taken back and given again while the device is away.
+    let call = look();
+    child.expect("call.ask").await;
+    drop(child);
+    for _ in 0..250 {
+        if !super::is_open(&mac.id) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(!super::is_open(&mac.id));
+    approve(false).await;
+    assert_eq!(call.await.unwrap(), not_granted);
+    approve(true).await;
+    let (mut child, _) = offering(&site, &token, &["screen.look"]).await;
+    // Not asked again.
+    nothing_else(&mut child).await;
+
+    // Taken back and given again at once, the device linked.
+    let call = look();
+    let call_id = child.expect("call.ask").await["body"]["callId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    approve(false).await;
+    approve(true).await;
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            saw_safari(&call_id),
+        )
+        .await;
+    assert_eq!(call.await.unwrap(), not_granted);
+    // One asked now is of what is granted now.
+    let call = look();
+    let call_id = until(&mut child, "call.ask").await["body"]["callId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    child
+        .send(
+            "call.result",
+            Some(&format!("{call_id}.result")),
+            saw_safari(&call_id),
+        )
+        .await;
+    assert_eq!(
+        call.await.unwrap().result,
+        Some(json!({ "facts": { "app": "Safari" } }))
+    );
+    drop(child);
+    site.close().await;
+}
+
 /// Her calls to `device_id` kept so far, once there are `n`.
 async fn kept_calls(site: &Site, n: usize) -> Vec<super::calls_store::Kept> {
     for _ in 0..200 {

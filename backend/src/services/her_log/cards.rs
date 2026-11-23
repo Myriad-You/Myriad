@@ -2,7 +2,9 @@
 //! puts before the owner is a `card.version` row, and each answer of theirs
 //! a `card.answered` row, in the owner's private audience
 //! (`personal:<partner id>`), while the log is on, the owner syncs it, and
-//! every side of theirs reads `log4` ([`READS`]).
+//! every side of theirs reads `log4` ([`READS`]); a card that says what
+//! comes of its answers, or of none, once every side reads `log6`
+//! ([`READS_MORE`]).
 //!
 //! - A version's row goes under the site's own name for that version, so
 //!   an answer another side writes to it (`version`: that row's id) finds it
@@ -28,15 +30,44 @@ use super::{Error, NODE, Owner, keys, store};
 
 /// The core ABI that reads card rows.
 pub(crate) const READS: u32 = 4;
+/// The core ABI that reads a card that says what comes of its answers
+/// (`cards::says_more`): a side below it would get no rows of the audience
+/// while one is to go.
+pub(crate) const READS_MORE: u32 = 6;
 
-/// `user`'s account as a side of her log, when their card rows go into it
+/// `user`'s account as a side of her log, when `card`'s version goes into it
 /// now.
+pub(crate) async fn card_into_log(
+    db: &DatabaseConnection,
+    user: i32,
+    card: &CardVersion,
+) -> Result<Option<Owner>, Error> {
+    let card =
+        serde_json::to_value(card).map_err(|_| Error::Refused("a card does not write".into()))?;
+    let reads = if myriad_nodes::cards::says_more(&card) {
+        READS_MORE
+    } else {
+        READS
+    };
+    into_log_read_by(db, user, reads).await
+}
+
+/// `user`'s account as a side of her log, when their answers to cards go
+/// into it now.
 pub(crate) async fn into_log(db: &DatabaseConnection, user: i32) -> Result<Option<Owner>, Error> {
+    into_log_read_by(db, user, READS).await
+}
+
+async fn into_log_read_by(
+    db: &DatabaseConnection,
+    user: i32,
+    reads: u32,
+) -> Result<Option<Owner>, Error> {
     if !super::currently_enabled()
         || !store::account(db, user)
             .await?
             .is_some_and(|account| account.on())
-        || !super::relay::every_side_reads(db, user, READS).await?
+        || !super::relay::every_side_reads(db, user, reads).await?
     {
         return Ok(None);
     }

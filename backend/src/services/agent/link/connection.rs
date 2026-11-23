@@ -265,6 +265,7 @@ pub(super) async fn serve_with(
         keeps_log: false,
         lends: None,
         core_refused: HashSet::new(),
+        let_go: false,
     };
     tracing::info!(device = %link.device.id, "[link] opened");
     let ended = link.run(sink, stream, rx, closed).await;
@@ -287,7 +288,7 @@ pub(super) async fn serve_with(
         device = %link.device.id,
         why = ended.why(),
         code = %ended.code(),
-        reason = %ended.reason(),
+        reason = ?ended.reason(),
         "[link] closed"
     );
     ended
@@ -315,6 +316,9 @@ struct Link {
     moods: Option<tokio::task::AbortHandle>,
     /// This link in the registry.
     registered: u64,
+    /// It is not the device's link any more, and a frame of it was left
+    /// unread for the next one: it ends, saying why it was let go.
+    let_go: bool,
     /// The child said it takes `say`.
     takes_say: bool,
     /// The child said it takes `playback`: her director's refinements of
@@ -497,12 +501,12 @@ impl Link {
                     why
                 }
                 _ = keep.tick(), if self.live.is_some() => {
-                    self.keep_conversations().await;
+                    self.conversations_step().await;
                     None
                 }
                 heard = changed.recv(), if self.live.is_some() => {
                     if self.changed_for_me(heard, &mut changed) {
-                        self.keep_conversations().await;
+                        self.conversations_step().await;
                     }
                     None
                 }
@@ -513,6 +517,15 @@ impl Link {
                     None
                 }
             };
+            let why = if self.let_go {
+                let why = (&mut closed).await.unwrap_or(Close::Unavailable);
+                while let Ok(outgoing) = rx.try_recv() {
+                    self.queue.push(outgoing);
+                }
+                Some(why)
+            } else {
+                why
+            };
             let queued = std::mem::take(&mut self.queue);
             for outgoing in queued {
                 if !self.send(&mut sink, outgoing).await {
@@ -520,12 +533,14 @@ impl Link {
                 }
             }
             if let Some(why) = why {
+                let began = Instant::now();
                 let _ = sink
                     .send(Message::Close(Some(CloseFrame {
                         code: why.code(),
                         reason: why.name().into(),
                     })))
                     .await;
+                self.sending_held_up("close", began);
                 return Ended::Here(why);
             }
         }
@@ -561,9 +576,29 @@ impl Link {
         if let Err(refusal) = super::contract::core_check(&envelope) {
             tracing::warn!(t = outgoing.t, code = %refusal.code, detail = %refusal.detail, "[link] the shared core refuses a frame the host sends");
         }
-        sink.send(Message::Text(envelope.to_string().into()))
+        let began = Instant::now();
+        let sent = sink
+            .send(Message::Text(envelope.to_string().into()))
             .await
-            .is_ok()
+            .is_ok();
+        self.sending_held_up(outgoing.t, began);
+        sent
+    }
+
+    /// Logs a send the other side did not take for long: its socket is full.
+    fn sending_held_up(&self, t: &str, began: Instant) {
+        if let Some(took_ms) = held_up(began) {
+            tracing::info!(device = %self.device.id, t, took_ms, "[link] sending a frame held the link up");
+        }
+    }
+
+    /// Her conversations kept, as a step of the link's loop.
+    async fn conversations_step(&mut self) {
+        let began = Instant::now();
+        self.keep_conversations().await;
+        if let Some(took_ms) = held_up(began) {
+            tracing::info!(device = %self.device.id, took_ms, "[link] her conversations held the link up");
+        }
     }
 
     fn reply(&mut self, outgoing: Outgoing) {
@@ -736,7 +771,8 @@ impl Link {
             self.error("bad_frame", None);
             return None;
         };
-        self.heard = self.heard.max(inbound.seq);
+        let heard = self.heard;
+        self.heard = heard.max(inbound.seq);
         let kept = self.acked(inbound.ack);
         if !kept.is_empty() {
             crate::services::her_log::lend::keep(
@@ -806,7 +842,11 @@ impl Link {
             | "call.progress" | "call.event"
                 if self.calls =>
             {
-                self.call_frame(text, inbound).await
+                if !self.call_frame(text, inbound).await {
+                    // Not acked, so the child sends it again.
+                    self.heard = heard;
+                    self.let_go = true;
+                }
             }
             "ping" => self.reply(frame("pong", json!({}))),
             "ack" | "pong" => {}
@@ -2149,15 +2189,15 @@ impl Link {
         }
     }
 
-    /// `act.result`: what became of a request to act.
     /// A frame of the call family from a child that listed `calls`, as the
-    /// shared core reads it: one it refuses is a bad frame.
-    async fn call_frame(&mut self, text: &str, inbound: Inbound) {
+    /// shared core reads it: one it refuses is a bad frame. `false` when it
+    /// was left unread for the device's next link.
+    async fn call_frame(&mut self, text: &str, inbound: Inbound) -> bool {
         let read = serde_json::from_str::<Value>(text)
             .is_ok_and(|frame| super::contract::core_check(&frame).is_ok());
         if !read {
             self.error("bad_frame", Some(inbound.seq));
-            return;
+            return true;
         }
         match inbound.t.as_str() {
             "call.offer" => {
@@ -2176,7 +2216,13 @@ impl Link {
             }
             // How one of her calls came out, and a long one taken.
             "call.result" => {
-                super::calls_pending::result(&self.db, &self.device.id, &inbound.body).await
+                return super::calls_pending::result(
+                    &self.db,
+                    &self.device.id,
+                    self.registered,
+                    &inbound.body,
+                )
+                .await;
             }
             "call.accepted" => super::calls_pending::accepted(&self.device.id, &inbound.body),
             // Where a long one is, and pieces of a result that comes whole
@@ -2184,8 +2230,10 @@ impl Link {
             // the host: nothing to stop.
             _ => {}
         }
+        true
     }
 
+    /// `act.result`: what became of a request to act.
     async fn act_result(&mut self, inbound: Inbound) {
         let seq = inbound.seq;
         let Some(id) = inbound.id.filter(|id| valid_id(id)) else {

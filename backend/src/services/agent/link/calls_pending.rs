@@ -6,9 +6,10 @@
 //! the host counts a call timed out a minute after it. A call sent on a link
 //! that went away is sent again, same callId and deadline, once the device
 //! links again and was told what it is granted. When the owner takes an
-//! action back, its calls never sent end `call_not_granted`; a long one sent
-//! is cancelled, and whatever comes of a sent one is what happened. One that
-//! ends `unknown` is never done again by itself. Every call is one row
+//! action back, its calls never sent end `call_not_granted`, and so does a
+//! short look already sent (`calls.seen`), the device linked or not; a long
+//! one sent is cancelled, and whatever comes of any other sent one is what
+//! happened. One that ends `unknown` is never done again by itself. Every call is one row
 //! (`calls_store`); a result that comes after the call was counted timed
 //! out changes that row. Nothing of what was asked, what came back or what
 //! the device said is kept or logged: an outcome and a code.
@@ -22,6 +23,7 @@ use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
+use super::calls::Action;
 use super::calls_store::{self, Outcome, Record};
 use super::connection::{Outgoing, frame};
 
@@ -96,6 +98,7 @@ impl Answer {
 }
 
 struct Pending {
+    owner: i32,
     device_id: String,
     action: String,
     version: u64,
@@ -344,6 +347,7 @@ async fn asking(
         all.insert(
             call_id.to_string(),
             Pending {
+                owner,
                 device_id: device_id.to_string(),
                 action: action.to_string(),
                 version: spec.version,
@@ -461,65 +465,128 @@ fn answer_of(action: &str, version: u64, body: &Value) -> Answer {
     }
 }
 
-/// What a seen action's done result comes to once the action is no longer
-/// granted to the device (contract `calls.seen`: the screen, a picture, a
-/// recording): `call_not_granted`, and what it carries is dropped unread.
-/// `None` for any other result, read as it says.
-fn withheld(device_id: &str, action: &str, version: u64, body: &Value) -> Option<Answer> {
-    (body["outcome"].as_str() == Some("done")
-        && myriad_her_link::call_seen(action)
-        && !super::granted_now(device_id, action, version))
-    .then(|| {
-        tracing::info!(device = %device_id, %action, "[link] what a device saw came after the owner took it back: not kept");
-        Answer::failed("call_not_granted")
-    })
+/// Whether a result says what a device saw (contract `calls.seen`: the
+/// screen, a picture, a recording).
+fn saw(action: &str, body: &Value) -> bool {
+    body["outcome"].as_str() == Some("done") && myriad_her_link::call_seen(action)
 }
 
-/// A device answered one of her calls (`call.result`). Only the device it
-/// was asked of answers it; one that comes after the call was counted timed
-/// out changes its row to what happened. What a device saw is kept only
-/// while the action is granted to it (`withheld`).
-pub(super) async fn result(db: &DatabaseConnection, device_id: &str, body: &Value) {
-    let Some(call_id) = body["callId"].as_str() else {
-        return;
+/// What a result that came on the device's link comes to, with what that
+/// link is granted now: what a device saw of an action taken back is
+/// `call_not_granted`, and what it carries is dropped unread; any other is
+/// read as it says.
+fn read(device_id: &str, granted: &[Action], action: &str, version: u64, body: &Value) -> Answer {
+    let grants = || {
+        granted
+            .iter()
+            .any(|one| one.name == action && one.version == version)
     };
+    if saw(action, body) && !grants() {
+        tracing::info!(device = %device_id, %action, "[link] what a device saw came after the owner took it back: not kept");
+        return Answer::failed("call_not_granted");
+    }
+    answer_of(action, version, body)
+}
+
+/// What became of a `call.result`.
+enum Came {
+    /// What the device saw, on a link that is not its link any more: what it
+    /// is granted there says nothing of what it is granted now. Left as if
+    /// it had not come: it comes again on the device's next link, once that
+    /// is told what it is granted (contract `calls.seen`).
+    Left,
+    /// The answer of a call that waited.
+    Answered(Option<oneshot::Sender<Answer>>, Answer),
+    /// What came of one counted timed out; its row, when that is to be
+    /// written now.
+    Late(Option<Record>),
+    /// Of no call that waits.
+    Nothing,
+}
+
+/// A `call.result` for `call_id` from the device, on a link `granted` so much
+/// now, or (`None`) that is not its link any more (under the registry's lock,
+/// so what is read is of what is granted as it is taken).
+fn came(device_id: &str, call_id: &str, granted: Option<&[Action]>, body: &Value) -> Came {
+    let left = |action: &str| granted.is_none() && saw(action, body);
+    let granted = granted.unwrap_or_default();
     let waiting = pending(|all| {
-        let ours = all
-            .get(call_id)
-            .is_some_and(|one| one.device_id == device_id);
-        if ours { all.remove(call_id) } else { None }
-    });
-    if let Some(mut one) = waiting {
-        let answer = withheld(device_id, &one.action, one.version, body)
-            .unwrap_or_else(|| answer_of(&one.action, one.version, body));
-        if let Some(waits) = one.answer.take() {
-            let _ = waits.send(answer);
+        let one = all.get(call_id).filter(|one| one.device_id == device_id)?;
+        if left(&one.action) {
+            return Some(Came::Left);
         }
-        return;
+        let mut one = all.remove(call_id)?;
+        let answer = read(device_id, granted, &one.action, one.version, body);
+        Some(Came::Answered(one.answer.take(), answer))
+    });
+    if let Some(waiting) = waiting {
+        return waiting;
     }
     // Its timed-out row not written yet: held for when it is.
-    let late = timed_out(|all| {
-        let one = all
+    timed_out(|all| {
+        let Some(one) = all
             .get_mut(call_id)
-            .filter(|one| one.record.device_id == device_id && !one.record.late)?;
-        let answer = withheld(device_id, &one.record.action, one.record.version, body)
-            .unwrap_or_else(|| answer_of(&one.record.action, one.record.version, body));
+            .filter(|one| one.record.device_id == device_id && !one.record.late)
+        else {
+            return Came::Nothing;
+        };
+        if left(&one.record.action) {
+            return Came::Left;
+        }
+        let answer = read(
+            device_id,
+            granted,
+            &one.record.action,
+            one.record.version,
+            body,
+        );
         one.record.outcome = answer.outcome;
         one.record.ended_at = crate::clock::now();
         one.record.late = true;
         tracing::info!(device = %device_id, action = %one.record.action, outcome = answer.outcome.name(), "[link] her call to a device came back after it was counted timed out");
-        if one.kept {
+        Came::Late(if one.kept {
             all.remove(call_id).map(|one| one.record)
         } else {
             None
-        }
-    });
-    let Some(record) = late else {
-        return;
+        })
+    })
+}
+
+/// A device answered one of her calls (`call.result`) on its link `link`.
+/// Only the device it was asked of answers it; one that comes after the call
+/// was counted timed out changes its row to what happened. `false` when it
+/// was left unread ([`Came::Left`]): it is not to be acked either, so it
+/// comes again.
+pub(super) async fn result(
+    db: &DatabaseConnection,
+    device_id: &str,
+    link: u64,
+    body: &Value,
+) -> bool {
+    let Some(call_id) = body["callId"].as_str() else {
+        return true;
     };
-    if let Err(error) = calls_store::record(db, &record).await {
-        tracing::warn!(%error, device = %device_id, "[link] what came of her call after all is not kept");
+    let came = super::granted_on(device_id, link, |granted| {
+        came(device_id, call_id, granted, body)
+    });
+    match came {
+        Came::Left => {
+            tracing::info!(device = %device_id, "[link] what a device saw came on a link it has left: waits for its next");
+            return false;
+        }
+        Came::Answered(waits, answer) => {
+            if let Some(waits) = waits {
+                let _ = waits.send(answer);
+            }
+        }
+        Came::Late(Some(record)) => {
+            if let Err(error) = calls_store::record(db, &record).await {
+                tracing::warn!(%error, device = %device_id, "[link] what came of her call after all is not kept");
+            }
+        }
+        Came::Late(None) | Came::Nothing => {}
     }
+    true
 }
 
 /// A device has one of her long calls (`call.accepted`).
@@ -541,13 +608,13 @@ pub(super) fn accepted(device_id: &str, body: &Value) {
 /// `sender` (under the registry's lock, right after `call.granted`). Its
 /// calls of an action not granted now and never sent end `call_not_granted`;
 /// so does a short one sent of a seen action (`calls.seen`), whose result
-/// would not be kept now (`withheld`); a long one sent is cancelled. Those
+/// would not be kept now (`read`); a long one sent is cancelled. Those
 /// sent on an earlier link and granted now go again, same callId and
 /// deadline, unless their deadline has passed.
 pub(super) fn regranted(
     device_id: &str,
     link: u64,
-    granted: &[super::calls::Action],
+    granted: &[Action],
     sender: &mpsc::Sender<Outgoing>,
 ) {
     let mut dropped = Vec::new();
@@ -577,6 +644,31 @@ pub(super) fn regranted(
         })
     });
     for waits in dropped {
+        let _ = waits.send(Answer::failed("call_not_granted"));
+    }
+}
+
+/// The owner takes `group` back for their device, linked or not (under the
+/// registry's lock): its short looks already sent end now, `call_not_granted`.
+/// What is granted later is not for what was asked before, whether the
+/// device was away meanwhile or it is granted again at once.
+pub(super) fn withdrawn(owner: i32, device_id: &str, group: &str) {
+    let mut ended = Vec::new();
+    pending(|all| {
+        all.retain(|_, one| {
+            let ends = one.owner == owner
+                && one.device_id == device_id
+                && one.link.is_some()
+                && !one.long
+                && myriad_her_link::call_seen(&one.action)
+                && myriad_her_link::call_spec(&one.action).is_some_and(|spec| spec.group == group);
+            if ends {
+                ended.extend(one.answer.take());
+            }
+            !ends
+        });
+    });
+    for waits in ended {
         let _ = waits.send(Answer::failed("call_not_granted"));
     }
 }
@@ -746,6 +838,7 @@ mod tests {
             all.insert(
                 call_id.into(),
                 Pending {
+                    owner: 1,
                     device_id: device_id.into(),
                     action: "screen.look".into(),
                     version: 1,
@@ -789,6 +882,7 @@ mod tests {
             all.insert(
                 "call_expired".into(),
                 Pending {
+                    owner: 1,
                     device_id: "dev_expired".into(),
                     action: "screen.look".into(),
                     version: 1,
@@ -821,27 +915,100 @@ mod tests {
             .any(|one| one.device_id == "dev_removed")));
     }
 
+    fn granting(name: &str) -> [Action; 1] {
+        [Action {
+            name: name.into(),
+            version: 1,
+        }]
+    }
+
     #[test]
     fn what_a_device_saw_is_kept_only_while_it_is_granted_there() {
-        // No link of this device is granted anything now.
-        let done = json!({ "outcome": "done", "result": { "facts": { "app": "Mail" } } });
+        let done = said(json!({ "outcome": "done", "result": { "facts": { "app": "Mail" } } }));
+        let of_look = |granted: &[Action]| read("dev_look", granted, "screen.look", 1, &done);
+        assert_eq!(of_look(&[]), Answer::failed("call_not_granted"));
         assert_eq!(
-            withheld("dev_not_linked", "screen.look", 1, &done),
-            Some(Answer::failed("call_not_granted"))
+            of_look(&granting("notify.post")),
+            Answer::failed("call_not_granted")
+        );
+        assert_eq!(
+            of_look(&granting("screen.look")).result,
+            Some(json!({ "facts": { "app": "Mail" } }))
         );
         // What happened is read as it says: a notification shown, or a look
         // that did not see anything.
+        let shown = json!({ "action": "notify.post", "version": 1, "outcome": "done", "result": { "shown": true } });
         assert_eq!(
-            withheld(
-                "dev_not_linked",
-                "notify.post",
-                1,
-                &json!({ "outcome": "done", "result": { "shown": true } })
-            ),
-            None
+            read("dev_look", &[], "notify.post", 1, &shown).outcome,
+            Outcome::Done
         );
-        let failed = json!({ "outcome": "failed", "error": { "code": "not_now" } });
-        assert_eq!(withheld("dev_not_linked", "screen.look", 1, &failed), None);
+        let failed = said(json!({ "outcome": "failed", "error": { "code": "not_now" } }));
+        assert_eq!(
+            read("dev_look", &[], "screen.look", 1, &failed),
+            Answer::failed("not_now")
+        );
+    }
+
+    #[tokio::test]
+    async fn what_a_device_saw_on_a_link_it_left_waits_for_its_next() {
+        let done = said(json!({ "outcome": "done", "result": { "facts": { "app": "Mail" } } }));
+        let mut look = waiting("call_left", "dev_left", Some(1));
+        // Not its link any more: not taken, so not answered wrongly either.
+        assert!(matches!(
+            came("dev_left", "call_left", None, &done),
+            Came::Left
+        ));
+        assert!(look.try_recv().is_err());
+        assert_eq!(waiting_on("dev_left"), 1);
+        // Not this device's: nothing of it.
+        assert!(matches!(
+            came("dev_other", "call_left", None, &done),
+            Came::Nothing
+        ));
+        // On its next link, granted there: read.
+        let next = granting("screen.look");
+        let Came::Answered(_, answer) = came("dev_left", "call_left", Some(&next), &done) else {
+            panic!("it is answered");
+        };
+        assert_eq!(answer.outcome, Outcome::Done);
+        // What did not see anything is what happened, whichever link it came on.
+        let _declined = waiting("call_left_2", "dev_left", Some(1));
+        let failed = said(json!({ "outcome": "failed", "error": { "code": "declined" } }));
+        assert!(matches!(
+            came("dev_left", "call_left_2", None, &failed),
+            Came::Answered(_, answer) if answer == Answer::failed("declined")
+        ));
+        assert_eq!(waiting_on("dev_left"), 0);
+    }
+
+    #[tokio::test]
+    async fn a_group_taken_back_ends_its_short_looks_sent_and_nothing_else() {
+        let look = waiting("call_taken_back", "dev_away", Some(1));
+        let others = [
+            ("call_never_sent_3", "dev_away", None),
+            ("call_other_device", "dev_here", Some(1)),
+        ]
+        .map(|(id, device, link)| waiting(id, device, link));
+        let notice = waiting("call_notice", "dev_away", Some(1));
+        let theirs = waiting("call_theirs", "dev_away", Some(1));
+        pending(|all| {
+            all.get_mut("call_notice").unwrap().action = "notify.post".into();
+            all.get_mut("call_theirs").unwrap().owner = 2;
+        });
+        // Its link gone or not, and whatever is granted next.
+        withdrawn(1, "dev_away", "notify");
+        assert!(pending(|all| all.contains_key("call_taken_back")));
+        withdrawn(1, "dev_away", "screen");
+        assert_eq!(look.await.unwrap(), Answer::failed("call_not_granted"));
+        for id in [
+            "call_never_sent_3",
+            "call_other_device",
+            "call_notice",
+            "call_theirs",
+        ] {
+            assert!(pending(|all| all.remove(id).is_some()), "{id}");
+        }
+        drop((others, notice, theirs));
     }
 
     #[test]

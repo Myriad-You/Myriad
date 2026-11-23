@@ -7,7 +7,8 @@ use super::contract::Close;
 /// The longest text of the other side's a log line takes.
 const REASON_CHARS: usize = 120;
 
-/// A run of token characters this long is not logged: it may be a credential.
+/// A run of token characters this long is not logged: it may be a credential
+/// (base64, with or without padding, a JWT, or one percent-encoded).
 const TOKEN_CHARS: usize = 24;
 
 /// WebSocket's own number for a close frame that carries none.
@@ -88,7 +89,7 @@ fn loggable(text: &str) -> String {
         run.clear();
     };
     for c in text.chars() {
-        if c.is_ascii_alphanumeric() || matches!(c, '_' | '-') {
+        if c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '+' | '/' | '=' | '.' | '~' | '%') {
             run.push(c);
         } else {
             flush(&mut run, &mut out);
@@ -156,6 +157,13 @@ mod tests {
             loggable(&format!("Bearer myr_{secret}, bye")),
             "Bearer [redacted], bye"
         );
+        for secret in [
+            "q83vASNFZ4mrze8BI0Vn/iasze8BI0VniavN7w==",
+            "eyJhbGciOiJ.eyJzdWIiOiI.SflKxwRJSMe",
+            "a1b2%2Bc3d4%2Fe5f6%3Dg7h8~",
+        ] {
+            assert_eq!(loggable(&format!("no {secret}")), "no [redacted]");
+        }
         // Cut short only after that: no part of one is left at the end.
         let late = loggable(&format!("{} {secret}", "词".repeat(110)));
         assert!(!late.contains("kkk"), "{late}");

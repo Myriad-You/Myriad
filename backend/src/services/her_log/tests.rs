@@ -4071,6 +4071,32 @@ async fn her_cards_go_into_her_log_and_answers_from_the_mac_count_here() {
         1
     );
 
+    // A card that says what happens with no answer: a core of ABI 4 would
+    // get no row at all while it is to go, so it stays on the site until
+    // every side reads log6. A plain one still goes.
+    let mut idle = card("n_task_4", "先发哪一篇", None);
+    idle.idle = Some("没有回答就先发短的那篇".into());
+    let logged = async |id: &str| {
+        let object = format!("card:{id}");
+        store::rows(db, OWNER, PERSONAL)
+            .await
+            .unwrap()
+            .iter()
+            .filter(|row| row.kind == "card.version" && row.object == object)
+            .count()
+    };
+    cards::put(db, OWNER, idle.clone()).await.unwrap();
+    assert_eq!(logged(&idle.id).await, 0);
+    let plain = card("n_task_5", "要不要配图", None);
+    cards::put(db, OWNER, plain.clone()).await.unwrap();
+    assert_eq!(logged(&plain.id).await, 1);
+    relay::remember_side(db, OWNER, "dev_mac", super::cards::READS_MORE)
+        .await
+        .unwrap();
+    idle.title = "先发哪一篇好".into();
+    cards::put(db, OWNER, idle.clone()).await.unwrap();
+    assert_eq!(logged(&idle.id).await, 1);
+
     // Forgotten here: forgotten in her log.
     cards::forget_about(db, OWNER, &["node:n_task_2".to_string()])
         .await

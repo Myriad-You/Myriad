@@ -279,7 +279,7 @@ pub(crate) async fn put(
     })
     .map_err(|error| anyhow::anyhow!("{error}"))?
     .card;
-    let log = her_log::cards::into_log(db, owner)
+    let log = her_log::cards::card_into_log(db, owner, &card)
         .await
         .unwrap_or_else(|error| {
             tracing::warn!(%error, "[cards] whether cards go into her log is not known");

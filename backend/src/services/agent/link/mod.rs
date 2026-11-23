@@ -312,12 +312,16 @@ fn grant_calls(device_id: &str, id: u64, turn: u64, granted: Vec<calls::Action>)
 /// of it is asked there, before the decision is even written; the device
 /// is told once it is. A turn worked out before this, from what was
 /// approved then, is no longer the latest: it never puts the group back.
+/// Its looks already sent end, linked or not (`calls_pending::withdrawn`).
 fn withhold_calls(owner: i32, device_id: &str, group: &str) {
-    if let Ok(mut open) = OPEN.lock()
-        && let Some(calls) = open
-            .get_mut(device_id)
-            .filter(|link| link.owner == owner)
-            .and_then(|link| link.calls.as_mut())
+    let Ok(mut open) = OPEN.lock() else {
+        return;
+    };
+    calls_pending::withdrawn(owner, device_id, group);
+    if let Some(calls) = open
+        .get_mut(device_id)
+        .filter(|link| link.owner == owner)
+        .and_then(|link| link.calls.as_mut())
     {
         calls.turn += 1;
         if let Some(granted) = calls.granted.as_mut() {
@@ -363,20 +367,23 @@ fn send_calls_frame(device_id: &str, outgoing: connection::Outgoing) {
     }
 }
 
-/// Whether the device's link may be asked `action` at `version` now: what it
-/// was told it is granted, less what the owner is taking back. A seen action's
-/// result is kept only then (contract `calls.seen`).
-fn granted_now(device_id: &str, action: &str, version: u64) -> bool {
-    OPEN.lock().is_ok_and(|open| {
-        open.get(device_id)
-            .and_then(|link| link.calls.as_ref())
-            .and_then(|calls| calls.granted.as_ref())
-            .is_some_and(|granted| {
-                granted
-                    .iter()
-                    .any(|one| one.name == action && one.version == version)
-            })
-    })
+/// What link `link` of the device may be asked now, for `f`, the registry
+/// held meanwhile: what it was told it is granted, less what the owner is
+/// taking back; `None` when it is not the device's link any more. A seen
+/// action's result is kept only while it is granted (contract `calls.seen`).
+fn granted_on<T>(device_id: &str, link: u64, f: impl FnOnce(Option<&[calls::Action]>) -> T) -> T {
+    let Ok(open) = OPEN.lock() else {
+        return f(Some(&[]));
+    };
+    f(open
+        .get(device_id)
+        .filter(|open| open.id == link)
+        .map(|open| {
+            open.calls
+                .as_ref()
+                .and_then(|calls| calls.granted.as_deref())
+                .unwrap_or_default()
+        }))
 }
 
 /// The owner's devices whose link was told it is granted `action` now.
