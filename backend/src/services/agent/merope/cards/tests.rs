@@ -29,8 +29,12 @@ fn card(kind: &str, title: &str, actions: &[(&str, &str)]) -> CardVersion {
             .map(|(id, label)| CardAction {
                 id: (*id).into(),
                 label: (*label).into(),
+                effects: Vec::new(),
+                undo: None,
+                icon: None,
             })
             .collect(),
+        idle: None,
     }
 }
 

@@ -6732,8 +6732,12 @@ fn asking_card(title: &str) -> myriad_persona_log::payloads::CardVersion {
             .map(|(id, label)| CardAction {
                 id: (*id).into(),
                 label: (*label).into(),
+                effects: Vec::new(),
+                undo: None,
+                icon: None,
             })
             .collect(),
+        idle: None,
     }
 }
 
