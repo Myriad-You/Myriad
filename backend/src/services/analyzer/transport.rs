@@ -595,4 +595,107 @@ mod tests {
         }
         server.abort();
     }
+
+    /// One endpoint and model, asked for JSON under several schemas: what it
+    /// refuses of one says nothing of another, and an ask it refuses
+    /// whatever is left out says nothing of anything.
+    #[tokio::test]
+    async fn a_refused_schema_is_remembered_for_that_schema_alone() {
+        use super::super::{AiAnalyzer, AiProvider, types::OutputBudget};
+        use axum::{Json, Router, http::StatusCode, routing::post};
+        use serde_json::{Value, json};
+        use std::sync::Arc;
+
+        let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let observed = requests.clone();
+        let out_of_credit = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let broke = out_of_credit.clone();
+        let router = Router::new().route(
+            "/v1/chat/completions",
+            post(move |Json(body): Json<Value>| {
+                let observed = observed.clone();
+                let broke = broke.load(std::sync::atomic::Ordering::SeqCst);
+                async move {
+                    observed.lock().unwrap().push(body.clone());
+                    if broke || body["response_format"]["json_schema"]["name"] == "too_complex" {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(json!({"error": {"message": "fixture failure"}})),
+                        );
+                    }
+                    (
+                        StatusCode::OK,
+                        Json(json!({"choices": [{"message": {"content": "{\"read\":true}"}}]})),
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let analyzer = |model: &str| {
+            AiAnalyzer::new_with_timeout(
+                AiProvider::OpenAI,
+                String::new(),
+                model.to_string(),
+                Some(format!("http://{address}/v1")),
+                Duration::from_secs(2),
+            )
+        };
+        let schema = json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["read"],
+            "properties": {"read": {"type": "boolean"}}
+        });
+        // The schemas each request since the last look was held to.
+        let held = || -> Vec<Option<String>> {
+            std::mem::take(&mut *requests.lock().unwrap())
+                .iter()
+                .map(|body| {
+                    body["response_format"]["json_schema"]["name"]
+                        .as_str()
+                        .map(str::to_string)
+                })
+                .collect()
+        };
+        let named = |name: &str| Some(name.to_string());
+
+        for short in [false, true] {
+            let model = analyzer(if short { "short" } else { "whole" }).await;
+            let ask = async |name: &str| {
+                if short {
+                    let budget = OutputBudget { max_tokens: 256 };
+                    model
+                        .analyze_json_short("read", "hello", name, Some(&schema), budget)
+                        .await
+                } else {
+                    model
+                        .analyze_json("read", "hello", name, Some(&schema))
+                        .await
+                }
+            };
+            ask("too_complex").await.unwrap();
+            assert_eq!(held().last().unwrap(), &None, "read prompt-only in the end");
+            ask("plain").await.unwrap();
+            assert_eq!(held(), [named("plain")], "another schema is still held to");
+            ask("too_complex").await.unwrap();
+            assert_eq!(held(), [None], "it is not tried again");
+
+            // Refused whatever is left out: nothing of it is remembered.
+            out_of_credit.store(true, std::sync::atomic::Ordering::SeqCst);
+            assert!(ask("plain").await.is_err());
+            assert!(held().len() > 1);
+            out_of_credit.store(false, std::sync::atomic::Ordering::SeqCst);
+            ask("plain").await.unwrap();
+            assert_eq!(held(), [named("plain")]);
+            if short {
+                // The output limit was not what was refused.
+                ask("plain").await.unwrap();
+                let sent = std::mem::take(&mut *requests.lock().unwrap());
+                assert_eq!(sent[0]["max_tokens"], 256);
+            }
+        }
+        server.abort();
+    }
 }

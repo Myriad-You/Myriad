@@ -358,20 +358,94 @@ async fn without_her_pen_none_of_her_rows_are_written() {
     schema.drop().await;
 }
 
+/// What the model is held to names every field of every action, and leaves
+/// the ones an action does not take empty; the core reads it as if they had
+/// been left out, as it did when they were null.
 #[test]
-fn null_fields_of_an_action_are_left_out_for_the_core() {
-    let raw = r#"{"actions":[{"do":"status","status":"resting","as":null,"because":null}]}"#;
-    let plain: Value = serde_json::from_str(&upkeep::plain(raw)).unwrap();
-    assert_eq!(
-        plain,
-        json!({"actions": [{"do": "status", "status": "resting"}]})
-    );
-    assert_eq!(upkeep::plain("not json"), "not json");
-    // The schemas are what the model is held to: every action field named.
+fn empty_fields_of_an_action_are_left_out_for_the_core() {
     let schema = upkeep::schema();
-    let required = schema["properties"]["actions"]["items"]["required"]
-        .as_array()
-        .unwrap();
-    assert!(required.iter().any(|field| field == "do"));
+    let item = &schema["properties"]["actions"]["items"];
+    let fields = item["properties"].as_object().unwrap();
+    let empty = |name: &str| match fields[name]["type"].as_str().unwrap() {
+        "string" => json!(""),
+        "array" => json!([]),
+        "boolean" => json!(false),
+        other => panic!("{name}: {other}"),
+    };
+    for given in [
+        json!({"do": "create", "as": "new1", "name": "阳台", "ongoing": true, "because": ["i1"]}),
+        json!({"do": "split", "as": "new1", "spans": ["s1"], "name": "a", "done": "b", "reason": "c", "because": ["s1"]}),
+        json!({"do": "place", "items": ["i1"], "node": "n2", "text": "a"}),
+        json!({"do": "absorb", "into": "n2", "how": "merged", "reason": "a", "because": ["s1"]}),
+        json!({"do": "relate", "from": "n2", "to": "n1", "relation": "blocks", "reason": "a", "because": ["s1"]}),
+        json!({"do": "unrelate", "to": "n2", "relation": "part_of", "reason": "a"}),
+        json!({"do": "kind", "reason": "a", "because": ["s1"]}),
+        json!({"do": "status", "status": "resting"}),
+        json!({"do": "hand", "intent": "h1", "dropped": true, "because": ["s1"]}),
+        json!({"do": "summary", "sentences": [{"text": "a", "because": ["s1"]}]}),
+        json!({"do": "open", "item": "o1", "closed": true, "because": ["s1"]}),
+        json!({"do": "view", "view": "v1", "text": "a", "reason": "b", "because": ["s1"]}),
+    ] {
+        for nulls in [false, true] {
+            let mut full = given.clone();
+            for name in fields.keys().filter(|name| given.get(*name).is_none()) {
+                full[name] = if nulls { json!(null) } else { empty(name) };
+            }
+            assert_eq!(full.as_object().unwrap().len(), fields.len());
+            let raw = json!({"actions": [full]}).to_string();
+            // However it comes: alone, fenced, or with a sentence around it.
+            for answer in [
+                raw.clone(),
+                format!("```json\n{raw}\n```"),
+                format!("```\n{raw}\n```\n"),
+                format!("Here is what I would change:\n{raw}\nThat is all."),
+                format!("Changes:\n```json\n{raw}\n```\nThat is all."),
+            ] {
+                let plain: Value = serde_json::from_str(&upkeep::plain(&answer)).unwrap();
+                assert_eq!(plain, json!({"actions": [given]}), "{answer}");
+            }
+        }
+    }
+    for unread in ["not json", "} {", "```json", "{not json}"] {
+        assert_eq!(upkeep::plain(unread), unread);
+    }
     assert_eq!(placing::schema()["required"], json!(["spans"]));
+}
+
+/// Anthropic's structured output takes at most 16 fields of more than one
+/// type and 24 that may be left out, over the whole schema, and refuses the
+/// whole of one past either.
+#[test]
+fn the_upkeep_schema_is_one_an_endpoint_takes() {
+    fn count(schema: &Value, unions: &mut usize, optional: &mut usize) {
+        match schema {
+            Value::Object(map) => {
+                if map.contains_key("anyOf") || map.get("type").is_some_and(Value::is_array) {
+                    *unions += 1;
+                }
+                if let Some(Value::Object(fields)) = map.get("properties") {
+                    let required = map["required"].as_array().unwrap();
+                    *optional += fields
+                        .keys()
+                        .filter(|name| !required.contains(&json!(name)))
+                        .count();
+                    assert_eq!(map["additionalProperties"], json!(false));
+                }
+                for value in map.values() {
+                    count(value, unions, optional);
+                }
+            }
+            Value::Array(list) => {
+                for value in list {
+                    count(value, unions, optional);
+                }
+            }
+            _ => {}
+        }
+    }
+    let (mut unions, mut optional) = (0, 0);
+    count(&upkeep::schema(), &mut unions, &mut optional);
+    assert_eq!((unions, optional), (0, 0));
+    let item = &upkeep::schema()["properties"]["actions"]["items"];
+    assert_eq!(item["properties"].as_object().unwrap().len(), 23);
 }

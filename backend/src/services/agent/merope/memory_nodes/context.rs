@@ -2,10 +2,11 @@
 //! (§4 of the plan, the native host's `NodeRecall`):
 //! read once a turn ([`for_turn`]), laid out by the sections that show it.
 //!
-//! - **The person** (「关于你」 in their talk): what they are to her and how
-//!   she comes across (her views `us` and `lands`), what still stings
-//!   (what is not wrapped up), the bits only the two of them share, and
-//!   how she sums them up when her upkeep has.
+//! - **The person** (「关于你」 in their talk): what still stings (what is
+//!   not wrapped up), the bits only the two of them share, and how she sums
+//!   them up when her upkeep has. What they are to her and how she comes
+//!   across hang there too (the views `us` and `lands`), but are said from
+//!   their memory rows, which her nightly review keeps (`between_them`).
 //! - **Her** (「她自己」 in their talk): what they told her about herself.
 //! - **What is going on**: one or two things in progress with them, besides
 //!   those their words brought.
@@ -272,10 +273,6 @@ impl NodeTurn {
         self.shown.node(self.own.her.as_deref()?)
     }
 
-    fn view(&self, view: &str) -> Option<&Value> {
-        self.about()?.head["views"].get(view)
-    }
-
     /// What they told her about herself, newest first.
     pub(crate) fn told_section(&self, now: DateTime<Utc>) -> Option<String> {
         if self.group.is_some() {
@@ -334,37 +331,6 @@ impl NodeTurn {
             .take(limit)
             .collect();
         myriad_merope::speaking::format_bits_section(&bits, false)
-    }
-
-    /// How she comes across with them, as she last found it.
-    pub(crate) fn lands_section(&self, now: DateTime<Utc>) -> Option<String> {
-        if self.group.is_some() {
-            return self.group_lands_section(now);
-        }
-        let row = self.shown.memory_of(self.view("lands")?)?;
-        myriad_merope::speaking::format_lands_section(
-            &row.content,
-            row.created_at.with_timezone(&Utc),
-            now,
-            false,
-        )
-    }
-
-    /// What they are to her, as she last put it, and before.
-    pub(crate) fn us_section(&self, now: DateTime<Utc>) -> Option<String> {
-        if self.group.is_some() {
-            return None;
-        }
-        let us = bits::us_of(self.shown.memory_of(self.view("us")?)?.clone());
-        myriad_merope::speaking::format_us_section(
-            &us.now,
-            us.since.with_timezone(&Utc),
-            us.before.as_deref(),
-            us.first
-                .as_ref()
-                .map(|(first, at)| (first.as_str(), at.with_timezone(&Utc))),
-            now,
-        )
     }
 
     /// How she sums them up and what is not wrapped up with them, beyond

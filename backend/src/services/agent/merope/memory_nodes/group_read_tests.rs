@@ -138,11 +138,10 @@ async fn a_group_reads_only_its_own_audience() {
         myriad_merope::speaking::format_group_days_section(
             &turn.group_days(db, 3, Some("游戏")).await,
         ),
-        turn.lands_section(now),
+        turn.group_lands_section(now),
         turn.about_head_section(),
         turn.sores_here(now),
         turn.told_section(now),
-        turn.us_section(now),
         turn.intents_section(),
     ]
     .into_iter()

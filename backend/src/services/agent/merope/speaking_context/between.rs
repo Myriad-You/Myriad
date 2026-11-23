@@ -55,52 +55,36 @@ pub(super) async fn between_them(
         sections.push((Part::OtherGroupsOwn, block));
     }
     // How she comes across: with them, or in this group, each heard only
-    // where it was found.
-    if let Some(nodes) = nodes {
-        let now = super::super::clock::now();
-        sections.extend(nodes.lands_section(now).map(|block| (Part::Lands, block)));
-        sections.extend(nodes.us_section(now).map(|block| (Part::Us, block)));
-        sections.extend(
-            nodes
-                .about_head_section()
-                .map(|block| (Part::AboutHead, block)),
-        );
-    }
+    // where it was found. With them it is the memory row itself, which her
+    // nightly review keeps, as is what they are to her: the node only says
+    // where they hang, and no word put on it there stands in their place.
+    let now = super::super::clock::now();
     let lands = match (nodes, present.group_id()) {
-        (Some(_), _) => None,
-        (None, Some(venue)) => bits::lands_in(db, venue).await,
-        (None, None) => bits::lands_with(db, user_id).await,
+        (Some(nodes), Some(_)) => nodes.group_lands_section(now),
+        (None, Some(venue)) => lands_block(bits::lands_in(db, venue).await, now, group),
+        (_, None) => lands_block(bits::lands_with(db, user_id).await, now, group),
     };
-    if let Some((lands, since)) = lands
-        && let Some(block) = myriad_merope::speaking::format_lands_section(
-            &lands,
-            since.with_timezone(&chrono::Utc),
-            super::super::clock::now(),
-            group,
-        )
-    {
-        sections.push((Part::Lands, block));
-    }
+    sections.extend(lands.map(|block| (Part::Lands, block)));
     // What they are to her: private, never in a group.
-    if !group && nodes.is_none() {
-        if let Some(us) = bits::us(db, user_id).await {
-            if let Some(block) = format_us_section(
-                &us.now,
-                us.since.with_timezone(&chrono::Utc),
-                us.before.as_deref(),
-                us.first
-                    .as_ref()
-                    .map(|(first, at)| (first.as_str(), at.with_timezone(&chrono::Utc))),
-                super::super::clock::now(),
-            ) {
-                sections.push((Part::Us, block));
-            }
-        }
+    if !group && let Some(us) = bits::us(db, user_id).await {
+        let first = us.first.as_ref();
+        let block = format_us_section(
+            &us.now,
+            us.since.with_timezone(&chrono::Utc),
+            us.before.as_deref(),
+            first.map(|(first, at)| (first.as_str(), at.with_timezone(&chrono::Utc))),
+            now,
+        );
+        sections.extend(block.map(|block| (Part::Us, block)));
     }
+    sections.extend(
+        nodes
+            .and_then(NodeTurn::about_head_section)
+            .map(|block| (Part::AboutHead, block)),
+    );
     // What still stings with them: in private all of it; in a group,
     // what they did there, and what they did in private only by how
     // much it weighs, never what it was.
-    let now = super::super::clock::now();
     match present.group_id() {
         // From her nodes: on 「关于你」, and theirs in each group.
         None if nodes.is_some() => {
@@ -220,4 +204,19 @@ pub(super) async fn chat_extras(
             sections.push((Part::Attention, block));
         }
     }
+}
+
+/// How she comes across, as the row she last found it in puts it.
+fn lands_block(
+    found: Option<(String, chrono::DateTime<chrono::FixedOffset>)>,
+    now: chrono::DateTime<chrono::Utc>,
+    group: bool,
+) -> Option<String> {
+    let (lands, since) = found?;
+    myriad_merope::speaking::format_lands_section(
+        &lands,
+        since.with_timezone(&chrono::Utc),
+        now,
+        group,
+    )
 }

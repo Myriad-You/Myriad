@@ -2,8 +2,11 @@
 //! of its own, with what she keeps in every audience
 //! (`memory_nodes::read_tests`).
 
+use serde_json::json;
+
 use super::super::memory_nodes::group_read_tests::seed_group;
-use super::super::memory_nodes::read_tests::{GROUP, SEVEN, owned, seed};
+use super::super::memory_nodes::read_tests::{GROUP, OWNER, SEVEN, owned, seed};
+use super::super::memory_nodes::{Author, RowIn, audience, read, write};
 use super::*;
 use crate::services::agent::memory::unified::Audience;
 
@@ -32,7 +35,14 @@ async fn a_private_talk_reads_her_nodes() {
     let on = prompt(db).await.join("\n\n");
     crate::services::channel_group::g0::leave();
     // What they are to her and the rest, as ever.
-    for kept in ["吐槽工作", "小笼包", "像猫", "PRIVATE-SORE", "GROUP-SORE"] {
+    for kept in [
+        "吐槽工作",
+        "随便一点",
+        "小笼包",
+        "像猫",
+        "PRIVATE-SORE",
+        "GROUP-SORE",
+    ] {
         assert!(on.contains(kept), "{kept}:\n{on}");
     }
     // What she keeps of a topic comes under its name, and nothing of
@@ -42,6 +52,58 @@ async fn a_private_talk_reads_her_nodes() {
     for never in ["GROUP-FACT", "OTHER-ACCOUNT", "OWN-TOPIC", "OLD-JOB"] {
         assert!(!on.contains(never), "{never}:\n{on}");
     }
+    schema.drop().await;
+}
+
+/// What they are to her and how she comes across with them are rows her
+/// nightly review keeps; an upkeep that put other words on the views they
+/// hang as does not take them out of what she is shown, nor is it said for
+/// them.
+#[tokio::test]
+async fn what_they_are_to_her_stays_whatever_upkeep_made_of_its_view() {
+    let Some(schema) = owned("speaking_us_after_upkeep").await else {
+        return;
+    };
+    let db = &schema.db;
+    crate::services::channel_group::g0::enter(crate::services::channel_group::g0::World::new(0.5));
+    seed(db).await;
+    let titles = ["## What they are to you", "## How they take you"];
+    let first = prompt(db).await;
+    let before = titled(&first, &titles);
+    assert_eq!(before.len(), 2, "{first:#?}");
+
+    let talk = audience::private_talk(SEVEN, Some(OWNER));
+    let node = myriad_nodes::node_id(&talk, &format!("person:{SEVEN}")).unwrap();
+    let head = read::node(db, SEVEN, &talk, &node).await.unwrap().unwrap();
+    let rested = head["entries"][0]["row"].as_str().unwrap().to_string();
+    let rewritten: Vec<RowIn> = ["us", "lands"]
+        .into_iter()
+        .map(|view| RowIn {
+            id: format!("u0upkeep{view}"),
+            node: node.clone(),
+            kind: "node.view_changed".into(),
+            body: json!({
+                "version": 1, "sync": "shared", "saidBy": ["her"],
+                "base": head["views"][view]["base"], "view": view,
+                "text": "UPKEEP-WORDS", "because": [format!("entry:{rested}")],
+            }),
+            author: Author::Her,
+        })
+        .collect();
+    let pen = crate::services::her_log::pen::think().expect("her mind is here in tests");
+    write::write(db, SEVEN, &talk, &rewritten, Some(&pen))
+        .await
+        .unwrap();
+    drop(pen);
+    let head = read::node(db, SEVEN, &talk, &node).await.unwrap().unwrap();
+    for view in ["us", "lands"] {
+        assert_eq!(head["views"][view]["value"]["text"], "UPKEEP-WORDS");
+    }
+
+    let after = prompt(db).await;
+    crate::services::channel_group::g0::leave();
+    assert_eq!(titled(&after, &titles), before);
+    assert!(!after.join("\n").contains("UPKEEP-WORDS"), "{after:#?}");
     schema.drop().await;
 }
 

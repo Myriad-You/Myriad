@@ -69,7 +69,7 @@ pub async fn us(db: &DatabaseConnection, user_id: i32) -> Option<Us> {
 }
 
 /// What they are to her as `row` puts it.
-pub(crate) fn us_of(row: crate::models::entities::agent_memories::Model) -> Us {
+fn us_of(row: crate::models::entities::agent_memories::Model) -> Us {
     let evidence: Value = row
         .evidence
         .as_deref()
