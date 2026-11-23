@@ -331,7 +331,7 @@ pub(super) async fn seed(db: &DatabaseConnection) -> i32 {
     let kept = |about: &str, then: &str| threads::Kept {
         about: about.into(),
         then: then.into(),
-        due_in_hours: None,
+        comes: threads::Comes::In(None),
     };
     threads::keep_from(
         db,

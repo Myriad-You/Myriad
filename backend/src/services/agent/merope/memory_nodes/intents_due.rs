@@ -3,7 +3,8 @@
 //! audience are put to the core (`myriad_nodes::intents::due`): a time come,
 //! or the node one waits on changed or done. Before they are read, what
 //! rests on what they took back goes (`forget::before_reading`); when it
-//! cannot, none of that audience's is acted on this time.
+//! cannot, none of that audience's is acted on this time. A thread of hers
+//! whose deadline has gone by is let go first (`threads::let_pass`).
 //!
 //! Each one due is settled first (`said`), so it is acted on once whatever
 //! happens next: a row already there is someone else's acting on it. Then:
@@ -31,7 +32,7 @@ use super::{
     intents_run::{self, Ran},
     write,
 };
-use crate::services::agent::merope::reach;
+use crate::services::agent::merope::{reach, threads};
 use crate::services::agent::speech::Source;
 
 /// One of the partner's instructions the check let run, to run.
@@ -89,6 +90,9 @@ async fn due_in(
     audience: &str,
     now: DateTime<Utc>,
 ) -> Result<Vec<ToRun>, Error> {
+    // What had to be done by a time gone by is not said any more, nor shown
+    // as hers to bring up.
+    threads::let_pass(db, user_id, now).await;
     // What rests on what they took back goes, or is hidden, before an
     // intent is acted on or said ([`super::forget::before_reading`]); if it
     // cannot, none is.
