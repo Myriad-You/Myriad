@@ -1288,7 +1288,7 @@ async fn vector(
         if sent.too_old {
             tracing::info!(
                 device,
-                "[her-log] a device's core is older than ABI 2: no rows go to it until it repins"
+                "[her-log] a row that is to go is one this device's core cannot read: no rows of that audience go to it until it repins"
             );
         }
         if !sent.held_back.is_empty() {
