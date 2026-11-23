@@ -8,7 +8,7 @@ use sea_orm::{
 
 use super::{Lock, check};
 use crate::services::agent::merope::{api::store::lock_persona_on, retire_her_on};
-use crate::services::her_log::lease as grants;
+use crate::services::her_log::{deputy, lease as grants};
 use crate::services::persona_sync::{devices, import, lease, moves};
 use myriad_persona_sync::archive::Manifest;
 
@@ -505,5 +505,367 @@ async fn an_import_called_off_leaves_the_site_as_it_was() {
         assert!(lease::read(&own.db).await.unwrap().is_none());
         assert!(import::current(&own.db).await.unwrap().is_none());
     }
+    own.close().await;
+}
+
+/// When the deputy of [`Own::a_device_moving`] was issued.
+const ISSUED: &str = "001764000000000-000000-site";
+
+impl Own {
+    /// The imports, held as by one that is landing.
+    async fn imports_held(&self) -> DatabaseTransaction {
+        let holding = self.db.begin().await.unwrap();
+        import::hold_all(&holding).await.unwrap();
+        holding
+    }
+
+    /// A device, its token, and a merge from it under way with its import.
+    async fn a_device_moving(&self, name: &str) -> (String, String) {
+        let (mac, token) = devices::add(&self.db, 41, name).await.unwrap();
+        let moving = lease::start(&self.db, lease::Kind::Merge, &mac.id, lease::Starter::Owner)
+            .await
+            .unwrap();
+        assert!(moving.frozen);
+        self.db
+            .execute_raw(sql(
+                "INSERT INTO agent_host_import (id, source, device_id, phase, created_at, updated_at) \
+                 VALUES ($1, 'device', $2, 'transferring', NOW(), NOW())",
+                [format!("imp_{name}").into(), mac.id.clone().into()],
+            ))
+            .await
+            .unwrap();
+        self.a_deputy_of(&mac.id).await;
+        assert_eq!(
+            deputy::for_holders(&self.db, &[mac.id.as_str()])
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        (mac.id, token)
+    }
+
+    async fn a_deputy_of(&self, device: &str) {
+        self.db
+            .execute_raw(sql(
+                "INSERT INTO agent_lease_deputies (holder, issued, under, until_micros, ord, issued_at) \
+                 VALUES ($1, $2, 1, 1, 1, NOW())",
+                [device.into(), ISSUED.into()],
+            ))
+            .await
+            .unwrap();
+    }
+
+    async fn remove(&self, id: &str) -> Result<Option<devices::Device>, sea_orm::DbErr> {
+        devices::revoke(&self.db, 41, id, devices::RevokeReason::ByOwner).await
+    }
+
+    /// The device is one no more, and what it left of her stands as it did.
+    async fn is_removed_and_not_settled(&self, token: &str, about: &str) {
+        assert!(
+            matches!(
+                devices::authenticate(&self.db, token, Some(41)).await,
+                Err(devices::Refused::Revoked)
+            ),
+            "{about}"
+        );
+        let here = lease::read(&self.db).await.unwrap().unwrap();
+        assert!(here.frozen && here.moving.is_some(), "{about}: {here:?}");
+        assert_eq!(self.left_of_her().await, (1, 0), "{about}");
+    }
+
+    async fn is_settled(&self, about: &str) {
+        let here = lease::read(&self.db).await.unwrap().unwrap();
+        assert_eq!(
+            (here.place(), here.frozen, &here.moving),
+            (lease::Where::Here, false, &None),
+            "{about}"
+        );
+        assert_eq!(self.left_of_her().await, (0, 0), "{about}");
+    }
+
+    /// Imports and deputies kept.
+    async fn left_of_her(&self) -> (i64, i64) {
+        (
+            self.count("SELECT COUNT(*)::BIGINT AS n FROM agent_host_import")
+                .await,
+            self.count("SELECT COUNT(*)::BIGINT AS n FROM agent_lease_deputies")
+                .await,
+        )
+    }
+
+    /// Every step of settling a removed device, failing in turn.
+    async fn failing_at_each_step(&self) -> Vec<(&'static str, &'static str)> {
+        self.db
+            .execute_unprepared(
+                "CREATE FUNCTION fails() RETURNS trigger LANGUAGE plpgsql AS \
+                 $$ BEGIN RAISE EXCEPTION 'failed here'; END $$",
+            )
+            .await
+            .unwrap();
+        vec![
+            ("agent_host_import", "DELETE"),
+            ("agent_her_moves", "DELETE"),
+            ("agent_her_copy", "UPDATE"),
+            ("agent_lease_grants", "INSERT"),
+        ]
+    }
+
+    async fn failing(&self, (table, what): (&str, &str)) {
+        self.db
+            .execute_unprepared(&format!(
+                "CREATE TRIGGER fails BEFORE {what} ON {table} \
+                 FOR EACH STATEMENT EXECUTE FUNCTION fails()"
+            ))
+            .await
+            .unwrap();
+    }
+
+    async fn failing_no_more(&self, (table, _): (&str, &str)) {
+        self.db
+            .execute_unprepared(&format!("DROP TRIGGER fails ON {table}"))
+            .await
+            .unwrap();
+    }
+}
+
+/// Removing a device takes its token and its deputies back and closes its
+/// link at once, with an import landing meanwhile that holds her lease too:
+/// only what it leaves of her waits.
+#[tokio::test]
+async fn a_device_is_removed_at_once_while_an_import_lands() {
+    use crate::services::agent::link::{Close, opened};
+    let Some(own) = Own::with_her().await else {
+        return;
+    };
+    lease::read(&own.db).await.unwrap().unwrap();
+    let (mac, token) = own.a_device_moving("mac").await;
+    let link = opened(&mac, 41);
+    let holding = own.imports_held().await;
+    grants::lock(&holding).await.unwrap();
+    let removing = tokio::spawn({
+        let (db, id) = (own.db.clone(), mac.clone());
+        async move { devices::revoke(&db, 41, &id, devices::RevokeReason::ByOwner).await }
+    });
+    let closed = tokio::time::timeout(Duration::from_secs(30), link)
+        .await
+        .expect("its link closes while the import lands")
+        .unwrap();
+    assert_eq!(closed, Close::Revoked);
+    own.is_removed_and_not_settled(&token, "the import lands")
+        .await;
+    // And it does not wait for the import for long.
+    let removed = tokio::time::timeout(Duration::from_secs(30), removing)
+        .await
+        .expect("removed while the import lands")
+        .unwrap()
+        .unwrap();
+    assert_eq!(removed.map(|device| device.id), Some(mac));
+    own.is_removed_and_not_settled(&token, "the import still lands")
+        .await;
+    // Its deputy is no one's: nothing is placed against it, it cannot be
+    // taken, and one given just as it was removed counts for nothing.
+    assert!(
+        deputy::for_holders(&own.db, &[mac.as_str()])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        !deputy::received(&own.db, &mac, &ISSUED.parse().unwrap())
+            .await
+            .unwrap()
+    );
+    own.a_deputy_of(&mac).await;
+    assert!(
+        deputy::for_holders(&own.db, &[mac.as_str()])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    holding.commit().await.unwrap();
+    lease::removed::settle_all(&own.db).await.unwrap();
+    own.is_settled("the import landed").await;
+    own.close().await;
+}
+
+#[tokio::test]
+async fn a_removed_device_is_settled_waiting_for_imports_before_it_takes_her_lease() {
+    let Some(own) = Own::with_her().await else {
+        return;
+    };
+    let (mac, _) = devices::add(&own.db, 41, "Mac").await.unwrap();
+    lease::read(&own.db).await.unwrap().unwrap();
+    own.remove(&mac.id).await.unwrap().unwrap();
+    let holding = own.an_import_held("imp_old").await;
+    let db = own.db.clone();
+    own.waits_without_her_lease(holding, async move {
+        lease::removed::settle_within(&db, &mac.id, Duration::from_secs(60))
+            .await
+            .unwrap()
+    })
+    .await;
+    own.close().await;
+}
+
+/// Whichever step fails, the device is one no more and all of what it left
+/// stands; removing it again tells while it still fails, and goes through
+/// once it does not.
+#[tokio::test]
+async fn what_a_removed_device_leaves_is_settled_by_removing_it_again() {
+    let Some(own) = Own::with_her().await else {
+        return;
+    };
+    lease::read(&own.db).await.unwrap().unwrap();
+    for step in own.failing_at_each_step().await {
+        let (table, _) = step;
+        let (mac, token) = own.a_device_moving(table).await;
+        own.failing(step).await;
+        assert!(own.remove(&mac).await.unwrap().is_some(), "{table}");
+        own.is_removed_and_not_settled(&token, table).await;
+        assert!(own.remove(&mac).await.is_err(), "{table}: it fails again");
+        own.is_removed_and_not_settled(&token, table).await;
+        own.failing_no_more(step).await;
+        let again = own.remove(&mac).await.unwrap().expect("not unknown");
+        assert_eq!(again.revoked_reason.as_deref(), Some("owner_revoked"));
+        own.is_settled(table).await;
+        // Once more, it changes nothing.
+        let settled = lease::read(&own.db).await.unwrap().unwrap();
+        own.remove(&mac).await.unwrap().unwrap();
+        assert_eq!(lease::read(&own.db).await.unwrap().unwrap(), settled);
+        assert!(devices::forget(&own.db, 41, &mac).await.unwrap());
+    }
+    own.close().await;
+}
+
+/// Its token and its deputies are taken back together, or it is still a
+/// device.
+#[tokio::test]
+async fn a_device_whose_deputies_cannot_be_withdrawn_is_not_removed() {
+    let Some(own) = Own::with_her().await else {
+        return;
+    };
+    lease::read(&own.db).await.unwrap().unwrap();
+    let (mac, token) = own.a_device_moving("mac").await;
+    own.failing_at_each_step().await;
+    let step = ("agent_lease_deputies", "DELETE");
+    own.failing(step).await;
+    assert!(own.remove(&mac).await.is_err());
+    assert!(
+        devices::authenticate(&own.db, &token, Some(41))
+            .await
+            .is_ok()
+    );
+    assert_eq!(own.left_of_her().await, (1, 1));
+    own.failing_no_more(step).await;
+    own.remove(&mac).await.unwrap().unwrap();
+    own.is_settled("removed").await;
+    own.close().await;
+}
+
+/// As the listener does when it starts and from time to time.
+#[tokio::test]
+async fn what_a_removed_device_leaves_is_settled_without_being_asked() {
+    let Some(own) = Own::with_her().await else {
+        return;
+    };
+    lease::read(&own.db).await.unwrap().unwrap();
+    for step in own.failing_at_each_step().await {
+        let (table, _) = step;
+        let (mac, token) = own.a_device_moving(table).await;
+        own.failing(step).await;
+        own.remove(&mac).await.unwrap().unwrap();
+        lease::removed::settle_all(&own.db).await.unwrap();
+        own.is_removed_and_not_settled(&token, table).await;
+        own.failing_no_more(step).await;
+        lease::removed::settle_all(&own.db).await.unwrap();
+        own.is_settled(table).await;
+    }
+    own.close().await;
+}
+
+/// Its row is how it is known to have been removed: it stays until what it
+/// left is settled.
+#[tokio::test]
+async fn a_removed_device_is_forgotten_only_once_it_is_settled() {
+    let Some(own) = Own::with_her().await else {
+        return;
+    };
+    lease::read(&own.db).await.unwrap().unwrap();
+    let (mac, token) = own.a_device_moving("mac").await;
+    let step = own.failing_at_each_step().await[0];
+    own.failing(step).await;
+    own.remove(&mac).await.unwrap().unwrap();
+    assert!(devices::forget(&own.db, 41, &mac).await.is_err());
+    own.is_removed_and_not_settled(&token, "not forgotten")
+        .await;
+    own.failing_no_more(step).await;
+    assert!(devices::forget(&own.db, 41, &mac).await.unwrap());
+    own.is_settled("forgotten").await;
+    assert!(devices::list(&own.db, 41).await.unwrap().is_empty());
+    own.close().await;
+}
+
+/// She lives on a device that is removed, and is taken back from its backup
+/// before what it left is settled: that reclaim goes on, and the lease is
+/// settled only once it is called off.
+#[tokio::test]
+async fn a_reclaim_begun_after_the_device_was_removed_goes_on() {
+    let Some(own) = Own::with_her().await else {
+        return;
+    };
+    let (mac, token) = devices::add(&own.db, 41, "Mac").await.unwrap();
+    let (other, _) = devices::add(&own.db, 41, "Other").await.unwrap();
+    lease::seed(&own.db, &mac.id, "l-1", 9, lease::State::Away)
+        .await
+        .unwrap();
+    let holding = own.imports_held().await;
+    own.remove(&mac.id).await.unwrap().unwrap();
+    assert!(matches!(
+        devices::authenticate(&own.db, &token, Some(41)).await,
+        Err(devices::Refused::Revoked)
+    ));
+    holding.commit().await.unwrap();
+    let txn = own.db.begin().await.unwrap();
+    let reclaim = lease::reclaiming(&txn, "imp_back", &other.id)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+    assert_eq!(reclaim.moving.as_ref().unwrap().from, mac.id);
+    lease::removed::settle_all(&own.db).await.unwrap();
+    own.remove(&mac.id).await.unwrap().unwrap();
+    assert_eq!(lease::read(&own.db).await.unwrap().unwrap(), reclaim);
+    let id = reclaim.moving.unwrap().id;
+    lease::cancel(&own.db, &id, None).await.unwrap();
+    assert!(
+        lease::read(&own.db)
+            .await
+            .unwrap()
+            .unwrap()
+            .lives_on(&mac.id)
+    );
+    lease::removed::settle_all(&own.db).await.unwrap();
+    let here = lease::read(&own.db).await.unwrap().unwrap();
+    assert_eq!((here.place(), here.moving), (lease::Where::Vacant, None));
+    own.close().await;
+}
+
+#[tokio::test]
+async fn her_mind_on_a_removed_device_comes_back_once_it_is_settled() {
+    let Some(own) = Own::with_her().await else {
+        return;
+    };
+    let (mac, _) = devices::add(&own.db, 41, "Mac").await.unwrap();
+    lease::seed(&own.db, &mac.id, "l-1", 9, lease::State::Live)
+        .await
+        .unwrap();
+    let mind = || async { lease::read(&own.db).await.unwrap().unwrap().place() };
+    assert_eq!(mind().await, lease::Where::MindOn(mac.id.clone()));
+    let holding = own.imports_held().await;
+    own.remove(&mac.id).await.unwrap().unwrap();
+    assert_eq!(mind().await, lease::Where::MindOn(mac.id.clone()));
+    holding.commit().await.unwrap();
+    lease::removed::settle_all(&own.db).await.unwrap();
+    assert_eq!(mind().await, lease::Where::Here);
     own.close().await;
 }

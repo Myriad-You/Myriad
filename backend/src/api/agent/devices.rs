@@ -816,7 +816,8 @@ pub async fn delete_backup(
     Ok(Json(device_list(&db, owner).await?))
 }
 
-/// DELETE /api/agent/devices/{device_id}
+/// DELETE /api/agent/devices/{device_id}. Again for one removed already: what
+/// its removal left is seen to.
 pub async fn remove_device(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
@@ -1097,7 +1098,11 @@ mod tests {
             (lease::Where::Here, None),
             "the move with it is called off"
         );
-        let (status, body) = remove(mac.id).await.unwrap_err();
+        // Removed again: what its removal left is seen to again; only a
+        // device that never was one is not found.
+        let again = remove(mac.id).await.unwrap();
+        assert_eq!(again["device"], removed["device"]);
+        let (status, body) = remove("dev_none".into()).await.unwrap_err();
         assert_eq!(
             (status, body["code"].as_str()),
             (StatusCode::NOT_FOUND, Some("device_not_found"))

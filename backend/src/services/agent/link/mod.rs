@@ -176,6 +176,12 @@ fn open(device_id: &str, owner: i32) -> (u64, oneshot::Receiver<Close>) {
     (id, closed)
 }
 
+/// A link of the device, as one that just opened: hears why it closes.
+#[cfg(test)]
+pub(crate) fn opened(device_id: &str, owner: i32) -> oneshot::Receiver<Close> {
+    open(device_id, owner).1
+}
+
 /// The link `id` takes `say` frames, sent through `sender`, and with
 /// `playback` the refinements of how she acts them.
 fn takes_say(device_id: &str, id: u64, sender: mpsc::Sender<connection::Outgoing>, playback: bool) {
