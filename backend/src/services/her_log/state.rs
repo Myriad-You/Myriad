@@ -29,7 +29,10 @@
 //! comparison does not write it back; one whose pictures or rig are not here
 //! yet waits for them (`assets`). A record gone on another end (its
 //! newest row deleted), or one the owner had her forget (every row of it
-//! forgotten), goes from the site's tables.
+//! forgotten), goes from the site's tables. One written as gone by an end
+//! whose word that is not (`gone`: a temporary host, one that did not hold
+//! her) does not: the newest row before it stands, and her log has it live
+//! again as the site writes it next.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -47,6 +50,7 @@ use sea_orm::{
 };
 use serde_json::Value;
 
+use super::gone::{self, Refused};
 use super::{Error, NODE, Owner, keys, store};
 use crate::services::persona_sync::{assets, snapshot};
 
@@ -81,6 +85,9 @@ const THE_OWNERS: [Kind; 2] = [Kind::Persona, Kind::Outfit];
 /// No limit on how many records of a kind are compared (the most a query
 /// takes).
 const EVERY: usize = i64::MAX as usize;
+
+/// More records than this going in one taking in is logged (counts only).
+const MANY_GONE: usize = 20;
 
 /// A comparison above this is logged: it runs at the end of each turn.
 const SLOW: Duration = Duration::from_millis(100);
@@ -501,9 +508,10 @@ pub(super) async fn drop_known<C: ConnectionTrait>(
 
 /// Her records another end wrote, taken into the site's tables: for each
 /// object of these kinds, its newest row when another end wrote it and the
-/// site does not have it yet (one deleted goes from the site's tables), and
-/// each record whose rows are all forgotten (the owner had her forget it).
-/// How many records were taken in or went.
+/// site does not have it yet (one deleted goes from the site's tables, when
+/// its writer may say so: `gone`), and each record whose rows are all
+/// forgotten (the owner had her forget it). How many records were taken in or
+/// went.
 pub async fn take_in(
     db: &DatabaseConnection,
     root: &dyn keys::Root,
@@ -514,6 +522,10 @@ pub async fn take_in(
     let took = took(db, site_owner).await?;
     let mut came: Vec<(String, Row, Value)> = Vec::new();
     let mut forgotten: Vec<String> = Vec::new();
+    let mut refused: BTreeMap<String, Refused> = BTreeMap::new();
+    // Gone in her log by a row not taken, and not here: nothing is kept.
+    let mut absent: Vec<(String, String)> = Vec::new();
+    let pictures = assets::Pictures::new(db, site_owner);
     for audience in [Owner::OWN.to_string(), owner.personal()] {
         let mut by_object: BTreeMap<String, Vec<Row>> = BTreeMap::new();
         for row in store::rows(db, site_owner, &audience).await? {
@@ -523,30 +535,66 @@ pub async fn take_in(
                 by_object.entry(row.object.clone()).or_default().push(row);
             }
         }
-        let mut newest = Vec::new();
-        for (object, rows) in by_object {
-            let Some(last) = rows
-                .into_iter()
-                .filter(|row| !row.forgotten)
-                .max_by(|a, b| a.hlc.cmp(&b.hlc).then_with(|| a.id.cmp(&b.id)))
-            else {
+        // The rows of each object that are left, the newest last.
+        let mut left: Vec<Vec<Row>> = Vec::new();
+        for (object, mut rows) in by_object {
+            rows.retain(|row| !row.forgotten);
+            if rows.is_empty() {
                 if known.contains_key(&object) {
                     forgotten.push(object);
                 }
                 continue;
-            };
-            // Taken in already (once a row), or the site's own is newest.
-            if last.origin != NODE && took.get(&object) != Some(&last.id) {
-                newest.push(last);
             }
+            rows.sort_by(|a, b| a.hlc.cmp(&b.hlc).then_with(|| a.id.cmp(&b.id)));
+            left.push(rows);
         }
-        let held: Vec<&Row> = newest.iter().collect();
-        let mut bodies = store::bodies(db, root, site_owner, &audience, &held).await?;
-        for row in newest {
-            // A body still to come is taken in when it comes.
-            if let Some(body) = bodies.remove(&row.id) {
-                came.push((row.object.clone(), row, body));
+        while !left.is_empty() {
+            // Taken in already (once a row), or the site's own is newest.
+            left.retain(|rows| {
+                rows.last()
+                    .is_some_and(|row| row.origin != NODE && took.get(&row.object) != Some(&row.id))
+            });
+            let newest: Vec<&Row> = left.iter().filter_map(|rows| rows.last()).collect();
+            let mut bodies = store::bodies(db, root, site_owner, &audience, &newest).await?;
+            let going: Vec<&Row> = newest
+                .into_iter()
+                .filter(|row| bodies.get(&row.id).is_some_and(says_gone))
+                .collect();
+            let mut not_taken: BTreeSet<String> = BTreeSet::new();
+            if !going.is_empty() {
+                let holders = gone::holders(db, &going).await?;
+                let refuses: Vec<(&Row, Kind, Refused)> = going
+                    .into_iter()
+                    .filter_map(|row| {
+                        let kind = kind_of(&row.object)?;
+                        Some((row, kind, holders.refuses(row, kind)?))
+                    })
+                    .collect();
+                let kinds: BTreeSet<Kind> = refuses.iter().map(|(_, kind, _)| *kind).collect();
+                let kinds: Vec<Kind> = kinds.into_iter().collect();
+                let here = records_on(db, &pictures, &owner, &kinds, 0).await?;
+                for (row, _, why) in refuses {
+                    if here.contains_key(&row.object) {
+                        not_taken.insert(row.id.clone());
+                        refused.entry(row.object.clone()).or_insert(why);
+                    } else {
+                        bodies.remove(&row.id);
+                        absent.push((row.object.clone(), row.id.clone()));
+                    }
+                }
             }
+            let mut again = Vec::new();
+            for mut rows in left {
+                let Some(row) = rows.pop() else { continue };
+                // Not taken as gone: the row before it stands.
+                if not_taken.contains(&row.id) {
+                    again.push(rows);
+                } else if let Some(body) = bodies.remove(&row.id) {
+                    came.push((row.object.clone(), row, body));
+                }
+                // A body still to come is taken in when it comes.
+            }
+            left = again;
         }
     }
 
@@ -554,12 +602,15 @@ pub async fn take_in(
     let mut fields: BTreeMap<String, myriad_persona_sync::persona::PersonaField> = BTreeMap::new();
     let mut entities: BTreeMap<(Kind, String), EntityVersion> = BTreeMap::new();
     let mut objects: BTreeMap<String, String> = BTreeMap::new();
+    // What a record not taken as gone stands as, here already.
+    let mut stands: BTreeMap<String, String> = BTreeMap::new();
     for (object, row, body) in came {
         if row.kind == "persona.field" {
             let Ok(field) = serde_json::from_value::<PersonaField>(body) else {
                 continue;
             };
             if known.get(&object) == Some(&myriad_persona_sync::digest(&field.value)) {
+                stands.insert(object, row.id);
                 continue;
             }
             fields.insert(
@@ -591,7 +642,12 @@ pub async fn take_in(
             continue;
         };
         if known.get(&object) == Some(&format!("{}:{:?}", entity.digest, entity.state)) {
+            stands.insert(object, row.id);
             continue;
+        }
+        // An earlier row that says it is gone was one to take: not kept.
+        if entity.state == State::Deleted {
+            refused.remove(&object);
         }
         entities.insert((kind, write.id), entity);
         objects.insert(object, row.id.clone());
@@ -614,11 +670,19 @@ pub async fn take_in(
         entities.remove(&(kind, id.clone()));
         objects.remove(&state_object(kind.as_str(), &id));
     }
-    if objects.is_empty() && forgotten.is_empty() {
+    // Not taken as gone, and not waiting to be written again already.
+    let newly: Vec<&String> = refused
+        .keys()
+        .filter(|object| known.get(*object).is_none_or(|digest| !digest.is_empty()))
+        .collect();
+    // Settled as they are: not looked at again.
+    for (object, row) in &absent {
+        taken_in(db, site_owner, object, "", row).await?;
+    }
+    if objects.is_empty() && forgotten.is_empty() && newly.is_empty() {
         return Ok(0);
     }
 
-    let pictures = assets::Pictures::new(db, site_owner);
     let mut touched: BTreeSet<Kind> = entities.keys().map(|(kind, _)| *kind).collect();
     if !fields.is_empty() {
         touched.insert(Kind::Persona);
@@ -682,6 +746,7 @@ pub async fn take_in(
         plan.extend(have.into_values());
     }
 
+    let outfits = removes.len();
     let txn = db.begin().await?;
     let rig = crate::services::persona_sync::merge::land_records(
         &txn, site_owner, plan, writes, removes, &urls, &rigs,
@@ -711,7 +776,48 @@ pub async fn take_in(
         let digest = now.get(object).map(|record| record.digest.as_str());
         taken_in(&txn, site_owner, object, digest.unwrap_or(""), row).await?;
     }
+    // One not taken as gone keeps no digest either: the site has it and her
+    // log has it gone, so the next comparison writes it live.
+    for object in refused.keys() {
+        match objects.get(object).or_else(|| stands.get(object)) {
+            Some(row) => taken_in(&txn, site_owner, object, "", row).await?,
+            None => keep(&txn, site_owner, object, "").await?,
+        }
+    }
     txn.commit().await?;
+    let going = went.len() + outfits;
+    if going > MANY_GONE {
+        tracing::warn!(
+            gone = going,
+            kinds = %gone::by_kind(went.iter().map(String::as_str)),
+            outfits,
+            "[her-log] many of her records went here as another end wrote them gone"
+        );
+    }
+    if !newly.is_empty() {
+        let because = |why: Refused| {
+            newly
+                .iter()
+                .filter(|o| refused.get(**o) == Some(&why))
+                .count()
+        };
+        tracing::warn!(
+            records = newly.len(),
+            kinds = %gone::by_kind(newly.iter().map(|object| object.as_str())),
+            not_holder = because(Refused::NotHolder),
+            after_handover = because(Refused::AfterHandover),
+            concurrent = because(Refused::Concurrent),
+            not_theirs = because(Refused::NotTheirs),
+            "[her-log] records written as gone by an end whose word it is not were kept"
+        );
+        // Her log has them live again, before another end takes them as gone:
+        // at once while she is here, else as she is back (or caught up).
+        if super::pen::here()
+            && let Err(error) = sync(db, root, site_owner).await
+        {
+            tracing::warn!(%error, "[her-log] records kept were not written live again yet");
+        }
+    }
     // Memories taken back on another end came with its times: her nodes
     // are swept again before they are next read.
     crate::services::agent::merope::memory_nodes::forget::sweep_again(site_owner);
@@ -719,6 +825,12 @@ pub async fn take_in(
         crate::services::merope_rig::mirror_active_asset(Some(rig)).await;
     }
     Ok(objects.len() + forgotten.len())
+}
+
+/// Whether a row's body says its record is gone (a persona field, null, is a
+/// field with no value).
+fn says_gone(body: &Value) -> bool {
+    body.get("state").and_then(Value::as_str) == Some("deleted")
 }
 
 fn write_of(kind: Kind, id: &str, replaces: bool) -> myriad_persona_sync::merge::Write {
