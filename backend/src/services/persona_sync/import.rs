@@ -1054,6 +1054,13 @@ pub async fn received(
         .filter(|session| session.id == id && session.device_id.as_deref() == Some(device))
         .ok_or(ImportError::Unknown)?;
     let staged = staged_count(db, id).await?;
+    let files = files_here(id).await;
+    Ok(json!({ "import": session.json(None), "staged": staged, "files": files }))
+}
+
+/// The files of her kept for an import so far, each by its asset id (a rig's
+/// two as `asset/file`).
+async fn files_here(id: &str) -> Vec<String> {
     let mut files = Vec::new();
     if let Ok(mut entries) = tokio::fs::read_dir(import_dir(id).join("assets")).await {
         while let Ok(Some(entry)) = entries.next_entry().await {
@@ -1073,7 +1080,21 @@ pub async fn received(
         }
     }
     files.sort();
-    Ok(json!({ "import": session.json(None), "staged": staged, "files": files }))
+    files
+}
+
+/// How many pictures and rigs an import has whole.
+pub(super) async fn assets_here(id: &str) -> usize {
+    let files = files_here(id).await;
+    files
+        .iter()
+        .filter(|file| match file.split_once('/') {
+            None => true,
+            Some((asset, name)) => {
+                name == RIG_MANIFEST_FILE && files.contains(&format!("{asset}/{RIG_ATLAS_FILE}"))
+            }
+        })
+        .count()
 }
 
 /// Her, as one side holds her whole: entities, vectors, the files by asset

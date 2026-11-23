@@ -15,6 +15,7 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr, TransactionSession, Tr
 
 use super::{Lease, Move, State, rows, statement};
 use crate::services::persona_sync::{devices, import, merge, moves};
+use myriad_persona_sync::archive::Manifest;
 
 /// How long it waits for each thing another holds (the imports, a row of
 /// theirs, her lease, the rows) before it is left for later: a few seconds
@@ -53,6 +54,9 @@ pub(in crate::services::persona_sync) async fn settle_within<
         }
     };
     txn.commit().await?;
+    for back in &ended.back {
+        back.told(device).await;
+    }
     ended.forget_files().await;
     Ok(())
 }
@@ -89,6 +93,7 @@ async fn settle_on<C: ConnectionTrait>(
 pub(super) struct Ended {
     imports: Vec<String>,
     moving: Option<String>,
+    back: Vec<Back>,
 }
 
 impl Ended {
@@ -108,6 +113,61 @@ impl Ended {
         if let Some(moving) = &self.moving {
             moves::forget_files(moving).await;
         }
+    }
+}
+
+/// Her on her way back from the device she lived on, which was removed
+/// before she landed: what had come of her goes with the import. The device
+/// keeps her until she lands, and its daily backups are kept here.
+#[derive(Debug)]
+struct Back {
+    import: String,
+    manifest: Option<Manifest>,
+    entities: i64,
+    vectors: i64,
+    assets: i64,
+}
+
+impl Back {
+    async fn from<C: ConnectionTrait>(db: &C, device: &str) -> Result<Vec<Self>, DbErr> {
+        db.query_all_raw(statement(
+            "SELECT i.id, i.manifest, \
+                    COUNT(*) FILTER (WHERE s.kind NOT IN \
+                      ('embedding', 'asset', 'embedding_model', 'origin'))::BIGINT AS entities, \
+                    COUNT(*) FILTER (WHERE s.kind = 'embedding')::BIGINT AS vectors, \
+                    COUNT(*) FILTER (WHERE s.kind = 'asset')::BIGINT AS assets \
+             FROM agent_host_import i \
+             LEFT JOIN agent_host_import_staging s ON s.import_id = i.id \
+             WHERE i.device_id = $1 AND i.kind = $2 AND i.phase <> 'committed' GROUP BY i.id",
+            vec![device.into(), import::kind::RETURN.into()],
+        ))
+        .await?
+        .iter()
+        .map(|row| {
+            Ok(Self {
+                import: row.try_get("", "id")?,
+                manifest: row
+                    .try_get::<Option<serde_json::Value>>("", "manifest")?
+                    .and_then(|manifest| serde_json::from_value(manifest).ok()),
+                entities: row.try_get("", "entities")?,
+                vectors: row.try_get("", "vectors")?,
+                assets: row.try_get("", "assets")?,
+            })
+        })
+        .collect()
+    }
+
+    /// Says so, and whether all of her had come, before its files go.
+    async fn told(&self, device: &str) {
+        let files = import::assets_here(&self.import).await;
+        let whole = self.manifest.as_ref().is_some_and(|manifest| {
+            let entities: u64 = manifest.kinds.values().map(|kind| kind.count).sum();
+            let assets = manifest.assets.count;
+            [self.entities, self.vectors, self.assets].map(i64::unsigned_abs)
+                == [entities, manifest.embeddings.count, assets]
+                && files as u64 == assets
+        });
+        tracing::warn!(import = %self.import, device, whole, "[host] a device was removed while she was on her way back from it: what had come of her is let go, the device keeps her");
     }
 }
 
@@ -220,7 +280,10 @@ pub(super) async fn device_gone<C: ConnectionTrait>(
     removed_at: DateTime<Utc>,
 ) -> Result<Ended, DbErr> {
     rows::lock(db).await?;
-    let mut ended = Ended::default();
+    let mut ended = Ended {
+        back: Back::from(db, device).await?,
+        ..Ended::default()
+    };
     for row in db
         .query_all_raw(statement(
             "DELETE FROM agent_host_import WHERE device_id = $1 AND phase <> 'committed' \

@@ -10,7 +10,9 @@ use super::{Lock, check};
 use crate::services::agent::merope::{api::store::lock_persona_on, retire_her_on};
 use crate::services::her_log::{deputy, lease as grants};
 use crate::services::persona_sync::{devices, import, lease, moves};
-use myriad_persona_sync::archive::Manifest;
+use myriad_persona_sync::{
+    AssetRef, AssetType, Envelope, archive::Manifest, canonical::sha256_hex,
+};
 
 /// A database of the test's own. The locks are the whole database's, so in a
 /// schema beside the other tests' these would wait on what theirs hold, and
@@ -409,6 +411,33 @@ async fn a_move_to_a_device_just_removed_is_not_committed() {
     holding.commit().await.unwrap();
     lease::removed::settle_all(&own.db).await.unwrap();
     own.is_settled("removed").await;
+    own.close().await;
+}
+
+/// Its commit went through, the answer was lost, and then it was removed:
+/// asked again, it is told she is on it, whether what it left is settled or
+/// not.
+#[tokio::test]
+async fn a_move_committed_before_its_device_was_removed_is_still_told_so() {
+    let Some(own) = Own::with_her().await else {
+        return;
+    };
+    let (mac, id, digest) = an_applied_move(&own).await;
+    moves::commit_to_device(&own.db, 41, &id, &mac, &digest)
+        .await
+        .unwrap();
+    let holding = own.imports_held().await;
+    assert!(own.remove(&mac).await.unwrap().is_some());
+    let told = moves::commit_to_device(&own.db, 41, &id, &mac, &digest)
+        .await
+        .unwrap();
+    assert_eq!(told.place(), lease::Where::Elsewhere(mac.clone()));
+    holding.commit().await.unwrap();
+    lease::removed::settle_all(&own.db).await.unwrap();
+    let told = moves::commit_to_device(&own.db, 41, &id, &mac, &digest)
+        .await
+        .unwrap();
+    assert_eq!(told.place(), lease::Where::Vacant);
     own.close().await;
 }
 
@@ -968,6 +997,128 @@ async fn what_a_move_and_an_import_kept_goes_once_their_device_is_settled() {
     own.is_settled("settled").await;
     files.are_gone();
     own.close().await;
+}
+
+/// The device she lives on is removed while she is on her way back from it:
+/// what had come goes, and it is said which import that was and whether all
+/// of her had come.
+#[tokio::test]
+async fn her_way_back_from_a_removed_device_is_said_to_be_let_go() {
+    let picture = b"a picture of her".to_vec();
+    let asset = AssetRef {
+        id: sha256_hex(&picture),
+        kind: AssetType::Image,
+        bytes: picture.len() as u64,
+        media_type: "image/png".into(),
+    };
+    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../core/crates/myriad-persona-sync/fixtures/merge/other.json");
+    let page = myriad_persona_sync::canonicalize_envelope(Envelope {
+        format: myriad_persona_sync::FORMAT.into(),
+        format_version: myriad_persona_sync::FORMAT_VERSION,
+        lineage: Some("l-1".into()),
+        origin: "dev_mac1".into(),
+        embedding_model: None,
+        entities: serde_json::from_slice(&std::fs::read(fixture).unwrap()).unwrap(),
+        embeddings: Vec::new(),
+        assets: vec![asset.clone()],
+    })
+    .unwrap();
+    let manifest = Manifest::of(&page.entities, &[], &page.assets).unwrap();
+    for (come, whole) in [("nothing", false), ("pages", false), ("all", true)] {
+        let Some(own) = Own::with_her().await else {
+            return;
+        };
+        let (mac, _) = devices::add(&own.db, 41, "Mac").await.unwrap();
+        lease::seed(&own.db, &mac.id, "l-1", 3, lease::State::Away)
+            .await
+            .unwrap();
+        let back = lease::start_back(&own.db, &mac.id, lease::Starter::Owner)
+            .await
+            .unwrap()
+            .moving
+            .unwrap();
+        let frozen = moves::Frozen {
+            lineage: "l-1".into(),
+            epoch: 3,
+            name: None,
+            manifest: manifest.clone(),
+        };
+        let import = moves::report_frozen(&own.db, &back.id, &mac.id, frozen)
+            .await
+            .unwrap()
+            .id;
+        if come != "nothing" {
+            let staged = import::take_page(&own.db, &import, &mac.id, page.clone())
+                .await
+                .unwrap();
+            assert_eq!(staged, page.entities.len() as u64);
+        }
+        if come == "all" {
+            let picture = picture.clone();
+            import::take_asset(&own.db, &import, &mac.id, &asset.id, None, picture)
+                .await
+                .unwrap();
+        }
+        let files = Files::of(&[&import, &back.id]);
+        let logged = Logged::start();
+        own.remove(&mac.id).await.unwrap().unwrap();
+        let said = logged.warned("on her way back");
+        drop(logged);
+        assert_eq!(said.len(), 1, "{come}: {said:?}");
+        assert!(said[0].contains(&format!("import={import}")), "{said:?}");
+        assert!(
+            said[0].contains(&format!("whole={whole}")),
+            "{come}: {said:?}"
+        );
+        let here = lease::read(&own.db).await.unwrap().unwrap();
+        assert_eq!((here.place(), here.moving), (lease::Where::Vacant, None));
+        assert_eq!(own.left_of_her().await, (0, 0));
+        files.are_gone();
+        own.close().await;
+    }
+}
+
+/// What this thread logs while it lives (a test's runtime is its own thread).
+struct Logged {
+    buffer: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    _guard: tracing::subscriber::DefaultGuard,
+}
+
+impl Logged {
+    fn start() -> Self {
+        #[derive(Clone)]
+        struct Buffer(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Buffer {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let buffer = Buffer(std::sync::Arc::default());
+        let writer = buffer.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || writer.clone())
+            .with_max_level(tracing::Level::INFO)
+            .with_ansi(false)
+            .finish();
+        Self {
+            buffer: buffer.0,
+            _guard: tracing::subscriber::set_default(subscriber),
+        }
+    }
+
+    fn warned(&self, message: &str) -> Vec<String> {
+        String::from_utf8(self.buffer.lock().unwrap().clone())
+            .unwrap()
+            .lines()
+            .filter(|line| line.contains("WARN") && line.contains(message))
+            .map(str::to_string)
+            .collect()
+    }
 }
 
 /// As an import, a merge or a move keeps them on disk.
