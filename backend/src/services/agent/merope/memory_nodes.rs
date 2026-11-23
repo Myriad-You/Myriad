@@ -111,6 +111,7 @@ pub(crate) mod intents_due;
 pub(crate) mod intents_run;
 pub(crate) mod kept;
 pub(crate) mod known;
+pub(crate) mod late;
 pub(crate) mod logged;
 pub(crate) mod migrate;
 mod migrate_census;
@@ -240,6 +241,9 @@ mod taken_back_lines_tests;
 
 #[cfg(test)]
 mod asked_old_tests;
+
+#[cfg(test)]
+mod left_alone_tests;
 
 #[cfg(test)]
 mod unbuilt_tests;

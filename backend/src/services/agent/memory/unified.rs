@@ -373,6 +373,14 @@ pub const SYNC_SOURCE: &str = "sync";
 /// ([`asked_not_to_keep`]).
 pub const ASKED_SOURCE: &str = "asked";
 
+/// Until when someone asked to be left alone (`merope::left_alone`): never
+/// recalled, and never fades by itself.
+pub const LEFT_ALONE_SOURCE: &str = "left_alone";
+
+/// What someone asked of her, read only where it holds her back, never to
+/// say anything from.
+pub(crate) const HOLDS_BACK: [&str; 2] = [ASKED_SOURCE, LEFT_ALONE_SOURCE];
+
 /// Where a Work lesson or pattern the extraction drew from one run is kept
 /// until it holds: recalled by Work alone, until a run it was shown in is
 /// done or the admin confirms it, and then kept under `work` (see
@@ -477,9 +485,7 @@ async fn active_rows<C: ConnectionTrait>(
     let mut query = agent_memories::Entity::find()
         .filter(agent_memories::Column::UserId.eq(user_id))
         .filter(agent_memories::Column::InvalidAt.is_null())
-        // What they asked her not to keep is read only where it holds back
-        // what is kept (`asked_not_to_keep`), never to say anything from.
-        .filter(agent_memories::Column::Source.ne(ASKED_SOURCE));
+        .filter(agent_memories::Column::Source.is_not_in(HOLDS_BACK));
     if !kinds.is_empty() {
         query = query
             .filter(agent_memories::Column::Kind.is_in(kinds.iter().map(|kind| kind.as_str())));
@@ -758,7 +764,7 @@ async fn fade_excess<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<(), DbE
     let mut rows = agent_memories::Entity::find()
         .filter(agent_memories::Column::UserId.eq(user_id))
         .filter(agent_memories::Column::Origin.eq(ORIGIN_SITE))
-        .filter(agent_memories::Column::Source.ne(ASKED_SOURCE))
+        .filter(agent_memories::Column::Source.is_not_in(HOLDS_BACK))
         .filter(agent_memories::Column::InvalidAt.is_null())
         .all(db)
         .await?;

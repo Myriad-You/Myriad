@@ -8,7 +8,8 @@ use serde_json::json;
 
 use super::super::keys::test_root::TestRoot;
 use super::super::{state, store};
-use super::{ASKED_SOURCE, SYNC_SOURCE, TransactionTrait, take_in};
+use super::{SYNC_SOURCE, TransactionTrait, take_in};
+use crate::services::agent::memory::unified::{ASKED_SOURCE, LEFT_ALONE_SOURCE};
 
 const OWNER: i32 = 41;
 const PARTNER: &str = "partner_019b76daa80000112233445566778899";
@@ -48,6 +49,7 @@ async fn what_they_asked_not_to_keep_stays_here_and_comes_as_itself() {
     for (id, content, source) in [
         ("m1", "喜欢茶", "chat"),
         ("m2", "不要记和房东吵架的事", ASKED_SOURCE),
+        ("m5", "今晚别找我了", LEFT_ALONE_SOURCE),
     ] {
         db.execute_unprepared(&format!(
             "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, audience, \
@@ -75,7 +77,11 @@ async fn what_they_asked_not_to_keep_stays_here_and_comes_as_itself() {
         .await
         .unwrap();
     let txn = db.begin().await.unwrap();
-    for (object, source) in [("memory:m3", ASKED_SOURCE), ("memory:m4", "elsewhere")] {
+    for (object, source) in [
+        ("memory:m3", ASKED_SOURCE),
+        ("memory:m4", "elsewhere"),
+        ("memory:m6", LEFT_ALONE_SOURCE),
+    ] {
         store::write_row_on(
             &txn,
             &root,
@@ -94,13 +100,17 @@ async fn what_they_asked_not_to_keep_stays_here_and_comes_as_itself() {
     // As from there.
     db.execute_unprepared(
         "UPDATE agent_log_rows SET origin = 'dev_mac', \
-         envelope = jsonb_set(envelope, '{origin}', '\"dev_mac\"') WHERE object IN ('memory:m3', 'memory:m4')",
+         envelope = jsonb_set(envelope, '{origin}', '\"dev_mac\"') WHERE object IN ('memory:m3', 'memory:m4', 'memory:m6')",
     )
     .await
     .unwrap();
     take_in(db, &root, &owner).await.unwrap();
     let kept = sources(db).await;
-    for (id, source) in [("m3", ASKED_SOURCE), ("m4", SYNC_SOURCE)] {
+    for (id, source) in [
+        ("m3", ASKED_SOURCE),
+        ("m4", SYNC_SOURCE),
+        ("m6", LEFT_ALONE_SOURCE),
+    ] {
         assert!(
             kept.contains(&(id.to_string(), source.to_string())),
             "{kept:?}"

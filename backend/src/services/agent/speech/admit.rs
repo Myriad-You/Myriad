@@ -118,7 +118,15 @@ pub async fn admit_in(db: &DatabaseConnection, wish: &Wish, scene: &Scene) -> Ad
 /// [`admit_in`] for a private wish, in the talk as it stands now.
 pub async fn admit(db: &DatabaseConnection, wish: &Wish) -> Admission {
     let scene = match super::user_of(&wish.to) {
-        Some(user) => private_scene(db, user).await,
+        Some(user) => {
+            let mut scene = private_scene(db, user).await;
+            // They asked to be left alone for now: as do-not-disturb till
+            // then, but for what they told her to say.
+            if !scene.dnd && merope::left_alone::is_hers(wish) {
+                scene.dnd = merope::left_alone::holds(db, user).await;
+            }
+            scene
+        }
         None => Scene::default(),
     };
     admit_in(db, wish, &scene).await

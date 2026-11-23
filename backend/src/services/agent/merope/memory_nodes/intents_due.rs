@@ -19,6 +19,8 @@
 //!   check stops) raises her hand: she says it to them now
 //!   (`reach::say_now`), and for a stopped instruction, why it was not done.
 
+use std::collections::HashSet;
+
 use chrono::{DateTime, Utc};
 use myriad_nodes::{
     body::{IntentStatus, Origin},
@@ -30,9 +32,9 @@ use super::{
     Error, heads,
     intent_store::{self, Held, Instruction, Outcome},
     intents_run::{self, Ran},
-    write,
+    late, write,
 };
-use crate::services::agent::merope::{reach, threads};
+use crate::services::agent::merope::{left_alone, reach, threads};
 use crate::services::agent::speech::Source;
 
 /// One of the partner's instructions the check let run, to run.
@@ -118,14 +120,54 @@ async fn due_in(
         .collect();
     // Nor what they asked her not to keep: not held to that yet, only what
     // they told her to do is done.
-    let only_theirs = now_due
+    let mut hers: Vec<&Held> = now_due
         .iter()
-        .any(|held| held.origin != Some(Origin::Partner))
-        && !crate::services::agent::merope::asked::old::done_first(db, user_id).await;
+        .copied()
+        .filter(|held| held.origin != Some(Origin::Partner))
+        .collect();
+    // Nor anything of hers while they asked to be left alone: it waits.
+    let alone = match hers.is_empty() {
+        true => left_alone::Standing::Free { ended: None },
+        false => left_alone::standing(db, user_id).await,
+    };
+    let (held_off, ended) = match alone {
+        left_alone::Standing::Held(_) => {
+            for held in &hers {
+                late::wait(user_id, &held.id);
+            }
+            (true, None)
+        }
+        left_alone::Standing::Unknown => (true, None),
+        left_alone::Standing::Free { ended } => (false, ended),
+    };
+    let only_theirs = held_off
+        || (!hers.is_empty()
+            && !crate::services::agent::merope::asked::old::done_first(db, user_id).await);
+    // What she said already, and could not settle.
+    let told = if only_theirs || hers.is_empty() {
+        HashSet::new()
+    } else {
+        late::told(db, user_id, audience, &hers).await
+    };
+    hers.retain(|held| !told.contains(&held.id));
+    // What came due while they were to be left alone is brought up at once,
+    // with the rest of hers, if she still would; as long as she cannot be
+    // asked, it alone waits.
+    let late: HashSet<String> = match only_theirs {
+        true => HashSet::new(),
+        false => hers
+            .iter()
+            .filter(|held| late::is(user_id, held, ended))
+            .map(|held| held.id.clone())
+            .collect(),
+    };
+    let now_late = !late.is_empty() && late::ready(db, user_id).await;
     let standing = intent_store::standing_now(db, user_id).await;
     let mut runs = Vec::new();
     for held in now_due {
-        if only_theirs && held.origin != Some(Origin::Partner) {
+        if held.origin != Some(Origin::Partner)
+            && (only_theirs || now_late || late.contains(&held.id) || told.contains(&held.id))
+        {
             continue;
         }
         // Settled first: acted on once, whatever comes after.
@@ -164,6 +206,9 @@ async fn due_in(
             }
         }
     }
+    if now_late {
+        late::bring_up(db, user_id, audience, hers).await;
+    }
     // A thread said this way is not raised again the old way.
     if due
         .due
@@ -176,7 +221,7 @@ async fn due_in(
 }
 
 /// Writes `held` at `status`, as hers; whether it was newly written now.
-async fn settle(
+pub(super) async fn settle(
     db: &DatabaseConnection,
     user_id: i32,
     audience: &str,
@@ -265,11 +310,12 @@ async fn raise(
         _ => Source::Reach,
     };
     let thing = match raised {
-        Raised::Ran { .. } => format!("intent|{}|done", held.id),
-        _ => format!("intent|{}", held.id),
+        Raised::Ran { .. } => format!("{}{}|done", left_alone::TOLD, held.id),
+        _ if held.origin == Some(Origin::Partner) => format!("{}{}", left_alone::TOLD, held.id),
+        _ => format!("{}{}", left_alone::OWN, held.id),
     };
     let went = reach::say_now(db, user_id, source, &thing, &about(held, &raised)).await;
-    if went.is_none() {
+    if went.is_err() {
         tracing::info!("[memory-nodes] what came due was not said");
     }
     if instructed && !matches!(raised, Raised::Ran { .. }) {

@@ -49,7 +49,7 @@ use serde_json::{Value, json};
 
 use super::{Error, NODE, Owner, keys, state, store};
 use crate::services::agent::memory::unified::{
-    self, ASKED_SOURCE, NO_ONE, ORIGIN_SITE, OWN_VENUE, SYNC_SOURCE,
+    self, HOLDS_BACK, NO_ONE, ORIGIN_SITE, OWN_VENUE, SYNC_SOURCE,
 };
 
 /// What a comparison of her memories wrote.
@@ -189,7 +189,7 @@ async fn site_source<C: ConnectionTrait>(db: &C, source: &str) -> Result<bool, E
         return Ok(false);
     }
     // Asked of her wherever she is: never taken for a fact.
-    if source == ASKED_SOURCE {
+    if HOLDS_BACK.contains(&source) {
         return Ok(true);
     }
     let row = db
@@ -313,9 +313,14 @@ pub(super) async fn compare(
     for memory in &memories {
         let object = memory.object();
         here.insert(object.clone());
-        // What they asked her not to keep stays here: an end that does not
-        // know it as that would tell it as any fact.
-        if memory.source.as_deref() == Some(ASKED_SOURCE) {
+        // What they asked her not to keep, and to be left alone, stay here:
+        // an end that does not know them as that would tell them as any
+        // fact.
+        if memory
+            .source
+            .as_deref()
+            .is_some_and(|source| HOLDS_BACK.contains(&source))
+        {
             continue;
         }
         let digest = memory.digest();
@@ -669,10 +674,11 @@ pub async fn take_in(
                 _ => SYNC_SOURCE.to_string(),
             };
             let speaker = speaker_here(folded.write.speaker, own);
-            // What they asked her not to keep is heard by no one, here too.
+            // What they asked of her, that holds her back, is heard by no one,
+            // here too.
             let heard_by = if own {
                 json!([])
-            } else if source == ASKED_SOURCE {
+            } else if HOLDS_BACK.contains(&source.as_str()) {
                 json!([NO_ONE])
             } else {
                 json!([owner.user])
