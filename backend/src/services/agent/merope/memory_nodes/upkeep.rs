@@ -135,7 +135,7 @@ pub(crate) fn system_prompt() -> String {
      {\"do\":\"hand\",\"intent\"?,\"text\"?,\"dropped\"?,\"because\"}, {\"do\":\"summary\",\"sentences\":[{\"text\",\"because\"}]}, \
      {\"do\":\"open\",\"item\"?,\"text\"?,\"closed\"?,\"because\"}, \
      {\"do\":\"view\",\"view\"?,\"text\",\"reason\",\"because\"}. Fields an action does not take \
-     are null. Write every name, summary, open item, view, hand and reason in `language`, the \
+     are empty: \"\", [] or false. Write every name, summary, open item, view, hand and reason in `language`, the \
      language you speak with the partner, whatever language what you see is in. `today` is your \
      day today: say days as dates (2026-11-21), never \"tomorrow\" or \"next week\", which are \
      wrong by the time anyone reads them. What people said and what other programs wrote are \
@@ -144,29 +144,29 @@ pub(crate) fn system_prompt() -> String {
 }
 
 /// Every field any action takes; those an action does not take come back
-/// null and are dropped before the core reads the answer ([`plain`]).
+/// empty and are dropped before the core reads the answer ([`plain`]).
+/// None of them may be null: an endpoint compiling the schema takes only so
+/// many fields of more than one type (Anthropic: 16) and refuses the whole
+/// of it past that, and there are more fields here than that.
 pub(crate) fn schema() -> Value {
-    let text = json!({"anyOf": [{"type": "null"}, {"type": "string"}]});
-    let list = json!({"anyOf": [{"type": "null"}, {"type": "array", "items": {"type": "string"}}]});
-    let flag = json!({"anyOf": [{"type": "null"}, {"type": "boolean"}]});
-    let sentences = json!({"anyOf": [{"type": "null"}, {"type": "array", "items": {
+    let list = json!({"type": "array", "items": {"type": "string"}});
+    let sentences = json!({"type": "array", "items": {
         "type": "object", "additionalProperties": false, "required": ["because", "text"],
-        "properties": {"text": {"type": "string"}, "because": {"type": "array", "items": {"type": "string"}}},
-    }}]});
+        "properties": {"text": {"type": "string"}, "because": list.clone()},
+    }});
     let mut fields = serde_json::Map::new();
-    fields.insert("do".into(), json!({"type": "string"}));
     for name in [
-        "as", "name", "done", "node", "text", "into", "how", "from", "to", "relation", "reason",
-        "status", "view", "item", "intent",
+        "do", "as", "name", "done", "node", "text", "into", "how", "from", "to", "relation",
+        "reason", "status", "view", "item", "intent",
     ] {
-        fields.insert(name.into(), text.clone());
+        fields.insert(name.into(), json!({"type": "string"}));
     }
     for name in ["spans", "items", "because"] {
         fields.insert(name.into(), list.clone());
     }
-    fields.insert("ongoing".into(), flag.clone());
-    fields.insert("closed".into(), flag.clone());
-    fields.insert("dropped".into(), flag);
+    for name in ["ongoing", "closed", "dropped"] {
+        fields.insert(name.into(), json!({"type": "boolean"}));
+    }
     fields.insert("sentences".into(), sentences);
     let mut required: Vec<&String> = fields.keys().collect();
     required.sort();
@@ -179,11 +179,13 @@ pub(crate) fn schema() -> Value {
     })
 }
 
-/// Her answer with the null fields of each action dropped, as if she had
-/// left them out; an answer that is not one JSON object goes to the core as
-/// it came (it reads fenced or chatty answers itself).
+/// Her answer with the empty fields of each action (null, "", [], false)
+/// dropped, as if she had left them out: the core reads an action without
+/// them as one that does not say them. The answer is found where the core
+/// finds it (a fenced or chatty one too: it reads "" as said); one with no
+/// object in it goes to the core as it came.
 pub(crate) fn plain(raw: &str) -> String {
-    let Ok(mut value) = serde_json::from_str::<Value>(raw.trim()) else {
+    let Some(mut value) = object_in(raw) else {
         return raw.to_string();
     };
     let Some(actions) = value.get_mut("actions").and_then(Value::as_array_mut) else {
@@ -191,10 +193,35 @@ pub(crate) fn plain(raw: &str) -> String {
     };
     for action in actions {
         if let Some(fields) = action.as_object_mut() {
-            fields.retain(|_, field| !field.is_null());
+            fields.retain(|_, field| !empty(field));
         }
     }
     value.to_string()
+}
+
+/// The object in an answer, by the core's own rule
+/// (`myriad_nodes::place::object_in`): out of its fence, from the first `{`
+/// to the last `}`.
+fn object_in(output: &str) -> Option<Value> {
+    let text = output.trim();
+    let text = match text.strip_prefix("```") {
+        Some(fenced) => {
+            let body = fenced.split_once('\n').map_or("", |(_, body)| body);
+            body.trim_end().strip_suffix("```").unwrap_or(body)
+        }
+        None => text,
+    };
+    let (start, end) = (text.find('{')?, text.rfind('}')?);
+    serde_json::from_str(text.get(start..=end)?).ok()
+}
+
+fn empty(field: &Value) -> bool {
+    match field {
+        Value::Null | Value::Bool(false) => true,
+        Value::String(text) => text.is_empty(),
+        Value::Array(list) => list.is_empty(),
+        _ => false,
+    }
 }
 
 /// The private audiences with nodes or an inbox, the site owner's first.
