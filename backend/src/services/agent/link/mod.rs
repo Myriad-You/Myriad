@@ -73,7 +73,11 @@ mod reading;
 mod say;
 mod senses;
 mod turns;
+mod vectors;
 pub(crate) mod versions;
+
+#[cfg(test)]
+pub(crate) use reading::held;
 
 #[cfg(test)]
 mod tests;

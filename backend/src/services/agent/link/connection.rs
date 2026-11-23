@@ -227,6 +227,7 @@ pub(super) async fn serve_with(
         timing,
         tx,
         queue: Vec::new(),
+        vectors: super::vectors::Said::default(),
         wire: wire.clone(),
         heard: 0,
         hello: false,
@@ -307,6 +308,8 @@ struct Link {
     tx: mpsc::Sender<Outgoing>,
     /// What the frame just taken answers with, sent before anything else.
     queue: Vec<Outgoing>,
+    /// What this link was told the site holds of her log.
+    vectors: super::vectors::Said,
     /// The socket's way out.
     wire: Arc<Wire>,
     /// The highest seq of the child's taken up.
@@ -478,7 +481,13 @@ impl Link {
                     },
                 },
                 Some(outgoing) = rx.recv() => {
-                    self.queue.push(outgoing);
+                    let mut waiting = vec![outgoing];
+                    while waiting.len() < QUEUED_FRAMES
+                        && let Ok(outgoing) = rx.try_recv()
+                    {
+                        waiting.push(outgoing);
+                    }
+                    self.queue.extend(self.vectors.worth_sending(waiting));
                     None
                 }
                 () = &mut hello_by, if !self.hello => Some(Close::Timeout),
@@ -628,6 +637,7 @@ impl Link {
             }
         }
         let Outgoing { t, id, body } = outgoing;
+        self.vectors.sent(t, &body);
         let (unacked, said, sent_as) = (&mut self.unacked, &mut self.said, &mut self.sent_as);
         let kept = id.clone();
         let began = Instant::now();
