@@ -393,9 +393,38 @@ async fn notes_left_unread_of_someone_who_asked_are_held_to_it_first() {
     assert_eq!(both().await, (None, None));
     let drop = format!(r#"{{"drop":[{of_it}]}}"#);
     assert!(judged(&[&drop], false).await);
-    let (kept, gone) = both().await;
-    assert_eq!(kept, holds("周末要搬家"));
-    assert!(gone.is_some() && gone != holds("房东又来吵"), "{gone:?}");
+    // The one kept for good; the other let go for nothing, and never kept.
+    let rows = db
+        .query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT note.content, note.invalid_at IS NOT NULL AS gone, \
+               note.superseded_by IS NULL AS for_nothing, kept.content AS kept \
+             FROM agent_memories note \
+             LEFT JOIN agent_memories kept ON kept.content = note.content \
+               AND kept.source = 'chat' AND kept.invalid_at IS NULL \
+             WHERE note.source = 'chat_note' ORDER BY note.created_at",
+        ))
+        .await
+        .unwrap();
+    let went: Vec<(String, bool, bool, Option<String>)> = rows
+        .iter()
+        .map(|row| {
+            (
+                row.try_get("", "content").unwrap(),
+                row.try_get("", "gone").unwrap(),
+                row.try_get("", "for_nothing").unwrap(),
+                row.try_get("", "kept").unwrap(),
+            )
+        })
+        .collect();
+    let moving = "周末要搬家".to_string();
+    assert_eq!(
+        went,
+        [
+            (moving.clone(), true, false, Some(moving)),
+            ("房东又来吵".into(), true, true, None),
+        ]
+    );
     assert!(judged(&[], false).await, "nothing left to judge");
     schema.drop().await;
 }
