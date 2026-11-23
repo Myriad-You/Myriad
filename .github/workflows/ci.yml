@@ -393,6 +393,17 @@ jobs:
           workspaces: .
           shared-key: workspace
           save-if: false
+      # The backend's test binary is built only here. The machine stopped
+      # answering in the step below more than once and no log was kept; memory
+      # for that build is the likely reason.
+      - name: More swap for the backend's test build
+        continue-on-error: true
+        run: |
+          sudo fallocate -l 10G /mnt/swap-tests
+          sudo chmod 600 /mnt/swap-tests
+          sudo mkswap /mnt/swap-tests
+          sudo swapon /mnt/swap-tests
+          free -m
       - name: Assert migrations leave no schema drift
         env:
           MYRIAD_SCHEMA_DRIFT_DB: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
