@@ -170,8 +170,12 @@ async fn forget_rows(
 /// cite (`message:<id>`) as forgetting that one line does
 /// ([`manage::forget_line`]): its vector, its traces and her log with it.
 async fn forget_memories(db: &DatabaseConnection, entries: &[&Value]) -> Result<(), Refusal> {
-    for memory in entries.iter().flat_map(|entry| memories_of(entry)) {
-        manage::forget_any(db, &memory).await?;
+    let memories: Vec<String> = entries
+        .iter()
+        .flat_map(|entry| memories_of(entry))
+        .collect();
+    if !memories.is_empty() {
+        manage::forget_all(db, &memories).await?;
     }
     let lines: Vec<i32> = entries
         .iter()

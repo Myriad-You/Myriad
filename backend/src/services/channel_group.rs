@@ -86,6 +86,7 @@ use reads::*;
 use turns::*;
 
 pub use first::{come_back, share_first};
+pub(crate) use io::heard_again;
 pub(crate) use ledger::talk_between;
 pub(crate) use lent::say_lent;
 pub use line::GroupLine;

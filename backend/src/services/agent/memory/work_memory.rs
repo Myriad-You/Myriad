@@ -203,28 +203,71 @@ pub(crate) async fn learn_from_run(db: &DatabaseConnection, run: WorkRun) {
 
     let origin = run.origin.as_deref().unwrap_or(unified::ORIGIN_SITE);
     let date = super::utc_now().format("%Y-%m-%d").to_string();
-    store(
-        db,
-        origin,
-        NewMemory {
-            user_id: run.user_id,
-            kind: MemoryKind::Done,
-            content: done_content(&run, &date),
-            evidence: Some(done_evidence(&run)),
-            speaker: Speaker::Agent,
-            source: "work",
-            audience: private(run.user_id),
-            importance: DONE_IMPORTANCE,
-            concepts: Vec::new(),
-        },
-    )
-    .await;
+    let content = done_content(&run, &date);
+    if let Some(evidence) = evidence_kept(db, &run, &content).await {
+        store(
+            db,
+            origin,
+            NewMemory {
+                user_id: run.user_id,
+                kind: MemoryKind::Done,
+                content,
+                evidence: Some(evidence),
+                speaker: Speaker::Agent,
+                source: "work",
+                audience: private(run.user_id),
+                importance: DONE_IMPORTANCE,
+                concepts: Vec::new(),
+            },
+        )
+        .await;
+    }
 
     if let Err(error) = settle_shown(db, run.user_id, &run.shown, run.success).await {
         tracing::warn!(%error, "[Memory] could not settle what a Work run was given");
     }
 
     extract_with_model(db, &run).await;
+}
+
+/// Of a run's record longer than this, only what was asked and said is kept
+/// with someone who asked her not to keep something: so much of it can be
+/// held to that.
+const RECORD_JUDGED_CHARS: usize = 40_000;
+/// A record is held to it so much at a time, each a little into the next.
+const JUDGED_AT_ONCE: usize = 2_000;
+const INTO_THE_NEXT: usize = 100;
+
+/// The record kept with what a run did (`content`), all of it held to what
+/// they asked her not to keep; none when it, or any of it, says that, or it
+/// could not be told: nothing of the run is kept then.
+async fn evidence_kept(db: &DatabaseConnection, run: &WorkRun, content: &str) -> Option<String> {
+    use crate::services::agent::merope;
+    let whole = done_evidence(run);
+    if !merope::asked_anything(db, run.user_id).await {
+        return Some(whole);
+    }
+    let evidence = if whole.chars().count() > RECORD_JUDGED_CHARS {
+        let mut short: serde_json::Value = serde_json::from_str(&whole).ok()?;
+        short["steps"] = serde_json::json!([]);
+        short.to_string()
+    } else {
+        whole
+    };
+    let chars: Vec<char> = evidence.chars().collect();
+    let mut items = vec![content.to_string()];
+    let mut from = 0;
+    while from < chars.len() {
+        let to = (from + JUDGED_AT_ONCE).min(chars.len());
+        items.push(chars[from..to].iter().collect());
+        if to == chars.len() {
+            break;
+        }
+        from = to - INTO_THE_NEXT;
+    }
+    let all = items.len();
+    let kept = merope::to_keep(db, run.user_id, items, String::clone).await?;
+    (kept.len() == all).then_some(evidence)
 }
 
 /// What came of the lessons and patterns a run was given, for those still
@@ -490,6 +533,15 @@ async fn keep_extracted(db: &DatabaseConnection, run: &WorkRun, memories: Vec<Ex
             return;
         }
     };
+    // Nor what they asked her not to keep; not told which, none of it.
+    let Some(memories) =
+        crate::services::agent::merope::to_keep(db, run.user_id, memories, |item| {
+            item.content.clone()
+        })
+        .await
+    else {
+        return;
+    };
     for item in memories {
         let Some(kind) = kind_of(&item.memory_type) else {
             continue;
@@ -742,6 +794,138 @@ mod tests {
     const PATTERN: &str =
         "When: 整理周报. Do: 表格按日期升序排列，项目放第一列. Check: 第一列是项目名.";
     const LESSON: &str = "When: 抓取知乎页面. Do: 先登录再抓. Check: 拿到的是全文而不是摘要.";
+
+    /// Nothing of what they asked her not to keep, however a run came by it.
+    #[tokio::test]
+    async fn a_run_teaches_nothing_of_what_they_asked_not_to_keep() {
+        use crate::services::channel_group::g0;
+        let Some(schema) = tried_schema("work_asked").await else {
+            return;
+        };
+        let db = &schema.db;
+        unified::remember(
+            db,
+            NewMemory {
+                user_id: 7,
+                kind: MemoryKind::Preference,
+                content: "不要记自己在哪家公司".into(),
+                evidence: None,
+                speaker: Speaker::User,
+                source: unified::ASKED_SOURCE,
+                audience: private(7),
+                importance: 1.0,
+                concepts: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+        let keep = async |answer: Option<&str>| {
+            let mut world = g0::World::new(0.5);
+            world
+                .models
+                .entry("not_to_keep".into())
+                .or_default()
+                .push_back(answer.map(str::to_string));
+            g0::enter(world);
+            keep_extracted(
+                db,
+                &run("帮我写封邮件"),
+                vec![
+                    drawn("preference", "在星河软件上班"),
+                    drawn("preference", "邮件喜欢短一点"),
+                ],
+            )
+            .await;
+            g0::leave();
+        };
+        keep(None).await;
+        let kept = async || {
+            agent_memories::Entity::find()
+                .filter(agent_memories::Column::Source.eq("work"))
+                .all(db)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|row| row.content)
+                .collect::<Vec<_>>()
+        };
+        assert!(kept().await.is_empty());
+        keep(Some(r#"{"drop":[0]}"#)).await;
+        assert_eq!(kept().await, ["邮件喜欢短一点"]);
+        schema.drop().await;
+    }
+
+    /// The whole of a run's record is held to what they asked, not what is
+    /// told of it alone: with any of it, or not told, nothing of the run is
+    /// kept; a record too long to be judged keeps what was asked and said.
+    #[tokio::test]
+    async fn a_runs_whole_record_is_held_to_what_they_asked() {
+        use crate::services::channel_group::g0;
+        let Some(schema) = tried_schema("work_asked_record").await else {
+            return;
+        };
+        let db = &schema.db;
+        let mut told = run("帮我写封邮件");
+        told.step_outputs
+            .push(("step_2".into(), json!({"body": "星".repeat(3_000)})));
+        // Who asked nothing: as it was, and no one is asked.
+        g0::enter(g0::World::new(0.5));
+        let whole = done_evidence(&told);
+        assert_eq!(
+            evidence_kept(db, &told, "写邮件").await,
+            Some(whole.clone())
+        );
+        assert!(g0::leave().unwrap().log.is_empty());
+        unified::remember(
+            db,
+            NewMemory {
+                user_id: 7,
+                kind: MemoryKind::Preference,
+                content: "不要记自己在哪家公司".into(),
+                evidence: None,
+                speaker: Speaker::User,
+                source: unified::ASKED_SOURCE,
+                audience: private(7),
+                importance: 1.0,
+                concepts: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+        let held = async |run: &WorkRun, answer: Option<&str>| {
+            let mut world = g0::World::new(0.5);
+            world
+                .models
+                .entry("not_to_keep".into())
+                .or_default()
+                .extend(vec![answer.map(str::to_string); 3]);
+            g0::enter(world);
+            let kept = evidence_kept(db, run, "写邮件").await;
+            let shown: Vec<String> = g0::leave()
+                .unwrap()
+                .log
+                .iter()
+                .filter(|entry| entry["kind"] == "model")
+                .map(|entry| entry["what"]["input"].to_string())
+                .collect();
+            (kept, shown)
+        };
+        let (kept, shown) = held(&told, Some(r#"{"drop":[]}"#)).await;
+        assert_eq!(kept, Some(whole));
+        let seen: usize = shown.iter().map(|input| input.matches('星').count()).sum();
+        assert!(seen >= 3_000, "{seen}");
+        // In a step alone.
+        assert_eq!(held(&told, Some(r#"{"drop":[2]}"#)).await.0, None);
+        assert_eq!(held(&told, None).await.0, None);
+        let mut long = run("帮我写封邮件");
+        long.step_outputs
+            .push(("step_2".into(), json!({"body": "星".repeat(50_000)})));
+        let (kept, _) = held(&long, Some(r#"{"drop":[]}"#)).await;
+        let kept: Value = serde_json::from_str(&kept.unwrap()).unwrap();
+        assert_eq!(kept["steps"], json!([]));
+        assert_eq!(kept["asked"], "帮我写封邮件");
+        schema.drop().await;
+    }
 
     /// What the person said of themselves is kept at once; a lesson or
     /// pattern is tried: Work is given it, nothing else is, and drawing it

@@ -48,10 +48,12 @@ fn identity() -> crate::services::runtime_registry::RegistryIdentity<'static> {
 
 /// What is on her mind, if anything.
 pub async fn now(db: &DatabaseConnection) -> Option<OnMind> {
-    crate::services::runtime_registry::get::<OnMind>(db, NAMESPACE, RECORD)
-        .await
-        .ok()
-        .flatten()
+    kept(db).await.ok().flatten()
+}
+
+/// [`now`], or why it could not be read.
+pub(super) async fn kept(db: &DatabaseConnection) -> anyhow::Result<Option<OnMind>> {
+    Ok(crate::services::runtime_registry::get::<OnMind>(db, NAMESPACE, RECORD).await?)
 }
 
 pub(super) async fn keep(db: &DatabaseConnection, on_mind: &OnMind) {
@@ -65,7 +67,7 @@ pub(super) async fn keep(db: &DatabaseConnection, on_mind: &OnMind) {
     }
 }
 
-async fn let_go(db: &DatabaseConnection) {
+pub(super) async fn let_go(db: &DatabaseConnection) {
     if let Err(error) = crate::services::runtime_registry::delete(db, NAMESPACE, RECORD).await {
         tracing::warn!(%error, "[Merope] could not let go of what was on her mind");
     }
@@ -114,6 +116,13 @@ pub(super) async fn step(db: &DatabaseConnection, owner: i32) {
     let Some(mut on_mind) = self::now(db).await.filter(|on_mind| on_mind.step_due(now)) else {
         return;
     };
+    // About someone: what they asked her not to keep first.
+    if let Some(about) = on_mind.about
+        && (!super::asked::old::done_first(db, about).await
+            || self::now(db).await.as_ref() != Some(&on_mind))
+    {
+        return;
+    }
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
@@ -122,6 +131,10 @@ pub(super) async fn step(db: &DatabaseConnection, owner: i32) {
         .within(CALL_TIMEOUT)
         .json_raw(&step_system(&soul), &input, STEP_SCHEMA, &step_schema())
         .await;
+    // Let go of meanwhile, or another thing came onto it: not brought back.
+    if self::now(db).await.as_ref() != Some(&on_mind) {
+        return;
+    }
     let Some(step) = raw.ok().as_deref().and_then(read_step) else {
         // Not thought on this time: the next try is a step later, not the
         // next minute.

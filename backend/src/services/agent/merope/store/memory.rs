@@ -54,6 +54,8 @@ pub(in crate::services::agent::merope) enum Keep {
     LetGo,
     /// Kept for good: it changes only what she knows for good.
     Lasting,
+    /// Kept for good, as what they asked her not to keep from now on.
+    Asked,
 }
 
 impl Keep {
@@ -61,7 +63,13 @@ impl Keep {
         match self {
             Self::Note | Self::LetGo => crate::services::agent::memory::unified::SHORT_NOTE_SOURCE,
             Self::Lasting => "chat",
+            Self::Asked => crate::services::agent::memory::unified::ASKED_SOURCE,
         }
+    }
+
+    /// Kept for good, whichever way.
+    fn for_good(self) -> bool {
+        matches!(self, Self::Lasting | Self::Asked)
     }
 }
 
@@ -82,7 +90,11 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<
     use super::super::chat_remember::SaidNew;
     let keep = if keep == Keep::Note
         && match updates.said_new {
-            SaidNew::Nothing => updates.updates.iter().all(|update| update.fact.is_none()),
+            SaidNew::Nothing => updates
+                .updates
+                .iter()
+                .enumerate()
+                .all(|(index, update)| update.fact.is_none() || updates.asked.contains(&index)),
             SaidNew::WhatSheHad => true,
             SaidNew::Something => false,
         } {
@@ -90,130 +102,48 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<
     } else {
         keep
     };
+    let tells = updates
+        .updates
+        .iter()
+        .enumerate()
+        .any(|(index, update)| update.fact.is_some() && !updates.asked.contains(&index));
     let mut kept = false;
     for (index, update) in updates.updates.iter().enumerate() {
-        let said = updates.taken_back_in.get(&index).copied();
+        let said = Said::of(updates, index);
+        let keep = if updates.asked.contains(&index) {
+            Keep::Asked
+        } else if keep == Keep::Note && update.fact.is_none() && !updates.asked.is_empty() && !tells
+        {
+            // Beside asking her not to keep something, with nothing else
+            // told, what it lets go of is that, wherever it is kept; with a
+            // fact told, it may be what that corrects.
+            Keep::LetGo
+        } else {
+            keep
+        };
         kept |= apply_one(db, user_id, input_at, update, present, keep, &[], said).await?;
     }
     if (updates.said.is_empty() && updates.put_onto.is_empty())
-        || (keep != Keep::Lasting
+        || (!keep.for_good()
             && !chat_memory_input_is_current(db, user_id, input_at, present).await?)
     {
         return Ok(kept);
     }
     kept |= keep_what_she_said(db, user_id, updates, present).await?;
-    if kept && keep != Keep::Lasting {
+    if kept && !keep.for_good() {
         mark_applied(db, user_id, input_at, present).await?;
     }
     Ok(kept)
 }
 
-/// What she said worth keeping having said, and what they put her onto,
-/// of `updates`: kept once each.
-async fn keep_what_she_said<C: ConnectionTrait + sea_orm::TransactionTrait>(
-    db: &C,
-    user_id: i32,
-    updates: &super::super::chat_remember::ChatMemoryUpdates,
-    present: &crate::services::agent::memory::unified::Audience,
-) -> Result<bool, anyhow::Error> {
-    let mut kept = false;
-    use crate::services::agent::memory::unified;
-    // What they put her onto is hers now, as what she heard in a group is:
-    // about the thing, no one named.
-    if !updates.put_onto.is_empty() {
-        let held: Vec<String> = unified::own_rows(db, super::super::heard::SOURCE, 300)
-            .await?
-            .into_iter()
-            .map(|row| row.content)
-            .collect();
-        for thing in &updates.put_onto {
-            if held.iter().any(|held| held == thing) {
-                continue;
-            }
-            let evidence = serde_json::json!({ "heard": "suggested to her in a chat" }).to_string();
-            kept |= unified::remember_own(
-                db,
-                thing,
-                &evidence,
-                Vec::new(),
-                super::super::heard::SOURCE,
-            )
-            .await?
-            .is_some();
-        }
-    }
-    // What she said about herself is hers, naming no one: said in a group,
-    // heard anywhere; said in private, only there (`own_said::kept_for`).
-    // The same words again are kept once.
-    let mut held_own: Vec<String> = Vec::new();
-    if updates.said.iter().any(|said| said.hers) {
-        held_own = unified::said_of_herself_heard_by(db, present, 300)
-            .await?
-            .into_iter()
-            .map(|row| row.content)
-            .collect();
-    }
-    for said in &updates.said {
-        if said.hers {
-            if held_own.contains(&said.said) {
-                continue;
-            }
-            let evidence = serde_json::json!({ "said": said.evidence }).to_string();
-            kept |= unified::remember_said_of_herself(
-                db,
-                present,
-                &said.said,
-                &evidence,
-                said.concepts.clone(),
-            )
-            .await?
-            .is_some();
-            held_own.push(said.said.clone());
-            continue;
-        }
-        let remembered = unified::remember(
-            db,
-            unified::NewMemory {
-                user_id,
-                kind: unified::MemoryKind::Fact,
-                content: said.said.clone(),
-                evidence: Some(said.evidence.clone()),
-                speaker: unified::Speaker::Agent,
-                source: SAID_SOURCE,
-                audience: present.clone(),
-                importance: 0.4,
-                concepts: Vec::new(),
-            },
-        )
-        .await?;
-        kept |= remembered.is_some();
-    }
-    Ok(kept)
-}
+#[path = "memory_hers.rs"]
+mod hers;
+use hers::keep_what_she_said;
+pub(crate) use hers::said_of_herself;
 
-/// What she said about herself that `talk` touches, by its words or its
-/// meaning, best first, at most `limit`: of what `present` may hear (her own,
-/// and in private what she said to these same people).
-pub(crate) async fn said_of_herself<C: ConnectionTrait>(
-    db: &C,
-    present: &crate::services::agent::memory::unified::Audience,
-    talk: &str,
-    limit: usize,
-) -> Vec<myriad_merope::own_said::Recalled> {
-    use crate::services::agent::memory::unified;
-    let rows = unified::said_of_herself_heard_by(db, present, 300)
-        .await
-        .unwrap_or_default();
-    let now = crate::services::agent::memory::utc_now();
-    unified::named_among(db, rows, talk, limit)
-        .await
-        .into_iter()
-        .map(|row| myriad_merope::own_said::Recalled {
-            said: row.content,
-            ago: myriad_merope::doing::ago_text(now - row.created_at.with_timezone(&chrono::Utc)),
-        })
-        .collect()
-}
+#[cfg(test)]
+#[path = "memory_asked_tests.rs"]
+mod asked_tests;
 
 #[cfg(test)]
 #[path = "memory_own_tests.rs"]
@@ -232,7 +162,17 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<
     present: &crate::services::agent::memory::unified::Audience,
     keep: Keep,
 ) -> Result<bool, anyhow::Error> {
-    apply_one(db, user_id, input_at, update, present, keep, &[], None).await
+    apply_one(
+        db,
+        user_id,
+        input_at,
+        update,
+        present,
+        keep,
+        &[],
+        Said::default(),
+    )
+    .await
 }
 
 /// A stretch gone over: what it keeps for good, each with the short notes it
@@ -252,14 +192,18 @@ pub(in crate::services::agent::merope) async fn settle_chat_memory_on<
     let mut kept = false;
     for (index, update) in updates.updates.iter().enumerate() {
         let notes = settled.get(index).map_or(&[][..], Vec::as_slice);
-        let said = updates.taken_back_in.get(&index).copied();
+        let said = Said::of(updates, index);
         kept |= apply_one(
             db,
             user_id,
             last,
             update,
             present,
-            Keep::Lasting,
+            if updates.asked.contains(&index) {
+                Keep::Asked
+            } else {
+                Keep::Lasting
+            },
             notes,
             said,
         )
@@ -270,6 +214,36 @@ pub(in crate::services::agent::merope) async fn settle_chat_memory_on<
     Ok(kept)
 }
 
+/// What an update rests on in the talk: their message that took back what
+/// it lets go of, and the lines what it keeps is of, each where known.
+#[derive(Debug, Clone, Copy, Default)]
+struct Said<'a> {
+    took_back: Option<i32>,
+    rests: Option<&'a super::super::chat_remember::Rests>,
+}
+
+impl<'a> Said<'a> {
+    fn of(updates: &'a super::super::chat_remember::ChatMemoryUpdates, index: usize) -> Self {
+        let evidence = updates
+            .updates
+            .get(index)
+            .filter(|update| update.fact.is_some())
+            .and_then(|update| update.evidence.as_ref());
+        Self {
+            took_back: updates.taken_back_in.get(&index).copied(),
+            rests: evidence.and_then(|evidence| updates.said_from.get(evidence)),
+        }
+    }
+
+    /// Their lines a memory is of, noted there as where it comes from.
+    async fn tell<C: ConnectionTrait>(&self, db: &C, id: &str) -> Result<(), sea_orm::DbErr> {
+        let Some(rests) = self.rests else {
+            return Ok(());
+        };
+        crate::services::agent::memory::origins::tell(db, &rests.lines, id).await
+    }
+}
+
 async fn apply_one<C: ConnectionTrait + sea_orm::TransactionTrait>(
     db: &C,
     user_id: i32,
@@ -278,7 +252,7 @@ async fn apply_one<C: ConnectionTrait + sea_orm::TransactionTrait>(
     present: &crate::services::agent::memory::unified::Audience,
     keep: Keep,
     settling: &[String],
-    said: Option<i32>,
+    said: Said<'_>,
 ) -> Result<bool, anyhow::Error> {
     if user_id <= 0 || (update.fact.is_none() && update.supersedes.is_empty()) {
         return Ok(false);
@@ -289,39 +263,53 @@ async fn apply_one<C: ConnectionTrait + sea_orm::TransactionTrait>(
     // Lines are gone over one by one, so an older one must not undo a newer
     // one. A stretch is gone over on its own, once, with all of it in view:
     // it is not fenced by the lines, nor does it fence them.
-    if keep != Keep::Lasting
-        && !chat_memory_input_is_current(db, user_id, input_at, present).await?
-    {
+    if !keep.for_good() && !chat_memory_input_is_current(db, user_id, input_at, present).await? {
         return Ok(false);
     }
     use crate::services::agent::memory::unified;
     use unified::SHORT_NOTE_SOURCE;
-    let rows = unified::active_in(db, user_id, present, &unified::MemoryKind::ABOUT_PERSON).await?;
-    let own =
-        |row: &unified::MemoryRecord| (row.source == SHORT_NOTE_SOURCE) == (keep != Keep::Lasting);
+    let mut rows =
+        unified::active_in(db, user_id, present, &unified::MemoryKind::ABOUT_PERSON).await?;
+    // What they asked her not to keep holds wherever it was asked, and is
+    // taken back wherever they take it back.
+    let asked = unified::asked_not_to_keep(db, user_id).await?;
+    for row in &asked {
+        if !rows.iter().any(|one| one.id == row.id) {
+            rows.push(row.clone());
+        }
+    }
+    let own = |row: &unified::MemoryRecord| (row.source == SHORT_NOTE_SOURCE) != keep.for_good();
     // A short note takes back only short notes: what she knows for good
     // changes once the stretch is gone over, with all of it in view. What
     // is only taken back is let go wherever it is kept.
-    let may_take =
-        |row: &unified::MemoryRecord| own(row) || (keep == Keep::LetGo && row.source == "chat");
-    let supersedes: Vec<String> = match keep {
-        Keep::Note | Keep::LetGo => update
-            .supersedes
-            .iter()
-            .filter(|old| {
-                rows.iter().any(|row| {
-                    may_take(row) && &super::super::ingest::compact_summary(&row.content) == *old
-                })
-            })
-            .cloned()
-            .collect(),
-        Keep::Lasting => update.supersedes.clone(),
+    // Going over changes what she knows for good from what they said here
+    // and what they asked: not what another end kept, nor an event.
+    let said_here =
+        |row: &unified::MemoryRecord| row.source == "chat" || row.source == unified::ASKED_SOURCE;
+    let may_take = |row: &unified::MemoryRecord| match keep {
+        Keep::Note => own(row),
+        Keep::LetGo => own(row) || said_here(row),
+        Keep::Lasting | Keep::Asked => said_here(row),
     };
+    // What it names that is hers to leave as it is (what another end kept,
+    // an event), or no longer there, is left out of it: the fact it tells is
+    // kept all the same.
+    let mut supersedes: Vec<String> = Vec::new();
+    for old in &update.supersedes {
+        let there = rows.iter().any(|row| {
+            may_take(row) && &super::super::ingest::compact_summary(&row.content) == old
+        });
+        if there && !supersedes.contains(old) {
+            supersedes.push(old.clone());
+        }
+    }
     if update.fact.is_none() && supersedes.is_empty() {
         return Ok(false);
     }
     let mut targets = Vec::new();
-    let mut found = std::collections::HashSet::new();
+    // Of those, what they asked her not to keep: theirs to let her keep
+    // again, only once a second look agrees that they do.
+    let mut asked_targets = Vec::new();
     // The row that already says the new fact, when one does: a short note
     // is not taken of what she already knows anywhere; what is kept for
     // good is not kept twice there.
@@ -329,7 +317,7 @@ async fn apply_one<C: ConnectionTrait + sea_orm::TransactionTrait>(
     // The short notes this keeps for good: those it was put together from,
     // and any that say just what it says. A note is not what she already
     // knows for good; the fact takes its place and the note points at it.
-    let lasting_fact = keep == Keep::Lasting
+    let lasting_fact = keep.for_good()
         && update
             .fact
             .as_deref()
@@ -338,21 +326,34 @@ async fn apply_one<C: ConnectionTrait + sea_orm::TransactionTrait>(
     for note in rows {
         let content = super::super::ingest::compact_summary(&note.content);
         if may_take(&note) && supersedes.contains(&content) {
-            targets.push(note.id);
-            found.insert(content);
+            if note.source == unified::ASKED_SOURCE && update.fact.is_none() {
+                asked_targets.push(note.id);
+            } else {
+                targets.push(note.id);
+            }
         } else if lasting_fact
             && note.source == SHORT_NOTE_SOURCE
             && (settling.contains(&note.id) || update.fact.as_ref() == Some(&content))
         {
             settles.push(note.id);
-        } else if update.fact.as_ref() == Some(&content) && (keep != Keep::Lasting || own(&note)) {
+        } else if update.fact.as_ref() == Some(&content)
+            && (!keep.for_good() || own(&note))
+            && (keep != Keep::Asked || note.source == unified::ASKED_SOURCE)
+        {
             duplicate = Some(note.id);
         }
     }
-    // Another extraction already replaced a target: reject the whole edit,
-    // rather than appending an ungrounded new fact after a partial correction.
-    if found.len() != supersedes.len() {
-        return Ok(false);
+    if !asked_targets.is_empty() {
+        super::super::memory_nodes::take_back_check::hold_asked(
+            db,
+            user_id,
+            &asked_targets,
+            said.took_back,
+        )
+        .await?;
+        if targets.is_empty() {
+            return Ok(false);
+        }
     }
     // The corrected rows point at what holds the fact now: the new row, or
     // the one that already said it; nothing when it was only taken back.
@@ -368,8 +369,14 @@ async fn apply_one<C: ConnectionTrait + sea_orm::TransactionTrait>(
                     evidence: update.evidence.clone(),
                     speaker: unified::Speaker::User,
                     source: keep.source(),
-                    audience: present.clone(),
-                    importance: 0.6,
+                    // What they ask not to be kept holds everywhere, and
+                    // is repeated nowhere.
+                    audience: if keep == Keep::Asked {
+                        unified::Audience::private(unified::NO_ONE)
+                    } else {
+                        present.clone()
+                    },
+                    importance: if keep == Keep::Asked { 1.0 } else { 0.6 },
                     concepts: update.concepts.clone(),
                 },
                 &[
@@ -388,6 +395,10 @@ async fn apply_one<C: ConnectionTrait + sea_orm::TransactionTrait>(
             .await?;
             if let Some(id) = replaced.id {
                 unified::keep_cues(db, &id, &update.cues).await?;
+                if let Some(rests) = said.rests {
+                    unified::said_first_at(db, &id, rests.first).await?;
+                }
+                said.tell(db, &id).await?;
             }
         }
         None => {
@@ -395,6 +406,11 @@ async fn apply_one<C: ConnectionTrait + sea_orm::TransactionTrait>(
                 .await?;
             if let Some(holder) = &duplicate {
                 unified::retire_in_favor_of(db, user_id, &settles, "settled", Some(holder)).await?;
+                said.tell(db, holder).await?;
+                if keep == Keep::Asked {
+                    super::super::memory_nodes::take_back_check::held_to(db, user_id, holder)
+                        .await?;
+                }
             } else if keep != Keep::Note {
                 // Taken back, plainly, with nothing in its place: what they
                 // took back going over a stretch (`tookBack`), or a line
@@ -405,13 +421,18 @@ async fn apply_one<C: ConnectionTrait + sea_orm::TransactionTrait>(
                 // line, once this is committed (`take_back_check`). A
                 // correction in a line that keeps a new fact beside it is
                 // no taking back.
-                super::super::memory_nodes::take_back_check::hold(db, user_id, &targets, said)
-                    .await?;
+                super::super::memory_nodes::take_back_check::hold(
+                    db,
+                    user_id,
+                    &targets,
+                    said.took_back,
+                )
+                .await?;
             }
         }
     }
     let applied = !targets.is_empty() || insert.is_some();
-    if applied && keep != Keep::Lasting {
+    if applied && !keep.for_good() {
         mark_applied(db, user_id, input_at, present).await?;
     }
     Ok(applied)

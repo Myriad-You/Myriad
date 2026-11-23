@@ -96,7 +96,7 @@ fn now() -> DateTime<Utc> {
     crate::services::agent::merope::clock::now()
 }
 
-async fn held(db: &DatabaseConnection) -> Vec<Held> {
+pub(super) async fn held(db: &DatabaseConnection) -> Vec<Held> {
     intent_store::held(db, OTHER, &talk()).await.unwrap()
 }
 
@@ -122,12 +122,12 @@ fn take(kind: &str, text: &str, action: &str, at: Option<&str>, note: Option<&st
            "afterDone": false, "note": note, "echo": (kind == "instruction").then(|| format!("好，{text}"))})
 }
 
-const SAID: &str = "my fern needs water: remind me at nine tomorrow, and check the weather at five";
+pub(super) const SAID: &str = "my fern needs water: remind me at nine tomorrow, and check the weather at five";
 
 /// Account 7 told her two things for later (a reminder, a check to run)
 /// and she wants to ask about something (three, the most read of one
 /// answer): judged at `at`.
-async fn told(db: &DatabaseConnection, at: DateTime<Utc>) -> (i32, intending::Judged) {
+pub(super) async fn told(db: &DatabaseConnection, at: DateTime<Utc>) -> (i32, intending::Judged) {
     let ids = talked(
         db,
         None,

@@ -17,6 +17,11 @@ const SETTLE_NOTES: usize = 9;
 /// after she has answered): generous enough to ride out a slow answer.
 pub(in crate::services::agent::merope) const SETTLE_TIMEOUT: std::time::Duration =
     std::time::Duration::from_secs(90);
+/// Of that, what is left for judging what comes of it by what they asked
+/// her not to keep, when they asked something.
+const JUDGED_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
+/// Of all a stretch's time, what is left at the end for the rest.
+const KEPT_FOR_WRITING: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Once a stretch of their talk in one place is over: the short notes taken
 /// from it since `from`, gone over with the whole stretch in view. What
@@ -42,6 +47,7 @@ pub(in crate::services::agent::merope) async fn settle(
     use super::super::memory_jobs::{Effect, Failure};
     use crate::services::agent::memory::unified;
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let started = std::time::Instant::now();
     let rows = unified::active_in(db, user_id, present, &unified::MemoryKind::ABOUT_PERSON)
         .await
         .map_err(|_| Failure::Storage)?;
@@ -188,10 +194,17 @@ pub(in crate::services::agent::merope) async fn settle(
             .to_string(),
         &shown_topics(&offered),
     );
+    // With something they asked her not to keep, what comes of it is judged
+    // by that after: some of the time is left for it.
+    let within = if super::super::asked::anything(db, user_id).await {
+        SETTLE_TIMEOUT - JUDGED_AFTER
+    } else {
+        SETTLE_TIMEOUT
+    };
     let raw =
         super::super::call::Ask::new(super::super::call::Voice::Keeping, user_id, "chat_settle")
             .cached(super::super::call::SETTLE_CACHE)
-            .within(SETTLE_TIMEOUT)
+            .within(within)
             .json_raw(
                 &myriad_merope::chat_remember::settle_system_prompt(
                     &known,
@@ -296,6 +309,13 @@ pub(in crate::services::agent::merope) async fn settle(
             topic: None,
             cues: Vec::new(),
         });
+    }
+    let until = started + super::super::memory_jobs::SETTLE_LIMIT - KEPT_FOR_WRITING;
+    if super::super::asked::leave_out_of(db, user_id, &[], &mut updates, Some(until))
+        .await
+        .map_err(Failure::of_judging)?
+    {
+        updates.leave_what_stands();
     }
     Ok(Effect::Settle {
         updates,

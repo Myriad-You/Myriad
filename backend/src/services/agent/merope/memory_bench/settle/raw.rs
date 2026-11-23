@@ -80,6 +80,7 @@ pub(in super::super) async fn session(
             text,
             at: session_at + chrono::Duration::minutes(index as i64),
             gone: false,
+            in_game: false,
         });
         answer_here.push(answers);
     }
@@ -129,6 +130,7 @@ pub(in super::super) async fn session(
             let updates = &gone.updates;
             if !(updates.updates.is_empty()
                 && updates.said.is_empty()
+                && updates.asked.is_empty()
                 && updates.put_onto.is_empty())
             {
                 let settled = vec![Vec::new(); updates.updates.len()];
@@ -203,7 +205,7 @@ async fn one_pass(
         },
         || {
             Box::pin(settle_raw::go_over(
-                db, user_id, present, shown, today, None, placed,
+                db, user_id, present, shown, today, None, placed, None,
             ))
         },
         // Production tries a stretch again on an unreadable answer too.
@@ -248,6 +250,7 @@ mod tests {
                 .unwrap()
                 .fixed_offset(),
             gone: false,
+            in_game: false,
         }
     }
 

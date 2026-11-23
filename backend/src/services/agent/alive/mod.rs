@@ -815,6 +815,12 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
             // and hurried too late (`settling::from_lines`). Counts only.
             "settlingFromLines":
                 crate::services::agent::merope::store::memory_jobs::settling::from_lines(),
+            // Rows of the memory queue that could not be read, each passed
+            // over (`memory_jobs::claim`).
+            "jobsPassedOver": crate::services::agent::merope::store::memory_jobs::passed_over(),
+            // What they asked her not to keep, held to as it is written
+            // (`merope::asked`). Counts only.
+            "notToKeep": crate::services::agent::merope::not_to_keep_counts(),
             // How asking for vectors went unanswered since the site started:
             // ahead of recall, in recall, for lines by meaning, filling rows
             // (`meaning::failures`).

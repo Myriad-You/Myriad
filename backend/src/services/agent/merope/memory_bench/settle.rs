@@ -24,7 +24,18 @@ async fn note_turn(
     let noted = crate::services::ai_cost_ledger::spent::tried_as_production_tries(
         MAX_ATTEMPTS,
         |tried| std::time::Duration::from_secs(again_in(tried).unsigned_abs()),
-        || super::super::chat_remember::extract(db, user_id, text, reply, at, present, &turn),
+        || {
+            super::super::chat_remember::extract(
+                db,
+                user_id,
+                text,
+                reply,
+                at,
+                present,
+                &turn,
+                super::super::chat_remember::Tried::Again,
+            )
+        },
         |noted| noted.as_ref().is_err_and(|failure| failure.retryable()),
     )
     .await;
@@ -491,6 +502,8 @@ pub(super) async fn over_time(
             put_onto: updates.put_onto,
             said_new: super::super::chat_remember::SaidNew::Nothing,
             taken_back_in: Default::default(),
+            said_from: Default::default(),
+            asked: Default::default(),
         };
         if !hers.said.is_empty() || !hers.put_onto.is_empty() {
             apply_at(db, user_id, present, at, &hers).await;

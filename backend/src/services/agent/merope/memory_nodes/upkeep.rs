@@ -676,6 +676,15 @@ pub(crate) async fn run(
                 author: Author::Her,
             })
             .collect();
+        // Not told what they asked her not to keep: gone over again later,
+        // with nothing of this written.
+        let Some(rows) = super::upkeep_not_kept::leave_out(db, user_id, audience, rows).await
+        else {
+            match target {
+                Some(_) => continue,
+                None => break,
+            }
+        };
         let beside = Beside {
             taken_out: read.placed.clone(),
             ..Beside::default()

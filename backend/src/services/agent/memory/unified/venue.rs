@@ -213,6 +213,22 @@ pub async fn adopt_unowned<C: ConnectionTrait>(
     Ok(result.rows_affected)
 }
 
+/// The active rows of `source` kept with no one, wherever, whose evidence
+/// has `marker`.
+pub async fn unowned_about<C: ConnectionTrait>(
+    db: &C,
+    source: &str,
+    marker: &str,
+) -> Result<Vec<agent_memories::Model>, DbErr> {
+    agent_memories::Entity::find()
+        .filter(agent_memories::Column::UserId.is_null())
+        .filter(agent_memories::Column::Source.eq(source))
+        .filter(agent_memories::Column::InvalidAt.is_null())
+        .filter(agent_memories::Column::Evidence.contains(marker))
+        .all(db)
+        .await
+}
+
 /// The latest active rows of `source` kept in `venue`, newest first.
 pub async fn latest_in_venue<C: ConnectionTrait>(
     db: &C,

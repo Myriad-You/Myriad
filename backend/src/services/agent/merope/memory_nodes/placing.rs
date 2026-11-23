@@ -37,6 +37,9 @@ use crate::services::agent::merope::call::{Ask, Voice};
 /// How long placing may take: it goes before going over the stretch, in
 /// the same job, which allows for it ([`crate::services::agent::merope::memory_jobs`]).
 pub(crate) const TIMEOUT: Duration = Duration::from_secs(10);
+/// All of placing a stretch, at most: with what they asked her not to keep
+/// told of it first. Past that it is placed later ([`backlog`]).
+pub(crate) const WITHIN: Duration = Duration::from_secs(15);
 const OPERATION: &str = "memory_node_place";
 const SCHEMA_NAME: &str = "node_place";
 
@@ -136,13 +139,31 @@ pub(crate) async fn place(
     site_owner: Option<i32>,
     lines: &[Line],
 ) -> Vec<String> {
+    place_within(db, user_id, site_owner, lines, WITHIN).await
+}
+
+/// [`place`] in the time `within`, what they asked told within it.
+async fn place_within(
+    db: &DatabaseConnection,
+    user_id: i32,
+    site_owner: Option<i32>,
+    lines: &[Line],
+    within: Duration,
+) -> Vec<String> {
     if lines.is_empty() || user_id <= 0 {
         return Vec::new();
     }
     let audience = audience::private_talk(user_id, site_owner);
-    let placed = match place_in(db, user_id, &audience, lines).await {
-        Ok(placed) => placed,
-        Err(error) => {
+    let placed = match tokio::time::timeout(within, place_in(db, user_id, &audience, lines)).await {
+        Ok(Ok(placed)) => placed,
+        Err(_) => {
+            tracing::info!("[memory-nodes] a stretch not placed in time: placed later");
+            Placed {
+                missed: said_between(lines.iter()),
+                ..Placed::default()
+            }
+        }
+        Ok(Err(error)) => {
             tracing::warn!(%error, "[memory-nodes] a stretch could not be placed");
             Placed {
                 missed: said_between(lines.iter()),
@@ -197,7 +218,7 @@ async fn place_in(
             used.push(node);
         }
     }
-    let fresh: Vec<&Line> = lines
+    let mut fresh: Vec<&Line> = lines
         .iter()
         .filter(|line| !placed.contains_key(&line.reference()))
         .collect();
@@ -214,6 +235,26 @@ async fn place_in(
             ..Placed::default()
         });
     };
+    // What they asked her not to keep is put nowhere, the whole of a line
+    // with any of it; not told which, none is placed yet.
+    let texts: Vec<String> = fresh.iter().map(|line| line.text.clone()).collect();
+    let Ok(not_kept) =
+        crate::services::agent::merope::asked::to_leave_out(db, user_id, &texts).await
+    else {
+        return Ok(Placed {
+            nodes: used,
+            missed: said_between(fresh.iter().copied()),
+            left: None,
+        });
+    };
+    let mut at = 0..;
+    fresh.retain(|_| at.next().is_some_and(|index| !not_kept.contains(&index)));
+    if fresh.is_empty() {
+        return Ok(Placed {
+            nodes: used,
+            ..Placed::default()
+        });
+    }
     let partner = audience::said_by(audience, Speaker::Person)
         .ok_or_else(|| Error::Refused("a talk's audience has no one in it".into()))?;
     let said_by = |line: &Line| if line.theirs { partner } else { SaidBy::Her };
@@ -364,3 +405,7 @@ async fn place_in(
 
 #[path = "placing_backlog.rs"]
 pub(crate) mod backlog;
+
+#[cfg(test)]
+#[path = "placing_asked_tests.rs"]
+mod asked_tests;

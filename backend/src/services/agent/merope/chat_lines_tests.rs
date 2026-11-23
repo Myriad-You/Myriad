@@ -9,9 +9,9 @@ use crate::services::agent::memory::unified::{self, Audience, MemoryKind, NewMem
 use myriad_merope::remembering::Who;
 
 pub(in crate::services::agent::merope) const OWNER: i32 = 1;
-pub(in crate::services::agent::merope) const OTHER: i32 = 7;
+pub(in crate::services::agent) const OTHER: i32 = 7;
 
-pub(in crate::services::agent::merope) async fn schema(
+pub(in crate::services::agent) async fn schema(
     prefix: &str,
 ) -> Option<crate::db::IsolatedSchema> {
     let url = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"])?;
@@ -28,7 +28,7 @@ pub(in crate::services::agent::merope) async fn schema(
 
 /// A conversation of `user_id`'s with `context` (none: as the long-chat
 /// test keeps one).
-pub(in crate::services::agent::merope) async fn session(
+pub(in crate::services::agent) async fn session(
     db: &DatabaseConnection,
     id: &str,
     user_id: i32,
@@ -51,7 +51,7 @@ pub(in crate::services::agent::merope) async fn session(
 }
 
 /// A line said `minutes_ago`, its id.
-pub(in crate::services::agent::merope) async fn line(
+pub(in crate::services::agent) async fn line(
     db: &DatabaseConnection,
     session_id: &str,
     role: &str,
@@ -167,6 +167,8 @@ async fn only_their_own_private_chat_is_read() {
     )
     .await;
     line(db, "theirs", "user", said[6], 20, None).await;
+    let off = Some(r#"{"withoutHer":true}"#);
+    line(db, "mine", "user", "OFF 她不在时说的吉他", 15, off).await;
 
     assert_eq!(
         contents(&private_lines(db, OWNER, 3000).await),
@@ -315,6 +317,37 @@ async fn a_memory_forgotten_elsewhere_takes_its_lines_here() {
     schema.drop().await;
 }
 
+/// A fact put together from several lines, gone over days after them: taken
+/// back, each line it quotes goes, and her answer to it.
+#[tokio::test]
+async fn every_line_of_a_fact_taken_back_is_not_read() {
+    let Some(schema) = schema("chat_lines_merged").await else {
+        return;
+    };
+    let db = &schema.db;
+    session(db, "mine", OWNER, Some(r#"{"mode":"chat"}"#), false).await;
+    line(db, "mine", "user", "我家养了一只猫", 4400, None).await;
+    line(db, "mine", "assistant", "叫什么呀", 4399, None).await;
+    line(db, "mine", "user", "它叫年糕", 4390, None).await;
+    let kept = line(db, "mine", "user", "我在学日语", 4380, None).await;
+    let memory = quoting(db, "chat", "我家养了一只猫 / 它叫年糕").await;
+    let said = crate::clock::now().fixed_offset() - chrono::Duration::minutes(4400);
+    unified::said_first_at(db, &memory, said).await.unwrap();
+    db.execute_unprepared(&format!(
+        "UPDATE agent_memories SET invalid_at = now(), invalid_reason = 'superseded' \
+         WHERE id = '{memory}'"
+    ))
+    .await
+    .unwrap();
+    let left: Vec<i32> = private_lines(db, OWNER, 3000)
+        .await
+        .iter()
+        .map(|line| line.id)
+        .collect();
+    assert_eq!(left, [kept]);
+    schema.drop().await;
+}
+
 async fn retire(db: &DatabaseConnection, id: &str, reason: &str, by: Option<&str>) {
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -421,6 +454,8 @@ fn each_memory_reaches_its_own_lines() {
         at: at(hours),
         hers,
         content: content.into(),
+        session: "mine".into(),
+        told: Vec::new(),
         replaced: false,
     };
     let lines = [
@@ -430,29 +465,53 @@ fn each_memory_reaches_its_own_lines() {
         line(4, 200, false, "我住在北京朝阳"),
     ];
     let quoted = |written: i64, noted: i64, taken_back: bool| Quoted {
-        quote: "住在北京朝阳".into(),
+        memory: "m".into(),
+        user_id: OWNER,
+        quote: Some(origins::Quote {
+            text: "住在北京朝阳".into(),
+            whole: false,
+        }),
         written: at(written),
         noted: at(noted),
         taken_back,
         replaced: !taken_back,
+        hers: false,
+        own: true,
     };
     // Replaced, written at 72h from a note at 2h: the lines from a day
     // before the note on, up to when it was written; theirs only.
-    let (gone, replaced) = became(&lines, vec![quoted(72, 2, false)]);
+    let (gone, replaced) = became(&lines, vec![&quoted(72, 2, false)]);
     assert!(gone.is_empty());
     assert_eq!(replaced, HashSet::from([1, 3]));
     // Taken back, the same days: the same lines are gone, with her answer
     // to the first. Gone over days after the words, what was taken back
     // still does not come up again.
-    let (gone, replaced) = became(&lines, vec![quoted(72, 2, true)]);
+    let (gone, replaced) = became(&lines, vec![&quoted(72, 2, true)]);
     assert_eq!(gone, HashSet::from([1, 2, 3]));
     // Gone over from no note: a day before it was written, as it was.
     assert!(replaced.is_empty());
-    let (gone, replaced) = became(&lines, vec![quoted(72, 72, true)]);
+    let (gone, replaced) = became(&lines, vec![&quoted(72, 72, true)]);
     assert_eq!(gone, HashSet::from([3]));
     assert!(replaced.is_empty());
+    // Of a few words, taken back: a line that says only those, not every one
+    // they are in; replaced since, as ever.
+    let few = |taken_back: bool, text: &str| Quoted {
+        quote: Some(origins::Quote {
+            text: text.into(),
+            whole: false,
+        }),
+        ..quoted(72, 2, taken_back)
+    };
+    let (gone, replaced) = became(&lines, vec![&few(true, "北京")]);
+    assert!(gone.is_empty() && replaced.is_empty());
+    let said_so = [line(1, 0, false, "在北京。"), line(3, 2, false, "在北京待过")];
+    let (gone, _) = became(&said_so, vec![&few(true, "在北京")]);
+    assert_eq!(gone, HashSet::from([1]));
+    let (gone, replaced) = became(&lines, vec![&few(false, "北京")]);
+    assert!(gone.is_empty());
+    assert_eq!(replaced, HashSet::from([1, 3]));
     // Both on one line: taken back wins, and her answer goes with it.
-    let (gone, replaced) = became(&lines, vec![quoted(72, 2, false), quoted(3, 3, true)]);
+    let (gone, replaced) = became(&lines, vec![&quoted(72, 2, false), &quoted(3, 3, true)]);
     assert_eq!(gone, HashSet::from([1, 2]));
     assert_eq!(replaced, HashSet::from([3]));
 }

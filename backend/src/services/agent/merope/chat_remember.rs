@@ -10,16 +10,15 @@
 //! block the spoken reply. Delivery motion is spawned first so extract does
 //! not steal the first Lite slot.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::json;
 
 use super::ingest::{compact_summary, persona_remember_insert};
-use super::is_logged_in_addressee;
 use myriad_merope::chat_remember::{
-    EXTRACT_SCHEMA_NAME, Examples, MIN_USER_CHARS, extract_schema, extract_system_prompt,
-    strip_json_fence,
+    EXTRACT_SCHEMA_NAME, Examples, MIN_USER_CHARS, extract_schema, extract_schema_asked,
+    extract_system_prompt, extract_system_prompt_asked, read_not_to_keep, strip_json_fence,
 };
 
 pub fn should_extract_chat_remember(user_text: &str) -> bool {
@@ -40,6 +39,20 @@ pub fn should_extract_chat_remember_against(user_text: &str, existing: &[String]
 
 // Nobody waits on this: generous enough to ride out a stalled provider.
 const EXTRACT_TIMEOUT: Duration = Duration::from_secs(45);
+/// How long a line takes to be written down at most, all it asks: within
+/// what a claim of it has (`memory_jobs`).
+const EXTRACT_LIMIT: Duration = Duration::from_secs(100);
+
+/// Whether a line that fails is gone over again after this.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Tried {
+    Again,
+    /// Not, unless all that failed is telling what of it they asked her not
+    /// to keep.
+    Last,
+    /// Not for that either (`memory_jobs::GIVES_UP_AFTER`).
+    GaveUp,
+}
 
 /// What she already said of herself the extraction sees, at most.
 const YOURS_SHOWN: usize = 5;
@@ -101,6 +114,12 @@ pub struct ChatMemoryUpdates {
     /// Public things they suggested she try herself, each about the thing
     /// with no one named: hers to wonder about (see `merope::heard`).
     pub put_onto: Vec<String>,
+    /// Which of `updates` (by place) are what they asked her not to keep
+    /// from now on: kept for good as any change of hers is, but under its
+    /// own source and off her nodes, since she is always shown it where she
+    /// keeps something of them (`unified::asked_not_to_keep`). Taken back or
+    /// narrowed as any update is.
+    pub asked: std::collections::BTreeSet<usize>,
     /// Whether the line said anything new beside what it let go of: what it
     /// lets go of is then corrected, not taken back.
     pub said_new: SaidNew,
@@ -109,6 +128,95 @@ pub struct ChatMemoryUpdates {
     /// before forgetting on her nodes reads (`memory_nodes::take_back_check`).
     /// None known, it is only let go.
     pub taken_back_in: std::collections::BTreeMap<usize, i32>,
+    /// What each thing to keep rests on, by what it quotes (its evidence,
+    /// which no check rewrites as it does a fact's words).
+    pub said_from: std::collections::BTreeMap<String, Rests>,
+}
+
+/// The lines something to keep rests on: where what it quotes is looked for
+/// (`memory::origins`), however late it is kept.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rests {
+    /// When the first of them was said.
+    pub first: chrono::DateTime<chrono::FixedOffset>,
+    /// The messages themselves (`agent_messages.id`), where known.
+    pub lines: Vec<i32>,
+}
+
+impl ChatMemoryUpdates {
+    /// What quotes `evidence` rests on the line `line`, said at `at` too.
+    pub(super) fn rests_on(
+        &mut self,
+        evidence: &str,
+        line: Option<i32>,
+        at: chrono::DateTime<chrono::FixedOffset>,
+    ) {
+        let rests = self
+            .said_from
+            .entry(evidence.to_string())
+            .or_insert_with(|| Rests {
+                first: at,
+                lines: Vec::new(),
+            });
+        rests.first = rests.first.min(at);
+        rests
+            .lines
+            .extend(line.filter(|line| !rests.lines.contains(line)));
+    }
+
+    /// Of a line kept for good: what it corrects is replaced by the new fact
+    /// it tells. One that corrects with no fact kept, or with several (which
+    /// of them takes its place is not known), changes nothing. What a line that says nothing new lets go of, or only asks
+    /// beside it not to be kept, is taken back, as ever.
+    pub(super) fn correct_by_what_is_told(&mut self) {
+        let asked = &self.asked;
+        let told: Vec<usize> = (0..self.updates.len())
+            .filter(|index| self.updates[*index].fact.is_some() && !asked.contains(index))
+            .collect();
+        if self.said_new != SaidNew::Something || (told.is_empty() && !asked.is_empty()) {
+            return;
+        }
+        let corrected: Vec<String> = self
+            .updates
+            .iter_mut()
+            .filter(|update| update.fact.is_none())
+            .flat_map(|update| std::mem::take(&mut update.supersedes))
+            .collect();
+        if let [told] = told[..]
+            && let Some(told) = self.updates.get_mut(told)
+        {
+            for old in corrected {
+                if !told.supersedes.contains(&old) && told.fact.as_ref() != Some(&old) {
+                    told.supersedes.push(old);
+                }
+            }
+        }
+    }
+
+    /// Beside something told and not kept (`asked::leave_out_of`), what is
+    /// taken back may be what that corrects: it stays as it is.
+    pub(super) fn leave_what_stands(&mut self) {
+        for update in &mut self.updates {
+            if update.fact.is_none() {
+                update.supersedes.clear();
+            }
+        }
+    }
+
+    /// What they asked her not to keep from now on, in place of what it
+    /// replaces of what they asked before.
+    pub(super) fn ask_not_to_keep(&mut self, asked: myriad_merope::chat_remember::Asked) {
+        self.asked.insert(self.updates.len());
+        self.updates.push(ChatMemoryUpdate {
+            fact: Some(compact_summary(&asked.fact)),
+            supersedes: asked.replaces,
+            evidence: Some(asked.evidence),
+            concepts: Vec::new(),
+            cues: Vec::new(),
+            topic: None,
+            standing: Default::default(),
+        });
+    }
 }
 
 /// What a line said beside what it let go of ([`ChatMemoryUpdates::said_new`]).
@@ -365,126 +473,6 @@ pub fn parse_chat_memory_update(
     Some(update)
 }
 
-pub async fn enqueue_chat_remember(
-    db: &sea_orm::DatabaseConnection,
-    user_id: i32,
-    user_text: String,
-    reply: String,
-    input_at: Option<chrono::DateTime<chrono::FixedOffset>>,
-    present: crate::services::agent::memory::unified::Audience,
-    turn: super::TurnContext,
-) {
-    queue_chat_words(
-        db,
-        user_id,
-        user_text,
-        compact_summary(&reply),
-        input_at,
-        present,
-        turn,
-    )
-    .await;
-}
-
-/// Their words as they land, before she answers: held for what she keeps of
-/// them, so a line she is cut off from answering (they said more first) is
-/// still gone over, with the next.
-pub(super) async fn hold_chat_words(
-    db: &sea_orm::DatabaseConnection,
-    user_id: i32,
-    user_text: String,
-    input_at: chrono::DateTime<chrono::FixedOffset>,
-    present: crate::services::agent::memory::unified::Audience,
-    turn: super::TurnContext,
-) {
-    queue_chat_words(
-        db,
-        user_id,
-        user_text,
-        String::new(),
-        Some(input_at),
-        present,
-        turn,
-    )
-    .await;
-}
-
-async fn queue_chat_words(
-    db: &sea_orm::DatabaseConnection,
-    user_id: i32,
-    user_text: String,
-    reply: String,
-    input_at: Option<chrono::DateTime<chrono::FixedOffset>>,
-    present: crate::services::agent::memory::unified::Audience,
-    turn: super::TurnContext,
-) {
-    let Some(input_at) = input_at else {
-        return;
-    };
-    let Some(user_text) = memory_user_text(&user_text) else {
-        return;
-    };
-    if !is_logged_in_addressee(user_id) || !should_extract_chat_remember(&user_text) {
-        return;
-    }
-    // In a private talk nothing is taken line by line: the talk itself is
-    // what she has of it for now, and the stretch is gone over from what
-    // was said (`settle_raw`). Elsewhere, one job per person and place:
-    // their lines fold into it in order.
-    let private = !present.is_group();
-    let answered = !reply.trim().is_empty();
-    if !private {
-        let id = super::memory_jobs::key(&["chat", &user_id.to_string(), &present.venue()]);
-        let data = super::memory_jobs::Payload::Chat {
-            user_text: user_text.clone(),
-            reply,
-            input_at,
-            present: present.clone(),
-            turn,
-            lines: vec![input_at],
-            for_good: false,
-        };
-        if !matches!(
-            tokio::time::timeout(
-                Duration::from_secs(2),
-                super::store::memory_jobs::enqueue(db, &id, user_id, data, None)
-            )
-            .await,
-            Ok(Ok(()))
-        ) {
-            tracing::warn!(user_id, outcome = "enqueue_failed", "[Merope] chat memory");
-        }
-    }
-    // And the stretch it belongs to, gone over once it is over (or once
-    // the box is full, or a line is needed at once).
-    let id = super::memory_jobs::key(&["settle", &user_id.to_string(), &present.venue()]);
-    let at_once = private && myriad_merope::settle_raw::at_once(&user_text).is_some();
-    let data = super::memory_jobs::Payload::Settle {
-        present: present.clone(),
-        from: input_at,
-        last: input_at,
-        heard: vec![(input_at, answered)],
-    };
-    if !matches!(
-        tokio::time::timeout(
-            Duration::from_secs(2),
-            super::store::memory_jobs::enqueue(db, &id, user_id, data, None)
-        )
-        .await,
-        Ok(Ok(()))
-    ) {
-        tracing::warn!(user_id, outcome = "enqueue_failed", "[Merope] chat settle");
-    }
-    // Needed at once: gone over now, with this line (nothing is judged so
-    // yet, `myriad_merope::settle_raw::at_once`). Nobody waits on it here.
-    if at_once && answered {
-        let db = db.clone();
-        super::background::spawn("a line needed at once, gone over", async move {
-            super::memory_jobs::hurry(&db, user_id, &present).await;
-        });
-    }
-}
-
 /// What the extraction reads: their words, her reply, and what surrounded
 /// them. Only what they said in `userText` may become a fact.
 pub(super) fn extract_input(
@@ -510,6 +498,7 @@ pub(super) fn extract_input(
     input.to_string()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn extract(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
@@ -518,8 +507,16 @@ pub(super) async fn extract(
     input_at: chrono::DateTime<chrono::FixedOffset>,
     present: &crate::services::agent::memory::unified::Audience,
     turn: &super::TurnContext,
+    tried: Tried,
 ) -> Result<super::memory_jobs::Effect, super::memory_jobs::Failure> {
     use super::memory_jobs::{Effect, Failure};
+    let until = Instant::now() + EXTRACT_LIMIT;
+    let left = |longest: Duration| until.saturating_duration_since(Instant::now()).min(longest);
+    // Failed so, is it gone over again? What they ask her not to keep is
+    // not let go with the last try of a line; and what could not be told of
+    // that is tried till it is, or given up.
+    let again = |failure: &Failure| tried == Tried::Again && failure.retryable();
+    let judged_again = tried != Tried::GaveUp;
     let (existing, _) =
         crate::services::agent::memory::unified::quietly(super::store::recall_remembered_primed(
             db,
@@ -587,25 +584,107 @@ pub(super) async fn extract(
             input = value.to_string();
         }
     }
-    let raw = super::call::Ask::new(super::call::Voice::Keeping, user_id, "chat_remember")
-        .cached(super::call::REMEMBER_CACHE)
-        .within(EXTRACT_TIMEOUT)
-        // At most 2,483 measured, thinking included.
-        .output_at_most(6000)
-        .json_raw(
-            &extract_system_prompt(&existing, Examples::for_words(user_text)),
-            &input,
-            EXTRACT_SCHEMA_NAME,
-            &extract_schema(),
-        )
-        .await?;
-    let mut updates = parse_chat_memory_updates(&raw, user_text, reply, &existing)
-        .ok_or(super::call::Failure::InvalidOutput)?;
-    already::check_against_unshown(db, user_id, present, &existing, &mut updates).await;
+    let examples = Examples::for_words(user_text);
+    let mut raw = written(
+        user_id,
+        &extract_system_prompt_asked(&existing, examples),
+        &input,
+        &extract_schema_asked(),
+        EXTRACT_TIMEOUT,
+    )
+    .await?;
+    let mut asked = serde_json::from_str(strip_json_fence(&raw))
+        .map(|answer| read_not_to_keep(&answer, user_text, None, &[]))
+        .unwrap_or_default();
+    if !asked.is_empty() {
+        let read = asked.len();
+        match super::asked::really_asked(user_id, user_text, asked.clone(), Some(until)).await {
+            Ok(really) => asked = really,
+            Err(failure) if judged_again || !failure.of_what_was_shown() => {
+                return Err(Failure::NotTold(failure));
+            }
+            // Not told, time after time: held to all the same.
+            Err(_) => {}
+        }
+        if asked.len() < read {
+            // Read as asking what it does not ask: written down once more
+            // with nothing of that, so what it tells is kept as ever. What
+            // it does ask is held to it below.
+            match written(
+                user_id,
+                &extract_system_prompt(&existing, examples),
+                &input,
+                &extract_schema(),
+                left(EXTRACT_TIMEOUT),
+            )
+            .await
+            {
+                Ok(plain) => raw = plain,
+                Err(failure) => {
+                    let failure = failure.into();
+                    if asked.is_empty() || again(&failure) {
+                        return Err(failure);
+                    }
+                }
+            }
+        }
+    }
+    let mut updates = match parse_chat_memory_updates(&raw, user_text, reply, &existing) {
+        Some(updates) => updates,
+        // What they ask, as read, stands on its own words.
+        None if !asked.is_empty() => ChatMemoryUpdates::default(),
+        None => return Err(super::call::Failure::InvalidOutput.into()),
+    };
+    already::check_against_unshown(
+        db,
+        user_id,
+        present,
+        &existing,
+        &mut updates,
+        left(already::TIMEOUT),
+    )
+    .await;
+    match super::asked::leave_out_of(db, user_id, &asked, &mut updates, Some(until)).await {
+        Ok(true) => updates.leave_what_stands(),
+        Ok(false) => {}
+        Err(failure) if asked.is_empty() || judged_again || !failure.untold() => {
+            return Err(failure.of_judging());
+        }
+        // What is of it cannot be told, time after time: of what the line
+        // gives, only what they ask, and what they take back where it tells
+        // nothing (beside something told, it may be what that corrects).
+        Err(_) => {
+            if updates.updates.iter().any(|update| update.fact.is_some()) {
+                updates.updates.clear();
+            }
+            updates.said.clear();
+            updates.put_onto.clear();
+        }
+    }
+    for one in asked {
+        updates.ask_not_to_keep(one);
+    }
     if updates.updates.is_empty() && updates.said.is_empty() && updates.put_onto.is_empty() {
         return Ok(Effect::NoChange);
     }
     Ok(Effect::Chat(updates))
+}
+
+/// What a line gives, as it is asked for.
+async fn written(
+    user_id: i32,
+    system: &str,
+    input: &str,
+    schema: &serde_json::Value,
+    within: Duration,
+) -> Result<String, super::call::Failure> {
+    super::call::Ask::new(super::call::Voice::Keeping, user_id, "chat_remember")
+        .cached(super::call::REMEMBER_CACHE)
+        .within(within)
+        // At most 2,483 measured, thinking included.
+        .output_at_most(6000)
+        .json_raw(system, input, EXTRACT_SCHEMA_NAME, schema)
+        .await
 }
 
 #[cfg(test)]
@@ -658,6 +737,10 @@ pub(crate) fn settle_probe(
         ),
     )
 }
+
+#[cfg(test)]
+#[path = "chat_remember/asked_tests.rs"]
+mod asked_tests;
 
 #[cfg(test)]
 mod tests {
@@ -770,6 +853,7 @@ mod tests {
             &mut updates,
             &pairs,
             &[Already::Same, Already::Replaces, Already::Different],
+            false,
         );
         assert_eq!(updates.len(), 2, "the one she had is not kept twice");
         assert_eq!(updates[0].fact.as_deref(), Some("考试改到周六"));
@@ -797,6 +881,7 @@ mod tests {
                 Already::Unclear(together.into()),
                 Already::Unclear("说过有个弟弟，又说自己是独生子".into()),
             ],
+            false,
         );
         assert_eq!(updates.len(), 1);
         assert_eq!(updates[0].fact.as_deref(), Some(together));
@@ -847,7 +932,7 @@ mod tests {
         let mut updates = vec![let_go.clone(), new_fact("考试改到周六", "考试")];
         let pairs = vec![(1, "考试在周六".to_string())];
         assert_eq!(
-            settle_already(&mut updates, &pairs, &[Already::Same]),
+            settle_already(&mut updates, &pairs, &[Already::Same], false),
             Some((0, "考试在周六".to_string()))
         );
         assert_eq!(updates.len(), 1);
@@ -857,11 +942,65 @@ mod tests {
         let mut updates = vec![let_go, new_fact("考试改到周六", "考试")];
         let pairs = vec![(1, "考试在周六".to_string()), (1, "周六考数学".to_string())];
         assert_eq!(
-            settle_already(&mut updates, &pairs, &[Already::Same, Already::Same]),
+            settle_already(&mut updates, &pairs, &[Already::Same, Already::Same], false),
             None
         );
         assert_eq!(updates.len(), 1);
         assert_eq!(updates[0].fact, None);
+    }
+
+    /// Going over a whole talk, one line's taking back is not corrected by
+    /// what another of its lines said and she already had.
+    #[test]
+    fn going_over_a_talk_corrects_nothing_by_what_she_had() {
+        let let_go = ChatMemoryUpdate {
+            fact: None,
+            supersedes: vec!["周五要考试".into()],
+            evidence: Some("当我没说".into()),
+            ..new_fact("", "考试")
+        };
+        let mut updates = vec![let_go.clone(), new_fact("考试改到周六", "考试")];
+        let pairs = vec![(1, "考试在周六".to_string())];
+        assert_eq!(
+            settle_already(&mut updates, &pairs, &[Already::Same], true),
+            None
+        );
+        assert_eq!(updates, [let_go]);
+    }
+
+    /// Of a talk gone over, a fact found already had that says itself what
+    /// it replaces still replaces it, by the one she had, with other facts
+    /// told beside it too; and what she had is replaced by one fact, a
+    /// second that would is kept beside it.
+    #[test]
+    fn going_over_what_a_fact_replaces_is_never_taken_back() {
+        let moved = ChatMemoryUpdate {
+            supersedes: vec!["住在杭州".into()],
+            ..new_fact("搬到上海了", "住处")
+        };
+        let mut updates = vec![moved, new_fact("养了一只龟", "龟")];
+        let pairs = vec![(0, "住在上海".to_string())];
+        assert_eq!(
+            settle_already(&mut updates, &pairs, &[Already::Same], true),
+            None
+        );
+        assert_eq!(updates.len(), 2);
+        assert_eq!(updates[0].fact.as_deref(), Some("住在上海"));
+        assert_eq!(updates[0].supersedes, ["住在杭州"]);
+
+        let mut updates = vec![
+            new_fact("考试改到周六", "考试"),
+            new_fact("周六在本部考试", "考试"),
+        ];
+        let pairs = vec![(0, "周五要考试".to_string()), (1, "周五要考试".to_string())];
+        settle_already(
+            &mut updates,
+            &pairs,
+            &[Already::Replaces, Already::Replaces],
+            true,
+        );
+        assert_eq!(updates[0].supersedes, ["周五要考试"]);
+        assert!(updates[1].supersedes.is_empty() && updates[1].fact.is_some());
     }
 
     #[test]
@@ -1158,6 +1297,9 @@ mod tests {
 
 mod already;
 pub(super) mod cues;
+mod queue;
+pub use queue::enqueue_chat_remember;
+pub(super) use queue::hold_chat_words;
 #[cfg(test)]
 mod replay;
 

@@ -2,6 +2,7 @@
 
 pub mod api;
 mod appraisal;
+mod asked;
 pub(in crate::services::agent) mod background;
 pub(in crate::services::agent) mod bits;
 mod call;
@@ -89,6 +90,8 @@ pub use ingest::{
     tick_speak_intents,
 };
 /// How many of her answers of each kind were cut off at their output limit.
+pub(crate) use asked::counts as not_to_keep_counts;
+pub(in crate::services::agent) use asked::{anything as asked_anything, to_keep};
 pub(crate) use call::cut_off as answers_cut_off;
 pub(crate) use ingest::{InPerson, Told, in_person, spawn_told};
 #[cfg(test)]
@@ -208,6 +211,9 @@ pub async fn note_user_turn(
             input_at,
             audience_for(request),
             turn_context(request),
+            request.context.as_ref().is_none_or(|context| {
+                context.interaction_mode != crate::services::agent::AgentInteractionMode::Chat
+            }),
         )
         .await;
     }
@@ -334,6 +340,22 @@ async fn maybe_write_chat_diary(db: &sea_orm::DatabaseConnection, user_id: i32, 
         return;
     }
     let summary = crate::services::agent::merope::ingest::compact_summary(text);
+    // One who asked her not to keep something: not a request about that,
+    // told beside the work, which waits for nothing here.
+    if asked::anything(db, user_id).await {
+        let db = db.clone();
+        let taken = background::spawn("a request's line in her diary", async move {
+            let kept = asked::to_keep(&db, user_id, vec![summary], String::clone).await;
+            if let Some(summary) = kept.and_then(|mut kept| kept.pop()) {
+                let _ = insert_diary(&db, user_id, &summary, store::DIARY_SOURCE_CHAT).await;
+            }
+        });
+        // No room to tell: not written, and counted.
+        if !taken {
+            asked::diary_not_told();
+        }
+        return;
+    }
     let _ = insert_diary(db, user_id, &summary, store::DIARY_SOURCE_CHAT).await;
 }
 

@@ -108,15 +108,26 @@ async fn due_in(
         return Ok(Vec::new());
     }
     let held = intent_store::held(db, user_id, audience).await?;
+    let now_due: Vec<&intent_store::Held> = due
+        .due
+        .iter()
+        .filter_map(|due| {
+            held.iter()
+                .find(|held| held.id == due.intent && held.node == due.node && held.waiting())
+        })
+        .collect();
+    // Nor what they asked her not to keep: not held to that yet, only what
+    // they told her to do is done.
+    let only_theirs = now_due
+        .iter()
+        .any(|held| held.origin != Some(Origin::Partner))
+        && !crate::services::agent::merope::asked::old::done_first(db, user_id).await;
     let standing = intent_store::standing_now(db, user_id).await;
     let mut runs = Vec::new();
-    for due in &due.due {
-        let Some(held) = held
-            .iter()
-            .find(|held| held.id == due.intent && held.node == due.node && held.waiting())
-        else {
+    for held in now_due {
+        if only_theirs && held.origin != Some(Origin::Partner) {
             continue;
-        };
+        }
         // Settled first: acted on once, whatever comes after.
         if !settle(db, user_id, audience, held, IntentStatus::Said).await {
             continue;

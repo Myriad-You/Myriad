@@ -10,8 +10,15 @@ pub mod asking {
 
 pub mod bits {
     pub(crate) use crate::services::agent::merope::bits::{
-        go_over_stretch, in_group, picture_again,
+        NotTold, Read, go_over_stretch, in_group, picture_again,
     };
+}
+
+/// A stretch of a group's talk that what those in it asked her not to keep
+/// could not be told of yet (`memory_jobs::Payload::GroupHeard`).
+pub mod heard_later {
+    pub(crate) use crate::services::agent::merope::asked::group_let_go as let_go;
+    pub(crate) use crate::services::agent::merope::memory_jobs::{HEARD_FOR, heard_later as later};
 }
 
 pub mod doing {

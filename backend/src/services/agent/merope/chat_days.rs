@@ -17,6 +17,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::{Value, json};
 
 use super::call::{self, Voice};
+use super::chat_lines::Line;
 use crate::services::agent::memory::unified::{self, Audience};
 use myriad_merope::chat_days::{
     DAY_SCHEMA_NAME, DayLine, PICK_SCHEMA_NAME, day_schema, day_system, lines_to_read, parse_day,
@@ -34,6 +35,9 @@ const PER_NIGHT: usize = 5;
 const FILL_BACK_DAYS: i64 = 120;
 /// People gone over per night.
 const PEOPLE: i64 = 20;
+/// Their first lines a day stands by, when she has nothing to say about it:
+/// as many as are looked through for what may be kept.
+const FIRST_LINES: usize = 12;
 const WRITE_TIMEOUT: Duration = Duration::from_secs(40);
 /// Turning back is done while she answers: past this, she goes by words.
 const PICK_TIMEOUT: Duration = Duration::from_secs(6);
@@ -76,56 +80,105 @@ async fn by_day(
         }
         return (days, replaced);
     }
-    let (sql, value): (&str, sea_orm::Value) = match place {
+    let venue = match place {
         Place::With(_) => return Default::default(),
-        Place::In(venue) => (
-            "SELECT m.role, m.content, m.created_at, \
-               coalesce(nullif(u.display_name, ''), u.username, '') AS name \
-             FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-             LEFT JOIN users u ON u.id = s.user_id \
-             WHERE s.context->>'mode' = 'chat' AND s.context->>'venue' = $1 \
-               AND m.role IN ('user', 'assistant') \
-             ORDER BY m.created_at DESC LIMIT $2",
-            venue.into(),
-        ),
+        Place::In(venue) => venue,
+    };
+    let sql = "SELECT m.id, m.role, m.content, m.created_at, m.session_id, s.user_id, \
+           m.metadata->>'told' AS told, \
+           (COALESCE(m.metadata->>'notKept', '') = 'true' \
+             OR COALESCE(m.metadata->>'notTold', '') = 'true') AS not_kept, \
+           coalesce(nullif(u.display_name, ''), u.username, '') AS name \
+         FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+         LEFT JOIN users u ON u.id = s.user_id \
+         WHERE s.context->>'mode' = 'chat' AND s.context->>'venue' = $1 \
+           AND m.role IN ('user', 'assistant') \
+         ORDER BY m.created_at DESC LIMIT $2";
+    // A stretch of theirs not judged yet (`asked::lines`) is left out whole;
+    // which those are unread, nothing is read.
+    let Ok(waiting) = super::asked::lines::waiting(db, None, Some(venue)).await else {
+        return Default::default();
     };
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             sql,
-            [value, LATEST.into()],
+            [venue.into(), LATEST.into()],
         ))
         .await
         .unwrap_or_default();
-    let mut days: BTreeMap<NaiveDate, Vec<Said>> = BTreeMap::new();
+    // Whose each is: what one of them took back there (「当我没说」), and what
+    // they asked her not to keep, are left out with her answer to them, as
+    // in private (`chat_lines`).
+    let mut theirs: BTreeMap<i32, Vec<Line>> = BTreeMap::new();
+    let mut not_kept = std::collections::HashSet::new();
+    let mut shown: Vec<(i32, String)> = Vec::new();
     for row in rows.iter().rev() {
-        let (Ok(role), Ok(content), Ok(at)) = (
-            row.try_get::<String>("", "role"),
-            row.try_get::<String>("", "content"),
-            row.try_get::<DateTime<FixedOffset>>("", "created_at"),
+        let (Some(line), Ok(left_out), Ok(user_id), Ok(name)) = (
+            super::chat_lines::line_of(row),
+            row.try_get::<bool>("", "not_kept"),
+            row.try_get::<i32>("", "user_id"),
+            row.try_get::<String>("", "name"),
         ) else {
             continue;
         };
-        let text = crate::services::agent::chat_prompt::chat_safe_content(&content);
-        if text.trim().is_empty() {
+        if left_out
+            || waiting
+                .iter()
+                .any(|stretch| stretch.holds(user_id, line.at))
+        {
+            not_kept.insert(line.id);
+        }
+        shown.push((user_id, name.trim().chars().take(24).collect()));
+        theirs.entry(user_id).or_default().push(line);
+    }
+    // What was taken back unread, nothing is read.
+    let Ok(mut gone) = super::chat_lines::withdrawn_in_group(db, venue, &theirs).await else {
+        return Default::default();
+    };
+    for lines in theirs.values() {
+        for (index, line) in lines.iter().enumerate() {
+            if not_kept.contains(&line.id) {
+                gone.insert(line.id);
+                gone.extend(super::chat_lines::answer_to(lines, index));
+            }
+        }
+    }
+    let mut days: BTreeMap<NaiveDate, Vec<Said>> = BTreeMap::new();
+    let mut theirs: BTreeMap<i32, std::vec::IntoIter<Line>> = theirs
+        .into_iter()
+        .map(|(user_id, lines)| (user_id, lines.into_iter()))
+        .collect();
+    for (user_id, name) in shown {
+        let Some(line) = theirs.get_mut(&user_id).and_then(Iterator::next) else {
+            continue;
+        };
+        if gone.contains(&line.id) {
             continue;
         }
-        let name: String = row
-            .try_get::<String>("", "name")
-            .unwrap_or_default()
-            .trim()
-            .chars()
-            .take(24)
-            .collect();
-        let text = match (&place, role == "assistant") {
-            (Place::In(_), false) if !name.is_empty() => format!("{name}：{text}"),
-            _ => text,
+        let text = if !line.hers && !name.is_empty() {
+            format!("{name}：{}", line.content)
+        } else {
+            line.content
         };
-        days.entry(super::clock::date_of(&at))
+        days.entry(super::clock::date_of(&line.at))
             .or_default()
-            .push((at, role == "assistant", text));
+            .push((line.at, line.hers, text));
     }
     (days, Replaced::new())
+}
+
+/// What was said in the group `venue`, as turning back reads it, oldest first.
+#[cfg(test)]
+pub(in crate::services::agent::merope) async fn said_in(
+    db: &DatabaseConnection,
+    venue: &str,
+) -> Vec<String> {
+    let (days, _) = by_day(db, Place::In(venue)).await;
+    days.into_values()
+        .flatten()
+        .map(|(_, _, text)| text)
+        .collect()
 }
 
 /// The lines she wrote for their days, by day.
@@ -204,7 +257,12 @@ pub async fn keep_line(db: &DatabaseConnection, user_id: i32, day: NaiveDate, li
     if line.is_empty() || written(db, user_id).await.contains_key(&day) {
         return;
     }
-    keep(db, user_id, day, line).await;
+    // What they asked her not to keep is not kept of a day either: the day
+    // is gone over again without it (`go_over`).
+    let line = super::asked::to_keep(db, user_id, vec![line], String::clone).await;
+    if let Some(line) = line.and_then(|mut line| line.pop()) {
+        keep(db, user_id, day, line).await;
+    }
 }
 
 async fn keep(db: &DatabaseConnection, user_id: i32, date: NaiveDate, line: String) {
@@ -263,18 +321,72 @@ async fn write_day(
     };
     // A day she had nothing to say about keeps what they said first, so the
     // night does not come back to it again and again.
-    let line = parse_day(&raw).unwrap_or_else(|| {
-        let theirs: Vec<&str> = said
-            .iter()
-            .filter(|(_, hers, _)| !hers)
-            .map(|(_, _, text)| text.as_str())
-            .collect();
-        stand_in(&theirs)
-    });
+    let theirs = said
+        .iter()
+        .filter(|(_, hers, _)| !hers)
+        .map(|(_, _, text)| text.clone())
+        .take(FIRST_LINES);
+    let line = parse_day(&raw);
+    let wrote = line.is_some();
+    // Nor what they asked her not to keep: what they said first otherwise.
+    let items: Vec<(usize, String)> = line.into_iter().chain(theirs).enumerate().collect();
+    let Some(kept) = super::asked::to_keep(db, user_id, items, |(_, text)| text.clone()).await
+    else {
+        return;
+    };
+    let line = match kept.first() {
+        Some((0, line)) if wrote => line.clone(),
+        _ => stand_in(&kept.iter().map(|(_, text)| text).collect::<Vec<_>>()),
+    };
     if line.trim().is_empty() {
+        // All of it is what they asked her not to keep: no line of its own,
+        // and the nights do not come back to it.
+        nothing_of(db, user_id, date).await;
         return;
     }
     keep(db, user_id, date, line).await;
+}
+
+/// Days of a person with nothing of them to keep, so no line.
+const NOTHING_NAMESPACE: &str = "merope_days_nothing";
+
+async fn nothing_of(db: &DatabaseConnection, user_id: i32, date: NaiveDate) {
+    let until = (crate::clock::now() + chrono::Duration::days(FILL_BACK_DAYS)).timestamp();
+    let id = format!("{user_id}:{date}");
+    let identity = crate::services::runtime_registry::RegistryIdentity {
+        subject_id: None,
+        owner_id: None,
+        tapp_id: None,
+        runtime_id: None,
+    };
+    if let Err(error) =
+        crate::services::runtime_registry::put(db, NOTHING_NAMESPACE, &id, identity, &true, until)
+            .await
+    {
+        tracing::warn!(%error, user_id, "[Merope] could not note a day with nothing to keep");
+    }
+}
+
+/// The days of `user_id` noted so.
+async fn days_of_nothing(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> std::collections::HashSet<String> {
+    db.query_all_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT split_part(record_id, ':', 2) AS day FROM runtime_registry \
+         WHERE namespace = $1 AND split_part(record_id, ':', 1) = $2 AND expires_at > $3",
+        [
+            NOTHING_NAMESPACE.into(),
+            user_id.to_string().into(),
+            crate::clock::now().timestamp().into(),
+        ],
+    ))
+    .await
+    .unwrap_or_default()
+    .iter()
+    .filter_map(|row| row.try_get("", "day").ok())
+    .collect()
 }
 
 /// People she talked with in private lately.
@@ -306,11 +418,16 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
     for user_id in people(db).await {
         let (days, _) = by_day(db, Place::With(user_id)).await;
         let lines = written(db, user_id).await;
+        let nothing = days_of_nothing(db, user_id).await;
         let unwritten: Vec<(&NaiveDate, &Vec<Said>)> = days
             .iter()
             .rev()
             .filter(|(date, said)| {
-                **date < today && **date >= oldest && said.len() >= FEW && !lines.contains_key(date)
+                **date < today
+                    && **date >= oldest
+                    && said.len() >= FEW
+                    && !lines.contains_key(date)
+                    && !nothing.contains(&date.to_string())
             })
             .take(PER_NIGHT)
             .collect();
@@ -488,6 +605,76 @@ mod tests {
             .unwrap();
         assert_eq!(replaced, Replaced::from([theirs.0]));
         assert!(by_day(db, Place::In("qq:42")).await.1.is_empty());
+        schema.drop().await;
+    }
+
+    /// What they asked her not to keep is not in a day's line, hers or what
+    /// they said first: what is left of it stands for the day.
+    #[tokio::test]
+    async fn a_days_line_is_without_what_they_asked_not_to_keep() {
+        use super::super::asked::tests::asks;
+        use super::super::chat_lines::tests::{OWNER, schema};
+        use crate::services::channel_group::g0;
+        let Some(schema) = schema("chat_days_asked").await else {
+            return;
+        };
+        let db = &schema.db;
+        asks(db, OWNER, "不要记和房东吵架的事").await;
+        let day = |day: &str| -> NaiveDate { day.parse().unwrap() };
+        let write = async |date: NaiveDate, answers: &[Option<&str>]| {
+            let at = chrono::DateTime::parse_from_rfc3339("2026-11-10T04:00:00+00:00").unwrap();
+            let said: Vec<Said> = [
+                (false, "房东又来吵"),
+                (true, "别气"),
+                (false, "周末去爬香山"),
+                (false, "买了新鞋"),
+            ]
+            .into_iter()
+            .map(|(hers, text)| (at, hers, text.to_string()))
+            .collect();
+            let mut world = g0::World::new(0.5);
+            world
+                .models
+                .entry(DAY_SCHEMA_NAME.into())
+                .or_default()
+                .push_back(Some(r#"{"day":"他跟房东吵了一架"}"#.into()));
+            world
+                .models
+                .entry("not_to_keep".into())
+                .or_default()
+                .extend(answers.iter().map(|answer| answer.map(str::to_string)));
+            g0::enter(world);
+            write_day(db, OWNER, OWNER, date, &said).await;
+            g0::leave();
+            written(db, OWNER)
+                .await
+                .remove(&date)
+                .map(|row| row.content)
+        };
+        // Her line and their first one left out: what else they said.
+        let kept = write(day("2026-11-10"), &[Some(r#"{"drop":[0,1]}"#)]).await;
+        assert_eq!(kept.as_deref(), Some("周末去爬香山 / 买了新鞋"));
+        let kept = write(day("2026-11-11"), &[Some(r#"{"drop":[]}"#)]).await;
+        assert_eq!(kept.as_deref(), Some("他跟房东吵了一架"));
+        // Not told: another night.
+        assert_eq!(write(day("2026-11-12"), &[None]).await, None);
+        // The line of the night's own reading, all of it.
+        let mut world = g0::World::new(0.5);
+        let all = Some(r#"{"drop":[0]}"#.to_string());
+        world
+            .models
+            .entry("not_to_keep".into())
+            .or_default()
+            .extend([all.clone(), all]);
+        g0::enter(world);
+        keep_line(db, OWNER, day("2026-11-13"), "他跟房东又吵了").await;
+        g0::leave();
+        assert!(!written(db, OWNER).await.contains_key(&day("2026-11-13")));
+        // All of a day it is: no line, and no other night comes back to it.
+        let all = Some(r#"{"drop":[0,1,2,3]}"#);
+        assert_eq!(write(day("2026-11-14"), &[all, all]).await, None);
+        let nothing = days_of_nothing(db, OWNER).await;
+        assert!(nothing.contains("2026-11-14") && !nothing.contains("2026-11-12"));
         schema.drop().await;
     }
 }

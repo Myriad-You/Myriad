@@ -8,27 +8,38 @@ use super::*;
 /// group's bits, how she comes across there, stings let go, and what she
 /// heard about the world. `said` is (when, who, what, hers), oldest first;
 /// `keeper` is who the group's rows are kept with (the site's owner, who
-/// brought her there) and who the reading is billed to.
-pub async fn go_over_stretch(
+/// brought her there) and who the reading is billed to; `people`, those in
+/// it she has an account of, each by the name they go by there (none: could
+/// not be read). An `Err`: what they asked her not to keep could not be told
+/// of it, and none of it is kept till it is, with `read`, what it was read
+/// as.
+pub(crate) async fn go_over_stretch(
     db: &DatabaseConnection,
     keeper: i32,
     venue: &str,
     said: Vec<(DateTime<FixedOffset>, String, String, bool)>,
-) {
+    people: Option<&[(i32, String)]>,
+    read: Option<&Read>,
+) -> Result<(), NotTold> {
     let said: Vec<_> = said
         .into_iter()
         .filter(|(_, _, text, _)| !text.trim().is_empty())
         .collect();
     if (said.len() as i64) < MIN_LINES || said.iter().all(|(_, _, _, hers)| *hers) {
-        return;
+        return Ok(());
     }
     let lines = reading_lines(&said);
     let circle = Circle::Group {
         venue: venue.to_string(),
         keeper,
     };
-    let today = super::super::clock::local_now()
-        .date_naive()
+    let day = match read {
+        Some(read) => (read.at)
+            .with_timezone(&super::super::clock::zone())
+            .date_naive(),
+        None => super::super::clock::local_now().date_naive(),
+    };
+    let today = day
         .and_hms_opt(0, 0, 0)
         .and_then(|midnight| {
             chrono::TimeZone::from_local_datetime(&super::super::clock::zone(), &midnight)
@@ -36,10 +47,23 @@ pub async fn go_over_stretch(
         })
         .map(|midnight| midnight.fixed_offset());
     let Some(today) = today else {
-        return;
+        return Ok(());
     };
     let before = day_line(db, &circle, today).await;
-    read_group(db, &circle, venue, &lines, today, before.as_deref()).await;
+    read_group(db, &circle, venue, &lines, (today, before), people, read).await
+}
+
+/// What a stretch was read as, and when.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Read {
+    pub raw: String,
+    pub at: DateTime<FixedOffset>,
+}
+
+/// A stretch read, and what they asked her not to keep of it not told.
+pub(crate) struct NotTold {
+    pub read: Read,
+    pub(in crate::services::agent::merope) failure: super::super::memory_jobs::Failure,
 }
 
 /// The stretch as the reading takes it: who (bounded), what (bounded), and
@@ -73,15 +97,17 @@ fn reading_lines(
         .collect()
 }
 
-/// Read the stretch once and keep what holds up of it.
+/// Read the stretch once (`read`, when it was) and keep what holds up of it;
+/// of one read before, nothing she has found again since.
 async fn read_group(
     db: &DatabaseConnection,
     circle: &Circle,
     venue: &str,
     lines: &[myriad_merope::group_reading::Line],
-    today: DateTime<FixedOffset>,
-    day_before: Option<&str>,
-) {
+    (today, day_before): (DateTime<FixedOffset>, Option<DayLine>),
+    people: Option<&[(i32, String)]>,
+    read: Option<&Read>,
+) -> Result<(), NotTold> {
     use myriad_merope::group_reading::{AtHand, SCHEMA_NAME, input, parse, schema, system};
     let held = held_in(db, circle, 30).await;
     let wants: Vec<String> = super::super::wants::open(db)
@@ -95,7 +121,7 @@ async fn read_group(
     let at_hand = AtHand {
         bits: held.iter().filter_map(bit_of).collect(),
         lands: lands_now.as_ref().map(|row| row.content.as_str()),
-        day_before,
+        day_before: day_before.as_ref().map(|(line, _)| line.as_str()),
         sore_spots: json!(super::super::sore::as_input(&sores, crate::clock::now())),
         shown_as: shown_as.as_deref(),
         wants,
@@ -103,34 +129,69 @@ async fn read_group(
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
-    let Ok(raw) = super::super::call::Ask::new(
-        super::super::call::Voice::Reading,
-        circle.keeper(),
-        SCHEMA_NAME,
-    )
-    .within(READING_TIMEOUT)
-    .json_raw(
-        &system(&soul),
-        &input(lines, &at_hand),
-        SCHEMA_NAME,
-        &schema(),
-    )
-    .await
-    else {
-        return;
+    let now_read;
+    let (read, first) = match read {
+        Some(read) => (read, false),
+        None => {
+            let Ok(raw) = super::super::call::Ask::new(
+                super::super::call::Voice::Reading,
+                circle.keeper(),
+                SCHEMA_NAME,
+            )
+            .within(READING_TIMEOUT)
+            .json_raw(
+                &system(&soul),
+                &input(lines, &at_hand),
+                SCHEMA_NAME,
+                &schema(),
+            )
+            .await
+            else {
+                return Ok(());
+            };
+            now_read = Read {
+                raw,
+                at: crate::clock::now().fixed_offset(),
+            };
+            (&now_read, true)
+        }
     };
-    let Some(reading) = parse(&raw, lines, &at_hand) else {
+    let Some(mut reading) = parse(&read.raw, lines, &at_hand) else {
         tracing::warn!("[Merope] a group stretch's reading came back unreadable");
-        return;
+        return Ok(());
     };
     // What she kept on a mistake someone pointed out goes before anything
-    // new is kept from the same reading.
-    if !reading.corrected.is_empty() {
-        recheck(db, circle, venue, lines, &reading.corrected, &soul).await;
+    // new is kept from the same reading. It says which by their places now,
+    // and goes whatever is kept.
+    if first {
+        if !reading.corrected.is_empty() {
+            recheck(db, circle, venue, lines, &reading.corrected, &soul).await;
+        }
+        super::super::sore::let_go(db, &sores, &reading.let_go).await;
     }
-    put_day(db, circle, &reading.day, today).await;
-    put_lands(db, circle, &reading.lands, lands_now.as_ref()).await;
-    super::super::sore::let_go(db, &sores, &reading.let_go).await;
+    let told = match people {
+        Some(people) => super::not_kept::leave_out(db, people, &mut reading).await,
+        None => Err(super::super::memory_jobs::Failure::Storage),
+    };
+    if let Err(failure) = told {
+        return Err(NotTold {
+            read: read.clone(),
+            failure,
+        });
+    }
+    let since = |at: DateTime<FixedOffset>| !first && at > read.at;
+    if !day_before.is_some_and(|(_, at)| since(at)) {
+        put_day(db, circle, &reading.day, today).await;
+    }
+    if !lands_now.as_ref().is_some_and(|row| since(row.created_at)) {
+        put_lands(db, circle, &reading.lands, lands_now.as_ref()).await;
+    }
+    reading.bits.retain(|bit| {
+        !held.iter().any(|row| {
+            since(row.updated_at)
+                && bit_of(row).is_some_and(|(handle, _)| same_handle(&handle, bit.handle.trim()))
+        })
+    });
     let kept = apply_bits(db, circle, &held, reading.bits).await;
     if kept > 0 {
         tracing::info!(kept, "[Merope] bits kept from a group's talk");
@@ -139,6 +200,7 @@ async fn read_group(
     for explained in &reading.explained {
         super::super::jargon::told(db, venue, explained).await;
     }
+    Ok(())
 }
 
 /// What she kept from a group lately and goes back over when told she got
@@ -293,16 +355,19 @@ fn rests_on(evidence: &str) -> Option<String> {
 /// How long the reading of a stretch may take: the stronger model, thinking.
 const READING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
+/// What she wrote of a day in a group, and when.
+type DayLine = (String, DateTime<FixedOffset>);
+
 /// What she already wrote about `day` in this group, if anything.
 async fn day_line(
     db: &DatabaseConnection,
     circle: &Circle,
     day: DateTime<FixedOffset>,
-) -> Option<String> {
+) -> Option<DayLine> {
     let marker = format!("\"day\":\"{}\"", day.format("%Y-%m-%d"));
     db.query_one_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "SELECT content FROM agent_memories WHERE source = $1 AND venue = $2 \
+        "SELECT content, created_at FROM agent_memories WHERE source = $1 AND venue = $2 \
            AND invalid_at IS NULL AND evidence LIKE '%' || $3 || '%' \
          ORDER BY created_at DESC LIMIT 1",
         [
@@ -314,7 +379,12 @@ async fn day_line(
     .await
     .ok()
     .flatten()
-    .and_then(|row| row.try_get::<String>("", "content").ok())
+    .and_then(|row| {
+        Some((
+            row.try_get("", "content").ok()?,
+            row.try_get("", "created_at").ok()?,
+        ))
+    })
 }
 
 /// On each of her lines, how many seconds until someone else wrote after it

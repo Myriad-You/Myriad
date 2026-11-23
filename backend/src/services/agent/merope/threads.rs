@@ -58,6 +58,14 @@ fn thread_of(row: &crate::models::entities::agent_memories::Model) -> Option<Thr
     })
 }
 
+/// What a thread's row says: what it is about, and what she would say.
+pub(super) fn text_of(row: &crate::models::entities::agent_memories::Model) -> Option<String> {
+    if row.source != SOURCE {
+        return None;
+    }
+    thread_of(row).map(|thread| format!("{}：{}", thread.about, thread.then))
+}
+
 /// What a thread's row keeps beside what she would say.
 fn evidence_of(about: &str, due: Due, hers: bool) -> Value {
     let mut evidence =
@@ -99,6 +107,14 @@ pub async fn let_pass(db: &DatabaseConnection, user_id: i32, now: DateTime<Utc>)
 
 /// What is on her mind about this person, oldest first.
 pub async fn open(db: &DatabaseConnection, user_id: i32) -> Vec<Thread> {
+    kept(db, user_id).await.unwrap_or_default()
+}
+
+/// [`open`], or why it could not be read.
+pub(super) async fn kept(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> Result<Vec<Thread>, sea_orm::DbErr> {
     let now = super::clock::now();
     let mut threads: Vec<Thread> = unified::venue_source_rows(
         db,
@@ -107,14 +123,13 @@ pub async fn open(db: &DatabaseConnection, user_id: i32) -> Vec<Thread> {
         SOURCE,
         MAX_OPEN as u64 * 2,
     )
-    .await
-    .unwrap_or_default()
+    .await?
     .iter()
     .filter(|row| !passed(row, now))
     .filter_map(thread_of)
     .collect();
     threads.reverse();
-    threads
+    Ok(threads)
 }
 
 /// A group's stored venue (`group:telegram:-100123`) from its chat venue.
@@ -206,6 +221,13 @@ pub async fn come_back_in_groups(db: &DatabaseConnection) {
         return;
     };
     for (venue, thread) in due {
+        // Not held yet to what someone of it asked her not to keep: later.
+        if !super::asked::old::done_first_in(db, &venue).await {
+            if let Ok(mut asked) = ASKED.lock() {
+                asked.remove(&thread.id);
+            }
+            continue;
+        }
         let what = format!("{}: {}", thread.about, thread.then);
         if crate::services::channel_group::come_back(owner, &venue, &what).await {
             close_in_group(db, &venue, &[thread.id.clone()], "came_back").await;

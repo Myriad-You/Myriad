@@ -33,8 +33,11 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use super::{Error, heads, inbox, logged, write};
 use crate::services::her_log::{self, NODE};
 
+#[path = "taken_back_lines.rs"]
+mod lines;
 #[path = "taken_back.rs"]
 mod taken_back;
+pub(crate) use lines::hide_lines_let_go;
 #[cfg(test)]
 pub(crate) use taken_back::left_to_sweep_holds;
 use taken_back::of_a_life;
@@ -44,13 +47,31 @@ pub(crate) use taken_back::{
 };
 pub(crate) use taken_back::{error_kind, sweep_again};
 
-/// The rows citing any of `refs`: entries and spans by their references,
-/// her views, what is not wrapped up and how their life stands (「现在」)
-/// by what they rest on (`because`); each with its account, audience and
-/// node.
+/// The kinds of row forgotten with a memory they cite.
+const OF_A_MEMORY: &[&str] = &[
+    "node.entry",
+    "node.span",
+    "node.view_changed",
+    "node.open_item",
+    "node.standing",
+];
+/// Those hidden with a line of theirs that went with a memory they took
+/// back: not a fact, which may be another that line told her.
+pub(super) const OF_A_LINE: &[&str] = &[
+    "node.span",
+    "node.view_changed",
+    "node.open_item",
+    "node.standing",
+];
+
+/// The rows of `kinds` citing any of `refs`: entries and spans by their
+/// references, her views, what is not wrapped up and how their life stands
+/// (「现在」) by what they rest on (`because`); each with its account,
+/// audience and node.
 async fn citing<C: ConnectionTrait>(
     db: &C,
     refs: &[String],
+    kinds: &[&str],
 ) -> Result<Vec<(i32, String, String, String)>, Error> {
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
@@ -61,9 +82,15 @@ async fn citing<C: ConnectionTrait>(
                     ELSE COALESCE((r.body::jsonb)->(CASE \
                       WHEN r.kind IN ('node.view_changed', 'node.open_item', 'node.standing') THEN 'because' \
                       ELSE 'refs' END), '[]'::jsonb) END) AS cited(ref) \
-             WHERE r.kind IN ('node.entry', 'node.span', 'node.view_changed', 'node.open_item', 'node.standing') \
-               AND cited.ref = ANY($1)",
-            [refs.to_vec().into()],
+             WHERE r.kind = ANY($2) AND cited.ref = ANY($1)",
+            [
+                refs.to_vec().into(),
+                kinds
+                    .iter()
+                    .map(|kind| kind.to_string())
+                    .collect::<Vec<_>>()
+                    .into(),
+            ],
         ))
         .await?;
     rows.iter()
@@ -322,11 +349,27 @@ pub(super) async fn forget_one<C: ConnectionTrait>(
     Ok(())
 }
 
-/// Whether `node` is a topic she started that holds no entry any more.
+/// Whether `node` is a topic she started that holds nothing any more: no
+/// entry, no span, nothing standing on it and nothing waiting to be done
+/// from it. Not one whose key is a rule's own (`child`): forgotten whole, it
+/// would never come back under it, and what comes to it next would go
+/// nowhere.
 pub(super) fn empty_topic(node: &myriad_nodes::Node) -> bool {
     !node.forgotten
         && node.absorbed_into.is_none()
         && node.entries.is_empty()
+        && node.spans.is_empty()
+        && node.views.is_empty()
+        && node.open.is_empty()
+        && node.standing.is_empty()
+        && !node
+            .key
+            .as_deref()
+            .is_some_and(|key| key == super::child::CHATS_KEY || key.starts_with("repo:"))
+        && !node
+            .intents
+            .values()
+            .any(|intent| intent.current.value.status == myriad_nodes::body::IntentStatus::Waiting)
         && node.created_by == Some(Author::Her)
         && node
             .kind
@@ -357,7 +400,7 @@ pub(crate) async fn forget<C: ConnectionTrait>(
     super::kept::forget(db, memories).await?;
     let mut by_audience: BTreeMap<(i32, String), (BTreeSet<String>, BTreeSet<String>)> =
         BTreeMap::new();
-    for (user_id, audience, node, row) in citing(db, &refs).await? {
+    for (user_id, audience, node, row) in citing(db, &refs, OF_A_MEMORY).await? {
         let (nodes, rows) = by_audience.entry((user_id, audience)).or_default();
         nodes.insert(node);
         rows.insert(row);

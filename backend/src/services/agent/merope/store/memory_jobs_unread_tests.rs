@@ -139,7 +139,10 @@ async fn a_stretch_never_finished_is_left_unread() {
 }
 
 /// Every try of the stretch `claimed` answered unreadably.
-pub(super) async fn never_read(db: &DatabaseConnection, mut claimed: Claim) {
+pub(in crate::services::agent::merope::store::memory_jobs) async fn never_read(
+    db: &DatabaseConnection,
+    mut claimed: Claim,
+) {
     for attempt in 1..=MAX_ATTEMPTS {
         finish(
             db,
@@ -150,7 +153,7 @@ pub(super) async fn never_read(db: &DatabaseConnection, mut claimed: Claim) {
         .unwrap();
         if attempt < MAX_ATTEMPTS {
             due(db, "settle").await;
-            claimed = claim(db).await.unwrap().expect("tried again");
+            claimed = claim_of(db, "settle").await.expect("tried again");
         }
     }
 }
@@ -307,6 +310,93 @@ async fn notes_are_kept_as_they_are_when_the_last_stretch_never_finished() {
     assert!(claim(db).await.unwrap().is_none(), "no try left");
     assert_eq!(went(db).await["周末要搬家"], holds("周末要搬家"));
     assert_eq!(loaded(db, "settle").await.unread_from, Some(ago(30)));
+    schema.drop().await;
+}
+
+/// Of someone who asked her not to keep something: notes till they are
+/// judged, however that fails, then kept for good but for what is of it.
+#[tokio::test]
+async fn notes_left_unread_of_someone_who_asked_are_held_to_it_first() {
+    use crate::services::agent::merope::asked::{tests::asks, unread};
+    use crate::services::channel_group::g0;
+    let Some(schema) = fixture().await else {
+        return;
+    };
+    let db = &schema.db;
+    asks(db, 7, "不要记和房东吵架的事").await;
+    let now = crate::clock::now().fixed_offset();
+    let ago = |minutes| now - chrono::Duration::minutes(minutes);
+    noted_at(db, "周末要搬家", ago(120)).await;
+    noted_at(db, "房东又来吵", ago(119)).await;
+    for minutes in [121, 61, 30] {
+        never_read(db, stretch_from(db, "settle", ago(minutes)).await).await;
+    }
+    let both = async || {
+        let went = went(db).await;
+        (went["周末要搬家"].clone(), went["房东又来吵"].clone())
+    };
+    assert_eq!(both().await, (None, None), "still notes");
+    let (id, job): (String, Job) = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT record_id, payload FROM runtime_registry WHERE namespace = $1 \
+             AND payload->'data'->'LeftUnread' IS NOT NULL",
+            [ASKED_NAMESPACE.into()],
+        ))
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| {
+            (
+                row.try_get("", "record_id").unwrap(),
+                serde_json::from_value(row.try_get("", "payload").unwrap()).unwrap(),
+            )
+        })
+        .next()
+        .expect("to be judged");
+    assert!(job.data.as_ref().unwrap().by_what_they_asked(), "{id}");
+    let Some(Payload::LeftUnread {
+        present,
+        last,
+        since,
+        until,
+    }) = job.data
+    else {
+        unreachable!()
+    };
+    let left = settling::notes_left(db, 7, &present, since, until)
+        .await
+        .unwrap();
+    assert_eq!(left.len(), 2);
+    let of_it = left
+        .iter()
+        .position(|note| note.content.contains("房东"))
+        .unwrap();
+    let judged = async |answers: &[&str], gives_up: bool| {
+        let mut world = g0::World::new(0.5);
+        world.models.insert(
+            "not_to_keep".into(),
+            answers.iter().map(|one| Some(one.to_string())).collect(),
+        );
+        g0::enter(world);
+        let told_by = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        let done = unread::keep(db, 7, &present, last, (since, until), told_by, gives_up).await;
+        g0::leave();
+        done.is_ok()
+    };
+    for answer in ["!rejected", "!rateLimited", "嗯"] {
+        assert!(!judged(&[answer; 9], false).await);
+        assert_eq!(both().await, (None, None), "{answer}");
+    }
+    // Let be: they stay notes.
+    assert!(judged(&["嗯"; 9], true).await);
+    assert_eq!(both().await, (None, None));
+    let drop = format!(r#"{{"drop":[{of_it}]}}"#);
+    assert!(judged(&[&drop], false).await);
+    let (kept, gone) = both().await;
+    assert_eq!(kept, holds("周末要搬家"));
+    assert!(gone.is_some() && gone != holds("房东又来吵"), "{gone:?}");
+    assert!(judged(&[], false).await, "nothing left to judge");
     schema.drop().await;
 }
 

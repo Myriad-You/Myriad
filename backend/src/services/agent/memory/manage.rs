@@ -56,7 +56,7 @@ pub fn category(row: &agent_memories::Model) -> &'static str {
             _ => "other",
         },
         Whose::Person(_) => match source {
-            "chat" => "chat",
+            "chat" | super::unified::ASKED_SOURCE => "chat",
             "chat_note" => "note",
             "event" => "event",
             "lookup" => "lookup",
@@ -130,18 +130,25 @@ pub async fn update_any<C: ConnectionTrait>(
 /// The database frees the deleted rows' space at its next vacuum; its write-
 /// ahead log and the deployment's backups are outside what this reaches.
 pub async fn forget_any(db: &sea_orm::DatabaseConnection, id: &str) -> Result<bool, DbErr> {
-    let Some(lines) = forget_memory(db, id).await? else {
+    forget_all(db, &[id.to_string()]).await
+}
+
+/// [`forget_any`], of each of `ids` at once: gone for one of them, what they
+/// quote in the same words is not looked for in another line for the next.
+/// Returns whether there was such a memory.
+pub async fn forget_all(db: &sea_orm::DatabaseConnection, ids: &[String]) -> Result<bool, DbErr> {
+    let Some(lines) = forget_memories(db, ids).await? else {
         return Ok(false);
     };
     crate::services::her_log::talk::forget_lines(db, &lines).await;
     Ok(true)
 }
 
-/// [`forget_any`] here only: the lines it took, or none when there was no
-/// such memory.
-async fn forget_memory(
+/// [`forget_any`] here only, of each of `ids` at once: the lines they took,
+/// or none when there was no such memory.
+async fn forget_memories(
     db: &sea_orm::DatabaseConnection,
-    id: &str,
+    ids: &[String],
 ) -> Result<Option<Vec<super::origins::Gone>>, DbErr> {
     let site_owner = crate::services::principal::site_owner_id(db).await?;
     let txn = db.begin().await?;
@@ -149,16 +156,19 @@ async fn forget_memory(
     crate::services::agent::merope::store::memory_jobs::lock(&txn)
         .await
         .map_err(|error| DbErr::Custom(error.to_string()))?;
-    let Some(row) = agent_memories::Entity::find_by_id(id.to_string())
+    let mut doomed: Vec<String> = agent_memories::Entity::find()
+        .filter(agent_memories::Column::Id.is_in(ids.iter().cloned()))
         .filter(agent_memories::Column::InvalidAt.is_null())
-        .one(&txn)
+        .all(&txn)
         .await?
-    else {
+        .into_iter()
+        .map(|row| row.id)
+        .collect();
+    if doomed.is_empty() {
         txn.commit().await?;
         return Ok(None);
-    };
-    let mut doomed = vec![row.id.clone()];
-    let mut frontier = vec![row.id];
+    }
+    let mut frontier = doomed.clone();
     for _ in 0..LINEAGE_STEPS {
         if frontier.is_empty() {
             break;
@@ -239,21 +249,34 @@ pub async fn forget_line(
     };
     let place = crate::services::agent::sessions::session_venue(session.context.as_ref());
     let mut gone = vec![super::origins::Gone::of(&line)];
-    for memory in super::origins::quoting(
-        db,
-        user_id,
-        place.as_deref(),
-        &line.content,
-        line.created_at,
-    )
-    .await?
-    {
-        gone.extend(forget_memory(db, &memory).await?.into_iter().flatten());
-    }
-    let txn = db.begin().await?;
-    crate::services::agent::merope::store::memory_jobs::lock(&txn)
-        .await
-        .map_err(|error| DbErr::Custom(error.to_string()))?;
+    let quotable = super::origins::Quotable {
+        id: line.id,
+        role: &line.role,
+        content: &line.content,
+        at: line.created_at,
+    };
+    // Looked for again once nothing else can be written: what going over the
+    // talk kept of it meanwhile goes too.
+    let mut tries = 0;
+    let txn = loop {
+        // At once: gone for one of them, what they quote in the same words is
+        // not looked for in another line for the next.
+        let taught = super::origins::quoting(db, user_id, place.as_deref(), &quotable).await?;
+        gone.extend((forget_memories(db, &taught).await?).into_iter().flatten());
+        let txn = db.begin().await?;
+        crate::services::agent::merope::store::memory_jobs::lock(&txn)
+            .await
+            .map_err(|error| DbErr::Custom(error.to_string()))?;
+        tries += 1;
+        if tries >= LOOKS
+            || super::origins::quoting(&txn, user_id, place.as_deref(), &quotable)
+                .await?
+                .is_empty()
+        {
+            break txn;
+        }
+        txn.rollback().await?;
+    };
     super::origins::forget_line_traces(&txn, user_id, &line.content, line.created_at).await?;
     crate::services::agent::merope::memory_nodes::forget::forget(&txn, &[], &[line.id])
         .await
@@ -291,6 +314,10 @@ pub async fn forget_line(
 pub async fn confirm_tried<C: ConnectionTrait>(db: &C, id: &str) -> Result<bool, DbErr> {
     super::work_memory::hold(db, id, 0.0).await
 }
+
+/// How many times what a line taught is looked for before it goes
+/// ([`forget_line`]), should more be written of it each time.
+const LOOKS: usize = 4;
 
 /// Steps followed either way along what replaced what: a loop in old rows
 /// cannot keep it going.
@@ -626,6 +653,74 @@ mod tests {
             .await,
             ["养了一只猫叫年糕", "今天下雨了", "记得带伞"]
         );
+        schema.drop().await;
+    }
+
+    /// A fact put together from several lines, gone over days after them:
+    /// forgetting it takes each line it quotes, with her answer, and
+    /// forgetting any of the lines takes it.
+    #[tokio::test]
+    async fn a_fact_of_several_lines_goes_with_each_of_them() {
+        let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
+            return;
+        };
+        let schema = crate::db::IsolatedSchema::migrated(&url, "memory_forget_merged").await;
+        let db = &schema.db;
+        use sea_orm::ConnectionTrait;
+        db.execute_unprepared(
+            "INSERT INTO users (id, username) VALUES (34, 'mei');
+             INSERT INTO agent_sessions (id, user_id, context, message_count, created_at, last_active_at)
+             VALUES ('s-mei', 34, '{\"mode\":\"chat\"}', 6, NOW(), NOW());
+             INSERT INTO agent_messages (session_id, role, content, created_at) VALUES
+               ('s-mei', 'user', '我家养了一只猫', NOW() - INTERVAL '50 hours'),
+               ('s-mei', 'assistant', '叫什么呀', NOW() - INTERVAL '49 hours'),
+               ('s-mei', 'user', '它叫年糕', NOW() - INTERVAL '48 hours'),
+               ('s-mei', 'user', '今天下雨了', NOW() - INTERVAL '47 hours'),
+               ('s-mei', 'user', '我在学吉他', NOW() - INTERVAL '46 hours'),
+               ('s-mei', 'user', '学到第三首了', NOW() - INTERVAL '45 hours');
+             INSERT INTO agent_memories (id, user_id, kind, content, evidence, speaker, source, venue, audience, concepts, importance, access_count, valid_from, created_at, updated_at)
+             VALUES ('cat', 34, 'fact', '有只猫叫年糕', '我家养了一只猫 / 它叫年糕', 'user', 'chat', 'private', '[34]', '[]', 0.5, 0, NOW() - INTERVAL '50 hours', NOW(), NOW()),
+                    ('guitar', 34, 'fact', '学吉他学到第三首', '我在学吉他 / 学到第三首了', 'user', 'chat', 'private', '[34]', '[]', 0.5, 0, NOW() - INTERVAL '46 hours', NOW(), NOW());",
+        )
+        .await
+        .unwrap();
+        let left = async || -> Vec<String> {
+            db.query_all_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT content FROM agent_messages ORDER BY created_at",
+            ))
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| row.try_get_by_index::<String>(0).unwrap())
+            .collect()
+        };
+        assert!(forget_any(db, "cat").await.unwrap());
+        assert_eq!(
+            left().await,
+            ["今天下雨了", "我在学吉他", "学到第三首了"],
+            "each line it quotes, and her answer"
+        );
+        let said = db
+            .query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT created_at FROM agent_messages WHERE content = '学到第三首了'",
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get("", "created_at")
+            .unwrap();
+        let quotable = super::super::origins::Quotable {
+            id: 0,
+            role: "user",
+            content: "学到第三首了",
+            at: said,
+        };
+        let taught = super::super::origins::quoting(db, 34, None, &quotable)
+            .await
+            .unwrap();
+        assert_eq!(taught, ["guitar"]);
         schema.drop().await;
     }
 

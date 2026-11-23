@@ -302,6 +302,23 @@ pub(crate) async fn after_turn(
     }
     let message = format!("message:{id}");
     let mut judged = Judged::default();
+    // What she means to do of her own accord about what they asked her not
+    // to keep is not kept; what they ask her to do is theirs to ask.
+    let hers: Vec<String> = read
+        .takes
+        .iter()
+        .map(|take| match take.kind {
+            TakeKind::Mine => take.text.clone(),
+            TakeKind::Plan | TakeKind::Instruction => String::new(),
+        })
+        .collect();
+    let left_out = if hers.iter().all(String::is_empty) {
+        Default::default()
+    } else {
+        super::super::asked::to_leave_out(db, user_id, &hers)
+            .await
+            .unwrap_or_else(|_| (0..hers.len()).collect())
+    };
     let mut given: Option<intents::Standing> = None;
     for (n, take) in read.takes.iter().enumerate() {
         let origin = match take.kind {
@@ -310,6 +327,10 @@ pub(crate) async fn after_turn(
                 continue;
             }
             TakeKind::Instruction => Origin::Partner,
+            TakeKind::Mine if left_out.contains(&n) => {
+                judged.refused += 1;
+                continue;
+            }
             TakeKind::Mine => Origin::Her,
         };
         let action = match gate(

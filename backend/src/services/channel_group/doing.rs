@@ -108,6 +108,12 @@ pub(super) async fn perform(venue: &str, effect: Effect) {
                 let Some(owner) = owner(&db).await else {
                     return;
                 };
+                let mut speakers = std::collections::BTreeMap::new();
+                for line in &stretch {
+                    if let Some(from) = &line.from {
+                        speakers.insert(from.clone(), line.name.clone());
+                    }
+                }
                 let stretch = stretch
                     .into_iter()
                     .filter_map(|line| {
@@ -119,7 +125,7 @@ pub(super) async fn perform(venue: &str, effect: Effect) {
                         ))
                     })
                     .collect();
-                take_in_heard(&db, owner, &venue, stretch).await;
+                take_in_heard(&db, owner, &venue, stretch, speakers.into_iter().collect()).await;
             });
         }
         Effect::PictureAgain { key, seen } => {

@@ -10,6 +10,7 @@
 //! This is the one place Merope reaches the model and the cost ledger. The
 //! live appraisal keeps its own analyzer for its timing probes.
 
+use std::sync::atomic::{AtomicI64, Ordering::Relaxed};
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -49,6 +50,33 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(45);
 static CUT_OFF: std::sync::Mutex<std::collections::BTreeMap<&'static str, u64>> =
     std::sync::Mutex::new(std::collections::BTreeMap::new());
 
+/// When a judgment of hers was last answered, since the site started (0:
+/// none yet).
+#[cfg(not(test))]
+fn judged_at<T>(of: impl FnOnce(&AtomicI64) -> T) -> T {
+    static AT: AtomicI64 = AtomicI64::new(0);
+    of(&AT)
+}
+/// Each test's own.
+#[cfg(test)]
+fn judged_at<T>(of: impl FnOnce(&AtomicI64) -> T) -> T {
+    thread_local!(static AT: AtomicI64 = const { AtomicI64::new(0) });
+    AT.with(of)
+}
+
+/// Whether a judgment of hers was answered after `at`, since the site
+/// started: what is refused all the while is refused for what it says, and
+/// not for who asks.
+pub(super) fn judged_since(at: i64) -> bool {
+    judged_at(|last| last.load(Relaxed)) > at
+}
+
+/// Judgments answered last at `at`, as a test has it.
+#[cfg(test)]
+pub(super) fn judged_last(at: i64) {
+    judged_at(|last| last.store(at, Relaxed));
+}
+
 /// How many answers of each operation were cut off at their output limit
 /// since the site started, for her status.
 pub(crate) fn cut_off() -> std::collections::BTreeMap<&'static str, u64> {
@@ -68,6 +96,10 @@ pub(super) enum Failure {
     Upstream,
     RateLimited,
     Rejected,
+    /// Refused, it may be for what was shown (a content filter, too long),
+    /// it may be for who asks: its status does not say which
+    /// ([`judged_since`] does).
+    Refused,
     InvalidOutput,
     StreamInterrupted,
     Quota,
@@ -86,6 +118,7 @@ impl std::fmt::Display for Failure {
             Self::Upstream => "model_upstream",
             Self::RateLimited => "model_rate_limited",
             Self::Rejected => "model_rejected",
+            Self::Refused => "model_refused",
             Self::InvalidOutput => "model_invalid_output",
             Self::StreamInterrupted => "model_stream_interrupted",
             Self::Quota => "model_quota",
@@ -108,8 +141,17 @@ impl Failure {
         )
     }
 
+    /// Asked, with no answer that will do, for what it was shown: none that
+    /// reads, or refused. Not that it could not be asked now (nothing there,
+    /// the account refused, too many asks, no answer in time): that says
+    /// nothing of what it was shown.
+    pub(super) fn of_what_was_shown(self) -> bool {
+        matches!(self, Self::Refused | Self::InvalidOutput | Self::CutOff)
+    }
+
     fn status(status: reqwest::StatusCode) -> Self {
         match status.as_u16() {
+            400 | 403 | 413 | 422 => Self::Refused,
             408 | 504 => Self::Timeout,
             429 => Self::RateLimited,
             500..=599 => Self::Upstream,
@@ -355,6 +397,14 @@ impl Ask {
         *counts.entry(self.operation).or_default() += 1;
     }
 
+    /// Answered, as a judgment: noted when.
+    fn judged(&self) {
+        if self.voice == Voice::Judge {
+            let now = crate::clock::now().timestamp();
+            judged_at(|last| last.store(now, Relaxed));
+        }
+    }
+
     fn failed(self, failure: Failure) -> Failure {
         tracing::warn!(owner = self.owner, operation = self.operation, source = self.source,
             outcome = %failure, retryable = failure.retryable(), "[Merope] model call failed");
@@ -396,7 +446,17 @@ impl Ask {
                 self.cut_off(None, None);
                 return Err(self.failed(Failure::CutOff));
             }
-            return answer.ok_or(Failure::Unavailable);
+            // One that fails otherwise, named as the answer.
+            match answer.as_deref() {
+                Some("!rejected") => return Err(Failure::Rejected),
+                Some("!refused") => return Err(Failure::Refused),
+                Some("!quota") => return Err(Failure::Quota),
+                Some("!rateLimited") => return Err(Failure::RateLimited),
+                _ => {}
+            }
+            let answer = answer.ok_or(Failure::Unavailable)?;
+            self.judged();
+            return Ok(answer);
         }
         self.model()
             .await?
@@ -464,6 +524,7 @@ impl Model {
             Ok(Ok(_)) if whole && cut_off => Err(self.ask.failed(Failure::CutOff)),
             Ok(Ok(raw)) => {
                 crate::services::agent::alive::model_answered();
+                self.ask.judged();
                 Ok(raw)
             }
             Ok(Err(error)) => Err(self.ask.failed(Failure::classify(&error))),
@@ -564,6 +625,38 @@ mod cache_tests;
 mod tests {
     use super::*;
 
+    fn forbidden(said: &'static str) -> (axum::http::StatusCode, &'static str) {
+        (axum::http::StatusCode::FORBIDDEN, said)
+    }
+
+    /// What tells that it is not who asks: a judgment answered since, by the
+    /// same model as judges, not one refused and not another's answer.
+    #[tokio::test]
+    async fn only_a_judgment_answered_is_one() {
+        use crate::services::channel_group::g0;
+        judged_last(0);
+        let now = crate::clock::now().timestamp();
+        let schema = serde_json::json!({});
+        for (voice, answer, answered) in [
+            (Voice::Judge, Some("!refused"), false),
+            (Voice::Judge, Some("!rejected"), false),
+            (Voice::Judge, None, false),
+            (Voice::Keeping, Some("{}"), false),
+            (Voice::Chat, Some("{}"), false),
+            (Voice::Judge, Some("{}"), true),
+        ] {
+            let mut world = g0::World::new(0.5);
+            (world.models).insert("asked".into(), [answer.map(str::to_string)].into());
+            g0::enter(world);
+            let _ = Ask::new(voice, 1, "asked")
+                .json_raw("", "", "s", &schema)
+                .await;
+            g0::leave();
+            assert_eq!(judged_since(now - 1), answered, "{voice:?} {answer:?}");
+        }
+        assert!(!judged_since(now + 60));
+    }
+
     #[tokio::test]
     async fn transient_transport_and_provider_statuses_remain_distinct() {
         use axum::{Router, routing::get};
@@ -579,6 +672,20 @@ mod tests {
                             tokio::time::sleep(Duration::from_millis(200)).await;
                             "ok"
                         }),
+                    )
+                    .route("/words", get(|| async { "not json" }))
+                    .route("/forbidden", get(|| async { forbidden("") }))
+                    .route(
+                        "/region",
+                        get(|| async { forbidden("not available in your region") }),
+                    )
+                    .route(
+                        "/key-limit",
+                        get(|| async { forbidden("Key limit exceeded") }),
+                    )
+                    .route(
+                        "/filtered",
+                        get(|| async { axum::http::StatusCode::BAD_REQUEST }),
                     )
                     .route(
                         "/denied",
@@ -611,6 +718,11 @@ mod tests {
         );
         for (path, expected) in [
             ("denied", Failure::Rejected),
+            ("filtered", Failure::Refused),
+            // Who asks, it may be, whatever is said of it.
+            ("forbidden", Failure::Refused),
+            ("region", Failure::Refused),
+            ("key-limit", Failure::Refused),
             ("limited", Failure::RateLimited),
             ("broken", Failure::Upstream),
         ] {
@@ -623,6 +735,16 @@ mod tests {
                 .unwrap_err();
             assert_eq!(Failure::classify(&error.into()), expected);
         }
+        let error = client
+            .get(format!("http://{address}/words"))
+            .send()
+            .await
+            .unwrap()
+            .json::<serde_json::Value>()
+            .await
+            .unwrap_err();
+        assert!(error.is_decode());
+        assert_eq!(Failure::classify(&error.into()), Failure::InvalidOutput);
         server.abort();
         let _ = server.await;
         // A source that takes the connection and drops it unanswered: the
@@ -648,6 +770,7 @@ mod tests {
         let _ = dropper.await;
         for failure in [
             Failure::Rejected,
+            Failure::Refused,
             Failure::RateLimited,
             Failure::Quota,
             Failure::Unavailable,

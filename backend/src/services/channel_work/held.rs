@@ -230,13 +230,14 @@ async fn lend(
 }
 
 /// Her mind on a PC took a private message lent to it: their line is kept
-/// in the chat, as a turn here keeps it.
+/// in the chat, as a turn here keeps it, and as heard there: what is kept of
+/// it is kept there alone.
 pub(crate) async fn keep_lent(
     db: &DatabaseConnection,
     chat: &crate::services::her_log::lend::ChatLent,
 ) {
     if let Some(chat_session) = &chat.chat_session {
-        let _ = crate::services::agent::sessions::persist_user_message_from(
+        let _ = crate::services::agent::sessions::persist_user_message_left_for_her(
             db,
             chat_session,
             &chat.text,

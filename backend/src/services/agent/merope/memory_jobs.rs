@@ -20,8 +20,9 @@ pub(super) enum Payload {
         /// lands, and again with her reply) is not repeated.
         #[serde(default)]
         lines: Vec<chrono::DateTime<chrono::FixedOffset>>,
-        /// What it keeps is kept for good, not as short notes: a private
-        /// talk's lines that going over from what was said could not read
+        /// What it keeps is kept for good, not as short notes: what was said
+        /// to her at work, and a private talk's lines that going over from
+        /// what was said could not read
         /// (`store::memory_jobs::settling::leave_unread`), written down one
         /// by one instead.
         #[serde(default)]
@@ -44,6 +45,47 @@ pub(super) enum Payload {
         stranger: strangers::Stranger,
         exchanges: Vec<myriad_merope::strangers::Exchange>,
         count: i64,
+    },
+    /// A stretch gone over of someone who asked her not to keep something:
+    /// its lines are to be judged (`asked::lines`), and none of it is looked
+    /// back to until they are. Written with what the stretch kept, so never
+    /// missed; tried until it is done.
+    NotKept {
+        present: crate::services::agent::memory::unified::Audience,
+        from: chrono::DateTime<chrono::FixedOffset>,
+        last: chrono::DateTime<chrono::FixedOffset>,
+    },
+    /// They asked her not to keep something: what she already held of them
+    /// (`asked::old`), in private or in the group `venue`, is to be held to
+    /// it. Written with the request, so never missed; tried until it is done.
+    AskedOver {
+        asked: chrono::DateTime<chrono::FixedOffset>,
+        #[serde(default)]
+        venue: Option<String>,
+    },
+    /// Who they are in a group is known now, and they asked her not to keep
+    /// something: what she noted of them there (by `marker`) becomes theirs,
+    /// without what is of it (`strangers::adopt_held`). Tried until it is
+    /// done; not theirs till then.
+    Adopt { marker: String },
+    /// Short notes of someone who asked her not to keep something, from
+    /// `since` until `until`, left unread time after time: kept for good as
+    /// they are (`store::memory_jobs::settling`), without what is of it
+    /// (`asked::unread`). Tried until it is done; notes till then.
+    LeftUnread {
+        present: crate::services::agent::memory::unified::Audience,
+        last: chrono::DateTime<chrono::FixedOffset>,
+        since: chrono::DateTime<chrono::FixedOffset>,
+        until: chrono::DateTime<chrono::FixedOffset>,
+    },
+    /// A stretch of a group's talk as it was read, and what of it those in it
+    /// asked her not to keep not told yet: nothing of it kept till it is. Let
+    /// go with the words themselves (`channel_group::heard_again`).
+    GroupHeard {
+        venue: String,
+        stretch: Vec<(chrono::DateTime<chrono::FixedOffset>, String, String, bool)>,
+        speakers: Vec<(String, String)>,
+        read: super::bits::Read,
     },
 }
 impl Payload {
@@ -121,6 +163,23 @@ impl Payload {
             let before = turn.before.take();
             *turn = added_turn;
             turn.before = before.or(turn.before.take());
+            // More than is gone over at once: the oldest of it is let go,
+            // and counted.
+            let mut away = 0;
+            while user_text.chars().count() > FOLDED_CHARS {
+                match user_text.split_once('\n') {
+                    Some((_, rest)) => *user_text = rest.to_string(),
+                    None => break,
+                }
+                away += 1;
+            }
+            if away > 0 {
+                FOLDED_AWAY.fetch_add(away, std::sync::atomic::Ordering::Relaxed);
+                tracing::warn!(
+                    lines = away,
+                    "[Merope] lines waiting to be gone over let go: more than is gone over at once"
+                );
+            }
         }
         if !added_reply.trim().is_empty() && !reply.contains(added_reply.trim()) {
             if !reply.is_empty() {
@@ -142,6 +201,24 @@ impl Payload {
             }
             _ => 0,
         }
+    }
+
+    /// Judged by what they asked her not to keep.
+    pub(super) fn by_what_they_asked(&self) -> bool {
+        self.only_holds_to_it()
+            || matches!(
+                self,
+                Payload::LeftUnread { .. } | Payload::GroupHeard { .. }
+            )
+    }
+
+    /// Judged so and writing nothing new: the lines, and what she held, are
+    /// there whoever she is by then.
+    pub(super) fn only_holds_to_it(&self) -> bool {
+        matches!(
+            self,
+            Payload::NotKept { .. } | Payload::AskedOver { .. } | Payload::Adopt { .. }
+        )
     }
 
     /// Held as it landed, before she has answered.
@@ -170,6 +247,13 @@ pub(super) enum Effect {
         settled: Vec<Vec<String>>,
         rest: Option<chrono::DateTime<chrono::FixedOffset>>,
         read: Vec<(chrono::DateTime<chrono::FixedOffset>, i32)>,
+        /// The message the pass ended within, and how many of its parts it
+        /// or one before went over.
+        partway: Option<(i32, usize)>,
+        /// Their messages they took back in the stretch itself, or asked her
+        /// in not to keep something: not brought up again
+        /// (`store::memory_jobs::finish`).
+        let_go: Vec<i32>,
     },
     Stranger {
         previous: Option<String>,
@@ -185,13 +269,48 @@ pub(super) enum Effect {
 #[derive(Debug)]
 pub(super) enum Failure {
     Model(call::Failure),
+    /// What they asked her not to keep could not be told of it (`asked`):
+    /// nothing of it is written till it is, and it is tried again for that
+    /// alone, however it failed ([`GIVES_UP_AFTER`]).
+    NotTold(call::Failure),
     Storage,
 }
 impl Failure {
     pub(super) fn retryable(&self) -> bool {
         match self {
             Self::Model(failure) => failure.retryable(),
+            Self::NotTold(_) => false,
             Self::Storage => true,
+        }
+    }
+
+    /// The model was asked and gave no answer that will do, for what it was
+    /// shown ([`call::Failure::of_what_was_shown`]): given up on in the end.
+    pub(super) fn untold(&self) -> bool {
+        matches!(
+            self,
+            Self::Model(failure) | Self::NotTold(failure) if failure.of_what_was_shown()
+        )
+    }
+
+    /// Refused for what it was shown: so until that is another.
+    pub(super) fn refused(&self) -> bool {
+        matches!(
+            self,
+            Self::Model(call::Failure::Refused) | Self::NotTold(call::Failure::Refused)
+        )
+    }
+
+    /// [`Self::NotTold`].
+    pub(super) fn not_told(&self) -> bool {
+        matches!(self, Self::NotTold(_))
+    }
+
+    /// Of judging by what they asked not to keep: to be tried till it is told.
+    pub(super) fn of_judging(self) -> Self {
+        match self {
+            Self::Model(failure) => Self::NotTold(failure),
+            failure => failure,
         }
     }
 
@@ -204,6 +323,7 @@ impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Model(failure) => failure.fmt(f),
+            Self::NotTold(failure) => write!(f, "not_told_{failure}"),
             Self::Storage => f.write_str("storage_failed"),
         }
     }
@@ -253,7 +373,16 @@ pub(crate) async fn tick(db: DatabaseConnection) {
     futures::future::join_all(claims.into_iter().map(|claim| async move {
         // A stretch placed on her nodes first takes that long more.
         let limit = match claim.job.data {
-            Some(Payload::Settle { .. }) => SETTLE_LIMIT,
+            // A line asking her not to keep something is judged too.
+            Some(
+                Payload::Settle { .. }
+                | Payload::Chat { .. }
+                | Payload::NotKept { .. }
+                | Payload::AskedOver { .. }
+                | Payload::Adopt { .. }
+                | Payload::LeftUnread { .. }
+                | Payload::GroupHeard { .. },
+            ) => SETTLE_LIMIT,
             _ => Duration::from_secs(45),
         };
         let result = match tokio::time::timeout(limit, prepare(db, &claim)).await {
@@ -327,8 +456,14 @@ pub(super) async fn hurry(
         + Duration::from_secs(myriad_merope::settle_raw::HURRY_WAIT_SECS);
     loop {
         tokio::time::sleep(Duration::from_millis(250)).await;
-        if !queue::still_waiting(db, &id, from).await.unwrap_or(true) {
-            return Hurried::Done;
+        match queue::waiting_for(db, &id, from).await {
+            Ok(queue::WaitingFor::Over) => return Hurried::Done,
+            // Let go unread: not in time, whatever comes of it.
+            Ok(queue::WaitingFor::Unread) => {
+                HURRIED_LATE.fetch_add(1, Relaxed);
+                return Hurried::Late;
+            }
+            Ok(queue::WaitingFor::Waiting) | Err(_) => {}
         }
         if tokio::time::Instant::now() >= until {
             HURRIED_LATE.fetch_add(1, Relaxed);
@@ -347,6 +482,7 @@ async fn prepare(db: &DatabaseConnection, claim: &queue::Claim) -> Result<Effect
     {
         return Ok(Effect::Stale);
     }
+    let nth = usize::from(claim.job.attempts);
     match claim.job.data.as_ref().expect("claimed jobs carry work") {
         Payload::Chat {
             user_text,
@@ -364,6 +500,13 @@ async fn prepare(db: &DatabaseConnection, claim: &queue::Claim) -> Result<Effect
                 *input_at,
                 present,
                 turn,
+                if claim.gives_up {
+                    chat_remember::Tried::GaveUp
+                } else if claim.job.attempts < queue::MAX_ATTEMPTS {
+                    chat_remember::Tried::Again
+                } else {
+                    chat_remember::Tried::Last
+                },
             )
             .await
         }
@@ -394,5 +537,121 @@ async fn prepare(db: &DatabaseConnection, claim: &queue::Claim) -> Result<Effect
             exchanges,
             count,
         } => strangers::prepare_note(db, claim.job.owner, venue, stranger, exchanges, *count).await,
+        Payload::NotKept {
+            present,
+            from,
+            last,
+        } => super::asked::lines::mark(
+            db,
+            claim.job.owner,
+            present,
+            *from,
+            *last,
+            judged_by(),
+            claim.gives_up,
+        )
+        .await
+        .map(|()| Effect::NoChange),
+        Payload::AskedOver { venue, .. } => match venue {
+            None => {
+                super::asked::old::let_go(db, claim.job.owner, judged_by(), claim.gives_up, nth)
+                    .await
+            }
+            Some(venue) => {
+                super::asked::old::let_go_in(
+                    db,
+                    claim.job.owner,
+                    venue,
+                    judged_by(),
+                    claim.gives_up,
+                    nth,
+                )
+                .await
+            }
+        }
+        .map(|()| Effect::NoChange),
+        Payload::Adopt { marker } => {
+            strangers::adopt_held(db, claim.job.owner, marker, judged_by(), claim.gives_up)
+                .await
+                .map(|()| Effect::NoChange)
+        }
+        Payload::LeftUnread {
+            present,
+            last,
+            since,
+            until,
+        } => super::asked::unread::keep(
+            db,
+            claim.job.owner,
+            present,
+            *last,
+            (*since, *until),
+            judged_by(),
+            claim.gives_up,
+        )
+        .await
+        .map(|()| Effect::NoChange),
+        Payload::GroupHeard {
+            venue,
+            stretch,
+            speakers,
+            read,
+        } => crate::services::channel_group::heard_again(
+            db,
+            claim.job.owner,
+            venue,
+            stretch,
+            speakers,
+            read,
+            claim.gives_up,
+        )
+        .await
+        .map(|()| Effect::NoChange)
+        .map_err(|not_told| not_told.failure),
     }
+}
+
+/// When what a job asks of the judge is to be told by: within what the job
+/// has.
+fn judged_by() -> std::time::Instant {
+    std::time::Instant::now() + SETTLE_LIMIT - Duration::from_secs(8)
+}
+
+/// A stretch of `venue`'s talk, read, to be kept later
+/// ([`Payload::GroupHeard`]).
+pub(crate) async fn heard_later(
+    db: &DatabaseConnection,
+    owner: i32,
+    venue: &str,
+    stretch: Vec<(chrono::DateTime<chrono::FixedOffset>, String, String, bool)>,
+    speakers: Vec<(String, String)>,
+    read: super::bits::Read,
+) -> anyhow::Result<()> {
+    let id = key(&["group_heard", venue, &read.at.to_rfc3339()]);
+    let data = Payload::GroupHeard {
+        venue: venue.to_string(),
+        stretch,
+        speakers,
+        read,
+    };
+    queue::enqueue(db, &id, owner, data, None).await
+}
+
+/// About half a day of tries ([`queue`]'s, for what is tried until done).
+pub(super) const GIVES_UP_AFTER: u8 = 60;
+/// What is refused, or not told, for this long is given up on however seldom
+/// it was asked.
+pub(super) const GIVES_UP_AFTER_SECS: i64 = 3 * 86_400;
+/// How long a stretch of a group's talk is tried: as long as its lines are at
+/// hand.
+pub(crate) const HEARD_FOR: chrono::Duration = chrono::Duration::hours(6);
+/// Lines waiting to be gone over together, at most.
+const FOLDED_CHARS: usize = 12_000;
+
+static FOLDED_AWAY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Lines let go for want of room where they waited ([`FOLDED_CHARS`]), never
+/// gone over, since the site started.
+pub(super) fn folded_away() -> u64 {
+    FOLDED_AWAY.load(std::sync::atomic::Ordering::Relaxed)
 }
