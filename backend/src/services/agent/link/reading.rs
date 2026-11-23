@@ -5,7 +5,9 @@
 //! sends other frames meanwhile pings nothing, and is pinged; either stays.
 //! Not for ever: a step of the loop's that takes longer than [`LONGEST`] is
 //! stuck for all the site knows, so the link is no longer kept up, and the
-//! child gives it up and comes back on another.
+//! child gives it up and comes back on another. It is logged as it passes
+//! that; once the child has left first, the socket is read no more, and a
+//! step stuck then is not.
 //!
 //! What waits to be worked through is bounded (frames and bytes); once it is
 //! full nothing more is read until there is room, and nothing is let go.
@@ -37,6 +39,8 @@ const PING_BYTES: usize = 512;
 /// How long a link whose socket takes no more waits for the next of what the
 /// child sent before.
 pub(super) const LAST_WORDS: Duration = Duration::from_millis(500);
+/// How long it works through them in all.
+pub(super) const LAST_FRAMES: Duration = Duration::from_secs(30);
 /// A step of the loop's that takes longer keeps the link up no more.
 const LONGEST: Duration = Duration::from_secs(120);
 
@@ -330,11 +334,9 @@ pub(super) fn read(
     heartbeat: Duration,
 ) -> (mpsc::Receiver<Came>, Reading) {
     let (came, frames) = mpsc::channel(WAITING_FRAMES);
+    let read = reading(stream, wire.clone(), came);
     let task = tokio::spawn(async move {
-        tokio::select! {
-            () = reading(stream, wire.clone(), came) => {}
-            () = wire.keep_up(heartbeat) => {}
-        }
+        tokio::select! { () = read => {} () = wire.keep_up(heartbeat) => {} }
     });
     (frames, Reading(task.abort_handle()))
 }

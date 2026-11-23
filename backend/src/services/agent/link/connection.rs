@@ -547,16 +547,18 @@ impl Link {
 
     /// The socket takes no more: what the child sent before is worked through
     /// all the same, in its order, with nothing said to it, until it is seen
-    /// how the link ended.
+    /// how the link ended; no further frame is begun past
+    /// [`reading::LAST_FRAMES`].
     async fn unsent(
         &mut self,
         frames: &mut mpsc::Receiver<Came>,
         closed: &mut oneshot::Receiver<Close>,
     ) -> Ended {
         self.queue.clear();
+        let by = Instant::now() + reading::LAST_FRAMES;
         loop {
-            let came = tokio::time::timeout(reading::LAST_WORDS, frames.recv()).await;
-            let came = match came {
+            let most = by.min(Instant::now() + reading::LAST_WORDS);
+            let came = match tokio::time::timeout_at(most, frames.recv()).await {
                 Ok(Some(Came::Ended(ended))) => return ended_unless_let_go(ended, closed),
                 Ok(Some(came)) => came,
                 Ok(None) | Err(_) => {
@@ -565,6 +567,9 @@ impl Link {
             };
             if let Some(why) = let_go(closed) {
                 return Ended::Here(why);
+            }
+            if Instant::now() >= by {
+                return Ended::cut("a frame could not be sent");
             }
             if let Some(why) = self.work_through(came).await {
                 return Ended::Here(why);

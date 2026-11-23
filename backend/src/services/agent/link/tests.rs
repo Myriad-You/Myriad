@@ -2596,8 +2596,8 @@ async fn a_frame_that_does_not_end_keeps_the_link_up_no_more_and_is_logged_as_it
     let mac = devices::list(&site.db, OWNER).await.unwrap()[0].id.clone();
     let mut child = Child::open(&site, &token).await;
     child.hello_with(&[]).await;
-    let (begun, go) = super::reading::held::next(&mac, "never.ends");
-    unknown(&mut child, "never.ends").await;
+    let (begun, go) = super::reading::held::next(&mac, "presence");
+    child.send("presence", None, json!({})).await;
     begun.await.unwrap();
     tokio::time::sleep(longest + heartbeat * 2).await;
     // Whatever was sent till then.
@@ -2617,7 +2617,7 @@ async fn a_frame_that_does_not_end_keeps_the_link_up_no_more_and_is_logged_as_it
             .filter(|line| {
                 line.contains("a step of the link has not ended")
                     && line.contains(&mac)
-                    && line.contains("never.ends")
+                    && line.contains("t=\"presence\"")
             })
             .count()
     };
@@ -2627,7 +2627,6 @@ async fn a_frame_that_does_not_end_keeps_the_link_up_no_more_and_is_logged_as_it
     assert!(heard.is_err(), "{heard:?}");
     // It ended after all: the link goes on.
     go.send(()).unwrap();
-    until(&mut child, "error").await;
     until(&mut child, "pong").await;
     assert_eq!(stuck(), 1);
     super::reading::LONGEST_IN_TEST.with(|most| most.set(None));
