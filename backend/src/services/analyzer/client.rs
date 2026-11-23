@@ -22,6 +22,7 @@ use super::types::{
     gateway_of,
 };
 
+#[derive(Clone)]
 pub struct AiAnalyzer {
     pub(super) client: Client,
     pub(super) provider: AiProvider,
@@ -53,13 +54,15 @@ const DEEP_THINKING_MAX_TOKENS: u32 = 16_000;
 /// 这笔钱只付一次。
 ///
 /// 只记「请求形状被拒」（4xx，且不含鉴权和限流，见
-/// [`ProviderCallFailure::rejected_request`]）。进程内有效：配置换了、网关升级
-/// 了，最多一天后重新尝试；容量上限避免配置轮换积累。
+/// [`ProviderCallFailure::rejected_request`]），而且去掉它就通过了：去掉也一样拒的
+/// （额度用完、内容不收也回 400），拒的不是它。结构化输出按格式名分开记：一个格式
+/// 太复杂被拒，说明不了别的格式。进程内有效：配置换了、网关升级了，最多一天后重新
+/// 尝试；容量上限避免配置轮换积累。
 static SHAPE_REFUSED: OnceLock<std::sync::RwLock<RetainedCache<String, ()>>> = OnceLock::new();
 
 fn shape_memo() -> &'static std::sync::RwLock<RetainedCache<String, ()>> {
     SHAPE_REFUSED.get_or_init(|| {
-        std::sync::RwLock::new(RetainedCache::new(256, Duration::from_secs(24 * 3600)))
+        std::sync::RwLock::new(RetainedCache::new(1024, Duration::from_secs(24 * 3600)))
     })
 }
 
@@ -73,9 +76,9 @@ pub(crate) fn cleanup_shape_memo() {
 
 /// 各组参数单独记忆，网关可能只拒其中一组。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RequestShape {
-    /// `response_format` / `responseSchema`
-    StructuredOutput,
+enum RequestShape<'a> {
+    /// `response_format` / `responseSchema`，这个名字的格式
+    StructuredOutput(&'a str),
     /// 输出上限 + 那一家的「少想」参数
     Extras,
     /// 只有「少想」参数（[`AiAnalyzer::with_light_thinking`]）
@@ -84,15 +87,23 @@ enum RequestShape {
     DeepThinking,
 }
 
-impl RequestShape {
-    fn tag(self) -> &'static str {
+impl RequestShape<'_> {
+    fn tag(self) -> String {
         match self {
-            Self::StructuredOutput => "structured",
-            Self::Extras => "extras",
-            Self::LightThinking => "light-thinking",
-            Self::DeepThinking => "deep-thinking",
+            Self::StructuredOutput(schema_name) => format!("structured:{schema_name}"),
+            Self::Extras => "extras".into(),
+            Self::LightThinking => "light-thinking".into(),
+            Self::DeepThinking => "deep-thinking".into(),
         }
     }
+}
+
+/// Whether what was asked for was not taken, so that it is asked again
+/// with less.
+fn not_taken(result: &std::result::Result<String, ProviderCallFailure>) -> bool {
+    result
+        .as_ref()
+        .is_err_and(ProviderCallFailure::rejected_request)
 }
 
 fn require_analyze_prompt(profile_data: &serde_json::Value) -> Result<&str> {
@@ -275,14 +286,14 @@ impl AiAnalyzer {
         )
     }
 
-    fn refused(&self, shape: RequestShape) -> bool {
+    fn refused(&self, shape: RequestShape<'_>) -> bool {
         let key = format!("{}#{}", self.capability_key(), shape.tag());
         shape_memo()
             .write()
             .is_ok_and(|mut seen| seen.get(&key).is_some())
     }
 
-    fn remember_refusal(&self, shape: RequestShape) {
+    fn remember_refusal(&self, shape: RequestShape<'_>) {
         #[cfg(test)]
         if super::write_thinking::active() {
             return;
@@ -293,7 +304,7 @@ impl AiAnalyzer {
                 seen.insert(key, ());
                 tracing::warn!(
                     model = %self.model,
-                    shape = shape.tag(),
+                    shape = %shape.tag(),
                     "[AiAnalyzer] Endpoint refuses this request shape; skipping it from now on"
                 );
             }
@@ -1136,7 +1147,7 @@ impl AiAnalyzer {
         let input_chars = system.len() + prompt.len();
 
         let mode = if (self.provider == AiProvider::Anthropic && !strict)
-            || self.refused(RequestShape::StructuredOutput)
+            || self.refused(RequestShape::StructuredOutput(schema_name))
         {
             JsonMode::PromptOnly(schema)
         } else {
@@ -1147,54 +1158,57 @@ impl AiAnalyzer {
             // Anthropic's own API drops a refused effort where it sends it.
             let light =
                 self.light_thinking_param().is_some() && self.provider != AiProvider::Anthropic;
-            let mut result = self
+            // What is still asked for in this call.
+            let mut asked = self.clone();
+            let mut result = asked
                 .analyze_json_inner(system, prompt, schema_name, mode, None)
                 .await;
 
             // Drop a refused thinking parameter before trying without JSON
-            // enforcement: rejecting one says nothing about the other.
-            if deep
-                && result
-                    .as_ref()
-                    .is_err_and(ProviderCallFailure::rejected_request)
-            {
-                self.remember_refusal(RequestShape::DeepThinking);
-                result = self
+            // enforcement: rejecting one says nothing about the other. It is
+            // remembered only when leaving it out was the difference.
+            if deep && not_taken(&result) {
+                asked.deep_thinking = false;
+                result = asked
                     .analyze_json_inner(system, prompt, schema_name, mode, None)
                     .await;
+                if result.is_ok() {
+                    self.remember_refusal(RequestShape::DeepThinking);
+                }
             }
 
             // The think-little parameter goes first: a refusal of it says
             // nothing about structured output.
-            if light
-                && result
-                    .as_ref()
-                    .is_err_and(ProviderCallFailure::rejected_request)
-            {
-                self.remember_refusal(RequestShape::LightThinking);
-                result = self
+            if light && not_taken(&result) {
+                asked.light_thinking = false;
+                result = asked
                     .analyze_json_inner(system, prompt, schema_name, mode, None)
                     .await;
+                if result.is_ok() {
+                    self.remember_refusal(RequestShape::LightThinking);
+                }
             }
 
-            if let Err(ref failure) = result {
-                if matches!(mode, JsonMode::Structured(_)) && failure.rejected_request() {
-                    self.remember_refusal(RequestShape::StructuredOutput);
-                    tracing::warn!(
-                        provider = self.provider.as_str(),
-                        model = %self.model,
-                        status = ?failure.status,
-                        "[AiAnalyzer] Endpoint rejected structured output; retrying prompt-only"
-                    );
-                    result = self
-                        .analyze_json_inner(
-                            system,
-                            prompt,
-                            schema_name,
-                            JsonMode::PromptOnly(schema),
-                            None,
-                        )
-                        .await;
+            if matches!(mode, JsonMode::Structured(_)) && not_taken(&result) {
+                let status = result.as_ref().err().and_then(|failure| failure.status);
+                tracing::warn!(
+                    provider = self.provider.as_str(),
+                    model = %self.model,
+                    schema = schema_name,
+                    ?status,
+                    "[AiAnalyzer] Endpoint rejected structured output; retrying prompt-only"
+                );
+                result = asked
+                    .analyze_json_inner(
+                        system,
+                        prompt,
+                        schema_name,
+                        JsonMode::PromptOnly(schema),
+                        None,
+                    )
+                    .await;
+                if result.is_ok() {
+                    self.remember_refusal(RequestShape::StructuredOutput(schema_name));
                 }
             }
             result.map_err(ProviderCallFailure::into_error)
@@ -1217,7 +1231,8 @@ impl AiAnalyzer {
     /// 2. 只结构化（网关不认预算参数时）
     /// 3. prompt-only（网关连结构化也不认，与 [`Self::analyze_json`] 的末级一致）
     ///
-    /// 每一级只在上一级被判定为「请求形状被拒」时才走——鉴权失败和限流不重试。
+    /// 每一级只在上一级被判定为「请求形状被拒」时才走——鉴权失败和限流不重试；
+    /// 去掉哪一组就通过了，才记哪一组。
     pub async fn analyze_json_short(
         &self,
         system: &str,
@@ -1230,7 +1245,7 @@ impl AiAnalyzer {
 
         // 这个端点拒过什么，就别再每次去撞一遍。
         let mode = if self.provider == AiProvider::Anthropic
-            || self.refused(RequestShape::StructuredOutput)
+            || self.refused(RequestShape::StructuredOutput(schema_name))
         {
             JsonMode::PromptOnly(schema)
         } else {
@@ -1243,32 +1258,27 @@ impl AiAnalyzer {
         };
 
         let (result, reported) = crate::services::ai_cost_ledger::reporting(async {
-            let mut result = self
+            let mut asked = self.clone();
+            let mut result = asked
                 .analyze_json_inner(system, prompt, schema_name, mode, extras)
                 .await;
 
-            if extras.is_some()
-                && result
-                    .as_ref()
-                    .is_err_and(ProviderCallFailure::rejected_request)
-            {
-                self.remember_refusal(RequestShape::Extras);
+            if extras.is_some() && not_taken(&result) {
                 // The same parameter would ride again without the budget.
-                if self.light_thinking {
-                    self.remember_refusal(RequestShape::LightThinking);
-                }
-                result = self
+                asked.light_thinking = false;
+                result = asked
                     .analyze_json_inner(system, prompt, schema_name, mode, None)
                     .await;
+                if result.is_ok() {
+                    self.remember_refusal(RequestShape::Extras);
+                    if self.light_thinking {
+                        self.remember_refusal(RequestShape::LightThinking);
+                    }
+                }
             }
 
-            if matches!(mode, JsonMode::Structured(_))
-                && result
-                    .as_ref()
-                    .is_err_and(ProviderCallFailure::rejected_request)
-            {
-                self.remember_refusal(RequestShape::StructuredOutput);
-                result = self
+            if matches!(mode, JsonMode::Structured(_)) && not_taken(&result) {
+                result = asked
                     .analyze_json_inner(
                         system,
                         prompt,
@@ -1277,6 +1287,9 @@ impl AiAnalyzer {
                         None,
                     )
                     .await;
+                if result.is_ok() {
+                    self.remember_refusal(RequestShape::StructuredOutput(schema_name));
+                }
             }
             result.map_err(ProviderCallFailure::into_error)
         })
@@ -2422,16 +2435,16 @@ mod tests {
             "短调用的退化阶梯应当是三级"
         );
         assert_eq!(
-            body.matches("rejected_request").count(),
+            body.matches("&& not_taken(&result)").count(),
             2,
             "每一级都只在请求形状被拒时才降级"
         );
         // 阶梯要有记忆：拒过一次之后直接跳过那一档，否则不支持的网关每一次
         // 调用都要先撞一次墙。两类分开记，因为网关可能只拒其中一组。
-        assert!(body.contains("self.refused(RequestShape::StructuredOutput)"));
+        assert!(body.contains("self.refused(RequestShape::StructuredOutput(schema_name))"));
         assert!(body.contains("self.refused(RequestShape::Extras)"));
         assert!(body.contains("remember_refusal(RequestShape::Extras)"));
-        assert!(body.contains("remember_refusal(RequestShape::StructuredOutput)"));
+        assert!(body.contains("remember_refusal(RequestShape::StructuredOutput(schema_name))"));
     }
 
     /// 关思考跟着输出上限走：被拒时一起丢，不会只丢一半。
