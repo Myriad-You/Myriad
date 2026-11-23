@@ -248,11 +248,12 @@ jobs:
       - name: More swap for the backend's test build
         continue-on-error: true
         run: |
-          sudo fallocate -l 10G /mnt/swap-tests
-          sudo chmod 600 /mnt/swap-tests
-          sudo mkswap /mnt/swap-tests
-          sudo swapon /mnt/swap-tests
-          free -m
+          free -m; df -h / /mnt
+          { sudo fallocate -l 10G /mnt/swap-tests &&
+            sudo chmod 600 /mnt/swap-tests &&
+            sudo mkswap /mnt/swap-tests &&
+            sudo swapon /mnt/swap-tests; } || sudo rm -f /mnt/swap-tests
+          swapon --show; free -m; df -h / /mnt
       # Runs the whole suite, not just `cargo test tapp`. None of these tests
       # need a database — they were simply never wired into CI, so ~900 of them
       # had never run here.
@@ -403,17 +404,18 @@ jobs:
           shared-key: workspace
           save-if: false
       # The machine stopped answering in the step below more than once and no
-      # log was kept, and once, in the backend job, it was shut down while the
-      # backend's tests were being built; memory for that build is the likely
-      # reason.
+      # log was kept, and in the backend job it was shut down more than once
+      # while the backend's tests were being built (the two logs kept are both
+      # from AWS machines); memory for that build is the likely reason.
       - name: More swap for the backend's test build
         continue-on-error: true
         run: |
-          sudo fallocate -l 10G /mnt/swap-tests
-          sudo chmod 600 /mnt/swap-tests
-          sudo mkswap /mnt/swap-tests
-          sudo swapon /mnt/swap-tests
-          free -m
+          free -m; df -h / /mnt
+          { sudo fallocate -l 10G /mnt/swap-tests &&
+            sudo chmod 600 /mnt/swap-tests &&
+            sudo mkswap /mnt/swap-tests &&
+            sudo swapon /mnt/swap-tests; } || sudo rm -f /mnt/swap-tests
+          swapon --show; free -m; df -h / /mnt
       - name: Assert migrations leave no schema drift
         env:
           MYRIAD_SCHEMA_DRIFT_DB: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
