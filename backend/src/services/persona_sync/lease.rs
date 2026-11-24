@@ -1024,6 +1024,11 @@ pub(super) async fn forget_arrival<C: ConnectionTrait>(
 
 // --- Moves to and from a device, reclaims, and her leaving the site (H3e) ---
 
+/// Whether the move `id` was committed.
+pub(super) async fn is_done(db: &DatabaseConnection, id: &str) -> Result<bool, DbErr> {
+    rows::is_done(db, id).await
+}
+
 /// Her moving to a device is built and accepted in H3, and opened to users
 /// with H4 (Q8): until then only a debug build with
 /// `MYRIAD_ACCEPT_DEVICE_HOST=1` takes it (the acceptance entry, as D17 is

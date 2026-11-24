@@ -468,14 +468,15 @@ pub(super) async fn begin_carrying(
 }
 
 /// An import that carried her and is called off with its move: its session
-/// goes (what was staged with it).
-pub(super) async fn drop_session<C: ConnectionTrait>(db: &C, id: &str) -> Result<(), DbErr> {
-    db.execute_raw(statement(
-        "DELETE FROM agent_host_import WHERE id = $1 AND phase <> 'committed'",
-        vec![id.into()],
-    ))
-    .await?;
-    Ok(())
+/// goes (what was staged with it). Whether there was one to drop.
+pub(super) async fn drop_session<C: ConnectionTrait>(db: &C, id: &str) -> Result<bool, DbErr> {
+    let dropped = db
+        .execute_raw(statement(
+            "DELETE FROM agent_host_import WHERE id = $1 AND phase <> 'committed'",
+            vec![id.into()],
+        ))
+        .await?;
+    Ok(dropped.rows_affected() > 0)
 }
 
 /// The import now, if any (the last committed one too, until another).

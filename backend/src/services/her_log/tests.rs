@@ -38,6 +38,10 @@ mod page_tests;
 #[path = "deputy_tests.rs"]
 mod deputy_tests;
 
+/// Whose word it is taken for that a record of hers is gone.
+#[path = "gone_tests.rs"]
+mod gone_tests;
+
 /// Kept payloads opened together: what one at a time gave.
 #[path = "bodies_tests.rs"]
 mod bodies_tests;

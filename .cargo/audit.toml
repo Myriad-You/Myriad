@@ -16,4 +16,10 @@ ignore = [
     # No fixed crate release; pulled transitively (e.g. jsonwebtoken). Track upstream
     # rsa/jsonwebtoken for a fix; re-evaluate when a patched rsa ships.
     "RUSTSEC-2023-0071",
+    # RUSTSEC-2026-0459 — libsqlite3-sys 0.37 bundles a SQLite with CVE-2026-119375
+    # (6.8 medium). In the lockfile only through sqlx-sqlite, which nothing builds:
+    # the backend is Postgres only (`cargo tree -i libsqlite3-sys --target all
+    # --workspace --all-features --locked` prints nothing). CI fails if it is built; drop
+    # this once the lockfile has libsqlite3-sys 0.39 or later.
+    "RUSTSEC-2026-0459",
 ]

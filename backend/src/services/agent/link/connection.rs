@@ -227,6 +227,7 @@ pub(super) async fn serve_with(
         timing,
         tx,
         queue: Vec::new(),
+        vectors: super::vectors::Said::default(),
         wire: wire.clone(),
         heard: 0,
         hello: false,
@@ -307,6 +308,8 @@ struct Link {
     tx: mpsc::Sender<Outgoing>,
     /// What the frame just taken answers with, sent before anything else.
     queue: Vec<Outgoing>,
+    /// What this link was told the site holds of her log.
+    vectors: super::vectors::Said,
     /// The socket's way out.
     wire: Arc<Wire>,
     /// The highest seq of the child's taken up.
@@ -478,7 +481,13 @@ impl Link {
                     },
                 },
                 Some(outgoing) = rx.recv() => {
-                    self.queue.push(outgoing);
+                    let mut waiting = vec![outgoing];
+                    while waiting.len() < QUEUED_FRAMES
+                        && let Ok(outgoing) = rx.try_recv()
+                    {
+                        waiting.push(outgoing);
+                    }
+                    self.queue.extend(self.vectors.worth_sending(waiting));
                     None
                 }
                 () = &mut hello_by, if !self.hello => Some(Close::Timeout),
@@ -588,8 +597,25 @@ impl Link {
                 let began = Instant::now();
                 let _working = self.wire.working(At::Frame(text.clone()));
                 let why = self.take(text.as_str(), answered).await;
+                let vector = self
+                    .relay
+                    .as_mut()
+                    .and_then(crate::services::her_log::relay::Session::answered);
                 if let Some(took_ms) = held_up(began) {
-                    tracing::info!(device = %self.device.id, t = frame_type(text.as_str()), took_ms, "[link] a frame held the link up");
+                    tracing::info!(
+                        device = %self.device.id,
+                        t = frame_type(text.as_str()),
+                        took_ms,
+                        held = vector.map(|vector| vector.held),
+                        rows = vector.map(|vector| vector.rows),
+                        batches = vector.map(|vector| vector.batches),
+                        bodies = vector.map(|vector| vector.page.bodies),
+                        holdings_ms = vector.map(|vector| vector.holdings_ms),
+                        read_ms = vector.map(|vector| vector.page.read_ms),
+                        bodies_ms = vector.map(|vector| vector.page.bodies_ms),
+                        pack_ms = vector.map(|vector| vector.page.pack_ms),
+                        "[link] a frame held the link up"
+                    );
                 }
                 why
             }
@@ -611,6 +637,7 @@ impl Link {
             }
         }
         let Outgoing { t, id, body } = outgoing;
+        self.vectors.sent(t, &body);
         let (unacked, said, sent_as) = (&mut self.unacked, &mut self.said, &mut self.sent_as);
         let kept = id.clone();
         let began = Instant::now();

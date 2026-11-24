@@ -386,7 +386,7 @@ async fn reading(mut stream: SplitStream<WebSocket>, wire: Arc<Wire>, frames: mp
 /// A test's hold on a frame being worked through, as one that takes long, and
 /// its word that a device's socket was read to its end.
 #[cfg(test)]
-pub(super) mod held {
+pub(crate) mod held {
     use std::collections::HashMap;
     use std::sync::{LazyLock, Mutex};
 

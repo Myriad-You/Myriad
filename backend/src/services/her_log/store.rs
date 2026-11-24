@@ -30,6 +30,7 @@
 //! `retract.home`, so every retract is a forget here.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::Instant;
 
 use myriad_nodes::wire::{self, Batch, SendInput, TakeInput, Withheld};
 use myriad_persona_log::{
@@ -735,7 +736,8 @@ pub async fn send<C: ConnectionTrait>(
     to: &Holder,
     peer_abi: u32,
 ) -> Result<wire::Sent, Error> {
-    send_page(db, root, owner, audience, theirs, ask, to, peer_abi, None).await
+    let sent = send_page(db, root, owner, audience, theirs, ask, to, peer_abi, None).await?;
+    Ok(sent.0)
 }
 
 /// A page of what a side lacks (`log.pages`): at most `batches` batches,
@@ -746,9 +748,23 @@ pub struct Paging<'a> {
     pub beyond: &'a BTreeMap<String, Vec<u64>>,
 }
 
+/// What making a page took, for the log: counts and times, never what it
+/// carries.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Took {
+    /// The bodies opened for it.
+    pub bodies: usize,
+    /// Its rows, its ledger and what is elsewhere, read.
+    pub read_ms: u64,
+    pub bodies_ms: u64,
+    /// The batches made of them.
+    pub pack_ms: u64,
+}
+
 /// [`send`], a page at a time when `page` is given: only the bodies a page
 /// can hold are opened, at most a full batch of rows for each of its
-/// batches.
+/// batches. With it, what the log it was made of holds: none read for a side
+/// that may not hold the audience.
 #[allow(clippy::too_many_arguments)]
 pub async fn send_page<C: ConnectionTrait>(
     db: &C,
@@ -760,13 +776,18 @@ pub async fn send_page<C: ConnectionTrait>(
     to: &Holder,
     peer_abi: u32,
     page: Option<Paging<'_>>,
-) -> Result<wire::Sent, Error> {
+) -> Result<(wire::Sent, Took, Option<Holdings>), Error> {
     let user = owner.user;
-    let rows = if to.holds(audience) {
-        rows(db, user, audience).await?
+    let mut took = Took::default();
+    let began = Instant::now();
+    let (rows, held) = if to.holds(audience) {
+        let rows = rows(db, user, audience).await?;
+        let held = vector::holdings(&rows)?;
+        (rows, Some(held))
     } else {
-        Vec::new()
+        (Vec::new(), None)
     };
+    took.read_ms = began.elapsed().as_millis() as u64;
     // The bodies the batches may carry: what it lacks, what it asks for
     // again, and every node's created row (it says whose the node is, so a
     // node that is someone else's in hers stays off the wire).
@@ -795,8 +816,16 @@ pub async fn send_page<C: ConnectionTrait>(
                 || row.kind == "node.created"
         })
         .collect();
+    let began = Instant::now();
     let bodies = bodies(db, root, user, audience, &wanted).await?;
-    Ok(wire::send(SendInput {
+    took.bodies = bodies.len();
+    took.bodies_ms = began.elapsed().as_millis() as u64;
+    let began = Instant::now();
+    let ledger = ledger(db, user, audience).await?;
+    let elsewhere = elsewhere(db, user, audience).await?;
+    took.read_ms += began.elapsed().as_millis() as u64;
+    let began = Instant::now();
+    let sent = wire::send(SendInput {
         audience: audience.to_string(),
         rows,
         bodies,
@@ -807,9 +836,11 @@ pub async fn send_page<C: ConnectionTrait>(
         holder: to.clone(),
         here: owner.partner.clone(),
         peer_abi,
-        ledger: ledger(db, user, audience).await?,
-        elsewhere: elsewhere(db, user, audience).await?,
-    })?)
+        ledger,
+        elsewhere,
+    })?;
+    took.pack_ms = began.elapsed().as_millis() as u64;
+    Ok((sent, took, held))
 }
 
 /// The payloads of `rows`, opened and read as JSON, by row id. One whose key
