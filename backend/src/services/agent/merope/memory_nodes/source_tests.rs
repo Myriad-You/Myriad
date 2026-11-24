@@ -504,6 +504,7 @@ async fn a_stretch_kept_again_is_kept_only_while_it_waits() {
     use crate::services::agent::memory::origins;
     use crate::services::agent::merope::asked::tests::asks;
     use crate::services::agent::merope::bits::{Again, Read, go_over_stretch};
+    use crate::services::agent::merope::jargon;
     use crate::services::agent::merope::memory_jobs::heard_later;
     use crate::services::agent::merope::store::memory_jobs::{Claim, Own, claim, forget_holding};
     use crate::services::channel_group::g0;
@@ -512,6 +513,18 @@ async fn a_stretch_kept_again_is_kept_only_while_it_waits() {
     };
     let db = &schema.db;
     asks(db, SEVEN, "不要记和房东吵架的事").await;
+    // A group no one else watches words of.
+    const GROUP: &str = "qq:505";
+    jargon::nominate(db, GROUP, "老登", &[]).await;
+    let watched = async || {
+        count(
+            db,
+            "SELECT COUNT(*) AS n FROM runtime_registry \
+             WHERE namespace = 'merope_jargon_watched' AND payload::text LIKE '%老登%'",
+        )
+        .await
+    };
+    assert_eq!(watched().await, 1);
     let now = crate::clock::now().fixed_offset();
     let said: Vec<_> = [
         "老登又来催租",
@@ -603,11 +616,13 @@ async fn a_stretch_kept_again_is_kept_only_while_it_waits() {
     }
     // Forgotten meanwhile.
     assert_eq!(kept_while(&first, &claimed, "forget").await, 0);
+    assert_eq!(watched().await, 1);
 
     // As it was: all of it, and on her nodes.
     let again = read(&raw);
     let claimed = waiting(&again).await;
     assert_eq!(kept_while(&again, &claimed, "SELECT 1").await, 5);
+    assert_eq!(watched().await, 0);
     let group = audience::group(GROUP);
     let the_group = head(db, OWNER, &group, &format!("group:{GROUP}")).await;
     assert_eq!(the_group["spans"][0]["text"], "阿北说老登又来了");

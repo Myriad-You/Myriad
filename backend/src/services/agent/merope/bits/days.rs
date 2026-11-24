@@ -222,7 +222,8 @@ async fn read_group(
         .collect();
     let lands = lands_now.as_ref();
     match keep_again(db, again.own, circle, venue, reading, (today, lands, &held)).await {
-        Ok(kept) => {
+        Ok(None) => Ok(()),
+        Ok(Some(kept)) => {
             for id in kept {
                 super::super::memory_nodes::hanging::kept(db, &id).await;
             }
@@ -242,7 +243,8 @@ async fn read_group(
 }
 
 /// What a stretch read before came to, kept all together, while its job is
-/// its `own` still: the rows to go on her nodes.
+/// its `own` still: the rows to go on her nodes, or `None` when it no longer
+/// is, and nothing of it is kept.
 async fn keep_again(
     db: &DatabaseConnection,
     own: Own<'_>,
@@ -254,7 +256,7 @@ async fn keep_again(
         Option<&crate::models::entities::agent_memories::Model>,
         &[crate::models::entities::agent_memories::Model],
     ),
-) -> anyhow::Result<Vec<String>> {
+) -> anyhow::Result<Option<Vec<String>>> {
     let heard = if super::super::is_enabled().await {
         reading.heard
     } else {
@@ -262,7 +264,7 @@ async fn keep_again(
     };
     let tx = db.begin().await?;
     if !own.still(&tx).await? {
-        return Ok(Vec::new());
+        return Ok(None);
     }
     let mut kept = Vec::new();
     kept.extend(write_day(&tx, circle, &reading.day, today).await?);
@@ -275,7 +277,7 @@ async fn keep_again(
         kept.extend(super::super::jargon::write_told(&tx, venue, explained).await?);
     }
     tx.commit().await?;
-    Ok(kept)
+    Ok(Some(kept))
 }
 
 /// What she kept from a group lately and goes back over when told she got
