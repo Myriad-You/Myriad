@@ -499,7 +499,7 @@ pub async fn forget_on(
     ids: &[String],
 ) -> Result<Forgotten, Error> {
     match site_owner {
-        Some(user) if super::enabled() => forget_in(txn, user, ids).await,
+        Some(user) if super::currently_enabled() => forget_in(txn, user, ids).await,
         _ => Ok(Forgotten::default()),
     }
 }

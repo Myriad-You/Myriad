@@ -340,7 +340,7 @@ async fn bound_to_lent(
 /// here only. Never fails the forgetting here: a forget the log does not
 /// take is only logged.
 pub async fn forget_lines(db: &DatabaseConnection, lines: &[Gone]) {
-    if !super::enabled() || lines.is_empty() {
+    if !super::currently_enabled() || lines.is_empty() {
         return;
     }
     let Ok(site_owner) = crate::services::site_owner::site_owner_user_id(db).await else {
@@ -361,7 +361,7 @@ pub async fn forget_lines(db: &DatabaseConnection, lines: &[Gone]) {
 /// once for them. Not taken by the log, they are undone alone, and tried again
 /// one by one once the rest is kept ([`forget_lines`]).
 pub async fn forget_lines_on(txn: &DatabaseTransaction, site_owner: Option<i32>, lines: &[Gone]) {
-    let Some(site_owner) = site_owner.filter(|_| super::enabled()) else {
+    let Some(site_owner) = site_owner.filter(|_| super::currently_enabled()) else {
         return;
     };
     if lines.is_empty() {
