@@ -366,8 +366,9 @@ fn empty_fields_of_an_action_are_left_out_for_the_core() {
     let schema = upkeep::schema();
     let item = &schema["properties"]["actions"]["items"];
     let fields = item["properties"].as_object().unwrap();
-    let empty = |name: &str| match fields[name]["type"].as_str().unwrap() {
-        "string" => json!(""),
+    let empty = |name: &str, blank: &Value| match fields[name]["type"].as_str().unwrap() {
+        _ if blank.is_null() => json!(null),
+        "string" => blank.clone(),
         "array" => json!([]),
         "boolean" => json!(false),
         other => panic!("{name}: {other}"),
@@ -386,10 +387,10 @@ fn empty_fields_of_an_action_are_left_out_for_the_core() {
         json!({"do": "open", "item": "o1", "closed": true, "because": ["s1"]}),
         json!({"do": "view", "view": "v1", "text": "a", "reason": "b", "because": ["s1"]}),
     ] {
-        for nulls in [false, true] {
+        for blank in [json!(""), json!(" "), json!("\n\u{7}"), json!(null)] {
             let mut full = given.clone();
             for name in fields.keys().filter(|name| given.get(*name).is_none()) {
-                full[name] = if nulls { json!(null) } else { empty(name) };
+                full[name] = empty(name, &blank);
             }
             assert_eq!(full.as_object().unwrap().len(), fields.len());
             let raw = json!({"actions": [full]}).to_string();

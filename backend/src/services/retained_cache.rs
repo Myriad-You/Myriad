@@ -80,6 +80,23 @@ impl<K: Clone + Eq + Hash, V> RetainedCache<K, V> {
         self.next_expiry = Some(self.next_expiry.map_or(expires, |next| next.min(expires)));
     }
 
+    pub(crate) fn remove<Q: ?Sized + Eq + Hash>(&mut self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+    {
+        self.entries.remove(key).map(|entry| entry.value)
+    }
+
+    /// How long `key` is still kept.
+    #[cfg(test)]
+    pub(crate) fn time_left<Q: ?Sized + Eq + Hash>(&self, key: &Q) -> Option<Duration>
+    where
+        K: Borrow<Q>,
+    {
+        let entry = self.entries.get(key)?;
+        Some(entry.expires.saturating_duration_since(Instant::now()))
+    }
+
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.entries.len()
@@ -170,6 +187,20 @@ mod tests {
         assert_eq!(cache.get_at("b", now + second), Some(&2));
         assert_eq!(cache.get_at("b", now + second * 2), None);
         assert_eq!(cache.get_at("c", now + second * 3), Some(&3));
+    }
+
+    #[test]
+    fn a_removed_key_is_gone_and_leaves_the_others_their_time() {
+        let now = Instant::now();
+        let second = Duration::from_secs(1);
+        let mut cache = RetainedCache::new(2, second * 10);
+        cache.insert_at("a", 1, second, now);
+        cache.insert_at("b", 2, second * 10, now);
+        assert_eq!(cache.remove("a"), Some(1));
+        assert_eq!(cache.remove("a"), None);
+        assert_eq!(cache.get_at("a", now), None);
+        assert_eq!(cache.get_at("b", now + second), Some(&2));
+        assert_eq!(cache.get_at("b", now + second * 10), None);
     }
 
     #[test]

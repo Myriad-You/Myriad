@@ -61,9 +61,17 @@ const DEEP_THINKING_MAX_TOKENS: u32 = 16_000;
 /// （额度用完、内容不收也回 400），拒的不是它。结构化输出按格式名分开记：一个格式
 /// 太复杂被拒，说明不了别的格式。进程内有效：配置换了、网关升级了，最多一天后重新
 /// 尝试；容量上限避免配置轮换积累。
-static SHAPE_REFUSED: OnceLock<std::sync::RwLock<RetainedCache<String, ()>>> = OnceLock::new();
+///
+/// 只给几秒的调用，外层超时会在去掉它的那次答完之前取消整条阶梯。所以那次问出去
+/// 之前先短记一条（`false`，[`UNSETTLED`]），问完再定：通过了记一天（`true`），
+/// 别的答复都删。只有没等到答复（外层取消、传输超时）的留着等它过期。
+static SHAPE_REFUSED: OnceLock<std::sync::RwLock<RetainedCache<String, bool>>> = OnceLock::new();
 
-fn shape_memo() -> &'static std::sync::RwLock<RetainedCache<String, ()>> {
+/// How long a refusal is kept while whether leaving it out helps is not
+/// known.
+const UNSETTLED: Duration = Duration::from_secs(600);
+
+fn shape_memo() -> &'static std::sync::RwLock<RetainedCache<String, bool>> {
     SHAPE_REFUSED.get_or_init(|| {
         std::sync::RwLock::new(RetainedCache::new(1024, Duration::from_secs(24 * 3600)))
     })
@@ -99,6 +107,27 @@ impl RequestShape<'_> {
             Self::DeepThinking => "deep-thinking".into(),
         }
     }
+}
+
+/// What an ask with less came to: taken or not, or none if no answer came
+/// in time.
+fn answered(result: &std::result::Result<String, ProviderCallFailure>) -> Option<bool> {
+    match result {
+        Ok(_) => Some(true),
+        Err(failure) if failure.status.is_none() && timed_out(&failure.error) => None,
+        Err(_) => Some(false),
+    }
+}
+
+/// Whether the endpoint did not answer in time: while asked, or while its
+/// answer was read (`read_limited_body` says which by its words alone).
+fn timed_out(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<reqwest::Error>()
+            .is_some_and(reqwest::Error::is_timeout)
+            || cause.to_string() == "Response timed out"
+    })
 }
 
 /// Whether what was asked for was not taken, so that it is asked again
@@ -289,29 +318,96 @@ impl AiAnalyzer {
         )
     }
 
+    fn memo_key(&self, shape: RequestShape<'_>) -> String {
+        format!("{}#{}", self.capability_key(), shape.tag())
+    }
+
     fn refused(&self, shape: RequestShape<'_>) -> bool {
-        let key = format!("{}#{}", self.capability_key(), shape.tag());
+        let key = self.memo_key(shape);
         shape_memo()
             .write()
             .is_ok_and(|mut seen| seen.get(&key).is_some())
     }
 
-    fn remember_refusal(&self, shape: RequestShape<'_>) {
+    /// It was refused with `shape`, and is asked again without: kept for
+    /// [`UNSETTLED`], should the caller not wait for the answer.
+    fn suspect_refusal(&self, shape: RequestShape<'_>) {
         #[cfg(test)]
         if super::write_thinking::active() {
             return;
         }
-        let key = format!("{}#{}", self.capability_key(), shape.tag());
-        if let Ok(mut seen) = shape_memo().write() {
-            if seen.get(&key).is_none() {
-                seen.insert(key, ());
-                tracing::warn!(
-                    model = %self.model,
-                    shape = %shape.tag(),
-                    "[AiAnalyzer] Endpoint refuses this request shape; skipping it from now on"
-                );
-            }
+        let key = self.memo_key(shape);
+        if let Ok(mut seen) = shape_memo().write()
+            && seen.get(&key).is_none()
+        {
+            seen.insert_with_ttl(key, false, UNSETTLED);
+            tracing::debug!(
+                model = %self.model,
+                shape = %shape.tag(),
+                "[AiAnalyzer] Endpoint may refuse this request shape; asking without it"
+            );
         }
+    }
+
+    /// What asking without `shape` came to: taken, it is what was refused;
+    /// any other answer does not say so, and it is let go. No answer in time
+    /// leaves it unsettled.
+    fn settle_refusal(&self, shape: RequestShape<'_>, taken: Option<bool>) {
+        #[cfg(test)]
+        if super::write_thinking::active() {
+            return;
+        }
+        let key = self.memo_key(shape);
+        let Ok(mut seen) = shape_memo().write() else {
+            return;
+        };
+        let settled = seen.get(&key).copied();
+        if taken == Some(true) && settled != Some(true) {
+            seen.insert(key, true);
+            tracing::warn!(
+                model = %self.model,
+                shape = %shape.tag(),
+                "[AiAnalyzer] Endpoint refuses this request shape; skipping it from now on"
+            );
+        } else if taken == Some(false) && settled == Some(false) {
+            seen.remove(&key);
+        }
+    }
+
+    /// What is kept of `tag`: whether it is settled, and for how long yet.
+    #[cfg(test)]
+    pub(super) fn refusal_kept(&self, tag: &str) -> Option<(bool, Duration)> {
+        let key = format!("{}#{tag}", self.capability_key());
+        let mut seen = shape_memo().write().unwrap();
+        let settled = *seen.get(&key)?;
+        Some((settled, seen.time_left(&key)?))
+    }
+
+    /// [`Self::settle_refusal`] by what the ask without `shape` came to.
+    fn settle(
+        &self,
+        shape: RequestShape<'_>,
+        result: &std::result::Result<String, ProviderCallFailure>,
+    ) {
+        self.settle_refusal(shape, answered(result));
+    }
+
+    /// [`Self::settle_refusal`] for the think-little parameter, by the
+    /// status of the request without it, or why there is none.
+    fn settle_light(&self, sent: std::result::Result<reqwest::StatusCode, &anyhow::Error>) {
+        let taken = match sent {
+            Ok(status) => Some(status.is_success()),
+            Err(error) if timed_out(error) => None,
+            Err(_) => Some(false),
+        };
+        self.settle_refusal(RequestShape::LightThinking, taken);
+    }
+
+    /// Whether its JSON asks send the think-little parameter for this
+    /// analyzer, beside the one that rides with an output limit. Anthropic's
+    /// own API drops a refused effort where it sends it.
+    fn sends_light(&self) -> bool {
+        self.provider == AiProvider::OpenAI && self.light_thinking_param().is_some()
     }
 
     /// The model it asks for.
@@ -614,10 +710,10 @@ impl AiAnalyzer {
                 .rejected_request()
         {
             take_output_config(&mut body, "effort");
-            response = send(&body).await?;
-            if response.status().is_success() {
-                self.remember_refusal(RequestShape::LightThinking);
-            }
+            self.suspect_refusal(RequestShape::LightThinking);
+            let sent = send(&body).await;
+            self.settle_light(sent.as_ref().map(reqwest::Response::status));
+            response = sent?;
         }
         Ok(response)
     }
@@ -669,12 +765,12 @@ impl AiAnalyzer {
             if let Some(object) = body.as_object_mut() {
                 object.remove(key);
             }
-            response = self.send_openai_stream(&url, &body).await?;
+            self.suspect_refusal(RequestShape::LightThinking);
+            let sent = self.send_openai_stream(&url, &body).await;
             // Only when that was the difference: an image the model cannot
             // take is refused either way.
-            if response.status().is_success() {
-                self.remember_refusal(RequestShape::LightThinking);
-            }
+            self.settle_light(sent.as_ref().map(reqwest::Response::status));
+            response = sent?;
         }
         if !response.status().is_success() {
             let status = response.status();
@@ -951,10 +1047,13 @@ impl AiAnalyzer {
                 .rejected_request()
         {
             take_output_config(&mut body, "effort");
-            response = send(&body).await?;
-            if response.status().is_success() {
-                self.remember_refusal(RequestShape::LightThinking);
-            }
+            self.suspect_refusal(RequestShape::LightThinking);
+            let sent = send(&body).await;
+            self.settle_light(match &sent {
+                Ok(response) => Ok(response.status()),
+                Err(failure) => Err(&failure.error),
+            });
+            response = sent?;
         }
         if !response.status().is_success() {
             let status = response.status();
@@ -1177,9 +1276,7 @@ impl AiAnalyzer {
         };
         let (result, reported) = crate::services::ai_cost_ledger::reporting(async {
             let deep = self.deep_thinking_param().is_some();
-            // Anthropic's own API drops a refused effort where it sends it.
-            let light =
-                self.light_thinking_param().is_some() && self.provider != AiProvider::Anthropic;
+            let light = self.sends_light();
             // What is still asked for in this call.
             let mut asked = self.clone();
             let mut result = asked
@@ -1191,24 +1288,22 @@ impl AiAnalyzer {
             // remembered only when leaving it out was the difference.
             if deep && not_taken(&result) {
                 asked.deep_thinking = false;
+                self.suspect_refusal(RequestShape::DeepThinking);
                 result = asked
                     .analyze_json_inner(system, prompt, schema_name, mode, None)
                     .await;
-                if result.is_ok() {
-                    self.remember_refusal(RequestShape::DeepThinking);
-                }
+                self.settle(RequestShape::DeepThinking, &result);
             }
 
             // The think-little parameter goes first: a refusal of it says
             // nothing about structured output.
             if light && not_taken(&result) {
                 asked.light_thinking = false;
+                self.suspect_refusal(RequestShape::LightThinking);
                 result = asked
                     .analyze_json_inner(system, prompt, schema_name, mode, None)
                     .await;
-                if result.is_ok() {
-                    self.remember_refusal(RequestShape::LightThinking);
-                }
+                self.settle(RequestShape::LightThinking, &result);
             }
 
             if matches!(mode, JsonMode::Structured(_)) && not_taken(&result) {
@@ -1231,6 +1326,7 @@ impl AiAnalyzer {
                     ?status,
                     "[AiAnalyzer] Endpoint rejected structured output; retrying prompt-only"
                 );
+                self.suspect_refusal(RequestShape::StructuredOutput(schema_name));
                 result = asked
                     .analyze_json_inner(
                         system,
@@ -1240,9 +1336,7 @@ impl AiAnalyzer {
                         None,
                     )
                     .await;
-                if result.is_ok() {
-                    self.remember_refusal(RequestShape::StructuredOutput(schema_name));
-                }
+                self.settle(RequestShape::StructuredOutput(schema_name), &result);
             }
             result.map_err(ProviderCallFailure::into_error)
         })
@@ -1291,6 +1385,7 @@ impl AiAnalyzer {
         };
 
         let (result, reported) = crate::services::ai_cost_ledger::reporting(async {
+            let light = self.sends_light();
             let mut asked = self.clone();
             let mut result = asked
                 .analyze_json_inner(system, prompt, schema_name, mode, extras)
@@ -1299,18 +1394,24 @@ impl AiAnalyzer {
             if extras.is_some() && not_taken(&result) {
                 // The same parameter would ride again without the budget.
                 asked.light_thinking = false;
+                let dropped: &[RequestShape] = if light {
+                    &[RequestShape::Extras, RequestShape::LightThinking]
+                } else {
+                    &[RequestShape::Extras]
+                };
+                for shape in dropped {
+                    self.suspect_refusal(*shape);
+                }
                 result = asked
                     .analyze_json_inner(system, prompt, schema_name, mode, None)
                     .await;
-                if result.is_ok() {
-                    self.remember_refusal(RequestShape::Extras);
-                    if self.light_thinking {
-                        self.remember_refusal(RequestShape::LightThinking);
-                    }
+                for shape in dropped {
+                    self.settle(*shape, &result);
                 }
             }
 
             if matches!(mode, JsonMode::Structured(_)) && not_taken(&result) {
+                self.suspect_refusal(RequestShape::StructuredOutput(schema_name));
                 result = asked
                     .analyze_json_inner(
                         system,
@@ -1320,9 +1421,7 @@ impl AiAnalyzer {
                         None,
                     )
                     .await;
-                if result.is_ok() {
-                    self.remember_refusal(RequestShape::StructuredOutput(schema_name));
-                }
+                self.settle(RequestShape::StructuredOutput(schema_name), &result);
             }
             result.map_err(ProviderCallFailure::into_error)
         })
@@ -2476,8 +2575,11 @@ mod tests {
         // 调用都要先撞一次墙。两类分开记，因为网关可能只拒其中一组。
         assert!(body.contains("self.refused(RequestShape::StructuredOutput(schema_name))"));
         assert!(body.contains("self.refused(RequestShape::Extras)"));
-        assert!(body.contains("remember_refusal(RequestShape::Extras)"));
-        assert!(body.contains("remember_refusal(RequestShape::StructuredOutput(schema_name))"));
+        assert!(body.contains("RequestShape::Extras, RequestShape::LightThinking"));
+        assert!(body.contains("settle(RequestShape::StructuredOutput(schema_name), &result)"));
+        // 先短记再问、问完再定：外层超时取消了阶梯，下次也不从头撞。
+        assert_eq!(body.matches("self.suspect_refusal(").count(), 2);
+        assert_eq!(body.matches("self.settle(").count(), 2);
     }
 
     /// 关思考跟着输出上限走：被拒时一起丢，不会只丢一半。
@@ -2500,7 +2602,7 @@ mod tests {
     fn the_memo_is_keyed_on_endpoint_and_model_and_only_on_shape_refusals() {
         let source = include_str!("client.rs");
         let memo = source
-            .split("fn remember_refusal(")
+            .split("fn memo_key(")
             .nth(1)
             .and_then(|rest| rest.split("\n    /// ").next())
             .expect("memo writer");
@@ -2518,6 +2620,42 @@ mod tests {
         // rejected_request 已经排除了鉴权和限流，记忆挂在它后面即可。
         assert!(source.contains("StatusCode::UNAUTHORIZED"));
         assert!(source.contains("StatusCode::TOO_MANY_REQUESTS"));
+    }
+
+    /// A settled refusal is not let go by another ask's failure, nor made
+    /// short again; an unsettled one becomes one for the whole day.
+    #[tokio::test]
+    async fn a_refusal_is_kept_as_long_as_it_is_sure() {
+        use super::{AiAnalyzer, AiProvider, RequestShape, UNSETTLED};
+        use std::time::Duration;
+
+        let asked = AiAnalyzer::new(
+            AiProvider::OpenAI,
+            "fixture".into(),
+            "a-refusal-is-kept".into(),
+            Some("http://kept.invalid/v1".into()),
+        )
+        .await;
+        let shape = RequestShape::StructuredOutput("read");
+        let kept = || asked.refusal_kept("structured:read");
+        let short = |left: Duration| left <= UNSETTLED && left > UNSETTLED / 2;
+        assert_eq!(kept(), None);
+        asked.suspect_refusal(shape);
+        assert!(matches!(kept(), Some((false, left)) if short(left)));
+        assert!(asked.refused(shape), "asked without meanwhile");
+        asked.settle_refusal(shape, None);
+        assert!(matches!(kept(), Some((false, left)) if short(left)));
+        asked.settle_refusal(shape, Some(false));
+        assert_eq!(kept(), None);
+
+        asked.suspect_refusal(shape);
+        asked.settle_refusal(shape, Some(true));
+        let day = |left: Duration| left > Duration::from_secs(23 * 3600);
+        assert!(matches!(kept(), Some((true, left)) if day(left)));
+        asked.suspect_refusal(shape);
+        asked.settle_refusal(shape, Some(false));
+        assert!(matches!(kept(), Some((true, left)) if day(left)));
+        assert_eq!(UNSETTLED, Duration::from_secs(600));
     }
 
     #[test]

@@ -698,4 +698,300 @@ mod tests {
         }
         server.abort();
     }
+
+    /// A caller that waits a few seconds drops the whole ask while the one
+    /// without the refused part is still being answered: the next one does
+    /// not start from the refused part again.
+    #[tokio::test]
+    async fn a_refusal_is_kept_though_the_caller_did_not_wait_for_the_answer_without_it() {
+        use super::super::{AiAnalyzer, AiProvider, types::OutputBudget};
+        use axum::{Json, Router, http::StatusCode, routing::post};
+        use serde_json::{Value, json};
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let observed = requests.clone();
+        let never = Arc::new(AtomicBool::new(false));
+        let stuck = never.clone();
+        let waiting = Arc::new(tokio::sync::Notify::new());
+        let reached = waiting.clone();
+        let router = Router::new().route(
+            "/v1/chat/completions",
+            post(move |Json(body): Json<Value>| {
+                let (observed, stuck, reached) = (observed.clone(), stuck.clone(), reached.clone());
+                async move {
+                    observed.lock().unwrap().push(body.clone());
+                    if body.get("response_format").is_some() {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(json!({"error": {"message": "fixture failure"}})),
+                        );
+                    }
+                    if stuck.load(Ordering::SeqCst) {
+                        reached.notify_one();
+                        std::future::pending::<()>().await;
+                    }
+                    (
+                        StatusCode::OK,
+                        Json(json!({"choices": [{"message": {"content": "{\"read\":true}"}}]})),
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let schema = json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["read"],
+            "properties": {"read": {"type": "boolean"}}
+        });
+        for short in [false, true] {
+            let model = AiAnalyzer::new_with_timeout(
+                AiProvider::OpenAI,
+                String::new(),
+                if short { "hasty-short" } else { "hasty" }.to_string(),
+                Some(format!("http://{address}/v1")),
+                Duration::from_secs(20),
+            )
+            .await;
+            let ask = async || {
+                if short {
+                    let budget = OutputBudget { max_tokens: 256 };
+                    model
+                        .analyze_json_short("read", "hello", "hasty", Some(&schema), budget)
+                        .await
+                } else {
+                    model
+                        .analyze_json("read", "hello", "hasty", Some(&schema))
+                        .await
+                }
+            };
+            never.store(true, Ordering::SeqCst);
+            tokio::select! {
+                answer = ask() => panic!("answered: {answer:?}"),
+                () = waiting.notified() => {}
+            }
+            never.store(false, Ordering::SeqCst);
+            let sent = std::mem::take(&mut *requests.lock().unwrap());
+            assert!(sent[0].get("response_format").is_some());
+            assert!(sent.last().unwrap().get("response_format").is_none());
+
+            ask().await.unwrap();
+            let sent = std::mem::take(&mut *requests.lock().unwrap());
+            assert_eq!(sent.len(), 1, "prompt-only from the start");
+            assert!(sent[0].get("response_format").is_none());
+            if short {
+                // The output limit was asked without and refused all the same.
+                assert_eq!(sent[0]["max_tokens"], 256);
+            }
+        }
+        server.abort();
+    }
+
+    /// Every ask made again without what was refused is kept for a while
+    /// before it goes out, so that a caller who does not wait leaves it.
+    #[tokio::test]
+    async fn each_part_asked_without_is_kept_before_the_answer() {
+        use super::super::{AiAnalyzer, AiProvider, types::OutputBudget};
+        use axum::{Json, Router, http::StatusCode, routing::post};
+        use serde_json::{Value, json};
+        use std::sync::Arc;
+
+        let reached = Arc::new(tokio::sync::Notify::new());
+        // Each model refuses its own part, and never answers without it.
+        let answer = {
+            let reached = reached.clone();
+            move |Json(body): Json<Value>| {
+                let reached = reached.clone();
+                async move {
+                    let part = match body["model"].as_str().unwrap() {
+                        "deep" | "light-text" | "light-text-stream" => {
+                            body["output_config"].get("effort")
+                        }
+                        "light-json" | "light-stream" => body.get("reasoning"),
+                        "extras" | "extras-light" => body.get("max_tokens"),
+                        _ => body.get("response_format"),
+                    };
+                    if part.is_some() {
+                        return (StatusCode::BAD_REQUEST, Json(json!({"error": "fixture"})));
+                    }
+                    reached.notify_one();
+                    std::future::pending().await
+                }
+            }
+        };
+        let router = Router::new()
+            .route("/v1/chat/completions", post(answer.clone()))
+            .route("/v1/messages", post(answer));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        // The think-little parameter is only known by the gateway's name.
+        let named = reqwest::Client::builder()
+            .no_proxy()
+            .resolve("openrouter.ai", address)
+            .build()
+            .unwrap();
+        let analyzer = async |provider, model: &str, host: &str| {
+            let mut analyzer = AiAnalyzer::new_with_timeout(
+                provider,
+                String::new(),
+                model.to_string(),
+                Some(format!("http://{host}:{}/v1", address.port())),
+                Duration::from_secs(20),
+            )
+            .await;
+            if host == "openrouter.ai" {
+                analyzer.client = named.clone();
+            }
+            analyzer
+        };
+        let schema = json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["read"],
+            "properties": {"read": {"type": "boolean"}}
+        });
+
+        let mut missed = Vec::new();
+        for (model, kept) in [
+            ("deep", &["deep-thinking"][..]),
+            ("light-json", &["light-thinking"]),
+            ("light-text", &["light-thinking"]),
+            ("light-text-stream", &["light-thinking"]),
+            ("light-stream", &["light-thinking"]),
+            ("whole", &["structured:read"]),
+            ("short", &["structured:read"]),
+            ("extras", &["extras"]),
+            ("extras-light", &["extras", "light-thinking"]),
+        ] {
+            let (provider, host) = match model {
+                "deep" | "light-text" | "light-text-stream" => (AiProvider::Anthropic, "127.0.0.1"),
+                "light-json" | "light-stream" | "extras-light" => {
+                    (AiProvider::OpenAI, "openrouter.ai")
+                }
+                _ => (AiProvider::OpenAI, "127.0.0.1"),
+            };
+            let analyzer = analyzer(provider, model, host).await;
+            let analyzer = match model {
+                "deep" => analyzer.with_deep_thinking(),
+                "whole" | "short" => analyzer,
+                _ => analyzer.with_light_thinking(),
+            };
+            let budget = OutputBudget { max_tokens: 256 };
+            let ask = async {
+                match model {
+                    "light-stream" | "light-text-stream" => {
+                        analyzer.analyze_stream("hello", |_| true).await
+                    }
+                    "short" | "extras" | "extras-light" => {
+                        analyzer
+                            .analyze_json_short("read", "hello", "read", Some(&schema), budget)
+                            .await
+                    }
+                    _ => {
+                        analyzer
+                            .analyze_json("read", "hello", "read", Some(&schema))
+                            .await
+                    }
+                }
+            };
+            tokio::select! {
+                answer = ask => panic!("{model} was answered: {answer:?}"),
+                () = reached.notified() => {}
+            }
+            for tag in kept {
+                match analyzer.refusal_kept(tag) {
+                    Some((false, left))
+                        if left <= Duration::from_secs(600) && left > Duration::from_secs(500) => {}
+                    other => missed.push((model, *tag, other)),
+                }
+            }
+        }
+        assert!(missed.is_empty(), "{missed:?}");
+        // A gateway known to have no such parameter was sent none, though it
+        // was asked to think little: it is not doubted.
+        let plain = analyzer(AiProvider::OpenAI, "extras", "127.0.0.1").await;
+        assert_eq!(plain.refusal_kept("light-thinking"), None);
+        server.abort();
+    }
+
+    /// What is kept by what the ask without it came to: taken, for a day;
+    /// answered otherwise, nothing; not answered in time, for ten minutes.
+    #[tokio::test]
+    async fn only_a_taken_retry_or_one_not_answered_is_kept() {
+        use super::super::{AiAnalyzer, AiProvider};
+        use axum::body::{Body, Bytes};
+        use axum::response::{IntoResponse, Response};
+        use axum::{Json, Router, http::StatusCode, routing::post};
+        use serde_json::{Value, json};
+
+        let router = Router::new().route(
+            "/v1/chat/completions",
+            post(|Json(body): Json<Value>| async move {
+                if body.get("response_format").is_some() {
+                    return StatusCode::BAD_REQUEST.into_response();
+                }
+                match body["model"].as_str().unwrap() {
+                    "taken" => {
+                        Json(json!({"choices": [{"message": {"content": "{}"}}]})).into_response()
+                    }
+                    "unreadable" => "nothing of the kind".into_response(),
+                    "never" => std::future::pending::<Response>().await,
+                    // The status comes first, as a gateway's keep-alive does.
+                    "half" => Body::from_stream(futures::stream::pending::<
+                        Result<Bytes, std::convert::Infallible>,
+                    >())
+                    .into_response(),
+                    status => StatusCode::from_u16(status.parse().unwrap())
+                        .unwrap()
+                        .into_response(),
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let kept = async |model: &str| {
+            let analyzer = AiAnalyzer::new_with_timeout(
+                AiProvider::OpenAI,
+                String::new(),
+                model.to_string(),
+                Some(format!("http://{address}/v1")),
+                Duration::from_secs(3),
+            )
+            .await;
+            let answer = analyzer.analyze_json("read", "hello", "read", None).await;
+            assert_eq!(answer.is_ok(), model == "taken", "{model}: {answer:?}");
+            analyzer.refusal_kept("structured:read")
+        };
+        for model in [
+            "400",
+            "401",
+            "402",
+            "403",
+            "404",
+            "422",
+            "429",
+            "500",
+            "503",
+            "unreadable",
+        ] {
+            assert_eq!(kept(model).await, None, "{model}");
+        }
+        let (settled, left) = kept("taken").await.unwrap();
+        assert!(settled && left > Duration::from_secs(23 * 3600), "{left:?}");
+        for model in ["never", "half"] {
+            let (settled, left) = kept(model).await.unwrap_or_else(|| panic!("{model}"));
+            assert!(
+                !settled && left <= Duration::from_secs(600),
+                "{model} {left:?}"
+            );
+            assert!(left > Duration::from_secs(500), "{model} {left:?}");
+        }
+        server.abort();
+    }
 }

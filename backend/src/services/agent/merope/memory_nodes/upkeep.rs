@@ -180,7 +180,7 @@ pub(crate) fn schema() -> Value {
     })
 }
 
-/// Her answer with the empty fields of each action (null, "", [], false)
+/// Her answer with the empty fields of each action (null, a blank, [], false)
 /// dropped, as if she had left them out: the core reads an action without
 /// them as one that does not say them. The answer is found where the core
 /// finds it (a fenced or chatty one too: it reads "" as said); one with no
@@ -219,7 +219,7 @@ fn object_in(output: &str) -> Option<Value> {
 fn empty(field: &Value) -> bool {
     match field {
         Value::Null | Value::Bool(false) => true,
-        Value::String(text) => text.is_empty(),
+        Value::String(text) => text.chars().all(|ch| ch.is_whitespace() || ch.is_control()),
         Value::Array(list) => list.is_empty(),
         _ => false,
     }
