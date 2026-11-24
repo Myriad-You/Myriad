@@ -624,6 +624,7 @@ mod tests {
         let db = &schema.db;
         asks(db, OWNER, "不要记和房东吵架的事").await;
         let day = |day: &str| -> NaiveDate { day.parse().unwrap() };
+        let line = |date: NaiveDate| format!("{date} 他跟房东吵了一架");
         let write = async |date: NaiveDate, answers: &[Option<&str>]| {
             let at = chrono::DateTime::parse_from_rfc3339("2026-11-10T04:00:00+00:00").unwrap();
             let said: Vec<Said> = [
@@ -640,7 +641,8 @@ mod tests {
                 .models
                 .entry(DAY_SCHEMA_NAME.into())
                 .or_default()
-                .push_back(Some(r#"{"day":"他跟房东吵了一架"}"#.into()));
+                // Each day's its own: the same again would be held already.
+                .push_back(Some(json!({ "day": line(date) }).to_string()));
             world
                 .models
                 .entry("not_to_keep".into())
@@ -658,7 +660,7 @@ mod tests {
         let kept = write(day("2026-11-10"), &[Some(r#"{"drop":[0,1]}"#)]).await;
         assert_eq!(kept.as_deref(), Some("周末去爬香山 / 买了新鞋"));
         let kept = write(day("2026-11-11"), &[Some(r#"{"drop":[]}"#)]).await;
-        assert_eq!(kept.as_deref(), Some("他跟房东吵了一架"));
+        assert_eq!(kept, Some(line(day("2026-11-11"))));
         // Not told: another night.
         assert_eq!(write(day("2026-11-12"), &[None]).await, None);
         // Nor some of it: what is told of the rest waits for that night too.
