@@ -241,6 +241,13 @@ pub(super) const STANDING_CACHE: crate::services::analyzer::CachedSystem =
         until: None,
         session: "memory-standing",
     };
+/// Going over a note ([`super::memory_nodes::upkeep`]): its system prompt is
+/// the same throughout, and long enough to cache by itself.
+pub(super) const UPKEEP_CACHE: crate::services::analyzer::CachedSystem =
+    crate::services::analyzer::CachedSystem {
+        until: None,
+        session: "memory-upkeep",
+    };
 
 impl Ask {
     /// Billed to `owner` under Merope, as `operation`.

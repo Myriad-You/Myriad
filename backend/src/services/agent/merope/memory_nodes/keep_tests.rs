@@ -30,7 +30,7 @@ async fn her_upkeep_merges_a_duplicate_and_keeps_to_the_days_budget() {
     assert_eq!(upkeep::calls_today(db, OTHER, &audience).await.unwrap(), 0);
     crate::services::runtime_registry::put(
         db,
-        upkeep::DAY_NAMESPACE,
+        super::upkeep_day::DAY_NAMESPACE,
         &format!(
             "{OTHER}:{audience}:{}",
             crate::services::agent::merope::clock::today()
