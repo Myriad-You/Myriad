@@ -1,6 +1,6 @@
 //! 生图与拆层：转头图的生成、评判后重画，拆层的检查、重试与等待。
 
-use super::*;
+use super::{fit_turns::Turns, together::TurnedSteps, *};
 
 const KEEP: &str = "Edit this exact illustration. Keep the canvas size, framing, body, shoulders, \
 neck base, outfit, colors, line style and shading exactly the same and pixel-aligned with the \
@@ -63,125 +63,90 @@ pub(super) async fn draw_turn(
 /// The sides of the turned drawings, in their order.
 pub(super) const TURN_SIDES: [&str; 4] = ["plus", "minus", "up", "down"];
 
-/// A job's pictures sent to the Space ahead of the calls that carry them:
-/// the master before the first drawing (so a decomposition of it about to
-/// start never queues behind a drawing), then each turned drawing given.
-/// A picture that cannot be sent is only not there yet: the call that
-/// carries it sends it, as it would have. A master that could not be sent
-/// is not tried again, nor is a drawing sent after it: what kept it from
-/// the Space (one that is not running is waited for for minutes) would keep
-/// each of them.
-pub(super) struct Ahead<'a> {
-    client: &'a see_through::SeeThroughClient,
-    master: &'a (axum::body::Bytes, String),
-    master_sent: tokio::sync::OnceCell<bool>,
-}
-
-impl<'a> Ahead<'a> {
-    pub(super) fn new(
-        client: &'a see_through::SeeThroughClient,
-        master: &'a (axum::body::Bytes, String),
-    ) -> Self {
-        Self {
-            client,
-            master,
-            master_sent: tokio::sync::OnceCell::new(),
-        }
+/// The turned drawings' steps beside the front decomposition
+/// (`turns_beside_front`), as a job takes them.
+impl TurnedSteps for Turns<'_> {
+    async fn decompose(&self, png: &[u8], kept: Option<Vec<u8>>) -> ApiResult<(Vec<u8>, bool)> {
+        let bytes = axum::body::Bytes::copy_from_slice(png);
+        decompose_checked(
+            self.client,
+            &bytes,
+            "image/png",
+            self.options,
+            &TURNED_REDOS,
+            kept,
+        )
+        .await
     }
 
-    /// Sends one turned drawing (PNG). Whether it is on the Space now: once
-    /// one is not, the caller sends no more.
-    pub(super) async fn send(&self, png: Vec<u8>) -> bool {
-        let (master, media_type) = self.master;
-        let master_sent = self
-            .master_sent
-            .get_or_init(|| self.picture(master.clone(), media_type))
-            .await;
-        *master_sent && self.picture(png.into(), "image/png").await
-    }
-
-    async fn picture(&self, picture: axum::body::Bytes, media_type: &str) -> bool {
-        match self.client.send_ahead(picture, media_type).await {
-            Ok(()) => true,
+    /// The Space's `check_turns`: the turned drawings redrawn past what keys
+    /// of the front drawing can follow (a restyled fringe, a moved clip). A
+    /// check that fails finds none: the turns are then fitted as drawn.
+    async fn drawn_past(&self, front_psd: Vec<u8>, turned: Vec<Vec<u8>>) -> Vec<usize> {
+        let front = (
+            self.reference.bytes.to_vec(),
+            self.reference.media_type.clone(),
+        );
+        let pictures: Vec<_> = std::iter::once(front)
+            .chain(turned.into_iter().map(|png| (png, "image/png".to_string())))
+            .collect();
+        let Ok(pictures) = <[(Vec<u8>, String); 5]>::try_from(pictures) else {
+            return Vec::new();
+        };
+        match self.client.check_turned_pictures(front_psd, pictures).await {
+            Ok(check) => {
+                if !check.bad.is_empty() {
+                    tracing::info!(bad = ?check.bad, residual = ?check.residual, "turned drawings drawn past what the front one's keys can follow");
+                }
+                turn_places(&check.bad)
+            }
             Err(error) => {
-                tracing::warn!(%error, "picture not sent ahead, nor the ones after it; the calls that carry them send them");
-                false
+                tracing::warn!(%error, "turned drawings check failed; keeping the drawings");
+                Vec::new()
             }
         }
     }
-}
 
-/// Draws again, once each, the turned drawings the Space's `check_turns`
-/// finds redrawn past what keys of the front drawing can follow (a restyled
-/// fringe, a moved clip). A check or a drawing that fails keeps what there is:
-/// the turn is then fitted as drawn.
-#[allow(clippy::too_many_arguments)]
-pub(super) async fn redraw_bad_turns(
-    user_id: i32,
-    generation: &image_generation::ImageGenerationConfig,
-    reference: &image_generation::ImageReference,
-    (width, height): (u32, u32),
-    client: &see_through::SeeThroughClient,
-    cache: &TurnCache,
-    front_psd: &[u8],
-    mut turned: Vec<Vec<u8>>,
-) -> Vec<Vec<u8>> {
-    let pictures: [(Vec<u8>, String); 5] =
-        std::iter::once((reference.bytes.to_vec(), reference.media_type.clone()))
-            .chain(
-                turned
-                    .iter()
-                    .map(|png| (png.clone(), "image/png".to_string())),
-            )
-            .collect::<Vec<_>>()
-            .try_into()
-            .expect("five pictures");
-    let check = match client
-        .check_turned_pictures(front_psd.to_vec(), pictures)
-        .await
-    {
-        Ok(check) => check,
-        Err(error) => {
-            tracing::warn!(%error, "turned drawings check failed; keeping the drawings");
-            return turned;
-        }
-    };
-    let prompts = turn_prompts();
-    for side in &check.bad {
-        let Some(index) = TURN_SIDES.iter().position(|known| known == side) else {
-            continue;
-        };
-        let redrawn = format!("turned-{index}.redrawn");
-        if cache.read(&redrawn).await.is_some() {
-            continue;
-        }
-        tracing::info!(side, residual = ?check.residual, "turned drawing drawn again");
-        match draw_turn(
-            user_id,
-            generation,
-            &prompts[index],
-            reference,
+    async fn draw_again(&self, index: usize) -> ApiResult<Vec<u8>> {
+        let (width, height) = self.size;
+        draw_turn(
+            self.user_id,
+            self.generation,
+            &turn_prompts()[index],
+            self.reference,
             width,
             height,
         )
         .await
-        {
-            Ok(png) => {
-                cache.write(&format!("turned-{index}.png"), &png).await;
-                // Its decomposition was of the drawing it replaces (an empty entry reads as none).
-                cache
-                    .write(&format!("decomposition-{}.psd", index + 1), b"")
-                    .await;
-                cache
-                    .write(&format!("decomposition-{}.checked", index + 1), b"")
-                    .await;
-                cache.write(&redrawn, b"redrawn").await;
-                turned[index] = png;
-            }
-            Err(error) => tracing::warn!(side, ?error, "turned drawing could not be drawn again"),
-        }
     }
-    turned
+}
+
+/// The places among the four turned drawings of the sides a check names; a
+/// side that is none of them is left out.
+pub(super) fn turn_places(sides: &[String]) -> Vec<usize> {
+    sides
+        .iter()
+        .filter_map(|side| TURN_SIDES.iter().position(|known| known == side))
+        .collect()
+}
+
+/// Makes a turn drawn again the set's own: a rerun finds the new drawing,
+/// none of its decomposition yet, and that the turn is not to be drawn yet
+/// again. What the cache has of the decomposition goes first (an empty entry
+/// reads as none), the drawing after it: at no time does the cache hold a
+/// decomposition beside another drawing than the one it is of.
+pub(super) async fn keep_redrawn(cache: &TurnCache, index: usize, png: &[u8]) {
+    let place = index + 1;
+    cache
+        .write(&format!("decomposition-{place}.checked"), b"")
+        .await;
+    cache
+        .write(&format!("decomposition-{place}.psd"), b"")
+        .await;
+    cache.write(&format!("turned-{index}.png"), png).await;
+    cache
+        .write(&format!("turned-{index}.redrawn"), b"redrawn")
+        .await;
 }
 
 /// Draws once more the turn whose front hair the fit could not follow
@@ -301,26 +266,39 @@ pub(super) async fn decomposition(
     media_type: &str,
     options: see_through::DecomposeOptions,
 ) -> ApiResult<Vec<u8>> {
-    let name = format!("decomposition-{index}.psd");
-    let checked = format!("decomposition-{index}.checked");
-    let cached = cache.read(&name).await;
     let redos: &[(bool, u16)] = if index == 0 {
         &FRONT_REDOS
     } else {
         &TURNED_REDOS
     };
-    Ok(match cached {
-        Some(psd) if cache.read(&checked).await.is_some() => psd,
-        cached => {
-            let (psd, settled) =
-                decompose_checked(client, bytes, media_type, options, redos, cached).await?;
-            cache.write(&name, &psd).await;
-            if settled {
-                cache.write(&checked, b"checked").await;
-            }
-            psd
-        }
-    })
+    let kept = match kept_decomposition(cache, index).await {
+        Some((psd, true)) => return Ok(psd),
+        kept => kept.map(|(psd, _)| psd),
+    };
+    let (psd, settled) = decompose_checked(client, bytes, media_type, options, redos, kept).await?;
+    keep_decomposition(cache, index, &psd, settled).await;
+    Ok(psd)
+}
+
+/// What the cache has of the decomposition at `index` (the front's at 0, a
+/// turn's at its place plus one), and whether its check had its say.
+pub(super) async fn kept_decomposition(cache: &TurnCache, index: usize) -> Option<(Vec<u8>, bool)> {
+    let psd = cache.read(&format!("decomposition-{index}.psd")).await?;
+    let checked = cache.read(&format!("decomposition-{index}.checked")).await;
+    Some((psd, checked.is_some()))
+}
+
+/// Keeps the decomposition at `index` in the cache; as checked when its check
+/// had its say (`settled`), else to be checked again by the job that finds it.
+pub(super) async fn keep_decomposition(cache: &TurnCache, index: usize, psd: &[u8], settled: bool) {
+    cache
+        .write(&format!("decomposition-{index}.psd"), psd)
+        .await;
+    if settled {
+        cache
+            .write(&format!("decomposition-{index}.checked"), b"checked")
+            .await;
+    }
 }
 
 /// How a faulty decomposition is redone, in turn (hair pass, seed). The
