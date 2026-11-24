@@ -821,6 +821,9 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
             // What they asked her not to keep, held to as it is written
             // (`merope::asked`). Counts only.
             "notToKeep": crate::services::agent::merope::not_to_keep_counts(),
+            // What each try to remember before answering came to: cues, none,
+            // an answer that does not read, no answer. Counts only.
+            "remembering": crate::services::agent::merope::remembering_counts(),
             // How asking for vectors went unanswered since the site started:
             // ahead of recall, in recall, for lines by meaning, filling rows
             // (`meaning::failures`).

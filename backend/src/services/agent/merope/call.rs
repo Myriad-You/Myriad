@@ -16,7 +16,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::services::analyzer::AiAnalyzer;
+use crate::services::analyzer::{AiAnalyzer, JsonShape};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Voice {
@@ -206,9 +206,8 @@ pub(super) struct Ask {
     operation: &'static str,
     source: &'static str,
     timeout: Duration,
-    /// Its JSON answer held to its schema by the provider where it can
-    /// ([`AiAnalyzer::analyze_json_strict`]).
-    strict: bool,
+    /// How its JSON answer is held to its schema.
+    shape: JsonShape,
     /// The output limit it names, thinking included; see [`Ask::output_at_most`].
     output: Option<u32>,
     /// The part of its system prompt the provider caches; see [`Ask::cached`].
@@ -247,7 +246,7 @@ impl Ask {
             operation,
             source: "merope",
             timeout: DEFAULT_TIMEOUT,
-            strict: false,
+            shape: JsonShape::ByProvider,
             output: None,
             cached: None,
         }
@@ -268,7 +267,17 @@ impl Ask {
     /// `additionalProperties: false`).
     pub(super) fn strict(self) -> Self {
         Self {
-            strict: true,
+            shape: JsonShape::Strict,
+            ..self
+        }
+    }
+
+    /// Its schema said in the prompt alone, whatever answers: for a step
+    /// whose empty answer is a whole one, and does harm. Held to the schema
+    /// by the provider, the model gives that one far more.
+    pub(super) fn shape_in_prompt(self) -> Self {
+        Self {
+            shape: JsonShape::InPrompt,
             ..self
         }
     }
@@ -487,6 +496,17 @@ pub(super) struct Model {
 }
 
 impl Model {
+    /// `ask`ed of `analyzer`, as [`Ask::model`] asks its own.
+    #[cfg(test)]
+    pub(super) fn of(analyzer: AiAnalyzer, ask: Ask) -> Self {
+        crate::services::her_log::pen::reset_for_test();
+        Self {
+            analyzer,
+            ask,
+            _thought: crate::services::her_log::pen::think().expect("her mind is here"),
+        }
+    }
+
     /// `call`'s answer, billed; `whole`: only the whole of it will do, so
     /// one cut off at its output limit is a failure ([`Failure::CutOff`]).
     async fn billed(
@@ -543,13 +563,8 @@ impl Model {
         // One future either way: two arms each holding their own call nest
         // her chat's future past the compiler's layout depth.
         self.billed(
-            self.analyzer.analyze_json_as(
-                system,
-                input,
-                schema_name,
-                Some(schema),
-                self.ask.strict,
-            ),
+            self.analyzer
+                .analyze_json_as(system, input, schema_name, Some(schema), self.ask.shape),
             true,
         )
         .await
@@ -890,7 +905,7 @@ mod tests {
         // Every body the call sent, a request it made again included.
         let mut sent_by = async |analyzer: crate::services::analyzer::AiAnalyzer| {
             let _ = analyzer
-                .analyze_json_as("s", "i", "n", Some(&schema), true)
+                .analyze_json_as("s", "i", "n", Some(&schema), JsonShape::Strict)
                 .await;
             let mut bodies = Vec::new();
             while let Ok(body) = received.try_recv() {

@@ -1,6 +1,7 @@
 //! Trying to remember before answering (see `myriad_merope::remembering`).
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
@@ -31,11 +32,41 @@ pub const THOROUGH: usize = 24;
 const EACH_TRY: usize = 4;
 const SEVERAL: usize = 16;
 
+/// What each try to remember came to since the site started: cues, none,
+/// an answer that does not read, no answer.
+#[cfg(not(test))]
+fn tries<T>(of: impl FnOnce(&[AtomicU64; 4]) -> T) -> T {
+    static TRIES: [AtomicU64; 4] = [const { AtomicU64::new(0) }; 4];
+    of(&TRIES)
+}
+/// Each test's own.
+#[cfg(test)]
+fn tries<T>(of: impl FnOnce(&[AtomicU64; 4]) -> T) -> T {
+    thread_local!(static TRIES: [AtomicU64; 4] = const { [const { AtomicU64::new(0) }; 4] });
+    TRIES.with(of)
+}
+
+/// [`tries`] so far, for her status. Counts only.
+pub(crate) fn counts() -> serde_json::Value {
+    let [cues, empty, unreadable, unanswered] =
+        tries(|all| all.each_ref().map(|one| one.load(Relaxed)));
+    serde_json::json!({
+        "cues": cues, "empty": empty, "unreadable": unreadable, "unanswered": unanswered,
+    })
+}
+
+/// What to remember, asked of `voice`. Its schema is in the prompt alone:
+/// held to it by the provider, 53 of 58 messages with something to look for
+/// got no cues, and 0 of 58 so (2026-11-24).
+fn asking(voice: Voice, owner: i32) -> call::Ask {
+    call::Ask::new(voice, owner, "remembering").shape_in_prompt()
+}
+
 /// What she would try to remember before answering `message`; billed to
 /// `owner`.
 async fn think(owner: i32, message: String) -> Option<Cues> {
     let today = super::clock::today().format("%Y-%m-%d").to_string();
-    let raw = call::Ask::new(Voice::Judge, owner, "remembering")
+    let raw = asking(Voice::Judge, owner)
         .within(THINK_WITHIN)
         .json_raw(
             &system(),
@@ -43,9 +74,15 @@ async fn think(owner: i32, message: String) -> Option<Cues> {
             SCHEMA_NAME,
             &schema(),
         )
-        .await
-        .ok()?;
-    parse(&raw)
+        .await;
+    let cues = raw.as_ref().ok().and_then(|raw| parse(raw));
+    let came_to = match (&raw, &cues) {
+        (Err(_), _) => 3,
+        (Ok(_), None) => 2,
+        (Ok(_), Some(cues)) => usize::from(cues.cues.is_empty()),
+    };
+    tries(|all| all[came_to].fetch_add(1, Relaxed));
+    cues
 }
 
 type Thinking = Shared<BoxFuture<'static, Option<Cues>>>;
@@ -663,6 +700,10 @@ pub async fn ranked_with(
 }
 
 #[cfg(test)]
+#[path = "remembering_tests.rs"]
+mod asked_tests;
+
+#[cfg(test)]
 mod tests {
     /// Her long message is read through to its end; a list she gave is no
     /// longer cut after the lines that matched (the last of the venues she
@@ -903,7 +944,7 @@ mod live {
             for index in 0..runs {
                 let message = said[index % said.len()];
                 let began = std::time::Instant::now();
-                let raw = super::call::Ask::new(voice, 1, "remembering")
+                let raw = super::asking(voice, 1)
                     .within(std::time::Duration::from_secs(20))
                     .json_raw(
                         &super::system(),

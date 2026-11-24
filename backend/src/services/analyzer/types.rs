@@ -75,6 +75,19 @@ pub(super) struct OpenAIRequest {
     pub(super) max_tokens: Option<u32>,
 }
 
+/// How a JSON answer is held to its schema: the caller's to say, whatever
+/// answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum JsonShape {
+    /// By the provider, where it takes a schema; by Anthropic's own API only
+    /// in the prompt.
+    ByProvider,
+    /// By Anthropic's own API as well (`output_config.format`).
+    Strict,
+    /// Said in the prompt alone.
+    InPrompt,
+}
+
 /// 一次「答案很短」的调用的输出上限。
 ///
 /// **这里没有「关掉思考」的参数，是有意的。** 各家的开关不是同一个东西：

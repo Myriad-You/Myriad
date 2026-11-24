@@ -93,6 +93,7 @@ pub use ingest::{
 pub(crate) use asked::counts as not_to_keep_counts;
 pub(in crate::services::agent) use asked::{anything as asked_anything, to_keep};
 pub(crate) use call::cut_off as answers_cut_off;
+pub(crate) use remembering::counts as remembering_counts;
 pub(crate) use ingest::{InPerson, Told, in_person, spawn_told};
 #[cfg(test)]
 pub(crate) use ingest::apply_task_mood;

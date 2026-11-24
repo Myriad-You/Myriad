@@ -18,7 +18,7 @@ use super::text_protocol;
 use super::transport;
 use super::types::{
     AiProvider, ChatMessage, Gateway, GeminiContent, GeminiPart, GeminiRequest, GeminiResponse,
-    ImageInput, OpenAIMessage, OpenAIRequest, OpenAIResponse, OutputBudget, StreamDelta,
+    ImageInput, JsonShape, OpenAIMessage, OpenAIRequest, OpenAIResponse, OutputBudget, StreamDelta,
     gateway_of,
 };
 
@@ -1233,7 +1233,7 @@ impl AiAnalyzer {
         schema_name: &str,
         schema: Option<&serde_json::Value>,
     ) -> Result<String> {
-        self.analyze_json_as(system, prompt, schema_name, schema, false)
+        self.analyze_json_as(system, prompt, schema_name, schema, JsonShape::ByProvider)
             .await
     }
 
@@ -1251,25 +1251,27 @@ impl AiAnalyzer {
         schema_name: &str,
         schema: &serde_json::Value,
     ) -> Result<String> {
-        self.analyze_json_as(system, prompt, schema_name, Some(schema), true)
+        self.analyze_json_as(system, prompt, schema_name, Some(schema), JsonShape::Strict)
             .await
     }
 
-    /// [`Self::analyze_json`], or [`Self::analyze_json_strict`] when
-    /// `strict`.
+    /// [`Self::analyze_json`], held to the schema as `shape` says.
     pub(crate) async fn analyze_json_as(
         &self,
         system: &str,
         prompt: &str,
         schema_name: &str,
         schema: Option<&serde_json::Value>,
-        strict: bool,
+        shape: JsonShape,
     ) -> Result<String> {
         let input_chars = system.len() + prompt.len();
 
-        let mode = if (self.provider == AiProvider::Anthropic && !strict)
-            || self.refused(RequestShape::StructuredOutput(schema_name))
-        {
+        let in_prompt = match shape {
+            JsonShape::ByProvider => self.provider == AiProvider::Anthropic,
+            JsonShape::Strict => false,
+            JsonShape::InPrompt => true,
+        };
+        let mode = if in_prompt || self.refused(RequestShape::StructuredOutput(schema_name)) {
             JsonMode::PromptOnly(schema)
         } else {
             JsonMode::Structured(schema)
