@@ -4,7 +4,7 @@
 use super::{REMEMBER_CACHE, SETTLE_CACHE};
 use myriad_merope::chat_remember::{Examples, extract_system_prompt, settle_system_prompt};
 
-/// What a provider caches at the least: 512 tokens on Haiku 5.5; a
+/// What a provider caches at the least: 512 tokens on Haiku 5.5 and Sonnet 5.5; a
 /// token is about four characters of these English instructions.
 const CACHEABLE_CHARS: usize = 512 * 4;
 
@@ -84,6 +84,75 @@ fn going_over_a_note_is_asked_the_same_way_every_time_and_long_enough() {
     assert_eq!(schema().to_string(), schema().to_string());
 }
 
+/// Her look says the same to her every time, whatever she is shown: the
+/// whole system prompt is who she is and how she answers, and the schema is
+/// the same too. What she is shown is in the prompt, after both.
+#[test]
+fn a_look_is_asked_the_same_way_whatever_is_shown() {
+    use myriad_nodes::session_look::{LookInput, Recalled, Said, Shown, Told, look_input};
+    use serde_json::json;
+    assert_eq!(super::LOOK_CACHE.until, None);
+    let shown = |change: &str, words: &str, memories: &[&str]| Shown {
+        told: Told {
+            device: "dev_mac".into(),
+            session: myriad_her_link::now::read_session(&json!({
+                "grant": "g_0123456789", "session": "s-a", "change": change,
+                "occurredAt": 1_763_900_000_000_i64, "tool": "claude-code",
+                "remote": "github.com/a/b", "fromAgent": words,
+            }))
+            .unwrap(),
+        },
+        memories: memories
+            .iter()
+            .map(|text| Recalled {
+                id: "m1".into(),
+                text: text.to_string(),
+            })
+            .collect(),
+        before: None,
+    };
+    let soul = "You are Arael.\n你喜欢安静。".to_string();
+    let asked = |changes: Vec<Shown>, said: Vec<Said>, at: i64| {
+        look_input(LookInput {
+            changes,
+            others: Vec::new(),
+            said,
+            at,
+            soul: soul.clone(),
+        })
+        .unwrap()
+    };
+    let one = asked(
+        vec![shown("finished", "all tests passed", &[])],
+        Vec::new(),
+        1_763_900_100_000,
+    );
+    let two = asked(
+        vec![
+            shown("asked", "push it?", &["pushes are the owner's"]),
+            shown("failed", "three tests failed", &[]),
+        ],
+        vec![Said {
+            id: "p1".into(),
+            at: 1_763_900_200_000,
+            text: "the build is red".into(),
+        }],
+        1_763_986_500_000,
+    );
+    assert_ne!(one.prompt, two.prompt);
+    assert_eq!(one.system, two.system);
+    assert_eq!(one.schema.to_string(), two.schema.to_string());
+    // Asked again, the system prompt is still the one sent first.
+    assert!(two.again.starts_with(&two.prompt));
+    assert!(one.system.starts_with(&soul));
+    for shown in ["all tests passed", "push it?", "the build is red"] {
+        assert!(!two.system.contains(shown), "{shown}");
+    }
+    // Long enough with no one in it at all.
+    let instructions = one.system.len() - soul.len();
+    assert!(instructions >= CACHEABLE_CHARS, "{instructions} chars");
+}
+
 #[test]
 fn a_session_name_says_only_what_kind_of_call_it_is() {
     for cached in [
@@ -91,8 +160,9 @@ fn a_session_name_says_only_what_kind_of_call_it_is() {
         SETTLE_CACHE,
         super::STANDING_CACHE,
         super::UPKEEP_CACHE,
+        super::LOOK_CACHE,
     ] {
-        assert!(cached.session.starts_with("memory-"));
+        assert!(cached.session.starts_with("memory-") || cached.session.starts_with("sessions-"));
         assert!(
             cached
                 .session

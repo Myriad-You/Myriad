@@ -1,7 +1,8 @@
 //! The part of a system prompt that is the same on every call of a kind,
 //! cached by the provider: written once, then read at a tenth of its price
-//! while calls keep coming. Only for the memory writing steps; her talk is
-//! not cached (its prompt is put together anew each turn).
+//! or less while calls keep coming. For the memory writing steps and her
+//! look at the owner's sessions; her talk is not cached (its prompt is put
+//! together anew each turn).
 
 use super::types::AiProvider;
 use serde_json::{Value, json};
@@ -17,6 +18,28 @@ pub struct CachedSystem {
     /// call (`memory-remember`), never anything of whom it is for: it is
     /// sent out.
     pub session: &'static str,
+    /// How long after a call it is kept for the next.
+    pub kept: Kept,
+}
+
+/// How long a provider keeps a cached part after it was last used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kept {
+    /// Five minutes: written at 1.25 times the price.
+    Minutes,
+    /// An hour: written at twice the price, for a kind of call that comes
+    /// again within the hour and often not within five minutes.
+    Hour,
+}
+
+impl Kept {
+    /// The mark at the cached part's end.
+    fn mark(self) -> Value {
+        match self {
+            Self::Minutes => json!({"type": "ephemeral"}),
+            Self::Hour => json!({"type": "ephemeral", "ttl": "1h"}),
+        }
+    }
 }
 
 /// Bytes of `system` that are the same on every call: up to `until`, or
@@ -31,13 +54,13 @@ pub(super) fn stable_len(system: &str, until: Option<&str>) -> Option<usize> {
 
 /// `system` as text blocks, the cache's end after the part that is the
 /// same; `None` when it has none.
-fn blocks(system: &str, until: Option<&str>) -> Option<Value> {
-    let len = stable_len(system, until)?;
+fn blocks(system: &str, cached: CachedSystem) -> Option<Value> {
+    let len = stable_len(system, cached.until)?;
     let (same, rest) = system.split_at(len);
     let mut blocks = vec![json!({
         "type": "text",
         "text": same,
-        "cache_control": {"type": "ephemeral"},
+        "cache_control": cached.kept.mark(),
     })];
     if !rest.is_empty() {
         blocks.push(json!({"type": "text", "text": rest}));
@@ -82,10 +105,7 @@ pub(super) fn apply(
 ) {
     match provider {
         AiProvider::Anthropic if anthropics_own(base_url) => {
-            if let Some(blocks) = body["system"]
-                .as_str()
-                .and_then(|s| blocks(s, cached.until))
-            {
+            if let Some(blocks) = body["system"].as_str().and_then(|s| blocks(s, cached)) {
                 body["system"] = blocks;
             }
         }
@@ -101,10 +121,7 @@ pub(super) fn apply(
             let Some(system) = system else {
                 return;
             };
-            if let Some(blocks) = system["content"]
-                .as_str()
-                .and_then(|s| blocks(s, cached.until))
-            {
+            if let Some(blocks) = system["content"].as_str().and_then(|s| blocks(s, cached)) {
                 system["content"] = blocks;
                 object.insert("session_id".into(), json!(cached.session));
             }
@@ -120,6 +137,7 @@ mod tests {
     const REMEMBER: CachedSystem = CachedSystem {
         until: Some("Known:\n"),
         session: "memory-remember",
+        kept: Kept::Minutes,
     };
 
     fn openrouter_body() -> Value {
@@ -218,6 +236,7 @@ mod tests {
         let whole = CachedSystem {
             until: None,
             session: "memory-standing",
+            kept: Kept::Minutes,
         };
         apply(
             &mut body,
@@ -229,6 +248,101 @@ mod tests {
         let content = body["messages"][0]["content"].as_array().unwrap();
         assert_eq!(content.len(), 1);
         assert_eq!(content[0]["text"], "Rules.\nKnown:\n- likes tea");
+    }
+
+    /// Marked or not, what is sent reads the same to the letter: the blocks
+    /// put back together are the prompt, and nothing else of the body moves.
+    #[test]
+    fn the_blocks_put_back_together_are_the_prompt_to_the_letter() {
+        let prompt = "她是谁。\n\nRules:\n- \"quoted\" {json}\n\n  Known:\n- 喜欢茶 \u{1f375}\n";
+        for (until, kept) in [
+            (None, Kept::Hour),
+            (Some("Known:\n"), Kept::Hour),
+            (Some("Known:\n"), Kept::Minutes),
+        ] {
+            let cached = CachedSystem {
+                until,
+                session: "any-kind",
+                kept,
+            };
+            for (provider, url, model, mut body) in [
+                (
+                    AiProvider::OpenAI,
+                    Some("https://openrouter.ai/api/v1"),
+                    "anthropic/claude-sonnet-5.5",
+                    json!({"model": "anthropic/claude-sonnet-5.5", "temperature": 0,
+                        "messages": [{"role": "system", "content": prompt},
+                            {"role": "user", "content": "The material, numbered:\n[1] x"}],
+                        "response_format": {"type": "json_schema"}}),
+                ),
+                (
+                    AiProvider::Anthropic,
+                    None,
+                    "claude-sonnet-5-5",
+                    json!({"model": "claude-sonnet-5-5", "system": prompt,
+                        "messages": [{"role": "user", "content": "The material, numbered:\n[1] x"}],
+                        "output_config": {"format": {"type": "json_schema"}}}),
+                ),
+            ] {
+                let before = body.clone();
+                apply(&mut body, provider, url, model, cached);
+                assert_ne!(body, before, "{provider:?}: not marked at all");
+                let system = match provider {
+                    AiProvider::Anthropic => &mut body["system"],
+                    _ => &mut body["messages"][0]["content"],
+                };
+                let blocks = system.as_array().unwrap();
+                // One mark, at the end of what is the same, and nothing
+                // else in a block but its text.
+                assert_eq!(blocks[0]["cache_control"], kept.mark());
+                for (at, block) in blocks.iter().enumerate() {
+                    let keys: Vec<&String> = block.as_object().unwrap().keys().collect();
+                    assert_eq!(keys.len(), if at == 0 { 3 } else { 2 }, "{keys:?}");
+                    assert_eq!(block["type"], "text");
+                }
+                let text: String = blocks
+                    .iter()
+                    .map(|block| block["text"].as_str().unwrap())
+                    .collect();
+                *system = json!(text);
+                let session = body.as_object_mut().unwrap().remove("session_id");
+                assert_eq!(session.is_some(), provider == AiProvider::OpenAI);
+                assert_eq!(body.to_string(), before.to_string(), "{until:?} {kept:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn what_comes_again_within_the_hour_is_kept_for_one() {
+        let hour = CachedSystem {
+            until: None,
+            session: "sessions-look",
+            kept: Kept::Hour,
+        };
+        let mut body = openrouter_body();
+        apply(
+            &mut body,
+            AiProvider::OpenAI,
+            Some("https://openrouter.ai/api/v1"),
+            "anthropic/claude-sonnet-5.5",
+            hour,
+        );
+        assert_eq!(
+            body["messages"][0]["content"][0]["cache_control"],
+            json!({"type": "ephemeral", "ttl": "1h"})
+        );
+        let mut body = json!({"model": "claude-sonnet-5-5", "system": "Rules."});
+        apply(
+            &mut body,
+            AiProvider::Anthropic,
+            None,
+            "claude-sonnet-5-5",
+            hour,
+        );
+        assert_eq!(
+            body["system"][0]["cache_control"],
+            json!({"type": "ephemeral", "ttl": "1h"})
+        );
     }
 
     #[test]

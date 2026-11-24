@@ -24,7 +24,7 @@ use sea_orm::DatabaseConnection;
 
 use super::Picture;
 use super::keep;
-use crate::services::agent::merope::call::{Ask, Failure, Voice};
+use crate::services::agent::merope::call::{Ask, Failure, LOOK_CACHE, Voice};
 
 /// The look, as the model call and its bill are named.
 const LOOK: &str = "session_look";
@@ -341,14 +341,20 @@ async fn asking_of(
     })?)
 }
 
+/// How a look is asked of the model.
+fn look_call(owner: i32) -> Ask {
+    Ask::new(Voice::Chat, owner, LOOK)
+        .within(LOOK_TIMEOUT)
+        .billed_as("sessions")
+        .strict()
+        .cached(LOOK_CACHE)
+}
+
 /// Her answer, asked once more when the first did not come or did not
 /// hold; none when neither did. Every answer the model gave comes back as
 /// it gave it, with how it came.
 async fn ask(owner: i32, asking: &LookAsk) -> (Option<Answer>, Vec<String>, Vec<keep::Reply>) {
-    let call = Ask::new(Voice::Chat, owner, LOOK)
-        .within(LOOK_TIMEOUT)
-        .billed_as("sessions")
-        .strict();
+    let call = look_call(owner);
     let mut prompt = &asking.prompt;
     let mut answers = Vec::new();
     let mut replies = Vec::new();
@@ -501,6 +507,14 @@ async fn look(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Both tries of a look are this one call.
+    #[test]
+    fn a_look_keeps_its_instructions_cached_for_an_hour() {
+        let cached = look_call(1).cached_as().expect("cached");
+        assert_eq!(cached, LOOK_CACHE);
+        assert_eq!(cached.kept, crate::services::analyzer::Kept::Hour);
+    }
 
     #[test]
     fn what_came_goes_once_quiet_or_once_held_long_enough() {
