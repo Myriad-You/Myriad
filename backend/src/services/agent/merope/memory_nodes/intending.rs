@@ -38,6 +38,7 @@ use myriad_nodes::{
 };
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::json;
+use tokio::time::Instant;
 
 use super::{
     Error, audience,
@@ -54,6 +55,11 @@ use crate::services::her_log::{NODE, pen::Thought};
 /// its marks do not read.
 const TIMEOUT: Duration = Duration::from_secs(20);
 const AGAIN: Duration = Duration::from_secs(8);
+/// How long all of it may take, and what is left of that to write in: what
+/// she means to do of her own accord is told by then, or is not hers to
+/// write.
+const WITHIN: Duration = Duration::from_secs(60);
+const TO_WRITE: Duration = Duration::from_secs(5);
 /// The judgment as billed, and as its schema goes out.
 pub(crate) const OPERATION: &str = "node_intents";
 /// Lines before their message sent: more than the core keeps, which cuts
@@ -102,7 +108,7 @@ pub(crate) fn spawn_after_turn(
             .flatten();
         let now = crate::services::agent::merope::clock::now();
         let judged = tokio::time::timeout(
-            Duration::from_secs(60),
+            WITHIN,
             after_turn(&db, user_id, site_owner, &session, &said, now),
         )
         .await;
@@ -223,6 +229,20 @@ pub(crate) async fn after_turn(
     said: &str,
     now: DateTime<Utc>,
 ) -> Result<Judged, Error> {
+    let till = Instant::now() + (WITHIN - TO_WRITE);
+    after_turn_till(db, user_id, site_owner, session, said, now, till).await
+}
+
+/// [`after_turn`], what she means to do of her own accord told `till` then.
+pub(super) async fn after_turn_till(
+    db: &DatabaseConnection,
+    user_id: i32,
+    site_owner: Option<i32>,
+    session: &str,
+    said: &str,
+    now: DateTime<Utc>,
+    till: Instant,
+) -> Result<Judged, Error> {
     if user_id <= 0 {
         return Ok(Judged::default());
     }
@@ -336,7 +356,8 @@ pub(crate) async fn after_turn(
     let message = format!("message:{id}");
     let mut judged = Judged::default();
     // What she means to do of her own accord about what they asked her not
-    // to keep is not kept; what they ask her to do is theirs to ask.
+    // to keep is not kept; what they ask her to do is theirs to ask. Not
+    // told in time, none of hers is: theirs is not lost with it.
     let hers: Vec<String> = read
         .takes
         .iter()
@@ -348,9 +369,16 @@ pub(crate) async fn after_turn(
     let left_out = if hers.iter().all(String::is_empty) {
         Default::default()
     } else {
-        super::super::asked::to_leave_out(db, user_id, &hers)
-            .await
-            .unwrap_or_else(|_| (0..hers.len()).collect())
+        let told = super::super::asked::to_leave_out(db, user_id, &hers);
+        match tokio::time::timeout_at(till, told).await {
+            Ok(Ok(left_out)) => left_out,
+            untold => {
+                if untold.is_err() {
+                    tracing::info!("[memory-nodes] what she meant to do was not told in time");
+                }
+                (0..hers.len()).collect()
+            }
+        }
     };
     let mut given: Option<intents::Standing> = None;
     for (n, take) in read.takes.iter().enumerate() {
