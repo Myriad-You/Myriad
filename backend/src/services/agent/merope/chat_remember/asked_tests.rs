@@ -285,6 +285,9 @@ async fn what_a_line_in_a_group_asks_is_not_let_go_unjudged() {
         refused,
         refused,
         judge(r#"{"drop":[]}"#),
+        // Once more, and one told already.
+        refused,
+        judge(r#"{"drop":[]}"#),
     ];
     let line = format!("{LINE}，没睡好");
     for tried in [Tried::Again, Tried::GaveUp] {
