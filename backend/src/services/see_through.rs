@@ -33,10 +33,11 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 /// and its turns' judgements together, and a Space that runs one at a time
 /// answers the last only after all the others.
 const QUEUE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
-/// How many decompositions are sent to the Space at once. A full-body job
-/// sends six together at most (its head's four turns and its body's two); a
-/// ZeroGPU Space runs one caller's on separate GPUs, and one that does not
-/// queues them.
+/// How many decompositions are sent to the Space at once. A bust's job sends
+/// five together (its front and its four turns); a full-body job's head can
+/// ask for its five while its body's two still run, and the one past six
+/// waits for a place (`Busy`). A ZeroGPU Space runs one caller's on separate
+/// GPUs, and one that does not queues them.
 const DECOMPOSE_AT_ONCE: usize = 6;
 /// Asking the Space whether a file it was sent before is still there.
 const FILE_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -516,9 +517,8 @@ impl SeeThroughClient {
 
     /// The Space's `check_turns`: which generated turns redraw the character
     /// beyond what keys of the front drawing can follow, so are worth drawing
-    /// again before they are decomposed. `pictures` are the front drawing and
-    /// the turned ones (right, left, raised, lowered). A Space without the
-    /// endpoint finds none bad.
+    /// again. `pictures` are the front drawing and the turned ones (right,
+    /// left, raised, lowered). A Space without the endpoint finds none bad.
     pub async fn check_turned_pictures(
         &self,
         front: Vec<u8>,
@@ -562,21 +562,6 @@ impl SeeThroughClient {
                     "See-through returned an invalid turned pictures check".to_string(),
                 )
             })
-    }
-
-    /// Sends a picture to the Space before any call carries it, asking
-    /// nothing of the Space but to keep the file: the calls that carry these
-    /// bytes later (a decomposition, a check, a judgement, the fit) find them
-    /// there and send nothing. A picture is the same file to all of them
-    /// whatever they name it, as its extension is its media type's.
-    pub async fn send_ahead(
-        &self,
-        picture: axum::body::Bytes,
-        media_type: &str,
-    ) -> Result<(), SeeThroughError> {
-        validate_image(&picture, media_type)?;
-        self.wait_until_running().await?;
-        self.upload(picture, media_type).await.map(|_| ())
     }
 
     /// The Space's `judge_turn`: whether one turned drawing keeps what a turn
@@ -1230,7 +1215,7 @@ pub struct FigurePlan {
     pub crops: [Vec<u8>; 3],
 }
 
-/// Which generated turns to draw again before decomposing them.
+/// Which generated turns to draw again.
 #[derive(Debug, Default, Deserialize)]
 pub struct TurnedPicturesCheck {
     /// The sides ("plus", "minus", "up", "down") to draw again.
@@ -1737,18 +1722,6 @@ data: [{"url":"https://24yearsold-see-through-demo.hf.space/gradio_api/file=/tmp
             json!({ "fit": null }),
         ] {
             assert!(hair_fit_outline(&incomplete).is_err(), "{incomplete}");
-        }
-    }
-
-    #[tokio::test]
-    async fn a_picture_that_is_none_is_not_sent_ahead() {
-        let client = SeeThroughClient::offline();
-        // Refused before the Space is asked anything.
-        for (picture, media_type) in [(&b""[..], "image/png"), (&b"gif"[..], "image/gif")] {
-            let sent = client
-                .send_ahead(axum::body::Bytes::copy_from_slice(picture), media_type)
-                .await;
-            assert!(matches!(sent, Err(SeeThroughError::InvalidInput(_))));
         }
     }
 

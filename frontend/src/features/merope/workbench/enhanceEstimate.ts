@@ -43,16 +43,18 @@ export interface EnhanceEstimate {
 }
 
 /**
- * Usual lengths, seconds, measured on a bust's job on the site (2026-11-24,
- * 13.2 minutes in all): the four drawings came within 27-44 s of each other's
- * start; the front decomposition, started with them, was in and checked 219 s
- * after the job began; the drawn turns were then checked against it (156 s,
- * which still had their uploads in it: those go up earlier now, so less is
- * taken here); the four turned decompositions, sent together, took 207 s; the
- * fit 200 s (the Space reports 189-194 of its own). A drawing that is drawn
- * again takes longer and is not counted. The body's fit took 22 s on a Mac
- * and was not timed on the Space: a cautious figure. Upscaling and stitching
- * are as they were (2026-10).
+ * Usual lengths, seconds, measured on a bust's job on the site (2026-11-24):
+ * the four drawings came within 27-44 s of each other's start; the front
+ * decomposition, started with them, was in and checked 219 s after the job
+ * began; a turned decomposition, four sent together, took 207 s; the fit
+ * 200 s (the Space reports 189-194 of its own). Each turned drawing is
+ * decomposed from when it is in, beside the front decomposition: the turns'
+ * are in about a decomposition's length after the drawings, a little after
+ * the front one. The drawn turns are checked against the front decomposition
+ * beside that; the check's own length is not in these figures, and neither
+ * is a turn it sends back, which is drawn and decomposed again. The body's
+ * fit took 22 s on a Mac and was not timed on the Space: a cautious figure.
+ * Upscaling and stitching are as they were (2026-10).
  */
 export const ENHANCE_SECONDS = {
   upscale: 60,
@@ -60,8 +62,6 @@ export const ENHANCE_SECONDS = {
   generate: 45,
   /** The front decomposition with its upload and check, from when the drawings start. */
   front: 220,
-  /** The drawn turns checked against the front decomposition before they are decomposed. */
-  turnCheck: 100,
   /** One decomposition, or several sent together. */
   decompose: 210,
   fit: 200,
@@ -98,7 +98,8 @@ const HEAD: StepModel[] = [
     runs: [
       // Begun with the drawings: what is left of it once they are in.
       { units: 1, seconds: S.front - S.generate },
-      { units: 4, seconds: S.turnCheck + S.decompose, together: true },
+      // Each begun as its drawing came in: what is left of them once the front one is in.
+      { units: 4, seconds: S.generate + S.decompose - S.front, together: true },
     ],
     again: S.decompose,
   },

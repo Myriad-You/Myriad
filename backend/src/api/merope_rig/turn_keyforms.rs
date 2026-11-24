@@ -7,7 +7,8 @@
 //! 整个过程要几十分钟（四次生图、五次拆层、一次拟合），在后台跑；前端轮询
 //! 进度，完成后取回烘焙过的拆层与关键形，照常导入。同一时间只跑一个任务；
 //! 任务里互不依赖的生图与拆层一起发出去（`together`），拟合仍是一次一个。
-//! 转头图一画好就先传到 Space，藏在正面拆层后面，之后各步用到时不再等上传。
+//! 转头图一画好就开始拆层，和正面拆层同时进行；正面拆层和四张图到齐后预检
+//! 一次，画过头的那张重画一次再拆。
 //! 拟合跟不上前发的那张转头图，在第一次拟合还在跑的时候就重画（`fit_turns`）。
 //!
 //! 四张图与五份拆层按立绘内容存在磁盘上（`TurnCache`）：任务中途失败、后端
@@ -69,8 +70,8 @@ use cache::{CACHE_KEEP, TurnCache, cache_root, prune_cache};
 #[cfg(test)]
 use drawing::fit_to;
 use drawing::{
-    Ahead, TRANSIENT_RETRIES, TURN_SIDES, TURNED_REDOS, decompose_checked, decompose_waiting,
-    decomposition, draw_turn, redraw_bad_turns, retry_delay, transient, turn_prompts,
+    TRANSIENT_RETRIES, TURN_SIDES, TURNED_REDOS, decompose_checked, decompose_waiting,
+    decomposition, draw_turn, retry_delay, transient, turn_prompts,
 };
 #[cfg(test)]
 use figure::alongside;
@@ -85,7 +86,7 @@ pub use served::{
     get_turn_keyforms_psd, list_turn_archives, load_turn_archive, refit_turn_archive,
     running_turn_keyforms,
 };
-use together::{all_or_first_error, drawn_beside_front, kept_or_made};
+use together::{all_or_first_error, kept_or_made, turns_beside_front};
 pub use upload::{
     UPLOAD_PIECE_MAX, finish_full_body_turn_archive_upload, finish_turn_archive_upload,
     put_turn_archive_piece,
@@ -530,48 +531,25 @@ async fn run(
             kept_or_made(cache, &name, draw).await
         })
         .collect();
-    let (turned, front_psd) = {
-        // Each drawing goes up to the Space as it comes, behind the front decomposition.
-        let ahead = Ahead::new(client, &front);
-        let front_psd = decomposition(client, cache, 0, &front.0, &front.1, options);
-        drawn_beside_front(id, drawings, front_psd, |png| ahead.send(png)).await?
-    };
-    // A turn drawn past what the front drawing's keys can follow is drawn once more.
-    let turned = redraw_bad_turns(
+    let turns = fit_turns::Turns {
+        id,
         user_id,
         generation,
         reference,
-        (width, height),
+        size: (width, height),
         client,
         cache,
-        &front_psd,
-        turned,
-    )
-    .await;
-    let inputs: Vec<_> = std::iter::once(front)
-        .chain(
-            turned
-                .into_iter()
-                .map(|png| (axum::body::Bytes::from(png), "image/png".to_string())),
-        )
-        .collect();
-    // The four turned drawings are decomposed together, each kept and checked as its own.
-    let turned_psds: Vec<_> = inputs
-        .iter()
-        .enumerate()
-        .skip(1)
-        .map(|(index, (bytes, media_type))| async move {
-            let psd = decomposition(client, cache, index, bytes, media_type, options).await?;
-            update(id, |job| job.done += 1);
-            ApiResult::Ok(psd)
-        })
-        .collect();
-    let turned_psds = all_or_first_error(turned_psds).await?;
+        options,
+    };
+    // Each turned drawing is decomposed as it comes, beside the front one; a turn drawn
+    // past what the front drawing's keys can follow is drawn once more.
+    let front_psd = decomposition(client, cache, 0, &front.0, &front.1, options);
+    let (front_psd, turned) = turns_beside_front(id, cache, &turns, drawings, front_psd).await?;
+    let (turned, turned_psds): (Vec<_>, Vec<_>) = turned.into_iter().unzip();
     let decompositions: Vec<_> = std::iter::once(front_psd).chain(turned_psds).collect();
     // The fit also matches its keys against the drawings themselves.
-    let pictures: [(Vec<u8>, String); 5] = inputs
-        .into_iter()
-        .map(|(bytes, media_type)| (bytes.to_vec(), media_type))
+    let pictures: [(Vec<u8>, String); 5] = std::iter::once((front.0.to_vec(), front.1))
+        .chain(turned.into_iter().map(|png| (png, "image/png".to_string())))
         .collect::<Vec<_>>()
         .try_into()
         .expect("five pictures");
@@ -610,16 +588,6 @@ async fn run(
     .await?;
     update(id, |job| job.stage = Stage::Fitting);
     // The fit, with the turn whose front hair it cannot follow drawn again beside it.
-    let turns = fit_turns::Turns {
-        id,
-        user_id,
-        generation,
-        reference,
-        size: (width, height),
-        client,
-        cache,
-        options,
-    };
     let ((decompositions, pictures), output) =
         fit_turns::fit_turns(&turns, (decompositions, pictures), &mut redrawn).await?;
     let output = see_through::TurnKeyformsOutput {
