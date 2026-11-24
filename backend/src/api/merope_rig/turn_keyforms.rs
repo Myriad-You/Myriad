@@ -5,7 +5,8 @@
 //! 四张图里烘焙进立绘的拆层。
 //!
 //! 整个过程要几十分钟（四次生图、五次拆层、一次拟合），在后台跑；前端轮询
-//! 进度，完成后取回烘焙过的拆层与关键形，照常导入。同一时间只跑一个。
+//! 进度，完成后取回烘焙过的拆层与关键形，照常导入。同一时间只跑一个任务；
+//! 任务里互不依赖的生图与拆层一起发出去（`together`），拟合仍是一次一个。
 //!
 //! 四张图与五份拆层按立绘内容存在磁盘上（`TurnCache`）：任务中途失败、后端
 //! 重启，或同一张立绘再导入一次，已经花钱做完的生图与拆层直接取用，只把缺的
@@ -58,6 +59,7 @@ mod figure_picture;
 mod hair_misfit;
 mod judge;
 mod served;
+mod together;
 mod upload;
 use archive::{ArchiveFiles, ArchiveMeta, FigureFiles, FigureMeta};
 use cache::{CACHE_KEEP, TurnCache, cache_root, prune_cache};
@@ -80,6 +82,7 @@ pub use served::{
     get_turn_keyforms_psd, list_turn_archives, load_turn_archive, refit_turn_archive,
     running_turn_keyforms,
 };
+use together::{all_or_first_error, drawn_beside_front, kept_or_made};
 pub use upload::{
     UPLOAD_PIECE_MAX, finish_full_body_turn_archive_upload, finish_turn_archive_upload,
     put_turn_archive_piece,
@@ -543,34 +546,36 @@ async fn run(
         .and_then(|reader| reader.into_dimensions().ok())
         .ok_or_else(|| bad_request("The current master portrait is not available"))?;
     cache.touch().await;
-    let mut turned = Vec::with_capacity(4);
-    for (index, prompt) in turn_prompts().into_iter().enumerate() {
-        let name = format!("turned-{index}.png");
-        if let Some(png) = cache.read(&name).await {
-            turned.push(png);
-            update(id, |job| job.done += 1);
-            continue;
-        }
-        let png = draw_turn(user_id, generation, &prompt, &reference, width, height).await?;
-        cache.write(&name, &png).await;
-        turned.push(png);
-        update(id, |job| job.done += 1);
-    }
-
     update(id, |job| {
-        job.stage = Stage::Decomposing;
+        job.stage = Stage::Generating;
         job.done = 0;
-        job.total = 5;
+        job.total = 4;
     });
     let options = see_through::DecomposeOptions::default();
     let front = (reference.bytes.clone(), reference.media_type.clone());
-    let front_psd = decomposition(client, cache, 0, &front.0, &front.1, options).await?;
-    update(id, |job| job.done += 1);
+    // The four drawings and the front decomposition need only the master: made together.
+    let prompts = turn_prompts();
+    let reference = &reference;
+    let drawings: Vec<_> = prompts
+        .iter()
+        .enumerate()
+        .map(|(index, prompt)| async move {
+            let name = format!("turned-{index}.png");
+            let draw = draw_turn(user_id, generation, prompt, reference, width, height);
+            kept_or_made(cache, &name, draw).await
+        })
+        .collect();
+    let (turned, front_psd) = drawn_beside_front(
+        id,
+        drawings,
+        decomposition(client, cache, 0, &front.0, &front.1, options),
+    )
+    .await?;
     // A turn drawn past what the front drawing's keys can follow is drawn once more.
     let turned = redraw_bad_turns(
         user_id,
         generation,
-        &reference,
+        reference,
         (width, height),
         client,
         cache,
@@ -585,12 +590,19 @@ async fn run(
                 .map(|png| (axum::body::Bytes::from(png), "image/png".to_string())),
         )
         .collect();
-    let mut decompositions = Vec::with_capacity(5);
-    decompositions.push(front_psd);
-    for (index, (bytes, media_type)) in inputs.iter().enumerate().skip(1) {
-        decompositions.push(decomposition(client, cache, index, bytes, media_type, options).await?);
-        update(id, |job| job.done += 1);
-    }
+    // The four turned drawings are decomposed together, each kept and checked as its own.
+    let turned_psds: Vec<_> = inputs
+        .iter()
+        .enumerate()
+        .skip(1)
+        .map(|(index, (bytes, media_type))| async move {
+            let psd = decomposition(client, cache, index, bytes, media_type, options).await?;
+            update(id, |job| job.done += 1);
+            ApiResult::Ok(psd)
+        })
+        .collect();
+    let turned_psds = all_or_first_error(turned_psds).await?;
+    let decompositions: Vec<_> = std::iter::once(front_psd).chain(turned_psds).collect();
     // The fit also matches its keys against the drawings themselves.
     let pictures: [(Vec<u8>, String); 5] = inputs
         .into_iter()
@@ -621,7 +633,7 @@ async fn run(
         id,
         user_id,
         generation,
-        &reference,
+        reference,
         (width, height),
         client,
         cache,
@@ -637,7 +649,7 @@ async fn run(
         id,
         user_id,
         generation,
-        &reference,
+        reference,
         (width, height),
         client,
         cache,
@@ -692,6 +704,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_body_turn_runs_alongside_the_head_and_is_waited_for() {
+        let _slot = together::JOB_TESTS.lock().await;
         let (id, _) = claim_job(&Some("alongside-a".into()), "m", Stage::Decomposing, 3).unwrap();
         // The head is done first: the job then waits on the body as fitting.
         let body = async {

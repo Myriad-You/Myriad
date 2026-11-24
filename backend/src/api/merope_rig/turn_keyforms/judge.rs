@@ -5,6 +5,8 @@
 
 use std::collections::BTreeMap;
 
+use futures::future::join_all;
+
 use super::{
     Stage, TURN_SIDES, TURNED_REDOS, TurnCache, decompose_checked, draw_turn, turn_prompts, update,
 };
@@ -34,19 +36,48 @@ fn redraws_done(marker: Option<Vec<u8>>) -> u32 {
     }
 }
 
+/// A turned drawing's decomposition and the drawing itself.
+type Turned = (Vec<u8>, (Vec<u8>, String));
+
+/// How judging one side ended.
+enum Side {
+    /// Not judged (the Space has no judge, or could not judge it just now):
+    /// fitted as drawn, left out of the judgements.
+    Unjudged,
+    /// Its judgement as kept, and the drawing that replaced it when one drawn again was kept.
+    Judged {
+        best: see_through::TurnJudgement,
+        replaced: Option<Turned>,
+    },
+}
+
+/// What judging any side needs.
+struct Judging<'a> {
+    id: &'a str,
+    user_id: i32,
+    generation: &'a image_generation::ImageGenerationConfig,
+    reference: &'a image_generation::ImageReference,
+    size: (u32, u32),
+    client: &'a see_through::SeeThroughClient,
+    cache: &'a TurnCache,
+    options: see_through::DecomposeOptions,
+    front: Turned,
+}
+
 /// Judges the four turned drawings against the front one, draws a faulty one
 /// again (decomposed and judged in turn) while it is still faulted, up to
 /// `JUDGED_REDRAWS` times, and keeps whichever is judged best.
 /// `decompositions` and `pictures` are the front's and the four turns', in
 /// `TURN_SIDES` order after the front; replaced drawings go into the cache and
-/// `redrawn`.
+/// `redrawn`. The four sides are judged together: each reads and writes only
+/// its own drawing, decomposition and markers.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn judge_turns(
     id: &str,
     user_id: i32,
     generation: &image_generation::ImageGenerationConfig,
     reference: &image_generation::ImageReference,
-    (width, height): (u32, u32),
+    size: (u32, u32),
     client: &see_through::SeeThroughClient,
     cache: &TurnCache,
     options: see_through::DecomposeOptions,
@@ -54,25 +85,88 @@ pub(super) async fn judge_turns(
     pictures: &mut [(Vec<u8>, String); 5],
     redrawn: &mut Vec<String>,
 ) -> ApiResult<Judgements> {
+    let judging = Judging {
+        id,
+        user_id,
+        generation,
+        reference,
+        size,
+        client,
+        cache,
+        options,
+        front: (decompositions[0].clone(), pictures[0].clone()),
+    };
+    // Every side is judged to its end before any failure is looked at: a
+    // drawing made again beside a failed one is in the cache for the next job.
+    let sides: Vec<_> = (0..TURN_SIDES.len())
+        .map(|index| {
+            let turned = (
+                decompositions[index + 1].clone(),
+                pictures[index + 1].clone(),
+            );
+            judging.side(index, turned)
+        })
+        .collect();
+    let sides = join_all(sides).await;
+    settle(sides, decompositions, pictures, redrawn)
+}
+
+/// The sides' outcomes taken in their order, as when they were judged one
+/// after another: the first failure ends it, a replaced drawing takes its
+/// place. A side that was not judged does not end it for the others: what
+/// they kept is already in the cache.
+fn settle(
+    sides: Vec<ApiResult<Side>>,
+    decompositions: &mut [Vec<u8>; 5],
+    pictures: &mut [(Vec<u8>, String); 5],
+    redrawn: &mut Vec<String>,
+) -> ApiResult<Judgements> {
     let mut judged = Judgements::new();
-    let front = (decompositions[0].clone(), pictures[0].clone());
-    for (index, side) in TURN_SIDES.iter().enumerate() {
+    for (index, (side, outcome)) in TURN_SIDES.iter().zip(sides).enumerate() {
+        match outcome? {
+            Side::Unjudged => continue,
+            Side::Judged { best, replaced } => {
+                if let Some((psd, picture)) = replaced {
+                    if !redrawn.iter().any(|known| known == side) {
+                        redrawn.push((*side).to_string());
+                    }
+                    decompositions[index + 1] = psd;
+                    pictures[index + 1] = picture;
+                }
+                judged.insert((*side).to_string(), best);
+            }
+        }
+    }
+    Ok(judged)
+}
+
+impl Judging<'_> {
+    /// One side judged, and drawn again while it is still faulted.
+    async fn side(&self, index: usize, (psd, picture): Turned) -> ApiResult<Side> {
+        let Self {
+            id,
+            user_id,
+            generation,
+            reference,
+            size: (width, height),
+            client,
+            cache,
+            options,
+            ref front,
+        } = *self;
+        let side = TURN_SIDES[index];
         let judge = |psd: Vec<u8>, picture: (Vec<u8>, String)| {
             client.judge_turn(front.clone(), (psd, picture), side)
         };
-        let mut best = match judge(
-            decompositions[index + 1].clone(),
-            pictures[index + 1].clone(),
-        )
-        .await
-        {
+        let mut best = match judge(psd, picture).await {
             Ok(Some(judgement)) => judgement,
-            Ok(None) => return Ok(judged),
+            Ok(None) => return Ok(Side::Unjudged),
             Err(error) => {
                 tracing::warn!(side, %error, "turned drawing could not be judged; fitted as drawn");
-                continue;
+                return Ok(Side::Unjudged);
             }
         };
+        let mut replaced = None;
         let marker = format!("turned-{index}.judged-again");
         let mut done = redraws_done(cache.read(&marker).await);
         while !best.faults.is_empty() && done < JUDGED_REDRAWS {
@@ -126,16 +220,11 @@ pub(super) async fn judge_turns(
             cache
                 .write(&format!("turned-{index}.redrawn"), b"redrawn")
                 .await;
-            if !redrawn.iter().any(|known| known == side) {
-                redrawn.push((*side).to_string());
-            }
-            decompositions[index + 1] = psd;
-            pictures[index + 1] = picture;
+            replaced = Some((psd, picture));
             best = next;
         }
-        judged.insert((*side).to_string(), best);
+        Ok(Side::Judged { best, replaced })
     }
-    Ok(judged)
 }
 
 /// The keys JSON with each turned drawing's judgement beside the fit's report
@@ -167,6 +256,100 @@ mod tests {
         assert_eq!(redraws_done(Some(b"2".to_vec())), 2);
         // A job's marker from before the count was kept: drawn again once.
         assert_eq!(redraws_done(Some(b"judged".to_vec())), 1);
+    }
+
+    fn judgement(badness: f64) -> see_through::TurnJudgement {
+        see_through::TurnJudgement {
+            badness,
+            ..Default::default()
+        }
+    }
+
+    fn five<T: Clone>(of: impl Fn(u8) -> T) -> [T; 5] {
+        [0, 1, 2, 3, 4].map(of)
+    }
+
+    #[test]
+    fn sides_judged_together_settle_in_their_order() {
+        let mut decompositions = five(|n| vec![n]);
+        let mut pictures = five(|n| (vec![n + 10], "image/png".to_string()));
+        // "down" was replaced before a rerun: it is listed once.
+        let mut redrawn = vec!["down".to_string()];
+        let replaced = |n: u8| Some((vec![n], (vec![n + 10], "image/png".to_string())));
+        let sides = vec![
+            Ok(Side::Judged {
+                best: judgement(0.0),
+                replaced: None,
+            }),
+            // Could not be judged: fitted as drawn, no judgement kept.
+            Ok(Side::Unjudged),
+            Ok(Side::Judged {
+                best: judgement(0.25),
+                replaced: replaced(93),
+            }),
+            Ok(Side::Judged {
+                best: judgement(0.5),
+                replaced: replaced(94),
+            }),
+        ];
+        let judged = settle(sides, &mut decompositions, &mut pictures, &mut redrawn).unwrap();
+        assert_eq!(
+            judged.keys().collect::<Vec<_>>(),
+            ["down", "plus", "up"],
+            "every judged side, by name"
+        );
+        assert_eq!(judged["up"].badness, 0.25);
+        // The replaced drawings sit at their own sides; the others are untouched.
+        assert_eq!(
+            decompositions,
+            [vec![0], vec![1], vec![2], vec![93], vec![94]]
+        );
+        assert_eq!(pictures[3].0, [103]);
+        assert_eq!(pictures[4].0, [104]);
+        assert_eq!(pictures[1].0, [11]);
+        assert_eq!(redrawn, ["down", "up"]);
+    }
+
+    #[test]
+    fn a_failure_ends_judging_and_a_space_without_a_judge_judges_nothing() {
+        let failed = || {
+            (
+                axum::http::StatusCode::BAD_GATEWAY,
+                axum::Json(serde_json::json!({ "code": "see_through_upstream_failed" })),
+            )
+        };
+        let judged_side = |badness| {
+            Ok(Side::Judged {
+                best: judgement(badness),
+                replaced: None,
+            })
+        };
+        let settle_plain = |sides| {
+            let mut decompositions = five(|n| vec![n]);
+            let mut pictures = five(|n| (vec![n], "image/png".to_string()));
+            settle(sides, &mut decompositions, &mut pictures, &mut Vec::new())
+        };
+        // No judge on the Space: no side is judged, the drawings are fitted as drawn.
+        let unjudged = || (0..4).map(|_| Ok(Side::Unjudged)).collect();
+        assert!(settle_plain(unjudged()).unwrap().is_empty());
+        // A decomposition that failed for a drawing made again fails the job,
+        // whatever the sides after it came to.
+        let failure = settle_plain(vec![
+            judged_side(0.0),
+            Err(failed()),
+            Ok(Side::Unjudged),
+            judged_side(0.0),
+        ]);
+        assert!(failure.is_err());
+        // A side not judged is only left out.
+        let judged = settle_plain(vec![
+            judged_side(0.0),
+            Ok(Side::Unjudged),
+            judged_side(0.0),
+            judged_side(0.0),
+        ])
+        .unwrap();
+        assert_eq!(judged.keys().collect::<Vec<_>>(), ["down", "plus", "up"]);
     }
 
     #[test]

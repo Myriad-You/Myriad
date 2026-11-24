@@ -61,6 +61,20 @@ impl TurnCache {
         }
     }
 
+    /// A cache of its own in a scratch directory, for tests of what is kept in one.
+    #[cfg(test)]
+    pub(super) fn scratch() -> Self {
+        Self {
+            dir: std::env::temp_dir()
+                .join(format!("turn-cache-test-{}", uuid::Uuid::new_v4().simple())),
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn remove(&self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+
     /// Marks the master as just used, so pruning keeps it even when nothing new is written.
     pub(super) async fn touch(&self) {
         self.write("last-used", crate::clock::now().to_rfc3339().as_bytes())
