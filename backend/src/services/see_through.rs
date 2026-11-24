@@ -619,6 +619,37 @@ impl SeeThroughClient {
             })
     }
 
+    /// The Space's `hair_fit`: how closely the front hair of a front
+    /// decomposition is fitted onto a turned one's, as the full fit's report
+    /// has it for that turn (`fit/front-hair/<side>/outline`: its first step,
+    /// which needs only these two). Seconds on the Space's CPUs, where the
+    /// fit takes minutes.
+    pub async fn hair_fit(
+        &self,
+        front: Vec<u8>,
+        turned: Vec<u8>,
+    ) -> Result<HairFit, SeeThroughError> {
+        validate_psd(&front)?;
+        validate_psd(&turned)?;
+        self.wait_until_running().await?;
+        if !self.serves("hair_fit").await? {
+            return Ok(HairFit::Unsupported);
+        }
+        let file = |path: String, name: &str| json!({ "path": path, "orig_name": name, "meta": { "_type": "gradio.FileData" } });
+        let front = self
+            .upload_file(front, "front.psd", "image/vnd.adobe.photoshop")
+            .await?;
+        let turned = self
+            .upload_file(turned, "turned.psd", "image/vnd.adobe.photoshop")
+            .await?;
+        let data = json!([file(front, "front.psd"), file(turned, "turned.psd")]);
+        let event_id = self.start("hair_fit", data).await?;
+        let data = self
+            .await_data("hair_fit", &event_id, QUEUE_TIMEOUT)
+            .await?;
+        hair_fit_outline(&data).map(HairFit::Outline)
+    }
+
     /// The Space's `upscale`: a standing figure's picture enlarged to 4096 px
     /// tall by super-resolution (as it is when near that already). None when
     /// the Space has no such endpoint.
@@ -1200,6 +1231,34 @@ pub struct TurnedPicturesCheck {
     pub residual: std::collections::BTreeMap<String, f64>,
 }
 
+/// What `hair_fit` found of a turned decomposition's front hair.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum HairFit {
+    /// The Space has no such endpoint.
+    Unsupported,
+    /// The mean distance (px) between the fitted front hair's outline and the
+    /// turned one's; none when either has no front hair or none could be fitted.
+    Outline(Option<f64>),
+}
+
+/// The outline distance in a `hair_fit` answer: `{"fit": {"outline": 4.2, ..}}`, or `{"fit": null}`.
+fn hair_fit_outline(data: &Value) -> Result<Option<f64>, SeeThroughError> {
+    let invalid =
+        || SeeThroughError::InvalidOutput("See-through returned an invalid hair fit".to_string());
+    let fit = data
+        .as_array()
+        .and_then(|values| values.first())
+        .and_then(|answer| answer.get("fit"))
+        .ok_or_else(invalid)?;
+    if fit.is_null() {
+        return Ok(None);
+    }
+    fit.get("outline")
+        .and_then(Value::as_f64)
+        .map(Some)
+        .ok_or_else(invalid)
+}
+
 /// What a turned drawing keeps of the front one (`judge_turn`).
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct TurnJudgement {
@@ -1652,6 +1711,23 @@ data: [{"url":"https://24yearsold-see-through-demo.hf.space/gradio_api/file=/tmp
         assert!(fit_gate().try_acquire().is_ok());
         drop(held);
         assert!(decompose_permit().is_ok());
+    }
+
+    #[test]
+    fn a_hair_fit_answer_tells_the_outline_or_that_there_is_none() {
+        let fitted = json!([{ "fit": { "iou": 0.91, "outline": 4.25, "outline95": 11.0 } }]);
+        assert_eq!(hair_fit_outline(&fitted).unwrap(), Some(4.25));
+        // No front hair on either, or none could be fitted: an answer, not a failure.
+        assert_eq!(hair_fit_outline(&json!([{ "fit": null }])).unwrap(), None);
+        for incomplete in [
+            json!([]),
+            json!([{}]),
+            json!([{ "fit": {} }]),
+            json!([{ "fit": { "outline": "far" } }]),
+            json!({ "fit": null }),
+        ] {
+            assert!(hair_fit_outline(&incomplete).is_err(), "{incomplete}");
+        }
     }
 
     #[tokio::test]
