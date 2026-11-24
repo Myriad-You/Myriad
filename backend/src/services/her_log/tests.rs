@@ -46,6 +46,11 @@ mod gone_tests;
 #[path = "bodies_tests.rs"]
 mod bodies_tests;
 
+/// What the server holds of an audience, counted by the database: what the
+/// rows say.
+#[path = "holdings_tests.rs"]
+mod holdings_tests;
+
 const OWNER: i32 = 41;
 /// The partner's private talk: `personal:<partner id>` ([`PARTNER`]).
 const PERSONAL: &str = "personal:partner_019b76daa80000112233445566778899";
