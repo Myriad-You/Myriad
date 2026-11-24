@@ -132,3 +132,14 @@ test("a bust's job as it ran on the site is estimated within a third at each sta
     before = left
   }
 })
+
+test('a fit that goes on, a turn drawn again beside it and then fitted with, leaves a little and never less than nothing', () => {
+  // The job stays at fitting 0 of 1 through the first fit, the redraw beside it and the second fit.
+  let before = Infinity
+  for (const unitSeconds of [0, 100, 199, 200, 285, 485, 700]) {
+    const fitting = status({ phase: 'bust', stage: 'fitting', done: 0, total: 1, seconds: 584 + unitSeconds })
+    const left = estimateEnhance('bust', fitting, unitSeconds).remainingSeconds
+    assert.ok(left > 0 && left <= S.fit && left <= before, `${unitSeconds}s into the fit: ${left}`)
+    before = left
+  }
+})

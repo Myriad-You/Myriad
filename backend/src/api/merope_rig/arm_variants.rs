@@ -2,16 +2,12 @@
 //! 保持原样；前端导入时把改动的手臂抠成平时隐藏的一层，举手时从画面下方抬进来。
 //! 画好的图先过两道检查：姿态模型在图上找得到这只手，视觉模型认为除了这条手臂
 //! 的姿势什么都没改（袖子、护甲最容易被改掉）。不过关就重画，最多三次，仍不过
-//! 就不提供这个手势。结果按立绘归档成私有媒体，换了立绘自然失效；手的关键点存
-//! 在旁边，前端抠层时用它找到哪一块是手臂。全身形象的手太小，在放大图上取一扇
-//! 窗口画，画完超分贴回放大图（`figure`）。
+//! 就不提供这个手势。两道检查看的是同一张图，同时做。结果按立绘归档成私有媒体，
+//! 换了立绘自然失效；手的关键点存在旁边，前端抠层时用它找到哪一块是手臂。全身
+//! 形象的手太小，在放大图上取一扇窗口画，画完超分贴回放大图（`figure`）。请求被
+//! 受理就答复，在后台画；页面读列表看哪些还在画、哪些没画成（`turns`）。
 
-use std::{
-    collections::BTreeSet,
-    future::Future,
-    io::Cursor,
-    sync::{Arc, Mutex},
-};
+use std::{future::Future, io::Cursor, sync::Arc};
 
 use axum::{
     Json,
@@ -33,6 +29,7 @@ use super::{
     master::{MasterSlot, current_master},
     portrait_generation_config_error, portrait_generation_provider_error, require_merope_enabled,
     require_owner,
+    turns::Turns,
 };
 use crate::{
     middleware::auth::Claims,
@@ -115,28 +112,8 @@ fn keys() -> impl Iterator<Item = String> {
         .flat_map(|(gesture, _, _)| SIDES.iter().map(move |side| format!("{gesture}-{side}")))
 }
 
-/// 同一个手势同时只画一次：一次要一两分钟，还要花钱。
-static IN_FLIGHT: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
-
-struct InFlight(String);
-
-impl InFlight {
-    fn claim(key: &str) -> Option<Self> {
-        let mut running = IN_FLIGHT.lock().unwrap_or_else(|error| error.into_inner());
-        running
-            .insert(key.to_string())
-            .then(|| Self(key.to_string()))
-    }
-}
-
-impl Drop for InFlight {
-    fn drop(&mut self) {
-        IN_FLIGHT
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .remove(&self.0);
-    }
-}
+/// 同一个手势同时只画一次：一次要一两分钟，还要花钱。全身的按「套装/手势」占。
+static TURNS: Turns = Turns::new();
 
 /// 跟着立绘走：换了立绘，旧手臂的键前缀不再匹配，自然失效。
 fn producer_prefix(portrait_asset_id: &str, key: &str) -> String {
@@ -223,22 +200,19 @@ pub async fn list_full_body_arm_variants(
     listed(&db, &master, &in_flight_scope(Some(&outfit_id))).await
 }
 
-/// The newest drawing of each gesture on `picture`, and the gestures being drawn in `scope`.
+/// The newest drawing of each gesture on `picture`, the gestures being drawn in `scope`, and the ones whose last
+/// drawing was not kept, with what went wrong.
 async fn listed(db: &DatabaseConnection, picture: &str, scope: &str) -> ApiResult<Json<Value>> {
+    // Before the kept ones are read: a gesture kept in between is then among them.
+    let (drawing, failed) = TURNS.listed(scope, picture);
     let mut variants = serde_json::Map::new();
     for key in keys() {
         let found = latest_variant(db, picture, &key).await?;
         variants.insert(key, found.unwrap_or(Value::Null));
     }
-    let drawing: Vec<String> = IN_FLIGHT
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .iter()
-        .filter_map(|claimed| claimed.strip_prefix(scope))
-        .filter(|key| !key.contains('/'))
-        .map(str::to_string)
-        .collect();
-    Ok(Json(json!({ "variants": variants, "drawing": drawing })))
+    Ok(Json(
+        json!({ "variants": variants, "drawing": drawing, "failed": failed }),
+    ))
 }
 
 /// What the gestures being drawn for a set are claimed under: none for the worn bust.
@@ -254,11 +228,12 @@ async fn figure_master(db: &DatabaseConnection, outfit_id: &str) -> ApiResult<St
         .asset_id)
 }
 
+/// Takes one gesture arm up to be drawn on the worn bust's picture; the list tells what became of it.
 pub async fn generate_arm_variant(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
     Path(key): Path<String>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Accepted> {
     require_merope_enabled().await?;
     let user_id = require_owner(&claims, &db).await?;
     let Some((gesture, side)) = parse_key(&key) else {
@@ -272,17 +247,17 @@ pub async fn generate_arm_variant(
         drawn: (width, height),
         figure: None,
     };
-    let sheet = std::future::ready(Ok(sheet));
-    drawn_in_turn(db, user_id, (gesture, side, portrait), sheet, &key).await
+    let sheet = std::future::ready(Ok(Arc::new(sheet)));
+    taken_up(db, user_id, (gesture, side, portrait), sheet, &key).await
 }
 
-/// Draws one gesture arm on a full-body set's picture: on a window of it
+/// Takes one gesture arm up to be drawn on a full-body set's picture: on a window of it
 /// enlarged, laid back on the enlarged picture its decomposition was cut from.
 pub async fn generate_full_body_arm_variant(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
     Path((outfit_id, key)): Path<(String, String)>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Accepted> {
     require_merope_enabled().await?;
     let user_id = require_owner(&claims, &db).await?;
     let Some((gesture, side)) = parse_key(&key) else {
@@ -291,11 +266,15 @@ pub async fn generate_full_body_arm_variant(
     let master = figure_master(&db, &outfit_id).await?;
     let picture = load_picture(&master).await?;
     // Made once the gesture is claimed: the picture may have to be enlarged first, and a second ask for the
-    // same gesture is turned away before it pays for that.
-    let sheet = async move { figure_sheet(&picture).await };
+    // same gesture is turned away before it pays for that. One sheet for the set's gestures drawn together.
+    let of = master.clone();
+    let sheet = async move { figure_sheet(&of, &picture).await };
     let scope = format!("{}{key}", in_flight_scope(Some(&outfit_id)));
-    drawn_in_turn(db, user_id, (gesture, side, master), sheet, &scope).await
+    taken_up(db, user_id, (gesture, side, master), sheet, &scope).await
 }
+
+/// A gesture taken up: answered before it is drawn.
+type Accepted = (StatusCode, Json<Value>);
 
 fn unknown_gesture() -> super::ApiError {
     (
@@ -322,19 +301,20 @@ struct Sheet {
     figure: Option<(figure::Window, Arc<image::DynamicImage>)>,
 }
 
-/// Draws a gesture once at a time under `claim` (in the background: a page reloaded meanwhile does not lose it),
-/// on the sheet `sheet` makes once it is claimed.
-async fn drawn_in_turn(
+/// Takes a gesture up, once at a time under `claim`, and draws it in the background on the sheet `sheet` makes
+/// once it is claimed. The page is answered now and reads the list for what became of it, as one reloaded
+/// meanwhile does: a browser keeps too few connections to one site to hold one open for each gesture.
+async fn taken_up(
     db: DatabaseConnection,
     user_id: i32,
     (gesture, side, picture): (&'static str, &'static str, String),
-    sheet: impl Future<Output = ApiResult<Sheet>> + Send + 'static,
+    sheet: impl Future<Output = ApiResult<Arc<Sheet>>> + Send + 'static,
     claim: &str,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Accepted> {
     let dynamic = crate::GLOBAL_DYNAMIC_CONFIG.read().await.clone();
     let config = image_generation::config_from_dynamic(&dynamic)
         .map_err(portrait_generation_config_error)?;
-    let Some(running) = InFlight::claim(claim) else {
+    let Some(turn) = TURNS.claim(claim) else {
         return Err((
             StatusCode::CONFLICT,
             Json(json!({
@@ -344,9 +324,7 @@ async fn drawn_in_turn(
         ));
     };
     tracing::info!(gesture, side, provider = %config.provider, model = %config.model, "arm variant started");
-    // Drawn and kept on its own: a page reloaded meanwhile does not throw it away.
-    tokio::spawn(async move {
-        let _running = running;
+    turn.run(picture.clone(), async move {
         let sheet = sheet.await?;
         let asked = Asked {
             gesture,
@@ -354,9 +332,11 @@ async fn drawn_in_turn(
             portrait: &picture,
         };
         draw_arm_variant(&db, user_id, asked, &config, &sheet).await
-    })
-    .await
-    .map_err(|error| internal_error(error.to_string()))?
+    });
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({ "key": format!("{gesture}-{side}"), "drawing": true })),
+    ))
 }
 
 /// The gesture asked for: which, on which arm, of which picture.
@@ -372,7 +352,7 @@ async fn draw_arm_variant(
     asked: Asked<'_>,
     config: &image_generation::ImageGenerationConfig,
     sheet: &Sheet,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<()> {
     let Asked {
         gesture,
         side,
@@ -428,7 +408,15 @@ async fn drawn(
             continue;
         };
         let raised = sheet.figure.is_some().then_some(side);
-        let Some(found) = find_pose(&png, (width, height), raised).await else {
+        // Both checks look at this drawing and at nothing of each other's, so neither waits for the other.
+        let (original, drawing) = (reference.clone(), png.clone());
+        let check = async move {
+            let variant = image_generation::ImageReference::new(drawing, "image/png")?;
+            let check = onboarding_ai::check_arm_variant(&original, &variant, side, words).await;
+            Ok::<_, image_generation::ImageGenerationError>(check)
+        };
+        let look = find_pose(&png, (width, height), raised);
+        let Some((found, check)) = both_checks(look, check).await? else {
             tracing::info!(
                 gesture,
                 side,
@@ -438,9 +426,7 @@ async fn drawn(
             notes.push("no hand found".into());
             continue;
         };
-        let variant = image_generation::ImageReference::new(png.clone(), "image/png")
-            .map_err(portrait_generation_provider_error)?;
-        match onboarding_ai::check_arm_variant(reference, &variant, side, words).await {
+        match check.map_err(portrait_generation_provider_error)? {
             Ok(check) if check.same_design && check.gesture_shown => {}
             Ok(check) => {
                 tracing::info!(gesture, side, attempt, differences = ?check.differences, "arm variant changed the design or missed the gesture, drawn again");
@@ -477,13 +463,30 @@ async fn drawn(
     ))
 }
 
+/// A drawing's two checks at once. `second` is begun now and heard only once `first` has found what it looks
+/// for: when it finds nothing the drawing is drawn again without waiting, and `second` ends on its own, unheard
+/// (its call is still counted where calls are counted).
+async fn both_checks<F, S: Send + 'static>(
+    first: impl Future<Output = Option<F>>,
+    second: impl Future<Output = S> + Send + 'static,
+) -> ApiResult<Option<(F, S)>> {
+    let second = tokio::spawn(second);
+    let Some(found) = first.await else {
+        return Ok(None);
+    };
+    let checked = second
+        .await
+        .map_err(|error| internal_error(error.to_string()))?;
+    Ok(Some((found, checked)))
+}
+
 async fn keep(
     db: &DatabaseConnection,
     user_id: i32,
     (gesture, side, portrait): (&str, &str, &str),
     png: Vec<u8>,
     Found { hand, keypoints }: Found,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<()> {
     let key = format!("{gesture}-{side}");
     let (width, height) = dimensions(&png).unwrap_or_default();
     let producer_key = format!(
@@ -504,7 +507,7 @@ async fn keep(
     }
     let actor = crate::services::media::MediaActor::admin(user_id)
         .map_err(|error| internal_error(error.to_string()))?;
-    let persisted = image_generation::persist_generated_with_status(
+    image_generation::persist_generated_with_status(
         db,
         crate::services::media::MediaContext::site(
             actor,
@@ -522,9 +525,7 @@ async fn keep(
     )
     .await
     .map_err(portrait_generation_provider_error)?;
-    Ok(Json(
-        json!({ "key": key, "url": persisted.url, "hand": hand, "keypoints": keypoints }),
-    ))
+    Ok(())
 }
 
 fn dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
@@ -737,9 +738,46 @@ mod tests {
 
     #[test]
     fn a_gesture_is_claimed_once_until_released() {
-        let first = InFlight::claim("chin-right").expect("free");
-        assert!(InFlight::claim("chin-right").is_none());
+        let first = TURNS.claim("chin-right").expect("free");
+        assert!(TURNS.claim("chin-right").is_none());
         drop(first);
-        assert!(InFlight::claim("chin-right").is_some());
+        assert!(TURNS.claim("chin-right").is_some());
+    }
+
+    /// A check that never answers fails its test instead of hanging it.
+    async fn within_a_while<T>(work: impl Future<Output = T>) -> T {
+        tokio::time::timeout(std::time::Duration::from_secs(20), work)
+            .await
+            .expect("the checks did not finish")
+    }
+
+    #[tokio::test]
+    async fn the_second_check_is_begun_before_the_first_has_answered() {
+        let (begun, heard) = tokio::sync::oneshot::channel::<()>();
+        // The first answers only once the second has begun: one after the other, it never would.
+        let first = async move { heard.await.ok().map(|()| "hand") };
+        let second = async move {
+            let _ = begun.send(());
+            "same design"
+        };
+        let both = within_a_while(both_checks(first, second)).await;
+        assert_eq!(both.unwrap(), Some(("hand", "same design")));
+    }
+
+    #[tokio::test]
+    async fn no_hand_found_does_not_wait_for_the_second_check_which_still_ends() {
+        let (release, held) = tokio::sync::oneshot::channel::<()>();
+        let (ended, end) = tokio::sync::oneshot::channel::<()>();
+        // Held until the drawing has been sent back to be drawn again.
+        let second = async move {
+            let _ = held.await;
+            let _ = ended.send(());
+        };
+        let first = async { None::<&str> };
+        let both = within_a_while(both_checks(first, second)).await;
+        assert!(matches!(both, Ok(None)));
+        release.send(()).unwrap();
+        // Not given up half way: its call is made and counted to its end.
+        assert!(within_a_while(end).await.is_ok());
     }
 }

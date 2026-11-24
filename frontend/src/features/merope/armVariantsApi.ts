@@ -2,10 +2,7 @@ import type { ArmVariantGesture, ArmVariantSource } from '@myriad/figure/rig'
 import { ARM_VARIANT_GESTURES } from '@myriad/figure/rig'
 import { currentCopy } from '../../i18n/localeCopy'
 import { apiService } from '../../services/api'
-import { fullBodyPath, MeropeApiError, meropeError, PREFIX } from './api'
-
-/** A drawing takes as long as a portrait drawn from scratch, and is checked after. */
-const ARM_VARIANT_TIMEOUT_MS = 15 * 60 * 1000
+import { fullBodyPath, keptFailure, MeropeApiError, meropeError, PREFIX } from './api'
 
 export type ArmVariantSide = ArmVariantSource['side']
 /** A gesture on one arm, as the server names it: `wave-left`. */
@@ -19,44 +16,58 @@ function armVariantsPath(outfitId?: string | null): string {
   return `${PREFIX}${outfitId ? fullBodyPath(outfitId) : ''}/arm-variants`
 }
 
+export interface SiteArmVariants {
+  variants: ArmVariantSource[]
+  /** Being drawn now: begun by this page, before a reload, or in another tab. */
+  drawing: ArmVariantKey[]
+  /** The ones whose last drawing was not kept, each with what went wrong as an error a request throws. */
+  failed: Partial<Record<ArmVariantKey, MeropeApiError>>
+}
+
 /**
  * Gesture arms drawn for the current master portrait (a full-body set's
- * picture with `outfitId`), ready to cut into the rig at import, and the ones
- * being drawn now (begun before a reload, or in another tab).
+ * picture with `outfitId`), ready to cut into the rig at import, the ones
+ * being drawn now, and the ones that could not be drawn.
  */
-export async function listSiteArmVariants(outfitId?: string | null): Promise<{ variants: ArmVariantSource[]; drawing: ArmVariantKey[] }> {
+export async function listSiteArmVariants(outfitId?: string | null): Promise<SiteArmVariants> {
   try {
-    const data = await apiService.get<{ variants?: Record<string, unknown>; drawing?: unknown }>(
+    const data = await apiService.get<{ variants?: Record<string, unknown>; drawing?: unknown; failed?: Record<string, unknown> }>(
       armVariantsPath(outfitId),
     )
     const drawing = Array.isArray(data.drawing) ? data.drawing : []
+    const failed: SiteArmVariants['failed'] = {}
+    for (const key of ARM_VARIANT_KEYS) {
+      const failure = keptFailure(data.failed?.[key], currentCopy().merope.armVariantsFailed)
+      if (failure) failed[key] = failure
+    }
     return {
       variants: ARM_VARIANT_KEYS.flatMap((key) => {
         const variant = readArmVariant(key, data.variants?.[key])
         return variant ? [variant] : []
       }),
       drawing: ARM_VARIANT_KEYS.filter((key) => drawing.includes(key)),
+      failed,
     }
   } catch (reason) {
     throw meropeError(reason, currentCopy().merope.armVariantsFailed)
   }
 }
 
-/** Draws one gesture arm on the current master portrait (a full-body set's picture with `outfitId`); resolves once it is kept. */
-export async function generateSiteArmVariant(key: ArmVariantKey, outfitId?: string | null): Promise<ArmVariantSource> {
+/**
+ * Asks for one gesture arm on the current master portrait (a full-body set's picture with `outfitId`). Resolves
+ * once the server has taken it up: it draws on its own, and the list tells when it is kept or why it was not.
+ */
+export async function startSiteArmVariant(key: ArmVariantKey, outfitId?: string | null): Promise<void> {
   try {
-    const data = await apiService.post<Record<string, unknown>>(
-      `${armVariantsPath(outfitId)}/${key}`,
-      {},
-      { timeout: ARM_VARIANT_TIMEOUT_MS },
-    )
-    const variant = readArmVariant(key, data)
-    if (!variant) throw new MeropeApiError(currentCopy().merope.armVariantsFailed, 502)
-    return variant
+    await apiService.post<unknown>(`${armVariantsPath(outfitId)}/${key}`, {})
   } catch (reason) {
-    if (reason instanceof MeropeApiError) throw reason
     throw meropeError(reason, currentCopy().merope.armVariantsFailed)
   }
+}
+
+/** A drawing the server took up and then neither kept nor said why not: it was restarted meanwhile. */
+export function armVariantLost(): MeropeApiError {
+  return new MeropeApiError(currentCopy().merope.armVariantsFailed, 502)
 }
 
 function readArmVariant(key: ArmVariantKey, value: unknown): ArmVariantSource | null {

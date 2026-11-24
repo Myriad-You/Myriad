@@ -17,6 +17,7 @@ use myriad_merope::{
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use tokio::sync::watch;
 
 use super::{
     ApiError, ApiResult, bad_request,
@@ -25,7 +26,7 @@ use super::{
     master::{MasterProvenance, MasterSlot, require_master_match, valid_generation_fingerprint},
     package::{bind_and_activate_outfit_rig, load_stored_manifest, rewrite_texture_urls},
     pose::rewrite_playback,
-    require_merope_enabled, require_owner,
+    require_merope_enabled, require_owner, staged_parts,
 };
 use crate::{
     middleware::auth::Claims,
@@ -144,6 +145,30 @@ async fn prepare_import_chest_profile(
 fn prepare_import_part_profile(source: &mut ImportRigSourceRequest) {
     if let Some(playback) = source.anime25d_playback.as_mut() {
         rig_part_analysis::ensure_profile(playback);
+    }
+}
+
+/// The search the preview of this very content began (staged_parts): what it
+/// found goes into the package now, exactly as it would be saved into it
+/// after the import; one still looking is handed back for the import to wait
+/// on, so the vision model is not asked a second time. A profile the import
+/// brought itself stays as it is.
+fn take_staged_parts(
+    source: &mut ImportRigSourceRequest,
+    master: &MasterProvenance,
+    reference: Option<&[u8]>,
+) -> Option<watch::Receiver<staged_parts::Search>> {
+    let playback = source.anime25d_playback.as_mut()?;
+    if rig_part_analysis::has_inventory(playback) {
+        return None;
+    }
+    let search = staged_parts::standing(master, playback, reference?)?;
+    match staged_parts::found(&search) {
+        Some(profile) => {
+            rig_part_analysis::carry_inventory(playback, &profile);
+            None
+        }
+        None => Some(search),
     }
 }
 
@@ -363,11 +388,24 @@ pub(super) async fn preview_rig(
     )
     .await;
     step("chest analysed");
-    // The moving parts are looked for after the import, off its path (full_body).
     prepare_import_part_profile(&mut source);
     let (_, manifest) = compile_imported_rig(source, "preview://rig-atlas".to_owned()).await?;
     step("compiled");
-    Ok(Json(json!({ "manifest": manifest, "persisted": false })))
+    // The moving parts are looked for from here on, off the preview's path:
+    // by the time the owner activates they are usually found (staged_parts).
+    staged_parts::sweep(db).await;
+    let part_search = manifest
+        .anime25d_playback
+        .as_ref()
+        .filter(|playback| !rig_part_analysis::has_inventory(playback))
+        .and_then(|playback| {
+            staged_parts::begin(user_id, &master, playback, analysis_reference_bytes)
+        });
+    Ok(Json(json!({
+        "manifest": manifest,
+        "persisted": false,
+        "partSearch": part_search,
+    })))
 }
 
 pub async fn import_site_rig(
@@ -409,15 +447,33 @@ pub(super) fn spawn_part_inventory(
     let Some(search) = super::parts::PartSearch::begin(outfit.clone()) else {
         return;
     };
-    tokio::spawn(find_moving_parts(
-        search,
-        db.clone(),
-        imported.user_id,
-        outfit,
-        imported.asset_id.clone(),
-        imported.master.clone(),
-        reference,
-    ));
+    let staged = imported.staged_parts.clone();
+    let (db, user_id) = (db.clone(), imported.user_id);
+    let (asset_id, master) = (imported.asset_id.clone(), imported.master.clone());
+    tokio::spawn(async move {
+        // The search the preview began is waited for, not asked again. None
+        // begun for this content counts as one that gave nothing usable.
+        let waited = match staged {
+            Some(staged) => staged_parts::settled(staged).await,
+            None => staged_parts::Search::Failed,
+        };
+        match waited {
+            staged_parts::Search::Found(profile) => {
+                // Held until the package is saved, so the page can tell it is running.
+                let _search = search;
+                save_moving_parts(&db, user_id, outfit, &asset_id, &master, profile).await;
+            }
+            // The portrait was replaced or the set removed while it looked:
+            // there is no rig left to find parts for, so none is asked about
+            // and no package is saved.
+            staged_parts::Search::Stopped => {}
+            // Nothing usable from the preview's search: the import looks once
+            // for itself.
+            staged_parts::Search::Failed | staged_parts::Search::Looking => {
+                find_moving_parts(search, db, user_id, outfit, asset_id, master, reference).await;
+            }
+        }
+    });
 }
 
 /// The rig's moving parts, looked for after its import so a slow vision
@@ -446,14 +502,27 @@ pub(super) async fn find_moving_parts(
         user_id,
         "merope",
         "rig-part-analysis",
-        rig_part_analysis::inventory(playback, &reference),
+        rig_part_analysis::inventory(playback, &reference, || true),
     )
     .await
     else {
         return;
     };
+    save_moving_parts(&db, user_id, outfit, &asset_id, &master, profile).await;
+}
+
+/// Saves the moving parts found for a rig into it as a new package, which
+/// takes over only while the one they were found for is still the slot's.
+async fn save_moving_parts(
+    db: &DatabaseConnection,
+    user_id: i32,
+    outfit: Option<String>,
+    asset_id: &str,
+    master: &MasterProvenance,
+    profile: Value,
+) {
     let parts = profile["parts"].as_array().map_or(0, Vec::len);
-    let saved = match rewrite_playback(&asset_id, &master, |playback| {
+    let saved = match rewrite_playback(asset_id, master, |playback| {
         playback
             .as_object_mut()
             .ok_or_else(|| bad_request("Anime2.5D playback is missing"))?
@@ -469,10 +538,10 @@ pub(super) async fn find_moving_parts(
         }
     };
     let bound = match &outfit {
-        Some(id) => bind_full_body_rig(&db, user_id, id, &saved, &master, Some(&asset_id))
+        Some(id) => bind_full_body_rig(db, user_id, id, &saved, master, Some(asset_id))
             .await
             .map(|_| ()),
-        None => bind_and_activate_outfit_rig(&db, user_id, &saved, &master, Some(&asset_id)).await,
+        None => bind_and_activate_outfit_rig(db, user_id, &saved, master, Some(asset_id)).await,
     };
     match bound {
         Ok(()) => tracing::info!(?outfit, parts, "moving parts found and saved into the rig"),
@@ -490,6 +559,8 @@ pub(super) struct ImportedRig {
     pub(super) asset_id: String,
     /// The rig at rest as the page composed it, when sent: what the vision model looks at.
     pub(super) analysis_reference: Option<Vec<u8>>,
+    /// The search for its moving parts its preview began, when still looking.
+    pub(super) staged_parts: Option<watch::Receiver<staged_parts::Search>>,
 }
 
 /// Compiles and stores an import of a master portrait.
@@ -517,6 +588,7 @@ pub(super) async fn import_rig(
     .await?;
     prepare_import_chest_profile(user_id, &mut source, &master.gender, false, None).await;
     prepare_import_part_profile(&mut source);
+    let staged_parts = take_staged_parts(&mut source, &master, analysis_reference_bytes.as_deref());
     let (_, manifest) = compile_imported_rig(source, "asset://atlas".to_owned()).await?;
     let asset_id =
         merope_rig::package_id_for_manifest(&atlas_bytes, &manifest).map_err(internal_error)?;
@@ -531,5 +603,6 @@ pub(super) async fn import_rig(
         manifest,
         asset_id,
         analysis_reference: analysis_reference_bytes,
+        staged_parts,
     })
 }

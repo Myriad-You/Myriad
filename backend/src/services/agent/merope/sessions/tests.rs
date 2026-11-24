@@ -558,12 +558,14 @@ async fn what_comes_together_is_looked_at_once_and_kept_word_for_word() {
     ]);
     let grant = TOGETHER;
     let at = 1_760_000_000_000;
+    let together = look::hold(OWNER);
     take(db, OWNER, DEVICE, under(grant, "asked", at))
         .await
         .unwrap();
     let mut done = under(grant, "finished", at + 1);
     done.session = "s-2".into();
     take(db, OWNER, DEVICE, done).await.unwrap();
+    drop(together);
     let made = looked_under(db, grant).await;
     assert_eq!(
         g0::leave().unwrap().models["session_look"].len(),

@@ -1,3 +1,4 @@
+import type { RigPreviewRetry } from '../assets/compiler'
 import type {
   RigAssetCompileEvent,
   RigAssetPreflight,
@@ -8,6 +9,8 @@ import { generationFailureMessage } from '../../../components/agent/onboarding/g
 import { useI18n } from '../../../contexts/I18nContext'
 import { showStickyToast } from '../../../utils/toastManager'
 import { userFacingError } from '../../../utils/userFacingError'
+import { rigPreviewRetryOf } from '../assets/compiler'
+import { optionalDrawing } from './optionalDrawing'
 
 export type RigImportStepState = Partial<
   Record<RigAssetCompileEvent['stage'], RigAssetCompileEvent['status']>
@@ -169,13 +172,23 @@ export function useRigImport({
   const lastWithExpressionsRef = useRef(false)
   const lastWithArmsRef = useRef(false)
   const importAbortRef = useRef<AbortController | null>(null)
-  const failRigImport = (message: string) => {
+  // The preview to send again: what the Worker made is kept when only that request failed.
+  const previewRetryRef = useRef<RigPreviewRetry | null>(null)
+  const [previewRetryable, setPreviewRetryable] = useState(false)
+  const failRigImport = (message: string, reason?: unknown) => {
     setError(message)
+    previewRetryRef.current = rigPreviewRetryOf(reason) ?? null
+    setPreviewRetryable(previewRetryRef.current !== null)
     showStickyToast({
       message,
       type: 'error',
       replaceKey: 'merope-rig-import',
     })
+  }
+  const clearError = () => {
+    setError(null)
+    previewRetryRef.current = null
+    setPreviewRetryable(false)
   }
 
   useEffect(() => {
@@ -186,7 +199,7 @@ export function useRigImport({
     setStage(null)
     setSteps({})
     setResult(null)
-    setError(null)
+    clearError()
     return () => { importAbortRef.current?.abort() }
   }, [sourceGenerationFingerprint, sourceMasterAssetId])
 
@@ -224,27 +237,33 @@ export function useRigImport({
     }))
   }
 
-  const preflightPsd = async (file: File, aiExpressions = false, armVariants = false) => {
-    if (importing || !sourceMasterAssetId) return
-    lastRigPsdRef.current = file
-    lastWithExpressionsRef.current = aiExpressions
-    lastWithArmsRef.current = armVariants
+  /**
+   * Runs a preflight as the operation that can be cancelled: a PSD's from its
+   * start, or only its failed preview again. A preview sent again keeps what
+   * the Worker made until it has an answer, so cancelling it loses nothing.
+   */
+  const runPreflight = async (
+    start: (onStage: (event: RigAssetCompileEvent) => void, signal: AbortSignal) => Promise<RigAssetPreflight>,
+    fromStart: boolean,
+  ) => {
     const controller = new AbortController()
     importAbortRef.current = controller
     setOperation('manual')
-    setStage(null)
-    setSteps({})
+    if (fromStart) {
+      setStage(null)
+      setSteps({})
+      clearError()
+    }
     setResult(null)
-    setError(null)
     try {
-      const imported = await onPreflightRigPsd(file,
+      const imported = await start(
         (event) => {
           if (!controller.signal.aborted) recordStage(event)
         },
         controller.signal,
-        { aiExpressions, armVariants },
       )
       controller.signal.throwIfAborted()
+      clearError()
       setPreflight(imported)
       setResult({
         partCount: imported.partCount,
@@ -263,6 +282,7 @@ export function useRigImport({
           ),
           labels.rigImportFailed,
         ),
+        reason,
       )
     } finally {
       if (importAbortRef.current === controller && !controller.signal.aborted) {
@@ -270,6 +290,27 @@ export function useRigImport({
         setOperation(null)
       }
     }
+  }
+
+  const preflightPsd = async (file: File, aiExpressions = false, armVariants = false) => {
+    if (importing || !sourceMasterAssetId) return
+    lastRigPsdRef.current = file
+    lastWithExpressionsRef.current = aiExpressions
+    lastWithArmsRef.current = armVariants
+    // That a drawing failed is said beside the preflight that asked for it, not beside one that did not.
+    if (!aiExpressions) setAiExpressionsError(null)
+    if (!armVariants) setArmVariantsError(null)
+    await runPreflight(
+      (onStage, signal) => onPreflightRigPsd(file, onStage, signal, { aiExpressions, armVariants }),
+      true,
+    )
+  }
+
+  /** Sends a failed preview again with what the Worker already made: the PSD is not read and packed a second time. */
+  const retryPreview = async () => {
+    const retry = previewRetryRef.current
+    if (importing || !retry) return
+    await runPreflight(retry, false)
   }
 
   /** Preflights what a split made, with the redrawn expressions and gesture arms when they were chosen. */
@@ -306,6 +347,7 @@ export function useRigImport({
         ),
         labels.motionSeeThroughUpstream,
       ),
+      reason,
     )
   }
 
@@ -378,7 +420,7 @@ export function useRigImport({
     setStage(null)
     setSteps({})
     setResult(null)
-    setError(null)
+    clearError()
     try {
       const split = turn || body || !onDecomposePlainPsd
         ? onDecomposeRigPsd(
@@ -391,18 +433,21 @@ export function useRigImport({
             controller.signal,
             (status) => { if (!controller.signal.aborted) setDecomposeStatus(status) },
           )
-      // Redrawn once per portrait; kept ones are used as they are.
-      const redraw = expressions && !aiExpressionsReady && onGenerateAiExpressions
-        ? onGenerateAiExpressions()
-        : Promise.resolve()
+      // Redrawn once per portrait; kept ones are used as they are. One that
+      // could not be drawn does not throw the split away either: the rig goes
+      // in with the ones it has, and the page says the drawing failed.
+      setAiExpressionsError(null)
+      const redraw = optionalDrawing(
+        expressions && !aiExpressionsReady ? onGenerateAiExpressions?.() : undefined,
+        (reason) => setAiExpressionsError(userFacingError(reason, labels.aiExpressionsFailed)),
+      )
       // Only the gestures this portrait lacks are drawn. None drawn does not
       // throw the split away: the rig goes in with the ones it has.
       setArmVariantsError(null)
-      const gestures = arms && onGenerateArmVariants
-        ? onGenerateArmVariants().catch((reason: unknown) => {
-            setArmVariantsError(userFacingError(reason, labels.armVariantsFailed))
-          })
-        : Promise.resolve()
+      const gestures = optionalDrawing(
+        arms ? onGenerateArmVariants?.() : undefined,
+        (reason) => setArmVariantsError(userFacingError(reason, labels.armVariantsFailed)),
+      )
       const [file] = await Promise.all([split, redraw, gestures])
       await preflightSplit(file, expressions, arms, controller)
     } catch (reason) {
@@ -422,7 +467,9 @@ export function useRigImport({
     importAbortRef.current = null
     setOperation(null)
     setStage(null)
-    setSteps({})
+    // A preview being sent again when cancelled is back where it failed, still there to send.
+    if (previewRetryRef.current) setSteps((current) => ({ ...current, 'compile-preview': 'failed' }))
+    else setSteps({})
   }
 
   const generateAiExpressions = async () => {
@@ -461,7 +508,7 @@ export function useRigImport({
     if (importing || !preflight) return
     setOperation('commit')
     setStage(null)
-    setError(null)
+    clearError()
     try {
       const imported = await onCommitRigPsd(preflight, recordStage)
       setResult({
@@ -516,6 +563,8 @@ export function useRigImport({
     preflightPsd,
     decomposePsd,
     cancelPreflight,
+    previewRetryable,
+    retryPreview,
     commitPsd,
     aiExpressionsBusy: aiExpressionsBusy || aiExpressionsDrawing,
     aiExpressionsError,

@@ -3,9 +3,14 @@ import type { RigAssetCompileEvent } from './compiler'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { analyzeAnime25DMouthProfile, buildAnime25DPlayback } from '@myriad/figure/testing'
-import { persistRigAsset, preflightRigAsset } from './compiler'
+import { persistRigAsset, preflightRigAsset, rigPreviewRetryOf } from './compiler'
 
 const file = new File([new Uint8Array([1])], 'character.psd')
+
+/** A request that failed the way the API reports it: with the HTTP status, 0 when it never got through. */
+function failedRequest(message: string, status: number): Error {
+  return Object.assign(new Error(message), { status })
+}
 
 test('cancelled preparation never starts preview and late preview cannot publish a result', async () => {
   for (const stage of ['prepare', 'preview'] as const) {
@@ -30,7 +35,7 @@ test('cancelled preparation never starts preview and late preview cannot publish
           preview: async () => {
             previews += 1
             controller.abort()
-            return manifest
+            return { manifest, partSearch: null }
           },
         },
         (event) => events.push(event),
@@ -73,7 +78,7 @@ test('rig compiler exposes the complete successful artifact DAG', async () => {
           partCount: 12,
         }
       },
-      preview: async () => manifest,
+      preview: async () => ({ manifest, partSearch: null }),
     },
     (event) => events.push(event),
   )
@@ -114,7 +119,7 @@ test('rig compiler marks persistence failure as terminal', async () => {
         source: {} as never,
         partCount: 2,
       }),
-      preview: async () => manifest,
+      preview: async () => ({ manifest, partSearch: null }),
     },
     (event) => events.push(event),
   )
@@ -145,7 +150,7 @@ test('preflight fully compiles and diagnoses without calling persistence', async
   }
   const result = await preflightRigAsset(file, 'master-asset', {
     prepare: async () => prepared,
-    preview: async () => manifest,
+    preview: async () => ({ manifest, partSearch: null }),
   })
   assert.equal(result.prepared, prepared)
   assert.equal(result.partCount, 45)
@@ -155,6 +160,26 @@ test('preflight fully compiles and diagnoses without calling persistence', async
     return manifest
   })
   assert.equal(persisted, true)
+})
+
+test('preflight keeps the search for moving parts the preview began', async () => {
+  const prepared = {
+    atlas: new Blob(),
+    analysisReference: new Blob(),
+    source: { sourceMasterAssetId: 'master-asset' } as never,
+    partCount: 3,
+  }
+  const search = 'c'.repeat(64)
+  const begun = await preflightRigAsset(file, 'master-asset', {
+    prepare: async () => prepared,
+    preview: async () => ({ manifest, partSearch: search }),
+  })
+  assert.equal(begun.partSearch, search)
+  const none = await preflightRigAsset(file, 'master-asset', {
+    prepare: async () => prepared,
+    preview: async () => ({ manifest, partSearch: null }),
+  })
+  assert.equal(none.partSearch, null)
 })
 
 test('preflight sends the imported PSD composition to one-shot vision analysis', async () => {
@@ -171,7 +196,7 @@ test('preflight sends the imported PSD composition to one-shot vision analysis',
     }),
     preview: async (_source, _atlas, reference) => {
       receivedReference = reference
-      return manifest
+      return { manifest, partSearch: null }
     },
   })
 
@@ -252,7 +277,7 @@ test('preflight carries analyzed playback profiles into the persisted source', a
       source: source as never,
       partCount: 1,
     }),
-    preview: async () => analyzed,
+    preview: async () => ({ manifest: analyzed, partSearch: null }),
   })
   assert.deepEqual(
     result.prepared.source.anime25dPlayback?.chestProfile,
@@ -308,4 +333,159 @@ test('failed preview never produces anything to persist', async () => {
     events.some((event) => event.stage === 'persist-manifest'),
     false,
   )
+})
+
+test('a failed preview is sent again without preparing the PSD a second time', async () => {
+  const prepared = {
+    atlas: new Blob([new Uint8Array([1, 2])]),
+    analysisReference: new Blob([new Uint8Array([3])]),
+    source: { sourceMasterAssetId: 'master-asset' } as never,
+    partCount: 9,
+  }
+  let prepares = 0
+  const sent: Array<[unknown, Blob, Blob]> = []
+  const failures = [failedRequest('gateway timed out', 504), failedRequest('still unreachable', 0)]
+  const dependencies = {
+    prepare: async () => {
+      prepares += 1
+      return prepared
+    },
+    preview: async (source: unknown, atlas: Blob, reference: Blob) => {
+      sent.push([source, atlas, reference])
+      const failure = failures[sent.length - 1]
+      if (failure) throw failure
+      return { manifest, partSearch: 'd'.repeat(64) }
+    },
+  }
+  await assert.rejects(preflightRigAsset(file, 'master-asset', dependencies), failures[0])
+  const retry = rigPreviewRetryOf(failures[0])
+  assert.ok(retry, 'what the Worker made is kept by the error')
+
+  // Still failing: the next error keeps it in turn.
+  await assert.rejects(retry(), failures[1])
+  const again = rigPreviewRetryOf(failures[1])
+  assert.ok(again)
+
+  const events: RigAssetCompileEvent[] = []
+  const result = await again((event) => events.push(event))
+  assert.equal(prepares, 1, 'the PSD is read and packed once')
+  assert.equal(result.prepared, prepared)
+  assert.equal(result.partSearch, 'd'.repeat(64))
+  assert.equal(sent.length, 3)
+  for (const [source, atlas, reference] of sent) {
+    assert.equal(source, prepared.source)
+    assert.equal(atlas, prepared.atlas)
+    assert.equal(reference, prepared.analysisReference)
+  }
+  assert.deepEqual(
+    events.map(({ stage, status }) => `${stage}:${status}`),
+    [
+      'compile-preview:started',
+      'compile-preview:completed',
+      'analyze-capabilities:started',
+      'analyze-capabilities:completed',
+    ],
+  )
+  await persistRigAsset(result, async (source, atlas, reference) => {
+    assert.equal(source, prepared.source)
+    assert.equal(atlas, prepared.atlas)
+    assert.equal(reference, prepared.analysisReference)
+    return manifest
+  })
+})
+
+test('nothing is kept to send again when the Worker failed or the preflight was cancelled', async () => {
+  const invalid = new Error('psd invalid')
+  await assert.rejects(
+    preflightRigAsset(file, 'master-asset', {
+      prepare: async () => {
+        throw invalid
+      },
+      preview: async () => ({ manifest, partSearch: null }),
+    }),
+    invalid,
+  )
+  assert.equal(rigPreviewRetryOf(invalid), undefined)
+
+  const controller = new AbortController()
+  const late = failedRequest('answered after the cancel', 503)
+  await assert.rejects(
+    preflightRigAsset(
+      file,
+      'master-asset',
+      {
+        prepare: async () => ({
+          atlas: new Blob(),
+          analysisReference: new Blob(),
+          source: {} as never,
+          partCount: 1,
+        }),
+        preview: async () => {
+          controller.abort()
+          throw late
+        },
+      },
+      undefined,
+      undefined,
+      controller.signal,
+    ),
+    { name: 'AbortError' },
+  )
+  assert.equal(rigPreviewRetryOf(late), undefined)
+  assert.equal(rigPreviewRetryOf('not an error object'), undefined)
+})
+
+test('only a preview worth sending again is kept', async () => {
+  const prepared = {
+    atlas: new Blob(),
+    analysisReference: new Blob(),
+    source: {} as never,
+    partCount: 1,
+  }
+  const kept = async (failure: Error) => {
+    await assert.rejects(
+      preflightRigAsset(file, 'master-asset', {
+        prepare: async () => prepared,
+        preview: async () => {
+          throw failure
+        },
+      }),
+      failure,
+    )
+    return rigPreviewRetryOf(failure) !== undefined
+  }
+  assert.equal(await kept(failedRequest('network error', 0)), true)
+  assert.equal(await kept(failedRequest('request timed out', 408)), true)
+  assert.equal(await kept(failedRequest('internal error', 500)), true)
+  assert.equal(await kept(failedRequest('validation is busy', 503)), true)
+  assert.equal(await kept(failedRequest('Rig compilation failed', 400)), false, 'what does not compile will not compile sent again')
+  assert.equal(await kept(failedRequest('the portrait changed', 409)), false, 'nor does a changed portrait change back')
+  assert.equal(await kept(failedRequest('not the owner', 403)), false)
+  assert.equal(await kept(new Error('the answer was not a rig')), false, 'nor an answer that could not be read')
+})
+
+test('a preview sent again can be cancelled like the first', async () => {
+  const failure = failedRequest('gateway timed out', 408)
+  let previews = 0
+  await assert.rejects(
+    preflightRigAsset(file, 'master-asset', {
+      prepare: async () => ({
+        atlas: new Blob(),
+        analysisReference: new Blob(),
+        source: {} as never,
+        partCount: 1,
+      }),
+      preview: async () => {
+        previews += 1
+        throw failure
+      },
+    }),
+    failure,
+  )
+  const retry = rigPreviewRetryOf(failure)
+  assert.ok(retry)
+  const controller = new AbortController()
+  controller.abort()
+  await assert.rejects(retry(undefined, controller.signal), { name: 'AbortError' })
+  assert.equal(previews, 1, 'a cancelled retry sends nothing')
 })

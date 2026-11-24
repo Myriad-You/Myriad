@@ -335,6 +335,12 @@ pub(super) async fn remove<C: ConnectionTrait + TransactionTrait>(
     if let Err(error) = &settled {
         tracing::warn!(%error, device = %device.id, "[devices] what a removed device left of her is not settled yet");
     }
+    // What it forgot and only its round was not over of: after what else it
+    // leaves, and not for long. Again when the owner forgets the device, or
+    // removes another.
+    if let Err(error) = look_at_over(db, user_id).await {
+        tracing::warn!(%error, device = %device.id, "[devices] what a removed device forgot is not looked at yet");
+    }
     Ok(Some(Removed {
         device,
         again,
@@ -353,6 +359,27 @@ async fn remove_former<C: ConnectionTrait + TransactionTrait>(
     remove(db, device.user_id, &device.id, why, wait)
         .await
         .map(drop)
+}
+
+/// What waits for the round of a device that is none any more to be over is
+/// looked at (`memory_nodes::pieces_due`).
+async fn look_at_over<C: ConnectionTrait + TransactionTrait>(
+    db: &C,
+    user_id: i32,
+) -> Result<(), DbErr> {
+    let live = db
+        .query_all_raw(statement(
+            "SELECT id FROM agent_sync_devices WHERE user_id = $1 AND revoked_at IS NULL",
+            vec![user_id.into()],
+        ))
+        .await?
+        .iter()
+        .map(|row| row.try_get("", "id"))
+        .collect::<Result<_, _>>()?;
+    let wait = Some(super::lease::removed::WAIT);
+    crate::services::agent::merope::memory_nodes::logged::look_at_over(db, user_id, live, wait)
+        .await
+        .map_err(|error| DbErr::Custom(format!("what a removed device forgot: {error}")))
 }
 
 /// Every deputy of a removed device goes.
@@ -389,6 +416,7 @@ pub async fn forget<C: ConnectionTrait + TransactionTrait>(
         crate::services::agent::merope::sessions::forget_device(db, user_id, id)
             .await
             .map_err(|error| DbErr::Custom(format!("a removed device's sessions: {error}")))?;
+        look_at_over(db, user_id).await?;
     }
     let gone = db
         .execute_raw(statement(

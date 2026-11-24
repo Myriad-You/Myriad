@@ -874,18 +874,12 @@ async fn answer(
             .await?;
             // What was forgotten there and waited for the rest of it may be
             // looked at: what it says it holds is here.
-            if session.rounds.vector(device, &audience, &theirs)
+            // And what a taking in before failed at.
+            let news = session.rounds.vector(device, &audience, &theirs);
+            if (news || !session.rounds.taken_in())
                 && (audience == owner.personal() || audience == Owner::OWN)
-                && let Err(error) =
-                    crate::services::agent::merope::memory_nodes::logged::take_in_due(
-                        db,
-                        root,
-                        &owner,
-                        &session.rounds,
-                    )
-                    .await
             {
-                tracing::warn!(%error, "[her-log] what was forgotten on another end was not looked at here");
+                nodes_in(db, root, &owner, session, false).await;
             }
             // Once it keeps up, a deputy (her temporary host); and the grant
             // it holds her by, until it says it took it.
@@ -1462,6 +1456,28 @@ async fn held_then(db: &DatabaseConnection, device: &str, batch: &Batch) -> Resu
     }))
 }
 
+/// Her nodes the log has go into the site's: when there are new ones or a
+/// taking in before failed ([`super::rounds::Rounds::taken_in`]), all of it;
+/// else what was forgotten there and waits is looked at.
+async fn nodes_in(
+    db: &DatabaseConnection,
+    root: &dyn keys::Root,
+    owner: &Owner,
+    session: &mut Session,
+    new: bool,
+) {
+    use crate::services::agent::merope::memory_nodes::logged;
+    let taken = if new || !session.rounds.taken_in() {
+        logged::take_in(db, root, owner, &session.rounds).await
+    } else {
+        logged::take_in_due(db, root, owner, &session.rounds).await
+    };
+    session.rounds.note_taken_in(taken.is_ok());
+    if let Err(error) = taken {
+        tracing::warn!(%error, "[her-log] her nodes from another end were not taken in here");
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn rows(
     db: &DatabaseConnection,
@@ -1581,15 +1597,8 @@ async fn rows(
     // And her nodes, after the memories their entries name.
     if (audience == owner.personal() || audience == Owner::OWN)
         && (ended || !taken.added.is_empty())
-        && let Err(error) = crate::services::agent::merope::memory_nodes::logged::take_in(
-            db,
-            root,
-            owner,
-            &session.rounds,
-        )
-        .await
     {
-        tracing::warn!(%error, "[her-log] her nodes from another end were not taken in here");
+        nodes_in(db, root, owner, session, true).await;
     }
     // A catch-up waiting on these rows may be over: she thinks here again.
     if !taken.added.is_empty()

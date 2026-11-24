@@ -1,7 +1,6 @@
 import type { RigImport } from './useRigImport'
 import { SettingsButton } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'
-import { PartProfileSummary } from './PartProfileSummary'
 import { PsdReconciliationSummary } from './PsdReconciliationSummary'
 import {
   RIG_IMPORT_STEP_ORDER,
@@ -10,12 +9,15 @@ import {
   rigImportStatusLabel,
   rigImportStepCopy,
 } from './rigImportCopy'
+import { StagedPartsSummary } from './StagedPartsSummary'
 
 /** Where a PSD import stands: the steps, the score, what to fix, and commit. */
 export function RigImportProgress({ rig }: { rig: RigImport }) {
   const { t, format } = useI18n()
   const labels = t.merope
   const { stage, steps, result, error, preflight } = rig
+  // Drawings that failed are missing from this preflight: said beside what it is about to activate.
+  const missing = [rig.aiExpressionsError, rig.armVariantsError].filter((message) => message !== null)
   if (!stage && !result && !error && !preflight) return null
   return (
     <section
@@ -106,7 +108,27 @@ export function RigImportProgress({ rig }: { rig: RigImport }) {
           reconciliation={preflight.prepared.reconciliation}
         />
       ) : null}
-      {preflight ? <PartProfileSummary profile={preflight.prepared.source.anime25dPlayback?.partProfile} /> : null}
+      {preflight ? (
+        <StagedPartsSummary
+          search={preflight.partSearch}
+          carried={preflight.prepared.source.anime25dPlayback?.partProfile}
+        />
+      ) : null}
+      {preflight
+        ? missing.map((message) => (
+            <p key={message} className="merope-motion-rig__hint">{message}</p>
+          ))
+        : null}
+      {rig.previewRetryable ? (
+        <SettingsButton
+          type="button"
+          size="sm"
+          disabled={rig.importing}
+          onClick={() => void rig.retryPreview()}
+        >
+          {t.common.retry}
+        </SettingsButton>
+      ) : null}
       {preflight ? (
         <SettingsButton
           type="button"

@@ -24,6 +24,36 @@ export interface ImportedRigAsset {
 
 export interface RigAssetPreflight extends ImportedRigAsset {
   prepared: PreparedRigPsdImport
+  /** The search for its moving parts the server began with the preview; null when none was begun. */
+  partSearch: string | null
+}
+
+/** Sends again the preview of what the Worker already made, when only that request failed. */
+export type RigPreviewRetry = (
+  onStage?: (event: RigAssetCompileEvent) => void,
+  signal?: AbortSignal,
+) => Promise<RigAssetPreflight>
+
+/**
+ * A preflight whose preview request failed keeps what the Worker made, by
+ * the error it threw: asking again re-sends only the request.
+ */
+const previewRetries = new WeakMap<object, RigPreviewRetry>()
+
+/**
+ * Whether sending the same preview again can succeed: the request did not get
+ * through, timed out, or the server failed. A refusal of what was sent (it
+ * does not compile, the portrait changed meanwhile) would be refused again,
+ * and each try pays for another chest estimate.
+ */
+function worthSendingAgain(error: object): boolean {
+  const { status } = error as { status?: unknown }
+  return typeof status === 'number' && (status === 0 || status === 408 || status >= 500)
+}
+
+/** The way to ask again for the preview this error ended, if the Worker's part was done and asking again can help. */
+export function rigPreviewRetryOf(error: unknown): RigPreviewRetry | undefined {
+  return typeof error === 'object' && error !== null ? previewRetries.get(error) : undefined
 }
 
 /** What preflight decides about a PSD import; the caller adds where and for which figure. */
@@ -79,9 +109,20 @@ export async function preflightRigAsset(
     throw error
   }
 
+  return previewPreparedRigAsset(prepared, dependencies.preview, onStage, signal)
+}
+
+/** Server-compiles and diagnoses what the Worker made; a failure here keeps it for another try. */
+async function previewPreparedRigAsset(
+  prepared: PreparedRigPsdImport,
+  preview: RigAssetPreflightDependencies['preview'],
+  onStage?: (event: RigAssetCompileEvent) => void,
+  signal?: AbortSignal,
+): Promise<RigAssetPreflight> {
+  signal?.throwIfAborted()
   emit(onStage, 'compile-preview', 'started')
   try {
-    const manifest = await dependencies.preview(
+    const { manifest, partSearch } = await preview(
       prepared.source,
       prepared.atlas,
       prepared.analysisReference,
@@ -92,10 +133,14 @@ export async function preflightRigAsset(
     emit(onStage, 'analyze-capabilities', 'started')
     const report = diagnoseRig(manifest, prepared.motionExposure)
     emit(onStage, 'analyze-capabilities', 'completed')
-    return { manifest, partCount: prepared.partCount, prepared, report }
+    return { manifest, partCount: prepared.partCount, prepared, report, partSearch }
   } catch (error) {
     signal?.throwIfAborted()
     emit(onStage, 'compile-preview', 'failed', errorMessage(error))
+    if (typeof error === 'object' && error !== null && worthSendingAgain(error)) {
+      previewRetries.set(error, (retryStage, retrySignal) =>
+        previewPreparedRigAsset(prepared, preview, retryStage, retrySignal))
+    }
     throw error
   }
 }

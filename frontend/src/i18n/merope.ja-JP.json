@@ -377,6 +377,7 @@
   "rigPreflightNoIssues": "動作品質に影響する問題は見つかりませんでした。",
   "rigPartsTitle": "自分で揺れるパーツ",
   "rigPartsHint": "取り込み時に画像モデルが立ち絵から見つけたもの。揺れの速さと幅は硬さと重さから決まります。",
+  "rigPartsLooking": "自分で揺れるパーツを探しています… 待たずに有効化できます。見つかりしだい自動で追加されます。",
   "rigPartsItem": "{name} · {motion} · {material}",
   "rigPartMotionRigid": "動かない",
   "rigPartMotionSway": "なびく",
