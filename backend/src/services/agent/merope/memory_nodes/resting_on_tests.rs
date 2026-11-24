@@ -1570,6 +1570,117 @@ async fn an_intent_on_a_row_written_again_goes_by_the_name_it_had() {
     here.schema.drop().await;
 }
 
+/// A span moved to another node and marked there: the stub it left does not
+/// say it is forgotten when the node it was on is. Once the node it stands on
+/// is, it is.
+#[tokio::test]
+async fn the_stub_of_a_span_written_again_elsewhere_takes_nothing_with_its_node() {
+    let Some(mut here) = here("resting_on_old_stub").await else {
+        return;
+    };
+    let talk = here.talk.clone();
+    let made = created(&talk, "minted:ferns", "ferns");
+    let into = created(&talk, "minted:pots", "pots");
+    let other = created(&talk, "minted:trips", "trips");
+    let (node, into_node, away) = (made.node.clone(), into.node.clone(), other.node.clone());
+    put(
+        here.db(),
+        OWNER,
+        &talk,
+        &[
+            made,
+            into,
+            other,
+            span(&talk, &node, "u1", &["record:r1"]),
+            hand(&away, "on", "a", "ask one", &["span:u1"], &[], "waiting"),
+        ],
+    )
+    .await;
+    let again = vec![
+        here.said("p-u1@mac", &format!("node:{into_node}"), "they watered it"),
+        here.forget("row:u1"),
+    ];
+    here.sent(again, &[]).await;
+    assert_eq!(left(here.db()).await, ids(&["on"]));
+    page_edit::forget_node(here.db(), OWNER, &talk, &node)
+        .await
+        .unwrap();
+    assert_eq!(left(here.db()).await, ids(&["on"]));
+    page_edit::forget_node(here.db(), OWNER, &talk, &into_node)
+        .await
+        .unwrap();
+    assert!(left(here.db()).await.is_empty());
+    here.schema.drop().await;
+}
+
+/// A node taken back from sync is forgotten by a forget that names it, and a
+/// span on it by one that names the span. One of the node it went into is
+/// not: its home holds it still.
+#[tokio::test]
+async fn a_node_taken_back_is_forgotten_only_by_its_own_name() {
+    let Some(mut here) = here("resting_on_retract_named").await else {
+        return;
+    };
+    let talk = here.talk.clone();
+    let away = created(&talk, "minted:trips", "trips");
+    let whole = created(&talk, "minted:garden", "garden");
+    let (hands, into) = (away.node.clone(), whole.node.clone());
+    let mut rows = vec![away, whole];
+    let mut nodes = Vec::new();
+    for name in ["into", "named", "by-row"] {
+        let key = format!("minted:{name}");
+        let made = created(&talk, &key, name);
+        let node = made.node.clone();
+        rows.push(made);
+        rows.push(span(&talk, &node, &format!("sp-{name}"), &["record:r1"]));
+        let because = format!("span:sp-{name}");
+        rows.push(hand(
+            &hands,
+            &format!("on-{name}"),
+            name,
+            &format!("ask {name}"),
+            &[&because],
+            &[],
+            "waiting",
+        ));
+        nodes.push(node);
+    }
+    rows.push(row(
+        &nodes[0],
+        "went",
+        "node.absorbed",
+        json!({"version": 1, "sync": "shared", "saidBy": ["her"], "into": "minted:garden",
+               "how": "merged", "reason": "one thing", "because": ["message:502"]}),
+    ));
+    put(here.db(), OWNER, &talk, &rows).await;
+    let mut away = Vec::new();
+    for (n, node) in nodes.iter().enumerate() {
+        let id = format!("back-{n}");
+        away.push(here.by_mac(&id, &format!("node:{node}"), "retract", None));
+    }
+    away.push(here.forget(&format!("node:{into}")));
+    away.push(here.forget(&format!("node:{}", nodes[1])));
+    away.push(here.forget("row:sp-by-row"));
+    here.sent(away, &[]).await;
+    assert_eq!(left(here.db()).await, ids(&["on-into"]));
+    let late = here.intent(
+        &hands,
+        "late",
+        intent_body("late", "ask late", &["span:sp-into"], &[], "waiting"),
+    );
+    here.sent(vec![late], &[]).await;
+    assert_eq!(left(here.db()).await, ids(&["late", "on-into"]));
+    // Named here, its spans stubs already.
+    let txn = here.db().begin().await.unwrap();
+    let named = nodes[..1].iter().cloned().collect();
+    forget::forget_nodes(&txn, OWNER, &talk, &named)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+    assert!(left(here.db()).await.is_empty());
+    here.schema.drop().await;
+}
+
 /// A span of the Mac's forgotten here while the Mac marked it: the forget
 /// here is not the Mac's, so what rests on the span goes, what comes late too.
 #[tokio::test]

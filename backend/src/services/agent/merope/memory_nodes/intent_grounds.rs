@@ -62,11 +62,20 @@ pub(super) struct Gone {
 
 impl Gone {
     /// The spans and entries among the rows `going` of `kept`, and those they
-    /// were written in place of ([`pieces_due::replaced`]).
+    /// were written in place of ([`pieces_due::replaced`]). Not one forgotten
+    /// by its row before: its words may stand on elsewhere. One that is only a
+    /// stub (its node taken back from sync) is gone with its node.
     pub(super) fn of(kept: &[heads::KeptRow], going: &BTreeSet<String>) -> Self {
+        let by_row: BTreeSet<&str> = kept
+            .iter()
+            .filter(|kept| kept.row.kind == "forget")
+            .filter_map(|kept| kept.row.object.strip_prefix("row:"))
+            .collect();
+        let before = |row: &Row| row.forgotten && by_row.contains(row.id.as_str());
         let pieces: BTreeSet<String> = kept
             .iter()
             .filter(|kept| going.contains(&kept.row.id) && is_piece(&kept.row.kind))
+            .filter(|kept| !before(&kept.row))
             .map(|kept| kept.row.id.clone())
             .collect();
         let stands = |id: &str| {
