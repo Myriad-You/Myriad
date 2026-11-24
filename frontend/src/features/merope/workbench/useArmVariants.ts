@@ -1,7 +1,7 @@
 import type { ArmVariantSource } from '@myriad/figure/rig'
 import type { ArmVariantKey, SiteArmVariants } from '../armVariantsApi'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ARM_VARIANT_KEYS, armVariantLost, listSiteArmVariants, startSiteArmVariant } from '../armVariantsApi'
+import { ARM_VARIANT_KEYS, armVariantLost, listSiteArmVariants, startSiteArmVariants } from '../armVariantsApi'
 import { drawingFailures, untilNoneDrawn } from './serverDrawing'
 import { useServerGeneration } from './useServerGeneration'
 
@@ -97,7 +97,8 @@ export function useArmVariants(portraitUrl: string | null, outfitId?: string) {
     const already = drawingRef.current
     const asked = ARM_VARIANT_KEYS.filter((key) => !already.includes(key) && (again || !before.has(key)))
     // Each ask is answered as soon as the server has taken it up: none waits for a connection another holds.
-    const begun = await Promise.allSettled(asked.map((key) => startSiteArmVariant(key, outfitId)))
+    // The right arm's are taken up before the left arm's are asked.
+    const begun = await startSiteArmVariants(asked, outfitId)
     // The panel shows another picture by now: these stay on the server for the one they were drawn for.
     if (gone()) return
     const taken = asked.filter((_, index) => begun[index].status === 'fulfilled')

@@ -13,8 +13,9 @@ pub mod observe {
 
 pub mod onboarding_ai {
     pub(crate) use crate::services::agent::merope::onboarding_ai::{
-        OnboardingAiError, check_arm_variant, check_upright_redraw, import_persona, observe_visual_from_portrait,
-        read_portrait_framing, suggest_display_name, suggest_persona, suggest_visual_design,
+        ArmVariantCheck, OnboardingAiError, check_arm_variant, check_upright_redraw,
+        import_persona, observe_visual_from_portrait, read_portrait_framing, suggest_display_name,
+        suggest_persona, suggest_visual_design,
     };
 }
 

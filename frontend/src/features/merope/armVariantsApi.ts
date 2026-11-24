@@ -65,6 +65,32 @@ export async function startSiteArmVariant(key: ArmVariantKey, outfitId?: string 
   }
 }
 
+/** Which arm a gesture arm's key names. */
+function sideOf(key: ArmVariantKey): ArmVariantSide {
+  return key.endsWith('-right') ? 'right' : 'left'
+}
+
+/**
+ * Asks for several gesture arms; resolves with how each ask was answered, in the order of `keys`. The right
+ * arm's are asked first, and the left arm's only once those are answered: the server draws a few at a time in
+ * the order the asks reach it, which for asks sent together is not the page's to decide. A right arm is the
+ * one more often sent back to be drawn again, so it is the one that should not also wait for its first drawing.
+ */
+export async function startSiteArmVariants(
+  keys: readonly ArmVariantKey[],
+  outfitId?: string | null,
+): Promise<Array<PromiseSettledResult<void>>> {
+  const answers: Array<PromiseSettledResult<void>> = []
+  for (const side of ['right', 'left'] as const) {
+    const asked = keys.flatMap((key, index) => (sideOf(key) === side ? [index] : []))
+    const begun = await Promise.allSettled(asked.map((index) => startSiteArmVariant(keys[index], outfitId)))
+    asked.forEach((index, at) => {
+      answers[index] = begun[at]
+    })
+  }
+  return answers
+}
+
 /** A drawing the server took up and then neither kept nor said why not: it was restarted meanwhile. */
 export function armVariantLost(): MeropeApiError {
   return new MeropeApiError(currentCopy().merope.armVariantsFailed, 502)

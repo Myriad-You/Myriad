@@ -212,12 +212,15 @@ async fn draw_expression(
         width,
         height,
     } = drawn;
-    let generated = crate::services::ai_cost_ledger::with_site_ai_ledger(
-        user_id,
-        "merope",
-        "expression",
-        image_generation::generate_image(config, prompt, width, height, Some(reference)),
-    )
+    // A request the provider did not take up is made once more; the place among the drawings is kept meanwhile.
+    let generated = image_generation::once_more_when_unserved(|| {
+        crate::services::ai_cost_ledger::with_site_ai_ledger(
+            user_id,
+            "merope",
+            "expression",
+            image_generation::generate_image(config, prompt, width, height, Some(reference)),
+        )
+    })
     .await
     .map_err(portrait_generation_provider_error)?;
     let actor = crate::services::media::MediaActor::admin(user_id)

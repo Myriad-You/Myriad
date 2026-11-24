@@ -1,5 +1,6 @@
 //! Her upper-body visual design: drafting it from the persona, and reading it back off a portrait.
 
+use super::vision_call::VisionCall;
 use super::*;
 
 /// 带严格校验闸的生成都该自己重试；次数按这一条有多贵来定。
@@ -247,7 +248,7 @@ pub(super) async fn observe_visual_from_portrait_once(
     image: &ImageReference,
 ) -> Result<ObservedPortraitVisual, OnboardingAiError> {
     let prompt = observe_portrait_visual_prompt(language, normalize_gender(gender));
-    let raw = run_vision_call(&prompt, image).await?;
+    let raw = run_vision_call("portrait-visual", &prompt, image).await?;
     parse_observed_visual(&raw, language, gender)
 }
 
@@ -289,7 +290,9 @@ pub(super) fn parse_observed_visual(
     })
 }
 
+/// `purpose` names what the call is for in the log (`VisionCall`).
 pub(super) async fn run_vision_call(
+    purpose: &'static str,
     prompt: &str,
     image: &ImageReference,
 ) -> Result<String, OnboardingAiError> {
@@ -400,23 +403,29 @@ pub(super) async fn run_vision_call(
             }
         }
     };
+    let call = VisionCall::begun(purpose, config.provider.as_str(), &config.model);
     let response = match tokio::time::timeout(ONBOARDING_AI_TIMEOUT, request.send()).await {
         Ok(Ok(response)) => response,
         Ok(Err(error)) => {
+            call.ended(None, false, None);
             tracing::error!(%error, "portrait observation provider failed");
             return Err(OnboardingAiError::ProviderFailed(error.to_string()));
         }
         Err(_) => {
+            call.ended(None, false, None);
             return Err(OnboardingAiError::ProviderFailed(
                 "portrait observation timed out".into(),
             ));
         }
     };
     let status = response.status();
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|error| OnboardingAiError::ProviderFailed(error.to_string()))?;
+    let bytes = match response.bytes().await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            call.ended(Some(status), false, None);
+            return Err(OnboardingAiError::ProviderFailed(error.to_string()));
+        }
+    };
     let preview = String::from_utf8_lossy(&bytes);
     record_ai_call_from_attribution(
         config.provider.as_str(),
@@ -431,15 +440,21 @@ pub(super) async fn run_vision_call(
         (!status.is_success()).then_some("AI_PROVIDER_ERROR"),
     )
     .await;
+    let value = if status.is_success() {
+        serde_json::from_slice::<Value>(&bytes).ok()
+    } else {
+        None
+    };
+    call.ended(Some(status), status.is_success(), value.as_ref());
     if !status.is_success() {
         tracing::error!(%status, body = %preview.chars().take(400).collect::<String>(), "portrait observation HTTP error");
         return Err(OnboardingAiError::ProviderFailed(format!(
             "vision provider returned HTTP {status}"
         )));
     }
-    let value: Value = serde_json::from_slice(&bytes).map_err(|_| {
-        OnboardingAiError::UnusableResponse("portrait observation was not valid JSON")
-    })?;
+    let value = value.ok_or(OnboardingAiError::UnusableResponse(
+        "portrait observation was not valid JSON",
+    ))?;
     let text = match config.provider {
         AiProvider::Gemini => value
             .pointer("/candidates/0/content/parts")

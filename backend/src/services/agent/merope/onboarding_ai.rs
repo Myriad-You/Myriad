@@ -26,6 +26,7 @@ mod arms;
 mod names;
 mod upright;
 mod vision;
+mod vision_call;
 
 pub use arms::*;
 pub use names::*;

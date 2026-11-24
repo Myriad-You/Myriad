@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { afterEach, it, mock } from 'node:test'
 import { ApiError, apiService } from '../../services/api'
 import { listSiteExpressions, MeropeApiError, meropeError, startSiteExpression } from './api'
-import { listSiteArmVariants, startSiteArmVariant } from './armVariantsApi'
+import { ARM_VARIANT_KEYS, listSiteArmVariants, startSiteArmVariant, startSiteArmVariants } from './armVariantsApi'
 
 afterEach(() => mock.restoreAll())
 
@@ -34,6 +34,49 @@ it('a gesture arm the server will not take up fails with its answer', async () =
     assert.deepEqual([reason.message, reason.status, reason.code], [busy.error, 409, busy.code])
     return true
   })
+})
+
+it('the right arm\'s gestures are taken up before the left arm\'s are asked for', async () => {
+  const events: string[] = []
+  mock.method(apiService, 'post', async (path: string) => {
+    const key = path.slice(path.lastIndexOf('/') + 1)
+    events.push(`asked ${key}`)
+    // Answered a moment later, as a server is.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    events.push(`taken ${key}`)
+    return { key, drawing: true }
+  })
+  const answers = await startSiteArmVariants(ARM_VARIANT_KEYS)
+  const right = ['wave-right', 'point-right', 'chest-right', 'chin-right']
+  const left = ['wave-left', 'point-left', 'chest-left', 'chin-left']
+  assert.deepEqual(events, [
+    ...right.map((key) => `asked ${key}`),
+    ...right.map((key) => `taken ${key}`),
+    ...left.map((key) => `asked ${key}`),
+    ...left.map((key) => `taken ${key}`),
+  ])
+  // Every one asked for once, and answered in the order given.
+  assert.deepEqual(answers.map((answer) => answer.status), ARM_VARIANT_KEYS.map(() => 'fulfilled'))
+})
+
+it('gesture arms asked for together are answered in the order given, the ones not taken up with why', async () => {
+  const busy = { error: 'This gesture is already being drawn', code: 'arm_variant_generation_in_progress' }
+  const post = mock.method(apiService, 'post', async (path: string) => {
+    if (path.endsWith('/chin-right')) throw new ApiError(busy.error, 409, busy.code, undefined, undefined, busy)
+    return { drawing: true }
+  })
+  const answers = await startSiteArmVariants(['wave-left', 'chin-right', 'point-right'], 'w1')
+  // The right arm's first, on the picture they are for; one of them refused does not keep the left arm's back.
+  assert.deepEqual(post.mock.calls.map((call) => call.arguments[0]), [
+    '/merope/rig/full-body/w1/arm-variants/chin-right',
+    '/merope/rig/full-body/w1/arm-variants/point-right',
+    '/merope/rig/full-body/w1/arm-variants/wave-left',
+  ])
+  assert.deepEqual(answers.map((answer) => answer.status), ['fulfilled', 'rejected', 'fulfilled'])
+  const refused = answers[1]
+  assert.ok(refused.status === 'rejected' && refused.reason instanceof MeropeApiError)
+  assert.equal(refused.reason.code, busy.code)
+  assert.deepEqual(await startSiteArmVariants([]), [])
 })
 
 it('the list names the gesture arms being drawn and why the ones not kept were not', async () => {
