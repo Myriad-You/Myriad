@@ -105,6 +105,28 @@ impl<'a> Own<'a> {
             .filter(|job| job.token.is_some() && job.token == self.0.job.token && job.lease > now))
     }
 
+    /// Whether it is its own still, and may be written: not once she was
+    /// cleared, the login it was taken up under went, or what it is of was
+    /// forgotten. On a transaction, held from here on till it ends.
+    pub(in crate::services::agent::merope) async fn still(
+        &self,
+        tx: &sea_orm::DatabaseTransaction,
+    ) -> anyhow::Result<bool> {
+        lock(tx).await?;
+        match self.job(tx).await? {
+            Some(job) => current(tx, &job, true).await,
+            None => Ok(false),
+        }
+    }
+
+    pub(in crate::services::agent::merope) fn owner(&self) -> i32 {
+        self.0.job.owner
+    }
+
+    pub(in crate::services::agent::merope) fn gives_up(&self) -> bool {
+        self.0.gives_up
+    }
+
     /// Of what it holds to what they asked, `told` (each as it is known
     /// there) stays: not asked about again on another try.
     pub(in crate::services::agent::merope) async fn stays(

@@ -594,17 +594,9 @@ async fn prepare(db: &DatabaseConnection, claim: &queue::Claim) -> Result<Effect
             last,
             since,
             until,
-        } => super::asked::unread::keep(
-            db,
-            claim.job.owner,
-            present,
-            *last,
-            (*since, *until),
-            judged_by(),
-            claim.gives_up,
-        )
-        .await
-        .map(|()| Effect::NoChange),
+        } => super::asked::unread::keep(db, own, present, *last, (*since, *until), judged_by())
+            .await
+            .map(|()| Effect::NoChange),
         Payload::GroupHeard {
             venue,
             stretch,
