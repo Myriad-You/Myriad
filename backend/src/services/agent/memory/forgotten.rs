@@ -2,8 +2,8 @@
 //! (`agent_forgotten`): a device's her merged into the site's
 //! (`persona_sync::merge`) lands only what is not here.
 //!
-//! - **No words.** A memory is kept by its id; a line by a one-way digest
-//!   of who said it, the microsecond it was said and what
+//! - **No words.** A memory is kept by its id; a line by its id here and
+//!   by a one-way digest of who said it, the microsecond it was said and what
 //!   ([`line_mark`]: SHA-256, its first 128 bits), never the words nor
 //!   anything they could be read back from; the moment in it keeps a short
 //!   line from being found by trying words.
@@ -27,6 +27,10 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, Statement};
 pub const MEMORY: &str = "memory";
 /// A forgotten line, by [`line_mark`].
 pub const LINE: &str = "line";
+
+/// A forgotten line, by its id here (`agent_messages.id`): what an intent
+/// that comes after the forgetting may name as its grounds.
+pub const MESSAGE: &str = "message";
 
 /// The mark of a line: who said it (`role`), when (`at`, micros) and what,
 /// digested; the same for the site's line and a device's copy of it.

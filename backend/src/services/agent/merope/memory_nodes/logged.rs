@@ -23,8 +23,9 @@
 //! are as the core has them; a stub has no body; a forget is kept as one.
 //! Then the audience is folded again. A row whose body has not come yet
 //! waits for it. One the log has made a stub since (a forget, from here or
-//! there) loses its body here too. Under the node lock first, then the
-//! log's, as every writer here takes them.
+//! there) loses its body here too, and her intents resting on what was
+//! forgotten go with it ([`super::intent_grounds`]). Under the node lock
+//! first, then the log's, as every writer here takes them.
 //!
 //! [`catch_up`] also runs on its own: wherever her records are compared
 //! with her log (`her_log::state::sync`, after her lines, each minute,
@@ -35,7 +36,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, T
 use serde_json::Value;
 
 use super::audience::OWN;
-use super::{Error, heads, write};
+use super::{Error, forget, heads, intent_grounds, write};
 use crate::services::her_log::{self, NODE, Owner, keys};
 
 /// Whether `audience` is one her log keeps of the site owner's: her own,
@@ -195,6 +196,7 @@ pub(crate) async fn take_in(
         // What the log made stubs of goes here too, and what was noted of
         // an item it made a stub of a version of.
         super::kept::log_forgotten(&txn, owner.user, &audience).await?;
+        let round = intent_grounds::Round::begin(&txn, owner.user, &audience).await?;
         let stubbed = txn
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
@@ -248,6 +250,7 @@ pub(crate) async fn take_in(
                 ))
             })
             .collect();
+        let mut arrived = std::collections::BTreeSet::new();
         for row in &rows {
             let body = match (&row.payload, row.forgotten, bodies.get(&row.id)) {
                 (Some(_), false, Some(value)) => Some(value),
@@ -314,8 +317,13 @@ pub(crate) async fn take_in(
                 super::kept::forget_node(&txn, owner.user, &audience, &node).await?;
             }
             nodes.insert(row.id.clone(), node);
-            came += 1;
+            arrived.insert(row.id.clone());
         }
+        came += arrived.len();
+        // Her intents resting on what was forgotten, there now or here
+        // before, go with it.
+        let resting = round.taken(&txn, owner.user, &audience, &arrived).await?;
+        forget::stub(&txn, owner.user, &resting).await?;
         let kept = heads::rows_of(&txn, owner.user, &audience).await?;
         heads::refresh(&txn, owner.user, &audience, &heads::fold_rows(&kept)?).await?;
         txn.commit().await?;

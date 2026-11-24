@@ -21,7 +21,10 @@
 //! takes its line here with what it taught her ([`fold`]).
 
 use chrono::{DateTime, Duration, Utc};
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, DatabaseTransaction, Statement,
+    TransactionTrait,
+};
 use serde_json::{Value, json};
 
 use myriad_persona_log::{
@@ -350,6 +353,41 @@ pub async fn forget_lines(db: &DatabaseConnection, lines: &[Gone]) {
     }
 }
 
+/// [`forget_lines`], of the site owner `site_owner`, in the transaction that
+/// forgets them here and before the forgets of what rests on them on her
+/// nodes: an end that takes those in has what they rest on forgotten too
+/// (`memory_nodes::intent_grounds`). Under the node locks
+/// (`memory_nodes::forget::lock_for`). One the log does not take is undone
+/// alone, and tried again once the rest is kept ([`forget_lines`]).
+pub async fn forget_lines_on(txn: &DatabaseTransaction, site_owner: Option<i32>, lines: &[Gone]) {
+    let Some(site_owner) = site_owner.filter(|_| super::enabled()) else {
+        return;
+    };
+    for line in lines {
+        let forgotten: Result<(), Error> = async {
+            let alone = txn.begin().await?;
+            let done: Result<(), Error> = async {
+                if let Some((owner, target)) = row_of(&alone, site_owner, line).await? {
+                    store::forget_on(&alone, &owner, &owner.personal(), &target).await?;
+                }
+                Ok(())
+            }
+            .await;
+            match done {
+                Ok(()) => alone.commit().await.map_err(Error::from),
+                Err(error) => {
+                    alone.rollback().await?;
+                    Err(error)
+                }
+            }
+        }
+        .await;
+        if let Err(error) = forgotten {
+            tracing::warn!(%error, line = line.id, "[her-log] a line forgotten here is left to be forgotten on her log after");
+        }
+    }
+}
+
 /// [`forget_lines`] of one line, for the site owner `site_owner`: the
 /// forget written, or none when there is none to write.
 pub(crate) async fn forget_row_of(
@@ -357,6 +395,21 @@ pub(crate) async fn forget_row_of(
     site_owner: i32,
     line: &Gone,
 ) -> Result<Option<Row>, Error> {
+    let Some((owner, target)) = row_of(db, site_owner, line).await? else {
+        return Ok(None);
+    };
+    store::forget(db, &owner, &owner.personal(), &target)
+        .await
+        .map(Some)
+}
+
+/// What a forget of `line`'s row names, and whose log: none when the log
+/// never had it, or it is forgotten already.
+async fn row_of<C: ConnectionTrait>(
+    db: &C,
+    site_owner: i32,
+    line: &Gone,
+) -> Result<Option<(super::Owner, String)>, Error> {
     if !private_with(db, &line.session_id, site_owner).await?
         || !store::account(db, site_owner)
             .await?
@@ -395,9 +448,7 @@ pub(crate) async fn forget_row_of(
         return Ok(None);
     }
     let owner = super::owner(db, site_owner).await?;
-    store::forget(db, &owner, &owner.personal(), &format!("row:{row}"))
-        .await
-        .map(Some)
+    Ok(Some((owner, format!("row:{row}"))))
 }
 
 /// The site owner's lines whose row of her log is forgotten (by an end

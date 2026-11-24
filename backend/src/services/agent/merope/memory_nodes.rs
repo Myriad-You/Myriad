@@ -106,6 +106,7 @@ pub(crate) mod home_intents;
 pub(crate) mod homes;
 pub(crate) mod inbox;
 pub(crate) mod intending;
+mod intent_grounds;
 pub(crate) mod intent_store;
 pub(crate) mod intents_due;
 pub(crate) mod intents_run;

@@ -51,6 +51,7 @@ use super::{Error, NODE, Owner, keys, state, store};
 use crate::services::agent::memory::unified::{
     self, HOLDS_BACK, NO_ONE, ORIGIN_SITE, OWN_VENUE, SYNC_SOURCE,
 };
+use crate::services::agent::merope::memory_nodes::forget as nodes;
 
 /// What a comparison of her memories wrote.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -632,13 +633,14 @@ pub async fn take_in(
                 // their life stands (「现在」) resting on it become stubs. In
                 // this transaction: if that fails, nothing here goes and the
                 // next batch tries again (the caller logs why).
-                crate::services::agent::merope::memory_nodes::forget::forget(
-                    &txn,
-                    &[id.to_string()],
-                    &lines,
-                )
-                .await
-                .map_err(|error| Error::Db(DbErr::Custom(error.to_string())))?;
+                let memory = [id.to_string()];
+                nodes::lock_for(&txn, &memory, &lines)
+                    .await
+                    .map_err(|error| Error::Db(DbErr::Custom(error.to_string())))?;
+                super::talk::forget_lines_on(&txn, Some(owner.user), &gone).await;
+                nodes::forget(&txn, &memory, &lines)
+                    .await
+                    .map_err(|error| Error::Db(DbErr::Custom(error.to_string())))?;
                 txn.execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "DELETE FROM agent_memories WHERE id = $2 AND venue NOT LIKE 'group:%' \

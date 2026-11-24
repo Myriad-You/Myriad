@@ -684,6 +684,8 @@ async fn delete_messages<C: ConnectionTrait>(
             })
         })
         .collect::<Result<Vec<_>, DbErr>>()?;
+    let ids: Vec<String> = lines.iter().map(|line| line.id.to_string()).collect();
+    super::forgotten::keep(db, user_id, super::forgotten::MESSAGE, &ids).await?;
     let mut sessions: Vec<String> = lines.iter().map(|line| line.session_id.clone()).collect();
     sessions.sort();
     sessions.dedup();
