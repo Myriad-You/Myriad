@@ -230,6 +230,9 @@ mod partner_tests;
 mod logged_tests;
 
 #[cfg(test)]
+mod resting_on_tests;
+
+#[cfg(test)]
 mod since_tests;
 
 #[cfg(test)]
