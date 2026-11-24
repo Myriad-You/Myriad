@@ -377,6 +377,7 @@
   "rigPreflightNoIssues": "Keine Probleme, die die Bewegungsqualität beeinträchtigen.",
   "rigPartsTitle": "Teile, die sich selbst bewegen",
   "rigPartsHint": "Beim Import vom Bildmodell im Bild erkannt; Tempo und Weite des Schwingens folgen aus Steifigkeit und Gewicht.",
+  "rigPartsLooking": "Suche nach Teilen, die sich selbst bewegen … Sie können aktivieren, ohne zu warten; sie werden ergänzt, sobald sie gefunden sind.",
   "rigPartsItem": "{name} · {motion} · {material}",
   "rigPartMotionRigid": "starr",
   "rigPartMotionSway": "schwingt mit",

@@ -302,7 +302,9 @@ export function RigImportPanel({
           ) : null}
           <span className="merope-turn-archives__actions">
             {decomposeButton}
-            {canGenerateAiExpressions && (rig.enhanceExpressions || rig.aiExpressionsBusy) && aiExpressions.length > 0 ? (
+            {/* Also after a drawing failed with none made yet: drawn again without splitting again. */}
+            {canGenerateAiExpressions && (rig.enhanceExpressions || rig.aiExpressionsBusy)
+              && (aiExpressions.length > 0 || rig.aiExpressionsError) ? (
               <SettingsButton
                 type="button"
                 size="sm"

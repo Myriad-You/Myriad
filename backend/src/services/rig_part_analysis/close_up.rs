@@ -159,10 +159,7 @@ pub(super) async fn look_closer(
         looks
             .into_iter()
             .map(|(index, crop, close, prompt)| async move {
-                let response =
-                    tokio::time::timeout(TIMEOUT, request_estimate(config, &close, &prompt))
-                        .await
-                        .unwrap_or_else(|_| Err("part close-up timed out".to_string()));
+                let response = request_estimate(config, &close, &prompt, TIMEOUT).await;
                 record_ai_call_from_attribution(
                     config.provider.as_str(),
                     &config.model,

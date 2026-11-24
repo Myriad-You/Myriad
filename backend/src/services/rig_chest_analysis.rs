@@ -28,6 +28,8 @@ const PROMPT_VERSION: &str = "anime25d-chest-dynamics-v4";
 const MIN_AI_CONFIDENCE: f32 = 0.25;
 const FULL_AI_CONFIDENCE: f32 = 0.58;
 const MAX_RESPONSE_BYTES: usize = 256 * 1024;
+/// The chest estimate holds the import preview up, so it gets this long and
+/// then falls back to geometry.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
 const MIN_AI_MOTION_SCALE: f32 = 0.22;
 const MAX_AI_MOTION_SCALE: f32 = 1.14;
@@ -115,7 +117,7 @@ pub async fn analyze_once_or_fallback(playback: &mut Value, reference: &ImageRef
         return insert_profile(playback, fallback);
     };
     let prompt = analysis_prompt(context);
-    let response = request_estimate(&config, reference, &prompt).await;
+    let response = request_estimate(&config, reference, &prompt, REQUEST_TIMEOUT).await;
     record_ai_call_from_attribution(
         config.provider.as_str(),
         &config.model,
@@ -442,10 +444,14 @@ Return exactly one JSON object and no Markdown:
     )
 }
 
+/// One picture and one prompt to the configured vision model, answered within
+/// `timeout`: each caller knows how long it can wait (the chest estimate holds
+/// a request up, the part inventory runs in the background).
 pub(crate) async fn request_estimate(
     config: &AiConfig,
     reference: &ImageReference,
     prompt: &str,
+    timeout: Duration,
 ) -> Result<String, String> {
     let client = get_long_running_client().await;
     let encoded = BASE64.encode(&reference.bytes);
@@ -547,8 +553,8 @@ pub(crate) async fn request_estimate(
         }
     };
     // The whole round trip, body included: a provider that sends headers and
-    // then stalls would otherwise hold the import until the client gives up.
-    let (status, bytes) = tokio::time::timeout(REQUEST_TIMEOUT, async {
+    // then stalls would otherwise hold the caller until the client gives up.
+    let (status, bytes) = tokio::time::timeout(timeout, async {
         let response = request.send().await?;
         let status = response.status();
         response.bytes().await.map(|bytes| (status, bytes))

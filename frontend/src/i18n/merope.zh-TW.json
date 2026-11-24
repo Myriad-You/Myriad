@@ -377,6 +377,7 @@
   "rigPreflightNoIssues": "沒有發現會影響動作表現的問題。",
   "rigPartsTitle": "會自己動的部件",
   "rigPartsHint": "匯入時視覺模型從立繪看出來的；擺動快慢和幅度按軟硬輕重推算。",
+  "rigPartsLooking": "正在找會自己動的部件…可以不等，直接啟用；找到後會自動補進去。",
   "rigPartsItem": "{name} · {motion} · {material}",
   "rigPartMotionRigid": "不動",
   "rigPartMotionSway": "隨擺",
