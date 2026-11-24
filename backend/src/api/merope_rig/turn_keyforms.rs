@@ -5,7 +5,8 @@
 //! 四张图里烘焙进立绘的拆层。
 //!
 //! 整个过程要几十分钟（四次生图、五次拆层、一次拟合），在后台跑；前端轮询
-//! 进度，完成后取回烘焙过的拆层与关键形，照常导入。同一时间只跑一个任务；
+//! 进度，完成后取回烘焙过的拆层与关键形，照常导入。页面离开不影响任务：还在跑的、
+//! 做完没被取走的、失败还没报过的，页面回来时接上（`pickup`）。同一时间只跑一个任务；
 //! 任务里互不依赖的生图与拆层一起发出去（`together`），拟合仍是一次一个。
 //! 转头图一画好就开始拆层，和正面拆层同时进行；正面拆层和四张图到齐后预检
 //! 一次，画过头的那张重画一次再拆。
@@ -35,7 +36,7 @@ use std::{
 use axum::{
     Json,
     body::Body,
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
     http::{HeaderValue, StatusCode, header},
     response::Response,
 };
@@ -66,6 +67,7 @@ mod fit_turns;
 mod hair_misfit;
 mod head_first;
 mod judge;
+mod pickup;
 mod served;
 mod together;
 mod upload;
@@ -83,6 +85,7 @@ pub(super) use figure::{enlarged_figure, super_resolved};
 use figure::{fit, plain, put_back, run_figure};
 pub use figure_picture::get_full_body_figure_picture;
 use head_first::{HeadSplit, TileSteps, Way, head_first, in_tiles};
+use pickup::{Asked, Beside, Told};
 #[cfg(test)]
 use served::missing_job;
 use served::space_client;
@@ -186,6 +189,10 @@ struct Job {
     /// The archive the finished job was kept as.
     archive_id: Option<String>,
     started: Instant,
+    /// What the job was asked for, for a page picking it up.
+    asked: Asked,
+    /// What a page has had of the job's end.
+    told: Told,
 }
 
 static JOB: Mutex<Option<Job>> = Mutex::new(None);
@@ -262,6 +269,8 @@ fn claim_job(
         keyforms: None,
         archive_id: None,
         started: Instant::now(),
+        asked: Asked::default(),
+        told: Told::default(),
     });
     Ok((id, true))
 }
@@ -367,18 +376,20 @@ struct FigureKeys {
 pub async fn start_turn_keyforms(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
+    Query(beside): Query<Beside>,
     Json(payload): Json<TurnKeyformsRequest>,
 ) -> ApiResult<Json<Value>> {
     if !payload.head && !payload.plain {
         return Err(bad_request("A bust's enhancement keys its head"));
     }
-    start(db, &claims, None, payload).await
+    start(db, &claims, None, payload, beside).await
 }
 
 pub async fn start_full_body_turn_keyforms(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
     Path(outfit_id): Path<String>,
+    Query(beside): Query<Beside>,
     Json(payload): Json<TurnKeyformsRequest>,
 ) -> ApiResult<Json<Value>> {
     if !payload.head && !payload.body {
@@ -387,7 +398,7 @@ pub async fn start_full_body_turn_keyforms(
     if payload.plain {
         return Err(bad_request("A set is split plain by keying neither part"));
     }
-    start(db, &claims, Some(outfit_id), payload).await
+    start(db, &claims, Some(outfit_id), payload, beside).await
 }
 
 async fn start(
@@ -395,6 +406,7 @@ async fn start(
     claims: &Claims,
     outfit_id: Option<String>,
     payload: TurnKeyformsRequest,
+    beside: Beside,
 ) -> ApiResult<Json<Value>> {
     let keys = FigureKeys {
         head: payload.head,
@@ -447,9 +459,13 @@ async fn start(
     if !new {
         return Ok(Json(json!({ "jobId": id })));
     }
-    if plain {
-        update(&id, |job| job.phase = Phase::Plain);
-    }
+    let asked = Asked::started(outfit_id.is_some(), &payload, beside);
+    update(&id, |job| {
+        job.asked = asked;
+        if plain {
+            job.phase = Phase::Plain;
+        }
+    });
     tracing::info!(job = %id, outfit = ?outfit_id, "turn keyforms started");
     let meta = ArchiveMeta {
         id: archive::new_id(),

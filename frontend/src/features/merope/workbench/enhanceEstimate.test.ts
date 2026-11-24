@@ -130,6 +130,23 @@ test("the bust split once has one step, the split, whose plan its status names",
   assert.equal(enhancePlanOf(status({ phase: 'plain' }), { head: false, body: false }), 'plain')
 })
 
+test("a job's plan is what it was asked for, not what the page's boxes say after a reload", () => {
+  // After a reload both boxes are ticked again.
+  const boxes = { head: true, body: true }
+  const asked = (head: boolean, body: boolean) =>
+    ({ head, body, plain: false, fromArchive: null, expressions: null, arms: null })
+  assert.equal(enhancePlanOf(status({ phase: 'figure', asked: asked(true, false) }), boxes), 'figureHead')
+  assert.equal(enhancePlanOf(status({ phase: 'head', asked: asked(true, false) }), boxes), 'figureHead')
+  assert.equal(enhancePlanOf(status({ phase: 'figure', asked: asked(false, true) }), boxes), 'figureBody')
+  assert.equal(enhancePlanOf(status({ phase: 'body', asked: asked(true, true) }), { head: true, body: false }), 'figure')
+  // Its steps and time left follow: keyed by the head alone, no body step is waited for.
+  const picked = status({ phase: 'figure', asked: asked(true, false) })
+  const estimate = estimateEnhance(enhancePlanOf(picked, boxes)!, picked)
+  assert.ok(estimate.steps.every((step) => step.key !== 'body'))
+  // A status that does not say what was asked leaves it to the page.
+  assert.equal(enhancePlanOf(status({ phase: 'figure' }), { head: false, body: true }), 'figureBody')
+})
+
 test('a turn drawn and decomposed again is one more decomposition before the fit', () => {
   const again = estimateEnhance('bust', status({ phase: 'bust', stage: 'decomposing', done: 0, total: 1 }))
   assert.equal(again.remainingSeconds, S.decompose + S.fit)

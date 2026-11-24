@@ -3,7 +3,7 @@ import type {
   RigAssetCompileEvent,
   RigAssetPreflight,
 } from '../assets/pipeline'
-import type { TurnArchiveUse, TurnKeyformsStatus } from '../turnKeyformsApi'
+import type { TurnArchiveUse, TurnKeyformsAsked, TurnKeyformsBeside, TurnKeyformsStatus } from '../turnKeyformsApi'
 import { useEffect, useRef, useState } from 'react'
 import { generationFailureMessage } from '../../../components/agent/onboarding/generationError'
 import { useI18n } from '../../../contexts/I18nContext'
@@ -11,6 +11,7 @@ import { showStickyToast } from '../../../utils/toastManager'
 import { userFacingError } from '../../../utils/userFacingError'
 import { rigPreviewRetryOf } from '../assets/compiler'
 import { optionalDrawing } from './optionalDrawing'
+import { besideOfPickedUp, boxesOfPickedUp } from './pickedUpSplit'
 
 export type RigImportStepState = Partial<
   Record<RigAssetCompileEvent['stage'], RigAssetCompileEvent['status']>
@@ -45,17 +46,21 @@ export interface RigImportSource {
   /**
    * Splits the portrait with turn keys; with `fromArchive`, uses that kept job
    * instead (fitted again, or as it was). A standing figure keys the `parts` chosen.
+   * `beside` (what goes on the result with the keys) is kept by the job for a
+   * page that picks it up.
    */
   onDecomposeRigPsd: (
     onStatus: (status: TurnKeyformsStatus) => void,
     signal: AbortSignal,
     fromArchive?: TurnArchiveUse,
     parts?: EnhanceParts,
+    beside?: TurnKeyformsBeside,
   ) => Promise<File>
   /**
-   * The split the server is already running for this portrait (the page was
-   * reloaded, or opened in another tab), picked up: its file once done, or
-   * null when none runs.
+   * The split the server has for this portrait with no page of this one's
+   * making (it was reloaded, or opened in another tab; or the split ended
+   * with no page there), picked up: its file once done, or null when there
+   * is none. A failure no page was told is thrown.
    */
   onResumeRigPsd?: (
     onStatus: (status: TurnKeyformsStatus) => void,
@@ -65,6 +70,7 @@ export interface RigImportSource {
   onDecomposePlainPsd?: (
     signal: AbortSignal,
     onStatus: (status: TurnKeyformsStatus) => void,
+    beside?: TurnKeyformsBeside,
   ) => Promise<File>
   /** A standing figure: its body's turn and weight shift can be keyed beside its head. */
   bodyKeysOffered?: boolean
@@ -351,24 +357,35 @@ export function useRigImport({
     )
   }
 
-  // A split the server is still running for this portrait shows its progress
-  // again and is preflighted when done, as if it had been started here; a
-  // resumed split never redraws expressions, it only uses ones already made.
+  // A split the server has for this portrait that this page did not start
+  // (still running, or ended with no page there) shows its progress again and
+  // is preflighted when done, as if it had been started here; one that failed
+  // shows why. It never redraws expressions, it only uses ones already made.
+  // What it was asked for is the job's to say: the boxes take it, and so does
+  // what its result is preflighted with.
   useEffect(() => {
     if (!onResumeRigPsd || !sourceMasterAssetId) return
     const controller = new AbortController()
     let picked = false
+    let asked: TurnKeyformsAsked | undefined
     const pick = () => {
       if (picked || controller.signal.aborted) return
       picked = true
       importAbortRef.current = controller
       setMode('enhanced')
       setOperation('decompose')
+      if (!asked) return
+      const boxes = boxesOfPickedUp(asked)
+      if (boxes.turn !== null) setEnhanceTurn(boxes.turn)
+      if (boxes.body !== null) setEnhanceBody(boxes.body)
+      if (boxes.expressions !== null) setEnhanceExpressions(boxes.expressions)
+      if (boxes.arms !== null) setEnhanceArms(boxes.arms)
     }
     void (async () => {
       try {
         const file = await onResumeRigPsd((status) => {
           if (controller.signal.aborted) return
+          asked = status.asked ?? asked
           pick()
           setDecomposeStatus(status)
         }, controller.signal)
@@ -377,10 +394,11 @@ export function useRigImport({
         // Expressions and gesture arms still being drawn (begun before the reload) go in once done.
         await Promise.all([awaitAiExpressions?.(), awaitArmVariants?.()])
         if (controller.signal.aborted) return
+        const beside = besideOfPickedUp(asked, { expressions: enhanceExpressions, arms: enhanceArms })
         await preflightSplit(
           file,
-          expressionsOffered && enhanceExpressions && aiExpressionsReadyRef.current,
-          armsOffered && enhanceArms,
+          expressionsOffered && beside.expressions && aiExpressionsReadyRef.current,
+          armsOffered && beside.arms,
           controller,
         )
       } catch (reason) {
@@ -422,16 +440,19 @@ export function useRigImport({
     setResult(null)
     clearError()
     try {
+      const beside = { expressions, arms }
       const split = turn || body || !onDecomposePlainPsd
         ? onDecomposeRigPsd(
             (status) => { if (!controller.signal.aborted) setDecomposeStatus(status) },
             controller.signal,
             fromArchive,
             { head: turn, body },
+            beside,
           )
         : onDecomposePlainPsd(
             controller.signal,
             (status) => { if (!controller.signal.aborted) setDecomposeStatus(status) },
+            beside,
           )
       // Redrawn once per portrait; kept ones are used as they are. One that
       // could not be drawn does not throw the split away either: the rig goes

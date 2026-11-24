@@ -1,7 +1,7 @@
 import type { PoseCorrection } from '@myriad/figure/anime25drig'
 import type { UpperBodyVisualIdentityKey } from '../../../components/agent/onboarding/onboardingTypes'
 import type { RigCharacterHandle } from '../character/RigCharacter'
-import type { TurnArchiveUse, TurnKeyformsStatus } from '../turnKeyformsApi'
+import type { TurnArchiveUse, TurnKeyformsBeside, TurnKeyformsStatus } from '../turnKeyformsApi'
 import { isAnime25DPlayback } from '@myriad/figure/anime25drig'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
@@ -193,25 +193,28 @@ export default function SiteMotionWorkbench({
     onStatus: (status: TurnKeyformsStatus) => void,
     signal: AbortSignal,
     fromArchive?: TurnArchiveUse,
+    // The bust keys its head alone: no parts to choose.
+    _parts?: unknown,
+    beside?: TurnKeyformsBeside,
   ) => {
     if (!portraitUrl) throw new Error(t.merope.assetNeedsPortrait)
     return decomposeWithTurnKeyforms(
       { sourceMasterAssetId: portraitUrl, sourceGenerationFingerprint: generationFingerprint || undefined },
-      { fromArchive, onStatus, signal },
+      { fromArchive, beside, onStatus, signal },
     )
   }, [generationFingerprint, portraitUrl, t.merope.assetNeedsPortrait])
 
-  // The bust's split the server is still running, picked up after a reload.
+  // The bust's split the server has that this page did not start (still running, or ended with no page there), picked up.
   const resumeRigPsd = useCallback((onStatus: (status: TurnKeyformsStatus) => void, signal: AbortSignal) =>
     resumeTurnKeyforms({ sourceMasterAssetId: portraitUrl ?? '', sourceGenerationFingerprint: generationFingerprint || undefined }, { onStatus, signal }),
   [generationFingerprint, portraitUrl])
 
   // Split once, as a job the page picks up again after a reload (resumeRigPsd).
-  const decomposePlainRigPsd = useCallback(async (signal: AbortSignal, onStatus: (status: TurnKeyformsStatus) => void) => {
+  const decomposePlainRigPsd = useCallback(async (signal: AbortSignal, onStatus: (status: TurnKeyformsStatus) => void, beside?: TurnKeyformsBeside) => {
     if (!portraitUrl) throw new Error(t.merope.assetNeedsPortrait)
     return decomposeWithTurnKeyforms(
       { sourceMasterAssetId: portraitUrl, sourceGenerationFingerprint: generationFingerprint || undefined },
-      { plain: true, onStatus, signal },
+      { plain: true, beside, onStatus, signal },
     )
   }, [generationFingerprint, portraitUrl, t.merope.assetNeedsPortrait])
 
