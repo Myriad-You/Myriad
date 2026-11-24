@@ -1,7 +1,8 @@
 //! 立绘的表情重绘：让生图模型只改脸，其余保持原样，前端导入时再把眼睛、嘴切成
 //! 装配已有的表情替换件。重绘结果按立绘归档成私有媒体，不替换立绘、不动装配。
+//! 请求被受理就答复，在后台画；页面读列表看哪些还在画、哪些没画成（`turns`）。
 
-use std::{collections::BTreeSet, io::Cursor, sync::Mutex};
+use std::io::Cursor;
 
 use axum::{
     Json,
@@ -14,7 +15,7 @@ use sha2::{Digest, Sha256};
 
 use super::{
     ApiError, ApiResult, internal_error, portrait_generation_config_error,
-    portrait_generation_provider_error, require_merope_enabled, require_owner,
+    portrait_generation_provider_error, require_merope_enabled, require_owner, turns::Turns,
 };
 use crate::{
     middleware::auth::Claims,
@@ -53,25 +54,7 @@ downward, lashes along the lid line, no smile in the eyes. Eyebrows and mouth un
 }
 
 /// 同一种表情同时只跑一次：一次调用要一两分钟，还要花钱。
-static IN_FLIGHT: Mutex<BTreeSet<&'static str>> = Mutex::new(BTreeSet::new());
-
-struct InFlight(&'static str);
-
-impl InFlight {
-    fn claim(kind: &'static str) -> Option<Self> {
-        let mut running = IN_FLIGHT.lock().unwrap_or_else(|error| error.into_inner());
-        running.insert(kind).then(|| Self(kind))
-    }
-}
-
-impl Drop for InFlight {
-    fn drop(&mut self) {
-        IN_FLIGHT
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .remove(self.0);
-    }
-}
+static TURNS: Turns = Turns::new();
 
 /// 重绘跟着立绘走：换了立绘，旧重绘的键前缀不再匹配，自然失效。
 fn producer_prefix(portrait_asset_id: &str, kind: &str) -> String {
@@ -127,28 +110,25 @@ pub async fn list_expressions(
     require_merope_enabled().await?;
     require_owner(&claims, &db).await?;
     let portrait = current_portrait(&db).await?;
+    // Being drawn now, and the ones whose last redraw was not kept, with what went wrong. Read before the
+    // kept ones are: a redraw kept in between is then among them.
+    let (drawing, failed) = TURNS.listed("", &portrait);
     let mut expressions = serde_json::Map::new();
     for kind in KINDS {
         let url = latest_expression(&db, &portrait, kind).await?;
         expressions.insert(kind.to_string(), url.map_or(Value::Null, Value::String));
     }
-    // Being drawn now, begun before a reload or in another tab.
-    let drawing: Vec<&str> = IN_FLIGHT
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .iter()
-        .copied()
-        .collect();
     Ok(Json(
-        json!({ "expressions": expressions, "drawing": drawing }),
+        json!({ "expressions": expressions, "drawing": drawing, "failed": failed }),
     ))
 }
 
+/// Takes one expression up to be redrawn; the list tells what became of it.
 pub async fn generate_expression(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
     Path(kind): Path<String>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<(StatusCode, Json<Value>)> {
     require_merope_enabled().await?;
     let user_id = require_owner(&claims, &db).await?;
     let Some(kind) = KINDS.into_iter().find(|candidate| *candidate == kind) else {
@@ -175,7 +155,7 @@ pub async fn generate_expression(
     let dynamic = crate::GLOBAL_DYNAMIC_CONFIG.read().await.clone();
     let config = image_generation::config_from_dynamic(&dynamic)
         .map_err(portrait_generation_config_error)?;
-    let Some(running) = InFlight::claim(kind) else {
+    let Some(turn) = TURNS.claim(kind) else {
         return Err((
             StatusCode::CONFLICT,
             Json(json!({
@@ -192,10 +172,10 @@ pub async fn generate_expression(
         height,
         "portrait expression redraw started"
     );
-    // Drawn and kept on its own: a page reloaded or closed meanwhile does not
-    // throw the drawing away, and sees it being drawn (`drawing` in the list).
-    tokio::spawn(async move {
-        let _running = running;
+    // Drawn and kept on its own, and answered now: the page (this one, one reloaded
+    // meanwhile, another tab) sees it being drawn (`drawing` in the list), and none
+    // of a browser's few connections is held open for the minutes a drawing takes.
+    turn.run(portrait.clone(), async move {
         let drawn = Drawn {
             kind,
             portrait: &portrait,
@@ -203,9 +183,11 @@ pub async fn generate_expression(
             height,
         };
         draw_expression(&db, user_id, drawn, &config, &prompt, &reference).await
-    })
-    .await
-    .map_err(|error| internal_error(error.to_string()))?
+    });
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({ "kind": kind, "drawing": true })),
+    ))
 }
 
 /// The expression drawn: which, of which portrait, at its size.
@@ -223,7 +205,7 @@ async fn draw_expression(
     config: &image_generation::ImageGenerationConfig,
     prompt: &str,
     reference: &image_generation::ImageReference,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<()> {
     let Drawn {
         kind,
         portrait,
@@ -245,7 +227,7 @@ async fn draw_expression(
         producer_prefix(portrait, kind),
         uuid::Uuid::new_v4().simple()
     );
-    let persisted = image_generation::persist_generated_with_status(
+    image_generation::persist_generated_with_status(
         db,
         crate::services::media::MediaContext::site(
             actor,
@@ -258,7 +240,7 @@ async fn draw_expression(
     )
     .await
     .map_err(portrait_generation_provider_error)?;
-    Ok(Json(json!({ "kind": kind, "url": persisted.url })))
+    Ok(())
 }
 
 #[cfg(test)]
@@ -289,9 +271,9 @@ mod tests {
 
     #[test]
     fn a_kind_is_claimed_once_until_released() {
-        let first = InFlight::claim("squeeze").expect("free");
-        assert!(InFlight::claim("squeeze").is_none());
+        let first = TURNS.claim("squeeze").expect("free");
+        assert!(TURNS.claim("squeeze").is_none());
         drop(first);
-        assert!(InFlight::claim("squeeze").is_some());
+        assert!(TURNS.claim("squeeze").is_some());
     }
 }

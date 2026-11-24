@@ -2,7 +2,7 @@ import type { PoseCorrection } from '@myriad/figure/anime25drig'
 import type { AuthoredExpressionKind, DetectedSkeleton, MeropeRigImportSource, MeropeRigManifest } from '@myriad/figure/rig'
 import { AUTHORED_EXPRESSION_KINDS, isLiveMeropeManifest, isRigManifest } from '@myriad/figure/rig'
 import { currentCopy } from '../../i18n/localeCopy'
-import { ApiError, apiService } from '../../services/api'
+import { ApiError, apiService, parseApiErrorBody } from '../../services/api'
 
 export const PREFIX = '/merope/rig'
 /** A floor only: under /api/merope/ the wait is AI_IMAGE_REQUEST_TIMEOUT_MS. */
@@ -109,6 +109,21 @@ export function meropeError(
           : fallback,
     resolvedStatus,
     payloadCode(payload),
+  )
+}
+
+/**
+ * Why a drawing the server made on its own was not kept, as its list hands it on (an error answer's body, and
+ * that answer's status): the error a request answered so throws.
+ */
+export function keptFailure(value: unknown, fallback: string): MeropeApiError | null {
+  if (!value || typeof value !== 'object') return null
+  const { status, ...body } = value as Record<string, unknown>
+  const answered = typeof status === 'number' && status > 0 ? status : 500
+  const parsed = parseApiErrorBody(body, answered)
+  return meropeError(
+    new ApiError(parsed.message, answered, parsed.code, parsed.details, parsed.hint, body),
+    fallback,
   )
 }
 
@@ -535,42 +550,54 @@ export async function generateStickerAvatar(): Promise<{
 
 export type SiteExpressionUrls = Partial<Record<AuthoredExpressionKind, string>>
 
+export interface SiteExpressions {
+  urls: SiteExpressionUrls
+  /** Being drawn now: begun by this page, before a reload, or in another tab. */
+  drawing: AuthoredExpressionKind[]
+  /** The ones whose last redraw was not kept, each with what went wrong as an error a request throws. */
+  failed: Partial<Record<AuthoredExpressionKind, MeropeApiError>>
+}
+
 /**
  * Expression redraws of the current master portrait, cut into the rig at
- * import, and the ones being drawn now (begun before a reload, or in another tab).
+ * import, the ones being drawn now, and the ones that could not be drawn.
  */
-export async function listSiteExpressions(): Promise<{ urls: SiteExpressionUrls; drawing: AuthoredExpressionKind[] }> {
+export async function listSiteExpressions(): Promise<SiteExpressions> {
   try {
-    const data = await apiService.get<{ expressions?: Record<string, unknown>; drawing?: unknown }>(
+    const data = await apiService.get<{ expressions?: Record<string, unknown>; drawing?: unknown; failed?: Record<string, unknown> }>(
       `${PREFIX}/expressions`,
     )
     const drawing = Array.isArray(data.drawing) ? data.drawing : []
+    const failed: SiteExpressions['failed'] = {}
+    for (const kind of AUTHORED_EXPRESSION_KINDS) {
+      const failure = keptFailure(data.failed?.[kind], currentCopy().merope.aiExpressionsFailed)
+      if (failure) failed[kind] = failure
+    }
     return {
       urls: readExpressionUrls(data.expressions),
       drawing: AUTHORED_EXPRESSION_KINDS.filter((kind) => drawing.includes(kind)),
+      failed,
     }
   } catch (reason) {
     throw meropeError(reason, currentCopy().merope.aiExpressionsFailed)
   }
 }
 
-export async function generateSiteExpression(
-  kind: AuthoredExpressionKind,
-): Promise<string> {
+/**
+ * Asks for one expression redraw. Resolves once the server has taken it up: it draws on its own, and the list
+ * tells when it is kept or why it was not.
+ */
+export async function startSiteExpression(kind: AuthoredExpressionKind): Promise<void> {
   try {
-    const data = await apiService.post<{ url?: unknown }>(
-      `${PREFIX}/expressions/${kind}`,
-      {},
-      { timeout: PORTRAIT_GENERATION_TIMEOUT_MS },
-    )
-    if (typeof data.url !== 'string' || !data.url.trim()) {
-      throw new MeropeApiError(currentCopy().merope.aiExpressionsFailed, 502)
-    }
-    return data.url
+    await apiService.post<unknown>(`${PREFIX}/expressions/${kind}`, {})
   } catch (reason) {
-    if (reason instanceof MeropeApiError) throw reason
     throw meropeError(reason, currentCopy().merope.aiExpressionsFailed)
   }
+}
+
+/** A redraw the server took up and then neither kept nor said why not: it was restarted meanwhile. */
+export function expressionLost(): MeropeApiError {
+  return new MeropeApiError(currentCopy().merope.aiExpressionsFailed, 502)
 }
 
 function readExpressionUrls(value: Record<string, unknown> | undefined): SiteExpressionUrls {

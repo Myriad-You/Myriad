@@ -29,8 +29,15 @@ export function useServerGeneration(pending: boolean, reread: () => Promise<void
   useEffect(() => {
     if (pending) {
       watched.current = true
-      const timer = setInterval(() => { latest.current.reread().catch(() => {}) }, WATCH_MS)
-      return () => clearInterval(timer)
+      const ask = () => { latest.current.reread().catch(() => {}) }
+      const timer = setInterval(ask, WATCH_MS)
+      // A tab left in the background has its timers slowed by the browser: asked at once when it is looked at again.
+      const looked = () => { if (document.visibilityState === 'visible') ask() }
+      document.addEventListener('visibilitychange', looked)
+      return () => {
+        clearInterval(timer)
+        document.removeEventListener('visibilitychange', looked)
+      }
     }
     if (watched.current) {
       watched.current = false

@@ -1,9 +1,14 @@
 //! 立绘的骨架识别：用 DWPose（全身 133 点：身体 17、脚 6、脸 68、双手 42）找出关节在
 //! 主立绘上的位置，给形象绑定用。模型第一次用到时从作者仓库下载，按 SHA-256 校验；
 //! 识别在一个临时子进程里做：子进程加载模型、识别一张图、交回结果后退出，模型的内存
-//! 随进程一起还给系统，后端进程从不持有模型。同一张图只识别一次，结果按图片内容缓存。
+//! 随进程一起还给系统，后端进程从不持有模型。同一张图只识别一次，结果按图片内容缓存；
+//! 不同的图可以同时识别几张（`LOOKS_AT_ONCE`）。
 
-use std::path::PathBuf;
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -67,12 +72,53 @@ pub struct Pose {
 type Runnable = std::sync::Arc<TypedRunnableModel>;
 
 /**
- * One look at a time. Each look runs in its own child process, which loads the
- * model, looks, and exits: a portrait is looked at once, on import, and an
- * allocator keeps freed memory, so the model's few hundred megabytes are never
- * held by the server between imports.
+ * A few looks at a time. Each look runs in its own child process, which loads
+ * the model, looks, and exits: an allocator keeps freed memory, so the model's
+ * few hundred megabytes are never held by the server between imports. A set's
+ * gesture arms are drawn together and come to be looked at within seconds of
+ * each other; one at a time, the last of eight waits about a minute.
+ * A child holds some 340 MB while it looks, so this many are about a gigabyte
+ * at their peak, given back as each exits. Each child is its own process on
+ * its own core: what it finds does not depend on how many look beside it.
  */
-static LOOKING: Semaphore = Semaphore::const_new(1);
+const LOOKS_AT_ONCE: usize = 3;
+static LOOKING: Semaphore = Semaphore::const_new(LOOKS_AT_ONCE);
+
+/// The images being looked at now. The same image asked about by several at
+/// once is looked at by the first; the rest wait for it and read what it kept.
+static SAME_IMAGE: Mutex<BTreeMap<String, Arc<tokio::sync::Mutex<()>>>> =
+    Mutex::new(BTreeMap::new());
+
+/// One asker's place in an image's queue, given up when it is done.
+struct SameImage {
+    key: String,
+    turn: Arc<tokio::sync::Mutex<()>>,
+}
+
+impl SameImage {
+    fn of(key: &str) -> Self {
+        let mut images = SAME_IMAGE.lock().unwrap_or_else(|error| error.into_inner());
+        Self {
+            key: key.to_string(),
+            turn: images.entry(key.to_string()).or_default().clone(),
+        }
+    }
+}
+
+impl Drop for SameImage {
+    fn drop(&mut self) {
+        let mut images = SAME_IMAGE.lock().unwrap_or_else(|error| error.into_inner());
+        // This asker's handle goes first, while the list is held: what is left
+        // is the list's own and those of the others waiting for this image.
+        drop(std::mem::take(&mut self.turn));
+        if images
+            .get(&self.key)
+            .is_some_and(|turn| Arc::strong_count(turn) == 1)
+        {
+            images.remove(&self.key);
+        }
+    }
+}
 
 /// The backend's own binary, started with this, is a one-shot pose worker.
 pub const WORKER_ARG: &str = "--merope-pose-worker";
@@ -92,7 +138,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 /// Loads the model from its file; it lives only as long as the caller keeps it.
-fn load_model(path: &std::path::Path) -> Result<Runnable, PoseError> {
+fn load_model(path: &Path) -> Result<Runnable, PoseError> {
     tract_onnx::onnx()
         .model_for_path(path)
         .and_then(|model| {
@@ -105,7 +151,13 @@ fn load_model(path: &std::path::Path) -> Result<Runnable, PoseError> {
 
 /// The model file, downloaded once and kept only if it is the pinned one.
 async fn ensure_model_file() -> Result<PathBuf, PoseError> {
+    /// Several looks may find it missing at once; one of them fetches it.
+    static FETCHING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let path = models_dir().join(MODEL_FILE);
+    if tokio::fs::try_exists(&path).await.unwrap_or(false) {
+        return Ok(path);
+    }
+    let _fetching = FETCHING.lock().await;
     if tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Ok(path);
     }
@@ -141,12 +193,32 @@ async fn ensure_model_file() -> Result<PathBuf, PoseError> {
 
 /// The figure's pose in this image, from the cache when it was seen before.
 pub async fn estimate(bytes: &[u8]) -> Result<Pose, PoseError> {
+    let look = async {
+        let path = ensure_model_file().await?;
+        look_in_child(&path, bytes).await
+    };
+    looked_once(&cache_dir(), &LOOKING, bytes, look).await
+}
+
+/// What `look` finds in this image, or what is kept in `cache` when it was
+/// seen before. No more looks run at once than `looking` has room for, and
+/// the same image is not looked at twice at once.
+async fn looked_once(
+    cache: &Path,
+    looking: &Semaphore,
+    bytes: &[u8],
+    look: impl Future<Output = Result<Pose, PoseError>>,
+) -> Result<Pose, PoseError> {
     let key = hex(&Sha256::digest(bytes));
-    let cached = cache_dir().join(format!("{key}.json"));
+    let cached = cache.join(format!("{key}.json"));
     if let Some(pose) = read_cached(&cached).await {
         return Ok(pose);
     }
-    let _looking = LOOKING
+    // Waited for before a place among the looks is taken, so the ones waiting
+    // for the same image do not hold places other images could use.
+    let same = SameImage::of(&key);
+    let _first = same.turn.lock().await;
+    let _looking = looking
         .acquire()
         .await
         .map_err(|error| PoseError::Model(error.to_string()))?;
@@ -154,9 +226,8 @@ pub async fn estimate(bytes: &[u8]) -> Result<Pose, PoseError> {
     if let Some(pose) = read_cached(&cached).await {
         return Ok(pose);
     }
-    let path = ensure_model_file().await?;
-    let pose = look_in_child(&path, bytes).await?;
-    if tokio::fs::create_dir_all(cache_dir()).await.is_ok()
+    let pose = look.await?;
+    if tokio::fs::create_dir_all(cache).await.is_ok()
         && let Ok(json) = serde_json::to_vec(&pose)
         && let Err(error) = tokio::fs::write(&cached, json).await
     {
@@ -166,7 +237,7 @@ pub async fn estimate(bytes: &[u8]) -> Result<Pose, PoseError> {
 }
 
 /// Runs one look in a child process: the image in on stdin, the pose out on stdout.
-async fn look_in_child(model: &std::path::Path, bytes: &[u8]) -> Result<Pose, PoseError> {
+async fn look_in_child(model: &Path, bytes: &[u8]) -> Result<Pose, PoseError> {
     use tokio::io::AsyncWriteExt;
 
     let program = std::env::current_exe().map_err(|error| PoseError::Model(error.to_string()))?;
@@ -219,7 +290,7 @@ pub fn worker_main() -> anyhow::Result<()> {
         .map_err(|error| PoseError::Image(error.to_string()))
         .and_then(|image| {
             let image = image.to_rgba8();
-            run(&load_model(std::path::Path::new(&model))?, &image)
+            run(&load_model(Path::new(&model))?, &image)
         });
     match looked {
         Ok(pose) => {
@@ -238,7 +309,7 @@ pub fn worker_main() -> anyhow::Result<()> {
     }
 }
 
-async fn read_cached(path: &std::path::Path) -> Option<Pose> {
+async fn read_cached(path: &Path) -> Option<Pose> {
     let saved = tokio::fs::read(path).await.ok()?;
     serde_json::from_slice::<Pose>(&saved)
         .ok()
@@ -386,6 +457,8 @@ pub fn decode(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
 
     #[test]
@@ -423,5 +496,94 @@ mod tests {
         assert_eq!(points[0], [500.0, 800.0, 0.8]);
         assert_eq!(points[1], [350.0, 600.0, 0.5]);
         assert!(decode(&x[1..], &y, frame).is_err());
+    }
+
+    fn temp_cache() -> PathBuf {
+        std::env::temp_dir().join(format!("pose-cache-test-{}", uuid::Uuid::new_v4().simple()))
+    }
+
+    fn pose_of(width: u32) -> Pose {
+        Pose {
+            model: POSE_MODEL.to_string(),
+            width,
+            height: 2,
+            keypoints: vec![[1.0, 2.0, 0.5]],
+        }
+    }
+
+    /// A stuck look fails its test instead of hanging it.
+    async fn within_a_while<T>(work: impl Future<Output = T>) -> T {
+        tokio::time::timeout(std::time::Duration::from_secs(20), work)
+            .await
+            .expect("the looks did not finish")
+    }
+
+    #[tokio::test]
+    async fn the_same_image_asked_about_at_once_is_looked_at_once() {
+        let cache = temp_cache();
+        let looking = Semaphore::new(3);
+        let image = uuid::Uuid::new_v4().simple().to_string().into_bytes();
+        let looks = &AtomicUsize::new(0);
+        // Each look takes a while, so the ones asking beside it have come by then.
+        let look = || async move {
+            looks.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+            Ok::<_, PoseError>(pose_of(7))
+        };
+        let found = within_a_while(futures::future::join_all(
+            (0..5).map(|_| looked_once(&cache, &looking, &image, look())),
+        ))
+        .await;
+        assert_eq!(looks.load(Ordering::SeqCst), 1);
+        assert!(
+            found
+                .iter()
+                .all(|pose| pose.as_ref().ok() == Some(&pose_of(7)))
+        );
+        // Kept by the image's content: asked again later, nothing looks.
+        let again = looked_once(&cache, &looking, &image, look()).await.unwrap();
+        assert_eq!((again, looks.load(Ordering::SeqCst)), (pose_of(7), 1));
+        // Nobody waits for it any more, so its queue is gone.
+        let key = hex(&Sha256::digest(&image));
+        assert!(!SAME_IMAGE.lock().unwrap().contains_key(&key));
+        let _ = tokio::fs::remove_dir_all(&cache).await;
+    }
+
+    #[tokio::test]
+    async fn different_images_are_looked_at_together_up_to_the_room_there_is() {
+        let cache = temp_cache();
+        let looking = Semaphore::new(2);
+        let (now, most) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        // A look ends only once another is looking beside it: one at a time would never finish.
+        let beside = tokio::sync::Barrier::new(2);
+        let images: Vec<Vec<u8>> = (0..4u8).map(|i| vec![i; 8]).collect();
+        let found = within_a_while(futures::future::join_all(images.iter().enumerate().map(
+            |(i, image)| {
+                let (now, most, beside) = (&now, &most, &beside);
+                looked_once(&cache, &looking, image, async move {
+                    most.fetch_max(now.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+                    beside.wait().await;
+                    now.fetch_sub(1, Ordering::SeqCst);
+                    Ok(pose_of(i as u32))
+                })
+            },
+        )))
+        .await;
+        assert_eq!(most.load(Ordering::SeqCst), 2);
+        for (i, pose) in found.into_iter().enumerate() {
+            assert_eq!(pose.unwrap(), pose_of(i as u32));
+        }
+        let _ = tokio::fs::remove_dir_all(&cache).await;
+    }
+
+    #[tokio::test]
+    async fn a_look_that_failed_keeps_nothing_and_the_next_asker_looks_again() {
+        let cache = temp_cache();
+        let looking = Semaphore::new(1);
+        let failed = looked_once(&cache, &looking, b"image", async { Err(PoseError::Empty) }).await;
+        assert!(matches!(failed, Err(PoseError::Empty)));
+        let found = looked_once(&cache, &looking, b"image", async { Ok(pose_of(3)) }).await;
+        assert_eq!(found.unwrap(), pose_of(3));
+        let _ = tokio::fs::remove_dir_all(&cache).await;
     }
 }
