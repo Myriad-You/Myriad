@@ -35,7 +35,9 @@ use serde_json::Value;
 use super::{
     Error,
     heads::{self, KeptRow},
-    inbox, logged,
+    inbox,
+    intent_store::{self, Instruction},
+    logged,
     placements::{self, Placement},
     prepare::{Author, Prepared, RowIn, prepare_all},
 };
@@ -64,6 +66,10 @@ pub(crate) struct Beside {
     /// those on a node one of hers stands on by now are left out (a
     /// stretch and upkeep may build the same node at once).
     pub unless_built: bool,
+    /// What the site keeps of the partner's instruction, with the row of its
+    /// intent: kept only if that row is, not when it was left out
+    /// ([`super::forget::resting_on_what_went`]).
+    pub instruction: Option<(String, Instruction)>,
 }
 
 impl Beside {
@@ -73,12 +79,18 @@ impl Beside {
         for placement in &mut moved.placements {
             placement.audience = audience.to_string();
         }
+        if let Some((_, instruction)) = &mut moved.instruction {
+            instruction.audience = audience.to_string();
+        }
         moved
     }
 
     /// What is hers beside the rows: it needs her pen.
     fn hers(&self) -> bool {
-        !(self.placements.is_empty() && self.inbox.is_empty() && self.taken_out.is_empty())
+        !(self.placements.is_empty()
+            && self.inbox.is_empty()
+            && self.taken_out.is_empty()
+            && self.instruction.is_none())
     }
 
     fn is_empty(&self) -> bool {
@@ -99,12 +111,21 @@ impl Beside {
             }
             placements::place(db, placement).await?;
         }
+        if let Some((row, instruction)) = &self.instruction
+            && intent_store::stands(db, user_id, row).await?
+        {
+            intent_store::keep(db, instruction).await?;
+        }
         inbox::add(db, user_id, audience, &self.inbox).await?;
         inbox::take_out(db, user_id, audience, &self.taken_out).await
     }
 }
 
-pub(super) async fn lock<C: ConnectionTrait>(db: &C, user_id: i32, audience: &str) -> Result<(), Error> {
+pub(super) async fn lock<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    audience: &str,
+) -> Result<(), Error> {
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT pg_advisory_xact_lock(hashtextextended('myriad-memory-nodes:' || $1 || ':' || $2, 0))",

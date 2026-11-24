@@ -15,6 +15,7 @@ use myriad_persona_sync::{Rev, canonical::canonical_bytes};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::{Value, json};
 
+use super::intent_tests::told as told_at;
 use super::read_tests::owned;
 use super::talk_tests::{OTHER, count, schema, talk};
 use super::{
@@ -22,6 +23,7 @@ use super::{
 };
 use crate::services::agent::memory::{forgotten, manage, origins::Gone};
 use crate::services::agent::merope::nodes::Form;
+use crate::services::channel_group::g0;
 use crate::services::her_log::{
     self, Owner, Settings, keys, pen, store, test_partner::PARTNER, test_settings,
 };
@@ -1394,4 +1396,29 @@ async fn a_span_written_again_in_the_same_words_is_not_forgotten() {
     here.sent(late, &[]).await;
     assert_eq!(left(here.db()).await, ids(&["late-marked", "on-marked"]));
     here.schema.drop().await;
+}
+
+/// What they told her for later, judged as the line it was told in is
+/// forgotten: no intent of it is written, and nothing of the instruction is
+/// kept.
+#[tokio::test]
+async fn nothing_of_an_instruction_is_kept_when_its_intent_is_left_out() {
+    let Some(schema) = schema("resting_on_instruction").await else {
+        return;
+    };
+    let db = &schema.db;
+    pen::reset_for_test();
+    let any: Vec<String> = (1..100).map(|id| id.to_string()).collect();
+    forgotten::keep(db, OTHER, forgotten::MESSAGE, &any)
+        .await
+        .unwrap();
+    let (_, judged) = told_at(db, crate::services::agent::merope::clock::now()).await;
+    g0::leave();
+    assert!(judged.taken.is_empty(), "{:?}", judged.taken);
+    assert!(left(db).await.is_empty());
+    assert_eq!(
+        count(db, "SELECT COUNT(*) AS n FROM agent_node_instructions").await,
+        0
+    );
+    schema.drop().await;
 }

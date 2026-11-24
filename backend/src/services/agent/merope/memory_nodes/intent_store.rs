@@ -262,8 +262,29 @@ impl Instruction {
     }
 }
 
+/// Whether `user_id`'s row `row` is kept and says anything: not left out as
+/// it was written, and not forgotten.
+pub(crate) async fn stands<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    row: &str,
+) -> Result<bool, Error> {
+    Ok(db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT 1 AS one FROM agent_node_rows \
+             WHERE user_id = $1 AND row_id = $2 AND body <> ''",
+            [user_id.into(), row.into()],
+        ))
+        .await?
+        .is_some())
+}
+
 /// Keeps `instruction`; one already kept is left as it is.
-pub(crate) async fn keep(db: &DatabaseConnection, instruction: &Instruction) -> Result<(), Error> {
+pub(crate) async fn keep<C: ConnectionTrait>(
+    db: &C,
+    instruction: &Instruction,
+) -> Result<(), Error> {
     let granted: Vec<&String> = instruction.given.granted.iter().collect();
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
