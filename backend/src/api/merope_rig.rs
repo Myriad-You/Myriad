@@ -66,12 +66,13 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         )
         .route(
             "/full-body/{outfit_id}/import",
-            post(full_body::import_full_body_rig).layer(DefaultBodyLimit::max(24 * 1024 * 1024)),
+            post(full_body::import_full_body_rig)
+                .layer(DefaultBodyLimit::max(import::MAX_RIG_IMPORT_BODY_BYTES)),
         )
         .route(
             "/full-body/{outfit_id}/import/preview",
             post(full_body::preview_full_body_rig)
-                .layer(DefaultBodyLimit::max(36 * 1024 * 1024)),
+                .layer(DefaultBodyLimit::max(import::MAX_RIG_IMPORT_BODY_BYTES)),
         )
         .route("/avatar", post(avatar::generate_sticker_avatar))
         .route("/arm-variants", get(arm_variants::list_arm_variants))
@@ -197,11 +198,13 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         )
         .route(
             "/import",
-            post(import::import_site_rig).layer(DefaultBodyLimit::max(24 * 1024 * 1024)),
+            post(import::import_site_rig)
+                .layer(DefaultBodyLimit::max(import::MAX_RIG_IMPORT_BODY_BYTES)),
         )
         .route(
             "/import/preview",
-            post(import::preview_site_rig).layer(DefaultBodyLimit::max(36 * 1024 * 1024)),
+            post(import::preview_site_rig)
+                .layer(DefaultBodyLimit::max(import::MAX_RIG_IMPORT_BODY_BYTES)),
         )
         .route_layer(from_fn_with_state(
             app_state.clone(),

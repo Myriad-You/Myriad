@@ -182,25 +182,63 @@ test('preflight keeps the search for moving parts the preview began', async () =
   assert.equal(none.partSearch, null)
 })
 
-test('preflight sends the imported PSD composition to one-shot vision analysis', async () => {
+test('preflight sends the imported PSD composition to one-shot vision analysis, and the atlas only when persisting', async () => {
+  const atlas = new Blob([new Uint8Array([3])], { type: 'image/png' })
   const analysisReference = new Blob([new Uint8Array([7])], {
     type: 'image/png',
   })
-  let receivedReference: Blob | undefined
-  await preflightRigAsset(file, 'master-asset', {
+  const previewed: unknown[][] = []
+  const preflight = await preflightRigAsset(file, 'master-asset', {
     prepare: async () => ({
-      atlas: new Blob(),
+      atlas,
       analysisReference,
       source: { sourceMasterAssetId: 'master-asset' } as never,
       partCount: 1,
     }),
-    preview: async (_source, _atlas, reference) => {
-      receivedReference = reference
+    preview: async (...sent) => {
+      previewed.push(sent)
       return { manifest, partSearch: null }
     },
   })
+  assert.equal(previewed.length, 1)
+  assert.equal(previewed[0].length, 2)
+  assert.equal(previewed[0][0], preflight.prepared.source)
+  assert.equal(previewed[0][1], analysisReference)
 
-  assert.equal(receivedReference, analysisReference)
+  const uploaded: unknown[][] = []
+  await persistRigAsset(preflight, async (...sent) => {
+    uploaded.push(sent)
+    return manifest
+  })
+  assert.equal(uploaded.length, 1)
+  assert.equal(uploaded[0][0], preflight.prepared.source)
+  assert.equal(uploaded[0][1], atlas)
+  assert.equal(uploaded[0][2], analysisReference)
+})
+
+test('an atlas the server could not store is turned away before the preview is asked for', async () => {
+  // Sized without the bytes: only how much the atlas weighs is looked at.
+  const atlas = { size: 20 * 1024 * 1024 + 1, type: 'image/png' } as Blob
+  let previews = 0
+  const events: RigAssetCompileEvent[] = []
+  const failed = await preflightRigAsset(file, 'master-asset', {
+    prepare: async () => ({
+      atlas,
+      analysisReference: new Blob(),
+      source: { sourceMasterAssetId: 'master-asset' } as never,
+      partCount: 1,
+    }),
+    preview: async () => {
+      previews += 1
+      return { manifest, partSearch: null }
+    },
+  }, event => events.push(event)).catch((error: unknown) => error)
+  assert.ok(failed instanceof Error)
+  assert.equal(failed.message, 'Rig atlas exceeds 20 MB')
+  assert.equal(previews, 0)
+  assert.equal(rigPreviewRetryOf(failed), undefined)
+  const last = events.at(-1)
+  assert.deepEqual([last?.stage, last?.status], ['compile-preview', 'failed'])
 })
 
 test('preflight carries analyzed playback profiles into the persisted source', async () => {
@@ -343,15 +381,15 @@ test('a failed preview is sent again without preparing the PSD a second time', a
     partCount: 9,
   }
   let prepares = 0
-  const sent: Array<[unknown, Blob, Blob]> = []
+  const sent: Array<[unknown, Blob]> = []
   const failures = [failedRequest('gateway timed out', 504), failedRequest('still unreachable', 0)]
   const dependencies = {
     prepare: async () => {
       prepares += 1
       return prepared
     },
-    preview: async (source: unknown, atlas: Blob, reference: Blob) => {
-      sent.push([source, atlas, reference])
+    preview: async (source: unknown, reference: Blob) => {
+      sent.push([source, reference])
       const failure = failures[sent.length - 1]
       if (failure) throw failure
       return { manifest, partSearch: 'd'.repeat(64) }
@@ -372,9 +410,8 @@ test('a failed preview is sent again without preparing the PSD a second time', a
   assert.equal(result.prepared, prepared)
   assert.equal(result.partSearch, 'd'.repeat(64))
   assert.equal(sent.length, 3)
-  for (const [source, atlas, reference] of sent) {
+  for (const [source, reference] of sent) {
     assert.equal(source, prepared.source)
-    assert.equal(atlas, prepared.atlas)
     assert.equal(reference, prepared.analysisReference)
   }
   assert.deepEqual(

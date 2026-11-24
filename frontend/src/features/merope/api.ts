@@ -341,13 +341,12 @@ export function fullBodyRigImport(outfitId: string) {
   return {
     preview: (
       source: MeropeRigImportSource,
-      atlas: Blob,
       analysisReference: Blob,
     ): Promise<MeropeRigPreview> =>
       submitMeropeRigImport(
         `${path}/import/preview`,
         source,
-        atlas,
+        null,
         'preview',
         analysisReference,
       ),
@@ -405,28 +404,33 @@ export async function saveFullBodyStance(outfitId: string, assetId: string, stan
 
 export async function previewMeropeRigImport(
   source: MeropeRigImportSource,
-  atlas: Blob,
   analysisReference: Blob,
 ): Promise<MeropeRigPreview> {
   return submitMeropeRigImport(
     '/import/preview',
     source,
-    atlas,
+    null,
     'preview',
     analysisReference,
   )
 }
 
+/**
+ * A preview goes without the atlas (null): the server compiles it from the
+ * size `source` declares and looks at the composite alone, so the atlas would
+ * be megabytes of upload it only checks. The import brings it, to be checked
+ * there and stored.
+ */
 async function submitMeropeRigImport(
   path: string,
   source: MeropeRigImportSource,
-  atlas: Blob,
-  action: string,
+  atlas: Blob | null,
+  action: 'preview' | 'import',
   analysisReference?: Blob,
 ): Promise<MeropeRigPreview> {
   const body = new FormData()
   body.append('source', JSON.stringify(source))
-  body.append('atlas', atlas, 'rig-atlas.png')
+  if (atlas) body.append('atlas', atlas, 'rig-atlas.png')
   if (analysisReference) {
     body.append('analysisReference', analysisReference, 'rig-analysis.png')
   }
@@ -438,7 +442,7 @@ async function submitMeropeRigImport(
   } catch (reason) {
     throw meropeError(
       reason,
-      action === 'commit'
+      action === 'import'
         ? currentCopy().merope.rigCommitFailed
         : currentCopy().merope.rigImportFailed,
     )
