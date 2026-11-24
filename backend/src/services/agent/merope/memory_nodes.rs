@@ -138,6 +138,7 @@ pub(crate) mod upkeep;
 mod upkeep_candidates;
 mod upkeep_cut_off;
 mod upkeep_not_kept;
+mod upkeep_not_told;
 pub(crate) mod write;
 
 pub(crate) use heads::minted_by_rule;

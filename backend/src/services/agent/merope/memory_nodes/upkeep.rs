@@ -40,6 +40,7 @@ use serde_json::{Value, json};
 use super::upkeep_candidates::{candidates, holding_sessions};
 pub(crate) use super::upkeep_cut_off::CUT_OFF_NAMESPACE;
 use super::upkeep_cut_off::{cut_off_key, keep_cut_off, kept_cut_off, newest_on};
+use super::upkeep_not_told::Told;
 use super::{
     Author, Error, RowIn, audience, heads, inbox, known,
     write::{Beside, write_with},
@@ -678,12 +679,11 @@ pub(crate) async fn run(
             .collect();
         // Not told what they asked her not to keep: gone over again later,
         // with nothing of this written.
-        let Some(rows) = super::upkeep_not_kept::leave_out(db, user_id, audience, rows).await
-        else {
-            match target {
-                Some(_) => continue,
-                None => break,
-            }
+        let of = (user_id, audience, target.as_deref());
+        let rows = match super::upkeep_not_told::told(db, of, &seen, rows, pen).await {
+            Told::Write(rows) => rows,
+            Told::Next => continue,
+            Told::Stop => break,
         };
         let beside = Beside {
             taken_out: read.placed.clone(),
