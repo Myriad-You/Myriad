@@ -56,7 +56,7 @@ pub fn category(row: &agent_memories::Model) -> &'static str {
             _ => "other",
         },
         Whose::Person(_) => match source {
-            "chat" | super::unified::ASKED_SOURCE => "chat",
+            "chat" | super::unified::ASKED_SOURCE | super::unified::LEFT_ALONE_SOURCE => "chat",
             "chat_note" => "note",
             "event" => "event",
             "lookup" => "lookup",
@@ -109,6 +109,9 @@ pub async fn update_any<C: ConnectionTrait>(
         })
         .filter(agent_memories::Column::InvalidAt.is_null())
         .filter(agent_memories::Column::Id.eq(id))
+        // Until when they are to be left alone is in what it rests on, not
+        // in its words: changed there, nothing would be.
+        .filter(agent_memories::Column::Source.ne(super::unified::LEFT_ALONE_SOURCE))
         .exec(db)
         .await?;
     Ok(result.rows_affected == 1)

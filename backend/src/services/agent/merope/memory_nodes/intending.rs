@@ -26,6 +26,7 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use myriad_merope::bound_end;
 use myriad_nodes::{
     body::{Action, IntentStatus, Origin, Trigger},
     entries::row_id_from,
@@ -43,11 +44,16 @@ use super::{
     intent_store::{self, Held, Instruction},
     known, write,
 };
-use crate::services::agent::merope::call::{Ask, Voice};
+use crate::services::agent::merope::{
+    call::{Ask, Voice},
+    left_alone,
+};
 use crate::services::her_log::{NODE, pen::Thought};
 
-/// How long the judgment may take.
+/// How long the judgment may take, and the second, where the first failed or
+/// its marks do not read.
 const TIMEOUT: Duration = Duration::from_secs(20);
+const AGAIN: Duration = Duration::from_secs(8);
 /// The judgment as billed, and as its schema goes out.
 pub(crate) const OPERATION: &str = "node_intents";
 /// Lines before their message sent: more than the core keeps, which cuts
@@ -125,11 +131,11 @@ async fn their_message<C: ConnectionTrait>(
     user_id: i32,
     session: &str,
     said: &str,
-) -> Result<Option<(i32, String)>, Error> {
+) -> Result<Option<(i32, String, DateTime<Utc>)>, Error> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT m.id, m.content FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+            "SELECT m.id, m.content, m.created_at FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
              WHERE m.session_id = $1 AND s.user_id = $2 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NULL AND m.role = 'user' \
              ORDER BY (m.content = $3) DESC, m.id DESC LIMIT 1",
@@ -137,7 +143,11 @@ async fn their_message<C: ConnectionTrait>(
         ))
         .await?;
     Ok(match row {
-        Some(row) => Some((row.try_get("", "id")?, row.try_get("", "content")?)),
+        Some(row) => Some((
+            row.try_get("", "id")?,
+            row.try_get("", "content")?,
+            row.try_get("", "created_at")?,
+        )),
         None => None,
     })
 }
@@ -220,7 +230,7 @@ pub(crate) async fn after_turn(
         tracing::info!("[memory-nodes] nothing judged for later: her mind is elsewhere");
         return Ok(Judged::default());
     };
-    let Some((id, said)) = their_message(db, user_id, session, said).await? else {
+    let Some((id, said, said_at)) = their_message(db, user_id, session, said).await? else {
         return Ok(Judged::default());
     };
     let audience = audience::private_talk(user_id, site_owner);
@@ -277,18 +287,41 @@ pub(crate) async fn after_turn(
         now: micros,
         zone: zone.clone(),
     })?;
-    let Ok(raw) = Ask::new(Voice::Judge, user_id, OPERATION)
-        .within(TIMEOUT)
-        .json_raw(
-            &prepared.system,
-            &prepared.input.to_string(),
-            OPERATION,
-            &prepared.schema,
-        )
-        .await
+    let Some((system, schema, mut input)) =
+        bound_end::with_marks(&prepared.system, &prepared.schema, &prepared.input)
     else {
+        return Err(Error::Refused("the core's judgment is no object".into()));
+    };
+    // What they asked already: what they change or take back of it is theirs
+    // to say, and is judged against it.
+    if let Some(known) = left_alone::known(db, user_id).await {
+        input["known"] = json!([known]);
+    }
+    let input = input.to_string();
+    let mut answer = None;
+    for within in [TIMEOUT, AGAIN] {
+        let asked = Ask::new(Voice::Judge, user_id, OPERATION)
+            .within(within)
+            .json_raw(&system, &input, OPERATION, &schema)
+            .await;
+        match asked {
+            Ok(raw) if bound_end::marks_read(&raw) => {
+                answer = Some(raw);
+                break;
+            }
+            // Read in part: as it is, unless it is read in full next.
+            Ok(raw) => answer = answer.or(Some(raw)),
+            Err(failure) if failure.retryable() => {}
+            Err(_) => break,
+        }
+    }
+    let Some(raw) = answer else {
         return Ok(Judged::default());
     };
+    let marks = left_alone::Marks::of(&raw);
+    if let Err(error) = left_alone::heed(db, user_id, id, &marks, said_at).await {
+        tracing::warn!(%error, "[memory-nodes] that they asked to be left alone is not kept");
+    }
     let read = intents::read(ReadInput {
         output: raw,
         notes: prepared.notes.clone(),

@@ -34,7 +34,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::threads;
 use crate::services::agent::speech::{
@@ -46,8 +46,6 @@ use myriad_merope::reach::{
     JUDGE_SCHEMA, Reason, Route, THINKS_BACK_DAYS, as_text, judge_schema, judge_system,
     parse_judged, reason, route, writing_first,
 };
-#[cfg(test)]
-use serde_json::Value;
 
 pub const EVENT_KEY: &str = "agent.merope.reach_out";
 /// People written to in one pass, at most.
@@ -139,7 +137,7 @@ async fn talked_lately(db: &DatabaseConnection) -> Vec<i32> {
 /// When they last said anything to her, anywhere: in private or in a group
 /// they are in with her (yesterday in the group is not "days without a
 /// word").
-async fn last_talk(db: &DatabaseConnection, user_id: i32) -> Option<DateTime<Utc>> {
+pub(super) async fn last_talk(db: &DatabaseConnection, user_id: i32) -> Option<DateTime<Utc>> {
     db.query_one_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT max(m.created_at) AS at FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
@@ -156,7 +154,7 @@ async fn last_talk(db: &DatabaseConnection, user_id: i32) -> Option<DateTime<Utc
 }
 
 /// Their recent private talk with her, oldest first, as she would read it.
-async fn recent_talk(
+pub(super) async fn recent_talk(
     db: &DatabaseConnection,
     user_id: i32,
 ) -> Vec<crate::services::agent::ConversationMessage> {
@@ -189,6 +187,10 @@ async fn first_words_as(
     // What they asked her not to keep is held to what she would bring up
     // first; until it is, nothing is.
     if !super::asked::old::done_first(db, user_id).await {
+        return None;
+    }
+    // They asked to be left alone for now: what she would bring up waits.
+    if super::left_alone::holds(db, user_id).await {
         return None;
     }
     let now = super::clock::now();
@@ -229,7 +231,7 @@ async fn first_words_as(
         return None;
     }
     let talk = recent_talk(db, user_id).await;
-    let about = would_write(db, user_id, &reason, &talk, facts(&admission)).await?;
+    let about = would_write(db, user_id, &reason, &talk, facts(&admission)).await??;
     let own = puzzle.as_ref().map(|made| made.surface.as_str());
     let last_talked = last.map(|last| myriad_merope::doing::ago_text(now - last));
     let line = compose(db, user_id, &about, own, &talk, last_talked.as_deref()).await?;
@@ -326,6 +328,15 @@ async fn reach_out(db: &DatabaseConnection, user_id: i32, _was: Route) -> bool {
     true
 }
 
+/// Why a line to say now was not said.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Unsaid {
+    /// It was refused, none came, or another went first: none was sent.
+    HeldBack,
+    /// It was sent, and no way out took it.
+    NotDelivered,
+}
+
 /// One thing to say to them now, unasked, already decided: an intent of
 /// theirs or hers come due (`memory_nodes::intents_due`). It goes out the
 /// way writing first does, without her judging whether to (that was decided
@@ -333,26 +344,28 @@ async fn reach_out(db: &DatabaseConnection, user_id: i32, _was: Route) -> bool {
 /// (do-not-disturb, its hours) still holds, and the same `thing` is said
 /// once. Her panel open is no reason to wait here: a time they asked for
 /// does not wait for the next talk, so it goes as when they are on the site
-/// elsewhere. Where it went, if anywhere.
+/// elsewhere. Where it went, or why it did not.
 pub(super) async fn say_now(
     db: &DatabaseConnection,
     user_id: i32,
     source: Source,
     thing: &str,
     about: &str,
-) -> Option<&'static str> {
+) -> Result<&'static str, Unsaid> {
     let to = speech::private(user_id);
     let mut wish = speech::wish(to.clone(), source, thing.to_string(), to);
     wish.thing = Some(thing.to_string());
     if !goes_on(&admit(db, &wish).await) {
-        return None;
+        return Err(Unsaid::HeldBack);
     }
-    let line = line_now(db, user_id, about).await?;
-    let _turn = speech::send::turn(user_id, &wish.to, speech::send::hand(source, &line)).await?;
+    let line = line_now(db, user_id, about).await;
+    let line = line.ok_or(Unsaid::HeldBack)?;
+    let turn = speech::send::turn(user_id, &wish.to, speech::send::hand(source, &line)).await;
+    let _turn = turn.ok_or(Unsaid::HeldBack)?;
     wish.text = Some(line.clone());
     if !goes_on(&admit(db, &wish).await) {
         tracing::info!(user_id, "[Merope] what came due no longer fits; not sent");
-        return None;
+        return Err(Unsaid::HeldBack);
     }
     let here = match route(
         crate::services::agent::consciousness::live_presence_panel_open(user_id),
@@ -392,7 +405,7 @@ pub(super) async fn say_now(
         }),
     )
     .await;
-    went.map(|(went, _)| went)
+    went.map(|(went, _)| went).ok_or(Unsaid::NotDelivered)
 }
 
 /// Her line about `about`, in her voice, with their recent talk in front
@@ -462,6 +475,12 @@ async fn say_first_on_app(db: &DatabaseConnection, user_id: i32, line: &str) -> 
 /// waiting for them if not; opening it opens her panel. It is one of theirs
 /// to switch off (「她想找你说话」).
 async fn notify_on_site(db: &DatabaseConnection, user_id: i32, line: &str) -> bool {
+    #[cfg(test)]
+    if let Some(sent) =
+        crate::services::channel_group::g0::with(|world| world.sendable.contains("site"))
+    {
+        return sent;
+    }
     use crate::services::agent::notification_preferences::{
         ACTION_OPEN_AGENT, NotificationEventKey,
     };
@@ -497,13 +516,15 @@ async fn notify_on_site(db: &DatabaseConnection, user_id: i32, line: &str) -> bo
     manager.notify(notification).await
 }
 
-async fn would_write(
+/// Whether she would write about `reason`, and what: None when no answer
+/// came of it, `Some(None)` when she would not.
+pub(super) async fn would_write(
     db: &DatabaseConnection,
     user_id: i32,
     reason: &Reason,
     talk: &[crate::services::agent::ConversationMessage],
     speaking: &[String],
-) -> Option<String> {
+) -> Option<Option<String>> {
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
@@ -595,7 +616,10 @@ async fn would_write(
         .json_raw(&judge_system(&soul), &input, JUDGE_SCHEMA, &judge_schema())
         .await
         .ok()?;
-    parse_judged(&raw).flatten()
+    // That she would, about nothing, is no answer.
+    let would =
+        myriad_merope::answer::parse::<Value>(&raw).is_some_and(|it| it["reach_out"] == true);
+    parse_judged(&raw).filter(|about| about.is_some() || !would)
 }
 
 /// How many games of turtle soup they have played with her, as she

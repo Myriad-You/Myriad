@@ -259,7 +259,7 @@ where
 }
 
 /// Memory sources that belong to the persona, not to Work.
-pub(crate) const PERSONA_MEMORY_SOURCES: [&str; 25] = [
+pub(crate) const PERSONA_MEMORY_SOURCES: [&str; 26] = [
     "chat",
     crate::services::agent::memory::unified::SHORT_NOTE_SOURCE,
     "event",
@@ -288,6 +288,9 @@ pub(crate) const PERSONA_MEMORY_SOURCES: [&str; 25] = [
     super::super::recognizing::SOURCE,
     // A group's own words she worked out.
     super::super::jargon::SOURCE,
+    // Who asked her to be left alone: asked of the last persona, not of the
+    // next.
+    super::super::left_alone::SOURCE,
 ];
 
 pub async fn clear_persona_on<C>(db: &C) -> Result<(), anyhow::Error>

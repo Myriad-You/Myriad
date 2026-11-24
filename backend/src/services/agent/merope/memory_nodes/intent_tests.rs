@@ -144,7 +144,7 @@ pub(super) async fn told(db: &DatabaseConnection, at: DateTime<Utc>) -> (i32, in
         take("instruction", "remind them to water the fern", "say", Some(&nine), Some("n1")),
         take("instruction", "check the weather", "work", Some(&five), None),
         take("mine", "ask how the fern is doing", "say", None, Some("n1")),
-    ], "drop": []});
+    ], "drop": [], "marks": []});
     world(&[(intending::OPERATION, &answer.to_string())], &[]);
     let judged = intending::after_turn(db, OTHER, None, SESSION, SAID, at)
         .await
@@ -341,13 +341,17 @@ async fn words_they_pass_on_and_talk_elsewhere_make_no_intent() {
     db.execute_unprepared("UPDATE agent_sessions SET context = '{\"mode\":\"chat\"}'")
         .await
         .unwrap();
-    for answer in [r#"{"take":[],"drop":[]}"#, "set a reminder"] {
+    for (answer, asks) in [
+        (r#"{"take":[],"drop":[],"marks":[]}"#, 1),
+        // Asked once more.
+        ("set a reminder", 2),
+    ] {
         world(&[(intending::OPERATION, answer)], &[]);
         let judged = intending::after_turn(db, OTHER, None, SESSION, said, now())
             .await
             .unwrap();
         assert_eq!(judged, intending::Judged::default());
-        assert_eq!(of(&log(), "model", Some(intending::OPERATION)).len(), 1);
+        assert_eq!(of(&log(), "model", Some(intending::OPERATION)).len(), asks);
     }
     assert_eq!(
         count(db, "SELECT COUNT(*) AS n FROM agent_node_rows").await,
@@ -372,7 +376,7 @@ async fn what_their_words_call_off_is_dropped() {
     world(
         &[(
             intending::OPERATION,
-            r#"{"take":[{"kind":"plan","text":"they will water it themselves","action":"say","at":null,"after":null,"afterDone":false,"note":null,"echo":null}],"drop":["t1","t9"]}"#,
+            r#"{"take":[{"kind":"plan","text":"they will water it themselves","action":"say","at":null,"after":null,"afterDone":false,"note":null,"echo":null}],"drop":["t1","t9"],"marks":[]}"#,
         )],
         &[],
     );

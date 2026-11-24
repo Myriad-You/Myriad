@@ -122,6 +122,7 @@ async fn sealed_count(db: &DatabaseConnection) -> Result<i64, sea_orm::DbErr> {
     use sea_orm::ConnectionTrait;
     let sources = crate::services::agent::merope::api::store::PERSONA_MEMORY_SOURCES
         .iter()
+        .filter(|source| **source != crate::services::agent::memory::unified::LEFT_ALONE_SOURCE)
         .map(|source| format!("'{source}'"))
         .collect::<Vec<_>>()
         .join(", ");

@@ -26,6 +26,7 @@ pub(in crate::services::agent) mod inner;
 pub(in crate::services::agent) mod joining;
 pub(in crate::services::agent) mod jargon;
 pub(in crate::services::agent) mod kept;
+pub(in crate::services::agent) mod left_alone;
 mod library;
 pub(in crate::services::agent) mod life;
 pub mod lifecycle;
