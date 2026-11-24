@@ -430,6 +430,11 @@ jobs:
         run: |
           createdb -h 127.0.0.1 -U myriad myriad_media_test
           cargo test --workspace --locked -- services::her_log services::persona_sync services::agent::link api::agent::sync --test-threads=1
+      # What she remembers and does: most of those tests skip without one too.
+      - name: Her memory and her mind against a database
+        env:
+          MYRIAD_MEDIA_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_media_test
+        run: cargo test --workspace --locked -- services::agent::merope services::agent::memory
       - name: Federation outbox and delivery lease database contracts
         env:
           MYRIAD_SCHEMA_DRIFT_DB: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift

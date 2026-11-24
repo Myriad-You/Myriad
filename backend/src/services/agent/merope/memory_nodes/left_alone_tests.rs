@@ -11,6 +11,7 @@ use super::talk_tests;
 use super::{audience, intending, intent_store, intents_due, late};
 use crate::services::agent::memory::{manage, unified};
 use crate::services::agent::merope::left_alone::{self, Standing};
+use crate::services::agent::merope::reach;
 use crate::services::agent::speech::{self, Source, admit};
 use crate::services::channel_group::g0;
 use crate::services::her_log::pen;
@@ -647,6 +648,14 @@ async fn what_waited_is_judged_again_at_once_when_it_is_over() {
     let new = tick(db, over() + Duration::hours(1), true, &[], true).await;
     assert_eq!((new.asked, new.wrote), (0, 1));
     assert_eq!(status(db, who, "那家店").await, IntentStatus::Said);
+    // Hers by name, which is held off, not what they told her to say.
+    let named = talk_tests::count(
+        db,
+        "SELECT COUNT(*) AS n FROM agent_speech_said \
+         WHERE thing LIKE 'own|%' AND thing NOT LIKE 'own|late|%'",
+    )
+    .await;
+    assert_eq!(named, 1);
     assert_eq!(waiting(db, who).await, 2);
     late::restart(who);
     // That she would, about nothing, is no answer.
@@ -679,6 +688,84 @@ async fn what_waited_is_judged_again_at_once_when_it_is_over() {
     assert_eq!((no.asked, no.wrote), (1, 0));
     assert_eq!(waiting(db, who).await, 0);
     assert_eq!(with_status(db, who, IntentStatus::Dropped).await, 2);
+    schema.drop().await;
+}
+
+/// Whether to write first is not thought of while they are to be left alone,
+/// nor taken as thought of: once it is over, it is.
+#[tokio::test]
+async fn it_is_thought_of_whether_to_write_first_only_when_it_is_over() {
+    let who = 724;
+    let Some(schema) = schema("memory_nodes_left_alone_reach", who).await else {
+        return;
+    };
+    let db = &schema.db;
+    let id = said(db, who, "x").await;
+    db.execute_unprepared("UPDATE agent_messages SET created_at = now() - interval '3 days'")
+        .await
+        .unwrap();
+    left_alone::heed(
+        db,
+        who,
+        id,
+        &marks(end(json!({"how": "hours", "count": 5}))),
+        now(),
+    )
+    .await
+    .unwrap();
+    assert!(left_alone::holds(db, who).await);
+    assert_eq!(thought_of(db, who).await, 0);
+    db.execute_unprepared("DELETE FROM agent_memories WHERE source = 'left_alone'")
+        .await
+        .unwrap();
+    assert_eq!(thought_of(db, who).await, 1);
+    schema.drop().await;
+}
+
+/// How often she was asked whether she would write to `who` first.
+async fn thought_of(db: &DatabaseConnection, who: i32) -> usize {
+    let mut world = g0::World::new(0.5);
+    world.base = crate::clock::now();
+    world
+        .models
+        .entry("reach_judge".into())
+        .or_default()
+        .push_back(Some(json!({"reach_out": false, "about": null}).to_string()));
+    g0::enter(world);
+    reach::first_words_now(db, who).await;
+    g0::leave()
+        .unwrap()
+        .log
+        .iter()
+        .filter(|line| line["what"]["operation"] == "reach_judge")
+        .count()
+}
+
+/// It cannot be told whether they are to be left alone: hers waits, unsaid
+/// and unsettled, and is said when it can be.
+#[tokio::test]
+async fn what_is_hers_waits_as_long_as_it_is_not_known_whether_it_is_over() {
+    let who = 725;
+    let Some(schema) = schema("memory_nodes_left_alone_untold", who).await else {
+        return;
+    };
+    let db = &schema.db;
+    pen::reset_for_test();
+    judged(db, who, "嗯", json!([mine("问搬家怎么样", 1)]), json!([])).await;
+    let then = crate::clock::now() + Duration::hours(2);
+    db.execute_unprepared("ALTER TABLE agent_memories RENAME COLUMN importance TO gone")
+        .await
+        .unwrap();
+    assert_eq!(left_alone::standing(db, who).await, Standing::Unknown);
+    let untold = tick(db, then, true, &[], true).await;
+    assert_eq!((untold.asked, untold.wrote), (0, 0));
+    assert_eq!(waiting(db, who).await, 1);
+    db.execute_unprepared("ALTER TABLE agent_memories RENAME COLUMN gone TO importance")
+        .await
+        .unwrap();
+    let told = tick(db, then, true, &[], true).await;
+    assert_eq!((told.asked, told.wrote), (0, 1));
+    assert_eq!(with_status(db, who, IntentStatus::Said).await, 1);
     schema.drop().await;
 }
 

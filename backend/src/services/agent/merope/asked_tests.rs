@@ -426,11 +426,15 @@ async fn only_what_they_asked_not_to_keep_goes_from_a_line() {
     assert_eq!(updates.put_onto, vec!["爬山的路线".to_string()]);
     assert_eq!(updates.asked, before.asked);
 
-    // A fact refused each time goes, and the rest stays.
+    // A fact refused each time goes, and the rest stays. Once more refused,
+    // and one told already told again.
     let mut updates = before.clone();
     let mut world = g0::World::new(0.5);
-    let mut answers = vec![Some("!refused".to_string()); 2];
-    answers.extend(vec![Some(r#"{"drop":[]}"#.to_string()); 5]);
+    let told = || Some(r#"{"drop":[]}"#.to_string());
+    let refused = || Some("!refused".to_string());
+    let mut answers = vec![refused(), refused()];
+    answers.extend((0..5).map(|_| told()));
+    answers.extend([refused(), told()]);
     world.models.insert("not_to_keep".into(), answers.into());
     g0::enter(world);
     let not_taken_back = || counts()["notTakenBack"].as_u64().unwrap();
