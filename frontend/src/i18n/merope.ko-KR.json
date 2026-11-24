@@ -498,7 +498,7 @@
   "rigEnhanceStepHeadGenerate": "고개 돌린 그림 그리기",
   "rigEnhanceStepHeadGenerateDescription": "왼쪽·오른쪽·위·아래 각 1장, 동시에 그려 약 1분",
   "rigEnhanceStepHeadDecompose": "머리 레이어 분리",
-  "rigEnhanceStepHeadDecomposeDescription": "일러스트는 그리는 동안 시작하고, 고개 돌린 4장은 동시에, 모두 약 8분",
+  "rigEnhanceStepHeadDecomposeDescription": "일러스트는 그리는 동안 시작하고, 고개 돌린 4장은 동시에, 모두 약 5분",
   "rigEnhanceStepHeadFit": "고개 회전 키 맞추기",
   "rigEnhanceStepHeadFitDescription": "Space에서 맞춤, 약 4분",
   "rigEnhanceStepStitch": "전신 이어 붙이기",

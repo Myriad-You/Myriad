@@ -498,7 +498,7 @@
   "rigEnhanceStepHeadGenerate": "畫轉頭圖",
   "rigEnhanceStepHeadGenerateDescription": "左轉、右轉、抬頭、低頭各一張，同時畫，約 1 分鐘",
   "rigEnhanceStepHeadDecompose": "頭部拆層",
-  "rigEnhanceStepHeadDecomposeDescription": "立繪在畫圖時就開始拆，4 張轉頭圖同時拆，共約 8 分鐘",
+  "rigEnhanceStepHeadDecomposeDescription": "立繪在畫圖時就開始拆，4 張轉頭圖同時拆，共約 5 分鐘",
   "rigEnhanceStepHeadFit": "擬合轉頭關鍵形",
   "rigEnhanceStepHeadFitDescription": "在 Space 上擬合，約 4 分鐘",
   "rigEnhanceStepStitch": "拼接全身",

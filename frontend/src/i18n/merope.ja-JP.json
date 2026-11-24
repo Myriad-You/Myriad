@@ -498,7 +498,7 @@
   "rigEnhanceStepHeadGenerate": "振り向き画像を描く",
   "rigEnhanceStepHeadGenerateDescription": "左・右・上・下を各 1 枚、同時に描いて約 1 分",
   "rigEnhanceStepHeadDecompose": "頭部のレイヤー分け",
-  "rigEnhanceStepHeadDecomposeDescription": "立ち絵は描画と同時に始め、振り向き 4 枚は同時に、合わせて約 8 分",
+  "rigEnhanceStepHeadDecomposeDescription": "立ち絵は描画と同時に始め、振り向き 4 枚は同時に、合わせて約 5 分",
   "rigEnhanceStepHeadFit": "振り向きキーをフィット",
   "rigEnhanceStepHeadFitDescription": "Space 上でフィット、約 4 分",
   "rigEnhanceStepStitch": "全身をつなぐ",
