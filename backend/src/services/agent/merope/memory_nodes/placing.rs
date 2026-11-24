@@ -239,7 +239,7 @@ async fn place_in(
     // with any of it; not told which, none is placed yet.
     let texts: Vec<String> = fresh.iter().map(|line| line.text.clone()).collect();
     let Ok(not_kept) =
-        crate::services::agent::merope::asked::to_leave_out(db, user_id, &texts).await
+        crate::services::agent::merope::asked::to_leave_out_or_again(db, user_id, &texts).await
     else {
         return Ok(Placed {
             nodes: used,

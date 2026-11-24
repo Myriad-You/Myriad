@@ -92,6 +92,16 @@ pub(super) fn diary_not_told() {
 /// Which of `items`, about to be kept of `user_id` now or never, to leave
 /// out. Nothing asked about when they asked nothing. An `Err` is no answer:
 /// none of the items may be written then.
+///
+/// Now or never, and nothing else: what a turn leaves with her
+/// (`inner_not_kept`), what she means to do of her own accord
+/// (`memory_nodes::intending`), a day gone over at night
+/// (`bits::not_kept::leave_out_of_a_day`), and by [`to_keep`] what a run did
+/// and taught (`work_memory`), what she wonders about (`curiosity`), their
+/// talk with another AI (`ingest::produce`), a request's line in her diary
+/// and a day's line from the night's own reading (`chat_days::keep_line`).
+/// Whatever is written another time when it is an `Err` goes by
+/// [`to_leave_out_or_again`], or what was not told of it is lost.
 pub(super) async fn to_leave_out(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
@@ -104,7 +114,9 @@ pub(super) async fn to_leave_out(
     left_out(db, user_id, &by, items).await
 }
 
-/// [`to_leave_out`], of items that come again when it is an `Err`.
+/// [`to_leave_out`], of items that come again when it is an `Err`: a line to
+/// go on her nodes (`memory_nodes::placing`), what her upkeep writes
+/// (`memory_nodes::upkeep_not_kept`), a day's line (`chat_days::write_day`).
 pub(super) async fn to_leave_out_or_again(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
