@@ -177,9 +177,9 @@ fn map_generation_error(error: ImageGenerationError) -> HttpError {
         ImageGenerationError::Provider(_) if code == "image_provider_rejected" => {
             AppError::bad_request(error.to_string())
         }
-        ImageGenerationError::Provider(_) | ImageGenerationError::InvalidResponse(_) => {
-            AppError::bad_gateway(error.to_string())
-        }
+        ImageGenerationError::Provider(_)
+        | ImageGenerationError::Unserved(_)
+        | ImageGenerationError::InvalidResponse(_) => AppError::bad_gateway(error.to_string()),
     };
     HttpError(app.with_code(code))
 }

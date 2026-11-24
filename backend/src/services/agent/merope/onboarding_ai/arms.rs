@@ -34,7 +34,7 @@ pub async fn check_arm_variant(
     )?;
     let pair = ImageReference::new(pair, "image/png")
         .map_err(|_| OnboardingAiError::UnusableResponse("the variant could not be compared"))?;
-    let raw = run_vision_call(&arm_check_prompt(side, gesture), &pair).await?;
+    let raw = run_vision_call("arm-variant-check", &arm_check_prompt(side, gesture), &pair).await?;
     parse_arm_check(&raw)
 }
 

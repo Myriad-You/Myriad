@@ -2,10 +2,14 @@
 //! 保持原样；前端导入时把改动的手臂抠成平时隐藏的一层，举手时从画面下方抬进来。
 //! 画好的图先过两道检查：姿态模型在图上找得到这只手，视觉模型认为除了这条手臂
 //! 的姿势什么都没改（袖子、护甲最容易被改掉）。不过关就重画，最多三次，仍不过
-//! 就不提供这个手势。两道检查看的是同一张图，同时做。结果按立绘归档成私有媒体，
-//! 换了立绘自然失效；手的关键点存在旁边，前端抠层时用它找到哪一块是手臂。全身
-//! 形象的手太小，在放大图上取一扇窗口画，画完超分贴回放大图（`figure`）。请求被
-//! 受理就答复，在后台画；页面读列表看哪些还在画、哪些没画成（`turns`）。
+//! 就不提供这个手势。两道检查看的是同一张图，同时做。姿态模型自己没能看（进程没
+//! 起来、卡死、模型文件缺失）不是这张图的错：对同一张图再看一次，仍不行就以「服务
+//! 暂时不可用」结束这个手势，不重画（`hand`）。生图请求没被服务商接下（连不上、
+//! 连接中途断开、不属于超时的 5xx）时隔几秒再发一次，之前画好的几张不白画。结果
+//! 按立绘归档成私有媒体，换了立绘自然失效；手的关键点存在旁边，前端抠层时用它找到
+//! 哪一块是手臂。全身形象的手太小，在放大图上取一扇窗口画，画完超分贴回放大图
+//! （`figure`）。请求被受理就答复，在后台画；页面读列表看哪些还在画、哪些没画成
+//! （`turns`）。
 
 use std::{future::Future, io::Cursor, sync::Arc};
 
@@ -19,7 +23,9 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 mod figure;
+mod hand;
 mod sheet;
+use hand::{Found, find_pose, in_portrait};
 use sheet::{figure_sheet, laid_back};
 
 use super::{
@@ -86,10 +92,6 @@ style. The sleeve keeps its exact design and moves with the arm. Clean finished 
 
 /// One drawing and its two checks, then two more tries.
 const ATTEMPTS: usize = 3;
-/// A hand point the pose model is at least this sure of.
-const HAND_SURE: f32 = 0.3;
-/// A drawn hand shows at least this many such points.
-const HAND_POINTS: usize = 5;
 
 fn arm_prompt(gesture: &str) -> Option<String> {
     GESTURES
@@ -362,8 +364,8 @@ async fn draw_arm_variant(
     keep(db, user_id, (gesture, side, portrait), png, found).await
 }
 
-/// One gesture drawn and checked, up to ATTEMPTS times: the picture (a full body's laid back on its enlarged
-/// picture) and what the pose model found on it, in that picture's pixels.
+/// One gesture drawn and checked (`tried`): the picture (a full body's laid back on its enlarged picture) and
+/// what the pose model found on it, in that picture's pixels.
 async fn drawn(
     user_id: i32,
     (gesture, side): (&'static str, &'static str),
@@ -386,37 +388,77 @@ async fn drawn(
     } else {
         reference.clone()
     };
-    let mut notes: Vec<String> = Vec::new();
-    for attempt in 1..=ATTEMPTS {
-        let generated = crate::services::ai_cost_ledger::with_site_ai_ledger(
-            user_id,
-            "merope",
-            "arm-variant",
-            image_generation::generate_image(config, &prompt, width, height, Some(&asked_on)),
-        )
+    let (prompt, asked_on) = (prompt.as_str(), &asked_on);
+    let draw = || async move {
+        // A request the provider did not take up is made once more, the place among the drawings kept
+        // meanwhile: the tries before it are paid for already.
+        let generated = image_generation::once_more_when_unserved(|| {
+            crate::services::ai_cost_ledger::with_site_ai_ledger(
+                user_id,
+                "merope",
+                "arm-variant",
+                image_generation::generate_image(config, prompt, width, height, Some(asked_on)),
+            )
+        })
         .await
         .map_err(portrait_generation_provider_error)?;
         let (bytes, _) = image_generation::load_generated_bytes(generated)
             .await
             .map_err(portrait_generation_provider_error)?;
-        let Some(png) = (if mirrored {
+        Ok::<_, super::ApiError>(if mirrored {
             flip(&bytes)
         } else {
             to_png(&bytes)
-        }) else {
-            notes.push("unreadable picture".into());
-            continue;
-        };
-        let raised = sheet.figure.is_some().then_some(side);
-        // Both checks look at this drawing and at nothing of each other's, so neither waits for the other.
-        let (original, drawing) = (reference.clone(), png.clone());
-        let check = async move {
+        })
+    };
+    let raised = sheet.figure.is_some().then_some(side);
+    let look = |drawing: Vec<u8>| async move { find_pose(&drawing, (width, height), raised).await };
+    let check = |drawing: Vec<u8>| {
+        let original = reference.clone();
+        async move {
             let variant = image_generation::ImageReference::new(drawing, "image/png")?;
             let check = onboarding_ai::check_arm_variant(&original, &variant, side, words).await;
             Ok::<_, image_generation::ImageGenerationError>(check)
+        }
+    };
+    let (png, found) = tried((gesture, side), draw, look, check).await?;
+    match &sheet.figure {
+        None => Ok((png, found)),
+        Some((window, enlarged)) => laid_back(enlarged, *window, sheet.drawn, &png, found).await,
+    }
+}
+
+/// What the vision model made of a drawing: its verdict, or why it gave none (it is unavailable, or the
+/// drawing could not be handed to it).
+type Checked = Result<
+    Result<onboarding_ai::ArmVariantCheck, onboarding_ai::OnboardingAiError>,
+    image_generation::ImageGenerationError,
+>;
+
+/// A gesture drawn by `draw` (None: a picture that cannot be read) and checked, up to ATTEMPTS times, until a
+/// drawing passes both checks: `look` finds its hand, `check` finds nothing but the arm's pose changed. A
+/// drawing that fails either is drawn again. A failure of `draw` or of `look` itself ends the gesture with
+/// that failure and nothing more is drawn or checked: neither says anything about the drawing.
+async fn tried<F, D, L, C>(
+    (gesture, side): (&str, &str),
+    mut draw: impl FnMut() -> D,
+    look: impl Fn(Vec<u8>) -> L,
+    check: impl Fn(Vec<u8>) -> C,
+) -> ApiResult<(Vec<u8>, F)>
+where
+    D: Future<Output = ApiResult<Option<Vec<u8>>>>,
+    L: Future<Output = ApiResult<Option<F>>>,
+    C: Future<Output = Checked> + Send + 'static,
+{
+    let mut notes: Vec<String> = Vec::new();
+    for attempt in 1..=ATTEMPTS {
+        let Some(png) = draw().await? else {
+            notes.push("unreadable picture".into());
+            continue;
         };
-        let look = find_pose(&png, (width, height), raised);
-        let Some((found, check)) = both_checks(look, check).await? else {
+        // Both checks look at this drawing and at nothing of each other's, so neither waits for the other.
+        let checks = both_checks(look(png.clone()), check(png.clone()));
+        let Some((found, check)) = checks.await? else {
             tracing::info!(
                 gesture,
                 side,
@@ -446,12 +488,7 @@ async fn drawn(
             // The check is a guard, not the drawing: without a vision model the drawing stands.
             Err(error) => tracing::warn!(%error, gesture, side, "arm variant check unavailable"),
         }
-        return match &sheet.figure {
-            None => Ok((png, found)),
-            Some((window, enlarged)) => {
-                laid_back(enlarged, *window, sheet.drawn, &png, found).await
-            }
-        };
+        return Ok((png, found));
     }
     Err((
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -464,14 +501,15 @@ async fn drawn(
 }
 
 /// A drawing's two checks at once. `second` is begun now and heard only once `first` has found what it looks
-/// for: when it finds nothing the drawing is drawn again without waiting, and `second` ends on its own, unheard
-/// (its call is still counted where calls are counted).
+/// for: when it finds nothing the drawing is drawn again without waiting, when it could not look the gesture
+/// ends with its failure, and either way `second` ends on its own, unheard (its call is still counted where
+/// calls are counted).
 async fn both_checks<F, S: Send + 'static>(
-    first: impl Future<Output = Option<F>>,
+    first: impl Future<Output = ApiResult<Option<F>>>,
     second: impl Future<Output = S> + Send + 'static,
 ) -> ApiResult<Option<(F, S)>> {
     let second = tokio::spawn(second);
-    let Some(found) = first.await else {
+    let Some(found) = first.await? else {
         return Ok(None);
     };
     let checked = second
@@ -549,97 +587,10 @@ fn flip(bytes: &[u8]) -> Option<Vec<u8>> {
     encode(image::load_from_memory(bytes).ok()?.fliph())
 }
 
-/// What the pose model found on a drawing, in the portrait's pixels: the
-/// points of the hand it shows most surely (the cut seeds there), and every
-/// keypoint with its score (the 3D arm is measured from them).
-struct Found {
-    hand: Vec<[f32; 2]>,
-    keypoints: Vec<[f32; 3]>,
-}
-
-/// None when no hand is drawn well enough to find.
-/// `raised` names a full body's gesturing side: both its hands are drawn, and the surer may be the hanging one
-/// (a bust's hanging hand is off the picture).
-async fn find_pose(png: &[u8], size: (u32, u32), raised: Option<&str>) -> Option<Found> {
-    let pose = match pose_estimation::estimate(png).await {
-        Ok(pose) => pose,
-        Err(error) => {
-            tracing::warn!(%error, "arm variant: the pose model could not look");
-            return None;
-        }
-    };
-    let drawn = (pose.width, pose.height);
-    Some(Found {
-        hand: match raised {
-            Some(side) => sided_hand(&pose.keypoints, side, drawn, size)?,
-            None => surest_hand(&pose.keypoints, drawn, size)?,
-        },
-        keypoints: in_portrait(&pose.keypoints, drawn, size),
-    })
-}
-
-/// Keypoints found on a drawing `drawn` large, moved onto the portrait's `size`.
-fn in_portrait(keypoints: &[[f32; 3]], drawn: (u32, u32), size: (u32, u32)) -> Vec<[f32; 3]> {
-    let scale = (
-        size.0 as f32 / drawn.0.max(1) as f32,
-        size.1 as f32 / drawn.1.max(1) as f32,
-    );
-    keypoints
-        .iter()
-        .map(|&[x, y, score]| [x * scale.0, y * scale.1, score])
-        .collect()
-}
-
-/// COCO-WholeBody's two hands are points 91–111 and 112–132.
-fn surest_hand(
-    keypoints: &[[f32; 3]],
-    drawn: (u32, u32),
-    size: (u32, u32),
-) -> Option<Vec<[f32; 2]>> {
-    let hands = [keypoints.get(91..112)?, keypoints.get(112..133)?];
-    let sure = |hand: &[[f32; 3]]| hand.iter().map(|point| point[2]).sum::<f32>();
-    let best = if sure(hands[0]) >= sure(hands[1]) {
-        hands[0]
-    } else {
-        hands[1]
-    };
-    hand_on_portrait(best, drawn, size)
-}
-
-/// The hand on the picture's `side` of a figure facing the viewer: its own right (112–132) on the left.
-fn sided_hand(
-    keypoints: &[[f32; 3]],
-    side: &str,
-    drawn: (u32, u32),
-    size: (u32, u32),
-) -> Option<Vec<[f32; 2]>> {
-    let hand = if side == "left" {
-        keypoints.get(112..133)?
-    } else {
-        keypoints.get(91..112)?
-    };
-    hand_on_portrait(hand, drawn, size)
-}
-
-fn hand_on_portrait(
-    best: &[[f32; 3]],
-    drawn: (u32, u32),
-    size: (u32, u32),
-) -> Option<Vec<[f32; 2]>> {
-    let scale = (
-        size.0 as f32 / drawn.0.max(1) as f32,
-        size.1 as f32 / drawn.1.max(1) as f32,
-    );
-    let points: Vec<[f32; 2]> = best
-        .iter()
-        .filter(|point| point[2] >= HAND_SURE)
-        .map(|point| [point[0] * scale.0, point[1] * scale.1])
-        .collect();
-    (points.len() >= HAND_POINTS).then_some(points)
-}
-
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
 
     #[test]
@@ -679,52 +630,6 @@ mod tests {
     }
 
     #[test]
-    fn the_surer_hand_is_taken_in_the_portrait_s_pixels() {
-        let mut keypoints = vec![[0.0, 0.0, 0.0]; 133];
-        for point in &mut keypoints[112..133] {
-            *point = [100.0, 50.0, 0.9];
-        }
-        for point in &mut keypoints[91..95] {
-            *point = [10.0, 10.0, 0.95];
-        }
-        let hand = surest_hand(&keypoints, (500, 500), (1000, 1000)).unwrap();
-        assert_eq!(hand.len(), 21);
-        assert_eq!(hand[0], [200.0, 100.0]);
-        // Four sure points are not a hand.
-        assert!(surest_hand(&keypoints[..112], (500, 500), (1000, 1000)).is_none());
-        let mut few = vec![[0.0, 0.0, 0.0]; 133];
-        for point in &mut few[91..95] {
-            *point = [10.0, 10.0, 0.95];
-        }
-        assert!(surest_hand(&few, (500, 500), (1000, 1000)).is_none());
-    }
-
-    #[test]
-    fn a_figure_s_gesture_hand_is_the_one_on_its_side_however_sure_the_other() {
-        let mut keypoints = vec![[0.0, 0.0, 0.0]; 133];
-        // Its own left hand, hanging on the picture's right, found surer than the raised one.
-        for point in &mut keypoints[91..112] {
-            *point = [400.0, 450.0, 0.95];
-        }
-        for point in &mut keypoints[112..133] {
-            *point = [100.0, 50.0, 0.6];
-        }
-        let left = sided_hand(&keypoints, "left", (500, 500), (1000, 1000)).unwrap();
-        assert_eq!(left[0], [200.0, 100.0]);
-        let right = sided_hand(&keypoints, "right", (500, 500), (1000, 1000)).unwrap();
-        assert_eq!(right[0], [800.0, 900.0]);
-    }
-
-    #[test]
-    fn every_keypoint_is_kept_in_the_portrait_s_pixels_with_its_score() {
-        let keypoints = vec![[100.0, 50.0, 0.9], [0.0, 400.0, 0.1]];
-        assert_eq!(
-            in_portrait(&keypoints, (500, 1000), (1000, 1000)),
-            vec![[200.0, 50.0, 0.9], [0.0, 400.0, 0.1]]
-        );
-    }
-
-    #[test]
     fn points_kept_before_the_3d_arm_are_the_hand_alone() {
         let hand = json!([[1.0, 2.0], [3.0, 4.0]]);
         assert_eq!(stored_points(hand.clone()), (hand.clone(), Value::Null));
@@ -755,7 +660,10 @@ mod tests {
     async fn the_second_check_is_begun_before_the_first_has_answered() {
         let (begun, heard) = tokio::sync::oneshot::channel::<()>();
         // The first answers only once the second has begun: one after the other, it never would.
-        let first = async move { heard.await.ok().map(|()| "hand") };
+        let first = async move {
+            let found = heard.await.ok().map(|()| "hand");
+            Ok::<_, super::super::ApiError>(found)
+        };
         let second = async move {
             let _ = begun.send(());
             "same design"
@@ -773,11 +681,71 @@ mod tests {
             let _ = held.await;
             let _ = ended.send(());
         };
-        let first = async { None::<&str> };
+        let first = async { Ok::<_, super::super::ApiError>(None::<&str>) };
         let both = within_a_while(both_checks(first, second)).await;
         assert!(matches!(both, Ok(None)));
         release.send(()).unwrap();
         // Not given up half way: its call is made and counted to its end.
         assert!(within_a_while(end).await.is_ok());
+    }
+
+    /// The vision model finding nothing but the pose changed.
+    fn passed() -> Checked {
+        Ok(Ok(onboarding_ai::ArmVariantCheck {
+            same_design: true,
+            gesture_shown: true,
+            differences: Vec::new(),
+        }))
+    }
+
+    /// A gesture tried with every drawing readable and passed by the vision model, the pose model answering
+    /// each look with `seen`: what became of it, how many drawings were made, and how many checks were begun.
+    async fn tried_seeing(
+        seen: impl Fn(usize) -> ApiResult<Option<&'static str>>,
+    ) -> (ApiResult<(Vec<u8>, &'static str)>, usize, usize) {
+        let (drawings, checks) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        let draw = || {
+            let drawing = drawings.fetch_add(1, Ordering::SeqCst) + 1;
+            async move { Ok::<_, super::super::ApiError>(Some(vec![drawing as u8])) }
+        };
+        let look = |drawing: Vec<u8>| {
+            let seen = seen(usize::from(drawing[0]));
+            async move { seen }
+        };
+        let check = |_drawing: Vec<u8>| {
+            checks.fetch_add(1, Ordering::SeqCst);
+            async { passed() }
+        };
+        let became = within_a_while(tried(("wave", "right"), draw, look, check)).await;
+        (
+            became,
+            drawings.load(Ordering::SeqCst),
+            checks.load(Ordering::SeqCst),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_pose_model_that_could_not_look_ends_the_gesture_without_another_drawing() {
+        let (became, drawings, checks) = tried_seeing(|_| Err(hand::pose_unavailable())).await;
+        let (status, Json(body)) = became.unwrap_err();
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["code"], "service_unavailable");
+        // The one drawing made, and the one check begun beside the look that failed: no other is paid for.
+        assert_eq!((drawings, checks), (1, 1));
+    }
+
+    #[tokio::test]
+    async fn a_drawing_with_no_hand_found_is_drawn_again_up_to_the_last_try() {
+        let (became, drawings, checks) = tried_seeing(|_| Ok(None)).await;
+        let (status, Json(body)) = became.unwrap_err();
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body["code"], "arm_variant_rejected");
+        assert_eq!(body["differences"], json!(vec!["no hand found"; ATTEMPTS]));
+        assert_eq!((drawings, checks), (ATTEMPTS, ATTEMPTS));
+        // The hand found on the second drawing: that one is kept, and no third is made.
+        let (became, drawings, checks) =
+            tried_seeing(|drawing| Ok((drawing == 2).then_some("hand"))).await;
+        assert_eq!(became.unwrap(), (vec![2], "hand"));
+        assert_eq!((drawings, checks), (2, 2));
     }
 }

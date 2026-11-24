@@ -70,7 +70,7 @@ holding — true when a hand holds or carries any object (a weapon, cup, book, p
 pub async fn read_portrait_framing(
     image: &ImageReference,
 ) -> Result<PortraitFraming, OnboardingAiError> {
-    let raw = run_vision_call(FRAMING_PROMPT, image).await?;
+    let raw = run_vision_call("portrait-framing", FRAMING_PROMPT, image).await?;
     parse_portrait_framing(&raw)
 }
 
@@ -137,7 +137,7 @@ pub async fn check_upright_redraw(
     )?;
     let pair = ImageReference::new(pair, "image/png")
         .map_err(|_| OnboardingAiError::UnusableResponse("the redraw could not be compared"))?;
-    let raw = run_vision_call(&upright_check_prompt(language), &pair).await?;
+    let raw = run_vision_call("upright-check", &upright_check_prompt(language), &pair).await?;
     parse_upright_check(&raw)
 }
 

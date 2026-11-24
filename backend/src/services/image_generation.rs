@@ -112,6 +112,9 @@ pub enum ImageGenerationError {
     NotConfigured(String),
     UnsupportedProvider(String),
     Provider(String),
+    /// The provider did not take the request up: no connection was made, it dropped before an answer came,
+    /// or the answer was a 5xx that is not a time-out. As far as the failure tells, nothing was drawn.
+    Unserved(String),
     InvalidResponse(String),
 }
 
@@ -120,6 +123,7 @@ impl std::fmt::Display for ImageGenerationError {
         match self {
             Self::NotConfigured(message)
             | Self::Provider(message)
+            | Self::Unserved(message)
             | Self::InvalidResponse(message) => formatter.write_str(message),
             Self::UnsupportedProvider(provider) => {
                 write!(formatter, "unsupported image provider: {provider}")
@@ -136,7 +140,9 @@ pub fn image_generation_failure_code(error: &ImageGenerationError) -> &'static s
         ImageGenerationError::NotConfigured(_) => "image_provider_unconfigured",
         ImageGenerationError::UnsupportedProvider(_) => "image_provider_unsupported",
         ImageGenerationError::InvalidResponse(_) => "image_provider_invalid_response",
-        ImageGenerationError::Provider(message) => classify_provider_message(message),
+        ImageGenerationError::Provider(message) | ImageGenerationError::Unserved(message) => {
+            classify_provider_message(message)
+        }
     }
 }
 
@@ -362,6 +368,7 @@ async fn generate_image_provider(
         .await;
     }
     let client = get_long_running_client().await;
+    let asked = std::time::Instant::now();
     let response = if config.provider == "openai" {
         if !references.is_empty() {
             let endpoint = format!("{}/images/edits", config.base_url);
@@ -397,8 +404,83 @@ async fn generate_image_provider(
             .send()
             .await
     }
-    .map_err(|error| ImageGenerationError::Provider(display_error(&error)))?;
-    read_image_api_response(response, &config.provider, width, height).await
+    .map_err(|error| {
+        let message = display_error(&error);
+        if unanswered(&error, asked.elapsed()) {
+            ImageGenerationError::Unserved(message)
+        } else {
+            ImageGenerationError::Provider(message)
+        }
+    })?;
+    let answered_after = asked.elapsed();
+    read_image_api_response(response, &config.provider, width, height)
+        .await
+        .map_err(|error| served_by(answered_after, error))
+}
+
+/// How long a request may have been out and still surely not be drawn: a picture takes far longer. A
+/// connection that drops, or a 5xx that comes, later than this may be the end of a drawing already made and
+/// charged for, and is not asked for again.
+const UNSERVED_WITHIN: Duration = Duration::from_secs(10);
+
+/// A request that failed with no answer and not for want of time: no connection was made (one that timed out
+/// being made sent nothing either), or it dropped before the provider answered, `waited` after it was sent and
+/// within UNSERVED_WITHIN. One that ran out of time waiting for its answer is not among them, nor one that
+/// dropped later: its picture may be drawn, and charged for, all the same.
+fn unanswered(error: &reqwest::Error, waited: Duration) -> bool {
+    error.is_connect() || (error.is_request() && !error.is_timeout() && waited < UNSERVED_WITHIN)
+}
+
+/// A failure of an answer that came `waited` after the request was sent: one that came too late to be
+/// `Unserved` is the provider's failure like any other.
+fn served_by(waited: Duration, error: ImageGenerationError) -> ImageGenerationError {
+    match error {
+        ImageGenerationError::Unserved(message) if waited >= UNSERVED_WITHIN => {
+            ImageGenerationError::Provider(message)
+        }
+        error => error,
+    }
+}
+
+/// What a provider's answer that is not a success fails with. A 5xx is `Unserved`, except the two that say
+/// time ran out on the way (504, and 524 of a proxy before it), and except one whose words are about credit,
+/// the key or a rate limit, which asking again does not change.
+fn http_failure(provider: &str, status: reqwest::StatusCode, body: &str) -> ImageGenerationError {
+    let message = format!(
+        "{} image API returned HTTP {status}: {body}",
+        provider_label(provider)
+    );
+    let unserved = status.is_server_error()
+        && !matches!(status.as_u16(), 504 | 524)
+        && classify_provider_message(&message) == "portrait_generation_failed";
+    if unserved {
+        ImageGenerationError::Unserved(message)
+    } else {
+        ImageGenerationError::Provider(message)
+    }
+}
+
+/// How long a request the provider did not take up waits before it is made once more.
+const UNSERVED_RETRY_WAIT: Duration = Duration::from_secs(5);
+
+/// `draw`, made once more after a short wait when the provider did not take the request up (`Unserved`), so
+/// that what was drawn and paid for before it is not thrown away over a dropped connection. Every other
+/// failure ends it at once: a time-out may be charged for already, and a refusal, a rate limit or spent credit
+/// would be answered the same way again. A second failure is the one returned.
+pub async fn once_more_when_unserved<T, F>(
+    mut draw: impl FnMut() -> F,
+) -> Result<T, ImageGenerationError>
+where
+    F: std::future::Future<Output = Result<T, ImageGenerationError>>,
+{
+    match draw().await {
+        Err(error @ ImageGenerationError::Unserved(_)) => {
+            tracing::warn!(%error, "the image provider did not take the request up; asked once more");
+            tokio::time::sleep(UNSERVED_RETRY_WAIT).await;
+            draw().await
+        }
+        answered => answered,
+    }
 }
 
 fn image_edit_form(
@@ -950,10 +1032,7 @@ async fn read_image_api_response(
     if !status.is_success() {
         let body = String::from_utf8_lossy(&bytes);
         let body: String = body.chars().take(600).collect();
-        return Err(ImageGenerationError::Provider(format!(
-            "{} image API returned HTTP {status}: {body}",
-            provider_label(provider)
-        )));
+        return Err(http_failure(provider, status, &body));
     }
     let body = decompress_provider_body(bytes, content_encoding.as_deref())?;
     if let Some(media_type) = raw_image_media_type(&body) {
@@ -1946,5 +2025,161 @@ mod tests {
         assert!(persist.contains("MediaService"));
         assert!(persist.contains("persist_ready_bytes"));
         assert!(!persist.contains("store_bytes_with_status"));
+    }
+
+    #[test]
+    fn a_5xx_is_unserved_unless_time_ran_out_or_asking_again_cannot_help() {
+        let failed = |status: u16, body: &str| {
+            let status = reqwest::StatusCode::from_u16(status).unwrap();
+            http_failure("openrouter", status, body)
+        };
+        for status in [500, 502, 503, 520] {
+            let failure = failed(status, "");
+            assert!(
+                matches!(failure, ImageGenerationError::Unserved(_)),
+                "{status}"
+            );
+        }
+        // Time ran out on the way: the picture may be drawn, and charged for.
+        for status in [504, 524] {
+            let failure = failed(status, "");
+            assert!(
+                matches!(failure, ImageGenerationError::Provider(_)),
+                "{status}"
+            );
+        }
+        // The provider answered for itself: the same request is answered the same way.
+        for status in [400, 401, 402, 403, 422, 429] {
+            let failure = failed(status, "");
+            assert!(
+                matches!(failure, ImageGenerationError::Provider(_)),
+                "{status}"
+            );
+        }
+        let spent = failed(503, "upstream quota exceeded");
+        assert!(matches!(spent, ImageGenerationError::Provider(_)));
+        // Told to the owner in the words, and under the code, of any provider failure.
+        let broken = failed(500, "boom");
+        assert_eq!(
+            broken.to_string(),
+            "OpenRouter image API returned HTTP 500 Internal Server Error: boom"
+        );
+        assert_eq!(
+            image_generation_failure_code(&broken),
+            "portrait_generation_failed"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_request_without_an_answer_is_unserved_unless_time_ran_out_waiting_for_it() {
+        // Time enough that a busy machine does not run out of it before the refusal or the drop is seen;
+        // only the request that is held is given little.
+        let failure = |address: std::net::SocketAddr, within: Duration| {
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .timeout(within)
+                .build()
+                .unwrap();
+            let asked = client.get(format!("http://{address}/")).send();
+            async move { asked.await.unwrap_err() }
+        };
+        let (soon, late) = (Duration::ZERO, UNSERVED_WITHIN);
+        let (patient, brief) = (Duration::from_secs(10), Duration::from_millis(200));
+        // Nothing listens there: no connection is made.
+        let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let closed_at = closed.local_addr().unwrap();
+        drop(closed);
+        let error = failure(closed_at, patient).await;
+        assert!(error.is_connect() && unanswered(&error, soon) && unanswered(&error, late));
+        // Taken and dropped with no answer.
+        let dropping = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let dropped_at = dropping.local_addr().unwrap();
+        let dropper = tokio::spawn(async move {
+            while let Ok((stream, _)) = dropping.accept().await {
+                drop(stream);
+            }
+        });
+        let error = failure(dropped_at, patient).await;
+        assert!(!error.is_timeout() && unanswered(&error, soon));
+        // Dropped after time enough to draw: the picture may be made.
+        assert!(!unanswered(&error, late));
+        // Taken and held: time runs out waiting for the answer, which may yet be drawn.
+        let holding = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let held_at = holding.local_addr().unwrap();
+        let holder = tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((stream, _)) = holding.accept().await {
+                held.push(stream);
+            }
+        });
+        let error = failure(held_at, brief).await;
+        assert!(error.is_timeout() && !unanswered(&error, soon));
+        dropper.abort();
+        holder.abort();
+    }
+
+    #[test]
+    fn a_failure_that_came_after_time_enough_to_draw_is_not_unserved() {
+        let unserved = || ImageGenerationError::Unserved("HTTP 502".to_string());
+        assert!(matches!(
+            served_by(UNSERVED_WITHIN - Duration::from_millis(1), unserved()),
+            ImageGenerationError::Unserved(_)
+        ));
+        let late = served_by(UNSERVED_WITHIN, unserved());
+        assert!(matches!(&late, ImageGenerationError::Provider(message) if message == "HTTP 502"));
+        // Any other failure is as it was, whenever it came.
+        assert!(matches!(
+            served_by(
+                UNSERVED_WITHIN,
+                ImageGenerationError::Provider("refused".to_string())
+            ),
+            ImageGenerationError::Provider(_)
+        ));
+    }
+
+    /// What `once_more_when_unserved` comes to over these answers, and how many of them it asked for.
+    async fn drawn_over(
+        answers: Vec<Result<u8, ImageGenerationError>>,
+    ) -> (Result<u8, ImageGenerationError>, usize) {
+        let answers = std::sync::Mutex::new(std::collections::VecDeque::from(answers));
+        let asked = std::sync::atomic::AtomicUsize::new(0);
+        let drawn = once_more_when_unserved(|| {
+            asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let answer = answers.lock().unwrap().pop_front();
+            async move { answer.expect("asked more often than there are answers") }
+        })
+        .await;
+        (drawn, asked.load(std::sync::atomic::Ordering::SeqCst))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn only_a_request_the_provider_did_not_take_up_is_made_once_more() {
+        use ImageGenerationError::{InvalidResponse, Provider, Unserved};
+        let unreached = || Unserved("error sending request: client error (Connect)".into());
+        // Drawn at once: asked once, with no wait.
+        let began = tokio::time::Instant::now();
+        assert_eq!(drawn_over(vec![Ok(7)]).await, (Ok(7), 1));
+        assert!(began.elapsed() < UNSERVED_RETRY_WAIT);
+        // Not taken up, then drawn: kept, after the wait.
+        let drawn = drawn_over(vec![Err(unreached()), Ok(7)]).await;
+        assert_eq!(drawn, (Ok(7), 2));
+        assert!(began.elapsed() >= UNSERVED_RETRY_WAIT);
+        // Not taken up twice: the second failure, and no third try.
+        let broken = http_failure("openrouter", reqwest::StatusCode::BAD_GATEWAY, "");
+        assert!(matches!(broken, Unserved(_)));
+        let drawn = drawn_over(vec![Err(unreached()), Err(broken.clone()), Ok(7)]).await;
+        assert_eq!(drawn, (Err(broken), 2));
+        // A time-out may be charged for already, and the rest would be answered the same way again.
+        for failure in [
+            Provider("error sending request: operation timed out".into()),
+            http_failure("openrouter", reqwest::StatusCode::GATEWAY_TIMEOUT, ""),
+            http_failure("openrouter", reqwest::StatusCode::BAD_REQUEST, "refused"),
+            http_failure("openrouter", reqwest::StatusCode::PAYMENT_REQUIRED, ""),
+            http_failure("openrouter", reqwest::StatusCode::TOO_MANY_REQUESTS, ""),
+            InvalidResponse("image provider returned no image".into()),
+        ] {
+            let drawn = drawn_over(vec![Err(failure.clone()), Ok(7)]).await;
+            assert_eq!(drawn, (Err(failure), 1));
+        }
     }
 }
