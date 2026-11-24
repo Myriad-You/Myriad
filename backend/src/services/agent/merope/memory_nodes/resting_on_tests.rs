@@ -649,6 +649,16 @@ impl Here {
         (row, body)
     }
 
+    /// `row`, the last of the computer's made, as another of theirs wrote it.
+    fn by_another(&mut self, row: (Row, Option<Value>), dseq: u64) -> (Row, Option<Value>) {
+        let (mut row, body) = row;
+        self.mac.count -= 1;
+        row.origin = "dev_other".into();
+        row.hlc.node = "dev_other".into();
+        row.dseq = Some(dseq);
+        (row, body)
+    }
+
     /// A node of hers here, as rows name it.
     async fn ferns(&self) -> String {
         let made = created(&self.talk, "minted:ferns", "ferns");
@@ -1491,6 +1501,75 @@ async fn a_row_of_the_sites_another_end_wrote_again_is_not_forgotten() {
     }
 }
 
+/// An intent names the row that stood as it was written. Marked since, by one
+/// end after another, or never here at all, or with a later version of its
+/// own standing: once what was written in its place is forgotten, it goes.
+/// Not while the row itself stands.
+#[tokio::test]
+async fn an_intent_on_a_row_written_again_goes_by_the_name_it_had() {
+    let Some(mut here) = here("resting_on_old_name").await else {
+        return;
+    };
+    let talk = here.talk.clone();
+    let object = here.ferns().await;
+    let node = object.trim_start_matches("node:").to_string();
+    let on = |id: &str, reference: &str| {
+        hand(
+            &node,
+            id,
+            id,
+            &format!("ask {id}"),
+            &[reference],
+            &[],
+            "waiting",
+        )
+    };
+    put(
+        here.db(),
+        OWNER,
+        &talk,
+        &[
+            entry(&talk, &node, "u1", &["record:r1"]),
+            entry(&talk, &node, "u4", &["record:r4"]),
+            on("on1", "entry:u1"),
+            on("on2", "entry:u2"),
+            on("on4", "entry:u4"),
+        ],
+    )
+    .await;
+    let mac = |here: &mut Here, id: &str, line: &str| {
+        let body = entry(&talk, &node, id, &[line]).body;
+        here.by_mac(id, &object, "node.entry", Some(body))
+    };
+    let again = vec![
+        mac(&mut here, "n-u1@mac", "message:500"),
+        mac(&mut here, "n-u2@mac", "message:501"),
+        mac(&mut here, "n-u2@mac~1", "message:500"),
+        mac(&mut here, "n-u4@mac", "message:501"),
+        here.forget("row:u1"),
+    ];
+    here.sent(again, &[]).await;
+    // Marked by another of theirs after.
+    let other = mac(&mut here, "n-n-u1@mac@other", "message:501");
+    let other = here.by_another(other, 1);
+    let gone = here.forget("row:n-u1@mac");
+    let gone = here.by_another(gone, 2);
+    here.sent(vec![other, gone], &[]).await;
+    assert_eq!(left(here.db()).await, ids(&["on1", "on2", "on4"]));
+    let txn = here.db().begin().await.unwrap();
+    forget::forget(&txn, &[], &[501]).await.unwrap();
+    txn.commit().await.unwrap();
+    assert_eq!(left(here.db()).await, ids(&["on4"]));
+    let late = here.intent(
+        &node,
+        "late",
+        intent_body("late", "ask late", &["entry:u1"], &[], "waiting"),
+    );
+    here.sent(vec![late], &[]).await;
+    assert_eq!(left(here.db()).await, ids(&["on4"]));
+    here.schema.drop().await;
+}
+
 /// A span of the Mac's forgotten here while the Mac marked it: the forget
 /// here is not the Mac's, so what rests on the span goes, what comes late too.
 #[tokio::test]
@@ -1498,7 +1577,6 @@ async fn a_span_forgotten_here_as_its_end_marked_it_takes_what_rests_on_it() {
     let Some(mut here) = here("resting_on_both").await else {
         return;
     };
-    let talk = here.talk.clone();
     let object = here.ferns().await;
     let node = object.trim_start_matches("node:").to_string();
     let told = vec![
@@ -1537,16 +1615,10 @@ async fn a_forget_is_taken_for_what_the_end_that_wrote_it_kept() {
     };
     let object = here.ferns().await;
     let node = object.trim_start_matches("node:").to_string();
-    let mut other = here.said("p-1@other", &object, "they watered it");
-    other.0.origin = "dev_other".into();
-    other.0.hlc.node = "dev_other".into();
-    other.0.dseq = Some(1);
-    here.mac.count -= 1;
-    let mut version = here.said("p-1@other~1", &object, "they watered it");
-    version.0.origin = "dev_other".into();
-    version.0.hlc.node = "dev_other".into();
-    version.0.dseq = Some(2);
-    here.mac.count -= 1;
+    let other = here.said("p-1@other", &object, "they watered it");
+    let other = here.by_another(other, 1);
+    let version = here.said("p-1@other~1", &object, "they watered it");
+    let version = here.by_another(version, 2);
     let told = vec![
         other,
         version,

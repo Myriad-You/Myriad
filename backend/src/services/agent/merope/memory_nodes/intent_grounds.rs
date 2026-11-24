@@ -61,20 +61,22 @@ pub(super) struct Gone {
 }
 
 impl Gone {
-    /// The spans and entries among the rows `going` of `kept`, and those
-    /// forgotten before that they were written in place of.
+    /// The spans and entries among the rows `going` of `kept`, and those they
+    /// were written in place of ([`pieces_due::replaced`]).
     pub(super) fn of(kept: &[heads::KeptRow], going: &BTreeSet<String>) -> Self {
-        let pieces = |of: &dyn Fn(&Row) -> bool| -> BTreeSet<String> {
-            kept.iter()
-                .filter(|kept| is_piece(&kept.row.kind) && of(&kept.row))
-                .map(|kept| kept.row.id.clone())
-                .collect()
+        let pieces: BTreeSet<String> = kept
+            .iter()
+            .filter(|kept| going.contains(&kept.row.id) && is_piece(&kept.row.kind))
+            .map(|kept| kept.row.id.clone())
+            .collect();
+        let stands = |id: &str| {
+            !going.contains(id)
+                && kept
+                    .iter()
+                    .any(|kept| kept.row.id == id && !kept.row.forgotten)
         };
         Self {
-            pieces: pieces_due::replaced(
-                pieces(&|row| going.contains(&row.id)),
-                &pieces(&|row| row.forgotten),
-            ),
+            pieces: pieces_due::replaced(pieces, stands),
             ..Self::default()
         }
     }
@@ -396,7 +398,6 @@ impl Round {
                 .map(str::to_string),
         );
         looking.extend(pieces_due::among(db, user_id, &all).await?);
-        let looking = pieces_due::replaced(looking, &all);
         let late = Late::of(&kept, came);
         if looking.is_empty() && late.named.is_empty() {
             return Ok(Vec::new());

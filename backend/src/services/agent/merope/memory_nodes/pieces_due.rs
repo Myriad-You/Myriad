@@ -60,28 +60,47 @@ fn is_version(at: &str, id: &str) -> bool {
             .any(|place| at.strip_prefix(place) == Some(id))
 }
 
-/// `pieces`, and those of `forgotten` they were written in place of, however
-/// far back.
+/// The versions of its slot before `id`'s, the latest [`BEFORE`] and the
+/// first.
+fn versions_before(id: &str) -> Vec<String> {
+    let Some((first, n)) = id
+        .rsplit_once('~')
+        .filter(|_| slot(id).is_some())
+        .and_then(|(first, n)| Some((first, n.parse::<u32>().ok()?)))
+    else {
+        return Vec::new();
+    };
+    let later = (1..n).rev().take(BEFORE).map(|n| format!("{first}~{n}"));
+    later.chain([first.to_string()]).collect()
+}
+
+/// How many versions before one are looked back at.
+const BEFORE: usize = 64;
+
+/// `pieces`, gone, and those they were written in place of, however far back
+/// (an earlier version of the slot; a slot of `p-<row>` or `n-<row>`), here or
+/// not: an intent names the one that stood as it was written. Not one that
+/// still `stands`.
 pub(super) fn replaced(
     mut pieces: BTreeSet<String>,
-    forgotten: &BTreeSet<String>,
+    stands: impl Fn(&str) -> bool,
 ) -> BTreeSet<String> {
-    loop {
-        let more: Vec<String> = forgotten
+    let mut left: Vec<String> = pieces.iter().cloned().collect();
+    while let Some(piece) = left.pop() {
+        let Some(at) = slot(&piece) else { continue };
+        let rows = ["p-", "n-"]
             .iter()
-            .filter(|id| !pieces.contains(*id))
-            .filter(|id| {
-                pieces
-                    .iter()
-                    .any(|piece| slot(piece).is_some_and(|at| is_version(at, id)))
-            })
-            .cloned()
-            .collect();
-        if more.is_empty() {
-            return pieces;
+            .filter_map(|place| at.strip_prefix(place))
+            .filter(|row| !row.is_empty())
+            .map(str::to_string)
+            .chain(versions_before(&piece));
+        for row in rows {
+            if !stands(&row) && pieces.insert(row.clone()) {
+                left.push(row);
+            }
         }
-        pieces.extend(more);
     }
+    pieces
 }
 
 /// Whether grounds name the piece `id` (its row or its slot).
@@ -103,6 +122,8 @@ pub(super) struct Due<'a> {
     forgets: BTreeMap<String, Vec<(String, u64, String)>>,
     /// The pieces that stand: whose, in which slot, of which kind.
     standing: BTreeSet<(String, String, String)>,
+    /// Their rows.
+    whole: BTreeSet<String>,
 }
 
 impl<'a> Due<'a> {
@@ -117,6 +138,7 @@ impl<'a> Due<'a> {
         let mut forgets: BTreeMap<String, Vec<(String, u64, String)>> = BTreeMap::new();
         // One whose body has not come yet is in the log alone.
         let mut standing = BTreeSet::new();
+        let mut whole = BTreeSet::new();
         let place = |row: &Row| {
             slot(&row.id).map(|slot| (row.origin.clone(), slot.to_string(), row.kind.clone()))
         };
@@ -134,6 +156,7 @@ impl<'a> Due<'a> {
                 .map_err(|_| Error::Refused("a row of her log does not read".into()))?;
             if row.kind != "forget" {
                 standing.extend(place(&row));
+                whole.insert(row.id);
             } else if let Some(dseq) = row.dseq {
                 forgets.entry(row.object.clone()).or_default().push((
                     row.origin.clone(),
@@ -146,6 +169,7 @@ impl<'a> Due<'a> {
             let row = &kept.row;
             if !row.forgotten && matches!(row.kind.as_str(), "node.span" | "node.entry") {
                 standing.extend(place(row));
+                whole.insert(row.id.clone());
             }
         }
         Ok(Self {
@@ -154,6 +178,7 @@ impl<'a> Due<'a> {
             held,
             forgets,
             standing,
+            whole,
         })
     }
 
@@ -189,6 +214,9 @@ impl<'a> Due<'a> {
                 sorted.written_again.insert(id.clone());
             }
         }
+        sorted.gone = replaced(sorted.gone, |id| self.whole.contains(id));
+        sorted.due.retain(|id| !sorted.gone.contains(id));
+        sorted.written_again.retain(|id| !sorted.gone.contains(id));
         sorted
     }
 }
