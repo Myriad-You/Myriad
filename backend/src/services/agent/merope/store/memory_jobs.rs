@@ -692,6 +692,7 @@ pub(in crate::services::agent) use forgetting::forget_holding;
 
 #[path = "memory_jobs_asked.rs"]
 mod asked;
+pub(crate) use asked::Own;
 use asked::{judge_lines, judge_old};
 
 #[path = "memory_jobs_hurry.rs"]

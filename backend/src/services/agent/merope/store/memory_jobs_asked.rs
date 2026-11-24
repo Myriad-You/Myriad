@@ -76,7 +76,67 @@ pub(super) async fn judge_old(
             venue.as_deref().unwrap_or("private"),
             &asked.to_rfc3339(),
         ]);
-        enqueue_in(tx, &id, owner, Payload::AskedOver { asked, venue }, None).await?;
+        let data = Payload::AskedOver {
+            asked,
+            venue,
+            stays: Vec::new(),
+        };
+        enqueue_in(tx, &id, owner, data, None).await?;
     }
     Ok(())
+}
+
+/// A job as it was taken up, under which what comes of it is written: only
+/// while it is its own still.
+#[derive(Clone, Copy)]
+pub(crate) struct Own<'a>(&'a Claim);
+
+impl<'a> Own<'a> {
+    pub(in crate::services::agent::merope) fn of(claim: &'a Claim) -> Self {
+        Self(claim)
+    }
+
+    /// The job as it is now, while it is its own. On a transaction that
+    /// holds [`lock`].
+    async fn job(&self, tx: &sea_orm::DatabaseTransaction) -> anyhow::Result<Option<Job>> {
+        let now = now(tx).await?;
+        Ok(registry::get::<Job>(tx, self.0.job.namespace(), &self.0.id)
+            .await?
+            .filter(|job| job.token.is_some() && job.token == self.0.job.token && job.lease > now))
+    }
+
+    /// Of what it holds to what they asked, `told` (each as it is known
+    /// there) stays: not asked about again on another try.
+    pub(in crate::services::agent::merope) async fn stays(
+        &self,
+        db: &DatabaseConnection,
+        told: Vec<String>,
+    ) -> anyhow::Result<()> {
+        if told.is_empty() {
+            return Ok(());
+        }
+        let tx = db.begin().await?;
+        lock(&tx).await?;
+        let Some(mut job) = self.job(&tx).await? else {
+            return Ok(());
+        };
+        let Some(Payload::AskedOver { stays, .. }) = &mut job.data else {
+            return Ok(());
+        };
+        stays.extend(told);
+        stays.sort_unstable();
+        stays.dedup();
+        let now = now(&tx).await?;
+        save(&tx, &self.0.id, &job, now).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// What was told so on the tries before.
+    pub(in crate::services::agent::merope) fn stayed(&self) -> &'a [String] {
+        match &self.0.job.data {
+            Some(Payload::AskedOver { stays, .. }) => stays,
+            _ => &[],
+        }
+    }
 }

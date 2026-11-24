@@ -360,6 +360,7 @@ async fn what_is_refused_again_waits_an_hour() {
     let data = Payload::AskedOver {
         venue: None,
         asked: crate::clock::now().fixed_offset(),
+        stays: Vec::new(),
     };
     enqueue(db, "over", 7, data, None).await.unwrap();
     use call::Failure::{Refused, Rejected};
@@ -574,6 +575,7 @@ async fn one_of_each(db: &DatabaseConnection) -> chrono::DateTime<chrono::FixedO
             Payload::AskedOver {
                 asked: at,
                 venue: None,
+                stays: Vec::new(),
             },
         ),
         (

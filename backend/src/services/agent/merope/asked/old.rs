@@ -25,11 +25,12 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, T
 
 use crate::models::entities::agent_memories;
 use crate::services::agent::memory::unified::{self, Audience};
-use crate::services::agent::merope::memory_jobs::Failure;
+use crate::services::agent::merope::memory_jobs::{self, Failure};
 use crate::services::agent::merope::memory_nodes::{
     home_intents, intent_store, take_back_check, write,
 };
 use crate::services::agent::merope::on_mind::OnMind;
+use crate::services::agent::merope::store::memory_jobs::Own;
 use crate::services::agent::merope::{bits, chat_days, on_mind, sore, store, threads};
 
 pub(super) static CLOSED: AtomicU64 = AtomicU64::new(0);
@@ -60,6 +61,66 @@ enum Old {
     Intent(String),
 }
 
+impl Old {
+    /// What it is known by, saying `text` ([`mark`]).
+    fn mark(&self, text: &str) -> String {
+        match self {
+            Self::Row(row) => mark(&["", &row.source, text]),
+            Self::Before(row, keys) => mark(&["", &row.source, &keys.join(" "), text]),
+            Self::OnMind(_) => mark(&["", "on_mind", text]),
+            Self::Intent(_) => mark(&["", "intent", text]),
+        }
+    }
+}
+
+/// What one thing she held is known by on its job: what it says, where it was
+/// held, and as whom it is judged; none of it in words.
+fn mark(of: &[&str]) -> String {
+    let mut mark = memory_jobs::key(of);
+    mark.truncate(16);
+    mark
+}
+
+/// `held` but for what was told to stay on a try before, and what each of
+/// the rest is known by.
+fn not_told_to_stay<T>(
+    own: Option<Own<'_>>,
+    held: &mut Vec<T>,
+    mark: impl Fn(&T) -> String,
+) -> Vec<String> {
+    let stayed = own.map_or(&[][..], |own| own.stayed());
+    let mut marks = Vec::new();
+    held.retain(|one| {
+        let mark = mark(one);
+        let asks = !stayed.contains(&mark);
+        if asks {
+            marks.push(mark);
+        }
+        asks
+    });
+    marks
+}
+
+/// Of `marks`, those told to stay are noted, before any of the others is
+/// closed.
+async fn stay(
+    db: &DatabaseConnection,
+    own: Option<Own<'_>>,
+    marks: Vec<String>,
+    told: &super::Told,
+) -> Result<(), Failure> {
+    let Some(own) = own else {
+        return Ok(());
+    };
+    let stays = marks
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| !told.out.contains(index) && !told.untold.contains(index))
+        .map(|(_, mark)| mark)
+        .collect();
+    own.stays(db, stays).await.map_err(|_| Failure::Storage)
+}
+
 /// What she keeps of `user_id` in private from `source`, newest first.
 async fn of_theirs(
     db: &DatabaseConnection,
@@ -77,13 +138,15 @@ async fn of_theirs(
 /// told or closed now, to be tried again; what was closed stays closed. Told
 /// by `until`, or not; with `gives_up`, what is not told is let be. On its
 /// `nth` try, the `nth` part is asked about first: what is not reached in
-/// the time of one try is in another's.
+/// the time of one try is in another's, and what was told to stay is not
+/// asked about again (noted on `own`, the job it is of).
 pub(in crate::services::agent::merope) async fn let_go(
     db: &DatabaseConnection,
     user_id: i32,
     until: Instant,
     gives_up: bool,
     nth: usize,
+    own: Option<Own<'_>>,
 ) -> Result<(), Failure> {
     let storage = |_| Failure::Storage;
     let mut held: Vec<(Old, String)> = Vec::new();
@@ -120,8 +183,10 @@ pub(in crate::services::agent::merope) async fn let_go(
         }
         held.extend(rows.into_iter().map(self::row));
     }
+    let marks = not_told_to_stay(own, &mut held, |(old, text)| old.mark(text));
     let texts: Vec<String> = held.iter().map(|(_, text)| text.clone()).collect();
     let told = judged(db, user_id, None, &texts, until, nth).await;
+    stay(db, own, marks, &told).await?;
     let of_it = &told.out;
     CLOSED.fetch_add(of_it.len() as u64, Ordering::Relaxed);
     let mut closed = Vec::new();
@@ -194,6 +259,7 @@ pub(in crate::services::agent::merope) async fn let_go_in(
     until: Instant,
     gives_up: bool,
     nth: usize,
+    own: Option<Own<'_>>,
 ) -> Result<(), Failure> {
     if !talks_in(db, user_id, venue)
         .await
@@ -227,8 +293,12 @@ pub(in crate::services::agent::merope) async fn let_go_in(
             (row, text)
         }));
     }
+    let marks = not_told_to_stay(own, &mut held, |(row, text)| {
+        mark(&[name, &row.source, text])
+    });
     let texts: Vec<String> = held.iter().map(|(_, text)| text.clone()).collect();
     let told = judged(db, user_id, Some(name), &texts, until, nth).await;
+    stay(db, own, marks, &told).await?;
     let of_it = &told.out;
     CLOSED.fetch_add(of_it.len() as u64, Ordering::Relaxed);
     let rows: Vec<agent_memories::Model> = held

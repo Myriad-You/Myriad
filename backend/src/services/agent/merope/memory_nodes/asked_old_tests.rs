@@ -48,6 +48,7 @@ async fn waits(db: &DatabaseConnection) {
         Payload::AskedOver {
             asked: crate::clock::now().fixed_offset(),
             venue: None,
+            stays: Vec::new(),
         },
         None,
     )
@@ -137,7 +138,7 @@ async fn what_is_of_it_is_closed_and_what_they_told_her_to_do_stays() {
     assert_eq!(waiting_texts(db).await.len(), 5);
     // The threads, the sore spot, her mind, her own intent, in that order.
     judging(&[Some(r#"{"drop":[0,2,3,4]}"#)], &[]);
-    assert!(old::let_go(db, OTHER, soon(), false, 0).await.is_ok());
+    assert!(old::let_go(db, OTHER, soon(), false, 0, None).await.is_ok());
     let (judged, _) = seen();
     assert_eq!(judged.len(), 1, "{judged:?}");
     for shown in [
@@ -206,7 +207,11 @@ async fn unjudged_nothing_is_closed_and_only_what_they_told_her_is_said() {
 
     waits(db).await;
     judging(&[None; 12], &["the fern!"]);
-    assert!(old::let_go(db, OTHER, soon(), false, 0).await.is_err());
+    assert!(
+        old::let_go(db, OTHER, soon(), false, 0, None)
+            .await
+            .is_err()
+    );
     assert!(!old::done_first(db, OTHER).await);
     intents_due::tick_at(db, later).await;
     let (_, said) = seen();
@@ -224,7 +229,7 @@ async fn unjudged_nothing_is_closed_and_only_what_they_told_her_is_said() {
 
     // Judged and none of it what they asked: done with, and said.
     judging(&[Some(r#"{"drop":[]}"#)], &[]);
-    assert!(old::let_go(db, OTHER, soon(), false, 0).await.is_ok());
+    assert!(old::let_go(db, OTHER, soon(), false, 0, None).await.is_ok());
     assert_eq!(seen().0.len(), 1);
     db.execute_unprepared("DELETE FROM runtime_registry WHERE record_id = 'asked_over'")
         .await
@@ -305,7 +310,11 @@ async fn what_cannot_be_told_stays_and_what_is_told_goes() {
     ] {
         for gives_up in [false, true] {
             judging(&[answer; 9], &[]);
-            assert!(old::let_go(db, OTHER, soon(), gives_up, 0).await.is_err());
+            assert!(
+                old::let_go(db, OTHER, soon(), gives_up, 0, None)
+                    .await
+                    .is_err()
+            );
             g0::leave();
             assert_eq!(made(db, &sources).await.len(), 2, "{answer:?}");
         }
@@ -318,7 +327,11 @@ async fn what_cannot_be_told_stays_and_what_is_told_goes() {
             .insert("not_to_keep".into(), [1_000.0; 3].into());
         g0::enter(world);
         let in_time = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        assert!(old::let_go(db, OTHER, in_time, gives_up, 0).await.is_err());
+        assert!(
+            old::let_go(db, OTHER, in_time, gives_up, 0, None)
+                .await
+                .is_err()
+        );
         g0::leave();
         assert_eq!(made(db, &sources).await.len(), 2);
     }
@@ -326,11 +339,15 @@ async fn what_cannot_be_told_stays_and_what_is_told_goes() {
     // tried again; tried long enough, let be as it is, and counted.
     let no = Some("不好说");
     judging(&[no; 9], &[]);
-    assert!(old::let_go(db, OTHER, soon(), false, 0).await.is_err());
+    assert!(
+        old::let_go(db, OTHER, soon(), false, 0, None)
+            .await
+            .is_err()
+    );
     g0::leave();
     let before = counts();
     judging(&[no; 9], &[]);
-    assert!(old::let_go(db, OTHER, soon(), true, 0).await.is_ok());
+    assert!(old::let_go(db, OTHER, soon(), true, 0, None).await.is_ok());
     g0::leave();
     assert!(counts() >= before + 2);
     assert_eq!(made(db, &sources).await.len(), 2);
@@ -341,13 +358,21 @@ async fn what_cannot_be_told_stays_and_what_is_told_goes() {
         .insert("not_to_keep".into(), vec![Some("{}".to_string()); 9].into());
     world.cut_off.insert("not_to_keep".into(), 9);
     g0::enter(world);
-    assert!(old::let_go(db, OTHER, soon(), false, 0).await.is_err());
+    assert!(
+        old::let_go(db, OTHER, soon(), false, 0, None)
+            .await
+            .is_err()
+    );
     g0::leave();
     assert_eq!(made(db, &sources).await.len(), 2);
     // Both together never told; then the first told to go, the second never.
     let goes = Some(r#"{"drop":[0]}"#);
     judging(&[no, no, no, goes, goes, no, no, no], &[]);
-    assert!(old::let_go(db, OTHER, soon(), false, 0).await.is_err());
+    assert!(
+        old::let_go(db, OTHER, soon(), false, 0, None)
+            .await
+            .is_err()
+    );
     g0::leave();
     assert_eq!(made(db, &sources).await, ["话太多"]);
     schema.drop().await;
@@ -362,9 +387,18 @@ fn counts() -> u64 {
 /// The judge answering `answers`, one an ask, over what she held of them:
 /// whether it is done, and what each ask was of.
 async fn over(db: &DatabaseConnection, answers: &[Option<String>]) -> (bool, Vec<Vec<String>>) {
+    over_of(db, answers, None).await
+}
+
+/// [`over`], of a job.
+async fn over_of(
+    db: &DatabaseConnection,
+    answers: &[Option<String>],
+    own: Option<store::memory_jobs::Own<'_>>,
+) -> (bool, Vec<Vec<String>>) {
     let answers: Vec<Option<&str>> = answers.iter().map(Option::as_deref).collect();
     judging(&answers, &[]);
-    let done = old::let_go(db, OTHER, soon(), false, 0).await.is_ok();
+    let done = old::let_go(db, OTHER, soon(), false, 0, own).await.is_ok();
     let asked = seen()
         .0
         .iter()
@@ -463,7 +497,9 @@ async fn only_what_is_of_it_of_what_she_made_of_them_before_goes() {
     let was = r#"{"before":"总跟房东过不去的人","first":{"us":"半夜来聊天的人","at":"2026-09-01T00:00:00+08:00"}}"#;
     makes(db, &[(bits::US_SOURCE, "一起爬山的人", Some(was))]).await;
     judging(&[Some(r#"{"drop":[0]}"#)], &[]);
-    old::let_go(db, OTHER, soon(), false, 0).await.unwrap();
+    old::let_go(db, OTHER, soon(), false, 0, None)
+        .await
+        .unwrap();
     let asked: serde_json::Value = serde_json::from_str(&seen().0[0]).unwrap();
     assert_eq!(asked["items"][0]["text"], "总跟房东过不去的人");
     let us = bits::us(db, OTHER).await.unwrap();
@@ -471,7 +507,9 @@ async fn only_what_is_of_it_of_what_she_made_of_them_before_goes() {
     assert_eq!(us.first.unwrap().0, "半夜来聊天的人");
     // Gone over again, only the rest is asked about.
     judging(&[Some(r#"{"drop":[]}"#)], &[]);
-    old::let_go(db, OTHER, soon(), false, 0).await.unwrap();
+    old::let_go(db, OTHER, soon(), false, 0, None)
+        .await
+        .unwrap();
     let asked: serde_json::Value = serde_json::from_str(&seen().0[0]).unwrap();
     assert_eq!(asked["items"].as_array().unwrap().len(), 2);
     schema.drop().await;
@@ -516,6 +554,7 @@ async fn what_she_would_come_back_to_in_a_group_is_held_to_it() {
     let data = Payload::AskedOver {
         asked: crate::clock::now().fixed_offset(),
         venue: Some("qq:42".into()),
+        stays: Vec::new(),
     };
     store::memory_jobs::enqueue(db, "asked_in", OTHER, data, None)
         .await
@@ -532,7 +571,7 @@ async fn what_she_would_come_back_to_in_a_group_is_held_to_it() {
     // Another of the group asked nothing: nothing is asked of them.
     judging(&[], &[]);
     assert!(
-        old::let_go_in(db, 1, "qq:42", soon(), false, 0)
+        old::let_go_in(db, 1, "qq:42", soon(), false, 0, None)
             .await
             .is_ok()
     );
@@ -546,7 +585,7 @@ async fn what_she_would_come_back_to_in_a_group_is_held_to_it() {
         .unwrap();
         judging(&[Some(r#"{"drop":[0,1]}"#); 2], &[]);
         assert!(
-            old::let_go_in(db, user_id, venue, soon(), false, 0)
+            old::let_go_in(db, user_id, venue, soon(), false, 0, None)
                 .await
                 .is_ok()
         );
@@ -556,7 +595,7 @@ async fn what_she_would_come_back_to_in_a_group_is_held_to_it() {
     let drop = format!(r#"{{"drop":[{of_it}]}}"#);
     judging(&[Some(&drop)], &[]);
     assert!(
-        old::let_go_in(db, OTHER, "qq:42", soon(), false, 0)
+        old::let_go_in(db, OTHER, "qq:42", soon(), false, 0, None)
             .await
             .is_ok()
     );
@@ -593,3 +632,6 @@ async fn what_she_takes_up_herself_is_not_kept_unless_judged_and_theirs_is() {
     );
     schema.drop().await;
 }
+
+#[path = "asked_old_stays_tests.rs"]
+mod stays;
