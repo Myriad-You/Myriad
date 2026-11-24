@@ -1280,20 +1280,32 @@ async fn vector(
             beyond: &beyond,
         });
         let asked: BTreeSet<String> = ask.iter().cloned().collect();
+        // It lacks nothing counted above, has no gap and asks for nothing
+        // again: nothing goes to it, so none of the rows is read for it.
+        // What is kept from here on goes with its next log.vector: it is
+        // told of it as it is kept (`wrote` for the site's own and a file's,
+        // `rows` for another end's).
+        let nothing = ask.is_empty() && beyond.is_empty() && store::lacks_none(&ours, theirs);
+        #[cfg(test)]
+        let nothing = nothing && !store::READ_ALWAYS.with(std::cell::Cell::get);
         #[cfg(test)]
         crate::services::agent::link::held::wait(device, "a page of log.vector").await;
-        let (mut sent, took, of) = store::send_page(
-            db,
-            root,
-            owner,
-            audience,
-            theirs,
-            ask,
-            to,
-            session.peer_abi,
-            paging,
-        )
-        .await?;
+        let (mut sent, took, of) = if nothing {
+            (Default::default(), store::Took::default(), None)
+        } else {
+            store::send_page(
+                db,
+                root,
+                owner,
+                audience,
+                theirs,
+                ask,
+                to,
+                session.peer_abi,
+                paging,
+            )
+            .await?
+        };
         // The page is of what the log held as it was read, after the count
         // above: said with it, or the side would send the rows kept in
         // between back.

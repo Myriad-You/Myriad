@@ -47,7 +47,7 @@ mod gone_tests;
 mod bodies_tests;
 
 /// What the server holds of an audience, counted by the database: what the
-/// rows say.
+/// rows say, and when a side lacks none of it.
 #[path = "holdings_tests.rs"]
 mod holdings_tests;
 

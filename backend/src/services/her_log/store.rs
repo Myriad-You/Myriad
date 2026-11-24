@@ -62,12 +62,23 @@ pub(super) fn rows_of(results: Vec<QueryResult>) -> Result<Vec<Row>, Error> {
         .collect()
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How often an audience's rows were read whole, in a test.
+    pub(super) static READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// The rows are read for every log.vector, as before a side that lacks
+    /// none was told from its count, in a test.
+    pub(super) static READ_ALWAYS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// Every row of `user`'s `audience`.
 pub async fn rows<C: ConnectionTrait>(
     db: &C,
     user: i32,
     audience: &str,
 ) -> Result<Vec<Row>, Error> {
+    #[cfg(test)]
+    READS.with(|reads| reads.set(reads.get() + 1));
     rows_of(
         db.query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -131,6 +142,22 @@ pub async fn holdings<C: ConnectionTrait>(
         }
     }
     Ok(held)
+}
+
+/// Whether a side holding `theirs` lacks nothing `held` counts: then
+/// `vector::answer` gives it no row, and there is nothing of the rows to
+/// read for it. Its rows are those past its count, by origin.
+pub fn lacks_none(held: &Holdings, theirs: &Vector) -> bool {
+    let last = |origin: &String| {
+        (held.beyond.get(origin))
+            .and_then(|past| past.last())
+            .or_else(|| held.vector.get(origin))
+            .copied()
+            .unwrap_or_default()
+    };
+    (held.vector.keys())
+        .chain(held.beyond.keys())
+        .all(|origin| last(origin) <= theirs.get(origin).copied().unwrap_or_default())
 }
 
 /// The ledger of `user`'s `audience`, as the core gave it.
