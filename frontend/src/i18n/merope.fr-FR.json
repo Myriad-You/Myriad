@@ -468,7 +468,7 @@
   "rigModeEnhancedHint": "Amélioré par des dessins générés : chaque partie se choisit ; seul ce qui est coché est généré.",
   "rigModeEnhancedFullBodyHint": "See-through agrandit puis sépare par tuiles (environ 10 minutes) ; seul ce qui est coché est généré.",
   "rigEnhanceTurn": "Rotation à 30°",
-  "rigEnhanceTurnHint": "Dessine 4 images tournées, sépare 5 fois avec le portrait et ajuste les clés de rotation ; environ 15 minutes.",
+  "rigEnhanceTurnHint": "Dessine 4 images tournées, sépare 5 fois avec le portrait et ajuste les clés de rotation ; environ 10 minutes.",
   "rigEnhanceTurnFullBodyHint": "Dessine 4 images de la tête tournée, sépare 5 fois et ajuste les clés de rotation ; environ 15 minutes.",
   "rigEnhanceBody": "Rotation du corps",
   "rigEnhanceBodyHint": "Dessine la rotation une fois de chaque côté, sépare 2 fois et ajuste les clés ; le transfert du poids est confié aux os. En même temps que la tête, environ 5 minutes.",

@@ -468,7 +468,7 @@
   "rigModeEnhancedHint": "생성한 그림으로 강화합니다. 항목별로 고를 수 있고, 고른 것만 생성합니다.",
   "rigModeEnhancedFullBodyHint": "See-through로 먼저 확대해 나눠서 분리하고(약 10분), 체크한 것만 생성합니다.",
   "rigEnhanceTurn": "30° 고개 돌림",
-  "rigEnhanceTurnHint": "고개 돌린 그림 4장을 생성하고 초상화와 함께 5번 분리해 키폼을 맞춥니다. 약 15분.",
+  "rigEnhanceTurnHint": "고개 돌린 그림 4장을 생성하고 초상화와 함께 5번 분리해 키폼을 맞춥니다. 약 10분.",
   "rigEnhanceTurnFullBodyHint": "머리를 돌린 그림 4장을 생성하고 5번 분리해 키폼을 맞춥니다. 약 15분.",
   "rigEnhanceBody": "몸 돌리기",
   "rigEnhanceBodyHint": "몸 돌리기를 좌우 1장씩 그리고 2번 분리해 키폼을 맞춥니다. 무게 중심 이동은 뼈대가 맡아 생성하지 않습니다. 머리와 함께 진행되며 약 5분.",

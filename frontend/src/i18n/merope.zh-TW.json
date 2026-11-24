@@ -468,7 +468,7 @@
   "rigModeEnhancedHint": "用生成的圖增強：可分別勾選，勾選的部分才生成。",
   "rigModeEnhancedFullBodyHint": "用 See-through 先放大並分塊拆層（約 10 分鐘），再按勾選生成；勾選的部分才生成。",
   "rigEnhanceTurn": "30° 轉頭",
-  "rigEnhanceTurnHint": "生成 4 張轉頭圖，連立繪拆 5 次層，擬合出轉頭關鍵形，約 15 分鐘。",
+  "rigEnhanceTurnHint": "生成 4 張轉頭圖，連立繪拆 5 次層，擬合出轉頭關鍵形，約 10 分鐘。",
   "rigEnhanceTurnFullBodyHint": "頭部生成 4 張轉頭圖，拆 5 次層，擬合出轉頭關鍵形，約 15 分鐘。",
   "rigEnhanceBody": "身體轉身",
   "rigEnhanceBodyHint": "身體畫左右轉身各 1 張，拆 2 次層，擬合出轉身關鍵形；重心轉移由骨骼來做，不再生成。和頭部同時進行，約 5 分鐘。",

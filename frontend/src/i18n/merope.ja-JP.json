@@ -468,7 +468,7 @@
   "rigModeEnhancedHint": "生成した画像で強化します。項目ごとに選べ、選んだものだけ生成します。",
   "rigModeEnhancedFullBodyHint": "See-through でまず拡大して分割分解し（約 10 分）、チェックしたものだけを生成します。",
   "rigEnhanceTurn": "30° の振り向き",
-  "rigEnhanceTurnHint": "振り向き画像を 4 枚生成し、立ち絵と合わせて 5 回分解してキーフォームを合わせます。約 15 分。",
+  "rigEnhanceTurnHint": "振り向き画像を 4 枚生成し、立ち絵と合わせて 5 回分解してキーフォームを合わせます。約 10 分。",
   "rigEnhanceTurnFullBodyHint": "頭の振り向き画像を 4 枚生成し、5 回分解してキーフォームを合わせます。約 15 分。",
   "rigEnhanceBody": "体の向き",
   "rigEnhanceBodyHint": "体の向きを左右 1 枚ずつ描き、2 回分解してキーフォームを合わせます。重心移動はボーンが担うので生成しません。頭と同時に進み、約 5 分。",

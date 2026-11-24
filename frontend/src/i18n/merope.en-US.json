@@ -468,7 +468,7 @@
   "rigModeEnhancedHint": "Enhanced with generated drawings: choose each part; only what is ticked is generated.",
   "rigModeEnhancedFullBodyHint": "See-through first enlarges and splits it in tiles (about 10 minutes); only what is ticked is generated.",
   "rigEnhanceTurn": "30° turn",
-  "rigEnhanceTurnHint": "Draws 4 turned pictures, splits 5 times with the portrait and fits turn keys; about 15 minutes.",
+  "rigEnhanceTurnHint": "Draws 4 turned pictures, splits 5 times with the portrait and fits turn keys; about 10 minutes.",
   "rigEnhanceTurnFullBodyHint": "Draws 4 turned pictures of the head, splits 5 times and fits turn keys; about 15 minutes.",
   "rigEnhanceBody": "Body turn",
   "rigEnhanceBodyHint": "Draws the turn once each way, splits twice and fits the keys; the bones do the weight shift, so none is drawn for it. Runs with the head, about 5 minutes.",
