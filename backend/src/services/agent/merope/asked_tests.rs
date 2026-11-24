@@ -124,7 +124,7 @@ async fn what_they_asked_is_judged_only_of_them_and_only_when_they_asked() {
 
 /// What she already holds, in more than one part: what a part was told
 /// stands whatever comes of the next, one refused is asked about one by one,
-/// and once all of a part is refused, the next is not.
+/// and once all of a part is refused, the next is not till any is answered.
 #[tokio::test]
 async fn each_part_stands_whatever_comes_of_the_next() {
     let Some(schema) = asked_in("asked_parts").await else {
@@ -132,7 +132,7 @@ async fn each_part_stands_whatever_comes_of_the_next() {
     };
     let db = &schema.db;
     let many: Vec<String> = (0..ITEMS_PER_ASK + 2).map(|n| format!("第{n}件")).collect();
-    let judging = async |answers: Vec<&str>| {
+    let judging_of = async |many: &[String], answers: Vec<&str>| {
         let mut world = g0::World::new(0.5);
         world.models.insert(
             "not_to_keep".into(),
@@ -140,11 +140,12 @@ async fn each_part_stands_whatever_comes_of_the_next() {
         );
         g0::enter(world);
         let soon = Instant::now() + Duration::from_secs(60);
-        let told = told_of(db, THEM, None, &many, soon).await;
+        let told = told_of(db, THEM, None, many, soon).await;
         let log = g0::leave().unwrap().log;
         let asks = log.iter().filter(|entry| entry["kind"] == "model").count();
         (told, asks)
     };
+    let judging = async |answers: Vec<&str>| judging_of(&many, answers).await;
     let (none, one) = (r#"{"drop":[]}"#, r#"{"drop":[0]}"#);
     let rest: BTreeSet<usize> = (ITEMS_PER_ASK..ITEMS_PER_ASK + 2).collect();
     // The second not to be reached.
@@ -159,6 +160,21 @@ async fn each_part_stands_whatever_comes_of_the_next() {
     assert_eq!(told.out, [0, ITEMS_PER_ASK + 1].into());
     assert_eq!(told.untold, [ITEMS_PER_ASK - 1].into());
     assert!(told.failure.unwrap().untold());
+    // Nothing answered yet, all of the next refused: one by one too once
+    // something is.
+    let three: Vec<String> = (0..=2 * ITEMS_PER_ASK)
+        .map(|n| format!("第{n}件"))
+        .collect();
+    let mut answers = vec!["!refused"; ITEMS_PER_ASK + 2];
+    answers.push(none);
+    answers.extend([one, one, "!refused"]);
+    answers.extend(vec![none; ITEMS_PER_ASK - 2]);
+    let (told, asks) = judging_of(&three, answers).await;
+    assert_eq!(asks, 2 * ITEMS_PER_ASK + 4);
+    assert_eq!(told.out, [ITEMS_PER_ASK].into());
+    let mut untold: BTreeSet<usize> = (0..ITEMS_PER_ASK).collect();
+    untold.insert(ITEMS_PER_ASK + 1);
+    assert_eq!(told.untold, untold);
     // All of it refused.
     let (told, asks) = judging(vec!["!refused"; 2 * many.len()]).await;
     assert_eq!((told.out.len(), told.untold.len()), (0, many.len()));

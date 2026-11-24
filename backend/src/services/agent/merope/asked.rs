@@ -10,6 +10,7 @@
 
 pub(super) mod lines;
 pub(super) mod old;
+mod round;
 pub(super) mod unread;
 
 use std::collections::BTreeSet;
@@ -20,7 +21,7 @@ use myriad_merope::chat_remember::Asked;
 use myriad_merope::not_to_keep::{
     NOT_ASKED_SCHEMA_NAME, NOT_TO_KEEP_SCHEMA_NAME, not_asked_input, not_asked_schema,
     not_asked_system, not_to_keep_input, not_to_keep_schema, not_to_keep_system, parse_not_asked,
-    parse_not_to_keep, parts,
+    parse_not_to_keep,
 };
 
 use super::call::{Ask, Failure as CallFailure, Voice};
@@ -148,17 +149,20 @@ async fn told_apart(
     by: &By<'_>,
     items: &[String],
 ) -> Result<Told, Failure> {
-    let mut told = told_by(db, user_id, by, items).await;
-    let of = items.iter().filter(|item| !item.trim().is_empty()).count();
-    match told.failure.take() {
-        Some(failure) if !failure.untold() || told.untold.len() >= of => {
-            return Err(told.shown.map_or(failure, Failure::from));
-        }
-        Some(_) => {
-            NOT_WRITTEN.fetch_add(told.untold.len() as u64, Ordering::Relaxed);
-        }
-        None => {}
+    let asked = what_they_asked(db, user_id, by).await?;
+    if items.is_empty() || asked.is_empty() {
+        return Ok(Told::default());
     }
+    let mut round = round::Round::of(user_id, &asked, by, items);
+    round.gone_over().await;
+    let failed = round.failed();
+    let lets_go = failed.is_none_or(CallFailure::of_what_was_shown) && round.any_told();
+    let mut told = round.told();
+    if let Some(failure) = failed.filter(|_| !lets_go) {
+        return Err(told.shown.unwrap_or(failure).into());
+    }
+    told.failure = None;
+    NOT_WRITTEN.fetch_add(told.untold.len() as u64, Ordering::Relaxed);
     Ok(told)
 }
 
@@ -218,11 +222,6 @@ struct Unanswered {
 }
 
 impl Told {
-    fn not_told(&mut self, places: &[usize], failure: CallFailure) {
-        self.untold.extend(places);
-        self.failure = Some(failure.into());
-    }
-
     /// How an ask ended, noted.
     fn unanswered(&mut self, unanswered: Unanswered) -> CallFailure {
         self.shown = self.shown.or(unanswered.shown);
@@ -272,69 +271,20 @@ async fn told_by(
     by: &By<'_>,
     items: &[String],
 ) -> Told {
-    let mut told = Told::default();
     let asked = match what_they_asked(db, user_id, by).await {
-        Ok(asked) if items.is_empty() || asked.is_empty() => return told,
+        Ok(asked) if items.is_empty() || asked.is_empty() => return Told::default(),
         Ok(asked) => asked,
         Err(failure) => {
-            told.untold = (0..items.len()).collect();
-            told.failure = Some(failure);
-            return told;
+            return Told {
+                untold: (0..items.len()).collect(),
+                failure: Some(failure),
+                ..Told::default()
+            };
         }
     };
-    let (places, items) = saying_something(items);
-    // All of a part refused, one by one too, and nothing answered yet: it may
-    // be who asks, and the rest are not asked about so.
-    let (mut apart, mut answers) = (false, false);
-    'all: for part in parts(&items) {
-        let first = part.start;
-        let failure = match judged(user_id, &asked, by, &items[part.clone()]).await {
-            Ok(drop) => {
-                answers = true;
-                told.out
-                    .extend(drop.into_iter().map(|index| places[first + index]));
-                continue;
-            }
-            Err(unanswered) => told.unanswered(unanswered),
-        };
-        if !failure.of_what_was_shown() {
-            told.not_told(&places[first..], failure);
-            break;
-        }
-        if part.len() == 1 || (apart && !answers) {
-            told.not_told(&places[part], failure);
-            continue;
-        }
-        apart = true;
-        for index in part {
-            let one = std::slice::from_ref(&items[index]);
-            let failure = match judged(user_id, &asked, by, one).await {
-                Ok(drop) => {
-                    answers = true;
-                    told.out.extend((!drop.is_empty()).then_some(places[index]));
-                    continue;
-                }
-                Err(unanswered) => told.unanswered(unanswered),
-            };
-            if !failure.of_what_was_shown() {
-                told.not_told(&places[index..], failure);
-                break 'all;
-            }
-            answers |= failure != CallFailure::Refused;
-            told.not_told(&places[index..=index], failure);
-        }
-    }
-    LEFT_OUT.fetch_add(told.out.len() as u64, Ordering::Relaxed);
-    UNANSWERED.fetch_add(told.untold.len() as u64, Ordering::Relaxed);
-    if !told.untold.is_empty() {
-        tracing::warn!(
-            user_id,
-            untold = told.untold.len(),
-            of = items.len(),
-            "[Merope] what not to keep could not be told of all of it"
-        );
-    }
-    told
+    let mut round = round::Round::of(user_id, &asked, by, items);
+    round.gone_over().await;
+    round.told()
 }
 
 /// Whether `user_id` asked her not to keep anything; as though they had when
