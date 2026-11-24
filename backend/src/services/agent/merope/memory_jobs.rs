@@ -317,6 +317,14 @@ impl Failure {
         }
     }
 
+    /// As what was shown alone, whatever else could not be asked about.
+    pub(super) fn of_what_was_shown(self) -> Self {
+        match self {
+            Self::Unreached { shown, .. } => Self::Model(shown),
+            failure => failure,
+        }
+    }
+
     /// Refused for what it was shown: so until that is another.
     pub(super) fn refused(&self) -> bool {
         matches!(

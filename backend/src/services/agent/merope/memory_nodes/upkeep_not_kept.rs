@@ -60,7 +60,7 @@ pub(super) async fn leave_out(
         .iter()
         .filter_map(|row| Some((row.id.clone(), words(row)?)))
         .unzip();
-    let out = super::super::asked::to_leave_out_or_again(db, user_id, &items).await?;
+    let out = super::super::asked::to_leave_out_or_why(db, user_id, &items).await?;
     let mut out: BTreeSet<String> = out.into_iter().map(|index| ids[index].clone()).collect();
     if out.is_empty() {
         return Ok(rows);

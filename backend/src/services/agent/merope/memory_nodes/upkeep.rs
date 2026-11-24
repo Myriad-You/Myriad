@@ -40,7 +40,7 @@ use serde_json::{Value, json};
 use super::upkeep_candidates::{candidates, holding_sessions};
 pub(crate) use super::upkeep_cut_off::CUT_OFF_NAMESPACE;
 use super::upkeep_cut_off::{cut_off_key, keep_cut_off, kept_cut_off, newest_on};
-use super::upkeep_not_told::Told;
+use super::upkeep_not_told::{Told, not_told_last, told};
 use super::{
     Author, Error, RowIn, audience, heads, inbox, known,
     write::{Beside, write_with},
@@ -552,11 +552,12 @@ pub(crate) async fn run(
         crate::services::agent::alive::still_going(DRIVER);
         let mut target = None;
         let mut cut_before = None;
-        let due_nodes: Vec<String> = due
+        let mut due_nodes: Vec<String> = due
             .iter()
             .filter(|due| due.audience == audience && !gone.contains(&due.node))
             .map(|due| due.node.clone())
             .collect();
+        not_told_last(db, user_id, audience, &mut due_nodes).await;
         for node in due_nodes {
             let seen = newest_on(&rows, &node);
             let (kept, waits) = kept_cut_off(db, user_id, audience, Some(&node), &seen).await;
@@ -679,8 +680,7 @@ pub(crate) async fn run(
             .collect();
         // Not told what they asked her not to keep: gone over again later,
         // with nothing of this written.
-        let of = (user_id, audience, target.as_deref());
-        let rows = match super::upkeep_not_told::told(db, of, &seen, rows, pen).await {
+        let rows = match told(db, (user_id, audience, target.as_deref()), &seen, rows, pen).await {
             Told::Write(rows) => rows,
             Told::Next => continue,
             Told::Stop => break,

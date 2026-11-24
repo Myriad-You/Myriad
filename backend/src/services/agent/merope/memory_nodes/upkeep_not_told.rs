@@ -1,11 +1,12 @@
 //! An upkeep whose writing could not be held to what they asked her not to
-//! keep (`upkeep_not_kept`). None of it is written. Not to be asked about
-//! now, the talk is gone over no more that night: each of its nodes would be
-//! paid for and not told either. For what it says, it is noted which node
-//! (ids only, and when first): tried again each night, and, given up on as
-//! anything never told is (`memory_jobs::GIVES_UP_AFTER_SECS`), with nothing
-//! new on it meanwhile and other judgments answered, the node is marked gone
-//! over with nothing of it written, till there is something new.
+//! keep (`upkeep_not_kept`). None of it is written, and it is noted which
+//! node it was of (ids only, and when). Not to be asked about now, the talk
+//! is gone over no more that night: each of its nodes would be paid for and
+//! not told either; the next night that node comes last, for it may be what
+//! it says. For what it says, it is tried again each night and, given up on
+//! as anything never told is (`memory_jobs::GIVES_UP_AFTER_SECS`), with
+//! nothing new on it meanwhile and other judgments answered, the node is
+//! marked gone over with nothing of it written, till there is something new.
 
 use sea_orm::DatabaseConnection;
 use serde_json::json;
@@ -24,6 +25,8 @@ use crate::services::runtime_registry as registry;
 pub(super) const NAMESPACE: &str = "merope_memory_node_upkeep_not_told";
 /// How long it is kept at all after it was last tried.
 const KEPT: i64 = 7 * 86_400;
+/// Not told for what it says no more often than this, it is counted anew.
+const LAPSES: i64 = 2 * 86_400;
 /// The mark of a node given up on.
 const NOT_TOLD: &str = "not_told";
 
@@ -32,8 +35,35 @@ const NOT_TOLD: &str = "not_told";
 pub(super) struct NotTold {
     /// The id of what was newest on it then.
     seen: String,
-    /// Since when, Unix seconds.
-    pub(super) since: i64,
+    /// When it was last tried, Unix seconds.
+    tried: i64,
+    /// Since when, and when last, it was not told for what it says.
+    untold: Option<(i64, i64)>,
+}
+
+impl NotTold {
+    /// Not told once more `now`, for what it says or (`says`) not.
+    fn again(kept: Option<Self>, seen: &str, says: bool, now: i64) -> Self {
+        let untold = kept
+            .filter(|kept| kept.seen == seen)
+            .and_then(|kept| kept.untold)
+            .filter(|(_, last)| now - last <= LAPSES);
+        Self {
+            seen: seen.to_string(),
+            tried: now,
+            untold: match says {
+                true => Some((untold.map_or(now, |(since, _)| since), now)),
+                false => untold,
+            },
+        }
+    }
+
+    /// Whether it is given up on.
+    fn gives_up(&self, now: i64) -> bool {
+        self.untold.is_some_and(|(since, _)| {
+            now - since >= GIVES_UP_AFTER_SECS && call::judged_since(since)
+        })
+    }
 }
 
 /// What an upkeep's rows came to.
@@ -67,7 +97,7 @@ pub(super) async fn told(
     let key = key(user_id, audience, node);
     let kept = match registry::get::<NotTold>(db, NAMESPACE, &key).await {
         Ok(kept) => kept,
-        // Unread, it is as though never noted: tried as ever.
+        // Unread, it is as though never noted.
         Err(error) => {
             tracing::warn!(%error, "[memory-nodes] what upkeep was not told of could not be read");
             None
@@ -82,19 +112,9 @@ pub(super) async fn told(
         }
         Err(failure) => failure,
     };
-    if !failure.untold() {
-        tracing::info!(%failure, "[memory-nodes] upkeep could not be told of: no more of this talk now");
-        return Told::Stop;
-    }
     let now = crate::clock::now().timestamp();
-    let not_told = match kept {
-        Some(kept) if kept.seen == seen => kept,
-        _ => NotTold {
-            seen: seen.to_string(),
-            since: now,
-        },
-    };
-    if now - not_told.since >= GIVES_UP_AFTER_SECS && call::judged_since(not_told.since) {
+    let not_told = NotTold::again(kept, seen, failure.counted().is_some(), now);
+    if failure.untold() && not_told.gives_up(now) {
         let mut mark = mark;
         mark.body["fallback"] = json!(NOT_TOLD);
         if let Some(body) = mark.body.as_object_mut() {
@@ -117,7 +137,28 @@ pub(super) async fn told(
     }
     keep(db, user_id, &key, &not_told, now).await;
     tracing::info!(%failure, "[memory-nodes] upkeep could not be told of: asked again later");
-    Told::Next
+    if failure.untold() {
+        Told::Next
+    } else {
+        Told::Stop
+    }
+}
+
+/// `nodes` due in `user_id`'s `audience`, those not told of last, the longest
+/// ago first.
+pub(super) async fn not_told_last(
+    db: &DatabaseConnection,
+    user_id: i32,
+    audience: &str,
+    nodes: &mut Vec<String>,
+) {
+    let mut by = Vec::new();
+    for node in nodes.drain(..) {
+        let kept = registry::get::<NotTold>(db, NAMESPACE, &key(user_id, audience, &node)).await;
+        by.push((kept.ok().flatten().map(|kept| kept.tried), node));
+    }
+    by.sort_by_key(|(tried, _)| *tried);
+    nodes.extend(by.into_iter().map(|(_, node)| node));
 }
 
 async fn keep(db: &DatabaseConnection, user_id: i32, key: &str, not_told: &NotTold, now: i64) {

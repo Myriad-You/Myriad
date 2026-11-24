@@ -117,13 +117,25 @@ pub(super) async fn to_leave_out(
         only_now: true,
         ..By::default()
     };
-    left_out(db, user_id, &by, items).await
+    (left_out(db, user_id, &by, items).await).map_err(Failure::of_what_was_shown)
 }
 
 /// [`to_leave_out`], of items that come again when it is an `Err`: a line to
-/// go on her nodes (`memory_nodes::placing`), what her upkeep writes
-/// (`memory_nodes::upkeep_not_kept`), a day's line (`chat_days::write_day`).
+/// go on her nodes (`memory_nodes::placing`), a day's line
+/// (`chat_days::write_day`).
 pub(super) async fn to_leave_out_or_again(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    items: &[String],
+) -> Result<BTreeSet<usize>, Failure> {
+    let out = to_leave_out_or_why(db, user_id, items).await;
+    out.map_err(Failure::of_what_was_shown)
+}
+
+/// [`to_leave_out_or_again`], of what her upkeep writes
+/// (`memory_nodes::upkeep_not_kept`): an `Err` says too whether all of it
+/// could be asked about (`Failure::Unreached`).
+pub(super) async fn to_leave_out_or_why(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
     items: &[String],
@@ -145,7 +157,7 @@ pub(super) async fn to_leave_out_of(
         until: Some(until),
         ..By::default()
     };
-    left_out(db, user_id, &by, items).await
+    (left_out(db, user_id, &by, items).await).map_err(Failure::of_what_was_shown)
 }
 
 /// What items are judged by, beside what is kept of it.
@@ -177,7 +189,8 @@ async fn left_out(
 /// were, is not kept (it is what it says, not who asks; counted). An `Err`:
 /// none of them told, or one that could not be asked about, or no answer to
 /// what was asked last ([`round::Round::once_more`]) of items that come again;
-/// by what was shown, when any failed so, for that is given up on in the end.
+/// with what was shown and failed so, when any did
+/// ([`Failure::of_what_was_shown`]), for that is given up on in the end.
 async fn told_apart(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
@@ -197,7 +210,13 @@ async fn told_apart(
     }
     let mut told = round.told();
     if let Some(failure) = failed {
-        return Err(told.shown.unwrap_or(failure).into());
+        return Err(match told.shown {
+            Some(shown) if !failure.of_what_was_shown() => Failure::Unreached {
+                last: failure,
+                shown,
+            },
+            shown => shown.unwrap_or(failure).into(),
+        });
     }
     told.failure = None;
     NOT_WRITTEN.fetch_add(told.untold.len() as u64, Ordering::Relaxed);
@@ -539,7 +558,8 @@ pub(super) async fn leave_out_of(
         until,
         ..By::default()
     };
-    let told = told_apart(db, user_id, &by, &items).await?;
+    let told = told_apart(db, user_id, &by, &items).await;
+    let told = told.map_err(Failure::of_what_was_shown)?;
     let untold = (told.untold.iter()).any(|&index| matches!(at[index], At::Fact(_)));
     let drop = told.out.into_iter().chain(told.untold);
     let (mut said, mut put_onto) = (BTreeSet::new(), BTreeSet::new());
