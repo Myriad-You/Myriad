@@ -315,12 +315,13 @@ pub async fn inventory(playback: &Value, reference: &ImageReference) -> Option<V
     };
     let prompt = prompt(&context);
     let small = smaller(reference);
-    let response = tokio::time::timeout(
+    let response = request_estimate(
+        &config,
+        small.as_ref().unwrap_or(reference),
+        &prompt,
         INVENTORY_TIMEOUT,
-        request_estimate(&config, small.as_ref().unwrap_or(reference), &prompt),
     )
-    .await
-    .unwrap_or_else(|_| Err("part inventory timed out".to_string()));
+    .await;
     record_ai_call_from_attribution(
         config.provider.as_str(),
         &config.model,
