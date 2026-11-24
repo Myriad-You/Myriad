@@ -9,6 +9,12 @@
 //! `partProfile`; rendering never calls AI and derives the swing from it.
 //! The small hanging parts the page will cut out of the layers they share are
 //! then looked at again, close up (close_up).
+//!
+//! The search runs off the import's path. A preview begins it, so that by the
+//! time the owner activates the parts are usually found and go into the
+//! package at once (`inventory_identity` tells whether an import is of the
+//! very content a search was made of); otherwise it ends after the import and
+//! its package is saved again with the parts in.
 
 mod close_up;
 
@@ -16,6 +22,7 @@ use std::collections::HashSet;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use crate::{
     config::ModelTier,
@@ -306,7 +313,7 @@ pub fn ensure_profile(playback: &mut Value) -> bool {
 
 /// Asks one configured vision model for the rig's moving parts: an
 /// `ai-vision` profile, or none when no model is set or its answer is unusable.
-/// It runs after the import, off its path, so a slow model only delays it.
+/// It runs off the preview's and the import's path, so a slow model only delays it.
 pub async fn inventory(playback: &Value, reference: &ImageReference) -> Option<Value> {
     let context = context(playback)?;
     let Ok(config) = get_ai_config_for_tier(ModelTier::Standard).await else {
@@ -354,6 +361,38 @@ pub async fn inventory(playback: &Value, reference: &ImageReference) -> Option<V
     let mut profile = profile?;
     close_up::look_closer(&mut profile, &context, &config, reference).await;
     Some(profile)
+}
+
+/// Everything a search of this playback depends on, as one digest: the prompt
+/// (the task version, the part layers' names and roles), those layers' boxes
+/// and the canvas to the bit, and the picture's bytes. Two searches with the
+/// same digest ask the vision model the very same thing and place its answer
+/// the same way.
+pub fn inventory_identity(playback: &Value, reference: &[u8]) -> Option<String> {
+    let context = context(playback)?;
+    let prompt = prompt(&context);
+    let mut hasher = Sha256::new();
+    hasher.update((prompt.len() as u64).to_be_bytes());
+    hasher.update(prompt.as_bytes());
+    for size in [context.width, context.height] {
+        hasher.update(size.to_bits().to_be_bytes());
+    }
+    hasher.update((context.layers.len() as u64).to_be_bytes());
+    for bound in context.layers.iter().flat_map(|layer| layer.bounds) {
+        hasher.update(bound.to_bits().to_be_bytes());
+    }
+    hasher.update(reference);
+    Some(hex::encode(hasher.finalize()))
+}
+
+/// Puts a profile the vision model gave into a playback it is valid for,
+/// exactly as a search ending after the import would save it.
+pub fn carry_inventory(playback: &mut Value, profile: &Value) -> bool {
+    let fits = context(playback).is_some_and(|context| {
+        valid_profile(profile, &context)
+            && profile.get("source").and_then(Value::as_str) == Some("ai-vision")
+    });
+    fits && insert_profile(playback, profile.clone())
 }
 
 /// Whether a playback's part profile is one the vision model gave.
@@ -592,6 +631,77 @@ mod tests {
         assert_eq!(
             carried["partProfile"]["source"], "none",
             "an invalid one is replaced"
+        );
+    }
+
+    #[test]
+    fn a_search_is_identified_by_what_the_model_is_told_and_shown() {
+        let identity = inventory_identity(&playback(), b"picture").unwrap();
+        assert_eq!(identity.len(), 64);
+        assert_eq!(
+            inventory_identity(&playback(), b"picture").unwrap(),
+            identity,
+            "the same content is the same search"
+        );
+        // What the prompt does not carry does not make it another search.
+        let mut same = playback();
+        same["chestProfile"] = json!({ "source": "ai-vision" });
+        same["layers"][2]["x"] = json!(1);
+        assert_eq!(inventory_identity(&same, b"picture").unwrap(), identity);
+        assert_ne!(
+            inventory_identity(&playback(), b"another picture").unwrap(),
+            identity
+        );
+        for (pointer, value) in [
+            ("/layers/0/name", json!("fringe")),
+            ("/layers/1/y", json!(901)),
+            ("/pixelCanvas/height", json!(2001)),
+        ] {
+            let mut other = playback();
+            *other.pointer_mut(pointer).unwrap() = value;
+            assert_ne!(
+                inventory_identity(&other, b"picture").unwrap(),
+                identity,
+                "{pointer} is part of what the model is told"
+            );
+        }
+        assert!(inventory_identity(&json!({}), b"picture").is_none());
+    }
+
+    #[test]
+    fn a_found_profile_is_carried_only_into_a_playback_it_fits() {
+        let context = context(&playback()).unwrap();
+        let inventory: AiInventory = serde_json::from_value(json!({ "parts": [
+            { "name": "cage earring", "layer": "front-hair", "separate": true, "box": [0.4, 0.2, 0.45, 0.3],
+              "anchor": [0.42, 0.2], "bone": "head", "motion": "dangle", "material": "metal", "stiffness": 0.8, "weight": 0.7 },
+        ]})).unwrap();
+        let profile = profile_from(&context, inventory);
+        let mut carried = playback();
+        assert!(ensure_profile(&mut carried));
+        assert!(!has_inventory(&carried));
+        assert!(carry_inventory(&mut carried, &profile));
+        assert_eq!(carried["partProfile"], profile);
+        assert!(has_inventory(&carried));
+        // Saved after the import, the same profile is put in the same way.
+        let mut rewritten = playback();
+        assert!(ensure_profile(&mut rewritten));
+        rewritten
+            .as_object_mut()
+            .unwrap()
+            .insert("partProfile".to_string(), profile.clone());
+        assert_eq!(carried, rewritten);
+
+        let mut renamed = playback();
+        renamed["layers"][0]["name"] = json!("fringe");
+        assert!(ensure_profile(&mut renamed));
+        assert!(
+            !carry_inventory(&mut renamed, &profile),
+            "its layer is not in this playback"
+        );
+        assert_eq!(renamed["partProfile"]["source"], "none");
+        assert!(
+            !carry_inventory(&mut playback(), &empty_profile()),
+            "an empty profile is not one the model gave"
         );
     }
 

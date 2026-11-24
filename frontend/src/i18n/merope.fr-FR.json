@@ -377,6 +377,7 @@
   "rigPreflightNoIssues": "Aucun problème affectant la qualité du mouvement.",
   "rigPartsTitle": "Parties qui bougent seules",
   "rigPartsHint": "Repérées dans l’illustration par le modèle de vision à l’import ; la vitesse et l’ampleur du balancement suivent rigidité et poids.",
+  "rigPartsLooking": "Recherche des parties qui bougent seules… Vous pouvez activer sans attendre ; elles seront ajoutées une fois trouvées.",
   "rigPartsItem": "{name} · {motion} · {material}",
   "rigPartMotionRigid": "fixe",
   "rigPartMotionSway": "suit",

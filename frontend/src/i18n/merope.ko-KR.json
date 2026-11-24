@@ -377,6 +377,7 @@
   "rigPreflightNoIssues": "모션 품질에 영향을 주는 문제는 찾지 못했어요.",
   "rigPartsTitle": "스스로 움직이는 부분",
   "rigPartsHint": "가져올 때 비전 모델이 그림에서 찾은 것입니다. 흔들림의 빠르기와 폭은 단단함과 무게로 정합니다.",
+  "rigPartsLooking": "스스로 움직이는 부분을 찾는 중… 기다리지 않고 활성화해도 됩니다. 찾으면 자동으로 추가됩니다.",
   "rigPartsItem": "{name} · {motion} · {material}",
   "rigPartMotionRigid": "고정",
   "rigPartMotionSway": "흔들림",

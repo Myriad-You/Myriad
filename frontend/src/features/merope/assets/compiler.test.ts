@@ -30,7 +30,7 @@ test('cancelled preparation never starts preview and late preview cannot publish
           preview: async () => {
             previews += 1
             controller.abort()
-            return manifest
+            return { manifest, partSearch: null }
           },
         },
         (event) => events.push(event),
@@ -73,7 +73,7 @@ test('rig compiler exposes the complete successful artifact DAG', async () => {
           partCount: 12,
         }
       },
-      preview: async () => manifest,
+      preview: async () => ({ manifest, partSearch: null }),
     },
     (event) => events.push(event),
   )
@@ -114,7 +114,7 @@ test('rig compiler marks persistence failure as terminal', async () => {
         source: {} as never,
         partCount: 2,
       }),
-      preview: async () => manifest,
+      preview: async () => ({ manifest, partSearch: null }),
     },
     (event) => events.push(event),
   )
@@ -145,7 +145,7 @@ test('preflight fully compiles and diagnoses without calling persistence', async
   }
   const result = await preflightRigAsset(file, 'master-asset', {
     prepare: async () => prepared,
-    preview: async () => manifest,
+    preview: async () => ({ manifest, partSearch: null }),
   })
   assert.equal(result.prepared, prepared)
   assert.equal(result.partCount, 45)
@@ -155,6 +155,26 @@ test('preflight fully compiles and diagnoses without calling persistence', async
     return manifest
   })
   assert.equal(persisted, true)
+})
+
+test('preflight keeps the search for moving parts the preview began', async () => {
+  const prepared = {
+    atlas: new Blob(),
+    analysisReference: new Blob(),
+    source: { sourceMasterAssetId: 'master-asset' } as never,
+    partCount: 3,
+  }
+  const search = 'c'.repeat(64)
+  const begun = await preflightRigAsset(file, 'master-asset', {
+    prepare: async () => prepared,
+    preview: async () => ({ manifest, partSearch: search }),
+  })
+  assert.equal(begun.partSearch, search)
+  const none = await preflightRigAsset(file, 'master-asset', {
+    prepare: async () => prepared,
+    preview: async () => ({ manifest, partSearch: null }),
+  })
+  assert.equal(none.partSearch, null)
 })
 
 test('preflight sends the imported PSD composition to one-shot vision analysis', async () => {
@@ -171,7 +191,7 @@ test('preflight sends the imported PSD composition to one-shot vision analysis',
     }),
     preview: async (_source, _atlas, reference) => {
       receivedReference = reference
-      return manifest
+      return { manifest, partSearch: null }
     },
   })
 
@@ -252,7 +272,7 @@ test('preflight carries analyzed playback profiles into the persisted source', a
       source: source as never,
       partCount: 1,
     }),
-    preview: async () => analyzed,
+    preview: async () => ({ manifest: analyzed, partSearch: null }),
   })
   assert.deepEqual(
     result.prepared.source.anime25dPlayback?.chestProfile,

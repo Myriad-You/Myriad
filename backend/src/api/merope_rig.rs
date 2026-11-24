@@ -34,10 +34,12 @@ mod portrait;
 mod portrait_upload;
 mod pose;
 mod skeleton;
+mod staged_parts;
 mod turn_keyforms;
 mod upright;
 
 pub(crate) use package::{cleanup_verified_packages, wardrobe_outfit_face};
+pub(crate) use staged_parts::sweep as cleanup_staged_parts;
 
 type ApiError = (StatusCode, Json<Value>);
 type ApiResult<T> = Result<T, ApiError>;
@@ -178,6 +180,10 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
             post(parts::find_site_rig_parts)
                 .get(parts::running_part_searches)
                 .layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
+        )
+        .route(
+            "/parts/staged/{search_id}",
+            get(staged_parts::staged_part_search),
         )
         .route(
             "/full-body/{outfit_id}/pose-corrections",

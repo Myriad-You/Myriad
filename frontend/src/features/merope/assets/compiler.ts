@@ -24,6 +24,8 @@ export interface ImportedRigAsset {
 
 export interface RigAssetPreflight extends ImportedRigAsset {
   prepared: PreparedRigPsdImport
+  /** The search for its moving parts the server began with the preview; null when none was begun. */
+  partSearch: string | null
 }
 
 /** What preflight decides about a PSD import; the caller adds where and for which figure. */
@@ -81,7 +83,7 @@ export async function preflightRigAsset(
 
   emit(onStage, 'compile-preview', 'started')
   try {
-    const manifest = await dependencies.preview(
+    const { manifest, partSearch } = await dependencies.preview(
       prepared.source,
       prepared.atlas,
       prepared.analysisReference,
@@ -92,7 +94,7 @@ export async function preflightRigAsset(
     emit(onStage, 'analyze-capabilities', 'started')
     const report = diagnoseRig(manifest, prepared.motionExposure)
     emit(onStage, 'analyze-capabilities', 'completed')
-    return { manifest, partCount: prepared.partCount, prepared, report }
+    return { manifest, partCount: prepared.partCount, prepared, report, partSearch }
   } catch (error) {
     signal?.throwIfAborted()
     emit(onStage, 'compile-preview', 'failed', errorMessage(error))

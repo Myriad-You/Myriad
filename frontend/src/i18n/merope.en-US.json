@@ -377,6 +377,7 @@
   "rigPreflightNoIssues": "No issues affecting motion quality were found.",
   "rigPartsTitle": "Parts that move on their own",
   "rigPartsHint": "Found in the picture by the vision model at import; how fast and far each swings follows from how stiff and heavy it is.",
+  "rigPartsLooking": "Looking for the parts that move on their own… You can activate without waiting; they are added once found.",
   "rigPartsItem": "{name} · {motion} · {material}",
   "rigPartMotionRigid": "still",
   "rigPartMotionSway": "sways",

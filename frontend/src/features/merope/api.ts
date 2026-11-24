@@ -297,13 +297,27 @@ export interface SeeThroughDecomposeInput {
   sourceGenerationFingerprint?: string
 }
 
-/** The composite goes along: the moving parts are looked for from it after the import. */
+/**
+ * What a preview compiled, and the search for its moving parts the server
+ * began with it (`partSearch`, asked after with stagedPartSearch); null when
+ * none was begun.
+ */
+export interface MeropeRigPreview {
+  manifest: MeropeRigManifest
+  partSearch: string | null
+}
+
+/**
+ * The composite goes along: an import of the content just previewed takes the
+ * moving parts that preview's search found, or they are looked for from it
+ * after the import.
+ */
 export async function importMeropeRig(
   source: MeropeRigImportSource,
   atlas: Blob,
   analysisReference?: Blob,
 ): Promise<MeropeRigManifest> {
-  return submitMeropeRigImport('/import', source, atlas, 'import', analysisReference)
+  return (await submitMeropeRigImport('/import', source, atlas, 'import', analysisReference)).manifest
 }
 
 /** Previews and stores packages for one full-body set. */
@@ -314,7 +328,7 @@ export function fullBodyRigImport(outfitId: string) {
       source: MeropeRigImportSource,
       atlas: Blob,
       analysisReference: Blob,
-    ): Promise<MeropeRigManifest> =>
+    ): Promise<MeropeRigPreview> =>
       submitMeropeRigImport(
         `${path}/import/preview`,
         source,
@@ -322,13 +336,13 @@ export function fullBodyRigImport(outfitId: string) {
         'preview',
         analysisReference,
       ),
-    // The composite goes along: the moving parts are looked for from it after the import.
-    commit: (
+    // The composite goes along, as for the bust (importMeropeRig).
+    commit: async (
       source: MeropeRigImportSource,
       atlas: Blob,
       analysisReference?: Blob,
     ): Promise<MeropeRigManifest> =>
-      submitMeropeRigImport(`${path}/import`, source, atlas, 'import', analysisReference),
+      (await submitMeropeRigImport(`${path}/import`, source, atlas, 'import', analysisReference)).manifest,
   }
 }
 
@@ -378,7 +392,7 @@ export async function previewMeropeRigImport(
   source: MeropeRigImportSource,
   atlas: Blob,
   analysisReference: Blob,
-): Promise<MeropeRigManifest> {
+): Promise<MeropeRigPreview> {
   return submitMeropeRigImport(
     '/import/preview',
     source,
@@ -394,7 +408,7 @@ async function submitMeropeRigImport(
   atlas: Blob,
   action: string,
   analysisReference?: Blob,
-): Promise<MeropeRigManifest> {
+): Promise<MeropeRigPreview> {
   const body = new FormData()
   body.append('source', JSON.stringify(source))
   body.append('atlas', atlas, 'rig-atlas.png')
@@ -403,7 +417,7 @@ async function submitMeropeRigImport(
   }
   let data
   try {
-    data = await apiService.post<{ manifest: unknown }>(`${PREFIX}${path}`, body, {
+    data = await apiService.post<{ manifest: unknown; partSearch?: unknown }>(`${PREFIX}${path}`, body, {
       timeout: RIG_MUTATION_TIMEOUT_MS,
     })
   } catch (reason) {
@@ -417,7 +431,10 @@ async function submitMeropeRigImport(
   if (!isRigManifest(data.manifest)) {
     throw new Error(currentCopy().merope.rigCompileFailed)
   }
-  return data.manifest
+  return {
+    manifest: data.manifest,
+    partSearch: typeof data.partSearch === 'string' && /^[0-9a-f]{64}$/u.test(data.partSearch) ? data.partSearch : null,
+  }
 }
 
 export async function uploadSitePortrait(image: Blob): Promise<{
