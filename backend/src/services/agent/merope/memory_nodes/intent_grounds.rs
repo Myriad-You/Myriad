@@ -333,6 +333,8 @@ pub(super) async fn lines_gone<C: ConnectionTrait>(
 }
 
 /// One taking in of her log's rows of an audience ([`logged::take_in`]).
+/// With nothing new: what waits is looked at ([`logged::look_at_over`]).
+#[derive(Default)]
 pub(super) struct Round {
     /// What the log made stubs of and is whole here: kind and body, by row.
     before: HashMap<String, (String, Value)>,

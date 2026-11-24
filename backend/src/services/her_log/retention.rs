@@ -7,7 +7,8 @@
 //! - Download links for a first full sync go once used or expired.
 //! - When the owner turns syncing off, everything of that account's log on
 //!   the server (rows, payloads, keys, ledger, the nodes known to be someone
-//!   else's, counts) is deleted after the retention period
+//!   else's, counts, what it was to look at) is deleted after the retention
+//!   period
 //!   ([`super::Settings::retention_days`]); once every account is off past
 //!   it, so are the lease and what it knew of each end (one her). The
 //!   account row stays, stopped, with its region, and so does the partner
@@ -64,6 +65,11 @@ pub async fn sweep(
         .map(|row| row.try_get::<i32>("", "user_id"))
         .collect::<Result<_, _>>()?;
     for user in gone {
+        // What another end forgot and waited only for its round to be over.
+        use crate::services::agent::merope::memory_nodes::{logged, pieces_due};
+        if let Err(error) = logged::look_at_over(db, user, Default::default(), None).await {
+            tracing::warn!(user, %error, "[her-log] what was forgotten on another end was not looked at before the account's log goes");
+        }
         let txn = db.begin().await?;
         let mut deleted = 0;
         for table in [
@@ -84,6 +90,7 @@ pub async fn sweep(
                 .await?
                 .rows_affected();
         }
+        pieces_due::let_all_go(&txn, user).await?;
         txn.commit().await?;
         if deleted > 0 {
             swept.accounts.push(user);

@@ -718,6 +718,17 @@ impl Here {
 
     /// [`Self::sent`], as far as `rounds` says.
     async fn sent_in(&self, rows: Vec<(Row, Option<Value>)>, bare: &[&str], rounds: &Rounds) {
+        self.sent_by("dev_mac", rows, bare, rounds).await;
+    }
+
+    /// [`Self::sent_in`], by the device `device`.
+    async fn sent_by(
+        &self,
+        device: &str,
+        rows: Vec<(Row, Option<Value>)>,
+        bare: &[&str],
+        rounds: &Rounds,
+    ) {
         let carried = rows
             .iter()
             .filter(|(row, _)| !bare.contains(&row.id.as_str()))
@@ -755,7 +766,7 @@ impl Here {
             more: None,
         };
         let now = crate::clock::now().timestamp_micros() + 1_000_000;
-        let taken = store::take(self.db(), &ROOT, &self.owner, "dev_mac", batch, &asked, now)
+        let taken = store::take(self.db(), &ROOT, &self.owner, device, batch, &asked, now)
             .await
             .unwrap();
         assert!(taken.not_taken.is_empty(), "{:?}", taken.not_taken);
@@ -1908,6 +1919,285 @@ async fn a_forget_past_a_gap_waits_across_links() {
         0
     );
     here.schema.drop().await;
+}
+
+/// What two ends of theirs forgot before the rest of it came: past a `gap`,
+/// or before the round was over. `on` rests on what `dev_mac` forgot,
+/// `carried` on words one forgotten with it said, and `other` on what
+/// `dev_other` did. `again` rests on what `dev_mac` wrote again. The
+/// computer's row that never came, when there is a gap.
+async fn forgotten_early(here: &mut Here, object: &str, gap: bool) -> Option<(Row, Option<Value>)> {
+    let node = object.trim_start_matches("node:").to_string();
+    let told = vec![
+        here.said("p-1@mac", object, "they watered it"),
+        here.said("p-2@mac", object, "they moved it"),
+        here.said("p-3@mac", object, "they cut it"),
+        here.said("p-4@mac", object, "they turned it"),
+        here.intent(
+            &node,
+            "on",
+            intent_body("a", "ask one", &["span:p-1@mac"], &[], "waiting"),
+        ),
+        here.intent(
+            &node,
+            "said",
+            intent_body("b", "ask two", &["span:p-1@mac"], &[], "waiting"),
+        ),
+        here.intent(
+            &node,
+            "other",
+            intent_body("d", "ask four", &["span:p-3@mac"], &[], "waiting"),
+        ),
+        here.intent(
+            &node,
+            "again",
+            intent_body("e", "ask five", &["span:p-4@mac"], &[], "waiting"),
+        ),
+    ];
+    here.sent(told, &[]).await;
+    put(
+        here.db(),
+        OWNER,
+        &here.talk.clone(),
+        &[hand(
+            &node,
+            "carried",
+            "b",
+            "ask two",
+            &["span:p-2@mac"],
+            &["said"],
+            "waiting",
+        )],
+    )
+    .await;
+    let missing = gap.then(|| here.said("p-5@mac", object, "they sold it"));
+    let mut gone = vec![
+        here.said("p-4@mac~1", object, "they turned it"),
+        here.forget("row:p-1@mac"),
+        here.forget("row:p-4@mac"),
+        here.forget("row:said"),
+    ];
+    let theirs = here.forget("row:p-3@mac");
+    gone.push(here.by_another(theirs, if gap { 7 } else { 1 }));
+    here.sent_in(gone, &[], &here.round(!gap, 0)).await;
+    assert_eq!(
+        left(here.db()).await,
+        ids(&["again", "carried", "on", "other"])
+    );
+    assert_eq!(here.waiting().await, 3);
+    missing
+}
+
+async fn marks(db: &DatabaseConnection, what: &str) -> i64 {
+    count(
+        db,
+        &format!("SELECT COUNT(*) AS n FROM agent_forgotten WHERE what = '{what}'"),
+    )
+    .await
+}
+
+/// A device removed ends no round: what it forgot, all it wrote up to there
+/// here, is looked at, as another end's waits on; that one's too as its
+/// device is let go.
+#[tokio::test]
+async fn what_a_removed_device_forgot_is_looked_at_as_its_round_was_over() {
+    use crate::services::persona_sync::devices;
+    let Some(mut here) = here("resting_on_removed").await else {
+        return;
+    };
+    linked(here.db(), &["dev_mac", "dev_other"]).await;
+    let object = here.ferns().await;
+    forgotten_early(&mut here, &object, false).await;
+    // Hers, as folded (the computer's are the owner's word of hers: not).
+    let before = folded(here.db()).await;
+    assert!(before.contains("ask two"), "{before}");
+    forgotten::keep(here.db(), OWNER, forgotten::MEMORY, &["m".to_string()])
+        .await
+        .unwrap();
+    let why = devices::RevokeReason::ByOwner;
+    devices::revoke(here.db(), OWNER, "dev_mac", why)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(left(here.db()).await, ids(&["again", "other"]));
+    assert_eq!(here.waiting().await, 1);
+    assert_eq!(marks(here.db(), "intent_due").await, 0);
+    let after = folded(here.db()).await;
+    assert!(after.contains("they turned it"), "{after}");
+    assert!(!after.contains("ask two"), "{after}");
+    // The other's, removed while that could not be looked at.
+    here.db()
+        .execute_unprepared(
+            "UPDATE agent_sync_devices SET revoked_at = NOW(), revoked_reason = 'owner' \
+             WHERE id = 'dev_other'",
+        )
+        .await
+        .unwrap();
+    assert!(
+        devices::forget(here.db(), OWNER, "dev_other")
+            .await
+            .unwrap()
+    );
+    assert_eq!(left(here.db()).await, ids(&["again"]));
+    assert_eq!(here.waiting().await, 0);
+    assert_eq!(marks(here.db(), "memory").await, 1);
+    here.schema.drop().await;
+}
+
+/// Her nodes as they are folded.
+async fn folded(db: &DatabaseConnection) -> String {
+    db.query_all_raw(Statement::from_string(
+        DatabaseBackend::Postgres,
+        "SELECT node::text AS node FROM agent_node_heads",
+    ))
+    .await
+    .unwrap()
+    .iter()
+    .map(|row| row.try_get::<String>("", "node").unwrap())
+    .collect()
+}
+
+async fn linked(db: &DatabaseConnection, devices: &[&str]) {
+    for device in devices {
+        db.execute_unprepared(&format!(
+            "INSERT INTO agent_sync_devices (id, user_id, name, token_hash, token_hint, \
+             created_at) VALUES ('{device}', {OWNER}, 'Mac', '{device}', 'x', NOW())"
+        ))
+        .await
+        .unwrap();
+    }
+}
+
+/// A computer cut off halfway through sending all of it, its forget here
+/// before the version it wrote in its place; removed, and let go, as another
+/// device is. What rests on it waits, and stays: the same computer, linked
+/// anew, brings the version under the end it was.
+#[tokio::test]
+async fn what_waits_past_a_gap_waits_for_the_same_computer_linked_anew() {
+    use crate::services::persona_sync::devices;
+    let Some(mut here) = here("resting_on_anew").await else {
+        return;
+    };
+    linked(here.db(), &["dev_mac", "dev_phone"]).await;
+    let object = here.ferns().await;
+    let node = object.trim_start_matches("node:").to_string();
+    let told = vec![
+        here.said("p-1@mac", &object, "they watered it"),
+        here.intent(
+            &node,
+            "on",
+            intent_body("a", "ask one", &["span:p-1@mac"], &[], "waiting"),
+        ),
+    ];
+    here.sent(told, &[]).await;
+    let version = here.said("p-1@mac~1", &object, "they watered it");
+    let gone = here.forget("row:p-1@mac");
+    let last = here.mac.count;
+    here.sent(vec![gone], &[]).await;
+    assert_eq!(here.waiting().await, 1);
+    let why = devices::RevokeReason::ByOwner;
+    for device in ["dev_mac", "dev_phone"] {
+        devices::revoke(here.db(), OWNER, device, why)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(devices::forget(here.db(), OWNER, device).await.unwrap());
+        assert_eq!(left(here.db()).await, ids(&["on"]), "{device}");
+        assert_eq!(here.waiting().await, 1, "{device}");
+    }
+    linked(here.db(), &["dev_anew"]).await;
+    let mut rounds = Rounds::default();
+    rounds.vector(
+        "dev_anew",
+        &here.talk,
+        &BTreeMap::from([("dev_mac".to_string(), last)]),
+    );
+    rounds.batch("dev_anew", &here.talk, false);
+    here.sent_by("dev_anew", vec![version], &[], &rounds).await;
+    assert_eq!(left(here.db()).await, ids(&["on"]));
+    assert_eq!(here.waiting().await, 0);
+    here.schema.drop().await;
+}
+
+/// Her log deleted, syncing off past the retention period: what waited only
+/// for its round to be over is looked at first, what waited past a gap stays;
+/// nothing waits after.
+#[tokio::test]
+async fn what_waits_is_looked_at_before_her_log_is_deleted() {
+    for gap in [false, true] {
+        deleted_past_retention(gap).await;
+    }
+}
+
+async fn deleted_past_retention(gap: bool) {
+    let Some(mut here) = here("resting_on_retention").await else {
+        return;
+    };
+    let object = here.ferns().await;
+    forgotten_early(&mut here, &object, gap).await;
+    let db = here.db();
+    forgotten::keep(db, OWNER, forgotten::MEMORY, &["m".to_string()])
+        .await
+        .unwrap();
+    // Nothing here has them, so nothing looks at them.
+    for what in [forgotten::PIECE_DUE, forgotten::INTENT_DUE] {
+        forgotten::keep(db, OWNER, what, &["none".to_string()])
+            .await
+            .unwrap();
+        forgotten::keep(db, OTHER, what, &["theirs".to_string()])
+            .await
+            .unwrap();
+    }
+    store::stop(db, OWNER).await.unwrap();
+    let settings = her_log::current_settings();
+    let at = crate::clock::now();
+    her_log::retention::sweep(db, &settings, at).await.unwrap();
+    assert_eq!(marks(db, "piece_due").await, 5, "not past it yet");
+    let past = at + chrono::Duration::days(settings.retention_days + 1);
+    let swept = her_log::retention::sweep(db, &settings, past)
+        .await
+        .unwrap();
+    assert_eq!(swept.accounts, vec![OWNER]);
+    let stays: &[&str] = match gap {
+        true => &["again", "carried", "on", "other"],
+        false => &["again"],
+    };
+    assert_eq!(left(db).await, ids(stays));
+    for what in ["piece_due", "intent_due"] {
+        assert_eq!(marks(db, what).await, 1, "another's: {what}");
+    }
+    assert_eq!(marks(db, "memory").await, 1);
+    here.schema.drop().await;
+}
+
+/// Her persona cleared, or she moved off the site: her nodes and her log
+/// stay, and what waits is looked at as the rest of it comes.
+#[tokio::test]
+async fn what_waits_is_looked_at_though_her_persona_was_cleared() {
+    use crate::services::agent::merope::{clear_persona_on, retire_her_on};
+    for cleared in [true, false] {
+        let Some(mut here) = here("resting_on_cleared").await else {
+            return;
+        };
+        let object = here.ferns().await;
+        let missing = forgotten_early(&mut here, &object, true).await.unwrap();
+        let txn = here.db().begin().await.unwrap();
+        if cleared {
+            clear_persona_on(&txn).await.unwrap();
+        } else {
+            retire_her_on(&txn, OWNER).await.unwrap();
+        }
+        txn.commit().await.unwrap();
+        assert_eq!(here.waiting().await, 3);
+        assert_eq!(
+            left(here.db()).await,
+            ids(&["again", "carried", "on", "other"])
+        );
+        here.sent(vec![missing], &[]).await;
+        assert_eq!(left(here.db()).await, ids(&["again", "other"]));
+        assert_eq!(here.waiting().await, 1);
+        here.schema.drop().await;
+    }
 }
 
 /// What they told her for later, judged as the line it was told in is

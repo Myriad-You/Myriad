@@ -3728,6 +3728,98 @@ async fn her_nodes_from_another_end_are_kept_on_the_site() {
     schema.drop().await;
 }
 
+/// Taking her nodes in failed: it is done again as the Mac next says what it
+/// holds, the same as before or on another link, though nothing new came.
+#[tokio::test]
+async fn her_nodes_not_taken_in_are_as_the_same_vector_comes_again() {
+    let _minds = lease::minds_go_to_devices_in_test(true);
+    let Some(schema) = schema("her_log_nodes_again").await else {
+        return;
+    };
+    let db = &schema.db;
+    let mut mac = Side::new("dev_mac");
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], T0).await;
+    let node = myriad_nodes::node_id(PERSONAL, "minted:lamp").unwrap();
+    let object = format!("node:{node}");
+    let here = "SELECT COUNT(*) FROM agent_node_rows WHERE body <> ''";
+    let in_log = "SELECT COUNT(*) FROM agent_log_rows WHERE kind LIKE 'node.%'";
+    let fails = |on: bool| {
+        let (from, to) = match on {
+            true => ("agent_node_heads", "agent_node_heads_away"),
+            false => ("agent_node_heads_away", "agent_node_heads"),
+        };
+        format!("ALTER TABLE {from} RENAME TO {to}")
+    };
+    mac.write_body(
+        PERSONAL,
+        &object,
+        "node.created",
+        Author::Her,
+        Some(json!({
+            "key": "minted:lamp", "kind": "task", "name": "a lamp",
+            "saidBy": ["her"], "sync": "shared", "version": 1,
+        })),
+        T0,
+    );
+    db.execute_unprepared(&fails(true)).await.unwrap();
+    sync(db, &mut mac, PERSONAL, T0 + MINUTE).await;
+    assert_eq!(count(db, in_log).await, 1);
+    assert_eq!(count(db, here).await, 0);
+    let before = mac.vector(PERSONAL);
+    // It fails again, and is owed still.
+    sync(db, &mut mac, PERSONAL, T0 + 2 * MINUTE).await;
+    assert_eq!(count(db, here).await, 0);
+    db.execute_unprepared(&fails(false)).await.unwrap();
+    let after = mac.vector(PERSONAL);
+    assert_eq!(after["vector"], before["vector"]);
+    exchange(db, &mut mac, vec![after], T0 + 3 * MINUTE).await;
+    assert_eq!(count(db, here).await, 1);
+
+    // The link drops before it is done again.
+    mac.write(
+        PERSONAL,
+        &object,
+        "node.span",
+        Author::Her,
+        Some("too bright"),
+        T0 + 4 * MINUTE,
+    );
+    db.execute_unprepared(&fails(true)).await.unwrap();
+    sync(db, &mut mac, PERSONAL, T0 + 4 * MINUTE).await;
+    db.execute_unprepared(&fails(false)).await.unwrap();
+    assert_eq!(count(db, in_log).await, 2);
+    assert_eq!(count(db, here).await, 1);
+    mac.link = relay::Session::new(relay::peer_abi(&["log2".to_string()]));
+    sync(db, &mut mac, PERSONAL, T0 + 5 * MINUTE).await;
+    assert_eq!(count(db, here).await, 2);
+    schema.drop().await;
+}
+
+/// Owed on every link, until one goes through and after one that does not.
+#[test]
+fn a_taking_in_is_owed_until_one_goes_through() {
+    let mut rounds = super::rounds::Rounds::default();
+    assert!(!rounds.taken_in());
+    rounds.note_taken_in(true);
+    assert!(rounds.taken_in());
+    rounds.note_taken_in(false);
+    assert!(!rounds.taken_in());
+}
+
+/// With no link: all of it up to there, and neither end may send any.
+#[test]
+fn what_no_end_may_send_any_more_is_through() {
+    let over = super::rounds::Rounds::over(BTreeSet::from(["dev_b".to_string()]));
+    let held = Vector::from([("dev_a".to_string(), 3), ("dev_b".to_string(), 3)]);
+    assert!(over.through(PERSONAL, &held, "dev_a", 3, "dev_a"));
+    assert!(over.through(PERSONAL, &held, super::NODE, 3, "dev_b"));
+    assert!(!over.through(PERSONAL, &held, "dev_b", 3, "dev_a"));
+    assert!(!over.through(PERSONAL, &held, "dev_a", 3, "dev_b"));
+    // Past a gap it may come yet, by another id.
+    assert!(!over.through(PERSONAL, &held, "dev_a", 4, "dev_a"));
+}
+
 /// Her records the Mac wrote while her mind was there go into the site's
 /// tables (b1): a new one is added, a changed one written over, one gone
 /// there (deleted) goes here, and so does one the owner had her forget; and

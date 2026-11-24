@@ -75,6 +75,31 @@ struct Waiting {
 static WAITING: LazyLock<Mutex<HashMap<(i32, String), Waiting>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// What waits that a test has not let be looked at yet ([`hold`]).
+#[cfg(test)]
+static HELD: LazyLock<Mutex<HashSet<(i32, String)>>> = LazyLock::new(Default::default);
+
+/// Holds what comes of `owner`'s, however long it takes to come, until it is
+/// let go of: what is to be looked at together is, on a busy machine too.
+#[cfg(test)]
+pub(super) fn hold(owner: i32) -> Hold {
+    let key = waiting_key(owner);
+    HELD.lock().unwrap().insert(key.clone());
+    Hold(key)
+}
+
+#[cfg(test)]
+pub(super) struct Hold((i32, String));
+
+#[cfg(test)]
+impl Drop for Hold {
+    fn drop(&mut self) {
+        if let Ok(mut held) = HELD.lock() {
+            held.remove(&self.0);
+        }
+    }
+}
+
 fn waiting_key(owner: i32) -> (i32, String) {
     let scope = if cfg!(test) {
         format!("{:?}", std::thread::current().id())
@@ -157,6 +182,10 @@ pub(super) fn add(db: DatabaseConnection, owner: i32, picture: Picture) {
             match next {
                 // Dropped meanwhile.
                 None => return,
+                #[cfg(test)]
+                Some(_) if HELD.lock().is_ok_and(|held| held.contains(&key)) => {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
                 Some(Some(at)) => tokio::time::sleep_until(at.into()).await,
                 Some(None) => break,
             }
