@@ -176,6 +176,8 @@ pub(super) struct OpenAIErrorBody {
 pub(super) struct OpenAIChoice {
     #[serde(default)]
     pub(super) message: OpenAIResponseMessage,
+    #[serde(default)]
+    pub(super) finish_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
