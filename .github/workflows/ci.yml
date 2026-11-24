@@ -22,6 +22,12 @@ concurrency:
 permissions:
   contents: read
 
+# Full debug info makes building the backend's tests take more memory than the
+# machine has; it then stops answering and keeps no log. Line tables are enough
+# for a backtrace. Set for every job, so they keep sharing one Rust cache.
+env:
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+
 # Rust caches (Swatinem/rust-cache) are saved only by non-PR runs. A PR's cache
 # lives under refs/pull/N/merge and no other PR can read it, so saving per PR
 # only churned the 10 GB repo quota and evicted everything (every job was a
@@ -221,7 +227,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: backend
@@ -378,7 +384,7 @@ jobs:
     #
     # This job asserts the invariant that makes the duplication safe:
     # a freshly-migrated database needs zero healing.
-    timeout-minutes: 30
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:18-alpine
