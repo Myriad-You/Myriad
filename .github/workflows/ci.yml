@@ -434,6 +434,9 @@ jobs:
       - name: Her memory and her mind against a database
         env:
           MYRIAD_MEDIA_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_media_test
+          MYRIAD_MEROPE_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_media_test
+          MYRIAD_MEMORY_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_media_test
+          PORTRAIT_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_media_test
         run: cargo test --workspace --locked -- services::agent::merope services::agent::memory
       - name: Federation outbox and delivery lease database contracts
         env:
