@@ -324,6 +324,16 @@ impl SeeThroughClient {
         })
     }
 
+    /// A client for tests of what is refused before anything is asked of the Space.
+    #[cfg(test)]
+    pub fn offline() -> Self {
+        Self {
+            client: Client::new(),
+            token: String::new(),
+            space: Space::parse(DEFAULT_SPACE).expect("the default Space id is valid"),
+        }
+    }
+
     fn authenticated(&self, request: RequestBuilder) -> RequestBuilder {
         request.bearer_auth(&self.token)
     }
@@ -547,6 +557,21 @@ impl SeeThroughClient {
                     "See-through returned an invalid turned pictures check".to_string(),
                 )
             })
+    }
+
+    /// Sends a picture to the Space before any call carries it, asking
+    /// nothing of the Space but to keep the file: the calls that carry these
+    /// bytes later (a decomposition, a check, a judgement, the fit) find them
+    /// there and send nothing. A picture is the same file to all of them
+    /// whatever they name it, as its extension is its media type's.
+    pub async fn send_ahead(
+        &self,
+        picture: axum::body::Bytes,
+        media_type: &str,
+    ) -> Result<(), SeeThroughError> {
+        validate_image(&picture, media_type)?;
+        self.wait_until_running().await?;
+        self.upload(picture, media_type).await.map(|_| ())
     }
 
     /// The Space's `judge_turn`: whether one turned drawing keeps what a turn
@@ -1627,6 +1652,18 @@ data: [{"url":"https://24yearsold-see-through-demo.hf.space/gradio_api/file=/tmp
         assert!(fit_gate().try_acquire().is_ok());
         drop(held);
         assert!(decompose_permit().is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_picture_that_is_none_is_not_sent_ahead() {
+        let client = SeeThroughClient::offline();
+        // Refused before the Space is asked anything.
+        for (picture, media_type) in [(&b""[..], "image/png"), (&b"gif"[..], "image/gif")] {
+            let sent = client
+                .send_ahead(axum::body::Bytes::copy_from_slice(picture), media_type)
+                .await;
+            assert!(matches!(sent, Err(SeeThroughError::InvalidInput(_))));
+        }
     }
 
     #[test]

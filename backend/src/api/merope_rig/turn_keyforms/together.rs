@@ -33,21 +33,56 @@ pub(super) async fn kept_or_made(
     Ok(made)
 }
 
+/// `work` with `beside` run alongside it and finished after it. Work that
+/// failed does not wait: `beside` is dropped with it.
+async fn finished_beside<T>(
+    work: impl Future<Output = ApiResult<T>>,
+    beside: impl Future<Output = ()>,
+) -> ApiResult<T> {
+    tokio::pin!(work);
+    tokio::pin!(beside);
+    let mut beside_done = false;
+    let out = loop {
+        tokio::select! {
+            () = &mut beside, if !beside_done => beside_done = true,
+            out = &mut work => break out,
+        }
+    };
+    let out = out?;
+    if !beside_done {
+        beside.await;
+    }
+    Ok(out)
+}
+
 /// The turned drawings and the front decomposition, made together (the
 /// decomposition needs only the master). The job counts drawings until all
 /// are in, then decompositions of five: the front one counts as soon as it is
 /// done, also when it was done before the drawings.
-pub(super) async fn drawn_beside_front(
+///
+/// Each drawing is handed to `send_ahead` as it comes (drawn or kept), one
+/// after another, while the front decomposition still runs: the uploads the
+/// calls after it would start with are behind it by then. Sending is not part
+/// of a drawing: the count and the switch to decompositions do not wait for
+/// it. What is still being sent when all is made is waited for, which takes
+/// no longer than the next call sending it would; nothing is waited for when
+/// a drawing or the decomposition failed.
+pub(super) async fn drawn_beside_front<S: Future<Output = ()>>(
     id: &str,
     drawings: Vec<impl Future<Output = ApiResult<Vec<u8>>>>,
     front: impl Future<Output = ApiResult<Vec<u8>>>,
+    send_ahead: impl Fn(Vec<u8>) -> S,
 ) -> ApiResult<(Vec<Vec<u8>>, Vec<u8>)> {
     let front_done = AtomicBool::new(false);
     let front_done = &front_done;
-    let drawings = async {
+    let (came, mut coming) = tokio::sync::mpsc::unbounded_channel();
+    // Owns `came`: no more are coming once the drawings are over, however they end.
+    let drawings = async move {
+        let came = &came;
         let drawn = all_or_first_error(drawings.into_iter().map(|drawing| async move {
             let png = drawing.await?;
             update(id, |job| job.done += 1);
+            let _ = came.send(png.clone());
             ApiResult::Ok(png)
         }))
         .await?;
@@ -69,8 +104,16 @@ pub(super) async fn drawn_beside_front(
         });
         ApiResult::Ok(psd)
     };
-    let (drawn, front) = tokio::join!(drawings, front);
-    Ok((drawn?, front?))
+    let made = async {
+        let (drawn, front) = tokio::join!(drawings, front);
+        ApiResult::Ok((drawn?, front?))
+    };
+    let sending = async {
+        while let Some(png) = coming.recv().await {
+            send_ahead(png).await;
+        }
+    };
+    finished_beside(made, sending).await
 }
 
 /// Tests that claim the one job slot take this first, so they do not find it taken by each other.
@@ -84,8 +127,9 @@ mod tests {
         time::Duration,
     };
 
-    use super::super::{ApiError, JOB, claim_job, served::missing_job};
+    use super::super::{Ahead, ApiError, JOB, claim_job, served::missing_job};
     use super::*;
+    use crate::services::see_through;
 
     fn failed() -> ApiError {
         missing_job()
@@ -194,7 +238,7 @@ mod tests {
         let (id, _) = claim_job(&Some("together-a".into()), "m", Stage::Generating, 4).unwrap();
         let drawings = [30, 10, 20, 40].map(|wait| unit(wait, seen.clone(), Ok(vec![wait as u8])));
         let front = unit(90, seen.clone(), Ok(b"front".to_vec()));
-        let (drawn, psd) = drawn_beside_front(&id, Vec::from(drawings), front)
+        let (drawn, psd) = drawn_beside_front(&id, Vec::from(drawings), front, unsent)
             .await
             .unwrap();
         assert_eq!(drawn, [vec![30], vec![10], vec![20], vec![40]]);
@@ -217,7 +261,7 @@ mod tests {
         let (id, _) = claim_job(&Some("together-b".into()), "m", Stage::Generating, 4).unwrap();
         let drawings = [30, 40].map(|wait| unit(wait, seen.clone(), Ok(Vec::new())));
         let front = unit(10, seen.clone(), Ok(Vec::new()));
-        drawn_beside_front(&id, Vec::from(drawings), front)
+        drawn_beside_front(&id, Vec::from(drawings), front, unsent)
             .await
             .unwrap();
         assert_eq!(
@@ -239,9 +283,103 @@ mod tests {
             unit(20, seen.clone(), Ok(Vec::new())),
         ];
         let front = unit(60, seen.clone(), Ok(Vec::new()));
-        assert!(drawn_beside_front(&id, drawings, front).await.is_err());
+        assert!(
+            drawn_beside_front(&id, drawings, front, unsent)
+                .await
+                .is_err()
+        );
         assert_eq!(seen.lock().unwrap().len(), 3);
         assert_eq!(progress(), (Stage::Generating, 1, 4));
+        update(&id, |job| job.stage = Stage::Done);
+    }
+
+    /// Nothing is sent ahead.
+    async fn unsent(_: Vec<u8>) {}
+
+    #[tokio::test(start_paused = true)]
+    async fn drawings_are_sent_ahead_as_they_come_without_holding_the_count() {
+        let _slot = JOB_TESTS.lock().await;
+        let seen = Seen::default();
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let started = tokio::time::Instant::now();
+        let (id, _) = claim_job(&Some("together-d".into()), "m", Stage::Generating, 4).unwrap();
+        let drawings = [30, 10, 20, 40].map(|wait| unit(wait, seen.clone(), Ok(vec![wait as u8])));
+        let front = unit(60, seen.clone(), Ok(b"front".to_vec()));
+        // Each takes 50 to send, one after another: the last is sent at 210, long after all is made.
+        let send_ahead = |png: Vec<u8>| {
+            let sent = sent.clone();
+            async move {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                sent.lock().unwrap().push((png, progress()));
+            }
+        };
+        let (drawn, psd) = drawn_beside_front(&id, Vec::from(drawings), front, send_ahead)
+            .await
+            .unwrap();
+        // The result is in the order asked for; what was sent, in the order it came.
+        assert_eq!(drawn, [vec![30], vec![10], vec![20], vec![40]]);
+        assert_eq!(psd, b"front");
+        let sent = sent.lock().unwrap().clone();
+        let pictures: Vec<_> = sent.iter().map(|(png, _)| png.clone()).collect();
+        assert_eq!(pictures, [vec![10], vec![20], vec![30], vec![40]]);
+        // The count never waited on a send: the drawings were counted as they came, the
+        // switch to decompositions was at 40, and the front one was counted at 60, while
+        // the first send ended at 60 and the others after.
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [
+                (Stage::Generating, 0, 4),
+                (Stage::Generating, 1, 4),
+                (Stage::Generating, 2, 4),
+                (Stage::Generating, 3, 4),
+                (Stage::Decomposing, 0, 5),
+            ]
+        );
+        let at_each_send: Vec<_> = sent.iter().map(|(_, progress)| *progress).collect();
+        assert_eq!(at_each_send[1..], [(Stage::Decomposing, 1, 5); 3]);
+        // What was still being sent when all was made was waited for.
+        assert_eq!(started.elapsed(), Duration::from_millis(210));
+        update(&id, |job| job.stage = Stage::Done);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_job_does_not_wait_for_what_is_being_sent_ahead() {
+        let _slot = JOB_TESTS.lock().await;
+        let seen = Seen::default();
+        let started = tokio::time::Instant::now();
+        let (id, _) = claim_job(&Some("together-e".into()), "m", Stage::Generating, 4).unwrap();
+        let drawings = vec![unit(10, seen.clone(), Ok(vec![1]))];
+        let front = unit(30, seen.clone(), Err(failed()));
+        // A send that never ends.
+        let stuck = |_: Vec<u8>| std::future::pending::<()>();
+        assert!(
+            drawn_beside_front(&id, drawings, front, stuck)
+                .await
+                .is_err()
+        );
+        assert_eq!(started.elapsed(), Duration::from_millis(30));
+        update(&id, |job| job.stage = Stage::Done);
+    }
+
+    #[tokio::test]
+    async fn a_drawing_that_cannot_be_sent_ahead_is_still_the_jobs() {
+        let _slot = JOB_TESTS.lock().await;
+        let seen = Seen::default();
+        let (id, _) = claim_job(&Some("together-f".into()), "m", Stage::Generating, 4).unwrap();
+        // Neither the master nor the drawings are pictures: every send is refused
+        // before the Space is asked anything.
+        let client = see_through::SeeThroughClient::offline();
+        let master = (axum::body::Bytes::new(), "image/gif".to_string());
+        let ahead = Ahead::new(&client, &master);
+        let drawings = [2, 1].map(|wait| unit(wait, seen.clone(), Ok(Vec::new())));
+        let front = unit(3, seen.clone(), Ok(b"front".to_vec()));
+        let (drawn, psd) =
+            drawn_beside_front(&id, Vec::from(drawings), front, |png| ahead.send(png))
+                .await
+                .unwrap();
+        assert_eq!(drawn, [Vec::<u8>::new(), Vec::new()]);
+        assert_eq!(psd, b"front");
+        assert_eq!(progress(), (Stage::Decomposing, 1, 5));
         update(&id, |job| job.stage = Stage::Done);
     }
 }
