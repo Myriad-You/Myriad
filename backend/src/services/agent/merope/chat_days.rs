@@ -329,14 +329,17 @@ async fn write_day(
     let line = parse_day(&raw);
     let wrote = line.is_some();
     // Nor what they asked her not to keep: what they said first otherwise.
-    let items: Vec<(usize, String)> = line.into_iter().chain(theirs).enumerate().collect();
-    let Some(kept) = super::asked::to_keep(db, user_id, items, |(_, text)| text.clone()).await
-    else {
+    let items: Vec<String> = line.into_iter().chain(theirs).collect();
+    let Ok(out) = super::asked::to_leave_out_or_again(db, user_id, &items).await else {
         return;
     };
+    let kept: Vec<&String> = (items.iter().enumerate())
+        .filter(|(index, _)| !out.contains(index))
+        .map(|(_, text)| text)
+        .collect();
     let line = match kept.first() {
-        Some((0, line)) if wrote => line.clone(),
-        _ => stand_in(&kept.iter().map(|(_, text)| text).collect::<Vec<_>>()),
+        Some(line) if wrote && !out.contains(&0) => (*line).clone(),
+        _ => stand_in(&kept),
     };
     if line.trim().is_empty() {
         // All of it is what they asked her not to keep: no line of its own,
@@ -658,6 +661,13 @@ mod tests {
         assert_eq!(kept.as_deref(), Some("他跟房东吵了一架"));
         // Not told: another night.
         assert_eq!(write(day("2026-11-12"), &[None]).await, None);
+        // Nor some of it: what is told of the rest waits for that night too.
+        let (refused, none) = (Some("!refused"), Some(r#"{"drop":[]}"#));
+        let told = [refused, none, refused, none, none];
+        for again in [&[refused][..], &[]] {
+            let answers = [&told[..], again].concat();
+            assert_eq!(write(day("2026-11-15"), &answers).await, None);
+        }
         // The line of the night's own reading, all of it.
         let mut world = g0::World::new(0.5);
         let all = Some(r#"{"drop":[0]}"#.to_string());
@@ -675,6 +685,7 @@ mod tests {
         assert_eq!(write(day("2026-11-14"), &[all, all]).await, None);
         let nothing = days_of_nothing(db, OWNER).await;
         assert!(nothing.contains("2026-11-14") && !nothing.contains("2026-11-12"));
+        assert!(!nothing.contains("2026-11-15"));
         schema.drop().await;
     }
 }

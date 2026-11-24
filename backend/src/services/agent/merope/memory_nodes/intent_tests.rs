@@ -271,6 +271,51 @@ fn the_gate_takes_only_their_own_timed_words() {
     assert!(intending::gate(Origin::Her, Action::Say, message, None, None).is_err());
 }
 
+/// What she means to do of her own accord is judged once, against what they
+/// asked her not to keep: one refused, and then nothing answered, the others
+/// are as told.
+#[tokio::test]
+async fn one_of_hers_never_told_of_holds_up_none_beside_it() {
+    let Some(schema) = schema("memory_nodes_intents_asked").await else {
+        return;
+    };
+    let db = &schema.db;
+    pen::reset_for_test();
+    crate::services::agent::merope::asked::tests::asks(db, OTHER, "不要记和房东吵架的事").await;
+    let hers = [
+        "ask about work",
+        "ask about the trip",
+        "ask about the landlord",
+    ];
+    let answer =
+        json!({"take": hers.map(|text| take("mine", text, "say", None, None)), "drop": []});
+    let answer = answer.to_string();
+    let (kept, goes) = (r#"{"drop":[]}"#, r#"{"drop":[0]}"#);
+    let told = ["!refused", "!refused", kept, goes, goes];
+    for (nth, again) in [&["!refused"][..], &[]].into_iter().enumerate() {
+        let said = format!("long day {nth}");
+        talked(db, None, &[("user", said.as_str())]).await;
+        let mut answers = vec![(intending::OPERATION, answer.as_str())];
+        answers.extend(
+            [&told[..], again]
+                .concat()
+                .iter()
+                .map(|one| ("not_to_keep", *one)),
+        );
+        world(&answers, &[]);
+        let judged = intending::after_turn(db, OTHER, None, SESSION, &said, now())
+            .await
+            .unwrap();
+        let asked = of(&log(), "model", Some("not_to_keep")).len();
+        assert!(asked > told.len() + again.len());
+        assert_eq!((judged.taken.len(), judged.refused), (1, 2));
+        let held = held(db).await;
+        assert_eq!(held.len(), nth + 1);
+        assert!(held.iter().all(|held| held.text == hers[1]));
+    }
+    schema.drop().await;
+}
+
 #[tokio::test]
 async fn words_they_pass_on_and_talk_elsewhere_make_no_intent() {
     let Some(schema) = schema("memory_nodes_intents_poison").await else {

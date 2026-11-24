@@ -23,6 +23,8 @@ pub(super) struct Round<'a> {
     /// the last was told.
     answers: bool,
     last: bool,
+    /// The first told of alone.
+    alone: Option<usize>,
     /// Of the items not told, those refused.
     refused: BTreeSet<usize>,
 }
@@ -40,6 +42,7 @@ impl<'a> Round<'a> {
             failure: None,
             answers: false,
             last: false,
+            alone: None,
             refused: BTreeSet::new(),
         }
     }
@@ -78,17 +81,17 @@ impl<'a> Round<'a> {
 
     /// Before what is not told is let go of: what was refused is asked about
     /// once more, and what asks of it must be answered at last, of one told
-    /// already if of nothing else. Its answer is not looked at. An `Err`: it
-    /// may be who asks, or nothing there.
+    /// already (alone, if any was), if of nothing else. Its answer is not
+    /// looked at. An `Err`: it may be who asks, or nothing there.
     pub(super) async fn once_more(&mut self) -> Result<(), CallFailure> {
         let refused: Vec<usize> = self.refused.iter().copied().collect();
         self.one_by_one(&refused).await?;
         if self.told.untold.is_empty() || self.last {
             return Ok(());
         }
-        let Some(told) =
-            (0..self.items.len()).find(|&index| !self.told.untold.contains(&self.places[index]))
-        else {
+        let mut all = 0..self.items.len();
+        let told = |&index: &usize| !self.told.untold.contains(&self.places[index]);
+        let Some(told) = self.alone.or_else(|| all.find(told)) else {
             return Err(CallFailure::Timeout);
         };
         let one = std::slice::from_ref(&self.items[told]);
@@ -130,6 +133,9 @@ impl<'a> Round<'a> {
         match judged(self.user_id, self.asked, self.by, items).await {
             Ok(drop) => {
                 (self.answers, self.last) = (true, true);
+                if part.len() == 1 {
+                    self.alone.get_or_insert(part.start);
+                }
                 for index in part.clone() {
                     self.told.untold.remove(&self.places[index]);
                     self.refused.remove(&index);

@@ -799,6 +799,7 @@ mod tests {
     #[tokio::test]
     async fn a_run_teaches_nothing_of_what_they_asked_not_to_keep() {
         use crate::services::channel_group::g0;
+        use sea_orm::ConnectionTrait;
         let Some(schema) = tried_schema("work_asked").await else {
             return;
         };
@@ -819,13 +820,13 @@ mod tests {
         )
         .await
         .unwrap();
-        let keep = async |answer: Option<&str>| {
+        let keep = async |answers: &[Option<&str>]| {
             let mut world = g0::World::new(0.5);
             world
                 .models
                 .entry("not_to_keep".into())
                 .or_default()
-                .push_back(answer.map(str::to_string));
+                .extend(answers.iter().map(|answer| answer.map(str::to_string)));
             g0::enter(world);
             keep_extracted(
                 db,
@@ -838,7 +839,7 @@ mod tests {
             .await;
             g0::leave();
         };
-        keep(None).await;
+        keep(&[None]).await;
         let kept = async || {
             agent_memories::Entity::find()
                 .filter(agent_memories::Column::Source.eq("work"))
@@ -850,7 +851,17 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert!(kept().await.is_empty());
-        keep(Some(r#"{"drop":[0]}"#)).await;
+        // One refused, and then nothing answered: the other as told.
+        let refused = Some("!refused");
+        let told = [refused, refused, Some(r#"{"drop":[]}"#)];
+        for again in [&[refused][..], &[]] {
+            keep(&[&told[..], again].concat()).await;
+            assert_eq!(kept().await, ["邮件喜欢短一点"]);
+            db.execute_unprepared("DELETE FROM agent_memories WHERE source = 'work'")
+                .await
+                .unwrap();
+        }
+        keep(&[Some(r#"{"drop":[0]}"#)]).await;
         assert_eq!(kept().await, ["邮件喜欢短一点"]);
         schema.drop().await;
     }

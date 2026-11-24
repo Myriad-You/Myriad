@@ -89,10 +89,23 @@ pub(super) fn diary_not_told() {
     DIARY_NOT_TOLD.fetch_add(1, Ordering::Relaxed);
 }
 
-/// Which of `items`, about to be kept of `user_id`, to leave out. Nothing
-/// asked about when they asked nothing. An `Err` is no answer: none of the
-/// items may be written then, only tried again later.
+/// Which of `items`, about to be kept of `user_id` now or never, to leave
+/// out. Nothing asked about when they asked nothing. An `Err` is no answer:
+/// none of the items may be written then.
 pub(super) async fn to_leave_out(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    items: &[String],
+) -> Result<BTreeSet<usize>, Failure> {
+    let by = By {
+        only_now: true,
+        ..By::default()
+    };
+    left_out(db, user_id, &by, items).await
+}
+
+/// [`to_leave_out`], of items that come again when it is an `Err`.
+pub(super) async fn to_leave_out_or_again(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
     items: &[String],
@@ -100,8 +113,8 @@ pub(super) async fn to_leave_out(
     left_out(db, user_id, &By::default(), items).await
 }
 
-/// [`to_leave_out`], of items others are in too: what is said of `who` in
-/// them alone. Told by `until`, or not at all.
+/// [`to_leave_out_or_again`], of items others are in too: what is said of
+/// `who` in them alone. Told by `until`, or not at all.
 pub(super) async fn to_leave_out_of(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
@@ -111,8 +124,8 @@ pub(super) async fn to_leave_out_of(
 ) -> Result<BTreeSet<usize>, Failure> {
     let by = By {
         who,
-        now: &[],
         until: Some(until),
+        ..By::default()
     };
     left_out(db, user_id, &by, items).await
 }
@@ -126,6 +139,9 @@ struct By<'a> {
     now: &'a [Asked],
     /// Answered by then, or not at all.
     until: Option<Instant>,
+    /// They do not come again: what is told of them stands, whatever came of
+    /// asking once more of the rest ([`told_apart`]).
+    only_now: bool,
 }
 
 async fn left_out(
@@ -142,8 +158,8 @@ async fn left_out(
 /// together, and what is not told so, nor once more, beside others that
 /// were, is not kept (it is what it says, not who asks; counted). An `Err`:
 /// none of them told, or one that could not be asked about, or no answer to
-/// what was asked last ([`round::Round::once_more`]); by what was shown, when
-/// any failed so, for that is given up on in the end.
+/// what was asked last ([`round::Round::once_more`]) of items that come again;
+/// by what was shown, when any failed so, for that is given up on in the end.
 async fn told_apart(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
@@ -158,7 +174,8 @@ async fn told_apart(
     round.gone_over().await;
     let mut failed = round.failed();
     if failed.is_some_and(CallFailure::of_what_was_shown) && round.any_told() {
-        failed = round.once_more().await.err();
+        let asked_last = round.once_more().await;
+        failed = asked_last.err().filter(|_| !by.only_now);
     }
     let mut told = round.told();
     if let Some(failure) = failed {
@@ -262,8 +279,8 @@ pub(super) async fn told_of(
 ) -> Told {
     let by = By {
         who,
-        now: &[],
         until: Some(until),
+        ..By::default()
     };
     told_by(db, user_id, &by, items).await
 }
@@ -301,8 +318,9 @@ pub(in crate::services::agent) async fn anything(
         .map_or(true, |asked| !asked.is_empty())
 }
 
-/// Of `items`, about to be kept of `user_id`, those to keep, by what each
-/// says (`text`); `None` when that could not be told, and none may be kept.
+/// Of `items`, about to be kept of `user_id` now or never, those to keep, by
+/// what each says (`text`); `None` when that could not be told, and none may
+/// be kept.
 pub(in crate::services::agent) async fn to_keep<T>(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
@@ -481,9 +499,9 @@ pub(super) async fn leave_out_of(
         items.push(thing.clone());
     }
     let by = By {
-        who: None,
         now,
         until,
+        ..By::default()
     };
     let told = told_apart(db, user_id, &by, &items).await?;
     let untold = (told.untold.iter()).any(|&index| matches!(at[index], At::Fact(_)));

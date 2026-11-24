@@ -55,14 +55,23 @@ fn items(texts: &[&str]) -> Vec<String> {
     texts.iter().map(|text| text.to_string()).collect()
 }
 
-/// Why `shown` of theirs could not be told of ([`told`]).
+/// Why `shown` of theirs, that comes again, could not be told of ([`told`]).
 async fn failed(
     db: &sea_orm::DatabaseConnection,
     shown: &[&str],
     answers: &[Option<&str>],
 ) -> Failure {
-    let (out, _) = told_or_failed(db, THEM, shown, answers).await;
+    answering(answers);
+    let out = to_leave_out_or_again(db, THEM, &items(shown)).await;
+    g0::leave();
     out.expect_err("told of")
+}
+
+fn answering(answers: &[Option<&str>]) {
+    let mut world = g0::World::new(0.5);
+    let answers = answers.iter().map(|answer| answer.map(str::to_string));
+    world.models.insert("not_to_keep".into(), answers.collect());
+    g0::enter(world);
 }
 
 /// `items` of `user_id` with the judge answering `answers` in order (None:
@@ -83,17 +92,7 @@ async fn told_or_failed(
     shown: &[&str],
     answers: &[Option<&str>],
 ) -> (Result<BTreeSet<usize>, Failure>, Vec<(String, String)>) {
-    let mut world = g0::World::new(0.5);
-    world
-        .models
-        .entry("not_to_keep".into())
-        .or_default()
-        .extend(
-            answers
-                .iter()
-                .map(|answer| answer.map(|answer| answer.to_string())),
-        );
-    g0::enter(world);
+    answering(answers);
     let out = to_leave_out(db, user_id, &items(shown)).await;
     let log = g0::leave().unwrap().log;
     let asks = log
@@ -232,20 +231,30 @@ async fn one_refused_holds_up_none_beside_it() {
     let answers = [refused, kept, refused, goes, goes, goes, goes];
     let (out, _) = told(db, THEM, &three, &answers).await;
     assert_eq!(out, Some(vec![1, 2]));
-    // Nothing answered at last: none of it is let go of now.
+    // Nothing answered at last: none of it is let go of now, when it comes
+    // again; what was told stands, when it does not.
     for last in [refused, odd, Some("!quota"), None] {
-        let before = not_written();
         let mut answers = vec![refused, kept, refused, kept, refused];
         answers.extend([last; 3]);
         let failure = failed(db, &three, &answers).await;
         assert!(failure.untold() && failure.refused(), "{last:?}");
+        let (out, _) = told(db, THEM, &three, &answers).await;
+        assert_eq!(out, Some(vec![1]), "{last:?}");
         let answers = [
-            refused, kept, refused, kept, last, odd, odd, last, last, last,
+            refused, kept, refused, goes, goes, last, odd, odd, last, last, last,
         ];
         let failure = failed(db, &three, &answers).await;
         assert!(failure.untold() && failure.refused(), "{last:?}");
-        assert_eq!(not_written(), before);
+        let (out, _) = told(db, THEM, &three, &answers).await;
+        assert_eq!(out, Some(vec![1, 2]), "{last:?}");
     }
+    // Asked of one told alone, when any was, not of one told with others.
+    let more: Vec<String> = (0..ITEMS_PER_ASK + 2).map(|n| format!("第{n}件")).collect();
+    let more: Vec<&str> = more.iter().map(String::as_str).collect();
+    let answers = [kept, refused, refused, kept, refused, kept];
+    let (out, asks) = told(db, THEM, &more, &answers).await;
+    assert_eq!((out, asks.len()), (Some(vec![ITEMS_PER_ASK]), 6));
+    assert!(asks[5].1.contains(more[ITEMS_PER_ASK + 1]) && !asks[5].1.contains("第0件"));
     // One that never reads, the same, and not asked about once more.
     let (out, _) = told(db, THEM, &three, &[refused, kept, odd, odd, odd, kept]).await;
     assert_eq!(out, Some(vec![1]));
@@ -256,8 +265,9 @@ async fn one_refused_holds_up_none_beside_it() {
     assert_eq!(out, Some(vec![]));
     let (out, asks) = told(db, THEM, &many, &[kept, odd, odd, odd, kept]).await;
     assert_eq!((out, asks.len()), (Some(vec![ITEMS_PER_ASK]), 5));
+    failed(db, &many, &[kept, odd, odd, odd, refused]).await;
     let (out, _) = told(db, THEM, &many, &[kept, odd, odd, odd, refused]).await;
-    assert_eq!(out, None);
+    assert_eq!(out, Some(vec![ITEMS_PER_ASK]));
     // Out of time before it was asked again: not let go of, but one that did
     // not read all the same. With nothing but no answer in time, none.
     for (answers, delays, counted, as_refused) in [
