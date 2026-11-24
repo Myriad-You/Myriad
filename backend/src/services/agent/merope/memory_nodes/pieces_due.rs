@@ -27,6 +27,27 @@
 //! (`forgotten::INTENT_DUE`). A row her log does not get (left out as its
 //! reader may not hold it) is a gap nothing fills: what waits past it waits
 //! on, and what rests on it stays (the count is on her state).
+//!
+//! **An end that is no more ends no round**: its device removed, what it
+//! forgot, all it wrote up to there here, is looked at
+//! ([`super::logged::look_at_over`]). Past a gap it waits on: the same
+//! computer linked anew may bring the rest. Her log deleted, all that waits
+//! is looked at so before, and none is kept as due after ([`let_all_go`]).
+//! Her persona cleared, or she moved off the site, her nodes and her log stay,
+//! and so does what waits: it is looked at as ever.
+//!
+//! Known limits of that look:
+//! - What went stays gone: a version the removed end wrote that only comes
+//!   after (from the same computer linked anew, another end, a file) does not
+//!   bring back what rested on the one before.
+//! - A batch being taken in as the device is removed is not part of it.
+//! - Syncing turned on again past the retention period, the log comes anew:
+//!   what was looked at is not looked at again.
+//! - It is of that moment only. An intent that comes later from another end
+//!   and names such a piece is judged by that link's round, and may make the
+//!   piece due again (`intent_grounds::Late`): the intent stays and the piece
+//!   is counted until a round of that link's is enough, or the next device is
+//!   removed or let go.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -343,4 +364,23 @@ pub(super) async fn any<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<bool
         ))
         .await?
         .is_some())
+}
+
+/// Nothing of `user_id`'s is due any more: her log, which says for what, is
+/// deleted.
+pub(crate) async fn let_all_go<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+) -> Result<(), sea_orm::DbErr> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "DELETE FROM agent_forgotten WHERE user_id = $1 AND what IN ($2, $3)",
+        [
+            user_id.into(),
+            forgotten::PIECE_DUE.into(),
+            forgotten::INTENT_DUE.into(),
+        ],
+    ))
+    .await?;
+    Ok(())
 }

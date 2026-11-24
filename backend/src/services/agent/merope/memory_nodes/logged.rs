@@ -32,7 +32,10 @@
 //! before she leaves for another core). So everything is in the log before
 //! a handover's `through` is read.
 
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
+use sea_orm::{
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionSession,
+    TransactionTrait,
+};
 use serde_json::Value;
 
 use super::audience::OWN;
@@ -348,4 +351,50 @@ pub(crate) async fn take_in_due(
         true => take_in(db, root, owner, rounds).await,
         false => Ok(0),
     }
+}
+
+/// Looks at what waits ([`pieces_due`]) only for a round of an end that is no
+/// more to be over: what it wrote up to its forget is all here. What rests on
+/// what it forgot goes, or stays, as once the round was over; what waits for
+/// one of `live`, or past a gap, waits on. `wait`: no longer than that for
+/// each lock another holds.
+pub(crate) async fn look_at_over<C: ConnectionTrait + TransactionTrait>(
+    db: &C,
+    user_id: i32,
+    live: std::collections::BTreeSet<String>,
+    wait: Option<std::time::Duration>,
+) -> Result<(), Error> {
+    if !pieces_due::any(db, user_id).await? {
+        return Ok(());
+    }
+    let rounds = Rounds::over(live);
+    let found = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT DISTINCT audience FROM agent_node_rows WHERE user_id = $1",
+            [user_id.into()],
+        ))
+        .await?;
+    for row in found {
+        let audience: String = row.try_get("", "audience")?;
+        if !kept_in_log(&audience) {
+            continue;
+        }
+        let txn = db.begin().await?;
+        if let Some(wait) = wait {
+            txn.execute_unprepared(&format!("SET LOCAL lock_timeout = {}", wait.as_millis()))
+                .await?;
+        }
+        write::lock(&txn, user_id, &audience).await?;
+        let resting = intent_grounds::Round::default()
+            .taken(&txn, user_id, &audience, &Default::default(), &rounds)
+            .await?;
+        if !resting.is_empty() {
+            forget::stub(&txn, user_id, &resting).await?;
+            let kept = heads::rows_of(&txn, user_id, &audience).await?;
+            heads::refresh(&txn, user_id, &audience, &heads::fold_rows(&kept)?).await?;
+        }
+        txn.commit().await?;
+    }
+    Ok(())
 }

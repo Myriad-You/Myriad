@@ -3728,6 +3728,19 @@ async fn her_nodes_from_another_end_are_kept_on_the_site() {
     schema.drop().await;
 }
 
+/// With no link: all of it up to there, and neither end may send any.
+#[test]
+fn what_no_end_may_send_any_more_is_through() {
+    let over = super::rounds::Rounds::over(BTreeSet::from(["dev_b".to_string()]));
+    let held = Vector::from([("dev_a".to_string(), 3), ("dev_b".to_string(), 3)]);
+    assert!(over.through(PERSONAL, &held, "dev_a", 3, "dev_a"));
+    assert!(over.through(PERSONAL, &held, super::NODE, 3, "dev_b"));
+    assert!(!over.through(PERSONAL, &held, "dev_b", 3, "dev_a"));
+    assert!(!over.through(PERSONAL, &held, "dev_a", 3, "dev_b"));
+    // Past a gap it may come yet, by another id.
+    assert!(!over.through(PERSONAL, &held, "dev_a", 4, "dev_a"));
+}
+
 /// Her records the Mac wrote while her mind was there go into the site's
 /// tables (b1): a new one is added, a changed one written over, one gone
 /// there (deleted) goes here, and so does one the owner had her forget; and

@@ -4,7 +4,7 @@
 //! ahead of everything else (`myriad_nodes::wire`), so what one of them
 //! means for other rows is read once the rest of it came.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use myriad_persona_log::Vector;
 
@@ -15,6 +15,8 @@ use super::NODE;
 pub struct Rounds {
     device: String,
     by_audience: BTreeMap<String, Round>,
+    /// [`Self::over`]: the ends that may still send any.
+    live: Option<BTreeSet<String>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -24,6 +26,14 @@ struct Round {
 }
 
 impl Rounds {
+    /// No link's: what `live` may still send is not waited for here.
+    pub fn over(live: BTreeSet<String>) -> Self {
+        Self {
+            live: Some(live),
+            ..Self::default()
+        }
+    }
+
     /// `device` said it holds `theirs` of `audience`: whether that is news.
     pub fn vector(&mut self, device: &str, audience: &str, theirs: &Vector) -> bool {
         self.device = device.to_string();
@@ -49,7 +59,10 @@ impl Rounds {
     /// Whether everything `origin` wrote in `audience` up to its count
     /// `dseq` is in her log (`held`, its vector), and so is what this device
     /// has to give of it: the row of that count came by `from`. What the
-    /// server wrote itself is.
+    /// server wrote itself is. With no link ([`Self::over`]): whether all of
+    /// it up to there is, and neither end is one that may still send any. Up
+    /// to a gap it is not: the same computer linked anew under another id
+    /// sends what it wrote as the one before.
     pub fn through(
         &self,
         audience: &str,
@@ -61,11 +74,17 @@ impl Rounds {
         if origin == NODE {
             return true;
         }
+        let held = held.get(origin).copied().unwrap_or(0);
+        if held < dseq {
+            return false;
+        }
+        if let Some(live) = &self.live {
+            return !live.contains(origin) && !live.contains(from);
+        }
         let Some(round) = self.by_audience.get(audience).filter(|round| !round.more) else {
             return false;
         };
-        let held = held.get(origin).copied().unwrap_or(0);
         let theirs = round.theirs.get(origin).copied().unwrap_or(0);
-        held >= dseq && held >= theirs && (from == self.device || theirs >= dseq)
+        held >= theirs && (from == self.device || theirs >= dseq)
     }
 }
