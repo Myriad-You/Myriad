@@ -27,6 +27,8 @@
 //! drivers stuck while the others run ([`stalled`]), and her model not
 //! answering her at all ([`UNANSWERED_IN_A_ROW`]). An answer that cannot be
 //! read is an answer: that trouble is the model's, and its own counts show.
+//! A stuck driver is stuck in one process, so one stuck after a restart is
+//! said, whatever the last process had said.
 
 use serde::{Deserialize, Serialize};
 
@@ -91,6 +93,9 @@ pub struct Held {
     pub from: Option<i64>,
     /// Since when it has been gone, after it was said.
     pub well_from: Option<i64>,
+    /// Said by a process that is gone, and not seen in this one.
+    #[serde(skip)]
+    pub before: bool,
 }
 
 /// What a trouble has to say.
@@ -108,18 +113,31 @@ pub enum Trouble {
 }
 
 impl Held {
+    /// As a new process takes it over, for a trouble that goes with its
+    /// process (a tick that hangs ends with it): the next time it holds is
+    /// another, and is said. Not seen again for [`WELL_SECS`], it ends as
+    /// any does.
+    pub fn said_before(self) -> Self {
+        Self {
+            before: self.from.is_some(),
+            ..self
+        }
+    }
+
     /// One look: `holds_from` is since when the trouble has held, none when
     /// it does not hold now.
     pub fn look(&mut self, now: i64, holds_from: Option<i64>) -> Option<Turn> {
         match (self.from, holds_from) {
-            (None, Some(from)) => {
-                self.from = Some(from);
-                self.well_from = None;
-                Some(Turn::Began { from })
-            }
-            (Some(_), Some(_)) => {
+            (Some(_), Some(_)) if !self.before => {
                 self.well_from = None;
                 None
+            }
+            (_, Some(from)) => {
+                *self = Self {
+                    from: Some(from),
+                    ..Self::default()
+                };
+                Some(Turn::Began { from })
             }
             (Some(from), None) => {
                 let since = *self.well_from.get_or_insert(now);
@@ -135,22 +153,22 @@ impl Held {
     }
 }
 
-/// Of her drivers that tick on their own (`every` seconds, last let
-/// through at `ran_at`), how many are stuck as of `now`, and since when the
-/// longest stuck one has been: none let through for three of its own
+/// Of her drivers that tick on their own (`every` seconds, last asked to be
+/// let through at `asked_at`), how many are stuck as of `now`, and since
+/// when the longest stuck one has been: not asked for three of its own
 /// rounds, and never less than [`QUIET_SECS`]. A driver's ticks run one
-/// after another, so one stuck in a tick is one not let through. `base` is
+/// after another, so one stuck in a tick is one that does not ask. `base` is
 /// when the watch could first have seen it run (this process started, she
 /// came to live here, the host woke).
 pub fn stalled(
-    beats: impl IntoIterator<Item = (u64, Option<i64>)>,
+    beats: impl IntoIterator<Item = (u64, i64)>,
     base: i64,
     now: i64,
 ) -> (usize, Option<i64>) {
     beats
         .into_iter()
-        .filter_map(|(every, ran_at)| {
-            let from = ran_at.unwrap_or(base).max(base);
+        .filter_map(|(every, asked_at)| {
+            let from = asked_at.max(base);
             let allowed = (3 * every as i64).max(QUIET_SECS);
             (now - from >= allowed).then_some(from)
         })
