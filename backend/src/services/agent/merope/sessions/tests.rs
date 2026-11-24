@@ -125,10 +125,6 @@ async fn made_of(db: &DatabaseConnection, grant: &str, session: &str) -> Option<
 }
 
 /// Waits for the look under way to keep what it made of it.
-async fn looked(db: &DatabaseConnection) -> String {
-    looked_under(db, ASKING).await
-}
-
 async fn looked_under(db: &DatabaseConnection, grant: &str) -> String {
     for _ in 0..100 {
         if let Some(made) = made_of(db, grant, "s-1").await {
@@ -200,7 +196,9 @@ async fn an_asking_session_is_kept_for_the_owner_alone_and_looked_at_once() {
     take(db, OWNER, DEVICE, under(ASKING, "asked", 1_760_000_000_000))
         .await
         .unwrap();
-    let made = looked(db).await;
+    // Kept, and in her inbox: the second is written after the first.
+    made_under(db, ASKING, "s-1").await;
+    let made = made_of(db, ASKING, "s-1").await.unwrap();
     assert_eq!(g0::leave().unwrap().models["session_look"].len(), 0);
     // Both answers are in the owner's ledger, word for word.
     let ledger = keep::ledger_of(db, OWNER).await;
