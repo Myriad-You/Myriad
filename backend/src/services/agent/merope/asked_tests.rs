@@ -433,13 +433,23 @@ async fn only_what_they_asked_not_to_keep_goes_from_a_line() {
     answers.extend(vec![Some(r#"{"drop":[]}"#.to_string()); 5]);
     world.models.insert("not_to_keep".into(), answers.into());
     g0::enter(world);
-    let untold = leave_out_of(&schema.db, THEM, &[], &mut updates, None).await;
+    let not_taken_back = || counts()["notTakenBack"].as_u64().unwrap();
+    let counted = not_taken_back();
+    leave_out_of(&schema.db, THEM, &[], &mut updates, None)
+        .await
+        .unwrap();
     g0::leave();
-    assert!(untold.unwrap());
-    assert_eq!(updates.updates[1], update(None, &[]));
-    for kept in [0, 2, 3] {
+    // What is only taken back beside it stands, counted; what another is
+    // told in place of goes.
+    assert!(not_taken_back() > counted);
+    for gone in [0, 1] {
+        assert_eq!(updates.updates[gone], update(None, &[]));
+    }
+    for kept in [2, 3] {
         assert_eq!(updates.updates[kept], before.updates[kept]);
     }
+    assert_eq!(leave_what_stands(&mut before.clone()), 1);
+    assert_eq!(leave_what_stands(&mut updates), 0);
     assert_eq!((updates.said.len(), updates.put_onto.len()), (2, 2));
 
     // Unanswered, none of it is kept now.

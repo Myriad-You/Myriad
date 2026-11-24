@@ -51,8 +51,10 @@ static LET_BE: AtomicU64 = AtomicU64::new(0);
 /// want of room to ask; what a line in a group was read as asking and does
 /// not; what she held from before that was closed, and how often something
 /// of it was not said for not being judged yet; what was never told of and
-/// left as it was; group talk let go of unkept for the same; and lines let
-/// go for want of room where they waited. Counts only.
+/// left as it was; what was new and never told of, not written, and what was
+/// taken back beside such, left standing; group talk let go of unkept for
+/// the same; and lines let go for want of room where they waited. Counts
+/// only.
 pub(crate) fn counts() -> serde_json::Value {
     let of = |count: &AtomicU64| count.load(Ordering::Relaxed);
     serde_json::json!({
@@ -68,6 +70,7 @@ pub(crate) fn counts() -> serde_json::Value {
         "oldHeldBack": of(&old::HELD_BACK),
         "letBe": of(&LET_BE),
         "notWritten": of(&NOT_WRITTEN),
+        "notTakenBack": of(&NOT_TAKEN_BACK),
         "groupLetGo": of(&GROUP_LET_GO),
         "foldedAway": super::memory_jobs::folded_away(),
     })
@@ -75,6 +78,9 @@ pub(crate) fn counts() -> serde_json::Value {
 
 /// New, and not told of while others beside it were: not written.
 static NOT_WRITTEN: AtomicU64 = AtomicU64::new(0);
+
+/// Only taken back, beside what was not told of and goes: left as it is.
+static NOT_TAKEN_BACK: AtomicU64 = AtomicU64::new(0);
 
 static GROUP_LET_GO: AtomicU64 = AtomicU64::new(0);
 
@@ -496,15 +502,15 @@ async fn tried(
 /// a fact of it goes with what it would have replaced and where it would
 /// have gone. What they ask in it (`now`) holds for it too, and is not
 /// itself judged by what they asked before. Whatever they take back goes as
-/// it would. Told by `until`, or not at all; whether a fact of it goes
-/// though it was not told of it ([`told_apart`]).
+/// it would, but beside a fact that goes though it was not told of it
+/// ([`told_apart`], [`leave_what_stands`]). Told by `until`, or not at all.
 pub(super) async fn leave_out_of(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
     now: &[Asked],
     updates: &mut ChatMemoryUpdates,
     until: Option<Instant>,
-) -> Result<bool, Failure> {
+) -> Result<(), Failure> {
     enum At {
         Fact(usize),
         Said(usize),
@@ -566,7 +572,24 @@ pub(super) async fn leave_out_of(
     updates
         .put_onto
         .retain(|_| !put_onto.contains(&index.next().unwrap_or(0)));
-    Ok(untold)
+    if untold {
+        leave_what_stands(updates);
+    }
+    Ok(())
+}
+
+/// Beside something told and not kept, what is only taken back may be what
+/// that corrects: it stays as it is. How many did (counted).
+pub(super) fn leave_what_stands(updates: &mut ChatMemoryUpdates) -> usize {
+    let mut stands = 0;
+    for update in &mut updates.updates {
+        if update.fact.is_none() && !update.supersedes.is_empty() {
+            update.supersedes.clear();
+            stands += 1;
+        }
+    }
+    NOT_TAKEN_BACK.fetch_add(stands as u64, Ordering::Relaxed);
+    stands
 }
 
 #[cfg(test)]
