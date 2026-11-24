@@ -278,12 +278,19 @@ pub(super) enum Failure {
     /// nothing of it is written till it is, and it is tried again for that
     /// alone, however it failed ([`GIVES_UP_AFTER`]).
     NotTold(call::Failure),
+    /// Not all of it could be asked about now (`last`), and of what was, one
+    /// got no answer that will do (`shown`): tried again as the first, and
+    /// counted as the second ([`Self::counted`]).
+    Unreached {
+        last: call::Failure,
+        shown: call::Failure,
+    },
     Storage,
 }
 impl Failure {
     pub(super) fn retryable(&self) -> bool {
         match self {
-            Self::Model(failure) => failure.retryable(),
+            Self::Model(failure) | Self::Unreached { last: failure, .. } => failure.retryable(),
             Self::NotTold(_) => false,
             Self::Storage => true,
         }
@@ -296,6 +303,26 @@ impl Failure {
             self,
             Self::Model(failure) | Self::NotTold(failure) if failure.of_what_was_shown()
         )
+    }
+
+    /// What it counts as towards giving up, if at all: of what was shown,
+    /// whatever else could not be asked about.
+    pub(super) fn counted(&self) -> Option<call::Failure> {
+        match self {
+            Self::Model(failure) | Self::NotTold(failure) if failure.of_what_was_shown() => {
+                Some(*failure)
+            }
+            Self::Unreached { shown, .. } => Some(*shown),
+            _ => None,
+        }
+    }
+
+    /// As what was shown alone, whatever else could not be asked about.
+    pub(super) fn of_what_was_shown(self) -> Self {
+        match self {
+            Self::Unreached { shown, .. } => Self::Model(shown),
+            failure => failure,
+        }
     }
 
     /// Refused for what it was shown: so until that is another.
@@ -327,7 +354,7 @@ impl Failure {
 impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Model(failure) => failure.fmt(f),
+            Self::Model(failure) | Self::Unreached { last: failure, .. } => failure.fmt(f),
             Self::NotTold(failure) => write!(f, "not_told_{failure}"),
             Self::Storage => f.write_str("storage_failed"),
         }

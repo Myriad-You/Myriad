@@ -311,12 +311,9 @@ pub(in crate::services::agent::merope) async fn settle(
         });
     }
     let until = started + super::super::memory_jobs::SETTLE_LIMIT - KEPT_FOR_WRITING;
-    if super::super::asked::leave_out_of(db, user_id, &[], &mut updates, Some(until))
+    super::super::asked::leave_out_of(db, user_id, &[], &mut updates, Some(until))
         .await
-        .map_err(Failure::of_judging)?
-    {
-        updates.leave_what_stands();
-    }
+        .map_err(Failure::of_judging)?;
     Ok(Effect::Settle {
         updates,
         settled,

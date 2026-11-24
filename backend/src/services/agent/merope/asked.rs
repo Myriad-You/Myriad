@@ -51,8 +51,10 @@ static LET_BE: AtomicU64 = AtomicU64::new(0);
 /// want of room to ask; what a line in a group was read as asking and does
 /// not; what she held from before that was closed, and how often something
 /// of it was not said for not being judged yet; what was never told of and
-/// left as it was; group talk let go of unkept for the same; and lines let
-/// go for want of room where they waited. Counts only.
+/// left as it was; what was new and never told of, not written, and what was
+/// taken back beside such, left standing; group talk let go of unkept for
+/// the same; and lines let go for want of room where they waited. Counts
+/// only.
 pub(crate) fn counts() -> serde_json::Value {
     let of = |count: &AtomicU64| count.load(Ordering::Relaxed);
     serde_json::json!({
@@ -68,6 +70,7 @@ pub(crate) fn counts() -> serde_json::Value {
         "oldHeldBack": of(&old::HELD_BACK),
         "letBe": of(&LET_BE),
         "notWritten": of(&NOT_WRITTEN),
+        "notTakenBack": of(&NOT_TAKEN_BACK),
         "groupLetGo": of(&GROUP_LET_GO),
         "foldedAway": super::memory_jobs::folded_away(),
     })
@@ -75,6 +78,9 @@ pub(crate) fn counts() -> serde_json::Value {
 
 /// New, and not told of while others beside it were: not written.
 static NOT_WRITTEN: AtomicU64 = AtomicU64::new(0);
+
+/// Only taken back, beside what was not told of and goes: left as it is.
+static NOT_TAKEN_BACK: AtomicU64 = AtomicU64::new(0);
 
 static GROUP_LET_GO: AtomicU64 = AtomicU64::new(0);
 
@@ -111,13 +117,25 @@ pub(super) async fn to_leave_out(
         only_now: true,
         ..By::default()
     };
-    left_out(db, user_id, &by, items).await
+    (left_out(db, user_id, &by, items).await).map_err(Failure::of_what_was_shown)
 }
 
 /// [`to_leave_out`], of items that come again when it is an `Err`: a line to
-/// go on her nodes (`memory_nodes::placing`), what her upkeep writes
-/// (`memory_nodes::upkeep_not_kept`), a day's line (`chat_days::write_day`).
+/// go on her nodes (`memory_nodes::placing`), a day's line
+/// (`chat_days::write_day`).
 pub(super) async fn to_leave_out_or_again(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    items: &[String],
+) -> Result<BTreeSet<usize>, Failure> {
+    let out = to_leave_out_or_why(db, user_id, items).await;
+    out.map_err(Failure::of_what_was_shown)
+}
+
+/// [`to_leave_out_or_again`], of what her upkeep writes
+/// (`memory_nodes::upkeep_not_kept`): an `Err` says too whether all of it
+/// could be asked about (`Failure::Unreached`).
+pub(super) async fn to_leave_out_or_why(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
     items: &[String],
@@ -139,7 +157,7 @@ pub(super) async fn to_leave_out_of(
         until: Some(until),
         ..By::default()
     };
-    left_out(db, user_id, &by, items).await
+    (left_out(db, user_id, &by, items).await).map_err(Failure::of_what_was_shown)
 }
 
 /// What items are judged by, beside what is kept of it.
@@ -171,7 +189,8 @@ async fn left_out(
 /// were, is not kept (it is what it says, not who asks; counted). An `Err`:
 /// none of them told, or one that could not be asked about, or no answer to
 /// what was asked last ([`round::Round::once_more`]) of items that come again;
-/// by what was shown, when any failed so, for that is given up on in the end.
+/// with what was shown and failed so, when any did
+/// ([`Failure::of_what_was_shown`]), for that is given up on in the end.
 async fn told_apart(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
@@ -191,7 +210,13 @@ async fn told_apart(
     }
     let mut told = round.told();
     if let Some(failure) = failed {
-        return Err(told.shown.unwrap_or(failure).into());
+        return Err(match told.shown {
+            Some(shown) if !failure.of_what_was_shown() => Failure::Unreached {
+                last: failure,
+                shown,
+            },
+            shown => shown.unwrap_or(failure).into(),
+        });
     }
     told.failure = None;
     NOT_WRITTEN.fetch_add(told.untold.len() as u64, Ordering::Relaxed);
@@ -260,8 +285,22 @@ impl Told {
         unanswered.failure
     }
 
+    /// With what was told of others, the first of them at `first`.
+    fn and(&mut self, told: Told, first: usize) {
+        let all = |of: BTreeSet<usize>| of.into_iter().map(move |index| first + index);
+        self.out.extend(all(told.out));
+        self.untold.extend(all(told.untold));
+        // One that could not be asked is asked again, whatever the rest.
+        if self.failure.as_ref().is_none_or(Failure::untold) {
+            self.failure = told.failure.or(self.failure.take());
+        }
+        self.shown = self.shown.or(told.shown);
+    }
+
     /// Of what she already held: what was not told stays as it is, to be
-    /// asked again (`Err`), or, with `gives_up`, let be and counted.
+    /// asked again (`Err`), or, with `gives_up`, let be and counted. Not
+    /// with one that could not be asked about: it may be told. What was asked
+    /// to no answer that will do counts all the same.
     pub(super) fn let_be(self, gives_up: bool) -> Result<(), Failure> {
         match self.failure {
             None => Ok(()),
@@ -274,6 +313,10 @@ impl Told {
                 );
                 Ok(())
             }
+            Some(Failure::Model(last)) if !last.of_what_was_shown() => Err(match self.shown {
+                Some(shown) => Failure::Unreached { last, shown },
+                None => last.into(),
+            }),
             Some(failure) => Err(failure),
         }
     }
@@ -478,15 +521,15 @@ async fn tried(
 /// a fact of it goes with what it would have replaced and where it would
 /// have gone. What they ask in it (`now`) holds for it too, and is not
 /// itself judged by what they asked before. Whatever they take back goes as
-/// it would. Told by `until`, or not at all; whether a fact of it goes
-/// though it was not told of it ([`told_apart`]).
+/// it would, but beside a fact that goes though it was not told of it
+/// ([`told_apart`], [`leave_what_stands`]). Told by `until`, or not at all.
 pub(super) async fn leave_out_of(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
     now: &[Asked],
     updates: &mut ChatMemoryUpdates,
     until: Option<Instant>,
-) -> Result<bool, Failure> {
+) -> Result<(), Failure> {
     enum At {
         Fact(usize),
         Said(usize),
@@ -515,7 +558,8 @@ pub(super) async fn leave_out_of(
         until,
         ..By::default()
     };
-    let told = told_apart(db, user_id, &by, &items).await?;
+    let told = told_apart(db, user_id, &by, &items).await;
+    let told = told.map_err(Failure::of_what_was_shown)?;
     let untold = (told.untold.iter()).any(|&index| matches!(at[index], At::Fact(_)));
     let drop = told.out.into_iter().chain(told.untold);
     let (mut said, mut put_onto) = (BTreeSet::new(), BTreeSet::new());
@@ -548,7 +592,24 @@ pub(super) async fn leave_out_of(
     updates
         .put_onto
         .retain(|_| !put_onto.contains(&index.next().unwrap_or(0)));
-    Ok(untold)
+    if untold {
+        leave_what_stands(updates);
+    }
+    Ok(())
+}
+
+/// Beside something told and not kept, what is only taken back may be what
+/// that corrects: it stays as it is. How many did (counted).
+pub(super) fn leave_what_stands(updates: &mut ChatMemoryUpdates) -> usize {
+    let mut stands = 0;
+    for update in &mut updates.updates {
+        if update.fact.is_none() && !update.supersedes.is_empty() {
+            update.supersedes.clear();
+            stands += 1;
+        }
+    }
+    NOT_TAKEN_BACK.fetch_add(stands as u64, Ordering::Relaxed);
+    stands
 }
 
 #[cfg(test)]

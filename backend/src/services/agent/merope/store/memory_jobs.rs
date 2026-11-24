@@ -137,14 +137,15 @@ impl Job {
     }
 
     /// Asked again, to no answer that will do.
-    fn untold(&mut self, failure: &Failure, now: i64) {
+    fn untold(&mut self, failure: super::super::call::Failure, now: i64) {
         if self.untold_since(now).is_none() {
             self.untold = 0;
             self.untold_since = Some(now);
         }
         self.untold_at = Some(now);
         // Refused, it is only a while till it is given up on.
-        self.untold = self.untold.saturating_add(u8::from(!failure.refused()));
+        let refused = failure == super::super::call::Failure::Refused;
+        self.untold = self.untold.saturating_add(u8::from(!refused));
     }
 
     fn told(&mut self) {

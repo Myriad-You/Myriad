@@ -247,7 +247,14 @@ async fn what_a_line_in_a_group_asks_is_not_let_go_unjudged() {
     .unwrap();
     let refused = judge("!refused");
     let last = [("chat_remember", replacing.as_str()), refused, refused];
+    let not_taken_back = || {
+        crate::services::agent::merope::not_to_keep_counts()["notTakenBack"]
+            .as_u64()
+            .unwrap()
+    };
+    let before = not_taken_back();
     let (effect, _) = in_group_tried(db, LINE, &last, Tried::GaveUp).await;
+    assert!(not_taken_back() > before);
     let Ok(Effect::Chat(updates)) = effect else {
         panic!("what they ask is kept");
     };

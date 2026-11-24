@@ -99,3 +99,54 @@ async fn what_was_told_to_stay_is_not_asked_about_again() {
     assert_eq!(asked.iter().flatten().count(), 59);
     schema.drop().await;
 }
+
+/// Refused, and then the rest not to be reached: tried again as what cannot
+/// be reached, counted as refused, and never let be for it.
+#[tokio::test]
+async fn refused_and_then_not_reached_counts_as_refused_and_is_not_let_be() {
+    let Some(schema) = schema("memory_nodes_asked_old_unreached").await else {
+        return;
+    };
+    let db = &schema.db;
+    pen::reset_for_test();
+    asks(db, OTHER, ASK).await;
+    makes(
+        db,
+        &[
+            (bits::SOURCE, "话太多", None),
+            (bits::SOURCE, "爱熬夜", None),
+        ],
+    )
+    .await;
+    waits(db).await;
+    let refused = Some("!refused");
+    for nth in 1..=5 {
+        let claimed = taken(db, "asked_over").await;
+        judging(&[refused, refused, Some("!rejected")], &[]);
+        let own = Some(Own::of(&claimed));
+        let gives_up = nth > 3;
+        let done = old::let_go(db, OTHER, soon(), gives_up, 0, own).await;
+        g0::leave();
+        let failure = done.expect_err("not all of it reached");
+        assert!(!failure.untold() && !failure.refused());
+        assert_eq!(failure.counted(), Some(call::Failure::Refused));
+        finish(db, &claimed, Err(failure)).await.unwrap();
+        // Counted from the first, by the days alone; tried as often as ever.
+        let row = db
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT (payload->>'untold')::int AS untold, \
+                   (payload->>'untold_since') IS NOT NULL AS since, \
+                   (payload->>'ready')::bigint - EXTRACT(EPOCH FROM NOW())::bigint AS wait \
+                 FROM runtime_registry WHERE record_id = 'asked_over'",
+            ))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.try_get::<i32>("", "untold").unwrap(), 0);
+        assert!(row.try_get::<bool>("", "since").unwrap());
+        assert!(row.try_get::<i64>("", "wait").unwrap() <= 600);
+        assert_eq!(made(db, &[bits::SOURCE]).await.len(), 2);
+    }
+    schema.drop().await;
+}

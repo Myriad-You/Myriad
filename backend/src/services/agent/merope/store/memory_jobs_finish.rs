@@ -105,8 +105,8 @@ pub(in crate::services::agent::merope) async fn finish(
             if stretch {
                 settling::asked_again();
             }
-            if failure.untold() {
-                job.untold(&failure, now);
+            if let Some(counted) = failure.counted() {
+                job.untold(counted, now);
             }
             let wait = if failure.not_told() {
                 // Its own tries are not spent on it.

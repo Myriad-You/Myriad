@@ -193,16 +193,6 @@ impl ChatMemoryUpdates {
         }
     }
 
-    /// Beside something told and not kept (`asked::leave_out_of`), what is
-    /// taken back may be what that corrects: it stays as it is.
-    pub(super) fn leave_what_stands(&mut self) {
-        for update in &mut self.updates {
-            if update.fact.is_none() {
-                update.supersedes.clear();
-            }
-        }
-    }
-
     /// What they asked her not to keep from now on, in place of what it
     /// replaces of what they asked before.
     pub(super) fn ask_not_to_keep(&mut self, asked: myriad_merope::chat_remember::Asked) {
@@ -645,8 +635,7 @@ pub(super) async fn extract(
     )
     .await;
     match super::asked::leave_out_of(db, user_id, &asked, &mut updates, Some(until)).await {
-        Ok(true) => updates.leave_what_stands(),
-        Ok(false) => {}
+        Ok(()) => {}
         Err(failure) if asked.is_empty() || judged_again || !failure.untold() => {
             return Err(failure.of_judging());
         }
@@ -655,6 +644,7 @@ pub(super) async fn extract(
         // nothing (beside something told, it may be what that corrects).
         Err(_) => {
             if updates.updates.iter().any(|update| update.fact.is_some()) {
+                super::asked::leave_what_stands(&mut updates);
                 updates.updates.clear();
             }
             updates.said.clear();
