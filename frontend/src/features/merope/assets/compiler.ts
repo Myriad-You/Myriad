@@ -28,6 +28,23 @@ export interface RigAssetPreflight extends ImportedRigAsset {
   partSearch: string | null
 }
 
+/** Sends again the preview of what the Worker already made, when only that request failed. */
+export type RigPreviewRetry = (
+  onStage?: (event: RigAssetCompileEvent) => void,
+  signal?: AbortSignal,
+) => Promise<RigAssetPreflight>
+
+/**
+ * A preflight whose preview request failed keeps what the Worker made, by
+ * the error it threw: asking again re-sends only the request.
+ */
+const previewRetries = new WeakMap<object, RigPreviewRetry>()
+
+/** The way to ask again for the preview this error ended, if the Worker's part was done. */
+export function rigPreviewRetryOf(error: unknown): RigPreviewRetry | undefined {
+  return typeof error === 'object' && error !== null ? previewRetries.get(error) : undefined
+}
+
 /** What preflight decides about a PSD import; the caller adds where and for which figure. */
 export type RigPsdPrepareOptions = Pick<
   RigPsdImportOptions,
@@ -81,9 +98,20 @@ export async function preflightRigAsset(
     throw error
   }
 
+  return previewPreparedRigAsset(prepared, dependencies.preview, onStage, signal)
+}
+
+/** Server-compiles and diagnoses what the Worker made; a failure here keeps it for another try. */
+async function previewPreparedRigAsset(
+  prepared: PreparedRigPsdImport,
+  preview: RigAssetPreflightDependencies['preview'],
+  onStage?: (event: RigAssetCompileEvent) => void,
+  signal?: AbortSignal,
+): Promise<RigAssetPreflight> {
+  signal?.throwIfAborted()
   emit(onStage, 'compile-preview', 'started')
   try {
-    const { manifest, partSearch } = await dependencies.preview(
+    const { manifest, partSearch } = await preview(
       prepared.source,
       prepared.atlas,
       prepared.analysisReference,
@@ -98,6 +126,10 @@ export async function preflightRigAsset(
   } catch (error) {
     signal?.throwIfAborted()
     emit(onStage, 'compile-preview', 'failed', errorMessage(error))
+    if (typeof error === 'object' && error !== null) {
+      previewRetries.set(error, (retryStage, retrySignal) =>
+        previewPreparedRigAsset(prepared, preview, retryStage, retrySignal))
+    }
     throw error
   }
 }

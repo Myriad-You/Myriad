@@ -16,6 +16,8 @@ export function RigImportProgress({ rig }: { rig: RigImport }) {
   const { t, format } = useI18n()
   const labels = t.merope
   const { stage, steps, result, error, preflight } = rig
+  // Drawings that failed are missing from this preflight: said beside what it is about to activate.
+  const missing = [rig.aiExpressionsError, rig.armVariantsError].filter((message) => message !== null)
   if (!stage && !result && !error && !preflight) return null
   return (
     <section
@@ -111,6 +113,21 @@ export function RigImportProgress({ rig }: { rig: RigImport }) {
           search={preflight.partSearch}
           carried={preflight.prepared.source.anime25dPlayback?.partProfile}
         />
+      ) : null}
+      {preflight
+        ? missing.map((message) => (
+            <p key={message} className="merope-motion-rig__hint">{message}</p>
+          ))
+        : null}
+      {rig.previewRetryable ? (
+        <SettingsButton
+          type="button"
+          size="sm"
+          disabled={rig.importing}
+          onClick={() => void rig.retryPreview()}
+        >
+          {t.common.retry}
+        </SettingsButton>
       ) : null}
       {preflight ? (
         <SettingsButton
