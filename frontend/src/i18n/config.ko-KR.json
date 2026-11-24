@@ -990,6 +990,8 @@
   "agentAliveForgettingStuck": "정리가 {n}번 연속 실패: 그 대화에서는 그녀의 노트를 읽지 못합니다.",
   "agentAliveTakeBackChecks": "취소한 뒤 노트 재확인",
   "agentAliveTakeBackChecksCounts": "다시 확인을 기다리는 {pending}개, 바뀌었거나 둘 다 아니라고 보고 내려놓기만 한 {changed}개, 답이 나오지 않아 내려놓기만 한 {unsure}개",
+  "agentAliveForgottenWaiting": "다른 기기에서 잊은 것, 나머지를 기다리는 중",
+  "agentAliveForgottenWaitingCount": "{count}개, 이를 근거로 한 일을 아직 확인하지 않음",
   "agentAliveStanding": "「지금의 생활」을 마지막으로 쓴 때",
   "agentAliveStandingFailed": "그 단계의 모델 호출 실패",
   "agentAliveStandingFailedCount": "{n}번, 가장 최근은 {ago}",

@@ -990,6 +990,8 @@
   "agentAliveForgettingStuck": "Le balayage a échoué {n} fois de suite : ses notes ne sont pas lues dans cette conversation.",
   "agentAliveTakeBackChecks": "Second regard avant d’effacer de ses notes ce qui a été retiré",
   "agentAliveTakeBackChecksCounts": "{pending} en attente du second regard, {changed} seulement laissés comme un changement ou ni l’un ni l’autre, {unsure} seulement laissés faute de réponse",
+  "agentAliveForgottenWaiting": "Oublié sur un autre appareil, en attente du reste",
+  "agentAliveForgottenWaitingCount": "{count} en attente avant d’examiner ce qui en dépend",
   "agentAliveStanding": "Dernière écriture de « sa vie en ce moment »",
   "agentAliveStandingFailed": "Appels au modèle échoués à cette étape",
   "agentAliveStandingFailedCount": "{n}, le dernier {ago}",

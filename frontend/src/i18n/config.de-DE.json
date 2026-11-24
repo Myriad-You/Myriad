@@ -990,6 +990,8 @@
   "agentAliveForgettingStuck": "Die Bereinigung ist {n}-mal in Folge fehlgeschlagen: in diesem Gespräch werden ihre Notizen nicht gelesen.",
   "agentAliveTakeBackChecks": "Zweiter Blick, bevor Zurückgenommenes aus ihren Notizen verschwindet",
   "agentAliveTakeBackChecksCounts": "{pending} warten auf den zweiten Blick, {changed} nur losgelassen als Änderung oder keins von beidem, {unsure} nur losgelassen ohne Antwort",
+  "agentAliveForgottenWaiting": "Auf einem anderen Gerät vergessen, Rest steht noch aus",
+  "agentAliveForgottenWaitingCount": "{count} warten, bevor geprüft wird, was darauf beruht",
   "agentAliveStanding": "Zuletzt „sein Leben jetzt“ geschrieben",
   "agentAliveStandingFailed": "Fehlgeschlagene Modellaufrufe dabei",
   "agentAliveStandingFailedCount": "{n}, zuletzt {ago}",

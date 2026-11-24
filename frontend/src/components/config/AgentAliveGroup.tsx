@@ -474,6 +474,14 @@ export function AgentAliveGroup() {
                 })
               : c.agentAliveNone}
           </dd>
+          <dt>{c.agentAliveForgottenWaiting}</dt>
+          <dd>
+            {memory.forgottenWaiting
+              ? format(c.agentAliveForgottenWaitingCount, {
+                  count: String(memory.forgottenWaiting),
+                })
+              : c.agentAliveNone}
+          </dd>
           <dt>{c.agentAliveStanding}</dt>
           <dd>{ago(memory.standingWrittenAt)}</dd>
           <dt>{c.agentAliveStandingFailed}</dt>

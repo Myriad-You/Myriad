@@ -990,6 +990,8 @@
   "agentAliveForgettingStuck": "The sweep has failed {n} times in a row: her notes are not read in that conversation.",
   "agentAliveTakeBackChecks": "Second look before clearing what was taken back from her notes",
   "agentAliveTakeBackChecksCounts": "{pending} waiting for the second look, {changed} only let go as a change or neither, {unsure} only let go with no answer",
+  "agentAliveForgottenWaiting": "Forgotten on another device, waiting for the rest",
+  "agentAliveForgottenWaitingCount": "{count} waiting before what rests on them is looked at",
   "agentAliveStanding": "Last wrote how someone’s life stands now",
   "agentAliveStandingFailed": "Failed model calls for that step",
   "agentAliveStandingFailedCount": "{n}, the latest {ago}",
