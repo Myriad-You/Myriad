@@ -302,6 +302,9 @@ pub struct SeeThroughClient {
     client: Client,
     token: String,
     space: Space,
+    /// Whether the Space serves `hair_fit`, once it was asked: a job asks
+    /// for five at most, four of them together.
+    serves_hair_fit: std::sync::Arc<tokio::sync::OnceCell<bool>>,
 }
 
 impl SeeThroughClient {
@@ -321,6 +324,7 @@ impl SeeThroughClient {
             client,
             token,
             space,
+            serves_hair_fit: Default::default(),
         })
     }
 
@@ -331,6 +335,7 @@ impl SeeThroughClient {
             client: Client::new(),
             token: String::new(),
             space: Space::parse(DEFAULT_SPACE).expect("the default Space id is valid"),
+            serves_hair_fit: Default::default(),
         }
     }
 
@@ -632,7 +637,11 @@ impl SeeThroughClient {
         validate_psd(&front)?;
         validate_psd(&turned)?;
         self.wait_until_running().await?;
-        if !self.serves("hair_fit").await? {
+        let served = self
+            .serves_hair_fit
+            .get_or_try_init(|| self.serves("hair_fit"))
+            .await?;
+        if !*served {
             return Ok(HairFit::Unsupported);
         }
         let file = |path: String, name: &str| json!({ "path": path, "orig_name": name, "meta": { "_type": "gradio.FileData" } });
@@ -644,8 +653,9 @@ impl SeeThroughClient {
             .await?;
         let data = json!([file(front, "front.psd"), file(turned, "turned.psd")]);
         let event_id = self.start("hair_fit", data).await?;
+        // Its caller gives up on it sooner: the fit's report tells the same.
         let data = self
-            .await_data("hair_fit", &event_id, QUEUE_TIMEOUT)
+            .await_data("hair_fit", &event_id, REQUEST_TIMEOUT)
             .await?;
         hair_fit_outline(&data).map(HairFit::Outline)
     }

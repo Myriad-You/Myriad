@@ -1,18 +1,23 @@
-//! 拟合，以及「拟合跟不上前发的那张转头图重画一次」提前到拟合旁边做。
+//! 拟合，以及拟合跟不上前发的那张转头图的重画。
 //!
-//! 原来是：完整拟合一次（几分钟）→ 从它的报告里看出某一侧的前发轮廓比对侧差
-//! 很多 → 重画那张、重拆 → 再完整拟合一次 → 比前后两次那一侧的轮廓，留好的。
-//! 报告里那个轮廓数只取决于正面和那一侧两份拆层，是拟合最开始那一步算的；
-//! Space 的 `hair_fit` 只算这一步，十几秒。
+//! 生图模型偶尔把某一张转头图的刘海画变了，拟合出的关键形会让头发随转头变长
+//! 变短（`hair_misfit`）。看得出来的地方是拟合报告里每一侧前发的轮廓距离：
+//! 那一侧比对侧差很多。这个数只取决于正面和那一侧两份拆层，是拟合第一步算
+//! 的；Space 的 `hair_fit` 只算这一步，十几秒，完整拟合要几分钟。
 //!
-//! 现在第一次拟合开始的同时，先向 Space 问四个方向的这个数；看出要重画的那
-//! 一侧，就在第一次拟合还在跑的时候把它重画、重拆，再问一次新的那份。没变好
-//! 就用第一次拟合的结果，省掉整次第二次拟合；变好了才等第一次拟合让出位置，
-//! 用换过的那一侧再拟合一次，之后照原来的办法比较并留下好的。
+//! 所以第一次拟合开始的同时，向 Space 问四个方向的这个数（限时）。看出要重画
+//! 的那一侧，就在第一次拟合还在跑的时候把它重画、重拆，再问一次新拆层的数：
+//! 没变好，第一次拟合的结果就是结果；变好了，等第一次拟合让出位置，用换过的
+//! 那一侧再拟合一次，读这次拟合自己的报告和第一次的比，留好的。
 //!
-//! 提前这一步什么都没做成时（Space 没有 `hair_fit`、问不到、没有哪一侧要
-//! 重画、这套图已经重画过）就照原来的流程走（`redraw_misfit`），判定仍然读
-//! 第一次拟合自己的报告。
+//! 提前这一步没留下重画时（Space 没有 `hair_fit`、限时内问不到、没有哪一侧要
+//! 重画、这套图重画过、重画没变好），由 `redraw_misfit` 读第一次拟合自己的
+//! 报告来定：报告和提前问到的数一致时它什么都不做。
+//!
+//! 第一次拟合失败时任务失败。那时重画还没开始，就不开始，也不写「重画过」的
+//! 标记；已经在画、在拆，就等它做完，量出来更好的那张写进缓存留给重跑。
+
+use std::time::Duration;
 
 use futures::future::join_all;
 
@@ -28,6 +33,13 @@ use crate::services::{
 /// The five decompositions and the five pictures they were made of: the
 /// front's, then the four turns' in `TURN_SIDES` order.
 pub(super) type Sets = ([Vec<u8>; 5], [(Vec<u8>, String); 5]);
+
+/// How long the front hair is waited for ahead of the fit: the four turns'
+/// together, and the redrawn one's. A measure is 10 to 25 s on the Space,
+/// four at once within 30. One that takes longer (a Space still starting, a
+/// queue) is done without: the fit's report tells the same, only later, so
+/// waiting on would cost the job time and going on costs it nothing.
+const HAIR_FIT_WAIT: Duration = Duration::from_secs(120);
 
 /// What the fit and the redraw beside it ask of the outside: the Space, the
 /// image model, the cache and the job's progress. Apart, so the order of the
@@ -45,7 +57,11 @@ pub(super) trait Steps: Sync {
         front: Vec<u8>,
         turned: Vec<u8>,
     ) -> impl Future<Output = Result<HairFit, SeeThroughError>> + Send;
-    /// Whether this set of drawings had its turn `index` drawn again for its hair before.
+    /// How long `hair_fit` is waited for.
+    fn hair_fit_wait(&self) -> Duration {
+        HAIR_FIT_WAIT
+    }
+    /// Whether this set of drawings had its turn `index` drawn again for its hair already.
     fn retried(&self, index: usize) -> impl Future<Output = bool> + Send;
     /// Notes that it is, before it is drawn: a rerun never draws it yet again.
     fn mark_retried(&self, index: usize) -> impl Future<Output = ()> + Send;
@@ -57,10 +73,10 @@ pub(super) trait Steps: Sync {
     fn keep(&self, index: usize, png: &[u8], psd: &[u8]) -> impl Future<Output = ()> + Send;
     /// The job is fitting once more.
     fn fitting_again(&self);
-    /// What was done before there was a `hair_fit`, from the first fit's own
-    /// report on: nothing where no turn's hair is a misfit or the set was
-    /// retried before, else that turn drawn, decomposed and fitted again.
-    fn as_before(
+    /// The misfit turn told from the first fit's own report (`redraw_misfit`):
+    /// nothing where the report has none or the set was retried already, else
+    /// that turn drawn, decomposed and fitted again.
+    fn by_report(
         &self,
         sets: Sets,
         first: TurnKeyformsOutput,
@@ -73,7 +89,7 @@ struct Again {
     index: usize,
     png: Vec<u8>,
     psd: Vec<u8>,
-    /// The outline distance of the drawing it would replace.
+    /// The outline distance of the drawing it would replace, as measured ahead of the fit.
     before: f64,
     /// Its own, when the Space measured it (then less than `before`); none
     /// when it could not be asked: only fitting with it will tell.
@@ -81,44 +97,29 @@ struct Again {
 }
 
 /// The four turns fitted onto the front, with the turn whose front hair the
-/// fit cannot follow drawn once more and kept when it is followed better
-/// (`redraw_misfit`), that redraw begun beside the first fit instead of after
-/// it. The sets and the keys are what `fit` then `redraw_misfit` gave.
+/// fit cannot follow drawn once more and kept when it is followed better.
+/// The redraw is begun beside the first fit when the Space can tell which
+/// turn it is ahead of the fit's report (`hair_fit`), and told from that
+/// report otherwise (`redraw_misfit`): either way a fit's own report decides
+/// which drawing is kept.
 pub(super) async fn fit_turns(
     steps: &impl Steps,
     (mut decompositions, mut pictures): Sets,
     redrawn: &mut Vec<String>,
 ) -> ApiResult<(Sets, TurnKeyformsOutput)> {
-    // Both to their end, whatever the other comes to: the fit holds its place
-    // on the Space until it is over, and a redraw already paid for is measured.
-    let (first, again) = tokio::join!(
-        steps.fit(&decompositions, &pictures),
-        drawn_again(steps, &decompositions)
-    );
-    let first = match first {
-        Ok(first) => first,
-        Err(error) => {
-            // No fit to go on with. A redraw the Space measured as followed
-            // better is the set's from now on, so a rerun fits with it; the
-            // marker already keeps that rerun from drawing another.
-            if let Ok(Some(again)) = &again
-                && again.after.is_some()
-            {
-                steps.keep(again.index, &again.png, &again.psd).await;
-            }
-            return Err(error);
-        }
-    };
-    let Some(again) = again? else {
+    let (first, again) = first_fit(steps, &decompositions, &pictures).await?;
+    let Some(again) = again else {
+        // With nothing drawn ahead the report is read as if nothing was asked
+        // ahead: where it agrees with what was measured, this does nothing.
         return steps
-            .as_before((decompositions, pictures), first, redrawn)
+            .by_report((decompositions, pictures), first, redrawn)
             .await;
     };
     let Again {
         index,
         png,
         psd,
-        before,
+        before: measured,
         ..
     } = again;
     let side = TURN_SIDES[index];
@@ -128,7 +129,8 @@ pub(super) async fn fit_turns(
     );
     steps.fitting_again();
     let second = steps.fit(&decompositions, &pictures).await?;
-    // As ever, the fit's own report has the last word.
+    // The two fits' own reports have the last word, whatever was measured ahead of them.
+    let before = hair_misfit::hair_outline(&first.keyforms, side).unwrap_or(measured);
     let after = hair_misfit::hair_outline(&second.keyforms, side).unwrap_or(f64::INFINITY);
     if after >= before {
         tracing::info!(
@@ -155,40 +157,107 @@ pub(super) async fn fit_turns(
     Ok(((decompositions, pictures), second))
 }
 
-/// What can be told and done of the misfit turn before the first fit is
-/// over. None: nothing was (no `hair_fit` on the Space, a measure that could
-/// not be had, no turn far worse than its opposite, a set retried before),
-/// or the turn drawn again was no better or could not be drawn; the first
-/// fit then stands, as `as_before` will find.
-async fn drawn_again(
+/// The first fit, and beside it the misfit turn drawn again when the Space
+/// can tell which it is before the fit is over.
+///
+/// A fit that fails fails the job. Nothing that costs is begun for a job
+/// that has failed: while the front hair is still being measured, the failure
+/// is returned at once and no turn is marked as drawn again. A redraw under
+/// way by then is paid for: it is seen to its end, and one the Space measured
+/// as followed better is made the set's own, so a rerun fits with it (the
+/// marker keeps that rerun from drawing another).
+async fn first_fit(
     steps: &impl Steps,
     decompositions: &[Vec<u8>; 5],
-) -> ApiResult<Option<Again>> {
+    pictures: &[(Vec<u8>, String); 5],
+) -> ApiResult<(TurnKeyformsOutput, Option<Again>)> {
+    let fit = steps.fit(decompositions, pictures);
+    tokio::pin!(fit);
+    let measuring = misfit_ahead(steps, decompositions);
+    tokio::pin!(measuring);
+    let mut first = None;
+    let misfit = loop {
+        tokio::select! {
+            out = &mut fit, if first.is_none() => first = Some(out?),
+            misfit = &mut measuring => break misfit,
+        }
+    };
+    let again = match misfit {
+        None => None,
+        Some((index, before)) => {
+            let redrawing = drawn_again(steps, &decompositions[0], index, before);
+            if first.is_some() {
+                redrawing.await?
+            } else {
+                // Both to their end: the fit holds its place on the Space
+                // until it is over, and the redraw is paid for.
+                let (out, again) = tokio::join!(&mut fit, redrawing);
+                match out {
+                    Ok(out) => first = Some(out),
+                    Err(error) => {
+                        if let Ok(Some(again)) = &again
+                            && again.after.is_some()
+                        {
+                            steps.keep(again.index, &again.png, &again.psd).await;
+                        }
+                        return Err(error);
+                    }
+                }
+                again?
+            }
+        }
+    };
+    let first = match first {
+        Some(first) => first,
+        None => fit.await?,
+    };
+    Ok((first, again))
+}
+
+/// The turn whose front hair is a misfit and its outline distance, measured
+/// ahead of the fit. None when the Space has no `hair_fit`, when the four
+/// measures are not all had in time, when no turn is far worse than its
+/// opposite, or when this set had that turn drawn again already. Nothing is
+/// drawn, marked or paid for here.
+async fn misfit_ahead(steps: &impl Steps, decompositions: &[Vec<u8>; 5]) -> Option<(usize, f64)> {
     let front = &decompositions[0];
     let asked: Vec<_> = decompositions[1..]
         .iter()
         .map(|turned| steps.hair_fit(front.clone(), turned.clone()))
         .collect();
+    let Ok(answers) = tokio::time::timeout(steps.hair_fit_wait(), join_all(asked)).await else {
+        tracing::warn!("front hair not measured in time ahead of the fit; told from its report");
+        return None;
+    };
     let mut outlines = [None; 4];
-    for (outline, measured) in outlines.iter_mut().zip(join_all(asked).await) {
-        match measured {
+    for (outline, answer) in outlines.iter_mut().zip(answers) {
+        match answer {
             Ok(HairFit::Outline(measured)) => *outline = measured,
-            Ok(HairFit::Unsupported) => return Ok(None),
+            Ok(HairFit::Unsupported) => return None,
             Err(error) => {
                 tracing::warn!(%error, "front hair could not be measured ahead of the fit; told from its report");
-                return Ok(None);
+                return None;
             }
         }
     }
-    let Some(index) = hair_misfit::misfit_of(outlines) else {
-        return Ok(None);
-    };
+    let index = hair_misfit::misfit_of(outlines)?;
     if steps.retried(index).await {
-        return Ok(None);
+        return None;
     }
+    Some((index, outlines[index].unwrap_or(f64::INFINITY)))
+}
+
+/// The misfit turn `index` drawn once more, decomposed and measured. None
+/// when it could not be drawn or was measured as no better: the first fit
+/// then stands. Marked as drawn again before it is drawn.
+async fn drawn_again(
+    steps: &impl Steps,
+    front: &[u8],
+    index: usize,
+    before: f64,
+) -> ApiResult<Option<Again>> {
     steps.mark_retried(index).await;
     let side = TURN_SIDES[index];
-    let before = outlines[index].unwrap_or(f64::INFINITY);
     tracing::info!(
         side,
         before,
@@ -203,12 +272,20 @@ async fn drawn_again(
     };
     // Decomposed apart from the cached one, which stays the drawing's until this one wins.
     let psd = steps.decompose(&png).await?;
-    let after = match steps.hair_fit(front.clone(), psd.clone()).await {
+    let measuring = steps.hair_fit(front.to_vec(), psd.clone());
+    let after = match tokio::time::timeout(steps.hair_fit_wait(), measuring).await {
         // No front hair fitted on it reads as the report's missing figure does: no better.
-        Ok(HairFit::Outline(after)) => Some(after.unwrap_or(f64::INFINITY)),
-        Ok(HairFit::Unsupported) => None,
-        Err(error) => {
+        Ok(Ok(HairFit::Outline(after))) => Some(after.unwrap_or(f64::INFINITY)),
+        Ok(Ok(HairFit::Unsupported)) => None,
+        Ok(Err(error)) => {
             tracing::warn!(side, %error, "the turn drawn again could not be measured; fitting with it to tell");
+            None
+        }
+        Err(_) => {
+            tracing::warn!(
+                side,
+                "the turn drawn again not measured in time; fitting with it to tell"
+            );
             None
         }
     };
@@ -314,7 +391,7 @@ impl Steps for Turns<'_> {
         });
     }
 
-    async fn as_before(
+    async fn by_report(
         &self,
         (decompositions, pictures): Sets,
         first: TurnKeyformsOutput,
@@ -339,7 +416,7 @@ impl Steps for Turns<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Mutex, time::Duration};
+    use std::sync::Mutex;
 
     use serde_json::json;
 
@@ -350,23 +427,30 @@ mod tests {
     /// for its seconds, and what each is to answer.
     struct Staged {
         started: tokio::time::Instant,
-        /// What `hair_fit` and a fit's report say of each of the four turns.
+        /// What `hair_fit` says of each of the four turns.
         outlines: [Option<f64>; 4],
-        /// And of the turn drawn again.
+        /// What a fit's report says of them, where it is not the same.
+        reported: Option<[Option<f64>; 4]>,
+        /// What both say of the turn drawn again.
         again: Option<f64>,
+        /// How long the first fit takes, the four measures, the redraw's measure.
+        first_fit: u64,
+        hair_fit: u64,
+        again_hair_fit: u64,
         /// What `hair_fit` cannot do: not on the Space, fails for the four, fails for the redraw.
         unsupported: bool,
         unmeasured: bool,
         again_unmeasured: bool,
         draw_fails: bool,
         first_fit_fails: bool,
-        retried_before: bool,
+        retried_already: bool,
         /// What was done, and when it ended.
         done: Mutex<Vec<(u64, String)>>,
     }
 
     const FIT: u64 = 200;
     const HAIR_FIT: u64 = 20;
+    const HAIR_FIT_WAIT: u64 = 120;
     const DRAW: u64 = 30;
     const DECOMPOSE: u64 = 215;
     /// The turn drawn again, and its decomposition.
@@ -378,21 +462,28 @@ mod tests {
             Self {
                 started: tokio::time::Instant::now(),
                 outlines: outlines.map(Some),
+                reported: None,
                 again: Some(again),
+                first_fit: FIT,
+                hair_fit: HAIR_FIT,
+                again_hair_fit: HAIR_FIT,
                 unsupported: false,
                 unmeasured: false,
                 again_unmeasured: false,
                 draw_fails: false,
                 first_fit_fails: false,
-                retried_before: false,
+                retried_already: false,
                 done: Mutex::default(),
             }
         }
 
+        fn now(&self) -> u64 {
+            self.started.elapsed().as_millis() as u64
+        }
+
         async fn took(&self, milliseconds: u64, what: impl Into<String>) {
             tokio::time::sleep(Duration::from_millis(milliseconds)).await;
-            let at = self.started.elapsed().as_millis() as u64;
-            self.done.lock().unwrap().push((at, what.into()));
+            self.done.lock().unwrap().push((self.now(), what.into()));
         }
 
         fn did(&self) -> Vec<(u64, String)> {
@@ -403,11 +494,11 @@ mod tests {
             self.did().into_iter().map(|(_, what)| what).collect()
         }
 
-        /// A decomposition's outline: the turn it is of (its one byte is its place), or the redraw's.
-        fn outline_of(&self, psd: &[u8]) -> Option<f64> {
+        /// Whether a decomposition is the redraw's; else its one byte is its turn's place.
+        fn outline_of(&self, psd: &[u8], outlines: [Option<f64>; 4]) -> Option<f64> {
             match psd[0] {
                 AGAIN_PSD => self.again,
-                place => self.outlines[usize::from(place) - 1],
+                place => outlines[usize::from(place) - 1],
             }
         }
     }
@@ -419,13 +510,16 @@ mod tests {
             _: &[(Vec<u8>, String); 5],
         ) -> ApiResult<TurnKeyformsOutput> {
             let turns: Vec<u8> = decompositions[1..].iter().map(|psd| psd[0]).collect();
-            self.took(FIT, format!("fit {turns:?}")).await;
-            if self.first_fit_fails && !turns.contains(&AGAIN_PSD) {
+            let first = !turns.contains(&AGAIN_PSD);
+            let takes = if first { self.first_fit } else { FIT };
+            self.took(takes, format!("fit {turns:?}")).await;
+            if first && self.first_fit_fails {
                 return Err(missing_job());
             }
+            let reported = self.reported.unwrap_or(self.outlines);
             let mut hair = serde_json::Map::new();
             for (side, psd) in TURN_SIDES.iter().zip(&decompositions[1..]) {
-                if let Some(outline) = self.outline_of(psd) {
+                if let Some(outline) = self.outline_of(psd, reported) {
                     hair.insert((*side).to_string(), json!({ "outline": outline }));
                 }
             }
@@ -437,19 +531,28 @@ mod tests {
         }
 
         async fn hair_fit(&self, _: Vec<u8>, turned: Vec<u8>) -> Result<HairFit, SeeThroughError> {
-            self.took(HAIR_FIT, format!("hair {}", turned[0])).await;
+            let again = turned[0] == AGAIN_PSD;
+            let takes = if again {
+                self.again_hair_fit
+            } else {
+                self.hair_fit
+            };
+            self.took(takes, format!("hair {}", turned[0])).await;
             if self.unsupported {
                 return Ok(HairFit::Unsupported);
             }
-            let again = turned[0] == AGAIN_PSD;
             if (again && self.again_unmeasured) || (!again && self.unmeasured) {
                 return Err(SeeThroughError::Timeout);
             }
-            Ok(HairFit::Outline(self.outline_of(&turned)))
+            Ok(HairFit::Outline(self.outline_of(&turned, self.outlines)))
+        }
+
+        fn hair_fit_wait(&self) -> Duration {
+            Duration::from_millis(HAIR_FIT_WAIT)
         }
 
         async fn retried(&self, _: usize) -> bool {
-            self.retried_before
+            self.retried_already
         }
 
         async fn mark_retried(&self, index: usize) {
@@ -476,18 +579,18 @@ mod tests {
         }
 
         fn fitting_again(&self) {
-            let at = self.started.elapsed().as_millis() as u64;
+            let at = self.now();
             self.done.lock().unwrap().push((at, "fitting again".into()));
         }
 
-        /// As when the first fit's report finds nothing to draw again.
-        async fn as_before(
+        /// As when the first fit's report has no turn to draw again.
+        async fn by_report(
             &self,
             sets: Sets,
             first: TurnKeyformsOutput,
             _: &mut Vec<String>,
         ) -> ApiResult<(Sets, TurnKeyformsOutput)> {
-            self.took(0, "as before").await;
+            self.took(0, "by report").await;
             Ok((sets, first))
         }
     }
@@ -499,7 +602,7 @@ mod tests {
         )
     }
 
-    /// The turns the keys were fitted with, and how long it all took.
+    /// The sets as they end, the turns the keys were fitted with, and how long it all took.
     async fn fitted(steps: &Staged, redrawn: &mut Vec<String>) -> (Sets, Vec<u64>, u64) {
         let (sets, output) = fit_turns(steps, sets(), redrawn).await.unwrap();
         let keys: serde_json::Value = serde_json::from_slice(&output.keyforms).unwrap();
@@ -509,7 +612,7 @@ mod tests {
             .iter()
             .map(|turn| turn.as_u64().unwrap())
             .collect();
-        (sets, turns, steps.started.elapsed().as_millis() as u64)
+        (sets, turns, steps.now())
     }
 
     /// The left turn's fringe grew (2026-10-10): far worse than its opposite.
@@ -524,7 +627,7 @@ mod tests {
         assert_eq!(took, FIT);
         assert_eq!(kept.0, sets().0);
         assert!(redrawn.is_empty());
-        // The four were asked beside the fit; then the fit's own report is read, as before.
+        // The four were asked beside the fit; then the fit's own report is read.
         assert_eq!(
             steps.did(),
             [
@@ -533,7 +636,7 @@ mod tests {
                 (20, "hair 3".into()),
                 (20, "hair 4".into()),
                 (200, "fit [1, 2, 3, 4]".into()),
-                (200, "as before".into()),
+                (200, "by report".into()),
             ]
         );
     }
@@ -549,7 +652,7 @@ mod tests {
         assert_eq!(kept.1, sets().1);
         assert!(redrawn.is_empty());
         // Marked before it was drawn; drawn, decomposed and measured while the fit ran,
-        // and over 285 after the start, where one after another took 665.
+        // and over 285 after the start, where one after another takes 665.
         assert_eq!(
             steps.did()[4..],
             [
@@ -558,7 +661,7 @@ mod tests {
                 (200, "fit [1, 2, 3, 4]".into()),
                 (265, "decomposed".into()),
                 (285, "hair 9".into()),
-                (285, "as before".into()),
+                (285, "by report".into()),
             ]
         );
         assert_eq!(took, HAIR_FIT + DRAW + DECOMPOSE + HAIR_FIT);
@@ -589,14 +692,32 @@ mod tests {
                 (485, "kept 1".into()),
             ]
         );
-        // Where one after another took 665.
+        // Where one after another takes 665.
         assert_eq!(took, 485);
-        assert!(!steps.names().contains(&"as before".to_string()));
+        assert!(!steps.names().contains(&"by report".to_string()));
     }
 
     #[tokio::test(start_paused = true)]
-    async fn without_a_measure_ahead_of_the_fit_all_is_as_before() {
-        // No `hair_fit` on the Space, one that fails, and a set whose turn was drawn again before.
+    async fn the_fits_own_reports_decide_whatever_was_measured_ahead() {
+        // Measured ahead as a misfit made better (25.5 to 10); the first fit's report
+        // has that turn at 9, and the second has the redraw at 10: no better.
+        let steps = Staged {
+            reported: Some([13.4, 9.0, 2.7, 4.6].map(Some)),
+            ..Staged::of(MISFIT, 10.0)
+        };
+        let mut redrawn = Vec::new();
+        let (kept, turns, _) = fitted(&steps, &mut redrawn).await;
+        assert_eq!(turns, [1, 2, 3, 4]);
+        assert_eq!(kept.0, sets().0);
+        assert_eq!(kept.1, sets().1);
+        assert!(redrawn.is_empty());
+        assert!(steps.names().contains(&"fit [1, 9, 3, 4]".to_string()));
+        assert!(!steps.names().contains(&"kept 1".to_string()));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn without_a_measure_ahead_of_the_fit_its_report_tells() {
+        // No `hair_fit` on the Space, one that fails, and a set whose turn was drawn again already.
         let unsupported = Staged {
             unsupported: true,
             ..Staged::of(MISFIT, 5.0)
@@ -606,23 +727,62 @@ mod tests {
             ..Staged::of(MISFIT, 5.0)
         };
         let retried = Staged {
-            retried_before: true,
+            retried_already: true,
             ..Staged::of(MISFIT, 5.0)
         };
         for steps in [unsupported, unmeasured, retried] {
+            let began = steps.now();
             let (_, turns, took) = fitted(&steps, &mut Vec::new()).await;
             assert_eq!(turns, [1, 2, 3, 4]);
-            // Nothing drawn or marked: the first fit, then what was done before.
+            // Nothing drawn or marked: the first fit, then its report.
             assert_eq!(
                 steps.names()[4..],
-                ["fit [1, 2, 3, 4]".to_string(), "as before".into()]
+                ["fit [1, 2, 3, 4]".to_string(), "by report".into()]
             );
-            assert_eq!(took, steps.did()[4].0);
+            assert_eq!(took - began, FIT);
         }
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_redraw_that_cannot_be_drawn_or_measured_ends_as_it_did_before() {
+    async fn a_measure_that_is_slow_is_done_without_and_never_waited_out() {
+        // The four not in after 120 (a Space still starting, a queue): the fit is not held
+        // past its own end, nothing is drawn, its report tells.
+        let slow = Staged {
+            hair_fit: 5000,
+            ..Staged::of(MISFIT, 5.0)
+        };
+        let (_, turns, took) = fitted(&slow, &mut Vec::new()).await;
+        assert_eq!(turns, [1, 2, 3, 4]);
+        assert_eq!(took, FIT);
+        assert_eq!(
+            slow.did(),
+            [
+                (200, "fit [1, 2, 3, 4]".to_string()),
+                (200, "by report".into())
+            ]
+        );
+        // A fit over before the four are given up on waits for no more than that.
+        let quick_fit = Staged {
+            hair_fit: 5000,
+            first_fit: 50,
+            ..Staged::of(MISFIT, 5.0)
+        };
+        let (_, _, took) = fitted(&quick_fit, &mut Vec::new()).await;
+        assert_eq!(took, HAIR_FIT_WAIT);
+        // The redraw's measure not in after 120: fitted with to tell, as when it fails.
+        let slow_again = Staged {
+            again_hair_fit: 5000,
+            ..Staged::of(MISFIT, 5.0)
+        };
+        let mut redrawn = Vec::new();
+        let (_, turns, took) = fitted(&slow_again, &mut redrawn).await;
+        assert_eq!(turns, [1, 9, 3, 4]);
+        assert_eq!(redrawn, ["minus"]);
+        assert_eq!(took, HAIR_FIT + DRAW + DECOMPOSE + HAIR_FIT_WAIT + FIT);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_redraw_that_cannot_be_drawn_or_measured_ends_as_the_report_has_it() {
         // Not drawn: the first fit stands.
         let undrawn = Staged {
             draw_fails: true,
@@ -643,42 +803,70 @@ mod tests {
         assert_eq!(redrawn, ["minus"]);
         // Not measured, and the fit with it reports it no better: the first fit's keys, the
         // drawings as they were, nothing kept.
-        let disagreeing = Staged {
+        let no_better = Staged {
             again_unmeasured: true,
             ..Staged::of(MISFIT, 26.0)
         };
         let mut redrawn = Vec::new();
-        let (kept, turns, _) = fitted(&disagreeing, &mut redrawn).await;
+        let (kept, turns, _) = fitted(&no_better, &mut redrawn).await;
         assert_eq!(turns, [1, 2, 3, 4]);
         assert_eq!(kept.0, sets().0);
         assert_eq!(kept.1, sets().1);
         assert!(redrawn.is_empty());
-        assert!(!disagreeing.names().contains(&"kept 1".to_string()));
+        assert!(!no_better.names().contains(&"kept 1".to_string()));
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_failed_first_fit_fails_the_job_once_the_redraw_is_measured_and_kept() {
-        let steps = Staged {
+    async fn a_first_fit_that_fails_before_the_redraw_begins_fails_the_job_at_once() {
+        // Failed while the front hair was still being measured: nothing marked, drawn or waited for.
+        let early = Staged {
+            first_fit: 10,
             first_fit_fails: true,
             ..Staged::of(MISFIT, 5.0)
         };
-        assert!(fit_turns(&steps, sets(), &mut Vec::new()).await.is_err());
-        // The redraw went to its end and, measured better, is the set's for the rerun.
+        assert!(fit_turns(&early, sets(), &mut Vec::new()).await.is_err());
+        assert_eq!(early.did(), [(10, "fit [1, 2, 3, 4]".to_string())]);
+        assert_eq!(early.now(), 10);
+        // Failed with no turn to draw again: only the fit's failure.
+        let none = Staged {
+            first_fit_fails: true,
+            ..Staged::of([3.0, 4.0, 2.7, 4.6], 1.0)
+        };
+        assert!(fit_turns(&none, sets(), &mut Vec::new()).await.is_err());
+        assert_eq!(none.names()[4..], ["fit [1, 2, 3, 4]".to_string()]);
+        assert_eq!(none.now(), FIT);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_first_fit_that_fails_with_the_redraw_under_way_lets_it_end() {
+        // Measured better: the set's own for the rerun, then the fit's failure.
+        let better = Staged {
+            first_fit_fails: true,
+            ..Staged::of(MISFIT, 5.0)
+        };
+        assert!(fit_turns(&better, sets(), &mut Vec::new()).await.is_err());
         assert_eq!(
-            steps.did()[6..],
+            better.did()[4..],
             [
-                (200, "fit [1, 2, 3, 4]".to_string()),
+                (20, "marked 1".to_string()),
+                (50, "drawn 1".into()),
+                (200, "fit [1, 2, 3, 4]".into()),
                 (265, "decomposed".into()),
                 (285, "hair 9".into()),
                 (285, "kept 1".into()),
             ]
         );
-        // One that was no better is not kept.
-        let steps = Staged {
-            first_fit_fails: true,
-            ..Staged::of(MISFIT, 26.0)
-        };
-        assert!(fit_turns(&steps, sets(), &mut Vec::new()).await.is_err());
-        assert!(!steps.names().contains(&"kept 1".to_string()));
+        // No better, or not measured: seen to its end, not kept.
+        for (again, again_unmeasured) in [(26.0, false), (5.0, true)] {
+            let steps = Staged {
+                first_fit_fails: true,
+                again_unmeasured,
+                ..Staged::of(MISFIT, again)
+            };
+            assert!(fit_turns(&steps, sets(), &mut Vec::new()).await.is_err());
+            assert!(steps.names().contains(&"hair 9".to_string()));
+            assert!(!steps.names().contains(&"kept 1".to_string()));
+            assert!(!steps.names().iter().any(|what| what.contains("9, 3, 4")));
+        }
     }
 }
