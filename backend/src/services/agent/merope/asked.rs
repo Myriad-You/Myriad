@@ -463,14 +463,19 @@ async fn tried(
             failure = CallFailure::Timeout;
             break;
         }
-        let answer = Ask::new(Voice::Judge, user_id, "not_to_keep")
+        let ask = Ask::new(Voice::Judge, user_id, "not_to_keep")
             .within(within)
             .output_at_most(2048)
+            .read_by_asker();
+        let answer = ask
             .json_raw(system, input, name, schema)
             .await
             .and_then(|raw| read(&raw).ok_or(CallFailure::InvalidOutput));
         failure = match answer {
-            Ok(indexes) => return Ok(indexes),
+            Ok(indexes) => {
+                ask.judged();
+                return Ok(indexes);
+            }
             Err(failure) => failure,
         };
         if failure.of_what_was_shown() {

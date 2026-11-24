@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::services::agent::memory::unified::{self, Audience};
+use crate::services::agent::merope::call;
 use crate::services::agent::merope::chat_remember::{ChatMemoryUpdate, Said, SaidNew};
 use crate::services::channel_group::g0;
 use myriad_merope::not_to_keep::ITEMS_PER_ASK;
@@ -236,8 +237,15 @@ async fn an_answer_that_is_not_one_is_asked_again_and_never_lets_anything_throug
     let two = ["跟楼上那位又闹僵了", "周末去爬山"];
     let (beyond, not_one) = (Some(r#"{"drop":[2]}"#), Some("没有"));
     let good = Some(r#"{"drop":[]}"#);
+    let since = crate::clock::now().timestamp() - 1;
+    call::judged_last(0);
+    let (out, _) = told(db, THEM, &two, &[beyond, not_one, beyond]).await;
+    assert_eq!(out, None);
+    // None of that was an answer.
+    assert!(!call::judged_since(since));
     let (out, asks) = told(db, THEM, &two, &[beyond, not_one, good]).await;
     assert_eq!((out, asks.len()), (Some(vec![]), 3));
+    assert!(call::judged_since(since));
     let (out, asks) = told(db, THEM, &two, &[beyond, not_one, beyond, good]).await;
     // Then one by one, and the second could not be asked about.
     assert_eq!((out, asks.len()), (None, 5));
