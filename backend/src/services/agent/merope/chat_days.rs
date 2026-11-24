@@ -281,8 +281,14 @@ async fn keep(db: &DatabaseConnection, user_id: i32, date: NaiveDate, line: Stri
         },
     )
     .await;
-    if let Err(error) = kept {
-        tracing::warn!(%error, user_id, %date, "[Merope] could not keep a day's line");
+    match kept {
+        Ok(Some(_)) => {}
+        // Word for word what is held of them already (another day's line):
+        // no line of its own, and the nights do not come back to it.
+        Ok(None) => nothing_of(db, user_id, date).await,
+        Err(error) => {
+            tracing::warn!(%error, user_id, %date, "[Merope] could not keep a day's line")
+        }
     }
 }
 
@@ -350,7 +356,8 @@ async fn write_day(
     keep(db, user_id, date, line).await;
 }
 
-/// Days of a person with nothing of them to keep, so no line.
+/// Days of a person with nothing of them to keep, or nothing that is not
+/// held word for word already, so no line.
 const NOTHING_NAMESPACE: &str = "merope_days_nothing";
 
 async fn nothing_of(db: &DatabaseConnection, user_id: i32, date: NaiveDate) {
@@ -687,7 +694,11 @@ mod tests {
         assert_eq!(write(day("2026-11-14"), &[all, all]).await, None);
         let nothing = days_of_nothing(db, OWNER).await;
         assert!(nothing.contains("2026-11-14") && !nothing.contains("2026-11-12"));
-        assert!(!nothing.contains("2026-11-15"));
+        assert!(!nothing.contains("2026-11-15") && !nothing.contains("2026-11-16"));
+        // Word for word another day's: the same.
+        keep(db, OWNER, day("2026-11-16"), line(day("2026-11-11"))).await;
+        assert!(!written(db, OWNER).await.contains_key(&day("2026-11-16")));
+        assert!(days_of_nothing(db, OWNER).await.contains("2026-11-16"));
         schema.drop().await;
     }
 }
