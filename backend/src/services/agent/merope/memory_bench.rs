@@ -443,7 +443,7 @@ async fn answer_for(
     let asked = match asked {
         Some(asked) => Some(asked),
         None => judge
-            .analyze_json(
+            .analyze_json_as(
                 &myriad_merope::remembering::system(),
                 &myriad_merope::remembering::input(
                     &question.question,
@@ -452,6 +452,7 @@ async fn answer_for(
                 ),
                 myriad_merope::remembering::SCHEMA_NAME,
                 Some(&myriad_merope::remembering::schema()),
+                crate::services::analyzer::JsonShape::InPrompt,
             )
             .await
             .ok(),

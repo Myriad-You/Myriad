@@ -15,6 +15,8 @@ pub(crate) mod tool_calling;
 mod transport;
 
 #[cfg(test)]
+mod json_shape_tests;
+#[cfg(test)]
 pub(crate) mod probe;
 #[cfg(test)]
 mod refusal_said;
