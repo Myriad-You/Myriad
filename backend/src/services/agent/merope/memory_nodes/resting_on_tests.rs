@@ -1422,3 +1422,68 @@ async fn nothing_of_an_instruction_is_kept_when_its_intent_is_left_out() {
     );
     schema.drop().await;
 }
+
+/// A node forgotten whole takes what went into it: no word of that is kept
+/// here either. Left here by a build before, what names a line forgotten now
+/// loses its words.
+#[tokio::test]
+async fn a_node_forgotten_whole_keeps_no_word_of_what_went_into_it() {
+    let Some(schema) = schema("resting_on_absorbed").await else {
+        return;
+    };
+    let db = &schema.db;
+    pen::reset_for_test();
+    let talk = talk();
+    let made = created(&talk, "minted:ferns", "ferns");
+    let whole = created(&talk, "minted:trips", "trips");
+    let (node, into) = (made.node.clone(), whole.node.clone());
+    let went = row(
+        &node,
+        "went",
+        "node.absorbed",
+        json!({"version": 1, "sync": "shared", "saidBy": ["her"], "into": "minted:trips",
+               "how": "merged", "reason": "one thing", "because": ["message:502"]}),
+    );
+    put(
+        db,
+        OTHER,
+        &talk,
+        &[
+            made,
+            whole,
+            span(&talk, &node, "sp1", &["message:502"]),
+            hand(
+                &node,
+                "inside",
+                "a",
+                "ask one",
+                &["message:501"],
+                &[],
+                "waiting",
+            ),
+            went,
+        ],
+    )
+    .await;
+    // As a build before forgot it: the forget, and no more.
+    let txn = db.begin().await.unwrap();
+    forget::forget_one(&txn, OTHER, &talk, &into, forget::Forgets::Node)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+    assert_eq!(left(db).await, ids(&["inside"]));
+    let txn = db.begin().await.unwrap();
+    forget::forget(&txn, &[], &[501]).await.unwrap();
+    txn.commit().await.unwrap();
+    assert!(left(db).await.is_empty());
+    // As it is forgotten now.
+    let words = "SELECT COUNT(*) AS n FROM agent_node_rows WHERE row_id = 'sp1' AND body <> ''";
+    assert_eq!(count(db, words).await, 1);
+    let txn = db.begin().await.unwrap();
+    forget::forget_nodes(&txn, OTHER, &talk, &[into].into_iter().collect())
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+    assert_eq!(count(db, words).await, 0);
+    schema.drop().await;
+}

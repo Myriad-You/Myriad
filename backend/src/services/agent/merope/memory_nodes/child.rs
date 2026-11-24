@@ -154,17 +154,17 @@ pub(crate) async fn forget_node(
     let node = myriad_nodes::node_id(&talk, &key)?;
     let txn = db.begin().await?;
     write::lock(&txn, user_id, &talk).await?;
-    let kept = heads::rows_of(&txn, user_id, &talk).await?;
-    let mut rows: Vec<_> = kept
+    if !heads::rows_of(&txn, user_id, &talk)
+        .await?
         .iter()
-        .filter(|kept| forget::row_node(&kept.row) == node)
-        .map(|kept| kept.row.clone())
-        .collect();
-    if rows.is_empty() {
+        .any(|kept| forget::row_node(&kept.row) == node)
+    {
         txn.commit().await?;
         return Ok(false);
     }
     forget::forget_one(&txn, user_id, &talk, &node, forget::Forgets::Node).await?;
+    let kept = heads::rows_of(&txn, user_id, &talk).await?;
+    let mut rows = forget::rows_gone(&kept, &[node].into())?;
     intent_grounds::forget_with(&txn, user_id, &talk, &kept, &mut rows).await?;
     forget::stub(&txn, user_id, &rows).await?;
     let folded = heads::fold_rows(&heads::rows_of(&txn, user_id, &talk).await?)?;

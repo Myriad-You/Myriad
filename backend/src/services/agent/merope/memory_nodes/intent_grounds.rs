@@ -73,6 +73,19 @@ impl Gone {
         }
     }
 
+    /// The memories and lines, as grounds name them.
+    fn names(&self) -> BTreeSet<String> {
+        let named = |prefix: &str, id: &String| match id.strip_prefix(prefix) {
+            Some(_) => id.clone(),
+            None => format!("{prefix}{id}"),
+        };
+        self.memories
+            .iter()
+            .map(|id| named(MEMORY_REF, id))
+            .chain(self.lines.iter().map(|id| named(MESSAGE_REF, id)))
+            .collect()
+    }
+
     fn is_empty(&self) -> bool {
         self.pieces.is_empty() && self.memories.is_empty() && self.lines.is_empty()
     }
@@ -243,6 +256,27 @@ pub(super) async fn forget_with<C: ConnectionTrait>(
     forget(db, user_id, audience, kept, &intents).await?;
     going.extend(intents);
     Ok(())
+}
+
+/// The intents of `kept` the fold has forgotten already (with a node) that
+/// still say words here and name any of `gone`: to be made stubs.
+pub(super) fn forgotten_naming(
+    kept: &[heads::KeptRow],
+    folded: &myriad_nodes::Folded,
+    gone: &Gone,
+) -> Vec<Row> {
+    let names = gone.names();
+    kept.iter()
+        .filter(|kept| kept.row.kind == INTENT && folded.stubbed.contains(&kept.row.id))
+        .filter(|kept| {
+            body_of(kept).is_some_and(|body| {
+                strings(&body["because"])
+                    .iter()
+                    .any(|named| names.contains(named))
+            })
+        })
+        .map(|kept| kept.row.clone())
+        .collect()
 }
 
 /// What the site kept of the instructions given in `refs` (lines) goes.

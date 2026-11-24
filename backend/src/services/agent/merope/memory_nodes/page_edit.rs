@@ -259,12 +259,7 @@ pub(crate) async fn forget_node(
     write::lock(&txn, owner, audience).await?;
     forget::forget_one(&txn, owner, audience, node, Forgets::Node).await?;
     let kept = heads::rows_of(&txn, owner, audience).await?;
-    let folded = heads::fold_rows(&kept)?;
-    let mut doomed: Vec<Row> = kept
-        .iter()
-        .filter(|kept| folded.stubbed.contains(&kept.row.id))
-        .map(|kept| kept.row.clone())
-        .collect();
+    let mut doomed = forget::rows_gone(&kept, &[node.to_string()].into())?;
     intent_grounds::forget_with(&txn, owner, audience, &kept, &mut doomed).await?;
     forget::stub(&txn, owner, &doomed).await?;
     let folded = heads::fold_rows(&heads::rows_of(&txn, owner, audience).await?)?;

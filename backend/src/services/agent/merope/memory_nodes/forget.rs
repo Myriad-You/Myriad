@@ -482,7 +482,11 @@ async fn forget_rows<C: ConnectionTrait>(
             holders.insert(myriad_nodes::node_id(&audience, &into.into).unwrap_or_default());
         }
     }
-    let emptied: Vec<String> = folded
+    // Forgotten with a node before, and its words left here: what names what
+    // goes now loses them.
+    let named = intent_grounds::forgotten_naming(&kept, &folded, &gone);
+    stub(db, user_id, &named).await?;
+    let emptied: BTreeSet<String> = folded
         .nodes
         .iter()
         .filter(|node| holders.contains(&node.id) && empty_topic(node))
@@ -493,11 +497,7 @@ async fn forget_rows<C: ConnectionTrait>(
     }
     if !emptied.is_empty() {
         let kept = heads::rows_of(db, user_id, &audience).await?;
-        let mut gone: Vec<Row> = kept
-            .iter()
-            .filter(|kept| emptied.contains(&row_node(&kept.row)))
-            .map(|kept| kept.row.clone())
-            .collect();
+        let mut gone = rows_gone(&kept, &emptied)?;
         intent_grounds::forget_with(db, user_id, &audience, &kept, &mut gone).await?;
         stub(db, user_id, &gone).await?;
     }
@@ -587,6 +587,22 @@ pub(crate) async fn forget_nodes<C: ConnectionTrait>(
     Ok(())
 }
 
+/// The rows of `kept` that go with the nodes `nodes`, forgotten whole by
+/// forgets among them: their own, and those of what went into them.
+pub(super) fn rows_gone(
+    kept: &[heads::KeptRow],
+    nodes: &BTreeSet<String>,
+) -> Result<Vec<Row>, Error> {
+    let folded = heads::fold_rows(kept)?;
+    Ok(kept
+        .iter()
+        .filter(|kept| {
+            nodes.contains(&row_node(&kept.row)) || folded.stubbed.contains(&kept.row.id)
+        })
+        .map(|kept| kept.row.clone())
+        .collect())
+}
+
 /// Forgets each of `nodes` whole: a forget of the node, its rows stubs, as
 /// are `alone` (rows forgotten by forgets of their own already). Her intents
 /// resting on either go too.
@@ -605,11 +621,7 @@ async fn forget_wholes<C: ConnectionTrait>(
     }
     let kept = heads::rows_of(db, user_id, audience).await?;
     let mut going = alone;
-    going.extend(
-        kept.iter()
-            .filter(|kept| nodes.contains(&row_node(&kept.row)))
-            .map(|kept| kept.row.clone()),
-    );
+    going.extend(rows_gone(&kept, nodes)?);
     intent_grounds::forget_with(db, user_id, audience, &kept, &mut going).await?;
     stub(db, user_id, &going).await
 }
