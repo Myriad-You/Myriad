@@ -376,14 +376,7 @@ async fn judged(
         futures::stream::iter(parts).buffered(ASKS).collect().await;
     let mut all = super::Told::default();
     for (first, told) in told {
-        all.out
-            .extend(told.out.into_iter().map(|index| first + index));
-        all.untold
-            .extend(told.untold.into_iter().map(|index| first + index));
-        // One that could not be asked is asked again, whatever the rest.
-        if all.failure.as_ref().is_none_or(Failure::untold) {
-            all.failure = told.failure.or(all.failure);
-        }
+        all.and(told, first);
     }
     all
 }

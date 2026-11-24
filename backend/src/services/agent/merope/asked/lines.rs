@@ -155,7 +155,7 @@ pub(in crate::services::agent::merope) async fn mark(
     let mut not_told: Vec<i32> = Vec::new();
     let mut untold = super::Told::default();
     for part in myriad_merope::not_to_keep::parts(&texts) {
-        let ids = &ids[part.clone()];
+        let (first, ids) = (part.start, &ids[part.clone()]);
         let told = super::told_of(db, user_id, None, &texts[part], until).await;
         MARKED.fetch_add(told.out.len() as u64, Ordering::Relaxed);
         let marked: Vec<i32> = told.out.iter().map(|index| ids[*index]).collect();
@@ -175,14 +175,11 @@ pub(in crate::services::agent::merope) async fn mark(
         .await
         .map_err(|_| Failure::Storage)?;
         not_told.extend(told.untold.iter().map(|index| ids[*index]));
-        untold.untold.extend(told.untold);
-        if let Some(failure) = told.failure {
-            // Not to be reached, or no time left: the rest is asked later.
-            let stop = !failure.untold();
-            untold.failure = Some(failure);
-            if stop {
-                break;
-            }
+        // Not to be reached, or no time left: the rest is asked later.
+        let stop = (told.failure.as_ref()).is_some_and(|failure| !failure.untold());
+        untold.and(told, first);
+        if stop {
+            break;
         }
     }
     // Never told of: not looked back to all the same, and nothing waits for
@@ -529,6 +526,47 @@ mod tests {
             .unwrap();
         assert_eq!(judged_as(db, &long).await, None, "let be");
         assert!(super::super::LET_BE.load(Ordering::Relaxed) > before);
+        schema.drop().await;
+    }
+
+    /// The first part refused, the next not to be reached: judged again as
+    /// what cannot be reached, counted as refused, and not let be.
+    #[tokio::test]
+    async fn a_part_refused_counts_though_the_next_is_not_reached() {
+        use crate::services::agent::merope::call;
+        use myriad_merope::not_to_keep::ITEMS_PER_ASK;
+        let Some(schema) = schema("asked_lines_parts").await else {
+            return;
+        };
+        let db = &schema.db;
+        session(db, "mine", OTHER, Some(r#"{"mode":"chat"}"#), false).await;
+        for nth in 0..=ITEMS_PER_ASK {
+            line(db, "mine", "user", &format!("第{nth}件事"), 20, None).await;
+        }
+        asks(db, OTHER, "不要记和房东吵架的事").await;
+        let now = crate::clock::now().fixed_offset();
+        for gives_up in [false, true] {
+            let mut answers = vec![Some("!refused".to_string()); ITEMS_PER_ASK + 1];
+            answers.push(Some("!rejected".into()));
+            let mut world = g0::World::new(0.5);
+            world.models.insert("not_to_keep".into(), answers.into());
+            g0::enter(world);
+            let done = mark(
+                db,
+                OTHER,
+                &Audience::private(OTHER),
+                now - chrono::Duration::minutes(25),
+                now - chrono::Duration::minutes(10),
+                Instant::now() + std::time::Duration::from_secs(60),
+                gives_up,
+            )
+            .await;
+            g0::leave();
+            let failure = done.expect_err("not all of it reached");
+            assert!(!failure.untold());
+            assert_eq!(failure.counted(), Some(call::Failure::Refused));
+            assert_eq!(judged_as(db, "第0件事").await, None);
+        }
         schema.drop().await;
     }
 

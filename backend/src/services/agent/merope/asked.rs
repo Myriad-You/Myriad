@@ -260,8 +260,22 @@ impl Told {
         unanswered.failure
     }
 
+    /// With what was told of others, the first of them at `first`.
+    fn and(&mut self, told: Told, first: usize) {
+        let all = |of: BTreeSet<usize>| of.into_iter().map(move |index| first + index);
+        self.out.extend(all(told.out));
+        self.untold.extend(all(told.untold));
+        // One that could not be asked is asked again, whatever the rest.
+        if self.failure.as_ref().is_none_or(Failure::untold) {
+            self.failure = told.failure.or(self.failure.take());
+        }
+        self.shown = self.shown.or(told.shown);
+    }
+
     /// Of what she already held: what was not told stays as it is, to be
-    /// asked again (`Err`), or, with `gives_up`, let be and counted.
+    /// asked again (`Err`), or, with `gives_up`, let be and counted. Not
+    /// with one that could not be asked about: it may be told. What was asked
+    /// to no answer that will do counts all the same.
     pub(super) fn let_be(self, gives_up: bool) -> Result<(), Failure> {
         match self.failure {
             None => Ok(()),
@@ -274,6 +288,10 @@ impl Told {
                 );
                 Ok(())
             }
+            Some(Failure::Model(last)) if !last.of_what_was_shown() => Err(match self.shown {
+                Some(shown) => Failure::Unreached { last, shown },
+                None => last.into(),
+            }),
             Some(failure) => Err(failure),
         }
     }

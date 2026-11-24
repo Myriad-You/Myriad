@@ -330,6 +330,45 @@ async fn an_answer_that_is_not_one_is_asked_again_and_never_lets_anything_throug
     schema.drop().await;
 }
 
+/// Told in parts: one that could not be asked about is asked again whatever
+/// the rest, in whichever order they came; what got no answer that will do
+/// counts all the same, and is never let be for it.
+#[test]
+fn what_could_not_be_asked_about_hides_no_answer_that_will_not_do() {
+    let part = |failure: CallFailure, shown: Option<CallFailure>| Told {
+        out: [0].into(),
+        untold: [1].into(),
+        failure: Some(failure.into()),
+        shown,
+    };
+    let refused = || part(CallFailure::Refused, Some(CallFailure::Refused));
+    let away = || part(CallFailure::Timeout, None);
+    for away_first in [false, true] {
+        for gives_up in [false, true] {
+            let mut parts = [refused(), away()];
+            if away_first {
+                parts.reverse();
+            }
+            let mut all = Told::default();
+            for (nth, told) in parts.into_iter().enumerate() {
+                all.and(told, 10 * nth);
+            }
+            assert_eq!(all.out, [0, 10].into());
+            assert_eq!(all.untold, [1, 11].into());
+            let failure = all.let_be(gives_up).expect_err("not all asked about");
+            assert!(!failure.untold() && !failure.refused());
+            assert_eq!(failure.counted(), Some(CallFailure::Refused));
+        }
+    }
+    // None of it shown: as it was. All of it shown: let be in the end.
+    let failure = away().let_be(true).expect_err("not asked about");
+    assert!(matches!(failure, Failure::Model(CallFailure::Timeout)));
+    assert_eq!(failure.counted(), None);
+    let failure = refused().let_be(false).expect_err("not told");
+    assert_eq!(failure.counted(), Some(CallFailure::Refused));
+    assert!(failure.untold() && refused().let_be(true).is_ok());
+}
+
 /// What a line comes to loses what they asked not to keep, in its place:
 /// what they take back, what they ask now and the rest stay as they were.
 #[tokio::test]
