@@ -14,7 +14,8 @@
 //!   taken in, or whose body is, against every span and entry forgotten here
 //!   before, and the memories and lines of theirs its intent names that were
 //!   ([`crate::services::agent::memory::forgotten`]). Only the intents it is
-//!   a version of: one here from before that nothing came of stays as it is.
+//!   a version of, and those its words are carried on as: one here from
+//!   before that nothing came of stays as it is.
 //!
 //! A node taken back from sync (撤回同步) is no forgetting, though its rows
 //! are stubs here as if it were: its home holds them still, so what rests on
@@ -409,10 +410,27 @@ impl Round {
             );
             let before = versions.gone_of(db, user_id, before).await?;
             let gone = late.gone(db, user_id, &kept, before).await?;
+            // Asked with what came and without: the words of an intent that
+            // came may be carried on elsewhere, and only they say so.
+            let before: Vec<heads::KeptRow> = kept
+                .iter()
+                .filter(|kept| kept.row.kind != INTENT || !came.contains(&kept.row.id))
+                .cloned()
+                .collect();
+            let bodies_before = bodies
+                .iter()
+                .filter(|(id, _)| !came.contains(*id))
+                .map(|(id, body)| (id.clone(), body.clone()))
+                .collect();
+            let as_before = asked(db, user_id, audience, &before, bodies_before, &gone)
+                .await?
+                .into_iter()
+                .map(|row| row.id)
+                .collect();
             let more = asked(db, user_id, audience, &kept, bodies, &gone).await?;
             let seen: BTreeSet<String> = going.iter().map(|row| row.id.clone()).collect();
             going.extend(
-                late.only(&kept, more)
+                late.only(&kept, more, &as_before)
                     .into_iter()
                     .filter(|row| !seen.contains(&row.id)),
             );
@@ -579,8 +597,14 @@ impl Late {
     }
 
     /// Of `rows` ([`resting`]), theirs: their whole rows, and those still to
-    /// come that one of these was written on.
-    fn only(&self, kept: &[heads::KeptRow], rows: Vec<Row>) -> Vec<Row> {
+    /// come that one of these was written on; and any that is not
+    /// `as_before`, resting on it whether anything came or not.
+    fn only(
+        &self,
+        kept: &[heads::KeptRow],
+        rows: Vec<Row>,
+        as_before: &BTreeSet<String>,
+    ) -> Vec<Row> {
         let going: BTreeSet<String> = rows.iter().map(|row| row.id.clone()).collect();
         let mut theirs: BTreeSet<String> = BTreeSet::new();
         let mut under: BTreeSet<String> = BTreeSet::new();
@@ -594,6 +618,7 @@ impl Late {
         rows.into_iter()
             .filter(|row| {
                 theirs.contains(&row.id)
+                    || !as_before.contains(&row.id)
                     || (under.contains(&row.id) && !here.contains(row.id.as_str()))
             })
             .collect()

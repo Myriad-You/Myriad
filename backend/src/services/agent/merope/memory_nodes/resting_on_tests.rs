@@ -1487,3 +1487,63 @@ async fn a_node_forgotten_whole_keeps_no_word_of_what_went_into_it() {
     assert_eq!(count(db, words).await, 0);
     schema.drop().await;
 }
+
+/// The words of an intent that comes late, carried on here on other grounds
+/// under the same id on another node, go with it; one that rested on what
+/// was forgotten before, in other words, stays as it was.
+#[tokio::test]
+async fn what_the_words_of_one_that_comes_late_were_carried_on_as_goes_too() {
+    let Some(mut here) = here("resting_on_late_copy").await else {
+        return;
+    };
+    let talk = here.talk.clone();
+    let made = created(&talk, "minted:ferns", "ferns");
+    let other = created(&talk, "minted:trips", "trips");
+    let (node, away) = (made.node.clone(), other.node.clone());
+    put(
+        here.db(),
+        OWNER,
+        &talk,
+        &[
+            made,
+            other,
+            span(&talk, &node, "sp1", &["record:r1"]),
+            span(&talk, &node, "sp2", &["record:r2"]),
+            hand(&away, "copy", "a", "ask one", &["span:sp2"], &[], "waiting"),
+            hand(
+                &away,
+                "before",
+                "old",
+                "ask before",
+                &["span:sp1"],
+                &[],
+                "waiting",
+            ),
+        ],
+    )
+    .await;
+    // The span forgotten, as an older build of the site did it.
+    let mut doomed = Vec::new();
+    for kept in super::heads::rows_of(here.db(), OWNER, &talk)
+        .await
+        .unwrap()
+    {
+        if kept.row.id == "sp1" {
+            doomed.push(kept.row);
+        }
+    }
+    let txn = here.db().begin().await.unwrap();
+    forget::forget_one(&txn, OWNER, &talk, &node, forget::Forgets::Row("sp1"))
+        .await
+        .unwrap();
+    forget::stub(&txn, OWNER, &doomed).await.unwrap();
+    txn.commit().await.unwrap();
+    let late = here.intent(
+        &node,
+        "late",
+        intent_body("a", "ask one", &["span:sp1"], &[], "waiting"),
+    );
+    here.sent(vec![late], &[]).await;
+    assert_eq!(left(here.db()).await, ids(&["before"]));
+    here.schema.drop().await;
+}
