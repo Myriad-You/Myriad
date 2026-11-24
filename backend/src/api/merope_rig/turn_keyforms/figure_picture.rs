@@ -5,7 +5,26 @@
 
 use std::path::{Path, PathBuf};
 
+use axum::{
+    Json,
+    body::Body,
+    extract::{Extension, Path as UrlPath, State},
+    http::{HeaderValue, StatusCode, header},
+    response::Response,
+};
+use sea_orm::DatabaseConnection;
+use serde_json::json;
 use sha2::{Digest, Sha256};
+
+use crate::{
+    api::merope_rig::{
+        ApiError, ApiResult, internal_error,
+        master::{MasterSlot, current_master},
+        require_merope_enabled, require_owner,
+    },
+    middleware::auth::Claims,
+    services::image_generation,
+};
 
 /// Enlarged pictures kept, the newest; one per figure master in use.
 const KEEP: usize = 8;
@@ -64,6 +83,42 @@ async fn write_in(root: &Path, master: &[u8], picture: &[u8]) {
     for (_, path) in files.into_iter().skip(KEEP) {
         let _ = tokio::fs::remove_file(path).await;
     }
+}
+
+/// A full-body set's picture as its tiles were cut from (enlarged), for the
+/// importer to check its decomposition against; 404 while there is none.
+pub async fn get_full_body_figure_picture(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    UrlPath(outfit_id): UrlPath<String>,
+) -> ApiResult<Response> {
+    require_merope_enabled().await?;
+    require_owner(&claims, &db).await?;
+    let master = current_master(&db, MasterSlot::FullBody(&outfit_id))
+        .await?
+        .ok_or_else(missing_picture)?;
+    let reference = image_generation::load_local_reference(&master.asset_id)
+        .await
+        .map_err(|_| missing_picture())?;
+    let picture = read(&reference.bytes).await.ok_or_else(missing_picture)?;
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, HeaderValue::from_static("image/png"))
+        .header(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store, private"),
+        )
+        .body(Body::from(picture))
+        .map_err(internal_error)
+}
+
+fn missing_picture() -> ApiError {
+    (
+        StatusCode::NOT_FOUND,
+        Json(
+            json!({ "error": "No enlarged picture for this set", "code": "figure_picture_missing" }),
+        ),
+    )
 }
 
 #[cfg(test)]

@@ -63,6 +63,45 @@ pub(super) async fn draw_turn(
 /// The sides of the turned drawings, in their order.
 pub(super) const TURN_SIDES: [&str; 4] = ["plus", "minus", "up", "down"];
 
+/// A job's pictures sent to the Space ahead of the calls that carry them:
+/// the master before the first drawing (so a decomposition of it about to
+/// start never queues behind a drawing), then each turned drawing given.
+/// A picture that cannot be sent is only not there yet: the call that
+/// carries it sends it, as it would have.
+pub(super) struct Ahead<'a> {
+    client: &'a see_through::SeeThroughClient,
+    master: &'a (axum::body::Bytes, String),
+    master_sent: tokio::sync::OnceCell<()>,
+}
+
+impl<'a> Ahead<'a> {
+    pub(super) fn new(
+        client: &'a see_through::SeeThroughClient,
+        master: &'a (axum::body::Bytes, String),
+    ) -> Self {
+        Self {
+            client,
+            master,
+            master_sent: tokio::sync::OnceCell::new(),
+        }
+    }
+
+    /// Sends one turned drawing (PNG).
+    pub(super) async fn send(&self, png: Vec<u8>) {
+        let (master, media_type) = self.master;
+        self.master_sent
+            .get_or_init(|| self.picture(master.clone(), media_type))
+            .await;
+        self.picture(png.into(), "image/png").await;
+    }
+
+    async fn picture(&self, picture: axum::body::Bytes, media_type: &str) {
+        if let Err(error) = self.client.send_ahead(picture, media_type).await {
+            tracing::warn!(%error, "picture not sent ahead; the call that carries it sends it");
+        }
+    }
+}
+
 /// Draws again, once each, the turned drawings the Space's `check_turns`
 /// finds redrawn past what keys of the front drawing can follow (a restyled
 /// fringe, a moved clip). A check or a drawing that fails keeps what there is:

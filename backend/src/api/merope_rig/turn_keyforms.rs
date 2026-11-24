@@ -7,6 +7,7 @@
 //! 整个过程要几十分钟（四次生图、五次拆层、一次拟合），在后台跑；前端轮询
 //! 进度，完成后取回烘焙过的拆层与关键形，照常导入。同一时间只跑一个任务；
 //! 任务里互不依赖的生图与拆层一起发出去（`together`），拟合仍是一次一个。
+//! 转头图一画好就先传到 Space，藏在正面拆层后面，之后各步用到时不再等上传。
 //!
 //! 四张图与五份拆层按立绘内容存在磁盘上（`TurnCache`）：任务中途失败、后端
 //! 重启，或同一张立绘再导入一次，已经花钱做完的生图与拆层直接取用，只把缺的
@@ -66,7 +67,7 @@ use cache::{CACHE_KEEP, TurnCache, cache_root, prune_cache};
 #[cfg(test)]
 use drawing::fit_to;
 use drawing::{
-    TRANSIENT_RETRIES, TURN_SIDES, TURNED_REDOS, decompose_checked, decompose_waiting,
+    Ahead, TRANSIENT_RETRIES, TURN_SIDES, TURNED_REDOS, decompose_checked, decompose_waiting,
     decomposition, draw_turn, redraw_bad_turns, redraw_misfit, retry_delay, transient,
     turn_prompts,
 };
@@ -74,6 +75,7 @@ use drawing::{
 use figure::alongside;
 pub(super) use figure::{enlarged_figure, super_resolved};
 use figure::{fit, plain, put_back, run_figure};
+pub use figure_picture::get_full_body_figure_picture;
 #[cfg(test)]
 use served::missing_job;
 use served::space_client;
@@ -366,44 +368,6 @@ pub async fn start_full_body_turn_keyforms(
     start(db, &claims, Some(outfit_id), payload).await
 }
 
-/// A full-body set's picture as its tiles were cut from (enlarged), for the
-/// importer to check its decomposition against; 404 while there is none.
-pub async fn get_full_body_figure_picture(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    Path(outfit_id): Path<String>,
-) -> ApiResult<Response> {
-    require_merope_enabled().await?;
-    require_owner(&claims, &db).await?;
-    let master = super::master::current_master(&db, MasterSlot::FullBody(&outfit_id))
-        .await?
-        .ok_or_else(missing_picture)?;
-    let reference = image_generation::load_local_reference(&master.asset_id)
-        .await
-        .map_err(|_| missing_picture())?;
-    let picture = figure_picture::read(&reference.bytes)
-        .await
-        .ok_or_else(missing_picture)?;
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, HeaderValue::from_static("image/png"))
-        .header(
-            header::CACHE_CONTROL,
-            HeaderValue::from_static("no-store, private"),
-        )
-        .body(Body::from(picture))
-        .map_err(internal_error)
-}
-
-fn missing_picture() -> ApiError {
-    (
-        StatusCode::NOT_FOUND,
-        Json(
-            json!({ "error": "No enlarged picture for this set", "code": "figure_picture_missing" }),
-        ),
-    )
-}
-
 async fn start(
     db: DatabaseConnection,
     claims: &Claims,
@@ -565,12 +529,12 @@ async fn run(
             kept_or_made(cache, &name, draw).await
         })
         .collect();
-    let (turned, front_psd) = drawn_beside_front(
-        id,
-        drawings,
-        decomposition(client, cache, 0, &front.0, &front.1, options),
-    )
-    .await?;
+    let (turned, front_psd) = {
+        // Each drawing goes up to the Space as it comes, behind the front decomposition.
+        let ahead = Ahead::new(client, &front);
+        let front_psd = decomposition(client, cache, 0, &front.0, &front.1, options);
+        drawn_beside_front(id, drawings, front_psd, |png| ahead.send(png)).await?
+    };
     // A turn drawn past what the front drawing's keys can follow is drawn once more.
     let turned = redraw_bad_turns(
         user_id,
