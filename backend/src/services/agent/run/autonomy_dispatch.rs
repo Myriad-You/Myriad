@@ -15,6 +15,15 @@ use crate::services::agent::{
 };
 use serde_json::{Value, json};
 
+/// The driver whose tick this is.
+pub const AUTONOMY_DRIVER: &str = "autonomy";
+
+/// How long one proposal may take and not be hung: the Work of it, and what
+/// comes before and after (its lane, what she makes of the turn).
+const RUN_AT_MOST: std::time::Duration = std::time::Duration::from_millis(
+    crate::services::agent::work_loop::MAX_ACTIVE_MS + 10 * 60 * 1000,
+);
+
 pub async fn tick_autonomy_work(db: DatabaseConnection) {
     // What the owner's Macs were asked to do and has run out of time.
     crate::services::agent::link::sweep_acts(&db).await;
@@ -31,8 +40,21 @@ pub async fn tick_autonomy_work(db: DatabaseConnection) {
             return;
         }
     };
+    dispatch_each(pending, |intent| dispatch_one(&db, intent)).await;
+}
+
+/// One after another, all in the one tick. A run may be silent for longer
+/// than her watch waits (one model call, one long step), so the watch hears
+/// by the clock that it is going, not by the progress it makes.
+async fn dispatch_each<T, F>(pending: Vec<T>, dispatch: impl Fn(T) -> F)
+where
+    F: std::future::Future<Output = Result<(), String>>,
+{
     for intent in pending {
-        if let Err(error) = dispatch_one(&db, intent).await {
+        let run = Box::pin(dispatch(intent));
+        if let Err(error) =
+            crate::services::agent::alive::going(AUTONOMY_DRIVER, RUN_AT_MOST, run).await
+        {
             tracing::warn!(%error, "[Autonomy] dispatch failed");
         }
     }
@@ -462,6 +484,42 @@ mod tests {
             src.matches("defer_skipped_autonomy(db, &intent)").count() >= 2,
             "both skip returns must leave the queue head"
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn her_watch_hears_that_long_runs_are_going() {
+        use crate::services::agent::alive;
+        let ran = &std::cell::Cell::new(0);
+        dispatch_each(vec![(), ()], |()| async move {
+            // Fifteen minutes each, and no progress said.
+            for _ in 0..15 {
+                alive::unheard(AUTONOMY_DRIVER);
+                tokio::time::sleep(std::time::Duration::from_secs(61)).await;
+                assert!(alive::heard(AUTONOMY_DRIVER));
+            }
+            ran.set(ran.get() + 1);
+            Ok(())
+        })
+        .await;
+        assert_eq!(ran.get(), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn her_watch_hears_no_more_of_a_run_that_hangs() {
+        use crate::services::agent::alive;
+        alive::unheard(AUTONOMY_DRIVER);
+        let hung = dispatch_each(vec![()], |()| std::future::pending());
+        let looked = async {
+            tokio::time::sleep(RUN_AT_MOST + std::time::Duration::from_secs(61)).await;
+            assert!(alive::heard(AUTONOMY_DRIVER));
+            alive::unheard(AUTONOMY_DRIVER);
+            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            assert!(!alive::heard(AUTONOMY_DRIVER));
+        };
+        tokio::select! {
+            _ = hung => unreachable!("nothing ends it"),
+            _ = looked => {},
+        }
     }
 
     #[tokio::test]

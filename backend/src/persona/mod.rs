@@ -67,12 +67,12 @@ pub async fn start(db: DatabaseConnection) -> anyhow::Result<()> {
     drivers.continuous("OneBot", services::onebot_bot::run_worker());
     let work_db = db.clone();
     drivers.periodic(
-        "autonomy",
+        services::agent::run::AUTONOMY_DRIVER,
         Duration::from_secs(15),
         Duration::ZERO,
         move || {
             her_own(
-                "autonomy",
+                services::agent::run::AUTONOMY_DRIVER,
                 services::agent::run::tick_autonomy_work(work_db.clone()),
             )
         },

@@ -22,7 +22,7 @@ use super::{Agent, capability, executor, types::*};
 use crate::services::agent::capability::CapabilityRef;
 use crate::services::analyzer::tool_calling::{ToolCall, ToolDefinition, ToolMessage, ToolTurnFailure};
 use serde_json::{Value, json};
-pub(crate) use state::is_work_recipe;
+pub(crate) use state::{MAX_ACTIVE_MS, is_work_recipe};
 use state::*;
 
 /// Told to the model after a reply was cut at the output limit; seen twice in a row, the

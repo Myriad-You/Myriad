@@ -58,6 +58,15 @@ pub struct Beat {
     pub skips: u64,
 }
 
+impl Beat {
+    /// When it last asked whether she is here (`lease::paused`), let
+    /// through or passed over. None for a driver that never asks: it runs
+    /// wherever she is, and is not one of hers.
+    fn asked_at(&self) -> Option<i64> {
+        self.ran_at.max(self.skipped_at)
+    }
+}
+
 /// Her memory's line.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -187,6 +196,28 @@ pub fn still_going(driver: &'static str) {
             beat.ran_at = Some(now);
         }
     });
+}
+
+/// Runs `part` of a tick that was let through, one that may be long but is
+/// over within `at_most`: the watch hears every minute that the tick is
+/// still going. Past `at_most` it hears no more, so a tick that hangs in it
+/// is stuck all the same.
+pub async fn going<T>(
+    driver: &'static str,
+    at_most: std::time::Duration,
+    part: impl std::future::Future<Output = T>,
+) -> T {
+    let mut part = std::pin::pin!(part);
+    let until = tokio::time::Instant::now() + at_most;
+    let mut minutes = tokio::time::interval(std::time::Duration::from_secs(60));
+    while tokio::time::Instant::now() < until {
+        tokio::select! {
+            biased;
+            _ = minutes.tick() => still_going(driver),
+            out = &mut part => return out,
+        }
+    }
+    part.await
 }
 
 /// A driver asked and was passed over: she is at `place`, not here.
@@ -379,6 +410,39 @@ fn lived_at(state: &State) -> Option<i64> {
         .max()
 }
 
+/// How many of her own drivers that tick on a clock are stuck as of `now`,
+/// and since when the longest stuck one has been ([`watch::stalled`]). Only
+/// those that ask: what runs wherever she is has nothing here to tell its
+/// ticks by.
+fn stuck(state: &State, base: i64, now: i64) -> (usize, Option<i64>) {
+    watch::stalled(
+        state
+            .drivers
+            .values()
+            .filter_map(|beat| Some((beat.every?, beat.asked_at()?))),
+        base,
+        now,
+    )
+}
+
+/// How many of the drivers of this process are stuck, seen from `base`.
+#[cfg(test)]
+pub(crate) fn stuck_in_this_process(base: i64, now: i64) -> (usize, Option<i64>) {
+    with(|state| stuck(state, base, now))
+}
+
+/// `driver` as last let through at the epoch, and whether the watch has
+/// heard from it since.
+#[cfg(test)]
+pub(crate) fn unheard(driver: &'static str) {
+    with(|state| state.drivers.entry(driver.into()).or_default().ran_at = Some(0));
+}
+
+#[cfg(test)]
+pub(crate) fn heard(driver: &'static str) -> bool {
+    with(|state| state.drivers[driver].ran_at != Some(0))
+}
+
 /// Whether the site is her host: her copy here is the live one and she is
 /// not moving. Where her mind is does not come into it: lent away while
 /// the site is her host is what the watch is for.
@@ -447,6 +511,7 @@ fn merge(state: &mut State, kept: State, now: i64) {
     state.watch = watch::Watch {
         should_since: None,
         gap_from: None,
+        stalled: kept.watch.stalled.said_before(),
         ..kept.watch
     };
     state.started_at.get_or_insert(now);
@@ -463,35 +528,45 @@ async fn keep(db: &DatabaseConnection) {
     }
 }
 
+/// What one look found.
+struct Looked {
+    said: Option<watch::Said>,
+    troubles: Vec<watch::Trouble>,
+    /// How many of her drivers are stuck now.
+    stalled: usize,
+}
+
+/// One look of the watch at `state`.
+fn look_at(state: &mut State, now: i64, should_live: bool) -> Looked {
+    let started_at = *state.started_at.get_or_insert(now);
+    let said = state.watch.look(watch::Seen {
+        now,
+        started_at,
+        should_live,
+        lived_at: lived_at(state),
+    });
+    let (stalled, stalled_from) = stuck(state, state.watch.watching_from(started_at), now);
+    let unanswered_from = unanswered_from(&state.answers, now);
+    let troubles = state
+        .watch
+        .look_troubles(now, stalled_from, unanswered_from);
+    Looked {
+        said,
+        troubles,
+        stalled,
+    }
+}
+
 /// One look of the watch: says what there is to say to the site's owner,
 /// and every few looks writes down what is kept.
 pub async fn look(db: DatabaseConnection, looks: u64) {
     let should_live = persona_on().await && host_is_here(lease::current().as_ref());
     let now = now();
-    let (said, troubles) = with(|state| {
-        let started_at = *state.started_at.get_or_insert(now);
-        let seen = watch::Seen {
-            now,
-            started_at,
-            should_live,
-            lived_at: lived_at(state),
-        };
-        let said = state.watch.look(seen);
-        let (stalled, stalled_from) = watch::stalled(
-            state
-                .drivers
-                .values()
-                .filter_map(|beat| beat.every.map(|every| (every, beat.ran_at))),
-            state.watch.watching_from(started_at),
-            now,
-        );
-        let unanswered_from = unanswered_from(&state.answers, now);
-        let troubles = state
-            .watch
-            .look_troubles(now, stalled_from, unanswered_from);
-        (said, (troubles, stalled))
-    });
-    let (troubles, stalled) = troubles;
+    let Looked {
+        said,
+        troubles,
+        stalled,
+    } = with(|state| look_at(state, now, should_live));
     for trouble in &troubles {
         match trouble {
             watch::Trouble::Stalled(watch::Turn::Began { .. })

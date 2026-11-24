@@ -227,6 +227,54 @@ mod tests {
         assert!(failure.borrow().is_none());
     }
 
+    /// Of two drivers on a clock, the one of hers whose tick hangs is stuck;
+    /// the one that runs wherever she is never is.
+    #[tokio::test]
+    async fn only_one_of_hers_is_stuck_for_the_owner() {
+        use crate::services::agent::alive;
+        let mut drivers = Drivers::new();
+        let sites = Arc::new(AtomicUsize::new(0));
+        let hers = Arc::new(AtomicUsize::new(0));
+        let calls = hers.clone();
+        drivers.periodic(
+            "one of hers that hangs",
+            Duration::from_millis(1),
+            Duration::ZERO,
+            move || {
+                let skip = crate::services::persona_sync::lease::paused("one of hers that hangs");
+                calls.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    assert!(!skip);
+                    std::future::pending::<()>().await;
+                }
+            },
+        );
+        let calls = sites.clone();
+        drivers.periodic(
+            "one of the site's",
+            Duration::from_millis(1),
+            Duration::ZERO,
+            move || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                std::future::ready(())
+            },
+        );
+        let runtime = drivers.supervise(watch::channel(None).0, Duration::from_millis(5));
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while sites.load(Ordering::SeqCst) < 5 || hers.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(hers.load(Ordering::SeqCst), 1);
+        let now = crate::clock::now().timestamp();
+        let (stuck, from) = alive::stuck_in_this_process(0, now + alive::watch::QUIET_SECS + 1);
+        assert_eq!(stuck, 1);
+        assert!(from.is_some_and(|from| (now - 5..=now).contains(&from)));
+        runtime.shutdown().await;
+    }
+
     #[tokio::test]
     async fn panic_reports_failure_and_stops_other_drivers() {
         let mut drivers = Drivers::new();
