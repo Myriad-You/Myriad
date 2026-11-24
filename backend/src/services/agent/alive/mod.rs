@@ -198,6 +198,28 @@ pub fn still_going(driver: &'static str) {
     });
 }
 
+/// Runs `part` of a tick that was let through, one that may be long but is
+/// over within `at_most`: the watch hears every minute that the tick is
+/// still going. Past `at_most` it hears no more, so a tick that hangs in it
+/// is stuck all the same.
+pub async fn going<T>(
+    driver: &'static str,
+    at_most: std::time::Duration,
+    part: impl std::future::Future<Output = T>,
+) -> T {
+    let mut part = std::pin::pin!(part);
+    let until = tokio::time::Instant::now() + at_most;
+    let mut minutes = tokio::time::interval(std::time::Duration::from_secs(60));
+    while tokio::time::Instant::now() < until {
+        tokio::select! {
+            biased;
+            _ = minutes.tick() => still_going(driver),
+            out = &mut part => return out,
+        }
+    }
+    part.await
+}
+
 /// A driver asked and was passed over: she is at `place`, not here.
 pub fn skipped(driver: &'static str, place: &Where) {
     let now = now();
@@ -407,6 +429,18 @@ fn stuck(state: &State, base: i64, now: i64) -> (usize, Option<i64>) {
 #[cfg(test)]
 pub(crate) fn stuck_in_this_process(base: i64, now: i64) -> (usize, Option<i64>) {
     with(|state| stuck(state, base, now))
+}
+
+/// `driver` as last let through at the epoch, and whether the watch has
+/// heard from it since.
+#[cfg(test)]
+pub(crate) fn unheard(driver: &'static str) {
+    with(|state| state.drivers.entry(driver.into()).or_default().ran_at = Some(0));
+}
+
+#[cfg(test)]
+pub(crate) fn heard(driver: &'static str) -> bool {
+    with(|state| state.drivers[driver].ran_at != Some(0))
 }
 
 /// Whether the site is her host: her copy here is the live one and she is

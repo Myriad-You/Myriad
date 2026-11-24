@@ -115,12 +115,14 @@ pub enum Trouble {
 impl Held {
     /// As a new process takes it over, for a trouble that goes with its
     /// process (a tick that hangs ends with it): the next time it holds is
-    /// another, and is said. Not seen again for [`WELL_SECS`], it ends as
-    /// any does.
+    /// another, and is said. Not seen again for [`WELL_SECS`] of this
+    /// process, it ends as any does: what the last one saw of its being
+    /// gone was another's.
     pub fn said_before(self) -> Self {
         Self {
+            from: self.from,
+            well_from: None,
             before: self.from.is_some(),
-            ..self
         }
     }
 

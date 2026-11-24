@@ -5,7 +5,7 @@ use std::collections::{HashSet, VecDeque};
 pub(super) const MAX_ROUNDS: u32 = 32;
 pub(super) const MAX_CALLS: usize = 64;
 pub(super) const MAX_INPUT_CHARS: usize = 1_000_000;
-pub(super) const MAX_ACTIVE_MS: u64 = 20 * 60 * 1000;
+pub(crate) const MAX_ACTIVE_MS: u64 = 20 * 60 * 1000;
 pub(super) const RESULT_CHARS: usize = 12_000;
 
 #[derive(Clone, Serialize, Deserialize)]

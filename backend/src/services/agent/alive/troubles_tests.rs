@@ -237,6 +237,26 @@ fn one_said_by_a_process_gone_ends_once_after_an_hour() {
 }
 
 #[test]
+fn one_said_by_a_process_gone_is_well_for_an_hour_of_this_one() {
+    let up = 1_795_500_000;
+    let mut kept = kept_by_a_process_gone();
+    // The last process saw it gone, and ended; nothing looked since.
+    kept.watch.stalled.well_from = Some(up - 10 * 3600);
+    let mut state = came_up(up);
+    merge(&mut state, kept, up);
+    assert_eq!(
+        told(&mut state, up, up + 4 * 3600, None),
+        [(
+            up + WELL_SECS,
+            Trouble::Stalled(Turn::Ended {
+                from: 1_795_240_313,
+                since: up
+            })
+        )]
+    );
+}
+
+#[test]
 fn one_said_by_a_process_gone_and_again_in_this_one_is_said_once_here() {
     let up = 1_795_500_000;
     let mut state = came_up(up);
