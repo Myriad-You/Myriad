@@ -34,6 +34,19 @@ pub(super) fn format_openai_compatible_http_error(
     msg
 }
 
+/// An answer with no text in it that stopped at its output limit: thinking
+/// took all of it.
+#[derive(Debug)]
+pub struct EmptyAtLimit;
+
+impl std::fmt::Display for EmptyAtLimit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the answer stopped at its output limit with no text in it")
+    }
+}
+
+impl std::error::Error for EmptyAtLimit {}
+
 /// Extract assistant text from an OpenAI-compatible chat completion body.
 ///
 /// Never panics: returns clear anyhow errors for playground 502 paths.
@@ -87,6 +100,14 @@ pub(super) fn extract_openai_completion_text(response: &OpenAIResponse) -> Resul
         }
     }
 
+    let at_limit = response
+        .choices
+        .first()
+        .and_then(|choice| choice.finish_reason.as_deref())
+        == Some("length");
+    if at_limit {
+        return Err(EmptyAtLimit.into());
+    }
     Err(anyhow::anyhow!(
         "OpenAI-compatible API returned empty message content"
     ))
@@ -278,6 +299,27 @@ mod tests {
         let parsed: OpenAIResponse = serde_json::from_str(raw).expect("deserialize");
         let err = extract_openai_completion_text(&parsed).unwrap_err();
         assert!(format!("{err:#}").contains("empty message content"));
+    }
+
+    #[test]
+    fn openai_response_empty_at_its_limit_is_told_apart() {
+        let answer = |finish: &str, message: &str| {
+            let raw =
+                format!(r#"{{"choices": [{{"finish_reason": {finish}, "message": {message}}}]}}"#);
+            let parsed: OpenAIResponse = serde_json::from_str(&raw).expect("deserialize");
+            extract_openai_completion_text(&parsed)
+        };
+        let empty = r#"{ "role": "assistant", "content": null }"#;
+        let err = answer(r#""length""#, empty).unwrap_err();
+        assert!(err.is::<super::EmptyAtLimit>(), "{err:#}");
+        for finish in [r#""stop""#, "null"] {
+            let err = answer(finish, empty).unwrap_err();
+            assert!(!err.is::<super::EmptyAtLimit>(), "{finish}");
+            assert!(format!("{err:#}").contains("empty message content"));
+        }
+        // What it did say is an answer; whether it is whole is the caller's.
+        let said = r#"{ "content": "partial" }"#;
+        assert_eq!(answer(r#""length""#, said).unwrap(), "partial");
     }
 
     #[test]

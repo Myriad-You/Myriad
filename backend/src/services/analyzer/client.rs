@@ -533,9 +533,8 @@ impl AiAnalyzer {
     /// For a call measured to need far less output than it is let have when
     /// it names none (Anthropic's own 4096, a deep-thinking ask's 16000):
     /// the limit, thinking included, a request names when its call names
-    /// none. On every protocol, and before [`AiAnalyzer::with_output_cap`],
-    /// though never past that cap where it holds: a gateway reserves credit
-    /// for the whole limit.
+    /// none. On every protocol, and sent as it is:
+    /// [`AiAnalyzer::with_output_cap`] is for what names no limit at all.
     pub fn with_output_limit(mut self, tokens: u32) -> Self {
         self.output_limit = Some(tokens);
         self
@@ -571,7 +570,6 @@ impl AiAnalyzer {
             let unnamed = |key: &str| object.get(key).is_none_or(serde_json::Value::is_null);
             match self.provider {
                 AiProvider::OpenAI if unnamed("max_tokens") && unnamed("max_completion_tokens") => {
-                    let limit = self.output_cap.map_or(limit, |cap| limit.min(cap));
                     object.insert("max_tokens".into(), serde_json::json!(limit));
                 }
                 AiProvider::OpenAIResponses if unnamed("max_output_tokens") => {
@@ -2517,12 +2515,13 @@ mod tests {
         assert_eq!(openai.prepare_body(&named).unwrap()["max_tokens"], 300);
         let nulled = json!({"model":"fixture","messages":[],"max_tokens":null});
         assert_eq!(openai.prepare_body(&nulled).unwrap()["max_tokens"], 1024);
-        // Never past the cap that keeps a gateway from reserving more.
+        // Past the cap too: the cap is for a request that names no limit.
         let past = AiAnalyzer::new(AiProvider::OpenAI, "fixture".into(), "fixture".into(), None)
             .await
-            .with_output_cap(8192)
-            .with_output_limit(10_000);
+            .with_output_cap(8192);
         assert_eq!(past.prepare_body(&unnamed).unwrap()["max_tokens"], 8192);
+        let past = past.with_output_limit(16_000);
+        assert_eq!(past.prepare_body(&unnamed).unwrap()["max_tokens"], 16_000);
         let responses = analyzer(AiProvider::OpenAIResponses).await;
         assert_eq!(
             responses.prepare_body(&json!({"input":[]})).unwrap()["max_output_tokens"],

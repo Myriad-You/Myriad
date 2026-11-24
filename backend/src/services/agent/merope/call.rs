@@ -190,6 +190,9 @@ impl Failure {
             if cause.is::<crate::services::analyzer::StreamCut>() {
                 return Self::StreamInterrupted;
             }
+            if cause.is::<crate::services::analyzer::EmptyAtLimit>() {
+                return Self::CutOff;
+            }
             if cause.is::<crate::services::ai_quota::AiQuotaError>() {
                 return Self::Quota;
             }
@@ -988,6 +991,45 @@ mod tests {
         }
         server.abort();
         let _ = server.await;
+    }
+
+    /// Thinking that took all an answer may put out, so that none of it is
+    /// there to read, is an answer cut off: tried again as one, where an
+    /// empty answer that stopped on its own is not.
+    #[tokio::test]
+    async fn an_answer_with_no_text_at_its_limit_is_one_cut_off() {
+        use axum::{Json, Router, routing::post};
+        for (finish, expected) in [("length", Failure::CutOff), ("stop", Failure::Unknown)] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                axum::serve(
+                    listener,
+                    Router::new().fallback(post(move || async move {
+                        Json(serde_json::json!({"choices": [{
+                            "finish_reason": finish,
+                            "message": {"role": "assistant", "content": null},
+                        }]}))
+                    })),
+                )
+                .await
+                .unwrap();
+            });
+            let analyzer = crate::services::analyzer::AiAnalyzer::new(
+                crate::services::analyzer::AiProvider::OpenAI,
+                "test".into(),
+                "empty-at-limit-test".into(),
+                Some(format!("http://{address}/v1")),
+            )
+            .await;
+            let ask = Ask::new(Voice::Keeping, 7, "test_empty_at_limit");
+            let got = Model::of(analyzer, ask)
+                .json("s", "i", "n", &serde_json::json!({"type": "object"}))
+                .await;
+            assert_eq!(got, Err(expected), "{finish}");
+            server.abort();
+            let _ = server.await;
+        }
     }
 
     #[test]
