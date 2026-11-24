@@ -67,11 +67,14 @@ pub(super) const TURN_SIDES: [&str; 4] = ["plus", "minus", "up", "down"];
 /// the master before the first drawing (so a decomposition of it about to
 /// start never queues behind a drawing), then each turned drawing given.
 /// A picture that cannot be sent is only not there yet: the call that
-/// carries it sends it, as it would have.
+/// carries it sends it, as it would have. A master that could not be sent
+/// is not tried again, nor is a drawing sent after it: what kept it from
+/// the Space (one that is not running is waited for for minutes) would keep
+/// each of them.
 pub(super) struct Ahead<'a> {
     client: &'a see_through::SeeThroughClient,
     master: &'a (axum::body::Bytes, String),
-    master_sent: tokio::sync::OnceCell<()>,
+    master_sent: tokio::sync::OnceCell<bool>,
 }
 
 impl<'a> Ahead<'a> {
@@ -86,18 +89,24 @@ impl<'a> Ahead<'a> {
         }
     }
 
-    /// Sends one turned drawing (PNG).
-    pub(super) async fn send(&self, png: Vec<u8>) {
+    /// Sends one turned drawing (PNG). Whether it is on the Space now: once
+    /// one is not, the caller sends no more.
+    pub(super) async fn send(&self, png: Vec<u8>) -> bool {
         let (master, media_type) = self.master;
-        self.master_sent
+        let master_sent = self
+            .master_sent
             .get_or_init(|| self.picture(master.clone(), media_type))
             .await;
-        self.picture(png.into(), "image/png").await;
+        *master_sent && self.picture(png.into(), "image/png").await
     }
 
-    async fn picture(&self, picture: axum::body::Bytes, media_type: &str) {
-        if let Err(error) = self.client.send_ahead(picture, media_type).await {
-            tracing::warn!(%error, "picture not sent ahead; the call that carries it sends it");
+    async fn picture(&self, picture: axum::body::Bytes, media_type: &str) -> bool {
+        match self.client.send_ahead(picture, media_type).await {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::warn!(%error, "picture not sent ahead, nor the ones after it; the calls that carry them send them");
+                false
+            }
         }
     }
 }
