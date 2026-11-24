@@ -17,8 +17,10 @@ use serde_json::{Value, json};
 
 use super::read_tests::owned;
 use super::talk_tests::{OTHER, count, schema, talk};
-use super::{Author, RowIn, audience, child, forget, logged, page_edit, partner, write};
-use crate::services::agent::memory::{forgotten, manage};
+use super::{
+    Author, RowIn, audience, child, forget, forget_locks, logged, page_edit, partner, write,
+};
+use crate::services::agent::memory::{forgotten, manage, origins::Gone};
 use crate::services::agent::merope::nodes::Form;
 use crate::services::her_log::{
     self, Owner, Settings, keys, pen, store, test_partner::PARTNER, test_settings,
@@ -1204,4 +1206,117 @@ async fn her_log_has_what_is_forgotten_before_what_rested_on_it() {
         ]
     );
     here.schema.drop().await;
+}
+
+/// An intent being written from a line as the line is forgotten, when no
+/// row names the line yet: it waits for the forgetting, and is left out.
+#[tokio::test]
+async fn one_written_as_its_line_is_forgotten_waits_and_is_left_out() {
+    let Some(schema) = owned("resting_on_at_once").await else {
+        return;
+    };
+    let db = &schema.db;
+    pen::reset_for_test();
+    let talk = audience::owners_talk();
+    db.execute_unprepared(
+        "INSERT INTO agent_sessions (id, user_id, title, context, message_count, archived, \
+         created_at, last_active_at) \
+         VALUES ('s_one', 1, 't', '{\"mode\":\"chat\"}', 1, false, NOW(), NOW()); \
+         INSERT INTO agent_messages (id, session_id, role, content, created_at) \
+         VALUES (501, 's_one', 'user', 'the fern is dry', NOW())",
+    )
+    .await
+    .unwrap();
+    let made = created(&talk, "minted:ferns", "ferns");
+    let node = made.node.clone();
+    put(db, OWNER, &talk, &[made]).await;
+    // The line going, as `manage::forget_line` has it go, not yet committed.
+    let line = Gone {
+        id: 501,
+        session_id: "s_one".into(),
+        role: "user".into(),
+        log_row: None,
+    };
+    let txn = db.begin().await.unwrap();
+    forget_locks::lock_for(&txn, Some(OWNER), &[], &[line])
+        .await
+        .unwrap();
+    forget::forget(&txn, &[], &[501]).await.unwrap();
+    forgotten::keep(&txn, OWNER, forgotten::MESSAGE, &["501".into()])
+        .await
+        .unwrap();
+    let writing = tokio::spawn({
+        let (db, talk) = (db.clone(), talk.clone());
+        let row = hand(
+            &node,
+            "late",
+            "a",
+            "ask one",
+            &["message:501"],
+            &[],
+            "waiting",
+        );
+        async move { put(&db, OWNER, &talk, &[row]).await }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(
+        !writing.is_finished(),
+        "it waits for what is being forgotten"
+    );
+    txn.commit().await.unwrap();
+    writing.await.unwrap();
+    assert!(left(db).await.is_empty());
+    schema.drop().await;
+}
+
+/// A node locked for every audience a memory may be named in, its row here
+/// or not.
+#[tokio::test]
+async fn every_audience_a_memory_may_be_named_in_is_locked() {
+    let Some(schema) = owned("resting_on_locks").await else {
+        return;
+    };
+    let db = &schema.db;
+    db.execute_unprepared(
+        "INSERT INTO agent_memories (id, user_id, kind, content, source, venue, audience, \
+         valid_from, created_at, updated_at) VALUES \
+         ('g1', 7, 'fact', 'keeps a kettle', 'chat', 'group:qq:5', '[7]'::jsonb, \
+          now(), now(), now())",
+    )
+    .await
+    .unwrap();
+    let locked = |memory: &'static str| async move {
+        let txn = db.begin().await.unwrap();
+        forget_locks::lock_for(&txn, Some(OWNER), &[memory.into()], &[])
+            .await
+            .unwrap();
+        let free = |user: i32, audience: String| async move {
+            let other = db.begin().await.unwrap();
+            let free: bool = other
+                .query_one_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "SELECT pg_try_advisory_xact_lock(hashtextextended( \
+                     'myriad-memory-nodes:' || $1 || ':' || $2, 0)) AS free",
+                    [user.to_string().into(), audience.into()],
+                ))
+                .await
+                .unwrap()
+                .unwrap()
+                .try_get("", "free")
+                .unwrap();
+            other.rollback().await.unwrap();
+            free
+        };
+        let out = [
+            !free(OWNER, "group:qq:5".into()).await,
+            !free(7, "personal:7".into()).await,
+            !free(OWNER, audience::owners_talk()).await,
+            !free(OWNER, audience::OWN.into()).await,
+        ];
+        txn.rollback().await.unwrap();
+        out
+    };
+    assert_eq!(locked("g1").await, [true, true, false, false]);
+    assert_eq!(locked("from-elsewhere").await, [false, false, true, true]);
+    schema.drop().await;
 }

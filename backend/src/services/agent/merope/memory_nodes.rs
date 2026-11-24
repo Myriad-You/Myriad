@@ -95,6 +95,7 @@ pub(crate) mod child;
 pub(crate) mod context;
 pub(crate) mod facts;
 pub(crate) mod forget;
+pub(crate) mod forget_locks;
 pub(crate) mod group_context;
 pub(crate) mod group_facts;
 pub(crate) mod hanging;

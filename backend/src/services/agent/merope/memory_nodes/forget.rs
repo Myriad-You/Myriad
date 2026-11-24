@@ -49,7 +49,7 @@ pub(crate) use taken_back::{
 pub(crate) use taken_back::{error_kind, sweep_again};
 
 /// The kinds of row forgotten with a memory they cite.
-const OF_A_MEMORY: &[&str] = &[
+pub(super) const OF_A_MEMORY: &[&str] = &[
     "node.entry",
     "node.span",
     "node.view_changed",
@@ -69,7 +69,7 @@ pub(super) const OF_A_LINE: &[&str] = &[
 /// references, her views, what is not wrapped up and how their life stands
 /// (「现在」) by what they rest on (`because`); each with its account,
 /// audience and node.
-async fn citing<C: ConnectionTrait>(
+pub(super) async fn citing<C: ConnectionTrait>(
     db: &C,
     refs: &[String],
     kinds: &[&str],
@@ -380,33 +380,12 @@ pub(super) fn empty_topic(node: &myriad_nodes::Node) -> bool {
 
 /// How grounds name the memories `memories` (ids) and the lines `lines`
 /// (`agent_messages.id`).
-fn refs_of(memories: &[String], lines: &[i32]) -> Vec<String> {
+pub(super) fn refs_of(memories: &[String], lines: &[i32]) -> Vec<String> {
     memories
         .iter()
         .map(|id| format!("{}{id}", myriad_nodes::body::MEMORY_REF))
         .chain(lines.iter().map(|id| format!("message:{id}")))
         .collect()
-}
-
-/// Takes the locks [`forget`] of the same takes, for a caller that writes
-/// forgets of its own into her log before it: a node's lock goes before the
-/// log's wherever both are taken ([`super::logged`]).
-pub(crate) async fn lock_for<C: ConnectionTrait>(
-    db: &C,
-    memories: &[String],
-    lines: &[i32],
-) -> Result<(), Error> {
-    let refs = refs_of(memories, lines);
-    let mut audiences: BTreeSet<(i32, String)> = citing(db, &refs, OF_A_MEMORY)
-        .await?
-        .into_iter()
-        .map(|(user_id, audience, _, _)| (user_id, audience))
-        .collect();
-    audiences.extend(intent_grounds::citing(db, &refs).await?);
-    for (user_id, audience) in &audiences {
-        write::lock(db, *user_id, audience).await?;
-    }
-    Ok(())
 }
 
 /// Forgets on her nodes what goes with the memories `memories` (ids) and

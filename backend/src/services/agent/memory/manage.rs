@@ -20,7 +20,7 @@ use sea_orm::{
 };
 
 use crate::models::entities::{agent_memories, agent_messages, agent_sessions};
-use crate::services::agent::merope::memory_nodes::forget as nodes;
+use crate::services::agent::merope::memory_nodes::{forget as nodes, forget_locks};
 
 use super::unified::{MemoryKind, OWN_EXPERIENCE, OWN_VENUE, OWN_VIEW, normalize_content};
 
@@ -193,7 +193,7 @@ async fn forget_memories(
         .await?;
     let lines = super::origins::forget(&txn, &rows).await?;
     let ids: Vec<i32> = lines.iter().map(|line| line.id).collect();
-    nodes::lock_for(&txn, &doomed, &ids)
+    forget_locks::lock_for(&txn, site_owner, &doomed, &lines)
         .await
         .map_err(|error| DbErr::Custom(error.to_string()))?;
     // In her log too, before the rows go and in this transaction: a forget,
@@ -288,7 +288,7 @@ pub async fn forget_line(
         txn.rollback().await?;
     };
     super::origins::forget_line_traces(&txn, user_id, &line.content, line.created_at).await?;
-    nodes::lock_for(&txn, &[], &[line.id])
+    forget_locks::lock_for(&txn, site_owner, &[], &gone[..1])
         .await
         .map_err(|error| DbErr::Custom(error.to_string()))?;
     crate::services::her_log::talk::forget_lines_on(&txn, site_owner, &gone[..1]).await;

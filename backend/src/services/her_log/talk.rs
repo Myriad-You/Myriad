@@ -357,7 +357,7 @@ pub async fn forget_lines(db: &DatabaseConnection, lines: &[Gone]) {
 /// forgets them here and before the forgets of what rests on them on her
 /// nodes: an end that takes those in has what they rest on forgotten too
 /// (`memory_nodes::intent_grounds`). Under the node locks
-/// (`memory_nodes::forget::lock_for`). One the log does not take is undone
+/// (`memory_nodes::forget_locks::lock_for`). One the log does not take is undone
 /// alone, and tried again once the rest is kept ([`forget_lines`]).
 pub async fn forget_lines_on(txn: &DatabaseTransaction, site_owner: Option<i32>, lines: &[Gone]) {
     let Some(site_owner) = site_owner.filter(|_| super::enabled()) else {

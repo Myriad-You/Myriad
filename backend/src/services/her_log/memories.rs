@@ -51,7 +51,7 @@ use super::{Error, NODE, Owner, keys, state, store};
 use crate::services::agent::memory::unified::{
     self, HOLDS_BACK, NO_ONE, ORIGIN_SITE, OWN_VENUE, SYNC_SOURCE,
 };
-use crate::services::agent::merope::memory_nodes::forget as nodes;
+use crate::services::agent::merope::memory_nodes::{forget as nodes, forget_locks};
 
 /// What a comparison of her memories wrote.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -634,7 +634,7 @@ pub async fn take_in(
                 // this transaction: if that fails, nothing here goes and the
                 // next batch tries again (the caller logs why).
                 let memory = [id.to_string()];
-                nodes::lock_for(&txn, &memory, &lines)
+                forget_locks::lock_for(&txn, Some(owner.user), &memory, &gone)
                     .await
                     .map_err(|error| Error::Db(DbErr::Custom(error.to_string())))?;
                 super::talk::forget_lines_on(&txn, Some(owner.user), &gone).await;
