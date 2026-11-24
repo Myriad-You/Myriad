@@ -306,13 +306,18 @@ export function estimateEnhance(
   }
 }
 
-/** The plan a running job follows, from where it is reported and the parts the page asked a figure for. */
-export function enhancePlanOf(status: TurnKeyformsStatus, parts: { head: boolean; body: boolean }): EnhancePlan | null {
+/**
+ * The plan a job follows, from where it is reported and the parts a figure's
+ * was asked for: the job's own word of them (a job picked up after a reload
+ * was asked before the page's boxes were as they are), else the page's.
+ */
+export function enhancePlanOf(status: TurnKeyformsStatus, pageParts: { head: boolean; body: boolean }): EnhancePlan | null {
   if (!status.phase) return null
   if (status.phase === 'refit') return 'refit'
   if (status.phase === 'load') return null
   if (status.phase === 'plain') return 'plain'
   if (status.phase === 'bust') return 'bust'
+  const parts = status.asked ?? pageParts
   if (parts.head && parts.body) return 'figure'
   if (parts.head) return 'figureHead'
   return parts.body ? 'figureBody' : null

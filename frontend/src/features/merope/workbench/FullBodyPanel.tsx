@@ -107,12 +107,12 @@ export function FullBodyPanel({
     seeThroughTokenConfigured,
     onSaveSeeThroughToken,
     // Enlarged, decomposed in tiles and stitched on the server, as a job keying the parts chosen.
-    onDecomposeRigPsd: (onStatus, signal, fromArchive, parts) =>
+    onDecomposeRigPsd: (onStatus, signal, fromArchive, parts, beside) =>
       decomposeWithTurnKeyforms(
         { sourceMasterAssetId: portrait ?? '', sourceGenerationFingerprint: fingerprint },
-        { outfitId, fromArchive, parts, onStatus, signal },
+        { outfitId, fromArchive, parts, beside, onStatus, signal },
       ),
-    // The set's split the server is still running, picked up after a reload.
+    // The set's split the server has that this page did not start (still running, or ended with no page there), picked up.
     onResumeRigPsd: (onStatus, signal) =>
       resumeTurnKeyforms({ sourceMasterAssetId: portrait ?? '', sourceGenerationFingerprint: fingerprint }, { outfitId, onStatus, signal }),
     bodyKeysOffered: true,

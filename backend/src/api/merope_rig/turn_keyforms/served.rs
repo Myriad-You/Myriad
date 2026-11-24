@@ -1,6 +1,6 @@
 //! 前端取用：任务进度、结果拆层与关键形，以及存档的列出、下载、删除、载入与重做拟合。
 
-use super::*;
+use super::{pickup::Part, *};
 
 pub async fn get_turn_keyforms(
     State(db): State<DatabaseConnection>,
@@ -9,27 +9,21 @@ pub async fn get_turn_keyforms(
 ) -> ApiResult<Json<Value>> {
     require_merope_enabled().await?;
     require_owner(&claims, &db).await?;
-    let job = JOB.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let job = job
-        .as_ref()
-        .filter(|job| job.id == id)
-        .ok_or_else(missing_job)?;
-    Ok(Json(job_status(job)))
+    Ok(Json(pickup::status_for_its_page(&id)?))
 }
 
-/// The job still running, if any (there is one slot): a page opened or
-/// reloaded while it runs picks its progress up again.
+/// The job a page opened or reloaded now picks up, if any (there is one
+/// slot): one still running, whose progress shows again; one done while no
+/// page was there, whose result is fetched as any job's; one that failed
+/// with no page there to tell. The page takes it only when it is of the
+/// portrait and set it shows, and then asks for it by its id.
 pub async fn running_turn_keyforms(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
 ) -> ApiResult<Json<Value>> {
     require_merope_enabled().await?;
     require_owner(&claims, &db).await?;
-    let job = JOB.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let running = job
-        .as_ref()
-        .filter(|job| !matches!(job.stage, Stage::Done | Stage::Failed));
-    Ok(Json(json!({ "job": running.map(job_status) })))
+    Ok(Json(json!({ "job": pickup::to_pick_up() })))
 }
 
 pub(super) fn job_status(job: &Job) -> Value {
@@ -50,6 +44,7 @@ pub(super) fn job_status(job: &Job) -> Value {
         "seconds": job.started.elapsed().as_secs(),
         "error": job.error,
         "archiveId": job.archive_id,
+        "asked": job.asked,
     })
 }
 
@@ -58,7 +53,7 @@ pub async fn get_turn_keyforms_psd(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> ApiResult<Response> {
-    let psd = finished(&db, &claims, &id, |job| job.psd.clone()).await?;
+    let psd = finished(&db, &claims, &id, Part::Psd).await?;
     Response::builder()
         .status(StatusCode::OK)
         .header(
@@ -82,7 +77,7 @@ pub async fn get_turn_keyforms_keys(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> ApiResult<Response> {
-    let keys = finished(&db, &claims, &id, |job| job.keyforms.clone()).await?;
+    let keys = finished(&db, &claims, &id, Part::Keys).await?;
     Response::builder()
         .status(StatusCode::OK)
         .header(
@@ -97,28 +92,16 @@ pub async fn get_turn_keyforms_keys(
         .map_err(internal_error)
 }
 
-pub(super) async fn finished(
+/// One of a finished job's two files, for the owner's page that fetches it.
+async fn finished(
     db: &DatabaseConnection,
     claims: &Claims,
     id: &str,
-    pick: impl FnOnce(&Job) -> Option<Arc<Vec<u8>>>,
+    part: Part,
 ) -> ApiResult<Arc<Vec<u8>>> {
     require_merope_enabled().await?;
     require_owner(claims, db).await?;
-    let job = JOB.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let job = job
-        .as_ref()
-        .filter(|job| job.id == id)
-        .ok_or_else(missing_job)?;
-    pick(job).ok_or_else(|| {
-        (
-            StatusCode::CONFLICT,
-            Json(json!({
-                "error": "The turn keys are not ready",
-                "code": "turn_keyforms_not_ready"
-            })),
-        )
-    })
+    pickup::fetched(id, part)
 }
 
 /// The configured See-through Space, and its name.
@@ -219,6 +202,7 @@ pub async fn load_turn_archive(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
+    Query(beside): Query<Beside>,
 ) -> ApiResult<Json<Value>> {
     require_merope_enabled().await?;
     require_owner(&claims, &db).await?;
@@ -240,6 +224,7 @@ pub async fn load_turn_archive(
     if new {
         update(&job_id, |job| {
             job.phase = Phase::Load;
+            job.asked = Asked::kept(&kept.id, false, beside);
             job.done = 1;
             job.psd = Some(Arc::new(baked));
             job.keyforms = Some(Arc::new(keyforms));
@@ -257,6 +242,7 @@ pub async fn refit_turn_archive(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
+    Query(beside): Query<Beside>,
 ) -> ApiResult<Json<Value>> {
     require_merope_enabled().await?;
     require_owner(&claims, &db).await?;
@@ -279,7 +265,10 @@ pub async fn refit_turn_archive(
     if !new {
         return Ok(Json(json!({ "jobId": job_id })));
     }
-    update(&job_id, |job| job.phase = Phase::Refit);
+    update(&job_id, |job| {
+        job.phase = Phase::Refit;
+        job.asked = Asked::kept(&kept.id, true, beside);
+    });
     tracing::info!(job = %job_id, archive = %kept.id, "turn keyforms fitted again from an archive");
     let meta = ArchiveMeta {
         id: archive::new_id(),

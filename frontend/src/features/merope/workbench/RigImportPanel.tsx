@@ -1,7 +1,7 @@
 import type { AuthoredExpressionKind } from '@myriad/figure/rig'
 import type { RigImport, RigMode } from './useRigImport'
 import { ANIME25D_PROJECT_NAME, ANIME25D_PROJECT_URL, PERSONA_UPSTREAM_THANKS } from '@myriad/figure/workbench'
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import {
   CheckboxItem,
   GitHubProjectBadge,
@@ -16,6 +16,7 @@ import { EnhanceProgress } from './EnhanceProgress'
 import { FaceTabs } from './FaceTabs'
 import { aiExpressionLabel, turnKeysProgress } from './rigImportCopy'
 import { RigImportProgress } from './RigImportProgress'
+import { useOpeningRigMode } from './rigMode'
 import {
   SEE_THROUGH_PROJECT_NAME,
   SEE_THROUGH_PROJECT_URL,
@@ -103,11 +104,8 @@ export function RigImportPanel({
     { value: 'plain', label: modeLabel(labels, figure, 'plain') },
     { value: 'enhanced', label: modeLabel(labels, figure, 'enhanced') },
   ]
-  const { setMode } = rig
   // Opens on the mode the active rig was made in; the other one is a switch away.
-  useEffect(() => {
-    if (activeMode) setMode(activeMode)
-  }, [activeMode, setMode])
+  useOpeningRigMode(activeMode, operation === 'decompose', rig.setMode)
   // The plain rig is an uploaded PSD; See-through is the enhanced one's.
   const enhancing = rig.mode === 'enhanced'
   const nothingChosen = enhancing && !rig.enhanceChosen
