@@ -139,10 +139,11 @@ async fn left_out(
 }
 
 /// What is told of `items`, new: one by one where they are not told
-/// together, and what is not told so, beside others that were, is not kept
-/// (it is what it says, not who asks; counted). An `Err`: none of them told,
-/// or one that could not be asked about; by what was shown, when any failed
-/// so, for that is given up on in the end.
+/// together, and what is not told so, nor once more, beside others that
+/// were, is not kept (it is what it says, not who asks; counted). An `Err`:
+/// none of them told, or one that could not be asked about, or no answer to
+/// what was asked last ([`round::Round::once_more`]); by what was shown, when
+/// any failed so, for that is given up on in the end.
 async fn told_apart(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
@@ -155,10 +156,12 @@ async fn told_apart(
     }
     let mut round = round::Round::of(user_id, &asked, by, items);
     round.gone_over().await;
-    let failed = round.failed();
-    let lets_go = failed.is_none_or(CallFailure::of_what_was_shown) && round.any_told();
+    let mut failed = round.failed();
+    if failed.is_some_and(CallFailure::of_what_was_shown) && round.any_told() {
+        failed = round.once_more().await.err();
+    }
     let mut told = round.told();
-    if let Some(failure) = failed.filter(|_| !lets_go) {
+    if let Some(failure) = failed {
         return Err(told.shown.unwrap_or(failure).into());
     }
     told.failure = None;

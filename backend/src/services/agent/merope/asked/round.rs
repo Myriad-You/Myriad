@@ -1,12 +1,13 @@
 //! One going over of some items: part by part, then one by one what is not
 //! told together.
 
+use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::atomic::Ordering;
 
 use myriad_merope::not_to_keep::parts;
 
-use super::{By, CallFailure, LEFT_OUT, Told, UNANSWERED, judged, saying_something};
+use super::{By, CallFailure, LEFT_OUT, Told, UNANSWERED, answered, judged, saying_something};
 
 pub(super) struct Round<'a> {
     user_id: i32,
@@ -18,8 +19,12 @@ pub(super) struct Round<'a> {
     told: Told,
     /// How the last not told of ended.
     failure: Option<CallFailure>,
-    /// Whether any ask was answered, be it with nothing that reads.
+    /// Whether any ask was answered, be it with nothing that reads; whether
+    /// the last was told.
     answers: bool,
+    last: bool,
+    /// Of the items not told, those refused.
+    refused: BTreeSet<usize>,
 }
 
 impl<'a> Round<'a> {
@@ -34,6 +39,8 @@ impl<'a> Round<'a> {
             told: Told::default(),
             failure: None,
             answers: false,
+            last: false,
+            refused: BTreeSet::new(),
         }
     }
 
@@ -69,6 +76,28 @@ impl<'a> Round<'a> {
         }
     }
 
+    /// Before what is not told is let go of: what was refused is asked about
+    /// once more, and what asks of it must be answered at last, of one told
+    /// already if of nothing else. Its answer is not looked at. An `Err`: it
+    /// may be who asks, or nothing there.
+    pub(super) async fn once_more(&mut self) -> Result<(), CallFailure> {
+        let refused: Vec<usize> = self.refused.iter().copied().collect();
+        self.one_by_one(&refused).await?;
+        if self.told.untold.is_empty() || self.last {
+            return Ok(());
+        }
+        let Some(told) =
+            (0..self.items.len()).find(|&index| !self.told.untold.contains(&self.places[index]))
+        else {
+            return Err(CallFailure::Timeout);
+        };
+        let one = std::slice::from_ref(&self.items[told]);
+        match answered(self.user_id, self.asked, self.by, one).await {
+            Ok(_) => Ok(()),
+            Err(unanswered) => Err(self.told.unanswered(unanswered)),
+        }
+    }
+
     /// Why not all of them are told of, if not.
     pub(super) fn failed(&self) -> Option<CallFailure> {
         (self.failure).filter(|_| !self.told.untold.is_empty())
@@ -100,15 +129,19 @@ impl<'a> Round<'a> {
         let items = &self.items[part.clone()];
         match judged(self.user_id, self.asked, self.by, items).await {
             Ok(drop) => {
-                self.answers = true;
+                (self.answers, self.last) = (true, true);
                 for index in part.clone() {
                     self.told.untold.remove(&self.places[index]);
+                    self.refused.remove(&index);
                 }
                 let first = part.start;
                 (self.told.out).extend(drop.into_iter().map(|index| self.places[first + index]));
                 Ok(())
             }
-            Err(unanswered) => Err(self.told.unanswered(unanswered)),
+            Err(unanswered) => {
+                self.last = false;
+                Err(self.told.unanswered(unanswered))
+            }
         }
     }
 
@@ -130,8 +163,14 @@ impl<'a> Round<'a> {
     }
 
     fn not_told(&mut self, indexes: &[usize], failure: CallFailure) {
-        let places = indexes.iter().map(|&index| self.places[index]);
-        self.told.untold.extend(places);
+        for &index in indexes {
+            self.told.untold.insert(self.places[index]);
+            if failure == CallFailure::Refused {
+                self.refused.insert(index);
+            } else {
+                self.refused.remove(&index);
+            }
+        }
         self.failure = Some(failure);
     }
 }
