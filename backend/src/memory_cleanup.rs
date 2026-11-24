@@ -43,7 +43,15 @@ async fn reclaim() {
     crate::services::discord_bot::cleanup_channel_types().await;
     ai_task_runtime::cleanup_local_tasks().await;
     if let Ok(db) = crate::services::process_db::database() {
-        crate::api::merope_rig::cleanup_staged_parts(&db).await;
+        if tokio::time::timeout(
+            Duration::from_secs(30),
+            crate::api::merope_rig::cleanup_staged_parts(&db),
+        )
+        .await
+        .is_err()
+        {
+            tracing::warn!("staged part search cleanup timed out");
+        }
         match tokio::time::timeout(
             Duration::from_secs(30),
             crate::services::media::maintain(&db),

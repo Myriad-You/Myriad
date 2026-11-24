@@ -237,7 +237,11 @@ export function useRigImport({
     }))
   }
 
-  /** Runs a preflight as the operation that can be cancelled: a PSD's from its start, or only its failed preview again. */
+  /**
+   * Runs a preflight as the operation that can be cancelled: a PSD's from its
+   * start, or only its failed preview again. A preview sent again keeps what
+   * the Worker made until it has an answer, so cancelling it loses nothing.
+   */
   const runPreflight = async (
     start: (onStage: (event: RigAssetCompileEvent) => void, signal: AbortSignal) => Promise<RigAssetPreflight>,
     fromStart: boolean,
@@ -248,9 +252,9 @@ export function useRigImport({
     if (fromStart) {
       setStage(null)
       setSteps({})
+      clearError()
     }
     setResult(null)
-    clearError()
     try {
       const imported = await start(
         (event) => {
@@ -259,6 +263,7 @@ export function useRigImport({
         controller.signal,
       )
       controller.signal.throwIfAborted()
+      clearError()
       setPreflight(imported)
       setResult({
         partCount: imported.partCount,
@@ -292,6 +297,9 @@ export function useRigImport({
     lastRigPsdRef.current = file
     lastWithExpressionsRef.current = aiExpressions
     lastWithArmsRef.current = armVariants
+    // That a drawing failed is said beside the preflight that asked for it, not beside one that did not.
+    if (!aiExpressions) setAiExpressionsError(null)
+    if (!armVariants) setArmVariantsError(null)
     await runPreflight(
       (onStage, signal) => onPreflightRigPsd(file, onStage, signal, { aiExpressions, armVariants }),
       true,
@@ -459,7 +467,9 @@ export function useRigImport({
     importAbortRef.current = null
     setOperation(null)
     setStage(null)
-    setSteps({})
+    // A preview being sent again when cancelled is back where it failed, still there to send.
+    if (previewRetryRef.current) setSteps((current) => ({ ...current, 'compile-preview': 'failed' }))
+    else setSteps({})
   }
 
   const generateAiExpressions = async () => {

@@ -7,6 +7,11 @@ import { persistRigAsset, preflightRigAsset, rigPreviewRetryOf } from './compile
 
 const file = new File([new Uint8Array([1])], 'character.psd')
 
+/** A request that failed the way the API reports it: with the HTTP status, 0 when it never got through. */
+function failedRequest(message: string, status: number): Error {
+  return Object.assign(new Error(message), { status })
+}
+
 test('cancelled preparation never starts preview and late preview cannot publish a result', async () => {
   for (const stage of ['prepare', 'preview'] as const) {
     const controller = new AbortController()
@@ -339,7 +344,7 @@ test('a failed preview is sent again without preparing the PSD a second time', a
   }
   let prepares = 0
   const sent: Array<[unknown, Blob, Blob]> = []
-  const failures = [new Error('gateway timed out'), new Error('still unreachable')]
+  const failures = [failedRequest('gateway timed out', 504), failedRequest('still unreachable', 0)]
   const dependencies = {
     prepare: async () => {
       prepares += 1
@@ -403,7 +408,7 @@ test('nothing is kept to send again when the Worker failed or the preflight was 
   assert.equal(rigPreviewRetryOf(invalid), undefined)
 
   const controller = new AbortController()
-  const late = new Error('answered after the cancel')
+  const late = failedRequest('answered after the cancel', 503)
   await assert.rejects(
     preflightRigAsset(
       file,
@@ -430,8 +435,37 @@ test('nothing is kept to send again when the Worker failed or the preflight was 
   assert.equal(rigPreviewRetryOf('not an error object'), undefined)
 })
 
+test('only a preview worth sending again is kept', async () => {
+  const prepared = {
+    atlas: new Blob(),
+    analysisReference: new Blob(),
+    source: {} as never,
+    partCount: 1,
+  }
+  const kept = async (failure: Error) => {
+    await assert.rejects(
+      preflightRigAsset(file, 'master-asset', {
+        prepare: async () => prepared,
+        preview: async () => {
+          throw failure
+        },
+      }),
+      failure,
+    )
+    return rigPreviewRetryOf(failure) !== undefined
+  }
+  assert.equal(await kept(failedRequest('network error', 0)), true)
+  assert.equal(await kept(failedRequest('request timed out', 408)), true)
+  assert.equal(await kept(failedRequest('internal error', 500)), true)
+  assert.equal(await kept(failedRequest('validation is busy', 503)), true)
+  assert.equal(await kept(failedRequest('Rig compilation failed', 400)), false, 'what does not compile will not compile sent again')
+  assert.equal(await kept(failedRequest('the portrait changed', 409)), false, 'nor does a changed portrait change back')
+  assert.equal(await kept(failedRequest('not the owner', 403)), false)
+  assert.equal(await kept(new Error('the answer was not a rig')), false, 'nor an answer that could not be read')
+})
+
 test('a preview sent again can be cancelled like the first', async () => {
-  const failure = new Error('gateway timed out')
+  const failure = failedRequest('gateway timed out', 408)
   let previews = 0
   await assert.rejects(
     preflightRigAsset(file, 'master-asset', {

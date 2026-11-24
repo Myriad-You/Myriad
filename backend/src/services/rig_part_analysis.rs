@@ -314,8 +314,17 @@ pub fn ensure_profile(playback: &mut Value) -> bool {
 /// Asks one configured vision model for the rig's moving parts: an
 /// `ai-vision` profile, or none when no model is set or its answer is unusable.
 /// It runs off the preview's and the import's path, so a slow model only delays it.
-pub async fn inventory(playback: &Value, reference: &ImageReference) -> Option<Value> {
+/// `wanted` is asked before each round of requests: once it says no, the
+/// request under way has ended and is on the ledger, and none follows.
+pub async fn inventory(
+    playback: &Value,
+    reference: &ImageReference,
+    wanted: impl Fn() -> bool,
+) -> Option<Value> {
     let context = context(playback)?;
+    if !wanted() {
+        return None;
+    }
     let Ok(config) = get_ai_config_for_tier(ModelTier::Standard).await else {
         tracing::warn!("part inventory skipped because no Standard AI model is configured");
         return None;
@@ -359,6 +368,9 @@ pub async fn inventory(playback: &Value, reference: &ImageReference) -> Option<V
     }
     // What the page will cut out of a shared layer is placed exactly first.
     let mut profile = profile?;
+    if !wanted() {
+        return None;
+    }
     close_up::look_closer(&mut profile, &context, &config, reference).await;
     Some(profile)
 }

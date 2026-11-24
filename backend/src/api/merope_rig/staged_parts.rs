@@ -1,7 +1,8 @@
 //! 预检时提前找会自己动的部件：预检编译通过后就在后台看一次立绘，结果按这次预检的
-//! 内容暂存在内存里。激活时内容对得上，找到的直接带进包；还在找的由激活接着等同一次
-//! 查找，不再问第二次。暂存只认它那张立绘：立绘换了、那一套没了就清掉，在找的也停下；
-//! 页面关掉、切到别处都不清。
+//! 内容暂存在内存里，没找成的也记着，同一份内容再预检不再问。激活时内容对得上，
+//! 找到的直接带进包；还在找的由激活接着等同一次查找；没找成的由激活自己找一次。
+//! 暂存只认它那张立绘：立绘换了、那一套没了就清掉，在找的停下（发出去的那次请求
+//! 让它自己结束并记账，不再发后面的），等它的激活也到此为止；页面关掉、切到别处都不清。
 
 use std::{future::Future, sync::Mutex, time::Instant};
 
@@ -12,7 +13,7 @@ use axum::{
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use tokio::{sync::watch, task::AbortHandle};
+use tokio::sync::watch;
 
 use super::{
     ApiResult,
@@ -36,8 +37,12 @@ pub(super) enum Search {
     Looking,
     /// The profile the vision model gave.
     Found(Value),
-    /// It gave nothing usable, or was stopped.
+    /// The vision model gave nothing usable. Kept like a find, so another
+    /// preview of the same content does not ask again.
     Failed,
+    /// Its picture was replaced or its set removed while it looked: there is
+    /// nothing left to find parts for.
+    Stopped,
 }
 
 struct Staged {
@@ -45,17 +50,33 @@ struct Staged {
     /// The picture it was made of: kept only while that is still its set's.
     master: MasterProvenance,
     began: Instant,
-    search: watch::Receiver<Search>,
-    task: AbortHandle,
+    /// Where it stands; the search itself holds another handle on it.
+    search: watch::Sender<Search>,
 }
 
 impl Staged {
     fn looking(&self) -> bool {
         *self.search.borrow() == Search::Looking
     }
+}
 
-    fn failed(&self) -> bool {
-        *self.search.borrow() == Search::Failed
+/// Ends a search still looking; one already ended keeps how it ended.
+fn end(search: &watch::Sender<Search>, ended: Search) {
+    search.send_modify(|standing| {
+        if *standing == Search::Looking {
+            *standing = ended;
+        }
+    });
+}
+
+/// Asked by a search between its requests to the vision model: no longer
+/// true once it was stopped. The request under way then ends by itself and is
+/// accounted for, and no further one is made.
+struct Wanted(watch::Sender<Search>);
+
+impl Wanted {
+    fn still(&self) -> bool {
+        *self.0.borrow() == Search::Looking
     }
 }
 
@@ -67,17 +88,13 @@ fn store() -> std::sync::MutexGuard<'static, Vec<Staged>> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// A search's end, told to whoever waits on it: failed unless it found
-/// something, and so too when it is stopped half-way.
+/// A search's end, told to whoever waits on it: one that ends without a find
+/// (it gave none, or its task died) has failed, so nobody waits on it forever.
 struct Report(watch::Sender<Search>);
 
 impl Drop for Report {
     fn drop(&mut self) {
-        self.0.send_modify(|search| {
-            if *search == Search::Looking {
-                *search = Search::Failed;
-            }
-        });
+        end(&self.0, Search::Failed);
     }
 }
 
@@ -105,14 +122,18 @@ fn identity(master: &MasterProvenance, playback: &Value, reference: &[u8]) -> Op
     Some(hex::encode(hasher.finalize()))
 }
 
-/// Stages a search, unless the same one is looking or has found already: the
-/// same content is never asked about twice. False when none can be staged now.
-fn stage<F>(store: &mut Vec<Staged>, id: &str, master: &MasterProvenance, find: F) -> bool
+/// Stages a search, unless one of the same content is kept already, whether
+/// looking, found or failed: a preview never asks about the same content
+/// twice. False when none is kept and none can be staged now.
+fn stage<F>(
+    store: &mut Vec<Staged>,
+    id: &str,
+    master: &MasterProvenance,
+    find: impl FnOnce(Wanted) -> F,
+) -> bool
 where
     F: Future<Output = Option<Value>> + Send + 'static,
 {
-    // One that failed is forgotten: asking again is a new try.
-    store.retain(|staged| staged.id != id || !staged.failed());
     if store.iter().any(|staged| staged.id == id) {
         return true;
     }
@@ -128,32 +149,30 @@ where
         };
         store.remove(oldest);
     }
-    let (report, search) = watch::channel(Search::Looking);
-    let report = Report(report);
-    let task = tokio::spawn(async move {
-        if let Some(profile) = find.await {
-            report
-                .0
-                .send_modify(|search| *search = Search::Found(profile));
+    let (search, _) = watch::channel(Search::Looking);
+    let finding = find(Wanted(search.clone()));
+    let report = Report(search.clone());
+    tokio::spawn(async move {
+        if let Some(profile) = finding.await {
+            end(&report.0, Search::Found(profile));
         }
-    })
-    .abort_handle();
+    });
     store.push(Staged {
         id: id.to_owned(),
         master: master.clone(),
         began: Instant::now(),
         search,
-        task,
     });
     true
 }
 
-/// Forgets the searches whose picture is gone, stopping the ones still looking.
+/// Forgets the searches whose picture is gone and stops the ones still
+/// looking: whoever waits on one ends there too.
 fn forget(store: &mut Vec<Staged>, lost: impl Fn(&MasterProvenance) -> bool) {
     store.retain(|staged| {
         let gone = lost(&staged.master);
         if gone {
-            staged.task.abort();
+            end(&staged.search, Search::Stopped);
         }
         !gone
     });
@@ -161,6 +180,10 @@ fn forget(store: &mut Vec<Staged>, lost: impl Fn(&MasterProvenance) -> bool) {
 
 /// Whether the picture a search was made of is still its set's: the worn
 /// bust's portrait, a bust set's that is not worn now, or a full-body set's.
+/// A bust set not worn is told by its portrait, and by its fingerprint only
+/// when the set keeps one: worn, a set without one is matched by the
+/// portrait's own generation record, which says nothing of it once another
+/// set is worn.
 fn still_stands(master: &MasterProvenance, persona: Option<&agent_persona::Model>) -> bool {
     let Some(persona) = persona else {
         return false;
@@ -184,12 +207,18 @@ fn still_stands(master: &MasterProvenance, persona: Option<&agent_persona::Model
         .outfit_id
         .as_deref()
         .and_then(|id| myriad_merope::wardrobe_bust_portrait(persona.visual_profile.as_ref(), id))
-        .is_some_and(|(portrait, fingerprint)| same(&portrait, fingerprint.as_deref()))
+        .is_some_and(|(portrait, fingerprint)| {
+            portrait == master.asset_id
+                && fingerprint.is_none_or(|kept| {
+                    Some(kept.as_str()) == master.generation_fingerprint.as_deref()
+                })
+        })
 }
 
 /// Begins looking for a compiled preview's moving parts, in the background,
-/// unless that very content is being looked at or was. The search's id, for
-/// the page to ask after; none when nothing can be looked for now.
+/// unless that very content is being looked at or was, found or not. The
+/// search's id, for the page to ask after; none when nothing can be looked
+/// for now.
 pub(super) fn begin(
     user_id: i32,
     master: &MasterProvenance,
@@ -197,23 +226,26 @@ pub(super) fn begin(
     reference: Vec<u8>,
 ) -> Option<String> {
     let id = identity(master, playback, &reference)?;
-    let playback = playback.clone();
     // The same call a search after the import makes, on the same inputs.
-    let find = async move {
-        let reference = image_generation::ImageReference::new(reference, "image/png").ok()?;
-        crate::services::ai_cost_ledger::with_site_ai_ledger(
-            user_id,
-            "merope",
-            "rig-part-analysis",
-            rig_part_analysis::inventory(&playback, &reference),
-        )
-        .await
+    let find = |wanted: Wanted| {
+        let playback = playback.clone();
+        async move {
+            let reference = image_generation::ImageReference::new(reference, "image/png").ok()?;
+            crate::services::ai_cost_ledger::with_site_ai_ledger(
+                user_id,
+                "merope",
+                "rig-part-analysis",
+                rig_part_analysis::inventory(&playback, &reference, || wanted.still()),
+            )
+            .await
+        }
     };
     stage(&mut store(), &id, master, find).then_some(id)
 }
 
 /// The search made of this very content, for an import to take its find from
-/// or to wait on; none when there is none, or it failed.
+/// or to wait on; none when there is none, or it failed (the import then
+/// looks for itself, once).
 pub(super) fn standing(
     master: &MasterProvenance,
     playback: &Value,
@@ -222,33 +254,39 @@ pub(super) fn standing(
     let id = identity(master, playback, reference)?;
     store()
         .iter()
-        .find(|staged| staged.id == id && !staged.failed())
-        .map(|staged| staged.search.clone())
+        .find(|staged| staged.id == id)
+        .filter(|staged| *staged.search.borrow() != Search::Failed)
+        .map(|staged| staged.search.subscribe())
+}
+
+/// Where a search stands at this moment.
+fn read(search: &watch::Receiver<Search>) -> Search {
+    search.borrow().clone()
 }
 
 /// What a search has found, once it has.
 pub(super) fn found(search: &watch::Receiver<Search>) -> Option<Value> {
-    match &*search.borrow() {
-        Search::Found(profile) => Some(profile.clone()),
-        Search::Looking | Search::Failed => None,
+    match read(search) {
+        Search::Found(profile) => Some(profile),
+        Search::Looking | Search::Failed | Search::Stopped => None,
     }
 }
 
-/// Waits a search out: what it found, or none when it failed or was stopped.
-pub(super) async fn settled(mut search: watch::Receiver<Search>) -> Option<Value> {
+/// Waits a search out: how it ended.
+pub(super) async fn settled(mut search: watch::Receiver<Search>) -> Search {
     if search
         .wait_for(|standing| *standing != Search::Looking)
         .await
         .is_err()
     {
-        return None;
+        return Search::Failed;
     }
-    found(&search)
+    read(&search)
 }
 
 /// Forgets the searches whose picture is no longer their set's: a portrait
-/// replaced or a set removed takes its staged search with it. Run before a
-/// preview stages another, and with the process's periodic cleanup.
+/// replaced or a set removed takes its staged search with it, found or not.
+/// Run before a preview stages another, and with the process's periodic cleanup.
 pub(crate) async fn sweep(db: &DatabaseConnection) {
     if store().is_empty() {
         return;
@@ -262,8 +300,8 @@ pub(crate) async fn sweep(db: &DatabaseConnection) {
 }
 
 /// Where the search a preview began stands, for the page showing that
-/// preview: `looking`, `found` with its profile, or `gone` (it failed, its
-/// picture changed, or the server restarted).
+/// preview: `looking`, `found` with its profile, or `gone` (it found nothing
+/// usable, its picture changed, or the server restarted).
 pub async fn staged_part_search(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
@@ -278,7 +316,7 @@ pub async fn staged_part_search(
     Ok(Json(match standing {
         Some(Search::Looking) => json!({ "state": "looking" }),
         Some(Search::Found(profile)) => json!({ "state": "found", "partProfile": profile }),
-        Some(Search::Failed) | None => json!({ "state": "gone" }),
+        Some(Search::Failed | Search::Stopped) | None => json!({ "state": "gone" }),
     }))
 }
 
@@ -360,112 +398,158 @@ mod tests {
         assert!(identity(&master("/p.png"), &json!({}), b"at rest").is_none());
     }
 
+    /// A search that never answers by itself: it ends only when stopped.
+    async fn unanswered(wanted: Wanted) -> Option<Value> {
+        let mut standing = wanted.0.subscribe();
+        drop(standing.wait_for(|search| *search != Search::Looking).await);
+        None
+    }
+
     #[tokio::test]
     async fn the_same_content_is_looked_for_once_and_its_find_handed_on() {
         let mut store = Vec::new();
         let asked = Arc::new(AtomicUsize::new(0));
         let (answer, answered) = tokio::sync::oneshot::channel::<Option<Value>>();
         let count = asked.clone();
-        assert!(stage(&mut store, "one", &master("/p.png"), async move {
-            count.fetch_add(1, Ordering::SeqCst);
-            answered.await.ok().flatten()
-        }));
+        assert!(stage(
+            &mut store,
+            "one",
+            &master("/p.png"),
+            |_| async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                answered.await.ok().flatten()
+            }
+        ));
         // Previewed again while it looks: the search under way is the one.
         let count = asked.clone();
-        assert!(stage(&mut store, "one", &master("/p.png"), async move {
-            count.fetch_add(1, Ordering::SeqCst);
-            None::<Value>
-        }));
+        assert!(stage(
+            &mut store,
+            "one",
+            &master("/p.png"),
+            |_| async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                None::<Value>
+            }
+        ));
         assert_eq!(store.len(), 1);
-        let search = store[0].search.clone();
+        let search = store[0].search.subscribe();
         assert_eq!(found(&search), None);
         // An import made meanwhile waits on it instead of asking again.
         let waiting = tokio::spawn(settled(search.clone()));
         answer.send(Some(profile())).unwrap();
-        assert_eq!(waiting.await.unwrap(), Some(profile()));
+        assert_eq!(waiting.await.unwrap(), Search::Found(profile()));
         assert_eq!(found(&search), Some(profile()));
         // Previewed again once found: still the one.
         let count = asked.clone();
-        assert!(stage(&mut store, "one", &master("/p.png"), async move {
-            count.fetch_add(1, Ordering::SeqCst);
-            None::<Value>
-        }));
+        assert!(stage(
+            &mut store,
+            "one",
+            &master("/p.png"),
+            |_| async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                None::<Value>
+            }
+        ));
         assert_eq!(store.len(), 1);
         assert_eq!(asked.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
-    async fn a_search_that_found_nothing_is_forgotten_and_tried_again() {
+    async fn a_search_that_found_nothing_is_kept_and_not_asked_again() {
         let mut store = Vec::new();
-        assert!(stage(&mut store, "one", &master("/p.png"), async {
-            None::<Value>
-        }));
-        assert_eq!(settled(store[0].search.clone()).await, None);
-        assert!(store[0].failed());
-        assert!(stage(&mut store, "one", &master("/p.png"), async {
-            Some(profile())
-        }));
+        let asked = Arc::new(AtomicUsize::new(0));
+        let count = asked.clone();
+        assert!(stage(
+            &mut store,
+            "one",
+            &master("/p.png"),
+            |_| async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                None::<Value>
+            }
+        ));
+        assert_eq!(settled(store[0].search.subscribe()).await, Search::Failed);
+        // Previewed again, as after drawing expressions: the failure stands for this content.
+        let count = asked.clone();
+        assert!(stage(
+            &mut store,
+            "one",
+            &master("/p.png"),
+            |_| async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                Some(profile())
+            }
+        ));
         assert_eq!(store.len(), 1);
-        assert_eq!(settled(store[0].search.clone()).await, Some(profile()));
+        assert_eq!(*store[0].search.borrow(), Search::Failed);
+        assert!(!store[0].looking());
+        assert_eq!(asked.load(Ordering::SeqCst), 1);
+        // It goes like any other when its picture does.
+        forget(&mut store, |_| true);
+        assert!(store.is_empty());
     }
 
     #[tokio::test]
-    async fn a_search_goes_with_its_picture_and_stops_looking() {
+    async fn a_search_goes_with_its_picture_and_whoever_waited_ends_there() {
         let mut store = Vec::new();
-        assert!(stage(
-            &mut store,
-            "kept",
-            &master("/p.png"),
-            std::future::pending::<Option<Value>>()
-        ));
+        assert!(stage(&mut store, "kept", &master("/p.png"), unanswered));
+        // This one's request is under way when its picture goes, and answers afterwards.
+        let (answer, answered) = tokio::sync::oneshot::channel::<Option<Value>>();
+        let asked_on = Arc::new(AtomicUsize::new(0));
+        let count = asked_on.clone();
         assert!(stage(
             &mut store,
             "gone",
             &master("/q.png"),
-            std::future::pending::<Option<Value>>()
+            |wanted| async move {
+                let first = answered.await.ok().flatten();
+                // Between its requests it asks whether it is still wanted.
+                if wanted.still() {
+                    count.fetch_add(1, Ordering::SeqCst);
+                }
+                first
+            }
         ));
-        let gone = store[1].search.clone();
+        let gone = store[1].search.subscribe();
+        let waiting = tokio::spawn(settled(gone.clone()));
         forget(&mut store, |master| master.asset_id == "/q.png");
         assert_eq!(store.len(), 1);
         assert_eq!(store[0].id, "kept");
         assert!(store[0].looking());
         assert_eq!(
-            settled(gone).await,
-            None,
-            "whoever waited on it is told it ended"
+            waiting.await.unwrap(),
+            Search::Stopped,
+            "told apart from a search that found nothing"
         );
+        // Its request ends by itself; what it answers changes nothing, and it asks no more.
+        answer.send(Some(profile())).unwrap();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        assert_eq!(read(&gone), Search::Stopped);
+        assert_eq!(found(&gone), None);
+        assert_eq!(asked_on.load(Ordering::SeqCst), 0);
         forget(&mut store, |_| true);
     }
 
     #[tokio::test]
-    async fn the_oldest_finished_search_makes_room_and_none_is_cut_short() {
+    async fn the_oldest_ended_search_makes_room_and_none_is_cut_short() {
         let mut store = Vec::new();
         for index in 0..KEEP {
             assert!(stage(
                 &mut store,
                 &format!("looking-{index}"),
                 &master("/p.png"),
-                std::future::pending::<Option<Value>>()
+                unanswered
             ));
         }
         assert!(
-            !stage(
-                &mut store,
-                "one-more",
-                &master("/p.png"),
-                std::future::pending::<Option<Value>>()
-            ),
+            !stage(&mut store, "one-more", &master("/p.png"), unanswered),
             "every one of them is still looking"
         );
         assert_eq!(store.len(), KEEP);
-        store[3].task.abort();
-        assert_eq!(settled(store[3].search.clone()).await, None);
-        assert!(stage(
-            &mut store,
-            "one-more",
-            &master("/p.png"),
-            std::future::pending::<Option<Value>>()
-        ));
+        // One that found nothing is kept, until room is needed.
+        end(&store[3].search, Search::Failed);
+        assert!(stage(&mut store, "one-more", &master("/p.png"), unanswered));
         assert_eq!(store.len(), KEEP);
         assert!(store.iter().all(|staged| staged.id != "looking-3"));
         forget(&mut store, |_| true);
@@ -527,5 +611,21 @@ mod tests {
         regenerated.generation_fingerprint = Some("c".repeat(64));
         assert!(!still_stands(&regenerated, Some(&persona)));
         assert!(!still_stands(&of(bust, "a", "master-a"), None));
+
+        // Worn, a set that keeps no fingerprint is matched by the portrait's own
+        // generation record; once another set is worn only its portrait tells.
+        let mut matched_by_record = of(bust, "b", "master-b");
+        matched_by_record.generation_fingerprint = Some("c".repeat(64));
+        assert!(still_stands(&matched_by_record, Some(&persona)));
+        let mut fingerprinted = persona.clone();
+        fingerprinted.visual_profile.as_mut().unwrap()["wardrobe"][1]["generationFingerprint"] =
+            json!("d".repeat(64));
+        assert!(
+            !still_stands(&matched_by_record, Some(&fingerprinted)),
+            "a set that keeps a fingerprint is told by it"
+        );
+        let mut same_generation = of(bust, "b", "master-b");
+        same_generation.generation_fingerprint = Some("d".repeat(64));
+        assert!(still_stands(&same_generation, Some(&fingerprinted)));
     }
 }

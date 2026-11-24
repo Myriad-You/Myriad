@@ -451,19 +451,25 @@ pub(super) fn spawn_part_inventory(
     let (db, user_id) = (db.clone(), imported.user_id);
     let (asset_id, master) = (imported.asset_id.clone(), imported.master.clone());
     tokio::spawn(async move {
-        // The search the preview began is waited for, not asked again; only
-        // when it gave nothing does the import look for itself, as it always did.
+        // The search the preview began is waited for, not asked again. None
+        // begun for this content counts as one that gave nothing usable.
         let waited = match staged {
             Some(staged) => staged_parts::settled(staged).await,
-            None => None,
+            None => staged_parts::Search::Failed,
         };
         match waited {
-            Some(profile) => {
+            staged_parts::Search::Found(profile) => {
                 // Held until the package is saved, so the page can tell it is running.
                 let _search = search;
                 save_moving_parts(&db, user_id, outfit, &asset_id, &master, profile).await;
             }
-            None => {
+            // The portrait was replaced or the set removed while it looked:
+            // there is no rig left to find parts for, so none is asked about
+            // and no package is saved.
+            staged_parts::Search::Stopped => {}
+            // Nothing usable from the preview's search: the import looks once
+            // for itself.
+            staged_parts::Search::Failed | staged_parts::Search::Looking => {
                 find_moving_parts(search, db, user_id, outfit, asset_id, master, reference).await;
             }
         }
@@ -496,7 +502,7 @@ pub(super) async fn find_moving_parts(
         user_id,
         "merope",
         "rig-part-analysis",
-        rig_part_analysis::inventory(playback, &reference),
+        rig_part_analysis::inventory(playback, &reference, || true),
     )
     .await
     else {

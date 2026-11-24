@@ -40,7 +40,18 @@ export type RigPreviewRetry = (
  */
 const previewRetries = new WeakMap<object, RigPreviewRetry>()
 
-/** The way to ask again for the preview this error ended, if the Worker's part was done. */
+/**
+ * Whether sending the same preview again can succeed: the request did not get
+ * through, timed out, or the server failed. A refusal of what was sent (it
+ * does not compile, the portrait changed meanwhile) would be refused again,
+ * and each try pays for another chest estimate.
+ */
+function worthSendingAgain(error: object): boolean {
+  const { status } = error as { status?: unknown }
+  return typeof status === 'number' && (status === 0 || status === 408 || status >= 500)
+}
+
+/** The way to ask again for the preview this error ended, if the Worker's part was done and asking again can help. */
 export function rigPreviewRetryOf(error: unknown): RigPreviewRetry | undefined {
   return typeof error === 'object' && error !== null ? previewRetries.get(error) : undefined
 }
@@ -126,7 +137,7 @@ async function previewPreparedRigAsset(
   } catch (error) {
     signal?.throwIfAborted()
     emit(onStage, 'compile-preview', 'failed', errorMessage(error))
-    if (typeof error === 'object' && error !== null) {
+    if (typeof error === 'object' && error !== null && worthSendingAgain(error)) {
       previewRetries.set(error, (retryStage, retrySignal) =>
         previewPreparedRigAsset(prepared, preview, retryStage, retrySignal))
     }
