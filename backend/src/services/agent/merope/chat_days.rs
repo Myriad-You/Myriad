@@ -258,14 +258,17 @@ pub async fn keep_line(db: &DatabaseConnection, user_id: i32, day: NaiveDate, li
         return;
     }
     // What they asked her not to keep is not kept of a day either: the day
-    // is gone over again without it (`go_over`).
+    // is gone over again without it (`go_over`). So is one whose line is
+    // held already.
     let line = super::asked::to_keep(db, user_id, vec![line], String::clone).await;
     if let Some(line) = line.and_then(|mut line| line.pop()) {
         keep(db, user_id, day, line).await;
     }
 }
 
-async fn keep(db: &DatabaseConnection, user_id: i32, date: NaiveDate, line: String) {
+/// Whether it is held of them word for word already (another day's line),
+/// and so not kept for this day.
+async fn keep(db: &DatabaseConnection, user_id: i32, date: NaiveDate, line: String) -> bool {
     let kept = unified::remember(
         db,
         unified::NewMemory {
@@ -281,9 +284,10 @@ async fn keep(db: &DatabaseConnection, user_id: i32, date: NaiveDate, line: Stri
         },
     )
     .await;
-    if let Err(error) = kept {
+    if let Err(error) = &kept {
         tracing::warn!(%error, user_id, %date, "[Merope] could not keep a day's line");
     }
+    matches!(kept, Ok(None))
 }
 
 /// Write the line for one day with them.
@@ -347,10 +351,14 @@ async fn write_day(
         nothing_of(db, user_id, date).await;
         return;
     }
-    keep(db, user_id, date, line).await;
+    if keep(db, user_id, date, line).await {
+        // No line of its own, and the nights do not come back to it.
+        nothing_of(db, user_id, date).await;
+    }
 }
 
-/// Days of a person with nothing of them to keep, so no line.
+/// Days of a person with nothing of them to keep, or nothing that is not
+/// held word for word already, so no line.
 const NOTHING_NAMESPACE: &str = "merope_days_nothing";
 
 async fn nothing_of(db: &DatabaseConnection, user_id: i32, date: NaiveDate) {
@@ -624,6 +632,7 @@ mod tests {
         let db = &schema.db;
         asks(db, OWNER, "不要记和房东吵架的事").await;
         let day = |day: &str| -> NaiveDate { day.parse().unwrap() };
+        let line = |date: NaiveDate| format!("{date} 他跟房东吵了一架");
         let write = async |date: NaiveDate, answers: &[Option<&str>]| {
             let at = chrono::DateTime::parse_from_rfc3339("2026-11-10T04:00:00+00:00").unwrap();
             let said: Vec<Said> = [
@@ -640,7 +649,8 @@ mod tests {
                 .models
                 .entry(DAY_SCHEMA_NAME.into())
                 .or_default()
-                .push_back(Some(r#"{"day":"他跟房东吵了一架"}"#.into()));
+                // Each day's its own: the same again would be held already.
+                .push_back(Some(json!({ "day": line(date) }).to_string()));
             world
                 .models
                 .entry("not_to_keep".into())
@@ -658,7 +668,7 @@ mod tests {
         let kept = write(day("2026-11-10"), &[Some(r#"{"drop":[0,1]}"#)]).await;
         assert_eq!(kept.as_deref(), Some("周末去爬香山 / 买了新鞋"));
         let kept = write(day("2026-11-11"), &[Some(r#"{"drop":[]}"#)]).await;
-        assert_eq!(kept.as_deref(), Some("他跟房东吵了一架"));
+        assert_eq!(kept, Some(line(day("2026-11-11"))));
         // Not told: another night.
         assert_eq!(write(day("2026-11-12"), &[None]).await, None);
         // Nor some of it: what is told of the rest waits for that night too.
@@ -685,7 +695,24 @@ mod tests {
         assert_eq!(write(day("2026-11-14"), &[all, all]).await, None);
         let nothing = days_of_nothing(db, OWNER).await;
         assert!(nothing.contains("2026-11-14") && !nothing.contains("2026-11-12"));
-        assert!(!nothing.contains("2026-11-15"));
+        assert!(!nothing.contains("2026-11-15") && !nothing.contains("2026-11-16"));
+        // Word for word another day's: the same. Of the night's own reading,
+        // it is gone over yet.
+        assert!(!keep(db, OWNER, day("2026-11-17"), line(day("2026-11-16"))).await);
+        assert_eq!(write(day("2026-11-16"), &[none]).await, None);
+        let mut world = g0::World::new(0.5);
+        world
+            .models
+            .entry("not_to_keep".into())
+            .or_default()
+            .push_back(none.map(str::to_string));
+        g0::enter(world);
+        keep_line(db, OWNER, day("2026-11-18"), &line(day("2026-11-16"))).await;
+        g0::leave();
+        assert!(!written(db, OWNER).await.contains_key(&day("2026-11-18")));
+        let nothing = days_of_nothing(db, OWNER).await;
+        assert!(nothing.contains("2026-11-16"));
+        assert!(!nothing.contains("2026-11-18"));
         schema.drop().await;
     }
 }
