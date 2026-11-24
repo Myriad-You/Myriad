@@ -7,7 +7,8 @@
 //! Usage in the two shapes the site's sources answer in:
 //! - Anthropic (and OpenAI Responses): `usage.input_tokens`,
 //!   `usage.output_tokens`, with `cache_creation_input_tokens` and
-//!   `cache_read_input_tokens` beside them when a prompt was cached;
+//!   `cache_read_input_tokens` beside them when a prompt was cached, and in
+//!   `cache_creation` how long what was written is kept;
 //! - OpenAI-compatible chat: `usage.prompt_tokens`,
 //!   `usage.completion_tokens`.
 
@@ -18,6 +19,8 @@ use serde_json::Value;
 pub struct Price {
     pub input: f64,
     pub output: f64,
+    /// What a token read from the cache costs against `input`.
+    pub cache_read: f64,
     /// Past this many prompt tokens (input, cache writes and reads
     /// together), the whole call is billed at `long`.
     pub long_after: Option<u64>,
@@ -25,7 +28,8 @@ pub struct Price {
 }
 
 /// Anthropic's list prices, as kept on 2026-10-06 (checked against the
-/// published table by the coordinating session, 2026-11-11). A model not
+/// published table by the coordinating session, 2026-11-11; what a cache
+/// read costs, on 2026-11-24). A model not
 /// here has no price: a capped run refuses to start on it, and the ledger
 /// keeps its cost empty rather than guess.
 pub const PRICES: &[(&str, Price)] = &[
@@ -34,6 +38,7 @@ pub const PRICES: &[(&str, Price)] = &[
         Price {
             input: 0.10,
             output: 0.50,
+            cache_read: 0.1,
             long_after: Some(100_000),
             long: Some((0.50, 2.50)),
         },
@@ -43,6 +48,7 @@ pub const PRICES: &[(&str, Price)] = &[
         Price {
             input: 2.0,
             output: 10.0,
+            cache_read: 0.05,
             long_after: None,
             long: None,
         },
@@ -52,16 +58,18 @@ pub const PRICES: &[(&str, Price)] = &[
         Price {
             input: 4.0,
             output: 20.0,
+            cache_read: 0.05,
             long_after: None,
             long: None,
         },
     ),
 ];
 
-/// What a cache write and a cache read cost against the input price:
-/// Anthropic's standing rule (a write 1.25 times, a read a tenth).
+/// What a cache write costs against the input price, kept five minutes and
+/// kept an hour: the same for every model (Anthropic's prompt caching page,
+/// 2026-11-24; what a read costs is each model's own).
 const CACHE_WRITE: f64 = 1.25;
-const CACHE_READ: f64 = 0.1;
+const CACHE_WRITE_HOUR: f64 = 2.0;
 
 /// The token counts an answer reported.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -69,6 +77,8 @@ pub struct Usage {
     pub input: u64,
     pub output: u64,
     pub cache_write: u64,
+    /// Of `cache_write`, what is kept for an hour.
+    pub cache_write_hour: u64,
     pub cache_read: u64,
 }
 
@@ -82,6 +92,7 @@ impl Usage {
         self.input += other.input;
         self.output += other.output;
         self.cache_write += other.cache_write;
+        self.cache_write_hour += other.cache_write_hour;
         self.cache_read += other.cache_read;
     }
 
@@ -97,6 +108,9 @@ impl Usage {
             self.cache_write = other.cache_write;
             self.cache_read = other.cache_read;
         }
+        // An event that says the totals again may leave out how long what
+        // was written is kept.
+        self.cache_write_hour = self.cache_write_hour.max(other.cache_write_hour);
         self.output = self.output.max(other.output);
     }
 }
@@ -110,6 +124,11 @@ pub fn usage_of(answer: &Value) -> Option<Usage> {
             input,
             output: count("output_tokens").unwrap_or(0),
             cache_write: count("cache_creation_input_tokens").unwrap_or(0),
+            cache_write_hour: usage
+                .get("cache_creation")
+                .and_then(|kept| kept.get("ephemeral_1h_input_tokens"))
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
             cache_read: count("cache_read_input_tokens").unwrap_or(0),
         });
     }
@@ -136,6 +155,8 @@ pub fn usage_of(answer: &Value) -> Option<Usage> {
         input: prompt - cache_read - cache_write,
         output: count("completion_tokens").unwrap_or(0),
         cache_write,
+        // OpenRouter tells the cost itself.
+        cache_write_hour: 0,
         cache_read,
     })
 }
@@ -160,9 +181,11 @@ pub fn cost_usd(model: &str, usage: &Usage) -> Option<f64> {
         (Some(after), Some(long)) if usage.prompt() > after => long,
         _ => (price.input, price.output),
     };
+    let hour = usage.cache_write_hour.min(usage.cache_write);
     let prompt = usage.input as f64
-        + usage.cache_write as f64 * CACHE_WRITE
-        + usage.cache_read as f64 * CACHE_READ;
+        + (usage.cache_write - hour) as f64 * CACHE_WRITE
+        + hour as f64 * CACHE_WRITE_HOUR
+        + usage.cache_read as f64 * price.cache_read;
     Some((prompt * input + usage.output as f64 * output) / 1_000_000.0)
 }
 
@@ -239,9 +262,59 @@ mod tests {
             output: 0,
             cache_write: 1000,
             cache_read: 10_000,
+            ..Usage::default()
         };
+        // A read costs a twentieth on Sonnet and Opus, a tenth on Haiku.
+        let cost = cost_usd("claude-opus-5-5", &cached).unwrap();
+        assert!((cost - (100.0 + 1250.0 + 500.0) * 4.0 / 1e6).abs() < 1e-12);
         let cost = cost_usd("claude-sonnet-5-5", &cached).unwrap();
-        assert!((cost - (100.0 + 1250.0 + 1000.0) * 2.0 / 1e6).abs() < 1e-12);
+        assert!((cost - (100.0 + 1250.0 + 500.0) * 2.0 / 1e6).abs() < 1e-12);
+        let cost = cost_usd("claude-haiku-5-5", &cached).unwrap();
+        assert!((cost - (100.0 + 1250.0 + 1000.0) * 0.1 / 1e6).abs() < 1e-12);
+    }
+
+    /// What is written to be kept an hour costs twice the input price, and
+    /// is told apart from what is kept five minutes.
+    #[test]
+    fn what_is_kept_an_hour_is_priced_as_written_for_one() {
+        let answer = json!({
+            "model": "claude-sonnet-5-5",
+            "usage": {"input_tokens": 100, "output_tokens": 0,
+                "cache_creation_input_tokens": 3000, "cache_read_input_tokens": 0,
+                "cache_creation": {"ephemeral_5m_input_tokens": 1000,
+                    "ephemeral_1h_input_tokens": 2000}},
+        });
+        let got = answered(&answer, None);
+        let cost = got.cost_usd.unwrap();
+        assert!(
+            (cost - (100.0 + 1250.0 + 4000.0) * 2.0 / 1e6).abs() < 1e-12,
+            "{cost}"
+        );
+        assert_eq!(got.usage.unwrap().prompt(), 3100);
+        // A stream that says the totals again, or larger ones, without how
+        // long they are kept.
+        let mut usage = Usage::default();
+        usage.widen(got.usage.unwrap());
+        for more in [0, 50] {
+            let again = Usage {
+                input: 100 + more,
+                cache_write: 3000,
+                ..Usage::default()
+            };
+            usage.widen(again);
+            assert_eq!(usage.cache_write_hour, 2000, "{more}");
+        }
+        // Answers added up.
+        usage.add(got.usage.unwrap());
+        assert_eq!(usage.cache_write_hour, 4000);
+        // Never more than was written.
+        let odd = Usage {
+            cache_write: 1000,
+            cache_write_hour: 5000,
+            ..Usage::default()
+        };
+        let cost = cost_usd("claude-sonnet-5-5", &odd).unwrap();
+        assert!((cost - 2000.0 * 2.0 / 1e6).abs() < 1e-12);
     }
 
     #[test]
@@ -255,6 +328,7 @@ mod tests {
                 output: 500,
                 cache_write: 0,
                 cache_read: 2200,
+                ..Usage::default()
             })
         );
         let first = json!({"usage": {"prompt_tokens": 3000, "completion_tokens": 5,
@@ -280,6 +354,7 @@ mod tests {
             output: 500,
             cache_write: 0,
             cache_read: 2200,
+            ..Usage::default()
         };
         for (first, then) in [(whole, parts), (parts, whole)] {
             let mut usage = Usage::default();
