@@ -357,34 +357,46 @@ pub async fn forget_lines(db: &DatabaseConnection, lines: &[Gone]) {
 /// forgets them here and before the forgets of what rests on them on her
 /// nodes: an end that takes those in has what they rest on forgotten too
 /// (`memory_nodes::intent_grounds`). Under the node locks
-/// (`memory_nodes::forget_locks::lock_for`). One the log does not take is undone
-/// alone, and tried again once the rest is kept ([`forget_lines`]).
+/// (`memory_nodes::forget_locks::lock_for`). All at once: the log is read
+/// once for them. Not taken by the log, they are undone alone, and tried again
+/// one by one once the rest is kept ([`forget_lines`]).
 pub async fn forget_lines_on(txn: &DatabaseTransaction, site_owner: Option<i32>, lines: &[Gone]) {
     let Some(site_owner) = site_owner.filter(|_| super::enabled()) else {
         return;
     };
-    for line in lines {
-        let forgotten: Result<(), Error> = async {
-            let alone = txn.begin().await?;
-            let done: Result<(), Error> = async {
+    if lines.is_empty() {
+        return;
+    }
+    let forgotten: Result<(), Error> = async {
+        let alone = txn.begin().await?;
+        let done: Result<(), Error> = async {
+            let mut of = None;
+            let mut targets = Vec::new();
+            for line in lines {
                 if let Some((owner, target)) = row_of(&alone, site_owner, line).await? {
-                    store::forget_on(&alone, &owner, &owner.personal(), &target).await?;
-                }
-                Ok(())
-            }
-            .await;
-            match done {
-                Ok(()) => alone.commit().await.map_err(Error::from),
-                Err(error) => {
-                    alone.rollback().await?;
-                    Err(error)
+                    of = Some(owner);
+                    if !targets.contains(&target) {
+                        targets.push(target);
+                    }
                 }
             }
+            if let Some(owner) = of {
+                store::forget_all_on(&alone, &owner, &owner.personal(), &targets).await?;
+            }
+            Ok(())
         }
         .await;
-        if let Err(error) = forgotten {
-            tracing::warn!(%error, line = line.id, "[her-log] a line forgotten here is left to be forgotten on her log after");
+        match done {
+            Ok(()) => alone.commit().await.map_err(Error::from),
+            Err(error) => {
+                alone.rollback().await?;
+                Err(error)
+            }
         }
+    }
+    .await;
+    if let Err(error) = forgotten {
+        tracing::warn!(%error, lines = lines.len(), "[her-log] lines forgotten here are left to be forgotten on her log after");
     }
 }
 

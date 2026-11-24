@@ -522,6 +522,7 @@ pub(super) async fn forget_in(
         user,
         objects: Vec::new(),
     };
+    let mut held_in: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for id in ids {
         let object = object(id);
         let held = txn
@@ -536,8 +537,11 @@ pub(super) async fn forget_in(
             continue;
         };
         let audience: String = held.try_get("", "audience")?;
-        store::forget_on(txn, &owner, &audience, &object).await?;
-        forgotten.objects.push(object);
+        held_in.entry(audience).or_default().push(object);
+    }
+    for (audience, objects) in held_in {
+        store::forget_all_on(txn, &owner, &audience, &objects).await?;
+        forgotten.objects.extend(objects);
     }
     Ok(forgotten)
 }
