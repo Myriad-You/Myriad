@@ -70,6 +70,7 @@ pub mod pen;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod relay;
 pub mod retention;
+pub mod rounds;
 pub mod state;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod store;

@@ -125,6 +125,7 @@ pub(crate) mod page;
 pub(crate) mod page_edit;
 mod page_intents;
 pub(crate) mod partner;
+pub(crate) mod pieces_due;
 pub(crate) mod placements;
 pub(crate) mod placing;
 pub(crate) mod prepare;

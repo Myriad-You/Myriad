@@ -32,9 +32,13 @@ pub const LINE: &str = "line";
 /// that comes after the forgetting may name as its grounds.
 pub const MESSAGE: &str = "message";
 
-/// A version of a span or an entry whose words went, while a later version
-/// of it stands here: by its row's id, digested (a row's id may be long).
-pub const PIECE: &str = "piece";
+/// A span or an entry another end forgot, what rests on it not looked at yet
+/// (`memory_nodes::pieces_due`): by its row's id, digested (a row's id may
+/// be long). Let go of once it is.
+pub const PIECE_DUE: &str = "piece_due";
+/// An intent whose words one forgotten meanwhile said, as resting on such a
+/// piece: by both, digested.
+pub const INTENT_DUE: &str = "intent_due";
 
 /// The mark of a line: who said it (`role`), when (`at`, micros) and what,
 /// digested; the same for the site's line and a device's copy of it.
@@ -64,6 +68,25 @@ pub async fn keep<C: ConnectionTrait>(
             marks.to_vec().into(),
             crate::clock::now().into(),
         ],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// Lets go of `marks` of `what`, kept for `user_id`.
+pub async fn let_go<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    what: &str,
+    marks: &[String],
+) -> Result<(), DbErr> {
+    if marks.is_empty() {
+        return Ok(());
+    }
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "DELETE FROM agent_forgotten WHERE user_id = $1 AND what = $2 AND mark = ANY($3)",
+        [user_id.into(), what.into(), marks.to_vec().into()],
     ))
     .await?;
     Ok(())

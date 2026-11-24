@@ -3,7 +3,7 @@
 //! on a database of their own (`MYRIAD_MEDIA_TEST_DATABASE_URL`, an isolated
 //! schema each). Every word here is made up.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use myriad_nodes::wire::{Batch, Carried, Withheld};
@@ -19,13 +19,14 @@ use super::intent_tests::told as told_at;
 use super::read_tests::owned;
 use super::talk_tests::{OTHER, count, schema, talk};
 use super::{
-    Author, RowIn, audience, child, forget, forget_locks, logged, page_edit, partner, write,
+    Author, RowIn, audience, child, forget, forget_locks, logged, page_edit, partner, pieces_due,
+    write,
 };
 use crate::services::agent::memory::{forgotten, manage, origins::Gone};
 use crate::services::agent::merope::nodes::Form;
 use crate::services::channel_group::g0;
 use crate::services::her_log::{
-    self, Owner, Settings, keys, pen, store, test_partner::PARTNER, test_settings,
+    self, Owner, Settings, keys, pen, rounds::Rounds, store, test_partner::PARTNER, test_settings,
 };
 
 const OWNER: i32 = 1;
@@ -647,6 +648,20 @@ impl Here {
         (row, body)
     }
 
+    /// A node of hers here, as rows name it.
+    async fn ferns(&self) -> String {
+        let made = created(&self.talk, "minted:ferns", "ferns");
+        let object = format!("node:{}", made.node);
+        put(self.db(), OWNER, &self.talk, &[made]).await;
+        object
+    }
+
+    /// A span of the computer's on `object`.
+    fn said(&mut self, id: &str, object: &str, text: &str) -> (Row, Option<Value>) {
+        let body = span_body(&self.talk, text, &["message:aa"]);
+        self.by_mac(id, object, "node.span", Some(body))
+    }
+
     fn intent(&mut self, node: &str, id: &str, body: Value) -> (Row, Option<Value>) {
         self.by_mac(id, &format!("node:{node}"), "node.intent", Some(body))
     }
@@ -659,6 +674,29 @@ impl Here {
     /// The computer sends `rows` (those in `bare` without their body), and
     /// the site takes them into her log and her nodes.
     async fn sent(&self, rows: Vec<(Row, Option<Value>)>, bare: &[&str]) {
+        self.sent_in(rows, bare, &self.round(false, 0)).await;
+    }
+
+    /// A link of the computer's: its last batch ended a page another follows
+    /// (`more`), and it said it holds its own rows up to `holds`.
+    fn round(&self, more: bool, holds: u64) -> Rounds {
+        let mut rounds = Rounds::default();
+        rounds.vector(
+            "dev_mac",
+            &self.talk,
+            &BTreeMap::from([("dev_mac".to_string(), holds)]),
+        );
+        rounds.batch("dev_mac", &self.talk, more);
+        rounds
+    }
+
+    /// What waits for the rest of what its end wrote.
+    async fn waiting(&self) -> Value {
+        pieces_due::count(self.db()).await
+    }
+
+    /// [`Self::sent`], as far as `rounds` says.
+    async fn sent_in(&self, rows: Vec<(Row, Option<Value>)>, bare: &[&str], rounds: &Rounds) {
         let carried = rows
             .iter()
             .filter(|(row, _)| !bare.contains(&row.id.as_str()))
@@ -688,7 +726,7 @@ impl Here {
             .await
             .unwrap();
         assert!(taken.not_taken.is_empty(), "{:?}", taken.not_taken);
-        logged::take_in(self.db(), &ROOT, &self.owner)
+        logged::take_in(self.db(), &ROOT, &self.owner, rounds)
             .await
             .unwrap();
     }
@@ -786,7 +824,7 @@ async fn a_span_another_end_forgot_takes_what_rests_on_it_here() {
         ids(&["row:let1", "row:let2", "row:kept2"])
     );
     // Once: nothing more the next time.
-    logged::take_in(here.db(), &ROOT, &here.owner)
+    logged::take_in(here.db(), &ROOT, &here.owner, &here.round(false, 0))
         .await
         .unwrap();
     assert_eq!(here.logged_forgets().await.len(), 3);
@@ -1323,33 +1361,19 @@ async fn every_audience_a_memory_may_be_named_in_is_locked() {
     schema.drop().await;
 }
 
-/// A Mac that only marks what a span came from writes it again in the same
-/// words and forgets the row: what rests on it stays, what comes late too.
-/// Written again in other words, it was forgotten, for what comes late too.
+/// A Mac that marks what a span came from writes it again and forgets the
+/// row: a version of it stands, in whatever words, and what rests on it stays,
+/// what comes late too. Once none stands, it is gone, and they go.
 #[tokio::test]
-async fn a_span_written_again_in_the_same_words_is_not_forgotten() {
+async fn a_span_written_again_is_not_forgotten() {
     let Some(mut here) = here("resting_on_marked").await else {
         return;
     };
-    let talk = here.talk.clone();
-    let made = created(&talk, "minted:ferns", "ferns");
-    let node = made.node.clone();
-    put(here.db(), OWNER, &talk, &[made]).await;
-    let object = format!("node:{node}");
-    let words = |text: &str, reference: &str| span_body(&talk, text, &[reference]);
+    let object = here.ferns().await;
+    let node = object.trim_start_matches("node:").to_string();
     let told = vec![
-        here.by_mac(
-            "p-1@mac",
-            &object,
-            "node.span",
-            Some(words("they watered it", "message:aa")),
-        ),
-        here.by_mac(
-            "p-2@mac",
-            &object,
-            "node.span",
-            Some(words("they moved it, at noon", "message:bb")),
-        ),
+        here.said("p-1@mac", &object, "they watered it"),
+        here.said("p-2@mac", &object, "they moved it, at noon"),
         here.intent(
             &node,
             "on-marked",
@@ -1363,24 +1387,13 @@ async fn a_span_written_again_in_the_same_words_is_not_forgotten() {
     ];
     here.sent(told, &[]).await;
     let again = vec![
-        here.by_mac(
-            "p-1@mac~1",
-            &object,
-            "node.span",
-            Some(words("they watered it", "forgotten:x")),
-        ),
-        here.by_mac(
-            "p-2@mac~1",
-            &object,
-            "node.span",
-            Some(words("they moved it", "message:bb")),
-        ),
+        here.said("p-1@mac~1", &object, "they watered it"),
+        here.said("p-2@mac~1", &object, "they moved it"),
         here.forget("row:p-1@mac"),
         here.forget("row:p-2@mac"),
     ];
-    here.sent(again, &[]).await;
-    assert_eq!(left(here.db()).await, ids(&["on-marked"]));
-    assert_eq!(here.logged_forgets().await, ["row:on-words"]);
+    here.sent(again, &["p-1@mac~1"]).await;
+    assert_eq!(left(here.db()).await, ids(&["on-marked", "on-words"]));
     let late = vec![
         here.intent(
             &node,
@@ -1394,7 +1407,174 @@ async fn a_span_written_again_in_the_same_words_is_not_forgotten() {
         ),
     ];
     here.sent(late, &[]).await;
+    assert_eq!(
+        left(here.db()).await,
+        ids(&["late-marked", "late-words", "on-marked", "on-words"])
+    );
+    assert!(here.logged_forgets().await.is_empty());
+    let gone = vec![here.forget("row:p-2@mac~1")];
+    here.sent(gone, &[]).await;
     assert_eq!(left(here.db()).await, ids(&["late-marked", "on-marked"]));
+    here.schema.drop().await;
+}
+
+/// Forgets go ahead: the version written before one comes batches after it.
+/// Until it has, what rests on the piece stays, and is not looked at.
+#[tokio::test]
+async fn a_forget_is_looked_at_once_what_was_written_before_it_came() {
+    let Some(mut here) = here("resting_on_ahead").await else {
+        return;
+    };
+    let object = here.ferns().await;
+    let node = object.trim_start_matches("node:").to_string();
+    let told = vec![
+        here.said("p-1@mac", &object, "they watered it"),
+        here.intent(
+            &node,
+            "on",
+            intent_body("a", "ask one", &["span:p-1@mac"], &[], "waiting"),
+        ),
+    ];
+    here.sent(told, &[]).await;
+    let again = here.said("p-1@mac~1", &object, "they watered it");
+    let gone = here.forget("row:p-1@mac");
+    // The page's last batch names no page after it, either.
+    here.sent_in(vec![gone], &[], &here.round(false, 0)).await;
+    assert_eq!(
+        count(
+            here.db(),
+            "SELECT COUNT(*) AS n FROM agent_node_rows WHERE row_id = 'p-1@mac' AND body = ''"
+        )
+        .await,
+        1,
+        "the words go at once"
+    );
+    assert_eq!(left(here.db()).await, ids(&["on"]));
+    assert_eq!(here.waiting().await, 1);
+    here.sent(vec![again], &[]).await;
+    assert_eq!(left(here.db()).await, ids(&["on"]));
+    assert_eq!(here.waiting().await, 0);
+    assert!(here.logged_forgets().await.is_empty());
+    here.schema.drop().await;
+}
+
+/// An older build of the Mac wrote the forget first, the next version right
+/// after: everything up to the forget is here before the version, so the
+/// round's end is waited for, by its page (`more`) and by what the Mac said
+/// it holds.
+#[tokio::test]
+async fn a_forget_written_before_the_next_version_waits_for_the_rounds_end() {
+    for by_page in [true, false] {
+        let Some(mut here) = here("resting_on_old_order").await else {
+            return;
+        };
+        let object = here.ferns().await;
+        let node = object.trim_start_matches("node:").to_string();
+        let told = vec![
+            here.said("p-1@mac", &object, "they watered it"),
+            here.said("p-2@mac", &object, "they moved it"),
+            here.intent(
+                &node,
+                "on",
+                intent_body("a", "ask one", &["span:p-1@mac"], &[], "waiting"),
+            ),
+            here.intent(
+                &node,
+                "on-gone",
+                intent_body("b", "ask two", &["span:p-2@mac"], &[], "waiting"),
+            ),
+        ];
+        here.sent(told, &[]).await;
+        let gone = here.forget("row:p-1@mac");
+        let truly = here.forget("row:p-2@mac");
+        let again = here.said("p-1@mac~1", &object, "they watered it");
+        let holds = again.0.dseq.unwrap();
+        let open = match by_page {
+            true => here.round(true, 0),
+            false => here.round(false, holds),
+        };
+        here.sent_in(vec![gone, truly], &[], &open).await;
+        assert_eq!(left(here.db()).await, ids(&["on", "on-gone"]), "{by_page}");
+        assert_eq!(here.waiting().await, 2, "{by_page}");
+        // Nothing more of it on a link that came to its end: looked at on
+        // what is here.
+        here.sent_in(vec![again], &[], &here.round(false, holds))
+            .await;
+        assert_eq!(left(here.db()).await, ids(&["on"]), "{by_page}");
+        assert_eq!(here.waiting().await, 0, "{by_page}");
+        here.schema.drop().await;
+    }
+}
+
+/// A forget past a gap waits, however long and whatever else comes, and so
+/// does what one forgotten meanwhile says of the words it was carried on in.
+/// Another link later brings what was missing, and no version: it was
+/// forgotten, and all of it goes.
+#[tokio::test]
+async fn a_forget_past_a_gap_waits_across_links() {
+    let Some(mut here) = here("resting_on_gap").await else {
+        return;
+    };
+    let object = here.ferns().await;
+    let node = object.trim_start_matches("node:").to_string();
+    let told = vec![
+        here.said("p-1@mac", &object, "they watered it"),
+        here.said("p-2@mac", &object, "they moved it"),
+        here.intent(
+            &node,
+            "on",
+            intent_body("a", "ask one", &["span:p-1@mac"], &[], "waiting"),
+        ),
+        here.intent(
+            &node,
+            "said",
+            intent_body("b", "ask two", &["span:p-1@mac"], &[], "waiting"),
+        ),
+    ];
+    here.sent(told, &[]).await;
+    put(
+        here.db(),
+        OWNER,
+        &here.talk.clone(),
+        &[hand(
+            &node,
+            "carried",
+            "b",
+            "ask two",
+            &["span:p-2@mac"],
+            &["said"],
+            "waiting",
+        )],
+    )
+    .await;
+    let missing = here.said("p-3@mac", &object, "they sold it");
+    let gone = vec![here.forget("row:p-1@mac"), here.forget("row:said")];
+    here.sent(gone, &[]).await;
+    assert_eq!(left(here.db()).await, ids(&["carried", "on"]));
+    let other = here.said("p-4@mac", &object, "they bought one");
+    let late = here.intent(
+        &node,
+        "late",
+        intent_body("c", "ask three", &["span:p-1@mac"], &[], "waiting"),
+    );
+    here.sent(vec![other, late], &[]).await;
+    logged::take_in_due(here.db(), &ROOT, &here.owner, &Rounds::default())
+        .await
+        .unwrap();
+    assert_eq!(left(here.db()).await, ids(&["carried", "late", "on"]));
+    assert_eq!(here.waiting().await, 1);
+    assert!(here.logged_forgets().await.is_empty());
+    here.sent(vec![missing], &[]).await;
+    assert!(left(here.db()).await.is_empty());
+    assert_eq!(here.waiting().await, 0);
+    assert_eq!(
+        count(
+            here.db(),
+            "SELECT COUNT(*) AS n FROM agent_forgotten WHERE what = 'intent_due'"
+        )
+        .await,
+        0
+    );
     here.schema.drop().await;
 }
 

@@ -922,6 +922,12 @@ pub async fn report(db: &DatabaseConnection, owner: i32) -> Value {
             // everyone. Counts only; null when they could not be read.
             "takeBackChecks":
                 crate::services::agent::merope::memory_nodes::take_back_check::counts(db).await,
+            // What other ends forgot that waits for the rest of what they
+            // wrote before what rests on it is looked at
+            // (`memory_nodes::pieces_due`), over everyone. A count only; null
+            // when it could not be read.
+            "forgottenWaiting":
+                crate::services::agent::merope::memory_nodes::pieces_due::count(db).await,
             // Lines whose corrections were left undone since the site started, their
             // new fact not holding up (`chat_remember::corrections_unkept`).
             "correctionsUnkept": crate::services::agent::merope::chat_remember::corrections_unkept(),

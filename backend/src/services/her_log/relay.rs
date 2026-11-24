@@ -151,6 +151,8 @@ pub struct Session {
     grant_taken: Option<u64>,
     /// What answering the last frame came to, until the link asks.
     answered: Option<Answered>,
+    /// How far the device has come in sending her log on this link.
+    rounds: super::rounds::Rounds,
 }
 
 /// What a `log.vector` was answered with, for the log of a link it held up:
@@ -218,6 +220,7 @@ impl Session {
             grant_sent: None,
             grant_taken: None,
             answered: None,
+            rounds: super::rounds::Rounds::default(),
         }
     }
 
@@ -869,6 +872,21 @@ async fn answer(
                 db, root, &owner, device, &side, session, &audience, asked, now,
             )
             .await?;
+            // What was forgotten there and waited for the rest of it may be
+            // looked at: what it says it holds is here.
+            if session.rounds.vector(device, &audience, &theirs)
+                && (audience == owner.personal() || audience == Owner::OWN)
+                && let Err(error) =
+                    crate::services::agent::merope::memory_nodes::logged::take_in_due(
+                        db,
+                        root,
+                        &owner,
+                        &session.rounds,
+                    )
+                    .await
+            {
+                tracing::warn!(%error, "[her-log] what was forgotten on another end was not looked at here");
+            }
             // Once it keeps up, a deputy (her temporary host); and the grant
             // it holds her by, until it says it took it.
             if host {
@@ -908,6 +926,7 @@ async fn answer(
             // Whether the side may read what the server holds of the
             // audience: it holds it, or her mind is there.
             let readable = side.holds(&audience) || mine;
+            let ended = session.rounds.batch(device, &audience, more.is_some());
             let mut out = match serde_json::from_value::<Batch>(body.clone()) {
                 Err(_) => vec![Outgoing::error("bad_frame", seq)],
                 Ok(batch) => {
@@ -919,7 +938,10 @@ async fn answer(
                         vec![Outgoing::error("not_holder", seq)]
                     } else {
                         lease::heard(db, device, Some(Seen::Host), now).await?;
-                        rows(db, root, settings, &owner, device, session, batch, seq, now).await?
+                        rows(
+                            db, root, settings, &owner, device, session, batch, seq, ended, now,
+                        )
+                        .await?
                     }
                 }
             };
@@ -1049,7 +1071,10 @@ async fn answer(
                         None => false,
                     };
                     if !taken {
-                        tracing::info!(device, "[her-log] a deputy it says it took is none the server gave it");
+                        tracing::info!(
+                            device,
+                            "[her-log] a deputy it says it took is none the server gave it"
+                        );
                     }
                 }
                 Some("lease.grant") => {
@@ -1061,7 +1086,9 @@ async fn answer(
                     }
                     tracing::info!(device, "[her-log] a grant was taken");
                 }
-                _ => tracing::info!(device, of = ?body["of"].as_str(), "[her-log] a lease frame was taken"),
+                _ => {
+                    tracing::info!(device, of = ?body["of"].as_str(), "[her-log] a lease frame was taken")
+                }
             }
             Ok(Vec::new())
         }
@@ -1433,6 +1460,7 @@ async fn rows(
     session: &mut Session,
     batch: Batch,
     seq: Option<u64>,
+    ended: bool,
     now: i64,
 ) -> Result<Vec<Outgoing>, Error> {
     let audience = batch.audience.clone();
@@ -1540,9 +1568,14 @@ async fn rows(
     }
     // And her nodes, after the memories their entries name.
     if (audience == owner.personal() || audience == Owner::OWN)
-        && !taken.added.is_empty()
-        && let Err(error) =
-            crate::services::agent::merope::memory_nodes::logged::take_in(db, root, owner).await
+        && (ended || !taken.added.is_empty())
+        && let Err(error) = crate::services::agent::merope::memory_nodes::logged::take_in(
+            db,
+            root,
+            owner,
+            &session.rounds,
+        )
+        .await
     {
         tracing::warn!(%error, "[her-log] her nodes from another end were not taken in here");
     }

@@ -36,8 +36,8 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, T
 use serde_json::Value;
 
 use super::audience::OWN;
-use super::{Error, forget, heads, intent_grounds, write};
-use crate::services::her_log::{self, NODE, Owner, keys};
+use super::{Error, forget, heads, intent_grounds, pieces_due, write};
+use crate::services::her_log::{self, NODE, Owner, keys, rounds::Rounds};
 
 /// Whether `audience` is one her log keeps of the site owner's: her own,
 /// or the talk under the partner id.
@@ -183,13 +183,16 @@ fn node_of(
 
 /// Rows of her nodes another end wrote, in her log, kept here ([module
 /// docs](self)): for each audience her log keeps of the site owner's, in
-/// its own transaction. How many rows came.
+/// its own transaction, by what the device that sent them has sent so far
+/// (`rounds`). How many rows came.
 pub(crate) async fn take_in(
     db: &DatabaseConnection,
     root: &dyn keys::Root,
     owner: &Owner,
+    rounds: &Rounds,
 ) -> Result<usize, Error> {
     let mut came = 0;
+    let due = pieces_due::any(db, owner.user).await?;
     for audience in [owner.personal(), OWN.to_string()] {
         let txn = db.begin().await?;
         write::lock(&txn, owner.user, &audience).await?;
@@ -228,7 +231,7 @@ pub(crate) async fn take_in(
                     .map_err(|_| Error::Refused("a row of her log does not read".into()))?,
             );
         }
-        if rows.is_empty() && stubbed == 0 {
+        if rows.is_empty() && stubbed == 0 && !due {
             continue;
         }
         myriad_persona_log::row::sort(&mut rows);
@@ -322,11 +325,27 @@ pub(crate) async fn take_in(
         came += arrived.len();
         // Her intents resting on what was forgotten, there now or here
         // before, go with it.
-        let resting = round.taken(&txn, owner.user, &audience, &arrived).await?;
+        let resting = round
+            .taken(&txn, owner.user, &audience, &arrived, rounds)
+            .await?;
         forget::stub(&txn, owner.user, &resting).await?;
         let kept = heads::rows_of(&txn, owner.user, &audience).await?;
         heads::refresh(&txn, owner.user, &audience, &heads::fold_rows(&kept)?).await?;
         txn.commit().await?;
     }
     Ok(came)
+}
+
+/// [`take_in`], when what another end forgot waits to be looked at
+/// ([`pieces_due`]).
+pub(crate) async fn take_in_due(
+    db: &DatabaseConnection,
+    root: &dyn keys::Root,
+    owner: &Owner,
+    rounds: &Rounds,
+) -> Result<usize, Error> {
+    match pieces_due::any(db, owner.user).await? {
+        true => take_in(db, root, owner, rounds).await,
+        false => Ok(0),
+    }
 }

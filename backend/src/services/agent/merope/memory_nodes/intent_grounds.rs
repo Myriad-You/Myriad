@@ -21,11 +21,9 @@
 //! are stubs here as if it were: its home holds them still, so what rests on
 //! them stays ([`forgotten_by`]).
 //!
-//! A Mac that only puts a forgotten mark in place of what a span or an entry
-//! came from forgets the row and writes the piece again as its slot's next
-//! version, in the same words: nothing said is gone, so what rests on it
-//! stays ([`Versions`]). In other words, it is a forgetting, and is kept as
-//! one (`forgotten::PIECE`) for what comes late.
+//! One another end forgot is looked at once everything it wrote up to that
+//! forget is here: a version of it written again stands then, and what rests
+//! on it stays ([`super::pieces_due`]).
 //!
 //! The site is no node's home and writes no `retract.home`
 //! (`her_log::store`), so each is a plain forget of its row.
@@ -44,9 +42,10 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::Value;
 
 use super::forget::{Forgets, forget_one, row_node};
+use super::pieces_due::{self, Due};
 use super::{Error, heads, logged};
-use crate::services::agent::memory::{forgotten, meaning::digest};
-use crate::services::her_log::store;
+use crate::services::agent::memory::forgotten;
+use crate::services::her_log::{rounds::Rounds, store};
 
 const INTENT: &str = "node.intent";
 const MESSAGE_REF: &str = "message:";
@@ -359,6 +358,7 @@ impl Round {
         user_id: i32,
         audience: &str,
         came: &BTreeSet<String>,
+        rounds: &Rounds,
     ) -> Result<Vec<Row>, Error> {
         let kept = heads::rows_of(db, user_id, audience).await?;
         let rows: Vec<Row> = kept.iter().map(|kept| kept.row.clone()).collect();
@@ -367,48 +367,104 @@ impl Round {
             &ledger::ledger(&rows),
         );
         let gone = |row: &Row| row.forgotten && is_piece(&row.kind) && forgotten_by(&ledger, row);
-        let versions = Versions::of(&kept);
-        let now_gone: Vec<&Row> = rows
+        let by_id: BTreeMap<String, &Row> = rows.iter().map(|row| (row.id.clone(), row)).collect();
+        // Each span and entry forgotten, the rows a forget names that never
+        // came among them.
+        let by_row = format!("{}:", myriad_persona_log::kinds::ROW);
+        let mut all: BTreeSet<String> = rows
             .iter()
-            .filter(|row| self.before.contains_key(&row.id) || came.contains(&row.id))
             .filter(|row| gone(row))
-            .filter(|row| {
-                let was = self.before.get(&row.id);
-                let text = was.and_then(|(_, body)| body["text"].as_str());
-                !versions.same_words(row, text)
-            })
+            .map(|row| row.id.clone())
             .collect();
-        versions.keep_gone(db, user_id, &now_gone).await?;
-        let mut bodies = heads::bodies(&kept)?;
-        let news = Gone {
-            pieces: now_gone.iter().map(|row| row.id.clone()).collect(),
-            ..Gone::default()
-        };
-        for (id, (kind, body)) in self.before {
+        let mut looking: BTreeSet<String> = all
+            .iter()
+            .filter(|id| self.before.contains_key(*id) || came.contains(*id))
+            .cloned()
+            .collect();
+        all.extend(
+            ledger
+                .iter()
+                .filter(|entry| entry.kind == Kind::Forget && entry.audience == audience)
+                .filter_map(|entry| entry.target.strip_prefix(&by_row))
+                .filter(|id| !by_id.contains_key(*id))
+                .map(str::to_string),
+        );
+        looking.extend(pieces_due::among(db, user_id, &all).await?);
+        let late = Late::of(&kept, came);
+        if looking.is_empty() && late.named.is_empty() {
+            return Ok(Vec::new());
+        }
+        let due = Due::read(db, user_id, audience, rounds, &kept).await?;
+        let sorted = due.sort(&looking, &by_id);
+        let bodies_here = heads::bodies(&kept)?;
+        let mut bodies = bodies_here.clone();
+        for (id, (kind, body)) in &self.before {
             if kind == INTENT {
-                bodies.insert(id, body);
+                bodies.insert(id.clone(), body.clone());
             }
         }
-        let mut going = asked(db, user_id, audience, &kept, bodies.clone(), &news).await?;
+        let of = |pieces: BTreeSet<String>| Gone {
+            pieces,
+            ..Gone::default()
+        };
+        // What the words of one forgotten now say of those still due: they
+        // are not here to say it when those are looked at.
+        if !sorted.due.is_empty() {
+            pieces_due::keep(db, user_id, &sorted.due).await?;
+            let mut by_piece = Vec::new();
+            for pieces in std::iter::once(sorted.due.clone())
+                .chain(sorted.due.iter().map(|id| BTreeSet::from([id.clone()])))
+            {
+                let gone = of(pieces);
+                let here = asked(db, user_id, audience, &kept, bodies_here.clone(), &gone).await?;
+                let here: BTreeSet<String> = here.into_iter().map(|row| row.id).collect();
+                let said = asked(db, user_id, audience, &kept, bodies.clone(), &gone).await?;
+                let said: BTreeSet<String> = said
+                    .into_iter()
+                    .map(|row| row.id)
+                    .filter(|id| !here.contains(id))
+                    .collect();
+                // All of them first: mostly none of them says any.
+                if by_piece.is_empty() && said.is_empty() {
+                    break;
+                }
+                by_piece.push((gone.pieces, said));
+            }
+            for (pieces, intents) in by_piece.into_iter().skip(1) {
+                for piece in pieces {
+                    pieces_due::keep_resting(db, user_id, &piece, &intents).await?;
+                }
+            }
+        }
+        let intents: Vec<&Row> = rows.iter().filter(|row| row.kind == INTENT).collect();
+        let resting = pieces_due::looked_at(db, user_id, &sorted, &intents).await?;
+        let mut going = asked(
+            db,
+            user_id,
+            audience,
+            &kept,
+            bodies.clone(),
+            &of(sorted.gone.clone()),
+        )
+        .await?;
+        for row in intents {
+            if !row.forgotten
+                && resting.contains(&row.id)
+                && !going.iter().any(|it| it.id == row.id)
+            {
+                going.push(row.clone());
+            }
+        }
+        myriad_persona_log::row::sort(&mut going);
         // Late: the intents something came of.
-        let late = Late::of(&kept, came);
         if !late.named.is_empty() {
-            // Each span and entry forgotten before, the rows a forget names
-            // that never came among them.
-            let by_row = format!("{}:", myriad_persona_log::kinds::ROW);
-            let mut before: BTreeSet<String> = rows
-                .iter()
-                .filter(|row| gone(row))
-                .map(|row| row.id.clone())
+            let before = due.sort(&all, &by_id);
+            let named = late
+                .rows(&kept)
+                .flat_map(|(_, body)| strings(&body["because"]))
                 .collect();
-            before.extend(
-                ledger
-                    .iter()
-                    .filter(|entry| entry.kind == Kind::Forget && entry.audience == audience)
-                    .filter_map(|entry| entry.target.strip_prefix(&by_row))
-                    .map(str::to_string),
-            );
-            let before = versions.gone_of(db, user_id, before).await?;
+            pieces_due::keep(db, user_id, &before.due_named(&named)).await?;
+            let before = before.gone;
             let gone = late.gone(db, user_id, &kept, before).await?;
             // Asked with what came and without: the words of an intent that
             // came may be carried on elsewhere, and only they say so.
@@ -437,97 +493,6 @@ impl Round {
         }
         forget(db, user_id, audience, &kept, &going).await?;
         Ok(going)
-    }
-}
-
-/// The spans and entries that stand, by the slot and the side they are
-/// versions of: a Mac's row is `<slot>@<writer>`, a later version of it
-/// `<slot>@<writer>~<n>` (`nodes.resting_on`). An id too long is a digest of
-/// the whole, from which no slot is read.
-struct Versions {
-    standing: BTreeMap<String, Vec<(String, String, String)>>,
-}
-
-impl Versions {
-    fn of(kept: &[heads::KeptRow]) -> Self {
-        let mut standing: BTreeMap<String, Vec<(String, String, String)>> = BTreeMap::new();
-        for kept in kept {
-            let row = &kept.row;
-            if row.forgotten || !is_piece(&row.kind) {
-                continue;
-            }
-            let (Some(slot), Some(body)) = (Self::slot(&row.id), body_of(kept)) else {
-                continue;
-            };
-            standing.entry(slot.to_string()).or_default().push((
-                row.kind.clone(),
-                row.origin.clone(),
-                body["text"].as_str().unwrap_or_default().to_string(),
-            ));
-        }
-        Self { standing }
-    }
-
-    /// The slot and its writer, of a row's id.
-    fn slot(id: &str) -> Option<&str> {
-        let slot = match id.rsplit_once('~') {
-            Some((slot, n)) if !n.is_empty() && n.bytes().all(|byte| byte.is_ascii_digit()) => slot,
-            _ => id,
-        };
-        slot.contains('@').then_some(slot)
-    }
-
-    /// Whether a version of `row`'s slot by the same side stands, in the
-    /// words `text` it said (any, when they are not known here).
-    fn same_words(&self, row: &Row, text: Option<&str>) -> bool {
-        Self::slot(&row.id)
-            .and_then(|slot| self.standing.get(slot))
-            .is_some_and(|versions| {
-                versions.iter().any(|(kind, origin, words)| {
-                    *kind == row.kind
-                        && *origin == row.origin
-                        && text.is_none_or(|text| text == words)
-                })
-            })
-    }
-
-    fn stands(&self, id: &str) -> bool {
-        Self::slot(id).is_some_and(|slot| self.standing.contains_key(slot))
-    }
-
-    /// Of `gone`, those another version of stands, kept as gone.
-    async fn keep_gone<C: ConnectionTrait>(
-        &self,
-        db: &C,
-        user_id: i32,
-        gone: &[&Row],
-    ) -> Result<(), Error> {
-        let marks: Vec<String> = gone
-            .iter()
-            .filter(|row| self.stands(&row.id))
-            .map(|row| digest(&row.id))
-            .collect();
-        forgotten::keep(db, user_id, forgotten::PIECE, &marks).await?;
-        Ok(())
-    }
-
-    /// Of `gone`, those no other version of stands, and those kept as gone.
-    async fn gone_of<C: ConnectionTrait>(
-        &self,
-        db: &C,
-        user_id: i32,
-        gone: BTreeSet<String>,
-    ) -> Result<BTreeSet<String>, Error> {
-        let marks: Vec<String> = gone
-            .iter()
-            .filter(|id| self.stands(id))
-            .map(|id| digest(id))
-            .collect();
-        let kept = forgotten::among(db, user_id, forgotten::PIECE, &marks).await?;
-        Ok(gone
-            .into_iter()
-            .filter(|id| !self.stands(id) || kept.contains(&digest(id)))
-            .collect())
     }
 }
 
