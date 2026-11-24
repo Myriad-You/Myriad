@@ -8,6 +8,7 @@
 //! 进度，完成后取回烘焙过的拆层与关键形，照常导入。同一时间只跑一个任务；
 //! 任务里互不依赖的生图与拆层一起发出去（`together`），拟合仍是一次一个。
 //! 转头图一画好就先传到 Space，藏在正面拆层后面，之后各步用到时不再等上传。
+//! 拟合跟不上前发的那张转头图，在第一次拟合还在跑的时候就重画（`fit_turns`）。
 //!
 //! 四张图与五份拆层按立绘内容存在磁盘上（`TurnCache`）：任务中途失败、后端
 //! 重启，或同一张立绘再导入一次，已经花钱做完的生图与拆层直接取用，只把缺的
@@ -57,6 +58,7 @@ mod cache;
 mod drawing;
 mod figure;
 mod figure_picture;
+mod fit_turns;
 mod hair_misfit;
 mod judge;
 mod served;
@@ -68,8 +70,7 @@ use cache::{CACHE_KEEP, TurnCache, cache_root, prune_cache};
 use drawing::fit_to;
 use drawing::{
     Ahead, TRANSIENT_RETRIES, TURN_SIDES, TURNED_REDOS, decompose_checked, decompose_waiting,
-    decomposition, draw_turn, redraw_bad_turns, redraw_misfit, retry_delay, transient,
-    turn_prompts,
+    decomposition, draw_turn, redraw_bad_turns, retry_delay, transient, turn_prompts,
 };
 #[cfg(test)]
 use figure::alongside;
@@ -608,20 +609,19 @@ async fn run(
     )
     .await?;
     update(id, |job| job.stage = Stage::Fitting);
-    let output = fit(client, &decompositions, &pictures).await?;
-    let (decompositions, pictures, output) = redraw_misfit(
+    // The fit, with the turn whose front hair it cannot follow drawn again beside it.
+    let turns = fit_turns::Turns {
         id,
         user_id,
         generation,
         reference,
-        (width, height),
+        size: (width, height),
         client,
         cache,
         options,
-        (decompositions, pictures, output),
-        &mut redrawn,
-    )
-    .await?;
+    };
+    let ((decompositions, pictures), output) =
+        fit_turns::fit_turns(&turns, (decompositions, pictures), &mut redrawn).await?;
     let output = see_through::TurnKeyformsOutput {
         keyforms: judge::with_judgements(output.keyforms, &judged),
         ..output

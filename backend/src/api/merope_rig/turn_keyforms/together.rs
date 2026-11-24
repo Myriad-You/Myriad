@@ -64,10 +64,16 @@ async fn finished_beside<T>(
 /// after another, while the front decomposition still runs: the uploads the
 /// calls after it would start with are behind it by then. Sending is not part
 /// of a drawing: the count and the switch to decompositions do not wait for
-/// it. What is still being sent when all is made is waited for, which takes
-/// no longer than the next call sending it would; nothing is waited for when
-/// a drawing or the decomposition failed.
-pub(super) async fn drawn_beside_front<S: Future<Output = ()>>(
+/// it. `send_ahead` tells whether it was sent; the first that was not ends
+/// the sending, the ones after it left to the calls that carry them.
+///
+/// What is still being sent when all is made is waited for. While sending
+/// goes well that is time the next call would spend sending the same bytes.
+/// When it does not, it is at most the one attempt that failed (as long as a
+/// Space that is not running is waited for, or an upload's time limit), not
+/// one such wait for each drawing. Nothing is waited for when a drawing or
+/// the decomposition failed.
+pub(super) async fn drawn_beside_front<S: Future<Output = bool>>(
     id: &str,
     drawings: Vec<impl Future<Output = ApiResult<Vec<u8>>>>,
     front: impl Future<Output = ApiResult<Vec<u8>>>,
@@ -110,7 +116,11 @@ pub(super) async fn drawn_beside_front<S: Future<Output = ()>>(
     };
     let sending = async {
         while let Some(png) = coming.recv().await {
-            send_ahead(png).await;
+            if !send_ahead(png).await {
+                // What kept this one from the Space would keep the others: no more are taken.
+                coming.close();
+                break;
+            }
         }
     };
     finished_beside(made, sending).await
@@ -293,8 +303,52 @@ mod tests {
         update(&id, |job| job.stage = Stage::Done);
     }
 
-    /// Nothing is sent ahead.
-    async fn unsent(_: Vec<u8>) {}
+    /// Nothing needs sending ahead.
+    async fn unsent(_: Vec<u8>) -> bool {
+        true
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_first_drawing_that_cannot_be_sent_ahead_ends_the_sending() {
+        let _slot = JOB_TESTS.lock().await;
+        let seen = Seen::default();
+        let tried = Arc::new(Mutex::new(Vec::new()));
+        let started = tokio::time::Instant::now();
+        let (id, _) = claim_job(&Some("together-g".into()), "m", Stage::Generating, 4).unwrap();
+        let drawings = [30, 10, 20, 40].map(|wait| unit(wait, seen.clone(), Ok(vec![wait as u8])));
+        let front = unit(60, seen.clone(), Ok(b"front".to_vec()));
+        // The Space cannot be reached: each try is given up after 100.
+        let send_ahead = |png: Vec<u8>| {
+            let tried = tried.clone();
+            async move {
+                tried.lock().unwrap().push(png);
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                false
+            }
+        };
+        let (drawn, psd) = drawn_beside_front(&id, Vec::from(drawings), front, send_ahead)
+            .await
+            .unwrap();
+        // Only the first to come was tried; the others are left to the calls that carry them.
+        assert_eq!(*tried.lock().unwrap(), [vec![10]]);
+        // The job's drawings, their order and its progress are as without sending ahead.
+        assert_eq!(drawn, [vec![30], vec![10], vec![20], vec![40]]);
+        assert_eq!(psd, b"front");
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [
+                (Stage::Generating, 0, 4),
+                (Stage::Generating, 1, 4),
+                (Stage::Generating, 2, 4),
+                (Stage::Generating, 3, 4),
+                (Stage::Decomposing, 0, 5),
+            ]
+        );
+        assert_eq!(progress(), (Stage::Decomposing, 1, 5));
+        // The one try, begun at 10, was waited for; four more would have run to 510.
+        assert_eq!(started.elapsed(), Duration::from_millis(110));
+        update(&id, |job| job.stage = Stage::Done);
+    }
 
     #[tokio::test(start_paused = true)]
     async fn drawings_are_sent_ahead_as_they_come_without_holding_the_count() {
@@ -311,6 +365,7 @@ mod tests {
             async move {
                 tokio::time::sleep(Duration::from_millis(50)).await;
                 sent.lock().unwrap().push((png, progress()));
+                true
             }
         };
         let (drawn, psd) = drawn_beside_front(&id, Vec::from(drawings), front, send_ahead)
@@ -351,7 +406,7 @@ mod tests {
         let drawings = vec![unit(10, seen.clone(), Ok(vec![1]))];
         let front = unit(30, seen.clone(), Err(failed()));
         // A send that never ends.
-        let stuck = |_: Vec<u8>| std::future::pending::<()>();
+        let stuck = |_: Vec<u8>| std::future::pending::<bool>();
         assert!(
             drawn_beside_front(&id, drawings, front, stuck)
                 .await
@@ -371,6 +426,8 @@ mod tests {
         let client = see_through::SeeThroughClient::offline();
         let master = (axum::body::Bytes::new(), "image/gif".to_string());
         let ahead = Ahead::new(&client, &master);
+        // The master cannot be sent: nor is a drawing tried after it.
+        assert!(!ahead.send(Vec::new()).await);
         let drawings = [2, 1].map(|wait| unit(wait, seen.clone(), Ok(Vec::new())));
         let front = unit(3, seen.clone(), Ok(b"front".to_vec()));
         let (drawn, psd) =
