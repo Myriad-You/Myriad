@@ -14,7 +14,7 @@ use myriad_merope::jargon::{
     HERE_SCHEMA, USUAL_SCHEMA, Watched, hear, here_input, here_schema, here_system, parse_here,
     parse_usual, usual_input, usual_schema, usual_system, watch,
 };
-use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde_json::json;
 
 use super::call::{self, Voice};
@@ -240,15 +240,29 @@ pub async fn told(
     venue: &str,
     explained: &myriad_merope::group_reading::Explained,
 ) {
+    match write_told(db, venue, explained).await {
+        Ok(Some(id)) => {
+            super::memory_nodes::hanging::kept(db, &id).await;
+            tracing::info!(%venue, "[Merope] kept a group's word as someone there told it");
+        }
+        Ok(None) => {}
+        Err(error) => tracing::warn!(%error, "[Merope] could not keep a group's word"),
+    }
+    no_longer_watched(db, venue, &explained.term).await;
+}
+
+/// [`told`]'s row, in place of what she made of it.
+pub async fn write_told<C: ConnectionTrait>(
+    db: &C,
+    venue: &str,
+    explained: &myriad_merope::group_reading::Explained,
+) -> Result<Option<String>, sea_orm::DbErr> {
     let stored = unified::Audience::group(venue, 0).venue();
     let marker = format!(
         "\"term\":{}",
         serde_json::Value::String(explained.term.clone())
     );
-    let before = unified::unowned_with_evidence(db, &stored, SOURCE, &marker)
-        .await
-        .ok()
-        .flatten();
+    let before = unified::unowned_with_evidence(db, &stored, SOURCE, &marker).await?;
     let evidence = json!({
         "term": explained.term,
         "told": explained.who,
@@ -256,27 +270,21 @@ pub async fn told(
     })
     .to_string();
     let content = myriad_merope::memes::kept_line(&explained.term, &explained.meaning);
-    match unified::remember_in_venue(db, &stored, &content, &evidence, SOURCE).await {
-        Ok(Some(id)) => {
-            if let Some(before) = before.filter(|before| before.id != id) {
-                let _ = unified::retire_unowned_in_favor_of(
-                    db,
-                    &stored,
-                    &before.id,
-                    "superseded",
-                    Some(&id),
-                )
-                .await;
-            }
-            super::memory_nodes::hanging::kept(db, &id).await;
-            tracing::info!(%venue, "[Merope] kept a group's word as someone there told it");
-        }
-        Ok(None) => {}
-        Err(error) => tracing::warn!(%error, "[Merope] could not keep a group's word"),
+    let kept = unified::remember_in_venue(db, &stored, &content, &evidence, SOURCE).await?;
+    if let Some(id) = &kept
+        && let Some(before) = before.filter(|before| before.id != *id)
+    {
+        let by = Some(id.as_str());
+        unified::retire_unowned_in_favor_of(db, &stored, &before.id, "superseded", by).await?;
     }
+    Ok(kept)
+}
+
+/// A word of the group `venue` someone there told her, no longer watched.
+pub async fn no_longer_watched(db: &DatabaseConnection, venue: &str, term: &str) {
     let mut watched = watched_in(db, venue).await;
     let before = watched.len();
-    watched.retain(|word| word.term != explained.term);
+    watched.retain(|word| word.term != term);
     if watched.len() != before {
         keep_watched(db, venue, watched).await;
     }

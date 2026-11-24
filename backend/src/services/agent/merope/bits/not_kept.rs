@@ -212,7 +212,8 @@ mod tests {
     /// found anew since.
     #[tokio::test]
     async fn a_stretch_not_told_of_is_kept_as_it_was_read_once_it_is() {
-        use super::super::{DAY_SOURCE, LANDS_SOURCE, go_over_stretch};
+        use super::super::{Again, DAY_SOURCE, LANDS_SOURCE, go_over_stretch};
+        use crate::services::agent::merope::{memory_jobs, store::memory_jobs as queue};
         let Some(schema) = schema("bits_group_later").await else {
             return;
         };
@@ -261,9 +262,18 @@ mod tests {
         };
         g0::leave();
         assert!(kept().await.is_empty());
+        let read = not_told.read.clone();
+        memory_jobs::heard_later(db, 8, "telegram:42", said.clone(), Vec::new(), read)
+            .await
+            .unwrap();
+        let claimed = queue::claim(db).await.unwrap().expect("waits");
+        let again_as = |read| Again {
+            read,
+            own: queue::Own::of(&claimed),
+        };
         // Who they are could not be read: nor then.
         answering(&[]);
-        let read = Some(&not_told.read);
+        let read = Some(again_as(&not_told.read));
         let again = go_over_stretch(db, 8, "telegram:42", said.clone(), None, read);
         assert!(again.await.is_err());
         assert!(shown().is_empty());
@@ -301,7 +311,7 @@ mod tests {
                 "telegram:42",
                 &said,
                 &[],
-                read,
+                again_as(read),
                 gives_up,
             );
             assert!(again.await.is_ok());

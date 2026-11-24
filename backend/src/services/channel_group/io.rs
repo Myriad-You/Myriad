@@ -271,10 +271,10 @@ pub(crate) async fn heard_again(
     venue: &str,
     stretch: &[Said],
     speakers: &[(String, String)],
-    read: &bits::Read,
+    again: bits::Again<'_>,
     gives_up: bool,
 ) -> Result<(), bits::NotTold> {
-    let heard = crate::clock::now().fixed_offset() - read.at;
+    let heard = crate::clock::now().fixed_offset() - again.read.at;
     if gives_up || heard > heard_later::HEARD_FOR - LAST_TRY {
         heard_later::let_go();
         tracing::warn!(%venue, "[Group] a stretch never told of is let go: nothing of it is kept");
@@ -287,7 +287,7 @@ pub(crate) async fn heard_again(
         venue,
         stretch.to_vec(),
         people.as_deref(),
-        Some(read),
+        Some(again),
     )
     .await
 }

@@ -3,7 +3,7 @@
 //! own with no one's name on it but the group's, and brought to mind in any
 //! group whose talk touches it. What was about a person was never kept.
 
-use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde_json::json;
 
 use crate::services::agent::memory::unified::{self, Concept};
@@ -34,30 +34,7 @@ pub async fn keep(
         .collect();
     let mut kept = 0;
     for heard in things {
-        let thing = heard.thing;
-        if myriad_merope::heard::already_heard(held.iter().map(String::as_str), &thing) {
-            continue;
-        }
-        held.push(thing.clone());
-        let evidence = json!({
-            "heard": "in a group chat",
-            "group": venue,
-            "hangsOn": heard.hangs_on,
-            "because": heard.because,
-        })
-        .to_string();
-        let concepts: Vec<Concept> = heard
-            .hangs_on
-            .into_iter()
-            .map(|name| Concept {
-                name,
-                aliases: Vec::new(),
-            })
-            .collect();
-        if matches!(
-            unified::remember_own(db, &thing, &evidence, concepts, SOURCE).await,
-            Ok(Some(_))
-        ) {
+        if matches!(write_one(db, venue, &mut held, heard).await, Ok(Some(_))) {
             kept += 1;
         }
     }
@@ -67,6 +44,58 @@ pub async fn keep(
     if let Err(error) = unified::fade_source(db, SOURCE, FADE_AFTER).await {
         tracing::warn!(%error, "[Merope] could not let old things she heard fade");
     }
+}
+
+/// [`keep`], all of it or none: on a transaction, and whether she is on was
+/// looked at before.
+pub async fn write<C: ConnectionTrait>(
+    db: &C,
+    venue: &str,
+    things: Vec<myriad_merope::group_reading::Heard>,
+) -> Result<(), sea_orm::DbErr> {
+    if things.is_empty() {
+        return Ok(());
+    }
+    let mut held: Vec<String> = unified::own_rows(db, SOURCE, HELD)
+        .await?
+        .into_iter()
+        .map(|row| row.content)
+        .collect();
+    for heard in things {
+        write_one(db, venue, &mut held, heard).await?;
+    }
+    unified::fade_source(db, SOURCE, FADE_AFTER).await?;
+    Ok(())
+}
+
+/// One thing she heard, unless she `held` it already.
+async fn write_one<C: ConnectionTrait>(
+    db: &C,
+    venue: &str,
+    held: &mut Vec<String>,
+    heard: myriad_merope::group_reading::Heard,
+) -> Result<Option<String>, sea_orm::DbErr> {
+    let thing = heard.thing;
+    if myriad_merope::heard::already_heard(held.iter().map(String::as_str), &thing) {
+        return Ok(None);
+    }
+    held.push(thing.clone());
+    let evidence = json!({
+        "heard": "in a group chat",
+        "group": venue,
+        "hangsOn": heard.hangs_on,
+        "because": heard.because,
+    })
+    .to_string();
+    let concepts: Vec<Concept> = heard
+        .hangs_on
+        .into_iter()
+        .map(|name| Concept {
+            name,
+            aliases: Vec::new(),
+        })
+        .collect();
+    unified::remember_own(db, &thing, &evidence, concepts, SOURCE).await
 }
 
 /// What she heard that the talk in the group `here` (as sessions keep it)

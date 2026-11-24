@@ -608,7 +608,7 @@ async fn prepare(db: &DatabaseConnection, claim: &queue::Claim) -> Result<Effect
             venue,
             stretch,
             speakers,
-            read,
+            super::bits::Again { read, own },
             claim.gives_up,
         )
         .await
