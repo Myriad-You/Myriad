@@ -13,8 +13,8 @@ use myriad_phantasi_notes::{
 };
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection,
-    EntityTrait, PaginatorTrait, QueryFilter, QuerySelect, Set, Statement, TransactionTrait,
-    Value as SeaValue,
+    DatabaseTransaction, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect, Set, Statement,
+    TransactionTrait, Value as SeaValue,
 };
 use serde::Serialize;
 
@@ -101,6 +101,54 @@ async fn resolve_note_slug<C: ConnectionTrait>(
     }
     let taken = taken_note_slugs(db, source_id, item_id).await?;
     Ok(allocate_note_slug(title, item_id, &taken))
+}
+
+/// 自动挑的 slug 最多挑几次：每次撞上都是另一篇刚占了它。
+const PICKED_SLUG_TRIES: usize = 8;
+
+/// 写这篇的 slug 和链接（连同 `item` 里别的改动）。写的时候撞上另一篇刚占的就再挑：
+/// 自动挑的换下一个号（人没填过它，不该看到它的 409），手填的由 `resolve_note_slug` 答 409。
+/// 每次在一个 savepoint 里写，撞了不毁掉外面的事务。
+async fn save_with_slug(
+    txn: &DatabaseTransaction,
+    item: phantasi_items::ActiveModel,
+    source_id: i32,
+    item_id: i32,
+    title: &str,
+    existing: Option<&str>,
+    requested: Option<&str>,
+) -> Result<phantasi_items::Model, HttpError> {
+    let mut tries = 0;
+    loop {
+        let slug = resolve_note_slug(txn, source_id, item_id, title, existing, requested).await?;
+        let mut active = item.clone();
+        active.link = Set(note_link(&slug));
+        active.slug = Set(Some(slug));
+        tries += 1;
+        let attempt = txn
+            .begin()
+            .await
+            .map_err(|error| phantasi_store_http("begin note slug", error))?;
+        match active.update(&attempt).await {
+            Ok(saved) => {
+                attempt
+                    .commit()
+                    .await
+                    .map_err(|error| phantasi_store_http("save note slug", error))?;
+                return Ok(saved);
+            }
+            Err(error) => {
+                attempt
+                    .rollback()
+                    .await
+                    .map_err(|error| phantasi_store_http("roll back note slug", error))?;
+                let taken = crate::federation::types::is_unique_violation(&error);
+                if !taken || tries == PICKED_SLUG_TRIES {
+                    return Err(slug_store_err("save note", error));
+                }
+            }
+        }
+    }
 }
 
 /// 站长改已发布笔记的 slug。校验失败 400，同一笔记源里已有则 409。
@@ -225,8 +273,8 @@ async fn sync_item_count<C: ConnectionTrait>(
 }
 
 /// 把一篇已经校验过的笔记写进 `phantasi_items`。有 `item_id` 就改，没有就新建。
-async fn write_published_item<C: ConnectionTrait>(
-    db: &C,
+async fn write_published_item(
+    db: &DatabaseTransaction,
     user_id: i32,
     item_id: Option<i32>,
     title: &str,
@@ -267,15 +315,6 @@ async fn write_published_item<C: ConnectionTrait>(
         }
         let existing_id = item.id;
         let current_slug = item.slug.clone();
-        let slug = resolve_note_slug(
-            db,
-            source.id,
-            existing_id,
-            &rendered.title,
-            current_slug.as_deref(),
-            requested_slug,
-        )
-        .await?;
         // 读者看到的东西变了才算改过：博客页的 lastmod 和站点地图都取 fetched_at。
         let changed = item.title != rendered.title
             || item.content.as_deref() != Some(rendered.html.as_str())
@@ -284,7 +323,7 @@ async fn write_published_item<C: ConnectionTrait>(
         if changed {
             active.fetched_at = Set(now.into());
         }
-        active.title = Set(rendered.title);
+        active.title = Set(rendered.title.clone());
         active.summary = Set(rendered.summary);
         active.content = Set(Some(rendered.html));
         active.content_md = Set(Some(content_md.to_string()));
@@ -293,15 +332,19 @@ async fn write_published_item<C: ConnectionTrait>(
         active.reading_time = Set(Some(rendered.reading_time));
         active.topic = Set(topic);
         active.author = Set(author);
-        active.slug = Set(Some(slug.clone()));
-        active.link = Set(note_link(&slug));
         if let Some(published_at) = published_at_ms.and_then(millis_to_datetime) {
             active.published_at = Set(published_at.into());
         }
-        let item = active
-            .update(db)
-            .await
-            .map_err(|error| slug_store_err("save note", error))?;
+        let item = save_with_slug(
+            db,
+            active,
+            source.id,
+            existing_id,
+            &rendered.title,
+            current_slug.as_deref(),
+            requested_slug,
+        )
+        .await?;
         return Ok(PublishedNote {
             id: item.id,
             link: item.link,
@@ -331,23 +374,17 @@ async fn write_published_item<C: ConnectionTrait>(
         .insert(db)
         .await
         .map_err(|e| phantasi_store_http("save note", e))?;
-    let item_id = item.id;
-    let slug = resolve_note_slug(
+    let (item_id, title) = (item.id, item.title.clone());
+    let item = save_with_slug(
         db,
+        item.into(),
         source.id,
         item_id,
-        &item.title,
+        &title,
         None,
         requested_slug,
     )
     .await?;
-    let mut active: phantasi_items::ActiveModel = item.into();
-    active.slug = Set(Some(slug.clone()));
-    active.link = Set(note_link(&slug));
-    let item = active
-        .update(db)
-        .await
-        .map_err(|error| slug_store_err("save note", error))?;
     sync_item_count(db, &source).await?;
     Ok(PublishedNote {
         id: item.id,
@@ -407,8 +444,8 @@ async fn mark_doc_published<C: ConnectionTrait>(
 /// history. A caller that already advanced the draft in the same transaction
 /// (the editor's publish) passes the revision it started from, so that
 /// snapshot's media is bound too; otherwise it is the document's revision.
-pub async fn publish_doc_on<C: ConnectionTrait>(
-    txn: &C,
+pub async fn publish_doc_on(
+    txn: &DatabaseTransaction,
     doc: phantasi_note_docs::Model,
     published_at_ms: Option<i64>,
     history_since: i64,
@@ -1647,6 +1684,116 @@ mod tests {
                 .unwrap(),
             6
         );
+        drop(db);
+        isolated.drop().await;
+    }
+
+    /// Publishes `doc` with `requested` while another note holds the slug
+    /// `draft-title`, not committed until this one waits for it.
+    async fn publish_against_a_taken_slug(
+        db: &DatabaseConnection,
+        doc: phantasi_note_docs::Model,
+        requested: Option<&'static str>,
+    ) -> Result<(PublishedNote, phantasi_note_docs::Model), HttpError> {
+        let item = insert_test_item(db).await;
+        let holder = db.begin().await.unwrap();
+        let pid: i32 = holder
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT pg_backend_pid() AS pid",
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get("", "pid")
+            .unwrap();
+        holder
+            .execute_unprepared(&format!(
+                "UPDATE phantasi_items SET slug = 'draft-title' WHERE id = {}",
+                item.id
+            ))
+            .await
+            .unwrap();
+        let publish = async {
+            let txn = db.begin().await.unwrap();
+            let since = doc.revision;
+            let published = publish_doc_on(&txn, doc, None, since, requested).await;
+            match &published {
+                Ok(_) => txn.commit().await.unwrap(),
+                Err(_) => txn.rollback().await.unwrap(),
+            }
+            published
+        };
+        let release = async {
+            for _ in 0..600 {
+                let waiting: i64 = db
+                    .query_one_raw(Statement::from_string(
+                        DatabaseBackend::Postgres,
+                        format!(
+                            "SELECT count(*) AS n FROM pg_stat_activity \
+                             WHERE {pid} = ANY(pg_blocking_pids(pid))"
+                        ),
+                    ))
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .try_get("", "n")
+                    .unwrap();
+                if waiting > 0 {
+                    holder.commit().await.unwrap();
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            panic!("nothing waited for the slug");
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            tokio::join!(publish, release).0
+        })
+        .await
+        .expect("publishing must not hang on a taken slug")
+    }
+
+    #[tokio::test]
+    async fn a_picked_slug_taken_meanwhile_is_picked_again() {
+        let Some(isolated) = migrated_note_db().await else {
+            return;
+        };
+        let db = isolated.db.clone();
+        let doc = insert_test_doc(&db).await;
+        let (item, saved) = publish_against_a_taken_slug(&db, doc, None).await.unwrap();
+        assert_eq!(item.link, note_link("draft-title-2"));
+        assert_eq!(saved.status, "published");
+        let kept = phantasi_items::Entity::find_by_id(item.id)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(kept.slug.as_deref(), Some("draft-title-2"));
+        assert_eq!(kept.source_id, 1);
+        drop(db);
+        isolated.drop().await;
+    }
+
+    #[tokio::test]
+    async fn a_slug_someone_chose_that_is_taken_meanwhile_is_still_a_conflict() {
+        let Some(isolated) = migrated_note_db().await else {
+            return;
+        };
+        let db = isolated.db.clone();
+        let doc = insert_test_doc(&db).await;
+        let doc_id = doc.id;
+        let refused = publish_against_a_taken_slug(&db, doc, Some("draft-title"))
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(refused.0.status(), StatusCode::CONFLICT);
+        let left = phantasi_note_docs::Entity::find_by_id(doc_id)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(left.status, "scheduled");
         drop(db);
         isolated.drop().await;
     }
