@@ -17,6 +17,7 @@ pub struct Rounds {
     by_audience: BTreeMap<String, Round>,
     /// [`Self::over`]: the ends that may still send any.
     live: Option<BTreeSet<String>>,
+    taken_in: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -32,6 +33,18 @@ impl Rounds {
             live: Some(live),
             ..Self::default()
         }
+    }
+
+    /// Whether her nodes the log has were taken in on this link and nothing
+    /// failed since: until then that is owed, whatever is news or not (a
+    /// link before may have failed at it).
+    pub fn taken_in(&self) -> bool {
+        self.taken_in
+    }
+
+    /// They were taken in, or that failed.
+    pub fn note_taken_in(&mut self, taken_in: bool) {
+        self.taken_in = taken_in;
     }
 
     /// `device` said it holds `theirs` of `audience`: whether that is news.
