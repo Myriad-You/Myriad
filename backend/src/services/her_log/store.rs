@@ -62,12 +62,23 @@ pub(super) fn rows_of(results: Vec<QueryResult>) -> Result<Vec<Row>, Error> {
         .collect()
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How often an audience's rows were read whole, in a test.
+    pub(super) static READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// The rows are read for every log.vector, as before a side that lacks
+    /// none was told from its count, in a test.
+    pub(super) static READ_ALWAYS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// Every row of `user`'s `audience`.
 pub async fn rows<C: ConnectionTrait>(
     db: &C,
     user: i32,
     audience: &str,
 ) -> Result<Vec<Row>, Error> {
+    #[cfg(test)]
+    READS.with(|reads| reads.set(reads.get() + 1));
     rows_of(
         db.query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -91,13 +102,62 @@ pub async fn audiences<C: ConnectionTrait>(db: &C, user: i32) -> Result<Vec<Stri
     .collect()
 }
 
-/// What the server holds of `user`'s `audience`.
+/// What the server holds of `user`'s `audience`: what `vector::holdings` says
+/// of its rows, counted by the database from their places alone (an index
+/// holds them), so none of them is read.
 pub async fn holdings<C: ConnectionTrait>(
     db: &C,
     user: i32,
     audience: &str,
 ) -> Result<Holdings, Error> {
-    Ok(vector::holdings(&rows(db, user, audience).await?)?)
+    // A place is held once, so the nth of an origin's, in order, is n while
+    // every one before it is held, and past it after the first gap.
+    let mut held = Holdings {
+        vector: Vector::new(),
+        beyond: BTreeMap::new(),
+    };
+    for row in db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT origin, \
+                    max(dseq) FILTER (WHERE dseq = n) AS through, \
+                    array_agg(dseq ORDER BY dseq) FILTER (WHERE dseq > n) AS past \
+             FROM (SELECT origin, dseq, \
+                          row_number() OVER (PARTITION BY origin ORDER BY dseq) AS n \
+                   FROM agent_log_rows \
+                   WHERE user_id = $1 AND audience = $2 AND dseq > 0) AS places \
+             GROUP BY origin",
+            [user.into(), audience.into()],
+        ))
+        .await?
+    {
+        let origin: String = row.try_get("", "origin")?;
+        let place = |n: i64| u64::try_from(n).unwrap_or_default();
+        if let Some(through) = row.try_get::<Option<i64>>("", "through")? {
+            held.vector.insert(origin.clone(), place(through));
+        }
+        if let Some(past) = row.try_get::<Option<Vec<i64>>>("", "past")? {
+            held.beyond
+                .insert(origin, past.into_iter().map(place).collect());
+        }
+    }
+    Ok(held)
+}
+
+/// Whether a side holding `theirs` lacks nothing `held` counts: then
+/// `vector::answer` gives it no row, and there is nothing of the rows to
+/// read for it. Its rows are those past its count, by origin.
+pub fn lacks_none(held: &Holdings, theirs: &Vector) -> bool {
+    let last = |origin: &String| {
+        (held.beyond.get(origin))
+            .and_then(|past| past.last())
+            .or_else(|| held.vector.get(origin))
+            .copied()
+            .unwrap_or_default()
+    };
+    (held.vector.keys())
+        .chain(held.beyond.keys())
+        .all(|origin| last(origin) <= theirs.get(origin).copied().unwrap_or_default())
 }
 
 /// The ledger of `user`'s `audience`, as the core gave it.
@@ -686,6 +746,8 @@ async fn insert<C: ConnectionTrait>(db: &C, user: i32, row: &Row, from: &str) ->
         .dseq
         .filter(|_| row.replicate == Replicate::Shared)
         .ok_or_else(|| Error::Refused("the server keeps shared rows only".into()))?;
+    let dseq = i64::try_from(dseq)
+        .map_err(|_| Error::Refused("a count past what a place is kept by".into()))?;
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "INSERT INTO agent_log_rows (user_id, id, audience, origin, dseq, hlc, object, subject, \
@@ -696,7 +758,7 @@ async fn insert<C: ConnectionTrait>(db: &C, user: i32, row: &Row, from: &str) ->
             row.id.clone().into(),
             row.audience.clone().into(),
             row.origin.clone().into(),
-            (dseq as i64).into(),
+            dseq.into(),
             row.hlc.to_string().into(),
             row.object.clone().into(),
             row.subject.clone().into(),
