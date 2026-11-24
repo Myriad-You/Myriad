@@ -46,6 +46,14 @@ const previewRetries = new WeakMap<object, RigPreviewRetry>()
  * does not compile, the portrait changed meanwhile) would be refused again,
  * and each try pays for another chest estimate.
  */
+/**
+ * The most an atlas may weigh for the server to store it (its own limit on the
+ * import's atlas field). The preview goes without the atlas, so the page holds
+ * it to this before asking: a package that could never be stored is turned
+ * away before anything is spent on analysing it.
+ */
+const MAX_ATLAS_BYTES = 20 * 1024 * 1024
+
 function worthSendingAgain(error: object): boolean {
   const { status } = error as { status?: unknown }
   return typeof status === 'number' && (status === 0 || status === 408 || status >= 500)
@@ -122,11 +130,8 @@ async function previewPreparedRigAsset(
   signal?.throwIfAborted()
   emit(onStage, 'compile-preview', 'started')
   try {
-    const { manifest, partSearch } = await preview(
-      prepared.source,
-      prepared.atlas,
-      prepared.analysisReference,
-    )
+    if (prepared.atlas.size > MAX_ATLAS_BYTES) throw new Error('Rig atlas exceeds 20 MB')
+    const { manifest, partSearch } = await preview(prepared.source, prepared.analysisReference)
     signal?.throwIfAborted()
     copyPreviewPlaybackProfiles(prepared.source, manifest)
     emit(onStage, 'compile-preview', 'completed')

@@ -36,6 +36,13 @@ use crate::{
 const MAX_RIG_IMPORT_SOURCE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_RIG_IMPORT_ATLAS_BYTES: usize = 20 * 1024 * 1024;
 pub(super) const MAX_RIG_ANALYSIS_REFERENCE_BYTES: usize = 10 * 1024 * 1024;
+/// What a route taking a rig upload lets through: every field at its own
+/// limit, with room for the multipart framing around them. A route that let
+/// less through would turn away a package the fields themselves allow.
+pub(super) const MAX_RIG_IMPORT_BODY_BYTES: usize = MAX_RIG_IMPORT_SOURCE_BYTES
+    + MAX_RIG_IMPORT_ATLAS_BYTES
+    + MAX_RIG_ANALYSIS_REFERENCE_BYTES
+    + 4 * 1024 * 1024;
 
 fn rig_motion_seed(source_master_asset_id: &str) -> u32 {
     let mut hash: u32 = 2166136261;
@@ -209,15 +216,32 @@ struct ImportRigSourceRequest {
     anime25d_playback: Option<Value>,
 }
 
+/// Whether an upload has to bring the atlas itself.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AtlasUpload {
+    /// An import stores the atlas.
+    Required,
+    /// A preview compiles from the size the source declares and never reads
+    /// the pixels, so the page may leave megabytes of upload out. One sent
+    /// along is checked all the same.
+    Optional,
+}
+
 struct ParsedRigImport {
     source: ImportRigSourceRequest,
-    atlas_bytes: Vec<u8>,
+    /// Checked against the source when sent; always sent where required.
+    atlas_bytes: Option<Vec<u8>>,
     analysis_reference_bytes: Option<Vec<u8>>,
+}
+
+fn missing_atlas() -> ApiError {
+    bad_request("Rig import is missing atlas PNG")
 }
 
 async fn parse_rig_import(
     mut multipart: Multipart,
     profile: CharacterAssetProfile,
+    atlas: AtlasUpload,
 ) -> ApiResult<ParsedRigImport> {
     let mut source_bytes = None;
     let mut atlas_bytes = None;
@@ -290,15 +314,27 @@ async fn parse_rig_import(
         }
         fingerprint.make_ascii_lowercase();
     }
-    let atlas_bytes = atlas_bytes.ok_or_else(|| bad_request("Rig import is missing atlas PNG"))?;
-    let (atlas_bytes, dimensions) = merope_rig::validate_png_dimensions(atlas_bytes)
-        .await
-        .map_err(png_validation_error)?;
-    if dimensions != (source.atlas.width, source.atlas.height) {
-        return Err(bad_request(
-            "Rig atlas dimensions do not match source metadata",
-        ));
-    }
+    let atlas_bytes = match atlas_bytes {
+        Some(bytes) => {
+            let (bytes, dimensions) = merope_rig::validate_png_dimensions(bytes)
+                .await
+                .map_err(png_validation_error)?;
+            if dimensions != (source.atlas.width, source.atlas.height) {
+                return Err(bad_request(
+                    "Rig atlas dimensions do not match source metadata",
+                ));
+            }
+            Some(bytes)
+        }
+        None if atlas == AtlasUpload::Required => return Err(missing_atlas()),
+        // With no PNG to read the size from, the declared one is held to the
+        // limits a PNG's own would be.
+        None => {
+            merope_rig::check_atlas_size(source.atlas.width, source.atlas.height)
+                .map_err(|message| bad_request(&message))?;
+            None
+        }
+    };
     if source.atlas.id.trim().is_empty()
         || source
             .layers
@@ -368,7 +404,7 @@ pub(super) async fn preview_rig(
         mut source,
         analysis_reference_bytes,
         ..
-    } = parse_rig_import(multipart, slot.profile()).await?;
+    } = parse_rig_import(multipart, slot.profile(), AtlasUpload::Optional).await?;
     step("upload read");
     let analysis_reference_bytes = analysis_reference_bytes
         .ok_or_else(|| bad_request("Rig preview is missing its analysis reference"))?;
@@ -576,7 +612,8 @@ pub(super) async fn import_rig(
         mut source,
         atlas_bytes,
         analysis_reference_bytes,
-    } = parse_rig_import(multipart, slot.profile()).await?;
+    } = parse_rig_import(multipart, slot.profile(), AtlasUpload::Required).await?;
+    let atlas_bytes = atlas_bytes.ok_or_else(missing_atlas)?;
     let source_master_asset_id = source.source_master_asset_id.clone();
     let source_generation_fingerprint = source.source_generation_fingerprint.clone();
     let master = require_master_match(
@@ -606,3 +643,7 @@ pub(super) async fn import_rig(
         staged_parts,
     })
 }
+
+#[cfg(test)]
+#[path = "import_tests.rs"]
+mod tests;

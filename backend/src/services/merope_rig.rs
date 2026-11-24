@@ -61,6 +61,17 @@ pub fn manifest_path(asset_id: &str) -> PathBuf {
     asset_dir(asset_id).join(MANIFEST_FILENAME)
 }
 
+/// The size an atlas may have, whether read from its PNG or only declared by
+/// the source a preview compiles from.
+pub fn check_atlas_size(width: u32, height: u32) -> Result<(), String> {
+    let side = 256..=8_192u32;
+    if side.contains(&width) && side.contains(&height) {
+        Ok(())
+    } else {
+        Err("Rig atlas must be between 256 and 8192 pixels on each side".to_string())
+    }
+}
+
 /// Validates the browser-produced RGBA8 atlas stream without materializing
 /// pixels. Structural truncation and invalid zlib data must fail before a rig
 /// package can be activated.
@@ -114,9 +125,7 @@ pub fn png_dimensions(bytes: &[u8]) -> Result<(u32, u32), String> {
     }
     let (width, height) =
         dimensions.ok_or_else(|| "Rig atlas PNG is missing an IHDR".to_string())?;
-    if width < 256 || height < 256 || width > 8_192 || height > 8_192 {
-        return Err("Rig atlas must be between 256 and 8192 pixels on each side".to_string());
-    }
+    check_atlas_size(width, height)?;
     if !saw_iend || compressed.is_empty() {
         return Err("Rig atlas PNG is incomplete".to_string());
     }
