@@ -22,7 +22,7 @@
 //! them stays ([`forgotten_by`]).
 //!
 //! One another end forgot is looked at once everything it wrote up to that
-//! forget is here: a version of it written again stands then, and what rests
+//! forget is here: a version it wrote in its place stands then, and what rests
 //! on it stays ([`super::pieces_due`]).
 //!
 //! The site is no node's home and writes no `retract.home`
@@ -61,14 +61,20 @@ pub(super) struct Gone {
 }
 
 impl Gone {
-    /// The spans and entries among the rows `going` of `kept`.
+    /// The spans and entries among the rows `going` of `kept`, and those
+    /// forgotten before that they were written in place of.
     pub(super) fn of(kept: &[heads::KeptRow], going: &BTreeSet<String>) -> Self {
-        Self {
-            pieces: kept
-                .iter()
-                .filter(|kept| going.contains(&kept.row.id) && is_piece(&kept.row.kind))
+        let pieces = |of: &dyn Fn(&Row) -> bool| -> BTreeSet<String> {
+            kept.iter()
+                .filter(|kept| is_piece(&kept.row.kind) && of(&kept.row))
                 .map(|kept| kept.row.id.clone())
-                .collect(),
+                .collect()
+        };
+        Self {
+            pieces: pieces_due::replaced(
+                pieces(&|row| going.contains(&row.id)),
+                &pieces(&|row| row.forgotten),
+            ),
             ..Self::default()
         }
     }
@@ -390,6 +396,7 @@ impl Round {
                 .map(str::to_string),
         );
         looking.extend(pieces_due::among(db, user_id, &all).await?);
+        let looking = pieces_due::replaced(looking, &all);
         let late = Late::of(&kept, came);
         if looking.is_empty() && late.named.is_empty() {
             return Ok(Vec::new());

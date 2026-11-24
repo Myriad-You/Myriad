@@ -426,6 +426,7 @@ async fn a_node_forgotten_whole_takes_what_rests_on_its_spans() {
     let (node, held, away) = (made.node.clone(), folder.node.clone(), other.node.clone());
     let mut made = made;
     made.id = "made-repo".into();
+    made.body["object"] = json!({"kind": "repo", "name": "repo"});
     put(
         db,
         OWNER,
@@ -658,7 +659,17 @@ impl Here {
 
     /// A span of the computer's on `object`.
     fn said(&mut self, id: &str, object: &str, text: &str) -> (Row, Option<Value>) {
-        let body = span_body(&self.talk, text, &["message:aa"]);
+        self.said_of(id, object, text, "message:aa")
+    }
+
+    fn said_of(
+        &mut self,
+        id: &str,
+        object: &str,
+        text: &str,
+        reference: &str,
+    ) -> (Row, Option<Value>) {
+        let body = span_body(&self.talk, text, &[reference]);
         self.by_mac(id, object, "node.span", Some(body))
     }
 
@@ -707,7 +718,19 @@ impl Here {
                 })
             })
             .collect();
-        let asked: BTreeSet<String> = rows.iter().map(|(row, _)| row.id.clone()).collect();
+        // Asked for again: what is here whole.
+        let here: BTreeSet<String> = store::rows(self.db(), OWNER, &self.talk)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|row| !row.forgotten)
+            .map(|row| row.id)
+            .collect();
+        let asked: BTreeSet<String> = rows
+            .iter()
+            .map(|(row, _)| row.id.clone())
+            .filter(|id| here.contains(id))
+            .collect();
         let batch = Batch {
             audience: self.talk.clone(),
             withheld: bare
@@ -1330,28 +1353,28 @@ async fn every_audience_a_memory_may_be_named_in_is_locked() {
         forget_locks::lock_for(&txn, Some(OWNER), &[memory.into()], &[])
             .await
             .unwrap();
-        let free = |user: i32, audience: String| async move {
-            let other = db.begin().await.unwrap();
-            let free: bool = other
-                .query_one_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    "SELECT pg_try_advisory_xact_lock(hashtextextended( \
-                     'myriad-memory-nodes:' || $1 || ':' || $2, 0)) AS free",
-                    [user.to_string().into(), audience.into()],
-                ))
-                .await
-                .unwrap()
-                .unwrap()
-                .try_get("", "free")
-                .unwrap();
-            other.rollback().await.unwrap();
-            free
+        // By what this connection holds: other tests hold locks of theirs.
+        let here = &txn;
+        let held = |user: i32, audience: String| async move {
+            here.query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT EXISTS (SELECT 1 FROM pg_locks l, \
+                   (SELECT hashtextextended('myriad-memory-nodes:' || $1 || ':' || $2, 0) AS key) k \
+                 WHERE l.locktype = 'advisory' AND l.pid = pg_backend_pid() AND l.granted \
+                   AND ((l.classid::bigint << 32) | l.objid::bigint) = k.key) AS held",
+                [user.to_string().into(), audience.into()],
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get::<bool>("", "held")
+            .unwrap()
         };
         let out = [
-            !free(OWNER, "group:qq:5".into()).await,
-            !free(7, "personal:7".into()).await,
-            !free(OWNER, audience::owners_talk()).await,
-            !free(OWNER, audience::OWN.into()).await,
+            held(OWNER, "group:qq:5".into()).await,
+            held(7, "personal:7".into()).await,
+            held(OWNER, audience::owners_talk()).await,
+            held(OWNER, audience::OWN.into()).await,
         ];
         txn.rollback().await.unwrap();
         out
@@ -1415,6 +1438,132 @@ async fn a_span_written_again_is_not_forgotten() {
     let gone = vec![here.forget("row:p-2@mac~1")];
     here.sent(gone, &[]).await;
     assert_eq!(left(here.db()).await, ids(&["late-marked", "on-marked"]));
+    here.schema.drop().await;
+}
+
+/// A row of the site's that the Mac marked: it is written again in the Mac's
+/// own slot for it, and what rests on it stays. Once that is forgotten, there
+/// or here, it was forgotten.
+#[tokio::test]
+async fn a_row_of_the_sites_another_end_wrote_again_is_not_forgotten() {
+    for (place, there) in [("n-", true), ("p-", false)] {
+        let Some(mut here) = here("resting_on_marked_here").await else {
+            return;
+        };
+        let talk = here.talk.clone();
+        let object = here.ferns().await;
+        let node = object.trim_start_matches("node:").to_string();
+        put(
+            here.db(),
+            OWNER,
+            &talk,
+            &[
+                span(&talk, &node, "u1", &["record:r1"]),
+                span(&talk, &node, "u2", &["record:r2"]),
+                hand(&node, "on", "a", "ask one", &["span:u1"], &[], "waiting"),
+                hand(&node, "on2", "b", "ask two", &["span:u2"], &[], "waiting"),
+            ],
+        )
+        .await;
+        let version = format!("{place}u1@mac");
+        let again = vec![
+            here.said_of(&version, &object, "they watered it", "message:501"),
+            // Not a version of it: a slot that only ends alike.
+            here.said("x-u2@mac", &object, "they moved it"),
+            here.forget("row:u1"),
+            here.forget("row:u2"),
+        ];
+        here.sent(again, &[]).await;
+        assert_eq!(left(here.db()).await, ids(&["on"]), "{place}");
+        match there {
+            true => {
+                let gone = vec![here.forget(&format!("row:{version}"))];
+                here.sent(gone, &[]).await;
+            }
+            false => {
+                let txn = here.db().begin().await.unwrap();
+                forget::forget(&txn, &[], &[501]).await.unwrap();
+                txn.commit().await.unwrap();
+            }
+        }
+        assert!(left(here.db()).await.is_empty(), "{place}");
+        here.schema.drop().await;
+    }
+}
+
+/// A span of the Mac's forgotten here while the Mac marked it: the forget
+/// here is not the Mac's, so what rests on the span goes, what comes late too.
+#[tokio::test]
+async fn a_span_forgotten_here_as_its_end_marked_it_takes_what_rests_on_it() {
+    let Some(mut here) = here("resting_on_both").await else {
+        return;
+    };
+    let talk = here.talk.clone();
+    let object = here.ferns().await;
+    let node = object.trim_start_matches("node:").to_string();
+    let told = vec![
+        here.said_of("p-1@mac", &object, "they watered it", "message:501"),
+        here.intent(
+            &node,
+            "on",
+            intent_body("a", "ask one", &["span:p-1@mac"], &[], "waiting"),
+        ),
+    ];
+    here.sent(told, &[]).await;
+    let again = vec![
+        here.said("p-1@mac~1", &object, "they watered it"),
+        here.forget("row:p-1@mac"),
+        here.intent(
+            &node,
+            "late",
+            intent_body("b", "ask two", &["span:p-1@mac"], &[], "waiting"),
+        ),
+    ];
+    let txn = here.db().begin().await.unwrap();
+    forget::forget(&txn, &[], &[501]).await.unwrap();
+    txn.commit().await.unwrap();
+    assert!(left(here.db()).await.is_empty());
+    here.sent(again, &[]).await;
+    assert!(left(here.db()).await.is_empty());
+    here.schema.drop().await;
+}
+
+/// It is whoever wrote the forget that has to be here whole, and its version
+/// that counts: another end's does not.
+#[tokio::test]
+async fn a_forget_is_taken_for_what_the_end_that_wrote_it_kept() {
+    let Some(mut here) = here("resting_on_whose").await else {
+        return;
+    };
+    let object = here.ferns().await;
+    let node = object.trim_start_matches("node:").to_string();
+    let mut other = here.said("p-1@other", &object, "they watered it");
+    other.0.origin = "dev_other".into();
+    other.0.hlc.node = "dev_other".into();
+    other.0.dseq = Some(1);
+    here.mac.count -= 1;
+    let mut version = here.said("p-1@other~1", &object, "they watered it");
+    version.0.origin = "dev_other".into();
+    version.0.hlc.node = "dev_other".into();
+    version.0.dseq = Some(2);
+    here.mac.count -= 1;
+    let told = vec![
+        other,
+        version,
+        here.intent(
+            &node,
+            "on",
+            intent_body("a", "ask one", &["span:p-1@other"], &[], "waiting"),
+        ),
+    ];
+    here.sent(told, &[]).await;
+    let missing = here.said("p-2@mac", &object, "they moved it");
+    let gone = here.forget("row:p-1@other");
+    here.sent(vec![gone], &[]).await;
+    assert_eq!(left(here.db()).await, ids(&["on"]));
+    assert_eq!(here.waiting().await, 1);
+    here.sent(vec![missing], &[]).await;
+    assert!(left(here.db()).await.is_empty());
     here.schema.drop().await;
 }
 

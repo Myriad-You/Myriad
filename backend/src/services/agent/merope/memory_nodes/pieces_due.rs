@@ -1,16 +1,21 @@
 //! Spans and entries another end forgot, until what rests on them can be
 //! looked at.
 //!
-//! A Mac that only puts a forgotten mark in place of what a piece came from
-//! writes it again as its slot's next version (its row is `<slot>@<writer>`,
-//! the next `<slot>@<writer>~<n>`) and forgets the row: nothing said is gone,
-//! and what rests on it stays. **A slot is gone when no version of it
-//! stands**, whatever the words of one that does: those of the forgotten one
-//! went as its forget came, so they are not compared.
+//! An end that only puts a forgotten mark in place of what a piece came from
+//! writes it again and forgets the row: a Mac's row is `<slot>@<writer>`, the
+//! slot's next version `<slot>@<writer>~<n>`, and one it writes in place of
+//! another end's row has the slot `p-<that row>` or `n-<that row>`. Nothing
+//! said is gone, and what rests on it stays. **A forget takes what rests on
+//! the row unless the end that wrote the forget has such a version of its own
+//! standing**, of the same kind, whatever its words: those of the forgotten
+//! one went as its forget came, so they are not compared. Any other end's
+//! forget takes it, whoever marked it meanwhile. Once no version stands any
+//! more, what rests on the rows it was written in place of goes with it
+//! ([`replaced`]).
 //!
 //! The forget goes ahead of everything else (`myriad_nodes::wire`), so the
-//! next version may come batches after. **It is looked at when everything its
-//! writer wrote up to it is here and no more of it is on its way**
+//! version may come batches after. **It is looked at when everything the end
+//! that wrote it wrote up to it is here and no more of it is on its way**
 //! (`her_log::rounds`): the version was written before the forget. (An older
 //! build of the Mac wrote it right after: the round's end covers that.) The
 //! row itself is a stub, its words gone, as its forget comes.
@@ -33,31 +38,56 @@ use super::{Error, heads};
 use crate::services::agent::memory::{forgotten, meaning::digest};
 use crate::services::her_log::{rounds::Rounds, store};
 
-/// The slot and its writer, of a Mac's row's id (the core's
+/// The slot of a Mac's row's id, without its writer (the core's
 /// `nodes.resting_on` reads it alike). An id too long is a digest of the
 /// whole, from which none is read; one ending in `@` and digits has no
 /// writer.
 fn slot(id: &str) -> Option<&str> {
     let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
-    let (at, written) = id.rsplit_once('@')?;
+    let (slot, written) = id.rsplit_once('@')?;
     let writer = match written.rsplit_once('~') {
         Some((writer, n)) if digits(n) => writer,
         _ => written,
     };
-    (!at.is_empty() && !writer.is_empty() && !digits(writer))
-        .then(|| &id[..at.len() + 1 + writer.len()])
+    (!slot.is_empty() && !writer.is_empty() && !digits(writer)).then_some(slot)
 }
 
-/// What the versions of a piece share: its slot and writer, or its id.
-fn key(id: &str) -> &str {
-    slot(id).unwrap_or(id)
+/// Whether a row in `at` (a slot) is a version of the piece `id`.
+fn is_version(at: &str, id: &str) -> bool {
+    slot(id) == Some(at)
+        || ["p-", "n-"]
+            .iter()
+            .any(|place| at.strip_prefix(place) == Some(id))
+}
+
+/// `pieces`, and those of `forgotten` they were written in place of, however
+/// far back.
+pub(super) fn replaced(
+    mut pieces: BTreeSet<String>,
+    forgotten: &BTreeSet<String>,
+) -> BTreeSet<String> {
+    loop {
+        let more: Vec<String> = forgotten
+            .iter()
+            .filter(|id| !pieces.contains(*id))
+            .filter(|id| {
+                pieces
+                    .iter()
+                    .any(|piece| slot(piece).is_some_and(|at| is_version(at, id)))
+            })
+            .cloned()
+            .collect();
+        if more.is_empty() {
+            return pieces;
+        }
+        pieces.extend(more);
+    }
 }
 
 /// Whether grounds name the piece `id` (its row or its slot).
 fn names(id: &str) -> impl Iterator<Item = String> {
-    let slot = slot(id).and_then(|slot| Some(slot.rsplit_once('@')?.0));
     let ids: Vec<String> = std::iter::once(id)
-        .chain(slot)
+        .chain(slot(id))
         .map(str::to_string)
         .collect();
     ids.into_iter()
@@ -71,8 +101,8 @@ pub(super) struct Due<'a> {
     held: Vector,
     /// By what they name: who wrote each, its count, who sent it.
     forgets: BTreeMap<String, Vec<(String, u64, String)>>,
-    /// Slots (with their writer) and kinds a version of which stands.
-    standing: BTreeSet<(String, String)>,
+    /// The pieces that stand: whose, in which slot, of which kind.
+    standing: BTreeSet<(String, String, String)>,
 }
 
 impl<'a> Due<'a> {
@@ -87,6 +117,9 @@ impl<'a> Due<'a> {
         let mut forgets: BTreeMap<String, Vec<(String, u64, String)>> = BTreeMap::new();
         // One whose body has not come yet is in the log alone.
         let mut standing = BTreeSet::new();
+        let place = |row: &Row| {
+            slot(&row.id).map(|slot| (row.origin.clone(), slot.to_string(), row.kind.clone()))
+        };
         for found in db
             .query_all_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
@@ -100,7 +133,7 @@ impl<'a> Due<'a> {
             let row: Row = serde_json::from_value(found.try_get::<Value>("", "envelope")?)
                 .map_err(|_| Error::Refused("a row of her log does not read".into()))?;
             if row.kind != "forget" {
-                standing.extend(slot(&row.id).map(|slot| (slot.to_string(), row.kind.clone())));
+                standing.extend(place(&row));
             } else if let Some(dseq) = row.dseq {
                 forgets.entry(row.object.clone()).or_default().push((
                     row.origin.clone(),
@@ -112,7 +145,7 @@ impl<'a> Due<'a> {
         for kept in kept {
             let row = &kept.row;
             if !row.forgotten && matches!(row.kind.as_str(), "node.span" | "node.entry") {
-                standing.extend(slot(&row.id).map(|slot| (slot.to_string(), row.kind.clone())));
+                standing.extend(place(row));
             }
         }
         Ok(Self {
@@ -124,39 +157,34 @@ impl<'a> Due<'a> {
         })
     }
 
-    /// Whether one of the forgets that name the piece `id` (by its row, or
-    /// the node it is on) may be looked at; one no forget in the log names
-    /// has nothing to wait for.
-    fn ready(&self, id: &str, row: Option<&Row>) -> bool {
-        let by_row = self.forgets.get(&format!("{ROW}:{id}"));
-        let by_node = row.and_then(|row| self.forgets.get(&row.object));
-        let mut forgets = by_row.into_iter().chain(by_node).flatten().peekable();
-        forgets.peek().is_none()
-            || forgets.any(|(origin, dseq, from)| {
-                self.rounds
-                    .through(self.audience, &self.held, origin, *dseq, from)
-            })
-    }
-
-    /// Whether a version of the piece `id` stands.
-    fn stands(&self, id: &str, row: Option<&Row>) -> bool {
-        slot(id).is_some_and(|slot| {
-            self.standing
-                .iter()
-                .any(|(it, kind)| it == slot && row.is_none_or(|row| *kind == row.kind))
+    /// Whether `origin` has a version of the piece `id` standing.
+    fn stands(&self, origin: &str, id: &str, row: Option<&Row>) -> bool {
+        self.standing.iter().any(|(whose, at, kind)| {
+            whose == origin && row.is_none_or(|row| *kind == row.kind) && is_version(at, id)
         })
     }
 
-    /// Of `pieces` (forgotten), those looked at now and gone, with the
-    /// forgotten versions of them; those still due.
+    /// `pieces` (forgotten), by what the forgets that name each (by its row,
+    /// or the node it is on) come to: gone by one that may be looked at;
+    /// still due, when another may not; only written again. One no forget in
+    /// the log names is gone.
     pub(super) fn sort(&self, pieces: &BTreeSet<String>, rows: &BTreeMap<String, &Row>) -> Sorted {
         let mut sorted = Sorted::default();
         for id in pieces {
             let row = rows.get(id).copied();
-            if !self.ready(id, row) {
-                sorted.due.insert(id.clone());
-            } else if !self.stands(id, row) {
+            let by_row = self.forgets.get(&format!("{ROW}:{id}"));
+            let by_node = row.and_then(|row| self.forgets.get(&row.object));
+            let forgets: Vec<_> = by_row.into_iter().chain(by_node).flatten().collect();
+            let (ready, due): (Vec<_>, Vec<_>) =
+                forgets.iter().partition(|(origin, dseq, from)| {
+                    self.rounds
+                        .through(self.audience, &self.held, origin, *dseq, from)
+                });
+            let goes = |(origin, _, _): &&&(String, u64, String)| !self.stands(origin, id, row);
+            if forgets.is_empty() || ready.iter().any(goes) {
                 sorted.gone.insert(id.clone());
+            } else if !due.is_empty() {
+                sorted.due.insert(id.clone());
             } else {
                 sorted.written_again.insert(id.clone());
             }
@@ -210,7 +238,7 @@ pub(super) async fn keep<C: ConnectionTrait>(
 }
 
 fn intent_mark(piece: &str, intent: &str) -> String {
-    digest(&format!("{}\n{intent}", key(piece)))
+    digest(&format!("{piece}\n{intent}"))
 }
 
 /// Keeps `intents` (rows) as resting on the piece `piece`, due.
@@ -255,10 +283,9 @@ pub(super) async fn looked_at<C: ConnectionTrait>(
     let kept = forgotten::among(db, user_id, forgotten::INTENT_DUE, &all).await?;
     forgotten::let_go(db, user_id, forgotten::PIECE_DUE, &pieces).await?;
     forgotten::let_go(db, user_id, forgotten::INTENT_DUE, &all).await?;
-    let gone: BTreeSet<&str> = sorted.gone.iter().map(|id| key(id)).collect();
     Ok(marks
         .into_iter()
-        .filter(|(mark, (piece, _))| kept.contains(mark) && gone.contains(key(piece)))
+        .filter(|(mark, (piece, _))| kept.contains(mark) && sorted.gone.contains(*piece))
         .map(|(_, (_, intent))| intent.to_string())
         .collect())
 }
