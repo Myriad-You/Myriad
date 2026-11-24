@@ -10,9 +10,14 @@ use super::*;
 /// the whole (`figure_stitch`). With the head keyed, the upper tile is keyed
 /// as a bust (`run`, on its own cache, its front decomposition the tile's)
 /// and the keys placed on the stitched figure (`figure_keys`); with the body
-/// keyed, its turn and weight shift are made alongside (`body_turn`). A Space
-/// without these endpoints, or a head big enough already, has the figure
-/// decomposed whole.
+/// keyed, its turn and weight shift are made alongside (`body_turn`). A keyed
+/// head's decompositions go first: the other two tiles' and the body's wait
+/// for them (`head_first`). A Space without these endpoints, or a head big
+/// enough already, has the figure decomposed whole.
+///
+/// The job counts the enlarging, then the whole decomposition as one of one
+/// with the head keyed (its stages follow, then the stitching) and as the
+/// first of four with the three tiles counted after it.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn run_figure(
     id: &str,
@@ -29,12 +34,12 @@ pub(super) async fn run_figure(
         job.done = 0;
         job.total = 1;
     });
-    let picture = enlarged(client, &reference).await;
+    let picture = timed(id, "upscale", enlarged(client, &reference)).await;
     let cache = TurnCache::for_master(&picture.bytes, generation, space_name, options);
     update(id, |job| {
         job.stage = Stage::Decomposing;
         job.done = 0;
-        job.total = if keys.head { 3 } else { 4 };
+        job.total = if keys.head { 1 } else { 4 };
     });
     let whole = decomposition(
         client,
@@ -43,21 +48,26 @@ pub(super) async fn run_figure(
         &picture.bytes,
         &picture.media_type,
         options,
-    )
-    .await?;
+    );
+    let whole = timed(id, "whole", whole).await?;
     update(id, |job| job.done += 1);
     let drawn = (picture.bytes.to_vec(), picture.media_type.clone());
-    let plan = client
-        .figure_plan(whole.clone(), drawn.clone())
-        .await
-        .map_err(see_through_error)?;
+    let plan = retried("plan", || client.figure_plan(whole.clone(), drawn.clone()));
+    let plan = timed(id, "plan", plan).await.map_err(see_through_error)?;
+    // A keyed head's decompositions are what the others give way to.
+    let (split, way) = if keys.head {
+        let (split, way) = head_first();
+        (Some(split), way)
+    } else {
+        (None, Way::open())
+    };
     // The body's keys are made alongside the head's work: their drawings and
     // fit need only the figure's whole decomposition (body_turn).
     let body = async {
         if keys.body {
             Some(
                 body_turn::body_turn_keys(
-                    id, user_id, generation, &reference, &picture, &whole, client, &cache,
+                    id, user_id, generation, &reference, &picture, &whole, client, &cache, &way,
                 )
                 .await,
             )
@@ -68,86 +78,131 @@ pub(super) async fn run_figure(
     let Some(plan) = plan else {
         tracing::info!(job = %id, "figure decomposed whole");
         let head = async {
-            if keys.head {
-                update(id, |job| job.phase = Phase::Head);
-                run(id, user_id, generation, picture.clone(), client, &cache).await
-            } else {
-                Ok(plain(whole.clone(), drawn.1.clone()))
+            match split {
+                Some(split) => {
+                    update(id, |job| job.phase = Phase::Head);
+                    run(
+                        id,
+                        user_id,
+                        generation,
+                        picture.clone(),
+                        client,
+                        &cache,
+                        split,
+                    )
+                    .await
+                }
+                None => Ok(plain(whole.clone(), drawn.1.clone())),
             }
         };
         return with_body(id, head, body).await;
     };
     tracing::info!(job = %id, tiles = ?plan.tiles, "figure decomposed in tiles");
     let [upper, middle, lower] = plan.crops;
-    let tiles = plan.tiles;
-    let head = async {
-        // The waist's tile and the legs' need nothing of each other: decomposed together.
-        let cache = &cache;
-        let tile = |name: &'static str, picture: Vec<u8>| async move {
-            let psd = tile_decomposition(client, cache, name, picture).await?;
-            update(id, |job| job.done += 1);
-            ApiResult::Ok(psd)
-        };
-        let [middle, lower]: [Vec<u8>; 2] =
-            all_or_first_error([tile("middle", middle), tile("lower", lower)])
-                .await?
-                .try_into()
-                .expect("two tiles");
-        let upper = image_generation::ImageReference {
-            bytes: axum::body::Bytes::from(upper),
-            media_type: "image/png".to_string(),
-        };
-        let head_cache = TurnCache::for_master(&upper.bytes, generation, space_name, options);
-        let (upper_psd, made) = if keys.head {
-            // The bust's front decomposition is the upper tile's.
-            update(id, |job| job.phase = Phase::Head);
-            let made = run(id, user_id, generation, upper, client, &head_cache).await?;
-            (made.files.decompositions[0].clone(), Some(made))
-        } else {
-            let psd = decomposition(
-                client,
-                &head_cache,
-                0,
-                &upper.bytes,
-                &upper.media_type,
-                options,
-            )
-            .await?;
-            update(id, |job| job.done += 1);
-            (psd, None)
-        };
+    let upper = image_generation::ImageReference {
+        bytes: axum::body::Bytes::from(upper),
+        media_type: "image/png".to_string(),
+    };
+    let head_cache = TurnCache::for_master(&upper.bytes, generation, space_name, options);
+    let steps = Tiles {
+        id,
+        user_id,
+        generation,
+        client,
+        cache: &cache,
+        head_cache: &head_cache,
+        drawn: &drawn,
+        whole: &whole,
+        tiles: plan.tiles,
+        upper,
+        rest: [middle, lower],
+    };
+    with_body(id, in_tiles(id, &steps, split, &way), body).await
+}
+
+/// A figure's tiles as a job makes them (`in_tiles`).
+struct Tiles<'a> {
+    id: &'a str,
+    user_id: i32,
+    generation: &'a image_generation::ImageGenerationConfig,
+    client: &'a see_through::SeeThroughClient,
+    /// The figure's own cache: its whole decomposition, the tiles without a head.
+    cache: &'a TurnCache,
+    /// The upper tile's: the head's drawings and decompositions.
+    head_cache: &'a TurnCache,
+    /// The figure's picture, and its decomposition whole.
+    drawn: &'a (Vec<u8>, String),
+    whole: &'a [u8],
+    tiles: see_through::FigureTiles,
+    /// The pictures the tiles are decomposed from: the upper one, then the
+    /// waist's and the legs'.
+    upper: image_generation::ImageReference,
+    rest: [Vec<u8>; 2],
+}
+
+/// The tiles without a head, as the cache names them.
+const HEADLESS_TILES: [&str; 2] = ["middle", "lower"];
+
+impl TileSteps for Tiles<'_> {
+    async fn head(&self, split: HeadSplit) -> ApiResult<Made> {
+        run(
+            self.id,
+            self.user_id,
+            self.generation,
+            self.upper.clone(),
+            self.client,
+            self.head_cache,
+            split,
+        )
+        .await
+    }
+
+    async fn upper(&self) -> ApiResult<Vec<u8>> {
+        decomposition(
+            self.client,
+            self.head_cache,
+            0,
+            &self.upper.bytes,
+            &self.upper.media_type,
+            see_through::DecomposeOptions::default(),
+        )
+        .await
+    }
+
+    async fn tile(&self, at: usize) -> ApiResult<Vec<u8>> {
+        let picture = self.rest[at].clone();
+        tile_decomposition(self.client, self.cache, HEADLESS_TILES[at], picture).await
+    }
+
+    async fn stitch(&self, tiles: [Vec<u8>; 3]) -> ApiResult<Vec<u8>> {
         prune_cache(cache_root(), CACHE_KEEP).await;
-        update(id, |job| {
-            job.phase = Phase::Figure;
-            job.stage = Stage::Stitching;
-            job.done = 0;
-            job.total = 1;
-        });
-        let stitched = client
-            .figure_stitch(
-                drawn.clone(),
-                whole.clone(),
-                [upper_psd, middle, lower],
-                &tiles,
+        retried("stitch", || {
+            self.client.figure_stitch(
+                self.drawn.clone(),
+                self.whole.to_vec(),
+                tiles.clone(),
+                &self.tiles,
             )
-            .await
-            .map_err(see_through_error)?;
-        update(id, |job| job.done += 1);
+        })
+        .await
+        .map_err(see_through_error)
+    }
+
+    async fn finish(&self, made: Option<Made>, stitched: Vec<u8>) -> ApiResult<Made> {
         let Some(made) = made else {
-            return Ok(plain(stitched, drawn.1.clone()));
+            return Ok(plain(stitched, self.drawn.1.clone()));
         };
         let figure = FigureMeta {
             master: String::new(),
-            master_media_type: drawn.1.clone(),
-            crop_box: tiles.upper,
+            master_media_type: self.drawn.1.clone(),
+            crop_box: self.tiles.upper,
         };
         let kept = FigureFiles {
-            master: drawn.0.clone(),
+            master: self.drawn.0.clone(),
             decomposition: stitched,
         };
-        put_back(client, made, figure, kept).await
-    };
-    with_body(id, head, body).await
+        put_back(self.id, self.client, made, figure, kept).await
+    }
 }
 
 /// The head's work with the body's keys made alongside (`alongside`) and
@@ -249,22 +304,46 @@ pub(super) async fn enlarged(
     {
         return reference.clone();
     }
-    match client
-        .upscale((reference.bytes.to_vec(), reference.media_type.clone()))
-        .await
-    {
-        Ok(Some(bytes)) => {
+    let upscale = || client.upscale((reference.bytes.to_vec(), reference.media_type.clone()));
+    match upscaled(upscale).await {
+        Some(bytes) => {
             figure_picture::write(&reference.bytes, &bytes).await;
             png(bytes)
         }
-        Ok(None) => {
+        None => {
             *enlarging = Some((master, std::time::Instant::now()));
             reference.clone()
         }
+    }
+}
+
+/// What the Space's `upscale` made of a figure's picture, a passing failure
+/// tried again (`retried_when`). A time-out is not one of them here: it is
+/// the longest a call waits, and the set's gestures wait behind this picture
+/// meanwhile. None when the figure is to be decomposed as drawn, with a line
+/// telling which it was: a Space without the endpoint, or an enlargement
+/// that failed, and after how many tries.
+pub(super) async fn upscaled<C>(upscale: impl FnMut() -> C) -> Option<Vec<u8>>
+where
+    C: Future<Output = Result<Option<Vec<u8>>, see_through::SeeThroughError>>,
+{
+    let passing = |error: &see_through::SeeThroughError| {
+        transient(error) && !matches!(error, see_through::SeeThroughError::Timeout)
+    };
+    match retried_when("upscale", passing, upscale).await {
+        Ok(Some(bytes)) => Some(bytes),
+        Ok(None) => {
+            tracing::info!("the Space has no upscale endpoint; figure decomposed as drawn");
+            None
+        }
         Err(error) => {
-            tracing::warn!(%error, "figure picture could not be enlarged; decomposed as drawn");
-            *enlarging = Some((master, std::time::Instant::now()));
-            reference.clone()
+            let tries = if passing(&error) {
+                TRANSIENT_RETRIES + 1
+            } else {
+                1
+            };
+            tracing::warn!(%error, tries, "figure picture could not be enlarged; decomposed as drawn");
+            None
         }
     }
 }
@@ -294,34 +373,39 @@ pub(super) async fn tile_decomposition(
 
 /// The head's keys placed on the figure (`figure_keys`), with the figure's
 /// own decomposition but the head's hair (`figure_hair`): the head's other
-/// parts were only what the keys were fitted on.
+/// parts were only what the keys were fitted on. Either call is tried again
+/// after a passing failure (`retried`).
 pub(super) async fn put_back(
+    id: &str,
     client: &see_through::SeeThroughClient,
     made: Made,
     figure: FigureMeta,
     kept: FigureFiles,
 ) -> ApiResult<Made> {
-    let keyforms = client
-        .figure_keys(
+    let placing = retried("keys", || {
+        client.figure_keys(
             (kept.master.clone(), figure.master_media_type.clone()),
             kept.decomposition.clone(),
-            made.files.keyforms,
+            made.files.keyforms.clone(),
             figure.crop_box,
         )
+    });
+    let keyforms = timed(id, "keys", placing)
         .await
         .map_err(see_through_error)?;
     // The keys were fitted on the head's hair as the head's decomposition
     // split it (side locks in the front hair, the front hair in locks): the
     // figure takes that hair. Should the Space not manage, the figure keeps
     // its own, as before.
-    let kept = match client
-        .figure_hair(
+    let hair = retried("hair", || {
+        client.figure_hair(
             kept.decomposition.clone(),
             made.files.baked.clone(),
             keyforms.clone(),
         )
-        .await
-    {
+    });
+    let hair = timed(id, "hair", hair).await;
+    let kept = match hair {
         Ok(decomposition) => FigureFiles {
             decomposition,
             ..kept
@@ -351,21 +435,11 @@ pub(super) async fn fit(
     pictures: &[(Vec<u8>, String); 5],
 ) -> ApiResult<see_through::TurnKeyformsOutput> {
     let [front, turned @ ..] = decompositions.clone();
-    let mut attempt = 0;
-    loop {
-        match client
-            .turn_keyforms(front.clone(), turned.clone(), pictures.clone())
-            .await
-        {
-            Ok(output) => return Ok(output),
-            Err(error) if attempt < TRANSIENT_RETRIES && transient(&error) => {
-                attempt += 1;
-                tracing::warn!(%error, attempt, "turn keyforms fit failed; retrying");
-                tokio::time::sleep(retry_delay(attempt)).await;
-            }
-            Err(error) => return Err(see_through_error(error)),
-        }
-    }
+    retried("fit", || {
+        client.turn_keyforms(front.clone(), turned.clone(), pictures.clone())
+    })
+    .await
+    .map_err(see_through_error)
 }
 
 /// A full body's master enlarged as its decomposition is (made and kept now
@@ -398,3 +472,7 @@ pub(in crate::api::merope_rig) async fn super_resolved(picture: &[u8]) -> Option
         }
     }
 }
+
+#[cfg(test)]
+#[path = "figure_tests.rs"]
+mod tests;

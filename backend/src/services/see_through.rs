@@ -34,10 +34,12 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 /// answers the last only after all the others.
 const QUEUE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// How many decompositions are sent to the Space at once. A bust's job sends
-/// five together (its front and its four turns); a full-body job's head can
-/// ask for its five while its body's two still run, and the one past six
-/// waits for a place (`Busy`). A ZeroGPU Space runs one caller's on separate
-/// GPUs, and one that does not queues them.
+/// five together (its front and its four turns); a full-body job's head
+/// sends its five first and the four behind them (two tiles, the body's two)
+/// once those are in hand, so a turn drawn again meanwhile can make six, and
+/// one past six waits for a place (`Busy`). A ZeroGPU Space runs a few of
+/// them at a time on separate GPUs and queues the rest in the order they
+/// came.
 const DECOMPOSE_AT_ONCE: usize = 6;
 /// Asking the Space whether a file it was sent before is still there.
 const FILE_PROBE_TIMEOUT: Duration = Duration::from_secs(30);

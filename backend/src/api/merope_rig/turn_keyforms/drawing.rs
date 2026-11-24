@@ -397,6 +397,43 @@ pub(super) fn retry_delay(attempt: u32) -> Duration {
     Duration::from_secs(20 * u64::from(attempt))
 }
 
+/// A call to the Space tried again after a passing failure (`transient`), as
+/// often and as far apart as a decomposition is. Any other failure, and a
+/// passing one past its tries, is the call's own: quota, a refusal or bad
+/// input would only fail the same way again.
+pub(super) async fn retried<T, C>(
+    step: &'static str,
+    call: impl FnMut() -> C,
+) -> Result<T, see_through::SeeThroughError>
+where
+    C: Future<Output = Result<T, see_through::SeeThroughError>>,
+{
+    retried_when(step, transient, call).await
+}
+
+/// `retried`, with the failures tried again named by `passing`: a step for
+/// which not every failure that may pass is worth waiting out again.
+pub(super) async fn retried_when<T, C>(
+    step: &'static str,
+    passing: impl Fn(&see_through::SeeThroughError) -> bool,
+    mut call: impl FnMut() -> C,
+) -> Result<T, see_through::SeeThroughError>
+where
+    C: Future<Output = Result<T, see_through::SeeThroughError>>,
+{
+    let mut attempt = 0;
+    loop {
+        match call().await {
+            Err(error) if attempt < TRANSIENT_RETRIES && passing(&error) => {
+                attempt += 1;
+                tracing::warn!(%error, attempt, step, "Space step failed; retrying");
+                tokio::time::sleep(retry_delay(attempt)).await;
+            }
+            out => return out,
+        }
+    }
+}
+
 /// Resized to exactly `width` x `height`, as PNG.
 pub(super) fn fit_to(bytes: &[u8], width: u32, height: u32) -> ApiResult<Vec<u8>> {
     let image = image::load_from_memory(bytes).map_err(internal_error)?;

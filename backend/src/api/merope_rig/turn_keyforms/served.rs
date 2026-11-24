@@ -321,7 +321,9 @@ pub async fn refit_turn_archive(
             });
         // A figure keyed by its head goes back into the figure it was kept with.
         let result = match (result, kept.figure.clone(), figure) {
-            (Ok(made), Some(meta), Some(files)) => put_back(&client, made, meta, files).await,
+            (Ok(made), Some(meta), Some(files)) => {
+                put_back(&task_id, &client, made, meta, files).await
+            }
             (result, _, _) => result,
         }
         .map(|mut made| {
