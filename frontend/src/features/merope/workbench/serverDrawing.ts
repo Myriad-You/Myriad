@@ -17,7 +17,7 @@ export interface DrawingWatch {
   gone?: () => boolean
 }
 
-/** As long as a request that waited for its drawing was given: past it, the page goes on with what the list has. */
+/** Longer than a drawing takes with all its tries: past it, the page goes on with what the list has. */
 export const DRAWN_WITHIN_MS = 15 * 60_000
 
 /**

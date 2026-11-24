@@ -173,8 +173,8 @@ pub async fn generate_expression(
         "portrait expression redraw started"
     );
     // Drawn and kept on its own, and answered now: the page (this one, one reloaded
-    // meanwhile, another tab) sees it being drawn (`drawing` in the list), and an
-    // ask held open until it was drawn kept one of a browser's few connections.
+    // meanwhile, another tab) sees it being drawn (`drawing` in the list), and none
+    // of a browser's few connections is held open for the minutes a drawing takes.
     turn.run(portrait.clone(), async move {
         let drawn = Drawn {
             kind,

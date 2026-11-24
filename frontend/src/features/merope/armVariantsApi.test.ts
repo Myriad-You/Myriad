@@ -20,7 +20,7 @@ it('asking for a gesture arm resolves once the server has taken it up, on the pi
     '/merope/rig/arm-variants/wave-left',
     '/merope/rig/full-body/w1/arm-variants/chin-right',
   ])
-  // Answered at once: no wait of minutes is asked of the request any more.
+  // Answered at once: the request asks for no wait longer than any other's.
   assert.equal(post.mock.calls[0].arguments[2], undefined)
 })
 
@@ -46,14 +46,14 @@ it('the list names the gesture arms being drawn and why the ones not kept were n
   assert.deepEqual(listed.variants.map((variant) => `${variant.gesture}-${variant.side}`), ['wave-left'])
   assert.deepEqual(listed.drawing, ['point-left'])
   assert.deepEqual(Object.keys(listed.failed), ['wave-right'])
-  // The same error the request itself threw when it still waited for the drawing.
+  // The same error a request answered with that body and status throws.
   const thrown = meropeError(new ApiError(rejected.error, 422, rejected.code, undefined, undefined, rejected), 'fallback')
   const kept = listed.failed['wave-right']
   assert.ok(kept instanceof MeropeApiError)
   assert.deepEqual([kept.message, kept.status, kept.code], [thrown.message, thrown.status, thrown.code])
 })
 
-it('a list from before failures were listed has none', async () => {
+it('a list that names no failures has none', async () => {
   mock.method(apiService, 'get', async () => ({ variants: {}, drawing: [] }))
   assert.deepEqual((await listSiteArmVariants('w1')).failed, {})
   mock.restoreAll()

@@ -20,7 +20,7 @@ export interface SiteArmVariants {
   variants: ArmVariantSource[]
   /** Being drawn now: begun by this page, before a reload, or in another tab. */
   drawing: ArmVariantKey[]
-  /** The ones whose last drawing was not kept, each with the error its request used to be answered. */
+  /** The ones whose last drawing was not kept, each with what went wrong as an error a request throws. */
   failed: Partial<Record<ArmVariantKey, MeropeApiError>>
 }
 

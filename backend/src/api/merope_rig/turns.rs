@@ -1,7 +1,9 @@
 //! 在后台画的图（手势手臂、表情重绘）各占一轮：请求被受理就答复，页面不挂着等，
 //! 后端自己画完、存好。页面读列表知道哪些还在画；画成的在列表里就是新图，没画成的
-//! 原因也留在这里由列表带出去——就是原先那次请求会答的那个错误，只给同一位站长看。
-//! 进程重启后两样都清空，页面看到的是「不在画、也没有新图」。
+//! 原因也留在这里由列表带出去——错误体和状态码，与请求当场被拒时答的是同一种，只给
+//! 同一位站长看。进程重启后两样都清空，页面看到的是「不在画、也没有新图」。
+//! 受理不等于马上画：同时在画的有上限（`DRAWN_AT_ONCE`），其余的排队，排队时列表里
+//! 也算在画。
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -11,8 +13,18 @@ use std::{
 
 use axum::{Json, http::StatusCode};
 use serde_json::{Map, Value, json};
+use tokio::sync::Semaphore;
 
 use super::{ApiResult, internal_error};
+
+/// 同时在画的上限，手势手臂和表情重绘合起来算：一套增强导入是八个手势加三个表情，
+/// 每个都要调生图，手势还要调视觉检查。服务商被打满时那张图就画不成，那次检查按
+/// 「不可用」放行等于没查，而它们的限额不在平台手里。六是浏览器对同一站点的连接
+/// 上限：由页面逐个挂着请求来画，在途的至多这么多，这些服务商在本站只验证到这个
+/// 并发，更高的没有依据。一个名额从开始画占到存好；占着名额的会去等姿势检测的
+/// 名额，反过来没有，所以不成环。
+const DRAWN_AT_ONCE: usize = 6;
+static PLACES: Semaphore = Semaphore::const_new(DRAWN_AT_ONCE);
 
 /// What is being drawn, and why the last drawing of each was not kept.
 pub(super) struct Turns(Mutex<State>);
@@ -99,18 +111,38 @@ impl Failed {
 
 impl Turn {
     /// Draws `picture`'s drawing in the background for as long as this turn
-    /// is held. `work` keeps what it draws itself, before it ends; what it
-    /// fails with is kept for the list.
+    /// is held, once there is a place for it among the ones being drawn.
+    /// `work` keeps what it draws itself, before it ends; what it fails with
+    /// is kept for the list.
     pub(super) fn run(
         self,
         picture: String,
         work: impl Future<Output = ApiResult<()>> + Send + 'static,
     ) -> tokio::task::JoinHandle<()> {
+        self.run_within(&PLACES, picture, work)
+    }
+
+    fn run_within(
+        self,
+        places: &'static Semaphore,
+        picture: String,
+        work: impl Future<Output = ApiResult<()>> + Send + 'static,
+    ) -> tokio::task::JoinHandle<()> {
+        let key = self.key.clone();
         tokio::spawn(async move {
             // On a task of its own: one that panics is a drawing not kept, like any other.
-            let done = tokio::spawn(work)
-                .await
-                .unwrap_or_else(|error| Err(internal_error(error.to_string())));
+            let done = tokio::spawn(async move {
+                // Waited for in the order asked, and given back however the work ends.
+                let asked = std::time::Instant::now();
+                let _place = places.acquire().await;
+                let waited = asked.elapsed().as_secs();
+                if waited > 0 {
+                    tracing::info!(%key, waited, "a drawing waited for its place among the ones being drawn");
+                }
+                work.await
+            })
+            .await
+            .unwrap_or_else(|error| Err(internal_error(error.to_string())));
             if let Err((status, Json(body))) = done {
                 let code = body.get("code").and_then(Value::as_str).unwrap_or_default();
                 tracing::warn!(key = %self.key, %status, code, "a drawing begun in the background was not kept");
@@ -230,5 +262,79 @@ mod tests {
         assert!(drawing.is_empty());
         assert_eq!(failed["cry"]["status"], 500);
         assert_eq!(failed["cry"]["code"], "merope_rig_failed");
+    }
+
+    /// A drawing that never gets its place fails its test instead of hanging it.
+    async fn within_a_while<T>(work: impl Future<Output = T>) -> T {
+        tokio::time::timeout(std::time::Duration::from_secs(20), work)
+            .await
+            .expect("the drawings did not go on")
+    }
+
+    /// Lets the drawings in the background run until `so`.
+    async fn until(so: impl Fn() -> bool) {
+        while !so() {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn no_more_are_drawn_at_once_than_there_are_places_and_the_rest_follow_in_order() {
+        static TURNS: Turns = Turns::new();
+        static PLACES: Semaphore = Semaphore::const_new(6);
+        static BEGUN: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+        let begun = || BEGUN.lock().unwrap().clone();
+        let (mut release, mut running) = (Vec::new(), Vec::new());
+        for i in 0..8 {
+            let (go, held) = tokio::sync::oneshot::channel::<()>();
+            release.push(go);
+            let turn = TURNS.claim(&format!("gesture-{i}")).unwrap();
+            running.push(turn.run_within(&PLACES, "p".into(), async move {
+                BEGUN.lock().unwrap().push(i);
+                let _ = held.await;
+                Ok(())
+            }));
+        }
+        within_a_while(until(|| begun().len() == 6)).await;
+        // Given every chance to, the other two do not begin.
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(begun(), [0, 1, 2, 3, 4, 5]);
+        assert_eq!(PLACES.available_permits(), 0);
+        // Waiting for a place is being drawn, to the list.
+        assert_eq!(TURNS.listed("", "p").0.len(), 8);
+        // Each place given back goes to the one that has waited longest.
+        let mut release = release.into_iter();
+        for next in [6, 7] {
+            release.next().unwrap().send(()).unwrap();
+            within_a_while(until(|| begun().len() == next + 1)).await;
+            assert_eq!(begun()[next], next);
+        }
+        for go in release {
+            go.send(()).unwrap();
+        }
+        for drawn in running {
+            within_a_while(drawn).await.unwrap();
+        }
+        assert!(TURNS.listed("", "p").0.is_empty() && TURNS.listed("", "p").1.is_empty());
+        assert_eq!(PLACES.available_permits(), 6);
+    }
+
+    #[tokio::test]
+    async fn a_drawing_that_panics_gives_its_place_back() {
+        static TURNS: Turns = Turns::new();
+        static PLACES: Semaphore = Semaphore::const_new(1);
+        let broke = TURNS.claim("cry").unwrap();
+        within_a_while(broke.run_within(&PLACES, "p".into(), broken()))
+            .await
+            .unwrap();
+        // The only place there is: the next drawing would wait for ever were it still taken.
+        let next = TURNS.claim("close").unwrap();
+        within_a_while(next.run_within(&PLACES, "p".into(), async { Ok(()) }))
+            .await
+            .unwrap();
+        assert_eq!(PLACES.available_permits(), 1);
+        assert_eq!(TURNS.listed("", "p").1.keys().collect::<Vec<_>>(), ["cry"]);
     }
 }

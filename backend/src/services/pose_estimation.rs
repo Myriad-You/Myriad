@@ -76,7 +76,7 @@ type Runnable = std::sync::Arc<TypedRunnableModel>;
  * the model, looks, and exits: an allocator keeps freed memory, so the model's
  * few hundred megabytes are never held by the server between imports. A set's
  * gesture arms are drawn together and come to be looked at within seconds of
- * each other; one at a time, the last of them waited a minute for its turn.
+ * each other; one at a time, the last of eight waits about a minute.
  * A child holds some 340 MB while it looks, so this many are about a gigabyte
  * at their peak, given back as each exits. Each child is its own process on
  * its own core: what it finds does not depend on how many look beside it.

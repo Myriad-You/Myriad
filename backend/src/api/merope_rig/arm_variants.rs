@@ -302,8 +302,8 @@ struct Sheet {
 }
 
 /// Takes a gesture up, once at a time under `claim`, and draws it in the background on the sheet `sheet` makes
-/// once it is claimed. The page is answered now: eight asks held open until each was drawn waited on each other
-/// for a browser's few connections, and a page reloaded meanwhile reads the same list anyway.
+/// once it is claimed. The page is answered now and reads the list for what became of it, as one reloaded
+/// meanwhile does: a browser keeps too few connections to one site to hold one open for each gesture.
 async fn taken_up(
     db: DatabaseConnection,
     user_id: i32,
@@ -464,8 +464,8 @@ async fn drawn(
 }
 
 /// A drawing's two checks at once. `second` is begun now and heard only once `first` has found what it looks
-/// for: when it finds nothing the drawing is drawn again without waiting, as when the checks came one after
-/// the other, and `second` ends on its own, unheard (its call is still counted where calls are counted).
+/// for: when it finds nothing the drawing is drawn again without waiting, and `second` ends on its own, unheard
+/// (its call is still counted where calls are counted).
 async fn both_checks<F, S: Send + 'static>(
     first: impl Future<Output = Option<F>>,
     second: impl Future<Output = S> + Send + 'static,

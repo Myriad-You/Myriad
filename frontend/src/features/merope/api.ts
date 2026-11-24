@@ -113,8 +113,8 @@ export function meropeError(
 }
 
 /**
- * Why a drawing the server made on its own was not kept, as its list hands it on (the body its request used to be
- * answered, and that answer's status): the error that request would have thrown.
+ * Why a drawing the server made on its own was not kept, as its list hands it on (an error answer's body, and
+ * that answer's status): the error a request answered so throws.
  */
 export function keptFailure(value: unknown, fallback: string): MeropeApiError | null {
   if (!value || typeof value !== 'object') return null
@@ -554,7 +554,7 @@ export interface SiteExpressions {
   urls: SiteExpressionUrls
   /** Being drawn now: begun by this page, before a reload, or in another tab. */
   drawing: AuthoredExpressionKind[]
-  /** The ones whose last redraw was not kept, each with the error its request used to be answered. */
+  /** The ones whose last redraw was not kept, each with what went wrong as an error a request throws. */
   failed: Partial<Record<AuthoredExpressionKind, MeropeApiError>>
 }
 
