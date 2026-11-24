@@ -33,7 +33,8 @@ use serde_json::{Value, json};
 
 use super::forget::{self, Forgets};
 use super::{
-    Author, Error, RowIn, heads, home_intents, intending, intent_store, page, read, write,
+    Author, Error, RowIn, heads, home_intents, intending, intent_grounds, intent_store, page, read,
+    write,
 };
 use crate::services::agent::memory::manage;
 
@@ -143,11 +144,11 @@ async fn forget_rows(
 ) -> Result<(), Error> {
     let txn = db.begin().await?;
     write::lock(&txn, owner, audience).await?;
-    let doomed: Vec<Row> = heads::rows_of(&txn, owner, audience)
-        .await?
-        .into_iter()
+    let kept = heads::rows_of(&txn, owner, audience).await?;
+    let mut doomed: Vec<Row> = kept
+        .iter()
         .filter(|kept| ids.contains(&kept.row.id) && !kept.row.forgotten)
-        .map(|kept| kept.row)
+        .map(|kept| kept.row.clone())
         .collect();
     for row in &doomed {
         forget::forget_one(
@@ -159,6 +160,7 @@ async fn forget_rows(
         )
         .await?;
     }
+    intent_grounds::forget_with(&txn, owner, audience, &kept, &mut doomed).await?;
     forget::stub(&txn, owner, &doomed).await?;
     let folded = heads::fold_rows(&heads::rows_of(&txn, owner, audience).await?)?;
     heads::refresh(&txn, owner, audience, &folded).await?;
@@ -256,13 +258,9 @@ pub(crate) async fn forget_node(
     let txn = db.begin().await?;
     write::lock(&txn, owner, audience).await?;
     forget::forget_one(&txn, owner, audience, node, Forgets::Node).await?;
-    let rows = heads::rows_of(&txn, owner, audience).await?;
-    let folded = heads::fold_rows(&rows)?;
-    let doomed: Vec<Row> = rows
-        .into_iter()
-        .filter(|kept| folded.stubbed.contains(&kept.row.id))
-        .map(|kept| kept.row)
-        .collect();
+    let kept = heads::rows_of(&txn, owner, audience).await?;
+    let mut doomed = forget::rows_gone(&kept, &[node.to_string()].into())?;
+    intent_grounds::forget_with(&txn, owner, audience, &kept, &mut doomed).await?;
     forget::stub(&txn, owner, &doomed).await?;
     let folded = heads::fold_rows(&heads::rows_of(&txn, owner, audience).await?)?;
     heads::refresh(&txn, owner, audience, &folded).await?;

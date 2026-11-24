@@ -95,6 +95,7 @@ pub(crate) mod child;
 pub(crate) mod context;
 pub(crate) mod facts;
 pub(crate) mod forget;
+pub(crate) mod forget_locks;
 pub(crate) mod group_context;
 pub(crate) mod group_facts;
 pub(crate) mod hanging;
@@ -106,6 +107,7 @@ pub(crate) mod home_intents;
 pub(crate) mod homes;
 pub(crate) mod inbox;
 pub(crate) mod intending;
+mod intent_grounds;
 pub(crate) mod intent_store;
 pub(crate) mod intents_due;
 pub(crate) mod intents_run;
@@ -123,6 +125,7 @@ pub(crate) mod page;
 pub(crate) mod page_edit;
 mod page_intents;
 pub(crate) mod partner;
+pub(crate) mod pieces_due;
 pub(crate) mod placements;
 pub(crate) mod placing;
 pub(crate) mod prepare;
@@ -228,6 +231,9 @@ mod partner_tests;
 
 #[cfg(test)]
 mod logged_tests;
+
+#[cfg(test)]
+mod resting_on_tests;
 
 #[cfg(test)]
 mod since_tests;

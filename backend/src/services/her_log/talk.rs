@@ -21,7 +21,10 @@
 //! takes its line here with what it taught her ([`fold`]).
 
 use chrono::{DateTime, Duration, Utc};
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, DatabaseTransaction, Statement,
+    TransactionTrait,
+};
 use serde_json::{Value, json};
 
 use myriad_persona_log::{
@@ -337,7 +340,7 @@ async fn bound_to_lent(
 /// here only. Never fails the forgetting here: a forget the log does not
 /// take is only logged.
 pub async fn forget_lines(db: &DatabaseConnection, lines: &[Gone]) {
-    if !super::enabled() || lines.is_empty() {
+    if !super::currently_enabled() || lines.is_empty() {
         return;
     }
     let Ok(site_owner) = crate::services::site_owner::site_owner_user_id(db).await else {
@@ -350,6 +353,53 @@ pub async fn forget_lines(db: &DatabaseConnection, lines: &[Gone]) {
     }
 }
 
+/// [`forget_lines`], of the site owner `site_owner`, in the transaction that
+/// forgets them here and before the forgets of what rests on them on her
+/// nodes: an end that takes those in has what they rest on forgotten too
+/// (`memory_nodes::intent_grounds`). Under the node locks
+/// (`memory_nodes::forget_locks::lock_for`). All at once: the log is read
+/// once for them. Not taken by the log, they are undone alone, and tried again
+/// one by one once the rest is kept ([`forget_lines`]).
+pub async fn forget_lines_on(txn: &DatabaseTransaction, site_owner: Option<i32>, lines: &[Gone]) {
+    let Some(site_owner) = site_owner.filter(|_| super::currently_enabled()) else {
+        return;
+    };
+    if lines.is_empty() {
+        return;
+    }
+    let forgotten: Result<(), Error> = async {
+        let alone = txn.begin().await?;
+        let done: Result<(), Error> = async {
+            let mut of = None;
+            let mut targets = Vec::new();
+            for line in lines {
+                if let Some((owner, target)) = row_of(&alone, site_owner, line).await? {
+                    of = Some(owner);
+                    if !targets.contains(&target) {
+                        targets.push(target);
+                    }
+                }
+            }
+            if let Some(owner) = of {
+                store::forget_all_on(&alone, &owner, &owner.personal(), &targets).await?;
+            }
+            Ok(())
+        }
+        .await;
+        match done {
+            Ok(()) => alone.commit().await.map_err(Error::from),
+            Err(error) => {
+                alone.rollback().await?;
+                Err(error)
+            }
+        }
+    }
+    .await;
+    if let Err(error) = forgotten {
+        tracing::warn!(%error, lines = lines.len(), "[her-log] lines forgotten here are left to be forgotten on her log after");
+    }
+}
+
 /// [`forget_lines`] of one line, for the site owner `site_owner`: the
 /// forget written, or none when there is none to write.
 pub(crate) async fn forget_row_of(
@@ -357,6 +407,21 @@ pub(crate) async fn forget_row_of(
     site_owner: i32,
     line: &Gone,
 ) -> Result<Option<Row>, Error> {
+    let Some((owner, target)) = row_of(db, site_owner, line).await? else {
+        return Ok(None);
+    };
+    store::forget(db, &owner, &owner.personal(), &target)
+        .await
+        .map(Some)
+}
+
+/// What a forget of `line`'s row names, and whose log: none when the log
+/// never had it, or it is forgotten already.
+async fn row_of<C: ConnectionTrait>(
+    db: &C,
+    site_owner: i32,
+    line: &Gone,
+) -> Result<Option<(super::Owner, String)>, Error> {
     if !private_with(db, &line.session_id, site_owner).await?
         || !store::account(db, site_owner)
             .await?
@@ -395,9 +460,7 @@ pub(crate) async fn forget_row_of(
         return Ok(None);
     }
     let owner = super::owner(db, site_owner).await?;
-    store::forget(db, &owner, &owner.personal(), &format!("row:{row}"))
-        .await
-        .map(Some)
+    Ok(Some((owner, format!("row:{row}"))))
 }
 
 /// The site owner's lines whose row of her log is forgotten (by an end

@@ -990,6 +990,8 @@
   "agentAliveForgettingStuck": "清理已连续出错 {n} 次：出错的那段对话里读不到她的节点。",
   "agentAliveTakeBackChecks": "收回后节点上的再次确认",
   "agentAliveTakeBackChecksCounts": "等着再问一次的 {pending} 条，判成变了或都不是、只放下的 {changed} 条，问不出结果、只放下的 {unsure} 条",
+  "agentAliveForgottenWaiting": "别的端忘掉的，等对端发齐再看",
+  "agentAliveForgottenWaitingCount": "{count} 条还没看据它的意图要不要跟着走",
   "agentAliveStanding": "上次写「他现在的生活」",
   "agentAliveStandingFailed": "这一步问模型失败",
   "agentAliveStandingFailedCount": "{n} 次，最近一次 {ago}",

@@ -2,8 +2,8 @@
 //! (`agent_forgotten`): a device's her merged into the site's
 //! (`persona_sync::merge`) lands only what is not here.
 //!
-//! - **No words.** A memory is kept by its id; a line by a one-way digest
-//!   of who said it, the microsecond it was said and what
+//! - **No words.** A memory is kept by its id; a line by its id here and
+//!   by a one-way digest of who said it, the microsecond it was said and what
 //!   ([`line_mark`]: SHA-256, its first 128 bits), never the words nor
 //!   anything they could be read back from; the moment in it keeps a short
 //!   line from being found by trying words.
@@ -27,6 +27,18 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, Statement};
 pub const MEMORY: &str = "memory";
 /// A forgotten line, by [`line_mark`].
 pub const LINE: &str = "line";
+
+/// A forgotten line, by its id here (`agent_messages.id`): what an intent
+/// that comes after the forgetting may name as its grounds.
+pub const MESSAGE: &str = "message";
+
+/// A span or an entry another end forgot, what rests on it not looked at yet
+/// (`memory_nodes::pieces_due`): by its row's id, digested (a row's id may
+/// be long). Let go of once it is.
+pub const PIECE_DUE: &str = "piece_due";
+/// An intent whose words one forgotten meanwhile said, as resting on such a
+/// piece: by both, digested.
+pub const INTENT_DUE: &str = "intent_due";
 
 /// The mark of a line: who said it (`role`), when (`at`, micros) and what,
 /// digested; the same for the site's line and a device's copy of it.
@@ -56,6 +68,25 @@ pub async fn keep<C: ConnectionTrait>(
             marks.to_vec().into(),
             crate::clock::now().into(),
         ],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// Lets go of `marks` of `what`, kept for `user_id`.
+pub async fn let_go<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    what: &str,
+    marks: &[String],
+) -> Result<(), DbErr> {
+    if marks.is_empty() {
+        return Ok(());
+    }
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "DELETE FROM agent_forgotten WHERE user_id = $1 AND what = $2 AND mark = ANY($3)",
+        [user_id.into(), what.into(), marks.to_vec().into()],
     ))
     .await?;
     Ok(())

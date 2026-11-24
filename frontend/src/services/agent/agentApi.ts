@@ -362,6 +362,11 @@ export interface HerAlive {
      * they could not be read.
      */
     takeBackChecks?: { pending: number, changed: number, unsure: number } | null
+    /**
+     * What other ends forgot that waits for the rest of what they wrote before
+     * what rests on it is looked at. Null when it could not be read.
+     */
+    forgottenWaiting?: number | null
   }
   ends: HerAliveEnd[]
   /**

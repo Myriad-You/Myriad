@@ -6,8 +6,8 @@
 //! words may carry what was forgotten), and a topic she started that
 //! holds no entry any more, for its name can say as much as what was on it
 //! (the rule the old topic tables keep, `migrations/topic_nodes.sql`). An
-//! intent resting on a forgotten line goes too, with what the site kept of
-//! the instruction ([`super::intent_store::forget_resting_on`]).
+//! intent resting on anything forgotten here goes too, with what the site
+//! kept of the instruction ([`super::intent_grounds`]).
 //!
 //! The core forgets a whole node (a `forget` row about `node:<id>`) or one
 //! row of it (about `row:<id>`), and every fold reads both. Here each entry
@@ -30,6 +30,7 @@ use myriad_persona_log::{
 };
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
+use super::intent_grounds::{self, Gone};
 use super::{Error, heads, inbox, logged, write};
 use crate::services::her_log::{self, NODE};
 
@@ -48,7 +49,7 @@ pub(crate) use taken_back::{
 pub(crate) use taken_back::{error_kind, sweep_again};
 
 /// The kinds of row forgotten with a memory they cite.
-const OF_A_MEMORY: &[&str] = &[
+pub(super) const OF_A_MEMORY: &[&str] = &[
     "node.entry",
     "node.span",
     "node.view_changed",
@@ -68,7 +69,7 @@ pub(super) const OF_A_LINE: &[&str] = &[
 /// references, her views, what is not wrapped up and how their life stands
 /// (「现在」) by what they rest on (`because`); each with its account,
 /// audience and node.
-async fn citing<C: ConnectionTrait>(
+pub(super) async fn citing<C: ConnectionTrait>(
     db: &C,
     refs: &[String],
     kinds: &[&str],
@@ -377,6 +378,16 @@ pub(super) fn empty_topic(node: &myriad_nodes::Node) -> bool {
             .is_some_and(|kind| kind.current.value.kind == Kind::Topic)
 }
 
+/// How grounds name the memories `memories` (ids) and the lines `lines`
+/// (`agent_messages.id`).
+pub(super) fn refs_of(memories: &[String], lines: &[i32]) -> Vec<String> {
+    memories
+        .iter()
+        .map(|id| format!("{}{id}", myriad_nodes::body::MEMORY_REF))
+        .chain(lines.iter().map(|id| format!("message:{id}")))
+        .collect()
+}
+
 /// Forgets on her nodes what goes with the memories `memories` (ids) and
 /// the lines `lines` (`agent_messages.id`) being forgotten, on `db`'s
 /// transaction ([module docs](self)).
@@ -385,17 +396,11 @@ pub(crate) async fn forget<C: ConnectionTrait>(
     memories: &[String],
     lines: &[i32],
 ) -> Result<(), Error> {
-    let refs: Vec<String> = memories
-        .iter()
-        .map(|id| format!("{}{id}", myriad_nodes::body::MEMORY_REF))
-        .chain(lines.iter().map(|id| format!("message:{id}")))
-        .collect();
+    let refs = refs_of(memories, lines);
     if refs.is_empty() {
         return Ok(());
     }
     inbox::forget_citing(db, &refs).await?;
-    // Her intents resting on the lines, or on the rows, go with them.
-    super::intent_store::forget_resting_on(db, lines, memories).await?;
     // What they showed to still hold goes too.
     super::kept::forget(db, memories).await?;
     let mut by_audience: BTreeMap<(i32, String), (BTreeSet<String>, BTreeSet<String>)> =
@@ -405,21 +410,32 @@ pub(crate) async fn forget<C: ConnectionTrait>(
         nodes.insert(node);
         rows.insert(row);
     }
-    for ((user_id, audience), (nodes, cited)) in by_audience {
-        forget_rows(db, user_id, &audience, &nodes, cited).await?;
+    for at in intent_grounds::citing(db, &refs).await? {
+        by_audience.entry(at).or_default();
     }
-    Ok(())
+    let lines: Vec<String> = lines.iter().map(i32::to_string).collect();
+    for ((user_id, audience), (nodes, cited)) in by_audience {
+        let gone = Gone {
+            memories: memories.to_vec(),
+            lines: lines.clone(),
+            ..Gone::default()
+        };
+        forget_rows(db, user_id, &audience, &nodes, cited, gone).await?;
+    }
+    intent_grounds::instructions_of(db, &refs).await
 }
 
 /// Forgets `cited` (rows of `user_id`'s `audience`, on `nodes`) with what
 /// rests on them or was written on them, then a topic of `nodes` they
-/// leave empty; the audience's heads refreshed.
+/// leave empty; the audience's heads refreshed. Her intents resting on them
+/// or on `gone`, what is forgotten with them, go as well.
 async fn forget_rows<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
     audience: &str,
     nodes: &BTreeSet<String>,
     cited: BTreeSet<String>,
+    mut gone: Gone,
 ) -> Result<(), Error> {
     let audience = audience.to_string();
     write::lock(db, user_id, &audience).await?;
@@ -435,11 +451,13 @@ async fn forget_rows<C: ConnectionTrait>(
         .collect();
     let mut cited = written_on(&kept, resting_on(&kept, cited));
     cited.extend(written_on_a_life(&kept, gone_before.clone()));
-    let doomed: Vec<Row> = kept
+    let mut doomed: Vec<Row> = kept
         .iter()
         .filter(|kept| cited.contains(&kept.row.id) && !gone_before.contains(&kept.row.id))
         .map(|kept| kept.row.clone())
         .collect();
+    gone.pieces = Gone::of(&kept, &cited).pieces;
+    let intents = intent_grounds::resting(db, user_id, &audience, &kept, &gone).await?;
     for row in doomed.iter().filter(|row| !row.forgotten) {
         forget_one(
             db,
@@ -450,6 +468,8 @@ async fn forget_rows<C: ConnectionTrait>(
         )
         .await?;
     }
+    intent_grounds::forget(db, user_id, &audience, &kept, &intents).await?;
+    doomed.extend(intents);
     stub(db, user_id, &doomed).await?;
     // What held them: the nodes they were written on, or went into.
     let folded = heads::fold_rows(&heads::rows_of(db, user_id, &audience).await?)?;
@@ -462,7 +482,11 @@ async fn forget_rows<C: ConnectionTrait>(
             holders.insert(myriad_nodes::node_id(&audience, &into.into).unwrap_or_default());
         }
     }
-    let emptied: Vec<String> = folded
+    // Forgotten with a node before, and its words left here: what names what
+    // goes now loses them.
+    let named = intent_grounds::forgotten_naming(&kept, &folded, &gone);
+    stub(db, user_id, &named).await?;
+    let emptied: BTreeSet<String> = folded
         .nodes
         .iter()
         .filter(|node| holders.contains(&node.id) && empty_topic(node))
@@ -472,12 +496,9 @@ async fn forget_rows<C: ConnectionTrait>(
         forget_one(db, user_id, &audience, node, Forgets::Node).await?;
     }
     if !emptied.is_empty() {
-        let gone: Vec<Row> = heads::rows_of(db, user_id, &audience)
-            .await?
-            .into_iter()
-            .filter(|kept| emptied.contains(&row_node(&kept.row)))
-            .map(|kept| kept.row)
-            .collect();
+        let kept = heads::rows_of(db, user_id, &audience).await?;
+        let mut gone = rows_gone(&kept, &emptied)?;
+        intent_grounds::forget_with(db, user_id, &audience, &kept, &mut gone).await?;
         stub(db, user_id, &gone).await?;
     }
     let folded = heads::fold_rows(&heads::rows_of(db, user_id, &audience).await?)?;
@@ -542,8 +563,7 @@ pub(crate) async fn forget_named<C: ConnectionTrait>(
     for row in &alone {
         forget_one(db, user_id, audience, &row_node(row), Forgets::Row(&row.id)).await?;
     }
-    stub(db, user_id, &alone).await?;
-    forget_wholes(db, user_id, audience, &wholes).await?;
+    forget_wholes(db, user_id, audience, &wholes, alone).await?;
     let folded = heads::fold_rows(&heads::rows_of(db, user_id, audience).await?)?;
     heads::refresh(db, user_id, audience, &folded).await?;
     Ok(())
@@ -561,30 +581,47 @@ pub(crate) async fn forget_nodes<C: ConnectionTrait>(
         return Ok(());
     }
     write::lock(db, user_id, audience).await?;
-    forget_wholes(db, user_id, audience, nodes).await?;
+    forget_wholes(db, user_id, audience, nodes, Vec::new()).await?;
     let folded = heads::fold_rows(&heads::rows_of(db, user_id, audience).await?)?;
     heads::refresh(db, user_id, audience, &folded).await?;
     Ok(())
 }
 
-/// Forgets each of `nodes` whole: a forget of the node, its rows stubs.
+/// The rows of `kept` that go with the nodes `nodes`, forgotten whole by
+/// forgets among them: their own, and those of what went into them.
+pub(super) fn rows_gone(
+    kept: &[heads::KeptRow],
+    nodes: &BTreeSet<String>,
+) -> Result<Vec<Row>, Error> {
+    let folded = heads::fold_rows(kept)?;
+    Ok(kept
+        .iter()
+        .filter(|kept| {
+            nodes.contains(&row_node(&kept.row)) || folded.stubbed.contains(&kept.row.id)
+        })
+        .map(|kept| kept.row.clone())
+        .collect())
+}
+
+/// Forgets each of `nodes` whole: a forget of the node, its rows stubs, as
+/// are `alone` (rows forgotten by forgets of their own already). Her intents
+/// resting on either go too.
 async fn forget_wholes<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
     audience: &str,
     nodes: &BTreeSet<String>,
+    alone: Vec<Row>,
 ) -> Result<(), Error> {
-    if nodes.is_empty() {
+    if nodes.is_empty() && alone.is_empty() {
         return Ok(());
     }
     for node in nodes {
         forget_one(db, user_id, audience, node, Forgets::Node).await?;
     }
-    let gone: Vec<Row> = heads::rows_of(db, user_id, audience)
-        .await?
-        .into_iter()
-        .filter(|kept| nodes.contains(&row_node(&kept.row)))
-        .map(|kept| kept.row)
-        .collect();
-    stub(db, user_id, &gone).await
+    let kept = heads::rows_of(db, user_id, audience).await?;
+    let mut going = alone;
+    going.extend(rows_gone(&kept, nodes)?);
+    intent_grounds::forget_with(db, user_id, audience, &kept, &mut going).await?;
+    stub(db, user_id, &going).await
 }

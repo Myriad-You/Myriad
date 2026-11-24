@@ -439,12 +439,10 @@ pub(super) async fn after_turn_till(
             base: Vec::new(),
             at: micros,
         };
-        rows.push(intent_store::settle_row(&held, IntentStatus::Waiting));
-        if let Err(error) = write::write(db, user_id, &audience, &rows, Some(&pen)).await {
-            tracing::warn!(%error, "[memory-nodes] an intent not written");
-            judged.refused += 1;
-            continue;
-        }
+        let row = intent_store::settle_row(&held, IntentStatus::Waiting);
+        let written = row.id.clone();
+        rows.push(row);
+        let mut beside = write::Beside::default();
         if origin == Origin::Partner {
             let standing = match &given {
                 Some(standing) => standing.clone(),
@@ -463,7 +461,19 @@ pub(super) async fn after_turn_till(
                 echo: take.echo.clone().unwrap_or_else(|| take.text.clone()),
                 given: standing,
             };
-            intent_store::keep(db, &instruction).await?;
+            beside.instruction = Some((written.clone(), instruction));
+        }
+        if let Err(error) =
+            write::write_with(db, user_id, &audience, &rows, Some(&pen), &beside).await
+        {
+            tracing::warn!(%error, "[memory-nodes] an intent not written");
+            judged.refused += 1;
+            continue;
+        }
+        // Left out: what they said was forgotten as it was judged.
+        if !intent_store::stands(db, user_id, &written).await? {
+            judged.refused += 1;
+            continue;
         }
         judged.taken.push(intent);
     }

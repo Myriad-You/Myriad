@@ -950,19 +950,35 @@ pub async fn next_rev<C: ConnectionTrait>(db: &C) -> Result<Rev, Error> {
 /// The server's next count in `user`'s `audience`, past every row of its
 /// own there.
 async fn next_dseq<C: ConnectionTrait>(db: &C, user: i32, audience: &str) -> Result<u64, Error> {
+    next_dseqs(db, user, audience, 1).await
+}
+
+/// The first of the server's next `count` counts in `user`'s `audience`,
+/// all taken.
+async fn next_dseqs<C: ConnectionTrait>(
+    db: &C,
+    user: i32,
+    audience: &str,
+    count: u64,
+) -> Result<u64, Error> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "INSERT INTO agent_log_counters (user_id, audience, dseq) \
              VALUES ($1, $2, COALESCE((SELECT MAX(dseq) FROM agent_log_rows \
-                                       WHERE user_id = $1 AND audience = $2 AND origin = $3), 0) + 1) \
-             ON CONFLICT (user_id, audience) DO UPDATE SET dseq = agent_log_counters.dseq + 1 \
+                                       WHERE user_id = $1 AND audience = $2 AND origin = $3), 0) + $4) \
+             ON CONFLICT (user_id, audience) DO UPDATE SET dseq = agent_log_counters.dseq + $4 \
              RETURNING dseq",
-            [user.into(), audience.into(), NODE.into()],
+            [
+                user.into(),
+                audience.into(),
+                NODE.into(),
+                (count as i64).into(),
+            ],
         ))
         .await?
         .ok_or_else(|| Error::Refused("no count".into()))?;
-    Ok(row.try_get::<i64>("", "dseq")?.max(1) as u64)
+    Ok((row.try_get::<i64>("", "dseq")?.max(1) as u64).saturating_sub(count - 1))
 }
 
 /// The server's next count in `user`'s `audience`, for a row of its own
@@ -1037,39 +1053,68 @@ pub(super) async fn forget_on<C: ConnectionTrait>(
     audience: &str,
     target: &str,
 ) -> Result<Row, Error> {
+    forget_all_on(txn, owner, audience, &[target.to_string()])
+        .await?
+        .pop()
+        .ok_or_else(|| Error::Refused("no forget written".into()))
+}
+
+/// [`forget_on`] of each of `targets`, in order: what the ledger takes away
+/// is read for them all at once, not for each.
+pub(super) async fn forget_all_on<C: ConnectionTrait>(
+    txn: &C,
+    owner: &Owner,
+    audience: &str,
+    targets: &[String],
+) -> Result<Vec<Row>, Error> {
     Audience::parse(audience)?;
+    if targets.is_empty() {
+        return Ok(Vec::new());
+    }
     let user = owner.user;
     lock(txn, user, audience).await?;
-    let hlc = next_rev(txn).await?;
-    let dseq = next_dseq(txn, user, audience).await?;
-    let row = Row {
-        version: LOG_VERSION,
-        id: format!("site_{}", uuid::Uuid::new_v4().simple()),
-        origin: NODE.to_string(),
-        author: Author::Owner,
-        epoch: None,
-        dseq: Some(dseq),
-        hlc,
-        audience: audience.to_string(),
-        subject: None,
-        object: target.to_string(),
-        kind: "forget".to_string(),
-        payload: None,
-        replicate: Replicate::Shared,
-        forgotten: false,
-        to: None,
-        takes: Vec::new(),
-    };
-    row.check()?;
+    let mut clock = last_clock(txn).await?;
+    let first = next_dseqs(txn, user, audience, targets.len() as u64).await?;
+    let now = super::now();
+    let mut rows = Vec::with_capacity(targets.len());
+    for (target, dseq) in targets.iter().zip(first..) {
+        let hlc = myriad_persona_log::clock::next(clock.as_ref(), now, 0, NODE)?;
+        clock = Some(hlc.clone());
+        let row = Row {
+            version: LOG_VERSION,
+            id: format!("site_{}", uuid::Uuid::new_v4().simple()),
+            origin: NODE.to_string(),
+            author: Author::Owner,
+            epoch: None,
+            dseq: Some(dseq),
+            hlc,
+            audience: audience.to_string(),
+            subject: None,
+            object: target.clone(),
+            kind: "forget".to_string(),
+            payload: None,
+            replicate: Replicate::Shared,
+            forgotten: false,
+            to: None,
+            takes: Vec::new(),
+        };
+        row.check()?;
+        rows.push(row);
+    }
+    if let Some(clock) = &clock {
+        store_clock(txn, clock).await?;
+    }
     let before = ledger(txn, user, audience).await?;
     let recorded = forget::record(forget::RecordInput {
-        rows: vec![row.clone()],
+        rows: rows.clone(),
         ledger: before.clone(),
         holder: Some(owner.server()),
     })?;
-    insert(txn, user, &row, NODE).await?;
+    for row in &rows {
+        insert(txn, user, row, NODE).await?;
+    }
     apply_ledger(txn, user, audience, &before, &recorded.ledger).await?;
-    Ok(row)
+    Ok(rows)
 }
 
 /// Her row of the server's own, for something she did while her mind is

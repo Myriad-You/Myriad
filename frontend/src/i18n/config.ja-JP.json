@@ -990,6 +990,8 @@
   "agentAliveForgettingStuck": "掃除が {n} 回連続で失敗：その会話では彼女のノートが読めていません。",
   "agentAliveTakeBackChecks": "取り消し後のノートの再確認",
   "agentAliveTakeBackChecksCounts": "もう一度確かめるのを待っている {pending} 件、変わった・どちらでもないと判断して手放しただけの {changed} 件、答えが出ず手放しただけの {unsure} 件",
+  "agentAliveForgottenWaiting": "ほかの端末で忘れたもの（残りの受信待ち）",
+  "agentAliveForgottenWaitingCount": "{count} 件、それにもとづく予定をどうするかまだ見ていない",
   "agentAliveStanding": "「いまの暮らし」を最後に書いた時刻",
   "agentAliveStandingFailed": "その手順でのモデル呼び出し失敗",
   "agentAliveStandingFailedCount": "{n} 回、直近は{ago}",

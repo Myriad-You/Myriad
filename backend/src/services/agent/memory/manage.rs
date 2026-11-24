@@ -20,6 +20,7 @@ use sea_orm::{
 };
 
 use crate::models::entities::{agent_memories, agent_messages, agent_sessions};
+use crate::services::agent::merope::memory_nodes::{forget as nodes, forget_locks};
 
 use super::unified::{MemoryKind, OWN_EXPERIENCE, OWN_VENUE, OWN_VIEW, normalize_content};
 
@@ -192,14 +193,19 @@ async fn forget_memories(
         .await?;
     let lines = super::origins::forget(&txn, &rows).await?;
     let ids: Vec<i32> = lines.iter().map(|line| line.id).collect();
-    // On her nodes: its entries, the spans of those lines, a topic left
-    // empty (`merope::memory_nodes::forget`).
-    crate::services::agent::merope::memory_nodes::forget::forget(&txn, &doomed, &ids)
+    forget_locks::lock_for(&txn, site_owner, &doomed, &lines)
         .await
         .map_err(|error| DbErr::Custom(error.to_string()))?;
     // In her log too, before the rows go and in this transaction: a forget,
-    // never a retire, so every end lets every version go.
+    // never a retire, so every end lets every version go. Before what rests
+    // on them, which is forgotten with them.
     let forgotten = crate::services::her_log::memories::forget_on(&txn, site_owner, &doomed)
+        .await
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
+    crate::services::her_log::talk::forget_lines_on(&txn, site_owner, &lines).await;
+    // On her nodes: its entries, the spans of those lines, a topic left
+    // empty (`merope::memory_nodes::forget`).
+    nodes::forget(&txn, &doomed, &ids)
         .await
         .map_err(|error| DbErr::Custom(error.to_string()))?;
     // Kept as forgotten, so no copy elsewhere brings them back: under the
@@ -250,6 +256,7 @@ pub async fn forget_line(
     else {
         return Ok(None);
     };
+    let site_owner = crate::services::principal::site_owner_id(db).await?;
     let place = crate::services::agent::sessions::session_venue(session.context.as_ref());
     let mut gone = vec![super::origins::Gone::of(&line)];
     let quotable = super::origins::Quotable {
@@ -281,7 +288,11 @@ pub async fn forget_line(
         txn.rollback().await?;
     };
     super::origins::forget_line_traces(&txn, user_id, &line.content, line.created_at).await?;
-    crate::services::agent::merope::memory_nodes::forget::forget(&txn, &[], &[line.id])
+    forget_locks::lock_for(&txn, site_owner, &[], &gone[..1])
+        .await
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
+    crate::services::her_log::talk::forget_lines_on(&txn, site_owner, &gone[..1]).await;
+    nodes::forget(&txn, &[], &[line.id])
         .await
         .map_err(|error| DbErr::Custom(error.to_string()))?;
     super::forgotten::keep(
@@ -295,6 +306,8 @@ pub async fn forget_line(
         )],
     )
     .await?;
+    let id = line.id.to_string();
+    super::forgotten::keep(&txn, user_id, super::forgotten::MESSAGE, &[id]).await?;
     agent_messages::Entity::delete_by_id(line.id)
         .exec(&txn)
         .await?;

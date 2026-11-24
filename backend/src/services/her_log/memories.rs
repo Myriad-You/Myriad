@@ -51,6 +51,7 @@ use super::{Error, NODE, Owner, keys, state, store};
 use crate::services::agent::memory::unified::{
     self, HOLDS_BACK, NO_ONE, ORIGIN_SITE, OWN_VENUE, SYNC_SOURCE,
 };
+use crate::services::agent::merope::memory_nodes::{forget as nodes, forget_locks};
 
 /// What a comparison of her memories wrote.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -498,7 +499,7 @@ pub async fn forget_on(
     ids: &[String],
 ) -> Result<Forgotten, Error> {
     match site_owner {
-        Some(user) if super::enabled() => forget_in(txn, user, ids).await,
+        Some(user) if super::currently_enabled() => forget_in(txn, user, ids).await,
         _ => Ok(Forgotten::default()),
     }
 }
@@ -521,6 +522,7 @@ pub(super) async fn forget_in(
         user,
         objects: Vec::new(),
     };
+    let mut held_in: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for id in ids {
         let object = object(id);
         let held = txn
@@ -535,8 +537,11 @@ pub(super) async fn forget_in(
             continue;
         };
         let audience: String = held.try_get("", "audience")?;
-        store::forget_on(txn, &owner, &audience, &object).await?;
-        forgotten.objects.push(object);
+        held_in.entry(audience).or_default().push(object);
+    }
+    for (audience, objects) in held_in {
+        store::forget_all_on(txn, &owner, &audience, &objects).await?;
+        forgotten.objects.extend(objects);
     }
     Ok(forgotten)
 }
@@ -632,13 +637,14 @@ pub async fn take_in(
                 // their life stands (「现在」) resting on it become stubs. In
                 // this transaction: if that fails, nothing here goes and the
                 // next batch tries again (the caller logs why).
-                crate::services::agent::merope::memory_nodes::forget::forget(
-                    &txn,
-                    &[id.to_string()],
-                    &lines,
-                )
-                .await
-                .map_err(|error| Error::Db(DbErr::Custom(error.to_string())))?;
+                let memory = [id.to_string()];
+                forget_locks::lock_for(&txn, Some(owner.user), &memory, &gone)
+                    .await
+                    .map_err(|error| Error::Db(DbErr::Custom(error.to_string())))?;
+                super::talk::forget_lines_on(&txn, Some(owner.user), &gone).await;
+                nodes::forget(&txn, &memory, &lines)
+                    .await
+                    .map_err(|error| Error::Db(DbErr::Custom(error.to_string())))?;
                 txn.execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
                     "DELETE FROM agent_memories WHERE id = $2 AND venue NOT LIKE 'group:%' \

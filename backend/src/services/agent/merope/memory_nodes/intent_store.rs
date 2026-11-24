@@ -4,10 +4,9 @@
 //! partner's instruction (`agent_node_instructions`, `migrations/memory_nodes.sql`):
 //! their message, her line back at once, who, where and under which runtime
 //! grants it was given, and what came of it. Who and where now, to check an
-//! instruction again when it comes due ([`standing_now`]), and forgetting an
-//! intent with the words it rested on ([`forget_resting_on`]).
+//! instruction again when it comes due ([`standing_now`]).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use chrono::{DateTime, Offset, Utc};
 use myriad_nodes::{
@@ -15,11 +14,10 @@ use myriad_nodes::{
     entries::{self, FactRowsInput, Start, row_id_from},
     intents::Standing,
 };
-use myriad_persona_log::Row;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::{Value, json};
 
-use super::{Author, Error, RowIn, forget, heads, known, read, write};
+use super::{Author, Error, RowIn, known, read, write};
 use crate::services::her_log::NODE;
 
 /// One intent on a node, as the fold has it now.
@@ -264,8 +262,29 @@ impl Instruction {
     }
 }
 
+/// Whether `user_id`'s row `row` is kept and says anything: not left out as
+/// it was written, and not forgotten.
+pub(crate) async fn stands<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    row: &str,
+) -> Result<bool, Error> {
+    Ok(db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT 1 AS one FROM agent_node_rows \
+             WHERE user_id = $1 AND row_id = $2 AND body <> ''",
+            [user_id.into(), row.into()],
+        ))
+        .await?
+        .is_some())
+}
+
 /// Keeps `instruction`; one already kept is left as it is.
-pub(crate) async fn keep(db: &DatabaseConnection, instruction: &Instruction) -> Result<(), Error> {
+pub(crate) async fn keep<C: ConnectionTrait>(
+    db: &C,
+    instruction: &Instruction,
+) -> Result<(), Error> {
     let granted: Vec<&String> = instruction.given.granted.iter().collect();
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -377,69 +396,4 @@ pub(crate) async fn message_text(
         ))
         .await?;
     Ok(row.map(|row| row.try_get("", "content")).transpose()?)
-}
-
-/// Forgets the intents resting on the lines `lines` (`agent_messages.id`)
-/// or the memory rows `memories` being forgotten, on `db`'s transaction: every row of each is forgotten
-/// by a forget of its own and becomes a stub, its head is folded again,
-/// and what the site kept of the instruction goes.
-pub(crate) async fn forget_resting_on<C: ConnectionTrait>(
-    db: &C,
-    lines: &[i32],
-    memories: &[String],
-) -> Result<(), Error> {
-    let refs: Vec<String> = lines
-        .iter()
-        .map(|id| format!("message:{id}"))
-        .chain(
-            memories
-                .iter()
-                .map(|id| format!("{}{id}", myriad_nodes::body::MEMORY_REF)),
-        )
-        .collect();
-    if refs.is_empty() {
-        return Ok(());
-    }
-    let rows = db
-        .query_all_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT DISTINCT r.user_id, r.audience, r.row_id FROM agent_node_rows r \
-             CROSS JOIN LATERAL jsonb_array_elements_text( \
-               CASE WHEN r.body = '' THEN '[]'::jsonb \
-                    ELSE COALESCE((r.body::jsonb)->'because', '[]'::jsonb) END) AS cited(ref) \
-             WHERE r.kind = 'node.intent' AND cited.ref = ANY($1)",
-            [refs.clone().into()],
-        ))
-        .await?;
-    let mut by_audience: BTreeMap<(i32, String), BTreeSet<String>> = BTreeMap::new();
-    for row in &rows {
-        by_audience
-            .entry((row.try_get("", "user_id")?, row.try_get("", "audience")?))
-            .or_default()
-            .insert(row.try_get("", "row_id")?);
-    }
-    for ((user_id, audience), cited) in by_audience {
-        write::lock(db, user_id, &audience).await?;
-        let kept = heads::rows_of(db, user_id, &audience).await?;
-        let doomed: Vec<Row> = kept
-            .iter()
-            .filter(|kept| cited.contains(&kept.row.id))
-            .map(|kept| kept.row.clone())
-            .collect();
-        for row in doomed.iter().filter(|row| !row.forgotten) {
-            let node = forget::row_node(row);
-            forget::forget_one(db, user_id, &audience, &node, forget::Forgets::Row(&row.id))
-                .await?;
-        }
-        forget::stub(db, user_id, &doomed).await?;
-        let folded = heads::fold_rows(&heads::rows_of(db, user_id, &audience).await?)?;
-        heads::refresh(db, user_id, &audience, &folded).await?;
-    }
-    db.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "DELETE FROM agent_node_instructions WHERE message_ref = ANY($1)",
-        [refs.into()],
-    ))
-    .await?;
-    Ok(())
 }

@@ -18,7 +18,9 @@ use myriad_nodes::{BODY_VERSION, entries::row_id_from};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::json;
 
-use super::{Author, Error, RowIn, audience, forget, hanging, heads, homes, read, write};
+use super::{
+    Author, Error, RowIn, audience, forget, hanging, heads, homes, intent_grounds, read, write,
+};
 use crate::services::agent::merope::nodes::{Form, Note, Place};
 
 /// The name of the node her talks with other AIs file under.
@@ -152,17 +154,18 @@ pub(crate) async fn forget_node(
     let node = myriad_nodes::node_id(&talk, &key)?;
     let txn = db.begin().await?;
     write::lock(&txn, user_id, &talk).await?;
-    let rows: Vec<_> = heads::rows_of(&txn, user_id, &talk)
+    if !heads::rows_of(&txn, user_id, &talk)
         .await?
-        .into_iter()
-        .filter(|kept| forget::row_node(&kept.row) == node)
-        .map(|kept| kept.row)
-        .collect();
-    if rows.is_empty() {
+        .iter()
+        .any(|kept| forget::row_node(&kept.row) == node)
+    {
         txn.commit().await?;
         return Ok(false);
     }
     forget::forget_one(&txn, user_id, &talk, &node, forget::Forgets::Node).await?;
+    let kept = heads::rows_of(&txn, user_id, &talk).await?;
+    let mut rows = forget::rows_gone(&kept, &[node].into())?;
+    intent_grounds::forget_with(&txn, user_id, &talk, &kept, &mut rows).await?;
     forget::stub(&txn, user_id, &rows).await?;
     let folded = heads::fold_rows(&heads::rows_of(&txn, user_id, &talk).await?)?;
     heads::refresh(&txn, user_id, &talk, &folded).await?;

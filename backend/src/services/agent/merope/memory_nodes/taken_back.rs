@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, TransactionSession, TransactionTrait};
 
-use super::Error;
 use super::lines::{lines_cited, lines_of};
+use super::{Error, Gone};
 
 /// How forgetting what rests on a memory taken back went since the site
 /// started, for her status: memories taken back whose nodes could not be
@@ -106,7 +106,8 @@ pub(super) fn of_a_life(kind: &str, body: Option<&str>) -> bool {
 /// `audience`, the versions and the waiting intents resting on what went
 /// while they were being made (a model's answer in flight as a memory was
 /// forgotten or taken back): one naming a memory known to be gone
-/// ([`super::super::known::Named::sure`]) or an entry or a span forgotten;
+/// ([`super::super::known::Named::sure`]), a line of theirs forgotten, or an
+/// entry or a span forgotten;
 /// a version of a life ([`of_a_life`]) or an intent written on a row
 /// forgotten; and any of them written on another such. An intent settled
 /// (said, done, dropped) is written whatever it rests on, unless it is
@@ -165,12 +166,17 @@ pub(in super::super) async fn resting_on_what_went<C: ConnectionTrait>(
         .filter_map(|reference| reference.strip_prefix(myriad_nodes::body::MEMORY_REF))
         .map(str::to_string)
         .collect();
-    let gone: BTreeSet<String> = super::super::known::named(db, memories)
+    let mut gone: BTreeSet<String> = super::super::known::named(db, memories)
         .await?
         .into_iter()
         .filter(|(_, named)| named.taken_back && named.sure)
         .map(|(id, _)| format!("{}{id}", myriad_nodes::body::MEMORY_REF))
         .collect();
+    let because: Vec<String> = versions
+        .iter()
+        .flat_map(|(_, because, _)| because.clone())
+        .collect();
+    gone.extend(super::intent_grounds::lines_gone(db, user_id, &because).await?);
     let rows: Vec<String> = versions
         .iter()
         .flat_map(|(_, because, base)| {
@@ -674,7 +680,16 @@ async fn sweep(
         super::forget(&txn, &taken_back, &[]).await?;
     }
     if left > 0 {
-        super::forget_rows(&txn, user_id, audience, &BTreeSet::new(), BTreeSet::new()).await?;
+        let none = BTreeSet::new();
+        super::forget_rows(
+            &txn,
+            user_id,
+            audience,
+            &none,
+            none.clone(),
+            Gone::default(),
+        )
+        .await?;
     }
     if hidden {
         super::super::hidden::rewrite(&txn, user_id, audience).await?;

@@ -659,6 +659,8 @@ pub(crate) async fn run(
             tracing::info!(
                 fallback = ?read.fallback,
                 action = ?read.failed,
+                no_evidence = ?read.no_evidence,
+                failed_do = ?read.failed_do,
                 "[memory-nodes] an upkeep answer could not be read"
             );
         }
