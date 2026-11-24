@@ -283,62 +283,71 @@ async fn apply_bits(
 ) -> usize {
     let mut kept = 0;
     for change in bits.into_iter().take(MAX_CHANGES) {
-        let handle: String = change.handle.trim().chars().take(30).collect();
-        let how = super::ingest::compact_summary(&change.how);
-        if handle.is_empty() || how.is_empty() {
-            continue;
-        }
-        let existing = held
-            .iter()
-            .find(|row| bit_of(row).is_some_and(|(held, _)| same_handle(&held, &handle)));
-        // A row is changed under whoever it is kept with.
-        let kept_with = |row: &crate::models::entities::agent_memories::Model| {
-            row.user_id.unwrap_or_else(|| circle.keeper())
-        };
-        if let (ChangeKind::Again, Some(row)) = (change.change, existing) {
-            let _ = unified::refresh(db, kept_with(row), &row.id).await;
-            continue;
-        }
-        // The bit as it went before goes with the new one, pointing at it.
-        let replaced: Vec<String> = existing.iter().map(|row| row.id.clone()).collect();
-        let remembered = unified::remember_in_place_of(
-            db,
-            unified::NewMemory {
-                user_id: circle.keeper(),
-                kind: unified::MemoryKind::Fact,
-                content: how,
-                // The words it was read from, when the reading quoted them.
-                evidence: Some(
-                    match change.quote.as_deref() {
-                        Some(quote) => json!({ "handle": handle, "quote": quote }),
-                        None => json!({ "handle": handle }),
-                    }
-                    .to_string(),
-                ),
-                speaker: unified::Speaker::Agent,
-                source: SOURCE,
-                // Heard only where it grew: in private, or in that group.
-                audience: circle.audience(),
-                importance: 0.5,
-                concepts: vec![Concept {
-                    name: handle.clone(),
-                    aliases: Vec::new(),
-                }],
-            },
-            unified::InPlaceOf {
-                user_id: existing.map_or(circle.keeper(), kept_with),
-                ids: &replaced,
-                reason: "superseded",
-            },
-        )
-        .await
-        .map(|replaced| replaced.id);
-        if let Ok(Some(id)) = &remembered {
+        if let Ok(Some(id)) = write_bit(db, circle, held, change).await {
             kept += 1;
-            super::memory_nodes::hanging::kept(db, id).await;
+            super::memory_nodes::hanging::kept(db, &id).await;
         }
     }
     kept
+}
+
+/// The row one of [`apply_bits`]'s changes comes to, when it is a new one.
+async fn write_bit<C: ConnectionTrait>(
+    db: &C,
+    circle: &Circle,
+    held: &[crate::models::entities::agent_memories::Model],
+    change: myriad_merope::bits::Change,
+) -> Result<Option<String>, sea_orm::DbErr> {
+    let handle: String = change.handle.trim().chars().take(30).collect();
+    let how = super::ingest::compact_summary(&change.how);
+    if handle.is_empty() || how.is_empty() {
+        return Ok(None);
+    }
+    let existing = held
+        .iter()
+        .find(|row| bit_of(row).is_some_and(|(held, _)| same_handle(&held, &handle)));
+    // A row is changed under whoever it is kept with.
+    let kept_with = |row: &crate::models::entities::agent_memories::Model| {
+        row.user_id.unwrap_or_else(|| circle.keeper())
+    };
+    if let (ChangeKind::Again, Some(row)) = (change.change, existing) {
+        unified::refresh(db, kept_with(row), &row.id).await?;
+        return Ok(None);
+    }
+    // The bit as it went before goes with the new one, pointing at it.
+    let replaced: Vec<String> = existing.iter().map(|row| row.id.clone()).collect();
+    unified::remember_in_place_of(
+        db,
+        unified::NewMemory {
+            user_id: circle.keeper(),
+            kind: unified::MemoryKind::Fact,
+            content: how,
+            // The words it was read from, when the reading quoted them.
+            evidence: Some(
+                match change.quote.as_deref() {
+                    Some(quote) => json!({ "handle": handle, "quote": quote }),
+                    None => json!({ "handle": handle }),
+                }
+                .to_string(),
+            ),
+            speaker: unified::Speaker::Agent,
+            source: SOURCE,
+            // Heard only where it grew: in private, or in that group.
+            audience: circle.audience(),
+            importance: 0.5,
+            concepts: vec![Concept {
+                name: handle.clone(),
+                aliases: Vec::new(),
+            }],
+        },
+        unified::InPlaceOf {
+            user_id: existing.map_or(circle.keeper(), kept_with),
+            ids: &replaced,
+            reason: "superseded",
+        },
+    )
+    .await
+    .map(|replaced| replaced.id)
 }
 
 /// A picture a group keeps sending is one of its bits, known by the picture

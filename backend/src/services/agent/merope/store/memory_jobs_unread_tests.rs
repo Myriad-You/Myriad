@@ -313,16 +313,10 @@ async fn notes_are_kept_as_they_are_when_the_last_stretch_never_finished() {
     schema.drop().await;
 }
 
-/// Of someone who asked her not to keep something: notes till they are
-/// judged, however that fails, then kept for good but for what is of it.
-#[tokio::test]
-async fn notes_left_unread_of_someone_who_asked_are_held_to_it_first() {
-    use crate::services::agent::merope::asked::{tests::asks, unread};
-    use crate::services::channel_group::g0;
-    let Some(schema) = fixture().await else {
-        return;
-    };
-    let db = &schema.db;
+/// Two notes, left unread time after time, of someone who asked her not to
+/// keep one of them: the job to judge them, taken up.
+async fn left_unread(db: &DatabaseConnection) -> Claim {
+    use crate::services::agent::merope::asked::tests::asks;
     asks(db, 7, "不要记和房东吵架的事").await;
     let now = crate::clock::now().fixed_offset();
     let ago = |minutes| now - chrono::Duration::minutes(minutes);
@@ -331,36 +325,76 @@ async fn notes_left_unread_of_someone_who_asked_are_held_to_it_first() {
     for minutes in [121, 61, 30] {
         never_read(db, stretch_from(db, "settle", ago(minutes)).await).await;
     }
-    let both = async || {
-        let went = went(db).await;
-        (went["周末要搬家"].clone(), went["房东又来吵"].clone())
-    };
-    assert_eq!(both().await, (None, None), "still notes");
-    let (id, job): (String, Job) = db
-        .query_all_raw(Statement::from_sql_and_values(
+    let id: String = db
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT record_id, payload FROM runtime_registry WHERE namespace = $1 \
+            "SELECT record_id FROM runtime_registry WHERE namespace = $1 \
              AND payload->'data'->'LeftUnread' IS NOT NULL",
             [ASKED_NAMESPACE.into()],
         ))
         .await
         .unwrap()
-        .iter()
-        .map(|row| {
-            (
-                row.try_get("", "record_id").unwrap(),
-                serde_json::from_value(row.try_get("", "payload").unwrap()).unwrap(),
-            )
-        })
-        .next()
-        .expect("to be judged");
-    assert!(job.data.as_ref().unwrap().by_what_they_asked(), "{id}");
+        .expect("to be judged")
+        .try_get("", "record_id")
+        .unwrap();
+    due(db, &id).await;
+    claim_of(db, &id).await.expect("to be judged")
+}
+
+/// `claimed` judged, the judge answering `answers`, each taking `takes`
+/// seconds.
+async fn judged_left(
+    db: &DatabaseConnection,
+    claimed: &Claim,
+    answers: &[&str],
+    takes: f64,
+) -> bool {
+    use crate::services::agent::merope::asked::unread;
+    use crate::services::channel_group::g0;
     let Some(Payload::LeftUnread {
         present,
         last,
         since,
         until,
-    }) = job.data
+    }) = &claimed.job.data
+    else {
+        unreachable!()
+    };
+    let mut world = g0::World::new(0.5);
+    let answers = answers.iter().map(|one| Some(one.to_string()));
+    world.models.insert("not_to_keep".into(), answers.collect());
+    world
+        .delays
+        .insert("not_to_keep".into(), vec![takes; 9].into());
+    g0::enter(world);
+    let told_by = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let own = Own::of(claimed);
+    let done = unread::keep(db, own, present, *last, (*since, *until), told_by).await;
+    g0::leave();
+    done.is_ok()
+}
+
+/// Of someone who asked her not to keep something: notes till they are
+/// judged, however that fails, then kept for good but for what is of it.
+#[tokio::test]
+async fn notes_left_unread_of_someone_who_asked_are_held_to_it_first() {
+    let Some(schema) = fixture().await else {
+        return;
+    };
+    let db = &schema.db;
+    let mut claimed = left_unread(db).await;
+    let both = async || {
+        let went = went(db).await;
+        (went["周末要搬家"].clone(), went["房东又来吵"].clone())
+    };
+    assert_eq!(both().await, (None, None), "still notes");
+    assert!(claimed.job.data.as_ref().unwrap().by_what_they_asked());
+    let Some(Payload::LeftUnread {
+        present,
+        since,
+        until,
+        ..
+    }) = claimed.job.data.clone()
     else {
         unreachable!()
     };
@@ -372,17 +406,9 @@ async fn notes_left_unread_of_someone_who_asked_are_held_to_it_first() {
         .iter()
         .position(|note| note.content.contains("房东"))
         .unwrap();
-    let judged = async |answers: &[&str], gives_up: bool| {
-        let mut world = g0::World::new(0.5);
-        world.models.insert(
-            "not_to_keep".into(),
-            answers.iter().map(|one| Some(one.to_string())).collect(),
-        );
-        g0::enter(world);
-        let told_by = std::time::Instant::now() + std::time::Duration::from_secs(60);
-        let done = unread::keep(db, 7, &present, last, (since, until), told_by, gives_up).await;
-        g0::leave();
-        done.is_ok()
+    let mut judged = async |answers: &[&str], gives_up: bool| {
+        claimed.gives_up = gives_up;
+        judged_left(db, &claimed, answers, 0.0).await
     };
     for answer in ["!rejected", "!rateLimited", "嗯"] {
         assert!(!judged(&[answer; 9], false).await);
@@ -426,6 +452,62 @@ async fn notes_left_unread_of_someone_who_asked_are_held_to_it_first() {
         ]
     );
     assert!(judged(&[], false).await, "nothing left to judge");
+    schema.drop().await;
+}
+
+/// Judged while the login it was taken up under goes, it is taken up by
+/// another, a note of it is changed, or she is cleared: nothing of that is
+/// written; what is there as it was judged is.
+#[tokio::test]
+async fn notes_left_unread_are_written_only_as_they_were_judged() {
+    let Some(schema) = fixture().await else {
+        return;
+    };
+    let db = &schema.db;
+    let claimed = left_unread(db).await;
+    let judged_while = async |meanwhile: &str| {
+        let (done, ()) = tokio::join!(judged_left(db, &claimed, &[r#"{"drop":[]}"#], 0.5), async {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            db.execute_unprepared(meanwhile).await.unwrap();
+        });
+        assert!(done);
+    };
+    let token = claimed.job.token.clone().unwrap();
+    let to = |token: &str| {
+        format!(
+            "UPDATE runtime_registry SET payload = jsonb_set(payload, '{{token}}', '\"{token}\"') \
+             WHERE record_id = '{}'",
+            claimed.id
+        )
+    };
+    let (moving, landlord) = ("周末要搬家", "房东又来吵");
+    for (meanwhile, back) in [
+        (
+            "UPDATE users SET token_version = token_version + 1".to_string(),
+            "UPDATE users SET token_version = token_version - 1".to_string(),
+        ),
+        (to("another"), to(&token)),
+    ] {
+        judged_while(&meanwhile).await;
+        let went = went(db).await;
+        assert_eq!(
+            (&went[moving], &went[landlord]),
+            (&None, &None),
+            "{meanwhile}"
+        );
+        db.execute_unprepared(&back).await.unwrap();
+    }
+    judged_while("UPDATE agent_memories SET content = '不搬了' WHERE content = '周末要搬家'").await;
+    let kept = went(db).await;
+    assert_eq!(kept["不搬了"], None, "not what was judged");
+    assert_eq!(kept[landlord], holds(landlord));
+    // Cleared.
+    let (done, ()) = tokio::join!(judged_left(db, &claimed, &[r#"{"drop":[]}"#], 0.5), async {
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        forget(db).await.unwrap();
+    });
+    assert!(done);
+    assert_eq!(went(db).await["不搬了"], None);
     schema.drop().await;
 }
 

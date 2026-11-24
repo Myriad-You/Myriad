@@ -212,6 +212,8 @@ pub(super) struct Ask {
     output: Option<u32>,
     /// The part of its system prompt the provider caches; see [`Ask::cached`].
     cached: Option<crate::services::analyzer::CachedSystem>,
+    /// Who asks says whether its answer reads ([`Ask::read_by_asker`]).
+    read_by_asker: bool,
 }
 
 /// Writing down what someone said ([`myriad_merope::chat_remember::extract_system_prompt`]):
@@ -249,6 +251,16 @@ impl Ask {
             shape: JsonShape::ByProvider,
             output: None,
             cached: None,
+            read_by_asker: false,
+        }
+    }
+
+    /// Answered only once who asks has read it ([`Ask::judged`]), not by its
+    /// schema alone.
+    pub(super) fn read_by_asker(self) -> Self {
+        Self {
+            read_by_asker: true,
+            ..self
         }
     }
 
@@ -406,8 +418,23 @@ impl Ask {
         *counts.entry(self.operation).or_default() += 1;
     }
 
+    /// `raw` came in answer. What does not read is none: a gateway may say
+    /// that the account is out of credit as it would an answer.
+    fn came(&self, raw: &str, schema: &Value) {
+        let has = |answer: Value| {
+            let required = schema["required"].as_array().into_iter().flatten();
+            answer.is_object()
+                && required
+                    .filter_map(Value::as_str)
+                    .all(|key| answer.get(key).is_some())
+        };
+        if !self.read_by_asker && parse::<Value>(raw).is_some_and(has) {
+            self.judged();
+        }
+    }
+
     /// Answered, as a judgment: noted when.
-    fn judged(&self) {
+    pub(super) fn judged(&self) {
         if self.voice == Voice::Judge {
             let now = crate::clock::now().timestamp();
             judged_at(|last| last.store(now, Relaxed));
@@ -464,7 +491,7 @@ impl Ask {
                 _ => {}
             }
             let answer = answer.ok_or(Failure::Unavailable)?;
-            self.judged();
+            self.came(&answer, schema);
             return Ok(answer);
         }
         self.model()
@@ -481,8 +508,11 @@ impl Ask {
         schema_name: &str,
         schema: &Value,
     ) -> Result<T, Failure> {
-        parse(&self.json_raw(system, input, schema_name, schema).await?)
-            .ok_or_else(|| self.failed(Failure::InvalidOutput))
+        let ask = self.read_by_asker();
+        let raw = ask.json_raw(system, input, schema_name, schema).await?;
+        let answer = parse(&raw).ok_or_else(|| self.failed(Failure::InvalidOutput))?;
+        self.judged();
+        Ok(answer)
     }
 }
 
@@ -544,7 +574,6 @@ impl Model {
             Ok(Ok(_)) if whole && cut_off => Err(self.ask.failed(Failure::CutOff)),
             Ok(Ok(raw)) => {
                 crate::services::agent::alive::model_answered();
-                self.ask.judged();
                 Ok(raw)
             }
             Ok(Err(error)) => Err(self.ask.failed(Failure::classify(&error))),
@@ -562,12 +591,20 @@ impl Model {
     ) -> Result<String, Failure> {
         // One future either way: two arms each holding their own call nest
         // her chat's future past the compiler's layout depth.
-        self.billed(
-            self.analyzer
-                .analyze_json_as(system, input, schema_name, Some(schema), self.ask.shape),
-            true,
-        )
-        .await
+        let raw = self
+            .billed(
+                self.analyzer.analyze_json_as(
+                    system,
+                    input,
+                    schema_name,
+                    Some(schema),
+                    self.ask.shape,
+                ),
+                true,
+            )
+            .await?;
+        self.ask.came(&raw, schema);
+        Ok(raw)
     }
 
     /// Free text.
@@ -645,20 +682,25 @@ mod tests {
     }
 
     /// What tells that it is not who asks: a judgment answered since, by the
-    /// same model as judges, not one refused and not another's answer.
+    /// same model as judges, not one refused, not another's answer, and none
+    /// that does not read as what was asked for.
     #[tokio::test]
     async fn only_a_judgment_answered_is_one() {
         use crate::services::channel_group::g0;
         judged_last(0);
         let now = crate::clock::now().timestamp();
-        let schema = serde_json::json!({});
+        let schema = serde_json::json!({"required": ["drop"]});
         for (voice, answer, answered) in [
             (Voice::Judge, Some("!refused"), false),
             (Voice::Judge, Some("!rejected"), false),
             (Voice::Judge, None, false),
-            (Voice::Keeping, Some("{}"), false),
-            (Voice::Chat, Some("{}"), false),
-            (Voice::Judge, Some("{}"), true),
+            (Voice::Judge, Some("余额不足"), false),
+            (Voice::Judge, Some(r#"{"error":1}"#), false),
+            (Voice::Judge, Some("[]"), false),
+            (Voice::Judge, Some("{}"), false),
+            (Voice::Keeping, Some(r#"{"drop":[]}"#), false),
+            (Voice::Chat, Some(r#"{"drop":[]}"#), false),
+            (Voice::Judge, Some("```json\n{\"drop\":[]}\n```"), true),
         ] {
             let mut world = g0::World::new(0.5);
             (world.models).insert("asked".into(), [answer.map(str::to_string)].into());
@@ -670,6 +712,27 @@ mod tests {
             assert_eq!(judged_since(now - 1), answered, "{voice:?} {answer:?}");
         }
         assert!(!judged_since(now + 60));
+        // Read as one of what was asked for, or by who asks.
+        #[derive(serde::Deserialize)]
+        struct Answer {
+            #[serde(rename = "drop")]
+            _drop: Vec<usize>,
+        }
+        for (answer, answered) in [(r#"{"drop":"甲"}"#, false), (r#"{"drop":[]}"#, true)] {
+            judged_last(0);
+            let mut world = g0::World::new(0.5);
+            (world.models).insert("asked".into(), [Some(answer.to_string())].into());
+            g0::enter(world);
+            let read: Result<Answer, _> = Ask::new(Voice::Judge, 1, "asked")
+                .json("", "", "s", &schema)
+                .await;
+            g0::leave();
+            assert_eq!(
+                (read.is_ok(), judged_since(now - 1)),
+                (answered, answered),
+                "{answer}"
+            );
+        }
     }
 
     #[tokio::test]

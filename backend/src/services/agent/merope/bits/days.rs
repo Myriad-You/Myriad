@@ -1,6 +1,9 @@
 //! A group's days: what each day there was like, as the group itself heard it.
 
+use sea_orm::TransactionTrait;
+
 use super::*;
+use crate::services::agent::merope::store::memory_jobs::Own;
 
 /// What she makes of a stretch of a group's talk while it is still at hand
 /// (the lines themselves are kept only a few hours), in one reading (see
@@ -11,15 +14,15 @@ use super::*;
 /// brought her there) and who the reading is billed to; `people`, those in
 /// it she has an account of, each by the name they go by there (none: could
 /// not be read). An `Err`: what they asked her not to keep could not be told
-/// of it, and none of it is kept till it is, with `read`, what it was read
-/// as.
+/// of it, and none of it is kept till it is, with what it was read as
+/// (`again`, the next time).
 pub(crate) async fn go_over_stretch(
     db: &DatabaseConnection,
     keeper: i32,
     venue: &str,
     said: Vec<(DateTime<FixedOffset>, String, String, bool)>,
     people: Option<&[(i32, String)]>,
-    read: Option<&Read>,
+    again: Option<Again<'_>>,
 ) -> Result<(), NotTold> {
     let said: Vec<_> = said
         .into_iter()
@@ -33,8 +36,8 @@ pub(crate) async fn go_over_stretch(
         venue: venue.to_string(),
         keeper,
     };
-    let day = match read {
-        Some(read) => (read.at)
+    let day = match again {
+        Some(again) => (again.read.at)
             .with_timezone(&super::super::clock::zone())
             .date_naive(),
         None => super::super::clock::local_now().date_naive(),
@@ -50,7 +53,7 @@ pub(crate) async fn go_over_stretch(
         return Ok(());
     };
     let before = day_line(db, &circle, today).await;
-    read_group(db, &circle, venue, &lines, (today, before), people, read).await
+    read_group(db, &circle, venue, &lines, (today, before), people, again).await
 }
 
 /// What a stretch was read as, and when.
@@ -58,6 +61,14 @@ pub(crate) async fn go_over_stretch(
 pub(crate) struct Read {
     pub raw: String,
     pub at: DateTime<FixedOffset>,
+}
+
+/// A stretch read before, gone over again: what it was read as, and the job
+/// it waited in, under which alone anything of it is kept.
+#[derive(Clone, Copy)]
+pub(crate) struct Again<'a> {
+    pub read: &'a Read,
+    pub own: Own<'a>,
 }
 
 /// A stretch read, and what they asked her not to keep of it not told.
@@ -97,8 +108,9 @@ fn reading_lines(
         .collect()
 }
 
-/// Read the stretch once (`read`, when it was) and keep what holds up of it;
-/// of one read before, nothing she has found again since.
+/// Read the stretch once (`again`, when it was) and keep what holds up of it;
+/// of one read before, nothing she has found again since, and all of it
+/// together or none, while its job is its own still.
 async fn read_group(
     db: &DatabaseConnection,
     circle: &Circle,
@@ -106,7 +118,7 @@ async fn read_group(
     lines: &[myriad_merope::group_reading::Line],
     (today, day_before): (DateTime<FixedOffset>, Option<DayLine>),
     people: Option<&[(i32, String)]>,
-    read: Option<&Read>,
+    again: Option<Again<'_>>,
 ) -> Result<(), NotTold> {
     use myriad_merope::group_reading::{AtHand, SCHEMA_NAME, input, parse, schema, system};
     let held = held_in(db, circle, 30).await;
@@ -130,8 +142,8 @@ async fn read_group(
         .await
         .unwrap_or_default();
     let now_read;
-    let (read, first) = match read {
-        Some(read) => (read, false),
+    let (read, first) = match again {
+        Some(again) => (again.read, false),
         None => {
             let Ok(raw) = super::super::call::Ask::new(
                 super::super::call::Voice::Reading,
@@ -180,11 +192,11 @@ async fn read_group(
         });
     }
     let since = |at: DateTime<FixedOffset>| !first && at > read.at;
-    if !day_before.is_some_and(|(_, at)| since(at)) {
-        put_day(db, circle, &reading.day, today).await;
+    if day_before.is_some_and(|(_, at)| since(at)) {
+        reading.day.clear();
     }
-    if !lands_now.as_ref().is_some_and(|row| since(row.created_at)) {
-        put_lands(db, circle, &reading.lands, lands_now.as_ref()).await;
+    if lands_now.as_ref().is_some_and(|row| since(row.created_at)) {
+        reading.lands.clear();
     }
     reading.bits.retain(|bit| {
         !held.iter().any(|row| {
@@ -192,15 +204,80 @@ async fn read_group(
                 && bit_of(row).is_some_and(|(handle, _)| same_handle(&handle, bit.handle.trim()))
         })
     });
-    let kept = apply_bits(db, circle, &held, reading.bits).await;
-    if kept > 0 {
-        tracing::info!(kept, "[Merope] bits kept from a group's talk");
+    let Some(again) = again else {
+        put_day(db, circle, &reading.day, today).await;
+        put_lands(db, circle, &reading.lands, lands_now.as_ref()).await;
+        let kept = apply_bits(db, circle, &held, reading.bits).await;
+        if kept > 0 {
+            tracing::info!(kept, "[Merope] bits kept from a group's talk");
+        }
+        super::super::heard::keep(db, venue, reading.heard).await;
+        for explained in &reading.explained {
+            super::super::jargon::told(db, venue, explained).await;
+        }
+        return Ok(());
+    };
+    let explained: Vec<String> = (reading.explained.iter())
+        .map(|one| one.term.clone())
+        .collect();
+    let lands = lands_now.as_ref();
+    match keep_again(db, again.own, circle, venue, reading, (today, lands, &held)).await {
+        Ok(None) => Ok(()),
+        Ok(Some(kept)) => {
+            for id in kept {
+                super::super::memory_nodes::hanging::kept(db, &id).await;
+            }
+            for term in explained {
+                super::super::jargon::no_longer_watched(db, venue, &term).await;
+            }
+            Ok(())
+        }
+        Err(error) => {
+            tracing::warn!(%error, "[Merope] a group's stretch could not be kept");
+            Err(NotTold {
+                read: read.clone(),
+                failure: super::super::memory_jobs::Failure::Storage,
+            })
+        }
     }
-    super::super::heard::keep(db, venue, reading.heard).await;
+}
+
+/// What a stretch read before came to, kept all together, while its job is
+/// its `own` still: the rows to go on her nodes, or `None` when it no longer
+/// is, and nothing of it is kept.
+async fn keep_again(
+    db: &DatabaseConnection,
+    own: Own<'_>,
+    circle: &Circle,
+    venue: &str,
+    reading: myriad_merope::group_reading::Reading,
+    (today, lands, held): (
+        DateTime<FixedOffset>,
+        Option<&crate::models::entities::agent_memories::Model>,
+        &[crate::models::entities::agent_memories::Model],
+    ),
+) -> anyhow::Result<Option<Vec<String>>> {
+    let heard = if super::super::is_enabled().await {
+        reading.heard
+    } else {
+        Vec::new()
+    };
+    let tx = db.begin().await?;
+    if !own.still(&tx).await? {
+        return Ok(None);
+    }
+    let mut kept = Vec::new();
+    kept.extend(write_day(&tx, circle, &reading.day, today).await?);
+    kept.extend(write_lands(&tx, circle, &reading.lands, lands).await?);
+    for change in reading.bits.into_iter().take(MAX_CHANGES) {
+        kept.extend(write_bit(&tx, circle, held, change).await?);
+    }
+    super::super::heard::write(&tx, venue, heard).await?;
     for explained in &reading.explained {
-        super::super::jargon::told(db, venue, explained).await;
+        kept.extend(super::super::jargon::write_told(&tx, venue, explained).await?);
     }
-    Ok(())
+    tx.commit().await?;
+    Ok(Some(kept))
 }
 
 /// What she kept from a group lately and goes back over when told she got
@@ -473,9 +550,21 @@ pub(super) async fn put_day(
     said: &str,
     day: DateTime<FixedOffset>,
 ) {
+    if let Ok(Some(id)) = write_day(db, circle, said, day).await {
+        super::super::memory_nodes::hanging::kept(db, &id).await;
+    }
+}
+
+/// [`put_day`]'s row, when there is one to write.
+async fn write_day<C: ConnectionTrait>(
+    db: &C,
+    circle: &Circle,
+    said: &str,
+    day: DateTime<FixedOffset>,
+) -> Result<Option<String>, sea_orm::DbErr> {
     let text: String = said.trim().chars().take(DAY_CHARS).collect();
     if text.is_empty() {
-        return;
+        return Ok(None);
     }
     // One line a day: what she writes of a day later replaces what she wrote
     // of it earlier, each earlier line pointing at the new one.
@@ -493,12 +582,11 @@ pub(super) async fn put_day(
                 marker.into(),
             ],
         ))
-        .await
-        .unwrap_or_default()
+        .await?
         .iter()
         .filter_map(|row| row.try_get::<String>("", "id").ok())
         .collect();
-    let kept = unified::remember_in_place_of(
+    unified::remember_in_place_of(
         db,
         unified::NewMemory {
             user_id: circle.keeper(),
@@ -518,10 +606,8 @@ pub(super) async fn put_day(
             reason: "superseded",
         },
     )
-    .await;
-    if let Ok(unified::Replaced { id: Some(id), .. }) = &kept {
-        super::super::memory_nodes::hanging::kept(db, id).await;
-    }
+    .await
+    .map(|replaced| replaced.id)
 }
 
 /// What days in a group (`venue` as sessions keep it) were like, oldest

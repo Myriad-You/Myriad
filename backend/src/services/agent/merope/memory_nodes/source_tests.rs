@@ -495,3 +495,147 @@ async fn a_child_ends_moments_hang_on_the_site_owners_repository() {
     assert_eq!(count(db, words).await, 0);
     schema.drop().await;
 }
+
+/// A group's stretch kept again, judged while the login it was taken up under
+/// goes, it is taken up by another, or a line of it is forgotten: none of it
+/// is written; else all of it, and put on her nodes.
+#[tokio::test]
+async fn a_stretch_kept_again_is_kept_only_while_it_waits() {
+    use crate::services::agent::memory::origins;
+    use crate::services::agent::merope::asked::tests::asks;
+    use crate::services::agent::merope::bits::{Again, Read, go_over_stretch};
+    use crate::services::agent::merope::jargon;
+    use crate::services::agent::merope::memory_jobs::heard_later;
+    use crate::services::agent::merope::store::memory_jobs::{Claim, Own, claim, forget_holding};
+    use crate::services::channel_group::g0;
+    let Some(schema) = owned("memory_nodes_kept_again").await else {
+        return;
+    };
+    let db = &schema.db;
+    asks(db, SEVEN, "不要记和房东吵架的事").await;
+    // A group no one else watches words of.
+    const GROUP: &str = "qq:505";
+    jargon::nominate(db, GROUP, "老登", &[]).await;
+    let watched = async || {
+        count(
+            db,
+            "SELECT COUNT(*) AS n FROM runtime_registry \
+             WHERE namespace = 'merope_jargon_watched' AND payload::text LIKE '%老登%'",
+        )
+        .await
+    };
+    assert_eq!(watched().await, 1);
+    let now = crate::clock::now().fixed_offset();
+    let said: Vec<_> = [
+        "老登又来催租",
+        "老登就是我房东",
+        "《Outer Wilds》很好玩",
+        "好呀",
+        "周末去爬山",
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(n, text)| {
+        let at = now - chrono::Duration::minutes(10 - n as i64);
+        (at, "阿北".to_string(), text.to_string(), n == 3)
+    })
+    .collect();
+    let raw = json!({
+        "moments": [], "letGo": [], "corrected": [],
+        "day": "阿北说老登又来了", "lands": "大家喜欢她接话",
+        "bits": [{ "handle": "催租", "how": "老登又来", "change": "new",
+            "lines": [0], "quote": "老登又来催租" }],
+        "heard": [{ "thing": "《Outer Wilds》很好玩", "hangsOn": "你",
+            "lines": [2], "quote": "《Outer Wilds》很好玩" }],
+        "explained": [{ "term": "老登", "meaning": "他房东",
+            "lines": [1], "quote": "老登就是我房东" }],
+    });
+    let read = |raw: &Value| Read {
+        raw: raw.to_string(),
+        at: crate::clock::now().fixed_offset(),
+    };
+    let waiting = async |read: &Read| -> Claim {
+        heard_later(db, OWNER, GROUP, said.clone(), Vec::new(), read.clone())
+            .await
+            .unwrap();
+        claim(db).await.unwrap().expect("waits")
+    };
+    let people = [(SEVEN, "阿北".to_string())];
+    let kept_while = async |read: &Read, claimed: &Claim, meanwhile: &str| {
+        let mut world = g0::World::new(0.5);
+        let none = Some(r#"{"drop":[]}"#.to_string());
+        world.models.insert("not_to_keep".into(), [none].into());
+        world.delays.insert("not_to_keep".into(), [0.5].into());
+        g0::enter(world);
+        let own = Own::of(claimed);
+        let again = Some(Again { read, own });
+        let (done, ()) = tokio::join!(
+            go_over_stretch(db, OWNER, GROUP, said.clone(), Some(&people), again),
+            async {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                if meanwhile == "forget" {
+                    let quote = origins::quotes(Some("老登又来催租")).remove(0);
+                    forget_holding(db, SEVEN, &quote).await.unwrap();
+                } else {
+                    db.execute_unprepared(meanwhile).await.unwrap();
+                }
+            }
+        );
+        g0::leave();
+        assert!(done.is_ok(), "{meanwhile}");
+        count(
+            db,
+            "SELECT COUNT(*) AS n FROM agent_memories WHERE invalid_at IS NULL \
+             AND source IN ('group_day', 'lands', 'bit', 'heard', 'jargon')",
+        )
+        .await
+    };
+    let first = read(&raw);
+    let claimed = waiting(&first).await;
+    let token = claimed.job.token.clone().unwrap();
+    let to = |token: &str| {
+        format!(
+            "UPDATE runtime_registry SET payload = jsonb_set(payload, '{{token}}', '\"{token}\"') \
+             WHERE record_id = '{}'",
+            claimed.id
+        )
+    };
+    for (meanwhile, back) in [
+        (
+            "UPDATE users SET token_version = token_version + 1".to_string(),
+            "UPDATE users SET token_version = token_version - 1".to_string(),
+        ),
+        (to("another"), to(&token)),
+    ] {
+        assert_eq!(
+            kept_while(&first, &claimed, &meanwhile).await,
+            0,
+            "{meanwhile}"
+        );
+        db.execute_unprepared(&back).await.unwrap();
+    }
+    // Forgotten meanwhile.
+    assert_eq!(kept_while(&first, &claimed, "forget").await, 0);
+    assert_eq!(watched().await, 1);
+
+    // As it was: all of it, and on her nodes.
+    let again = read(&raw);
+    let claimed = waiting(&again).await;
+    assert_eq!(kept_while(&again, &claimed, "SELECT 1").await, 5);
+    assert_eq!(watched().await, 0);
+    let group = audience::group(GROUP);
+    let the_group = head(db, OWNER, &group, &format!("group:{GROUP}")).await;
+    assert_eq!(the_group["spans"][0]["text"], "阿北说老登又来了");
+    let entries = read::entries(db, OWNER, &group, &node(&group, &format!("group:{GROUP}")))
+        .await
+        .unwrap();
+    assert!(!entries.is_empty());
+    let later = count(
+        db,
+        "SELECT COUNT(*) AS n FROM runtime_registry \
+         WHERE namespace = 'merope_memory_node_hang_later'",
+    )
+    .await;
+    assert_eq!(later, 0);
+    schema.drop().await;
+}

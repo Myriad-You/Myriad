@@ -25,16 +25,28 @@ pub(super) async fn put_lands(
     said: &str,
     was: Option<&crate::models::entities::agent_memories::Model>,
 ) {
+    if let Ok(Some(id)) = write_lands(db, circle, said, was).await {
+        super::super::memory_nodes::hanging::kept(db, &id).await;
+    }
+}
+
+/// [`put_lands`]'s row, when there is one to write.
+pub(super) async fn write_lands<C: ConnectionTrait>(
+    db: &C,
+    circle: &Circle,
+    said: &str,
+    was: Option<&crate::models::entities::agent_memories::Model>,
+) -> Result<Option<String>, sea_orm::DbErr> {
     let now: String = said.trim().chars().take(LANDS_CHARS).collect();
     if now.is_empty() || was.is_some_and(|row| row.content.trim() == now) {
-        return;
+        return Ok(None);
     }
     // The one it replaces goes with it, pointing at it.
     let kept_with = was.map_or(circle.keeper(), |row| {
         row.user_id.unwrap_or_else(|| circle.keeper())
     });
     let replaced: Vec<String> = was.iter().map(|row| row.id.clone()).collect();
-    let kept = unified::remember_in_place_of(
+    unified::remember_in_place_of(
         db,
         unified::NewMemory {
             user_id: circle.keeper(),
@@ -53,10 +65,8 @@ pub(super) async fn put_lands(
             reason: "superseded",
         },
     )
-    .await;
-    if let Ok(unified::Replaced { id: Some(id), .. }) = &kept {
-        super::super::memory_nodes::hanging::kept(db, id).await;
-    }
+    .await
+    .map(|replaced| replaced.id)
 }
 
 /// How she comes across with them in private, as she last found it, and

@@ -29,6 +29,24 @@ async fn her_upkeep_writes_nothing_they_asked_her_not_to_keep() {
         assert_eq!(count(db, &of(kind)).await, 0, "{kind}");
     }
 
+    // Nor with one refused, and then nothing answered: the other is not
+    // written without it, and the node is still due.
+    let refused = ("not_to_keep", "!refused");
+    let told = [
+        ("memory_node_upkeep", ANSWER),
+        refused,
+        refused,
+        ("not_to_keep", r#"{"drop":[]}"#),
+    ];
+    for again in [&[refused][..], &[]] {
+        answering(&[&told[..], again].concat());
+        upkeep::tick(db).await;
+        assert_eq!(asked("memory_node_upkeep"), 1);
+        for kind in ["node.revised", "node.open_item", "node.upkept"] {
+            assert_eq!(count(db, &of(kind)).await, 0, "{kind}");
+        }
+    }
+
     answering(&[
         ("memory_node_upkeep", ANSWER),
         ("not_to_keep", r#"{"drop":[0]}"#),

@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::services::agent::memory::unified::{self, Audience};
+use crate::services::agent::merope::call;
 use crate::services::agent::merope::chat_remember::{ChatMemoryUpdate, Said, SaidNew};
 use crate::services::channel_group::g0;
 use myriad_merope::not_to_keep::ITEMS_PER_ASK;
@@ -54,6 +55,25 @@ fn items(texts: &[&str]) -> Vec<String> {
     texts.iter().map(|text| text.to_string()).collect()
 }
 
+/// Why `shown` of theirs, that comes again, could not be told of ([`told`]).
+async fn failed(
+    db: &sea_orm::DatabaseConnection,
+    shown: &[&str],
+    answers: &[Option<&str>],
+) -> Failure {
+    answering(answers);
+    let out = to_leave_out_or_again(db, THEM, &items(shown)).await;
+    g0::leave();
+    out.expect_err("told of")
+}
+
+fn answering(answers: &[Option<&str>]) {
+    let mut world = g0::World::new(0.5);
+    let answers = answers.iter().map(|answer| answer.map(str::to_string));
+    world.models.insert("not_to_keep".into(), answers.collect());
+    g0::enter(world);
+}
+
 /// `items` of `user_id` with the judge answering `answers` in order (None:
 /// unanswered), and what was asked of it.
 async fn told(
@@ -62,18 +82,18 @@ async fn told(
     shown: &[&str],
     answers: &[Option<&str>],
 ) -> (Option<Vec<usize>>, Vec<(String, String)>) {
-    let mut world = g0::World::new(0.5);
-    world
-        .models
-        .entry("not_to_keep".into())
-        .or_default()
-        .extend(
-            answers
-                .iter()
-                .map(|answer| answer.map(|answer| answer.to_string())),
-        );
-    g0::enter(world);
-    let out = to_leave_out(db, user_id, &items(shown)).await.ok();
+    let (out, asks) = told_or_failed(db, user_id, shown, answers).await;
+    (out.ok().map(|out| out.into_iter().collect()), asks)
+}
+
+async fn told_or_failed(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    shown: &[&str],
+    answers: &[Option<&str>],
+) -> (Result<BTreeSet<usize>, Failure>, Vec<(String, String)>) {
+    answering(answers);
+    let out = to_leave_out(db, user_id, &items(shown)).await;
     let log = g0::leave().unwrap().log;
     let asks = log
         .iter()
@@ -83,7 +103,7 @@ async fn told(
             (of("system"), of("input"))
         })
         .collect();
-    (out.map(|out| out.into_iter().collect()), asks)
+    (out, asks)
 }
 
 #[tokio::test]
@@ -123,7 +143,7 @@ async fn what_they_asked_is_judged_only_of_them_and_only_when_they_asked() {
 
 /// What she already holds, in more than one part: what a part was told
 /// stands whatever comes of the next, one refused is asked about one by one,
-/// and once all of a part is refused, the next is not.
+/// and once all of a part is refused, the next is not till any is answered.
 #[tokio::test]
 async fn each_part_stands_whatever_comes_of_the_next() {
     let Some(schema) = asked_in("asked_parts").await else {
@@ -131,7 +151,7 @@ async fn each_part_stands_whatever_comes_of_the_next() {
     };
     let db = &schema.db;
     let many: Vec<String> = (0..ITEMS_PER_ASK + 2).map(|n| format!("第{n}件")).collect();
-    let judging = async |answers: Vec<&str>| {
+    let judging_of = async |many: &[String], answers: Vec<&str>| {
         let mut world = g0::World::new(0.5);
         world.models.insert(
             "not_to_keep".into(),
@@ -139,11 +159,12 @@ async fn each_part_stands_whatever_comes_of_the_next() {
         );
         g0::enter(world);
         let soon = Instant::now() + Duration::from_secs(60);
-        let told = told_of(db, THEM, None, &many, soon).await;
+        let told = told_of(db, THEM, None, many, soon).await;
         let log = g0::leave().unwrap().log;
         let asks = log.iter().filter(|entry| entry["kind"] == "model").count();
         (told, asks)
     };
+    let judging = async |answers: Vec<&str>| judging_of(&many, answers).await;
     let (none, one) = (r#"{"drop":[]}"#, r#"{"drop":[0]}"#);
     let rest: BTreeSet<usize> = (ITEMS_PER_ASK..ITEMS_PER_ASK + 2).collect();
     // The second not to be reached.
@@ -158,6 +179,21 @@ async fn each_part_stands_whatever_comes_of_the_next() {
     assert_eq!(told.out, [0, ITEMS_PER_ASK + 1].into());
     assert_eq!(told.untold, [ITEMS_PER_ASK - 1].into());
     assert!(told.failure.unwrap().untold());
+    // Nothing answered yet, all of the next refused: one by one too once
+    // something is.
+    let three: Vec<String> = (0..=2 * ITEMS_PER_ASK)
+        .map(|n| format!("第{n}件"))
+        .collect();
+    let mut answers = vec!["!refused"; ITEMS_PER_ASK + 2];
+    answers.push(none);
+    answers.extend([one, one, "!refused"]);
+    answers.extend(vec![none; ITEMS_PER_ASK - 2]);
+    let (told, asks) = judging_of(&three, answers).await;
+    assert_eq!(asks, 2 * ITEMS_PER_ASK + 4);
+    assert_eq!(told.out, [ITEMS_PER_ASK].into());
+    let mut untold: BTreeSet<usize> = (0..ITEMS_PER_ASK).collect();
+    untold.insert(ITEMS_PER_ASK + 1);
+    assert_eq!(told.untold, untold);
     // All of it refused.
     let (told, asks) = judging(vec!["!refused"; 2 * many.len()]).await;
     assert_eq!((told.out.len(), told.untold.len()), (0, many.len()));
@@ -180,15 +216,46 @@ async fn one_refused_holds_up_none_beside_it() {
         Some(r#"{"drop":[]}"#),
         Some(r#"{"drop":[0]}"#),
     );
+    let odd = Some("没有");
     let not_written = || counts()["notWritten"].as_u64().unwrap();
     let before = not_written();
-    let (out, asks) = told(db, THEM, &three, &[refused, kept, refused, kept]).await;
-    assert_eq!((out, asks.len()), (Some(vec![1]), 4));
+    // Once more, and, refused still, one told already, whatever it says now.
+    let answers = [refused, kept, refused, kept, refused, goes];
+    let (out, asks) = told(db, THEM, &three, &answers).await;
+    assert_eq!((out, asks.len()), (Some(vec![1]), 6));
+    assert!(asks[5].1.contains(three[0]) && !asks[5].1.contains(three[1]));
     assert!(not_written() > before);
-    let (out, _) = told(db, THEM, &three, &[refused, kept, refused, goes, goes]).await;
+    // Told once more, it is as told.
+    let (out, asks) = told(db, THEM, &three, &[refused, kept, refused, kept, kept]).await;
+    assert_eq!((out, asks.len()), (Some(vec![]), 5));
+    let answers = [refused, kept, refused, goes, goes, goes, goes];
+    let (out, _) = told(db, THEM, &three, &answers).await;
     assert_eq!(out, Some(vec![1, 2]));
-    // One that never reads, the same.
-    let odd = Some("没有");
+    // Nothing answered at last: none of it is let go of now, when it comes
+    // again; what was told stands, when it does not.
+    for last in [refused, odd, Some("!quota"), None] {
+        let mut answers = vec![refused, kept, refused, kept, refused];
+        answers.extend([last; 3]);
+        let failure = failed(db, &three, &answers).await;
+        assert!(failure.untold() && failure.refused(), "{last:?}");
+        let (out, _) = told(db, THEM, &three, &answers).await;
+        assert_eq!(out, Some(vec![1]), "{last:?}");
+        let answers = [
+            refused, kept, refused, goes, goes, last, odd, odd, last, last, last,
+        ];
+        let failure = failed(db, &three, &answers).await;
+        assert!(failure.untold() && failure.refused(), "{last:?}");
+        let (out, _) = told(db, THEM, &three, &answers).await;
+        assert_eq!(out, Some(vec![1, 2]), "{last:?}");
+    }
+    // Asked of one told alone, when any was, not of one told with others.
+    let more: Vec<String> = (0..ITEMS_PER_ASK + 2).map(|n| format!("第{n}件")).collect();
+    let more: Vec<&str> = more.iter().map(String::as_str).collect();
+    let answers = [kept, refused, refused, kept, refused, kept];
+    let (out, asks) = told(db, THEM, &more, &answers).await;
+    assert_eq!((out, asks.len()), (Some(vec![ITEMS_PER_ASK]), 6));
+    assert!(asks[5].1.contains(more[ITEMS_PER_ASK + 1]) && !asks[5].1.contains("第0件"));
+    // One that never reads, the same, and not asked about once more.
     let (out, _) = told(db, THEM, &three, &[refused, kept, odd, odd, odd, kept]).await;
     assert_eq!(out, Some(vec![1]));
     // One alone in its part, answered at last, is as told; never, as any.
@@ -196,18 +263,28 @@ async fn one_refused_holds_up_none_beside_it() {
     let many: Vec<&str> = many.iter().map(String::as_str).collect();
     let (out, _) = told(db, THEM, &many, &[kept, odd, odd, kept]).await;
     assert_eq!(out, Some(vec![]));
-    let (out, asks) = told(db, THEM, &many, &[kept, odd, odd, odd]).await;
-    assert_eq!((out, asks.len()), (Some(vec![ITEMS_PER_ASK]), 4));
+    let (out, asks) = told(db, THEM, &many, &[kept, odd, odd, odd, kept]).await;
+    assert_eq!((out, asks.len()), (Some(vec![ITEMS_PER_ASK]), 5));
+    failed(db, &many, &[kept, odd, odd, odd, refused]).await;
+    let (out, _) = told(db, THEM, &many, &[kept, odd, odd, odd, refused]).await;
+    assert_eq!(out, Some(vec![ITEMS_PER_ASK]));
     // Out of time before it was asked again: not let go of, but one that did
     // not read all the same. With nothing but no answer in time, none.
     for (answers, delays, counted, as_refused) in [
-        ([refused, kept, odd], [0.0, 0.0, 0.6], true, true),
-        ([odd, odd, odd], [0.6, 0.0, 0.0], true, false),
-        ([kept, kept, kept], [60.0, 0.0, 0.0], false, false),
+        (vec![refused, kept, odd], vec![0.0, 0.0, 0.6], true, true),
+        // As it was to be asked about once more.
+        (
+            vec![refused, kept, refused, kept],
+            vec![0.0, 0.0, 0.0, 0.6],
+            true,
+            true,
+        ),
+        (vec![odd, odd, odd], vec![0.6, 0.0, 0.0], true, false),
+        (vec![kept, kept, kept], vec![60.0, 0.0, 0.0], false, false),
     ] {
         let mut world = g0::World::new(0.5);
-        let answers = answers.map(|one| one.map(str::to_string));
-        world.models.insert("not_to_keep".into(), answers.into());
+        let answers = answers.into_iter().map(|one| one.map(str::to_string));
+        world.models.insert("not_to_keep".into(), answers.collect());
         world.delays.insert("not_to_keep".into(), delays.into());
         g0::enter(world);
         let until = Instant::now() + LEAST + Duration::from_millis(400);
@@ -236,8 +313,15 @@ async fn an_answer_that_is_not_one_is_asked_again_and_never_lets_anything_throug
     let two = ["跟楼上那位又闹僵了", "周末去爬山"];
     let (beyond, not_one) = (Some(r#"{"drop":[2]}"#), Some("没有"));
     let good = Some(r#"{"drop":[]}"#);
+    let since = crate::clock::now().timestamp() - 1;
+    call::judged_last(0);
+    let (out, _) = told(db, THEM, &two, &[beyond, not_one, beyond]).await;
+    assert_eq!(out, None);
+    // None of that was an answer.
+    assert!(!call::judged_since(since));
     let (out, asks) = told(db, THEM, &two, &[beyond, not_one, good]).await;
     assert_eq!((out, asks.len()), (Some(vec![]), 3));
+    assert!(call::judged_since(since));
     let (out, asks) = told(db, THEM, &two, &[beyond, not_one, beyond, good]).await;
     // Then one by one, and the second could not be asked about.
     assert_eq!((out, asks.len()), (None, 5));

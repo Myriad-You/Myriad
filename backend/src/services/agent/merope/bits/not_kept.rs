@@ -212,7 +212,8 @@ mod tests {
     /// found anew since.
     #[tokio::test]
     async fn a_stretch_not_told_of_is_kept_as_it_was_read_once_it_is() {
-        use super::super::{DAY_SOURCE, LANDS_SOURCE, go_over_stretch};
+        use super::super::{Again, DAY_SOURCE, LANDS_SOURCE, go_over_stretch};
+        use crate::services::agent::merope::{memory_jobs, store::memory_jobs as queue};
         let Some(schema) = schema("bits_group_later").await else {
             return;
         };
@@ -261,9 +262,18 @@ mod tests {
         };
         g0::leave();
         assert!(kept().await.is_empty());
+        let read = not_told.read.clone();
+        memory_jobs::heard_later(db, 8, "telegram:42", said.clone(), Vec::new(), read)
+            .await
+            .unwrap();
+        let claimed = queue::claim(db).await.unwrap().expect("waits");
+        let again_as = |read| Again {
+            read,
+            own: queue::Own::of(&claimed),
+        };
         // Who they are could not be read: nor then.
         answering(&[]);
-        let read = Some(&not_told.read);
+        let read = Some(again_as(&not_told.read));
         let again = go_over_stretch(db, 8, "telegram:42", said.clone(), None, read);
         assert!(again.await.is_err());
         assert!(shown().is_empty());
@@ -301,7 +311,7 @@ mod tests {
                 "telegram:42",
                 &said,
                 &[],
-                read,
+                again_as(read),
                 gives_up,
             );
             assert!(again.await.is_ok());
@@ -316,7 +326,7 @@ mod tests {
         let Some(schema) = schema("bits_day_asked").await else {
             return;
         };
-        let mut changes = Changes {
+        let day = || Changes {
             bits: vec![bit("房东", None), bit("鸽王", None)],
             us: "常一起吐槽房东".into(),
             day: "聊了爬山".into(),
@@ -327,6 +337,7 @@ mod tests {
                 then: "问问他和房东和好没有".into(),
             }),
         };
+        let mut changes = day();
         answering(&[Some(r#"{"drop":[0,3,4]}"#)]);
         assert!(leave_out_of_a_day(&schema.db, 7, &mut changes).await);
         g0::leave();
@@ -339,6 +350,20 @@ mod tests {
         answering(&[None]);
         assert!(!leave_out_of_a_day(&schema.db, 7, &mut changes).await);
         g0::leave();
+        // One refused, and then nothing answered: the rest as told.
+        let (refused, kept) = (Some("!refused"), Some(r#"{"drop":[]}"#));
+        let told = [refused, kept, refused, kept, kept, kept, kept];
+        for again in [&[refused][..], &[]] {
+            let mut rest = day();
+            answering(&[&told[..], again].concat());
+            assert!(leave_out_of_a_day(&schema.db, 7, &mut rest).await);
+            g0::leave();
+            assert!(rest.day.is_empty() && rest.wish.is_some());
+            assert_eq!(
+                (rest.us.as_str(), rest.lands.as_str(), rest.bits.len()),
+                ("常一起吐槽房东", "喜欢被逗", 2)
+            );
+        }
         schema.drop().await;
     }
 }

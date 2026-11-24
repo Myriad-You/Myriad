@@ -65,8 +65,12 @@ mod tests {
     use crate::services::channel_group::g0;
 
     /// What is left of one reflection on account 7's turn, the judge
-    /// answering `answer` (None: not at all), and how often it was asked.
-    async fn left(db: &sea_orm::DatabaseConnection, answer: Option<&str>) -> (Reflection, usize) {
+    /// answering `answers` (None: not at all) and no more, and how often it
+    /// was asked.
+    async fn left(
+        db: &sea_orm::DatabaseConnection,
+        answers: &[Option<&str>],
+    ) -> (Reflection, usize) {
         let mut reflected = parse_reflection(
             r#"{"inner":"有点替他不平","keep":[{"about":"房东","then":"问问和好没有","when":"whenever","inHours":null},{"about":"考试","then":"问他考得怎么样","when":"whenever","inHours":null}],"done":[],"wrong":{"about":"房东","note":"我以为是房东的错","public":false,"took":"took_it"},"toldYou":"他嫌我话多","hurt":{"what":"说起房东时冲我发了火","weight":"hurt"},"mended":[],"onMind":"房东会不会赶他走"}"#,
         )
@@ -77,7 +81,7 @@ mod tests {
             .models
             .entry("not_to_keep".into())
             .or_default()
-            .extend([answer.map(str::to_string), None]);
+            .extend(answers.iter().map(|answer| answer.map(str::to_string)));
         g0::enter(world);
         leave_out(db, 7, &mut reflected).await;
         let asked = g0::leave()
@@ -103,21 +107,31 @@ mod tests {
         .await
         .unwrap();
         // Who asked nothing: not judged, all kept.
-        let (whole, asked) = left(db, None).await;
+        let (whole, asked) = left(db, &[None]).await;
         assert_eq!((asked, whole.keep.len()), (0, 2));
         assert!(whole.wrong.is_some() && whole.told_you.is_some() && whole.hurt.is_some());
         asks(db, 7, "不要记和房东吵架的事").await;
-        let (some, _) = left(db, Some(r#"{"drop":[0,2,3,4]}"#)).await;
+        let (some, _) = left(db, &[Some(r#"{"drop":[0,2,3,4]}"#)]).await;
         assert!(some.wrong.is_none() && some.hurt.is_none() && some.on_mind.is_none());
         assert!(some.told_you.is_some());
         assert_eq!(some.keep.len(), 1);
         assert_eq!(some.keep[0].about, "考试");
         // Not answered: none of it is kept, what she feels stays.
-        let (none, asked) = left(db, None).await;
+        let (none, asked) = left(db, &[None]).await;
         assert!(asked > 0);
         assert!(none.wrong.is_none() && none.hurt.is_none() && none.on_mind.is_none());
         assert!(none.told_you.is_none() && none.keep.is_empty());
         assert_eq!(none.inner, whole.inner);
+        // One refused, and then nothing answered: the rest as told.
+        let (refused, kept) = (Some("!refused"), Some(r#"{"drop":[]}"#));
+        let goes = Some(r#"{"drop":[0]}"#);
+        let told = [refused, kept, refused, kept, goes, goes, kept, kept];
+        for again in [&[refused][..], &[]] {
+            let (rest, _) = left(db, &[&told[..], again].concat()).await;
+            assert!(rest.wrong.is_some() && rest.hurt.is_some());
+            assert!(rest.told_you.is_none() && rest.on_mind.is_none());
+            assert_eq!(rest.keep.len(), 2);
+        }
         schema.drop().await;
     }
 }

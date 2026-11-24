@@ -62,6 +62,11 @@ pub(super) enum Payload {
         asked: chrono::DateTime<chrono::FixedOffset>,
         #[serde(default)]
         venue: Option<String>,
+        /// What was told to stay on a try before, each known by what it says
+        /// and where it was held (hashed); asked about again by another
+        /// request, or once it says something else.
+        #[serde(default)]
+        stays: Vec<String>,
     },
     /// Who they are in a group is known now, and they asked her not to keep
     /// something: what she noted of them there (by `marker`) becomes theirs,
@@ -483,6 +488,7 @@ async fn prepare(db: &DatabaseConnection, claim: &queue::Claim) -> Result<Effect
         return Ok(Effect::Stale);
     }
     let nth = usize::from(claim.job.attempts);
+    let own = queue::Own::of(claim);
     match claim.job.data.as_ref().expect("claimed jobs carry work") {
         Payload::Chat {
             user_text,
@@ -554,8 +560,15 @@ async fn prepare(db: &DatabaseConnection, claim: &queue::Claim) -> Result<Effect
         .map(|()| Effect::NoChange),
         Payload::AskedOver { venue, .. } => match venue {
             None => {
-                super::asked::old::let_go(db, claim.job.owner, judged_by(), claim.gives_up, nth)
-                    .await
+                super::asked::old::let_go(
+                    db,
+                    claim.job.owner,
+                    judged_by(),
+                    claim.gives_up,
+                    nth,
+                    Some(own),
+                )
+                .await
             }
             Some(venue) => {
                 super::asked::old::let_go_in(
@@ -565,6 +578,7 @@ async fn prepare(db: &DatabaseConnection, claim: &queue::Claim) -> Result<Effect
                     judged_by(),
                     claim.gives_up,
                     nth,
+                    Some(own),
                 )
                 .await
             }
@@ -580,17 +594,9 @@ async fn prepare(db: &DatabaseConnection, claim: &queue::Claim) -> Result<Effect
             last,
             since,
             until,
-        } => super::asked::unread::keep(
-            db,
-            claim.job.owner,
-            present,
-            *last,
-            (*since, *until),
-            judged_by(),
-            claim.gives_up,
-        )
-        .await
-        .map(|()| Effect::NoChange),
+        } => super::asked::unread::keep(db, own, present, *last, (*since, *until), judged_by())
+            .await
+            .map(|()| Effect::NoChange),
         Payload::GroupHeard {
             venue,
             stretch,
@@ -602,7 +608,7 @@ async fn prepare(db: &DatabaseConnection, claim: &queue::Claim) -> Result<Effect
             venue,
             stretch,
             speakers,
-            read,
+            super::bits::Again { read, own },
             claim.gives_up,
         )
         .await

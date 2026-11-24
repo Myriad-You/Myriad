@@ -55,6 +55,50 @@ async fn a_line_of_what_they_asked_not_to_keep_goes_on_no_node() {
     schema.drop().await;
 }
 
+/// One refused, and then nothing answered: none is placed, and all of it
+/// waits to be placed later, that one too.
+#[tokio::test]
+async fn a_line_never_told_of_waits_with_those_beside_it() {
+    let Some(schema) = schema("memory_nodes_asked_waits").await else {
+        return;
+    };
+    let db = &schema.db;
+    asks(db, OTHER, "不要记和房东吵架的事").await;
+    let lines = [
+        line(1, true, "周末去爬山", 0),
+        line(2, true, "山上风很大", 1),
+    ];
+    let none = r#"{"drop":[]}"#;
+    let refused = ("not_to_keep", "!refused");
+    let told = [refused, refused, ("not_to_keep", none)];
+    for again in [&[refused][..], &[]] {
+        let answers = [&told[..], again, &[("memory_node_place", PLACED)]].concat();
+        answering(&answers);
+        assert!(place(db, OTHER, None, &lines).await.is_empty());
+        assert_eq!(asked("memory_node_place"), 0);
+        let later: Option<serde_json::Value> = crate::services::runtime_registry::get(
+            db,
+            super::backlog::NAMESPACE,
+            &OTHER.to_string(),
+        )
+        .await
+        .unwrap();
+        assert!(later.is_some());
+    }
+    // Told the next time: both are there to be placed.
+    answering(&[("not_to_keep", none), ("memory_node_place", PLACED)]);
+    place(db, OTHER, None, &lines).await;
+    let shown = g0::with(|world| {
+        (world.log.iter())
+            .find(|entry| entry["what"]["operation"] == "memory_node_place")
+            .map(|entry| entry["what"]["input"].as_str().unwrap().to_string())
+    })
+    .flatten();
+    g0::leave();
+    assert!(shown.is_some_and(|shown| lines.iter().all(|line| shown.contains(&line.text))));
+    schema.drop().await;
+}
+
 /// However slow the telling, it ends in the time there is: nothing is
 /// placed, and all of it waits to be placed later.
 #[tokio::test]
