@@ -316,6 +316,44 @@ async fn one_of_hers_never_told_of_holds_up_none_beside_it() {
     schema.drop().await;
 }
 
+/// Hers not told in time are not hers to write; what they asked her to do is
+/// taken all the same, before the whole of it is out of time.
+#[tokio::test]
+async fn hers_not_told_in_time_take_nothing_of_theirs_with_them() {
+    let Some(schema) = schema("memory_nodes_intents_slow").await else {
+        return;
+    };
+    let db = &schema.db;
+    pen::reset_for_test();
+    crate::services::agent::merope::asked::tests::asks(db, OTHER, "不要记和房东吵架的事").await;
+    let said = "remind me at nine tomorrow";
+    talked(db, None, &[("user", said)]).await;
+    let nine = local(now() + Duration::hours(19));
+    let answer = json!({"take": [
+        take("mine", "ask about work", "say", None, None),
+        take("instruction", "remind them", "say", Some(&nine), None),
+        take("mine", "ask about the landlord", "say", None, None),
+    ], "drop": [], "marks": []});
+    world(
+        &[(intending::OPERATION, &answer.to_string()), ("not_to_keep", r#"{"drop":[]}"#)],
+        &[],
+    );
+    g0::with(|world| world.delays.insert("not_to_keep".into(), [1_000.0; 9].into()));
+    let second = std::time::Duration::from_secs(1);
+    let till = tokio::time::Instant::now() + 5 * second;
+    let turn = intending::after_turn_till(db, OTHER, None, SESSION, said, now(), till);
+    let judged = tokio::time::timeout(20 * second, turn).await.expect("in time").unwrap();
+    let asked = of(&log(), "model", Some("not_to_keep")).len();
+    assert_eq!(asked, 1, "asked, and not waited for longer");
+    assert_eq!((judged.taken.len(), judged.refused), (1, 2));
+    let held = held(db).await;
+    assert_eq!(held.len(), 1);
+    assert_eq!((held[0].text.as_str(), held[0].origin), ("remind them", Some(Origin::Partner)));
+    let kept = "SELECT COUNT(*) AS n FROM agent_node_instructions WHERE owner = '7'";
+    assert_eq!(count(db, kept).await, 1);
+    schema.drop().await;
+}
+
 #[tokio::test]
 async fn words_they_pass_on_and_talk_elsewhere_make_no_intent() {
     let Some(schema) = schema("memory_nodes_intents_poison").await else {
