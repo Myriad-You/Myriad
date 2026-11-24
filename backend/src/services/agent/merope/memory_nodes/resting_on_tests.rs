@@ -1320,3 +1320,78 @@ async fn every_audience_a_memory_may_be_named_in_is_locked() {
     assert_eq!(locked("from-elsewhere").await, [false, false, true, true]);
     schema.drop().await;
 }
+
+/// A Mac that only marks what a span came from writes it again in the same
+/// words and forgets the row: what rests on it stays, what comes late too.
+/// Written again in other words, it was forgotten, for what comes late too.
+#[tokio::test]
+async fn a_span_written_again_in_the_same_words_is_not_forgotten() {
+    let Some(mut here) = here("resting_on_marked").await else {
+        return;
+    };
+    let talk = here.talk.clone();
+    let made = created(&talk, "minted:ferns", "ferns");
+    let node = made.node.clone();
+    put(here.db(), OWNER, &talk, &[made]).await;
+    let object = format!("node:{node}");
+    let words = |text: &str, reference: &str| span_body(&talk, text, &[reference]);
+    let told = vec![
+        here.by_mac(
+            "p-1@mac",
+            &object,
+            "node.span",
+            Some(words("they watered it", "message:aa")),
+        ),
+        here.by_mac(
+            "p-2@mac",
+            &object,
+            "node.span",
+            Some(words("they moved it, at noon", "message:bb")),
+        ),
+        here.intent(
+            &node,
+            "on-marked",
+            intent_body("a", "ask one", &["span:p-1@mac"], &[], "waiting"),
+        ),
+        here.intent(
+            &node,
+            "on-words",
+            intent_body("b", "ask two", &["span:p-2@mac"], &[], "waiting"),
+        ),
+    ];
+    here.sent(told, &[]).await;
+    let again = vec![
+        here.by_mac(
+            "p-1@mac~1",
+            &object,
+            "node.span",
+            Some(words("they watered it", "forgotten:x")),
+        ),
+        here.by_mac(
+            "p-2@mac~1",
+            &object,
+            "node.span",
+            Some(words("they moved it", "message:bb")),
+        ),
+        here.forget("row:p-1@mac"),
+        here.forget("row:p-2@mac"),
+    ];
+    here.sent(again, &[]).await;
+    assert_eq!(left(here.db()).await, ids(&["on-marked"]));
+    assert_eq!(here.logged_forgets().await, ["row:on-words"]);
+    let late = vec![
+        here.intent(
+            &node,
+            "late-marked",
+            intent_body("c", "ask three", &["span:p-1@mac"], &[], "waiting"),
+        ),
+        here.intent(
+            &node,
+            "late-words",
+            intent_body("d", "ask four", &["span:p-2@mac"], &[], "waiting"),
+        ),
+    ];
+    here.sent(late, &[]).await;
+    assert_eq!(left(here.db()).await, ids(&["late-marked", "on-marked"]));
+    here.schema.drop().await;
+}

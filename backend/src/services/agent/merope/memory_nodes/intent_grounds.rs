@@ -20,6 +20,12 @@
 //! are stubs here as if it were: its home holds them still, so what rests on
 //! them stays ([`forgotten_by`]).
 //!
+//! A Mac that only puts a forgotten mark in place of what a span or an entry
+//! came from forgets the row and writes the piece again as its slot's next
+//! version, in the same words: nothing said is gone, so what rests on it
+//! stays ([`Versions`]). In other words, it is a forgetting, and is kept as
+//! one (`forgotten::PIECE`) for what comes late.
+//!
 //! The site is no node's home and writes no `retract.home`
 //! (`her_log::store`), so each is a plain forget of its row.
 
@@ -38,7 +44,7 @@ use serde_json::Value;
 
 use super::forget::{Forgets, forget_one, row_node};
 use super::{Error, heads, logged};
-use crate::services::agent::memory::forgotten;
+use crate::services::agent::memory::{forgotten, meaning::digest};
 use crate::services::her_log::store;
 
 const INTENT: &str = "node.intent";
@@ -326,14 +332,21 @@ impl Round {
             &ledger::ledger(&rows),
         );
         let gone = |row: &Row| row.forgotten && is_piece(&row.kind) && forgotten_by(&ledger, row);
+        let versions = Versions::of(&kept);
+        let now_gone: Vec<&Row> = rows
+            .iter()
+            .filter(|row| self.before.contains_key(&row.id) || came.contains(&row.id))
+            .filter(|row| gone(row))
+            .filter(|row| {
+                let was = self.before.get(&row.id);
+                let text = was.and_then(|(_, body)| body["text"].as_str());
+                !versions.same_words(row, text)
+            })
+            .collect();
+        versions.keep_gone(db, user_id, &now_gone).await?;
         let mut bodies = heads::bodies(&kept)?;
         let news = Gone {
-            pieces: rows
-                .iter()
-                .filter(|row| self.before.contains_key(&row.id) || came.contains(&row.id))
-                .filter(|row| gone(row))
-                .map(|row| row.id.clone())
-                .collect(),
+            pieces: now_gone.iter().map(|row| row.id.clone()).collect(),
             ..Gone::default()
         };
         for (id, (kind, body)) in self.before {
@@ -360,6 +373,7 @@ impl Round {
                     .filter_map(|entry| entry.target.strip_prefix(&by_row))
                     .map(str::to_string),
             );
+            let before = versions.gone_of(db, user_id, before).await?;
             let gone = late.gone(db, user_id, &kept, before).await?;
             let more = asked(db, user_id, audience, &kept, bodies, &gone).await?;
             let seen: BTreeSet<String> = going.iter().map(|row| row.id.clone()).collect();
@@ -371,6 +385,97 @@ impl Round {
         }
         forget(db, user_id, audience, &kept, &going).await?;
         Ok(going)
+    }
+}
+
+/// The spans and entries that stand, by the slot and the side they are
+/// versions of: a Mac's row is `<slot>@<writer>`, a later version of it
+/// `<slot>@<writer>~<n>` (`nodes.resting_on`). An id too long is a digest of
+/// the whole, from which no slot is read.
+struct Versions {
+    standing: BTreeMap<String, Vec<(String, String, String)>>,
+}
+
+impl Versions {
+    fn of(kept: &[heads::KeptRow]) -> Self {
+        let mut standing: BTreeMap<String, Vec<(String, String, String)>> = BTreeMap::new();
+        for kept in kept {
+            let row = &kept.row;
+            if row.forgotten || !is_piece(&row.kind) {
+                continue;
+            }
+            let (Some(slot), Some(body)) = (Self::slot(&row.id), body_of(kept)) else {
+                continue;
+            };
+            standing.entry(slot.to_string()).or_default().push((
+                row.kind.clone(),
+                row.origin.clone(),
+                body["text"].as_str().unwrap_or_default().to_string(),
+            ));
+        }
+        Self { standing }
+    }
+
+    /// The slot and its writer, of a row's id.
+    fn slot(id: &str) -> Option<&str> {
+        let slot = match id.rsplit_once('~') {
+            Some((slot, n)) if !n.is_empty() && n.bytes().all(|byte| byte.is_ascii_digit()) => slot,
+            _ => id,
+        };
+        slot.contains('@').then_some(slot)
+    }
+
+    /// Whether a version of `row`'s slot by the same side stands, in the
+    /// words `text` it said (any, when they are not known here).
+    fn same_words(&self, row: &Row, text: Option<&str>) -> bool {
+        Self::slot(&row.id)
+            .and_then(|slot| self.standing.get(slot))
+            .is_some_and(|versions| {
+                versions.iter().any(|(kind, origin, words)| {
+                    *kind == row.kind
+                        && *origin == row.origin
+                        && text.is_none_or(|text| text == words)
+                })
+            })
+    }
+
+    fn stands(&self, id: &str) -> bool {
+        Self::slot(id).is_some_and(|slot| self.standing.contains_key(slot))
+    }
+
+    /// Of `gone`, those another version of stands, kept as gone.
+    async fn keep_gone<C: ConnectionTrait>(
+        &self,
+        db: &C,
+        user_id: i32,
+        gone: &[&Row],
+    ) -> Result<(), Error> {
+        let marks: Vec<String> = gone
+            .iter()
+            .filter(|row| self.stands(&row.id))
+            .map(|row| digest(&row.id))
+            .collect();
+        forgotten::keep(db, user_id, forgotten::PIECE, &marks).await?;
+        Ok(())
+    }
+
+    /// Of `gone`, those no other version of stands, and those kept as gone.
+    async fn gone_of<C: ConnectionTrait>(
+        &self,
+        db: &C,
+        user_id: i32,
+        gone: BTreeSet<String>,
+    ) -> Result<BTreeSet<String>, Error> {
+        let marks: Vec<String> = gone
+            .iter()
+            .filter(|id| self.stands(id))
+            .map(|id| digest(id))
+            .collect();
+        let kept = forgotten::among(db, user_id, forgotten::PIECE, &marks).await?;
+        Ok(gone
+            .into_iter()
+            .filter(|id| !self.stands(id) || kept.contains(&digest(id)))
+            .collect())
     }
 }
 

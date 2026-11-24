@@ -32,6 +32,10 @@ pub const LINE: &str = "line";
 /// that comes after the forgetting may name as its grounds.
 pub const MESSAGE: &str = "message";
 
+/// A version of a span or an entry whose words went, while a later version
+/// of it stands here: by its row's id, digested (a row's id may be long).
+pub const PIECE: &str = "piece";
+
 /// The mark of a line: who said it (`role`), when (`at`, micros) and what,
 /// digested; the same for the site's line and a device's copy of it.
 pub fn line_mark(role: &str, at_micros: i64, content: &str) -> String {
