@@ -67,9 +67,31 @@ fn how_things_stand_is_as_long_as_when_its_cache_was_measured() {
     }
 }
 
+/// Going over a note says the same to her every time, long enough to cache
+/// by itself. Its schema is the same every time too: a provider held to it
+/// may put it before the prompt, where it begins what is cached.
+#[test]
+fn going_over_a_note_is_asked_the_same_way_every_time_and_long_enough() {
+    use crate::services::agent::merope::memory_nodes::upkeep::{schema, system_prompt};
+    assert_eq!(super::UPKEEP_CACHE.until, None);
+    let (first, again) = (system_prompt(), system_prompt());
+    assert_eq!(first, again);
+    assert!(
+        first.chars().count() >= CACHEABLE_CHARS,
+        "{} chars",
+        first.chars().count()
+    );
+    assert_eq!(schema().to_string(), schema().to_string());
+}
+
 #[test]
 fn a_session_name_says_only_what_kind_of_call_it_is() {
-    for cached in [REMEMBER_CACHE, SETTLE_CACHE, super::STANDING_CACHE] {
+    for cached in [
+        REMEMBER_CACHE,
+        SETTLE_CACHE,
+        super::STANDING_CACHE,
+        super::UPKEEP_CACHE,
+    ] {
         assert!(cached.session.starts_with("memory-"));
         assert!(
             cached

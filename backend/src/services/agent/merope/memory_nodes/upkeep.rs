@@ -16,7 +16,7 @@
 //! first such answer, and all of a second in a row). The site owner's
 //! private talk is gone over however much waits, with no count set on
 //! her; every other account's at most [`PER_DAY`] calls a day, counted in the
-//! runtime registry ([`DAY_NAMESPACE`]) so a restart does not reset it.
+//! runtime registry ([`super::upkeep_day::DAY_NAMESPACE`]) so a restart does not reset it.
 //! Nothing due and nothing in the inbox: no call, no row. Only private
 //! talks for now; only while her mind is here. A node holding nothing of
 //! hers in 「现在」 yet is built first (`super::unbuilt`).
@@ -40,12 +40,13 @@ use serde_json::{Value, json};
 use super::upkeep_candidates::{candidates, holding_sessions};
 pub(crate) use super::upkeep_cut_off::CUT_OFF_NAMESPACE;
 use super::upkeep_cut_off::{cut_off_key, keep_cut_off, kept_cut_off, newest_on};
+pub(crate) use super::upkeep_day::{calls_today, count_calls};
 use super::upkeep_not_told::{Told, not_told_last, told};
 use super::{
     Author, Error, RowIn, audience, heads, inbox, known,
     write::{Beside, write_with},
 };
-use crate::services::agent::merope::call::{Ask, Failure, Voice};
+use crate::services::agent::merope::call::{Ask, Failure, UPKEEP_CACHE, Voice};
 use crate::services::her_log::pen::Thought;
 use crate::services::runtime_registry as registry;
 
@@ -76,8 +77,6 @@ const AUDIENCES: i64 = 10;
 const TIMEOUT: Duration = Duration::from_secs(90);
 const OPERATION: &str = "memory_node_upkeep";
 const SCHEMA_NAME: &str = "node_upkeep";
-/// Where the calls an account's upkeep made today are counted.
-pub(crate) const DAY_NAMESPACE: &str = "merope_memory_node_upkeep";
 /// The mark written when the core read her answer and the site could not
 /// write it, so the same answer is not asked for again and again.
 const REFUSED: &str = "refused_here";
@@ -242,50 +241,6 @@ async fn audiences<C: ConnectionTrait>(db: &C) -> Result<Vec<(i32, String)>, Err
     rows.iter()
         .map(|row| Ok((row.try_get("", "user_id")?, row.try_get("", "audience")?)))
         .collect()
-}
-
-fn day_key(user_id: i32, audience: &str) -> String {
-    format!(
-        "{user_id}:{audience}:{}",
-        crate::services::agent::merope::clock::today()
-    )
-}
-
-/// Calls the upkeep of `user_id`'s `audience` made today.
-pub(crate) async fn calls_today<C: ConnectionTrait>(
-    db: &C,
-    user_id: i32,
-    audience: &str,
-) -> Result<u32, Error> {
-    Ok(
-        registry::get::<u32>(db, DAY_NAMESPACE, &day_key(user_id, audience))
-            .await?
-            .unwrap_or(0),
-    )
-}
-
-pub(crate) async fn count_calls<C: ConnectionTrait>(
-    db: &C,
-    user_id: i32,
-    audience: &str,
-    calls: u32,
-) -> Result<(), Error> {
-    let total = calls_today(db, user_id, audience).await? + calls;
-    registry::put(
-        db,
-        DAY_NAMESPACE,
-        &day_key(user_id, audience),
-        registry::RegistryIdentity {
-            subject_id: Some(user_id),
-            owner_id: Some(user_id),
-            tapp_id: None,
-            runtime_id: None,
-        },
-        &total,
-        crate::clock::now().timestamp() + 2 * 86_400,
-    )
-    .await?;
-    Ok(())
 }
 
 /// Whether her nodes are to be gone over now: she is asleep, and they have
@@ -617,6 +572,7 @@ pub(crate) async fn run(
         calls += 1;
         let answer = Ask::new(Voice::Keeping, user_id, OPERATION)
             .within(TIMEOUT)
+            .cached(UPKEEP_CACHE)
             // At most 5,683 measured, thinking included, but a live upkeep
             // was cut off at 10,000 with under a thousand characters said:
             // what deep thinking had before limits were named.
