@@ -541,9 +541,10 @@ impl AiAnalyzer {
     }
 
     /// For a kind of call made again and again with the same instructions
-    /// first (the memory writing steps): that part of its system prompt
-    /// marked for the provider to cache, where the provider takes the mark
-    /// (`cached_system`). What the model reads is the same.
+    /// first (the memory writing steps, her look at the owner's sessions):
+    /// that part of its system prompt marked for the provider to cache,
+    /// where the provider takes the mark (`cached_system`). What the model
+    /// reads is the same.
     pub fn with_cached_system(mut self, cached: super::CachedSystem) -> Self {
         self.cached_system = Some(cached);
         self
@@ -2464,6 +2465,32 @@ mod image_request_tests {
 mod tests {
     use super::{ProviderCallFailure, require_analyze_prompt};
     use serde_json::json;
+
+    /// A call that says which part of its system prompt is the same sends
+    /// that part marked; one that says nothing sends the string it was.
+    #[tokio::test]
+    async fn a_call_with_its_system_cached_sends_it_marked() {
+        use super::{AiAnalyzer, AiProvider};
+        let analyzer = AiAnalyzer::new(
+            AiProvider::Anthropic,
+            "fixture".into(),
+            "claude-sonnet-5-5".into(),
+            None,
+        )
+        .await;
+        let body = json!({"model":"claude-sonnet-5-5","system":"Rules.","messages":[]});
+        assert_eq!(analyzer.prepare_body(&body).unwrap()["system"], "Rules.");
+        let analyzer = analyzer.with_cached_system(super::super::CachedSystem {
+            until: None,
+            session: "sessions-look",
+            kept: super::super::Kept::Hour,
+        });
+        assert_eq!(
+            analyzer.prepare_body(&body).unwrap()["system"],
+            json!([{"type":"text","text":"Rules.",
+                "cache_control":{"type":"ephemeral","ttl":"1h"}}])
+        );
+    }
 
     /// 只在请求没写上限时补上；写了的不动，也不给别的协议补字段。
     #[tokio::test]

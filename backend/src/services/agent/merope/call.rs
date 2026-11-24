@@ -225,6 +225,7 @@ pub(super) const REMEMBER_CACHE: crate::services::analyzer::CachedSystem =
     crate::services::analyzer::CachedSystem {
         until: Some("Known:\n"),
         session: "memory-remember",
+        kept: crate::services::analyzer::Kept::Minutes,
     };
 /// Going over a stretch ([`myriad_merope::chat_remember::settle_system_prompt`]):
 /// its instructions, before what she knows for good.
@@ -232,6 +233,7 @@ pub(super) const SETTLE_CACHE: crate::services::analyzer::CachedSystem =
     crate::services::analyzer::CachedSystem {
         until: Some("Known for good:\n"),
         session: "memory-settle",
+        kept: crate::services::analyzer::Kept::Minutes,
     };
 /// How things stand on a topic: its system prompt is the same throughout.
 /// Long enough to cache with the schema it is asked with, which the
@@ -240,6 +242,7 @@ pub(super) const STANDING_CACHE: crate::services::analyzer::CachedSystem =
     crate::services::analyzer::CachedSystem {
         until: None,
         session: "memory-standing",
+        kept: crate::services::analyzer::Kept::Minutes,
     };
 /// Going over a note ([`super::memory_nodes::upkeep`]): its system prompt is
 /// the same throughout, and long enough to cache by itself.
@@ -247,6 +250,17 @@ pub(super) const UPKEEP_CACHE: crate::services::analyzer::CachedSystem =
     crate::services::analyzer::CachedSystem {
         until: None,
         session: "memory-upkeep",
+        kept: crate::services::analyzer::Kept::Minutes,
+    };
+/// Her look at the owner's sessions ([`super::sessions`]): its system prompt
+/// (who she is, then how she answers) and its schema are the same on every
+/// look; what she is shown is the prompt. Looks come minutes apart all day,
+/// and often more than five.
+pub(super) const LOOK_CACHE: crate::services::analyzer::CachedSystem =
+    crate::services::analyzer::CachedSystem {
+        until: None,
+        session: "sessions-look",
+        kept: crate::services::analyzer::Kept::Hour,
     };
 
 impl Ask {
@@ -274,14 +288,20 @@ impl Ask {
         }
     }
 
-    /// For the memory writing steps, made again and again with the same
-    /// instructions first: that part of the system prompt cached by the
-    /// provider. Her talk is not cached.
+    /// For a step made again and again with the same instructions first
+    /// (writing down what she remembers, looking at the owner's sessions):
+    /// that part of the system prompt cached by the provider. Her talk is
+    /// not cached.
     pub(super) fn cached(self, cached: crate::services::analyzer::CachedSystem) -> Self {
         Self {
             cached: Some(cached),
             ..self
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn cached_as(&self) -> Option<crate::services::analyzer::CachedSystem> {
+        self.cached
     }
 
     /// Its JSON answer held to the schema by the provider itself, where the

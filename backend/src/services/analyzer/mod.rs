@@ -23,7 +23,7 @@ mod refusal_said;
 #[cfg(test)]
 pub(crate) mod write_thinking;
 
-pub use cached_system::CachedSystem;
+pub use cached_system::{CachedSystem, Kept};
 pub use client::AiAnalyzer;
 pub use openai::EmptyAtLimit;
 pub use sse::StreamCut;
