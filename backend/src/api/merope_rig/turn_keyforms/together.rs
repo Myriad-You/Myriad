@@ -9,14 +9,17 @@
 //! 缓存里一份拆层永远是它旁边那张图的：可能被中途放弃的拆层自己不写缓存，
 //! 拆完由不会被放弃的一侧写；换图时先放弃在途的拆层，再清掉旧拆层、写新图。
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::{
+    sync::atomic::{AtomicU8, Ordering},
+    time::Instant,
+};
 
 use futures::future::{FutureExt, join_all};
 
 use super::{
     ApiResult, Stage, TURN_SIDES, TurnCache,
     drawing::{keep_decomposition, keep_redrawn, kept_decomposition},
-    update,
+    took, update,
 };
 
 /// Runs all of `work` at once and waits for every one, then gives their
@@ -105,6 +108,7 @@ pub(super) async fn turns_beside_front(
         in_hand: AtomicU8::new(0),
     };
     let count = &count;
+    let began = Instant::now();
     let front = async move {
         let psd = front.await?;
         count.one_more();
@@ -126,6 +130,7 @@ pub(super) async fn turns_beside_front(
         let drawings = drawings.clone();
         async move {
             let drawn = all_or_first_error(drawings).await?;
+            took(id, "head-drawings", began);
             count.decomposing();
             ApiResult::Ok(drawn)
         }

@@ -693,3 +693,126 @@ async fn the_job_counts_drawings_then_the_decompositions_in_hand() {
     update(&id, |job| job.stage = Stage::Done);
     cache.remove();
 }
+
+/// Looks into the cache every millisecond until `until`: what it found of a
+/// turn's decomposition beside another drawing than the one it is of.
+async fn mixed(cache: &TurnCache, until: u64) -> Vec<String> {
+    let mut wrong = Vec::new();
+    for at in 0..until {
+        for index in 0..4 {
+            let (png, psd, _) = kept(cache, index).await;
+            let Some((psd, _)) = psd else { continue };
+            match png {
+                Some(png) if png[0].wrapping_add(100) == psd[0] => {}
+                other => wrong.push(format!(
+                    "at {at}: turn {index} has {other:?} beside {psd:?}"
+                )),
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    wrong
+}
+
+#[tokio::test(start_paused = true)]
+async fn two_turns_sent_back_together_are_each_drawn_again_with_the_cache_never_mixed() {
+    let cache = TurnCache::scratch();
+    let steps = Staged::sending_back(&[0, 3], 10);
+    let (out, wrong) = tokio::join!(made("none", &cache, &steps), mixed(&cache, 500));
+    let (_, turned) = out.unwrap();
+    assert_eq!(wrong, Vec::<String>::new());
+    assert_eq!(
+        turned,
+        [
+            turn(AGAIN, AGAIN + 100),
+            turn(10, 110),
+            turn(20, 120),
+            turn(AGAIN + 3, AGAIN + 103)
+        ]
+    );
+    for (index, png) in [(0, AGAIN), (1, 10), (2, 20), (3, AGAIN + 3)] {
+        let (kept_png, kept_psd, _) = kept(&cache, index).await;
+        assert_eq!(kept_png, Some(vec![png]));
+        assert_eq!(kept_psd, Some((vec![png + 100], true)));
+    }
+    cache.remove();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_turn_whose_first_decomposition_fails_stands_on_its_redraw_whichever_ends_first() {
+    // The first decomposition fails at 250; the redraw is in before it (235) or after it (265).
+    for redraw in [10, 40] {
+        let cache = TurnCache::scratch();
+        let steps = Staged {
+            cannot_split: Some(40),
+            ..Staged::sending_back(&[3], redraw)
+        };
+        let (out, wrong) = tokio::join!(made("none", &cache, &steps), mixed(&cache, 520));
+        let (_, turned) = out.unwrap();
+        assert_eq!(wrong, Vec::<String>::new());
+        assert_eq!(turned[3], turn(AGAIN + 3, AGAIN + 103), "redraw {redraw}");
+        cache.remove();
+    }
+    // Neither is made: the decomposition's failure is the job's.
+    let cache = TurnCache::scratch();
+    let steps = Staged {
+        cannot_split: Some(40),
+        redraw_fails: true,
+        ..Staged::sending_back(&[3], 40)
+    };
+    let (_, axum::Json(error)) = made("none", &cache, &steps).await.unwrap_err();
+    assert_eq!(error["at"], "split");
+    cache.remove();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_front_decomposition_in_last_is_counted_and_checked_against_like_any_other() {
+    let _slot = JOB_TESTS.lock().await;
+    async fn late_front() -> ApiResult<Vec<u8>> {
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        Ok(b"front".to_vec())
+    }
+    let cache = TurnCache::scratch();
+    let (id, _) = claim_job(&Some("together-e".into()), "m", Stage::Generating, 4).unwrap();
+    let steps = Staged::sending_back(&[2], 10);
+    let (out, wrong, seen) = tokio::join!(
+        turns_beside_front(&id, &cache, &steps, drawings(&cache, None), late_front()),
+        mixed(&cache, 700),
+        progress_at(&[260, 410, 430, 440, 500])
+    );
+    let (_, turned) = out.unwrap();
+    assert_eq!(wrong, Vec::<String>::new());
+    assert_eq!(turned[2], turn(AGAIN + 2, AGAIN + 102));
+    // The four turns' are in before the front one (400); the check, at 425,
+    // sends one back, drawn again by 435 and decomposed by 645.
+    let counted: Vec<u8> = seen.iter().map(|(_, done, _)| *done).collect();
+    assert_eq!(counted, [4, 5, 5, 4, 4]);
+    assert_eq!(progress(), (Stage::Decomposing, 5, 5));
+    update(&id, |job| job.stage = Stage::Done);
+    cache.remove();
+
+    // Everything kept and checked by a first job; a second job's check sends a turn back.
+    let cache = TurnCache::scratch();
+    let steps = Staged::sending_back(&[], 0);
+    made("none", &cache, &steps).await.unwrap();
+    let steps = Staged::sending_back(&[1], 10);
+    let (out, wrong) = tokio::join!(made("none", &cache, &steps), mixed(&cache, 500));
+    let (_, turned) = out.unwrap();
+    assert_eq!(wrong, Vec::<String>::new());
+    assert_eq!(turned[1], turn(AGAIN + 1, AGAIN + 101));
+    assert_eq!(
+        steps.did(),
+        notes(&[
+            (225, "checked [30, 10, 20, 40]"),
+            (225, "drawing 1 again"),
+            (235, "drawn 1 again"),
+            (235, "splitting 91"),
+            (445, "split 91"),
+        ])
+    );
+    assert_eq!(
+        kept(&cache, 1).await,
+        (Some(vec![AGAIN + 1]), Some((vec![AGAIN + 101], true)), true)
+    );
+    cache.remove();
+}

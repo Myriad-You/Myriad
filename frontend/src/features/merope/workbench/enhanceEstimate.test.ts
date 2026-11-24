@@ -1,10 +1,12 @@
 import type { TurnKeyformsStatus } from '../turnKeyformsApi'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { enhancePlanOf, estimateEnhance, ENHANCE_SECONDS as S } from './enhanceEstimate'
+import { enhancePlanOf, estimateEnhance, ENHANCE_SECONDS as S, TILES_AFTER_FIT } from './enhanceEstimate'
 
 /** A bust's job from its start: the drawings, the turns' decompositions begun as they come in, the fit. */
 const BUST = S.generate + S.decompose + S.fit
+/** A keyed figure's stitch, from its head's fit: the wait for the waist's and the legs' tiles, then the stitch. */
+const KEYED_STITCH = TILES_AFTER_FIT + S.stitch
 
 function status(patch: Partial<TurnKeyformsStatus>): TurnKeyformsStatus {
   return { jobId: 'j', stage: 'upscaling', done: 0, total: 1, seconds: 0, phase: 'figure', body: null, ...patch }
@@ -17,17 +19,28 @@ test("a figure's enhancement starts with every step ahead, the body's alongside"
     ['headFit', 'pending'], ['stitch', 'pending'], ['body', 'pending'],
   ])
   assert.ok(estimate.steps.at(-1)!.parallel)
-  // The head's way: the figure whole, its two tiles together, then the head as a bust (its front
-  // decomposition begun with the drawings, each turn's as its drawing comes in). The body's keys
-  // are made beside it and are done long before.
-  assert.equal(estimate.remainingSeconds, S.upscale + 2 * S.decompose + BUST + S.stitch)
+  // The head's way: the figure whole, then at once the head as a bust (its front decomposition begun
+  // with the drawings, each turn's as its drawing comes in); the stitch waits for the two tiles
+  // decomposed beside the fit. The body's: its drawings with the figure whole, its decompositions
+  // when the head's are in, its fit.
+  const headWay = S.upscale + S.decompose + BUST + KEYED_STITCH
+  const bodyWay = S.upscale + S.decompose + (S.generate + S.decompose) + S.decompose + S.bodyFit
+  assert.equal(estimate.remainingSeconds, Math.max(headWay, bodyWay))
   assert.equal(estimate.fraction, 0)
+})
+
+test("a keyed figure's whole decomposition is one of one, with the head's work straight after it", () => {
+  const estimate = estimateEnhance('figureHead', status({ stage: 'decomposing', done: 0, total: 1 }), 50)
+  const byKey = Object.fromEntries(estimate.steps.map((step) => [step.key, step]))
+  assert.deepEqual([byKey.figureDecompose.state, byKey.figureDecompose.done, byKey.figureDecompose.total], ['started', 0, 1])
+  assert.equal(byKey.headGenerate.state, 'pending')
+  assert.equal(estimate.remainingSeconds, S.decompose - 50 + BUST + KEYED_STITCH)
 })
 
 test("the head's decomposing counts down and the body's turn reports where it is", () => {
   const estimate = estimateEnhance('figure', status({
-    phase: 'head', stage: 'decomposing', done: 1, total: 5, seconds: 700,
-    body: { motion: 'turn', stage: 'decomposing', done: 1, total: 2 },
+    phase: 'head', stage: 'decomposing', done: 1, total: 5, seconds: 500,
+    body: { motion: 'turn', stage: 'decomposing', done: 0, total: 2 },
   }), 20)
   const byKey = Object.fromEntries(estimate.steps.map((step) => [step.key, step]))
   assert.equal(byKey.figureDecompose.state, 'completed')
@@ -35,10 +48,20 @@ test("the head's decomposing counts down and the body's turn reports where it is
   assert.deepEqual([byKey.headDecompose.state, byKey.headDecompose.done, byKey.headDecompose.total], ['started', 1, 5])
   assert.equal(byKey.body.state, 'started')
   // The front one is in: what is left of the four turns' decompositions, begun with their
-  // drawings, 20 s on, then the fit and stitch. The body's second decomposition is about to be
-  // in, on a GPU of its own.
-  assert.equal(estimate.remainingSeconds, S.generate + S.decompose - S.front - 20 + S.fit + S.stitch)
+  // drawings, 20 s on, then the fit and the stitch with its wait. The body's drawings are in and
+  // its decompositions wait for the head's: sent then, and fitted.
+  const headsLeft = S.generate + S.decompose - S.front - 20
+  assert.equal(estimate.remainingSeconds, Math.max(headsLeft + S.fit + KEYED_STITCH, headsLeft + S.decompose + S.bodyFit))
   assert.ok(estimate.fraction > 0 && estimate.fraction < 1)
+})
+
+test("with the head's work at its stitch, what is left is the longer of the stitch and the body's keys", () => {
+  const stitching = (body: TurnKeyformsStatus['body']) =>
+    estimateEnhance('figure', status({ stage: 'stitching', done: 0, total: 1, seconds: 800, body })).remainingSeconds
+  // The body's decompositions, sent when the head's were in, are still out: they and its fit outlast the stitch.
+  assert.equal(stitching({ motion: 'turn', stage: 'decomposing', done: 0, total: 2 }), S.decompose + S.bodyFit)
+  // The body's keys are done: the stitch, with what it waits of the two tiles.
+  assert.equal(stitching({ motion: 'turn', stage: 'done', done: 1, total: 1 }), KEYED_STITCH)
 })
 
 test('with the head done, what is left is the body', () => {
@@ -55,7 +78,7 @@ test('a failed body leaves the head to finish on its own; a done job has nothing
     phase: 'head', stage: 'fitting', body: { motion: 'turn', stage: 'failed', done: 0, total: 1 },
   }))
   assert.equal(failed.steps.at(-1)!.state, 'failed')
-  assert.equal(failed.remainingSeconds, S.fit + S.stitch)
+  assert.equal(failed.remainingSeconds, S.fit + KEYED_STITCH)
   const done = estimateEnhance('figure', status({ stage: 'done', seconds: 3000 }))
   assert.equal(done.remainingSeconds, 0)
   assert.equal(done.fraction, 1)
@@ -81,13 +104,23 @@ test("the worn bust's plan and which plan a status follows", () => {
 test("a figure keyed by its head alone has no body step; by its body alone, its tiles are all decomposed", () => {
   const head = estimateEnhance('figureHead', status({}))
   assert.ok(head.steps.every((step) => step.key !== 'body'))
-  assert.equal(head.remainingSeconds, S.upscale + 2 * S.decompose + BUST + S.stitch)
+  assert.equal(head.remainingSeconds, S.upscale + S.decompose + BUST + KEYED_STITCH)
   const body = estimateEnhance('figureBody', status({ stage: 'decomposing', done: 1, total: 4 }))
   assert.deepEqual(body.steps.map((step) => [step.key, step.state]), [
     ['upscale', 'completed'], ['plainDecompose', 'started'], ['stitch', 'pending'], ['body', 'pending'],
   ])
-  // The waist and legs together, then the head's tile (checked as a bust's), then the stitch.
-  assert.equal(body.remainingSeconds, S.decompose + S.front + S.stitch)
+  // The three tiles together (the head's checked as a bust's front is), then the stitch; beside them
+  // the body's drawings, its decompositions with nothing to wait for, and its fit, which end later.
+  assert.equal(body.remainingSeconds, Math.max(S.front + S.stitch, S.generate + S.decompose + S.bodyFit))
+  // From the start the body's keys wait for the figure whole, as the tiles do.
+  const whole = S.upscale + S.decompose
+  const start = estimateEnhance('figureBody', status({}))
+  assert.equal(start.remainingSeconds, whole + Math.max(S.front + S.stitch, S.generate + S.decompose + S.bodyFit))
+  // Two of the three tiles in: the last is about to be.
+  const last = estimateEnhance('figureBody', status({
+    stage: 'decomposing', done: 3, total: 4, body: { motion: 'turn', stage: 'fitting', done: 0, total: 1 },
+  }))
+  assert.ok(last.remainingSeconds < S.front / 2 + S.stitch && last.remainingSeconds > S.stitch)
 })
 
 test("the bust split once has one step, the split, whose plan its status names", () => {

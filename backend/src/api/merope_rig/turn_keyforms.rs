@@ -17,6 +17,9 @@
 //!
 //! 站立全身的增强另外画整个人左右转身的两张图、拆两次层，在 Space 上拟合出
 //! 身体各部件的转身关键形（`body_turn`），和头部关键形放在同一份 JSON 里。
+//! 全身的腰、腿两块和身体的拆层排在头部的五份拆层之后发出（`head_first`）。
+//!
+//! 任务的每一步结束时记一行耗时（`took`）：任务、步骤名、毫秒，不记内容。
 //!
 //! 每个完成的任务整套存档（`archive`）：立绘、四张图、五份拆层、关键形与烘焙后的
 //! 拆层，每张立绘留最近两份。存档可以打包下载，也可以不再生图、拆层，只用 Space
@@ -61,6 +64,7 @@ mod figure;
 mod figure_picture;
 mod fit_turns;
 mod hair_misfit;
+mod head_first;
 mod judge;
 mod served;
 mod together;
@@ -71,13 +75,14 @@ use cache::{CACHE_KEEP, TurnCache, cache_root, prune_cache};
 use drawing::fit_to;
 use drawing::{
     TRANSIENT_RETRIES, TURN_SIDES, TURNED_REDOS, decompose_checked, decompose_waiting,
-    decomposition, draw_turn, retry_delay, transient, turn_prompts,
+    decomposition, draw_turn, retried, retried_when, transient, turn_prompts,
 };
 #[cfg(test)]
 use figure::alongside;
 pub(super) use figure::{enlarged_figure, super_resolved};
 use figure::{fit, plain, put_back, run_figure};
 pub use figure_picture::get_full_body_figure_picture;
+use head_first::{HeadSplit, TileSteps, Way, head_first, in_tiles};
 #[cfg(test)]
 use served::missing_job;
 use served::space_client;
@@ -190,6 +195,21 @@ fn update(id: &str, change: impl FnOnce(&mut Job)) {
     if let Some(job) = job.as_mut().filter(|job| job.id == id) {
         change(job);
     }
+}
+
+/// One line as a step of a job ends: the job, the step and how long it took.
+/// Nothing of what the step was given or made.
+fn took(id: &str, step: &'static str, began: Instant) {
+    let ms = began.elapsed().as_millis() as u64;
+    tracing::info!(job = %id, step, ms, "turn keyforms step ended");
+}
+
+/// `work` run to its end, with its line (`took`) however it ended.
+async fn timed<T>(id: &str, step: &'static str, work: impl Future<Output = T>) -> T {
+    let began = Instant::now();
+    let out = work.await;
+    took(id, step, began);
+    out
 }
 
 fn slot_of(outfit_id: Option<&str>) -> MasterSlot<'_> {
@@ -466,7 +486,17 @@ async fn start(
         } else if plain {
             run_plain(&task_id, reference, &client, &cache).await
         } else {
-            run(&task_id, user_id, &generation, reference, &client, &cache).await
+            let alone = HeadSplit::unwatched();
+            run(
+                &task_id,
+                user_id,
+                &generation,
+                reference,
+                &client,
+                &cache,
+                alone,
+            )
+            .await
         };
         prune_cache(cache_root(), CACHE_KEEP).await;
         finish(&db, &task_id, result, meta).await;
@@ -497,7 +527,11 @@ async fn run_plain(
     Ok(plain(psd, reference.media_type))
 }
 
-/// Four turned drawings, five decompositions, one fit.
+/// Four turned drawings, five decompositions, one fit. `split` is told when
+/// the five decompositions are in hand, for what gives way to them
+/// (`head_first`); it is this work's own, so that however the work ends
+/// without them (failed, returned early, dropped), `split` goes with it and
+/// tells that too.
 async fn run(
     id: &str,
     user_id: i32,
@@ -505,6 +539,7 @@ async fn run(
     reference: image_generation::ImageReference,
     client: &see_through::SeeThroughClient,
     cache: &TurnCache,
+    split: HeadSplit,
 ) -> ApiResult<Made> {
     let (width, height) = image::ImageReader::new(Cursor::new(reference.bytes.as_ref()))
         .with_guessed_format()
@@ -543,8 +578,12 @@ async fn run(
     };
     // Each turned drawing is decomposed as it comes, beside the front one; a turn drawn
     // past what the front drawing's keys can follow is drawn once more.
+    let began = Instant::now();
     let front_psd = decomposition(client, cache, 0, &front.0, &front.1, options);
-    let (front_psd, turned) = turns_beside_front(id, cache, &turns, drawings, front_psd).await?;
+    let beside = turns_beside_front(id, cache, &turns, drawings, front_psd).await;
+    took(id, "head-decompositions", began);
+    split.settle(beside.is_ok());
+    let (front_psd, turned) = beside?;
     let (turned, turned_psds): (Vec<_>, Vec<_>) = turned.into_iter().unzip();
     let decompositions: Vec<_> = std::iter::once(front_psd).chain(turned_psds).collect();
     // The fit also matches its keys against the drawings themselves.
@@ -572,7 +611,7 @@ async fn run(
     let mut decompositions: [Vec<u8>; 5] = decompositions.try_into().expect("five decompositions");
     let mut pictures = pictures;
     // A turn that redrew what a turn keeps is drawn once more before the fit.
-    let judged = judge::judge_turns(
+    let judging = judge::judge_turns(
         id,
         user_id,
         generation,
@@ -584,12 +623,12 @@ async fn run(
         &mut decompositions,
         &mut pictures,
         &mut redrawn,
-    )
-    .await?;
+    );
+    let judged = timed(id, "head-judging", judging).await?;
     update(id, |job| job.stage = Stage::Fitting);
     // The fit, with the turn whose front hair it cannot follow drawn again beside it.
-    let ((decompositions, pictures), output) =
-        fit_turns::fit_turns(&turns, (decompositions, pictures), &mut redrawn).await?;
+    let fitting = fit_turns::fit_turns(&turns, (decompositions, pictures), &mut redrawn);
+    let ((decompositions, pictures), output) = timed(id, "head-fit", fitting).await?;
     let output = see_through::TurnKeyformsOutput {
         keyforms: judge::with_judgements(output.keyforms, &judged),
         ..output

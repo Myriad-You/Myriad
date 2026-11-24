@@ -9,9 +9,10 @@
 //! 每张图的躯干实际往哪边走（`turned`）；转错的那张不用，用另一张的拟合左右镜像
 //! 代替（`mirrored`），两张都错就拿不到身体关键形。
 //!
-//! 和头部的半身流程同时跑（不改任务进度），左右两张图一起画、一起拆。图与拆层按
-//! 全身的图存在缓存里；拟合每次重做。拿不到身体关键形时，全身照常只带头部关键形；重心关键形只和身体
-//! 关键形一起用。这一步的失败不让整个任务失败。
+//! 和头部的半身流程同时跑（不改任务进度），左右两张图一起画、一起拆。两张图马上
+//! 画；两份拆层等头部的拆层全部到手再发出去，头部拆层失败就不拆（`head_first`）。
+//! 图与拆层按全身的图存在缓存里；拟合每次重做。拿不到身体关键形时，全身照常只带
+//! 头部关键形；重心关键形只和身体关键形一起用。这一步的失败不让整个任务失败。
 
 use std::{
     io::Cursor,
@@ -21,8 +22,8 @@ use std::{
 use serde_json::Value;
 
 use super::{
-    ApiResult, BodyProgress, Stage, TurnCache, all_or_first_error, decompose_waiting, draw_turn,
-    internal_error, kept_or_made, see_through_error, update,
+    ApiResult, BodyProgress, Stage, TurnCache, Way, all_or_first_error, decompose_waiting,
+    draw_turn, internal_error, kept_or_made, see_through_error, timed, update,
 };
 use crate::services::{image_generation, see_through};
 
@@ -35,7 +36,7 @@ const BODY_SIDES: [&str; 2] = ["right", "left"];
 
 /// What the figure is drawn doing either way.
 #[derive(Clone, Copy, Debug)]
-enum Motion {
+pub(super) enum Motion {
     /// The whole body turned about 20°.
     Turn,
     /// The weight on one leg, the other free (contrapposto).
@@ -98,6 +99,7 @@ pub(super) struct BodyKeys {
 
 /// The figure's body turn and weight-shift keys on `picture` (the picture
 /// `figure` was decomposed from). The weight shift is made only beside a turn.
+/// Its decompositions give way to the head's (`way`).
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn body_turn_keys(
     id: &str,
@@ -108,14 +110,30 @@ pub(super) async fn body_turn_keys(
     figure: &[u8],
     client: &see_through::SeeThroughClient,
     cache: &TurnCache,
+    way: &Way,
 ) -> BodyKeys {
     let keyed = |motion: Motion| async move {
-        match make(
-            id, motion, user_id, generation, master, picture, figure, client, cache,
-        )
-        .await
-        {
-            Ok(keys) => Some(keys),
+        let made = async {
+            let (padded, size, place) = padded(&master.bytes)?;
+            let steps = Body {
+                motion,
+                user_id,
+                generation,
+                padded: image_generation::ImageReference {
+                    bytes: axum::body::Bytes::from(padded),
+                    media_type: "image/png".to_string(),
+                },
+                size,
+                place,
+                picture,
+                figure,
+                client,
+                cache,
+            };
+            keyed_behind(id, motion, &steps, way).await
+        };
+        match made.await {
+            Ok(keys) => keys,
             Err((_, axum::Json(error))) => {
                 tracing::warn!(job = %id, ?motion, ?error, "body keys could not be made; the figure goes without them");
                 update(id, |job| {
@@ -138,18 +156,40 @@ pub(super) async fn body_turn_keys(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn make(
+/// What a body's keys ask of the outside: the image model and the Space.
+/// Apart, so the order of the steps can be tested without them.
+pub(super) trait BodySteps: Sync {
+    /// The figure drawn toward `side`, on the figure's own frame.
+    fn draw(&self, side: &'static str) -> impl Future<Output = ApiResult<Vec<u8>>> + Send;
+    /// That drawing decomposed.
+    fn decompose(
+        &self,
+        side: &'static str,
+        png: &[u8],
+    ) -> impl Future<Output = ApiResult<Vec<u8>>> + Send;
+    /// The Space's fit of the figure's body parts onto the two drawings
+    /// (`/body_keys`), right then left.
+    fn keys(
+        &self,
+        turned: [Vec<u8>; 2],
+        pictures: [Vec<u8>; 2],
+    ) -> impl Future<Output = ApiResult<Value>> + Send;
+}
+
+/// One motion's keys. The two sides are drawn together at once: a drawing
+/// takes no GPU of the Space. Their decompositions are sent together once the
+/// way is clear (`head_first`): behind the head's own, which the job's
+/// longest stretch of work waits on. None when the way does not clear: the
+/// head's decompositions failed and the job with them, so none is begun.
+///
+/// Each drawing and decomposition is counted as it comes, and both of a pair
+/// are finished before a failure is looked at.
+pub(super) async fn keyed_behind(
     id: &str,
     motion: Motion,
-    user_id: i32,
-    generation: &image_generation::ImageGenerationConfig,
-    master: &image_generation::ImageReference,
-    picture: &image_generation::ImageReference,
-    figure: &[u8],
-    client: &see_through::SeeThroughClient,
-    cache: &TurnCache,
-) -> ApiResult<Value> {
+    steps: &impl BodySteps,
+    way: &Way,
+) -> ApiResult<Option<Value>> {
     tracing::info!(job = %id, ?motion, "body keys: drawing");
     let report = |stage: Stage, done: u8, total: u8| {
         update(id, |job| {
@@ -162,65 +202,103 @@ async fn make(
         })
     };
     report(Stage::Generating, 0, 2);
-    let (padded, size, place) = padded(&master.bytes)?;
-    let padded = image_generation::ImageReference {
-        bytes: axum::body::Bytes::from(padded),
-        media_type: "image/png".to_string(),
-    };
-    // The two sides are drawn together, then decomposed together; each is
-    // counted as it comes, and both are finished before a failure is looked at.
     let done = AtomicU8::new(0);
     let came = |stage: Stage| report(stage, done.fetch_add(1, Ordering::Relaxed) + 1, 2);
-    let (padded, came) = (&padded, &came);
+    let came = &came;
     let drawings = BODY_SIDES.map(|side| async move {
-        let file = format!("{}-{side}.png", motion.cache());
-        let png = kept_or_made(cache, &file, async {
-            let prompt = motion.prompt(side);
-            let png = draw_turn(user_id, generation, &prompt, padded, size.0, size.1).await?;
-            cropped(&png, place)
-        })
-        .await?;
+        let png = steps.draw(side).await?;
         came(Stage::Generating);
         ApiResult::Ok(png)
     });
-    let drawn = all_or_first_error(drawings).await?;
-    tracing::info!(job = %id, ?motion, "body keys: decomposing");
+    let drawn = timed(id, "body-drawings", all_or_first_error(drawings)).await?;
+    // Waiting its turn is shown as decomposing, none in yet.
     report(Stage::Decomposing, 0, 2);
     done.store(0, Ordering::Relaxed);
+    if !way.clear().await {
+        tracing::info!(job = %id, ?motion, "body keys: not decomposed, the head's decompositions failed");
+        return Ok(None);
+    }
+    tracing::info!(job = %id, ?motion, "body keys: decomposing");
     let pictures = &drawn;
     let decompositions = [0, 1].map(|at| async move {
-        let (side, png) = (BODY_SIDES[at], &pictures[at]);
-        let file = format!("{}-{side}.psd", motion.cache());
-        // The head's decompositions run meanwhile; with no place free on
-        // the Space this one waits its turn.
-        let psd = kept_or_made(cache, &file, async {
-            let picture = axum::body::Bytes::from(png.clone());
-            let options = see_through::DecomposeOptions::default();
-            decompose_waiting(client, picture, "image/png", options).await
-        })
-        .await?;
+        let psd = steps.decompose(BODY_SIDES[at], &pictures[at]).await?;
         came(Stage::Decomposing);
         ApiResult::Ok(psd)
     });
-    let turned = all_or_first_error(decompositions).await?;
+    let decomposing = all_or_first_error(decompositions);
+    let turned = timed(id, "body-decompositions", decomposing).await?;
     tracing::info!(job = %id, ?motion, "body keys: fitting");
     report(Stage::Fitting, 0, 1);
-    let [right_psd, left_psd]: [Vec<u8>; 2] = turned.try_into().expect("two sides");
-    let [right_png, left_png]: [Vec<u8>; 2] = drawn.try_into().expect("two sides");
-    let keys = client
-        .body_keys(
-            (picture.bytes.to_vec(), picture.media_type.clone()),
-            figure.to_vec(),
-            [right_psd, left_psd],
-            [right_png, left_png],
-            motion.mode(),
-        )
-        .await
-        .map_err(see_through_error)?;
-    let keys: Value = serde_json::from_slice(&keys).map_err(internal_error)?;
+    let turned: [Vec<u8>; 2] = turned.try_into().expect("two sides");
+    let drawn: [Vec<u8>; 2] = drawn.try_into().expect("two sides");
+    let keys = timed(id, "body-keys", steps.keys(turned, drawn)).await?;
     tracing::info!(job = %id, ?motion, turned = ?keys.get("turned"), mirrored = ?keys.get("mirrored"), "body keys: keyed");
     report(Stage::Done, 1, 1);
-    Ok(keys)
+    Ok(Some(keys))
+}
+
+/// A body's keys as a job makes them: drawings and decompositions kept in the
+/// figure's cache, the fit made anew.
+struct Body<'a> {
+    motion: Motion,
+    user_id: i32,
+    generation: &'a image_generation::ImageGenerationConfig,
+    /// The master on the generator's canvas (`padded`), that canvas' size and
+    /// the master's place on it.
+    padded: image_generation::ImageReference,
+    size: (u32, u32),
+    place: [u32; 4],
+    /// The picture `figure` was decomposed from.
+    picture: &'a image_generation::ImageReference,
+    figure: &'a [u8],
+    client: &'a see_through::SeeThroughClient,
+    cache: &'a TurnCache,
+}
+
+impl BodySteps for Body<'_> {
+    async fn draw(&self, side: &'static str) -> ApiResult<Vec<u8>> {
+        let file = format!("{}-{side}.png", self.motion.cache());
+        kept_or_made(self.cache, &file, async {
+            let prompt = self.motion.prompt(side);
+            let (width, height) = self.size;
+            let png = draw_turn(
+                self.user_id,
+                self.generation,
+                &prompt,
+                &self.padded,
+                width,
+                height,
+            )
+            .await?;
+            cropped(&png, self.place)
+        })
+        .await
+    }
+
+    async fn decompose(&self, side: &'static str, png: &[u8]) -> ApiResult<Vec<u8>> {
+        let file = format!("{}-{side}.psd", self.motion.cache());
+        kept_or_made(self.cache, &file, async {
+            let picture = axum::body::Bytes::copy_from_slice(png);
+            let options = see_through::DecomposeOptions::default();
+            decompose_waiting(self.client, picture, "image/png", options).await
+        })
+        .await
+    }
+
+    async fn keys(&self, turned: [Vec<u8>; 2], pictures: [Vec<u8>; 2]) -> ApiResult<Value> {
+        let keys = self
+            .client
+            .body_keys(
+                (self.picture.bytes.to_vec(), self.picture.media_type.clone()),
+                self.figure.to_vec(),
+                turned,
+                pictures,
+                self.motion.mode(),
+            )
+            .await
+            .map_err(see_through_error)?;
+        serde_json::from_slice(&keys).map_err(internal_error)
+    }
 }
 
 /// The master on a white BODY_ASPECT canvas, the canvas' size, and where the master sits on it.

@@ -55,6 +55,14 @@ export interface EnhanceEstimate {
  * is a turn it sends back, which is drawn and decomposed again. The body's
  * fit took 22 s on a Mac and was not timed on the Space: a cautious figure.
  * Upscaling and stitching are as they were (2026-10).
+ *
+ * A figure's order is reckoned from these lengths, not timed on the site. Its
+ * head, when keyed, is begun as soon as the figure is decomposed whole. The
+ * waist's tile and the legs', and the body's two decompositions, give way to
+ * the head's five: they are sent when those are in, beside the head's fit.
+ * The stitch waits for the two tiles, the body's fit for its decompositions.
+ * With no head keyed the three tiles and the body's decompositions are sent
+ * together.
  */
 export const ENHANCE_SECONDS = {
   upscale: 60,
@@ -89,7 +97,6 @@ const TOGETHER_TAIL = 0.2
 
 const S = ENHANCE_SECONDS
 const one = (seconds: number): Run[] => [{ units: 1, seconds }]
-const tiles: Run = { units: 2, seconds: S.decompose, together: true }
 
 const HEAD: StepModel[] = [
   { key: 'headGenerate', runs: [{ units: 4, seconds: S.generate, together: true }] },
@@ -107,16 +114,30 @@ const HEAD: StepModel[] = [
 ]
 const UPSCALE: StepModel = { key: 'upscale', runs: one(S.upscale) }
 const STITCH: StepModel = { key: 'stitch', runs: one(S.stitch) }
-/** The figure whole, then its waist and legs together; its head's tile is the head's front decomposition. */
-const FIGURE_DECOMPOSE: StepModel = { key: 'figureDecompose', runs: [...one(S.decompose), tiles] }
+/**
+ * The figure whole. With its head keyed that is all the server counts here: the upper tile is the head's
+ * front decomposition, and the waist's and the legs' are decomposed beside the head's fit.
+ */
+const FIGURE_DECOMPOSE: StepModel = { key: 'figureDecompose', runs: one(S.decompose) }
+/**
+ * How long a keyed figure's stitch waits for the waist's tile and the legs': begun when the head's
+ * decompositions are in, as its fit is, they take a decomposition's length. Reckoned from those two lengths.
+ */
+export const TILES_AFTER_FIT = Math.max(0, S.decompose - S.fit)
+/** A keyed figure's stitch: the wait for its two tiles is counted with it. */
+const KEYED_STITCH: StepModel = { key: 'stitch', runs: one(TILES_AFTER_FIT + S.stitch) }
+/** The figure whole, then its three tiles together, the head's own checked as a bust's front is. */
+const PLAIN_FIGURE_DECOMPOSE: StepModel = {
+  key: 'plainDecompose',
+  runs: [...one(S.decompose), { units: 3, seconds: S.front, together: true }],
+}
 
 /** The head's way of each plan; a figure's body keys run beside it (`withBody`). */
 const PLANS: Record<EnhancePlan, StepModel[]> = {
   bust: HEAD,
-  figure: [UPSCALE, FIGURE_DECOMPOSE, ...HEAD, STITCH],
-  figureHead: [UPSCALE, FIGURE_DECOMPOSE, ...HEAD, STITCH],
-  // The head not keyed, its tile is decomposed (and checked) after the others.
-  figureBody: [UPSCALE, { key: 'plainDecompose', runs: [...one(S.decompose), tiles, ...one(S.front)] }, STITCH],
+  figure: [UPSCALE, FIGURE_DECOMPOSE, ...HEAD, KEYED_STITCH],
+  figureHead: [UPSCALE, FIGURE_DECOMPOSE, ...HEAD, KEYED_STITCH],
+  figureBody: [UPSCALE, PLAIN_FIGURE_DECOMPOSE, STITCH],
   refit: [{ key: 'refit', runs: one(S.fit) }],
   // The bust split once, for its redrawn expressions.
   plain: [{ key: 'plainDecompose', runs: one(S.front) }],
@@ -126,13 +147,17 @@ function unitsOf(model: StepModel): number {
   return model.runs.reduce((units, run) => units + run.units, 0)
 }
 
-/** How long a step takes from its start. */
-function secondsOf(model: StepModel): number {
-  return model.runs.reduce((seconds, run) => seconds + (run.together ? run.seconds : run.units * run.seconds), 0)
+/** How long a step takes from its start; with `runs`, its first so many runs. */
+function secondsOf(model: StepModel, runs = model.runs.length): number {
+  return model.runs.slice(0, runs)
+    .reduce((seconds, run) => seconds + (run.together ? run.seconds : run.units * run.seconds), 0)
 }
 
-/** How long is left of a step with `done` of its units in, `unitSeconds` after the last one came in. */
-function secondsLeft(model: StepModel, done: number, total: number, unitSeconds: number): number {
+/**
+ * How long is left of a step with `done` of its units in, `unitSeconds` after the last one came in;
+ * with `runs`, of its first so many runs.
+ */
+function secondsLeft(model: StepModel, done: number, total: number, unitSeconds: number, runs = model.runs.length): number {
   if (total !== unitsOf(model)) {
     // Not the units the step is made of: one of them made again.
     const unit = model.again ?? model.runs[model.runs.length - 1].seconds
@@ -141,7 +166,7 @@ function secondsLeft(model: StepModel, done: number, total: number, unitSeconds:
   let left = 0
   let first = 0
   let reached = false
-  for (const run of model.runs) {
+  for (const run of model.runs.slice(0, runs)) {
     const here = Math.min(Math.max(done - first, 0), run.units)
     first += run.units
     if (here >= run.units) continue
@@ -186,15 +211,20 @@ function currentStep(plan: EnhancePlan, status: TurnKeyformsStatus): EnhanceStep
 /** The body's turn: its two drawings made together, its two decompositions sent together, one fit. */
 const BODY_MOTIONS = ['turn'] as const
 
-/** How long is left of the body's keys from where they stand: they are made beside the head's work. */
-function bodySecondsLeft(status: TurnKeyformsStatus): number {
+/**
+ * How long is left of the body's keys from where they stand: they are made beside the head's work.
+ * `begins`: how long until its drawings begin, with the figure decomposed whole. `clear`: how long until
+ * its decompositions may be sent, behind a keyed head's; while it waits it is reported as decomposing,
+ * none in.
+ */
+function bodySecondsLeft(status: TurnKeyformsStatus, begins: number, clear: number): number {
   const body = status.body
-  if (!body) return S.generate + S.decompose + S.bodyFit
+  if (!body) return Math.max(begins + S.generate, clear) + S.decompose + S.bodyFit
   // Two made together: all of their time with neither in, a little with one in.
   const together = (seconds: number) =>
     body.done === 0 ? seconds : seconds * TOGETHER_TAIL * Math.max(0, body.total - body.done) / Math.max(body.total, 1)
-  if (body.stage === 'generating') return together(S.generate) + S.decompose + S.bodyFit
-  if (body.stage === 'decomposing') return together(S.decompose) + S.bodyFit
+  if (body.stage === 'generating') return Math.max(together(S.generate), clear) + S.decompose + S.bodyFit
+  if (body.stage === 'decomposing') return (body.done === 0 ? clear : 0) + together(S.decompose) + S.bodyFit
   if (body.stage === 'fitting') return S.bodyFit
   return 0
 }
@@ -235,17 +265,27 @@ export function estimateEnhance(
       parallel: false,
     }
   })
-  let headSeconds = 0
-  models.forEach((model, index) => {
-    if (index < headIndex) return
-    headSeconds += index === headIndex
-      ? secondsLeft(model, status.done, status.total, unitSeconds)
-      : secondsOf(model)
-  })
+  /** How long until step `key` is done, or its first `runs` runs, from where the job stands. */
+  const until = (key: EnhanceStepKey, runs?: number): number => {
+    const end = models.findIndex((model) => model.key === key)
+    let seconds = 0
+    models.slice(0, end + 1).forEach((model, index) => {
+      if (index < headIndex) return
+      const upTo = index === end ? runs : undefined
+      seconds += index === headIndex
+        ? secondsLeft(model, status.done, status.total, unitSeconds, upTo)
+        : secondsOf(model, upTo)
+    })
+    return seconds
+  }
+  const headSeconds = until(models[models.length - 1].key)
   let bodySeconds = 0
   if (withBody(plan)) {
-    // Made beside the head's work, on GPUs of its own: whichever ends later is what is left.
-    bodySeconds = bodySecondsLeft(status)
+    // Made beside the head's work: whichever ends later is what is left. Its drawings begin with the
+    // figure decomposed whole; its decompositions give way to a keyed head's.
+    const begins = until(plan === 'figure' ? 'figureDecompose' : 'plainDecompose', 1)
+    const clear = plan === 'figure' ? until('headDecompose') : begins
+    bodySeconds = bodySecondsLeft(status, begins, clear)
     const body = status.body
     steps.push({
       key: 'body',
