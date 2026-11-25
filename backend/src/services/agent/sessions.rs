@@ -549,9 +549,34 @@ pub(crate) async fn ensure_session(
     ensure_session_in(db, session_id, user_id, mode, None).await
 }
 
+/// Their latest chat with her in `venue` that is not of the past.
+async fn chat_since(
+    db: &DatabaseConnection,
+    user_id: i32,
+    venue: Option<&str>,
+) -> Result<Option<String>, String> {
+    let found = agent_sessions::Entity::find()
+        .filter(agent_sessions::Column::UserId.eq(user_id))
+        .filter(agent_sessions::Column::Archived.eq(false))
+        .filter(sea_orm::sea_query::Expr::cust(
+            "(agent_sessions.context::jsonb ->> 'mode') = 'chat' \
+             AND (agent_sessions.context::jsonb ->> 'past') IS NULL",
+        ))
+        .filter(sea_orm::sea_query::Expr::cust_with_values(
+            "(agent_sessions.context::jsonb ->> 'venue') IS NOT DISTINCT FROM $1",
+            [venue.map(str::to_string)],
+        ))
+        .order_by_desc(agent_sessions::Column::LastActiveAt)
+        .one(db)
+        .await
+        .map_err(|error| session_store_failed("find session", error))?;
+    Ok(found.map(|session| session.id))
+}
+
 /// The session asked for if it belongs to the user, is not of the past
 /// ([`of_the_past`]) and has this mode and
-/// venue (`None` private, or a group such as `telegram:-100123`); otherwise
+/// venue (`None` private, or a group such as `telegram:-100123`); one of the
+/// past goes on in the chat they have had there since; otherwise
 /// a new one, carrying its venue from the moment it exists. A group's
 /// conversation is never read back as a private one, and a private request
 /// never continues a group's session.
@@ -562,6 +587,7 @@ pub(crate) async fn ensure_session_in(
     mode: crate::services::agent::AgentInteractionMode,
     venue: Option<&str>,
 ) -> Result<String, String> {
+    let mut past = false;
     if let Some(sid) = session_id {
         if let Some(session) = agent_sessions::Entity::find_by_id(sid)
             .filter(agent_sessions::Column::UserId.eq(user_id))
@@ -570,7 +596,7 @@ pub(crate) async fn ensure_session_in(
             .map_err(|error| session_store_failed("find session", error))?
         {
             let stored_venue = session_venue(session.context.as_ref());
-            let past = mode == crate::services::agent::AgentInteractionMode::Chat
+            past = mode == crate::services::agent::AgentInteractionMode::Chat
                 && of_the_past(session.context.as_ref());
             if session_mode(session.context.as_ref()) == mode
                 && stored_venue.as_deref() == venue
@@ -588,6 +614,12 @@ pub(crate) async fn ensure_session_in(
                 "[Agent API] Session mode or venue mismatch, or of the past; creating an isolated session"
             );
         }
+    }
+
+    // One of the past: gone on in the chat they have had there since, however
+    // often it is asked for (a page or a call that keeps the old one).
+    if past && let Some(since) = chat_since(db, user_id, venue).await? {
+        return Ok(since);
     }
 
     // 自动创建新会话

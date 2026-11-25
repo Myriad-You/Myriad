@@ -3,7 +3,7 @@
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 
-use super::{Cleared, REOPEN, after, cleared_at, close_late};
+use super::{Cleared, REOPEN, UNRECORD, after, cleared_at, close_late};
 use crate::services::agent::AgentInteractionMode as Mode;
 use crate::services::agent::merope::{
     chat_lines::private_lines, clear_persona_on, reach, speaking_context, store,
@@ -165,6 +165,8 @@ async fn what_was_said_before_is_read_by_none_of_the_next() {
         .await
         .unwrap();
     assert_eq!(opened.rows_affected(), 3);
+    db.execute_unprepared(UNRECORD).await.unwrap();
+    assert!(cleared_at(db).await.unwrap().is_none());
     for (reader, lines) in read(db).await {
         assert!(lines > 0, "{reader}");
     }
@@ -217,7 +219,34 @@ async fn an_old_conversation_is_not_gone_on_in() {
             .await
             .unwrap();
         assert_eq!(again, new, "the new one is gone on in");
+        // A page or a call that keeps the old one: all in the one since.
+        for _ in 0..3 {
+            let kept = sessions::ensure_session_in(db, Some(old), OTHER, Mode::Chat, venue)
+                .await
+                .unwrap();
+            assert_eq!(kept, new);
+            sessions::persist_user_message_left_for_her(db, &kept, "still there?", "web")
+                .await
+                .unwrap();
+        }
     }
+    let begun: i64 = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT COUNT(*) AS n FROM agent_sessions \
+             WHERE context->>'mode' = 'chat' AND (context->>'past') IS NULL",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "n")
+        .unwrap();
+    assert_eq!(begun, 2, "one in private and one in the group");
+    // Asked for none, a new one is begun as ever.
+    let another = sessions::ensure_session(db, None, OTHER, Mode::Chat)
+        .await
+        .unwrap();
+    assert!(another != "old");
     let work = sessions::ensure_session_in(db, Some("old_work"), OTHER, Mode::Work, None)
         .await
         .unwrap();
@@ -245,15 +274,84 @@ async fn what_was_under_way_is_of_the_past() {
     .await
     .unwrap();
     said(db, "late", "user", "are you there?").await;
+    // Begun after she was cleared and before that was committed.
+    session(db, "between", r#"{"mode":"chat"}"#).await;
+    said(db, "between", "user", "hello?").await;
+    let committed = crate::clock::now();
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     session(db, "since", r#"{"mode":"chat"}"#).await;
     said(db, "since", "user", "hello").await;
-    close_late(db).await;
+    close_late(db, committed).await;
     let left: Vec<String> = private_lines(db, OTHER, 50)
         .await
         .into_iter()
         .map(|line| line.content)
         .collect();
     assert_eq!(left, ["hello"]);
+    schema.drop().await;
+}
+
+/// Where the next her goes, the chats of before do not go with her, and her
+/// going takes none of them from the site: they keep their mark.
+#[tokio::test]
+async fn what_was_said_before_does_not_go_with_the_next_her() {
+    use crate::services::persona_sync::{assets::Pictures, snapshot};
+    let Some(schema) = fixture("past_moves").await else {
+        return;
+    };
+    let db = &schema.db;
+    db.execute_unprepared("UPDATE agent_sessions SET user_id = 7")
+        .await
+        .unwrap();
+    clear(db).await;
+    session(db, "since", r#"{"mode":"chat"}"#).await;
+    said(db, "since", "user", "hello").await;
+    db.execute_unprepared("UPDATE agent_sessions SET user_id = 7, message_count = 2")
+        .await
+        .unwrap();
+    let taken: Vec<String> = snapshot::of_kind(
+        db,
+        &Pictures::new(db, 7),
+        7,
+        myriad_persona_sync::Kind::Conversation,
+        None,
+        100,
+    )
+    .await
+    .unwrap()
+    .into_iter()
+    .map(|entity| entity.id)
+    .collect();
+    assert_eq!(taken, ["since"]);
+    let txn = db.begin().await.unwrap();
+    crate::services::agent::merope::retire_her_on(&txn, 7)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+    let left: Vec<String> = db
+        .query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT s.id FROM agent_sessions s JOIN agent_messages m ON m.session_id = s.id \
+             WHERE s.context->>'mode' = 'chat' AND (s.context->>'past') IS NOT NULL \
+             GROUP BY s.id ORDER BY s.id",
+        ))
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| row.try_get("", "id").unwrap())
+        .collect();
+    assert_eq!(left, ["old", "old_group"]);
+    let since: i64 = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT COUNT(*) AS n FROM agent_sessions WHERE id = 'since'",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "n")
+        .unwrap();
+    assert_eq!(since, 0, "what moved with her goes");
     schema.drop().await;
 }
 
