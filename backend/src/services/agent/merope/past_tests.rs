@@ -302,6 +302,88 @@ async fn each_old_conversation_goes_on_in_one_of_its_own() {
     }
 }
 
+/// Where an old conversation goes on: never in one they deleted (archived)
+/// or another's, and through one that is of the past itself, deleted or not.
+/// Her clearing undone, it is gone on in itself again.
+#[tokio::test]
+async fn where_an_old_conversation_goes_on_is_there_and_theirs() {
+    let Some(schema) = fixture("past_since").await else {
+        return;
+    };
+    let db = &schema.db;
+    let on = async |old: &str| {
+        sessions::ensure_session(db, Some(old), OTHER, Mode::Chat)
+            .await
+            .unwrap()
+    };
+    let archive = async |id: &str| {
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE agent_sessions SET archived = true WHERE id = $1",
+            [id.into()],
+        ))
+        .await
+        .unwrap();
+    };
+    clear(db).await;
+    // Deleted: another takes its place, and every message goes into that.
+    let deleted = on("old").await;
+    archive(&deleted).await;
+    let since = on("old").await;
+    assert_ne!(since, deleted);
+    assert_eq!(on("old").await, since);
+    sessions::persist_user_message(db, &since, "still there?")
+        .await
+        .unwrap();
+    let read = sessions::load_private_chat_history(db, OTHER, 20)
+        .await
+        .unwrap();
+    assert_eq!(read.len(), 1, "read where it goes on");
+    // Deleted and then of the past: followed to the one it goes on in.
+    archive(&since).await;
+    clear(db).await;
+    let after = on(&since).await;
+    assert_ne!(after, since);
+    assert_eq!(on("old").await, after);
+    // Another's is not theirs to go on in.
+    db.execute_unprepared(
+        "INSERT INTO agent_sessions (id, user_id, context, message_count, archived, created_at, \
+         last_active_at) VALUES ('owners', 7, '{\"mode\":\"chat\"}', 0, false, NOW(), NOW()); \
+         UPDATE agent_sessions SET context = context::jsonb || '{\"since\":\"owners\"}'::jsonb \
+         WHERE id = 'old';",
+    )
+    .await
+    .unwrap();
+    let theirs = on("old").await;
+    assert!(theirs != "owners" && theirs != after);
+    assert_eq!(on("old").await, theirs);
+    // Undone: the last clearing's are of before no more, with nothing noted.
+    session(db, "last", r#"{"mode":"chat"}"#).await;
+    clear(db).await;
+    assert_ne!(on("last").await, "last");
+    let at = cleared_at(db).await.unwrap().unwrap();
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        REOPEN,
+        [at.to_rfc3339().into()],
+    ))
+    .await
+    .unwrap();
+    assert_eq!(on("last").await, "last");
+    let noted: Option<String> = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT context->>'since' AS since FROM agent_sessions WHERE id = 'last'",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "since")
+        .unwrap();
+    assert_eq!(noted, None);
+    schema.drop().await;
+}
+
 /// A reply under way as she was cleared is of the past; so is a conversation
 /// begun just before that was not there to be marked. One begun since is not.
 #[tokio::test]

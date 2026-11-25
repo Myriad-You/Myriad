@@ -552,7 +552,9 @@ pub(crate) async fn ensure_session(
 /// The conversation the old one `past` is gone on in: the one it went on in
 /// before (`context.since`), else a new one, which it is from now on. Each
 /// old conversation has its own, so the panel's and a chat app's stay apart;
-/// two messages at once into one old conversation go into one.
+/// two messages at once into one old conversation go into one. One they
+/// deleted is not gone on in: another takes its place. Deleted and of the
+/// past itself, it is only followed to the one it went on in.
 async fn gone_on_in(
     db: &DatabaseConnection,
     past: &str,
@@ -561,7 +563,7 @@ async fn gone_on_in(
 ) -> Result<String, sea_orm::DbErr> {
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, TransactionTrait};
     let txn = db.begin().await?;
-    let since = txn
+    let Some(row) = txn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT s.context->>'since' AS since FROM agent_sessions s \
@@ -569,15 +571,17 @@ async fn gone_on_in(
             [past.into()],
         ))
         .await?
-        .map(|row| row.try_get::<Option<String>>("", "since"))
-        .transpose()?
-        .flatten();
-    if let Some(since) = since {
+    else {
+        // Of the past no more: gone on in itself.
+        txn.commit().await?;
+        return Ok(past.to_string());
+    };
+    if let Some(since) = row.try_get::<Option<String>>("", "since")? {
         let there = agent_sessions::Entity::find_by_id(&since)
             .filter(agent_sessions::Column::UserId.eq(user_id))
             .one(&txn)
             .await?;
-        if there.is_some() {
+        if there.is_some_and(|there| !there.archived || of_the_past(there.context.as_ref())) {
             txn.commit().await?;
             return Ok(since);
         }
@@ -592,7 +596,7 @@ async fn gone_on_in(
     txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE agent_sessions SET context = context::jsonb || jsonb_build_object('since', $2::text) \
-         WHERE id = $1",
+         WHERE id = $1 AND context->>'past' IS NOT NULL",
         [past.into(), id.clone().into()],
     ))
     .await?;
