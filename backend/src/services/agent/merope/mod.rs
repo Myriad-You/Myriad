@@ -306,6 +306,7 @@ pub fn forget_in_memory() {
     wander::forget();
     remembering::forget();
     past::forget();
+    crate::services::channel_group::forget_lines();
 }
 
 /// After a chat reply, let her state catch up with the exchange; the next

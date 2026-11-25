@@ -185,6 +185,13 @@ async fn a_restart_keeps_what_the_group_said() {
         transcript(&venue),
         ["阿明：来点歌", "阿明：放一首", "阿明：说到一半怎么没了"]
     );
+    // Her persona cleared: what was kept before is not the next her's.
+    crate::services::agent::merope::clear_persona_on(&schema.db)
+        .await
+        .unwrap();
+    forget(&venue);
+    record(&line(chat, 4, "阿明", "你是新来的吗")).await;
+    assert_eq!(transcript(&venue), ["阿明：你是新来的吗"]);
     schema.drop().await;
 }
 
