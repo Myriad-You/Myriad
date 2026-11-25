@@ -299,133 +299,140 @@ where
         // A decisions model answers in under a second: she reacts to what
         // they said before her reply has words, not with the keyword floor.
         // Her reply's direction replaces it as it arrives.
-        if reacts_first.await {
-            let mut reaction = context.clone();
-            reaction.phase = crate::services::agent::merope::MotionPhase::Reaction;
-            reaction.activity = reaction.phase.activity().to_owned();
-            reaction.response_text = None;
-            let result = tokio::select! {
+        'run: {
+            let should_react = tokio::select! {
                 biased;
-                _ = &mut cancelled => None,
-                result = refine(reaction) => result,
+                _ = &mut cancelled => break 'run,
+                ready = reacts_first => ready,
             };
-            if let Some(performance) = result
-                && updates.borrow().is_none()
-            {
-                let agreed = agreed_faces(&performance);
-                let sent = if let Some(live) = &live {
-                    live.publish(performance)
-                } else {
-                    try_publish_motion(&tx, performance)
+            if should_react {
+                let mut reaction = context.clone();
+                reaction.phase = crate::services::agent::merope::MotionPhase::Reaction;
+                reaction.activity = reaction.phase.activity().to_owned();
+                reaction.response_text = None;
+                let result = tokio::select! {
+                    biased;
+                    _ = &mut cancelled => break 'run,
+                    result = refine(reaction) => result,
                 };
-                if sent {
-                    played.extend(agreed);
-                    did_publish.store(
-                        MotionPublication::Refined as u8,
-                        std::sync::atomic::Ordering::Release,
-                    );
+                if let Some(performance) = result
+                    && updates.borrow().is_none()
+                {
+                    let agreed = agreed_faces(&performance);
+                    let sent = if let Some(live) = &live {
+                        live.publish(performance)
+                    } else {
+                        try_publish_motion(&tx, performance)
+                    };
+                    if sent {
+                        played.extend(agreed);
+                        did_publish.store(
+                            MotionPublication::Refined as u8,
+                            std::sync::atomic::Ordering::Release,
+                        );
+                    }
                 }
             }
-        }
-        loop {
-            tokio::select! {
-                biased;
-                _ = &mut cancelled => break,
-                update = updates.changed(), if generation_open => {
-                    generation_open = update.is_ok();
-                    generated = updates.borrow_and_update().clone();
-                    if !generation_open && live.is_none() { break; }
-                },
-                _ = async {
-                    if let Some(rx) = &mut observations {
-                        let _ = rx.changed().await;
-                        rx.borrow_and_update();
-                    } else {
-                        std::future::pending::<()>().await;
-                    }
-                } => {},
-            }
-            context.response_text = generated.clone();
-            if let Some(observation) = live.as_ref().and_then(|slot| slot.observation()) {
-                playback_observed = true;
-                context.rig_state = myriad_merope::sanitize_rig_state(&observation.rig);
-                context.response_text = Some(observation.upcoming_text);
-            } else if playback_observed {
-                // Once playback has been observed, stale telemetry must not
-                // revert the director to already-generated, possibly spoken text.
-                continue;
-            }
-            let text = context.response_text.as_deref().unwrap_or("").trim();
-            // Cursor/pose feedback refreshes evidence, not the model bill.
-            // A suffix of an examined window is already covered. Only new
-            // upcoming content can request another single-flight refinement.
-            if text.is_empty() || analyzed.contains(text) {
-                continue;
-            }
-            if calls >= 12 {
-                break;
-            }
-            calls += 1;
-            analyzed = text.to_owned();
-            // One in flight per round. New evidence replaces the pending value,
-            // but doesn't repeatedly cancel a model that is about to finish.
-            let result = tokio::select! {
-                biased;
-                _ = &mut cancelled => break,
-                result = refine(context.clone()) => result,
-            };
-            if let Some(mut performance) = result {
-                // Spoken beats must use grounded phrase timing. A face she
-                // agreed to make is the director's only cue; it plays once a
-                // round, not again with every window that still agrees.
-                performance
-                    .plan
-                    .cues
-                    .retain(|cue| !played.contains(&cue.intent));
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = &mut cancelled => break 'run,
+                    update = updates.changed(), if generation_open => {
+                        generation_open = update.is_ok();
+                        generated = updates.borrow_and_update().clone();
+                        if !generation_open && live.is_none() { break 'run; }
+                    },
+                    _ = async {
+                        if let Some(rx) = &mut observations {
+                            let _ = rx.changed().await;
+                            rx.borrow_and_update();
+                        } else {
+                            std::future::pending::<()>().await;
+                        }
+                    } => {},
+                }
+                context.response_text = generated.clone();
                 if let Some(observation) = live.as_ref().and_then(|slot| slot.observation()) {
-                    performance.phrases = myriad_merope::grounded_speech_phrases(
-                        &serde_json::to_value(&performance.phrases).unwrap_or_default(),
-                        Some(&observation.upcoming_text),
-                    );
-                    // Beats on words already said are past; beats on time still play.
-                    performance.score = myriad_merope::grounded_score(
-                        &serde_json::to_value(&performance.score).unwrap_or_default(),
-                        Some(&observation.upcoming_text),
-                        None,
-                    );
-                    if observation.upcoming_text.trim().is_empty() {
+                    playback_observed = true;
+                    context.rig_state = myriad_merope::sanitize_rig_state(&observation.rig);
+                    context.response_text = Some(observation.upcoming_text);
+                } else if playback_observed {
+                    // Once playback has been observed, stale telemetry must not
+                    // revert the director to already-generated, possibly spoken text.
+                    continue;
+                }
+                let text = context.response_text.as_deref().unwrap_or("").trim();
+                // Cursor/pose feedback refreshes evidence, not the model bill.
+                // A suffix of an examined window is already covered. Only new
+                // upcoming content can request another single-flight refinement.
+                if text.is_empty() || analyzed.contains(text) {
+                    continue;
+                }
+                if calls >= 12 {
+                    break 'run;
+                }
+                calls += 1;
+                analyzed = text.to_owned();
+                // One in flight per round. New evidence replaces the pending value,
+                // but doesn't repeatedly cancel a model that is about to finish.
+                let result = tokio::select! {
+                    biased;
+                    _ = &mut cancelled => break 'run,
+                    result = refine(context.clone()) => result,
+                };
+                if let Some(mut performance) = result {
+                    // Spoken beats must use grounded phrase timing. A face she
+                    // agreed to make is the director's only cue; it plays once a
+                    // round, not again with every window that still agrees.
+                    performance
+                        .plan
+                        .cues
+                        .retain(|cue| !played.contains(&cue.intent));
+                    if let Some(observation) = live.as_ref().and_then(|slot| slot.observation()) {
+                        performance.phrases = myriad_merope::grounded_speech_phrases(
+                            &serde_json::to_value(&performance.phrases).unwrap_or_default(),
+                            Some(&observation.upcoming_text),
+                        );
+                        // Beats on words already said are past; beats on time still play.
+                        performance.score = myriad_merope::grounded_score(
+                            &serde_json::to_value(&performance.score).unwrap_or_default(),
+                            Some(&observation.upcoming_text),
+                            None,
+                        );
+                        if observation.upcoming_text.trim().is_empty() {
+                            continue;
+                        }
+                    } else if playback_observed {
                         continue;
                     }
-                } else if playback_observed {
-                    continue;
-                }
-                if myriad_merope::plan_is_empty(&performance.plan)
-                    && performance.phrases.is_empty()
-                    && performance.score.is_empty()
-                {
-                    continue;
-                }
-                let issued = performance.phrases.clone();
-                let agreed = agreed_faces(&performance);
-                let sent = if let Some(live) = &live {
-                    live.publish(performance)
-                } else {
-                    try_publish_motion(&tx, performance)
-                };
-                if sent {
-                    played.extend(agreed);
-                    for phrase in issued {
-                        context
-                            .previous_phrases
-                            .retain(|old| old.text != phrase.text);
-                        context.previous_phrases.push(phrase);
+                    if myriad_merope::plan_is_empty(&performance.plan)
+                        && performance.phrases.is_empty()
+                        && performance.score.is_empty()
+                    {
+                        continue;
                     }
-                    let excess = context.previous_phrases.len().saturating_sub(6);
-                    context.previous_phrases.drain(..excess);
-                    did_publish.store(
-                        MotionPublication::Refined as u8,
-                        std::sync::atomic::Ordering::Release,
-                    );
+                    let issued = performance.phrases.clone();
+                    let agreed = agreed_faces(&performance);
+                    let sent = if let Some(live) = &live {
+                        live.publish(performance)
+                    } else {
+                        try_publish_motion(&tx, performance)
+                    };
+                    if sent {
+                        played.extend(agreed);
+                        for phrase in issued {
+                            context
+                                .previous_phrases
+                                .retain(|old| old.text != phrase.text);
+                            context.previous_phrases.push(phrase);
+                        }
+                        let excess = context.previous_phrases.len().saturating_sub(6);
+                        context.previous_phrases.drain(..excess);
+                        did_publish.store(
+                            MotionPublication::Refined as u8,
+                            std::sync::atomic::Ordering::Release,
+                        );
+                    }
                 }
             }
         }
@@ -1066,5 +1073,55 @@ pub(super) mod motion_refinement_tests {
             );
             assert!(events.recv().await.is_none());
         }
+    }
+
+    #[tokio::test]
+    async fn reacts_first_cancelled_during_reaction_exits_without_panicking() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let live = super::super::playback_direction::PlaybackDirection::default();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let signal = entered.clone();
+        let (_delivery, mut guard) = spawn_refinement(
+            context(),
+            tx,
+            move |_| {
+                let signal = signal.clone();
+                async move {
+                    signal.notify_one();
+                    std::future::pending().await
+                }
+            },
+            Some(live.clone()),
+            async { true },
+        );
+        tokio::time::timeout(Duration::from_secs(1), entered.notified())
+            .await
+            .unwrap();
+        live.close();
+        let joined = tokio::time::timeout(Duration::from_secs(1), &mut guard.task)
+            .await
+            .expect("task must stop after cancellation");
+        assert!(joined.is_ok(), "cancelled reaction panicked: {joined:?}");
+        assert!(!guard.has_refinement());
+    }
+
+    #[tokio::test]
+    async fn reacts_first_cancelled_while_waiting_for_decision_source_exits_without_panicking() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let live = super::super::playback_direction::PlaybackDirection::default();
+        let (_delivery, mut guard) = spawn_refinement(
+            context(),
+            tx,
+            |_| async move { None },
+            Some(live.clone()),
+            std::future::pending(),
+        );
+        tokio::task::yield_now().await;
+        live.close();
+        let joined = tokio::time::timeout(Duration::from_secs(1), &mut guard.task)
+            .await
+            .expect("task must stop when cancelled while awaiting reacts_first");
+        assert!(joined.is_ok(), "cancelled reacts_first panicked: {joined:?}");
+        assert!(!guard.has_refinement());
     }
 }
