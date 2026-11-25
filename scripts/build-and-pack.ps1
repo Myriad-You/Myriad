@@ -110,6 +110,17 @@ catch {
     Write-Note "Could not read git HEAD; stamping MYRIAD_COMMIT_SHA=unknown"
 }
 
+$coreCommit = ""
+try {
+    $core = & git -C $projectRoot rev-parse HEAD:core 2>$null
+    if ($LASTEXITCODE -eq 0 -and $core) {
+        $coreCommit = "$core".Trim()
+    }
+}
+catch {
+    $coreCommit = ""
+}
+
 $dockerfiles = @{
     backend  = "docker/Dockerfile.backend"
     frontend = "docker/Dockerfile.frontend"
@@ -144,6 +155,9 @@ try {
         )
         if ($name -eq "backend") {
             $buildArgs += @("--build-arg", "CARGO_PROFILE=$CargoProfile")
+            if (-not [string]::IsNullOrWhiteSpace($coreCommit)) {
+                $buildArgs += @("--build-arg", "MYRIAD_CORE_COMMIT=$coreCommit")
+            }
         }
         if ($NoCache) {
             $buildArgs += "--no-cache"

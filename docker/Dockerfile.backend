@@ -30,6 +30,10 @@ ARG MYRIAD_VERSION=v0.0.0-dev
 ENV MYRIAD_VERSION=${MYRIAD_VERSION}
 ARG MYRIAD_COMMIT_SHA=unknown
 ENV MYRIAD_COMMIT_SHA=${MYRIAD_COMMIT_SHA}
+# Pinned `core/` submodule commit for backend/build.rs (`link.versions`),
+# since `.git` is excluded from the Docker build context.
+ARG MYRIAD_CORE_COMMIT=
+ENV MYRIAD_CORE_COMMIT=${MYRIAD_CORE_COMMIT}
 
 # `release` = full LTO (local/default). `ci-release` = thin LTO for image CI.
 ARG CARGO_PROFILE=release
@@ -39,6 +43,7 @@ ARG CARGO_BUILD_JOBS=2
 # Workspace root + member manifests (single shared Cargo.lock)
 COPY Cargo.toml Cargo.lock ./
 COPY backend/Cargo.toml ./backend/
+COPY backend/build.rs ./backend/
 COPY backend/migrations ./backend/migrations
 COPY crates ./crates
 COPY core ./core
