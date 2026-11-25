@@ -78,6 +78,7 @@
   position: absolute;
   inset: 0.25rem;
   z-index: 6; /* 吸顶工具条是 5，要盖过它 */
+  overflow: clip;
   border: 1.5px dashed color-mix(in srgb, var(--cfg-accent) 70%, transparent);
   border-radius: 0.75rem;
   background: color-mix(in srgb, var(--cfg-accent) 10%, color-mix(in srgb, #fafaf9 85%, transparent));
@@ -91,12 +92,12 @@ html.dark .workbench-media-drop {
 /* 列表很长、已经往下翻了时，提示停在窗口里不跟着跑掉。 */
 .workbench-media-drop__label {
   position: sticky;
-  top: 40vh;
+  top: 32vh;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  margin-top: 40vh;
+  padding: 1.5rem 1rem;
   color: var(--cfg-accent);
   font-size: 0.8125rem;
   font-weight: 600;

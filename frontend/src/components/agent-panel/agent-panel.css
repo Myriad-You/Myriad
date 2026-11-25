@@ -989,9 +989,9 @@ button.agent-panel-tag:disabled {
 .agent-panel-intention-actions > button {
   min-height: 34px;
   padding: 0 12px;
-  border: 0;
+  border: 1px solid var(--surface-border, rgb(0 0 0 / 8%));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--surface-solid, #fff) 72%, transparent);
+  background: color-mix(in srgb, var(--text-primary, #111827) 8%, transparent);
   color: inherit;
   cursor: pointer;
   font: inherit;
@@ -1004,6 +1004,7 @@ button.agent-panel-tag:disabled {
 }
 
 .agent-panel-intention-actions > .agent-panel-intention-accept {
+  border: 0;
   background: var(--color-primary, #10b981);
   color: white;
 }
@@ -1218,11 +1219,6 @@ button.agent-panel-tag:disabled {
   outline-offset: 1px;
 }
 
-.agent-panel-card-actions .agent-panel-tag:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-
 .agent-panel-card-chosen,
 .agent-panel-card-note {
   margin: 0;
@@ -1236,6 +1232,9 @@ button.agent-panel-tag:disabled {
 
 .agent-panel-card-pointer {
   align-self: flex-start;
+  background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
+  backdrop-filter: none;
+  box-shadow: var(--surface-shadow);
   color: var(--text-secondary, #6b7280);
   cursor: pointer;
 }
@@ -1273,6 +1272,7 @@ button.agent-panel-tag:disabled {
   width: 100%;
 }
 
+.agent-panel-search,
 .agent-panel-composer-tags,
 .agent-panel-field-shell,
 .agent-panel-composer-row > :not(.agent-panel-face-slot) {
@@ -1337,6 +1337,16 @@ button.agent-panel-tag:disabled {
   transition:
     opacity var(--agent-move) var(--agent-ease) var(--agent-mode-lag),
     translate var(--agent-move) var(--agent-ease) var(--agent-mode-lag);
+}
+
+.agent-panel-composer[data-mode='chat']:has(> .agent-panel-search) {
+  padding-top: 0;
+}
+
+.agent-panel-composer[data-mode='chat']:has(> .agent-panel-search)
+  .agent-panel-face-slot {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* 办事贴只淡、占位不撤，左右贴才不会在淡出结束时被拽动。
@@ -2386,6 +2396,7 @@ html:not([data-surface='solid'], [data-surface='liquid'])
 html .agent-panel-overlay.glass,
 html .agent-panel-field-shell.glass,
 html .agent-panel-control.glass,
+html .agent-panel-search.glass,
 html .agent-panel-message-body.glass,
 html .agent-panel-session.glass {
   backdrop-filter: none;
@@ -4125,10 +4136,12 @@ html.dark .agent-panel-aurora[data-status='error']::after {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin: 8px 12px;
+  margin: 0;
   padding: 10px 14px;
+  border: 1px solid var(--surface-border, rgb(0 0 0 / 8%));
   border-radius: 14px;
-  background: color-mix(in srgb, var(--surface, #fff) 82%, transparent);
+  background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
+  box-shadow: var(--surface-shadow);
   color: var(--text-secondary, inherit);
   font-size: 13px;
   line-height: 1.5;
@@ -4265,6 +4278,11 @@ html.dark .agent-panel-aurora[data-status='error']::after {
 .agent-panel-search-row:hover,
 .agent-panel-search-row:focus-visible {
   background: color-mix(in srgb, currentcolor 8%, transparent);
+}
+
+.agent-panel-search-row:focus-visible {
+  outline: 2px solid var(--cfg-accent, #10b981);
+  outline-offset: -2px;
 }
 
 .agent-panel-search-cover {

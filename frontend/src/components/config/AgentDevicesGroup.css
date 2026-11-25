@@ -1,0 +1,43 @@
+/* 连接的设备与迁移备份表单：与设置卡片一致的垂直间距与对齐。 */
+
+.agent-devices-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.agent-devices-form > .setting-item {
+  width: 100%;
+  margin-bottom: 0;
+}
+
+.agent-devices-form .setting-hint {
+  margin-top: 0;
+}
+
+.agent-devices-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.info-action-card-body > .agent-devices-form {
+  margin-top: 0.65rem;
+}
+
+.info-action-card-body > .agent-devices-form:first-child {
+  margin-top: 0;
+}
+
+.info-action-card-body > .agent-devices-form + .agent-devices-form {
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--cfg-subtle-border);
+}
+
+.agent-devices-form + .setting-item {
+  margin-top: 0.65rem;
+}
