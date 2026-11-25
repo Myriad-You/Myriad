@@ -160,6 +160,28 @@ pub(super) async fn to_leave_out_of(
     (left_out(db, user_id, &by, items).await).map_err(Failure::of_what_was_shown)
 }
 
+/// Which of `items` say any of `asked` alone, without reading stored
+/// requests from the database. Told by `until`, or not at all.
+pub(super) async fn left_out_of_asked(
+    user_id: i32,
+    asked: &[Asked],
+    items: &[String],
+    until: Option<Instant>,
+) -> Result<BTreeSet<usize>, Failure> {
+    let mut list: Vec<String> = Vec::with_capacity(asked.len());
+    for one in asked {
+        if !list.contains(&one.fact) {
+            list.push(one.fact.clone());
+        }
+    }
+    let by = By {
+        until,
+        ..By::default()
+    };
+    let told = told_among(user_id, &list, &by, items).await?;
+    Ok(told.out.into_iter().chain(told.untold).collect())
+}
+
 /// What items are judged by, beside what is kept of it.
 #[derive(Default)]
 struct By<'a> {
@@ -198,10 +220,19 @@ async fn told_apart(
     items: &[String],
 ) -> Result<Told, Failure> {
     let asked = what_they_asked(db, user_id, by).await?;
+    told_among(user_id, &asked, by, items).await
+}
+
+async fn told_among(
+    user_id: i32,
+    asked: &[String],
+    by: &By<'_>,
+    items: &[String],
+) -> Result<Told, Failure> {
     if items.is_empty() || asked.is_empty() {
         return Ok(Told::default());
     }
-    let mut round = round::Round::of(user_id, &asked, by, items);
+    let mut round = round::Round::of(user_id, asked, by, items);
     round.gone_over().await;
     let mut failed = round.failed();
     if failed.is_some_and(CallFailure::of_what_was_shown) && round.any_told() {

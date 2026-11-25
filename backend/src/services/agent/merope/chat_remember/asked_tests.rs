@@ -647,3 +647,296 @@ fn what_is_corrected_is_replaced_by_one_new_fact_alone() {
         assert_eq!(replaces, replaced, "{told:?}");
     }
 }
+
+fn raw_spoken(id: i32, offset_mins: i64, text: &str) -> settle_raw::Spoken {
+    settle_raw::Spoken {
+        id,
+        theirs: true,
+        text: text.into(),
+        at: crate::clock::now().fixed_offset() + chrono::Duration::minutes(offset_mins),
+        gone: false,
+        in_game: false,
+    }
+}
+
+fn raw_settle_answer(
+    lasting: serde_json::Value,
+    took_back: serde_json::Value,
+    not_to_keep: serde_json::Value,
+) -> String {
+    serde_json::json!({
+        "lasting": lasting,
+        "tookBack": took_back,
+        "moment": [],
+        "known": [],
+        "letGo": [],
+        "said": [],
+        "own": [],
+        "putOnto": [],
+        "notToKeep": not_to_keep,
+    })
+    .to_string()
+}
+
+fn lasting_item(fact: &str, evidence: &str, from: &[usize]) -> serde_json::Value {
+    serde_json::json!({
+        "fact": fact,
+        "evidence": evidence,
+        "from": from,
+        "concepts": [],
+        "whenFor": [],
+        "topic": {"on": "", "name": ""},
+        "happened": {"from": "", "to": "", "about": false},
+        "state": "",
+        "open": null,
+        "replaces": []
+    })
+}
+
+async fn run_raw_go_over(
+    db: &sea_orm::DatabaseConnection,
+    lines: &[settle_raw::Spoken],
+    settles: &[&str],
+    judges: &[&str],
+) -> (settle_raw::Gone, Vec<serde_json::Value>) {
+    let mut world = g0::World::new(0.5);
+    world.models.insert(
+        "chat_settle".into(),
+        settles.iter().map(|s| Some((*s).to_string())).collect(),
+    );
+    if !judges.is_empty() {
+        world.models.insert(
+            "not_to_keep".into(),
+            judges.iter().map(|s| Some((*s).to_string())).collect(),
+        );
+    }
+    g0::enter(world);
+    let gone = settle_raw::go_over(
+        db,
+        THEM,
+        &Audience::private(THEM),
+        lines,
+        "2026-11-23 (Monday)",
+        None,
+        &[],
+        None,
+    )
+    .await
+    .unwrap();
+    let log = g0::leave().unwrap().log;
+    (gone, log)
+}
+
+fn logged_models(log: &[serde_json::Value], op: &str) -> Vec<serde_json::Value> {
+    log.iter()
+        .filter(|entry| entry["kind"] == "model" && entry["what"]["operation"] == op)
+        .map(|entry| entry["what"].clone())
+        .collect()
+}
+
+/// 1. Pass 1 answers `notToKeep` and leaves a line unaccounted; Pass 2 returns
+/// a leaked lasting item -> Pass 2 sees the new rule in `Asked not to keep`,
+/// and judging Pass 2 drops the leak while keeping clean items.
+#[tokio::test]
+async fn ask_again_sees_pass_one_not_to_keep_and_drops_second_pass_leaks() {
+    let Some(schema) = fixture("asked_again_drops_leak").await else {
+        return;
+    };
+    let db = &schema.db;
+    let lines = [
+        raw_spoken(1, 0, "体重的事你以后都别记了"),
+        raw_spoken(2, 1, "昨晚体重掉到了五十二公斤"),
+        raw_spoken(3, 2, "今天在巷口买了一双新跑鞋"),
+    ];
+    let pass1 = raw_settle_answer(
+        serde_json::json!([]),
+        serde_json::json!([]),
+        serde_json::json!([{
+            "fact": "不要记自己的体重",
+            "evidence": "体重的事你以后都别记了",
+            "said": 0,
+            "replaces": []
+        }]),
+    );
+    let pass2 = raw_settle_answer(
+        serde_json::json!([
+            lasting_item("体重掉到了五十二公斤", "昨晚体重掉到了五十二公斤", &[1]),
+            lasting_item("买了一双新跑鞋", "今天在巷口买了一双新跑鞋", &[2]),
+        ]),
+        serde_json::json!([]),
+        serde_json::json!([]),
+    );
+    let (gone, log) = run_raw_go_over(db, &lines, &[&pass1, &pass2], &[r#"{"drop":[0]}"#]).await;
+
+    let settles = logged_models(&log, "chat_settle");
+    assert_eq!(settles.len(), 2);
+    assert!(
+        settles[0]["system"]
+            .as_str()
+            .unwrap()
+            .ends_with("Asked not to keep:\n(nothing)")
+    );
+    assert!(
+        settles[1]["system"]
+            .as_str()
+            .unwrap()
+            .ends_with("Asked not to keep:\n- 不要记自己的体重")
+    );
+    let judges = logged_models(&log, "not_to_keep");
+    assert_eq!(judges.len(), 1);
+    let judge_input: serde_json::Value =
+        serde_json::from_str(judges[0]["input"].as_str().unwrap()).unwrap();
+    assert_eq!(judge_input["asked"], serde_json::json!(["不要记自己的体重"]));
+
+    let facts: Vec<Option<&str>> = gone
+        .updates
+        .updates
+        .iter()
+        .map(|one| one.fact.as_deref())
+        .collect();
+    assert_eq!(facts, [Some("买了一双新跑鞋"), Some("不要记自己的体重")]);
+    assert_eq!(gone.updates.asked, [1].into());
+    schema.drop().await;
+}
+
+/// 2. Without new `notToKeep` in Pass 1, Pass 2 receives the exact same system
+/// prompt and makes zero extra `not_to_keep` calls.
+#[tokio::test]
+async fn go_over_without_new_not_to_keep_keeps_ask_again_prompt_and_skips_judge() {
+    let Some(schema) = fixture("asked_again_no_new_rule").await else {
+        return;
+    };
+    let db = &schema.db;
+    asks(db, THEM, "不要记自己的住址").await;
+    let lines = [
+        raw_spoken(1, 0, "今天散了会儿步"),
+        raw_spoken(2, 1, "很喜欢喝乌龙茶"),
+    ];
+    let pass1 = raw_settle_answer(
+        serde_json::json!([]),
+        serde_json::json!([]),
+        serde_json::json!([]),
+    );
+    let pass2 = raw_settle_answer(
+        serde_json::json!([lasting_item("喜欢喝乌龙茶", "很喜欢喝乌龙茶", &[1])]),
+        serde_json::json!([]),
+        serde_json::json!([]),
+    );
+    let (gone, log) = run_raw_go_over(db, &lines, &[&pass1, &pass2], &[]).await;
+
+    let settles = logged_models(&log, "chat_settle");
+    assert_eq!(settles.len(), 2);
+    assert_eq!(settles[0]["system"], settles[1]["system"]);
+    assert!(logged_models(&log, "not_to_keep").is_empty());
+    let facts: Vec<Option<&str>> = gone
+        .updates
+        .updates
+        .iter()
+        .map(|one| one.fact.as_deref())
+        .collect();
+    assert_eq!(facts, [Some("喜欢喝乌龙茶")]);
+    schema.drop().await;
+}
+
+/// 3. When judging Pass 2 against Pass 1's new `notToKeep` fails, Pass 2's
+/// whole result is dropped while Pass 1's result is still kept intact.
+#[tokio::test]
+async fn ask_again_dropped_whole_when_pass_one_judge_fails_preserving_pass_one() {
+    let Some(schema) = fixture("asked_again_judge_fails").await else {
+        return;
+    };
+    let db = &schema.db;
+    let lines = [
+        raw_spoken(1, 0, "我在杭州工作，体重的事你以后都别记了"),
+        raw_spoken(2, 1, "昨晚体重五十二公斤，顺便买了跑鞋"),
+    ];
+    let pass1 = raw_settle_answer(
+        serde_json::json!([lasting_item("在杭州工作", "我在杭州工作", &[0])]),
+        serde_json::json!([]),
+        serde_json::json!([{
+            "fact": "不要记自己的体重",
+            "evidence": "体重的事你以后都别记了",
+            "said": 0,
+            "replaces": []
+        }]),
+    );
+    let pass2 = raw_settle_answer(
+        serde_json::json!([
+            lasting_item("体重五十二公斤", "昨晚体重五十二公斤", &[1]),
+            lasting_item("买了跑鞋", "买了跑鞋", &[1]),
+        ]),
+        serde_json::json!([]),
+        serde_json::json!([]),
+    );
+    let (gone, log) = run_raw_go_over(
+        db,
+        &lines,
+        &[&pass1, &pass2],
+        &["!refused", "!refused", "!refused"],
+    )
+    .await;
+
+    assert_eq!(logged_models(&log, "chat_settle").len(), 2);
+    assert_eq!(gone.left, 1);
+    let facts: Vec<Option<&str>> = gone
+        .updates
+        .updates
+        .iter()
+        .map(|one| one.fact.as_deref())
+        .collect();
+    assert_eq!(facts, [Some("在杭州工作"), Some("不要记自己的体重")]);
+    assert_eq!(gone.updates.asked, [1].into());
+    schema.drop().await;
+}
+
+/// 4. What is said after taking back a stored `notToKeep` request in the same
+/// stretch is not dropped by re-reading stored requests, even when Pass 2 is
+/// judged for a different new `notToKeep`.
+#[tokio::test]
+async fn facts_after_taking_back_not_to_keep_are_kept_even_in_pass_two() {
+    let Some(schema) = fixture("asked_again_after_take_back").await else {
+        return;
+    };
+    let db = &schema.db;
+    asks(db, THEM, "不要记自己的体重").await;
+    let lines = [
+        raw_spoken(1, 0, "体重的事以后可以记了，另外身高别记了"),
+        raw_spoken(2, 1, "我现在体重五十二公斤"),
+    ];
+    let pass1 = raw_settle_answer(
+        serde_json::json!([]),
+        serde_json::json!([{"entry": "不要记自己的体重", "said": 0}]),
+        serde_json::json!([{
+            "fact": "不要记自己的身高",
+            "evidence": "身高别记了",
+            "said": 0,
+            "replaces": []
+        }]),
+    );
+    let pass2 = raw_settle_answer(
+        serde_json::json!([lasting_item("现在体重五十二公斤", "我现在体重五十二公斤", &[1])]),
+        serde_json::json!([]),
+        serde_json::json!([]),
+    );
+    let (gone, log) = run_raw_go_over(db, &lines, &[&pass1, &pass2], &[r#"{"drop":[]}"#]).await;
+
+    let judges = logged_models(&log, "not_to_keep");
+    assert_eq!(judges.len(), 1);
+    let judge_input: serde_json::Value =
+        serde_json::from_str(judges[0]["input"].as_str().unwrap()).unwrap();
+    assert_eq!(judge_input["asked"], serde_json::json!(["不要记自己的身高"]));
+
+    let facts: Vec<Option<&str>> = gone
+        .updates
+        .updates
+        .iter()
+        .map(|one| one.fact.as_deref())
+        .collect();
+    assert_eq!(
+        facts,
+        [None, Some("现在体重五十二公斤"), Some("不要记自己的身高")]
+    );
+    assert_eq!(gone.updates.updates[0].supersedes, ["不要记自己的体重"]);
+    assert_eq!(gone.updates.asked, [2].into());
+    schema.drop().await;
+}

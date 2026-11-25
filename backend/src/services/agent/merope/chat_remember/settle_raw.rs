@@ -501,15 +501,15 @@ pub(in crate::services::agent::merope) async fn go_over(
         .map(|said| said.said)
         .collect();
     let topics = super::settle::shown_topics(&offered);
-    let system = raw::raw_settle_system_prompt(
-        &known,
-        &asked,
-        myriad_merope::chat_remember::Examples::for_words(&theirs),
-    );
-    let ask = |only: Option<Vec<usize>>, within: std::time::Duration| {
+    let examples = myriad_merope::chat_remember::Examples::for_words(&theirs);
+    let system = raw::raw_settle_system_prompt(&known, &asked, examples);
+    let ask = |only: Option<Vec<usize>>,
+               within: std::time::Duration,
+               system: &str,
+               asked: &[String]| {
         let input = raw::raw_settle_input(&shown_lines, today, &topics, &yours, only.as_deref());
-        let (system, shown_lines, known, asked) = (&system, &shown_lines, &known, &asked);
-        let pending = &pending;
+        let (system, asked) = (system.to_string(), asked.to_vec());
+        let (shown_lines, known, pending) = (&shown_lines, &known, &pending);
         let offered = offered.len();
         async move {
             let answer = super::super::call::Ask::new(voice(), user_id, "chat_settle")
@@ -517,7 +517,7 @@ pub(in crate::services::agent::merope) async fn go_over(
                 .within(within)
                 .output_at_most(OUTPUT)
                 .json_raw(
-                    system,
+                    &system,
                     &input,
                     raw::RAW_SETTLE_SCHEMA_NAME,
                     &raw::raw_settle_schema(),
@@ -528,7 +528,7 @@ pub(in crate::services::agent::merope) async fn go_over(
                 raw::parse_raw_settle(&answer, shown_lines, known, asked, offered, only)
             };
             let mut got =
-                read(asked).ok_or(Failure::Model(super::super::call::Failure::InvalidOutput))?;
+                read(&asked).ok_or(Failure::Model(super::super::call::Failure::InvalidOutput))?;
             // Asked for over again while it waits for that second look: it
             // is held to, whatever they let her before (`held_to`).
             if !pending.is_empty() {
@@ -548,13 +548,14 @@ pub(in crate::services::agent::merope) async fn go_over(
         })
     };
     let settle_within = || time_left(super::settle::SETTLE_TIMEOUT, std::time::Duration::ZERO);
-    let mut got = ask(None, settle_within()).await?;
+    let got = ask(None, settle_within(), &system, &asked).await?;
     let check_within = || {
         time_left(
             super::super::memory_nodes::take_back_check::TIMEOUT,
             CHECKED_AFTER,
         )
     };
+    let again_prompt = again::prompt_for_again(&known, &asked, &got.asked, examples);
     let mut asked_again = 0;
     let within = settle_within();
     let ask_again = async {
@@ -563,29 +564,27 @@ pub(in crate::services::agent::merope) async fn go_over(
         }
         asked_again = got.left.len();
         ASKED_AGAIN.fetch_add(asked_again as u64, std::sync::atomic::Ordering::Relaxed);
-        // Asked again only about those: what it gives is added; failing,
-        // they stay accounted for nowhere, as they were.
-        ask(Some(got.left.clone()), within).await.ok()
+        let (again_asked, again_system) = again::prompt_parts(&again_prompt, &asked, &system);
+        // Asked again only about those (with pass-1 `notToKeep` in view): what
+        // it gives is added; failing, they stay accounted for nowhere, as they were.
+        ask(Some(got.left.clone()), within, again_system, again_asked)
+            .await
+            .ok()
     };
     let (told, again) = tokio::join!(
         again::doubts(user_id, &got, &shown_lines, check_within()),
         ask_again
     );
-    let else_said = again::told_something_else(&got, &told);
-    got.doubts_told(&told);
-    if let Some(mut again) = again {
-        let told = again::doubts(user_id, &again, &shown_lines, check_within()).await;
-        again.doubts_told(&told);
-        got = again::put_together(
-            user_id,
-            got,
-            again,
-            &else_said,
-            &shown_lines,
-            check_within(),
-        )
-        .await;
-    }
+    let check_until = until.map(|until| until + CHECKED_AFTER);
+    let got = again::with_second_pass(
+        user_id,
+        got,
+        again,
+        &told,
+        &shown_lines,
+        check_until,
+    )
+    .await;
     if !got.left.is_empty() {
         LEFT.fetch_add(got.left.len() as u64, std::sync::atomic::Ordering::Relaxed);
         tracing::info!(
