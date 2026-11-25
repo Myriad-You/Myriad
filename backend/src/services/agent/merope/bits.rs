@@ -113,7 +113,7 @@ async fn people(
     db.query_all_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT s.user_id FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-         WHERE s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
+         WHERE (s.context->>'past') IS NULL AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
            AND m.created_at >= $1 AND m.created_at < $2 AND s.user_id > 0 \
          GROUP BY s.user_id HAVING count(*) >= $3 ORDER BY count(*) DESC LIMIT $4",
         [

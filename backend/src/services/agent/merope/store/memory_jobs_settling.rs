@@ -362,7 +362,7 @@ pub(super) async fn of_lines(
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT m.id FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NOT DISTINCT FROM $2 \
                AND m.role = 'user' AND m.created_at = ANY($3)",
             [
@@ -451,7 +451,7 @@ async fn one_by_one(
                    COALESCE(m.metadata->>'inGame', '') = 'true' AS in_game \
                  FROM agent_messages m \
                  JOIN agent_sessions s ON s.id = m.session_id \
-                 WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
+                 WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND s.context->>'mode' = 'chat' \
                    AND (s.context->>'venue') IS NULL AND {SAID} \
                    AND m.created_at >= $2 AND m.created_at < $3 \
                  ORDER BY m.created_at, m.id"

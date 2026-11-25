@@ -92,7 +92,7 @@ pub async fn said_lately(
             DatabaseBackend::Postgres,
             "SELECT p.created_at, p.content, \
                EXISTS (SELECT 1 FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-                 WHERE s.user_id = p.user_id AND s.context->>'mode' = 'chat' \
+                 WHERE (s.context->>'past') IS NULL AND s.user_id = p.user_id AND s.context->>'mode' = 'chat' \
                    AND s.context->>'venue' IS NULL AND m.role = 'user' \
                    AND m.created_at > p.created_at) AS answered \
              FROM agent_proactive_messages p \
@@ -134,7 +134,7 @@ pub async fn first_words(
             "SELECT p.user_id, p.created_at, \
                p.created_at < $6::timestamptz - make_interval(hours => $3) AS settled, \
                EXISTS (SELECT 1 FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-                 WHERE s.user_id = p.user_id AND s.context->>'mode' = 'chat' \
+                 WHERE (s.context->>'past') IS NULL AND s.user_id = p.user_id AND s.context->>'mode' = 'chat' \
                    AND s.context->>'venue' IS NULL AND m.role = 'user' \
                    AND m.created_at > p.created_at \
                    AND m.created_at <= p.created_at + make_interval(hours => $3)) AS answered \
@@ -213,7 +213,7 @@ pub async fn first_words_replies(
                (SELECT string_agg(r.content, E'\\n' ORDER BY r.created_at) FROM \
                  (SELECT m.content, m.created_at FROM agent_messages m \
                    JOIN agent_sessions s ON s.id = m.session_id \
-                   WHERE s.user_id = p.user_id AND s.context->>'mode' = 'chat' \
+                   WHERE (s.context->>'past') IS NULL AND s.user_id = p.user_id AND s.context->>'mode' = 'chat' \
                      AND s.context->>'venue' IS NULL AND m.role = 'user' \
                      AND m.created_at > p.created_at \
                      AND m.created_at <= p.created_at + make_interval(hours => $3) \
@@ -260,6 +260,7 @@ pub async fn latest_open_session(
         .filter(agent_sessions::Column::Archived.eq(false))
         // Her own lines to them go to a conversation of theirs, never a group.
         .filter(crate::services::agent::sessions::private_sessions())
+        .filter(crate::services::agent::sessions::of_a_chat())
         .order_by_desc(agent_sessions::Column::LastActiveAt)
         .one(db)
         .await?
@@ -285,7 +286,7 @@ pub async fn their_lines(
             DatabaseBackend::Postgres,
             "SELECT m.created_at, m.content FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND m.role = 'user' AND s.context->>'mode' = 'chat' \
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND m.role = 'user' AND s.context->>'mode' = 'chat' \
              ORDER BY m.created_at DESC LIMIT $2",
             [user_id.into(), limit.into()],
         ))
@@ -308,7 +309,7 @@ pub async fn their_lines_in(
             DatabaseBackend::Postgres,
             "SELECT m.created_at, m.content FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND m.role = 'user' AND s.context->>'mode' = 'chat' \
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND m.role = 'user' AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NOT DISTINCT FROM $2 \
              ORDER BY m.created_at DESC LIMIT $3",
             [

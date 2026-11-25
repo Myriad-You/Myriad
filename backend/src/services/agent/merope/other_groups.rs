@@ -50,7 +50,7 @@ pub async fn they_section(
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT context->>'venue' AS venue FROM agent_sessions \
-             WHERE user_id = $1 AND context->>'mode' = 'chat' \
+             WHERE user_id = $1 AND context->>'mode' = 'chat' AND (context->>'past') IS NULL \
                AND context->>'venue' IS NOT NULL AND context->>'venue' <> $2 \
              GROUP BY 1 ORDER BY max(last_active_at) DESC LIMIT $3",
             [user_id.into(), here.into(), GROUPS_SHOWN.into()],

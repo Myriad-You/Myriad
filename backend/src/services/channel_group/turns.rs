@@ -132,6 +132,7 @@ pub(super) async fn last_group_session(
     db.query_one_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT id FROM agent_sessions WHERE user_id = $1 AND context->>'venue' = $2 \
+           AND (context->>'past') IS NULL \
            AND context->>'mode' = 'chat' ORDER BY last_active_at DESC LIMIT 1",
         [user_id.into(), venue.into()],
     ))

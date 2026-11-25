@@ -462,17 +462,19 @@ pub(super) async fn chat_session(
     session_key: &str,
 ) -> Option<String> {
     let mut stored = load_session(db, platform, session_key).await?;
-    if let Some(id) = stored.chat_session_id.clone().filter(|id| !id.is_empty()) {
-        return Some(id);
-    }
+    // The one kept, unless it is of the past (`merope::past`): then a new one.
+    let kept = stored.chat_session_id.clone().filter(|id| !id.is_empty());
     let id = crate::services::agent::sessions::ensure_session(
         db,
-        None,
+        kept.as_deref(),
         user_id,
         AgentInteractionMode::Chat,
     )
     .await
     .ok()?;
+    if kept.as_ref() == Some(&id) {
+        return Some(id);
+    }
     stored.chat_session_id = Some(id.clone());
     put_session(db, platform, user_id, session_key, stored)
         .await

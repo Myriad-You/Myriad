@@ -104,7 +104,7 @@ pub(crate) async fn origin_of(
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT m.id FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NULL AND m.role = 'user' AND m.created_at <= $3 \
              ORDER BY (left(m.content, 1500) = $2) DESC, m.id DESC LIMIT 1",
             [
@@ -133,7 +133,7 @@ async fn theirs<C: ConnectionTrait>(db: &C, user_id: i32, message: &str) -> Resu
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT 1 AS one FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE m.id = $1 AND s.user_id = $2 AND s.context->>'mode' = 'chat' \
+             WHERE (s.context->>'past') IS NULL AND m.id = $1 AND s.user_id = $2 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NULL AND m.role = 'user'",
             [id.into(), user_id.into()],
         ))

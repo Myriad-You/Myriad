@@ -72,7 +72,7 @@ pub async fn her_openers(db: &sea_orm::DatabaseConnection, user_id: i32) -> Vec<
             "WITH t AS (SELECT m.role, m.content, m.created_at, lag(m.role) OVER w AS r1, \
                lag(m.created_at) OVER w AS a1, lag(m.created_at, 2) OVER w AS a2 \
                FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-               WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
+               WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
                  AND NOT s.archived AND m.created_at < $2 AND (m.metadata->>'piece') IS NULL \
                WINDOW w AS (ORDER BY m.created_at)) \
              SELECT content, created_at FROM t WHERE role = 'assistant' AND r1 = 'user' \
@@ -115,7 +115,7 @@ pub(super) async fn acquaintance(
         .lock()
         .ok()?
         .get(&user_id)
-        .filter(|(at, _)| at.elapsed() < FRESH_FOR)
+        .filter(|(at, _)| at.elapsed() < FRESH_FOR && super::past::of_her(*at))
     {
         return Some(*known);
     }
@@ -125,7 +125,7 @@ pub(super) async fn acquaintance(
             "SELECT MIN(m.created_at) AS first, \
                     COUNT(DISTINCT (m.created_at AT TIME ZONE 'UTC')::date) AS days \
              FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND m.role = 'user'",
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND m.role = 'user'",
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
@@ -170,7 +170,7 @@ pub(super) async fn talk_rhythm(
         .lock()
         .ok()?
         .get(&user_id)
-        .filter(|(at, _)| at.elapsed() < FRESH_FOR)
+        .filter(|(at, _)| at.elapsed() < FRESH_FOR && super::past::of_her(*at))
     {
         return *known;
     }
@@ -180,7 +180,7 @@ pub(super) async fn talk_rhythm(
             DatabaseBackend::Postgres,
             "SELECT day FROM (SELECT DISTINCT (m.created_at AT TIME ZONE 'UTC')::date AS day \
              FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND m.role = 'user') talked ORDER BY day DESC LIMIT $2",
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND m.role = 'user') talked ORDER BY day DESC LIMIT $2",
             [user_id.into(), DAYS.into()],
         ))
         .await
@@ -256,7 +256,7 @@ pub(super) async fn since_she_got_up(
             "SELECT s.user_id, s.context->>'mode' AS mode, s.context->>'venue' AS venue, \
                     m.created_at \
              FROM agent_sessions s JOIN agent_messages m ON m.session_id = s.id \
-             WHERE s.user_id = ANY($1) AND m.role = 'user' AND m.created_at >= $2",
+             WHERE (s.context->>'past') IS NULL AND s.user_id = ANY($1) AND m.role = 'user' AND m.created_at >= $2",
             [people.clone().into(), since.fixed_offset().into()],
         ))
         .await

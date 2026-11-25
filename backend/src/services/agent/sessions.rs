@@ -15,6 +15,31 @@ pub(crate) fn private_sessions() -> sea_orm::sea_query::SimpleExpr {
     sea_orm::sea_query::Expr::cust("(agent_sessions.context::jsonb ->> 'venue') IS NULL")
 }
 
+/// Whether a conversation is of before her persona was cleared
+/// (`merope::past`): read by the one it was with, never by the next her.
+pub(crate) fn of_the_past(context: Option<&Value>) -> bool {
+    context
+        .and_then(|value| value.get("past"))
+        .is_some_and(|past| !past.is_null())
+}
+
+/// Her chats, those [`of_the_past`] left out: never Work's, which is not
+/// marked as of the past and is not hers to read.
+pub(crate) fn of_a_chat() -> sea_orm::sea_query::SimpleExpr {
+    sea_orm::sea_query::Expr::cust(
+        "COALESCE(agent_sessions.context::jsonb ->> 'mode', 'chat') = 'chat' \
+         AND (agent_sessions.context::jsonb ->> 'past') IS NULL",
+    )
+}
+
+/// Messages of a chat [`of_the_past`] left out.
+pub(crate) fn not_said_in_the_past() -> sea_orm::sea_query::SimpleExpr {
+    sea_orm::sea_query::Expr::cust(
+        "NOT EXISTS (SELECT 1 FROM agent_sessions s WHERE s.id = agent_messages.session_id \
+         AND s.context->>'mode' = 'chat' AND (s.context->>'past') IS NOT NULL)",
+    )
+}
+
 /// A session's last `max_messages`, oldest first, as a conversation.
 pub(crate) async fn load_session_history(
     db: &DatabaseConnection,
@@ -24,6 +49,7 @@ pub(crate) async fn load_session_history(
 ) -> Result<Vec<crate::services::agent::ConversationMessage>, sea_orm::DbErr> {
     let messages = agent_messages::Entity::find()
         .filter(agent_messages::Column::SessionId.eq(session_id))
+        .filter(not_said_in_the_past())
         .order_by_desc(agent_messages::Column::CreatedAt)
         .paginate(db, max_messages)
         .fetch_page(0)
@@ -63,7 +89,7 @@ pub(crate) async fn load_private_chat_history(
             DatabaseBackend::Postgres,
             "SELECT m.role, m.content, m.metadata, m.created_at FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
                AND NOT s.archived AND m.role IN ('user', 'assistant') \
              ORDER BY m.created_at DESC LIMIT $2",
             [user_id.into(), (max_messages as i64).into()],
@@ -523,7 +549,8 @@ pub(crate) async fn ensure_session(
     ensure_session_in(db, session_id, user_id, mode, None).await
 }
 
-/// The session asked for if it belongs to the user and has this mode and
+/// The session asked for if it belongs to the user, is not of the past
+/// ([`of_the_past`]) and has this mode and
 /// venue (`None` private, or a group such as `telegram:-100123`); otherwise
 /// a new one, carrying its venue from the moment it exists. A group's
 /// conversation is never read back as a private one, and a private request
@@ -543,7 +570,12 @@ pub(crate) async fn ensure_session_in(
             .map_err(|error| session_store_failed("find session", error))?
         {
             let stored_venue = session_venue(session.context.as_ref());
-            if session_mode(session.context.as_ref()) == mode && stored_venue.as_deref() == venue {
+            let past = mode == crate::services::agent::AgentInteractionMode::Chat
+                && of_the_past(session.context.as_ref());
+            if session_mode(session.context.as_ref()) == mode
+                && stored_venue.as_deref() == venue
+                && !past
+            {
                 return Ok(sid.to_string());
             }
             tracing::info!(
@@ -552,7 +584,8 @@ pub(crate) async fn ensure_session_in(
                 stored_mode = session_mode(session.context.as_ref()).as_str(),
                 group_session = stored_venue.is_some(),
                 group_request = venue.is_some(),
-                "[Agent API] Session mode or venue mismatch; creating an isolated session"
+                past,
+                "[Agent API] Session mode or venue mismatch, or of the past; creating an isolated session"
             );
         }
     }

@@ -94,6 +94,16 @@ static THINKING: LazyLock<Mutex<HashMap<(i32, String), (String, Thinking, bool)>
     LazyLock::new(|| Mutex::new(HashMap::new()));
 const PEOPLE_KEPT: usize = 4096;
 
+/// Her persona cleared: what is being thought of for the last her goes.
+pub(super) fn forget() {
+    if let Ok(mut thinking) = THINKING.lock() {
+        thinking.clear();
+    }
+    if let Ok(mut heard) = LAST_HEARD.lock() {
+        heard.clear();
+    }
+}
+
 /// When each person last wrote to her, by where.
 static LAST_HEARD: LazyLock<Mutex<HashMap<(i32, String), std::time::Instant>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -122,7 +132,7 @@ pub async fn recall_last_heard(db: &DatabaseConnection, owner: i32, venue: &str)
     // The message now being answered is already kept: the one before it.
     let sql = format!(
         "SELECT m.created_at FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-         WHERE s.user_id = $1 AND m.role = 'user' AND s.context->>'mode' = 'chat' AND {clause} \
+         WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND m.role = 'user' AND s.context->>'mode' = 'chat' AND {clause} \
          ORDER BY m.created_at DESC OFFSET 1 LIMIT 1"
     );
     let Ok(Some(row)) = db
@@ -475,7 +485,7 @@ pub(in crate::services::agent::merope) async fn in_front(
             DatabaseBackend::Postgres,
             "SELECT m.id FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
                AND NOT s.archived AND m.role IN ('user', 'assistant') \
              ORDER BY m.created_at DESC LIMIT $2",
             vec![SeaValue::Int(Some(user_id)), SeaValue::BigInt(Some(shown))],

@@ -311,7 +311,10 @@ pub async fn clear_persona_on<C>(db: &C) -> Result<(), anyhow::Error>
 where
     C: ConnectionTrait,
 {
-    clear_on(db, true).await
+    clear_on(db, true).await?;
+    // What was said with her is no one's to read of the next.
+    super::super::past::close(db).await?;
+    Ok(())
 }
 
 /// What is left of others on the site after she moved off it (Q2: their

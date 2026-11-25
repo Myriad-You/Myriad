@@ -136,7 +136,7 @@ pub async fn count(db: &DatabaseConnection, day: NaiveDate) -> Day {
          JOIN LATERAL (SELECT p.role, p.created_at FROM agent_messages p \
            WHERE p.session_id = m.session_id AND p.created_at < m.created_at \
            ORDER BY p.created_at DESC LIMIT 1) prev ON true \
-         WHERE s.context->>'mode' = 'chat' AND m.role = 'assistant' AND prev.role = 'user' \
+         WHERE (s.context->>'past') IS NULL AND s.context->>'mode' = 'chat' AND m.role = 'assistant' AND prev.role = 'user' \
            AND m.created_at >= $1 AND m.created_at < $2 AND (m.metadata->>'piece') IS NULL",
         start,
         end,
@@ -162,7 +162,7 @@ pub async fn count(db: &DatabaseConnection, day: NaiveDate) -> Day {
         let replies: Vec<String> = rows(
             db,
             "SELECT m.content FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.context->>'mode' = 'chat' AND m.role = 'assistant' \
+             WHERE (s.context->>'past') IS NULL AND s.context->>'mode' = 'chat' AND m.role = 'assistant' \
                AND m.created_at >= $1 AND m.created_at < $2 AND (m.metadata->>'piece') IS NULL",
             from,
             to,
@@ -187,7 +187,7 @@ pub async fn count(db: &DatabaseConnection, day: NaiveDate) -> Day {
             "WITH t AS (SELECT m.role, m.content, m.created_at, lag(m.role) OVER w AS r1, \
                lag(m.created_at) OVER w AS a1, lag(m.created_at, 2) OVER w AS a2 \
                FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-               WHERE s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
+               WHERE (s.context->>'past') IS NULL AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
                  AND m.created_at >= $1 - interval '1 day' AND m.created_at < $2 AND (m.metadata->>'piece') IS NULL \
                WINDOW w AS (PARTITION BY s.user_id ORDER BY m.created_at)) \
              SELECT content FROM t WHERE role = 'assistant' AND r1 = 'user' \
@@ -206,7 +206,7 @@ pub async fn count(db: &DatabaseConnection, day: NaiveDate) -> Day {
         db,
         &format!(
             "SELECT EXISTS (SELECT 1 FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-               WHERE s.user_id = p.user_id AND s.context->>'mode' = 'chat' AND m.role = 'user' \
+               WHERE (s.context->>'past') IS NULL AND s.user_id = p.user_id AND s.context->>'mode' = 'chat' AND m.role = 'user' \
                  AND m.created_at > p.created_at \
                  AND m.created_at < p.created_at + interval '{ANSWERED_WITHIN_HOURS} hours') AS answered \
              FROM agent_proactive_messages p \

@@ -175,7 +175,7 @@ async fn lines(
             DatabaseBackend::Postgres,
             "SELECT m.id, m.role, m.content, m.created_at FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NULL \
                AND m.role IN ('user', 'assistant') AND (m.metadata->>'piece') IS NULL \
                AND COALESCE(m.metadata->>'withoutHer', '') <> 'true' \

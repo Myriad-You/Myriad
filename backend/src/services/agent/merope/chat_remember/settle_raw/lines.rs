@@ -53,7 +53,7 @@ pub(in crate::services::agent::merope::chat_remember) async fn their_message(
             DatabaseBackend::Postgres,
             "SELECT m.id, m.content, m.created_at FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NOT DISTINCT FROM $2 \
                AND m.role = 'user' AND (m.metadata->>'piece') IS NULL AND m.origin IS NULL \
                AND m.created_at BETWEEN $3 AND $4 \
@@ -186,7 +186,7 @@ pub(super) async fn lines(
                    {ELSEWHERE} AS elsewhere \
                  FROM agent_messages m \
                  JOIN agent_sessions s ON s.id = m.session_id \
-                 WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
+                 WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND s.context->>'mode' = 'chat' \
                    AND (s.context->>'venue') IS NOT DISTINCT FROM $2 \
                    AND {SAID} \
                    AND m.created_at {side} $3 \

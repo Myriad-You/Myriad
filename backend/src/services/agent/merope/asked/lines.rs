@@ -112,7 +112,7 @@ pub(in crate::services::agent::merope) async fn mark(
             "SELECT m.id, m.role, m.content, m.created_at, \
                (m.metadata->>'notKept') IS NOT NULL AS judged FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND COALESCE(s.context->>'mode', 'chat') = 'chat' \
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND COALESCE(s.context->>'mode', 'chat') = 'chat' \
                AND (s.context->>'venue') IS NOT DISTINCT FROM $2 \
                AND m.role IN ('user', 'assistant') AND (m.metadata->>'piece') IS NULL \
                AND m.created_at >= $3 AND m.created_at <= $4 \
