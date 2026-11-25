@@ -200,7 +200,11 @@ pub(super) fn keep_settle_call(
 /// file as [`keep_settle_call`]: how long it took, and, read, how many of
 /// their lines were asked about again and how many still accounted for
 /// nowhere (`None`: out of tries).
-pub(super) fn keep_raw_settle_call(took: std::time::Duration, lines: Option<(usize, usize)>) {
+pub(super) fn keep_raw_settle_call(
+    took: std::time::Duration,
+    lines: Option<(usize, usize)>,
+    dropped: Option<&crate::services::agent::merope::chat_remember::settle_raw::DropCounts>,
+) {
     let Some(path) = std::env::var_os("MEROPE_MEMORY_BENCH_UNREAD_SETTLE") else {
         return;
     };
@@ -209,6 +213,22 @@ pub(super) fn keep_raw_settle_call(took: std::time::Duration, lines: Option<(usi
         "fromLines": true,
         "askedAgain": lines.map(|(again, _)| again),
         "left": lines.map(|(_, left)| left),
+        "dropped": dropped.map(|dropped| json!({
+            "rawLasting": dropped.parse.raw_lasting,
+            "emptyOrTooLong": dropped.parse.empty_or_too_long,
+            "badEvidence": dropped.parse.bad_evidence,
+            "changedLanguage": dropped.parse.changed_language,
+            "outsideOnly": dropped.parse.outside_only,
+            "letGo": dropped.parse.let_go,
+            "overLimit": dropped.parse.over_limit,
+            "saidDropped": dropped.parse.said_dropped,
+            "putOntoDropped": dropped.parse.put_onto_dropped,
+            "doubtsTakenBack": dropped.doubts_taken_back,
+            "againTakenBack": dropped.again_taken_back,
+            "alreadyDropped": dropped.already_dropped,
+            "notToKeepDropped": dropped.not_to_keep_dropped,
+            "keptLasting": dropped.kept_lasting,
+        })),
         "tookMs": took.as_millis() as u64,
     })
     .to_string()

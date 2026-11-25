@@ -129,8 +129,14 @@ impl Lines<'_> {
         Some(record)
     }
 
-    /// The line itself, and with their words beside it when they go there.
-    fn of(&self, entry_id: &str, text: &str, at: i64) -> (String, String) {
+    /// The line itself, and with its happened mark and their words beside it when shown.
+    fn of(
+        &self,
+        entry_id: &str,
+        text: &str,
+        at: i64,
+        happened: Option<&myriad_merope::happened::Happened>,
+    ) -> (String, String) {
         let (line, said) = match self.ranked.get(entry_id) {
             Some(line) => (line.clone(), self.said.get(line).cloned()),
             None => match self.record(entry_id) {
@@ -150,9 +156,13 @@ impl Lines<'_> {
                 }
             },
         };
-        let shown = match said.filter(|_| self.thorough) {
-            Some(said) => myriad_merope::speaking::with_their_words(&line, &said),
+        let shown = match happened {
+            Some(happened) => myriad_merope::speaking::with_happened(&line, happened),
             None => line.clone(),
+        };
+        let shown = match said.filter(|_| self.thorough) {
+            Some(said) => myriad_merope::speaking::with_their_words(&shown, &said),
+            None => shown,
         };
         (line, shown)
     }
@@ -522,13 +532,16 @@ fn recollect_within(
                 && !standing.contains(entry.text.trim())
                 && !ended.iter().any(|(text, _)| text == entry.text.trim())
             {
-                push(lines.of(id, &entry.text, entry.at), name);
+                push(
+                    lines.of(id, &entry.text, entry.at, entry.happened.as_ref()),
+                    name,
+                );
             }
         }
     }
     for id in &pick.loose {
         if lines.ranked.contains_key(id) {
-            push(lines.of(id, "", 0), "");
+            push(lines.of(id, "", 0, None), "");
         }
     }
     if let Some(about) = &own.about {
@@ -550,7 +563,7 @@ fn recollect_within(
             if let Some(entry) = find(shown, about, id)
                 && !standing.contains(entry.text.trim())
             {
-                push(lines.of(id, &entry.text, entry.at), "");
+                push(lines.of(id, &entry.text, entry.at, entry.happened.as_ref()), "");
             }
         }
     }
@@ -569,7 +582,11 @@ fn recollect_within(
             heard
                 .into_iter()
                 .take(heard_most)
-                .map(|entry| lines.of(&entry.id, &entry.text, entry.at).1)
+                .map(|entry| {
+                    lines
+                        .of(&entry.id, &entry.text, entry.at, entry.happened.as_ref())
+                        .1
+                })
                 .collect()
         })
         .unwrap_or_default();

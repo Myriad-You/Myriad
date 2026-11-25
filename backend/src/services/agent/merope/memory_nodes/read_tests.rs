@@ -517,3 +517,158 @@ fn what_she_may_bring_up_now_is_due_or_hers_waiting_for_nothing() {
     }
     assert_eq!(context::choose_now(many, &due).len(), context::INTENTS);
 }
+
+#[tokio::test]
+async fn normal_recall_shows_when_an_entry_happened_and_keeps_dedup() {
+    let Some(schema) = owned("memory_nodes_recall_happened").await else {
+        return;
+    };
+    let db = &schema.db;
+    let pen = crate::services::her_log::pen::think().expect("her mind is here in tests");
+    let talk = audience::private_talk(SEVEN, Some(OWNER));
+    let alone = Audience::private(SEVEN);
+    let checkup_id = memory(
+        db,
+        SEVEN,
+        Speaker::User,
+        "chat",
+        alone.clone(),
+        "去体检了",
+        None,
+    )
+    .await;
+    db.execute_unprepared(&format!(
+        "UPDATE agent_memories SET evidence = '上周去体检了，说血压有点高' WHERE id = '{checkup_id}'"
+    ))
+    .await
+    .unwrap();
+    let home_id = memory(
+        db,
+        SEVEN,
+        Speaker::User,
+        "chat",
+        alone.clone(),
+        "去年夏天搬进新家",
+        None,
+    )
+    .await;
+    let trip_id = memory(
+        db,
+        SEVEN,
+        Speaker::User,
+        "chat",
+        alone,
+        "去了一趟京都",
+        None,
+    )
+    .await;
+    facts::put_about(
+        db,
+        SEVEN,
+        &talk,
+        SEVEN,
+        &[
+            Fact {
+                memory: checkup_id.clone(),
+                text: "去体检了".into(),
+                said_by: SaidBy::Partner,
+                placement: start("健康"),
+                standing: myriad_merope::happened::Standing {
+                    happened: Some(myriad_merope::happened::Happened {
+                        from: "2026-10-03".into(),
+                        to: None,
+                        about: false,
+                    }),
+                    state: None,
+                    open: None,
+                },
+            },
+            Fact {
+                memory: home_id.clone(),
+                text: "去年夏天搬进新家".into(),
+                said_by: SaidBy::Partner,
+                placement: Placement::AboutThem,
+                standing: myriad_merope::happened::Standing {
+                    happened: Some(myriad_merope::happened::Happened {
+                        from: "2025-07".into(),
+                        to: None,
+                        about: true,
+                    }),
+                    state: None,
+                    open: None,
+                },
+            },
+            Fact {
+                memory: trip_id.clone(),
+                text: "去了一趟京都".into(),
+                said_by: SaidBy::Partner,
+                placement: start("旅行"),
+                standing: Default::default(),
+            },
+        ],
+        &pen,
+    )
+    .await
+    .unwrap();
+    let now = crate::clock::now();
+    let turn = context::load(db, SEVEN, now).await.unwrap();
+    let mut recalled = ranked(db, &[&checkup_id, &home_id, &trip_id]).await;
+
+    // Normal recall (thorough = false): happened appears on picked and about_them, none unchanged.
+    let plain = recall::recollect(&turn.shown, &turn.own, &recalled, None, now);
+    assert!(
+        plain
+            .named
+            .iter()
+            .any(|line| line.starts_with("健康: [") && line.ends_with("] 去体检了 (happened 2026-10-03)")),
+        "{:?}",
+        plain.named
+    );
+    assert!(
+        plain
+            .named
+            .iter()
+            .any(|line| line.starts_with('[') && line.ends_with("] 去年夏天搬进新家 (happened around 2025-07)")),
+        "{:?}",
+        plain.named
+    );
+    assert!(
+        plain
+            .named
+            .iter()
+            .any(|line| line.starts_with("旅行: [") && line.ends_with("] 去了一趟京都")),
+        "{:?}",
+        plain.named
+    );
+
+    // Thorough recall includes both (happened ...) and (their words: "...").
+    recalled.said.insert(
+        recalled.named[0].clone(),
+        "上周去体检了，说血压有点高".into(),
+    );
+    let cues = myriad_merope::remembering::Cues {
+        thorough: true,
+        ..Default::default()
+    };
+    let thorough = recall::recollect(&turn.shown, &turn.own, &recalled, Some(&cues), now);
+    let checkup_line = thorough
+        .named
+        .iter()
+        .find(|line| line.contains("去体检了"))
+        .unwrap();
+    assert!(
+        checkup_line.contains("(happened 2026-10-03) (their words: \"上周去体检了，说血压有点高\")"),
+        "{checkup_line}"
+    );
+
+    // Deduplication against brought_to_mind matches bare `line` without `(happened ...)`.
+    let checkup_bare = recalled.named[0].clone();
+    recalled.brought_to_mind.push(checkup_bare);
+    let deduped = recall::recollect(&turn.shown, &turn.own, &recalled, None, now);
+    assert!(
+        !deduped.named.iter().any(|line| line.contains("去体检了")),
+        "{:?}",
+        deduped.named
+    );
+    schema.drop().await;
+}
