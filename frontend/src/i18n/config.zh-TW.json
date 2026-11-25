@@ -913,7 +913,7 @@
   "agentPersonaEmptyLead": "從詞條到人設，再選服裝風格、出設計稿、生成主立繪。做完後這裡會留下立繪、性格摘要和現在的心情。",
   "agentPersonaNeedsReports": "至少要有 {need} 份平臺報告才能生成人設。現在有 {count} 份。",
   "agentPersonaDelete": "刪除人設",
-  "agentPersonaDeleteConfirm": "確定刪除現在的性格設定？心情和日記也會一起清掉。",
+  "agentPersonaDeleteConfirm": "要刪除人設嗎？人設資料、心情、日記、記憶、主動訊息紀錄、給你的建議和貼圖會被刪除，包括與其他人和群組有關的部分。對話、節點、為同步保存的紀錄、任務記憶、匯入的記憶和不要記住的要求會保留。此操作無法復原。",
   "agentPersonaDeleteFailed": "刪除人設失敗",
   "agentAliveTitle": "她現在活著嗎",
   "agentAliveDesc": "她自己的生活有沒有在跑、記憶有沒有在整理、各台裝置連得怎樣。這裡只有時間、次數、名稱和版本，沒有任何聊天內容。她本該在活卻停了十分鐘，會給你發一則通知。",

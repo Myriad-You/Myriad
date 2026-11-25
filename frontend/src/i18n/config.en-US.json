@@ -913,7 +913,7 @@
   "agentPersonaEmptyLead": "Go from tags to persona, pick an outfit style, then generate the portrait. This card will keep the portrait, a short summary, and current mood.",
   "agentPersonaNeedsReports": "Generate a persona after at least {need} platform reports. You have {count}.",
   "agentPersonaDelete": "Delete persona",
-  "agentPersonaDeleteConfirm": "Delete the current persona? Mood and diary will be cleared too.",
+  "agentPersonaDeleteConfirm": "Delete the persona? The persona profile, mood, diary, memories, proactive message history, suggestions for you and stickers will be deleted, including the parts about other people and groups. Conversations, nodes, records kept for syncing, task memories, imported memories and requests not to remember something will be kept. This action can’t be undone.",
   "agentPersonaDeleteFailed": "Could not delete the persona",
   "agentAliveTitle": "Is she living now",
   "agentAliveDesc": "Whether her own life is running, whether her memory is being gone over, and how each device is linked. Only times, counts, names and versions are shown here, never anything said in a chat. If she should be living and stops for ten minutes, you get a notification.",

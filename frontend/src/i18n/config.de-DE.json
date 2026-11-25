@@ -913,7 +913,7 @@
   "agentPersonaEmptyLead": "Von Tags zur Persona, Outfit-Stil wählen, dann das Porträt erzeugen. Diese Karte behält Porträt, Kurzfassung und aktuelle Stimmung.",
   "agentPersonaNeedsReports": "Persona erst nach mindestens {need} Plattformberichten erzeugen. Sie haben {count}.",
   "agentPersonaDelete": "Persona löschen",
-  "agentPersonaDeleteConfirm": "Die aktuelle Persona löschen? Stimmung und Tagebuch werden ebenfalls geleert.",
+  "agentPersonaDeleteConfirm": "Persona löschen? Profil der Persona, Stimmung, Tagebuch, Erinnerungen, Verlauf der proaktiven Nachrichten, Vorschläge für dich und Sticker werden gelöscht, einschließlich der Teile über andere Personen und Gruppen. Gespräche, Knoten, für die Synchronisierung aufbewahrte Daten, Aufgaben-Erinnerungen, importierte Erinnerungen und Bitten, etwas nicht zu merken, bleiben erhalten. Dies kann nicht rückgängig gemacht werden.",
   "agentPersonaDeleteFailed": "Persona konnte nicht gelöscht werden",
   "agentAliveTitle": "Lebt sie gerade?",
   "agentAliveDesc": "Ob ihr eigenes Leben läuft, ob ihr Gedächtnis geordnet wird und wie jedes Gerät verbunden ist. Hier stehen nur Zeiten, Zählungen, Namen und Versionen, nie etwas aus einem Chat. Wenn sie leben sollte und zehn Minuten stillsteht, bekommst du eine Benachrichtigung.",
