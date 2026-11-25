@@ -21,6 +21,7 @@ import {
   SettingGroup,
   SettingsButton,
 } from '../settings'
+import './AgentDevicesGroup.css'
 
 /** Devices (a Mac) connected to her on this site. Only the site owner sees it. */
 export function AgentDevicesGroup() {
@@ -1100,27 +1101,29 @@ export function AgentDevicesGroup() {
                   size: `${(backup.bytes / 1048576).toFixed(1)} MB`,
                 })}
               </span>
-              <SettingsButton
-                variant="secondary"
-                size="sm"
-                icon={<LuDownload size={14} />}
-                disabled={working}
-                onClick={() => void backupAction('download', backup.id, backup.day)}
-              >
-                {c.agentHostBackupDownload}
-              </SettingsButton>
-              <SettingsButton
-                variant="secondary"
-                size="sm"
-                disabled={working}
-                onClick={() => {
-                  if (window.confirm(c.agentHostBackupDeleteConfirm)) {
-                    void backupAction('delete', backup.id, backup.day)
-                  }
-                }}
-              >
-                {c.agentHostBackupDelete}
-              </SettingsButton>
+              <div className="agent-devices-form-actions">
+                <SettingsButton
+                  variant="secondary"
+                  size="sm"
+                  icon={<LuDownload size={14} />}
+                  disabled={working}
+                  onClick={() => void backupAction('download', backup.id, backup.day)}
+                >
+                  {c.agentHostBackupDownload}
+                </SettingsButton>
+                <SettingsButton
+                  variant="secondary"
+                  size="sm"
+                  disabled={working}
+                  onClick={() => {
+                    if (window.confirm(c.agentHostBackupDeleteConfirm)) {
+                      void backupAction('delete', backup.id, backup.day)
+                    }
+                  }}
+                >
+                  {c.agentHostBackupDelete}
+                </SettingsButton>
+              </div>
             </div>
           ))}
         </InfoActionCard>
