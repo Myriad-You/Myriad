@@ -10,9 +10,9 @@
 //! - **Read by no one of hers.** Every read of what was said that she says
 //!   anything from leaves a marked conversation out (`(s.context->>'past') IS
 //!   NULL`): `past_readers_tests` goes over all of them.
-//! - **Never gone on in.** A message sent into a marked one goes into the
-//!   chat they have had in that place since, or a new one
-//!   (`sessions::ensure_session_in`): the old one can only be read.
+//! - **Never gone on in.** A message sent into a marked one goes into one of
+//!   its own begun since (`context.since`, `sessions::ensure_session_in`):
+//!   the old one can only be read.
 //! - **A group's lines in mind** (and kept for a restart) end where she was
 //!   cleared ([`after`]).
 //! - **Undone by taking the marks of one clearing off again and letting its
@@ -37,7 +37,7 @@ const KEEP_DAYS: i64 = 3650;
 
 /// The marks of the clearing `$1` taken off, so what was said is read again.
 #[cfg(test)]
-const REOPEN: &str = "UPDATE agent_sessions SET context = context::jsonb - 'past' \
+const REOPEN: &str = "UPDATE agent_sessions SET context = context::jsonb - 'past' - 'since' \
      WHERE context->>'past' = $1";
 
 /// The record of the last clearing gone (the one before has none).
@@ -105,7 +105,11 @@ pub async fn close_late(db: &DatabaseConnection, committed: DateTime<Utc>) {
             mark(db, at, Some(committed)).await.map(|_| ())
         }
         Ok(None) => Ok(()),
-        Err(error) => Err(error),
+        // When is not known: until that was committed, then.
+        Err(error) => {
+            crate::services::channel_group::forget_lines(committed);
+            Err(error)
+        }
     };
     if let Err(error) = marked {
         tracing::warn!(%error, "[Merope] conversations begun as she was cleared were not marked");

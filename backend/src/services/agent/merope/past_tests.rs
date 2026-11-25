@@ -241,7 +241,7 @@ async fn an_old_conversation_is_not_gone_on_in() {
         .unwrap()
         .try_get("", "n")
         .unwrap();
-    assert_eq!(begun, 2, "one in private and one in the group");
+    assert_eq!(begun, 2, "one for each old one");
     // Asked for none, a new one is begun as ever.
     let another = sessions::ensure_session(db, None, OTHER, Mode::Chat)
         .await
@@ -252,6 +252,54 @@ async fn an_old_conversation_is_not_gone_on_in() {
         .unwrap();
     assert_eq!(work, "old_work");
     schema.drop().await;
+}
+
+/// The panel's conversation and a chat app's each go on in one of their own,
+/// whichever is written to first, message by message: a turn in one never
+/// takes the place of one in the other. Two messages at once into one old
+/// conversation go into one; cleared again, it goes on from there.
+#[tokio::test]
+async fn each_old_conversation_goes_on_in_one_of_its_own() {
+    use crate::services::agent::turn;
+    for (n, order) in [["old", "old_app"], ["old_app", "old"]].iter().enumerate() {
+        let Some(schema) = fixture(&format!("past_apart_{n}")).await else {
+            return;
+        };
+        let db = &schema.db;
+        session(db, "old_app", r#"{"mode":"chat"}"#).await;
+        clear(db).await;
+        let on = async |old: &str| {
+            sessions::ensure_session(db, Some(old), OTHER, Mode::Chat)
+                .await
+                .unwrap()
+        };
+        let mut goes_on = [String::new(), String::new()];
+        for _ in 0..3 {
+            for (since, old) in goes_on.iter_mut().zip(order) {
+                let now = on(old).await;
+                assert!(since.is_empty() || *since == now, "{old}");
+                *since = now;
+            }
+        }
+        let [one, other] = goes_on;
+        assert_ne!(one, other);
+        let (mut first, _) = turn::claim_chat_turn(OTHER, &one, "run_one").await;
+        let (mut second, _) = turn::claim_chat_turn(OTHER, &other, "run_other").await;
+        use tokio::sync::oneshot::error::TryRecvError;
+        assert_eq!(first.try_recv(), Err(TryRecvError::Empty));
+        assert_eq!(second.try_recv(), Err(TryRecvError::Empty));
+        // At once, into one not gone on in yet.
+        session(db, "old_call", r#"{"mode":"chat"}"#).await;
+        clear(db).await;
+        let (a, b, c) = tokio::join!(on("old_call"), on("old_call"), on("old_call"));
+        assert!(a == b && b == c, "{a} {b} {c}");
+        // What it went on in is of the past now too, and goes on.
+        let again = on(order[0]).await;
+        assert_ne!(again, one);
+        assert_eq!(again, on(&one).await);
+        assert_eq!(again, on(order[0]).await);
+        schema.drop().await;
+    }
 }
 
 /// A reply under way as she was cleared is of the past; so is a conversation
