@@ -96,7 +96,9 @@ pub(in crate::services::agent::merope) async fn waiting<C: ConnectionTrait>(
 /// as it is, so a stretch tried again goes on where it stopped. What is not
 /// told (by `until`) is not marked: an `Err`, to be judged again, or, with
 /// `gives_up`, let be (`notTold`: not looked back to either, though never
-/// said to be of it). What is marked is hidden on her nodes too.
+/// said to be of it). What is marked is hidden on her nodes too. Lines of
+/// before her persona was cleared are marked as well: her nodes of before
+/// are there still, and what they asked her not to keep stays hidden there.
 pub(in crate::services::agent::merope) async fn mark(
     db: &DatabaseConnection,
     user_id: i32,
@@ -415,6 +417,27 @@ mod tests {
         assert_eq!(said().await, ["上个月的事", "今天下雨"]);
         // Nothing of it is asked about again.
         assert_eq!(marking(db, &alone, None).await, (0, true));
+        schema.drop().await;
+    }
+
+    /// Her persona cleared before a stretch was judged: it still is, so what
+    /// they asked her not to keep is hidden on her nodes of before.
+    #[tokio::test]
+    async fn what_they_asked_not_to_keep_is_marked_though_she_was_cleared() {
+        let Some(schema) = schema("asked_lines_cleared").await else {
+            return;
+        };
+        let db = &schema.db;
+        session(db, "mine", OTHER, Some(r#"{"mode":"chat"}"#), false).await;
+        line(db, "mine", "user", "房东又来吵", 24, None).await;
+        asks(db, OTHER, "不要记和房东吵架的事").await;
+        crate::services::agent::merope::clear_persona_on(db)
+            .await
+            .unwrap();
+        let (asked, told) =
+            marking(db, &Audience::private(OTHER), Some(r#"{"drop":[0]}"#)).await;
+        assert!(asked > 0 && told);
+        assert_eq!(judged_as(db, "房东又来吵").await, Some(true));
         schema.drop().await;
     }
 

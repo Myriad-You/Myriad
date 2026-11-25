@@ -95,7 +95,7 @@ pub(in crate::services::agent::merope) async fn settle(
             DatabaseBackend::Postgres,
             "SELECT m.id, m.role, m.content, m.created_at FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NOT DISTINCT FROM $2 \
                AND m.role IN ('user', 'assistant') AND (m.metadata->>'piece') IS NULL AND m.created_at >= $3 \
                AND ($5::timestamptz IS NULL OR m.created_at < $5) \

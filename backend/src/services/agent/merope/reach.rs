@@ -123,7 +123,7 @@ async fn talked_lately(db: &DatabaseConnection) -> Vec<i32> {
     db.query_all_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT DISTINCT s.user_id FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-         WHERE s.user_id > 0 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
+         WHERE (s.context->>'past') IS NULL AND s.user_id > 0 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
            AND m.role = 'user' AND m.created_at > $2::timestamptz - make_interval(days => $1)",
         [(THINKS_BACK_DAYS as i32).into(), crate::clock::now().into()],
     ))
@@ -141,7 +141,7 @@ pub(super) async fn last_talk(db: &DatabaseConnection, user_id: i32) -> Option<D
     db.query_one_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT max(m.created_at) AS at FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-         WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND m.role = 'user'",
+         WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND s.context->>'mode' = 'chat' AND m.role = 'user'",
         [user_id.into()],
     ))
     .await

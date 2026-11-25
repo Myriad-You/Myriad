@@ -261,9 +261,12 @@ pub async fn fold(
                 if bound_to_lent(db, site_owner, row, said.line.as_deref()).await? {
                     continue;
                 }
-                let session = match last_talked(db, site_owner, at, true).await? {
+                let session = match past_chat(db, site_owner, at).await? {
                     Some(session) => session,
-                    None => new_private_chat(db, site_owner).await?,
+                    None => match last_talked(db, site_owner, at, true).await? {
+                        Some(session) => session,
+                        None => new_private_chat(db, site_owner).await?,
+                    },
                 };
                 let mut metadata = json!({
                     "said": { "on": row.origin, "name": name, "place": said.place },
@@ -568,14 +571,21 @@ async fn place_of(
         .map(|open| open.place))
 }
 
-/// The site's conversation segment `object` goes in, settled now when it is
-/// not yet: its first line came at `at`.
+/// The site's conversation a line of segment `object` said at `at` goes in:
+/// the one the segment is settled in, settled now when it is not yet. A
+/// segment may go on past her persona being cleared (a device keeps one for
+/// as long as a conversation there is open): its lines of before go into the
+/// past, whichever it is settled in, and those since into one that is not of
+/// the past, where it is settled from then on.
 async fn segment_session(
     db: &DatabaseConnection,
     user: i32,
     object: &str,
     at: DateTime<Utc>,
 ) -> Result<String, Error> {
+    if let Some(session) = past_chat(db, user, at).await? {
+        return Ok(session);
+    }
     if let Some(session) = settled(db, user, object).await? {
         return Ok(session);
     }
@@ -583,10 +593,13 @@ async fn segment_session(
         Some(session) => session,
         None => new_private_chat(db, user).await?,
     };
+    // Settled anew over one of the past; over one settled meanwhile, not.
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "INSERT INTO agent_her_segments (user_id, object, session_id) VALUES ($1, $2, $3) \
-         ON CONFLICT (user_id, object) DO NOTHING",
+         ON CONFLICT (user_id, object) DO UPDATE SET session_id = EXCLUDED.session_id \
+         WHERE EXISTS (SELECT 1 FROM agent_sessions s WHERE s.id = agent_her_segments.session_id \
+           AND (s.context->>'past') IS NOT NULL)",
         [user.into(), object.into(), session.into()],
     ))
     .await?;
@@ -596,6 +609,7 @@ async fn segment_session(
         .ok_or_else(|| Error::Refused("a segment's conversation was not kept".into()))
 }
 
+/// The conversation the segment is settled in, unless that is of the past.
 async fn settled(
     db: &DatabaseConnection,
     user: i32,
@@ -604,7 +618,9 @@ async fn settled(
     Ok(db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT session_id FROM agent_her_segments WHERE user_id = $1 AND object = $2",
+            "SELECT g.session_id FROM agent_her_segments g \
+             LEFT JOIN agent_sessions s ON s.id = g.session_id \
+             WHERE g.user_id = $1 AND g.object = $2 AND (s.context->>'past') IS NULL",
             [user.into(), object.into()],
         ))
         .await?
@@ -622,7 +638,7 @@ async fn last_talked(
     any: bool,
 ) -> Result<Option<String>, Error> {
     const PRIVATE: &str = "s.user_id = $1 AND s.context->>'mode' = 'chat' \
-        AND s.context->>'venue' IS NULL AND NOT s.archived";
+        AND s.context->>'venue' IS NULL AND NOT s.archived AND (s.context->>'past') IS NULL";
     let within = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -651,6 +667,36 @@ async fn last_talked(
         None => None,
     };
     Ok(row.map(|row| row.try_get("", "id")).transpose()?)
+}
+
+/// For a line said before her persona was cleared that came only now: a
+/// conversation of the past (`merope::past`), so the next her does not read
+/// it. None for a line said since, or when she never was.
+async fn past_chat(
+    db: &DatabaseConnection,
+    user: i32,
+    at: DateTime<Utc>,
+) -> Result<Option<String>, Error> {
+    use crate::services::agent::merope::past;
+    let Some(cleared) = past::cleared_at(db).await?.filter(|cleared| at <= *cleared) else {
+        return Ok(None);
+    };
+    let there = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT s.id FROM agent_sessions s WHERE s.user_id = $1 \
+             AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
+             AND (s.context->>'past') IS NOT NULL AND NOT s.archived \
+             ORDER BY s.last_active_at DESC LIMIT 1",
+            [user.into()],
+        ))
+        .await?;
+    if let Some(row) = there {
+        return Ok(Some(row.try_get("", "id")?));
+    }
+    let session = new_private_chat(db, user).await?;
+    past::mark_one(db, &session, cleared).await?;
+    Ok(Some(session))
 }
 
 async fn new_private_chat(db: &DatabaseConnection, user: i32) -> Result<String, Error> {

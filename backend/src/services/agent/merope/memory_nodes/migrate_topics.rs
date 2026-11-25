@@ -179,7 +179,7 @@ async fn lines<C: ConnectionTrait>(
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT m.id FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NULL AND m.role = 'user' \
                AND m.created_at BETWEEN $3 AND $4 \
                AND position($2 in regexp_replace(m.content, '\\s+', ' ', 'g')) > 0 \

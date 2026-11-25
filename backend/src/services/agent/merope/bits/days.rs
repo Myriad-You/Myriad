@@ -508,7 +508,7 @@ pub(super) async fn day_with(
     let lines = db.query_all_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT m.role, m.content, m.created_at, m.metadata->>'piece' AS piece FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-         WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
+         WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
            AND m.created_at >= $2 AND m.created_at < $3 AND m.role IN ('user', 'assistant') \
          ORDER BY m.created_at DESC LIMIT $4",
         [

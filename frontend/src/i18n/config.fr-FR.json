@@ -913,7 +913,7 @@
   "agentPersonaEmptyLead": "Passez des tags à la persona, choisissez un style de tenue, puis générez le portrait. Cette carte gardera le portrait, un court résumé et l'humeur actuelle.",
   "agentPersonaNeedsReports": "Générez une persona après au moins {need} rapports de plateforme. Vous en avez {count}.",
   "agentPersonaDelete": "Supprimer la persona",
-  "agentPersonaDeleteConfirm": "Supprimer la persona actuelle ? Humeur et journal seront aussi effacés.",
+  "agentPersonaDeleteConfirm": "Supprimer la persona ? Seront supprimés : le profil de la persona, l’humeur, le journal, les souvenirs, l’historique des messages spontanés, les suggestions pour vous, votre autorisation d’exécuter des tâches de manière autonome, les autocollants, les demandes de ne pas être dérangé pendant un moment, et les messages arrivés pendant l’absence de la persona et pas encore lus, y compris ce qui concerne d’autres personnes et les groupes. Seront conservés : les conversations, les nœuds, les données gardées pour la synchronisation, les souvenirs de tâches et les demandes de ne pas retenir quelque chose. Sauf les tâches, les conversations existantes ne peuvent plus qu’être consultées, et une nouvelle persona ne peut pas les lire ; une nouvelle persona peut encore lire les nœuds. Cette action est irréversible.",
   "agentPersonaDeleteFailed": "Impossible de supprimer la persona",
   "agentAliveTitle": "Vit-elle en ce moment ?",
   "agentAliveDesc": "Si sa propre vie tourne, si sa mémoire est mise en ordre, et comment chaque appareil est relié. On ne voit ici que des heures, des décomptes, des noms et des versions, jamais le contenu d’une conversation. Si elle devrait vivre et s’arrête dix minutes, vous recevez une notification.",

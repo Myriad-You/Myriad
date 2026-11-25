@@ -15,6 +15,31 @@ pub(crate) fn private_sessions() -> sea_orm::sea_query::SimpleExpr {
     sea_orm::sea_query::Expr::cust("(agent_sessions.context::jsonb ->> 'venue') IS NULL")
 }
 
+/// Whether a conversation is of before her persona was cleared
+/// (`merope::past`): read by the one it was with, never by the next her.
+pub(crate) fn of_the_past(context: Option<&Value>) -> bool {
+    context
+        .and_then(|value| value.get("past"))
+        .is_some_and(|past| !past.is_null())
+}
+
+/// Her chats, those [`of_the_past`] left out: never Work's, which is not
+/// marked as of the past and is not hers to read.
+pub(crate) fn of_a_chat() -> sea_orm::sea_query::SimpleExpr {
+    sea_orm::sea_query::Expr::cust(
+        "COALESCE(agent_sessions.context::jsonb ->> 'mode', 'chat') = 'chat' \
+         AND (agent_sessions.context::jsonb ->> 'past') IS NULL",
+    )
+}
+
+/// Messages of a chat [`of_the_past`] left out.
+pub(crate) fn not_said_in_the_past() -> sea_orm::sea_query::SimpleExpr {
+    sea_orm::sea_query::Expr::cust(
+        "NOT EXISTS (SELECT 1 FROM agent_sessions s WHERE s.id = agent_messages.session_id \
+         AND s.context->>'mode' = 'chat' AND (s.context->>'past') IS NOT NULL)",
+    )
+}
+
 /// A session's last `max_messages`, oldest first, as a conversation.
 pub(crate) async fn load_session_history(
     db: &DatabaseConnection,
@@ -24,6 +49,7 @@ pub(crate) async fn load_session_history(
 ) -> Result<Vec<crate::services::agent::ConversationMessage>, sea_orm::DbErr> {
     let messages = agent_messages::Entity::find()
         .filter(agent_messages::Column::SessionId.eq(session_id))
+        .filter(not_said_in_the_past())
         .order_by_desc(agent_messages::Column::CreatedAt)
         .paginate(db, max_messages)
         .fetch_page(0)
@@ -63,7 +89,7 @@ pub(crate) async fn load_private_chat_history(
             DatabaseBackend::Postgres,
             "SELECT m.role, m.content, m.metadata, m.created_at FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
                AND NOT s.archived AND m.role IN ('user', 'assistant') \
              ORDER BY m.created_at DESC LIMIT $2",
             [user_id.into(), (max_messages as i64).into()],
@@ -523,8 +549,87 @@ pub(crate) async fn ensure_session(
     ensure_session_in(db, session_id, user_id, mode, None).await
 }
 
-/// The session asked for if it belongs to the user and has this mode and
-/// venue (`None` private, or a group such as `telegram:-100123`); otherwise
+/// The conversation the old one `past` is gone on in: the one it went on in
+/// before (`context.since`), else a new one, which it is from now on. Each
+/// old conversation has its own, so the panel's and a chat app's stay apart;
+/// two messages at once into one old conversation go into one. One they
+/// deleted is not gone on in: another takes its place. Deleted and of the
+/// past itself, it is only followed to the one it went on in.
+async fn gone_on_in(
+    db: &DatabaseConnection,
+    past: &str,
+    user_id: i32,
+    venue: Option<&str>,
+) -> Result<String, sea_orm::DbErr> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, TransactionTrait};
+    let txn = db.begin().await?;
+    let Some(row) = txn
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT s.context->>'since' AS since FROM agent_sessions s \
+             WHERE s.id = $1 AND (s.context->>'past') IS NOT NULL FOR UPDATE",
+            [past.into()],
+        ))
+        .await?
+    else {
+        // Of the past no more: gone on in itself.
+        txn.commit().await?;
+        return Ok(past.to_string());
+    };
+    if let Some(since) = row.try_get::<Option<String>>("", "since")? {
+        let there = agent_sessions::Entity::find_by_id(&since)
+            .filter(agent_sessions::Column::UserId.eq(user_id))
+            .one(&txn)
+            .await?;
+        if there.is_some_and(|there| !there.archived || of_the_past(there.context.as_ref())) {
+            txn.commit().await?;
+            return Ok(since);
+        }
+    }
+    let id = new_session(
+        &txn,
+        user_id,
+        crate::services::agent::AgentInteractionMode::Chat,
+        venue,
+    )
+    .await?;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_sessions SET context = context::jsonb || jsonb_build_object('since', $2::text) \
+         WHERE id = $1 AND context->>'past' IS NOT NULL",
+        [past.into(), id.clone().into()],
+    ))
+    .await?;
+    txn.commit().await?;
+    Ok(id)
+}
+
+async fn new_session<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    mode: crate::services::agent::AgentInteractionMode,
+    venue: Option<&str>,
+) -> Result<String, sea_orm::DbErr> {
+    let id = format!("ses_{}", uuid::Uuid::new_v4().simple());
+    let now = crate::clock::now().fixed_offset();
+    let session = agent_sessions::ActiveModel {
+        id: Set(id.clone()),
+        user_id: Set(user_id),
+        title: Set(None),
+        context: Set(Some(session_context_in(mode, venue))),
+        message_count: Set(0),
+        archived: Set(false),
+        created_at: Set(now),
+        last_active_at: Set(now),
+    };
+    agent_sessions::Entity::insert(session).exec(db).await?;
+    Ok(id)
+}
+
+/// The session asked for if it belongs to the user, is not of the past
+/// ([`of_the_past`]) and has this mode and
+/// venue (`None` private, or a group such as `telegram:-100123`); one of the
+/// past goes on in one of its own ([`gone_on_in`]); otherwise
 /// a new one, carrying its venue from the moment it exists. A group's
 /// conversation is never read back as a private one, and a private request
 /// never continues a group's session.
@@ -535,45 +640,50 @@ pub(crate) async fn ensure_session_in(
     mode: crate::services::agent::AgentInteractionMode,
     venue: Option<&str>,
 ) -> Result<String, String> {
-    if let Some(sid) = session_id {
-        if let Some(session) = agent_sessions::Entity::find_by_id(sid)
+    // One of the past is gone on in the one it went on in, which another
+    // clearing may have made one of the past too.
+    let mut asked = session_id.map(str::to_string);
+    for _ in 0..PASTS_FOLLOWED {
+        let Some(sid) = asked.take() else {
+            break;
+        };
+        let Some(session) = agent_sessions::Entity::find_by_id(&sid)
             .filter(agent_sessions::Column::UserId.eq(user_id))
             .one(db)
             .await
             .map_err(|error| session_store_failed("find session", error))?
-        {
-            let stored_venue = session_venue(session.context.as_ref());
-            if session_mode(session.context.as_ref()) == mode && stored_venue.as_deref() == venue {
-                return Ok(sid.to_string());
+        else {
+            break;
+        };
+        let stored_venue = session_venue(session.context.as_ref());
+        if session_mode(session.context.as_ref()) == mode && stored_venue.as_deref() == venue {
+            let past = mode == crate::services::agent::AgentInteractionMode::Chat
+                && of_the_past(session.context.as_ref());
+            if !past {
+                return Ok(sid);
             }
-            tracing::info!(
-                session_id = sid,
-                requested_mode = mode.as_str(),
-                stored_mode = session_mode(session.context.as_ref()).as_str(),
-                group_session = stored_venue.is_some(),
-                group_request = venue.is_some(),
-                "[Agent API] Session mode or venue mismatch; creating an isolated session"
+            asked = Some(
+                gone_on_in(db, &sid, user_id, venue)
+                    .await
+                    .map_err(|error| session_store_failed("go on in a new session", error))?,
             );
+            continue;
         }
+        tracing::info!(
+            session_id = sid,
+            requested_mode = mode.as_str(),
+            stored_mode = session_mode(session.context.as_ref()).as_str(),
+            group_session = stored_venue.is_some(),
+            group_request = venue.is_some(),
+            "[Agent API] Session mode or venue mismatch; creating an isolated session"
+        );
     }
 
     // 自动创建新会话
-    let new_id = format!("ses_{}", uuid::Uuid::new_v4().simple());
-    let now = crate::clock::now().fixed_offset();
-    let session = agent_sessions::ActiveModel {
-        id: Set(new_id.clone()),
-        user_id: Set(user_id),
-        title: Set(None),
-        context: Set(Some(session_context_in(mode, venue))),
-        message_count: Set(0),
-        archived: Set(false),
-        created_at: Set(now),
-        last_active_at: Set(now),
-    };
-    agent_sessions::Entity::insert(session)
-        .exec(db)
+    new_session(db, user_id, mode, venue)
         .await
-        .map_err(|error| session_store_failed("create session", error))?;
-
-    Ok(new_id)
+        .map_err(|error| session_store_failed("create session", error))
 }
+
+/// How many clearings in a row an old conversation is followed through.
+const PASTS_FOLLOWED: usize = 64;

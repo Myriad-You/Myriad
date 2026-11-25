@@ -165,6 +165,45 @@ fn lines_kept_before_read_back_in_their_shape() {
     assert_eq!(serde_json::to_value(&stored).unwrap(), kept);
 }
 
+/// Her persona cleared: only what a group said until then goes from mind.
+/// What she is in the middle of there, who waits for it, what has come since
+/// and the mutes are as they were.
+#[test]
+fn clearing_her_takes_only_the_old_lines_of_a_group_from_mind() {
+    let at = |year: i32| {
+        chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, year, 1, 1, 0, 0, 0).unwrap()
+    };
+    let said = |year: i32| -> myriad_merope::group::Line {
+        serde_json::from_value(serde_json::json!({
+            "at": at(year), "message_id": year.to_string(), "name": "阿明", "text": "来点歌",
+            "hers": false,
+        }))
+        .unwrap()
+    };
+    let venue = "telegram:-9301";
+    let before = with_slot(venue, |slot| {
+        slot.group.lines = [said(2001), said(2003)].into();
+        slot.group.restored = true;
+        slot.group.busy = true;
+        slot.group.next = 7;
+        slot.group.muted_until = Some(9);
+        slot.group.clone()
+    })
+    .unwrap();
+    // Long before any line of another test's.
+    forget_lines(at(2002));
+    let now = with_slot(venue, |slot| slot.group.clone()).unwrap();
+    assert_eq!(now.lines, [said(2003)]);
+    assert_eq!(
+        now,
+        myriad_merope::group::Group {
+            lines: now.lines.clone(),
+            ..before
+        }
+    );
+    forget(venue);
+}
+
 /// A restart does not wipe the group from her mind: what was kept comes
 /// back from the runtime registry with the first line after it.
 #[tokio::test]
@@ -185,6 +224,13 @@ async fn a_restart_keeps_what_the_group_said() {
         transcript(&venue),
         ["阿明：来点歌", "阿明：放一首", "阿明：说到一半怎么没了"]
     );
+    // Her persona cleared: what was kept before is not the next her's.
+    crate::services::agent::merope::clear_persona_on(&schema.db)
+        .await
+        .unwrap();
+    forget(&venue);
+    record(&line(chat, 4, "阿明", "你是新来的吗")).await;
+    assert_eq!(transcript(&venue), ["阿明：你是新来的吗"]);
     schema.drop().await;
 }
 

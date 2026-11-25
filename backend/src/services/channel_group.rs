@@ -90,7 +90,7 @@ pub(crate) use io::heard_again;
 pub(crate) use ledger::talk_between;
 pub(crate) use lent::say_lent;
 pub use line::GroupLine;
-pub(crate) use mind::shown_as;
+pub(crate) use mind::{forget_lines, shown_as};
 pub use mind::{
     back_from_away, back_from_lending, catch_up, groups_lately, handle, muted, names_here, notice,
     pressed, record, seated, take_back_kept, take_back_tables, whispered,

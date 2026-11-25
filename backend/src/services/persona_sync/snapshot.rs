@@ -659,6 +659,9 @@ async fn vitals<C: ConnectionTrait>(db: &C) -> Result<Vec<EntityVersion>, DbErr>
 /// its lines: not a group's, not Work, not one they deleted. Pictures in a
 /// line cross by the address written in it; only the site's own media is
 /// read, never an outside address in what someone wrote.
+///
+/// Not one of before her persona was cleared (`merope::past`): it was another
+/// her's, and where she goes it would carry no mark.
 async fn conversations<C: ConnectionTrait>(
     db: &C,
     pictures: &assets::Pictures,
@@ -675,7 +678,7 @@ async fn conversations<C: ConnectionTrait>(
             &format!(
                 "SELECT id, title, created_at, last_active_at FROM agent_sessions \
                  WHERE user_id = $1 AND context->>'mode' = 'chat' AND context->>'venue' IS NULL \
-                   AND NOT archived AND message_count > 0{} \
+                   AND (context->>'past') IS NULL AND NOT archived AND message_count > 0{} \
                  ORDER BY id COLLATE \"C\" LIMIT $2",
                 after_clause(after, "id", 3)
             ),

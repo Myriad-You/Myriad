@@ -73,6 +73,12 @@ pub(super) async fn let_go(db: &DatabaseConnection) {
     }
 }
 
+/// Her persona cleared: what was on her mind goes with her, in that
+/// transaction.
+pub(super) async fn forget<C: sea_orm::ConnectionTrait>(db: &C) -> Result<u64, sea_orm::DbErr> {
+    crate::services::runtime_registry::delete_matching(db, NAMESPACE, None, None, None, None).await
+}
+
 /// What is on her mind as it may be seen `before` them, as a line for a
 /// prompt.
 pub async fn seen_by(db: &DatabaseConnection, before: Before) -> Option<String> {

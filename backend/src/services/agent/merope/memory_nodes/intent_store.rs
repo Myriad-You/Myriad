@@ -391,7 +391,8 @@ pub(crate) async fn message_text(
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT content FROM agent_messages WHERE id = $1 AND role = 'user'",
+            "SELECT m.content FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+             WHERE (s.context->>'past') IS NULL AND m.id = $1 AND m.role = 'user'",
             [id.into()],
         ))
         .await?;

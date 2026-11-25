@@ -583,7 +583,7 @@ async fn how_she_differs_with(db: &sea_orm::DatabaseConnection, user_id: i32) ->
         .lock()
         .ok()?
         .get(&user_id)
-        .filter(|(at, _)| at.elapsed() < FRESH_FOR)
+        .filter(|(at, _)| at.elapsed() < FRESH_FOR && super::super::past::of_her(*at))
     {
         return told.clone();
     }
@@ -592,7 +592,7 @@ async fn how_she_differs_with(db: &sea_orm::DatabaseConnection, user_id: i32) ->
             DatabaseBackend::Postgres,
             "SELECT m.role, m.content FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND m.role IN ('user', 'assistant') \
                AND (m.metadata->>'piece') IS NULL \
              ORDER BY m.created_at DESC LIMIT $2",

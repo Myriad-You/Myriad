@@ -95,7 +95,7 @@ pub(crate) async fn private_lines(db: &DatabaseConnection, user_id: i32, latest:
                  OR COALESCE(m.metadata->>'notTold', '') = 'true') AS not_kept \
              FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND (s.context->>'venue') IS NULL \
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND (s.context->>'venue') IS NULL \
                AND COALESCE(s.context->>'mode', 'chat') = 'chat' AND NOT COALESCE(s.archived, false) \
                AND m.role IN ('user', 'assistant') AND (m.metadata->>'piece') IS NULL \
                AND COALESCE(m.metadata->>'withoutHer', '') <> 'true' \
