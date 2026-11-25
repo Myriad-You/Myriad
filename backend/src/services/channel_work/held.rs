@@ -158,9 +158,7 @@ async fn lend(
     let Ok(audience) = her::chat_audience(db, user_id).await else {
         return false;
     };
-    let chat_session = super::load_session(db, platform, session_key)
-        .await
-        .and_then(|stored| stored.chat_session_id);
+    let chat_session = kept_chat(db, platform, session_key, user_id).await;
     let mut recent = Vec::new();
     if let Some(chat_session) = &chat_session
         && let Ok(lines) =
@@ -231,7 +229,8 @@ async fn lend(
 
 /// Her mind on a PC took a private message lent to it: their line is kept
 /// in the chat, as a turn here keeps it, and as heard there: what is kept of
-/// it is kept there alone.
+/// it is kept there alone. In the chat it was lent from, though her persona
+/// was cleared since: it was said to the one before.
 pub(crate) async fn keep_lent(
     db: &DatabaseConnection,
     chat: &crate::services::her_log::lend::ChatLent,
@@ -272,6 +271,21 @@ pub(crate) async fn hold_lent(
     }
 }
 
+/// Her chat with them in this conversation, when there is one: the one kept,
+/// or the one it is gone on in since her persona was cleared.
+async fn kept_chat(
+    db: &DatabaseConnection,
+    platform: ChannelPlatform,
+    session_key: &str,
+    user_id: i32,
+) -> Option<String> {
+    super::load_session(db, platform, session_key)
+        .await
+        .and_then(|stored| stored.chat_session_id)
+        .filter(|id| !id.is_empty())?;
+    super::chat::chat_session(db, platform, user_id, session_key).await
+}
+
 /// Her line from her mind on a PC, sent in the chat `session_key` with
 /// `user_id` as she sends her own, and kept there as hers, marked with the
 /// say it came from (`line`, `<device>/<say id>`): in the partner's own
@@ -288,10 +302,7 @@ pub(crate) async fn say_lent(
         .await
         .ok_or("the chat is not reachable")?;
     sink.send_text(text).await.map_err(|_| "not sent")?;
-    if let Some(chat_session) = super::load_session(db, sink.platform(), session_key)
-        .await
-        .and_then(|stored| stored.chat_session_id)
-    {
+    if let Some(chat_session) = kept_chat(db, sink.platform(), session_key, user_id).await {
         let _ = crate::services::agent::sessions::persist_assistant_message(
             db,
             &chat_session,
@@ -580,6 +591,60 @@ mod tests {
         assert!(kept.address.is_some());
         assert_eq!(kept.chat_session_id.as_deref(), Some("ses_x"));
         assert_eq!(count(db).await.unwrap(), 1);
+        fixture.close().await;
+    }
+
+    /// Her persona cleared: a chat app's chat goes on in one of its own, kept
+    /// for that chat from then on, and never in the panel's; what she says
+    /// there from a PC goes into it too.
+    #[tokio::test]
+    async fn a_chat_apps_chat_goes_on_in_one_of_its_own_once_she_is_cleared() {
+        use sea_orm::ConnectionTrait;
+        let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+            return;
+        };
+        let db = &fixture.db;
+        db.execute_unprepared(
+            "INSERT INTO users (id, username, is_owner) VALUES (41, 'owner41', true); \
+             INSERT INTO agent_sessions (id, user_id, context, message_count, archived, \
+             created_at, last_active_at) VALUES \
+             ('old_panel', 41, '{\"mode\":\"chat\"}', 0, false, NOW(), NOW()), \
+             ('old_app', 41, '{\"mode\":\"chat\"}', 0, false, NOW(), NOW())",
+        )
+        .await
+        .unwrap();
+        let platform = ChannelPlatform::OneBot;
+        let stored = super::super::StoredSession {
+            chat_session_id: Some("old_app".into()),
+            ..Default::default()
+        };
+        super::super::put_session(db, platform, 41, "ob:1", stored)
+            .await
+            .unwrap();
+        let app = async || kept_chat(db, platform, "ob:1", 41).await.unwrap();
+        assert_eq!(app().await, "old_app");
+        crate::services::agent::merope::clear_persona_on(db)
+            .await
+            .unwrap();
+        let panel = async || {
+            crate::services::agent::sessions::ensure_session(
+                db,
+                Some("old_panel"),
+                41,
+                crate::services::agent::AgentInteractionMode::Chat,
+            )
+            .await
+            .unwrap()
+        };
+        let (on_panel, on_app) = (panel().await, app().await);
+        assert_ne!(on_panel, on_app);
+        assert!(on_app != "old_app" && on_panel != "old_panel");
+        assert_eq!(panel().await, on_panel);
+        assert_eq!(app().await, on_app);
+        let kept = super::super::load_session(db, platform, "ob:1")
+            .await
+            .unwrap();
+        assert_eq!(kept.chat_session_id, Some(on_app));
         fixture.close().await;
     }
 

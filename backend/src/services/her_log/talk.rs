@@ -686,7 +686,8 @@ async fn past_chat(
             DatabaseBackend::Postgres,
             "SELECT s.id FROM agent_sessions s WHERE s.user_id = $1 \
              AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
-             AND (s.context->>'past') IS NOT NULL ORDER BY s.last_active_at DESC LIMIT 1",
+             AND (s.context->>'past') IS NOT NULL AND NOT s.archived \
+             ORDER BY s.last_active_at DESC LIMIT 1",
             [user.into()],
         ))
         .await?;
