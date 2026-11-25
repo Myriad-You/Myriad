@@ -353,13 +353,15 @@ where
         "DELETE FROM agent_affect_anchor WHERE user_id = $1".to_string(),
         "DELETE FROM agent_addressee_state WHERE user_id = $1".to_string(),
         "DELETE FROM agent_intentions WHERE user_id = $1".to_string(),
-        // The owner's private chats with her that moved with her.
+        // The owner's private chats with her that moved with her: not those of
+        // before her persona was cleared, which did not.
         "DELETE FROM agent_messages WHERE session_id IN (SELECT id FROM agent_sessions \
          WHERE user_id = $1 AND context->>'mode' = 'chat' AND context->>'venue' IS NULL \
-         AND NOT archived AND message_count > 0)"
+         AND (context->>'past') IS NULL AND NOT archived AND message_count > 0)"
             .to_string(),
         "DELETE FROM agent_sessions WHERE user_id = $1 AND context->>'mode' = 'chat' \
-         AND context->>'venue' IS NULL AND NOT archived AND message_count > 0"
+         AND context->>'venue' IS NULL AND (context->>'past') IS NULL AND NOT archived \
+         AND message_count > 0"
             .to_string(),
         // Her turtle soup with the owner (groups' and others' games stay).
         format!(
