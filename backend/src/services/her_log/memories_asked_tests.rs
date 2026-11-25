@@ -208,3 +208,68 @@ async fn what_another_end_kept_does_not_come_back_once_she_is_cleared() {
     assert_eq!(kinds, ["memory.retire", "memory.write"]);
     schema.drop().await;
 }
+
+/// A line the owner said to her on another end before she was cleared, that
+/// comes only after, goes where the next her does not read; one said since
+/// goes in their talk.
+#[tokio::test]
+async fn a_line_from_before_she_was_cleared_comes_into_the_past() {
+    let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
+        return;
+    };
+    let schema = crate::db::IsolatedSchema::migrated(&url, "her_log_past").await;
+    let db = &schema.db;
+    db.execute_unprepared(&format!(
+        "INSERT INTO users (id, username, is_owner) VALUES ({OWNER}, 'owner', true)"
+    ))
+    .await
+    .unwrap();
+    store::start(db, OWNER).await.unwrap();
+    super::super::test_partner::give(db, OWNER, PARTNER).await;
+    let root = TestRoot([9; 32]);
+    let owner = super::super::owner(db, OWNER).await.unwrap();
+    let personal = owner.personal();
+    let said = async |object: &str, text: &str| {
+        let txn = db.begin().await.unwrap();
+        store::write_row_on(
+            &txn,
+            &root,
+            &owner,
+            &personal,
+            None,
+            object,
+            "segment.line",
+            &json!({"at": 1, "text": text}),
+            (Author::Owner, None),
+        )
+        .await
+        .unwrap();
+        txn.commit().await.unwrap();
+        db.execute_unprepared(
+            "UPDATE agent_log_rows SET origin = 'dev_mac', \
+             envelope = jsonb_set(envelope, '{origin}', '\"dev_mac\"') WHERE origin <> 'dev_mac'",
+        )
+        .await
+        .unwrap();
+    };
+    said("segment:before", "我的蕨干了").await;
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    let txn = db.begin().await.unwrap();
+    crate::services::agent::merope::clear_persona_on(&txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    said("segment:since", "早").await;
+    assert_eq!(
+        super::super::talk::fold(db, &root, OWNER).await.unwrap(),
+        2
+    );
+    let history =
+        crate::services::agent::sessions::load_private_chat_history(db, OWNER, 20)
+            .await
+            .unwrap();
+    let read: Vec<&str> = history.iter().map(|line| line.content.as_str()).collect();
+    assert_eq!(read, ["早"]);
+    schema.drop().await;
+}
