@@ -123,3 +123,27 @@ Brew 内部名改为 Phantasi，用户界面改为 **手帐**（en: Journal）�
 声明旧权限 `federation:write` 的 TAPP Manifest 从本版本起会显式失败，不会自动映射或静默降权。请按实际操作改用 `federation:post`、`federation:interact`、`federation:channel`、`federation:room` 和/或 `federation:ring`，然后更新或重装应用。
 
 其中 `federation:post`、`federation:channel`、`federation:room` 为 Elevated 权限，普通用户默认不下放；`federation:interact`、`federation:ring` 为 Basic 权限。所有联邦写操作仍要求持久登录主体，游客无法获得这些能力。
+
+## 设备同步链接仅支持协议 2（破坏性变更）
+
+自本版本起，站点 `/api/agent/link`（`her_link_contract.json`）仅接受 **协议 2** 的连接：
+
+- 收到协议 1 或未携带帧版本 `v` 的 `hello` 时，站点会关闭连接并记录 `agent_sync_devices.app_outdated_at`，设备管理页会提示对应设备上的应用需要更新。
+- 新增 `versions` 能力（`link.versions` / `link.verdict`）及设备调用权限组批准（`agent_device_call_groups`、`agent_device_calls`），升级站点时请同步升级连接的 Mac / 移动端应用。
+- 新增的「与电脑同步」开关默认关闭，开启前须阅读并确认说明；关闭时心智回到站点。
+
+## 记忆改由统一节点存储与旧话题表退场
+
+她的长期记忆已全面迁入共享核心节点（`memory_nodes.sql`、`agent_node_rows`、`agent_node_heads`、`agent_node_placements`、`agent_node_inbox`、`agent_node_instructions`、`agent_node_migrations`、`agent_node_kept`、`agent_takeback_check`），不再提供新旧切换开关：
+
+- 此前由 `topic_nodes.sql` 创建的 `agent_topic_nodes` 与 `agent_memory_topics` 在日常读写中已停用，当前版本仅保留表结构供历史数据迁移读取。
+- 站长可在「记忆 → 节点」管理页按受众查看节点、记忆、经历与意图并执行改名、删除或取消操作。
+
+## 数据库结构升级与启动期自动补齐（`004` / `005` 与 `schema_check`）
+
+`backend/migrations/` 新增 6 个 SQL 迁移文件（`memory_nodes.sql`、`topic_nodes.sql`、`forgotten.sql`、`channel_rows.sql`、`message_embeddings.sql`、`speech_said.sql`），并更新了 `persona_log.sql`、`persona_sync.sql` 与 `user_lifecycle.sql`：
+
+- **旧主机租约拆分**：`agent_host_lease` 拆分为 `agent_her_copy` 与 `agent_her_moves`，`agent_lease_grants` 支持 `freeze` / `thaw`（`holder` 可空）；启动期 `ensure_persona_log_tables` 会把旧 `agent_host_lease` 行迁入新表后删表。
+- **同实例联邦私信拆行**：`channel_rows.sql` 移除了 `federation_channels.channel_id` 单列唯一约束与 `fk_fed_channel_messages_channel` 外键，改为 `(channel_id, user_id)` 唯一索引及末尾频道删除触发器。
+- **其它新增表与列**：新增 `agent_speech_said`、`agent_message_embeddings`、`agent_forgotten`、`agent_lease_deputies`、`agent_her_segments`、`agent_her_state_rows`、`agent_device_call_groups`、`agent_device_calls`，以及 `agent_messages.origin` / `log_row` 和 `agent_sync_devices.app_outdated_at` / `link_versions`。
+- 上述结构变更对已跑过 `004`/`005` 的旧库会在启动期 `schema_check`（`SCHEMA_VERSION = "2026.11.20.1"`）自动幂等补齐；由于涉及旧表迁移与索引重建，**升级前务必先做完整数据库备份**。
