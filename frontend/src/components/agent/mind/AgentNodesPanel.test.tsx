@@ -23,7 +23,10 @@ const list = {
       ],
     },
     { audience: 'own:', place: 'own', nodes: [{ id: 'her', name: '阿离', kind: 'person', status: 'active', own: true, entries: 0, spans: 0, waiting: 0, latest: 0 }] },
-    { audience: 'group:qq:5', place: 'group', group: 'qq:5', groupName: '游戏群', nodes: [{ id: 'game', name: '游戏', kind: 'topic', status: 'active', own: false, entries: 1, spans: 0, waiting: 0, latest: at(3) }] },
+    { audience: 'group:qq:5', place: 'group', group: 'qq:5', groupName: '游戏群', nodes: [
+      { id: 'game', name: '游戏', kind: 'topic', status: 'active', own: false, entries: 1, spans: 0, waiting: 0, latest: at(3) },
+      { id: 'plain', name: '日常', kind: null, status: 'active', own: false, entries: 0, spans: 0, waiting: 0, latest: 0 },
+    ] },
   ],
 }
 
@@ -41,12 +44,20 @@ const coffee = {
 
 const about = {
   ...coffee, id: 'about', name: 'owner', kind: 'person', status: 'active', own: true, namedByOwner: false, summary: [], views: [],
-  entries: [{ row: 'a1', text: '住在新加坡', at: at(5), saidBy: ['partner'], seen: false, quoteOnly: false }], heard: [], spans: [],
+  entries: [
+    { row: 'a1', text: '住在新加坡', at: at(5), saidBy: ['partner'], seen: false, quoteOnly: false },
+    { row: 'a2', text: '常喝美式', at: at(5), saidBy: [], seen: false, quoteOnly: false },
+  ], heard: [], spans: [],
   intents: [{
     id: 'i1', text: '提醒开会', status: 'waiting', origin: 'partner', action: 'say', at: at(5),
     when: { at: at(6), zone: 'Asia/Singapore' },
     instruction: { echo: '好，明天九点叫你', message: null },
   }],
+}
+
+const plain = {
+  ...about, id: 'plain', audience: 'group:qq:5', name: '日常', kind: null, status: 'active', own: false, namedByOwner: false,
+  entries: [], intents: [],
 }
 
 test('the node page lists each audience, opens a node and changes only what the owner may', async () => {
@@ -58,7 +69,7 @@ test('the node page lists each audience, opens a node and changes only what the 
   const { createRoot } = await import('react-dom/client')
   const calls: string[] = []
   let refuseCancel = true
-  const pages: Record<string, unknown> = { coffee, about }
+  const pages: Record<string, unknown> = { coffee, about, plain }
   const api = {
     list: async () => { calls.push('list'); return list },
     node: async (_audience: string, node: string) => { calls.push(`node:${node}`); return pages[node] },
@@ -102,6 +113,7 @@ test('the node page lists each audience, opens a node and changes only what the 
     assert.ok(text().includes(copy.private) && text().includes('阿离 自己') && text().includes('群：游戏群'))
     assert.ok(text().includes(copy.aboutYou) && text().includes(copy.status.resting))
     assert.ok(text().includes('记忆 2') && text().includes('待提起 1'))
+    assert.equal(dom.window.document.querySelector('[data-node="plain"] .merope-mind__tags'), null)
 
     await click(dom.window.document.querySelector('[data-node="coffee"]'))
     assert.ok(calls.includes('node:coffee'))
@@ -144,6 +156,7 @@ test('the node page lists each audience, opens a node and changes only what the 
     // 「关于你」: an instruction whose message was deleted, and no whole-node delete.
     await click(dom.window.document.querySelector('[data-node="about"]'))
     assert.ok(text().includes('提醒开会') && text().includes(copy.intent.byYou) && text().includes(copy.intent.state.waiting))
+    assert.equal([...dom.window.document.querySelectorAll('.merope-mind__row .merope-mind__tags')].filter(el => el.children.length === 0).length, 0)
     assert.ok(text().includes(copy.deleted) && text().includes('好，明天九点叫你'))
     assert.equal(buttons(copy.deleteNode).length, 0)
     // A refusal says why, by its code.
@@ -154,6 +167,8 @@ test('the node page lists each audience, opens a node and changes only what the 
     assert.ok(calls.includes('cancel:about:i1'))
     await click(buttons(copy.back)[0])
     assert.ok(text().includes('群：游戏群'))
+    await click(dom.window.document.querySelector('[data-node="plain"]'))
+    assert.equal(dom.window.document.querySelector('.merope-mind__entity-head .merope-mind__tags'), null)
   } finally {
     await act(async () => root.unmount())
     dom.window.close()

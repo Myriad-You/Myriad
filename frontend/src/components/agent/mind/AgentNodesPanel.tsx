@@ -200,104 +200,115 @@ export default function AgentNodesPanel() {
       </button>
     )
 
-  const line = (node: MemoryNodeLine, audience: string) => (
-    <li key={node.id}>
-      <button
-        type="button"
-        className="merope-nodes__node"
-        data-node={node.id}
-        onClick={() => setOpen({ audience, node: node.id })}
-      >
-        <span className="merope-nodes__name">{nodeName(node, audience)}</span>
-        <span className="merope-mind__tags is-inline">
-          {kindTag(node.kind)}
-          {statusTag(node.status)}
-        </span>
-        <span className="merope-nodes__counts">
-          {[
-            node.entries > 0
-              ? fill(copy.count.entries, { count: node.entries })
-              : null,
-            node.spans > 0
-              ? fill(copy.count.spans, { count: node.spans })
-              : null,
-            node.waiting > 0
-              ? fill(copy.count.waiting, { count: node.waiting })
-              : null,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-        </span>
-      </button>
-    </li>
-  )
+  const line = (node: MemoryNodeLine, audience: string) => {
+    const kind = kindTag(node.kind)
+    const status = statusTag(node.status)
+    return (
+      <li key={node.id}>
+        <button
+          type="button"
+          className="merope-nodes__node"
+          data-node={node.id}
+          onClick={() => setOpen({ audience, node: node.id })}
+        >
+          <span className="merope-nodes__name">{nodeName(node, audience)}</span>
+          {(kind || status) && (
+            <span className="merope-mind__tags is-inline">
+              {kind}
+              {status}
+            </span>
+          )}
+          <span className="merope-nodes__counts">
+            {[
+              node.entries > 0
+                ? fill(copy.count.entries, { count: node.entries })
+                : null,
+              node.spans > 0
+                ? fill(copy.count.spans, { count: node.spans })
+                : null,
+              node.waiting > 0
+                ? fill(copy.count.waiting, { count: node.waiting })
+                : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+        </button>
+      </li>
+    )
+  }
 
   const entryRow = (
     entry: MemoryNodeEntry,
     audience: string,
     node: string,
     heard = false,
-  ) => (
-    <li key={entry.row} className="merope-mind__row">
-      <time className="merope-mind__date">{day(entry.at, locale)}</time>
-      <div className="merope-mind__text">
-        {entry.text}
-        <span className="merope-mind__tags is-inline">
-          {saidTag(entry.saidBy)}
-          {entry.seen && <Tag tone="muted">{copy.seenElsewhere}</Tag>}
-          {entry.quoteOnly && <Tag tone="muted">{copy.quoteOnly}</Tag>}
-        </span>
-        <div className="merope-nodes__buttons">
-          {heard ? (
-            <>
-              <button
-                type="button"
-                className="merope-nodes__action"
-                disabled={busy}
-                onClick={() =>
-                  void edit(() =>
-                    memoryNodesApi.answerHeard(
-                      audience,
-                      node,
-                      entry.row,
-                      'confirmed',
-                    ),
-                  )
-                }
-              >
-                {copy.heardYes}
-              </button>
-              <button
-                type="button"
-                className="merope-nodes__action"
-                disabled={busy}
-                onClick={() =>
-                  void edit(() =>
-                    memoryNodesApi.answerHeard(
-                      audience,
-                      node,
-                      entry.row,
-                      'denied',
-                    ),
-                  )
-                }
-              >
-                {copy.heardNo}
-              </button>
-            </>
-          ) : (
-            deleteButton(
-              `entry:${entry.row}`,
-              copy.deleteEntry,
-              copy.deleteEntryTitle,
-              copy.deleteEntryMessage,
-              () => memoryNodesApi.forget(audience, node, entry.row),
-            )
+  ) => {
+    const said = saidTag(entry.saidBy)
+    return (
+      <li key={entry.row} className="merope-mind__row">
+        <time className="merope-mind__date">{day(entry.at, locale)}</time>
+        <div className="merope-mind__text">
+          {entry.text}
+          {(said || entry.seen || entry.quoteOnly) && (
+            <span className="merope-mind__tags is-inline">
+              {said}
+              {entry.seen && <Tag tone="muted">{copy.seenElsewhere}</Tag>}
+              {entry.quoteOnly && <Tag tone="muted">{copy.quoteOnly}</Tag>}
+            </span>
           )}
+          <div className="merope-nodes__buttons">
+            {heard ? (
+              <>
+                <button
+                  type="button"
+                  className="merope-nodes__action"
+                  disabled={busy}
+                  onClick={() =>
+                    void edit(() =>
+                      memoryNodesApi.answerHeard(
+                        audience,
+                        node,
+                        entry.row,
+                        'confirmed',
+                      ),
+                    )
+                  }
+                >
+                  {copy.heardYes}
+                </button>
+                <button
+                  type="button"
+                  className="merope-nodes__action"
+                  disabled={busy}
+                  onClick={() =>
+                    void edit(() =>
+                      memoryNodesApi.answerHeard(
+                        audience,
+                        node,
+                        entry.row,
+                        'denied',
+                      ),
+                    )
+                  }
+                >
+                  {copy.heardNo}
+                </button>
+              </>
+            ) : (
+              deleteButton(
+                `entry:${entry.row}`,
+                copy.deleteEntry,
+                copy.deleteEntryTitle,
+                copy.deleteEntryMessage,
+                () => memoryNodesApi.forget(audience, node, entry.row),
+              )
+            )}
+          </div>
         </div>
-      </div>
-    </li>
-  )
+      </li>
+    )
+  }
 
   const intentState = (intent: MemoryNodeIntent) => {
     const way = intent.instruction?.way
@@ -422,15 +433,19 @@ export default function AgentNodesPanel() {
       )
     }
     const title = nodeName(shown, audience)
+    const kind = kindTag(shown.kind)
+    const status = statusTag(shown.status)
     return (
       <div className="merope-mind__body">
         <div className="merope-mind__entity-head">
           <h3>{title}</h3>
-          <span className="merope-mind__tags is-inline">
-            {kindTag(shown.kind)}
-            {statusTag(shown.status)}
-            {shown.namedByOwner && <Tag tone="accent">{copy.namedByYou}</Tag>}
-          </span>
+          {(kind || status || shown.namedByOwner) && (
+            <span className="merope-mind__tags is-inline">
+              {kind}
+              {status}
+              {shown.namedByOwner && <Tag tone="accent">{copy.namedByYou}</Tag>}
+            </span>
+          )}
         </div>
         <Section
           title={copy.summary}

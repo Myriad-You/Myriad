@@ -97,6 +97,7 @@ test('shows whether she is living, with the three capability layers apart', asyn
     assert.match(verdict().textContent, /她在活，上次有动静是10 秒前/)
     assert.match(text(), /近一天没有停过/)
     assert.match(text(), /这台主机自己睡了或停了 1 次，共 60 分钟，不算她停/)
+    assert.ok(dom.window.document.querySelector('.agent-alive-table-wrap > .agent-alive-table'))
     // Declared, approved, granted: three rows, the middle one said to be absent.
     const rows = [...dom.window.document.querySelectorAll('.agent-alive-end dt')].map(dt => [dt.textContent, dt.nextElementSibling.textContent])
     assert.deepEqual(rows.slice(2, 5), [
