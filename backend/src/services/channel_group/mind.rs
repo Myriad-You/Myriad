@@ -223,11 +223,14 @@ pub(super) async fn kept_before(venue: &str) -> Option<Restore> {
     })
 }
 
-/// Her persona cleared: what she has in mind of each group goes. What was
-/// said since comes back from what is kept, as after a restart.
-pub fn forget_lines() {
+/// Her persona cleared: what each group said until then goes from mind, and
+/// only that. What she is in the middle of in a group is done with as it is,
+/// who waits for it is answered, and mutes hold.
+pub(crate) fn forget_lines(cleared: chrono::DateTime<chrono::Utc>) {
     if let Ok(mut groups) = GROUPS.lock() {
-        groups.clear();
+        for slot in groups.values_mut() {
+            slot.group.lines.retain(|line| line.at > cleared);
+        }
     }
 }
 

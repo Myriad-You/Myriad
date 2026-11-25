@@ -10,12 +10,15 @@
 //! - **Read by no one of hers.** Every read of what was said that she says
 //!   anything from leaves a marked conversation out (`(s.context->>'past') IS
 //!   NULL`): `past_readers_tests` goes over all of them.
-//! - **Never gone on in.** A message sent into a marked one starts another
+//! - **Never gone on in.** A message sent into a marked one goes into the
+//!   chat they have had in that place since, or a new one
 //!   (`sessions::ensure_session_in`): the old one can only be read.
 //! - **A group's lines in mind** (and kept for a restart) end where she was
 //!   cleared ([`after`]).
-//! - **Undone by taking the marks of one clearing off again** ([`REOPEN`]):
-//!   nothing else was changed.
+//! - **Undone by taking the marks of one clearing off again and letting its
+//!   record go** ([`REOPEN`], [`UNRECORD`]): nothing else was changed. With
+//!   the record left, a group's kept lines and lines that come late would
+//!   still end where she was cleared.
 //!
 //! Work's conversations are the site's, and are not marked.
 
@@ -36,6 +39,10 @@ const KEEP_DAYS: i64 = 3650;
 #[cfg(test)]
 const REOPEN: &str = "UPDATE agent_sessions SET context = context::jsonb - 'past' \
      WHERE context->>'past' = $1";
+
+/// The record of the last clearing gone (the one before has none).
+#[cfg(test)]
+const UNRECORD: &str = "DELETE FROM runtime_registry WHERE namespace = 'merope_cleared'";
 
 /// When she was last cleared.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,11 +94,16 @@ pub(super) async fn close<C: ConnectionTrait>(db: &C) -> Result<(), DbErr> {
     Ok(())
 }
 
-/// She was cleared: conversations begun just before and not there to be
-/// marked then are marked too.
-pub async fn close_late(db: &DatabaseConnection) {
+/// She was cleared, and that is committed as of `committed`: conversations
+/// begun until then and not there to be marked are marked too, and what the
+/// groups said until she was cleared goes from mind. Only for clearing her:
+/// moving her takes nothing from mind.
+pub async fn close_late(db: &DatabaseConnection, committed: DateTime<Utc>) {
     let marked = match cleared_at(db).await {
-        Ok(Some(at)) => mark(db, at, Some(at)).await.map(|_| ()),
+        Ok(Some(at)) => {
+            crate::services::channel_group::forget_lines(at);
+            mark(db, at, Some(committed)).await.map(|_| ())
+        }
         Ok(None) => Ok(()),
         Err(error) => Err(error),
     };
