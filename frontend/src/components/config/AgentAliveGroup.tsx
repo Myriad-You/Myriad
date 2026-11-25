@@ -343,51 +343,53 @@ export function AgentAliveGroup() {
         {life.drivers.length === 0 ? (
           <p className="setting-hint">{c.agentAliveStarting}</p>
         ) : (
-          <table className="agent-alive-table">
-            <thead>
-              <tr>
-                <th>{c.agentAliveColDriver}</th>
-                <th>{c.agentAliveColRan}</th>
-                <th>{c.agentAliveColEvery}</th>
-                <th>{c.agentAliveColNote}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {life.drivers.map((driver) => {
-                const why = driver.skippedWhy
-                  ? c[SKIPPED[driver.skippedWhy] ?? 'agentAliveWhyElsewhere']
-                  : null
-                return (
-                  <tr key={driver.name} data-late={driver.overdue || why || driver.failures > 0 ? 'true' : 'false'}>
-                    <td>{DRIVERS[driver.name] ? c[DRIVERS[driver.name]] : driver.name}</td>
-                    <td>{ago(driver.ranAt)}</td>
-                    <td>
-                      {driver.everySecs
-                        ? span(driver.everySecs)
-                        : c.agentAliveEveryEvent}
-                    </td>
-                    <td>
-                      {why
-                        ? format(c.agentAliveSkipped, {
-                            why,
-                            n: String(driver.skips),
-                          })
-                        : driver.failures > 0 && driver.failedAt
-                          ? format(c.agentAliveBroke, {
-                              n: String(driver.failures),
-                              ago: ago(driver.failedAt),
+          <div className="agent-alive-table-wrap">
+            <table className="agent-alive-table">
+              <thead>
+                <tr>
+                  <th>{c.agentAliveColDriver}</th>
+                  <th>{c.agentAliveColRan}</th>
+                  <th>{c.agentAliveColEvery}</th>
+                  <th>{c.agentAliveColNote}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {life.drivers.map((driver) => {
+                  const why = driver.skippedWhy
+                    ? c[SKIPPED[driver.skippedWhy] ?? 'agentAliveWhyElsewhere']
+                    : null
+                  return (
+                    <tr key={driver.name} data-late={driver.overdue || why || driver.failures > 0 ? 'true' : 'false'}>
+                      <td>{DRIVERS[driver.name] ? c[DRIVERS[driver.name]] : driver.name}</td>
+                      <td>{ago(driver.ranAt)}</td>
+                      <td>
+                        {driver.everySecs
+                          ? span(driver.everySecs)
+                          : c.agentAliveEveryEvent}
+                      </td>
+                      <td>
+                        {why
+                          ? format(c.agentAliveSkipped, {
+                              why,
+                              n: String(driver.skips),
                             })
-                          : driver.overdue
-                            ? c.agentAliveOverdue
-                            : driver.running
-                              ? c.agentAliveRunning
-                              : ''}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                          : driver.failures > 0 && driver.failedAt
+                            ? format(c.agentAliveBroke, {
+                                n: String(driver.failures),
+                                ago: ago(driver.failedAt),
+                              })
+                            : driver.overdue
+                              ? c.agentAliveOverdue
+                              : driver.running
+                                ? c.agentAliveRunning
+                                : ''}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
         {life.answers ? (
           <p
