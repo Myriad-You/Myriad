@@ -796,6 +796,8 @@ async fn ask_again_sees_pass_one_not_to_keep_and_drops_second_pass_leaks() {
         .collect();
     assert_eq!(facts, [Some("买了一双新跑鞋"), Some("不要记自己的体重")]);
     assert_eq!(gone.updates.asked, [1].into());
+    assert_eq!(gone.dropped.not_to_keep_dropped, 1);
+    assert_eq!(gone.dropped.kept_lasting, 1);
     schema.drop().await;
 }
 

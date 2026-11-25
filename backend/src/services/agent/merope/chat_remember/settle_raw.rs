@@ -22,6 +22,8 @@ use crate::services::agent::memory::origins;
 
 mod again;
 mod lines;
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(in crate::services::agent::merope) use again::DropCounts;
 pub(in crate::services::agent::merope) use lines::{ELSEWHERE, Read, SAID, Spoken, words_of};
 use lines::{Lines, lines, read_of};
 pub(super) use lines::{of_a_game, their_message};
@@ -76,6 +78,8 @@ pub(in crate::services::agent::merope) struct Gone {
     /// Their messages (`agent_messages.id`) they took back in the stretch
     /// itself, never kept of it, and those asking her not to keep something.
     pub let_go: Vec<i32>,
+    #[cfg_attr(not(test), expect(dead_code, reason = "read by the memory bench"))]
+    pub dropped: DropCounts,
 }
 
 static LEFT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -576,15 +580,8 @@ pub(in crate::services::agent::merope) async fn go_over(
         ask_again
     );
     let check_until = until.map(|until| until + CHECKED_AFTER);
-    let got = again::with_second_pass(
-        user_id,
-        got,
-        again,
-        &told,
-        &shown_lines,
-        check_until,
-    )
-    .await;
+    let (got, mut dropped) =
+        again::with_second_pass(user_id, got, again, &told, &shown_lines, check_until).await;
     if !got.left.is_empty() {
         LEFT.fetch_add(got.left.len() as u64, std::sync::atomic::Ordering::Relaxed);
         tracing::info!(
@@ -681,8 +678,10 @@ pub(in crate::services::agent::merope) async fn go_over(
     updates.put_onto = got.put_onto;
     // What she has but was not shown: the same thing said another way is
     // not kept twice.
+    let before = again::kept_facts(&updates);
     let within = time_left(super::already::TIMEOUT, CHECKED_AFTER);
     super::already::check_for_good(db, user_id, present, &known, &mut updates, within).await;
+    dropped.finish(user_id, before, &updates, asked_again, got.left.len());
     // Checking may drop or merge facts: where each came from is kept only
     // while they still line up.
     if from.len() != updates.updates.len() {
@@ -703,6 +702,7 @@ pub(in crate::services::agent::merope) async fn go_over(
         asked_again,
         left: got.left.len(),
         let_go,
+        dropped,
     })
 }
 

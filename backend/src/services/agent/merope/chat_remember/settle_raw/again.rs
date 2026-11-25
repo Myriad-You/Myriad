@@ -5,7 +5,77 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 use myriad_merope::chat_remember::{Asked, Examples, Lasting};
-use myriad_merope::settle_raw::{self as raw, Line, RawSettled, Who};
+use myriad_merope::settle_raw::{self as raw, Line, RawDropped, RawSettled, Who};
+
+/// Counts of items dropped across the passes of one stretch, by reason
+/// (counts only, never user text).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(in crate::services::agent::merope) struct DropCounts {
+    pub parse: RawDropped,
+    pub doubts_taken_back: usize,
+    pub again_taken_back: usize,
+    pub already_dropped: usize,
+    pub not_to_keep_dropped: usize,
+    pub kept_lasting: usize,
+}
+
+impl DropCounts {
+    pub(super) fn any_drop(&self) -> bool {
+        self.parse.any()
+            || self.doubts_taken_back > 0
+            || self.again_taken_back > 0
+            || self.already_dropped > 0
+            || self.not_to_keep_dropped > 0
+    }
+
+    pub(super) fn finish(
+        &mut self,
+        user_id: i32,
+        before_already: usize,
+        updates: &super::super::ChatMemoryUpdates,
+        asked_again: usize,
+        left: usize,
+    ) {
+        let after = kept_facts(updates);
+        self.already_dropped = before_already.saturating_sub(after);
+        self.kept_lasting = after;
+        log_drops(user_id, self, asked_again, left);
+    }
+}
+
+pub(super) fn kept_facts(updates: &super::super::ChatMemoryUpdates) -> usize {
+    updates
+        .updates
+        .iter()
+        .filter(|one| one.fact.is_some())
+        .count()
+}
+
+pub(super) fn log_drops(user_id: i32, dropped: &DropCounts, asked_again: usize, left: usize) {
+    if dropped.parse.raw_lasting == 0 && !dropped.any_drop() {
+        return;
+    }
+    tracing::info!(
+        user_id,
+        raw_lasting = dropped.parse.raw_lasting,
+        empty_or_too_long = dropped.parse.empty_or_too_long,
+        bad_evidence = dropped.parse.bad_evidence,
+        changed_language = dropped.parse.changed_language,
+        outside_only = dropped.parse.outside_only,
+        let_go = dropped.parse.let_go,
+        over_limit = dropped.parse.over_limit,
+        said_dropped = dropped.parse.said_dropped,
+        put_onto_dropped = dropped.parse.put_onto_dropped,
+        doubts_taken_back = dropped.doubts_taken_back,
+        again_taken_back = dropped.again_taken_back,
+        already_dropped = dropped.already_dropped,
+        not_to_keep_dropped = dropped.not_to_keep_dropped,
+        kept_lasting = dropped.kept_lasting,
+        asked_again,
+        left,
+        "[chat-remember] settle pass drop summary"
+    );
+}
 
 /// The `asked` list shown when asking again: `asked` with anything `newly`
 /// replaces removed and any newly recognized `notToKeep` added.
@@ -63,9 +133,9 @@ pub(super) async fn without_newly_asked(
     newly: &[Asked],
     mut again: RawSettled,
     until: Option<std::time::Instant>,
-) -> Option<RawSettled> {
+) -> (Option<RawSettled>, usize) {
     if newly.is_empty() {
-        return Some(again);
+        return (Some(again), 0);
     }
     enum At {
         Lasting(usize),
@@ -87,7 +157,7 @@ pub(super) async fn without_newly_asked(
         items.push(thing.clone());
     }
     if items.is_empty() {
-        return Some(again);
+        return (Some(again), 0);
     }
     let drop = match crate::services::agent::merope::asked::left_out_of_asked(
         user_id, newly, &items, until,
@@ -102,7 +172,7 @@ pub(super) async fn without_newly_asked(
                 items = items.len(),
                 "[chat-remember] second-pass items could not be judged against pass-1 notToKeep; dropping second-pass result"
             );
-            return None;
+            return (None, 0);
         }
     };
     let (mut lasting_drop, mut said_drop, mut put_onto_drop) =
@@ -142,7 +212,7 @@ pub(super) async fn without_newly_asked(
     });
     retain_not_dropped(&mut again.said, &said_drop);
     retain_not_dropped(&mut again.put_onto, &put_onto_drop);
-    Some(again)
+    (Some(again), lasting_drop.len())
 }
 
 fn check_within(until: Option<std::time::Instant>) -> Duration {
@@ -164,33 +234,44 @@ pub(super) async fn with_second_pass(
     told: &[Option<bool>],
     lines: &[Line<'_>],
     check_until: Option<std::time::Instant>,
-) -> RawSettled {
+) -> (RawSettled, DropCounts) {
+    let mut dropped = DropCounts::default();
     let else_said = told_something_else(&got, told);
+    let before_doubts = got.settled.lasting.len();
     got.doubts_told(told);
-    let Some(mut again) = (match again {
-        Some(again) => without_newly_asked(user_id, &got.asked, again, check_until).await,
-        None => None,
-    }) else {
-        return got;
-    };
-    let told = doubts(user_id, &again, lines, check_within(check_until)).await;
-    again.doubts_told(&told);
-    put_together(
-        user_id,
-        got,
-        again,
-        &else_said,
-        lines,
-        check_within(check_until),
-    )
-    .await
+    dropped.doubts_taken_back += before_doubts - got.settled.lasting.len();
+    if let Some(again) = again {
+        let (again, not_to_keep_dropped) =
+            without_newly_asked(user_id, &got.asked, again, check_until).await;
+        dropped.not_to_keep_dropped += not_to_keep_dropped;
+        if let Some(mut again) = again {
+            let told = doubts(user_id, &again, lines, check_within(check_until)).await;
+            let before_again = again.settled.lasting.len();
+            again.doubts_told(&told);
+            dropped.doubts_taken_back += before_again - again.settled.lasting.len();
+            let (merged, again_taken_back) = put_together(
+                user_id,
+                got,
+                again,
+                &else_said,
+                lines,
+                check_within(check_until),
+            )
+            .await;
+            got = merged;
+            dropped.again_taken_back = again_taken_back;
+        }
+    }
+    dropped.parse = got.dropped.clone();
+    (got, dropped)
 }
 
 /// `again`, asked about the lines `first` left, added to it: what the first
 /// answer replaced or took back stays as it has it, and what it has from
 /// lines `again` takes back is not kept (see [`taken_back`], in the time
 /// `within`), but for what was told already to be something else
-/// (`else_said`, [`told_something_else`]).
+/// (`else_said`, [`told_something_else`]). Also returns how many lasting facts
+/// were removed by `again` taking back their lines.
 pub(super) async fn put_together(
     user_id: i32,
     mut first: RawSettled,
@@ -198,7 +279,8 @@ pub(super) async fn put_together(
     else_said: &[String],
     lines: &[Line<'_>],
     within: Duration,
-) -> RawSettled {
+) -> (RawSettled, usize) {
+    first.dropped.merge(&again.dropped);
     let said = first
         .left
         .iter()
@@ -217,6 +299,7 @@ pub(super) async fn put_together(
         within,
     )
     .await;
+    let again_taken_back = gone.len();
     let mut at = 0;
     first.settled.lasting.retain(|_| {
         at += 1;
@@ -270,7 +353,7 @@ pub(super) async fn put_together(
         first.asked.push(one);
     }
     first.left = again.left;
-    first
+    (first, again_taken_back)
 }
 
 /// What `got` keeps that it doubted and was `told` to be something else they
@@ -449,10 +532,11 @@ mod tests {
             ..Default::default()
         };
         g0::enter(g0::World::new(0.5));
-        let filtered =
+        let (filtered, dropped) =
             without_newly_asked(7, &newly, again, Some(std::time::Instant::now())).await;
         let log = g0::leave().unwrap().log;
         assert!(filtered.is_none());
+        assert_eq!(dropped, 0);
         assert!(
             log.iter().all(|entry| entry["kind"] != "model"),
             "unexpected model calls when deadline has < LEAST remaining: {log:?}"
@@ -489,7 +573,7 @@ mod tests {
         again.let_go = vec![0];
 
         g0::enter(g0::World::new(0.5));
-        let merged = with_second_pass(
+        let (merged, _) = with_second_pass(
             7,
             got,
             Some(again),

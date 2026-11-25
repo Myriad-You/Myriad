@@ -11,10 +11,6 @@
 use super::*;
 use crate::services::agent::merope::chat_remember::settle_raw::{self, Spoken};
 
-/// Lines longer than this are left out of what is gone over (and marked so
-/// on the trail), as the bench has always left them.
-const TOO_LONG: usize = 2_000;
-
 /// What a session gone over kept: each lasting fact with its evidence, and
 /// how many updates were written in all.
 #[derive(Default)]
@@ -68,12 +64,6 @@ pub(in super::super) async fn session(
         let theirs = turn.role == "user";
         let answers =
             theirs && (turn.has_answer || turns.get(index + 1).is_some_and(|next| next.has_answer));
-        if text.chars().count() > TOO_LONG {
-            if answers {
-                trail.answer_line(&text, 0, true);
-            }
-            continue;
-        }
         lines.push(Spoken {
             id: index as i32 + 1,
             theirs,
@@ -84,16 +74,19 @@ pub(in super::super) async fn session(
         });
         answer_here.push(answers);
     }
+    let (parts, part_of, turn_parts) = split_parts(&lines);
     let mut kept = Kept::default();
     // How many facts each line gave, for the trail.
     let mut gave = vec![0usize; lines.len()];
     for stretch in stretches(&lines) {
-        let mut start = stretch.start;
-        while start < stretch.end {
-            let end = start + settle_raw::pass_end(&lines[start..stretch.end]);
+        let s_start = turn_parts[stretch.start].0;
+        let s_end = turn_parts[stretch.end - 1].1;
+        let mut start = s_start;
+        while start < s_end {
+            let end = start + settle_raw::pass_end(&parts[start..s_end]);
             let before =
-                &lines[start.saturating_sub(myriad_merope::settle_raw::BEFORE_SHOWN)..start];
-            let pass = &lines[start..end];
+                &parts[start.saturating_sub(myriad_merope::settle_raw::BEFORE_SHOWN)..start];
+            let pass = &parts[start..end];
             let over_at = pass.last().map_or(session_at, |line| line.at);
             let Some(gone) = Box::pin(one_pass(db, user_id, present, before, pass, over_at)).await
             else {
@@ -106,20 +99,19 @@ pub(in super::super) async fn session(
                     continue;
                 };
                 let fact = super::super::super::ingest::compact_summary(fact);
-                for index in from {
-                    gave[start + index] += 1;
+                let mut orig: Vec<usize> = from.iter().map(|index| part_of[start + index]).collect();
+                orig.sort_unstable();
+                orig.dedup();
+                for index in &orig {
+                    gave[*index] += 1;
                 }
-                if from.iter().any(|index| answer_here[start + index]) {
+                if orig.iter().any(|index| answer_here[*index]) {
                     kept.answering.push(fact.clone());
                 }
                 kept.lasting
                     .push((fact, update.evidence.clone().unwrap_or_default()));
             }
-            if pass
-                .iter()
-                .zip(&answer_here[start..end])
-                .any(|(_, here)| *here)
-            {
+            if (start..end).any(|index| answer_here[part_of[index]]) {
                 kept.answering.extend(
                     gone.updates
                         .said
@@ -159,6 +151,45 @@ pub(in super::super) async fn session(
     kept
 }
 
+/// Split turns into <= `PART_CHARS` parts (matching production `by_part`),
+/// returning `(parts, part_of_turn, turn_part_ranges)`.
+fn split_parts(lines: &[Spoken]) -> (Vec<Spoken>, Vec<usize>, Vec<(usize, usize)>) {
+    let mut parts = Vec::new();
+    let mut part_of = Vec::new();
+    let mut turn_parts = Vec::with_capacity(lines.len());
+    for (index, line) in lines.iter().enumerate() {
+        let start = parts.len();
+        for text in myriad_merope::settle_raw::line_parts(&line.text) {
+            parts.push(Spoken {
+                text: text.to_string(),
+                ..line.clone()
+            });
+            part_of.push(index);
+        }
+        turn_parts.push((start, parts.len()));
+    }
+    (parts, part_of, turn_parts)
+}
+
+/// Join multi-part messages sharing a turn id into whole lines for `placing`.
+fn whole_messages(pass: &[Spoken]) -> Vec<super::super::super::memory_nodes::placing::Line> {
+    use super::super::super::memory_nodes::placing::Line;
+    let mut merged: Vec<Line> = Vec::new();
+    for part in pass {
+        if let Some(last) = merged.last_mut().filter(|line| line.id == part.id) {
+            last.text.push_str(&part.text);
+        } else {
+            merged.push(Line {
+                id: part.id,
+                theirs: part.theirs,
+                text: part.text.clone(),
+                at: part.at,
+            });
+        }
+    }
+    merged
+}
+
 /// One pass, placed on her nodes first as production places it, gone over
 /// with production's function and tried again as production tries it.
 async fn one_pass(
@@ -171,17 +202,8 @@ async fn one_pass(
 ) -> Option<settle_raw::Gone> {
     let mut placed = Vec::new();
     if on_nodes(present) {
-        use super::super::super::memory_nodes::placing::{self, Line};
-        let lines: Vec<Line> = pass
-            .iter()
-            .map(|line| Line {
-                id: line.id,
-                theirs: line.theirs,
-                text: line.text.clone(),
-                at: line.at,
-            })
-            .collect();
-        placed = placing::place(db, user_id, None, &lines).await;
+        let lines = whole_messages(pass);
+        placed = super::super::super::memory_nodes::placing::place(db, user_id, None, &lines).await;
     }
     let today = over_at
         .with_timezone(&super::super::super::clock::zone())
@@ -218,6 +240,7 @@ async fn one_pass(
     super::super::note_trail::keep_raw_settle_call(
         started.elapsed(),
         gone.as_ref().ok().map(|gone| (gone.asked_again, gone.left)),
+        gone.as_ref().ok().map(|gone| &gone.dropped),
     );
     match gone {
         // Where each came from, as indexes in the pass.
@@ -264,5 +287,40 @@ mod tests {
         let alone: Vec<Spoken> = (0..13).map(|index| line(index, true)).collect();
         assert_eq!(stretches(&alone), [0..12, 12..13]);
         assert!(stretches(&[]).is_empty());
+    }
+
+    #[test]
+    fn long_user_and_assistant_turns_are_split_into_parts_not_dropped() {
+        let long_user = "我喜欢喝手冲咖啡。".repeat(300);
+        let long_assistant = "那我推荐试试浅烘的耶加雪菲，".repeat(300);
+        assert!(long_user.chars().count() > 2_000);
+        assert!(long_assistant.chars().count() > 2_000);
+        let turns = [
+            Spoken {
+                text: long_user.clone(),
+                ..line(0, true)
+            },
+            Spoken {
+                text: long_assistant.clone(),
+                ..line(1, false)
+            },
+        ];
+        assert_eq!(stretches(&turns), std::slice::from_ref(&(0..2)));
+        let (parts, part_of, turn_parts) = split_parts(&turns);
+        assert!(parts.len() > 2);
+        assert!(
+            parts
+                .iter()
+                .all(|part| part.text.chars().count() <= myriad_merope::settle_raw::PART_CHARS)
+        );
+        assert_eq!(turn_parts.len(), 2);
+        assert_eq!(turn_parts[0].0, 0);
+        assert_eq!(turn_parts[1].1, parts.len());
+        assert!(part_of[turn_parts[0].0..turn_parts[0].1].iter().all(|&i| i == 0));
+        assert!(part_of[turn_parts[1].0..turn_parts[1].1].iter().all(|&i| i == 1));
+        let whole = whole_messages(&parts);
+        assert_eq!(whole.len(), 2);
+        assert_eq!(whole[0].text, long_user);
+        assert_eq!(whole[1].text, long_assistant);
     }
 }
