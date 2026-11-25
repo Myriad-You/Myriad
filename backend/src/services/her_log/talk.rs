@@ -571,28 +571,35 @@ async fn place_of(
         .map(|open| open.place))
 }
 
-/// The site's conversation segment `object` goes in, settled now when it is
-/// not yet: its first line came at `at`.
+/// The site's conversation a line of segment `object` said at `at` goes in:
+/// the one the segment is settled in, settled now when it is not yet. A
+/// segment may go on past her persona being cleared (a device keeps one for
+/// as long as a conversation there is open): its lines of before go into the
+/// past, whichever it is settled in, and those since into one that is not of
+/// the past, where it is settled from then on.
 async fn segment_session(
     db: &DatabaseConnection,
     user: i32,
     object: &str,
     at: DateTime<Utc>,
 ) -> Result<String, Error> {
+    if let Some(session) = past_chat(db, user, at).await? {
+        return Ok(session);
+    }
     if let Some(session) = settled(db, user, object).await? {
         return Ok(session);
     }
-    let session = match past_chat(db, user, at).await? {
+    let session = match last_talked(db, user, at, false).await? {
         Some(session) => session,
-        None => match last_talked(db, user, at, false).await? {
-            Some(session) => session,
-            None => new_private_chat(db, user).await?,
-        },
+        None => new_private_chat(db, user).await?,
     };
+    // Settled anew over one of the past; over one settled meanwhile, not.
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "INSERT INTO agent_her_segments (user_id, object, session_id) VALUES ($1, $2, $3) \
-         ON CONFLICT (user_id, object) DO NOTHING",
+         ON CONFLICT (user_id, object) DO UPDATE SET session_id = EXCLUDED.session_id \
+         WHERE EXISTS (SELECT 1 FROM agent_sessions s WHERE s.id = agent_her_segments.session_id \
+           AND (s.context->>'past') IS NOT NULL)",
         [user.into(), object.into(), session.into()],
     ))
     .await?;
@@ -602,6 +609,7 @@ async fn segment_session(
         .ok_or_else(|| Error::Refused("a segment's conversation was not kept".into()))
 }
 
+/// The conversation the segment is settled in, unless that is of the past.
 async fn settled(
     db: &DatabaseConnection,
     user: i32,
@@ -610,7 +618,9 @@ async fn settled(
     Ok(db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT session_id FROM agent_her_segments WHERE user_id = $1 AND object = $2",
+            "SELECT g.session_id FROM agent_her_segments g \
+             LEFT JOIN agent_sessions s ON s.id = g.session_id \
+             WHERE g.user_id = $1 AND g.object = $2 AND (s.context->>'past') IS NULL",
             [user.into(), object.into()],
         ))
         .await?
