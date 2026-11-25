@@ -258,8 +258,10 @@ where
     }
 }
 
-/// Memory sources that belong to the persona, not to Work.
-pub(crate) const PERSONA_MEMORY_SOURCES: [&str; 26] = [
+/// Memory sources that belong to the persona, not to Work: gone when she is
+/// cleared. Every source the site writes is here, or among those that stay
+/// (`memory_sources_tests`).
+pub(crate) const PERSONA_MEMORY_SOURCES: [&str; 34] = [
     "chat",
     crate::services::agent::memory::unified::SHORT_NOTE_SOURCE,
     "event",
@@ -291,6 +293,18 @@ pub(crate) const PERSONA_MEMORY_SOURCES: [&str; 26] = [
     // Who asked her to be left alone: asked of the last persona, not of the
     // next.
     super::super::left_alone::SOURCE,
+    // What another end of hers kept for good, under a word of its own.
+    crate::services::agent::memory::unified::SYNC_SOURCE,
+    // What a look at their screen told her.
+    myriad_merope::screen::FACT_SOURCE,
+    // What she said of herself: kept with the person when said in private.
+    myriad_merope::own_said::SOURCE,
+    // Hers whoever is listening: kept as her own (`OWN_VENUE`).
+    super::super::heard::SOURCE,
+    super::super::wants::SOURCE,
+    super::super::wants::ENDED,
+    myriad_merope::memes::SOURCE,
+    myriad_merope::making::SOURCE,
 ];
 
 pub async fn clear_persona_on<C>(db: &C) -> Result<(), anyhow::Error>
@@ -417,6 +431,12 @@ where
         db.execute_unprepared("DELETE FROM agent_channel_held;")
             .await?;
     }
+    // What she meant to do for the owner, waiting or done.
+    db.execute_unprepared(&format!(
+        "DELETE FROM agent_intentions WHERE user_id = ({})",
+        crate::services::principal::SITE_OWNER_ID_SQL
+    ))
+    .await?;
     agent_persona::Entity::delete_by_id(PERSONA_ROW_ID)
         .exec(db)
         .await?;
@@ -435,8 +455,11 @@ where
     super::super::pace::forget(db).await?;
     // Her vital signs, day by day.
     super::super::vitals::forget(db).await?;
-    // What she was in the middle of.
+    // What she was in the middle of, what stays on her mind, and what her
+    // days have left her feeling underneath.
     super::super::doing::forget_kept(db).await?;
+    super::super::on_mind::forget(db).await?;
+    super::super::undertone::forget(db).await?;
     // Her stickers are pictures of her.
     crate::models::entities::merope_stickers::Entity::delete_many()
         .exec(db)
@@ -451,50 +474,8 @@ pub(super) fn is_unique_conflict(err: &impl std::fmt::Display) -> bool {
 }
 
 #[cfg(test)]
-pub(super) mod persona_sources_tests {
-    use super::PERSONA_MEMORY_SOURCES;
-
-    /// Deleting the persona must take everything she learned or lived: a
-    /// source a persona module writes but this list misses would survive
-    /// into the next persona as if it were hers.
-    #[test]
-    fn every_source_the_persona_writes_goes_with_her() {
-        let writers = [
-            include_str!("../curiosity.rs"),
-            include_str!("../playing.rs"),
-            include_str!("../soup.rs"),
-            include_str!("../chat_remember.rs"),
-            include_str!("../bits.rs"),
-        ];
-        for source in writers.iter().flat_map(|code| {
-            code.match_indices("source: \"")
-                .map(|(at, _)| {
-                    let rest = &code[at + "source: \"".len()..];
-                    &rest[..rest.find('"').unwrap_or(0)]
-                })
-                .collect::<Vec<_>>()
-        }) {
-            assert!(
-                PERSONA_MEMORY_SOURCES.contains(&source),
-                "persona source {source:?} would survive deleting her"
-            );
-        }
-        // Short notes are written by `Keep::source`, not a literal.
-        assert!(
-            PERSONA_MEMORY_SOURCES
-                .contains(&crate::services::agent::memory::unified::SHORT_NOTE_SOURCE),
-            "short notes would survive deleting her"
-        );
-        assert!(
-            !PERSONA_MEMORY_SOURCES.contains(&"work"),
-            "Work lessons stay"
-        );
-        // Whatever is kept apart from ordinary memory is hers alone.
-        for source in crate::services::agent::memory::unified::KEPT_APART {
-            assert!(
-                PERSONA_MEMORY_SOURCES.contains(&source),
-                "kept-apart source {source:?} would survive deleting her"
-            );
-        }
-    }
-}
+#[path = "memory_sources_tests.rs"]
+mod memory_sources_tests;
+#[cfg(test)]
+#[path = "persona_clear_tests.rs"]
+mod clear_tests;

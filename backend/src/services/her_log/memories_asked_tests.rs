@@ -140,3 +140,71 @@ async fn what_they_asked_not_to_keep_stays_here_and_comes_as_itself() {
     assert_eq!(kinds, ["memory.write"]);
     schema.drop().await;
 }
+
+/// What another end kept, taken in here, goes when her persona is cleared,
+/// and taking in again brings none of it back; her log says it is retired.
+#[tokio::test]
+async fn what_another_end_kept_does_not_come_back_once_she_is_cleared() {
+    let Some(url) = crate::db::test_url(&["MYRIAD_MEDIA_TEST_DATABASE_URL"]) else {
+        return;
+    };
+    let schema = crate::db::IsolatedSchema::migrated(&url, "her_log_cleared").await;
+    let db = &schema.db;
+    db.execute_unprepared(&format!(
+        "INSERT INTO users (id, username, is_owner) VALUES ({OWNER}, 'owner', true)"
+    ))
+    .await
+    .unwrap();
+    store::start(db, OWNER).await.unwrap();
+    super::super::test_partner::give(db, OWNER, PARTNER).await;
+    let root = TestRoot([9; 32]);
+    let owner = super::super::owner(db, OWNER).await.unwrap();
+    let personal = owner.personal();
+    let txn = db.begin().await.unwrap();
+    store::write_row_on(
+        &txn,
+        &root,
+        &owner,
+        &personal,
+        None,
+        "memory:kept",
+        "memory.write",
+        &json!({"at": 1, "kind": "preference", "text": "喜欢茶", "source": "elsewhere"}),
+        (Author::Owner, None),
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+    db.execute_unprepared(
+        "UPDATE agent_log_rows SET origin = 'dev_mac', \
+         envelope = jsonb_set(envelope, '{origin}', '\"dev_mac\"') WHERE object = 'memory:kept'",
+    )
+    .await
+    .unwrap();
+    take_in(db, &root, &owner).await.unwrap();
+    assert_eq!(
+        sources(db).await,
+        [("kept".to_string(), SYNC_SOURCE.to_string())]
+    );
+    let txn = db.begin().await.unwrap();
+    crate::services::agent::merope::clear_persona_on(&txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+    for _ in 0..2 {
+        take_in(db, &root, &owner).await.unwrap();
+        assert!(sources(db).await.is_empty());
+        state::sync(db, &root, OWNER).await.unwrap();
+        assert!(sources(db).await.is_empty());
+    }
+    let mut kinds: Vec<String> = store::rows(db, OWNER, &personal)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|row| row.object == "memory:kept")
+        .map(|row| row.kind)
+        .collect();
+    kinds.sort();
+    assert_eq!(kinds, ["memory.retire", "memory.write"]);
+    schema.drop().await;
+}
