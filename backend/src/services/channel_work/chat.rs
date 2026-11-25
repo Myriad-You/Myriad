@@ -277,7 +277,7 @@ async fn answer(
         let _ = sink.send_text("无法保存通道会话，请稍后重试。").await;
         return;
     };
-    let chat_session_id_for_mark = chat_session_id.clone();
+    let asked_in = chat_session_id.clone();
     let cached = match cache_inbound_images(&db, user_id, &sink.transport, images).await {
         Ok(data) => data,
         Err(message) => {
@@ -347,6 +347,8 @@ async fn answer(
         }
     };
     let run_id = run.run_id().to_string();
+    // Where the turn is kept, which clearing her as it began may have changed.
+    let chat_session_id_for_mark = run.session_id().unwrap_or(&asked_in).to_string();
     let Some(response) = await_reply(run, &sink).await else {
         // Whatever she ended up with did not go out: she should know.
         mark_delivery(&db, &chat_session_id_for_mark, &run_id, CUT_OFF_UNSENT).await;
@@ -462,7 +464,8 @@ pub(super) async fn chat_session(
     session_key: &str,
 ) -> Option<String> {
     let mut stored = load_session(db, platform, session_key).await?;
-    // The one kept, unless it is of the past (`merope::past`): then a new one.
+    // The one kept, unless it is of the past (`merope::past`): then the one
+    // that is gone on in.
     let kept = stored.chat_session_id.clone().filter(|id| !id.is_empty());
     let id = crate::services::agent::sessions::ensure_session(
         db,

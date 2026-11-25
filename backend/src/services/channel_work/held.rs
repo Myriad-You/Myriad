@@ -158,7 +158,9 @@ async fn lend(
     let Ok(audience) = her::chat_audience(db, user_id).await else {
         return false;
     };
-    let chat_session = kept_chat(db, platform, session_key, user_id).await;
+    let Ok(chat_session) = kept_chat(db, platform, session_key, user_id).await else {
+        return false;
+    };
     let mut recent = Vec::new();
     if let Some(chat_session) = &chat_session
         && let Ok(lines) =
@@ -272,18 +274,31 @@ pub(crate) async fn hold_lent(
 }
 
 /// Her chat with them in this conversation, when there is one: the one kept,
-/// or the one it is gone on in since her persona was cleared.
+/// or the one it is gone on in since her persona was cleared. An `Err` when
+/// that could not be read or made.
 async fn kept_chat(
     db: &DatabaseConnection,
     platform: ChannelPlatform,
     session_key: &str,
     user_id: i32,
-) -> Option<String> {
-    super::load_session(db, platform, session_key)
-        .await
+) -> Result<Option<String>, ()> {
+    let stored = crate::services::runtime_registry::get::<super::StoredSession>(
+        db,
+        platform.session_ns(),
+        session_key,
+    )
+    .await
+    .map_err(|error| tracing::warn!(%error, "[Channel] a chat's session could not be read"))?;
+    if stored
         .and_then(|stored| stored.chat_session_id)
-        .filter(|id| !id.is_empty())?;
-    super::chat::chat_session(db, platform, user_id, session_key).await
+        .is_none_or(|id| id.is_empty())
+    {
+        return Ok(None);
+    }
+    super::chat::chat_session(db, platform, user_id, session_key)
+        .await
+        .map(Some)
+        .ok_or(())
 }
 
 /// Her line from her mind on a PC, sent in the chat `session_key` with
@@ -301,8 +316,12 @@ pub(crate) async fn say_lent(
     let sink = super::chat_waiting::sink_for(db, user_id, session_key)
         .await
         .ok_or("the chat is not reachable")?;
+    // Not sent where it could not be kept.
+    let chat_session = kept_chat(db, sink.platform(), session_key, user_id)
+        .await
+        .map_err(|()| "the chat's session could not be read")?;
     sink.send_text(text).await.map_err(|_| "not sent")?;
-    if let Some(chat_session) = kept_chat(db, sink.platform(), session_key, user_id).await {
+    if let Some(chat_session) = chat_session {
         let _ = crate::services::agent::sessions::persist_assistant_message(
             db,
             &chat_session,
@@ -621,7 +640,7 @@ mod tests {
         super::super::put_session(db, platform, 41, "ob:1", stored)
             .await
             .unwrap();
-        let app = async || kept_chat(db, platform, "ob:1", 41).await.unwrap();
+        let app = async || kept_chat(db, platform, "ob:1", 41).await.unwrap().unwrap();
         assert_eq!(app().await, "old_app");
         crate::services::agent::merope::clear_persona_on(db)
             .await
