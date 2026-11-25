@@ -55,6 +55,17 @@ async fn fixture(name: &str) -> Option<crate::db::IsolatedSchema> {
         .await
         .unwrap();
     }
+    // What the owner let her do on her own, and another account's.
+    for user in [OWNER, OTHER] {
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO agent_autonomy_grants (user_id, allowed_permissions, revoked, created_at, \
+             updated_at) VALUES ($1, '[]'::jsonb, false, NOW(), NOW())",
+            [user.into()],
+        ))
+        .await
+        .unwrap();
+    }
     // Talk: another's own, theirs in a group, the owner's.
     for (session, user, context) in [
         ("s_other", OTHER, r#"{"mode":"chat"}"#),
@@ -132,6 +143,14 @@ async fn talk(db: &DatabaseConnection) -> Vec<String> {
     .await
 }
 
+async fn grants(db: &DatabaseConnection) -> Vec<String> {
+    ids(
+        db,
+        "SELECT user_id::text AS id FROM agent_autonomy_grants ORDER BY user_id",
+    )
+    .await
+}
+
 async fn records(db: &DatabaseConnection) -> Vec<String> {
     ids(
         db,
@@ -182,6 +201,9 @@ async fn what_was_hers_and_the_owners_goes_with_her() {
                 "s_owner user"
             ]
         );
+        // What is left of her let go (she lives elsewhere) voids nothing here.
+        let left: &[&str] = if sealed { &["7", "8"] } else { &["8"] };
+        assert_eq!(grants(db).await, left);
         // Nothing left to go: the same again.
         clear_persona_on(db).await.unwrap();
         assert_eq!(intentions(db).await, ["int_other"]);
@@ -201,6 +223,7 @@ async fn clearing_her_undone_leaves_all_of_her() {
     txn.rollback().await.unwrap();
     assert_eq!(memories(db).await.len(), 11);
     assert_eq!(intentions(db).await, ["int_other", "int_owner"]);
+    assert_eq!(grants(db).await, ["7", "8"]);
     assert_eq!(
         records(db).await,
         ["merope_on_mind", "merope_undertone", "not_hers"]

@@ -312,6 +312,13 @@ where
     C: ConnectionTrait,
 {
     clear_on(db, true).await?;
+    // Whatever the owner let her do on her own, the next her starts with it
+    // off, as one arriving does (`persona_sync::import`).
+    db.execute_unprepared(&format!(
+        "DELETE FROM agent_autonomy_grants WHERE user_id = ({})",
+        crate::services::principal::SITE_OWNER_ID_SQL
+    ))
+    .await?;
     // What was said with her is no one's to read of the next.
     super::super::past::close(db).await?;
     Ok(())
