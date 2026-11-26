@@ -558,7 +558,7 @@ fn prompt(context: &Context) -> String {
         .join("\n");
     format!(
         r#"Task version: {PROMPT_VERSION}
-This front-facing anime character is being rigged for 2D animation the way a professional Live2D rigger would: every part that moves on its own gets its own layer, hangs from a bone, and swings by what it is made of. List those parts.
+This front-facing anime character is being rigged for 2D animation the way a professional 2D character rigger would: every part that moves on its own gets its own layer, hangs from a bone, and swings by what it is made of. List those parts.
 
 Include only parts that would visibly move or swing on their own when the character sways, turns or breathes: hanging or dangling accessories (earrings, charms, pendants, chains, tassels, keychains), ribbons and bow tails, loose cloth panels (an open cardigan or jacket front, a cape, coat tails, a hem or peplum that hangs free, sleeves' loose cuffs), skirts and their layers, tails, wings, ears that are not part of the head's outline, scarves. Do not list the face, eyes, mouth, or the hair as a whole; a long separate lock or a hair ornament that dangles may be listed. Judge from what is drawn, not from a garment's usual name.
 
