@@ -318,6 +318,10 @@ struct Outcome {
     plain: Option<Answered>,
     cued: Option<Answered>,
     wide: Answered,
+    /// Production-gated arm: waits for `cues` only when `reaches_back` matches
+    /// (else answers cold from `plain` without waiting on `cues`).
+    gated: Answered,
+    reaches_back: bool,
     /// Asked with nothing kept of them (noise questions): what the noise
     /// changed.
     bare: Option<Answered>,
@@ -501,6 +505,17 @@ async fn answer_for(
         &answering,
     )
     .await;
+    let reaches_back = myriad_merope::remembering::reaches_back(&question.question);
+    let gated = if reaches_back {
+        wide.clone()
+    } else if let Some(plain) = &plain {
+        plain.clone()
+    } else {
+        answer_one(
+            db, judge, lite, question, user_id, &present, None, THOROUGH, true, &answering,
+        )
+        .await
+    };
     let wider = match wider_arm() {
         Some(more) => Some(
             WIDER
@@ -702,6 +717,8 @@ async fn answer_for(
         plain,
         cued,
         wide,
+        gated,
+        reaches_back,
         bare,
         wider,
         raw,

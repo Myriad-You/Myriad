@@ -91,10 +91,11 @@ pub(super) fn report(
     times: usize,
     outcomes: &[(Question, usize, Outcome)],
 ) -> Value {
-    let arms: [(&str, fn(&Outcome) -> Option<&Answered>); 5] = [
+    let arms: [(&str, fn(&Outcome) -> Option<&Answered>); 6] = [
         ("plain", |outcome| outcome.plain.as_ref()),
         ("cued", |outcome| outcome.cued.as_ref()),
         ("wide", |outcome| Some(&outcome.wide)),
+        ("gated", |outcome| Some(&outcome.gated)),
         ("wider", |outcome| outcome.wider.as_ref()),
         ("read", |outcome| outcome.read.as_ref()),
     ];
@@ -291,9 +292,10 @@ pub(super) fn report(
             json!({"id":question.question_id,"type":question.question_type,
             "category":question.category,"pair":question.pair,"round":round,
             "question":question.question,"answer":question.answer,
-            "written":outcome.written,"kept":outcome.kept,
+            "written":outcome.written,"kept":outcome.kept,"reachesBack":outcome.reaches_back,
             "plain":outcome.plain.as_ref().map(answered),"cued":outcome.cued.as_ref().map(answered),
-            "wide":answered(&outcome.wide),"wider":outcome.wider.as_ref().map(answered),
+            "wide":answered(&outcome.wide),"gated":answered(&outcome.gated),
+            "wider":outcome.wider.as_ref().map(answered),
             "read":outcome.read.as_ref().map(answered),
             "bare":outcome.bare.as_ref().map(answered),"inPrivate":outcome.in_private,
             "memories":outcome.memories,"concepts":outcome.concepts,
@@ -326,6 +328,20 @@ pub(super) fn report(
                 "unreadable": cue_counts[2],
                 "unanswered": cue_counts[3],
                 "firstAttemptFailedRate": failed as f64 / cue_total as f64,
+            }),
+        );
+    }
+    if !outcomes.is_empty() {
+        let reached = outcomes
+            .iter()
+            .filter(|(_, _, outcome)| outcome.reaches_back)
+            .count();
+        scores.insert(
+            "reachesBack".into(),
+            json!({
+                "matched": reached,
+                "total": outcomes.len(),
+                "rate": reached as f64 / outcomes.len() as f64,
             }),
         );
     }
@@ -364,11 +380,14 @@ pub(super) fn partial_row(
             "rank": outcome.need_ranks.get(fact).and_then(|ranks| ranks.1),
             "rankShallow": outcome.need_ranks.get(fact).and_then(|ranks| ranks.0),
         })).collect::<Vec<_>>(),
+        "reachesBack": outcome.reaches_back,
         "wide": {"correct": outcome.wide.correct, "retrieved": outcome.wide.retrieved,
             "response": outcome.wide.answer, "why": outcome.wide.why,
             "recalled": outcome.wide.recalled,
             "recalledChars": recalled_chars(&outcome.wide),
             "scrolled": outcome.wide.scrolled, "standing": outcome.wide.standing},
+        "gated": {"correct": outcome.gated.correct, "retrieved": outcome.gated.retrieved,
+            "recalledChars": recalled_chars(&outcome.gated)},
         "wider": outcome.wider.as_ref().map(|wider| json!({"correct": wider.correct,
             "retrieved": wider.retrieved, "recalled": wider.recalled,
             "recalledChars": recalled_chars(wider)})),
@@ -412,12 +431,27 @@ pub(super) fn finished(report_path: &str) -> std::collections::HashSet<(String, 
 mod tests {
     use super::*;
 
-    fn sample_question(id: &str) -> Question {
+    fn sample_answered(correct: bool, recalled: &[&str]) -> Answered {
+        Answered {
+            retrieved: correct,
+            correct: Some(correct),
+            dragged: None,
+            why: None,
+            answer: if correct { "yes" } else { "no" }.to_string(),
+            recalled: recalled.iter().map(|s| (*s).to_string()).collect(),
+            cues: None,
+            through: None,
+            scrolled: None,
+            standing: Vec::new(),
+        }
+    }
+
+    fn sample_question(id: &str, text: &str) -> Question {
         Question {
             question_id: id.to_string(),
             question_type: "single-session-user".to_string(),
-            question: "What do I drink?".to_string(),
-            answer: json!("coffee"),
+            question: text.to_string(),
+            answer: json!("answer"),
             question_date: "2026/11/26 (Thu) 12:00".to_string(),
             haystack_dates: Vec::new(),
             haystack_sessions: Vec::new(),
@@ -437,18 +471,9 @@ mod tests {
             written: true,
             plain: None,
             cued: None,
-            wide: Answered {
-                retrieved: true,
-                correct: Some(true),
-                dragged: None,
-                why: None,
-                answer: "coffee".to_string(),
-                recalled: Vec::new(),
-                cues: None,
-                through: None,
-                scrolled: None,
-                standing: Vec::new(),
-            },
+            wide: sample_answered(true, &[]),
+            gated: sample_answered(true, &[]),
+            reaches_back: false,
             bare: None,
             wider: None,
             raw: None,
@@ -467,11 +492,83 @@ mod tests {
     }
 
     #[test]
+    fn report_emits_both_wide_and_production_gated_arms() {
+        let q1 = sample_question("q1", "我上次去过哪");
+        let q2 = sample_question("q2", "我买过哪些植物");
+        let reaches = [
+            myriad_merope::remembering::reaches_back(&q1.question),
+            myriad_merope::remembering::reaches_back(&q2.question),
+        ];
+        assert_eq!(reaches, [true, false]);
+
+        let o1 = Outcome {
+            written: true,
+            plain: Some(sample_answered(false, &[])),
+            cued: Some(sample_answered(true, &["fact"])),
+            wide: sample_answered(true, &["fact"]),
+            gated: sample_answered(true, &["fact"]),
+            reaches_back: reaches[0],
+            bare: None,
+            wider: None,
+            raw: None,
+            answering: Vec::new(),
+            read: None,
+            in_private: None,
+            memories: Vec::new(),
+            concepts: Vec::new(),
+            nodes: Vec::new(),
+            kept: 1,
+            failed: Vec::new(),
+            need_ranks: Vec::new(),
+            asked: None,
+            cues_try: None,
+        };
+        let o2 = Outcome {
+            written: true,
+            plain: Some(sample_answered(false, &[])),
+            cued: Some(sample_answered(true, &["plant"])),
+            wide: sample_answered(true, &["plant"]),
+            gated: sample_answered(false, &[]),
+            reaches_back: reaches[1],
+            bare: None,
+            wider: None,
+            raw: None,
+            answering: Vec::new(),
+            read: None,
+            in_private: None,
+            memories: Vec::new(),
+            concepts: Vec::new(),
+            nodes: Vec::new(),
+            kept: 1,
+            failed: Vec::new(),
+            need_ranks: Vec::new(),
+            asked: None,
+            cues_try: None,
+        };
+        let rep = report(
+            &[q1, q2],
+            1,
+            &[
+                (sample_question("q1", ""), 0, o1),
+                (sample_question("q2", ""), 0, o2),
+            ],
+        );
+        assert_eq!(rep["scores"]["wide"]["accuracy"], 1.0);
+        assert_eq!(rep["scores"]["gated"]["accuracy"], 0.5);
+        assert_eq!(rep["scores"]["reachesBack"]["matched"], 1);
+        assert_eq!(rep["scores"]["reachesBack"]["total"], 2);
+        assert_eq!(rep["scores"]["reachesBack"]["rate"], 0.5);
+        assert_eq!(rep["rows"][0]["reachesBack"], true);
+        assert_eq!(rep["rows"][1]["reachesBack"], false);
+        assert_eq!(rep["rows"][1]["gated"]["correct"], false);
+    }
+
+    #[test]
     fn report_summarizes_cues_tries_and_first_attempt_failure_rate() {
-        let q1 = sample_question("q1");
-        let q2 = sample_question("q2");
-        let q3 = sample_question("q3");
-        let q4 = sample_question("q4");
+        let q1 = sample_question("q1", "What do I drink?");
+        let q2 = sample_question("q2", "What do I drink?");
+        let q3 = sample_question("q3", "What do I drink?");
+        let q4 = sample_question("q4", "What do I drink?");
         let report = report(
             &[q1.clone(), q2.clone(), q3.clone(), q4.clone()],
             1,
