@@ -340,6 +340,11 @@ fn from_her_nodes(
                     .listed
                     .unwrap_or_else(myriad_merope::speaking::format_going_through_all_section),
             ));
+            if let Some(block) =
+                myriad_merope::speaking::format_not_all_here_section(&recollection.not_all_here)
+            {
+                sections.push((Part::GoingThroughAll, block));
+            }
         }
     }
     sections.extend(
