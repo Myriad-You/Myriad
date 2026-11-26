@@ -9,6 +9,7 @@ use std::sync::{LazyLock, Mutex};
 use myriad_merope::group::{self as core, At, Event, Group, Restore, Resume, Rolls, Target};
 
 use super::*;
+use crate::services::agent::merope::past;
 
 /// A group as this process has it: her mind there, when it was last
 /// touched, and the token its lines came with (never in her mind).
@@ -187,7 +188,16 @@ pub(super) async fn kept_before(venue: &str) -> Option<Restore> {
     }
     let db = db().ok()?;
     let lines = match kept::<StoredLines>(&db, LINES_NAMESPACE, venue).await {
-        Ok(stored) => stored.map(|stored| stored.lines),
+        Ok(Some(stored)) => {
+            match kept::<past::Cleared>(&db, past::NAMESPACE, past::RECORD).await {
+                Ok(cleared) => Some(past::after(cleared, stored.lines, |line| line.at)),
+                Err(error) => {
+                    warn!(%error, %venue, "[Group] whether she was cleared since could not be read: the lines kept are left");
+                    return None;
+                }
+            }
+        }
+        Ok(None) => None,
         Err(error) => {
             warn!(%error, %venue, "[Group] could not read back the lines kept before a restart");
             return None;
@@ -211,6 +221,17 @@ pub(super) async fn kept_before(venue: &str) -> Option<Restore> {
         spoke_up,
         table,
     })
+}
+
+/// Her persona cleared: what each group said until then goes from mind, and
+/// only that. What she is in the middle of in a group is done with as it is,
+/// who waits for it is answered, and mutes hold.
+pub(crate) fn forget_lines(cleared: chrono::DateTime<chrono::Utc>) {
+    if let Ok(mut groups) = GROUPS.lock() {
+        for slot in groups.values_mut() {
+            slot.group.lines.retain(|line| line.at > cleared);
+        }
+    }
 }
 
 /// Bring back what was kept before a restart, once.
@@ -442,7 +463,11 @@ pub async fn take_back_kept(platform: ChannelPlatform) {
             .ok()
             .flatten()
             .and_then(|reach| reach.thread);
-        let past = core::kept_as_heard(platform.slug(), &chat, thread, stored.lines);
+        let Ok(cleared) = kept::<past::Cleared>(&db, past::NAMESPACE, past::RECORD).await else {
+            continue;
+        };
+        let lines = past::after(cleared, stored.lines, |line| line.at);
+        let past = core::kept_as_heard(platform.slug(), &chat, thread, lines);
         restore(&venue).await;
         note_token(&venue, &token);
         let out = step(

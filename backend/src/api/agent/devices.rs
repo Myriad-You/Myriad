@@ -113,6 +113,8 @@ async fn device_list(db: &DatabaseConnection, owner: i32) -> Result<Value, HttpE
         "limit": devices::MAX_DEVICES,
         // What the site runs, which each device's versions are read against.
         "versions": crate::services::agent::link::versions::site_json(),
+        // Durable configured public origin (`FRONTEND_URL` / `BASE_URL`), if set.
+        "siteUrl": crate::services::public_site::resolve_public_base_url(),
     }))
 }
 
@@ -544,7 +546,11 @@ pub async fn add_device(
     tracing::info!(device = %device.id, "[sync] device added");
     Ok((
         StatusCode::CREATED,
-        Json(json!({ "device": device_json(&device, crate::clock::now()), "token": token })),
+        Json(json!({
+            "device": device_json(&device, crate::clock::now()),
+            "token": token,
+            "siteUrl": crate::services::public_site::resolve_public_base_url(),
+        })),
     )
         .into_response())
 }

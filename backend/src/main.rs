@@ -74,6 +74,8 @@ mod oauth_url_builder;
 mod persona;
 mod router;
 mod runtime_role;
+#[cfg(test)]
+mod scan;
 mod services;
 mod state;
 

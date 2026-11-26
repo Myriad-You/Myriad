@@ -133,7 +133,8 @@ async fn kept(
             DatabaseBackend::Postgres,
             "SELECT e.message_id, e.digest, e.vector FROM agent_message_embeddings e \
              JOIN agent_messages m ON m.id = e.message_id \
-             WHERE e.model = $1 AND e.message_id = ANY($2)",
+             JOIN agent_sessions s ON s.id = m.session_id \
+             WHERE (s.context->>'past') IS NULL AND e.model = $1 AND e.message_id = ANY($2)",
             [model.into(), ids.into()],
         ))
         .await

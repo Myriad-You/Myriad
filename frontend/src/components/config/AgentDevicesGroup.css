@@ -41,3 +41,61 @@
 .agent-devices-form + .setting-item {
   margin-top: 0.65rem;
 }
+
+.agent-device-qr-lede {
+  display: block;
+}
+
+.agent-device-qr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.9rem;
+  margin-top: 0.65rem;
+}
+
+.agent-device-qr-frame {
+  flex: 0 0 auto;
+  padding: 0.5rem;
+  border-radius: 0.65rem;
+  border: 1px solid var(--cfg-subtle-border);
+  background: #fff;
+  line-height: 0;
+}
+
+.agent-device-qr-svg {
+  display: block;
+  width: 11.25rem;
+  max-width: 100%;
+  height: auto;
+}
+
+.agent-device-qr-caption {
+  flex: 1 1 13rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.agent-device-qr-hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--cfg-text-2);
+}
+
+.agent-device-qr-warn {
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(245 158 11 / 34%);
+  background: rgb(245 158 11 / 10%);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: #b45309;
+}
+
+html.dark .agent-device-qr-warn {
+  color: #fbbf24;
+}

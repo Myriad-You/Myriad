@@ -44,6 +44,11 @@ pub async fn kept<C: ConnectionTrait>(db: &C) -> Option<Undertone> {
         .filter(Undertone::holds)
 }
 
+/// Her persona cleared: the next her starts with none, in that transaction.
+pub(super) async fn forget<C: ConnectionTrait>(db: &C) -> Result<u64, sea_orm::DbErr> {
+    crate::services::runtime_registry::delete_matching(db, NAMESPACE, None, None, None, None).await
+}
+
 async fn put(db: &DatabaseConnection, undertone: &Undertone) {
     let keep_until = (crate::clock::now() + chrono::Duration::days(KEEP_DAYS)).timestamp();
     if let Err(error) = crate::services::runtime_registry::put(

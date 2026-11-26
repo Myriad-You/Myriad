@@ -302,7 +302,8 @@ mod tests {
         .unwrap_err();
         assert_eq!(cut.downcast_ref::<StreamCut>().unwrap().partial, "听完要是");
 
-        let finished = serde_json::json!({"choices":[{"delta":{"content":"。"},"finish_reason":"stop"}]});
+        let finished =
+            serde_json::json!({"choices":[{"delta":{"content":"。"},"finish_reason":"stop"}]});
         let whole = consume_text_sse(
             response(format!("data: {text}\n\ndata: {finished}\n\n").into_bytes()).await,
             |_| async { true },
@@ -310,7 +311,10 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(whole, "听完要是。", "finish_reason without [DONE] is finished");
+        assert_eq!(
+            whole, "听完要是。",
+            "finish_reason without [DONE] is finished"
+        );
 
         let gemini = serde_json::json!({"candidates":[{"content":{"parts":[{"text":"好"}]},"finishReason":"STOP"}]});
         let whole = consume_text_sse(

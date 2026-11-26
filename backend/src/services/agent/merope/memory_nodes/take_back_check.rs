@@ -169,7 +169,7 @@ pub(crate) async fn their_line<C: ConnectionTrait>(
             DatabaseBackend::Postgres,
             "SELECT m.id, m.content FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NOT DISTINCT FROM $2 \
                AND m.role = 'user' AND m.created_at >= $3 AND m.created_at <= $4 \
              ORDER BY m.created_at DESC, m.id DESC LIMIT 40",
@@ -325,7 +325,7 @@ async fn ask(
                 DatabaseBackend::Postgres,
                 "SELECT m.content FROM agent_messages m \
                  JOIN agent_sessions s ON s.id = m.session_id \
-                 WHERE m.id = $1 AND s.user_id = $2 AND m.role = 'user'",
+                 WHERE (s.context->>'past') IS NULL AND m.id = $1 AND s.user_id = $2 AND m.role = 'user'",
                 [said.into(), user_id.into()],
             ))
             .await?

@@ -91,7 +91,7 @@ async fn by_day(
            coalesce(nullif(u.display_name, ''), u.username, '') AS name \
          FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
          LEFT JOIN users u ON u.id = s.user_id \
-         WHERE s.context->>'mode' = 'chat' AND s.context->>'venue' = $1 \
+         WHERE (s.context->>'past') IS NULL AND s.context->>'mode' = 'chat' AND s.context->>'venue' = $1 \
            AND m.role IN ('user', 'assistant') \
          ORDER BY m.created_at DESC LIMIT $2";
     // A stretch of theirs not judged yet (`asked::lines`) is left out whole;
@@ -405,7 +405,7 @@ async fn people(db: &DatabaseConnection) -> Vec<i32> {
     db.query_all_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT s.user_id FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-         WHERE s.user_id > 0 AND s.context->>'mode' = 'chat' AND (s.context->>'venue') IS NULL \
+         WHERE (s.context->>'past') IS NULL AND s.user_id > 0 AND s.context->>'mode' = 'chat' AND (s.context->>'venue') IS NULL \
            AND m.role = 'user' AND m.created_at > $3::timestamptz - make_interval(days => $1) \
          GROUP BY s.user_id ORDER BY max(m.created_at) DESC LIMIT $2",
         [

@@ -50,6 +50,7 @@ mod other_groups;
 pub(in crate::services::agent) mod others;
 mod outfit_overlay;
 mod pace;
+pub(crate) mod past;
 pub(in crate::services::agent) mod playing;
 mod priming;
 pub(in crate::services::agent) mod reach;
@@ -303,6 +304,8 @@ pub fn forget_in_memory() {
     self_story::forget();
     priming::forget();
     wander::forget();
+    remembering::forget();
+    past::forget();
 }
 
 /// After a chat reply, let her state catch up with the exchange; the next

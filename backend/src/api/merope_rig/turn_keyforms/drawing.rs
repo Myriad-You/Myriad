@@ -45,11 +45,24 @@ pub(super) async fn draw_turn(
     width: u32,
     height: u32,
 ) -> ApiResult<Vec<u8>> {
+    let frame = Frame::new(
+        image_generation::drawn_aspect(generation, width, height),
+        width,
+        height,
+    );
+    let framed = frame.reference(reference)?;
+    let (request_width, request_height) = frame.request();
     let generated = crate::services::ai_cost_ledger::with_site_ai_ledger(
         user_id,
         "merope",
         "turn-reference",
-        image_generation::generate_image(generation, prompt, width, height, Some(reference)),
+        image_generation::generate_image(
+            generation,
+            prompt,
+            request_width,
+            request_height,
+            Some(&framed),
+        ),
     )
     .await
     .map_err(portrait_generation_provider_error)?;
@@ -57,7 +70,126 @@ pub(super) async fn draw_turn(
         .await
         .map_err(portrait_generation_provider_error)?;
     // The provider may answer at its own size; lined up means the master's.
-    fit_to(&bytes, width, height)
+    frame.fit(&bytes)
+}
+
+/// The longest side `generate_image` passes on unclamped.
+const MAX_REQUEST_SIDE: u32 = 2048;
+
+/// The master centred on a canvas of the shape the provider draws at. A
+/// provider asked for a named ratio draws the whole picture at that ratio, so
+/// a master of another shape, stretched back from it, comes back squeezed;
+/// padded to the ratio first and cut back out after, it keeps its proportions.
+/// A master already of that shape is its own canvas and goes as it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Frame {
+    aspect: (u32, u32),
+    scale: u32,
+    master: (u32, u32),
+    offset: (u32, u32),
+}
+
+impl Frame {
+    fn new((a, b): (u32, u32), width: u32, height: u32) -> Self {
+        let (a, b) = (a.max(1), b.max(1));
+        let (width, height) = (width.max(1), height.max(1));
+        let scale = width.div_ceil(a).max(height.div_ceil(b));
+        Self {
+            aspect: (a, b),
+            scale,
+            master: (width, height),
+            offset: ((scale * a - width) / 2, (scale * b - height) / 2),
+        }
+    }
+
+    fn canvas(&self) -> (u32, u32) {
+        (self.scale * self.aspect.0, self.scale * self.aspect.1)
+    }
+
+    fn padded(&self) -> bool {
+        self.canvas() != self.master
+    }
+
+    /// The size to ask for: the master's own, or the canvas kept to the
+    /// exact ratio within the sides the request is clamped to.
+    fn request(&self) -> (u32, u32) {
+        if !self.padded() {
+            return self.master;
+        }
+        let (a, b) = self.aspect;
+        let scale = self.scale.min(MAX_REQUEST_SIDE / a.max(b)).max(1);
+        (scale * a, scale * b)
+    }
+
+    /// The master on the canvas, the rest filled with its edge's colour, so a
+    /// plain background just goes on.
+    fn reference(
+        &self,
+        reference: &image_generation::ImageReference,
+    ) -> ApiResult<image_generation::ImageReference> {
+        if !self.padded() {
+            return Ok(reference.clone());
+        }
+        let master = image::load_from_memory(&reference.bytes)
+            .map_err(internal_error)?
+            .to_rgba8();
+        let (width, height) = self.canvas();
+        let mut canvas = image::RgbaImage::from_pixel(width, height, edge_colour(&master));
+        image::imageops::replace(
+            &mut canvas,
+            &master,
+            i64::from(self.offset.0),
+            i64::from(self.offset.1),
+        );
+        let png = encode_png(&image::DynamicImage::ImageRgba8(canvas))?;
+        image_generation::ImageReference::new(png, "image/png")
+            .map_err(|error| internal_error(error.to_string()))
+    }
+
+    /// The master's place cut out of a drawing of the canvas, at the master's
+    /// size, as PNG.
+    fn fit(&self, bytes: &[u8]) -> ApiResult<Vec<u8>> {
+        let (width, height) = self.master;
+        if !self.padded() {
+            return fit_to(bytes, width, height);
+        }
+        let image = image::load_from_memory(bytes).map_err(internal_error)?;
+        let (canvas_width, canvas_height) = self.canvas();
+        let (x0, x1) = span(self.offset.0, width, canvas_width, image.width());
+        let (y0, y1) = span(self.offset.1, height, canvas_height, image.height());
+        fit_image(image.crop_imm(x0, y0, x1 - x0, y1 - y0), width, height)
+    }
+}
+
+/// `[start, start + len)` of `whole`, scaled to `drawn`, at least a pixel wide.
+fn span(start: u32, len: u32, whole: u32, drawn: u32) -> (u32, u32) {
+    let at = |value: u32| {
+        ((u64::from(value) * u64::from(drawn) + u64::from(whole) / 2) / u64::from(whole)) as u32
+    };
+    let first = at(start).min(drawn.saturating_sub(1));
+    (first, at(start + len).clamp(first + 1, drawn))
+}
+
+/// The commonest colour along the edge (by 16 levels a channel, averaged
+/// within): a bust cut off at the bottom edge keeps its background colour.
+fn edge_colour(image: &image::RgbaImage) -> image::Rgba<u8> {
+    let (width, height) = image.dimensions();
+    let mut bins: std::collections::HashMap<[u8; 4], ([u64; 4], u64)> =
+        std::collections::HashMap::new();
+    for (x, y, pixel) in image.enumerate_pixels() {
+        if x == 0 || y == 0 || x + 1 == width || y + 1 == height {
+            let (sum, count) = bins.entry(pixel.0.map(|channel| channel >> 4)).or_default();
+            for (total, channel) in sum.iter_mut().zip(pixel.0) {
+                *total += u64::from(channel);
+            }
+            *count += 1;
+        }
+    }
+    let (sum, count) = bins
+        .into_values()
+        .max_by_key(|(_, count)| *count)
+        .unwrap_or_default();
+    image::Rgba(sum.map(|total| (total / count.max(1)) as u8))
 }
 
 /// The sides of the turned drawings, in their order.
@@ -436,15 +568,140 @@ where
 
 /// Resized to exactly `width` x `height`, as PNG.
 pub(super) fn fit_to(bytes: &[u8], width: u32, height: u32) -> ApiResult<Vec<u8>> {
-    let image = image::load_from_memory(bytes).map_err(internal_error)?;
+    fit_image(
+        image::load_from_memory(bytes).map_err(internal_error)?,
+        width,
+        height,
+    )
+}
+
+fn fit_image(image: image::DynamicImage, width: u32, height: u32) -> ApiResult<Vec<u8>> {
     let image = if image.width() == width && image.height() == height {
         image
     } else {
         image.resize_exact(width, height, image::imageops::FilterType::Lanczos3)
     };
+    encode_png(&image)
+}
+
+fn encode_png(image: &image::DynamicImage) -> ApiResult<Vec<u8>> {
     let mut png = Vec::new();
     image
         .write_to(&mut Cursor::new(&mut png), image::ImageFormat::Png)
         .map_err(internal_error)?;
     Ok(png)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn white_master(width: u32, height: u32, figure: (u32, u32, u32, u32)) -> Vec<u8> {
+        let (x, y, w, h) = figure;
+        let mut image = image::RgbaImage::from_pixel(width, height, image::Rgba([255; 4]));
+        for (px, py, pixel) in image.enumerate_pixels_mut() {
+            if (x..x + w).contains(&px) && (y..y + h).contains(&py) {
+                *pixel = image::Rgba([200, 40, 60, 255]);
+            }
+        }
+        encode_png(&image::DynamicImage::ImageRgba8(image)).unwrap()
+    }
+
+    fn reference(png: Vec<u8>) -> image_generation::ImageReference {
+        image_generation::ImageReference::new(png, "image/png").unwrap()
+    }
+
+    /// Columns and rows of the figure's colour in `png`.
+    fn figure_box(png: &[u8]) -> (u32, u32, u32, u32) {
+        let image = image::load_from_memory(png).unwrap().to_rgba8();
+        let inside: Vec<_> = image
+            .enumerate_pixels()
+            .filter(|(_, _, pixel)| pixel.0[1] < 128)
+            .map(|(x, y, _)| (x, y))
+            .collect();
+        let left = inside.iter().map(|p| p.0).min().unwrap();
+        let right = inside.iter().map(|p| p.0).max().unwrap();
+        let top = inside.iter().map(|p| p.1).min().unwrap();
+        let bottom = inside.iter().map(|p| p.1).max().unwrap();
+        (left, top, right + 1 - left, bottom + 1 - top)
+    }
+
+    /// The provider drawing the canvas unchanged at a size of its own.
+    fn drawn_at(reference: &image_generation::ImageReference, width: u32, height: u32) -> Vec<u8> {
+        let image = image::load_from_memory(&reference.bytes).unwrap();
+        encode_png(&image.resize_exact(width, height, image::imageops::FilterType::Lanczos3))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_master_of_no_named_ratio_keeps_its_proportions() {
+        // 1278x1230 was asked as 16:9 and came back 0.6 times as wide.
+        let figure = (439, 100, 400, 1130);
+        let master = reference(white_master(1278, 1230, figure));
+        let frame = Frame::new((1, 1), 1278, 1230);
+        assert_eq!(frame.request(), (1278, 1278));
+        assert_eq!(image_generation::named_aspect_ratio(1278, 1278), "1:1");
+
+        let framed = frame.reference(&master).unwrap();
+        let canvas = image::load_from_memory(&framed.bytes).unwrap().to_rgba8();
+        assert_eq!(canvas.dimensions(), (1278, 1278));
+        assert_eq!(
+            canvas.get_pixel(5, 5).0,
+            [255; 4],
+            "padded with the background colour"
+        );
+        assert_eq!(figure_box(&framed.bytes), (439, 124, 400, 1130));
+
+        let fitted = frame.fit(&drawn_at(&framed, 1024, 1024)).unwrap();
+        let back = image::load_from_memory(&fitted).unwrap();
+        assert_eq!((back.width(), back.height()), (1278, 1230));
+        let (x, y, w, h) = figure_box(&fitted);
+        for (got, want) in [(x, 439), (y, 100), (w, 400), (h, 1130)] {
+            assert!(
+                got.abs_diff(want) <= 3,
+                "{:?} against {figure:?}",
+                (x, y, w, h)
+            );
+        }
+    }
+
+    #[test]
+    fn a_portrait_near_three_four_is_padded_to_exactly_three_four() {
+        let frame = Frame::new((3, 4), 1000, 1300);
+        assert_eq!(frame.canvas(), (1002, 1336));
+        assert_eq!(frame.request(), (1002, 1336));
+        assert_eq!(image_generation::named_aspect_ratio(1002, 1336), "3:4");
+        let master = reference(white_master(1000, 1300, (300, 200, 400, 1100)));
+        let fitted = frame
+            .fit(&drawn_at(&frame.reference(&master).unwrap(), 1152, 1536))
+            .unwrap();
+        let (_, _, w, h) = figure_box(&fitted);
+        assert!(w.abs_diff(400) <= 3 && h.abs_diff(1100) <= 3, "{w}x{h}");
+    }
+
+    #[test]
+    fn a_wide_canvas_stays_on_its_ratio_within_the_request_clamp() {
+        let frame = Frame::new((16, 9), 3000, 1500);
+        assert_eq!(frame.request(), (2048, 1152));
+        assert_eq!(image_generation::named_aspect_ratio(2048, 1152), "16:9");
+    }
+
+    #[test]
+    fn a_master_of_the_drawn_shape_goes_as_it_is() {
+        for (aspect, width, height) in [
+            ((3, 4), 1152, 1536),
+            ((2, 3), 900, 1350),
+            ((900, 1350), 900, 1350),
+        ] {
+            let frame = Frame::new(aspect, width, height);
+            assert_eq!(frame.request(), (width, height));
+            let master = reference(white_master(width, height, (100, 100, 300, 600)));
+            assert_eq!(frame.reference(&master).unwrap(), master);
+            let drawn = drawn_at(&master, 768, 1024);
+            assert_eq!(
+                frame.fit(&drawn).unwrap(),
+                fit_to(&drawn, width, height).unwrap()
+            );
+        }
+    }
 }

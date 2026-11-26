@@ -142,7 +142,7 @@ async fn their_message<C: ConnectionTrait>(
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT m.id, m.content, m.created_at FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE m.session_id = $1 AND s.user_id = $2 AND s.context->>'mode' = 'chat' \
+             WHERE (s.context->>'past') IS NULL AND m.session_id = $1 AND s.user_id = $2 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NULL AND m.role = 'user' \
              ORDER BY (m.content = $3) DESC, m.id DESC LIMIT 1",
             [session.into(), user_id.into(), said.into()],
@@ -164,7 +164,7 @@ async fn before<C: ConnectionTrait>(db: &C, user_id: i32, id: i32) -> Result<Vec
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT m.role, m.content FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND (s.context->>'venue') IS NULL \
+             WHERE (s.context->>'past') IS NULL AND s.user_id = $1 AND s.context->>'mode' = 'chat' AND (s.context->>'venue') IS NULL \
                AND (m.metadata->>'piece') IS NULL AND m.id < $2 \
              ORDER BY m.id DESC LIMIT $3",
             [user_id.into(), id.into(), LOOK_BACK.into()],
