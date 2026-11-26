@@ -19,6 +19,41 @@ pub struct GeneratePromptResponse {
     pub negative_prompt: String,
 }
 
+/// 活动插画的画风：只写画法，不点名任何工作室、画师或作品。
+macro_rules! activity_illustration_style {
+    () => {
+        "soft hand-drawn 2D animation illustration, clean thin linework, flat cel colors softened by a light watercolor wash texture, gentle warm lighting, muted natural palette, rounded simple shapes"
+    };
+}
+
+const ACTIVITY_ILLUSTRATION_STYLE: &str = activity_illustration_style!();
+
+const ACTIVITY_ILLUSTRATION_SYSTEM_PROMPT: &str = concat!(
+    "You are a professional prompt engineer for AI image generation.
+Your task is to convert the user's activity description into a high-quality illustration prompt for one original character.
+
+Requirements:
+1. Create prompts for transparent background PNG images with a single isolated subject
+2. Use \"A [character description]\" format
+3. Include quality keywords: masterpiece, highest quality, 8K resolution, ultra detailed
+4. Describe the art style by technique only: ",
+    activity_illustration_style!(),
+    ". Do not name any studio, artist, or existing work
+5. The character should be cute chibi/kawaii style
+6. Keep the prompt concise but descriptive (under 150 words)
+7. If the description says what the character looks like, follow that description; otherwise design an original character. Do not imitate or name characters from existing anime, games, or other media
+8. Output ONLY the prompt text, no explanations"
+);
+
+fn activity_illustration_user_prompt(payload: &GeneratePromptRequest) -> String {
+    format!(
+        "Create an illustration prompt for this activity:\nTitle: {}\nDescription: {}\nCategory: {}",
+        payload.title,
+        payload.summary,
+        payload.category.as_deref().unwrap_or("general")
+    )
+}
+
 /// 生成图片生成提示词的 API 端点
 pub async fn generate_prompt(
     Extension(claims): Extension<Claims>,
@@ -26,25 +61,8 @@ pub async fn generate_prompt(
 ) -> Result<Json<GeneratePromptResponse>, HttpError> {
     tracing::info!("Generating prompt for: {}", payload.title);
 
-    let system_prompt = r#"You are a professional prompt engineer for AI image generation.
-Your task is to convert the user's description into a high-quality Studio Ghibli style illustration prompt.
-
-Requirements:
-1. Create prompts for transparent background PNG images with a single isolated subject
-2. Use "A [character description]" format
-3. Include quality keywords: masterpiece, highest quality, 8K resolution, ultra detailed
-4. Add Ghibli-specific terms: Studio Ghibli art style, Hayao Miyazaki inspired, watercolor texture, hand-drawn animation style
-5. The character should be cute chibi/kawaii style
-6. Keep the prompt concise but descriptive (under 150 words)
-7. If the subject is a known character (anime, game, etc.), include their accurate visual features
-8. Output ONLY the prompt text, no explanations"#;
-
-    let user_prompt = format!(
-        "Create a Studio Ghibli style illustration prompt for this activity:\nTitle: {}\nDescription: {}\nCategory: {}",
-        payload.title,
-        payload.summary,
-        payload.category.as_deref().unwrap_or("general")
-    );
+    let system_prompt = ACTIVITY_ILLUSTRATION_SYSTEM_PROMPT;
+    let user_prompt = activity_illustration_user_prompt(&payload);
 
     let negative_prompt = "background, scenery, landscape, complex background, busy background, multiple subjects, crowd, low quality, blurry, distorted, deformed, ugly, bad anatomy, duplicate, text, watermark".to_string();
 
@@ -167,8 +185,8 @@ fn generate_prompt_with_rules(title: &str, summary: &str) -> String {
     let activity_hint = extract_activity_context(title, summary);
 
     format!(
-        "A {}, {}, in Studio Ghibli art style, transparent background, PNG format, no background, isolated subject, masterpiece, highest quality, detailed character design, soft lighting, hand-drawn animation style, Hayao Miyazaki inspired, watercolor texture, gentle colors, whimsical atmosphere, professional illustration, 8K resolution, ultra detailed, cute kawaii style",
-        character, activity_hint
+        "A {}, {}, {}, transparent background, PNG format, no background, isolated subject, masterpiece, highest quality, detailed character design, whimsical atmosphere, professional illustration, 8K resolution, ultra detailed, cute kawaii style",
+        character, activity_hint, ACTIVITY_ILLUSTRATION_STYLE
     )
 }
 
@@ -212,5 +230,94 @@ mod tests {
         assert!(music.contains("musician"));
         let generic = generate_prompt_with_rules("Hello", "world");
         assert!(generic.contains("gentle character"));
+    }
+
+    /// 工作室、画师、作品名（英、中、日），任何一个都不应出现在提示里。
+    const NAMED_STYLE_SOURCES: &[&str] = &[
+        "ghibli",
+        "miyazaki",
+        "hayao",
+        "kyoto animation",
+        "makoto shinkai",
+        "mihoyo",
+        "hoyoverse",
+        "genshin",
+        "pixar",
+        "disney",
+        "吉卜力",
+        "宫崎骏",
+        "宮崎駿",
+        "新海诚",
+        "米哈游",
+        "原神",
+        "ジブリ",
+        "宮崎",
+        "新海誠",
+        "崩坏",
+    ];
+
+    fn named_sources_in(prompt: &str) -> Vec<&'static str> {
+        let lower = prompt.to_lowercase();
+        NAMED_STYLE_SOURCES
+            .iter()
+            .copied()
+            .filter(|name| lower.contains(name))
+            .collect()
+    }
+
+    fn request(title: &str, summary: &str) -> GeneratePromptRequest {
+        GeneratePromptRequest {
+            title: title.to_string(),
+            summary: summary.to_string(),
+            category: Some("hobby".to_string()),
+        }
+    }
+
+    #[test]
+    fn system_prompt_names_no_studio_artist_or_work() {
+        assert_eq!(
+            named_sources_in(ACTIVITY_ILLUSTRATION_SYSTEM_PROMPT),
+            Vec::<&str>::new()
+        );
+    }
+
+    #[test]
+    fn user_prompt_names_no_studio_artist_or_work() {
+        let prompt = activity_illustration_user_prompt(&request("Weekend sketching", "park"));
+        assert_eq!(named_sources_in(&prompt), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn rule_prompt_names_no_studio_artist_or_work() {
+        for (title, summary) in [
+            ("Weekend programming", ""),
+            ("周末编程", "写代码"),
+            ("New song", "studio session"),
+            ("Hello", "world"),
+        ] {
+            let prompt = generate_prompt_with_rules(title, summary);
+            assert_eq!(named_sources_in(&prompt), Vec::<&str>::new(), "{prompt}");
+        }
+    }
+
+    #[test]
+    fn system_prompt_no_longer_asks_to_reproduce_known_characters() {
+        let prompt = ACTIVITY_ILLUSTRATION_SYSTEM_PROMPT.to_lowercase();
+        assert!(!prompt.contains("known character"));
+        assert!(!prompt.contains("accurate visual features"));
+        assert!(prompt.contains("do not imitate or name characters from existing"));
+    }
+
+    #[test]
+    fn system_prompt_follows_the_described_appearance() {
+        assert!(ACTIVITY_ILLUSTRATION_SYSTEM_PROMPT.contains(
+            "If the description says what the character looks like, follow that description"
+        ));
+    }
+
+    #[test]
+    fn both_paths_carry_the_same_technique_description() {
+        assert!(ACTIVITY_ILLUSTRATION_SYSTEM_PROMPT.contains(ACTIVITY_ILLUSTRATION_STYLE));
+        assert!(generate_prompt_with_rules("Hello", "world").contains(ACTIVITY_ILLUSTRATION_STYLE));
     }
 }
