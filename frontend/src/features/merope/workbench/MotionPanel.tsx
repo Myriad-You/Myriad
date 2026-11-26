@@ -252,12 +252,12 @@ export function MotionPanel({
             ))}
           </div>
         </div>
-        {sliderCluster(labels.clusterHead, ['angleX', 'angleY', 'angleZ'])}
+        {sliderCluster(labels.clusterHead, ['headYaw', 'headPitch', 'headRoll'])}
         {sliderCluster(labels.clusterEyes, [
-          'eyeOpenL',
-          'eyeOpenR',
-          'eyeX',
-          'eyeY',
+          'lidL',
+          'lidR',
+          'gazeX',
+          'gazeY',
           'irisScale',
           'eyeScaleL',
           'eyeScaleR',
@@ -266,14 +266,14 @@ export function MotionPanel({
           'eyeCAng',
         ])}
         {sliderCluster(labels.clusterBrows, [
-          'brow',
-          'browAngSym',
-          'browAngL',
-          'browAngR',
+          'browLift',
+          'browTilt',
+          'browTiltL',
+          'browTiltR',
         ])}
         {sliderCluster(labels.clusterMouth, [
-          'mouthOpen',
-          'mouthForm',
+          'jaw',
+          'lipCurve',
           'mouthCY',
           'mouthEase',
           'mouthCAng',
@@ -319,12 +319,12 @@ export function MotionPanel({
           'bangL',
           'bangC',
           'bangR',
-          'physAmp',
+          'rearHairSway',
           'soft',
         ])}
         {sliderCluster(labels.clusterBody, [
-          'body',
-          'bodyYaw',
+          'bodyLean',
+          'torsoFollow',
           'torsoTurn',
           'bodyLift',
           'bodyPitch',

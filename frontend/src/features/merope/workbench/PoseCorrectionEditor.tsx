@@ -90,8 +90,8 @@ export function PoseCorrectionEditor({ playback, characterRef, driver, target, o
     return same.length > 1 ? `${copy[region]} ${same.indexOf(p) + 1}` : copy[region]
   }
   const currentPose = describe({
-    ...(Math.abs(driver.angleX) >= 0.05 ? { angleX: driver.angleX } : {}),
-    ...(Math.abs(driver.angleY) >= 0.05 ? { angleY: driver.angleY } : {}),
+    ...(Math.abs(driver.headYaw) >= 0.05 ? { angleX: driver.headYaw } : {}),
+    ...(Math.abs(driver.headPitch) >= 0.05 ? { angleY: driver.headPitch } : {}),
   })
 
   const show = (corrections: PoseCorrection[], index: number) => {

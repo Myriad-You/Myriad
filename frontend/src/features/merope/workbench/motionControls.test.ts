@@ -14,13 +14,13 @@ test('every look the director can pick is a named button in the workbench', () =
 
 test('a look plays on the drivers at its tiers, as a directive would', () => {
   const content = facePresetDriver('content')
-  assert.equal(content.eyeOpenL, 0)
+  assert.equal(content.lidL, 0)
   assert.equal(content.eyeSmile, 0.65)
-  assert.equal(content.mouthForm, 0.65)
+  assert.equal(content.lipCurve, 0.65)
   assert.equal(facePresetDriver('humming').accentNotes, 1)
   assert.equal(facePresetDriver('blushing').accentBlush, 0.65)
-  // Looking down is a positive driver eyeY.
-  assert.ok((facePresetDriver('downcast').eyeY ?? 0) > 0)
+  // Looking down is a positive driver gazeY.
+  assert.ok((facePresetDriver('downcast').gazeY ?? 0) > 0)
 })
 
 test('every expression is in exactly one group, by whether it moves', () => {

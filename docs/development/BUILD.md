@@ -79,16 +79,25 @@ See [SHARED_CORE.md](SHARED_CORE.md) for how a core change lands here.
 
 The 2.5D figure (the rig runtime under `anime25drig/`, motion, and the rig
 import tools) is the `figure/` git submodule,
-[myriad-figure](https://github.com/Myriad-You/myriad-figure). It is a member of
-`frontend/`'s pnpm workspace, imported only through the entries its
-`package.json` exports, split by use: `@myriad/figure` (the channel, errors and
-trace), the live entries (`@myriad/figure/anime25drig`, `motion`, `events` and
-so on), `@myriad/figure/workbench` for the rig workbench and
+[myriad-figure](https://github.com/Myriad-You/myriad-figure). The rig runtime's
+rendering layer is not in the submodule: it is the package
+[`@myriad/figure-player`](https://github.com/Myriad-You/myriad-figure-player),
+a pnpm git dependency of figure pinned by commit in figure's `package.json`
+(TypeScript source, no build step; the site reaches it only through figure).
+figure is a member of `frontend/`'s pnpm workspace, imported only through the
+entries its `package.json` exports, split by use: `@myriad/figure` (the channel,
+errors and trace), the live entries (`@myriad/figure/anime25drig`, `motion`,
+`events` and so on), `@myriad/figure/workbench` for the rig workbench and
 `@myriad/figure/testing` for tests. A name the site needs that no entry lists
 is added to the right entry in figure first. `pnpm install` in `frontend/`
-installs its dependencies, and `pnpm test:unit` and `pnpm typecheck` there also
-run its tests and its own type check; its browser tests run in figure itself
-(`pnpm test:browser` there). It reads the core's contracts as
+installs figure's dependencies, the player among them; it downloads the player
+from GitHub's archive host (`codeload.github.com`), so install needs network
+access to it. When figure moves the player pin, re-lock
+`frontend/pnpm-lock.yaml` in the same change that moves `figure/`, or
+`pnpm install --frozen-lockfile` fails. `pnpm test:unit` and `pnpm typecheck`
+in `frontend/` also run figure's tests and its own type check, not the
+player's (those belong to the player's repository); figure's browser tests run
+in figure itself (`pnpm test:browser` there). figure reads the core's contracts as
 `@myriad/core/...`, which here is this repository's `core/`; figure pins a core
 of its own for its standalone CI, and CI here fails if that pin is newer than
 `core/` (bump `core/` first). The figure keeps no page-wide state: the site

@@ -16,6 +16,8 @@ export default defineConfig({
   cacheDir: fileURLToPath(new URL(`../../node_modules/.vite/browser-tests-${port}`, import.meta.url)),
   optimizeDeps: {
     include: ['react', 'react-dom/client', 'react/jsx-runtime', 'lucide-react'],
+    // The figure's render layer is served as its own source files, as the site's dev server does.
+    exclude: ['@myriad/figure-player'],
   },
   build: {
     target: 'es2025',

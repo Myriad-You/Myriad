@@ -156,7 +156,7 @@ async function gpuCycles(cycles: number, failure = '', atlasSize = 0) {
         finally { gl.texImage2D = upload }
         if (failure) {
           // Redraw the retained outfit without advancing animation time.
-          ;(player as unknown as { draw: () => void }).draw()
+          ;(player as unknown as { stage: { draw: () => void } }).stage.draw()
           unchanged &&= before === read()
         }
         snapshots.push({ active, afterReplacement: tracked.counts(), activeBytes, afterReplacementBytes: tracked.bytes() })

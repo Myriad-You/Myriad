@@ -91,18 +91,18 @@ export async function replayCharacterScene(manifest: MeropeRigManifest, scene: '
       // This loop is synchronous: browser RAF cannot interleave an extra tick.
       player.tick(1 / 60)
       const current = player.getCurrent()
-      for (const key of ['angleX', 'angleY', 'angleZ', 'body'] as const) {
+      for (const key of ['headYaw', 'headPitch', 'headRoll', 'bodyLean'] as const) {
         maxHeadStep = Math.max(maxHeadStep, Math.abs(current[key] - previous[key]))
       }
       if (frame >= 135 && frame < 170) {
-        maxEyeStep = Math.max(maxEyeStep, Math.abs(current.eyeOpenL - previous.eyeOpenL))
-        liftedMaxEye = Math.max(liftedMaxEye, current.eyeOpenL, current.eyeOpenR)
+        maxEyeStep = Math.max(maxEyeStep, Math.abs(current.lidL - previous.lidL))
+        liftedMaxEye = Math.max(liftedMaxEye, current.lidL, current.lidR)
       }
       const presented = player.getPresentedTouch()
       if (presented?.reaction === 'accept') acceptedFrames++
       source.notePresented('panel', presented, now)
       if (speaking && frame >= 195 && frame < 240) {
-        mouthDuringTouch = Math.max(mouthDuringTouch, current.mouthOpen)
+        mouthDuringTouch = Math.max(mouthDuringTouch, current.jaw)
         speechMouthOwned &&= player.getMotionPolicy().mouth === 'speech'
         thoughtDuringSpeech ||= player.getTarget().thinking
       }
@@ -117,7 +117,7 @@ export async function replayCharacterScene(manifest: MeropeRigManifest, scene: '
       speechMouthOwned: withSpeech ? speechMouthOwned : null,
       finalTouch: player.getPresentedTouch(), finalOwners: player.getMotionPolicy(),
       finalThinking: player.getTarget().thinking, finalTalk: player.getTarget().talk,
-      finalEyeOpen: player.getCurrent().eyeOpenL,
+      finalEyeOpen: player.getCurrent().lidL,
       error: gl.getError(), screenshots }
   } finally {
     source.release()
@@ -211,13 +211,13 @@ function replayDefaultPerformance(
       if (before !== JSON.stringify(player.getCurrent())) resets++
       player.tick(1 / 30)
       const current = player.getCurrent()
-      for (const key of ['angleX', 'angleY', 'angleZ', 'body'] as const) maxStep = Math.max(maxStep, Math.abs(current[key] - previous[key]))
+      for (const key of ['headYaw', 'headPitch', 'headRoll', 'bodyLean'] as const) maxStep = Math.max(maxStep, Math.abs(current[key] - previous[key]))
       const phase = seconds < 3 ? 'idle' : seconds < 8 ? 'music' : seconds < 11 ? 'afterMusic'
         : seconds < 14 ? 'thinking' : seconds < 20 ? 'speechTouch' : 'finalIdle'
       const record = phases[phase] ??= { minYaw: Infinity, maxYaw: -Infinity, minBody: Infinity, maxBody: -Infinity, mouth: 0, frames: 0 }
-      record.minYaw = Math.min(record.minYaw, current.angleX); record.maxYaw = Math.max(record.maxYaw, current.angleX)
-      record.minBody = Math.min(record.minBody, current.body); record.maxBody = Math.max(record.maxBody, current.body)
-      record.mouth = Math.max(record.mouth, current.mouthOpen); record.frames++
+      record.minYaw = Math.min(record.minYaw, current.headYaw); record.maxYaw = Math.max(record.maxYaw, current.headYaw)
+      record.minBody = Math.min(record.minBody, current.bodyLean); record.maxBody = Math.max(record.maxBody, current.bodyLean)
+      record.mouth = Math.max(record.mouth, current.jaw); record.frames++
       if (phase === 'music' && motion.snapshot.owners.headBody === 'music' && motion.behaviors.some(b => b.source === 'music') && current.singing) musicFrames++
       if (seconds >= 9 && current.singing) lateMusicFrames++
       if (phase === 'thinking' && player.getTarget().thinking) thinkingFrames++
