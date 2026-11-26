@@ -557,6 +557,8 @@ Tapp の契約とツール（`tapp/crates/tapp-contract`、`tapp/shared/tapp_san
 
 2.5D 再生：[Anime2.5DRig](https://github.com/852wa/Anime2.5DRig)（MIT）。
 
+立ち絵のレイヤー分割は See-through のモデルを使います。ライセンスは CreativeML Open RAIL++-M と CreativeML Open RAIL-M で、その利用制限に従います：[サードパーティのモデル](docs/legal/THIRD_PARTY_MODELS.md)と[利用制限](docs/legal/MODEL_USE_RESTRICTIONS.md)を参照。
+
 <br/>
 
 <div align="center">

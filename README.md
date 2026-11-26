@@ -561,6 +561,8 @@ The Tapp contract and tooling (`tapp/crates/tapp-contract`, `tapp/shared/tapp_sa
 
 2.5D playback: [Anime2.5DRig](https://github.com/852wa/Anime2.5DRig) (MIT).
 
+Character layering runs the See-through models, which are licensed under CreativeML Open RAIL++-M and CreativeML Open RAIL-M and subject to their use-based restrictions: see [third-party models](docs/legal/THIRD_PARTY_MODELS.md) and [use restrictions](docs/legal/MODEL_USE_RESTRICTIONS.md).
+
 <br/>
 
 <div align="center">
