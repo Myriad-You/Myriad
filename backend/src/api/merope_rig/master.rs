@@ -59,7 +59,16 @@ pub(super) fn portrait_generation_fingerprint(
     let additional_requirements = contract
         .get("additionalRequirements")
         .and_then(Value::as_str);
-    let expected = build_character_asset_contract(name, visual_profile, additional_requirements);
+    let mut expected =
+        build_character_asset_contract(name, visual_profile, additional_requirements);
+    // The rendering block records how the portrait was drawn (visual school
+    // version, style reference), not who it depicts: a portrait drawn under an
+    // earlier school still depicts the current identity and keeps its lineage.
+    if let (Some(stored), Some(current)) =
+        (contract.get("rendering"), expected.get_mut("rendering"))
+    {
+        *current = stored.clone();
+    }
     if contract != &expected {
         tracing::warn!(
             "stored portrait generation contract does not match the current visual identity; serving portrait without fingerprint"
@@ -417,6 +426,31 @@ mod tests {
             )
             .unwrap(),
             None
+        );
+
+        let mut drawn_under_another_school = document.clone();
+        drawn_under_another_school["contract"]["rendering"] = json!({
+            "visualSchoolVersion": "an-earlier-school-v1",
+            "styleReferenceSha256": "0".repeat(64),
+            "styleReferenceRole": "rendering-technique-only",
+        });
+        let earlier = character_asset_contract_fingerprint(&drawn_under_another_school["contract"]);
+        drawn_under_another_school["fingerprint"] = json!(earlier);
+        assert_eq!(
+            portrait_generation_fingerprint("Nova", &profile, Some(&drawn_under_another_school))
+                .unwrap(),
+            Some(earlier),
+            "a portrait drawn under an earlier visual school keeps its fingerprint"
+        );
+        assert_eq!(
+            portrait_generation_fingerprint(
+                "Nova",
+                &json!({ "gender": "female" }),
+                Some(&drawn_under_another_school),
+            )
+            .unwrap(),
+            None,
+            "but not once the identity it depicts has changed"
         );
 
         let mut tampered = document;

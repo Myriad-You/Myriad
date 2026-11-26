@@ -2,9 +2,10 @@
 
 use axum::{Extension, Json, extract::State, http::StatusCode};
 use myriad_merope::{
-    CharacterAssetProfile, MEROPE_STYLE_REFERENCE_SHA256, MEROPE_VISUAL_SCHOOL_VERSION,
-    build_character_asset_contract, build_character_visual_edit_prompt,
-    build_character_visual_prompt, character_asset_contract_fingerprint,
+    CharacterAssetProfile, MEROPE_STYLE_REFERENCE_SHA256, MEROPE_VISUAL_SCHOOL,
+    MEROPE_VISUAL_SCHOOL_VERSION, build_character_asset_contract,
+    build_character_visual_edit_prompt, build_character_visual_prompt,
+    character_asset_contract_fingerprint,
 };
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use serde::Deserialize;
@@ -303,7 +304,7 @@ pub async fn generate_portrait(
         width,
         height,
         prompt_chars = prompt.chars().count(),
-        style_school_named = prompt.contains("miHoYo"),
+        style_school_included = prompt.contains(MEROPE_VISUAL_SCHOOL),
         visual_school_version = MEROPE_VISUAL_SCHOOL_VERSION,
         reference_role,
         style_reference_sha256 = MEROPE_STYLE_REFERENCE_SHA256,
