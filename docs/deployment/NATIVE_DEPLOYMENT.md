@@ -280,6 +280,7 @@ openssl rand -base64 48   # JWT_SECRET
 | `MYRIAD_SETUP_SECRET` | only if pre-set | unset | Required for setup writes **only** when this env is already set (orchestration / compose). Native wizard that types the DB itself does not need it. See [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md). |
 | `DATA_DIR` | no | `data` | App data root (phantasi, tapps). Relative to working dir. Leave default. |
 | `CACHE_DIR` | no | `cache` | Cache root. Relative to working dir. Leave default. |
+| `MYRIAD_RIG_JOBS_AT_ONCE` | no | `1` | How many figure generation jobs (turn keys, See-through splits) run at once across processes. Each holds the See-through Space and the image provider for tens of minutes; raise it only when both can take more. |
 | `MYRIAD_UPDATER_URL` / `UPDATE_TOKEN` | no | — | Docker updater proxy only. **Leave unset** on native installs; a harmless startup warning is logged. |
 
 ---

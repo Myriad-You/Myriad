@@ -162,6 +162,9 @@ pub async fn run() -> anyhow::Result<()> {
             http.abort();
         }
     }
+    // No request is answered any more: the rig jobs still running here are
+    // let go, so that a page polling one starts it again on the next process.
+    crate::services::rig_jobs::release_at_exit(&db).await;
     super::shutdown().await;
     crate::services::jobs::shutdown(crate::services::jobs::SHUTDOWN_DRAIN).await;
     result

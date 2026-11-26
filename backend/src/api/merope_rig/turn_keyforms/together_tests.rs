@@ -6,7 +6,7 @@ use std::{
 };
 
 use super::super::{
-    ApiError, JOB, claim_job, drawing::turn_places, fit_turns::Turns, served::missing_job,
+    ApiError, claim_job, drawing::turn_places, fit_turns::Turns, served::missing_job, the_job,
 };
 use super::*;
 use crate::services::{image_generation, see_through};
@@ -608,9 +608,7 @@ async fn a_turn_drawn_again_leaves_nothing_of_the_decomposition_it_replaces() {
 }
 
 fn progress() -> (Stage, u8, u8) {
-    let job = JOB.lock().unwrap();
-    let job = job.as_ref().expect("a job");
-    (job.stage, job.done, job.total)
+    the_job(|job| (job.stage, job.done, job.total))
 }
 
 /// The job's progress at each of `at`, milliseconds from now.

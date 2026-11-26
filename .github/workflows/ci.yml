@@ -444,6 +444,13 @@ jobs:
           MYRIAD_MEMORY_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_media_test
           PORTRAIT_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_media_test
         run: cargo test --workspace --locked -- services::agent::merope services::agent::memory
+      # Rig generation jobs: their records, leases, cancel and spend, and the
+      # turn keys pipeline writing through them. They skip without a database too.
+      - name: Rig generation jobs against a database
+        env:
+          MYRIAD_TEST_DB: required
+          MYRIAD_MEDIA_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_media_test
+        run: cargo test --workspace --locked -- services::rig_jobs api::merope_rig::turn_keyforms
       - name: Federation outbox and delivery lease database contracts
         env:
           MYRIAD_SCHEMA_DRIFT_DB: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift

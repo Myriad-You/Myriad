@@ -52,22 +52,23 @@ pub(super) async fn draw_turn(
     );
     let framed = frame.reference(reference)?;
     let (request_width, request_height) = frame.request();
-    let generated = crate::services::ai_cost_ledger::with_site_ai_ledger(
-        user_id,
-        "merope",
-        "turn-reference",
-        image_generation::generate_image(
-            generation,
-            prompt,
+    // Once sent, the call is seen to its end and into the ledger, the job
+    // cancelled or not (`live::detached`).
+    let (generation, prompt) = (generation.clone(), prompt.to_owned());
+    let call = async move {
+        let generated = image_generation::generate_image(
+            &generation,
+            &prompt,
             request_width,
             request_height,
             Some(&framed),
-        ),
-    )
-    .await
-    .map_err(portrait_generation_provider_error)?;
-    let (bytes, _) = image_generation::load_generated_bytes(generated)
+        )
+        .await?;
+        image_generation::load_generated_bytes(generated).await
+    };
+    let (bytes, _) = super::live::detached(super::live::drawing_attribution(user_id), call)
         .await
+        .ok_or_else(|| internal_error("a turned drawing's call stopped"))?
         .map_err(portrait_generation_provider_error)?;
     // The provider may answer at its own size; lined up means the master's.
     frame.fit(&bytes)
@@ -505,6 +506,7 @@ pub(super) async fn decompose_waiting(
                 attempt += 1;
                 tracing::warn!(%error, attempt, "decomposition failed; retrying");
                 tokio::time::sleep(retry_delay(attempt)).await;
+                super::live::note_retry();
             }
             Err(error) => return Err(see_through_error(error)),
         }
@@ -560,6 +562,7 @@ where
                 attempt += 1;
                 tracing::warn!(%error, attempt, step, "Space step failed; retrying");
                 tokio::time::sleep(retry_delay(attempt)).await;
+                super::live::note_retry();
             }
             out => return out,
         }
