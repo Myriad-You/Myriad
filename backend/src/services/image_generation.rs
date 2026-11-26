@@ -755,7 +755,7 @@ fn request_parts_with_background(
             let mut body = json!({
                 "model": config.model,
                 "prompt": prompt,
-                "aspect_ratio": aspect_ratio(width, height)
+                "aspect_ratio": named_aspect_ratio(width, height)
             });
             if options.include_n {
                 body["n"] = json!(1);
@@ -964,22 +964,63 @@ fn gpt_image_quality(model: &str) -> Option<&'static str> {
     is_gpt_image_model(model).then_some("high")
 }
 
-fn aspect_ratio(width: u32, height: u32) -> &'static str {
-    if width == height {
-        "1:1"
-    } else if width.saturating_mul(2) == height.saturating_mul(3) {
-        "3:2"
-    } else if width.saturating_mul(3) == height.saturating_mul(2) {
-        "2:3"
-    } else if width.saturating_mul(3) == height.saturating_mul(4) {
-        "4:3"
-    } else if width.saturating_mul(4) == height.saturating_mul(3) {
-        "3:4"
-    } else if width > height {
-        "16:9"
-    } else {
-        "9:16"
-    }
+/// The ratios OpenRouter and Gemini are asked for by name.
+const NAMED_RATIOS: [(u32, u32, &str); 7] = [
+    (1, 1, "1:1"),
+    (3, 2, "3:2"),
+    (2, 3, "2:3"),
+    (4, 3, "4:3"),
+    (3, 4, "3:4"),
+    (16, 9, "16:9"),
+    (9, 16, "9:16"),
+];
+
+/// GPT Image 1 draws at one of three sizes (`image_size_param`).
+const GPT_IMAGE_1_RATIOS: [(u32, u32, &str); 3] = [(1, 1, ""), (3, 2, ""), (2, 3, "")];
+
+/// The named ratio closest to `width` x `height`; an exact one is itself.
+pub fn named_aspect_ratio(width: u32, height: u32) -> &'static str {
+    nearest_ratio(&NAMED_RATIOS, width, height).2
+}
+
+fn nearest_ratio(
+    ratios: &[(u32, u32, &'static str)],
+    width: u32,
+    height: u32,
+) -> (u32, u32, &'static str) {
+    let wanted = (f64::from(width.max(1)) / f64::from(height.max(1))).ln();
+    ratios
+        .iter()
+        .copied()
+        .min_by(|a, b| {
+            let off =
+                |(w, h, _): (u32, u32, &str)| (wanted - (f64::from(w) / f64::from(h)).ln()).abs();
+            off(*a).total_cmp(&off(*b))
+        })
+        .expect("ratios")
+}
+
+/// The shape, as `(width, height)` in any unit, of the picture the provider
+/// draws for a `width` x `height` request. Providers that take a ratio by
+/// name or a few fixed sizes draw at one of those, not at the request's own
+/// shape; a caller that must line the picture up with a source pads the
+/// source to this shape first.
+pub fn drawn_aspect(config: &ImageGenerationConfig, width: u32, height: u32) -> (u32, u32) {
+    let width = width.max(1);
+    let height = height.max(1);
+    let (w, h, _) = match config.provider.as_str() {
+        "gemini" | "openrouter" => nearest_ratio(&NAMED_RATIOS, width, height),
+        "volcengine" | "ark" | "seedream" => return (width, height),
+        _ if is_gpt_image_1(&config.model) => nearest_ratio(&GPT_IMAGE_1_RATIOS, width, height),
+        _ if is_gpt_image_2(&config.model)
+            && snap_multiple(width, 16).saturating_mul(snap_multiple(height, 16))
+                < GPT_IMAGE_2_MIN_PIXELS =>
+        {
+            (1, 1, "")
+        }
+        _ => return (width, height),
+    };
+    (w, h)
 }
 
 fn reference_file_name(media_type: &str) -> &'static str {
@@ -1471,6 +1512,48 @@ mod tests {
         assert!(body.get("n").is_none());
         assert_eq!(body["aspect_ratio"], "3:4");
         assert_eq!(body["input_references"][0]["image_url"]["url"], reference);
+    }
+
+    #[test]
+    fn a_ratio_off_every_named_one_asks_for_the_nearest() {
+        for (width, height, ratio) in [
+            (1278, 1230, "1:1"),
+            (900, 1350, "2:3"),
+            (1000, 1300, "3:4"),
+            (1152, 1536, "3:4"),
+            (1536, 1024, "3:2"),
+            (1000, 512, "16:9"),
+            (700, 2000, "9:16"),
+        ] {
+            assert_eq!(named_aspect_ratio(width, height), ratio, "{width}x{height}");
+            assert_eq!(
+                crate::services::gemini_media::gemini_aspect_ratio(width, height),
+                ratio
+            );
+        }
+    }
+
+    #[test]
+    fn the_drawn_aspect_is_what_the_provider_draws_at() {
+        let config = |provider: &str, model: &str| ImageGenerationConfig {
+            provider: provider.to_string(),
+            model: model.to_string(),
+            api_key: "secret".to_string(),
+            base_url: "https://example.com/v1".to_string(),
+        };
+        let openrouter = config("openrouter", "openai/gpt-image-2");
+        assert_eq!(drawn_aspect(&openrouter, 1278, 1230), (1, 1));
+        assert_eq!(drawn_aspect(&openrouter, 1152, 1536), (3, 4));
+        let gemini = config("gemini", "gemini-3.1-flash-image");
+        assert_eq!(drawn_aspect(&gemini, 900, 1350), (2, 3));
+        let gpt_image_1 = config("openai", "gpt-image-1");
+        assert_eq!(drawn_aspect(&gpt_image_1, 1152, 1536), (2, 3));
+        assert_eq!(drawn_aspect(&gpt_image_1, 1278, 1230), (1, 1));
+        let gpt_image_2 = config("openai", "gpt-image-2");
+        assert_eq!(drawn_aspect(&gpt_image_2, 1278, 1230), (1278, 1230));
+        assert_eq!(drawn_aspect(&gpt_image_2, 1000, 512), (1, 1));
+        let ark = config("volcengine", "seedream-4-0");
+        assert_eq!(drawn_aspect(&ark, 1278, 1230), (1278, 1230));
     }
 
     #[test]

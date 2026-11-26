@@ -61,21 +61,7 @@ pub fn generate_content_url(base_url: &str, model: &str) -> String {
 }
 
 pub fn gemini_aspect_ratio(width: u32, height: u32) -> &'static str {
-    if width == height {
-        "1:1"
-    } else if width.saturating_mul(2) == height.saturating_mul(3) {
-        "3:2"
-    } else if width.saturating_mul(3) == height.saturating_mul(2) {
-        "2:3"
-    } else if width.saturating_mul(3) == height.saturating_mul(4) {
-        "4:3"
-    } else if width.saturating_mul(4) == height.saturating_mul(3) {
-        "3:4"
-    } else if width > height {
-        "16:9"
-    } else {
-        "9:16"
-    }
+    crate::services::image_generation::named_aspect_ratio(width, height)
 }
 
 pub fn image_request_body(
