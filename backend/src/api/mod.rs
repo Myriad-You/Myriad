@@ -24,6 +24,7 @@ pub mod mal;
 pub mod media;
 pub mod media_edit;
 pub mod media_public;
+pub mod media_video;
 pub mod merope_rig; // Site-wide Anime2.5D face for Agent 人设
 pub mod metrics;
 pub mod model3d; // Tripo-backed 3D generation + persisted Web GLBs

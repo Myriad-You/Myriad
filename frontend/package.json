@@ -55,7 +55,8 @@
     "react-router-dom": "^7.18.4",
     "shiki": "^4.5.0",
     "tailwindcss": "^4.3.3",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "uqr": "^0.1.3"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^9.5.1",

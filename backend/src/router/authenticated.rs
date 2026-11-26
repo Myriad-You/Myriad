@@ -99,6 +99,29 @@ pub(super) fn build_authenticated_router(
                 )),
         )
         .route(
+            "/api/media/video-jobs",
+            post(api::media_video::create_job)
+                .layer(axum::extract::DefaultBodyLimit::max(8 * 1024 * 1024))
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::admin_middleware,
+                )),
+        )
+        .route(
+            "/api/media/video-jobs/{id}",
+            get(api::media_video::job_status).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::admin_middleware,
+            )),
+        )
+        .route(
+            "/api/media/video-jobs/{id}/content",
+            get(api::media_video::job_content).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::admin_middleware,
+            )),
+        )
+        .route(
             "/api/media/{id}/edit-preview",
             post(api::media_edit::preview_edit)
                 .layer(axum::extract::DefaultBodyLimit::max(16 * 1024))
