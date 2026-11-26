@@ -6,7 +6,11 @@
 //!
 //! 整个过程要几十分钟（四次生图、五次拆层、一次拟合），在后台跑；前端轮询
 //! 进度，完成后取回烘焙过的拆层与关键形，照常导入。页面离开不影响任务：还在跑的、
-//! 做完没被取走的、失败还没报过的，页面回来时接上（`pickup`）。同一时间只跑一个任务；
+//! 做完没被取走的、失败还没报过的，页面回来时接上（`pickup`）。每个任务是数据库里的
+//! 一条记录（`services::rig_jobs`）：进度、每一步的耗时与重试、出错、结果放在哪、花费记在
+//! 账上的哪个 id；页面读的都是记录（`live`）。同时跑的任务数有上限，默认一个；
+//! 同一个调用方带同一个 `Idempotency-Key` 提交，拿到的是同一个任务；任务可以取消。
+//! 跑任务的进程不在了，它的任务记成中断（租约过期），不自动重跑。
 //! 任务里互不依赖的生图与拆层一起发出去（`together`），拟合仍是一次一个。
 //! 转头图一画好就开始拆层，和正面拆层同时进行；正面拆层和四张图到齐后预检
 //! 一次，画过头的那张重画一次再拆。
@@ -29,7 +33,7 @@
 
 use std::{
     io::Cursor,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -37,7 +41,7 @@ use axum::{
     Json,
     body::Body,
     extract::{Extension, Path, Query, State},
-    http::{HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::Response,
 };
 use sea_orm::DatabaseConnection;
@@ -54,12 +58,14 @@ use super::{
 };
 use crate::{
     middleware::auth::Claims,
-    services::{image_generation, see_through},
+    services::{image_generation, rig_jobs, see_through},
 };
 
 mod archive;
 mod body_turn;
 mod cache;
+mod claim;
+mod ending;
 mod drawing;
 mod figure;
 mod figure_picture;
@@ -67,6 +73,7 @@ mod fit_turns;
 mod hair_misfit;
 mod head_first;
 mod judge;
+mod live;
 mod pickup;
 mod served;
 mod together;
@@ -85,14 +92,18 @@ pub(super) use figure::{enlarged_figure, super_resolved};
 use figure::{fit, plain, put_back, run_figure};
 pub use figure_picture::get_full_body_figure_picture;
 use head_first::{HeadSplit, TileSteps, Way, head_first, in_tiles};
-use pickup::{Asked, Beside, Told};
+#[cfg(test)]
+use claim::{claim_job, the_job};
+use claim::{Submission, claim, idempotency_key};
+use ending::{cancelled, end, finish};
+use pickup::{Asked, Beside};
 #[cfg(test)]
 use served::missing_job;
 use served::space_client;
 pub use served::{
-    delete_turn_archive, download_turn_archive, get_turn_keyforms, get_turn_keyforms_keys,
-    get_turn_keyforms_psd, list_turn_archives, load_turn_archive, refit_turn_archive,
-    running_turn_keyforms,
+    cancel_turn_keyforms, delete_turn_archive, download_turn_archive, get_turn_keyforms,
+    get_turn_keyforms_keys, get_turn_keyforms_psd, get_turn_keyforms_record, list_turn_archives,
+    load_turn_archive, refit_turn_archive, running_turn_keyforms,
 };
 use together::{all_or_first_error, kept_or_made, turns_beside_front};
 pub use upload::{
@@ -174,9 +185,6 @@ struct BodyProgress {
 
 struct Job {
     id: String,
-    /// None: the worn bust; Some: a full-body set.
-    outfit_id: Option<String>,
-    master_asset_id: String,
     stage: Stage,
     phase: Phase,
     /// A standing figure's body keys, made alongside: none until they start.
@@ -189,33 +197,102 @@ struct Job {
     /// The archive the finished job was kept as.
     archive_id: Option<String>,
     started: Instant,
-    /// What the job was asked for, for a page picking it up.
-    asked: Asked,
-    /// What a page has had of the job's end.
-    told: Told,
+    /// The steps begun, in order (`timed`, `took`).
+    steps: Vec<live::Step>,
+    /// Where the steps run.
+    targets: live::Targets,
+    /// Bumped by every change, so that only what changed is written.
+    version: u64,
+    cancel: Arc<tokio::sync::Notify>,
 }
 
-static JOB: Mutex<Option<Job>> = Mutex::new(None);
+impl Job {
+    fn new(id: String, phase: Phase, stage: Stage, total: u8, targets: live::Targets) -> Self {
+        Self {
+            id,
+            stage,
+            phase,
+            body: None,
+            done: 0,
+            total,
+            error: None,
+            psd: None,
+            keyforms: None,
+            archive_id: None,
+            started: Instant::now(),
+            steps: Vec::new(),
+            targets,
+            version: 0,
+            cancel: live::cancel_notifier(),
+        }
+    }
+
+    fn ended(&self) -> bool {
+        matches!(self.stage, Stage::Done | Stage::Failed)
+    }
+}
 
 fn update(id: &str, change: impl FnOnce(&mut Job)) {
-    let mut job = JOB.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(job) = job.as_mut().filter(|job| job.id == id) {
+    update_quietly(id, |job| {
+        change(job);
+        job.version += 1;
+    });
+}
+
+/// `update`, as nothing to write again.
+fn update_quietly(id: &str, change: impl FnOnce(&mut Job)) {
+    let mut jobs = live::JOBS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(job) = jobs.get_mut(id) {
         change(job);
     }
 }
 
 /// One line as a step of a job ends: the job, the step and how long it took.
-/// Nothing of what the step was given or made.
+/// Nothing of what the step was given or made. The step is kept with its job.
 fn took(id: &str, step: &'static str, began: Instant) {
     let ms = began.elapsed().as_millis() as u64;
     tracing::info!(job = %id, step, ms, "turn keyforms step ended");
+    update(id, |job| {
+        let seq = job.step_began(step, began);
+        job.step_ended(seq, true);
+    });
 }
 
-/// `work` run to its end, with its line (`took`) however it ended.
-async fn timed<T>(id: &str, step: &'static str, work: impl Future<Output = T>) -> T {
+/// Whether a step's output is a failure.
+trait StepOutcome {
+    fn ok(&self) -> bool;
+}
+
+impl<T, E> StepOutcome for Result<T, E> {
+    fn ok(&self) -> bool {
+        self.is_ok()
+    }
+}
+
+impl StepOutcome for image_generation::ImageReference {
+    fn ok(&self) -> bool {
+        true
+    }
+}
+
+/// `work` run to its end as a step of the job, with its line however it
+/// ended; the calls it tries again are counted on it (`live::note_retry`).
+async fn timed<T: StepOutcome>(id: &str, step: &'static str, work: impl Future<Output = T>) -> T {
     let began = Instant::now();
-    let out = work.await;
-    took(id, step, began);
+    let mut seq = None;
+    update(id, |job| seq = Some(job.step_began(step, began)));
+    let out = match seq {
+        Some(seq) => live::as_step(id, seq, work).await,
+        None => work.await,
+    };
+    let ms = began.elapsed().as_millis() as u64;
+    tracing::info!(job = %id, step, ms, "turn keyforms step ended");
+    if let Some(seq) = seq {
+        let ok = out.ok();
+        update(id, |job| job.step_ended(seq, ok));
+    }
     out
 }
 
@@ -224,55 +301,6 @@ fn slot_of(outfit_id: Option<&str>) -> MasterSlot<'_> {
         Some(outfit) => MasterSlot::FullBody(outfit),
         None => MasterSlot::WornBust,
     }
-}
-
-/// The one job slot: a new job, or the one already running for the same
-/// master (a reload, a second tab), or a conflict with another one.
-fn claim_job(
-    outfit_id: &Option<String>,
-    master_asset_id: &str,
-    stage: Stage,
-    total: u8,
-) -> Result<(String, bool), ApiError> {
-    let mut job = JOB.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(running) = job
-        .as_ref()
-        .filter(|job| !matches!(job.stage, Stage::Done | Stage::Failed))
-    {
-        if running.outfit_id == *outfit_id && running.master_asset_id == master_asset_id {
-            return Ok((running.id.clone(), false));
-        }
-        return Err((
-            StatusCode::CONFLICT,
-            Json(json!({
-                "error": "Turn keys are already being made",
-                "code": "turn_keyforms_in_progress"
-            })),
-        ));
-    }
-    let id = uuid::Uuid::new_v4().simple().to_string();
-    *job = Some(Job {
-        id: id.clone(),
-        outfit_id: outfit_id.clone(),
-        master_asset_id: master_asset_id.to_owned(),
-        stage,
-        phase: if outfit_id.is_some() {
-            Phase::Figure
-        } else {
-            Phase::Bust
-        },
-        body: None,
-        done: 0,
-        total,
-        error: None,
-        psd: None,
-        keyforms: None,
-        archive_id: None,
-        started: Instant::now(),
-        asked: Asked::default(),
-        told: Told::default(),
-    });
-    Ok((id, true))
 }
 
 /// Everything a job made, to keep and to hand to the importer.
@@ -285,62 +313,6 @@ struct Made {
     /// Kept in the archive: a job with turn keys. A plain figure's
     /// decomposition is handed out only.
     keep: bool,
-}
-
-/// Ends a job: kept in the archive and handed out when the master is still
-/// the one it was made for, else failed.
-async fn finish(
-    db: &DatabaseConnection,
-    task_id: &str,
-    result: ApiResult<Made>,
-    meta: ArchiveMeta,
-) {
-    let still_current = require_master_match(
-        db,
-        slot_of(meta.outfit_id.as_deref()),
-        &meta.source_master_asset_id,
-        meta.source_generation_fingerprint.as_deref(),
-    )
-    .await;
-    match (result, still_current) {
-        (Ok(made), Ok(_)) => {
-            let meta = ArchiveMeta {
-                master_media_type: made.master_media_type.clone(),
-                redrawn: made.redrawn.clone(),
-                figure: made.figure.clone(),
-                body_motions: made
-                    .figure
-                    .is_some()
-                    .then(|| body_turn::motions_of(&made.files.keyforms)),
-                ..meta
-            };
-            let archive_id = match made.keep.then_some(()) {
-                Some(()) => match archive::save(meta, &made.files).await {
-                    Ok(id) => Some(id),
-                    Err(error) => {
-                        tracing::warn!(%error, job = %task_id, "turn keys could not be archived");
-                        None
-                    }
-                },
-                None => None,
-            };
-            let ArchiveFiles {
-                keyforms, baked, ..
-            } = made.files;
-            update(task_id, |job| {
-                job.stage = Stage::Done;
-                job.psd = Some(Arc::new(baked));
-                job.keyforms = Some(Arc::new(keyforms));
-                job.archive_id = archive_id;
-                tracing::info!(job = %job.id, seconds = job.started.elapsed().as_secs(), archive = ?job.archive_id, "turn keyforms done");
-            });
-        }
-        (Err((_, Json(error))), _) | (_, Err((_, Json(error)))) => update(task_id, |job| {
-            tracing::warn!(job = %job.id, ?error, "turn keyforms failed");
-            job.stage = Stage::Failed;
-            job.error = Some(error);
-        }),
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -377,12 +349,14 @@ pub async fn start_turn_keyforms(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
     Query(beside): Query<Beside>,
+    headers: HeaderMap,
     Json(payload): Json<TurnKeyformsRequest>,
 ) -> ApiResult<Json<Value>> {
     if !payload.head && !payload.plain {
         return Err(bad_request("A bust's enhancement keys its head"));
     }
-    start(db, &claims, None, payload, beside).await
+    let key = idempotency_key(&headers)?;
+    start(db, &claims, None, payload, beside, key).await
 }
 
 pub async fn start_full_body_turn_keyforms(
@@ -390,6 +364,7 @@ pub async fn start_full_body_turn_keyforms(
     Extension(claims): Extension<Claims>,
     Path(outfit_id): Path<String>,
     Query(beside): Query<Beside>,
+    headers: HeaderMap,
     Json(payload): Json<TurnKeyformsRequest>,
 ) -> ApiResult<Json<Value>> {
     if !payload.head && !payload.body {
@@ -398,7 +373,8 @@ pub async fn start_full_body_turn_keyforms(
     if payload.plain {
         return Err(bad_request("A set is split plain by keying neither part"));
     }
-    start(db, &claims, Some(outfit_id), payload, beside).await
+    let key = idempotency_key(&headers)?;
+    start(db, &claims, Some(outfit_id), payload, beside, key).await
 }
 
 async fn start(
@@ -407,6 +383,7 @@ async fn start(
     outfit_id: Option<String>,
     payload: TurnKeyformsRequest,
     beside: Beside,
+    idempotency_key: Option<String>,
 ) -> ApiResult<Json<Value>> {
     let keys = FigureKeys {
         head: payload.head,
@@ -425,6 +402,25 @@ async fn start(
         return Err(bad_request(
             "Source generation fingerprint must be a SHA-256 hex digest",
         ));
+    }
+    let plain = outfit_id.is_none() && payload.plain;
+    let phase = if outfit_id.is_some() {
+        Phase::Figure
+    } else if plain {
+        Phase::Plain
+    } else {
+        Phase::Bust
+    };
+    let submission = Submission {
+        user_id,
+        idempotency_key,
+        outfit_id: outfit_id.clone(),
+        source_master_asset_id: payload.source_master_asset_id.clone(),
+        source_generation_fingerprint: fingerprint.clone(),
+        asked: Asked::started(outfit_id.is_some(), &payload, beside),
+    };
+    if let Some(id) = submission.given_before(&db, phase).await? {
+        return Ok(Json(json!({ "jobId": id })));
     }
     let master = require_master_match(
         &db,
@@ -447,7 +443,6 @@ async fn start(
         see_through::DecomposeOptions::default(),
     );
 
-    let plain = outfit_id.is_none() && payload.plain;
     let (stage, total) = if outfit_id.is_some() {
         (Stage::Upscaling, 1)
     } else if plain {
@@ -455,17 +450,14 @@ async fn start(
     } else {
         (Stage::Generating, 4)
     };
-    let (id, new) = claim_job(&outfit_id, &master.asset_id, stage, total)?;
+    let targets = live::Targets {
+        space: Some(space_name.clone()),
+        image: Some(format!("{}/{}", generation.provider, generation.model)),
+    };
+    let (id, new) = claim(&db, &submission, phase, stage, total, targets).await?;
     if !new {
         return Ok(Json(json!({ "jobId": id })));
     }
-    let asked = Asked::started(outfit_id.is_some(), &payload, beside);
-    update(&id, |job| {
-        job.asked = asked;
-        if plain {
-            job.phase = Phase::Plain;
-        }
-    });
     tracing::info!(job = %id, outfit = ?outfit_id, "turn keyforms started");
     let meta = ArchiveMeta {
         id: archive::new_id(),
@@ -488,34 +480,37 @@ async fn start(
     let task_id = id.clone();
     let standing = outfit_id.is_some();
     tokio::spawn(async move {
-        let result = if standing {
-            run_figure(
-                &task_id,
-                user_id,
-                &generation,
-                reference,
-                &client,
-                &space_name,
-                keys,
-            )
-            .await
-        } else if plain {
-            run_plain(&task_id, reference, &client, &cache).await
-        } else {
-            let alone = HeadSplit::unwatched();
-            run(
-                &task_id,
-                user_id,
-                &generation,
-                reference,
-                &client,
-                &cache,
-                alone,
-            )
-            .await
+        let work = async {
+            let result = if standing {
+                run_figure(
+                    &task_id,
+                    user_id,
+                    &generation,
+                    reference,
+                    &client,
+                    &space_name,
+                    keys,
+                )
+                .await
+            } else if plain {
+                run_plain(&task_id, reference, &client, &cache).await
+            } else {
+                let alone = HeadSplit::unwatched();
+                run(
+                    &task_id,
+                    user_id,
+                    &generation,
+                    reference,
+                    &client,
+                    &cache,
+                    alone,
+                )
+                .await
+            };
+            prune_cache(cache_root(), CACHE_KEEP).await;
+            result
         };
-        prune_cache(cache_root(), CACHE_KEEP).await;
-        finish(&db, &task_id, result, meta).await;
+        live::run_job(db.clone(), task_id.clone(), work, meta).await;
     });
     Ok(Json(json!({ "jobId": id })))
 }
@@ -701,8 +696,7 @@ mod tests {
         let (head, body) = alongside(&id, async { Ok(made()) }, body).await;
         assert!(head.is_ok());
         assert_eq!(body, Some(7));
-        let stage = JOB.lock().unwrap().as_ref().map(|job| job.stage);
-        assert_eq!(stage, Some(Stage::Fitting));
+        assert_eq!(the_job(|job| job.stage), Stage::Fitting);
         update(&id, |job| job.stage = Stage::Done);
         // The body is done first: kept until the head is.
         let head = async {

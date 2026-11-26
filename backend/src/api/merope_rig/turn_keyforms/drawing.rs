@@ -52,10 +52,8 @@ pub(super) async fn draw_turn(
     );
     let framed = frame.reference(reference)?;
     let (request_width, request_height) = frame.request();
-    let generated = crate::services::ai_cost_ledger::with_site_ai_ledger(
-        user_id,
-        "merope",
-        "turn-reference",
+    let generated = crate::services::ai_cost_ledger::with_ai_ledger_attribution(
+        super::live::drawing_attribution(user_id),
         image_generation::generate_image(
             generation,
             prompt,
@@ -505,6 +503,7 @@ pub(super) async fn decompose_waiting(
                 attempt += 1;
                 tracing::warn!(%error, attempt, "decomposition failed; retrying");
                 tokio::time::sleep(retry_delay(attempt)).await;
+                super::live::note_retry();
             }
             Err(error) => return Err(see_through_error(error)),
         }
@@ -560,6 +559,7 @@ where
                 attempt += 1;
                 tracing::warn!(%error, attempt, step, "Space step failed; retrying");
                 tokio::time::sleep(retry_delay(attempt)).await;
+                super::live::note_retry();
             }
             out => return out,
         }

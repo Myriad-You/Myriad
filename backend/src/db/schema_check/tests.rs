@@ -114,6 +114,8 @@ fn test_folded_extension_tables_in_expected_schema() {
         "agent_persona_field_history",
         "agent_intentions",
         "agent_autonomy_grants",
+        "rig_jobs",
+        "rig_job_steps",
         // 005 扩展
         "federation_content_filters",
         "federation_policy_settings",
@@ -701,6 +703,8 @@ DROP TABLE agent_affect_events;
 DROP TABLE agent_persona_field_history;
 DROP TABLE agent_node_kept;
 DROP TABLE agent_takeback_check;
+DROP TABLE rig_job_steps;
+DROP TABLE rig_jobs;
 INSERT INTO agent_persona (id, name, updated_at) VALUES ('site', 'Merope', NOW());
 ALTER TABLE agent_persona DROP COLUMN zone, DROP COLUMN field_revs;
 INSERT INTO agent_memories (id, kind, content, source, venue, valid_from, created_at, updated_at)
@@ -727,6 +731,17 @@ ALTER TABLE agent_proactive_messages DROP COLUMN say_id, DROP COLUMN metadata;
         .unwrap()
         .unwrap();
     assert!(kept.try_get::<bool>("", "there").unwrap());
+    // A database from before rig generation jobs gets both tables.
+    let jobs = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT to_regclass('rig_jobs') IS NOT NULL \
+             AND to_regclass('rig_job_steps') IS NOT NULL AS there",
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(jobs.try_get::<bool>("", "there").unwrap());
     // On a database that ran 004 and was healed, the file runs again as it is.
     db.execute_unprepared(include_str!("../../../migrations/memory_nodes.sql"))
         .await

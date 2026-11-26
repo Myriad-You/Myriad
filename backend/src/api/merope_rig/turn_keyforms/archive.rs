@@ -219,6 +219,18 @@ async fn list_in(root: &Path) -> Vec<ArchiveMeta> {
     found
 }
 
+/// How a job's record names the archive its result is kept in.
+pub(super) fn result_ref(id: &str) -> String {
+    format!("{RESULT_REF}{id}")
+}
+
+/// The archive a job's record names as where its result is kept.
+pub(super) fn of_result_ref(result_ref: &str) -> Option<&str> {
+    result_ref.strip_prefix(RESULT_REF)
+}
+
+const RESULT_REF: &str = "turn-archive:";
+
 pub(super) async fn read_meta(id: &str) -> Option<ArchiveMeta> {
     read_meta_in(&archive_root(), id).await
 }

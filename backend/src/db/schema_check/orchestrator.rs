@@ -135,7 +135,10 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// 2026.11.20.1：`agent_sync_devices` 加 `link_versions`（它的链接上次说的版本：hello 里的 App，
 /// 说过 `link.versions` 之后加上核心、契约和站点的判断；只有名字和数字），设备页据此显示落后、
 /// 比站点新、各端不齐（`persona_sync.sql`，旧库走通用 ADD）。旧二进制不认识它也照常启动。
-pub const SCHEMA_VERSION: &str = "2026.11.20.1";
+/// 2026.11.26.1：形象的生成任务 `rig_jobs` 与它跑过的每一步 `rig_job_steps`（进度、租约、
+/// 取消、出错、结果放在哪、花费记在账上的哪个 id、每一步的耗时与算力；`rig_jobs.sql`，随 004 与
+/// `ensure_rig_jobs_tables` 一起建）。旧二进制不认识它们也照常启动。
+pub const SCHEMA_VERSION: &str = "2026.11.26.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -400,6 +403,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     ensure_speech_said_table(db).await?;
     ensure_topic_nodes_tables(db).await?;
     ensure_memory_nodes_tables(db).await?;
+    ensure_rig_jobs_tables(db).await?;
     // Once: what she said of herself, kept as hers before it was kept by
     // where she said it, goes where she said it. Not worth keeping the site
     // down for: a failure is logged and tried again at the next start.

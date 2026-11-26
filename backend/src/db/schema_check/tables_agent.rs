@@ -1136,6 +1136,65 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
+            name: "rig_jobs".to_string(),
+            columns: vec![
+                ColumnDef::new("id", "character varying").not_null(),
+                ColumnDef::new("kind", "character varying").not_null(),
+                ColumnDef::new("caller", "character varying").not_null(),
+                ColumnDef::new("owner_user_id", "integer"),
+                ColumnDef::new("idempotency_key", "character varying"),
+                ColumnDef::new("request_digest", "character varying").not_null(),
+                ColumnDef::new("subject", "character varying"),
+                ColumnDef::new("input", "jsonb").not_null(),
+                ColumnDef::new("state", "character varying")
+                    .not_null()
+                    .default_value("'queued'"),
+                ColumnDef::new("progress", "jsonb")
+                    .not_null()
+                    .default_value("'{}'::jsonb"),
+                ColumnDef::new("attempts", "integer")
+                    .not_null()
+                    .default_value("0"),
+                ColumnDef::new("error_code", "character varying"),
+                ColumnDef::new("error_message", "text"),
+                ColumnDef::new("error_detail", "jsonb"),
+                ColumnDef::new("result_ref", "character varying"),
+                ColumnDef::new("ledger_task_id", "character varying").not_null(),
+                ColumnDef::new("runner", "character varying"),
+                ColumnDef::new("heartbeat_at", "timestamp with time zone"),
+                ColumnDef::new("cancel_requested_at", "timestamp with time zone"),
+                ColumnDef::new("delivered", "jsonb")
+                    .not_null()
+                    .default_value("'{}'::jsonb"),
+                ColumnDef::new("created_at", "timestamp with time zone")
+                    .not_null()
+                    .default_value("now()"),
+                ColumnDef::new("started_at", "timestamp with time zone"),
+                ColumnDef::new("ended_at", "timestamp with time zone"),
+                ColumnDef::new("updated_at", "timestamp with time zone")
+                    .not_null()
+                    .default_value("now()"),
+            ],
+        },
+        TableDef {
+            name: "rig_job_steps".to_string(),
+            columns: vec![
+                ColumnDef::new("job_id", "character varying").not_null(),
+                ColumnDef::new("seq", "integer").not_null(),
+                ColumnDef::new("name", "character varying").not_null(),
+                ColumnDef::new("state", "character varying").not_null(),
+                ColumnDef::new("attempts", "integer")
+                    .not_null()
+                    .default_value("1"),
+                ColumnDef::new("backend", "character varying").not_null(),
+                ColumnDef::new("backend_target", "character varying"),
+                ColumnDef::new("started_at", "timestamp with time zone").not_null(),
+                ColumnDef::new("ended_at", "timestamp with time zone"),
+                ColumnDef::new("wall_seconds", "double precision"),
+                ColumnDef::new("gpu_seconds", "double precision"),
+            ],
+        },
+        TableDef {
             name: "agent_forgotten".to_string(),
             columns: vec![
                 ColumnDef::new("user_id", "integer").not_null(),
