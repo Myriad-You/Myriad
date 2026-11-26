@@ -1,5 +1,8 @@
 # Use restrictions for the character layering models
 
+> **Pending legal review.** This document, and in particular the sentence under
+> "Restrictions" that binds users, has not been reviewed by a lawyer.
+
 This document applies to character layering in Myriad: the step that splits a
 character portrait into layers (hair, face, clothes, …) and estimates their
 depth with the See-through models, and every use of the layers and depth it
@@ -10,8 +13,7 @@ returns. The models and their licences are listed in
 
 The layering and depth models are subject to the use-based restrictions of the
 CreativeML Open RAIL++-M License and the CreativeML Open RAIL-M License
-(paragraph 5 and Attachment A of each). Using character layering means using
-these models.
+(paragraph 5 and Attachment A of each).
 
 ## Restrictions
 
@@ -50,8 +52,4 @@ lists the same restrictions word for word.
 
 A Myriad site does not load these models. It sends the portrait to a
 See-through Space on Hugging Face, and the models run there (see
-[THIRD_PARTY_MODELS.md](THIRD_PARTY_MODELS.md)). Paragraph 4 of these licences
-permits hosting the models for third-party remote access provided that the
-use-based restrictions are included as an enforceable provision in the agreement
-that governs that use, and that users are given notice that the models are
-subject to them.
+[THIRD_PARTY_MODELS.md](THIRD_PARTY_MODELS.md)).

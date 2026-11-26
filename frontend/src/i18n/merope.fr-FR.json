@@ -118,7 +118,7 @@
   "motionPsdUploading": "Lecture du PSD…",
   "visualConfirm": "Le modèle d’image peut engendrer des frais. Générer le portrait principal maintenant ? Une régénération efface le rig importé.",
   "anime25dSeeThroughCredit": "Sépare le portrait en calques : cheveux, visage, vêtements.",
-  "anime25dSeeThroughModelNotice": "Les modèles de découpage en calques sont sous licence CreativeML Open RAIL++-M et Open RAIL-M et ne peuvent pas servir aux usages que ces licences interdisent.",
+  "anime25dSeeThroughModelNotice": "Les modèles de découpage en calques sont soumis aux restrictions d’usage des licences CreativeML Open RAIL++-M et CreativeML Open RAIL-M.",
   "anime25dSeeThroughModelTerms": "Restrictions d’usage",
   "anime25dRuntimeCredit": "Anime clignement, parole et rotation de tête sur ces calques.",
   "anime25dProjectThanks": "La persona s’appuie sur ces projets. Merci à",

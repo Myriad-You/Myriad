@@ -17,7 +17,11 @@ use tract_onnx::prelude::*;
 
 use crate::services::data_paths;
 
-/// The whole-body model, distilled RTMPose-l at 288×384 (Apache-2.0).
+/// The whole-body model, distilled RTMPose-l at 288×384. Apache-2.0 (as tagged by its
+/// publisher). The weights were trained on whole-body keypoint data (COCO-WholeBody and
+/// UBody) whose annotations are licensed for research and non-commercial use by their
+/// owner; the tag describes the weights' stated licence only. See
+/// `docs/legal/THIRD_PARTY_MODELS.md`.
 const MODEL_URL: &str = "https://huggingface.co/yzd-v/DWPose/resolve/main/dw-ll_ucoco_384.onnx";
 const MODEL_FILE: &str = "dw-ll_ucoco_384.onnx";
 const MODEL_SHA256: &str = "724f4ff2439ed61afb86fb8a1951ec39c6220682803b4a8bd4f598cd913b1843";
