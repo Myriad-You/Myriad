@@ -37,8 +37,13 @@ where
 }
 
 /// Ask the judge once what to look for, matching production's single-attempt
-/// budget with schema in the prompt (`JsonShape::InPrompt`), and classify the
-/// first-attempt outcome.
+/// `JsonShape::InPrompt` call, and classify the first-attempt outcome.
+///
+/// Note: bench calls have no 6-second production wall-clock timeout, so
+/// `scores.cuesTries.firstAttemptFailedRate` measures a optimistic/lower bound
+/// relative to production `remembering::counts()`. Additionally, only the main
+/// `longmemeval` (`answer_for`) path records `cuesTries`; `weeks`, `full_size`,
+/// and `background` call `ask_cues` / `ask_cues_with` without bucket tracking.
 pub(in super::super) async fn ask_cues_once_with(
     judge: &crate::services::analyzer::AiAnalyzer,
     system: &str,
