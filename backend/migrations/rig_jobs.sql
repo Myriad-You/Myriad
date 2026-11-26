@@ -78,7 +78,8 @@ CREATE TABLE IF NOT EXISTS rig_job_steps (
         CHECK (state IN ('running', 'succeeded', 'failed', 'cancelled')),
     -- Calls made for the step: the first and each one tried again.
     attempts INTEGER NOT NULL DEFAULT 1,
-    -- Where the step's work ran: `hf_space`, `image_provider`.
+    -- Where the step's work ran: `hf_space`, `image_provider`, or
+    -- `hf_space+image_provider` for a step that asks the Space and may draw again.
     backend VARCHAR(32) NOT NULL,
     -- Which one: the Space's name, the image provider and model.
     backend_target VARCHAR(255),

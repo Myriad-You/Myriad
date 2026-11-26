@@ -300,20 +300,30 @@ pub async fn load_turn_archive(
         &db,
         &submission,
         Phase::Load,
-        Stage::Done,
+        Stage::Fitting,
         1,
         live::Targets::default(),
     )
     .await?;
     if new {
         update(&job_id, |job| {
+            job.stage = Stage::Done;
             job.done = 1;
             job.psd = Some(Arc::new(baked));
             job.keyforms = Some(Arc::new(keyforms));
             job.archive_id = Some(kept.id.clone());
         });
         let result_ref = Some(archive::result_ref(&kept.id));
-        end(&db, &job_id, rig_jobs::Ending::Succeeded { result_ref }).await;
+        // Written off the request: a database that fails it is tried again
+        // for as long as it takes (`end`), and a page polls meanwhile.
+        rig_jobs::hold(&job_id);
+        let ending = (db.clone(), job_id.clone());
+        tokio::spawn(async move {
+            let (db, job_id) = ending;
+            update_quietly(&job_id, |job| job.ending = true);
+            end(&db, &job_id, rig_jobs::Ending::Succeeded { result_ref }).await;
+            rig_jobs::let_go(&job_id);
+        });
         tracing::info!(job = %job_id, archive = %kept.id, "turn keyforms loaded from an archive");
     }
     Ok(Json(json!({ "jobId": job_id })))

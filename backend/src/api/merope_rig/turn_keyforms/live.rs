@@ -8,8 +8,13 @@
 //! 画完，照常记进账本（记在这个任务名下），图不留（`detached`）。已经做完的生图与拆层在
 //! `TurnCache` 里，再提交一次不必重做。
 //!
-//! 租约丢了（进程还活着，但有一阵续不上，任务被别人记成中断）时任务不停：花了钱的活照常做完，
-//! 结束时把成功补记回去。任务的记录没了（账号被删）时任务停下。
+//! 本进程不会把自己还在跑的任务记成中断。租约丢了（数据库有一阵连不上，别的进程把任务记成
+//! 中断）时，没有别的任务顶替它、上限也允许，就把租约拿回来接着跑；否则让这一路停下，免得
+//! 和页面重开的那个一起花钱。任务的记录没了（账号被删）时任务停下。任务最多跑
+//! `JOB_DEADLINE`，过了就记成超时失败，不让卡住的任务一直占着位置。
+//!
+//! 任务记录没写成结束之前，页面看到的一直是做完前的最后一个阶段，不会先看到「done」再去取
+//! 还没交出来的结果。
 //!
 //! 同时能跑几个任务由 `MYRIAD_RIG_JOBS_AT_ONCE` 决定，默认一个。
 
@@ -49,6 +54,10 @@ fn at_once_from(value: Option<&str>) -> u32 {
 
 const WRITE_EVERY: Duration = Duration::from_secs(1);
 const RENEW_EVERY: Duration = Duration::from_secs(10);
+/// The longest a job runs before it is failed as timed out: well past the
+/// tens of minutes a figure with its body takes, short of holding the place
+/// for good.
+const JOB_DEADLINE: Duration = Duration::from_secs(3 * 60 * 60);
 
 /// Where a job's steps run.
 #[derive(Clone, Debug, Default)]
@@ -135,7 +144,7 @@ impl Job {
     /// Where the job stands, as its record keeps it.
     pub(super) fn progress(&self) -> Value {
         json!({
-            "stage": self.stage.as_str(),
+            "stage": self.shown.as_str(),
             "phase": self.phase.as_str(),
             "body": self.body.map(|body| json!({
                 "motion": body.motion,
@@ -228,8 +237,6 @@ pub(super) async fn detached<T: Send + 'static>(
 struct Written {
     version: u64,
     renewed: Option<Instant>,
-    /// The lease was found lost; said once.
-    lost: bool,
 }
 
 /// What the keeper found the job is to do.
@@ -240,15 +247,33 @@ enum Keep {
     Stop,
 }
 
-/// Changed steps written, then the lease renewed when anything changed or
-/// it is due, with the progress. A step that cannot be written is logged and
+/// The lease renewed when anything changed or it is due, with the progress;
+/// then changed steps written. A step that cannot be written is logged and
 /// written again next time; it never holds back the lease.
 async fn write(db: &DatabaseConnection, id: &str, written: &mut Written) -> Keep {
-    let Some((version, progress, steps)) = with_job(id, |job| {
-        (job.version, job.progress(), job.unwritten_steps())
-    }) else {
+    let Some((version, progress, ending)) =
+        with_job(id, |job| (job.version, job.progress(), job.ending))
+    else {
         return Keep::Stop;
     };
+    let changed = version != written.version;
+    let due = written
+        .renewed
+        .is_none_or(|renewed| renewed.elapsed() >= RENEW_EVERY);
+    let keep = if changed || due {
+        renew(
+            db,
+            id,
+            written,
+            version,
+            changed.then_some(&progress),
+            ending,
+        )
+        .await
+    } else {
+        Keep::Go
+    };
+    let steps = with_job(id, Job::unwritten_steps).unwrap_or_default();
     if !steps.is_empty() {
         let rows: Vec<_> = steps.iter().map(|(_, _, row)| row.clone()).collect();
         match rig_jobs::save_steps(db, id, &rows).await {
@@ -264,38 +289,54 @@ async fn write(db: &DatabaseConnection, id: &str, written: &mut Written) -> Keep
             }
         }
     }
-    let changed = version != written.version;
-    let due = written
-        .renewed
-        .is_none_or(|renewed| renewed.elapsed() >= RENEW_EVERY);
-    if !changed && !due {
-        return Keep::Go;
-    }
-    match rig_jobs::heartbeat(
-        db,
-        id,
-        rig_jobs::this_process(),
-        changed.then_some(&progress),
-    )
-    .await
-    {
+    keep
+}
+
+/// The lease renewed. Lost while the job still works (a sweep elsewhere took
+/// it for interrupted), it is taken back when nothing took its place;
+/// otherwise the job stops, so that it does not run beside the one a page
+/// started again. While its end is being written the job only holds on.
+async fn renew(
+    db: &DatabaseConnection,
+    id: &str,
+    written: &mut Written,
+    version: u64,
+    progress: Option<&Value>,
+    ending: bool,
+) -> Keep {
+    match rig_jobs::heartbeat(db, id, rig_jobs::this_process(), progress).await {
         Ok(rig_jobs::Beat::Renewed { cancel_requested }) => {
             written.version = version;
             written.renewed = Some(Instant::now());
-            if cancel_requested {
+            if cancel_requested && !ending {
                 Keep::Stop
             } else {
                 Keep::Go
             }
         }
-        Ok(rig_jobs::Beat::Lost) => {
-            written.renewed = Some(Instant::now());
-            if !written.lost {
-                written.lost = true;
-                tracing::warn!(job = %id, "turn keyforms lease lost; the job goes on and its end is recorded when it comes");
+        Ok(rig_jobs::Beat::Lost) if ending => Keep::Go,
+        Ok(rig_jobs::Beat::Lost) => match rig_jobs::retake(db, id, at_once()).await {
+            Ok(true) => {
+                tracing::warn!(job = %id, "turn keyforms lease was lost while the job ran; taken back");
+                // Its steps were ended with it: written again as they stand.
+                super::update_quietly(id, |job| {
+                    for step in &mut job.steps {
+                        step.written = 0;
+                    }
+                });
+                written.renewed = None;
+                Keep::Go
             }
-            Keep::Go
-        }
+            Ok(false) => {
+                tracing::warn!(job = %id, "turn keyforms lease was lost and its place taken; stopping the job");
+                Keep::Stop
+            }
+            Err(error) => {
+                tracing::warn!(%error, job = %id, "turn keyforms lease could not be taken back");
+                Keep::Go
+            }
+        },
+        Ok(rig_jobs::Beat::Gone) if ending => Keep::Go,
         Ok(rig_jobs::Beat::Gone) => {
             tracing::warn!(job = %id, "turn keyforms job's record is gone; stopping it");
             Keep::Stop
@@ -343,29 +384,66 @@ async fn keep(db: DatabaseConnection, id: String, mut done: tokio::sync::watch::
 /// Runs a claimed job's `work` to its end, or until it is cancelled, its
 /// record kept up meanwhile by a keeper on its own task (`keep`); then ends
 /// it (`finish`) with the lease still kept. Cancelled, the work is dropped
-/// where it stands: what it was waiting on is let go.
+/// where it stands: what it was waiting on is let go. Past `JOB_DEADLINE` it
+/// fails as timed out.
 pub(super) async fn run_job(
     db: DatabaseConnection,
     id: String,
     work: impl Future<Output = ApiResult<Made>>,
     meta: ArchiveMeta,
 ) {
+    run_job_within(db, id, work, meta, JOB_DEADLINE).await
+}
+
+/// How a job's run ended.
+enum Ran {
+    Made(Box<ApiResult<Made>>),
+    Stopped,
+    TimedOut,
+}
+
+pub(super) async fn run_job_within(
+    db: DatabaseConnection,
+    id: String,
+    work: impl Future<Output = ApiResult<Made>>,
+    meta: ArchiveMeta,
+    deadline: Duration,
+) {
     let Some(cancel) = with_job(&id, |job| job.cancel.clone()) else {
         return;
     };
+    rig_jobs::hold(&id);
     let (done, watching) = tokio::sync::watch::channel(false);
     let keeper = tokio::spawn(keep(db.clone(), id.clone(), watching));
     let work = for_ledger(&id, work);
-    let result = tokio::select! {
-        result = work => Some(result),
-        () = cancel.notified() => None,
+    let ran = tokio::select! {
+        result = work => Ran::Made(Box::new(result)),
+        () = cancel.notified() => Ran::Stopped,
+        () = tokio::time::sleep(deadline) => Ran::TimedOut,
     };
-    match result {
-        Some(result) => finish(&db, &id, result, meta).await,
-        None => super::cancelled(&db, &id).await,
+    super::update_quietly(&id, |job| job.ending = true);
+    match ran {
+        Ran::Made(result) => finish(&db, &id, *result, meta).await,
+        Ran::Stopped => super::cancelled(&db, &id).await,
+        Ran::TimedOut => {
+            tracing::warn!(job = %id, ?deadline, "turn keyforms job ran past its deadline");
+            finish(&db, &id, Err(timed_out()), meta).await
+        }
     }
     let _ = done.send(true);
     let _ = keeper.await;
+    rig_jobs::let_go(&id);
+}
+
+/// The failure of a job that ran past its deadline.
+fn timed_out() -> super::ApiError {
+    (
+        axum::http::StatusCode::GATEWAY_TIMEOUT,
+        axum::Json(json!({
+            "error": "The turn keys job took too long",
+            "code": "turn_keyforms_timed_out"
+        })),
+    )
 }
 
 /// A notifier for a job's cancel.

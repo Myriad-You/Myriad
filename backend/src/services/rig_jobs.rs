@@ -12,10 +12,16 @@
 //! The process running a job renews its lease (`heartbeat`); a running job
 //! whose lease has lapsed is one whose process went away, and is failed as
 //! interrupted (`fail_interrupted`): always before a claim, and at most every
-//! `SWEEP_EVERY` before a read. A process stopping lets its jobs go at once
-//! (`release_this_process`). A job that ends after it was failed as
-//! interrupted (its process lived on, its lease could not be renewed) is
-//! still recorded as succeeded: its result was paid for and kept.
+//! `SWEEP_EVERY` before a read. A process never fails the jobs it still runs
+//! itself (`hold`): their lease lapsing means its database was out of reach,
+//! not that they stopped. A job failed as interrupted by another process
+//! while its own lived on takes its lease back when nothing has taken its
+//! place (`retake`).
+//!
+//! A process told to stop claims nothing more (`begin_stopping`), and lets
+//! its jobs go once it has stopped answering requests (`release_at_exit`):
+//! until then a page polling one of them reads it running, so that it does
+//! not start it again on the process that is going away.
 
 use std::{
     sync::{LazyLock, Mutex},
@@ -49,6 +55,48 @@ const TARGET_MAX: usize = 255;
 
 /// The error code of a job whose process went away while it ran.
 pub const INTERRUPTED: &str = "job_interrupted";
+
+/// How long letting this process's jobs go may hold up its exit.
+const RELEASE_WITHIN: Duration = Duration::from_secs(5);
+
+/// This process was told to stop: it claims nothing more.
+static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// This process's jobs were let go at its exit.
+static RELEASED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The jobs this process runs and still holds, by id: no sweep of its own fails them.
+static HELD: LazyLock<Mutex<std::collections::HashSet<String>>> = LazyLock::new(Default::default);
+
+/// This process stops claiming jobs: it is going away.
+pub fn begin_stopping() {
+    STOPPING.store(true, std::sync::atomic::Ordering::Release);
+}
+
+pub fn stopping() -> bool {
+    STOPPING.load(std::sync::atomic::Ordering::Acquire)
+}
+
+/// A job this process runs, held until `let_go`: its own sweeps leave it be.
+pub fn hold(id: &str) {
+    HELD.lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(id.to_owned());
+}
+
+pub fn let_go(id: &str) {
+    HELD.lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(id);
+}
+
+fn held() -> Vec<String> {
+    HELD.lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .iter()
+        .cloned()
+        .collect()
+}
 
 /// This process, as the runner of the jobs it claims.
 static RUNNER: LazyLock<String> =
@@ -127,6 +175,8 @@ pub enum ClaimError {
     Busy,
     /// The key was used before for something else.
     KeyReused,
+    /// This process is stopping.
+    Stopping,
     Db(DbErr),
 }
 
@@ -172,6 +222,7 @@ pub struct Keyed {
 
 impl Keyed {
     /// The key still gives its job: the job has not failed or been cancelled.
+    /// A key that no longer holds is free, for any request.
     pub fn holds(&self) -> bool {
         !matches!(self.state, State::Failed | State::Cancelled)
     }
@@ -184,26 +235,34 @@ pub async fn claim(
     job: NewJob,
     at_once: u32,
 ) -> Result<Claimed, ClaimError> {
+    claim_unless(db, job, at_once, &STOPPING).await
+}
+
+/// `claim`, refused once `stopping` is set.
+pub(crate) async fn claim_unless(
+    db: &DatabaseConnection,
+    job: NewJob,
+    at_once: u32,
+    stopping: &std::sync::atomic::AtomicBool,
+) -> Result<Claimed, ClaimError> {
+    if stopping.load(std::sync::atomic::Ordering::Acquire) {
+        return Err(ClaimError::Stopping);
+    }
     let txn = db.begin().await?;
-    txn.execute_raw(Statement::from_sql_and_values(
-        DbBackend::Postgres,
-        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-        [CLAIM_LOCK.into()],
-    ))
-    .await?;
+    lock_claims(&txn).await?;
     fail_interrupted(&txn).await?;
     tidy(&txn).await?;
     if let Some(key) = &job.idempotency_key
         && let Some(keyed) = by_key(&txn, &job.caller, key).await?
     {
-        if keyed.request_digest != job.request_digest {
-            return Err(ClaimError::KeyReused);
-        }
         if keyed.holds() {
+            if keyed.request_digest != job.request_digest {
+                return Err(ClaimError::KeyReused);
+            }
             txn.commit().await?;
             return Ok(Claimed::Existing(keyed.job_id));
         }
-        // Its job failed or was cancelled: the key is let go, and asks anew.
+        // Its job failed or was cancelled: the key is let go, free for any request.
         txn.execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             "DELETE FROM rig_job_keys WHERE caller = $1 AND idempotency_key = $2",
@@ -260,6 +319,68 @@ pub async fn claim(
     keep_key(&txn, &job, &job.id).await?;
     txn.commit().await?;
     Ok(Claimed::New(job.id))
+}
+
+/// Claims wait on one another: one lock for every claim and retake.
+async fn lock_claims(db: &impl ConnectionTrait) -> Result<(), DbErr> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [CLAIM_LOCK.into()],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// A job of this process's, failed as interrupted by a sweep while it ran on,
+/// taken back as running: only while no other job has taken the place of it
+/// (none active for its subject) and the limit allows it, under the claim
+/// lock. False: it stays as it ended.
+pub async fn retake(db: &DatabaseConnection, id: &str, at_once: u32) -> Result<bool, DbErr> {
+    retake_unless(db, id, at_once, &STOPPING).await
+}
+
+async fn retake_unless(
+    db: &DatabaseConnection,
+    id: &str,
+    at_once: u32,
+    stopping: &std::sync::atomic::AtomicBool,
+) -> Result<bool, DbErr> {
+    if stopping.load(std::sync::atomic::Ordering::Acquire) {
+        return Ok(false);
+    }
+    let txn = db.begin().await?;
+    lock_claims(&txn).await?;
+    let row = txn
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT \
+             (SELECT COUNT(*) FROM rig_jobs WHERE state IN ('queued', 'running')) AS active, \
+             EXISTS (SELECT 1 FROM rig_jobs o, rig_jobs j WHERE j.id = $1 AND o.id <> j.id \
+               AND o.caller = j.caller AND o.subject IS NOT DISTINCT FROM j.subject \
+               AND o.state IN ('queued', 'running')) AS replaced",
+            [id.into()],
+        ))
+        .await?
+        .ok_or_else(|| DbErr::Custom("retake answered nothing".into()))?;
+    let active: i64 = row.try_get("", "active")?;
+    let replaced: bool = row.try_get("", "replaced")?;
+    if replaced || active >= i64::from(at_once.max(1)) {
+        return Ok(false);
+    }
+    let taken = txn
+        .execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "UPDATE rig_jobs SET state = 'running', error_code = NULL, error_message = NULL, \
+             ended_at = NULL, runner = $2, heartbeat_at = NOW(), updated_at = NOW() \
+             WHERE id = $1 AND state = 'failed' AND error_code = $3",
+            [id.into(), this_process().into(), INTERRUPTED.into()],
+        ))
+        .await?
+        .rows_affected()
+        == 1;
+    txn.commit().await?;
+    Ok(taken)
 }
 
 /// The submission's key kept as giving `job_id`.
@@ -334,29 +455,64 @@ pub async fn by_key(
 }
 
 /// Running jobs whose lease lapsed, failed as interrupted, with their running
-/// steps. How many there were.
+/// steps; never those this process still runs itself (`hold`). How many
+/// there were.
 pub async fn fail_interrupted(db: &impl ConnectionTrait) -> Result<u64, DbErr> {
-    let lapsed = format!("{} seconds", LEASE.as_secs());
     interrupt(
         db,
-        "state IN ('queued', 'running') AND (heartbeat_at IS NULL OR heartbeat_at < NOW() - $2::interval)",
-        lapsed,
+        "state IN ('queued', 'running') \
+         AND (heartbeat_at IS NULL OR heartbeat_at < NOW() - $2::interval) \
+         AND NOT (runner IS NOT DISTINCT FROM $3 AND id = ANY($4))",
+        vec![
+            format!("{} seconds", LEASE.as_secs()).into(),
+            this_process().into(),
+            held().into(),
+        ],
     )
     .await
 }
 
-/// This process's running jobs failed as interrupted at once: it is stopping,
-/// and its jobs should not hold their places until their leases lapse.
-pub async fn release_this_process(db: &impl ConnectionTrait) -> Result<u64, DbErr> {
-    interrupt(
-        db,
-        "state IN ('queued', 'running') AND runner = $2",
-        this_process().to_owned(),
-    )
-    .await
+/// This process's running jobs failed as interrupted at once, so that they do
+/// not hold their places until their leases lapse. Once, at its exit, after
+/// it stopped answering requests; given at most `RELEASE_WITHIN`.
+pub async fn release_at_exit(db: &impl ConnectionTrait) {
+    release_once(db, &RELEASED).await;
 }
 
-async fn interrupt(db: &impl ConnectionTrait, which: &str, value: String) -> Result<u64, DbErr> {
+/// `release_at_exit`, done once per `released`.
+pub(crate) async fn release_once(
+    db: &impl ConnectionTrait,
+    released: &std::sync::atomic::AtomicBool,
+) {
+    if released.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        return;
+    }
+    let released = tokio::time::timeout(
+        RELEASE_WITHIN,
+        interrupt(
+            db,
+            "state IN ('queued', 'running') AND runner = $2",
+            vec![this_process().into()],
+        ),
+    )
+    .await;
+    match released {
+        Ok(Ok(0)) => {}
+        Ok(Ok(released)) => tracing::info!(released, "rig jobs let go as the process stops"),
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "rig jobs could not be let go as the process stops")
+        }
+        Err(_) => {
+            tracing::warn!("rig jobs not let go in time as the process stops; their leases lapse")
+        }
+    }
+}
+
+async fn interrupt(
+    db: &impl ConnectionTrait,
+    which: &str,
+    values: Vec<SeaValue>,
+) -> Result<u64, DbErr> {
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
@@ -366,7 +522,9 @@ async fn interrupt(db: &impl ConnectionTrait, which: &str, value: String) -> Res
                  ended_at = NOW(), updated_at = NOW(), runner = NULL \
                  WHERE {which} RETURNING id"
             ),
-            [INTERRUPTED.into(), value.into()],
+            std::iter::once(SeaValue::from(INTERRUPTED))
+                .chain(values)
+                .collect::<Vec<_>>(),
         ))
         .await?;
     let ids = rows

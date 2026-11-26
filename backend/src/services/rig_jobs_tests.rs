@@ -190,12 +190,13 @@ async fn the_same_key_gives_the_same_job_until_it_fails_or_expires() {
             .job_id,
         "f"
     );
-    // Still refused for another request while its job failed.
+    // A key let go is free for another request too.
     ended(db, "f", Ending::Cancelled).await;
-    assert!(matches!(
-        claim(db, job("g", "m5", Some("k2")), 1).await,
-        Err(ClaimError::KeyReused)
-    ));
+    assert_eq!(
+        claim(db, job("g", "m5", Some("k2")), 1).await.unwrap(),
+        Claimed::New("g".into())
+    );
+    ended(db, "g", Ending::Succeeded { result_ref: None }).await;
 
     // A key expires after a day: then it asks anew.
     db.execute_unprepared(&format!(
@@ -329,25 +330,96 @@ async fn a_job_that_finishes_after_it_was_taken_for_interrupted_is_recorded_as_s
 }
 
 #[tokio::test]
-async fn a_stopping_process_lets_its_jobs_go_at_once() {
+async fn a_stopping_process_claims_nothing_and_lets_its_jobs_go_once_at_its_exit() {
     let Some(schema) = schema("rig_jobs_release").await else {
         return;
     };
     let db = &schema.db;
-    let mine = NewJob {
+    let stopping = std::sync::atomic::AtomicBool::new(false);
+    let released = std::sync::atomic::AtomicBool::new(false);
+    let mine = |id: &str, subject: &str| NewJob {
         runner: this_process().to_owned(),
-        ..job("a", "m1", None)
+        ..job(id, subject, None)
     };
-    claim(db, mine, 2).await.unwrap();
-    claim(db, job("b", "m2", None), 2).await.unwrap();
-    assert_eq!(release_this_process(db).await.unwrap(), 1);
+    claim_unless(db, mine("a", "m1"), 3, &stopping)
+        .await
+        .unwrap();
+    claim(db, job("b", "m2", None), 3).await.unwrap();
+    // Told to stop: nothing more is claimed, and its job still reads running.
+    stopping.store(true, std::sync::atomic::Ordering::Release);
+    assert!(matches!(
+        claim_unless(db, mine("c", "m3"), 3, &stopping).await,
+        Err(ClaimError::Stopping)
+    ));
+    assert_eq!(get(db, "a").await.unwrap().unwrap().state(), State::Running);
+    // At its exit its jobs are let go at once; another process's stay.
+    release_once(db, &released).await;
     assert!(get(db, "a").await.unwrap().unwrap().interrupted());
     assert_eq!(get(db, "b").await.unwrap().unwrap().state(), State::Running);
-    // Its place is free at once, not after the lease.
-    assert_eq!(
-        claim(db, job("c", "m3", None), 2).await.unwrap(),
-        Claimed::New("c".into())
-    );
+    // Once: a second call (the shutdown's second stop) lets nothing more go.
+    claim(db, mine("d", "m4"), 3).await.unwrap();
+    release_once(db, &released).await;
+    assert_eq!(get(db, "d").await.unwrap().unwrap().state(), State::Running);
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn a_process_never_takes_the_jobs_it_still_runs_for_interrupted() {
+    let Some(schema) = schema("rig_jobs_held").await else {
+        return;
+    };
+    let db = &schema.db;
+    let id = format!("h{}", &uuid::Uuid::new_v4().simple().to_string()[..30]);
+    let mine = NewJob {
+        runner: this_process().to_owned(),
+        ..job(&id, "m1", None)
+    };
+    claim(db, mine, 1).await.unwrap();
+    hold(&id);
+    // Its database was out of reach long enough for the lease to lapse.
+    lapse(db, &id).await;
+    assert_eq!(fail_interrupted(db).await.unwrap(), 0);
+    assert_eq!(get(db, &id).await.unwrap().unwrap().state(), State::Running);
+    // Once it no longer runs it, a lapsed lease is an interrupted job.
+    let_go(&id);
+    assert_eq!(fail_interrupted(db).await.unwrap(), 1);
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn a_lost_lease_is_taken_back_only_when_nothing_took_the_jobs_place() {
+    let Some(schema) = schema("rig_jobs_retake").await else {
+        return;
+    };
+    let db = &schema.db;
+    let interrupt_elsewhere = |id: &'static str| async move {
+        db.execute_unprepared(&format!(
+            "UPDATE rig_jobs SET state = 'failed', error_code = '{INTERRUPTED}', runner = NULL, \
+             ended_at = NOW() WHERE id = '{id}'"
+        ))
+        .await
+        .unwrap();
+    };
+    // Nothing took its place: taken back, running, this process's.
+    claim(db, job("a", "m1", None), 1).await.unwrap();
+    interrupt_elsewhere("a").await;
+    assert!(retake(db, "a", 1).await.unwrap());
+    let row = get(db, "a").await.unwrap().unwrap();
+    assert_eq!(row.state(), State::Running);
+    assert_eq!(row.runner.as_deref(), Some(this_process()));
+    assert!(row.error_code.is_none() && row.ended_at.is_none());
+    // A page started it again meanwhile: the place is taken, it stays ended.
+    interrupt_elsewhere("a").await;
+    claim(db, job("b", "m1", None), 1).await.unwrap();
+    assert!(!retake(db, "a", 1).await.unwrap());
+    assert!(get(db, "a").await.unwrap().unwrap().interrupted());
+    // Another master holds the one place: the limit holds, it stays ended.
+    ended(db, "b", Ending::Cancelled).await;
+    claim(db, job("c", "m2", None), 1).await.unwrap();
+    assert!(!retake(db, "a", 1).await.unwrap());
+    assert!(get(db, "a").await.unwrap().unwrap().interrupted());
+    // A job that ended otherwise is never taken back.
+    assert!(!retake(db, "b", 2).await.unwrap());
     schema.drop().await;
 }
 

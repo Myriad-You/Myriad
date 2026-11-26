@@ -133,6 +133,13 @@ pub(super) async fn claim(
             })),
         )),
         Err(rig_jobs::ClaimError::KeyReused) => Err(key_reused()),
+        // This process is going away: a start is refused, as any request
+        // while it is down. A page polling a job here reads it running until
+        // it is gone, so it never starts one again on this process.
+        Err(rig_jobs::ClaimError::Stopping) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": "Service unavailable", "code": "service_unavailable" })),
+        )),
         Err(rig_jobs::ClaimError::Db(error)) => Err(internal_error(error)),
     }
 }

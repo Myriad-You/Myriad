@@ -547,8 +547,20 @@ fn counting(id: &str, until: Duration) -> impl Future<Output = ApiResult<Made>> 
     }
 }
 
+/// The job taken for interrupted by another process's sweep, as after its
+/// database was out of reach for longer than its lease.
+async fn interrupted_elsewhere(db: &DatabaseConnection, id: &str) {
+    db.execute_unprepared(&format!(
+        "UPDATE rig_jobs SET state = 'failed', error_code = '{}', runner = NULL, \
+         ended_at = NOW() WHERE id = '{id}'",
+        rig_jobs::INTERRUPTED
+    ))
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
-async fn a_job_whose_lease_was_lost_goes_on_and_is_recorded_as_it_ends() {
+async fn a_job_whose_lease_was_lost_takes_it_back_when_nothing_took_its_place() {
     let _slot = JOB_TESTS.lock().await;
     let Some(schema) = schema("rig_live_lost").await else {
         return;
@@ -571,21 +583,18 @@ async fn a_job_whose_lease_was_lost_goes_on_and_is_recorded_as_it_ends() {
         meta(&db).await,
     ));
     tokio::time::sleep(Duration::from_millis(1200)).await;
-    // Taken for interrupted while it runs: its lease could not be renewed for a while.
-    db.execute_unprepared(&format!(
-        "UPDATE rig_jobs SET heartbeat_at = NOW() - INTERVAL '1 hour' WHERE id = '{id}'"
-    ))
-    .await
-    .unwrap();
+    // This process's own sweep leaves it be; another's took it for interrupted.
     rig_jobs::fail_interrupted(&db).await.unwrap();
-    assert!(
-        rig_jobs::get(&db, &id)
-            .await
-            .unwrap()
-            .unwrap()
-            .interrupted()
+    assert_eq!(
+        rig_jobs::get(&db, &id).await.unwrap().unwrap().state(),
+        rig_jobs::State::Running
     );
-    // It goes on, and its end is recorded when it comes.
+    interrupted_elsewhere(&db, &id).await;
+    // Its keeper takes the lease back at its next write.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let row = rig_jobs::get(&db, &id).await.unwrap().unwrap();
+    assert_eq!(row.state(), rig_jobs::State::Running);
+    assert_eq!(row.runner.as_deref(), Some(rig_jobs::this_process()));
     tokio::time::timeout(Duration::from_secs(10), running)
         .await
         .expect("it ends")
@@ -593,6 +602,228 @@ async fn a_job_whose_lease_was_lost_goes_on_and_is_recorded_as_it_ends() {
     let row = rig_jobs::get(&db, &id).await.unwrap().unwrap();
     assert_eq!(row.state(), rig_jobs::State::Succeeded);
     assert_eq!(row.error_code, None);
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn a_job_whose_lease_was_lost_and_place_taken_stops() {
+    let _slot = JOB_TESTS.lock().await;
+    let Some(schema) = schema("rig_live_lost_taken").await else {
+        return;
+    };
+    let db = schema.db.clone();
+    let (id, _) = claim(
+        &db,
+        &submission(None, false),
+        Phase::Bust,
+        Stage::Generating,
+        4,
+        targets(),
+    )
+    .await
+    .unwrap();
+    let dropped = Arc::new(AtomicBool::new(false));
+    let work = {
+        let guard = Dropped(dropped.clone());
+        let counting = counting(&id, Duration::from_secs(600));
+        async move {
+            let _guard = guard;
+            counting.await
+        }
+    };
+    let running = tokio::spawn(run_job(db.clone(), id.clone(), work, meta(&db).await));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    interrupted_elsewhere(&db, &id).await;
+    // The page read it gone and started it again: that one holds the place.
+    let again = rig_jobs::NewJob {
+        id: "again".into(),
+        kind: "bust".into(),
+        caller: caller(),
+        owner_user_id: Some(7),
+        idempotency_key: None,
+        request_digest: "d".into(),
+        subject: Some(format!("|{MASTER}")),
+        input: json!({}),
+        progress: json!({}),
+        ledger_task_id: rig_jobs::ledger_task_id("again"),
+        runner: "proc-next".into(),
+    };
+    assert_eq!(
+        rig_jobs::claim(&db, again, 1).await.unwrap(),
+        rig_jobs::Claimed::New("again".into())
+    );
+    // The first stops rather than run beside it; the place stays the new one's.
+    tokio::time::timeout(Duration::from_secs(5), running)
+        .await
+        .expect("it stops")
+        .unwrap();
+    assert!(dropped.load(Ordering::Relaxed), "its work was let go");
+    assert!(
+        rig_jobs::get(&db, &id)
+            .await
+            .unwrap()
+            .unwrap()
+            .interrupted()
+    );
+    assert_eq!(
+        rig_jobs::get(&db, "again").await.unwrap().unwrap().state(),
+        rig_jobs::State::Running
+    );
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn a_job_whose_end_is_not_yet_written_is_not_done_to_a_page() {
+    let _slot = JOB_TESTS.lock().await;
+    let Some(schema) = schema("rig_live_end_pending").await else {
+        return;
+    };
+    let db = schema.db.clone();
+    // The first time the job's end is written, the database refuses it.
+    db.execute_unprepared(
+        "CREATE SEQUENCE end_tries; \
+         CREATE FUNCTION refuse_first_end() RETURNS trigger AS $$ BEGIN \
+           IF NEW.state <> 'running' AND nextval('end_tries') = 1 THEN \
+             RAISE EXCEPTION 'end refused once'; \
+           END IF; RETURN NEW; END $$ LANGUAGE plpgsql; \
+         CREATE TRIGGER refuse_first_end BEFORE UPDATE ON rig_jobs \
+           FOR EACH ROW EXECUTE FUNCTION refuse_first_end();",
+    )
+    .await
+    .unwrap();
+    let (id, _) = claim(
+        &db,
+        &submission(None, true),
+        Phase::Plain,
+        Stage::Decomposing,
+        1,
+        targets(),
+    )
+    .await
+    .unwrap();
+    let running = tokio::spawn(run_job(
+        db.clone(),
+        id.clone(),
+        counting(&id, Duration::from_millis(1100)),
+        meta(&db).await,
+    ));
+    // Its work is done and its end waits to be tried again: the page reads it
+    // at its last stage, not done, and has nothing to fetch yet.
+    tokio::time::sleep(Duration::from_millis(1800)).await;
+    assert!(with_job(&id, |job| job.stage == Stage::Done).unwrap());
+    let status = pickup::status_for_its_page(&db, &caller(), &id)
+        .await
+        .unwrap();
+    assert_eq!(status["stage"], json!("decomposing"));
+    let early = pickup::fetched(&db, &caller(), &id, pickup::Part::Psd)
+        .await
+        .unwrap_err();
+    assert_eq!(early.1["code"], json!("turn_keyforms_not_ready"));
+    running.await.unwrap();
+    assert_eq!(
+        pickup::status_for_its_page(&db, &caller(), &id)
+            .await
+            .unwrap()["stage"],
+        json!("done")
+    );
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn a_job_past_its_deadline_fails_as_timed_out() {
+    let _slot = JOB_TESTS.lock().await;
+    let Some(schema) = schema("rig_live_deadline").await else {
+        return;
+    };
+    let db = schema.db.clone();
+    let (id, _) = claim(
+        &db,
+        &submission(None, false),
+        Phase::Bust,
+        Stage::Generating,
+        4,
+        targets(),
+    )
+    .await
+    .unwrap();
+    run_job_within(
+        db.clone(),
+        id.clone(),
+        std::future::pending::<ApiResult<Made>>(),
+        meta(&db).await,
+        Duration::from_millis(500),
+    )
+    .await;
+    let row = rig_jobs::get(&db, &id).await.unwrap().unwrap();
+    assert_eq!(row.state(), rig_jobs::State::Failed);
+    assert_eq!(row.error_code.as_deref(), Some("turn_keyforms_timed_out"));
+    // Its place is free.
+    let (next, new) = claim(
+        &db,
+        &submission(None, true),
+        Phase::Plain,
+        Stage::Decomposing,
+        1,
+        targets(),
+    )
+    .await
+    .unwrap();
+    assert!(new && next != id);
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn a_page_reads_a_stopping_processs_job_running_until_the_process_lets_it_go() {
+    let _slot = JOB_TESTS.lock().await;
+    let Some(schema) = schema("rig_live_stopping").await else {
+        return;
+    };
+    let db = schema.db.clone();
+    let (id, _) = claim(
+        &db,
+        &submission(None, false),
+        Phase::Bust,
+        Stage::Generating,
+        4,
+        targets(),
+    )
+    .await
+    .unwrap();
+    // Told to stop, the process still answers: its job reads running, so a
+    // page polling it does not start it again here.
+    let stopping = std::sync::atomic::AtomicBool::new(true);
+    let refused = rig_jobs::claim_unless(
+        &db,
+        rig_jobs::NewJob {
+            id: "late".into(),
+            kind: "plain".into(),
+            caller: caller(),
+            owner_user_id: Some(7),
+            idempotency_key: None,
+            request_digest: "d".into(),
+            subject: None,
+            input: json!({}),
+            progress: json!({}),
+            ledger_task_id: rig_jobs::ledger_task_id("late"),
+            runner: rig_jobs::this_process().into(),
+        },
+        2,
+        &stopping,
+    )
+    .await;
+    assert!(matches!(refused, Err(rig_jobs::ClaimError::Stopping)));
+    let status = pickup::status_for_its_page(&db, &caller(), &id)
+        .await
+        .unwrap();
+    assert_eq!(status["stage"], json!("generating"));
+    // Once it no longer answers, it lets its job go: the next process reads it
+    // gone, and the page starts it again there, once.
+    let released = std::sync::atomic::AtomicBool::new(false);
+    rig_jobs::release_once(&db, &released).await;
+    let polled = pickup::status_for_its_page(&db, &caller(), &id)
+        .await
+        .unwrap_err();
+    assert_eq!(polled.0, StatusCode::NOT_FOUND);
     schema.drop().await;
 }
 

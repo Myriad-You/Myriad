@@ -186,6 +186,9 @@ struct BodyProgress {
 struct Job {
     id: String,
     stage: Stage,
+    /// The stage a page is shown while the job's record has not ended: the
+    /// last one before done or failed, which only the record says.
+    shown: Stage,
     phase: Phase,
     /// A standing figure's body keys, made alongside: none until they start.
     body: Option<BodyProgress>,
@@ -204,6 +207,8 @@ struct Job {
     /// Bumped by every change, so that only what changed is written.
     version: u64,
     cancel: Arc<tokio::sync::Notify>,
+    /// Its work is over and its end is being written.
+    ending: bool,
 }
 
 impl Job {
@@ -211,6 +216,11 @@ impl Job {
         Self {
             id,
             stage,
+            shown: if matches!(stage, Stage::Done | Stage::Failed) {
+                Stage::Fitting
+            } else {
+                stage
+            },
             phase,
             body: None,
             done: 0,
@@ -224,6 +234,7 @@ impl Job {
             targets,
             version: 0,
             cancel: live::cancel_notifier(),
+            ending: false,
         }
     }
 
@@ -235,6 +246,9 @@ impl Job {
 fn update(id: &str, change: impl FnOnce(&mut Job)) {
     update_quietly(id, |job| {
         change(job);
+        if !job.ended() {
+            job.shown = job.stage;
+        }
         job.version += 1;
     });
 }

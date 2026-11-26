@@ -98,7 +98,10 @@ pub(super) fn cancelled_error() -> Value {
     json!({ "error": "The turn keys job was cancelled", "code": "turn_keyforms_cancelled" })
 }
 
-/// A job's status as a page reads it: its stage `failed` when it was cancelled.
+/// A job's status as a page reads it. Done and failed come from the record's
+/// state alone (cancelled reads failed); until the record has ended, the
+/// stage is the last one the job reached before its end (`Job::shown`), so a
+/// page never fetches a result whose end is still being written.
 pub(super) fn job_status(job: &JobRow) -> Value {
     let progress = &job.progress;
     let (stage, error) = match job.state() {
