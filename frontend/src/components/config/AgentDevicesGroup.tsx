@@ -6,12 +6,17 @@ import type {
   SyncDeviceList,
 } from '../../services/agent/agentApi'
 import type { ManagedListItem, ManagedListStat } from '../settings/ManagedList'
-import { LuDownload, LuMonitor, LuPlus, LuUpload } from '@lib/icons'
+import { LuDownload, LuMonitor, LuPlus, LuQrCode, LuUpload } from '@lib/icons'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useConfigI18n as useI18n } from '../../contexts/I18nContext'
 import { agentService } from '../../services/agent'
 import { ApiError } from '../../services/api'
+import {
+  buildDeviceBindUri,
+  isLoopbackSiteUrl,
+  resolveBindSiteUrl,
+} from '../../utils/deviceBindQr'
 import { showStickyToast } from '../../utils/toastManager'
 import { userFacingError } from '../../utils/userFacingError'
 import {
@@ -21,6 +26,7 @@ import {
   SettingGroup,
   SettingsButton,
 } from '../settings'
+import { DeviceBindQrCode } from './DeviceBindQrCode'
 import './AgentDevicesGroup.css'
 
 /** Devices (a Mac) connected to her on this site. Only the site owner sees it. */
@@ -32,9 +38,11 @@ export function AgentDevicesGroup() {
   const [working, setWorking] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
   const [name, setName] = useState('')
-  const [issued, setIssued] = useState<{ name: string; token: string } | null>(
-    null,
-  )
+  const [issued, setIssued] = useState<{
+    name: string
+    token: string
+    siteUrl: string
+  } | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [passphrase, setPassphrase] = useState('')
   const [again, setAgain] = useState('')
@@ -77,8 +85,15 @@ export function AgentDevicesGroup() {
     if (!trimmed) return
     setWorking(true)
     try {
-      const { device, token } = await agentService.addSyncDevice(trimmed)
-      setIssued({ name: device.name, token })
+      const { device, token, siteUrl } = await agentService.addSyncDevice(trimmed)
+      setIssued({
+        name: device.name,
+        token,
+        siteUrl: resolveBindSiteUrl(
+          siteUrl ?? list?.siteUrl,
+          window.location.origin,
+        ),
+      })
       setName('')
       setFormOpen(false)
       await load()
@@ -91,7 +106,7 @@ export function AgentDevicesGroup() {
     } finally {
       setWorking(false)
     }
-  }, [c, fail, format, list?.limit, load, name])
+  }, [c, fail, format, list?.limit, list?.siteUrl, load, name])
 
   const remove = useCallback(
     async (device: SyncDevice) => {
@@ -509,6 +524,18 @@ export function AgentDevicesGroup() {
     (at: string) => new Date(at).toLocaleString(locale || undefined),
     [locale],
   )
+
+  const issuedBind = useMemo(() => {
+    if (!issued) return null
+    try {
+      return {
+        uri: buildDeviceBindUri({ site: issued.siteUrl, token: issued.token }),
+        loopback: isLoopbackSiteUrl(issued.siteUrl),
+      }
+    } catch {
+      return null
+    }
+  }, [issued])
 
   const devices = useMemo(() => list?.devices ?? [], [list])
   const live = devices.filter((device) => !device.revokedAt)
@@ -1524,8 +1551,16 @@ export function AgentDevicesGroup() {
       {issued ? (
         <InfoActionCard
           title={format(c.agentDevicesTokenTitle, { name: issued.name })}
+          icon={<LuQrCode size={15} />}
           tone="info"
           fields={[
+            {
+              key: 'site',
+              label: c.agentDevicesSiteLabel,
+              value: issued.siteUrl,
+              mono: true,
+              copyable: true,
+            },
             {
               key: 'token',
               label: c.agentDevicesTokenLabel,
@@ -1533,6 +1568,17 @@ export function AgentDevicesGroup() {
               mono: true,
               copyable: true,
             },
+            ...(issuedBind
+              ? [
+                  {
+                    key: 'bindUri',
+                    label: c.agentDevicesQrUriLabel,
+                    value: issuedBind.uri,
+                    mono: true,
+                    copyable: true,
+                  },
+                ]
+              : []),
           ]}
           actions={[
             {
@@ -1543,7 +1589,25 @@ export function AgentDevicesGroup() {
             },
           ]}
         >
-          <p className="info-action-card-lede">{c.agentDevicesTokenOnce}</p>
+          <p className="info-action-card-lede agent-device-qr-lede">
+            {c.agentDevicesTokenOnce}
+          </p>
+          {issuedBind ? (
+            <div className="agent-device-qr">
+              <DeviceBindQrCode
+                uri={issuedBind.uri}
+                label={format(c.agentDevicesQrAlt, { name: issued.name })}
+              />
+              <div className="agent-device-qr-caption">
+                <p className="agent-device-qr-hint">{c.agentDevicesQrHint}</p>
+                {issuedBind.loopback ? (
+                  <p className="agent-device-qr-warn" role="status">
+                    {c.agentDevicesQrLoopbackWarn}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
         </InfoActionCard>
       ) : null}
       <ManagedList

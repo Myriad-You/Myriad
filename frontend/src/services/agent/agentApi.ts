@@ -401,6 +401,8 @@ export interface SyncDeviceList {
   serverClock?: ServerClock | null
   /** What the site runs. */
   versions?: SiteVersions
+  /** Durable configured public origin (`FRONTEND_URL` / `BASE_URL`), if set. */
+  siteUrl?: string | null
   limit: number
 }
 
@@ -827,7 +829,7 @@ class AgentService {
   /** The token comes back this once only. */
   async addSyncDevice(
     name: string,
-  ): Promise<{ device: SyncDevice; token: string }> {
+  ): Promise<{ device: SyncDevice; token: string; siteUrl?: string | null }> {
     return apiService.post(`${this.baseUrl}/devices`, { name })
   }
 
