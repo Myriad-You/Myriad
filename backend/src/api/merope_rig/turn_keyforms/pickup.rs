@@ -2,7 +2,8 @@
 //! 重新打开或刷新的页面据此接上调用方最近的那个任务——还在跑的，做完没被取走的，失败还没
 //! 报过的。这些记在任务记录上（`services::rig_jobs`），进程重启后还在；结果和失败各只自动
 //! 交给页面一次，刷新不会把同一份结果再预检一遍。做完的结果在本进程的内存里，存了档的
-//! 也能从存档取；两处都没有的（没存档、进程重启过或已经开始了下一个任务）不再交给页面。
+//! 也能从存档取；两处都没有的（没存档、进程重启过或已经开始了下一个任务）不再交给页面，
+//! 按 id 问它也和没有这个任务一样。
 //! 跑它的进程不在了而中断的任务，页面看到的和它不存在一样：在等它的页面照常按自己的选择
 //! 重新开始，已经做完的生图和拆层从缓存里取。
 
@@ -142,6 +143,20 @@ async fn result_of(job: &JobRow) -> Option<(Arc<Vec<u8>>, Arc<Vec<u8>>)> {
     Some((Arc::new(baked), Arc::new(keyforms)))
 }
 
+/// Whether a finished job's result can still be had: this process has it,
+/// or the archive its record names does.
+async fn result_available(job: &JobRow) -> bool {
+    if live::with_job(&job.id, |live| live.psd.is_some() && live.keyforms.is_some())
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    match job.result_ref.as_deref().and_then(archive::of_result_ref) {
+        Some(archive_id) => archive::has_result(archive_id).await,
+        None => false,
+    }
+}
+
 /// Whether a page opened now has something of this job to pick up: it
 /// still runs, it is done with a file no page has fetched and still to be
 /// had, or it failed and no page was told. A page leaving is not the job's
@@ -150,7 +165,7 @@ async fn result_of(job: &JobRow) -> Option<(Arc<Vec<u8>>, Arc<Vec<u8>>)> {
 async fn awaits_a_page(job: &JobRow) -> bool {
     match job.state() {
         JobState::Succeeded => {
-            !(job.delivered("psd") && job.delivered("keys")) && result_of(job).await.is_some()
+            !(job.delivered("psd") && job.delivered("keys")) && result_available(job).await
         }
         JobState::Failed if job.interrupted() => false,
         JobState::Failed | JobState::Cancelled => !job.delivered("failure"),
@@ -159,13 +174,18 @@ async fn awaits_a_page(job: &JobRow) -> bool {
 }
 
 /// The caller's job, as a page asking by its id may have it: none when it
-/// is another caller's or was interrupted.
+/// is another caller's, was interrupted, or finished with a result that can
+/// no longer be had. A page then starts its own again, as for no job at all.
 async fn job_of(db: &DatabaseConnection, caller: &str, id: &str) -> ApiResult<JobRow> {
-    rig_jobs::get(db, id)
+    let job = rig_jobs::get(db, id)
         .await
         .map_err(internal_error)?
         .filter(|job| job.caller == caller && !job.interrupted())
-        .ok_or_else(served::missing_job)
+        .ok_or_else(served::missing_job)?;
+    if job.state() == JobState::Succeeded && !result_available(&job).await {
+        return Err(served::missing_job());
+    }
+    Ok(job)
 }
 
 /// The status of the job a page opened now picks up, if any: the caller's

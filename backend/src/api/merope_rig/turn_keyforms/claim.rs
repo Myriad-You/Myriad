@@ -30,7 +30,8 @@ impl Submission {
     }
 
     /// The job the caller's key gave before, when it was given for the same
-    /// submission; refused when it was given for another.
+    /// submission and has not failed or been cancelled (the claim then lets
+    /// the key go and starts anew); refused when it was given for another.
     pub(super) async fn given_before(
         &self,
         db: &DatabaseConnection,
@@ -43,9 +44,11 @@ impl Submission {
             .await
             .map_err(internal_error)?
         {
-            Some((id, digest)) if digest == rig_jobs::digest(&self.input(phase)) => Ok(Some(id)),
-            Some(_) => Err(key_reused()),
-            None => Ok(None),
+            Some(keyed) if keyed.request_digest != rig_jobs::digest(&self.input(phase)) => {
+                Err(key_reused())
+            }
+            Some(keyed) if keyed.holds() => Ok(Some(keyed.job_id)),
+            _ => Ok(None),
         }
     }
 }
@@ -61,6 +64,11 @@ fn key_reused() -> ApiError {
 }
 
 /// The caller's key for one submission, from its `Idempotency-Key` header.
+/// The same key from the same caller gives the same job for a day
+/// (`rig_jobs::KEY_TTL`), however it ended unless it failed or was
+/// cancelled: then the key asks anew. A submission that joins a job already
+/// running for the same master keeps its key on that job. The same key with
+/// another request is refused (422 `idempotency_key_reused`).
 pub(super) fn idempotency_key(headers: &HeaderMap) -> ApiResult<Option<String>> {
     let Some(value) = headers.get("idempotency-key") else {
         return Ok(None);
@@ -106,7 +114,7 @@ pub(super) async fn claim(
             input,
             progress: job.progress(),
             ledger_task_id: rig_jobs::ledger_task_id(&id),
-            runner: live::RUNNER.clone(),
+            runner: live::runner(),
         },
         live::at_once(),
     )

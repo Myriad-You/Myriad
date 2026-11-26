@@ -310,9 +310,24 @@ pub fn background_status() -> &'static str {
 
 pub(crate) async fn request_stop() {
     agent::merope::lifecycle::background::stop_admission();
+    release_rig_jobs().await;
     STARTED.store(false, std::sync::atomic::Ordering::Release);
     if let Some(runtime) = RUNTIME.lock().await.as_ref() {
         runtime.request_stop();
+    }
+}
+
+/// This process's rig generation jobs let go as it stops, so that they do
+/// not hold their places until their leases lapse; one that still ends
+/// before the process does is recorded as it ends.
+async fn release_rig_jobs() {
+    let Ok(db) = crate::services::process_db::database() else {
+        return;
+    };
+    match crate::services::rig_jobs::release_this_process(&db).await {
+        Ok(0) => {}
+        Ok(released) => tracing::info!(released, "rig jobs let go as the process stops"),
+        Err(error) => tracing::warn!(%error, "rig jobs could not be let go as the process stops"),
     }
 }
 

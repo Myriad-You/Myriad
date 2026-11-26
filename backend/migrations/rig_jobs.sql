@@ -13,10 +13,6 @@ CREATE TABLE IF NOT EXISTS rig_jobs (
     caller VARCHAR(96) NOT NULL,
     -- The site account the job belongs to, when the caller is one.
     owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-    -- The caller's key for one submission: the same key gives the same job.
-    idempotency_key VARCHAR(255),
-    -- SHA-256 of what was asked, to tell a key used again for something else.
-    request_digest VARCHAR(64) NOT NULL,
     -- What a running job of the same input is joined by instead of started again.
     subject VARCHAR(512),
     -- What the job was asked to work from and how: references, never the bytes.
@@ -47,13 +43,31 @@ CREATE TABLE IF NOT EXISTS rig_jobs (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- NULL keys are distinct: only submissions that carry a key are joined by it.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_rig_jobs_caller_key
-    ON rig_jobs (caller, idempotency_key);
 CREATE INDEX IF NOT EXISTS idx_rig_jobs_caller_created
     ON rig_jobs (caller, created_at);
-CREATE INDEX IF NOT EXISTS idx_rig_jobs_state_heartbeat
-    ON rig_jobs (state, heartbeat_at);
+CREATE INDEX IF NOT EXISTS idx_rig_jobs_owner
+    ON rig_jobs (owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_rig_jobs_ended
+    ON rig_jobs (ended_at);
+-- The jobs holding a place, by when their lease was last renewed.
+CREATE INDEX IF NOT EXISTS idx_rig_jobs_active_heartbeat
+    ON rig_jobs (heartbeat_at) WHERE state IN ('queued', 'running');
+
+-- A caller's key for one submission and the job it gave. The same key with
+-- the same request gives the same job; with another request it is refused.
+-- A key whose job failed or was cancelled is let go by the next submission
+-- under it; keys expire after a day (`services::rig_jobs::KEY_TTL`).
+CREATE TABLE IF NOT EXISTS rig_job_keys (
+    caller VARCHAR(96) NOT NULL,
+    idempotency_key VARCHAR(255) NOT NULL,
+    job_id VARCHAR(32) NOT NULL REFERENCES rig_jobs(id) ON DELETE CASCADE,
+    -- SHA-256 of what was asked under the key.
+    request_digest VARCHAR(64) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (caller, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_rig_job_keys_job ON rig_job_keys (job_id);
+CREATE INDEX IF NOT EXISTS idx_rig_job_keys_created ON rig_job_keys (created_at);
 
 CREATE TABLE IF NOT EXISTS rig_job_steps (
     job_id VARCHAR(32) NOT NULL REFERENCES rig_jobs(id) ON DELETE CASCADE,

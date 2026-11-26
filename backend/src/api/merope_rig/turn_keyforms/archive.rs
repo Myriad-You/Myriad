@@ -231,6 +231,21 @@ pub(super) fn of_result_ref(result_ref: &str) -> Option<&str> {
 
 const RESULT_REF: &str = "turn-archive:";
 
+/// Whether the archive still has a job's result (its baked decomposition and
+/// keys), without reading them.
+pub(super) async fn has_result(id: &str) -> bool {
+    if !valid_id(id) {
+        return false;
+    }
+    let dir = archive_root().join(id);
+    for file in [BAKED, KEYFORMS] {
+        if !tokio::fs::try_exists(dir.join(file)).await.unwrap_or(false) {
+            return false;
+        }
+    }
+    true
+}
+
 pub(super) async fn read_meta(id: &str) -> Option<ArchiveMeta> {
     read_meta_in(&archive_root(), id).await
 }

@@ -4,21 +4,33 @@ use super::types::IndexDef;
 pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
     vec![
         IndexDef {
-            name: "idx_rig_jobs_caller_key".into(),
-            table: "rig_jobs".into(),
-            columns: vec!["caller".into(), "idempotency_key".into()],
-            is_unique: true,
-        },
-        IndexDef {
             name: "idx_rig_jobs_caller_created".into(),
             table: "rig_jobs".into(),
             columns: vec!["caller".into(), "created_at".into()],
             is_unique: false,
         },
         IndexDef {
-            name: "idx_rig_jobs_state_heartbeat".into(),
+            name: "idx_rig_jobs_owner".into(),
             table: "rig_jobs".into(),
-            columns: vec!["state".into(), "heartbeat_at".into()],
+            columns: vec!["owner_user_id".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_rig_jobs_ended".into(),
+            table: "rig_jobs".into(),
+            columns: vec!["ended_at".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_rig_job_keys_job".into(),
+            table: "rig_job_keys".into(),
+            columns: vec!["job_id".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_rig_job_keys_created".into(),
+            table: "rig_job_keys".into(),
+            columns: vec!["created_at".into()],
             is_unique: false,
         },
         IndexDef {

@@ -187,7 +187,7 @@ async fn a_jobs_progress_steps_and_end_are_written_to_its_record() {
             output_tokens: 20,
             tokens_estimated: true,
             cost_micro_usd: None,
-            status: "success",
+            status: "completed",
             error_code: None,
         },
     )
@@ -197,8 +197,9 @@ async fn a_jobs_progress_steps_and_end_are_written_to_its_record() {
     assert_eq!(record["kind"], json!("plain"));
     assert_eq!(record["steps"][0]["attempts"], json!(2));
     assert_eq!(record["steps"][1]["backend"], json!("image_provider"));
-    assert_eq!(record["spend"]["calls"], json!(1));
-    assert_eq!(record["spend"]["unpricedCalls"], json!(1));
+    assert_eq!(record["spend"]["completed"]["calls"], json!(1));
+    assert_eq!(record["spend"]["completed"]["unpricedCalls"], json!(1));
+    assert_eq!(record["spend"]["failed"]["calls"], json!(0));
     assert!(served::record(&db, "user:8", &id).await.is_err());
     schema.drop().await;
 }
@@ -355,7 +356,7 @@ async fn the_same_key_gives_the_same_job_and_another_request_under_it_is_refused
         .await
         .unwrap();
     assert!(new);
-    super::super::end(&db, &id, rig_jobs::Ending::Cancelled).await;
+    super::super::end(&db, &id, rig_jobs::Ending::Succeeded { result_ref: None }).await;
     // Sent again after it ended: the same job, not a new one.
     assert_eq!(
         asked.given_before(&db, Phase::Bust).await.unwrap(),
@@ -374,6 +375,35 @@ async fn the_same_key_gives_the_same_job_and_another_request_under_it_is_refused
         .await
         .unwrap_err();
     assert_eq!(refused.1["code"], json!("idempotency_key_reused"));
+    // A key whose job was cancelled asks anew: the same request is a new job.
+    let cancelled = submission(Some("k2"), false);
+    let (first, _) = claim(
+        &db,
+        &cancelled,
+        Phase::Bust,
+        Stage::Generating,
+        4,
+        targets(),
+    )
+    .await
+    .unwrap();
+    super::super::end(&db, &first, rig_jobs::Ending::Cancelled).await;
+    assert_eq!(
+        cancelled.given_before(&db, Phase::Bust).await.unwrap(),
+        None
+    );
+    let (second, new) = claim(
+        &db,
+        &cancelled,
+        Phase::Bust,
+        Stage::Generating,
+        4,
+        targets(),
+    )
+    .await
+    .unwrap();
+    assert!(new && second != first);
+    super::super::end(&db, &second, rig_jobs::Ending::Cancelled).await;
     // Without a key, a new submission is a new job.
     let (fresh, new) = claim(
         &db,
@@ -429,6 +459,7 @@ async fn a_job_whose_process_went_away_reads_as_gone_and_holds_no_place() {
     ))
     .await
     .unwrap();
+    rig_jobs::fail_interrupted(&db).await.unwrap();
     // The page polling it reads it as no such job, as it did before jobs were
     // kept, and starts its own again; a page opened now has nothing to pick up.
     let polled = pickup::status_for_its_page(&db, &caller(), &id)
@@ -489,14 +520,228 @@ async fn a_finished_job_survives_its_process_only_with_its_result_kept() {
         .await
         .unwrap_err();
     assert_eq!(fetched.0, StatusCode::NOT_FOUND);
-    // Its status still reads as it ended.
+    // The page asking by its id reads it as no such job, and starts its own again.
+    let polled = pickup::status_for_its_page(&db, &caller(), &id)
+        .await
+        .unwrap_err();
+    assert_eq!(polled.0, StatusCode::NOT_FOUND);
+    assert_eq!(polled.1["code"], json!("turn_keyforms_missing"));
+    // Its record still says how it ended.
     assert_eq!(
-        pickup::status_for_its_page(&db, &caller(), &id)
-            .await
-            .unwrap()["stage"],
-        json!("done")
+        rig_jobs::get(&db, &id).await.unwrap().unwrap().state(),
+        rig_jobs::State::Succeeded
     );
     schema.drop().await;
+}
+
+/// The job's work for the tests of its keeping: counts on until `until`.
+fn counting(id: &str, until: Duration) -> impl Future<Output = ApiResult<Made>> + use<> {
+    let id = id.to_owned();
+    async move {
+        let began = Instant::now();
+        while began.elapsed() < until {
+            update(&id, |job| job.done = (job.done + 1) % 4);
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        ApiResult::<Made>::Ok(plain(b"psd".to_vec(), "image/png".into()))
+    }
+}
+
+#[tokio::test]
+async fn a_job_whose_lease_was_lost_goes_on_and_is_recorded_as_it_ends() {
+    let _slot = JOB_TESTS.lock().await;
+    let Some(schema) = schema("rig_live_lost").await else {
+        return;
+    };
+    let db = schema.db.clone();
+    let (id, _) = claim(
+        &db,
+        &submission(None, true),
+        Phase::Plain,
+        Stage::Decomposing,
+        1,
+        targets(),
+    )
+    .await
+    .unwrap();
+    let running = tokio::spawn(run_job(
+        db.clone(),
+        id.clone(),
+        counting(&id, Duration::from_millis(3000)),
+        meta(&db).await,
+    ));
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    // Taken for interrupted while it runs: its lease could not be renewed for a while.
+    db.execute_unprepared(&format!(
+        "UPDATE rig_jobs SET heartbeat_at = NOW() - INTERVAL '1 hour' WHERE id = '{id}'"
+    ))
+    .await
+    .unwrap();
+    rig_jobs::fail_interrupted(&db).await.unwrap();
+    assert!(
+        rig_jobs::get(&db, &id)
+            .await
+            .unwrap()
+            .unwrap()
+            .interrupted()
+    );
+    // It goes on, and its end is recorded when it comes.
+    tokio::time::timeout(Duration::from_secs(10), running)
+        .await
+        .expect("it ends")
+        .unwrap();
+    let row = rig_jobs::get(&db, &id).await.unwrap().unwrap();
+    assert_eq!(row.state(), rig_jobs::State::Succeeded);
+    assert_eq!(row.error_code, None);
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn a_step_that_cannot_be_written_does_not_hold_back_the_lease() {
+    let _slot = JOB_TESTS.lock().await;
+    let Some(schema) = schema("rig_live_step_fails").await else {
+        return;
+    };
+    let db = schema.db.clone();
+    let (id, _) = claim(
+        &db,
+        &submission(None, true),
+        Phase::Plain,
+        Stage::Decomposing,
+        1,
+        targets(),
+    )
+    .await
+    .unwrap();
+    // A step the database refuses (its name is longer than the column).
+    update(&id, |job| {
+        let seq = job.step_began(&"x".repeat(80), Instant::now());
+        job.step_ended(seq, true);
+    });
+    let before = rig_jobs::get(&db, &id).await.unwrap().unwrap();
+    let running = tokio::spawn(run_job(
+        db.clone(),
+        id.clone(),
+        counting(&id, Duration::from_millis(2500)),
+        meta(&db).await,
+    ));
+    tokio::time::sleep(Duration::from_millis(1800)).await;
+    // Meanwhile its progress and lease were written all the same.
+    let during = rig_jobs::get(&db, &id).await.unwrap().unwrap();
+    assert_eq!(during.state(), rig_jobs::State::Running);
+    assert_ne!(during.progress, before.progress);
+    running.await.unwrap();
+    let row = rig_jobs::get(&db, &id).await.unwrap().unwrap();
+    assert_eq!(row.state(), rig_jobs::State::Succeeded);
+    assert!(rig_jobs::steps(&db, &id).await.unwrap().is_empty());
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn a_jobs_end_refused_by_the_database_is_written_again() {
+    let _slot = JOB_TESTS.lock().await;
+    let Some(schema) = schema("rig_live_end_fails").await else {
+        return;
+    };
+    let db = schema.db.clone();
+    // The first time the job's end is written, the database refuses it.
+    db.execute_unprepared(
+        "CREATE SEQUENCE end_tries;          CREATE FUNCTION refuse_first_end() RETURNS trigger AS $$ BEGIN            IF NEW.state <> 'running' AND nextval('end_tries') = 1 THEN              RAISE EXCEPTION 'end refused once';            END IF; RETURN NEW; END $$ LANGUAGE plpgsql;          CREATE TRIGGER refuse_first_end BEFORE UPDATE ON rig_jobs            FOR EACH ROW EXECUTE FUNCTION refuse_first_end();",
+    )
+    .await
+    .unwrap();
+    let (id, _) = claim(
+        &db,
+        &submission(None, true),
+        Phase::Plain,
+        Stage::Decomposing,
+        1,
+        targets(),
+    )
+    .await
+    .unwrap();
+    super::super::end(&db, &id, rig_jobs::Ending::Succeeded { result_ref: None }).await;
+    assert_eq!(
+        rig_jobs::get(&db, &id).await.unwrap().unwrap().state(),
+        rig_jobs::State::Succeeded
+    );
+    let tries = db
+        .query_one_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT last_value FROM end_tries",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get::<i64>("", "last_value")
+        .unwrap();
+    assert_eq!(tries, 2);
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn a_job_whose_account_is_deleted_while_it_runs_stops() {
+    let _slot = JOB_TESTS.lock().await;
+    let Some(schema) = schema("rig_live_account").await else {
+        return;
+    };
+    let db = schema.db.clone();
+    let (id, _) = claim(
+        &db,
+        &submission(None, false),
+        Phase::Bust,
+        Stage::Generating,
+        4,
+        targets(),
+    )
+    .await
+    .unwrap();
+    let dropped = Arc::new(AtomicBool::new(false));
+    let work = {
+        let guard = Dropped(dropped.clone());
+        let counting = counting(&id, Duration::from_secs(600));
+        async move {
+            let _guard = guard;
+            counting.await
+        }
+    };
+    let running = tokio::spawn(run_job(db.clone(), id.clone(), work, meta(&db).await));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    db.execute_unprepared("DELETE FROM users WHERE id = 7")
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), running)
+        .await
+        .expect("it stops")
+        .unwrap();
+    assert!(dropped.load(Ordering::Relaxed), "its work was let go");
+    assert!(rig_jobs::get(&db, &id).await.unwrap().is_none());
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn a_paid_call_once_sent_is_seen_to_its_end_when_the_job_stops_waiting() {
+    let (sent, answered) = tokio::sync::oneshot::channel();
+    let call = async move {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        // Written to the ledger under the job, as the drawing's hook does.
+        let task = crate::services::ai_cost_ledger::current_ai_attribution().map(|a| a.task_id);
+        let _ = sent.send(task);
+    };
+    let waiting = for_ledger("job-1", async {
+        detached(drawing_attribution(7), call).await
+    });
+    // The job is cancelled while it waits: it stops waiting.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), waiting)
+            .await
+            .is_err()
+    );
+    let task = tokio::time::timeout(Duration::from_secs(2), answered)
+        .await
+        .expect("the call went on")
+        .unwrap();
+    assert_eq!(task.as_deref(), Some("rig-job:job-1"));
 }
 
 #[tokio::test]

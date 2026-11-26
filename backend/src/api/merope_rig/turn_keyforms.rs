@@ -355,8 +355,7 @@ pub async fn start_turn_keyforms(
     if !payload.head && !payload.plain {
         return Err(bad_request("A bust's enhancement keys its head"));
     }
-    let key = idempotency_key(&headers)?;
-    start(db, &claims, None, payload, beside, key).await
+    start(db, &claims, None, payload, beside, &headers).await
 }
 
 pub async fn start_full_body_turn_keyforms(
@@ -373,8 +372,7 @@ pub async fn start_full_body_turn_keyforms(
     if payload.plain {
         return Err(bad_request("A set is split plain by keying neither part"));
     }
-    let key = idempotency_key(&headers)?;
-    start(db, &claims, Some(outfit_id), payload, beside, key).await
+    start(db, &claims, Some(outfit_id), payload, beside, &headers).await
 }
 
 async fn start(
@@ -383,7 +381,7 @@ async fn start(
     outfit_id: Option<String>,
     payload: TurnKeyformsRequest,
     beside: Beside,
-    idempotency_key: Option<String>,
+    headers: &HeaderMap,
 ) -> ApiResult<Json<Value>> {
     let keys = FigureKeys {
         head: payload.head,
@@ -391,6 +389,7 @@ async fn start(
     };
     require_merope_enabled().await?;
     let user_id = require_owner(claims, &db).await?;
+    let idempotency_key = idempotency_key(headers)?;
     let fingerprint = payload
         .source_generation_fingerprint
         .as_deref()

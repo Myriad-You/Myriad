@@ -31,7 +31,8 @@ pub async fn cancel_turn_keyforms(
 
 /// A job's record as the generation service keeps it: what it was asked,
 /// where it stands, each step with its time and compute, and what its paid
-/// calls cost as the ledger has them.
+/// calls cost as the ledger has them, those that completed apart from those
+/// that failed.
 pub async fn get_turn_keyforms_record(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
@@ -52,7 +53,6 @@ pub(super) async fn record(db: &DatabaseConnection, caller: &str, id: &str) -> A
     Ok(json!({
         "jobId": job.id,
         "kind": job.kind,
-        "idempotencyKey": job.idempotency_key,
         "ledgerTaskId": job.ledger_task_id,
         "state": job.state().as_str(),
         "input": job.input,
@@ -80,13 +80,21 @@ pub(super) async fn record(db: &DatabaseConnection, caller: &str, id: &str) -> A
             "gpuSeconds": step.gpu_seconds,
         })).collect::<Vec<_>>(),
         "spend": {
-            "calls": spend.calls,
-            "inputTokens": spend.input_tokens,
-            "outputTokens": spend.output_tokens,
-            "pricedMicroUsd": spend.priced_micro_usd,
-            "unpricedCalls": spend.unpriced_calls,
+            "completed": calls_json(&spend.completed),
+            "failed": calls_json(&spend.failed),
         },
     }))
+}
+
+/// Paid calls of one outcome, as the record reads them.
+fn calls_json(calls: &rig_jobs::Calls) -> Value {
+    json!({
+        "calls": calls.calls,
+        "inputTokens": calls.input_tokens,
+        "outputTokens": calls.output_tokens,
+        "pricedMicroUsd": calls.priced_micro_usd,
+        "unpricedCalls": calls.unpriced_calls,
+    })
 }
 
 pub(super) async fn cancel(db: &DatabaseConnection, caller: &str, id: &str) -> ApiResult<Value> {

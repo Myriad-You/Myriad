@@ -1,7 +1,15 @@
-//! 本进程正在跑的任务：管线同步地改它们的进度（`update`），跑任务的那一路每秒把变了的进度和
-//! 步骤写进任务记录（`services::rig_jobs`），每十秒续一次租约，顺带看有没有人要取消。取消时
-//! 整个任务的 future 被丢掉，手上还在等的生图和拆层请求随之断开；已经做完的生图与拆层在
+//! 本进程正在跑的任务：管线同步地改它们的进度（`update`）。每个任务旁边有一个单独的看守任务
+//! （`keep`）：每秒把变了的进度和步骤写进任务记录（`services::rig_jobs`），每十秒续一次租约，
+//! 顺带看有没有人要取消。续租和写步骤互不牵连：步骤写不进去只记一行、下一秒再写；看守在自己
+//! 的任务里跑，数据库慢不会拖住管线的请求，管线里长的同步计算也拖不住续租。任务做完到结果
+//! 写进记录（核对主立绘、存档、写结束）这段时间租约一直续着。
+//!
+//! 取消时整个任务的 future 被丢掉，等着的拆层请求随之断开；已经发出去的生图不断开，在后台
+//! 画完，照常记进账本（记在这个任务名下），图不留（`detached`）。已经做完的生图与拆层在
 //! `TurnCache` 里，再提交一次不必重做。
+//!
+//! 租约丢了（进程还活着，但有一阵续不上，任务被别人记成中断）时任务不停：花了钱的活照常做完，
+//! 结束时把成功补记回去。任务的记录没了（账号被删）时任务停下。
 //!
 //! 同时能跑几个任务由 `MYRIAD_RIG_JOBS_AT_ONCE` 决定，默认一个。
 
@@ -18,13 +26,14 @@ use tokio::sync::Notify;
 use super::{ApiResult, ArchiveMeta, Job, Made, finish};
 use crate::services::{ai_cost_ledger::AiLedgerAttribution, rig_jobs};
 
+/// The process running the jobs it claims.
+pub(super) fn runner() -> String {
+    rig_jobs::this_process().to_owned()
+}
+
 /// The jobs this process runs, by id: their progress as the pipeline reports
 /// it, and the results of those that ended until the next job is claimed.
 pub(super) static JOBS: LazyLock<Mutex<HashMap<String, Job>>> = LazyLock::new(Default::default);
-
-/// This process, as the runner of the jobs it claims.
-pub(super) static RUNNER: LazyLock<String> =
-    LazyLock::new(|| format!("proc-{}", uuid::Uuid::new_v4().simple()));
 
 /// How many jobs run at once, across processes: `MYRIAD_RIG_JOBS_AT_ONCE`, one by default.
 pub(super) fn at_once() -> u32 {
@@ -66,12 +75,20 @@ tokio::task_local! {
     static LEDGER: String;
 }
 
-/// Steps whose work is drawing; every other step's runs on the Space.
+/// Where a step's work runs, by the step: the drawings on the image provider;
+/// the judging and the fit on the Space, with a turn drawn again on the image
+/// provider when it asks for one; every other step on the Space.
 fn backend_of(name: &str, targets: &Targets) -> (&'static str, Option<String>) {
-    if name.ends_with("-drawings") {
-        ("image_provider", targets.image.clone())
-    } else {
-        ("hf_space", targets.space.clone())
+    match name {
+        "head-drawings" | "body-drawings" => ("image_provider", targets.image.clone()),
+        "head-judging" | "head-fit" => (
+            "hf_space+image_provider",
+            match (&targets.space, &targets.image) {
+                (Some(space), Some(image)) => Some(format!("{space} + {image}")),
+                (space, image) => space.clone().or_else(|| image.clone()),
+            },
+        ),
+        _ => ("hf_space", targets.space.clone()),
     }
 }
 
@@ -89,7 +106,7 @@ impl Job {
                 state: rig_jobs::State::Running,
                 attempts: 1,
                 backend: backend.to_owned(),
-                backend_target: target,
+                backend_target: target.as_deref().map(rig_jobs::backend_target),
                 started_at,
                 ended_at: None,
                 wall_seconds: None,
@@ -195,72 +212,138 @@ pub(super) async fn for_ledger<T>(id: &str, work: impl Future<Output = T>) -> T 
     LEDGER.scope(rig_jobs::ledger_task_id(id), work).await
 }
 
+/// A paid call run on its own task, under `attribution`: once sent, it is
+/// seen to its end and written to the ledger even when the job waiting for
+/// it is cancelled and stops waiting.
+pub(super) async fn detached<T: Send + 'static>(
+    attribution: AiLedgerAttribution,
+    call: impl Future<Output = T> + Send + 'static,
+) -> Option<T> {
+    let call = crate::services::ai_cost_ledger::with_ai_ledger_attribution(attribution, call);
+    tokio::spawn(call).await.ok()
+}
+
 /// What was last written of a job.
 #[derive(Default)]
 struct Written {
     version: u64,
     renewed: Option<Instant>,
+    /// The lease was found lost; said once.
+    lost: bool,
 }
 
-/// Progress and changed steps written when anything changed, the lease
-/// renewed when due. Whether the job is to stop: cancelled, or no longer
-/// this runner's (failed as interrupted while its lease could not be renewed).
-async fn write(db: &DatabaseConnection, id: &str, written: &mut Written) -> bool {
+/// What the keeper found the job is to do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Keep {
+    Go,
+    /// Cancelled, or its record is gone: it stops.
+    Stop,
+}
+
+/// Changed steps written, then the lease renewed when anything changed or
+/// it is due, with the progress. A step that cannot be written is logged and
+/// written again next time; it never holds back the lease.
+async fn write(db: &DatabaseConnection, id: &str, written: &mut Written) -> Keep {
     let Some((version, progress, steps)) = with_job(id, |job| {
         (job.version, job.progress(), job.unwritten_steps())
     }) else {
-        return true;
+        return Keep::Stop;
     };
-    let changed = version != written.version;
-    let due = written
-        .renewed
-        .is_none_or(|renewed| renewed.elapsed() >= RENEW_EVERY);
-    if !changed && !due {
-        return false;
-    }
-    let rows: Vec<_> = steps.iter().map(|(_, _, row)| row.clone()).collect();
-    let beat = async {
-        rig_jobs::save_steps(db, id, &rows).await?;
-        rig_jobs::heartbeat(db, id, &RUNNER, changed.then_some(&progress)).await
-    }
-    .await;
-    match beat {
-        Ok(beat) => {
-            written.version = version;
-            written.renewed = Some(Instant::now());
-            super::update_quietly(id, |job| {
+    if !steps.is_empty() {
+        let rows: Vec<_> = steps.iter().map(|(_, _, row)| row.clone()).collect();
+        match rig_jobs::save_steps(db, id, &rows).await {
+            Ok(()) => super::update_quietly(id, |job| {
                 for (seq, at, _) in &steps {
                     if let Some(step) = job.steps.get_mut(*seq) {
                         step.written = *at;
                     }
                 }
-            });
-            if !beat.running {
-                tracing::warn!(job = %id, "turn keyforms job is no longer this process's; stopping it");
+            }),
+            Err(error) => {
+                tracing::warn!(%error, job = %id, "turn keyforms steps could not be written; trying again")
             }
-            !beat.running || beat.cancel_requested
+        }
+    }
+    let changed = version != written.version;
+    let due = written
+        .renewed
+        .is_none_or(|renewed| renewed.elapsed() >= RENEW_EVERY);
+    if !changed && !due {
+        return Keep::Go;
+    }
+    match rig_jobs::heartbeat(
+        db,
+        id,
+        rig_jobs::this_process(),
+        changed.then_some(&progress),
+    )
+    .await
+    {
+        Ok(rig_jobs::Beat::Renewed { cancel_requested }) => {
+            written.version = version;
+            written.renewed = Some(Instant::now());
+            if cancel_requested {
+                Keep::Stop
+            } else {
+                Keep::Go
+            }
+        }
+        Ok(rig_jobs::Beat::Lost) => {
+            written.renewed = Some(Instant::now());
+            if !written.lost {
+                written.lost = true;
+                tracing::warn!(job = %id, "turn keyforms lease lost; the job goes on and its end is recorded when it comes");
+            }
+            Keep::Go
+        }
+        Ok(rig_jobs::Beat::Gone) => {
+            tracing::warn!(job = %id, "turn keyforms job's record is gone; stopping it");
+            Keep::Stop
         }
         Err(error) => {
-            tracing::warn!(%error, job = %id, "turn keyforms progress could not be written");
-            false
+            tracing::warn!(%error, job = %id, "turn keyforms lease could not be renewed");
+            Keep::Go
         }
     }
 }
 
 /// The job's steps as they stand, written.
-pub(super) async fn write_steps(db: &DatabaseConnection, id: &str) {
+pub(super) async fn write_steps(db: &DatabaseConnection, id: &str) -> Result<(), sea_orm::DbErr> {
     let Some(steps) = with_job(id, Job::unwritten_steps) else {
-        return;
+        return Ok(());
     };
     let rows: Vec<_> = steps.into_iter().map(|(_, _, row)| row).collect();
-    if let Err(error) = rig_jobs::save_steps(db, id, &rows).await {
-        tracing::warn!(%error, job = %id, "turn keyforms steps could not be written");
+    rig_jobs::save_steps(db, id, &rows).await
+}
+
+/// Keeps a job's record up while it runs and ends, on its own task, until
+/// `done`: writes it (`write`) once a second, and tells the job to stop when
+/// it is cancelled or its record is gone.
+async fn keep(db: DatabaseConnection, id: String, mut done: tokio::sync::watch::Receiver<bool>) {
+    let Some(cancel) = with_job(&id, |job| job.cancel.clone()) else {
+        return;
+    };
+    let mut tick = tokio::time::interval(WRITE_EVERY);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut written = Written::default();
+    let mut told = false;
+    loop {
+        tokio::select! {
+            _ = done.changed() => return,
+            _ = tick.tick() => {
+                if write(&db, &id, &mut written).await == Keep::Stop && !told {
+                    told = true;
+                    cancel.notify_one();
+                }
+            }
+        }
     }
 }
 
-/// Runs a claimed job's `work` to its end, or until it is cancelled, writing
-/// its progress meanwhile; then ends it (`finish`). Cancelled, the work is
-/// dropped where it stands: what it was waiting on is let go.
+/// Runs a claimed job's `work` to its end, or until it is cancelled, its
+/// record kept up meanwhile by a keeper on its own task (`keep`); then ends
+/// it (`finish`) with the lease still kept. Cancelled, the work is dropped
+/// where it stands: what it was waiting on is let go.
 pub(super) async fn run_job(
     db: DatabaseConnection,
     id: String,
@@ -270,26 +353,19 @@ pub(super) async fn run_job(
     let Some(cancel) = with_job(&id, |job| job.cancel.clone()) else {
         return;
     };
-    let mut work = Box::pin(for_ledger(&id, work));
-    let mut tick = tokio::time::interval(WRITE_EVERY);
-    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let mut written = Written::default();
-    let result = loop {
-        tokio::select! {
-            result = &mut work => break Some(result),
-            () = cancel.notified() => break None,
-            _ = tick.tick() => {
-                if write(&db, &id, &mut written).await {
-                    break None;
-                }
-            }
-        }
+    let (done, watching) = tokio::sync::watch::channel(false);
+    let keeper = tokio::spawn(keep(db.clone(), id.clone(), watching));
+    let work = for_ledger(&id, work);
+    let result = tokio::select! {
+        result = work => Some(result),
+        () = cancel.notified() => None,
     };
-    drop(work);
     match result {
         Some(result) => finish(&db, &id, result, meta).await,
         None => super::cancelled(&db, &id).await,
     }
+    let _ = done.send(true);
+    let _ = keeper.await;
 }
 
 /// A notifier for a job's cancel.

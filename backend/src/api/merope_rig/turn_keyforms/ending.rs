@@ -79,13 +79,47 @@ pub(super) async fn cancelled(db: &DatabaseConnection, id: &str) {
     end(db, id, rig_jobs::Ending::Cancelled).await;
 }
 
-/// The job's end written to its record, with its steps.
+/// How long writing a job's end is tried again after the database failed it.
+const END_RETRIES: [Duration; 5] = [
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+    Duration::from_secs(8),
+    Duration::from_secs(16),
+];
+
+/// The job's end written to its record, with its steps as far as they can
+/// be; the end tried again with growing pauses while the database fails it,
+/// the lease kept meanwhile (`live::run_job`). A success over a job failed as interrupted while it
+/// ran on is recorded all the same: its result was paid for and kept.
 pub(super) async fn end(db: &DatabaseConnection, id: &str, ending: rig_jobs::Ending) {
-    live::write_steps(db, id).await;
     let progress = live::with_job(id, Job::progress).unwrap_or_else(|| json!({}));
-    match rig_jobs::finish(db, id, ending, &progress).await {
-        Ok(true) => {}
-        Ok(false) => tracing::warn!(job = %id, "turn keyforms job had ended already"),
-        Err(error) => tracing::warn!(%error, job = %id, "turn keyforms end could not be written"),
+    let mut pauses = END_RETRIES.iter();
+    loop {
+        // A step that cannot be written does not hold back the end.
+        if let Err(error) = live::write_steps(db, id).await {
+            tracing::warn!(%error, job = %id, "turn keyforms steps could not be written at its end");
+        }
+        match rig_jobs::finish(db, id, ending.clone(), &progress).await {
+            Ok(rig_jobs::Ended::Written) => return,
+            Ok(rig_jobs::Ended::Reconciled) => {
+                tracing::warn!(job = %id, "turn keyforms job ended after it was taken for interrupted; its success is recorded");
+                return;
+            }
+            Ok(rig_jobs::Ended::Already) => {
+                tracing::warn!(job = %id, "turn keyforms job had ended already");
+                return;
+            }
+            Err(error) => match pauses.next() {
+                Some(pause) => {
+                    tracing::warn!(%error, job = %id, "turn keyforms end could not be written; trying again");
+                    tokio::time::sleep(*pause).await;
+                }
+                None => {
+                    tracing::error!(%error, job = %id, "turn keyforms end could not be written");
+                    return;
+                }
+            },
+        }
     }
 }

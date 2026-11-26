@@ -687,6 +687,7 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .get_connection()
             .execute_unprepared(
                 r#"
+DROP TABLE IF EXISTS rig_job_keys;
 DROP TABLE IF EXISTS rig_job_steps;
 DROP TABLE IF EXISTS rig_jobs;
 DROP TABLE IF EXISTS agent_persona_field_history;

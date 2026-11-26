@@ -1142,8 +1142,6 @@ pub(crate) fn tables() -> Vec<TableDef> {
                 ColumnDef::new("kind", "character varying").not_null(),
                 ColumnDef::new("caller", "character varying").not_null(),
                 ColumnDef::new("owner_user_id", "integer"),
-                ColumnDef::new("idempotency_key", "character varying"),
-                ColumnDef::new("request_digest", "character varying").not_null(),
                 ColumnDef::new("subject", "character varying"),
                 ColumnDef::new("input", "jsonb").not_null(),
                 ColumnDef::new("state", "character varying")
@@ -1172,6 +1170,18 @@ pub(crate) fn tables() -> Vec<TableDef> {
                 ColumnDef::new("started_at", "timestamp with time zone"),
                 ColumnDef::new("ended_at", "timestamp with time zone"),
                 ColumnDef::new("updated_at", "timestamp with time zone")
+                    .not_null()
+                    .default_value("now()"),
+            ],
+        },
+        TableDef {
+            name: "rig_job_keys".to_string(),
+            columns: vec![
+                ColumnDef::new("caller", "character varying").not_null(),
+                ColumnDef::new("idempotency_key", "character varying").not_null(),
+                ColumnDef::new("job_id", "character varying").not_null(),
+                ColumnDef::new("request_digest", "character varying").not_null(),
+                ColumnDef::new("created_at", "timestamp with time zone")
                     .not_null()
                     .default_value("now()"),
             ],
