@@ -903,6 +903,14 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 middleware::auth::auth_middleware,
             )),
         )
+        // 设备念她的话：用站点配好的声音，只认设备令牌（mys_…），不认会话
+        .route(
+            "/device/tts",
+            post(super::device_speech::device_tts).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::sync_device::sync_device_auth,
+            )),
+        )
         // 设备同步她：只认设备令牌（mys_…），不认会话
         .route(
             "/sync/hello",
