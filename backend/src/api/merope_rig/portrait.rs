@@ -308,7 +308,6 @@ pub async fn generate_portrait(
         visual_school_version = MEROPE_VISUAL_SCHOOL_VERSION,
         reference_role,
         style_reference_sha256 = MEROPE_STYLE_REFERENCE_SHA256,
-        lookalike_ban = prompt.contains("找班"),
         "site portrait generation started"
     );
     let generation_token = Uuid::new_v4().to_string();

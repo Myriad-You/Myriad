@@ -3,7 +3,7 @@
 use axum::{Json, http::StatusCode};
 use myriad_merope::{
     CharacterAssetProfile, RigManifest, build_character_asset_contract,
-    character_asset_contract_fingerprint,
+    character_asset_contract_fingerprint, is_recognised_portrait_rendering,
 };
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
@@ -61,13 +61,14 @@ pub(super) fn portrait_generation_fingerprint(
         .and_then(Value::as_str);
     let mut expected =
         build_character_asset_contract(name, visual_profile, additional_requirements);
-    // The rendering block records how the portrait was drawn (visual school
-    // version, style reference), not who it depicts: a portrait drawn under an
-    // earlier school still depicts the current identity and keeps its lineage.
-    if let (Some(stored), Some(current)) =
-        (contract.get("rendering"), expected.get_mut("rendering"))
+    // A portrait drawn under a rendering core still recognises (the current
+    // one, or one it replaced without changing how identity is written)
+    // depicts the same identity; any other rendering is compared as is.
+    if let Some(stored) = contract
+        .get("rendering")
+        .filter(|rendering| is_recognised_portrait_rendering(rendering))
     {
-        *current = stored.clone();
+        expected["rendering"] = stored.clone();
     }
     if contract != &expected {
         tracing::warn!(
@@ -428,31 +429,6 @@ mod tests {
             None
         );
 
-        let mut drawn_under_another_school = document.clone();
-        drawn_under_another_school["contract"]["rendering"] = json!({
-            "visualSchoolVersion": "an-earlier-school-v1",
-            "styleReferenceSha256": "0".repeat(64),
-            "styleReferenceRole": "rendering-technique-only",
-        });
-        let earlier = character_asset_contract_fingerprint(&drawn_under_another_school["contract"]);
-        drawn_under_another_school["fingerprint"] = json!(earlier);
-        assert_eq!(
-            portrait_generation_fingerprint("Nova", &profile, Some(&drawn_under_another_school))
-                .unwrap(),
-            Some(earlier),
-            "a portrait drawn under an earlier visual school keeps its fingerprint"
-        );
-        assert_eq!(
-            portrait_generation_fingerprint(
-                "Nova",
-                &json!({ "gender": "female" }),
-                Some(&drawn_under_another_school),
-            )
-            .unwrap(),
-            None,
-            "but not once the identity it depicts has changed"
-        );
-
         let mut tampered = document;
         tampered["contract"]["additionalRequirements"] = json!("different light");
         assert!(portrait_generation_fingerprint("Nova", &profile, Some(&tampered)).is_err());
@@ -465,5 +441,150 @@ mod tests {
             .unwrap(),
             None
         );
+    }
+
+    /// A persona wearing outfit "a" whose wardrobe entry stores no
+    /// generation fingerprint, so the worn bust's lineage comes from
+    /// `portrait_generation` (the fallback path).
+    fn persona_with_portrait_drawn_under(
+        rendering: Option<Value>,
+    ) -> (
+        crate::models::entities::agent_persona::Model,
+        Option<String>,
+    ) {
+        let visual_profile = json!({
+            "activeOutfitId": "a",
+            "gender": "female",
+            "wardrobe": [{ "id": "a", "portraitAssetId": "/master.png" }],
+        });
+        let mut contract = build_character_asset_contract("Nova", &visual_profile, None);
+        match rendering {
+            Some(rendering) => contract["rendering"] = rendering,
+            None => {
+                contract.as_object_mut().unwrap().remove("rendering");
+            }
+        }
+        let fingerprint = character_asset_contract_fingerprint(&contract);
+        let persona = crate::models::entities::agent_persona::Model {
+            id: "site".into(),
+            name: "Nova".into(),
+            personality: String::new(),
+            persona_json: None,
+            visual_profile: Some(visual_profile),
+            portrait_asset_id: Some("/master.png".into()),
+            portrait_generation: Some(json!({
+                "fingerprint": fingerprint,
+                "contract": contract,
+            })),
+            avatar_asset_id: None,
+            avatar_generation: None,
+            updated_by: None,
+            updated_at: crate::clock::now().fixed_offset(),
+            zone: String::new(),
+            field_revs: serde_json::json!({}),
+        };
+        (persona, Some(fingerprint))
+    }
+
+    fn rendering_under(school_version: &str) -> Value {
+        json!({
+            "visualSchoolVersion": school_version,
+            "styleReferenceSha256": myriad_merope::MEROPE_STYLE_REFERENCE_SHA256,
+            "styleReferenceRole": "rendering-technique-only",
+        })
+    }
+
+    fn rig_imported_against(fingerprint: Option<String>) -> RigManifest {
+        layered_stub_manifest("/master.png", fingerprint)
+    }
+
+    #[test]
+    fn a_portrait_drawn_under_the_previous_school_keeps_its_fingerprint_and_rig() {
+        let (persona, stored) =
+            persona_with_portrait_drawn_under(Some(rendering_under("mihoyo-rpg-reference-v4")));
+        let master = master_from_persona(&persona).unwrap();
+        assert_eq!(master.generation_fingerprint, stored);
+        assert!(manifest_matches_master(
+            &rig_imported_against(stored),
+            &master
+        ));
+    }
+
+    #[test]
+    fn a_portrait_drawn_under_an_older_school_still_has_no_fingerprint() {
+        let (persona, stored) =
+            persona_with_portrait_drawn_under(Some(rendering_under("mihoyo-rpg-reference-v3")));
+        let master = master_from_persona(&persona).unwrap();
+        assert_eq!(master.generation_fingerprint, None);
+        assert!(
+            manifest_matches_master(&rig_imported_against(None), &master),
+            "a rig imported while the portrait had no fingerprint stays attached"
+        );
+        assert!(!manifest_matches_master(
+            &rig_imported_against(stored),
+            &master
+        ));
+    }
+
+    #[test]
+    fn a_portrait_contract_without_a_rendering_block_has_no_fingerprint() {
+        let (persona, _) = persona_with_portrait_drawn_under(None);
+        let master = master_from_persona(&persona).unwrap();
+        assert_eq!(master.generation_fingerprint, None);
+        assert!(manifest_matches_master(
+            &rig_imported_against(None),
+            &master
+        ));
+    }
+
+    #[test]
+    fn a_portrait_contract_with_a_malformed_rendering_block_has_no_fingerprint() {
+        let mut with_extra_key = rendering_under(myriad_merope::MEROPE_VISUAL_SCHOOL_VERSION);
+        with_extra_key["note"] = json!("x");
+        for garbage in [
+            Value::Null,
+            json!("mihoyo-rpg-reference-v4"),
+            json!({ "visualSchoolVersion": 4 }),
+            with_extra_key,
+        ] {
+            let (persona, _) = persona_with_portrait_drawn_under(Some(garbage.clone()));
+            let master = master_from_persona(&persona).unwrap();
+            assert_eq!(master.generation_fingerprint, None, "{garbage}");
+            assert!(manifest_matches_master(
+                &rig_imported_against(None),
+                &master
+            ));
+        }
+    }
+
+    #[test]
+    fn a_fingerprint_stored_on_the_worn_outfit_takes_precedence() {
+        let (mut persona, _) =
+            persona_with_portrait_drawn_under(Some(rendering_under("mihoyo-rpg-reference-v4")));
+        let on_outfit = "c".repeat(64);
+        persona.visual_profile.as_mut().unwrap()["wardrobe"][0]["generationFingerprint"] =
+            json!(on_outfit);
+        let master = master_from_persona(&persona).unwrap();
+        assert_eq!(
+            master.generation_fingerprint.as_deref(),
+            Some(on_outfit.as_str())
+        );
+        assert!(manifest_matches_master(
+            &rig_imported_against(Some(on_outfit)),
+            &master
+        ));
+    }
+
+    #[test]
+    fn a_previous_school_portrait_loses_its_fingerprint_once_the_identity_changes() {
+        let (mut persona, stored) =
+            persona_with_portrait_drawn_under(Some(rendering_under("mihoyo-rpg-reference-v4")));
+        persona.visual_profile.as_mut().unwrap()["gender"] = json!("male");
+        let master = master_from_persona(&persona).unwrap();
+        assert_eq!(master.generation_fingerprint, None);
+        assert!(!manifest_matches_master(
+            &rig_imported_against(stored),
+            &master
+        ));
     }
 }
