@@ -421,11 +421,11 @@ async fn run_for(
     answering: Vec<String>,
 ) -> Outcome {
     // `MEROPE_MEMORY_BENCH_WRITE_THINKING`: written thinking as asked.
-    let written = crate::services::analyzer::write_thinking::when_asked(write_for(
+    let written = crate::services::analyzer::write_thinking::when_asked(Box::pin(write_for(
         db, models.0, question, name, who, answering,
-    ))
+    )))
     .await;
-    answer_for(db, models, question, name, who, written, None).await
+    Box::pin(answer_for(db, models, question, name, who, written, None)).await
 }
 
 pub(super) use scored::{CuesTry, ask_cues, ask_cues_once_with, ask_cues_with};
@@ -492,7 +492,7 @@ async fn answer_for(
     };
     // The same, also scrolling back through the chat when answering needs
     // all of it, as production does.
-    let wide = answer_one(
+    let wide = Box::pin(answer_one(
         db,
         judge,
         lite,
@@ -503,17 +503,22 @@ async fn answer_for(
         THOROUGH,
         true,
         &answering,
-    )
+    ))
     .await;
+    // Pessimistic lower bound for production gating: reuses `wide` on
+    // `reaches_back`, and falls back to cue-less `plain` when missed (real
+    // production uses `now_or_never` so sits between `gated` and `wide`, and
+    // still scrolls back on empty cues; `WIDE_ONLY=1` runs 1 extra answer+grade
+    // whenever `!reaches_back`).
     let reaches_back = myriad_merope::remembering::reaches_back(&question.question);
     let gated = if reaches_back {
         wide.clone()
     } else if let Some(plain) = &plain {
         plain.clone()
     } else {
-        answer_one(
+        Box::pin(answer_one(
             db, judge, lite, question, user_id, &present, None, THOROUGH, true, &answering,
-        )
+        ))
         .await
     };
     let wider = match wider_arm() {
