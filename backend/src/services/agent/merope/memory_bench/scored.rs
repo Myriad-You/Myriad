@@ -3,6 +3,82 @@
 
 use super::*;
 
+/// What one remembering attempt came to (same four buckets as production's
+/// `remembering::counts()`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in super::super) enum CuesTry {
+    Cues,
+    Empty,
+    Unreadable,
+    Unanswered,
+}
+
+impl CuesTry {
+    fn classify(raw: Option<&str>, parsed: Option<&myriad_merope::remembering::Cues>) -> Self {
+        match (raw, parsed) {
+            (None, _) => Self::Unanswered,
+            (Some(_), None) => Self::Unreadable,
+            (Some(_), Some(cues)) if cues.cues.is_empty() => Self::Empty,
+            (Some(_), Some(_)) => Self::Cues,
+        }
+    }
+}
+
+async fn ask_cues_attempt<F, Fut>(ask: F) -> (Option<String>, CuesTry)
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Option<String>>,
+{
+    let raw = ask().await;
+    let parsed = raw.as_deref().and_then(myriad_merope::remembering::parse);
+    let outcome = CuesTry::classify(raw.as_deref(), parsed.as_ref());
+    let kept = raw.filter(|_| parsed.is_some());
+    (kept, outcome)
+}
+
+/// Ask the judge once what to look for, matching production's single-attempt
+/// budget with schema in the prompt (`JsonShape::InPrompt`), and classify the
+/// first-attempt outcome.
+pub(in super::super) async fn ask_cues_once_with(
+    judge: &crate::services::analyzer::AiAnalyzer,
+    system: &str,
+    input: &str,
+) -> (Option<String>, CuesTry) {
+    ask_cues_attempt(|| async {
+        judge
+            .analyze_json_as(
+                system,
+                input,
+                myriad_merope::remembering::SCHEMA_NAME,
+                Some(&myriad_merope::remembering::schema()),
+                crate::services::analyzer::JsonShape::InPrompt,
+            )
+            .await
+            .ok()
+    })
+    .await
+}
+
+pub(in super::super) async fn ask_cues_with(
+    judge: &crate::services::analyzer::AiAnalyzer,
+    system: &str,
+    input: &str,
+) -> Option<String> {
+    ask_cues_once_with(judge, system, input).await.0
+}
+
+pub(in super::super) async fn ask_cues(
+    judge: &crate::services::analyzer::AiAnalyzer,
+    question: &Question,
+) -> Option<String> {
+    ask_cues_with(
+        judge,
+        &myriad_merope::remembering::system(),
+        &myriad_merope::remembering::input(&question.question, None, &question.question_date),
+    )
+    .await
+}
+
 /// Each way of recalling scored by its run: right once on average, and
 /// pass^n, the questions right every time they were run.
 pub(super) fn report(
@@ -223,6 +299,31 @@ pub(super) fn report(
         .iter()
         .filter(|(_, _, outcome)| outcome.void())
         .count();
+    let mut cue_counts = [0usize; 4];
+    for (_, _, outcome) in outcomes {
+        match outcome.cues_try {
+            Some(CuesTry::Cues) => cue_counts[0] += 1,
+            Some(CuesTry::Empty) => cue_counts[1] += 1,
+            Some(CuesTry::Unreadable) => cue_counts[2] += 1,
+            Some(CuesTry::Unanswered) => cue_counts[3] += 1,
+            None => {}
+        }
+    }
+    let cue_total: usize = cue_counts.iter().sum();
+    if cue_total > 0 {
+        let failed = cue_counts[2] + cue_counts[3];
+        scores.insert(
+            "cuesTries".into(),
+            json!({
+                "total": cue_total,
+                "cues": cue_counts[0],
+                "empty": cue_counts[1],
+                "unreadable": cue_counts[2],
+                "unanswered": cue_counts[3],
+                "firstAttemptFailedRate": failed as f64 / cue_total as f64,
+            }),
+        );
+    }
     json!({"times": times, "wider": wider(), "widerArm": wider_arm(), "scores": scores,
         "voided": voided, "rows": rows})
 }
@@ -300,4 +401,127 @@ pub(super) fn finished(report_path: &str) -> std::collections::HashSet<(String, 
             ))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_question(id: &str) -> Question {
+        Question {
+            question_id: id.to_string(),
+            question_type: "single-session-user".to_string(),
+            question: "What do I drink?".to_string(),
+            answer: json!("coffee"),
+            question_date: "2026/11/26 (Thu) 12:00".to_string(),
+            haystack_dates: Vec::new(),
+            haystack_sessions: Vec::new(),
+            haystack_venues: Vec::new(),
+            question_venue: None,
+            question_speaker: None,
+            memories: Vec::new(),
+            category: None,
+            pair: None,
+            background_sessions: Vec::new(),
+            needs: Vec::new(),
+        }
+    }
+
+    fn sample_outcome(cues_try: Option<CuesTry>) -> Outcome {
+        Outcome {
+            written: true,
+            plain: None,
+            cued: None,
+            wide: Answered {
+                retrieved: true,
+                correct: Some(true),
+                dragged: None,
+                why: None,
+                answer: "coffee".to_string(),
+                recalled: Vec::new(),
+                cues: None,
+                through: None,
+                scrolled: None,
+                standing: Vec::new(),
+            },
+            bare: None,
+            wider: None,
+            raw: None,
+            answering: Vec::new(),
+            read: None,
+            in_private: None,
+            memories: Vec::new(),
+            concepts: Vec::new(),
+            nodes: Vec::new(),
+            kept: 0,
+            failed: Vec::new(),
+            need_ranks: Vec::new(),
+            asked: None,
+            cues_try,
+        }
+    }
+
+    #[test]
+    fn report_summarizes_cues_tries_and_first_attempt_failure_rate() {
+        let q1 = sample_question("q1");
+        let q2 = sample_question("q2");
+        let q3 = sample_question("q3");
+        let q4 = sample_question("q4");
+        let report = report(
+            &[q1.clone(), q2.clone(), q3.clone(), q4.clone()],
+            1,
+            &[
+                (q1, 0, sample_outcome(Some(CuesTry::Cues))),
+                (q2, 0, sample_outcome(Some(CuesTry::Empty))),
+                (q3, 0, sample_outcome(Some(CuesTry::Unreadable))),
+                (q4, 0, sample_outcome(Some(CuesTry::Unanswered))),
+            ],
+        );
+        let tries = &report["scores"]["cuesTries"];
+        assert_eq!(tries["total"], 4);
+        assert_eq!(tries["cues"], 1);
+        assert_eq!(tries["empty"], 1);
+        assert_eq!(tries["unreadable"], 1);
+        assert_eq!(tries["unanswered"], 1);
+        assert_eq!(tries["firstAttemptFailedRate"], 0.5);
+    }
+
+    #[tokio::test]
+    async fn bench_cues_attempt_does_not_retry_and_classifies_outcomes() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let c = calls.clone();
+        let (kept, outcome) = super::ask_cues_attempt(|| {
+            c.fetch_add(1, Ordering::SeqCst);
+            async move { None }
+        })
+        .await;
+        assert!(kept.is_none());
+        assert_eq!(outcome, CuesTry::Unanswered);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        let (kept, outcome) =
+            super::ask_cues_attempt(|| async { Some("not json".to_string()) }).await;
+        assert!(kept.is_none());
+        assert_eq!(outcome, CuesTry::Unreadable);
+
+        let (kept, outcome) = super::ask_cues_attempt(|| async {
+            Some(r#"{"cues":[],"thorough":false,"lookBack":false,"aboutYou":false}"#.to_string())
+        })
+        .await;
+        assert!(kept.is_some());
+        assert_eq!(outcome, CuesTry::Empty);
+
+        let (kept, outcome) = super::ask_cues_attempt(|| async {
+            Some(
+                r#"{"cues":["turbinado sugar"],"thorough":false,"lookBack":false,"aboutYou":false}"#
+                    .to_string(),
+            )
+        })
+        .await;
+        assert!(kept.is_some());
+        assert_eq!(outcome, CuesTry::Cues);
+    }
 }
