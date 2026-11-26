@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import test, { mock } from 'node:test'
 import { realizeAnime25DBehaviorPlan } from '@myriad/figure/anime25drig'
 import { MotionRuntime, RigMotionCoordinator } from '@myriad/figure/motion'
-import { WORKBENCH_DRIVER } from '@myriad/figure/workbench'
+import { BODY_CONTROL_DRIVERS, WORKBENCH_DRIVER } from '@myriad/figure/workbench'
 import { setLiveFaceVisible } from '../events/faceVisible'
 import { figureChannel } from '../figureChannel'
 import { SpeechPipelineHost } from '../speech/speechPipelineHost'
@@ -156,7 +156,10 @@ test('Anime2.5D adapter exposes semantic capabilities and state, not drivers', (
   const state = body.state()
   assert.equal(state.expression, 'steady')
   assert.equal(typeof state.speaking, 'boolean')
-  for (const driver of Object.keys(WORKBENCH_DRIVER)) assert.equal(Object.hasOwn(state, driver), false, driver)
+  // Neither the driver parameters nor the performance contract's body controls (mouthOpen, headTurn…) leak into it.
+  for (const key of [...Object.keys(WORKBENCH_DRIVER), ...Object.keys(BODY_CONTROL_DRIVERS)]) {
+    assert.equal(Object.hasOwn(state, key), false, key)
+  }
   release()
 })
 
