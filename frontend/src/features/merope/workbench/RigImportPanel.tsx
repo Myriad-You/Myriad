@@ -18,6 +18,7 @@ import { aiExpressionLabel, turnKeysProgress } from './rigImportCopy'
 import { RigImportProgress } from './RigImportProgress'
 import { useOpeningRigMode } from './rigMode'
 import {
+  MODEL_USE_RESTRICTIONS_URL,
   SEE_THROUGH_PROJECT_NAME,
   SEE_THROUGH_PROJECT_URL,
 } from './seeThroughProject'
@@ -201,6 +202,12 @@ export function RigImportPanel({
             name={SEE_THROUGH_PROJECT_NAME}
           />
           {labels.anime25dSeeThroughCredit}
+        </p>
+        <p className="merope-character-home__credit-line">
+          {labels.anime25dSeeThroughModelNotice}{' '}
+          <a href={MODEL_USE_RESTRICTIONS_URL} target="_blank" rel="noopener noreferrer">
+            {labels.anime25dSeeThroughModelTerms}
+          </a>
         </p>
         <p className="merope-character-home__credit-line">
           <GitHubProjectBadge

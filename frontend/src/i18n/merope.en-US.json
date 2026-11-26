@@ -118,6 +118,8 @@
   "motionPsdUploading": "Reading PSD…",
   "visualConfirm": "The image model may incur charges. Generate the master portrait now? Regenerating clears the imported rig.",
   "anime25dSeeThroughCredit": "Splits the portrait into layers: hair, face, clothes.",
+  "anime25dSeeThroughModelNotice": "The layering models are subject to the use restrictions of the CreativeML Open RAIL++-M and CreativeML Open RAIL-M licences.",
+  "anime25dSeeThroughModelTerms": "Use restrictions",
   "anime25dRuntimeCredit": "Drives blink, speech, and head-turn on those layers.",
   "anime25dProjectThanks": "The persona builds on these projects. Thanks to",
   "anime25dDebug": "Motion",

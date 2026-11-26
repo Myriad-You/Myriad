@@ -118,6 +118,8 @@
   "motionPsdUploading": "PSD を読み込み中…",
   "visualConfirm": "画像モデルの料金が発生する場合があります。生成を開始しますか？再生成すると取り込み済みのリグは消えます。",
   "anime25dSeeThroughCredit": "立ち絵を髪・顔・服などのレイヤーに分ける。",
+  "anime25dSeeThroughModelNotice": "レイヤー分割に使うモデルには、CreativeML Open RAIL++-M と CreativeML Open RAIL-M の各ライセンスが定める利用制限が適用されます。",
+  "anime25dSeeThroughModelTerms": "利用制限",
   "anime25dRuntimeCredit": "まばたき、会話、首振りを動かす。",
   "anime25dProjectThanks": "キャラクター機能はこれらのプロジェクトを基に整えています。感謝",
   "anime25dDebug": "モーション",

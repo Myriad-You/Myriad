@@ -118,6 +118,8 @@
   "motionPsdUploading": "正在讀取 PSD…",
   "visualConfirm": "圖片模型可能產生費用。確認開始生成主立繪嗎？重新生成會清掉已匯入的骨骼。",
   "anime25dSeeThroughCredit": "把立繪拆成頭髮、五官、衣服等圖層。",
+  "anime25dSeeThroughModelNotice": "拆層所用模型受 CreativeML Open RAIL++-M 與 CreativeML Open RAIL-M 授權中的使用限制約束。",
+  "anime25dSeeThroughModelTerms": "使用限制",
   "anime25dRuntimeCredit": "驅動這些圖層眨眼、說話、轉頭。",
   "anime25dProjectThanks": "人設功能基於上述專案改進完善，感謝",
   "anime25dDebug": "動作調整",

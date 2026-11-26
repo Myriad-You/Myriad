@@ -557,6 +557,8 @@ Tapp 契约与工具（`tapp/crates/tapp-contract`、`tapp/shared/tapp_sandbox_c
 
 2.5D 播放：[Anime2.5DRig](https://github.com/852wa/Anime2.5DRig)（MIT）。
 
+立绘拆层用 See-through 的模型，许可为 CreativeML Open RAIL++-M 与 CreativeML Open RAIL-M，受其中的使用限制约束：见[第三方模型](docs/legal/THIRD_PARTY_MODELS.md)和[使用限制](docs/legal/MODEL_USE_RESTRICTIONS.md)。
+
 <br/>
 
 <div align="center">
