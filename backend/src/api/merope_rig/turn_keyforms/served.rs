@@ -316,13 +316,13 @@ pub async fn load_turn_archive(
         let result_ref = Some(archive::result_ref(&kept.id));
         // Written off the request: a database that fails it is tried again
         // for as long as it takes (`end`), and a page polls meanwhile.
-        rig_jobs::hold(&job_id);
+        let holding = live::Holding::new(db.clone(), job_id.clone());
         let ending = (db.clone(), job_id.clone());
         tokio::spawn(async move {
             let (db, job_id) = ending;
             update_quietly(&job_id, |job| job.ending = true);
             end(&db, &job_id, rig_jobs::Ending::Succeeded { result_ref }).await;
-            rig_jobs::let_go(&job_id);
+            holding.end_reached();
         });
         tracing::info!(job = %job_id, archive = %kept.id, "turn keyforms loaded from an archive");
     }

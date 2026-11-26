@@ -24,6 +24,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use futures::FutureExt;
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 use tokio::sync::Notify;
@@ -315,6 +316,9 @@ async fn renew(
             }
         }
         Ok(rig_jobs::Beat::Lost) if ending => Keep::Go,
+        // Read again: its work may have ended since this tick began, and a
+        // job whose work is over is never taken back.
+        Ok(rig_jobs::Beat::Lost) if with_job(id, |job| job.ending).unwrap_or(true) => Keep::Go,
         Ok(rig_jobs::Beat::Lost) => match rig_jobs::retake(db, id, at_once()).await {
             Ok(true) => {
                 tracing::warn!(job = %id, "turn keyforms lease was lost while the job ran; taken back");
@@ -412,12 +416,16 @@ pub(super) async fn run_job_within(
     let Some(cancel) = with_job(&id, |job| job.cancel.clone()) else {
         return;
     };
-    rig_jobs::hold(&id);
+    let holding = Holding::new(db.clone(), id.clone());
     let (done, watching) = tokio::sync::watch::channel(false);
     let keeper = tokio::spawn(keep(db.clone(), id.clone(), watching));
-    let work = for_ledger(&id, work);
+    // A panic in the work ends the job as failed, as any failure does.
+    let work = std::panic::AssertUnwindSafe(for_ledger(&id, work)).catch_unwind();
     let ran = tokio::select! {
-        result = work => Ran::Made(Box::new(result)),
+        result = work => Ran::Made(Box::new(result.unwrap_or_else(|_| {
+            tracing::error!(job = %id, "turn keyforms job's work panicked");
+            Err(crashed())
+        }))),
         () = cancel.notified() => Ran::Stopped,
         () = tokio::time::sleep(deadline) => Ran::TimedOut,
     };
@@ -430,9 +438,73 @@ pub(super) async fn run_job_within(
             finish(&db, &id, Err(timed_out()), meta).await
         }
     }
+    holding.end_reached();
     let _ = done.send(true);
     let _ = keeper.await;
-    rig_jobs::let_go(&id);
+}
+
+/// A job held by this process (`rig_jobs::hold`) while it runs and ends. Let
+/// go however its run ends; when it did not reach its end (a panic while it
+/// ended, the run dropped), it is written failed, so that its place is free
+/// rather than held by a record nobody keeps.
+pub(super) struct Holding {
+    db: DatabaseConnection,
+    id: String,
+    ended: bool,
+}
+
+impl Holding {
+    pub(super) fn new(db: DatabaseConnection, id: String) -> Self {
+        rig_jobs::hold(&id);
+        Self {
+            db,
+            id,
+            ended: false,
+        }
+    }
+}
+
+impl Holding {
+    /// The job's end was written (or given up on at the process's stop): let go only.
+    pub(super) fn end_reached(mut self) {
+        self.ended = true;
+    }
+}
+
+impl Drop for Holding {
+    fn drop(&mut self) {
+        rig_jobs::let_go(&self.id);
+        if self.ended {
+            return;
+        }
+        tracing::error!(job = %self.id, "turn keyforms job stopped before its end was written");
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let (db, id) = (self.db.clone(), self.id.clone());
+        runtime.spawn(async move {
+            let (_, json) = crashed();
+            let ending = rig_jobs::Ending::Failed {
+                code: json["code"].as_str().map(str::to_owned),
+                message: json["error"].as_str().map(str::to_owned),
+                detail: json.0,
+            };
+            if let Err(error) = rig_jobs::finish(&db, &id, ending, &json!({})).await {
+                tracing::warn!(%error, job = %id, "turn keyforms job that stopped could not be written failed");
+            }
+        });
+    }
+}
+
+/// The failure of a job that stopped on an internal error.
+fn crashed() -> super::ApiError {
+    (
+        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+        axum::Json(json!({
+            "error": "The turn keys job stopped on an internal error",
+            "code": "turn_keyforms_crashed"
+        })),
+    )
 }
 
 /// The failure of a job that ran past its deadline.

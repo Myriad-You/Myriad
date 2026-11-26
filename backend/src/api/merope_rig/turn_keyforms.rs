@@ -397,12 +397,25 @@ async fn start(
     beside: Beside,
     headers: &HeaderMap,
 ) -> ApiResult<Json<Value>> {
+    require_merope_enabled().await?;
+    let user_id = require_owner(claims, &db).await?;
+    start_as(db, user_id, outfit_id, payload, beside, headers).await
+}
+
+/// A start asked by the owner `user_id`: its key, its master, and the job
+/// claimed and set running.
+async fn start_as(
+    db: DatabaseConnection,
+    user_id: i32,
+    outfit_id: Option<String>,
+    payload: TurnKeyformsRequest,
+    beside: Beside,
+    headers: &HeaderMap,
+) -> ApiResult<Json<Value>> {
     let keys = FigureKeys {
         head: payload.head,
         body: payload.body,
     };
-    require_merope_enabled().await?;
-    let user_id = require_owner(claims, &db).await?;
     let idempotency_key = idempotency_key(headers)?;
     let fingerprint = payload
         .source_generation_fingerprint

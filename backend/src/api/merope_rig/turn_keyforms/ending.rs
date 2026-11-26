@@ -96,9 +96,17 @@ const END_PAUSE_AFTER: Duration = Duration::from_secs(10);
 /// up; its job is let go as interrupted (`rig_jobs::release_at_exit`). A
 /// success over a job failed as interrupted while it ran on is recorded all
 /// the same: its result was paid for and kept.
+///
+/// An end the database refuses for what it says (`rig_jobs::refused_for_good`)
+/// the same way `REFUSED_TRIES` times in a row would be refused forever: the
+/// job is then written failed with nothing but a generic code, so that its
+/// place is freed.
 pub(super) async fn end(db: &DatabaseConnection, id: &str, ending: rig_jobs::Ending) {
     let progress = live::with_job(id, Job::progress).unwrap_or_else(|| json!({}));
+    let mut ending = ending;
+    let mut progress = progress;
     let mut tries = 0usize;
+    let mut refused: Option<(String, usize)> = None;
     loop {
         // A step that cannot be written does not hold back the end.
         if let Err(error) = live::write_steps(db, id).await {
@@ -119,11 +127,44 @@ pub(super) async fn end(db: &DatabaseConnection, id: &str, ending: rig_jobs::End
                 return;
             }
             Err(error) => {
+                let said = error.to_string();
+                refused = match refused.take() {
+                    Some((before, times)) if before == said => Some((before, times + 1)),
+                    _ if rig_jobs::refused_for_good(&error) => Some((said, 1)),
+                    _ => None,
+                };
+                if refused
+                    .as_ref()
+                    .is_some_and(|(_, times)| *times >= REFUSED_TRIES)
+                {
+                    tracing::error!(%error, job = %id, "turn keyforms end refused for good; written as a bare failure");
+                    ending = unwritable();
+                    progress = json!({});
+                    refused = None;
+                    continue;
+                }
                 let pause = END_PAUSES.get(tries).copied().unwrap_or(END_PAUSE_AFTER);
                 tries += 1;
                 tracing::warn!(%error, job = %id, tries, "turn keyforms end could not be written; trying again");
                 tokio::time::sleep(pause).await;
             }
         }
+    }
+}
+
+/// How often an end refused the same way for good is tried before it is
+/// written as a bare failure (`unwritable`).
+const REFUSED_TRIES: usize = 3;
+
+/// A job's end that could not be written as it was: failed, with nothing of
+/// it but a generic code.
+fn unwritable() -> rig_jobs::Ending {
+    rig_jobs::Ending::Failed {
+        code: Some("turn_keyforms_end_unwritable".into()),
+        message: Some("The turn keys job ended, but how could not be recorded".into()),
+        detail: json!({
+            "error": "The turn keys job ended, but how could not be recorded",
+            "code": "turn_keyforms_end_unwritable"
+        }),
     }
 }

@@ -1007,3 +1007,207 @@ fn one_job_runs_at_a_time_unless_configured() {
     assert_eq!(at_once_from(Some("0")), 1);
     assert_eq!(at_once_from(Some("many")), 1);
 }
+
+#[tokio::test]
+async fn a_job_whose_work_panics_ends_failed_and_frees_its_place() {
+    let _slot = JOB_TESTS.lock().await;
+    let Some(schema) = schema("rig_live_panic").await else {
+        return;
+    };
+    let db = schema.db.clone();
+    let (id, _) = claim(
+        &db,
+        &submission(None, false),
+        Phase::Bust,
+        Stage::Generating,
+        4,
+        targets(),
+    )
+    .await
+    .unwrap();
+    fn a_bug() -> ApiResult<Made> {
+        panic!("a bug in the pipeline")
+    }
+    let work = async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        a_bug()
+    };
+    run_job(db.clone(), id.clone(), work, meta(&db).await).await;
+    let row = rig_jobs::get(&db, &id).await.unwrap().unwrap();
+    assert_eq!(row.state(), rig_jobs::State::Failed);
+    assert_eq!(row.error_code.as_deref(), Some("turn_keyforms_crashed"));
+    let (next, new) = claim(
+        &db,
+        &submission(None, true),
+        Phase::Plain,
+        Stage::Decomposing,
+        1,
+        targets(),
+    )
+    .await
+    .unwrap();
+    assert!(new && next != id);
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn a_job_let_go_before_its_end_was_written_is_written_failed() {
+    let _slot = JOB_TESTS.lock().await;
+    let Some(schema) = schema("rig_live_unwound").await else {
+        return;
+    };
+    let db = schema.db.clone();
+    let (id, _) = claim(
+        &db,
+        &submission(None, false),
+        Phase::Bust,
+        Stage::Generating,
+        4,
+        targets(),
+    )
+    .await
+    .unwrap();
+    // As when its run unwinds while it ends: the hold goes, the record ends failed.
+    drop(Holding::new(db.clone(), id.clone()));
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let row = rig_jobs::get(&db, &id).await.unwrap().unwrap();
+    assert_eq!(row.state(), rig_jobs::State::Failed);
+    assert_eq!(row.error_code.as_deref(), Some("turn_keyforms_crashed"));
+    // A hold let go when its job ended writes nothing more.
+    let (other, _) = claim(
+        &db,
+        &submission(None, true),
+        Phase::Plain,
+        Stage::Decomposing,
+        1,
+        targets(),
+    )
+    .await
+    .unwrap();
+    Holding::new(db.clone(), other.clone()).end_reached();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        rig_jobs::get(&db, &other).await.unwrap().unwrap().state(),
+        rig_jobs::State::Running
+    );
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn a_job_whose_work_is_over_is_not_taken_back_by_a_stale_tick() {
+    let _slot = JOB_TESTS.lock().await;
+    let Some(schema) = schema("rig_live_stale_tick").await else {
+        return;
+    };
+    let db = schema.db.clone();
+    let (id, _) = claim(
+        &db,
+        &submission(None, false),
+        Phase::Bust,
+        Stage::Generating,
+        4,
+        targets(),
+    )
+    .await
+    .unwrap();
+    interrupted_elsewhere(&db, &id).await;
+    // The tick read the job still working; its work ended before the lease was found lost.
+    super::super::update_quietly(&id, |job| job.ending = true);
+    let mut written = Written::default();
+    let keep = renew(&db, &id, &mut written, 1, None, false).await;
+    assert_eq!(keep, Keep::Go);
+    assert!(
+        rig_jobs::get(&db, &id)
+            .await
+            .unwrap()
+            .unwrap()
+            .interrupted()
+    );
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn an_end_the_database_refuses_for_good_is_written_as_a_bare_failure() {
+    let _slot = JOB_TESTS.lock().await;
+    let Some(schema) = schema("rig_live_end_refused").await else {
+        return;
+    };
+    let db = schema.db.clone();
+    // Every end but a bare failure is refused, for what it says.
+    db.execute_unprepared(
+        "CREATE FUNCTION refuse_ends() RETURNS trigger AS $$ BEGIN \
+           IF NEW.state <> 'running' \
+             AND NEW.error_code IS DISTINCT FROM 'turn_keyforms_end_unwritable' THEN \
+             RAISE EXCEPTION 'refused' USING ERRCODE = '22023'; \
+           END IF; RETURN NEW; END $$ LANGUAGE plpgsql; \
+         CREATE TRIGGER refuse_ends BEFORE UPDATE ON rig_jobs \
+           FOR EACH ROW EXECUTE FUNCTION refuse_ends();",
+    )
+    .await
+    .unwrap();
+    let (id, _) = claim(
+        &db,
+        &submission(None, true),
+        Phase::Plain,
+        Stage::Decomposing,
+        1,
+        targets(),
+    )
+    .await
+    .unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        super::super::end(&db, &id, rig_jobs::Ending::Succeeded { result_ref: None }),
+    )
+    .await
+    .expect("it gives up on the refused end");
+    let row = rig_jobs::get(&db, &id).await.unwrap().unwrap();
+    assert_eq!(row.state(), rig_jobs::State::Failed);
+    assert_eq!(
+        row.error_code.as_deref(),
+        Some("turn_keyforms_end_unwritable")
+    );
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn a_start_under_a_key_let_go_is_not_refused_for_another_request() {
+    let _slot = JOB_TESTS.lock().await;
+    let Some(schema) = schema("rig_live_start_key").await else {
+        return;
+    };
+    let db = schema.db.clone();
+    let start = |key: &'static str, plain: bool| {
+        let db = db.clone();
+        async move {
+            let mut headers = HeaderMap::new();
+            headers.insert("idempotency-key", HeaderValue::from_static(key));
+            let payload: TurnKeyformsRequest =
+                serde_json::from_value(json!({ "sourceMasterAssetId": MASTER, "plain": plain }))
+                    .unwrap();
+            super::super::start_as(db, 7, None, payload, Beside::default(), &headers).await
+        }
+    };
+    // A key whose job runs gives it to the same request and refuses another.
+    let (running, _) = claim(
+        &db,
+        &submission(Some("held"), false),
+        Phase::Bust,
+        Stage::Generating,
+        4,
+        targets(),
+    )
+    .await
+    .unwrap();
+    let again = start("held", false).await.unwrap();
+    assert_eq!(again.0["jobId"], json!(running));
+    let refused = start("held", true).await.unwrap_err();
+    assert_eq!(refused.0, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(refused.1["code"], json!("idempotency_key_reused"));
+    // Its job cancelled, the key is let go: another request under it goes on
+    // past the key (here as far as the image provider, which a test leaves unset).
+    super::super::end(&db, &running, rig_jobs::Ending::Cancelled).await;
+    let went_on = start("held", true).await.unwrap_err();
+    assert_ne!(went_on.1["code"], json!("idempotency_key_reused"));
+    schema.drop().await;
+}

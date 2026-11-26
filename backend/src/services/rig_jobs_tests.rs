@@ -625,3 +625,22 @@ async fn a_jobs_spend_is_its_completed_calls_with_its_failed_ones_apart() {
     );
     schema.drop().await;
 }
+
+#[tokio::test]
+async fn an_end_is_written_within_its_columns() {
+    let Some(schema) = schema("rig_jobs_widths").await else {
+        return;
+    };
+    let db = &schema.db;
+    claim(db, job("a", "m1", None), 1).await.unwrap();
+    let long = "c".repeat(100);
+    let ending = Ending::Failed {
+        code: Some(long.clone()),
+        message: Some("m".repeat(5000)),
+        detail: json!({ "code": long }),
+    };
+    assert_eq!(ended(db, "a", ending).await, Ended::Written);
+    let row = get(db, "a").await.unwrap().unwrap();
+    assert_eq!(row.error_code.map(|code| code.len()), Some(64));
+    schema.drop().await;
+}

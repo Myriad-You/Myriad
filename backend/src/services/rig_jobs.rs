@@ -50,8 +50,11 @@ const SWEEP_EVERY: Duration = Duration::from_secs(5);
 /// Ended jobs removed at most per claim.
 const RETENTION_BATCH: i64 = 100;
 
-/// Longest `backend_target` kept (its column's width).
+/// Longest `backend_target` and `result_ref` kept (their columns' width).
 const TARGET_MAX: usize = 255;
+
+/// Longest `error_code` kept (its column's width).
+const CODE_MAX: usize = 64;
 
 /// The error code of a job whose process went away while it ran.
 pub const INTERRUPTED: &str = "job_interrupted";
@@ -204,10 +207,35 @@ pub fn ledger_task_id(job_id: &str) -> String {
 
 /// `target` cut to what its column keeps.
 pub fn backend_target(target: &str) -> String {
-    match target.char_indices().nth(TARGET_MAX) {
-        Some((at, _)) => target[..at].to_owned(),
-        None => target.to_owned(),
+    cut(target, TARGET_MAX)
+}
+
+/// `value` cut to `chars` characters.
+fn cut(value: &str, chars: usize) -> String {
+    match value.char_indices().nth(chars) {
+        Some((at, _)) => value[..at].to_owned(),
+        None => value.to_owned(),
     }
+}
+
+/// Whether the database refused a statement for what it says (bad data, a
+/// broken constraint, a statement it cannot run), so that the same
+/// statement fails the same way however often it is tried; a dropped
+/// connection or an exhausted pool is not.
+pub fn refused_for_good(error: &DbErr) -> bool {
+    let (DbErr::Exec(sea_orm::RuntimeErr::SqlxError(error))
+    | DbErr::Query(sea_orm::RuntimeErr::SqlxError(error))) = error
+    else {
+        return false;
+    };
+    let sea_orm::sqlx::Error::Database(error) = error.as_ref() else {
+        return false;
+    };
+    error.code().is_some_and(|code| {
+        ["22", "23", "42"]
+            .iter()
+            .any(|class| code.starts_with(class))
+    })
 }
 
 const CLAIM_LOCK: &str = "rig_jobs:claim";
@@ -787,6 +815,9 @@ pub async fn finish(
         } => (State::Failed, code, message, Some(detail), None),
         Ending::Cancelled => (State::Cancelled, None, None, None, None),
     };
+    // Written within their columns, so that a long value never keeps the end from its record.
+    let code = code.map(|code| cut(&code, CODE_MAX));
+    let result_ref = result_ref.map(|result_ref| cut(&result_ref, TARGET_MAX));
     let txn = db.begin().await?;
     let was = txn
         .query_one_raw(Statement::from_sql_and_values(

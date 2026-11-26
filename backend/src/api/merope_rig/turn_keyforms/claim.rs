@@ -44,11 +44,13 @@ impl Submission {
             .await
             .map_err(internal_error)?
         {
+            // A key whose job failed or was cancelled is free for any request.
+            Some(keyed) if !keyed.holds() => Ok(None),
             Some(keyed) if keyed.request_digest != rig_jobs::digest(&self.input(phase)) => {
                 Err(key_reused())
             }
-            Some(keyed) if keyed.holds() => Ok(Some(keyed.job_id)),
-            _ => Ok(None),
+            Some(keyed) => Ok(Some(keyed.job_id)),
+            None => Ok(None),
         }
     }
 }
