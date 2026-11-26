@@ -22,7 +22,7 @@
 //! The memory bench's trial of a kept list
 //! (`memory_bench::background::state_list`) builds through [`build`] too.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use myriad_nodes::stands::{
     self, BuildDueInput, BuildInput, BuildReadInput, DueNodeIn, FactIn, KnownIn, NodeIn,
@@ -501,13 +501,16 @@ pub(crate) async fn after_settled(
     // kept there before 「现在」 was written): first how things stood there
     // before this stretch, so what it changes is changed, not only started.
     let mut touched: Vec<String> = Vec::new();
+    let mut placed: HashSet<String> = HashSet::new();
     for fact in facts {
         if let Some(node) = placements::placement(db, &fact.memory)
             .await?
             .and_then(|placement| placement.node_id)
-            && !touched.contains(&node)
         {
-            touched.push(node);
+            placed.insert(fact.memory.clone());
+            if !touched.contains(&node) {
+                touched.push(node);
+            }
         }
     }
     let due = stands::build_due(&BuildDueInput {
@@ -537,6 +540,11 @@ pub(crate) async fn after_settled(
         .map(|head| (head.node_id.clone(), head))
         .collect();
     for fact in facts {
+        // `Placement::Nowhere` facts are unattached to any topic/person node:
+        // skip `step_of` hybrid recall, N+1 lookups, and Judge LLM call.
+        if !should_step_fact(&placed, &fact.memory) {
+            continue;
+        }
         let step = step_of(
             db, user_id, owner, present, audience, facts, fact, replaced, &heads,
         )
@@ -587,6 +595,10 @@ pub(crate) async fn after_settled(
         super::kept::seen(db, owner, audience, &fact.memory, &still).await;
     }
     Ok(written)
+}
+
+fn should_step_fact(placed: &HashSet<String>, memory: &str) -> bool {
+    placed.contains(memory)
 }
 
 /// What the core is given of one fact: the fact, what it brings to mind
@@ -768,5 +780,12 @@ mod tests {
         assert_eq!(answer.as_deref(), Some("{\"items\":[]}"));
         assert_eq!(started.elapsed(), std::time::Duration::from_secs(35));
         assert!(failed.is_empty(), "{failed:?}");
+    }
+
+    #[test]
+    fn unplaced_nowhere_facts_are_skipped_by_standing_step() {
+        let placed = HashSet::from(["m-placed".to_string()]);
+        assert!(should_step_fact(&placed, "m-placed"));
+        assert!(!should_step_fact(&placed, "m-nowhere"));
     }
 }
