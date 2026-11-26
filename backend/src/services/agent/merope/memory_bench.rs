@@ -37,6 +37,7 @@ use crate::services::agent::memory::unified::{Audience, Priming};
 
 mod answering;
 mod apart;
+mod attribute;
 mod background;
 mod chinese;
 mod days;
