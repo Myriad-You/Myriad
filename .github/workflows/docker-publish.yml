@@ -323,6 +323,8 @@ jobs:
           esac
           platform="${{ matrix.platform }}"
           echo "platform_pair=${platform//\//-}" >>"$GITHUB_OUTPUT"
+          core_commit=$(git rev-parse HEAD:core 2>/dev/null || true)
+          echo "core_commit=${core_commit}" >>"$GITHUB_OUTPUT"
 
       - name: Check Dockerfile presence
         id: check
@@ -377,6 +379,7 @@ jobs:
             PNPM_VERSION=11.25.0
             MYRIAD_VERSION=dev-${{ github.sha }}
             MYRIAD_COMMIT_SHA=${{ github.sha }}
+            MYRIAD_CORE_COMMIT=${{ steps.paths.outputs.core_commit }}
             CARGO_PROFILE=ci-release
           labels: ${{ steps.compose.outputs.labels }}
           outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
