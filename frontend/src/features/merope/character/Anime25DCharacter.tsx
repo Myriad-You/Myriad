@@ -180,7 +180,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
         if (!active) playerRef.current?.clearSpeechText()
         playerRef.current?.setTarget({
           talk: active,
-          mouthOpen: 0,
+          jaw: 0,
           mouthWide: 0,
           mouthRound: 0,
           mouthNarrow: 0,

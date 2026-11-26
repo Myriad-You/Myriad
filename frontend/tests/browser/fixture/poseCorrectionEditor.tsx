@@ -32,7 +32,7 @@ export async function mountPoseEditor() {
   key={key}
   playback={playback}
   characterRef={characterRef}
-  driver={{ ...WORKBENCH_DRIVER, angleX: 0.8, angleY: -0.6 }}
+  driver={{ ...WORKBENCH_DRIVER, headYaw: 0.8, headPitch: -0.6 }}
   target="the worn bust"
   onDriver={() => {}}
   onSave={async value => { saves.push(structuredClone(value)) }}

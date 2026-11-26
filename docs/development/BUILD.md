@@ -86,7 +86,11 @@ trace), the live entries (`@myriad/figure/anime25drig`, `motion`, `events` and
 so on), `@myriad/figure/workbench` for the rig workbench and
 `@myriad/figure/testing` for tests. A name the site needs that no entry lists
 is added to the right entry in figure first. `pnpm install` in `frontend/`
-installs its dependencies, and `pnpm test:unit` and `pnpm typecheck` there also
+installs its dependencies, among them its render layer
+[`@myriad/figure-player`](https://github.com/Myriad-You/myriad-figure-player),
+a git dependency pinned by commit in figure's `package.json` and fetched as a
+tarball from `codeload.github.com` (TypeScript source, no build step; the site
+reaches it only through figure), and `pnpm test:unit` and `pnpm typecheck` there also
 run its tests and its own type check; its browser tests run in figure itself
 (`pnpm test:browser` there). It reads the core's contracts as
 `@myriad/core/...`, which here is this repository's `core/`; figure pins a core

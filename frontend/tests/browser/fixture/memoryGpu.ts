@@ -156,7 +156,8 @@ async function gpuCycles(cycles: number, failure = '', atlasSize = 0) {
         finally { gl.texImage2D = upload }
         if (failure) {
           // Redraw the retained outfit without advancing animation time.
-          ;(player as unknown as { draw: () => void }).draw()
+          const pose = player.getPose()
+          if (!pose || !player.renderPose(pose)) throw new Error('The retained outfit has no frame to draw again')
           unchanged &&= before === read()
         }
         snapshots.push({ active, afterReplacement: tracked.counts(), activeBytes, afterReplacementBytes: tracked.bytes() })
