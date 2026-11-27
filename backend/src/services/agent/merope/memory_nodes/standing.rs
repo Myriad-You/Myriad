@@ -5,8 +5,8 @@
 //! what she recalls for each, the nodes as they are folded here, the model
 //! call, and writing the rows.
 //!
-//! - **After a stretch is gone over** ([`after_settled`]): each fact it
-//!   kept, one call each, in the order kept.
+//! - **After a stretch is gone over** ([`after_settled`]): one call for a
+//!   single fact, or one stretch batch (`standing_batch`) for multiple facts.
 //! - **What she knew before stands first** ([`build`]): each node a
 //!   stretch's facts are put on that has never held an item of hers, before
 //!   those facts are read; by node, not by talk (the core's `build_due`).
@@ -25,13 +25,13 @@
 use std::collections::{BTreeMap, HashMap};
 
 use myriad_nodes::stands::{
-    self, BuildDueInput, BuildInput, BuildReadInput, DueNodeIn, FactIn, KnownIn, NodeIn,
-    StandingRowIn, StepInput, StepPrepared, StepRead, StepReadInput,
+    self, BuildDueInput, BuildInput, BuildReadInput, DueNodeIn, FactIn, KnownIn, Left, NodeIn,
+    RowOut, StandingRowIn, StepInput, StepPrepared, StepReadInput,
 };
 use sea_orm::DatabaseConnection;
 
-use super::{Author, Error, RowIn, facts::Fact, placements, read, write};
-use crate::services::agent::memory::unified::{self, Audience, MemoryKind};
+use super::{Author, Error, RowIn, facts::Fact, placements, read, standing_batch, write};
+use crate::services::agent::memory::unified::Audience;
 use crate::services::her_log::pen::Thought;
 
 /// The day of `micros` in her zone, as the core takes a day.
@@ -146,7 +146,7 @@ pub(crate) struct Failures {
 
 static ASKED_AGAIN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static UNANSWERED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-static UNREADABLE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub(super) static UNREADABLE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static NOT_WRITTEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// [`Failures`] so far.
@@ -160,7 +160,7 @@ pub(crate) fn failures() -> Failures {
     }
 }
 
-fn counted(counter: &std::sync::atomic::AtomicU64) -> u64 {
+pub(super) fn counted(counter: &std::sync::atomic::AtomicU64) -> u64 {
     counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
 }
 
@@ -174,7 +174,7 @@ const BUILD_OUTPUT: u32 = 3072;
 /// Asks the fast model what `prepared` asks, its answer at most `output`
 /// tokens: its answer as it came, or none (nothing to ask, or no answer
 /// after [`ASKED`] calls).
-async fn ask(
+pub(super) async fn ask(
     user_id: i32,
     operation: &'static str,
     schema_name: &str,
@@ -250,16 +250,16 @@ async fn ask(
 /// leaves the others. A node's first building (`building`) is left out on
 /// a node one of hers stands on by the time it is written: a stretch and
 /// upkeep may build the same node at once. How many were written.
-async fn write_rows(
+pub(super) async fn write_rows(
     db: &DatabaseConnection,
     owner: i32,
     audience: &str,
-    read: StepRead,
+    rows: Vec<RowOut>,
     building: bool,
     pen: &Thought,
 ) -> usize {
     let mut by_node: Vec<(String, Vec<RowIn>)> = Vec::new();
-    for row in read.rows {
+    for row in rows {
         let row = RowIn {
             id: row.id,
             node: row.node,
@@ -471,17 +471,29 @@ async fn build_on(
             continue;
         }
         let started = read.rows.clone();
-        built.written += write_rows(db, owner, audience, read, true, pen).await;
+        built.written += write_rows(db, owner, audience, read.rows, true, pen).await;
         super::kept::started(db, owner, audience, &started).await;
     }
     Ok(built)
 }
 
-/// What each fact a stretch of `user_id`'s private talk kept does to how
-/// their life stands, written on the nodes of `audience` (`owner`'s): one
-/// call to the fast model per fact on a node, in the order they were kept.
-/// `replaced` are the facts that took the place of something she knew.
-/// How many rows were written.
+pub(super) fn log_left(memory: Option<&str>, left: &[Left]) {
+    for one in left {
+        tracing::info!(
+            memory = memory.unwrap_or("batch"),
+            item = %one.item,
+            item_whose = %one.item_whose,
+            fact_whose = %one.fact_whose,
+            "[memory-nodes] how another person's life stands left as it is"
+        );
+    }
+}
+
+/// How the facts a stretch of `user_id`'s private talk kept affect how
+/// their life stands, written on the nodes of `audience` (`owner`'s):
+/// a single fact asks per-fact, and multiple facts ask in one stretch batch
+/// (including unplaced `Placement::Nowhere` facts). `replaced` are the
+/// facts that took the place of something she knew. How many rows were written.
 pub(crate) async fn after_settled(
     db: &DatabaseConnection,
     user_id: i32,
@@ -497,6 +509,9 @@ pub(crate) async fn after_settled(
     // here: forgetting never reached it if it was taken back on another of
     // her ends, or before forgetting reached 「现在」.
     super::forget::taken_back_here(db, owner, audience).await?;
+    if facts.is_empty() {
+        return Ok(0);
+    }
     // A node a fact is put on that none of hers ever stood on (what she
     // kept there before 「现在」 was written): first how things stood there
     // before this stretch, so what it changes is changed, not only started.
@@ -536,56 +551,67 @@ pub(crate) async fn after_settled(
         .into_iter()
         .map(|head| (head.node_id.clone(), head))
         .collect();
-    for fact in facts {
-        let step = step_of(
-            db, user_id, owner, present, audience, facts, fact, replaced, &heads,
+    if let [fact] = facts {
+        written +=
+            step_single(db, user_id, owner, present, audience, facts, fact, replaced, &heads, pen)
+                .await?;
+    } else {
+        written += super::standing_batch::step_batch(
+            db, user_id, owner, present, audience, facts, replaced, &heads, pen,
         )
         .await?;
-        let prepared = stands::step_prepare(step.clone())?;
-        let Some(output) = Box::pin(ask(
-            user_id,
-            "memory_standing_step",
-            "standing_step",
-            STEP_OUTPUT,
-            &prepared,
-        ))
-        .await
-        else {
-            if !prepared.skip {
-                tracing::info!("[memory-nodes] how things stand not asked: no answer");
-            }
-            continue;
-        };
-        let read = stands::step_read(StepReadInput {
-            output,
-            sync: super::share::sync_for(db, owner).await,
-            fact: step.fact,
-            known: step.known,
-            nodes: step.nodes,
-        })?;
-        if read.unreadable {
-            let total = counted(&UNREADABLE);
-            tracing::info!(
-                total,
-                "[memory-nodes] how things stand not written: the answer read as nothing"
-            );
-            continue;
-        }
-        // Each item left as another person's: which, and whose on each
-        // side; ids and keys, never the words.
-        for left in &read.left {
-            tracing::info!(
-                memory = %fact.memory,
-                item = %left.item,
-                item_whose = %left.item_whose,
-                fact_whose = %left.fact_whose,
-                "[memory-nodes] how another person's life stands left as it is"
-            );
-        }
-        let still = read.still_so.clone();
-        written += write_rows(db, owner, audience, read, false, pen).await;
-        super::kept::seen(db, owner, audience, &fact.memory, &still).await;
     }
+    Ok(written)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn step_single(
+    db: &DatabaseConnection,
+    user_id: i32,
+    owner: i32,
+    present: &Audience,
+    audience: &str,
+    facts: &[Fact],
+    fact: &Fact,
+    replaced: &[String],
+    heads: &HashMap<String, read::Head>,
+    pen: &Thought,
+) -> Result<usize, Error> {
+    let step = step_of(db, user_id, owner, present, audience, facts, fact, replaced, heads).await?;
+    let prepared = stands::step_prepare(step.clone())?;
+    let Some(output) = Box::pin(ask(
+        user_id,
+        "memory_standing_step",
+        "standing_step",
+        STEP_OUTPUT,
+        &prepared,
+    ))
+    .await
+    else {
+        if !prepared.skip {
+            tracing::info!("[memory-nodes] how things stand not asked: no answer");
+        }
+        return Ok(0);
+    };
+    let read = stands::step_read(StepReadInput {
+        output,
+        sync: super::share::sync_for(db, owner).await,
+        fact: step.fact,
+        known: step.known,
+        nodes: step.nodes,
+    })?;
+    if read.unreadable {
+        let total = counted(&UNREADABLE);
+        tracing::info!(
+            total,
+            "[memory-nodes] how things stand not written: the answer read as nothing"
+        );
+        return Ok(0);
+    }
+    log_left(Some(&fact.memory), &read.left);
+    let still = read.still_so;
+    let written = write_rows(db, owner, audience, read.rows, false, pen).await;
+    super::kept::seen(db, owner, audience, &fact.memory, &still).await;
     Ok(written)
 }
 
@@ -604,56 +630,16 @@ async fn step_of(
     replaced: &[String],
     heads: &HashMap<String, read::Head>,
 ) -> Result<StepInput, Error> {
-    let on = |memory: String| async move {
-        Ok::<_, Error>(
-            placements::placement(db, &memory)
-                .await?
-                .and_then(|placement| placement.node_id)
-                .into_iter()
-                .collect::<Vec<String>>(),
-        )
-    };
-    let own = on(fact.memory.clone()).await?;
-    let (recalled, _) = unified::quietly(unified::recall_primed(
-        db,
-        user_id,
-        present,
-        Some(&fact.text),
-        &MemoryKind::ABOUT_PERSON,
-        stands::KNOWN * 2,
-        &Default::default(),
-        1.0,
-    ))
-    .await?;
-    let mut known: Vec<KnownIn> = Vec::new();
-    for record in recalled
-        .into_iter()
-        .filter(|record| !facts.iter().any(|kept| kept.memory == record.id))
-        .take(stands::KNOWN)
-    {
-        known.push(KnownIn {
-            text: crate::services::agent::merope::ingest::compact_summary(&record.content),
-            on: on(record.id.clone()).await?,
-        });
-    }
-    let mut nodes: Vec<NodeIn> = Vec::new();
-    for id in own
-        .iter()
-        .chain(known.iter().flat_map(|known| known.on.iter()))
-    {
-        if nodes.iter().any(|node| &node.id == id) {
-            continue;
-        }
-        if let Some(folded) = read::node(db, owner, audience, id).await? {
-            let head = heads.get(id);
-            nodes.push(NodeIn {
-                id: id.clone(),
-                name: head.and_then(|head| head.name.clone()),
-                kind: head.and_then(|head| head.kind.clone()),
-                folded,
-            });
-        }
-    }
+    let own = standing_batch::placement_on(db, &fact.memory).await?;
+    let known: Vec<KnownIn> =
+        standing_batch::recall_candidates(db, user_id, present, facts, fact)
+            .await?
+            .into_iter()
+            .take(stands::KNOWN)
+            .map(|(_, item)| item)
+            .collect();
+    let ids = own.iter().chain(known.iter().flat_map(|k| k.on.iter()));
+    let nodes = standing_batch::collect_nodes(db, owner, audience, ids, heads).await?;
     let learned = super::known::learned(db, vec![fact.memory.clone()])
         .await?
         .get(&fact.memory)
