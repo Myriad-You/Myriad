@@ -1,33 +1,38 @@
-import type { Anime25DPlayback, PoseCorrection } from '@myriad/figure/anime25drig'
+import type { Anime25DPlaybackDocument, PoseCorrection } from '@myriad/figure/anime25drig'
 import type { Anime25DDriver, PoseCorrectionRegion, PoseCorrectionStagePick } from '@myriad/figure/workbench'
 import type { RefObject } from 'react'
 import type { RigCharacterHandle } from '../character/RigCharacter'
+import type { StoredPoseCorrections } from './poseCorrectionPackage'
+import { readAnime25DPlayback } from '@myriad/figure/anime25drig'
 import { appendPoseCorrectionPatch, clampPoseCorrectionPatch, countPoseCorrectionChanges, isPoseCorrections, nearestPoseCorrectionRegion, newPoseCorrectionPatch, POSE_CORRECTION_REGIONS, poseCorrectionCorner, poseCorrectionPreviewDriver, poseCorrectionRegionPoint, poseCorrectionTransitionDriver } from '@myriad/figure/workbench'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { SettingGroup, SettingsButton, SettingTitleTag, SliderItem } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'
 import { showStickyToast } from '../../../utils/toastManager'
 import { PoseCorrectionOverlay } from './PoseCorrectionOverlay'
+import { storedPoseCorrections } from './poseCorrectionPackage'
 
 type Patch = PoseCorrection['patches'][number]
 
 const NO_CORRECTIONS: PoseCorrection[] = []
 
 interface Props {
-  playback: Anime25DPlayback
+  /** The package on stage, of any version the player reads. */
+  playback: Anime25DPlaybackDocument
   characterRef: RefObject<RigCharacterHandle | null>
   driver: Anime25DDriver
   /** Where a save lands, in words: the worn bust or a full-body set. */
   target: string
   onDriver: (driver: Anime25DDriver) => void
-  onSave: (corrections: PoseCorrection[]) => Promise<void>
+  /** Receives the corrections keyed as the package's own version keys them. */
+  onSave: (corrections: StoredPoseCorrections) => Promise<void>
 }
 
 const PRESETS = [
-  { key: 'presetUpLeft', angleX: -0.7, angleY: 0.5 },
-  { key: 'presetUpRight', angleX: 0.7, angleY: 0.5 },
-  { key: 'presetDownLeft', angleX: -0.7, angleY: -0.5 },
-  { key: 'presetDownRight', angleX: 0.7, angleY: -0.5 },
+  { key: 'presetUpLeft', headYaw: -0.7, headPitch: 0.5 },
+  { key: 'presetUpRight', headYaw: 0.7, headPitch: 0.5 },
+  { key: 'presetDownLeft', headYaw: -0.7, headPitch: -0.5 },
+  { key: 'presetDownRight', headYaw: 0.7, headPitch: -0.5 },
 ] as const
 
 const FINE_TUNE = [
@@ -43,11 +48,13 @@ const FINE_TUNE = [
  * Corrections for poses that combine a head turn with a nod, a closed eye or
  * an open mouth. Pose the head, name the place, drag it back on the stage.
  * Mounted per immutable asset id; drafts never touch the live package.
+ * Works in the axes the player reads, whatever version the package is of.
  */
-export function PoseCorrectionEditor({ playback, characterRef, driver, target, onDriver, onSave }: Props) {
+export function PoseCorrectionEditor({ playback: stored, characterRef, driver, target, onDriver, onSave }: Props) {
   const { t, format } = useI18n()
   const copy = t.merope.poseCorrection
-  const baseline = playback.shellProfile.poseCorrections ?? []
+  const playback = useMemo(() => readAnime25DPlayback(stored), [stored])
+  const baseline = playback.shellProfile.poseCorrections ?? NO_CORRECTIONS
   const [draft, setDraft] = useState<PoseCorrection[]>(() => structuredClone(baseline))
   const [selected, setSelected] = useState<number | null>(null)
   const [patchIndex, setPatchIndex] = useState(0)
@@ -73,11 +80,11 @@ export function PoseCorrectionEditor({ playback, characterRef, driver, target, o
   const pct = (value: number) => Math.round(Math.abs(value) * 100)
   const describe = (at: PoseCorrection['at']) => {
     const parts: string[] = []
-    if (at.angleX !== undefined) parts.push(format(at.angleX < 0 ? copy.turnLeft : copy.turnRight, { n: pct(at.angleX) }))
-    if (at.angleY !== undefined) parts.push(format(at.angleY > 0 ? copy.lookUp : copy.lookDown, { n: pct(at.angleY) }))
-    if (at.eyeCloseL !== undefined) parts.push(format(copy.eyeCloseL, { n: pct(at.eyeCloseL) }))
-    if (at.eyeCloseR !== undefined) parts.push(format(copy.eyeCloseR, { n: pct(at.eyeCloseR) }))
-    if (at.mouthOpen !== undefined) parts.push(format(copy.mouthOpen, { n: pct(at.mouthOpen) }))
+    if (at.headYaw !== undefined) parts.push(format(at.headYaw < 0 ? copy.turnLeft : copy.turnRight, { n: pct(at.headYaw) }))
+    if (at.headPitch !== undefined) parts.push(format(at.headPitch > 0 ? copy.lookUp : copy.lookDown, { n: pct(at.headPitch) }))
+    if (at.lidCloseL !== undefined) parts.push(format(copy.lidCloseL, { n: pct(at.lidCloseL) }))
+    if (at.lidCloseR !== undefined) parts.push(format(copy.lidCloseR, { n: pct(at.lidCloseR) }))
+    if (at.jaw !== undefined) parts.push(format(copy.jaw, { n: pct(at.jaw) }))
     return parts.join(' + ') || copy.poseFront
   }
   const surfaceName = (surface: PoseCorrection['surface']) =>
@@ -90,8 +97,8 @@ export function PoseCorrectionEditor({ playback, characterRef, driver, target, o
     return same.length > 1 ? `${copy[region]} ${same.indexOf(p) + 1}` : copy[region]
   }
   const currentPose = describe({
-    ...(Math.abs(driver.headYaw) >= 0.05 ? { angleX: driver.headYaw } : {}),
-    ...(Math.abs(driver.headPitch) >= 0.05 ? { angleY: driver.headPitch } : {}),
+    ...(Math.abs(driver.headYaw) >= 0.05 ? { headYaw: driver.headYaw } : {}),
+    ...(Math.abs(driver.headPitch) >= 0.05 ? { headPitch: driver.headPitch } : {}),
   })
 
   const show = (corrections: PoseCorrection[], index: number) => {
@@ -161,7 +168,7 @@ export function PoseCorrectionEditor({ playback, characterRef, driver, target, o
   }
   const save = async () => {
     setSaving(true)
-    try { await onSave(structuredClone(draft)) }
+    try { await onSave(storedPoseCorrections(stored, draft)) }
     catch (reason) {
       if (alive.current) {
         showStickyToast({
@@ -223,7 +230,7 @@ export function PoseCorrectionEditor({ playback, characterRef, driver, target, o
                 onClick={() => {
                   setSelected(null)
                   setTransition(1)
-                  onDriver(poseCorrectionPreviewDriver({ surface: 'head', at: { angleX: preset.angleX, angleY: preset.angleY }, patches: [] }, driver))
+                  onDriver(poseCorrectionPreviewDriver({ surface: 'head', at: { headYaw: preset.headYaw, headPitch: preset.headPitch }, patches: [] }, driver))
                 }}
               >
                 {copy[preset.key]}

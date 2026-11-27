@@ -1,7 +1,7 @@
-import type { PoseCorrection } from '@myriad/figure/anime25drig'
 import type { UpperBodyVisualIdentityKey } from '../../../components/agent/onboarding/onboardingTypes'
 import type { RigCharacterHandle } from '../character/RigCharacter'
 import type { TurnArchiveUse, TurnKeyformsBeside, TurnKeyformsStatus } from '../turnKeyformsApi'
+import type { StoredPoseCorrections } from './poseCorrectionPackage'
 import { isAnime25DPlayback } from '@myriad/figure/anime25drig'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
@@ -238,7 +238,7 @@ export default function SiteMotionWorkbench({
   )
 
   const { setWardrobeItems } = persona
-  const savePoseCorrections = useCallback(async (corrections: PoseCorrection[]) => {
+  const savePoseCorrections = useCallback(async (corrections: StoredPoseCorrections) => {
     if (!rigAssetId || !rigManifest) throw new Error(t.merope.poseCorrection.failed)
     const saved = await saveRigPoseCorrections(rigAssetId, corrections)
     notifyFaceUpdated()
@@ -256,7 +256,7 @@ export default function SiteMotionWorkbench({
   const wornLabel = wornItem
     ? wardrobeItemLabel(wornItem, o.clothingStyle, t.merope.wardrobeDefault)
     : t.merope.wardrobeDefault
-  const saveFullBodyCorrections = async (corrections: PoseCorrection[]) => {
+  const saveFullBodyCorrections = async (corrections: StoredPoseCorrections) => {
     const assetId = staged?.assetId
     if (!stagedSet || !assetId) throw new Error(t.merope.poseCorrection.conflict)
     await saveFullBodyPoseCorrections(stagedSet.id, assetId, corrections)

@@ -4,10 +4,8 @@ import type {
   RigAssetCompileEvent,
   RigAssetPreflight,
 } from './compiler'
-import { FigureError } from '@myriad/figure'
 import { prepareRigPsdImport } from '@myriad/figure/rig'
 import { API_URL } from '../../../config'
-import { currentCopy, formatCurrent } from '../../../i18n/localeCopy'
 import {
   fullBodyRigImport,
   getFullBodyFigurePicture,
@@ -17,18 +15,13 @@ import {
   previewMeropeRigImport,
 } from '../api'
 import { persistRigAsset, preflightRigAsset } from './compiler'
+import { localizeFigureError } from './figureErrors'
 
 export type {
   ImportedRigAsset,
   RigAssetCompileEvent,
   RigAssetPreflight,
 } from './compiler'
-
-/** A figure error in the site's language; any other error passes through. */
-function localizeFigureError(error: unknown): unknown {
-  if (!(error instanceof FigureError)) return error
-  return new Error(formatCurrent(currentCopy().merope[error.code], error.params), { cause: error })
-}
 
 /** The figure's import, against this site's API and in its language. */
 async function prepareSitePsd(

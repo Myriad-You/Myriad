@@ -65,9 +65,9 @@
     "turnRight": "右向き {n}%",
     "lookUp": "見上げ {n}%",
     "lookDown": "見下ろし {n}%",
-    "eyeCloseL": "左目閉じ {n}%",
-    "eyeCloseR": "右目閉じ {n}%",
-    "mouthOpen": "口開け {n}%"
+    "lidCloseL": "左目閉じ {n}%",
+    "lidCloseR": "右目閉じ {n}%",
+    "jaw": "口開け {n}%"
   },
   "title": "ビジュアル",
   "memories": "記憶",
@@ -98,6 +98,10 @@
   "seeThroughStatusFailed": "See-through の状態を読み込めませんでした。",
   "anime25dWebglFailed": "このブラウザは WebGL2 に対応していないため、2.5D モーションを再生できません。",
   "anime25dPlaybackFailed": "2.5D モーションを再生できませんでした。",
+  "anime25dPlaybackVersion": "このフィギュアパッケージはバージョン {version} です。このプレイヤーが読めるのはバージョン {read} です。",
+  "anime25dPlaybackInvalid": "このフィギュアパッケージは {field} の形式が正しくありません。",
+  "anime25dPlaybackUnconvertible": "このフィギュアパッケージをバージョン {version} で書くと {field} が失われるため、書き出せません。",
+  "anime25dPoseVersion": "このポーズはバージョン {version} です。このプレイヤーが読めるのはバージョン {read} です。",
   "visualTitle": "メイン立ち絵",
   "visualRequirements": "光と構図",
   "visualRequirementsPlaceholder": "例：柔らかな正面光、画面内の顔を大きく、頭上の余白を減らす",

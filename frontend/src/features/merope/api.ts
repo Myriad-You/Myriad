@@ -1,5 +1,5 @@
-import type { PoseCorrection } from '@myriad/figure/anime25drig'
 import type { AuthoredExpressionKind, DetectedSkeleton, MeropeRigImportSource, MeropeRigManifest } from '@myriad/figure/rig'
+import type { StoredPoseCorrections } from './workbench/poseCorrectionPackage'
 import { AUTHORED_EXPRESSION_KINDS, isLiveMeropeManifest, isRigManifest } from '@myriad/figure/rig'
 import { currentCopy } from '../../i18n/localeCopy'
 import { ApiError, apiService, parseApiErrorBody } from '../../services/api'
@@ -360,7 +360,7 @@ export function fullBodyRigImport(outfitId: string) {
   }
 }
 
-export async function saveRigPoseCorrections(assetId: string, corrections: PoseCorrection[]): Promise<{ manifest: MeropeRigManifest; assetId: string }> {
+export async function saveRigPoseCorrections(assetId: string, corrections: StoredPoseCorrections): Promise<{ manifest: MeropeRigManifest; assetId: string }> {
   try {
     const data = await apiService.patch<{ manifest: unknown; assetId: unknown }>(`${PREFIX}/pose-corrections`, { assetId, corrections })
     if (!isRigManifest(data.manifest) || typeof data.assetId !== 'string' || !/^[0-9a-f]{64}$/u.test(data.assetId)) {
@@ -375,7 +375,7 @@ export async function saveRigPoseCorrections(assetId: string, corrections: PoseC
 }
 
 /** A full-body set's corrections, saved into a new package for that set. */
-export async function saveFullBodyPoseCorrections(outfitId: string, assetId: string, corrections: PoseCorrection[]): Promise<{ manifest: MeropeRigManifest; assetId: string }> {
+export async function saveFullBodyPoseCorrections(outfitId: string, assetId: string, corrections: StoredPoseCorrections): Promise<{ manifest: MeropeRigManifest; assetId: string }> {
   try {
     const data = await apiService.patch<{ manifest: unknown; assetId: unknown }>(`${PREFIX}${fullBodyPath(outfitId)}/pose-corrections`, { assetId, corrections })
     if (!isRigManifest(data.manifest) || typeof data.assetId !== 'string' || !/^[0-9a-f]{64}$/u.test(data.assetId)) {

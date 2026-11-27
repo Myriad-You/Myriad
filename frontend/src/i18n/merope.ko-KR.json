@@ -65,9 +65,9 @@
     "turnRight": "오른쪽으로 {n}%",
     "lookUp": "올려보기 {n}%",
     "lookDown": "내려보기 {n}%",
-    "eyeCloseL": "왼쪽 눈 감기 {n}%",
-    "eyeCloseR": "오른쪽 눈 감기 {n}%",
-    "mouthOpen": "입 벌리기 {n}%"
+    "lidCloseL": "왼쪽 눈 감기 {n}%",
+    "lidCloseR": "오른쪽 눈 감기 {n}%",
+    "jaw": "입 벌리기 {n}%"
   },
   "title": "얼굴",
   "memories": "기억",
@@ -98,6 +98,10 @@
   "seeThroughStatusFailed": "See-through 상태를 불러오지 못했어요.",
   "anime25dWebglFailed": "이 브라우저는 WebGL2를 지원하지 않아 2.5D 모션을 재생할 수 없어요.",
   "anime25dPlaybackFailed": "2.5D 모션을 재생하지 못했어요.",
+  "anime25dPlaybackVersion": "이 피규어 패키지는 버전 {version}이에요. 이 플레이어는 버전 {read}만 읽을 수 있어요.",
+  "anime25dPlaybackInvalid": "이 피규어 패키지의 {field} 형식이 올바르지 않아요.",
+  "anime25dPlaybackUnconvertible": "이 피규어 패키지를 버전 {version}으로 쓰면 {field}이(가) 사라져서 쓸 수 없어요.",
+  "anime25dPoseVersion": "이 포즈는 버전 {version}이에요. 이 플레이어는 버전 {read}만 읽을 수 있어요.",
   "visualTitle": "메인 스탠딩",
   "visualRequirements": "빛과 구도",
   "visualRequirementsPlaceholder": "예: 부드러운 정면광, 얼굴이 더 크게, 정수리 위 여백은 적게",

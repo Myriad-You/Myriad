@@ -1,6 +1,6 @@
 import type { AuthoredExpressionKind } from '@myriad/figure/rig'
 import type { RigImport, RigMode } from './useRigImport'
-import { ANIME25D_PROJECT_NAME, ANIME25D_PROJECT_URL, PERSONA_UPSTREAM_THANKS } from '@myriad/figure/workbench'
+import { ANIME25D_PROJECT_NAME, ANIME25D_PROJECT_URL, CREDITED_AUTHORS } from '@myriad/figure/workbench'
 import { useRef } from 'react'
 import {
   CheckboxItem,
@@ -218,7 +218,7 @@ export function RigImportPanel({
         </p>
         <p className="merope-character-home__thanks">
           {labels.anime25dProjectThanks}
-          {PERSONA_UPSTREAM_THANKS.map((person) => (
+          {CREDITED_AUTHORS.map((person) => (
             <a
               key={person.handle}
               href={person.url}

@@ -65,9 +65,9 @@
     "turnRight": "Turn right {n}%",
     "lookUp": "Look up {n}%",
     "lookDown": "Look down {n}%",
-    "eyeCloseL": "Left eye closed {n}%",
-    "eyeCloseR": "Right eye closed {n}%",
-    "mouthOpen": "Mouth open {n}%"
+    "lidCloseL": "Left eye closed {n}%",
+    "lidCloseR": "Right eye closed {n}%",
+    "jaw": "Mouth open {n}%"
   },
   "title": "Face",
   "memories": "Memories",
@@ -98,6 +98,10 @@
   "seeThroughStatusFailed": "Could not load See-through status.",
   "anime25dWebglFailed": "This browser does not support WebGL2, so 2.5D motion cannot play.",
   "anime25dPlaybackFailed": "2.5D motion could not play.",
+  "anime25dPlaybackVersion": "This figure package is of version {version}; this player reads versions {read}.",
+  "anime25dPlaybackInvalid": "This figure package is malformed at {field}.",
+  "anime25dPlaybackUnconvertible": "This figure package cannot be written as version {version} without losing {field}.",
+  "anime25dPoseVersion": "This pose is of version {version}; this player reads versions {read}.",
   "visualTitle": "Master portrait",
   "visualRequirements": "Light and framing",
   "visualRequirementsPlaceholder": "For example: soft frontal light, larger face in frame, less headroom above the crown",
