@@ -27,6 +27,8 @@ mod decompose;
 mod expressions;
 mod full_body;
 mod import;
+#[cfg(test)]
+mod lineage_tests;
 mod master;
 mod package;
 mod parts;
@@ -41,6 +43,14 @@ mod upright;
 
 pub(crate) use package::{cleanup_verified_packages, wardrobe_outfit_face};
 pub(crate) use staged_parts::sweep as cleanup_staged_parts;
+
+/// The generation fingerprint the worn bust's rigs are checked against, as
+/// the rig endpoints read it.
+pub(crate) fn worn_bust_generation_fingerprint(
+    persona: &crate::models::entities::agent_persona::Model,
+) -> Option<String> {
+    master::master_from_persona(persona).and_then(|master| master.generation_fingerprint)
+}
 
 type ApiError = (StatusCode, Json<Value>);
 type ApiResult<T> = Result<T, ApiError>;
@@ -197,8 +207,7 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         )
         .route(
             "/full-body/{outfit_id}/pose-corrections",
-            patch(pose::save_full_body_pose_corrections)
-                .layer(DefaultBodyLimit::max(64 * 1024)),
+            patch(pose::save_full_body_pose_corrections).layer(DefaultBodyLimit::max(64 * 1024)),
         )
         .route(
             "/pose-corrections",

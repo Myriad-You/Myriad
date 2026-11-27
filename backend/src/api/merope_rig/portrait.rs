@@ -506,7 +506,7 @@ mod rig_invalidation_tests {
         let persona = include_str!("../agent/persona.rs");
         for (file, source, name) in [
             ("merope_rig/portrait.rs", rig, "generate_portrait"),
-            ("merope_rig/portrait_upload.rs", upload, "upload_portrait"),
+            ("merope_rig/portrait_upload.rs", upload, "commit_uploaded_portrait"),
             ("agent/persona.rs", persona, "put_persona"),
             ("agent/persona.rs", persona, "delete_persona"),
         ] {
@@ -523,8 +523,8 @@ mod rig_invalidation_tests {
     /// and serves portrait-only. Clear must still be transactional.
     #[test]
     fn upload_portrait_clears_the_rig_transactionally() {
-        let body = body_of(include_str!("portrait_upload.rs"), "upload_portrait");
-        assert!(body.contains("db.begin()"), "upload_portrait 必须开事务");
+        let body = body_of(include_str!("portrait_upload.rs"), "commit_uploaded_portrait");
+        assert!(body.contains("db.begin()"), "commit_uploaded_portrait 必须开事务");
         assert!(
             body.contains("persist_active_asset(&transaction, None)"),
             "作废必须和人设写入同一个事务"

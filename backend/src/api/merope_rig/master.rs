@@ -64,9 +64,15 @@ pub(super) fn portrait_generation_fingerprint(
     // A portrait drawn under a rendering core still recognises (the current
     // one, or one it replaced without changing how identity is written), or
     // under a recipe service's well-formed rendering of any version, depicts
-    // the same identity; any other rendering is compared as is. The stored
-    // block is trusted because only the generation path writes it, from the
-    // recipe it drew with (`portrait_generation_is_written_only_by_the_server`).
+    // the same identity; any other rendering is compared as is.
+    //
+    // This is the fallback, used only when the worn outfit stores no
+    // `generationFingerprint` (that one is preferred, see
+    // `master_from_persona`, and persona-sync import writes it too). For
+    // this fallback the stored block is trusted because `portrait_generation`
+    // is written only by the generation path, from the recipe it drew with:
+    // a persona edit can only keep or clear it (`PortraitGenerationUpdate`),
+    // persona-sync import clears it, and an upload clears it.
     if let Some(stored) = contract
         .get("rendering")
         .filter(|rendering| portrait_rendering_keeps_lineage(rendering))
@@ -571,54 +577,6 @@ mod tests {
                 .unwrap(),
             None
         );
-    }
-
-    /// The stored `portrait_generation` (and with it the `rendering` the
-    /// lineage check trusts) is written only by the generation path in
-    /// `store/generation.rs`. Every other writer clears it; none copies it
-    /// from a request.
-    #[test]
-    fn portrait_generation_is_written_only_by_the_server() {
-        fn walk(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
-            for entry in std::fs::read_dir(dir).unwrap() {
-                let path = entry.unwrap().path();
-                if path.is_dir() {
-                    walk(&path, out);
-                } else if path.extension().is_some_and(|ext| ext == "rs") {
-                    out.push((
-                        path.display().to_string(),
-                        std::fs::read_to_string(&path).unwrap(),
-                    ));
-                }
-            }
-        }
-        // Built here so this file does not match its own needles.
-        let sets_a_value = [
-            ["portrait_generation:", "merope::JsonDocumentUpdate::Set"].concat(),
-            ["portrait_generation:", "JsonDocumentUpdate::Set"].concat(),
-        ];
-        let sql_write = ["SET ", "portrait_generation"].concat();
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut files = Vec::new();
-        walk(&root, &mut files);
-        for (path, source) in &files {
-            if path.ends_with("_tests.rs") || path.ends_with("tests.rs") {
-                continue;
-            }
-            let compact: String = source.split_whitespace().collect();
-            assert!(
-                !sets_a_value
-                    .iter()
-                    .any(|needle| compact.contains(needle.as_str())),
-                "{path} sets portrait_generation from a value"
-            );
-            if source.contains(&sql_write) {
-                assert!(
-                    path.ends_with("services/agent/merope/store/generation.rs"),
-                    "{path} writes portrait_generation"
-                );
-            }
-        }
     }
 
     #[test]

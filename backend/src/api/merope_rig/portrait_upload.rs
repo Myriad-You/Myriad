@@ -131,11 +131,28 @@ pub async fn upload_portrait(
     let user_id = require_owner(&claims, &db).await?;
     let reference = read_portrait_upload(multipart).await?;
     let upright = screen_upload(&reference).await?;
+    let url = persist_uploaded_portrait(&db, user_id, reference).await?;
+    let public_url = commit_uploaded_portrait(&db, user_id, &url).await?;
+    Ok(Json(json!({
+        "portraitUrl": public_url,
+        "portraitAssetId": public_url,
+        "uprightReasons": upright,
+    })))
+}
+
+/// An uploaded master portrait made the worn one: the persona points at it,
+/// its generation contract is cleared (an upload was not generated), and
+/// the old rig is dropped, all in one transaction.
+pub(super) async fn commit_uploaded_portrait(
+    db: &DatabaseConnection,
+    user_id: i32,
+    url: &str,
+) -> ApiResult<String> {
     let stored = crate::services::image_cache::StoredImage {
-        url: persist_uploaded_portrait(&db, user_id, reference).await?,
+        url: url.to_string(),
         created: true,
     };
-    let persona = merope::get_persona(&db).await.map_err(internal_error)?;
+    let persona = merope::get_persona(db).await.map_err(internal_error)?;
     let name = persona
         .as_ref()
         .map(|row| row.name.trim())
@@ -180,7 +197,7 @@ pub async fn upload_portrait(
             visual_profile: visual_profile
                 .map(merope::JsonDocumentUpdate::Set)
                 .unwrap_or(merope::JsonDocumentUpdate::Keep),
-            portrait_generation: merope::JsonDocumentUpdate::Clear,
+            portrait_generation: merope::PortraitGenerationUpdate::Clear,
             ..Default::default()
         },
         user_id,
@@ -213,11 +230,7 @@ pub async fn upload_portrait(
     .map_err(|error| internal_error(error.to_string()))?;
     transaction.commit().await.map_err(internal_error)?;
     merope_rig::mirror_active_asset(cleared_asset).await;
-    Ok(Json(json!({
-        "portraitUrl": public_url,
-        "portraitAssetId": public_url,
-        "uprightReasons": upright,
-    })))
+    Ok(public_url)
 }
 
 /// The owner's picture for a bust set that is not worn, so a set can be made
@@ -272,7 +285,9 @@ pub async fn upload_outfit_portrait(
     }
     .await;
     let public_url = finish(transaction, written).await?;
-    Ok(Json(json!({ "portraitUrl": public_url, "uprightReasons": upright })))
+    Ok(Json(
+        json!({ "portraitUrl": public_url, "uprightReasons": upright }),
+    ))
 }
 
 #[cfg(test)]

@@ -60,7 +60,7 @@ pub(crate) mod mind;
 mod notifications;
 mod onebot_pairing;
 mod onebot_status;
-mod persona;
+pub(crate) mod persona;
 mod playback_direction;
 mod presence;
 mod presets;

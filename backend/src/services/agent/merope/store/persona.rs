@@ -47,10 +47,22 @@ impl PortraitUpdate {
 pub struct PersonaContractUpdate {
     pub persona: JsonDocumentUpdate,
     pub visual_profile: JsonDocumentUpdate,
-    pub portrait_generation: JsonDocumentUpdate,
+    /// Only kept or cleared here. The stored generation contract is written
+    /// by the generation path alone (`complete_portrait_generation`), from
+    /// the recipe it drew with; no persona edit can carry one in.
+    pub portrait_generation: PortraitGenerationUpdate,
     /// Her zone: absent keeps it; empty is the site's own. Checked by the
     /// caller (`clock::Zone::is_valid_name`).
     pub zone: Option<String>,
+}
+
+/// What a persona edit may do to `portrait_generation`: leave it, or clear
+/// it. There is no way to set it from here.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PortraitGenerationUpdate {
+    #[default]
+    Keep,
+    Clear,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -123,15 +135,14 @@ pub(super) fn apply_persona_update(
     }
     apply_json_update(&mut active.persona_json, &contract.persona);
     apply_json_update(&mut active.visual_profile, &contract.visual_profile);
-    apply_json_update(
-        &mut active.portrait_generation,
-        &contract.portrait_generation,
-    );
+    if contract.portrait_generation == PortraitGenerationUpdate::Clear {
+        active.portrait_generation = Set(None);
+    }
     if let Some(zone) = &contract.zone {
         active.zone = Set(zone.trim().to_string());
     }
     if (!matches!(portrait, PortraitUpdate::Keep) || inputs_changed)
-        && matches!(contract.portrait_generation, JsonDocumentUpdate::Keep)
+        && contract.portrait_generation == PortraitGenerationUpdate::Keep
     {
         active.portrait_generation = Set(None);
     }
@@ -219,10 +230,9 @@ where
             JsonDocumentUpdate::Keep | JsonDocumentUpdate::Clear => None,
         }),
         portrait_asset_id: Set(portrait.stored()),
-        portrait_generation: Set(match &contract.portrait_generation {
-            JsonDocumentUpdate::Set(value) => Some(value.clone()),
-            JsonDocumentUpdate::Keep | JsonDocumentUpdate::Clear => None,
-        }),
+        // A new row has no generation contract until the generation path
+        // writes one.
+        portrait_generation: Set(None),
         avatar_asset_id: Set(None),
         avatar_generation: Set(None),
         updated_by: Set(Some(updated_by)),
@@ -486,8 +496,8 @@ pub(super) fn is_unique_conflict(err: &impl std::fmt::Display) -> bool {
 }
 
 #[cfg(test)]
-#[path = "memory_sources_tests.rs"]
-mod memory_sources_tests;
-#[cfg(test)]
 #[path = "persona_clear_tests.rs"]
 mod clear_tests;
+#[cfg(test)]
+#[path = "memory_sources_tests.rs"]
+mod memory_sources_tests;

@@ -566,3 +566,71 @@ async fn what_the_site_forgot_does_not_come_back_with_a_merge() {
     let _ = std::fs::remove_file(&sealed);
     target.close().await;
 }
+
+/// A site whose persona holds a generation contract (and a self-consistent
+/// one naming a recipe), exported and brought into an empty site: the
+/// bundle has no field for `portrait_generation`, and the import writes the
+/// column empty, so the worn bust has no fallback lineage there.
+#[tokio::test]
+async fn an_import_never_brings_a_generation_contract() {
+    let Some(source) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+        return;
+    };
+    seed(&source.db).await;
+    let rendering: myriad_merope::RenderingProvenance = serde_json::from_value(json!({
+        "recipe": "merope-persona",
+        "visualSchoolVersion": "house-v6",
+        "styleReferenceSha256": "b".repeat(64),
+        "fullBodyInstructionVersion": "full-body-standing-v1",
+    }))
+    .unwrap();
+    let profile: Value = one(
+        &source.db,
+        "SELECT visual_profile FROM agent_persona",
+        "visual_profile",
+    )
+    .await;
+    let contract =
+        myriad_merope::build_character_asset_contract_with("Merope", &profile, None, &rendering);
+    let document = json!({
+        "fingerprint": myriad_merope::character_asset_contract_fingerprint(&contract),
+        "contract": contract,
+    });
+    source
+        .db
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE agent_persona SET portrait_generation = $1",
+            [document.into()],
+        ))
+        .await
+        .unwrap();
+    let file = super::super::export::export(&source.db, 41, "雨天的伞".into())
+        .await
+        .unwrap();
+    source.close().await;
+
+    let Some(target) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+        return;
+    };
+    let db = &target.db;
+    owner_only(db).await;
+    let session = begin_file(db, 41, file.bytes.len() as u64).await.unwrap();
+    take_piece(db, &session.id, 0, file.bytes.clone())
+        .await
+        .unwrap();
+    open_file(db, 41, &session.id, "雨天的伞".into(), false)
+        .await
+        .unwrap();
+    let persona = crate::services::agent::merope::get_persona(db)
+        .await
+        .unwrap()
+        .expect("her persona came");
+    assert_eq!(persona.name, "Merope");
+    assert_eq!(persona.portrait_generation, None);
+    assert_eq!(
+        crate::api::merope_rig::worn_bust_generation_fingerprint(&persona),
+        None
+    );
+    target.close().await;
+}
