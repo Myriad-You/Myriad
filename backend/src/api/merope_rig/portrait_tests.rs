@@ -220,7 +220,15 @@ async fn a_service_serving_the_house_recipe_draws_byte_for_byte_as_builtin_but_r
     let url = serve(fake.clone()).await;
     let builtin = plans(&StyleSource::Builtin, &profile).await;
     let served = plans(&remote(&url), &profile).await;
-    assert_eq!(fake.asked().len(), 4, "one recipe per picture");
+    // A picture with a style reference fetches the full recipe; an edit and
+    // a redraw ask `/v1/info` and reuse the recipe checked just before.
+    assert_eq!(
+        fake.asked()
+            .iter()
+            .map(|asked| asked.path.as_str())
+            .collect::<Vec<_>>(),
+        ["/v1/recipe", "/v1/info", "/v1/recipe", "/v1/info"]
+    );
     for (builtin, served) in builtin.iter().zip(served.iter()) {
         assert_eq!(served.prompt.as_bytes(), builtin.prompt.as_bytes());
         assert_eq!(served.references, builtin.references);

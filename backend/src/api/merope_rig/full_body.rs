@@ -62,9 +62,6 @@ pub(super) async fn full_body_plan(
     source: &StyleSource,
     from: FullBodyFrom<'_>,
 ) -> ApiResult<DrawingPlan> {
-    let recipe = persona_style::recipe(source)
-        .await
-        .map_err(persona_style_error)?;
     let drawing = match &from {
         FullBodyFrom::Bust { .. } => Picture::FullBodyFromBust,
         FullBodyFrom::Design {
@@ -75,6 +72,9 @@ pub(super) async fn full_body_plan(
             visual_profile,
         },
     };
+    let recipe = persona_style::recipe_for(source, drawing)
+        .await
+        .map_err(persona_style_error)?;
     let prompt = recipe.prompt(drawing);
     let (contract, references, reference_role) = match from {
         FullBodyFrom::Bust {

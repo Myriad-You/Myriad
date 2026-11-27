@@ -22,14 +22,11 @@
 //! core's `RenderingProvenance::check` (so it is not `builtin`) and equals
 //! what the recipe head and the reference say.
 //!
-//! Where the request goes: the host is resolved first and refused if any
-//! address is link-local, unspecified or multicast. A host that resolves
-//! only to loopback or private addresses (or a single-label name) is
-//! reached directly at the addresses just checked; any other host is
-//! reached through the site's outbound proxy when one is configured, and
-//! otherwise directly at the checked addresses. Plain `http` is only for
-//! the first kind. Redirects are not followed, so the token only goes to
-//! the configured origin.
+//! Where the request goes: see [`route`]. The host is resolved first and
+//! refused if any address is link-local, a cloud metadata address,
+//! unspecified or multicast. Plain `http` only to loopback or private
+//! addresses. Redirects are not followed, so the token only goes to the
+//! configured origin.
 
 use std::{
     net::{IpAddr, SocketAddr},
@@ -78,9 +75,21 @@ impl std::fmt::Debug for RemoteRecipe {
     }
 }
 
-/// Link-local (cloud metadata lives there), unspecified and multicast
-/// addresses are never a recipe service.
+/// Cloud metadata endpoints outside link-local space: AWS's IPv6 instance
+/// metadata (inside the unique-local range a service may otherwise use) and
+/// Alibaba Cloud's.
+const METADATA_ADDRESSES: [IpAddr; 2] = [
+    IpAddr::V6(std::net::Ipv6Addr::new(0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0254)),
+    IpAddr::V4(std::net::Ipv4Addr::new(100, 100, 100, 200)),
+];
+
+/// Link-local (cloud metadata lives there), the other known metadata
+/// addresses, unspecified, multicast and broadcast addresses are never a
+/// recipe service.
 fn refused_address(ip: IpAddr) -> bool {
+    if METADATA_ADDRESSES.contains(&ip) {
+        return true;
+    }
     match ip {
         IpAddr::V4(ip) => {
             ip.is_link_local() || ip.is_unspecified() || ip.is_multicast() || ip.is_broadcast()
@@ -170,11 +179,14 @@ pub(super) enum Route {
 }
 
 /// The route for a service whose host resolved to `addresses`: refused if
-/// any address is link-local, unspecified, multicast or broadcast (or none
-/// came back); direct when the service is beside the site (every address
-/// loopback or private, or a single-label host name); otherwise through the
-/// site's outbound proxy when one is configured, else direct. Plain `http`
-/// only for a service beside the site.
+/// any address is link-local, a cloud metadata address, unspecified,
+/// multicast or broadcast (or none came back). Plain `http` only when every
+/// address is loopback or private, whatever the name: a single-label name
+/// that resolves to a public address needs `https`, so the token never
+/// travels in clear to a public address. Direct when every address is
+/// loopback or private, or the host is a single-label name (a container
+/// beside the site); otherwise through the site's outbound proxy when one is
+/// configured, else direct.
 pub(super) fn route(
     scheme: &str,
     single_label_host: bool,
@@ -184,11 +196,11 @@ pub(super) fn route(
     if addresses.is_empty() || addresses.iter().any(|ip| refused_address(*ip)) {
         return Err(PersonaStyleError::InvalidUrl);
     }
-    let beside = single_label_host || addresses.iter().all(|ip| local_address(*ip));
-    if scheme == "http" && !beside {
+    let local = addresses.iter().all(|ip| local_address(*ip));
+    if scheme == "http" && !local {
         return Err(PersonaStyleError::InvalidUrl);
     }
-    Ok(if !beside && proxy_configured {
+    Ok(if !local && !single_label_host && proxy_configured {
         Route::Proxy
     } else {
         Route::Direct

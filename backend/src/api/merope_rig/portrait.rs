@@ -56,9 +56,6 @@ pub(super) async fn portrait_plan(
     notes: Option<&str>,
     edit_anchor: Option<ImageReference>,
 ) -> ApiResult<DrawingPlan> {
-    let recipe = persona_style::recipe(source)
-        .await
-        .map_err(persona_style_error)?;
     let drawing = if edit_anchor.is_some() {
         Drawing::BustEdit {
             notes: notes.unwrap_or(""),
@@ -70,6 +67,9 @@ pub(super) async fn portrait_plan(
             notes,
         }
     };
+    let recipe = persona_style::recipe_for(source, drawing)
+        .await
+        .map_err(persona_style_error)?;
     let prompt = recipe.prompt(drawing);
     let (references, reference_role) = match edit_anchor {
         Some(anchor) => (vec![anchor], "existing-portrait-identity-anchor"),

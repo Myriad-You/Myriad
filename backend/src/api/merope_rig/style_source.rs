@@ -128,6 +128,6 @@ pub async fn update_persona_style(
         }
         config.clone()
     };
-    persona_style::forget_probe();
+    persona_style::forget_answers();
     Ok(Json(persona_style::status(&dynamic)))
 }

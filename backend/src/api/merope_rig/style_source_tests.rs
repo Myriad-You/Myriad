@@ -5,7 +5,8 @@
 //! schema); skipped without `MYRIAD_MEDIA_TEST_DATABASE_URL`.
 //!
 //! They change the process-wide `GLOBAL_DYNAMIC_CONFIG`, so they take turns
-//! (`TURN`) and set every field they rely on.
+//! with every test that does (`super::DYNAMIC_CONFIG_TURN`) and set every
+//! field they rely on.
 
 use axum::{
     Extension, Json, Router,
@@ -20,7 +21,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use super::{portrait, style_source};
+use super::{full_body, portrait, style_source};
 use crate::{
     db::IsolatedSchema,
     middleware::auth::Claims,
@@ -34,8 +35,6 @@ use crate::{
 
 const OWNER: i32 = 7;
 const ADMIN: i32 = 8;
-
-static TURN: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn claims(user: i32) -> Claims {
     Claims {
@@ -127,7 +126,7 @@ async fn patch(db: &DatabaseConnection, user: i32, body: Value) -> Result<Value,
 
 #[tokio::test]
 async fn only_the_owner_reads_and_sets_the_style_source_and_no_answer_carries_the_token() {
-    let _turn = TURN.lock().await;
+    let _turn = super::DYNAMIC_CONFIG_TURN.lock().await;
     let Some(schema) = site("persona_style_patch").await else {
         return;
     };
@@ -267,7 +266,7 @@ async fn configure_provider(base_url: &str) {
 /// asked: nothing is drawn in another style.
 #[tokio::test]
 async fn a_portrait_whose_service_fails_stops_before_its_lease_spend_and_provider() {
-    let _turn = TURN.lock().await;
+    let _turn = super::DYNAMIC_CONFIG_TURN.lock().await;
     let Some(schema) = site("persona_style_portrait").await else {
         return;
     };
@@ -381,5 +380,191 @@ async fn a_restored_url_of_another_origin_clears_the_token_unless_the_backup_has
             .unwrap();
         assert_eq!(token_entry(&entries), expected);
     }
+    schema.drop().await;
+}
+
+/// Her design with a full-body set `fb` drawn from the design (no bust it
+/// is redrawn from).
+fn with_full_body_set() -> Value {
+    let mut profile = profile();
+    profile["wardrobe"] = json!([{
+        "id": "fb",
+        "profile": "fullBody",
+        "clothingStyle": "everyday",
+        "outfit": profile["visualIdentity"]["outfit"].clone(),
+    }]);
+    profile
+}
+
+/// A full figure asked for while the configured service fails answers with
+/// the service's error before any drawing begins: the set is not marked as
+/// being drawn, nothing is charged, the image provider is not asked, and the
+/// set is as it was.
+#[tokio::test]
+async fn a_full_figure_whose_service_fails_begins_no_drawing_spend_or_provider_call() {
+    let _turn = super::DYNAMIC_CONFIG_TURN.lock().await;
+    let Some(schema) = site("persona_style_full_body").await else {
+        return;
+    };
+    let db = &schema.db;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_persona SET visual_profile = $1",
+        [with_full_body_set().into()],
+    ))
+    .await
+    .unwrap();
+    let (provider_url, provider_asked) = provider().await;
+    let saved = crate::GLOBAL_DYNAMIC_CONFIG.read().await.clone();
+    configure_provider(&provider_url).await;
+    let refusing = serve(Fake::answering(StatusCode::UNAUTHORIZED, &json!({}))).await;
+    for (service, status, code) in [
+        (
+            closed_url().await,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "persona_style_unavailable",
+        ),
+        (refusing, StatusCode::BAD_GATEWAY, "persona_style_unauthorized"),
+    ] {
+        configure(Some(service), Some(TOKEN)).await;
+        let (got, Json(body)) = full_body::generate_full_body_portrait(
+            State(db.clone()),
+            Extension(claims(OWNER)),
+            axum::extract::Path("fb".to_string()),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!((got, body["code"].as_str()), (status, Some(code)), "{body}");
+        assert!(!body.to_string().contains(TOKEN));
+        let Json(drawing) = full_body::full_body_portrait_drawing(
+            State(db.clone()),
+            Extension(claims(OWNER)),
+            axum::extract::Path("fb".to_string()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(drawing["drawing"], false, "no drawing began");
+        let persona = merope::get_persona(db).await.unwrap().unwrap();
+        assert_eq!(persona.visual_profile, Some(with_full_body_set()));
+    }
+    assert_eq!(provider_asked.load(Ordering::SeqCst), 0);
+    let spent: i64 = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT COUNT(*)::BIGINT AS n FROM ai_cost_ledger".to_string(),
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "n")
+        .unwrap();
+    assert_eq!(spent, 0, "nothing was charged");
+    {
+        let mut config = crate::GLOBAL_DYNAMIC_CONFIG.write().await;
+        *config = saved;
+    }
+    configure(None, None).await;
+    schema.drop().await;
+}
+
+fn backup_of(entries: Vec<crate::api::config::SettingsBackupEntry>) -> crate::api::config::SettingsBackup {
+    crate::api::config::SettingsBackup {
+        format: crate::api::config::SETTINGS_BACKUP_FORMAT.to_string(),
+        version: crate::api::config::SETTINGS_BACKUP_VERSION,
+        product_version: None,
+        exported_at: "2026-11-27T00:00:00Z".to_string(),
+        contains_secrets: true,
+        configurations: entries,
+        effective_config: Default::default(),
+        user_preferences: Default::default(),
+    }
+}
+
+/// A restore whose portrait style URL fails the policy, through the restore
+/// plan and the restore write: the URL and the token that came with it are
+/// both skipped, so the stored URL keeps its own token and nothing is bound
+/// to an origin it was not given for. A stored URL that fails the policy
+/// (written before the policy was this strict) reads back after a restore
+/// as a configuration error, not as this build's own recipe, and no token
+/// is sent anywhere.
+#[tokio::test]
+async fn a_restored_style_url_failing_the_policy_keeps_the_token_bound_and_the_error_shown() {
+    let Some(schema) = site("persona_style_restore_bad").await else {
+        return;
+    };
+    let db = &schema.db;
+    crate::services::config_service::ConfigService::new(db.clone())
+        .update_configs(std::collections::HashMap::from([
+            (
+                "merope_persona_url".to_string(),
+                json!("https://persona.example.com"),
+            ),
+            ("merope_persona_token".to_string(), json!(TOKEN)),
+        ]))
+        .await
+        .unwrap();
+    for refused in ["http://169.254.169.254", "http://[fd00:ec2::254]"] {
+        let plan = crate::api::config::build_settings_restore_plan(&backup_of(vec![
+            restored("merope_persona_url", refused),
+            restored("merope_persona_token", "restored-token-0123456789"),
+        ]));
+        assert!(
+            plan.preview
+                .invalid_keys
+                .iter()
+                .any(|key| key == "merope_persona_url")
+        );
+        assert!(
+            plan.preview
+                .invalid_keys
+                .iter()
+                .any(|key| key == "merope_persona_token")
+        );
+        crate::api::config::write_restored_configurations(db, plan.entries, &[])
+            .await
+            .unwrap();
+        let config = crate::services::config_service::ConfigService::load_config_on(db)
+            .await
+            .unwrap();
+        assert_eq!(
+            config.merope_persona_url.as_deref(),
+            Some("https://persona.example.com"),
+            "{refused}"
+        );
+        assert_eq!(config.merope_persona_token.as_deref(), Some(TOKEN), "{refused}");
+    }
+
+    // A stored URL the policy refuses stays as stored and reads back as a
+    // configuration error; a restore without style settings leaves it so.
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE configurations SET value = $1 WHERE key = 'merope_persona_url'",
+        [json!("http://[fd00:ec2::254]").into()],
+    ))
+    .await
+    .unwrap();
+    let plan = crate::api::config::build_settings_restore_plan(&backup_of(vec![restored(
+        "site_title",
+        "x",
+    )]));
+    crate::api::config::write_restored_configurations(db, plan.entries, &[])
+        .await
+        .unwrap();
+    let config = crate::services::config_service::ConfigService::load_config_on(db)
+        .await
+        .unwrap();
+    assert_eq!(
+        config.merope_persona_url.as_deref(),
+        Some("http://[fd00:ec2::254]")
+    );
+    assert_eq!(
+        crate::services::persona_style::configured(&config).unwrap_err(),
+        crate::services::persona_style::PersonaStyleError::InvalidUrl
+    );
+    let shown = crate::services::persona_style::status(&config);
+    assert_eq!(shown["source"], "remote");
+    assert_eq!(shown["error"], "persona_style_url_invalid");
+    let probed = crate::services::persona_style::probe(&config).await;
+    assert!(probed["probe"].is_null(), "a refused URL is never asked");
     schema.drop().await;
 }

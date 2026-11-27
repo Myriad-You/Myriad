@@ -348,6 +348,9 @@ fn the_url_policy_refuses_link_local_even_for_http_and_keeps_services_beside_the
         ("http://[fe80::1]:8080", None),
         ("https://[fe80::1]", None),
         ("http://[::ffff:169.254.169.254]", None),
+        ("http://[fd00:ec2::254]", None),
+        ("https://[fd00:ec2::254]:8443", None),
+        ("https://100.100.100.200", None),
         ("http://0.0.0.0:8080", None),
         ("http://224.0.0.1", None),
         ("http://persona.example.com", None),
@@ -371,14 +374,28 @@ fn public_hosts_go_through_the_proxy_and_hosts_beside_the_site_go_direct() {
     assert_eq!(route("https", false, &public, false), Ok(Route::Direct));
     assert_eq!(route("https", false, &private, true), Ok(Route::Direct));
     assert_eq!(route("http", false, &private, true), Ok(Route::Direct));
-    // A single-label name (a container beside the site) goes direct.
-    assert_eq!(route("http", true, &public, true), Ok(Route::Direct));
+    // A single-label name (a container beside the site) goes direct; plain
+    // http to it only when it resolves to loopback or private addresses.
+    assert_eq!(route("http", true, &private, true), Ok(Route::Direct));
+    assert_eq!(route("https", true, &public, true), Ok(Route::Direct));
+    assert_eq!(
+        route("http", true, &public, false),
+        Err(PersonaStyleError::InvalidUrl),
+        "a single-label name resolving to a public address needs https"
+    );
     // Plain http to a public address is refused, as is any link-local one.
     assert_eq!(
         route("http", false, &public, true),
         Err(PersonaStyleError::InvalidUrl)
     );
-    for refused in ["169.254.169.254", "fe80::1", "0.0.0.0", "::"] {
+    for refused in [
+        "169.254.169.254",
+        "fe80::1",
+        "fd00:ec2::254",
+        "100.100.100.200",
+        "0.0.0.0",
+        "::",
+    ] {
         assert_eq!(
             route("https", true, &[ip("10.0.0.5"), ip(refused)], false),
             Err(PersonaStyleError::InvalidUrl),
@@ -431,6 +448,63 @@ async fn a_served_recipe_is_used_as_sent_and_nothing_about_the_design_is_sent() 
     ));
     assert!(prompt.ends_with("Priority order: framing first, then the confirmed identity."));
     assert!(!prompt.contains(myriad_merope::MEROPE_VISUAL_SCHOOL));
+}
+
+/// An edit or a redraw attaches no style reference, so it asks only
+/// `/v1/info` and reuses the recipe last checked from that origin while the
+/// provenance is the same; a new provenance fetches and checks the recipe
+/// again, and its words are the ones used.
+#[tokio::test]
+async fn a_drawing_without_a_reference_reuses_the_checked_recipe_while_the_provenance_holds() {
+    let fake = Fake::answering(
+        StatusCode::OK,
+        &served_recipe(&house_style(), &[png()], "house-v6"),
+    );
+    let url = serve(fake.clone()).await;
+    let source = remote(&url);
+    let profile = profile();
+    let paths = |fake: &Fake| {
+        fake.asked()
+            .iter()
+            .map(|asked| asked.path.clone())
+            .collect::<Vec<_>>()
+    };
+    let edit = Drawing::BustEdit { notes: "light" };
+    // Nothing checked yet from this origin: info, then the full recipe.
+    let first = recipe_for(&source, edit).await.unwrap();
+    assert_eq!(paths(&fake), ["/v1/info", "/v1/recipe"]);
+    // Same provenance: info only.
+    let again = recipe_for(&source, Drawing::FullBodyFromBust).await.unwrap();
+    assert_eq!(paths(&fake), ["/v1/info", "/v1/recipe", "/v1/info"]);
+    assert_eq!(again.style, first.style);
+    assert_eq!(again.rendering, first.rendering);
+    // A drawing with a reference always fetches the recipe.
+    recipe_for(
+        &source,
+        Drawing::Bust {
+            name: "星见",
+            visual_profile: &profile,
+            notes: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(paths(&fake).last().map(String::as_str), Some("/v1/recipe"));
+
+    // The service moves to new words under a new version.
+    let mut moved = house_style();
+    moved["editFinish"] = json!("the same watercolour finish");
+    let next = Fake::answering(StatusCode::OK, &served_recipe(&moved, &[png()], "house-v7"));
+    *fake.recipe.lock().unwrap() = next.recipe.lock().unwrap().clone();
+    *fake.info.lock().unwrap() = next.info.lock().unwrap().clone();
+    let before = fake.asked().len();
+    let after = recipe_for(&source, edit).await.unwrap();
+    assert_eq!(
+        paths(&fake)[before..],
+        ["/v1/info".to_string(), "/v1/recipe".to_string()]
+    );
+    assert_eq!(after.rendering.visual_school_version, "house-v7");
+    assert!(after.prompt(edit).contains("the same watercolour finish"));
 }
 
 #[tokio::test]

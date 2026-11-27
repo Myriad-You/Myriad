@@ -368,6 +368,18 @@ pub(crate) fn build_settings_restore_plan(backup: &SettingsBackup) -> SettingsRe
             Err(_) => invalid_keys.push(entry_key),
         }
     }
+    // The portrait style token belongs to the URL it came with: when that
+    // URL fails the policy and is skipped, its token is skipped too, so the
+    // stored URL keeps the stored token and no backup's token is bound to an
+    // origin it was not given for.
+    if invalid_keys.iter().any(|key| key == "merope_persona_url")
+        && let Some(index) = entries
+            .iter()
+            .position(|entry| entry.key == "merope_persona_token")
+    {
+        entries.remove(index);
+        invalid_keys.push("merope_persona_token".to_string());
+    }
 
     entries.sort_by(|left, right| left.key.cmp(&right.key));
     ignored_keys.sort();
@@ -1988,6 +2000,56 @@ mod settings_backup_tests {
         assert_eq!(
             sanitize_wallpaper_url("https://user:pass@cdn.example.com/a.jpg"),
             None
+        );
+    }
+
+    /// A restored portrait style URL that fails the policy is skipped, and
+    /// the token that came with it is skipped too: the stored pair stays as
+    /// it was, and the preview names both.
+    #[test]
+    fn restore_plan_skips_the_style_token_with_a_style_url_failing_the_policy() {
+        let plan_for = |url: &str| {
+            build_settings_restore_plan(&backup_with_entries(vec![
+                SettingsBackupEntry {
+                    value: json!(url),
+                    ..entry("merope_persona_url")
+                },
+                SettingsBackupEntry {
+                    value: json!("restored-token-0123456789"),
+                    ..entry("merope_persona_token")
+                },
+            ]))
+        };
+        for refused in [
+            "http://169.254.169.254",
+            "http://[fd00:ec2::254]",
+            "http://persona.example.com",
+        ] {
+            let plan = plan_for(refused);
+            assert!(
+                !plan
+                    .entries
+                    .iter()
+                    .any(|e| e.key.starts_with("merope_persona_")),
+                "{refused}"
+            );
+            assert_eq!(
+                plan.preview.invalid_keys,
+                vec!["merope_persona_token", "merope_persona_url"],
+                "{refused}"
+            );
+        }
+        let plan = plan_for("https://persona.example.com/");
+        assert_eq!(
+            plan.entries
+                .iter()
+                .filter(|e| e.key.starts_with("merope_persona_"))
+                .map(|e| (e.key.as_str(), e.value.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("merope_persona_token", json!("restored-token-0123456789")),
+                ("merope_persona_url", json!("https://persona.example.com")),
+            ]
         );
     }
 

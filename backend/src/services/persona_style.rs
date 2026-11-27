@@ -206,12 +206,66 @@ pub fn configured(dynamic: &DynamicConfig) -> Result<StyleSource, PersonaStyleEr
     RemoteRecipe::new(&url, token).map(StyleSource::Remote)
 }
 
-/// The recipe to draw with now.
+/// The recipe to draw with now: the service's full answer (`/v1/recipe`,
+/// words and reference, checked).
 pub async fn recipe(source: &StyleSource) -> Result<Recipe, PersonaStyleError> {
     match source {
         StyleSource::Builtin => Ok(builtin()),
-        StyleSource::Remote(remote) => remote.recipe().await,
+        StyleSource::Remote(remote) => {
+            let recipe = remote.recipe().await?;
+            remember_recipe(remote.origin(), &recipe);
+            Ok(recipe)
+        }
     }
+}
+
+/// The recipe to draw `drawing` with. A drawing that attaches no style
+/// reference (an edit, a redraw from a bust) needs only the words: the
+/// service is asked `/v1/info` (no image), and when its provenance equals
+/// that of the last full recipe checked from the same origin, those words
+/// are used; otherwise the full recipe is fetched and checked. The
+/// provenance is the cache key because it is what the contract records:
+/// a service changing its words changes its version (the private
+/// repository's rule), and the cached reference hash was checked against
+/// the bytes when that recipe came.
+pub async fn recipe_for(
+    source: &StyleSource,
+    drawing: Drawing<'_>,
+) -> Result<Recipe, PersonaStyleError> {
+    let StyleSource::Remote(remote) = source else {
+        return recipe(source).await;
+    };
+    if drawing.uses_style_reference() {
+        return recipe(source).await;
+    }
+    let now = remote.info().await?;
+    if let Some(cached) = remembered_recipe(remote.origin()).filter(|cached| cached.rendering == now)
+    {
+        return Ok(cached);
+    }
+    recipe(source).await
+}
+
+/// The last full recipe checked from each origin (the few most recent).
+static LAST_RECIPE: Mutex<Vec<(String, Recipe)>> = Mutex::new(Vec::new());
+const RECIPES_KEPT: usize = 16;
+
+fn remember_recipe(origin: &str, recipe: &Recipe) {
+    let mut kept = LAST_RECIPE.lock().unwrap_or_else(|error| error.into_inner());
+    kept.retain(|(from, _)| from != origin);
+    kept.push((origin.to_string(), recipe.clone()));
+    if kept.len() > RECIPES_KEPT {
+        kept.remove(0);
+    }
+}
+
+fn remembered_recipe(origin: &str) -> Option<Recipe> {
+    LAST_RECIPE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .iter()
+        .find(|(from, _)| from == origin)
+        .map(|(_, recipe)| recipe.clone())
 }
 
 /// This build's own recipe: core's builtin words, the bundled image and
@@ -311,9 +365,14 @@ pub fn status(dynamic: &DynamicConfig) -> Value {
     }
 }
 
-/// Forgets the last probe: the settings it was made under changed.
-pub fn forget_probe() {
+/// Forgets the last probe and the last recipe: the settings they were
+/// made under changed.
+pub fn forget_answers() {
     *LAST_PROBE.lock().unwrap_or_else(|error| error.into_inner()) = None;
+    LAST_RECIPE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .clear();
 }
 
 /// Asks the configured service what it draws with now (`GET /v1/info`),
