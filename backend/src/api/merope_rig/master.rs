@@ -64,15 +64,21 @@ pub(super) fn portrait_generation_fingerprint(
     // A portrait drawn under a rendering core still recognises (the current
     // one, or one it replaced without changing how identity is written), or
     // under a recipe service's well-formed rendering of any version, depicts
-    // the same identity; any other rendering is compared as is.
+    // the same identity; any other rendering is compared as is. Decision:
+    // a recipe service's portraits keep their lineage across that service's
+    // versions, so a version bump on the service does not drop every rig;
+    // only the identity is compared.
     //
-    // This is the fallback, used only when the worn outfit stores no
-    // `generationFingerprint` (that one is preferred, see
-    // `master_from_persona`, and persona-sync import writes it too). For
-    // this fallback the stored block is trusted because `portrait_generation`
-    // is written only by the generation path, from the recipe it drew with:
-    // a persona edit can only keep or clear it (`PortraitGenerationUpdate`),
-    // persona-sync import clears it, and an upload clears it.
+    // What this trusts, and what it does not: this is the fallback, read
+    // only when the worn outfit stores no `generationFingerprint`. That
+    // stored fingerprint is preferred (`master_from_persona`) and is not
+    // checked here at all: the generation path writes it, and persona-sync
+    // import writes it from the bundle as the bundle says. Only for this
+    // fallback is the stored `rendering` block taken as written, because
+    // `portrait_generation` is written by the generation path alone, from
+    // the recipe it drew with: a persona edit can only keep or clear it
+    // (`PortraitGenerationUpdate`), persona-sync import writes it empty, and
+    // an upload clears it.
     if let Some(stored) = contract
         .get("rendering")
         .filter(|rendering| portrait_rendering_keeps_lineage(rendering))

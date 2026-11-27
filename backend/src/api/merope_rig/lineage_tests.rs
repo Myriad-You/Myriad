@@ -2,8 +2,10 @@
 //! the stored generation contract the worn bust's fallback lineage is read
 //! from: a `PUT /api/agent/persona` carrying a forged one leaves the stored
 //! one as it was, and an upload clears it. Each checks the stored column
-//! and the fingerprint the rig endpoints read. Against a database (an
-//! isolated schema); skipped without `MYRIAD_MEDIA_TEST_DATABASE_URL`.
+//! and the fingerprint the rig endpoints read. The upload is entered at
+//! `commit_uploaded_portrait`, after the multipart read and the upright
+//! screen (which asks a model). Against a database (an isolated schema);
+//! skipped without `MYRIAD_MEDIA_TEST_DATABASE_URL`.
 //! Persona-sync import is checked in `services::persona_sync::import_tests`.
 
 use axum::{Extension, Json, extract::State};
@@ -16,6 +18,9 @@ use serde_json::{Value, json};
 use crate::{db::IsolatedSchema, middleware::auth::Claims, services::agent::merope};
 
 const OWNER: i32 = 7;
+/// Her master portrait. Not a path on this site, so saving the persona does
+/// not look for it in the media catalogue.
+const MASTER: &str = "https://images.example/master.png";
 
 fn claims() -> Claims {
     Claims {
@@ -36,7 +41,7 @@ fn profile() -> Value {
     json!({
         "activeOutfitId": "a",
         "gender": "female",
-        "wardrobe": [{ "id": "a", "portraitAssetId": "/master.png" }],
+        "wardrobe": [{ "id": "a", "portraitAssetId": MASTER }],
     })
 }
 
@@ -82,8 +87,8 @@ async fn site(prefix: &str) -> Option<(IsolatedSchema, Value)> {
             DatabaseBackend::Postgres,
             "INSERT INTO agent_persona (id, name, personality, visual_profile, \
              portrait_asset_id, portrait_generation, updated_at) \
-             VALUES ('site', 'Nova', '', $1, '/master.png', $2, NOW())",
-            [profile().into(), generated.clone().into()],
+             VALUES ('site', 'Nova', '', $1, $2, $3, NOW())",
+            [profile().into(), MASTER.into(), generated.clone().into()],
         ))
         .await
         .unwrap();
@@ -145,15 +150,13 @@ async fn a_forged_portrait_generation_in_put_persona_is_not_stored() {
     assert_eq!(stored(db).await, Some(generated));
     assert_eq!(fingerprint(db).await.as_deref(), Some(genuine.as_str()));
 
-    // A changed design clears it; the forged one still does not land.
-    let mut changed = profile();
-    changed["gender"] = json!("male");
+    // A changed name (a generation input) clears it; the forged one still
+    // does not land.
     put(
         db,
         json!({
-            "name": "Nova",
+            "name": "Vega",
             "personality": "",
-            "visualProfile": changed,
             "portraitGeneration": forged(),
         }),
     )

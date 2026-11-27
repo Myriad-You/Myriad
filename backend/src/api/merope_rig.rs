@@ -45,7 +45,9 @@ pub(crate) use package::{cleanup_verified_packages, wardrobe_outfit_face};
 pub(crate) use staged_parts::sweep as cleanup_staged_parts;
 
 /// The generation fingerprint the worn bust's rigs are checked against, as
-/// the rig endpoints read it.
+/// the rig endpoints read it; for the entry-level tests of what may write
+/// `portrait_generation`.
+#[cfg(test)]
 pub(crate) fn worn_bust_generation_fingerprint(
     persona: &crate::models::entities::agent_persona::Model,
 ) -> Option<String> {
