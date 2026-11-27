@@ -108,7 +108,8 @@ async fn fingerprint(db: &DatabaseConnection) -> Option<String> {
     super::worn_bust_generation_fingerprint(&persona)
 }
 
-/// `put_persona` reads the switch the site's settings hold.
+/// `put_persona` reads the switch the site's settings hold; callers hold
+/// `DYNAMIC_CONFIG_TURN`.
 async fn her_switch_on() {
     let mut config = crate::GLOBAL_DYNAMIC_CONFIG.write().await;
     config.merope_enabled = true;
@@ -134,6 +135,7 @@ async fn put(db: &DatabaseConnection, body: Value) {
 
 #[tokio::test]
 async fn a_forged_portrait_generation_in_put_persona_is_not_stored() {
+    let _turn = super::DYNAMIC_CONFIG_TURN.lock().await;
     let Some((schema, generated)) = site("lineage_put").await else {
         return;
     };
