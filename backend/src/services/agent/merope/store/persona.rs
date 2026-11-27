@@ -496,8 +496,8 @@ pub(super) fn is_unique_conflict(err: &impl std::fmt::Display) -> bool {
 }
 
 #[cfg(test)]
-#[path = "persona_clear_tests.rs"]
-mod clear_tests;
-#[cfg(test)]
 #[path = "memory_sources_tests.rs"]
 mod memory_sources_tests;
+#[cfg(test)]
+#[path = "persona_clear_tests.rs"]
+mod clear_tests;

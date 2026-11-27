@@ -285,9 +285,7 @@ pub async fn upload_outfit_portrait(
     }
     .await;
     let public_url = finish(transaction, written).await?;
-    Ok(Json(
-        json!({ "portraitUrl": public_url, "uprightReasons": upright }),
-    ))
+    Ok(Json(json!({ "portraitUrl": public_url, "uprightReasons": upright })))
 }
 
 #[cfg(test)]

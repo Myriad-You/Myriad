@@ -209,7 +209,8 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         )
         .route(
             "/full-body/{outfit_id}/pose-corrections",
-            patch(pose::save_full_body_pose_corrections).layer(DefaultBodyLimit::max(64 * 1024)),
+            patch(pose::save_full_body_pose_corrections)
+                .layer(DefaultBodyLimit::max(64 * 1024)),
         )
         .route(
             "/pose-corrections",
