@@ -301,7 +301,7 @@ async fn forgetting_a_long_line_takes_each_part_of_it_still_queued() {
     };
     let db = &schema.db;
     session(db, "mine", OTHER, CHAT, false).await;
-    let text: String = (0..200).map(|n| format!("第{n}件小事说给你听。")).collect();
+    let text: String = (0..400).map(|n| format!("第{n}件小事说给你听。")).collect();
     let parts: Vec<String> = myriad_merope::settle_raw::line_parts(&text)
         .into_iter()
         .map(str::to_string)
