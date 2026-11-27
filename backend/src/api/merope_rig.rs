@@ -27,6 +27,8 @@ mod decompose;
 mod expressions;
 mod full_body;
 mod import;
+#[cfg(test)]
+mod lineage_tests;
 mod master;
 mod package;
 mod parts;
@@ -41,6 +43,22 @@ mod upright;
 
 pub(crate) use package::{cleanup_verified_packages, wardrobe_outfit_face};
 pub(crate) use staged_parts::sweep as cleanup_staged_parts;
+
+/// Tests that change the process-wide `GLOBAL_DYNAMIC_CONFIG` take turns
+/// here, so one never reads a switch another set for itself.
+#[cfg(test)]
+pub(crate) static DYNAMIC_CONFIG_TURN: tokio::sync::Mutex<()> =
+    tokio::sync::Mutex::const_new(());
+
+/// The generation fingerprint the worn bust's rigs are checked against, as
+/// the rig endpoints read it; for the entry-level tests of what may write
+/// `portrait_generation`.
+#[cfg(test)]
+pub(crate) fn worn_bust_generation_fingerprint(
+    persona: &crate::models::entities::agent_persona::Model,
+) -> Option<String> {
+    master::master_from_persona(persona).and_then(|master| master.generation_fingerprint)
+}
 
 type ApiError = (StatusCode, Json<Value>);
 type ApiResult<T> = Result<T, ApiError>;

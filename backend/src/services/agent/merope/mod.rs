@@ -105,8 +105,9 @@ pub use motion::{
 };
 pub use outfit_overlay::{apply_model_wear_directive, chat_wardrobe_section, overlay_outfit_id};
 pub use store::{
-    AffectChange, JsonDocumentUpdate, PersonaContractUpdate, PortraitUpdate, acquire_avatar_generation,
-    acquire_portrait_generation, avatar_generation_is_pending, clear_persona_on, clear_sealed_on,
+    AffectChange, JsonDocumentUpdate, PersonaContractUpdate, PortraitGenerationUpdate,
+    PortraitUpdate, acquire_avatar_generation, acquire_portrait_generation,
+    avatar_generation_is_pending, clear_persona_on, clear_sealed_on,
     complete_avatar_generation, complete_portrait_generation, credit_music_listening,
     get_or_create_state, get_persona, get_persona_on, insert_diary, latest_diary,
     list_diary_from_sources, portrait_generation_is_pending, promote_activity,

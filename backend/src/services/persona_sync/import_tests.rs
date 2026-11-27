@@ -566,3 +566,104 @@ async fn what_the_site_forgot_does_not_come_back_with_a_merge() {
     let _ = std::fs::remove_file(&sealed);
     target.close().await;
 }
+
+/// A bundle carrying a generation contract of its own (a self-consistent
+/// one naming a recipe, under every name a persona bundle has room for: a
+/// persona field `portraitGeneration` or `portrait_generation`, and a visual
+/// field) is brought into an empty site: the import writes
+/// `portrait_generation` empty whatever the bundle says, so the worn bust
+/// has no fallback lineage there. A wardrobe set's `generationFingerprint`
+/// is imported as the bundle says; that preferred path is not what this
+/// checks.
+#[tokio::test]
+async fn an_import_never_brings_a_generation_contract() {
+    let Some(source) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+        return;
+    };
+    seed(&source.db).await;
+    let rendering: myriad_merope::RenderingProvenance = serde_json::from_value(json!({
+        "recipe": "merope-persona",
+        "visualSchoolVersion": "house-v6",
+        "styleReferenceSha256": "b".repeat(64),
+        "fullBodyInstructionVersion": "full-body-standing-v1",
+    }))
+    .unwrap();
+    let profile: Value = one(
+        &source.db,
+        "SELECT visual_profile FROM agent_persona",
+        "visual_profile",
+    )
+    .await;
+    let contract =
+        myriad_merope::build_character_asset_contract_with("Merope", &profile, None, &rendering);
+    let document = json!({
+        "fingerprint": myriad_merope::character_asset_contract_fingerprint(&contract),
+        "contract": contract,
+    });
+    // The source holds one in its own column too.
+    source
+        .db
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE agent_persona SET portrait_generation = $1",
+            [document.clone().into()],
+        ))
+        .await
+        .unwrap();
+    let mut her = super::super::export::read(&source.db, 41).await.unwrap();
+    source.close().await;
+    assert!(her.logs.is_empty());
+    let mut carried = 0;
+    for page in &mut her.pages {
+        for entity in page
+            .entities
+            .iter_mut()
+            .filter(|entity| entity.kind == Kind::Persona)
+        {
+            let fields = entity.body["fields"].as_object_mut().unwrap();
+            let like = fields.get("name").cloned().expect("her name is a field");
+            for name in [
+                "portraitGeneration",
+                "portrait_generation",
+                "visual.portraitGeneration",
+            ] {
+                let mut field = like.clone();
+                field["value"] = document.clone();
+                fields.insert(name.into(), field);
+            }
+            entity.digest.clear();
+            carried += 1;
+        }
+    }
+    assert_eq!(carried, 1);
+    her.pages = std::mem::take(&mut her.pages)
+        .into_iter()
+        .map(|page| myriad_persona_sync::canonicalize_envelope(page).unwrap())
+        .collect();
+    her.manifest = Manifest::of_envelopes(&her.pages).unwrap();
+    let bytes = super::super::export::seal(&her, "雨天的伞".into())
+        .await
+        .unwrap();
+
+    let Some(target) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+        return;
+    };
+    let db = &target.db;
+    owner_only(db).await;
+    let session = begin_file(db, 41, bytes.len() as u64).await.unwrap();
+    take_piece(db, &session.id, 0, bytes.clone()).await.unwrap();
+    open_file(db, 41, &session.id, "雨天的伞".into(), false)
+        .await
+        .unwrap();
+    let persona = crate::services::agent::merope::get_persona(db)
+        .await
+        .unwrap()
+        .expect("her persona came");
+    assert_eq!(persona.name, "Merope");
+    assert_eq!(persona.portrait_generation, None);
+    assert_eq!(
+        crate::api::merope_rig::worn_bust_generation_fingerprint(&persona),
+        None
+    );
+    target.close().await;
+}

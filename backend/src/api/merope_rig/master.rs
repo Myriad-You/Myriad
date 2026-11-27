@@ -3,7 +3,7 @@
 use axum::{Json, http::StatusCode};
 use myriad_merope::{
     CharacterAssetProfile, RigManifest, build_character_asset_contract,
-    character_asset_contract_fingerprint, is_recognised_portrait_rendering,
+    character_asset_contract_fingerprint, portrait_rendering_keeps_lineage,
 };
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
@@ -62,11 +62,26 @@ pub(super) fn portrait_generation_fingerprint(
     let mut expected =
         build_character_asset_contract(name, visual_profile, additional_requirements);
     // A portrait drawn under a rendering core still recognises (the current
-    // one, or one it replaced without changing how identity is written)
-    // depicts the same identity; any other rendering is compared as is.
+    // one, or one it replaced without changing how identity is written), or
+    // under a recipe service's well-formed rendering of any version, depicts
+    // the same identity; any other rendering is compared as is. Decision:
+    // a recipe service's portraits keep their lineage across that service's
+    // versions, so a version bump on the service does not drop every rig;
+    // only the identity is compared.
+    //
+    // What this trusts, and what it does not: this is the fallback, read
+    // only when the worn outfit stores no `generationFingerprint`. That
+    // stored fingerprint is preferred (`master_from_persona`) and is not
+    // checked here at all: the generation path writes it, and persona-sync
+    // import writes it from the bundle as the bundle says. Only for this
+    // fallback is the stored `rendering` block taken as written, because
+    // `portrait_generation` is written by the generation path alone, from
+    // the recipe it drew with: a persona edit can only keep or clear it
+    // (`PortraitGenerationUpdate`), persona-sync import writes it empty, and
+    // an upload clears it.
     if let Some(stored) = contract
         .get("rendering")
-        .filter(|rendering| is_recognised_portrait_rendering(rendering))
+        .filter(|rendering| portrait_rendering_keeps_lineage(rendering))
     {
         expected["rendering"] = stored.clone();
     }
@@ -496,6 +511,78 @@ mod tests {
 
     fn rig_imported_against(fingerprint: Option<String>) -> RigManifest {
         layered_stub_manifest("/master.png", fingerprint)
+    }
+
+    fn rendering_from_recipe(version: &str) -> Value {
+        json!({
+            "recipe": "merope-persona",
+            "visualSchoolVersion": version,
+            "styleReferenceSha256": "b".repeat(64),
+            "styleReferenceRole": "rendering-technique-only",
+        })
+    }
+
+    /// A portrait a recipe service drew keeps its lineage whatever version
+    /// the service is on now: the site never compares the service's current
+    /// version with the stored one, so a version bump cannot drop every
+    /// rig at once.
+    #[test]
+    fn a_portrait_drawn_by_a_recipe_service_keeps_its_fingerprint_and_rig() {
+        for version in ["house-v6", "house-v7", "anime-cel-gradient-reference-v5"] {
+            let (persona, stored) =
+                persona_with_portrait_drawn_under(Some(rendering_from_recipe(version)));
+            let master = master_from_persona(&persona).unwrap();
+            assert_eq!(master.generation_fingerprint, stored, "{version}");
+            assert!(manifest_matches_master(
+                &rig_imported_against(stored),
+                &master
+            ));
+        }
+    }
+
+    #[test]
+    fn a_malformed_recipe_rendering_has_no_fingerprint() {
+        let mut extra = rendering_from_recipe("house-v6");
+        extra["note"] = json!("x");
+        let mut bad_hash = rendering_from_recipe("house-v6");
+        bad_hash["styleReferenceSha256"] = json!("B".repeat(64));
+        let mut bad_recipe = rendering_from_recipe("house-v6");
+        bad_recipe["recipe"] = json!("Not A Recipe");
+        for rendering in [extra, bad_hash, bad_recipe] {
+            let (persona, _) = persona_with_portrait_drawn_under(Some(rendering.clone()));
+            let master = master_from_persona(&persona).unwrap();
+            assert_eq!(master.generation_fingerprint, None, "{rendering}");
+        }
+    }
+
+    /// The identity is still compared: a recipe portrait whose identity has
+    /// changed since it was drawn loses its fingerprint like any other.
+    #[test]
+    fn a_recipe_portrait_of_another_identity_has_no_fingerprint() {
+        let profile = json!({ "gender": "female" });
+        let rendering: myriad_merope::RenderingProvenance = serde_json::from_value(json!({
+            "recipe": "merope-persona",
+            "visualSchoolVersion": "house-v6",
+            "styleReferenceSha256": "b".repeat(64),
+            "fullBodyInstructionVersion": "full-body-standing-v1",
+        }))
+        .unwrap();
+        let contract =
+            myriad_merope::build_character_asset_contract_with("Nova", &profile, None, &rendering);
+        let document = json!({
+            "fingerprint": character_asset_contract_fingerprint(&contract),
+            "contract": contract,
+        });
+        assert!(
+            portrait_generation_fingerprint("Nova", &profile, Some(&document))
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            portrait_generation_fingerprint("Nova", &json!({ "gender": "male" }), Some(&document))
+                .unwrap(),
+            None
+        );
     }
 
     #[test]
