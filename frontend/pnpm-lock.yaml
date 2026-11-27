@@ -156,8 +156,8 @@ importers:
   ../figure:
     dependencies:
       '@myriad-you/figure-player':
-        specifier: github:Myriad-You/myriad-figure-player#dcb6183fbdbb3bbdbe4c779c7dc9589f9868041c
-        version: https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/dcb6183fbdbb3bbdbe4c779c7dc9589f9868041c
+        specifier: github:Myriad-You/myriad-figure-player#ad860ca397ad29b22730eaa82fb9824f670558a9
+        version: https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/ad860ca397ad29b22730eaa82fb9824f670558a9
       ag-psd:
         specifier: ^31.0.3
         version: 31.0.3
@@ -969,9 +969,9 @@ packages:
   '@keyv/serialize@1.1.1':
     resolution: {integrity: sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA==}
 
-  '@myriad-you/figure-player@https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/dcb6183fbdbb3bbdbe4c779c7dc9589f9868041c':
-    resolution: {gitHosted: true, integrity: sha512-7+iajipt6DqR42wF5NFoyTXvWCNcWxzDm3Fr+tKRSAbajuVTDDgT08BH1BvCsVFzM+31abeSK6xuOu67Jv0ijA==, tarball: https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/dcb6183fbdbb3bbdbe4c779c7dc9589f9868041c}
-    version: 0.0.0
+  '@myriad-you/figure-player@https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/ad860ca397ad29b22730eaa82fb9824f670558a9':
+    resolution: {gitHosted: true, integrity: sha512-lWcOHAs4Cez3LDXWMlAf4gXyONukBaZC/xoMBeXcT+3LLOrD6g2mEQNVnKJWgjpaIeW7f0ZpTkUkGEd7TZK0WA==, tarball: https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/ad860ca397ad29b22730eaa82fb9824f670558a9}
+    version: 0.1.0
 
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
@@ -4392,7 +4392,7 @@ snapshots:
 
   '@keyv/serialize@1.1.1': {}
 
-  '@myriad-you/figure-player@https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/dcb6183fbdbb3bbdbe4c779c7dc9589f9868041c': {}
+  '@myriad-you/figure-player@https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/ad860ca397ad29b22730eaa82fb9824f670558a9': {}
 
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
