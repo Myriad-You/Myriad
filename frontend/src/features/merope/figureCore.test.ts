@@ -76,7 +76,7 @@ test('the renderer\'s rig-state words and phases are the director\'s', () => {
   const motion = core('crates/myriad-merope/src/motion.rs')
   const types = figure('node_modules/@myriad-you/figure-player/src/performance/types.ts')
   const union = (name: string): string[] => {
-    const body = new RegExp(`export type ${RegExp.escape(name)} =([\\s\\S]*?)\\n\\n`).exec(types)?.[1]
+    const body = new RegExp(`export type ${RegExp.escape(name)} =([^\\n]*(?:\\n[ \\t]+[^\\n]*)*)`).exec(types)?.[1]
     assert.ok(body, `${name} missing from the renderer's performance types`)
     return Iterator.from(body.matchAll(/'([a-zA-Z-]+)'/g)).map(match => match[1]!).toArray()
   }

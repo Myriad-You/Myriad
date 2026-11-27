@@ -156,8 +156,8 @@ importers:
   ../figure:
     dependencies:
       '@myriad-you/figure-player':
-        specifier: github:Myriad-You/myriad-figure-player#7e32d97823df953eda887a02715da158fd819c0e
-        version: https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/7e32d97823df953eda887a02715da158fd819c0e
+        specifier: github:Myriad-You/myriad-figure-player#ad860ca397ad29b22730eaa82fb9824f670558a9
+        version: https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/ad860ca397ad29b22730eaa82fb9824f670558a9
       ag-psd:
         specifier: ^31.0.3
         version: 31.0.3
@@ -969,8 +969,8 @@ packages:
   '@keyv/serialize@1.1.1':
     resolution: {integrity: sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA==}
 
-  '@myriad-you/figure-player@https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/7e32d97823df953eda887a02715da158fd819c0e':
-    resolution: {gitHosted: true, integrity: sha512-IA2lkMmXH0eSS5anBKSnTp2eGp4A/kHCCMhXOGl4QAJ7pzDBL0dfC3PcRT8E8qwLoEKdaKE4yb746cQ8hmDbPw==, tarball: https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/7e32d97823df953eda887a02715da158fd819c0e}
+  '@myriad-you/figure-player@https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/ad860ca397ad29b22730eaa82fb9824f670558a9':
+    resolution: {gitHosted: true, integrity: sha512-lWcOHAs4Cez3LDXWMlAf4gXyONukBaZC/xoMBeXcT+3LLOrD6g2mEQNVnKJWgjpaIeW7f0ZpTkUkGEd7TZK0WA==, tarball: https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/ad860ca397ad29b22730eaa82fb9824f670558a9}
     version: 0.1.0
 
   '@nodelib/fs.scandir@2.1.5':
@@ -4392,7 +4392,7 @@ snapshots:
 
   '@keyv/serialize@1.1.1': {}
 
-  '@myriad-you/figure-player@https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/7e32d97823df953eda887a02715da158fd819c0e': {}
+  '@myriad-you/figure-player@https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/ad860ca397ad29b22730eaa82fb9824f670558a9': {}
 
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
