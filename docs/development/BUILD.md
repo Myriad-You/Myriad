@@ -81,14 +81,17 @@ The 2.5D figure (the rig runtime under `anime25drig/`, motion, and the rig
 import tools) is the `figure/` git submodule,
 [myriad-figure](https://github.com/Myriad-You/myriad-figure). The rig runtime's
 rendering layer is not in the submodule: it is the package
-[`@myriad/figure-player`](https://github.com/Myriad-You/myriad-figure-player),
-a pnpm git dependency of figure pinned by commit in figure's `package.json`
+[`@myriad-you/figure-player`](https://github.com/Myriad-You/myriad-figure-player)
+(MIT), a pnpm git dependency of figure pinned by commit in figure's `package.json`
 (TypeScript source, no build step; the site reaches it only through figure).
 figure is a member of `frontend/`'s pnpm workspace, imported only through the
 entries its `package.json` exports, split by use: `@myriad/figure` (the channel,
 errors and trace), the live entries (`@myriad/figure/anime25drig`, `motion`,
 `events` and so on), `@myriad/figure/workbench` for the rig workbench and
-`@myriad/figure/testing` for tests. A name the site needs that no entry lists
+`@myriad/figure/testing` for tests. `@myriad/figure/rig/node` builds a rig
+from a PSD in Node (it imports `node:` modules and decodes pictures with
+`fast-png` and `jpeg-js`); it is for a server, and nothing in `frontend/src`
+imports it, so none of it reaches the browser bundle. A name the site needs that no entry lists
 is added to the right entry in figure first. `pnpm install` in `frontend/`
 installs figure's dependencies, the player among them; it downloads the player
 from GitHub's archive host (`codeload.github.com`), so install needs network

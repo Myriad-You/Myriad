@@ -72,10 +72,11 @@ export function useWorkbenchDriver(
     applyDriver({
       ...WORKBENCH_DRIVER,
       ...partial,
-      idle: false,
-      rand: false,
-      talk: false,
-      mouse: false,
+      torsoBreath: false,
+      hairWind: false,
+      idleSway: false,
+      talking: false,
+      followPointer: false,
     })
   }
 

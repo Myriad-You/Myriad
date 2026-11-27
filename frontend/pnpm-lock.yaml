@@ -155,12 +155,18 @@ importers:
 
   ../figure:
     dependencies:
-      '@myriad/figure-player':
-        specifier: github:Myriad-You/myriad-figure-player#345ec3a7a755603d24f8acdf0ca651f387b9b720
-        version: https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/345ec3a7a755603d24f8acdf0ca651f387b9b720
+      '@myriad-you/figure-player':
+        specifier: github:Myriad-You/myriad-figure-player#dcb6183fbdbb3bbdbe4c779c7dc9589f9868041c
+        version: https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/dcb6183fbdbb3bbdbe4c779c7dc9589f9868041c
       ag-psd:
         specifier: ^31.0.3
         version: 31.0.3
+      fast-png:
+        specifier: 8.0.0
+        version: 8.0.0
+      jpeg-js:
+        specifier: 0.4.4
+        version: 0.4.4
       pinyin-pro:
         specifier: 3.29.5
         version: 3.29.5
@@ -963,8 +969,8 @@ packages:
   '@keyv/serialize@1.1.1':
     resolution: {integrity: sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA==}
 
-  '@myriad/figure-player@https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/345ec3a7a755603d24f8acdf0ca651f387b9b720':
-    resolution: {gitHosted: true, integrity: sha512-rQ6fGpiHSM5Tm/yap3w9mIQm5skRA3+GaEM19cNAAtN409efVC85gqpGQcrX3SB8cMd1LjeOMeJoCr3BTaYZ1A==, tarball: https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/345ec3a7a755603d24f8acdf0ca651f387b9b720}
+  '@myriad-you/figure-player@https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/dcb6183fbdbb3bbdbe4c779c7dc9589f9868041c':
+    resolution: {gitHosted: true, integrity: sha512-7+iajipt6DqR42wF5NFoyTXvWCNcWxzDm3Fr+tKRSAbajuVTDDgT08BH1BvCsVFzM+31abeSK6xuOu67Jv0ijA==, tarball: https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/dcb6183fbdbb3bbdbe4c779c7dc9589f9868041c}
     version: 0.0.0
 
   '@nodelib/fs.scandir@2.1.5':
@@ -2150,6 +2156,9 @@ packages:
   fast-levenshtein@2.0.6:
     resolution: {integrity: sha512-DCXu6Ifhqcks7TZKY3Hxp3y6qphY5SJZmrWMDrKcERSOXWQdMhU9Ig/PYrzyw/ul9jOIyh0N4M0tbC5hodg8dw==}
 
+  fast-png@8.0.0:
+    resolution: {integrity: sha512-gCysNasJ8KEMgfdYIKd/wTDo6ENK1PWT0RJO7O+0pgmuHPw2O6tA1WvdxFRJoLf9V8yFYpG0FA1YgI8X97OhJA==}
+
   fast-string-truncated-width@3.0.3:
     resolution: {integrity: sha512-0jjjIEL6+0jag3l2XWWizO64/aZVtpiGE3t0Zgqxv0DPuxiMjvB3M24fCyhZUO4KomJQPj3LTSUnDP3GpdwC0g==}
 
@@ -2184,6 +2193,9 @@ packages:
   fetch-blob@3.2.0:
     resolution: {integrity: sha512-7yAQpD2UMJzLi1Dqv7qFYnPbaPx7ZfFK6PiIxQ4PfkGPyNyl2Ugx+a/umUonmKqjhM4DnfbMvdX6otXq83soQQ==}
     engines: {node: ^12.20 || >= 14.13}
+
+  fflate@0.8.3:
+    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
 
   file-entry-cache@11.1.5:
     resolution: {integrity: sha512-+PFTHITI08JIGhnNpGNI8T8inUpgZfk3GNEqfT9R2zZV2iFXg3CvqzSl/uEhs7TSGujYRELEANyDvS8Fj7+S7Q==}
@@ -2415,6 +2427,9 @@ packages:
     resolution: {integrity: sha512-IBTdIkzZNOpqm7q3dRqJvMaldXjDHWkEDfrwGEQTs5eaQMWV+djAhR+wahyNNMAa+qpbDUhBMVt4ZKNwpPm7xQ==}
     engines: {node: ^20.17.0 || >=22.9.0}
 
+  iobuffer@6.0.1:
+    resolution: {integrity: sha512-SZWYkWNfjIXIBYSDpXDYIgshqtbOPsi4lviawAEceR1Kqk+sHDlcQjWrzNQsii80AyBY0q5c8HCTNjqo74ul+Q==}
+
   is-arrayish@0.2.1:
     resolution: {integrity: sha512-zz06S8t0ozoDXMG+ube26zeCTNXcKIPJZJi8hBrF4idCLms4CG9QtK7qBl1boi5ODzFpjswb5JPmHCbMpjaYzg==}
 
@@ -2466,6 +2481,9 @@ packages:
   jiti@2.7.0:
     resolution: {integrity: sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ==}
     hasBin: true
+
+  jpeg-js@0.4.4:
+    resolution: {integrity: sha512-WZzeDOEtTOBK4Mdsar0IqEU5sMr3vSV2RqkAIzUEV2BHnUfKGyswWFPFwK5EeDo93K3FohSHbLAjj0s1Wzd+dg==}
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
@@ -4374,7 +4392,7 @@ snapshots:
 
   '@keyv/serialize@1.1.1': {}
 
-  '@myriad/figure-player@https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/345ec3a7a755603d24f8acdf0ca651f387b9b720': {}
+  '@myriad-you/figure-player@https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/dcb6183fbdbb3bbdbe4c779c7dc9589f9868041c': {}
 
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
@@ -5512,6 +5530,11 @@ snapshots:
 
   fast-levenshtein@2.0.6: {}
 
+  fast-png@8.0.0:
+    dependencies:
+      fflate: 0.8.3
+      iobuffer: 6.0.1
+
   fast-string-truncated-width@3.0.3: {}
 
   fast-string-width@3.0.2:
@@ -5542,6 +5565,8 @@ snapshots:
     dependencies:
       node-domexception: 1.0.0
       web-streams-polyfill: 3.3.3
+
+  fflate@0.8.3: {}
 
   file-entry-cache@11.1.5:
     dependencies:
@@ -5760,6 +5785,8 @@ snapshots:
 
   ini@6.0.0: {}
 
+  iobuffer@6.0.1: {}
+
   is-arrayish@0.2.1: {}
 
   is-builtin-module@5.0.0:
@@ -5800,6 +5827,8 @@ snapshots:
       - canvas
 
   jiti@2.7.0: {}
+
+  jpeg-js@0.4.4: {}
 
   js-tokens@4.0.0: {}
 

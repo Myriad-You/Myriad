@@ -18,7 +18,7 @@ describe('GitHubProjectBadge wiring', () => {
     assert.match(workbench, /SEE_THROUGH_PROJECT_NAME/)
     assert.match(
       workbench,
-      /merope-character-home__credit[\s\S]*SEE_THROUGH_PROJECT_URL[\s\S]*ANIME25D_PROJECT_URL[\s\S]*PERSONA_UPSTREAM_THANKS/,
+      /merope-character-home__credit[\s\S]*SEE_THROUGH_PROJECT_URL[\s\S]*ANIME25D_PROJECT_URL[\s\S]*CREDITED_AUTHORS/,
     )
     assert.doesNotMatch(
       workbench,

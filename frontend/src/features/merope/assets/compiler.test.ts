@@ -2,6 +2,7 @@ import type { MeropeRigManifest } from '@myriad/figure/rig'
 import type { RigAssetCompileEvent } from './compiler'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { isAnime25DPlayback, readAnime25DPlayback } from '@myriad/figure/anime25drig'
 import { analyzeAnime25DMouthProfile, buildAnime25DPlayback } from '@myriad/figure/testing'
 import { persistRigAsset, preflightRigAsset, rigPreviewRetryOf } from './compiler'
 
@@ -241,9 +242,10 @@ test('an atlas the server could not store is turned away before the preview is a
   assert.deepEqual([last?.stage, last?.status], ['compile-preview', 'failed'])
 })
 
-test('preflight carries analyzed playback profiles into the persisted source', async () => {
+/** A version 7 package's source, as the import writes it. */
+function bustSource() {
   const mouth = { x0: 40, y0: 48, x1: 60, y1: 60, cx: 50, cy: 54 }
-  const source = {
+  return {
     anime25dPlayback: buildAnime25DPlayback(
       {
         frameWidth: 100,
@@ -276,6 +278,10 @@ test('preflight carries analyzed playback profiles into the persisted source', a
       },
     ),
   }
+}
+
+test('preflight carries analyzed playback profiles into the persisted source', async () => {
+  const source = bustSource()
   const analyzed = structuredClone(manifest)
   analyzed.anime25dPlayback = {
     ...source.anime25dPlayback,
@@ -339,6 +345,46 @@ test('preflight carries analyzed playback profiles into the persisted source', a
       analyzed.anime25dPlayback?.shellProfile.poseCorrections)
     return analyzed
   })
+})
+
+test('a preview package of another version is copied into the source in the source\'s version', async () => {
+  const source = bustSource()
+  const analyzed = structuredClone(manifest)
+  const current = readAnime25DPlayback(structuredClone(source.anime25dPlayback))
+  current.shellProfile.poseCorrections = [{
+    surface: 'head', at: { headYaw: 0.8, lidCloseL: 1 },
+    patches: [{ x: -0.4, y: 0, radiusX: 0.5, radiusY: 0.4, dx: 0.03, dy: -0.02 }],
+  }]
+  analyzed.anime25dPlayback = current
+  const result = await preflightRigAsset(file, 'master-asset', {
+    prepare: async () => ({ atlas: new Blob(), analysisReference: new Blob(), source: source as never, partCount: 1 }),
+    preview: async () => ({ manifest: analyzed, partSearch: null }),
+  })
+  const copied = result.prepared.source.anime25dPlayback
+  assert.equal(copied?.version, 7)
+  assert.deepEqual(copied?.shellProfile.poseCorrections, [{
+    surface: 'head', at: { angleX: 0.8, eyeCloseL: 1 },
+    patches: [{ x: -0.4, y: 0, radiusX: 0.5, radiusY: 0.4, dx: 0.03, dy: -0.02 }],
+  }])
+  assert.ok(isAnime25DPlayback(copied))
+})
+
+test('a preview package that cannot be written in the source\'s version fails the preview with the figure\'s reason', async () => {
+  const source = bustSource()
+  const analyzed = structuredClone(manifest)
+  analyzed.anime25dPlayback = {
+    ...readAnime25DPlayback(structuredClone(source.anime25dPlayback)),
+    credits: [{ name: 'Someone else' }],
+  }
+  const events: RigAssetCompileEvent[] = []
+  await assert.rejects(
+    preflightRigAsset(file, 'master-asset', {
+      prepare: async () => ({ atlas: new Blob(), analysisReference: new Blob(), source: source as never, partCount: 1 }),
+      preview: async () => ({ manifest: analyzed, partSearch: null }),
+    }, event => events.push(event)),
+    (error: Error) => error.message.includes('version 7') && error.message.includes('credits'),
+  )
+  assert.deepEqual([events.at(-1)?.stage, events.at(-1)?.status], ['compile-preview', 'failed'])
 })
 
 test('failed preview never produces anything to persist', async () => {

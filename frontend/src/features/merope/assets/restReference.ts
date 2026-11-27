@@ -1,4 +1,4 @@
-import type { Anime25DPlayback } from '@myriad/figure/anime25drig'
+import type { Anime25DPlaybackDocument } from '@myriad/figure/anime25drig'
 
 /** Layers the import leaves out of its analysis reference: expression effects. */
 const EFFECT_ROLES = new Set([
@@ -12,7 +12,7 @@ const EFFECT_ROLES = new Set([
  * the vision model (anime25dAtlasCompiler): each layer's drawing where it
  * sits, in draw order; faded variants and expression effects left out.
  */
-export async function composeRestReference(playback: Readonly<Anime25DPlayback>, atlasUrl: string): Promise<Blob> {
+export async function composeRestReference(playback: Readonly<Anime25DPlaybackDocument>, atlasUrl: string): Promise<Blob> {
   // Loaded, not decode()d: a page in the background is never granted the decode.
   const atlas = new Image()
   atlas.crossOrigin = 'anonymous'

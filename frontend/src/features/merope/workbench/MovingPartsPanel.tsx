@@ -1,4 +1,4 @@
-import type { Anime25DPlayback } from '@myriad/figure/anime25drig'
+import type { Anime25DPlaybackDocument } from '@myriad/figure/anime25drig'
 import { useEffect, useState } from 'react'
 import { SettingGroup, SettingsButton } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'
@@ -29,7 +29,7 @@ export function MovingPartsPanel({
   target,
   search,
 }: {
-  playback: Readonly<Anime25DPlayback>
+  playback: Readonly<Anime25DPlaybackDocument>
   target?: string
   search: MovingPartsSearch
 }) {

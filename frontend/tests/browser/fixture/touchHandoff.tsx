@@ -116,7 +116,7 @@ export async function replayCharacterScene(manifest: MeropeRigManifest, scene: '
       maxEyeStep, liftedMaxEye, mouthDuringTouch: withSpeech ? mouthDuringTouch : null, acceptedFrames,
       speechMouthOwned: withSpeech ? speechMouthOwned : null,
       finalTouch: player.getPresentedTouch(), finalOwners: player.getMotionPolicy(),
-      finalThinking: player.getTarget().thinking, finalTalk: player.getTarget().talk,
+      finalThinking: player.getTarget().thinking, finalTalk: player.getTarget().talking,
       finalEyeOpen: player.getCurrent().lidL,
       error: gl.getError(), screenshots }
   } finally {
@@ -221,7 +221,7 @@ function replayDefaultPerformance(
       if (phase === 'music' && motion.snapshot.owners.headBody === 'music' && motion.behaviors.some(b => b.source === 'music') && current.singing) musicFrames++
       if (seconds >= 9 && current.singing) lateMusicFrames++
       if (phase === 'thinking' && player.getTarget().thinking) thinkingFrames++
-      if (phase === 'speechTouch' && motion.snapshot.owners.mouth === 'speech' && current.talk) speechFrames++
+      if (phase === 'speechTouch' && motion.snapshot.owners.mouth === 'speech' && current.talking) speechFrames++
       if (player.getPresentedTouch()?.reaction === 'accept') touchFrames++
       runtime.touch.notePresented('panel', player.getPresentedTouch(), now)
       if ([75, 195, 315, 405, 495, 615, 765].includes(frame)) {
@@ -230,7 +230,7 @@ function replayDefaultPerformance(
       previous = current
     }
     return { phases, maxStep, resets, musicFrames, lateMusicFrames, thinkingFrames, speechFrames, touchFrames, naturalSpeechEnd,
-      finalThinking: player.getTarget().thinking, finalTalk: player.getTarget().talk,
+      finalThinking: player.getTarget().thinking, finalTalk: player.getTarget().talking,
       finalTouch: player.getPresentedTouch(), finalOwners: player.getMotionPolicy(),
       error: canvas.getContext('webgl2')!.getError(), screenshots }
   } finally {

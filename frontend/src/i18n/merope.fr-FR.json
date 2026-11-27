@@ -65,9 +65,9 @@
     "turnRight": "Tourné à droite {n} %",
     "lookUp": "Vers le haut {n} %",
     "lookDown": "Vers le bas {n} %",
-    "eyeCloseL": "Œil gauche fermé {n} %",
-    "eyeCloseR": "Œil droit fermé {n} %",
-    "mouthOpen": "Bouche ouverte {n} %"
+    "lidCloseL": "Œil gauche fermé {n} %",
+    "lidCloseR": "Œil droit fermé {n} %",
+    "jaw": "Bouche ouverte {n} %"
   },
   "title": "Visage",
   "memories": "Souvenirs",
@@ -98,6 +98,10 @@
   "seeThroughStatusFailed": "Impossible de charger l’état See-through.",
   "anime25dWebglFailed": "Ce navigateur ne prend pas en charge WebGL2 : le mouvement 2.5D ne peut pas être lu.",
   "anime25dPlaybackFailed": "Le mouvement 2.5D n’a pas pu être lu.",
+  "anime25dPlaybackVersion": "Ce paquet de figure est en version {version} ; ce lecteur lit les versions {read}.",
+  "anime25dPlaybackInvalid": "Ce paquet de figure est mal formé à {field}.",
+  "anime25dPlaybackUnconvertible": "Ce paquet de figure ne peut pas être écrit en version {version} sans perdre {field}.",
+  "anime25dPoseVersion": "Cette pose est en version {version} ; ce lecteur lit les versions {read}.",
   "visualTitle": "Portrait principal",
   "visualRequirements": "Lumière et cadrage",
   "visualRequirementsPlaceholder": "Par exemple : lumière frontale douce, visage plus grand dans le cadre, moins d’espace au-dessus de la tête",
