@@ -13,6 +13,7 @@ These components are licensed under the Apache License, Version 2.0
   - tapp/shared/tapp_sandbox_contract.json
   - tapp/tools/tapp-cli
   - tapp/tools/tapp-contract-export
+  - frontend/packages/figure-interface
 
 proxy/ and updater/ are separate programs, also under GNU AGPL version 3 only.
 
