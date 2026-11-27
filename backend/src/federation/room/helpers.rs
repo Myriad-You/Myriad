@@ -432,8 +432,10 @@ pub(crate) fn is_admin_role(role: &str) -> bool {
 
 /// Synthetic fallback used when a real room name is unavailable.
 /// Matches the invite-receive and notify paths (`Room {first 8 of room_id}`).
+/// Characters, not bytes: a peer's room id need not be ASCII, and the
+/// invite-receive SQL's `left($1, 8)` counts characters too.
 pub(crate) fn fallback_room_name(room_id: &str) -> String {
-    format!("Room {}", &room_id[..8.min(room_id.len())])
+    format!("Room {}", room_id.chars().take(8).collect::<String>())
 }
 
 /// Public rooms are one-way: once public, they cannot become private again.
