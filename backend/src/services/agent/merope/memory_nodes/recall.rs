@@ -854,4 +854,155 @@ mod more_tests {
         assert!(section.contains("friend: you keep 5 facts under it; 3 of them are above."));
         assert_eq!(rec.resident.len(), 1);
     }
+
+    /// Deterministic in-memory `recollect` coverage: verifies `gone` and `taken_back`
+    /// suppression, no internal node/memory ID leaks across prompt-facing
+    /// `named`/`resident`/`heard`/`listed` outputs or formatted prompt blocks (while
+    /// `picked` retains internal recalled node IDs), and empty private `resident` on
+    /// group (`Here`) turns. DB-level audience isolation during `shown::load` and full
+    /// cascade tests live separately in DB test suites.
+    #[test]
+    fn recollect_hides_gone_and_taken_back_omits_ids_and_skips_group_resident() {
+        use std::collections::{HashMap, HashSet};
+
+        use chrono::{TimeZone, Utc};
+        use serde_json::json;
+
+        use super::super::shown::{Entry, Node, Shown};
+        use super::{Here, Own, recollect, recollect_here};
+        use crate::services::agent::merope::store::Recalled;
+
+        let now = Utc.with_ymd_and_hms(2026, 11, 26, 12, 0, 0).unwrap();
+        let at_us = now.timestamp_micros();
+        let item_live = myriad_nodes::stands::item_id("them", "n-live-uuid-123", "memory:m-live", 0);
+        let item_gone = myriad_nodes::stands::item_id("them", "n-gone-uuid-999", "memory:m-gone", 0);
+        let item_tb = myriad_nodes::stands::item_id("them", "n-live-uuid-123", "memory:m-tb", 0);
+        let shown = Shown {
+            nodes: vec![
+                Node {
+                    id: "n-live-uuid-123".into(),
+                    kind: Some("topic".into()),
+                    name: Some("coffee".into()),
+                    status: None,
+                    gone: false,
+                    head: json!({
+                        "standing": {
+                            item_live: {
+                                "at": at_us,
+                                "author": "them",
+                                "value": { "text": "drinks pour-over daily", "because": ["m-live"], "ended": false }
+                            },
+                            item_tb: {
+                                "at": at_us,
+                                "author": "them",
+                                "value": { "text": "HIDDEN_TB_TEXT", "because": ["memory:m-tb"], "ended": false }
+                            }
+                        }
+                    }),
+                    facts: vec![
+                        Entry {
+                            id: "m-live".into(),
+                            row: "r-live".into(),
+                            memory: Some("m-live".into()),
+                            text: "prefers washed ethiopia beans".into(),
+                            said_by: Vec::new(),
+                            at: at_us,
+                            happened: None,
+                            state: None,
+                            open: None,
+                        },
+                    ],
+                    heard: Vec::new(),
+                    latest: at_us,
+                },
+                Node {
+                    id: "n-gone-uuid-999".into(),
+                    kind: Some("topic".into()),
+                    name: Some("deleted-topic".into()),
+                    status: None,
+                    gone: true,
+                    head: json!({
+                        "standing": {
+                            item_gone: {
+                                "at": at_us,
+                                "author": "them",
+                                "value": { "text": "HIDDEN_GONE_TEXT", "because": ["m-gone"], "ended": false }
+                            }
+                        }
+                    }),
+                    facts: vec![Entry {
+                        id: "m-gone".into(),
+                        row: "r-gone".into(),
+                        memory: Some("m-gone".into()),
+                        text: "HIDDEN_GONE_FACT".into(),
+                        said_by: Vec::new(),
+                        at: at_us,
+                        happened: None,
+                        state: None,
+                        open: None,
+                    }],
+                    heard: Vec::new(),
+                    latest: at_us,
+                },
+            ],
+            learned: HashMap::from([
+                ("m-live".into(), at_us),
+                ("m-gone".into(), at_us),
+                ("m-tb".into(), at_us),
+            ]),
+            taken_back: HashSet::from(["m-tb".into()]),
+            ..Default::default()
+        };
+        let recalled = Recalled {
+            named: vec!["prefers washed ethiopia beans".into()],
+            brought_to_mind: Vec::new(),
+            recent: Vec::new(),
+            ids: vec![("prefers washed ethiopia beans".into(), "m-live".into())],
+            said: HashMap::new(),
+        };
+        let cues = myriad_merope::remembering::Cues {
+            cues: vec!["coffee".into()],
+            thorough: true,
+            look_back: false,
+            about_you: false,
+            range: None,
+            open: None,
+        };
+        // Private recall surfaces live facts/standing, hides taken-back & gone,
+        // and never exposes internal DB/node IDs across prompt-facing fields or blocks.
+        let priv_rec = recollect(&shown, &Own::default(), &recalled, Some(&cues), now);
+        assert_eq!(priv_rec.picked, vec!["n-live-uuid-123".to_string()]);
+        let remembered_sec = myriad_merope::speaking::format_remembered_section(&priv_rec.named)
+            .unwrap_or_default();
+        let resident_sec = super::super::context::resident_section(&priv_rec.resident)
+            .unwrap_or_default();
+        let all_priv = format!(
+            "{:?} {:?} {:?} {:?} {remembered_sec} {resident_sec}",
+            priv_rec.named, priv_rec.resident, priv_rec.heard, priv_rec.listed
+        );
+        assert!(all_priv.contains("prefers washed ethiopia beans"));
+        assert!(all_priv.contains("drinks pour-over daily"));
+        for forbidden in [
+            "HIDDEN_TB_TEXT",
+            "HIDDEN_GONE_TEXT",
+            "HIDDEN_GONE_FACT",
+            "n-live-uuid-123",
+            "n-gone-uuid-999",
+            "m-live",
+            "m-gone",
+            "m-tb",
+        ] {
+            assert!(
+                !all_priv.contains(forbidden),
+                "unexpected forbidden marker in prompt output"
+            );
+        }
+        // Group turn (`Here`) never emits private resident standing.
+        let here = Here {
+            speaker: 7,
+            names: HashMap::new(),
+        };
+        let grp_rec = recollect_here(&shown, &Own::default(), Some(&here), &recalled, None, now);
+        assert!(grp_rec.resident.is_empty());
+    }
 }
