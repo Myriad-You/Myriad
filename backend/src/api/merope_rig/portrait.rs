@@ -20,7 +20,7 @@ use crate::{
         agent::merope,
         image_generation::{self, ImageReference},
         merope_rig,
-        persona_style::{self, RecipeRequest, SourceKind, StyleSource},
+        persona_style::{self, Drawing, SourceKind, StyleSource},
     },
 };
 
@@ -56,32 +56,34 @@ pub(super) async fn portrait_plan(
     notes: Option<&str>,
     edit_anchor: Option<ImageReference>,
 ) -> ApiResult<DrawingPlan> {
-    let request = if edit_anchor.is_some() {
-        RecipeRequest::BustEdit {
+    let recipe = persona_style::recipe(source)
+        .await
+        .map_err(persona_style_error)?;
+    let drawing = if edit_anchor.is_some() {
+        Drawing::BustEdit {
             notes: notes.unwrap_or(""),
         }
     } else {
-        RecipeRequest::Bust {
+        Drawing::Bust {
             name,
             visual_profile,
             notes,
         }
     };
-    let recipe = persona_style::recipe(source, request)
-        .await
-        .map_err(persona_style_error)?;
+    let prompt = recipe.prompt(drawing);
     let (references, reference_role) = match edit_anchor {
         Some(anchor) => (vec![anchor], "existing-portrait-identity-anchor"),
         None => {
-            let role = style_reference_role(&recipe.references);
-            (recipe.references, role)
+            let references = recipe.style_references(drawing);
+            let role = style_reference_role(&references);
+            (references, role)
         }
     };
     let contract =
         build_character_asset_contract_with(name, visual_profile, notes, &recipe.rendering);
     let fingerprint = character_asset_contract_fingerprint(&contract);
     Ok(DrawingPlan {
-        prompt: recipe.prompt,
+        prompt,
         references,
         contract,
         fingerprint,

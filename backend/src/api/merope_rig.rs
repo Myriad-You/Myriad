@@ -38,6 +38,8 @@ mod pose;
 mod skeleton;
 mod staged_parts;
 mod style_source;
+#[cfg(test)]
+mod style_source_tests;
 mod turn_keyforms;
 mod turns;
 mod upright;
@@ -125,6 +127,10 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         .route(
             "/persona-style",
             get(style_source::get_persona_style).patch(style_source::update_persona_style),
+        )
+        .route(
+            "/persona-style/probe",
+            post(style_source::probe_persona_style),
         )
         .route(
             "/see-through/status",
@@ -282,9 +288,10 @@ fn portrait_generation_provider_error(error: image_generation::ImageGenerationEr
 fn persona_style_error(error: crate::services::persona_style::PersonaStyleError) -> ApiError {
     use crate::services::persona_style::PersonaStyleError;
     let status = match error {
-        PersonaStyleError::NotConfigured => StatusCode::PRECONDITION_REQUIRED,
+        PersonaStyleError::NotConfigured | PersonaStyleError::InvalidUrl => {
+            StatusCode::PRECONDITION_REQUIRED
+        }
         PersonaStyleError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
-        PersonaStyleError::Rejected => StatusCode::BAD_REQUEST,
         PersonaStyleError::Unauthorized | PersonaStyleError::InvalidResponse(_) => {
             StatusCode::BAD_GATEWAY
         }

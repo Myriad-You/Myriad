@@ -1811,7 +1811,6 @@
     "tapp_contract_too_new",
     "persona_style_invalid_response",
     "persona_style_not_configured",
-    "persona_style_rejected",
     "persona_style_token_invalid",
     "persona_style_unauthorized",
     "persona_style_unavailable",

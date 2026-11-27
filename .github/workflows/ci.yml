@@ -451,7 +451,7 @@ jobs:
         env:
           MYRIAD_TEST_DB: required
           MYRIAD_MEDIA_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_media_test
-        run: cargo test --workspace --locked -- services::rig_jobs api::merope_rig::turn_keyforms api::merope_rig::lineage_tests
+        run: cargo test --workspace --locked -- services::rig_jobs api::merope_rig::turn_keyforms api::merope_rig::lineage_tests api::merope_rig::style_source_tests
       - name: Federation outbox and delivery lease database contracts
         env:
           MYRIAD_SCHEMA_DRIFT_DB: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift

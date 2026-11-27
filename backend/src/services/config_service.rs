@@ -524,13 +524,14 @@ impl ConfigService {
                 .and_then(crate::services::merope_rig::normalize_asset_id);
         }
         if let Some(v) = map.get("merope_persona_url") {
-            // Read back through the same policy it was saved with; a value
-            // that no longer passes is dropped, and a token alone then
-            // configures nothing.
+            // Kept as stored, even when it no longer passes the URL policy:
+            // `persona_style::configured` then reports a configuration error
+            // instead of drawing in this build's own style.
             config.merope_persona_url = v
                 .as_str()
-                .and_then(crate::services::persona_style::sanitize_service_url)
-                .filter(|url| !url.is_empty());
+                .map(str::trim)
+                .filter(|url| !url.is_empty())
+                .map(str::to_string);
         }
 
         // Tripo 3D 独立配置
@@ -1633,7 +1634,7 @@ mod tests {
         let configured = ConfigService::parse_config(HashMap::from([
             (
                 "merope_persona_url".into(),
-                json!("http://merope-persona:8080/"),
+                json!(" http://merope-persona:8080 "),
             ),
             ("merope_persona_token".into(), json!("persona-test-token")),
         ]));
@@ -1645,18 +1646,26 @@ mod tests {
             configured.merope_persona_token.as_deref(),
             Some("persona-test-token")
         );
-        for unusable in [
-            json!(""),
-            json!("http://persona.example.com"),
-            json!("ftp://merope-persona"),
-            json!("https://user:pass@persona.example.com"),
-            json!(42),
-        ] {
+        // A stored URL the policy refuses is read back as it is, so the
+        // style source reports it instead of falling back to builtin.
+        let refused = ConfigService::parse_config(HashMap::from([
+            ("merope_persona_url".into(), json!("http://169.254.169.254")),
+            ("merope_persona_token".into(), json!("persona-test-token")),
+        ]));
+        assert_eq!(
+            refused.merope_persona_url.as_deref(),
+            Some("http://169.254.169.254")
+        );
+        assert_eq!(
+            crate::services::persona_style::configured(&refused).unwrap_err(),
+            crate::services::persona_style::PersonaStyleError::InvalidUrl
+        );
+        for empty in [json!(""), json!("  "), json!(42)] {
             let parsed = ConfigService::parse_config(HashMap::from([(
                 "merope_persona_url".into(),
-                unusable.clone(),
+                empty.clone(),
             )]));
-            assert_eq!(parsed.merope_persona_url, None, "{unusable}");
+            assert_eq!(parsed.merope_persona_url, None, "{empty}");
         }
         let empty = ConfigService::parse_config(HashMap::from([(
             "merope_persona_token".into(),

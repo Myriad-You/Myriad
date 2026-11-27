@@ -1,7 +1,8 @@
 //! Where her portrait style comes from (`services::persona_style`): the
-//! owner reads which source is in use, whether it can answer and what it
-//! draws with, and points the site at a recipe service or back to this
-//! build's own. The token is write-only: no answer carries it.
+//! owner reads which source is in use and the last probe of it, asks for a
+//! probe, and points the site at a recipe service or back to this build's
+//! own. The token is write-only, bound to the service's origin, and no
+//! answer carries it. Reading the status makes no outbound call.
 
 use axum::{Extension, Json, extract::State, http::StatusCode};
 use sea_orm::DatabaseConnection;
@@ -49,7 +50,19 @@ pub async fn get_persona_style(
     require_merope_enabled().await?;
     require_owner(&claims, &db).await?;
     let dynamic = crate::GLOBAL_DYNAMIC_CONFIG.read().await.clone();
-    Ok(Json(persona_style::status(&dynamic).await))
+    Ok(Json(persona_style::status(&dynamic)))
+}
+
+/// Asks the configured service what it draws with now; the answer is shown
+/// by the status for five minutes.
+pub async fn probe_persona_style(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+) -> ApiResult<Json<Value>> {
+    require_merope_enabled().await?;
+    require_owner(&claims, &db).await?;
+    let dynamic = crate::GLOBAL_DYNAMIC_CONFIG.read().await.clone();
+    Ok(Json(persona_style::probe(&dynamic).await))
 }
 
 pub async fn update_persona_style(
@@ -62,13 +75,14 @@ pub async fn update_persona_style(
     let url = match payload.url {
         None => None,
         Some(raw) => Some(
-            persona_style::sanitize_service_url(raw.as_deref().unwrap_or(""))
-                .ok_or_else(|| {
+            persona_style::sanitize_service_url(raw.as_deref().unwrap_or("")).ok_or_else(
+                || {
                     invalid(
                         "persona_style_url_invalid",
-                        "Use an https URL, or http only to a private or local host, with no credentials, query or fragment",
+                        "Use an https URL, or http only to a private or loopback host; no link-local address, credentials, query or fragment",
                     )
-                })?,
+                },
+            )?,
         ),
     };
     let token = match payload.token {
@@ -86,6 +100,13 @@ pub async fn update_persona_style(
             Some(token)
         }
     };
+    let current = crate::GLOBAL_DYNAMIC_CONFIG
+        .read()
+        .await
+        .merope_persona_url
+        .clone();
+    let token =
+        persona_style::token_after_url_change(current.as_deref(), url.as_deref(), token.as_deref());
     let mut updates = HashMap::new();
     if let Some(url) = &url {
         updates.insert("merope_persona_url".to_string(), json!(url));
@@ -107,5 +128,6 @@ pub async fn update_persona_style(
         }
         config.clone()
     };
-    Ok(Json(persona_style::status(&dynamic).await))
+    persona_style::forget_probe();
+    Ok(Json(persona_style::status(&dynamic)))
 }

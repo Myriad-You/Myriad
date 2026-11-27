@@ -37,7 +37,7 @@ use crate::{
     services::{
         agent::merope,
         image_generation::{self, ImageReference},
-        persona_style::{self, RecipeRequest, StyleSource},
+        persona_style::{self, Drawing as Picture, StyleSource},
     },
 };
 
@@ -62,19 +62,20 @@ pub(super) async fn full_body_plan(
     source: &StyleSource,
     from: FullBodyFrom<'_>,
 ) -> ApiResult<DrawingPlan> {
-    let request = match &from {
-        FullBodyFrom::Bust { .. } => RecipeRequest::FullBodyFromBust,
+    let recipe = persona_style::recipe(source)
+        .await
+        .map_err(persona_style_error)?;
+    let drawing = match &from {
+        FullBodyFrom::Bust { .. } => Picture::FullBodyFromBust,
         FullBodyFrom::Design {
             name,
             visual_profile,
-        } => RecipeRequest::FullBodyDesign {
+        } => Picture::FullBodyDesign {
             name,
             visual_profile,
         },
     };
-    let recipe = persona_style::recipe(source, request)
-        .await
-        .map_err(persona_style_error)?;
+    let prompt = recipe.prompt(drawing);
     let (contract, references, reference_role) = match from {
         FullBodyFrom::Bust {
             portrait,
@@ -95,7 +96,8 @@ pub(super) async fn full_body_plan(
             name,
             visual_profile,
         } => {
-            let role = style_reference_role(&recipe.references);
+            let references = recipe.style_references(drawing);
+            let role = style_reference_role(&references);
             (
                 build_full_body_asset_contract_with(
                     FullBodySource::Design {
@@ -104,14 +106,14 @@ pub(super) async fn full_body_plan(
                     },
                     &recipe.rendering,
                 ),
-                recipe.references,
+                references,
                 role,
             )
         }
     };
     let fingerprint = character_asset_contract_fingerprint(&contract);
     Ok(DrawingPlan {
-        prompt: recipe.prompt,
+        prompt,
         references,
         contract,
         fingerprint,

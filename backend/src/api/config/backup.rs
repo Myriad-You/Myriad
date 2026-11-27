@@ -678,6 +678,10 @@ pub(crate) async fn write_restored_configurations(
 ) -> Result<Vec<UnresolvedRestoredMedia>, RestoreWriteError> {
     // Entries come from `build_settings_restore_plan`, which already dropped
     // settings failing their save policy; nothing here publishes those.
+    // A restored portrait style service URL of another origin, without its
+    // token in the same backup, clears the stored token: the token is bound
+    // to the origin it was given for.
+    crate::services::persona_style::bind_restored_token(txn, &mut entries).await?;
     let unresolved = bind_restored_media(txn, &mut entries, origins)
         .await
         .map_err(RestoreWriteError::Media)?;
