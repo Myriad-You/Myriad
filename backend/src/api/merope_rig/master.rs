@@ -592,6 +592,12 @@ mod tests {
                 }
             }
         }
+        // Built here so this file does not match its own needles.
+        let sets_a_value = [
+            ["portrait_generation:", "merope::JsonDocumentUpdate::Set"].concat(),
+            ["portrait_generation:", "JsonDocumentUpdate::Set"].concat(),
+        ];
+        let sql_write = ["SET ", "portrait_generation"].concat();
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut files = Vec::new();
         walk(&root, &mut files);
@@ -601,11 +607,12 @@ mod tests {
             }
             let compact: String = source.split_whitespace().collect();
             assert!(
-                !compact.contains("portrait_generation:merope::JsonDocumentUpdate::Set")
-                    && !compact.contains("portrait_generation:JsonDocumentUpdate::Set"),
+                !sets_a_value
+                    .iter()
+                    .any(|needle| compact.contains(needle.as_str())),
                 "{path} sets portrait_generation from a value"
             );
-            if source.contains("SET portrait_generation") {
+            if source.contains(&sql_write) {
                 assert!(
                     path.ends_with("services/agent/merope/store/generation.rs"),
                     "{path} writes portrait_generation"
