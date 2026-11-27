@@ -684,6 +684,14 @@ pub struct DynamicConfig {
     /// Myriad's own. A Space serving `decompose` fits portraits on a canvas
     /// of their own shape; any other pads them to a square.
     pub see_through_space: Option<String>,
+    /// Where her portrait style recipes come from: None is this build's own;
+    /// a URL is a recipe service (`services::persona_style`), answered with
+    /// `merope_persona_token`. A URL without a token is an error, never a
+    /// quiet return to this build's own style.
+    pub merope_persona_url: Option<String>,
+    /// Bearer token for `merope_persona_url`. A write-only host credential:
+    /// only the backend's request to that service reads it.
+    pub merope_persona_token: Option<String>,
 
     // 3D 模型生成配置（独立于 AI 图片 Provider）
     pub tripo_enabled: bool,
@@ -986,6 +994,8 @@ impl Default for DynamicConfig {
             agent_rig_asset_id: None,
             see_through_hf_token: None,
             see_through_space: None,
+            merope_persona_url: None,
+            merope_persona_token: None,
             // Tripo 3D（低模 Web 角色默认预算）
             tripo_enabled: false,
             tripo_api_key: None,

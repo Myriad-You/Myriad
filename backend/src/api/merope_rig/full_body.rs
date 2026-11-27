@@ -8,8 +8,7 @@ use axum::{
     http::StatusCode,
 };
 use myriad_merope::{
-    CharacterAssetProfile, FullBodySource, build_full_body_asset_contract,
-    build_full_body_design_prompt, build_full_body_portrait_prompt,
+    CharacterAssetProfile, FullBodySource, build_full_body_asset_contract_with,
     character_asset_contract_fingerprint,
 };
 use sea_orm::{
@@ -26,7 +25,8 @@ use super::{
     master::{MasterProvenance, MasterSlot, master_for},
     not_found,
     package::figure_json,
-    portrait::{drawable_visual_profile, merope_style_reference},
+    persona_style_error,
+    portrait::{DrawingPlan, drawable_visual_profile, style_reference_role},
     portrait_generation_config_error, portrait_generation_provider_error,
     portrait_upload::{persist_uploaded_portrait, read_portrait_upload},
     require_merope_enabled, require_owner,
@@ -34,8 +34,92 @@ use super::{
 use crate::{
     middleware::auth::Claims,
     models::entities::agent_persona,
-    services::{agent::merope, image_generation},
+    services::{
+        agent::merope,
+        image_generation::{self, ImageReference},
+        persona_style::{self, RecipeRequest, StyleSource},
+    },
 };
+
+/// What a full figure is drawn from.
+pub(super) enum FullBodyFrom<'a> {
+    /// Redrawn from a bust set's master portrait, attached as the anchor.
+    Bust {
+        portrait: &'a str,
+        generation_fingerprint: Option<&'a str>,
+        anchor: ImageReference,
+    },
+    /// Drawn from the design with this set's outfit on, in the recipe's style.
+    Design {
+        name: &'a str,
+        visual_profile: &'a Value,
+    },
+}
+
+/// A full figure's plan: the recipe's prompt and references (or the bust it
+/// is redrawn from), and the contract built from the recipe's provenance.
+pub(super) async fn full_body_plan(
+    source: &StyleSource,
+    from: FullBodyFrom<'_>,
+) -> ApiResult<DrawingPlan> {
+    let request = match &from {
+        FullBodyFrom::Bust { .. } => RecipeRequest::FullBodyFromBust,
+        FullBodyFrom::Design {
+            name,
+            visual_profile,
+        } => RecipeRequest::FullBodyDesign {
+            name,
+            visual_profile,
+        },
+    };
+    let recipe = persona_style::recipe(source, request)
+        .await
+        .map_err(persona_style_error)?;
+    let (contract, references, reference_role) = match from {
+        FullBodyFrom::Bust {
+            portrait,
+            generation_fingerprint,
+            anchor,
+        } => (
+            build_full_body_asset_contract_with(
+                FullBodySource::Bust {
+                    portrait,
+                    generation_fingerprint,
+                },
+                &recipe.rendering,
+            ),
+            vec![anchor],
+            "bust-portrait-identity-anchor",
+        ),
+        FullBodyFrom::Design {
+            name,
+            visual_profile,
+        } => {
+            let role = style_reference_role(&recipe.references);
+            (
+                build_full_body_asset_contract_with(
+                    FullBodySource::Design {
+                        name,
+                        visual_profile,
+                    },
+                    &recipe.rendering,
+                ),
+                recipe.references,
+                role,
+            )
+        }
+    };
+    let fingerprint = character_asset_contract_fingerprint(&contract);
+    Ok(DrawingPlan {
+        prompt: recipe.prompt,
+        references,
+        contract,
+        fingerprint,
+        reference_role,
+        rendering: recipe.rendering,
+        source: recipe.source,
+    })
+}
 
 /// One full figure at a time: a second request would draw over the first.
 static FULL_BODY_SLOT: Semaphore = Semaphore::const_new(1);
@@ -112,50 +196,63 @@ pub async fn generate_full_body_portrait(
         .reference_outfit_id
         .as_deref()
         .and_then(|reference| myriad_merope::wardrobe_bust_portrait(visual_profile, reference));
-    let (contract, prompt, reference) = match &bust {
-        Some((portrait, fingerprint)) => (
-            build_full_body_asset_contract(FullBodySource::Bust {
-                portrait,
-                generation_fingerprint: fingerprint.as_deref(),
-            }),
-            build_full_body_portrait_prompt(),
+    let name = persona
+        .as_ref()
+        .map(|row| row.name.trim())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("Arael");
+    let anchor = match &bust {
+        Some((portrait, _)) => Some(
             image_generation::load_local_reference(portrait)
                 .await
                 .map_err(portrait_generation_provider_error)?,
         ),
-        None => {
-            let name = persona
-                .as_ref()
-                .map(|row| row.name.trim())
-                .filter(|name| !name.is_empty())
-                .unwrap_or("Arael");
-            let dressed =
-                drawable_visual_profile(visual_profile.and_then(|profile| {
-                    myriad_merope::visual_profile_wearing(profile, &outfit_id)
-                }))?;
-            (
-                build_full_body_asset_contract(FullBodySource::Design {
-                    name,
-                    visual_profile: &dressed,
-                }),
-                build_full_body_design_prompt(name, &dressed),
-                merope_style_reference().map_err(portrait_generation_config_error)?,
-            )
-        }
+        None => None,
     };
-    let fingerprint = character_asset_contract_fingerprint(&contract);
+    let dressed = match bust {
+        Some(_) => None,
+        None => Some(drawable_visual_profile(visual_profile.and_then(
+            |profile| myriad_merope::visual_profile_wearing(profile, &outfit_id),
+        ))?),
+    };
     let full = CharacterAssetProfile::FullBody.contract();
     let dynamic = crate::GLOBAL_DYNAMIC_CONFIG.read().await.clone();
+    // The image provider first: no recipe is asked for a picture that
+    // cannot be drawn.
     let config = image_generation::config_from_dynamic(&dynamic)
         .map_err(portrait_generation_config_error)?;
+    let style_source = persona_style::configured(&dynamic).map_err(persona_style_error)?;
+    let from = match (&bust, anchor, &dressed) {
+        (Some((portrait, fingerprint)), Some(anchor), _) => FullBodyFrom::Bust {
+            portrait,
+            generation_fingerprint: fingerprint.as_deref(),
+            anchor,
+        },
+        (_, _, Some(dressed)) => FullBodyFrom::Design {
+            name,
+            visual_profile: dressed,
+        },
+        _ => return Err(internal_error("full-body source missing")),
+    };
+    let plan = full_body_plan(&style_source, from).await?;
     tracing::info!(
         provider = %config.provider,
         model = %config.model,
         width = full.generation_width,
         height = full.generation_height,
         from_bust = bust.is_some(),
+        style_source = plan.source.as_str(),
+        style_recipe = plan.rendering.recipe.as_deref().unwrap_or("builtin"),
+        visual_school_version = %plan.rendering.visual_school_version,
+        reference_role = plan.reference_role,
         "full-body portrait generation started"
     );
+    let DrawingPlan {
+        prompt,
+        references,
+        fingerprint,
+        ..
+    } = plan;
     // Drawn and stored on its own: a page reloaded or closed meanwhile does
     // not throw the drawing away, and finds it being drawn (`DRAWING`).
     let drawing = Drawing::begin(&outfit_id);
@@ -168,7 +265,7 @@ pub async fn generate_full_body_portrait(
             &outfit_id,
             &config,
             &prompt,
-            &reference,
+            &references,
             fingerprint,
         )
         .await
@@ -183,7 +280,7 @@ async fn draw_full_body(
     outfit_id: &str,
     config: &image_generation::ImageGenerationConfig,
     prompt: &str,
-    reference: &image_generation::ImageReference,
+    references: &[ImageReference],
     fingerprint: String,
 ) -> ApiResult<Json<Value>> {
     let full = CharacterAssetProfile::FullBody.contract();
@@ -191,12 +288,12 @@ async fn draw_full_body(
         user_id,
         "merope",
         "full-body-portrait",
-        image_generation::generate_image_with_background(
+        image_generation::generate_image_with_references(
             config,
             prompt,
             full.generation_width,
             full.generation_height,
-            Some(reference),
+            references,
             Some(image_generation::ImageBackground::Opaque),
         ),
     )

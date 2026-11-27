@@ -69,6 +69,7 @@ pub mod report_styles; // Owner's report writing styles: presets, checks, stored
 pub mod retired_configuration; // Backup denylist for retired configuration keys
 pub mod rig_jobs; // Rig generation jobs: one row per job and per step, leases, cancel, spend
 pub mod runtime_registry; // Platform runtime registry/mailbox shared by replicas (workspace crate)
+pub mod persona_style; // Where portrait style recipes come from: builtin or a recipe service
 pub mod see_through; // Remote See-through layered-PSD decomposition
 pub mod seo_copy; // AI-drafted SEO / GEO settings copy
 pub mod seo_policy; // Site visibility / GEO policy for robots.txt and llms.txt

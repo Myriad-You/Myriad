@@ -389,6 +389,7 @@ pub(crate) fn url_setting_sanitizer(db_key: &str) -> Option<fn(&str) -> Option<S
         "umami_script_url" => sanitize_umami_script_url,
         "proxy_url" => sanitize_proxy_url,
         "gemini_base_url" | "github_api_base_url" => sanitize_http_base_url,
+        "merope_persona_url" => crate::services::persona_style::sanitize_service_url,
         _ => return None,
     })
 }
