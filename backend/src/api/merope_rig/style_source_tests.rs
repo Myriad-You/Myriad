@@ -376,7 +376,7 @@ async fn a_restored_url_of_another_origin_clears_the_token_unless_the_backup_has
         (vec![restored("site_title", "x")], None),
     ] {
         let mut entries = entries;
-        crate::services::persona_style::bind_restored_token(db, &mut entries)
+        crate::api::config::bind_restored_persona_style_token(db, &mut entries)
             .await
             .unwrap();
         assert_eq!(token_entry(&entries), expected);

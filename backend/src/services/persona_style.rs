@@ -334,7 +334,8 @@ pub async fn probe(dynamic: &DynamicConfig) -> Value {
 
 /// The token is bound to the service's origin: a change of URL to another
 /// origin (or to none) clears the stored token unless the same change
-/// supplies one. Used by the owner's settings call and by settings restore.
+/// supplies one. Used by the owner's settings call and by settings restore
+/// (`api::config::bind_restored_persona_style_token`).
 /// `current` is the stored URL; `url` and `token` are the incoming values
 /// (`None` = unchanged). Returns the token to store, if it changes.
 pub fn token_after_url_change(
@@ -349,47 +350,6 @@ pub fn token_after_url_change(
     let before = current.and_then(origin_of);
     let after = origin_of(url);
     (before.is_none() || before != after).then(String::new)
-}
-
-/// Settings restore: a restored service URL whose origin differs from the
-/// stored one, with no token in the same backup, clears the stored token.
-pub async fn bind_restored_token(
-    txn: &impl sea_orm::ConnectionTrait,
-    entries: &mut Vec<crate::api::config::SettingsBackupEntry>,
-) -> Result<(), sea_orm::DbErr> {
-    let Some(url) = entries
-        .iter()
-        .find(|entry| entry.key == "merope_persona_url")
-        .map(|entry| entry.value.as_str().unwrap_or_default().to_string())
-    else {
-        return Ok(());
-    };
-    if entries
-        .iter()
-        .any(|entry| entry.key == "merope_persona_token")
-    {
-        return Ok(());
-    }
-    let current: Option<String> = txn
-        .query_one_raw(sea_orm::Statement::from_string(
-            sea_orm::DatabaseBackend::Postgres,
-            "SELECT value #>> '{}' AS url FROM configurations WHERE key = 'merope_persona_url'"
-                .to_string(),
-        ))
-        .await?
-        .and_then(|row| row.try_get::<Option<String>>("", "url").ok().flatten());
-    if let Some(cleared) = token_after_url_change(current.as_deref(), Some(&url), None) {
-        entries.push(crate::api::config::SettingsBackupEntry {
-            key: "merope_persona_token".into(),
-            value: json!(cleared),
-            schema_version: 1,
-            description: None,
-            category: None,
-            is_encrypted: Some(true),
-            is_public: Some(false),
-        });
-    }
-    Ok(())
 }
 
 #[cfg(test)]

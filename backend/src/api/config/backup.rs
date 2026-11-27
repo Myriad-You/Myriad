@@ -669,6 +669,47 @@ async fn bind_restored_media(
     Ok(unresolved)
 }
 
+/// Settings restore: a restored service URL whose origin differs from the
+/// stored one, with no token in the same backup, clears the stored token.
+pub(crate) async fn bind_restored_persona_style_token(
+    txn: &impl sea_orm::ConnectionTrait,
+    entries: &mut Vec<SettingsBackupEntry>,
+) -> Result<(), sea_orm::DbErr> {
+    let Some(url) = entries
+        .iter()
+        .find(|entry| entry.key == "merope_persona_url")
+        .map(|entry| entry.value.as_str().unwrap_or_default().to_string())
+    else {
+        return Ok(());
+    };
+    if entries
+        .iter()
+        .any(|entry| entry.key == "merope_persona_token")
+    {
+        return Ok(());
+    }
+    let current: Option<String> = txn
+        .query_one_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT value #>> '{}' AS url FROM configurations WHERE key = 'merope_persona_url'"
+                .to_string(),
+        ))
+        .await?
+        .and_then(|row| row.try_get::<Option<String>>("", "url").ok().flatten());
+    if let Some(cleared) = crate::services::persona_style::token_after_url_change(current.as_deref(), Some(&url), None) {
+        entries.push(SettingsBackupEntry {
+            key: "merope_persona_token".into(),
+            value: serde_json::json!(cleared),
+            schema_version: 1,
+            description: None,
+            category: None,
+            is_encrypted: Some(true),
+            is_public: Some(false),
+        });
+    }
+    Ok(())
+}
+
 /// Write restored settings in the caller's transaction, media bindings included.
 /// Returns the local media citations left unresolved.
 pub(crate) async fn write_restored_configurations(
@@ -681,7 +722,7 @@ pub(crate) async fn write_restored_configurations(
     // A restored portrait style service URL of another origin, without its
     // token in the same backup, clears the stored token: the token is bound
     // to the origin it was given for.
-    crate::services::persona_style::bind_restored_token(txn, &mut entries).await?;
+    bind_restored_persona_style_token(txn, &mut entries).await?;
     let unresolved = bind_restored_media(txn, &mut entries, origins)
         .await
         .map_err(RestoreWriteError::Media)?;
