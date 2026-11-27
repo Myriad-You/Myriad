@@ -358,7 +358,7 @@ async fn a_failing_service_is_an_error_and_never_the_builtin_recipe() {
     ] {
         let url = serve(Fake::answering(
             status,
-            &json!({ "error": { "code": "x" } }),
+            &json!({ "error": "refused" }),
         ))
         .await;
         assert_eq!(
