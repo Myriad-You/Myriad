@@ -111,7 +111,7 @@ fn a_word_too_short_to_wait_begins_no_stretch() {
 
 fn long(id: i32) -> Spoken {
     Spoken {
-        text: (0..200).map(|n| format!("第{n}件小事说给你听。")).collect(),
+        text: (0..400).map(|n| format!("第{n}件小事说给你听。")).collect(),
         ..line(id, true, 0)
     }
 }

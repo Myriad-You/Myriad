@@ -215,19 +215,7 @@ pub(super) async fn her_memory_at_its_full_size() {
                 let raw = match thought {
                     Some(raw) => Some(raw),
                     None => {
-                        let raw = judge
-                            .analyze_json(
-                                &myriad_merope::remembering::system(),
-                                &myriad_merope::remembering::input(
-                                    &question.question,
-                                    None,
-                                    &question.question_date,
-                                ),
-                                myriad_merope::remembering::SCHEMA_NAME,
-                                Some(&myriad_merope::remembering::schema()),
-                            )
-                            .await
-                            .ok();
+                        let raw = super::ask_cues(judge, &question).await;
                         if let (Some(raw), Ok(mut cache)) = (&raw, cue_cache.lock()) {
                             cache.insert(question.question_id.clone(), raw.clone());
                         }

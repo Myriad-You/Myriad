@@ -310,6 +310,9 @@ pub fn background_status() -> &'static str {
 
 pub(crate) async fn request_stop() {
     agent::merope::lifecycle::background::stop_admission();
+    // Rig jobs: nothing more is claimed here; the running ones are let go
+    // once requests are no longer answered (`rig_jobs::release_at_exit`).
+    crate::services::rig_jobs::begin_stopping();
     STARTED.store(false, std::sync::atomic::Ordering::Release);
     if let Some(runtime) = RUNTIME.lock().await.as_ref() {
         runtime.request_stop();

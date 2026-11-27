@@ -377,6 +377,7 @@ fn cut_to(lines: &mut Vec<String>, most: usize) {
     lines.truncate(kept);
 }
 
+#[derive(Clone)]
 pub(super) struct Answered {
     pub(super) retrieved: bool,
     pub(super) correct: Option<bool>,

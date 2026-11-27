@@ -375,15 +375,7 @@ pub(super) async fn her_memory_after_a_long_background() {
                                 let (system, input) = with_topics(&question, &topics);
                                 let (answer, more_failed) =
                                     crate::services::ai_cost_ledger::spent::failures_in(async {
-                                        judge
-                                            .analyze_json(
-                                                &system,
-                                                &input,
-                                                myriad_merope::remembering::SCHEMA_NAME,
-                                                Some(&myriad_merope::remembering::schema()),
-                                            )
-                                            .await
-                                            .ok()
+                                        super::ask_cues_with(judge, &system, &input).await
                                     })
                                     .await;
                                 failed.extend(more_failed);

@@ -672,6 +672,13 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .execute_unprepared(include_str!("memory_nodes.sql"))
             .await?;
 
+        // 形象的生成任务（拆层、转头关键形）和它们跑过的每一步：进度、出错、结果放在哪、花费记在账上的哪个 id。
+        // schema_check::ensure_rig_jobs_tables 跑同一份文件。
+        manager
+            .get_connection()
+            .execute_unprepared(include_str!("rig_jobs.sql"))
+            .await?;
+
         Ok(())
     }
 
@@ -680,6 +687,9 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .get_connection()
             .execute_unprepared(
                 r#"
+DROP TABLE IF EXISTS rig_job_keys;
+DROP TABLE IF EXISTS rig_job_steps;
+DROP TABLE IF EXISTS rig_jobs;
 DROP TABLE IF EXISTS agent_persona_field_history;
 DROP TABLE IF EXISTS agent_message_embeddings;
 DROP TABLE IF EXISTS agent_forgotten;

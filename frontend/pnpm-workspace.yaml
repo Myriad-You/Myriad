@@ -25,13 +25,20 @@ confirmModulesPurge: false
 trustPolicyExclude:
   - ua-parser-js
 
+# The figure interface names the renderer's types but does not pin the renderer: it reads the one
+# @myriad/figure pins, linked at node_modules/@myriad-you/figure-player for it.
+publicHoistPattern:
+  - '@myriad-you/figure-player'
+
 shellEmulator: true
 
 # figure/ (Myriad-You/myriad-figure, a submodule like core/) is the 2.5D figure package.
 # tapp/runtime/ is the Tapp runtime every host shares.
+# packages/figure-interface/ declares what the site needs from @myriad/figure.
 packages:
   - .
   - ../figure
+  - packages/figure-interface
   - ../tapp/runtime
 
 overrides:

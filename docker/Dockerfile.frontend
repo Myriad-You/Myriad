@@ -50,11 +50,9 @@ COPY shared /src/shared
 # Rig and performance contracts from the shared-core submodule
 # (@myriad/core/shared/... → /src/core/shared/...)
 COPY core/shared /src/core/shared
-# The 2.5D figure's source (@myriad/figure → /src/figure/src)
+# The 2.5D figure's source (@myriad/figure → /src/figure/src). The rig and
+# performance contract copies it reads come with its renderer, installed above.
 COPY figure/src /src/figure/src
-# and the rig / performance contract copies it reads (../../contracts/... →
-# /src/figure/contracts; figure keeps its own byte-for-byte copies of core's).
-COPY figure/contracts /src/figure/contracts
 # The Tapp runtime's source (@myriad/tapp-runtime → /src/tapp/runtime/src) and
 # the sandbox contract it imports (../../shared/... → /src/tapp/shared)
 COPY tapp/runtime/src /src/tapp/runtime/src

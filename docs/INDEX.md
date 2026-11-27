@@ -21,6 +21,7 @@ docs/
   development/             # 架构、构建、联邦、OAuth、Agent 通道、Tapp
   features/                # Library、.tapp 包格式
   design/                  # 主题、图标、通知、Agent Channel、Phantasi 磁贴、3D 管线
+  legal/                   # 第三方模型与使用限制
 ```
 
 ## 部署
@@ -76,3 +77,10 @@ docs/
 | [agent-channel-telegram.md](design/agent-channel-telegram.md) | Telegram Bot 通道调研 |
 | [merope-25d-pipeline.md](design/merope-25d-pipeline.md) | Merope / See-through / Anime2.5D 形象管线 |
 | [merope-3d-pipeline.md](design/merope-3d-pipeline.md) | Merope / Tripo 3D 管线 |
+
+## 许可
+
+| 文档 | 说明 |
+| --- | --- |
+| [THIRD_PARTY_MODELS.md](legal/THIRD_PARTY_MODELS.md) | 形象管线用到的第三方模型、许可与许可原文的出处 |
+| [MODEL_USE_RESTRICTIONS.md](legal/MODEL_USE_RESTRICTIONS.md) | 立绘拆层模型的使用限制（Open RAIL 许可附件 A 原文） |

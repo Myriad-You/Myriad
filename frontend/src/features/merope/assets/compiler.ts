@@ -1,7 +1,9 @@
 import type { MeropeRigManifest, PreparedRigPsdImport, RigPsdImportOptions } from '@myriad/figure/rig'
 import type { importMeropeRig, previewMeropeRigImport } from '../api'
+import { readAnime25DPlayback, writeAnime25DPlayback } from '@myriad/figure/anime25drig'
 import { diagnoseRig } from '@myriad/figure/rig'
 import { userFacingError } from '../../../utils/userFacingError'
+import { localizeFigureError } from './figureErrors'
 
 export type RigAssetCompileStage =
   | 'validate-source'
@@ -150,16 +152,29 @@ async function previewPreparedRigAsset(
   }
 }
 
-/** Preserve the one-shot preview analysis so persistence never calls AI again. */
+/**
+ * Preserve the one-shot preview analysis so persistence never calls AI again.
+ * The preview's package is written in the source's version first when the
+ * two differ, so the copied pose corrections keep the source's axes.
+ */
 function copyPreviewPlaybackProfiles(
   source: PreparedRigPsdImport['source'],
   manifest: MeropeRigManifest,
 ): void {
-  const playback = manifest.anime25dPlayback
-  if (!playback || !source.anime25dPlayback) return
-  source.anime25dPlayback.chestProfile = { ...playback.chestProfile }
-  source.anime25dPlayback.shellProfile = structuredClone(playback.shellProfile)
-  if (playback.partProfile) source.anime25dPlayback.partProfile = structuredClone(playback.partProfile)
+  const analyzed = manifest.anime25dPlayback
+  const target = source.anime25dPlayback
+  if (!analyzed || !target) return
+  let playback: typeof target
+  try {
+    playback = analyzed.version === target.version
+      ? analyzed
+      : writeAnime25DPlayback(readAnime25DPlayback(analyzed), target.version)
+  } catch (error) {
+    throw localizeFigureError(error)
+  }
+  target.chestProfile = { ...playback.chestProfile }
+  target.shellProfile = structuredClone(playback.shellProfile)
+  if (playback.partProfile) target.partProfile = structuredClone(playback.partProfile)
 }
 
 export async function persistRigAsset(

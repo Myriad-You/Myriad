@@ -1,0 +1,58 @@
+{
+  "name": "@myriad-you/figure-interface",
+  "type": "module",
+  "version": "0.1.0",
+  "description": "What Myriad's site needs from its 2.5D figure (@myriad/figure): the entries, names and types it uses, as declarations only, and the runtime contract every implementation passes.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Myriad-You/Myriad.git",
+    "directory": "frontend/packages/figure-interface"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts"
+    },
+    "./anime25drig": {
+      "types": "./src/anime25drig.d.ts"
+    },
+    "./events": {
+      "types": "./src/events.d.ts"
+    },
+    "./interaction": {
+      "types": "./src/interaction.d.ts"
+    },
+    "./motion": {
+      "types": "./src/motion.d.ts"
+    },
+    "./performance": {
+      "types": "./src/performance.d.ts"
+    },
+    "./rig": {
+      "types": "./src/rig.d.ts"
+    },
+    "./singing": {
+      "types": "./src/singing.d.ts"
+    },
+    "./speech": {
+      "types": "./src/speech.d.ts"
+    },
+    "./workbench": {
+      "types": "./src/workbench.d.ts"
+    },
+    "./contract": "./contract/index.ts"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "contract",
+    "src"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "26.5.1"
+  }
+}

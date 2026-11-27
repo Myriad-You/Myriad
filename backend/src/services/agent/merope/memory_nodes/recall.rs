@@ -79,6 +79,8 @@ pub(crate) struct Recollection {
     /// How their life stands, shown every time in a private talk: each
     /// `node name：text`, as the core chose them. None in a group.
     pub resident: Vec<String>,
+    /// Thorough topics left unlisted whose kept count still exceeds what is shown.
+    pub not_all_here: Vec<(String, usize, usize)>,
 }
 
 /// The ranking as the core takes it: each memory once, most relevant
@@ -484,6 +486,7 @@ fn recollect_within(
     // counted here, and one that no longer fits is left out for the next
     // that does, as the core leaves one out.
     let mut room = resident_chars;
+    let mut host_left_out = 0usize;
     let resident: Vec<(&str, String)> = pick
         .resident
         .iter()
@@ -494,10 +497,13 @@ fn recollect_within(
             let dated = lines.since(node, &one.item)?;
             let line = super::since::resident(name, &one.text, &dated);
             let chars = line.chars().count();
-            (chars <= room).then(|| {
+            if chars <= room {
                 room -= chars;
-                (one.node.as_str(), line)
-            })
+                Some((one.node.as_str(), line))
+            } else {
+                host_left_out += 1;
+                None
+            }
         })
         .collect();
     // How many of a node's stands that list shows: those are not counted
@@ -600,6 +606,20 @@ fn recollect_within(
             listed(shown, &kind, cues?, now, &lines)
         })
         .flatten();
+    let not_all_here = if thorough {
+        pick.together
+            .iter()
+            .filter_map(|t| {
+                let node = shown.node(&t.node)?;
+                let name = node.name.as_deref().unwrap_or_default().trim();
+                let covered = listed.is_some() && node.kind.as_deref() != Some("person");
+                let given = t.shown.saturating_sub(t.entries.len());
+                (!name.is_empty() && !covered && given < t.of).then(|| (name.to_string(), given, t.of))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     if here.is_none() {
         // Counts only: how many went with the talk, how many the core
         // picked that are not shown, and how many its room left out or cut
@@ -607,7 +627,8 @@ fn recollect_within(
         tracing::info!(
             shown = resident.len(),
             unread = pick.resident.len() - resident.len(),
-            left_out = pick.resident_left_out,
+            left_out = pick.resident_left_out + host_left_out,
+            host_left_out,
             cut = pick.resident_cut,
             "[memory-nodes] how their life stands went with the private talk"
         );
@@ -623,6 +644,7 @@ fn recollect_within(
             .map(|picked| picked.node.clone())
             .collect(),
         resident,
+        not_all_here,
     }
 }
 
@@ -713,5 +735,274 @@ mod more_tests {
         // Those the list of how their life stands shows are not counted.
         assert!(super::more_standing(3, 1).unwrap().0.contains("2 more"));
         assert_eq!(super::more_standing(2, 2), None);
+    }
+
+    #[test]
+    fn not_all_here_fires_for_unlisted_thorough_nodes_and_resident_respects_host_suffix() {
+        use std::collections::HashMap;
+
+        use chrono::{TimeZone, Utc};
+        use serde_json::json;
+
+        use super::super::shown::{Entry, Node, Shown};
+        use super::{Own, recollect};
+        use crate::services::agent::merope::store::Recalled;
+
+        let now = Utc.with_ymd_and_hms(2026, 11, 26, 12, 0, 0).unwrap();
+        let at_us = now.timestamp_micros();
+        let mk_entry = |id: &str, text: &str| Entry {
+            id: id.to_string(),
+            row: format!("r-{id}"),
+            memory: Some(id.to_string()),
+            text: text.to_string(),
+            said_by: Vec::new(),
+            at: at_us,
+            happened: None,
+            state: None,
+            open: None,
+        };
+        let topic_facts: Vec<Entry> = (1..=5)
+            .map(|i| mk_entry(&format!("t{i}"), &format!("tree fact {i}")))
+            .collect();
+        let person_facts: Vec<Entry> = (1..=5)
+            .map(|i| mk_entry(&format!("p{i}"), &format!("person fact {i}")))
+            .collect();
+
+        // Two long standing items on an unpicked node fit under core's 600-char
+        // limit without the host's `, since ...` suffix (`life: ` + 288 = 294,
+        // 2 * 294 = 588 <= 600), so adding `, since ...` drops the second on
+        // the host side.
+        let s1 = "a".repeat(288);
+        let s2 = "b".repeat(288);
+        let shown = Shown {
+            nodes: vec![
+                Node {
+                    id: "n-trees".into(),
+                    kind: Some("topic".into()),
+                    name: Some("trees".into()),
+                    status: None,
+                    gone: false,
+                    head: json!({}),
+                    facts: topic_facts,
+                    heard: Vec::new(),
+                    latest: at_us,
+                },
+                Node {
+                    id: "n-life".into(),
+                    kind: Some("topic".into()),
+                    name: Some("life".into()),
+                    status: None,
+                    gone: false,
+                    head: json!({
+                        "standing": {
+                            "them-0000000001": {
+                                "at": at_us,
+                                "author": "them",
+                                "value": { "text": s1, "because": ["l1"], "ended": false }
+                            },
+                            "them-0000000002": {
+                                "at": at_us,
+                                "author": "them",
+                                "value": { "text": s2, "because": ["l2"], "ended": false }
+                            }
+                        }
+                    }),
+                    facts: vec![mk_entry("l1", "unranked 1"), mk_entry("l2", "unranked 2")],
+                    heard: Vec::new(),
+                    latest: at_us,
+                },
+                Node {
+                    id: "n-person".into(),
+                    kind: Some("person".into()),
+                    name: Some("friend".into()),
+                    status: None,
+                    gone: false,
+                    head: json!({}),
+                    facts: person_facts,
+                    heard: Vec::new(),
+                    latest: at_us,
+                },
+            ],
+            learned: HashMap::from([("l1".into(), at_us), ("l2".into(), at_us)]),
+            ..Default::default()
+        };
+        let recalled = Recalled {
+            named: vec!["tree fact 1".into(), "person fact 1".into()],
+            brought_to_mind: Vec::new(),
+            recent: Vec::new(),
+            ids: vec![
+                ("tree fact 1".into(), "t1".into()),
+                ("person fact 1".into(), "p1".into()),
+            ],
+            said: HashMap::new(),
+        };
+        let cues = myriad_merope::remembering::Cues {
+            cues: vec!["trees".into()],
+            thorough: true,
+            look_back: false,
+            about_you: false,
+            range: None,
+            open: None,
+        };
+        let rec = recollect(&shown, &Own::default(), &recalled, Some(&cues), now);
+        assert!(rec.listed.is_some());
+        // `n-trees` is covered by `## All of it, listed`; only unlisted `n-person`
+        // (picked filled 3 of its 5 entries) should surface via `not_all_here`.
+        assert_eq!(rec.not_all_here, vec![("friend".to_string(), 3, 5)]);
+        let section =
+            myriad_merope::speaking::format_not_all_here_section(&rec.not_all_here).unwrap();
+        assert!(section.contains("friend: you keep 5 facts under it; 3 of them are above."));
+        assert_eq!(rec.resident.len(), 1);
+    }
+
+    /// Deterministic in-memory `recollect` coverage: verifies `gone` and `taken_back`
+    /// suppression, no internal node/memory ID leaks across prompt-facing
+    /// `named`/`resident`/`heard`/`listed` outputs or formatted prompt blocks (while
+    /// `picked` retains internal recalled node IDs), and empty private `resident` on
+    /// group (`Here`) turns. DB-level audience isolation during `shown::load` and full
+    /// cascade tests live separately in DB test suites.
+    #[test]
+    fn recollect_hides_gone_and_taken_back_omits_ids_and_skips_group_resident() {
+        use std::collections::{HashMap, HashSet};
+
+        use chrono::{TimeZone, Utc};
+        use serde_json::json;
+
+        use super::super::shown::{Entry, Node, Shown};
+        use super::{Here, Own, recollect, recollect_here};
+        use crate::services::agent::merope::store::Recalled;
+
+        let now = Utc.with_ymd_and_hms(2026, 11, 26, 12, 0, 0).unwrap();
+        let at_us = now.timestamp_micros();
+        let item_live = myriad_nodes::stands::item_id("them", "n-live-uuid-123", "memory:m-live", 0);
+        let item_gone = myriad_nodes::stands::item_id("them", "n-gone-uuid-999", "memory:m-gone", 0);
+        let item_tb = myriad_nodes::stands::item_id("them", "n-live-uuid-123", "memory:m-tb", 0);
+        let shown = Shown {
+            nodes: vec![
+                Node {
+                    id: "n-live-uuid-123".into(),
+                    kind: Some("topic".into()),
+                    name: Some("coffee".into()),
+                    status: None,
+                    gone: false,
+                    head: json!({
+                        "standing": {
+                            item_live: {
+                                "at": at_us,
+                                "author": "them",
+                                "value": { "text": "drinks pour-over daily", "because": ["m-live"], "ended": false }
+                            },
+                            item_tb: {
+                                "at": at_us,
+                                "author": "them",
+                                "value": { "text": "HIDDEN_TB_TEXT", "because": ["memory:m-tb"], "ended": false }
+                            }
+                        }
+                    }),
+                    facts: vec![
+                        Entry {
+                            id: "m-live".into(),
+                            row: "r-live".into(),
+                            memory: Some("m-live".into()),
+                            text: "prefers washed ethiopia beans".into(),
+                            said_by: Vec::new(),
+                            at: at_us,
+                            happened: None,
+                            state: None,
+                            open: None,
+                        },
+                    ],
+                    heard: Vec::new(),
+                    latest: at_us,
+                },
+                Node {
+                    id: "n-gone-uuid-999".into(),
+                    kind: Some("topic".into()),
+                    name: Some("deleted-topic".into()),
+                    status: None,
+                    gone: true,
+                    head: json!({
+                        "standing": {
+                            item_gone: {
+                                "at": at_us,
+                                "author": "them",
+                                "value": { "text": "HIDDEN_GONE_TEXT", "because": ["m-gone"], "ended": false }
+                            }
+                        }
+                    }),
+                    facts: vec![Entry {
+                        id: "m-gone".into(),
+                        row: "r-gone".into(),
+                        memory: Some("m-gone".into()),
+                        text: "HIDDEN_GONE_FACT".into(),
+                        said_by: Vec::new(),
+                        at: at_us,
+                        happened: None,
+                        state: None,
+                        open: None,
+                    }],
+                    heard: Vec::new(),
+                    latest: at_us,
+                },
+            ],
+            learned: HashMap::from([
+                ("m-live".into(), at_us),
+                ("m-gone".into(), at_us),
+                ("m-tb".into(), at_us),
+            ]),
+            taken_back: HashSet::from(["m-tb".into()]),
+            ..Default::default()
+        };
+        let recalled = Recalled {
+            named: vec!["prefers washed ethiopia beans".into()],
+            brought_to_mind: Vec::new(),
+            recent: Vec::new(),
+            ids: vec![("prefers washed ethiopia beans".into(), "m-live".into())],
+            said: HashMap::new(),
+        };
+        let cues = myriad_merope::remembering::Cues {
+            cues: vec!["coffee".into()],
+            thorough: true,
+            look_back: false,
+            about_you: false,
+            range: None,
+            open: None,
+        };
+        // Private recall surfaces live facts/standing, hides taken-back & gone,
+        // and never exposes internal DB/node IDs across prompt-facing fields or blocks.
+        let priv_rec = recollect(&shown, &Own::default(), &recalled, Some(&cues), now);
+        assert_eq!(priv_rec.picked, vec!["n-live-uuid-123".to_string()]);
+        let remembered_sec = myriad_merope::speaking::format_remembered_section(&priv_rec.named)
+            .unwrap_or_default();
+        let resident_sec = super::super::context::resident_section(&priv_rec.resident)
+            .unwrap_or_default();
+        let all_priv = format!(
+            "{:?} {:?} {:?} {:?} {remembered_sec} {resident_sec}",
+            priv_rec.named, priv_rec.resident, priv_rec.heard, priv_rec.listed
+        );
+        assert!(all_priv.contains("prefers washed ethiopia beans"));
+        assert!(all_priv.contains("drinks pour-over daily"));
+        for forbidden in [
+            "HIDDEN_TB_TEXT",
+            "HIDDEN_GONE_TEXT",
+            "HIDDEN_GONE_FACT",
+            "n-live-uuid-123",
+            "n-gone-uuid-999",
+            "m-live",
+            "m-gone",
+            "m-tb",
+        ] {
+            assert!(
+                !all_priv.contains(forbidden),
+                "unexpected forbidden marker in prompt output"
+            );
+        }
+        // Group turn (`Here`) never emits private resident standing.
+        let here = Here {
+            speaker: 7,
+            names: HashMap::new(),
+        };
+        let grp_rec = recollect_here(&shown, &Own::default(), Some(&here), &recalled, None, now);
+        assert!(grp_rec.resident.is_empty());
     }
 }

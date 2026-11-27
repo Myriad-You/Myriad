@@ -318,6 +318,10 @@ struct Outcome {
     plain: Option<Answered>,
     cued: Option<Answered>,
     wide: Answered,
+    /// Production-gated arm: waits for `cues` only when `reaches_back` matches
+    /// (else answers cold from `plain` without waiting on `cues`).
+    gated: Answered,
+    reaches_back: bool,
     /// Asked with nothing kept of them (noise questions): what the noise
     /// changed.
     bare: Option<Answered>,
@@ -354,6 +358,8 @@ struct Outcome {
     /// asking again on a kept copy reuses it, so recall differs only by
     /// what changed.
     asked: Option<String>,
+    /// Outcome of the first remembering cues attempt when `asked` was not reused.
+    cues_try: Option<CuesTry>,
 }
 
 impl Outcome {
@@ -415,12 +421,14 @@ async fn run_for(
     answering: Vec<String>,
 ) -> Outcome {
     // `MEROPE_MEMORY_BENCH_WRITE_THINKING`: written thinking as asked.
-    let written = crate::services::analyzer::write_thinking::when_asked(write_for(
+    let written = crate::services::analyzer::write_thinking::when_asked(Box::pin(write_for(
         db, models.0, question, name, who, answering,
-    ))
+    )))
     .await;
-    answer_for(db, models, question, name, who, written, None).await
+    Box::pin(answer_for(db, models, question, name, who, written, None)).await
 }
+
+pub(super) use scored::{CuesTry, ask_cues, ask_cues_once_with, ask_cues_with};
 
 /// The asking half of [`run_for`]: what was `written` asked of, in each
 /// way the bench asks. `asked`, an earlier answer to what to look for, is
@@ -441,22 +449,21 @@ async fn answer_for(
     );
     let Written { answering, kept } = written;
     // As a chat turn does: think what to look for, then recall with it.
-    let asked = match asked {
-        Some(asked) => Some(asked),
-        None => judge
-            .analyze_json_as(
+    let (asked, cues_try) = match asked {
+        Some(asked) => (Some(asked), None),
+        None => {
+            let (raw, outcome) = ask_cues_once_with(
+                judge,
                 &myriad_merope::remembering::system(),
                 &myriad_merope::remembering::input(
                     &question.question,
                     None,
                     &question.question_date,
                 ),
-                myriad_merope::remembering::SCHEMA_NAME,
-                Some(&myriad_merope::remembering::schema()),
-                crate::services::analyzer::JsonShape::InPrompt,
             )
-            .await
-            .ok(),
+            .await;
+            (raw, Some(outcome))
+        }
     };
     let cues = asked.as_deref().and_then(myriad_merope::remembering::parse);
     // The same memories, recalled once from their words alone and once
@@ -485,7 +492,7 @@ async fn answer_for(
     };
     // The same, also scrolling back through the chat when answering needs
     // all of it, as production does.
-    let wide = answer_one(
+    let wide = Box::pin(answer_one(
         db,
         judge,
         lite,
@@ -496,8 +503,24 @@ async fn answer_for(
         THOROUGH,
         true,
         &answering,
-    )
+    ))
     .await;
+    // Pessimistic lower bound for production gating: reuses `wide` on
+    // `reaches_back`, and falls back to cue-less `plain` when missed (real
+    // production uses `now_or_never` so sits between `gated` and `wide`, and
+    // still scrolls back on empty cues; `WIDE_ONLY=1` runs 1 extra answer+grade
+    // whenever `!reaches_back`).
+    let reaches_back = myriad_merope::remembering::reaches_back(&question.question);
+    let gated = if reaches_back {
+        wide.clone()
+    } else if let Some(plain) = &plain {
+        plain.clone()
+    } else {
+        Box::pin(answer_one(
+            db, judge, lite, question, user_id, &present, None, THOROUGH, true, &answering,
+        ))
+        .await
+    };
     let wider = match wider_arm() {
         Some(more) => Some(
             WIDER
@@ -699,6 +722,8 @@ async fn answer_for(
         plain,
         cued,
         wide,
+        gated,
+        reaches_back,
         bare,
         wider,
         raw,
@@ -712,5 +737,6 @@ async fn answer_for(
         failed: Vec::new(),
         need_ranks,
         asked,
+        cues_try,
     }
 }

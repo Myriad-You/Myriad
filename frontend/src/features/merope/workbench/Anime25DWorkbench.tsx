@@ -1,8 +1,9 @@
-import type { Anime25DPlayback, PoseCorrection } from '@myriad/figure/anime25drig'
+import type { Anime25DPlaybackDocument } from '@myriad/figure/anime25drig'
 import type { AuthoredExpressionKind } from '@myriad/figure/rig'
 import type { ReactNode, RefObject } from 'react'
 import type { RigCharacterHandle } from '../character/RigCharacter'
 import type { MovingPartsSearch } from './MovingPartsPanel'
+import type { StoredPoseCorrections } from './poseCorrectionPackage'
 import type { RigImportSource, RigMode } from './useRigImport'
 import { useState, useSyncExternalStore } from 'react'
 import { SettingGroup } from '../../../components/settings'
@@ -38,10 +39,10 @@ interface Props extends RigImportSource {
   stageSwitch?: ReactNode
   /** Changes when the stage plays another figure; the controls are re-sent to it. */
   stageKey?: string
-  correctionPlayback?: Anime25DPlayback | null
+  correctionPlayback?: Anime25DPlaybackDocument | null
   correctionAssetId?: string | null
   correctionTarget?: string
-  onSavePoseCorrections?: (corrections: PoseCorrection[]) => Promise<void>
+  onSavePoseCorrections?: (corrections: StoredPoseCorrections) => Promise<void>
   /** Looks for the staged figure's moving parts again, and watches a search running (MovingPartsPanel). */
   movingParts?: MovingPartsSearch
 }

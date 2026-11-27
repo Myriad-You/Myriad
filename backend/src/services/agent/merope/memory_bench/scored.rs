@@ -3,6 +3,87 @@
 
 use super::*;
 
+/// What one remembering attempt came to (same four buckets as production's
+/// `remembering::counts()`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in super::super) enum CuesTry {
+    Cues,
+    Empty,
+    Unreadable,
+    Unanswered,
+}
+
+impl CuesTry {
+    fn classify(raw: Option<&str>, parsed: Option<&myriad_merope::remembering::Cues>) -> Self {
+        match (raw, parsed) {
+            (None, _) => Self::Unanswered,
+            (Some(_), None) => Self::Unreadable,
+            (Some(_), Some(cues)) if cues.cues.is_empty() => Self::Empty,
+            (Some(_), Some(_)) => Self::Cues,
+        }
+    }
+}
+
+async fn ask_cues_attempt<F, Fut>(ask: F) -> (Option<String>, CuesTry)
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Option<String>>,
+{
+    let raw = ask().await;
+    let parsed = raw.as_deref().and_then(myriad_merope::remembering::parse);
+    let outcome = CuesTry::classify(raw.as_deref(), parsed.as_ref());
+    let kept = raw.filter(|_| parsed.is_some());
+    (kept, outcome)
+}
+
+/// Ask the judge once what to look for, matching production's single-attempt
+/// `JsonShape::InPrompt` call, and classify the first-attempt outcome.
+///
+/// Note: bench calls have no 6-second production wall-clock timeout, so
+/// `scores.cuesTries.firstAttemptFailedRate` measures a optimistic/lower bound
+/// relative to production `remembering::counts()`. Additionally, only the main
+/// `longmemeval` (`answer_for`) path records `cuesTries`; `weeks`, `full_size`,
+/// and `background` call `ask_cues` / `ask_cues_with` without bucket tracking.
+pub(in super::super) async fn ask_cues_once_with(
+    judge: &crate::services::analyzer::AiAnalyzer,
+    system: &str,
+    input: &str,
+) -> (Option<String>, CuesTry) {
+    ask_cues_attempt(|| async {
+        judge
+            .analyze_json_as(
+                system,
+                input,
+                myriad_merope::remembering::SCHEMA_NAME,
+                Some(&myriad_merope::remembering::schema()),
+                crate::services::analyzer::JsonShape::InPrompt,
+            )
+            .await
+            .ok()
+    })
+    .await
+}
+
+pub(in super::super) async fn ask_cues_with(
+    judge: &crate::services::analyzer::AiAnalyzer,
+    system: &str,
+    input: &str,
+) -> Option<String> {
+    ask_cues_once_with(judge, system, input).await.0
+}
+
+pub(in super::super) async fn ask_cues(
+    judge: &crate::services::analyzer::AiAnalyzer,
+    question: &Question,
+) -> Option<String> {
+    ask_cues_with(
+        judge,
+        &myriad_merope::remembering::system(),
+        &myriad_merope::remembering::input(&question.question, None, &question.question_date),
+    )
+    .await
+}
+
 /// Each way of recalling scored by its run: right once on average, and
 /// pass^n, the questions right every time they were run.
 pub(super) fn report(
@@ -10,10 +91,11 @@ pub(super) fn report(
     times: usize,
     outcomes: &[(Question, usize, Outcome)],
 ) -> Value {
-    let arms: [(&str, fn(&Outcome) -> Option<&Answered>); 5] = [
+    let arms: [(&str, fn(&Outcome) -> Option<&Answered>); 6] = [
         ("plain", |outcome| outcome.plain.as_ref()),
         ("cued", |outcome| outcome.cued.as_ref()),
         ("wide", |outcome| Some(&outcome.wide)),
+        ("gated", |outcome| Some(&outcome.gated)),
         ("wider", |outcome| outcome.wider.as_ref()),
         ("read", |outcome| outcome.read.as_ref()),
     ];
@@ -210,9 +292,10 @@ pub(super) fn report(
             json!({"id":question.question_id,"type":question.question_type,
             "category":question.category,"pair":question.pair,"round":round,
             "question":question.question,"answer":question.answer,
-            "written":outcome.written,"kept":outcome.kept,
+            "written":outcome.written,"kept":outcome.kept,"reachesBack":outcome.reaches_back,
             "plain":outcome.plain.as_ref().map(answered),"cued":outcome.cued.as_ref().map(answered),
-            "wide":answered(&outcome.wide),"wider":outcome.wider.as_ref().map(answered),
+            "wide":answered(&outcome.wide),"gated":answered(&outcome.gated),
+            "wider":outcome.wider.as_ref().map(answered),
             "read":outcome.read.as_ref().map(answered),
             "bare":outcome.bare.as_ref().map(answered),"inPrivate":outcome.in_private,
             "memories":outcome.memories,"concepts":outcome.concepts,
@@ -223,6 +306,45 @@ pub(super) fn report(
         .iter()
         .filter(|(_, _, outcome)| outcome.void())
         .count();
+    let mut cue_counts = [0usize; 4];
+    for (_, _, outcome) in outcomes {
+        match outcome.cues_try {
+            Some(CuesTry::Cues) => cue_counts[0] += 1,
+            Some(CuesTry::Empty) => cue_counts[1] += 1,
+            Some(CuesTry::Unreadable) => cue_counts[2] += 1,
+            Some(CuesTry::Unanswered) => cue_counts[3] += 1,
+            None => {}
+        }
+    }
+    let cue_total: usize = cue_counts.iter().sum();
+    if cue_total > 0 {
+        let failed = cue_counts[2] + cue_counts[3];
+        scores.insert(
+            "cuesTries".into(),
+            json!({
+                "total": cue_total,
+                "cues": cue_counts[0],
+                "empty": cue_counts[1],
+                "unreadable": cue_counts[2],
+                "unanswered": cue_counts[3],
+                "firstAttemptFailedRate": failed as f64 / cue_total as f64,
+            }),
+        );
+    }
+    if !outcomes.is_empty() {
+        let reached = outcomes
+            .iter()
+            .filter(|(_, _, outcome)| outcome.reaches_back)
+            .count();
+        scores.insert(
+            "reachesBack".into(),
+            json!({
+                "matched": reached,
+                "total": outcomes.len(),
+                "rate": reached as f64 / outcomes.len() as f64,
+            }),
+        );
+    }
     json!({"times": times, "wider": wider(), "widerArm": wider_arm(), "scores": scores,
         "voided": voided, "rows": rows})
 }
@@ -258,11 +380,14 @@ pub(super) fn partial_row(
             "rank": outcome.need_ranks.get(fact).and_then(|ranks| ranks.1),
             "rankShallow": outcome.need_ranks.get(fact).and_then(|ranks| ranks.0),
         })).collect::<Vec<_>>(),
+        "reachesBack": outcome.reaches_back,
         "wide": {"correct": outcome.wide.correct, "retrieved": outcome.wide.retrieved,
             "response": outcome.wide.answer, "why": outcome.wide.why,
             "recalled": outcome.wide.recalled,
             "recalledChars": recalled_chars(&outcome.wide),
             "scrolled": outcome.wide.scrolled, "standing": outcome.wide.standing},
+        "gated": {"correct": outcome.gated.correct, "retrieved": outcome.gated.retrieved,
+            "recalledChars": recalled_chars(&outcome.gated)},
         "wider": outcome.wider.as_ref().map(|wider| json!({"correct": wider.correct,
             "retrieved": wider.retrieved, "recalled": wider.recalled,
             "recalledChars": recalled_chars(wider)})),
@@ -300,4 +425,205 @@ pub(super) fn finished(report_path: &str) -> std::collections::HashSet<(String, 
             ))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_answered(correct: bool, recalled: &[&str]) -> Answered {
+        Answered {
+            retrieved: correct,
+            correct: Some(correct),
+            dragged: None,
+            why: None,
+            answer: if correct { "yes" } else { "no" }.to_string(),
+            recalled: recalled.iter().map(|s| (*s).to_string()).collect(),
+            cues: None,
+            through: None,
+            scrolled: None,
+            standing: Vec::new(),
+        }
+    }
+
+    fn sample_question(id: &str, text: &str) -> Question {
+        Question {
+            question_id: id.to_string(),
+            question_type: "single-session-user".to_string(),
+            question: text.to_string(),
+            answer: json!("answer"),
+            question_date: "2026/11/26 (Thu) 12:00".to_string(),
+            haystack_dates: Vec::new(),
+            haystack_sessions: Vec::new(),
+            haystack_venues: Vec::new(),
+            question_venue: None,
+            question_speaker: None,
+            memories: Vec::new(),
+            category: None,
+            pair: None,
+            background_sessions: Vec::new(),
+            needs: Vec::new(),
+        }
+    }
+
+    fn sample_outcome(cues_try: Option<CuesTry>) -> Outcome {
+        Outcome {
+            written: true,
+            plain: None,
+            cued: None,
+            wide: sample_answered(true, &[]),
+            gated: sample_answered(true, &[]),
+            reaches_back: false,
+            bare: None,
+            wider: None,
+            raw: None,
+            answering: Vec::new(),
+            read: None,
+            in_private: None,
+            memories: Vec::new(),
+            concepts: Vec::new(),
+            nodes: Vec::new(),
+            kept: 0,
+            failed: Vec::new(),
+            need_ranks: Vec::new(),
+            asked: None,
+            cues_try,
+        }
+    }
+
+    #[test]
+    fn report_emits_both_wide_and_production_gated_arms() {
+        let q1 = sample_question("q1", "我上次去过哪");
+        let q2 = sample_question("q2", "我买过哪些植物");
+        let reaches = [
+            myriad_merope::remembering::reaches_back(&q1.question),
+            myriad_merope::remembering::reaches_back(&q2.question),
+        ];
+        assert_eq!(reaches, [true, false]);
+
+        let o1 = Outcome {
+            written: true,
+            plain: Some(sample_answered(false, &[])),
+            cued: Some(sample_answered(true, &["fact"])),
+            wide: sample_answered(true, &["fact"]),
+            gated: sample_answered(true, &["fact"]),
+            reaches_back: reaches[0],
+            bare: None,
+            wider: None,
+            raw: None,
+            answering: Vec::new(),
+            read: None,
+            in_private: None,
+            memories: Vec::new(),
+            concepts: Vec::new(),
+            nodes: Vec::new(),
+            kept: 1,
+            failed: Vec::new(),
+            need_ranks: Vec::new(),
+            asked: None,
+            cues_try: None,
+        };
+        let o2 = Outcome {
+            written: true,
+            plain: Some(sample_answered(false, &[])),
+            cued: Some(sample_answered(true, &["plant"])),
+            wide: sample_answered(true, &["plant"]),
+            gated: sample_answered(false, &[]),
+            reaches_back: reaches[1],
+            bare: None,
+            wider: None,
+            raw: None,
+            answering: Vec::new(),
+            read: None,
+            in_private: None,
+            memories: Vec::new(),
+            concepts: Vec::new(),
+            nodes: Vec::new(),
+            kept: 1,
+            failed: Vec::new(),
+            need_ranks: Vec::new(),
+            asked: None,
+            cues_try: None,
+        };
+        let rep = report(
+            &[q1, q2],
+            1,
+            &[
+                (sample_question("q1", ""), 0, o1),
+                (sample_question("q2", ""), 0, o2),
+            ],
+        );
+        assert_eq!(rep["scores"]["wide"]["accuracy"], 1.0);
+        assert_eq!(rep["scores"]["gated"]["accuracy"], 0.5);
+        assert_eq!(rep["scores"]["reachesBack"]["matched"], 1);
+        assert_eq!(rep["scores"]["reachesBack"]["total"], 2);
+        assert_eq!(rep["scores"]["reachesBack"]["rate"], 0.5);
+        assert_eq!(rep["rows"][0]["reachesBack"], true);
+        assert_eq!(rep["rows"][1]["reachesBack"], false);
+        assert_eq!(rep["rows"][1]["gated"]["correct"], false);
+    }
+
+    #[test]
+    fn report_summarizes_cues_tries_and_first_attempt_failure_rate() {
+        let q1 = sample_question("q1", "What do I drink?");
+        let q2 = sample_question("q2", "What do I drink?");
+        let q3 = sample_question("q3", "What do I drink?");
+        let q4 = sample_question("q4", "What do I drink?");
+        let report = report(
+            &[q1.clone(), q2.clone(), q3.clone(), q4.clone()],
+            1,
+            &[
+                (q1, 0, sample_outcome(Some(CuesTry::Cues))),
+                (q2, 0, sample_outcome(Some(CuesTry::Empty))),
+                (q3, 0, sample_outcome(Some(CuesTry::Unreadable))),
+                (q4, 0, sample_outcome(Some(CuesTry::Unanswered))),
+            ],
+        );
+        let tries = &report["scores"]["cuesTries"];
+        assert_eq!(tries["total"], 4);
+        assert_eq!(tries["cues"], 1);
+        assert_eq!(tries["empty"], 1);
+        assert_eq!(tries["unreadable"], 1);
+        assert_eq!(tries["unanswered"], 1);
+        assert_eq!(tries["firstAttemptFailedRate"], 0.5);
+    }
+
+    #[tokio::test]
+    async fn bench_cues_attempt_does_not_retry_and_classifies_outcomes() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let c = calls.clone();
+        let (kept, outcome) = super::ask_cues_attempt(|| {
+            c.fetch_add(1, Ordering::SeqCst);
+            async move { None }
+        })
+        .await;
+        assert!(kept.is_none());
+        assert_eq!(outcome, CuesTry::Unanswered);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        let (kept, outcome) =
+            super::ask_cues_attempt(|| async { Some("not json".to_string()) }).await;
+        assert!(kept.is_none());
+        assert_eq!(outcome, CuesTry::Unreadable);
+
+        let (kept, outcome) = super::ask_cues_attempt(|| async {
+            Some(r#"{"cues":[],"thorough":false,"lookBack":false,"aboutYou":false}"#.to_string())
+        })
+        .await;
+        assert!(kept.is_some());
+        assert_eq!(outcome, CuesTry::Empty);
+
+        let (kept, outcome) = super::ask_cues_attempt(|| async {
+            Some(
+                r#"{"cues":["turbinado sugar"],"thorough":false,"lookBack":false,"aboutYou":false}"#
+                    .to_string(),
+            )
+        })
+        .await;
+        assert!(kept.is_some());
+        assert_eq!(outcome, CuesTry::Cues);
+    }
 }

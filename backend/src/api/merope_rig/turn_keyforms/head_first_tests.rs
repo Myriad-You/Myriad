@@ -5,11 +5,12 @@ use std::{sync::Mutex, time::Duration};
 use serde_json::Value;
 
 use super::super::{
-    ApiError, JOB,
+    ApiError,
     body_turn::{BodySteps, Motion, keyed_behind},
     claim_job,
     figure::{alongside, plain},
     served::missing_job,
+    the_job,
     together::JOB_TESTS,
 };
 use super::*;
@@ -227,12 +228,12 @@ type Progress = (Phase, Stage, u8, u8);
 
 /// The job's phase and count, and its body's stage and count.
 fn progress() -> (Progress, Option<(Stage, u8, u8)>) {
-    let job = JOB.lock().unwrap();
-    let job = job.as_ref().expect("a job");
-    (
-        (job.phase, job.stage, job.done, job.total),
-        job.body.map(|body| (body.stage, body.done, body.total)),
-    )
+    the_job(|job| {
+        (
+            (job.phase, job.stage, job.done, job.total),
+            job.body.map(|body| (body.stage, body.done, body.total)),
+        )
+    })
 }
 
 /// The job's progress at each of `at`, milliseconds from now.
