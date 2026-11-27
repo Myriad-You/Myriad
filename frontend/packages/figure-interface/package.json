@@ -1,0 +1,48 @@
+{
+  "name": "@myriad/figure-interface",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "description": "What Myriad's site needs from @myriad/figure: the entries, names and types it uses, as declarations only. Every figure implementation the site can be built with provides them.",
+  "license": "AGPL-3.0-only",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts"
+    },
+    "./anime25drig": {
+      "types": "./src/anime25drig.d.ts"
+    },
+    "./events": {
+      "types": "./src/events.d.ts"
+    },
+    "./interaction": {
+      "types": "./src/interaction.d.ts"
+    },
+    "./motion": {
+      "types": "./src/motion.d.ts"
+    },
+    "./performance": {
+      "types": "./src/performance.d.ts"
+    },
+    "./rig": {
+      "types": "./src/rig.d.ts"
+    },
+    "./singing": {
+      "types": "./src/singing.d.ts"
+    },
+    "./speech": {
+      "types": "./src/speech.d.ts"
+    },
+    "./workbench": {
+      "types": "./src/workbench.d.ts"
+    },
+    "./contract": "./contract/index.ts"
+  },
+  "dependencies": {
+    "@myriad-you/figure-player": "github:Myriad-You/myriad-figure-player#dcb6183fbdbb3bbdbe4c779c7dc9589f9868041c"
+  },
+  "devDependencies": {
+    "@types/node": "26.5.1"
+  }
+}

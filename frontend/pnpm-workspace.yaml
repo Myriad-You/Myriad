@@ -29,9 +29,11 @@ shellEmulator: true
 
 # figure/ (Myriad-You/myriad-figure, a submodule like core/) is the 2.5D figure package.
 # tapp/runtime/ is the Tapp runtime every host shares.
+# packages/figure-interface/ declares what the site needs from @myriad/figure.
 packages:
   - .
   - ../figure
+  - packages/figure-interface
   - ../tapp/runtime
 
 overrides:

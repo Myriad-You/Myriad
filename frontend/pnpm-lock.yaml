@@ -98,6 +98,9 @@ importers:
       '@commitlint/config-conventional':
         specifier: ^21.2.4
         version: 21.2.4
+      '@myriad/figure-interface':
+        specifier: workspace:*
+        version: link:packages/figure-interface
       '@playwright/test':
         specifier: ^1.64.1
         version: 1.64.1
@@ -213,6 +216,16 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+
+  packages/figure-interface:
+    dependencies:
+      '@myriad-you/figure-player':
+        specifier: github:Myriad-You/myriad-figure-player#dcb6183fbdbb3bbdbe4c779c7dc9589f9868041c
+        version: https://codeload.github.com/Myriad-You/myriad-figure-player/tar.gz/dcb6183fbdbb3bbdbe4c779c7dc9589f9868041c
+    devDependencies:
+      '@types/node':
+        specifier: 26.5.1
+        version: 26.5.1
 
 packages:
 
