@@ -1,8 +1,9 @@
 // Every declaration the entries name, with what they refer to. Behaviour types keep only the
 // members the site uses; data types are whole. Rendering types come from @myriad-you/figure-player.
-import type { Anime25DDriver, Anime25DPlayback, Anime25DPlaybackDocument, Anime25DPlaybackV7, Anime25DTouchRegion, MeropeRigManifest, Anime25DDebugSnapshot as StageDebugSnapshot, VisibleTouchHit } from '@myriad-you/figure-player'
-import type { Anime25DTurnKeyforms, ArmVariantGesture, CharacterAssetProfile, RigBone, RigMotionProfile, RigOutfitProfile, RigPoint, RigSemanticAnchor, RigSemantics, RigSize, RigSpatialProfile } from '@myriad-you/figure-player/internals'
-import type { PoseCorrection, PoseCorrectionStageSource, PoseCorrectionSurface } from '@myriad-you/figure-player/workbench'
+import type { Anime25DDriver, Anime25DPlaybackDocument, Anime25DTouchRegion, Anime25DDebugSnapshot as StageDebugSnapshot, VisibleTouchHit } from '@myriad-you/figure-player'
+import type { AuthoredExpressionKind, BodyControl, BodyPose, CharacterAssetProfile, MeropeActivity, MeropePerformanceEventDetail, MeropeRigImportSource, MeropeRigManifest, PerformanceBaseline, PerformanceDirective, RigBehaviorFunction, RigBehaviorPhase, RigMotionStyle, RigPoint, RigSize, RigStateSummary, ScoreMove } from '@myriad-you/figure-player/contract'
+import type { Anime25DTurnKeyforms, ArmVariantGesture } from '@myriad-you/figure-player/internals'
+import type { PoseCorrection, PoseCorrectionStagePick, PoseCorrectionStageSource, PoseCorrectionSurface } from '@myriad-you/figure-player/workbench'
 
 export declare function activityExpressionDriverPatch(thinking: boolean): Readonly<ActivityExpressionDriver>
 
@@ -102,23 +103,6 @@ export declare function dispatchMeropeState(channel: FigureChannel, value: unkno
 
 export declare const MEROPE_STATE_EVENT: 'merope-state'
 
-export interface MeropePerformanceEventDetail {
-  text: string
-  source: 'reply' | 'proactive' | 'interaction' | 'preview'
-  messageId?: string
-  runId?: string
-  generation?: number
-  motionIntentId?: string
-  performance?: PerformanceDirective
-}
-
-export declare function meropeStateEventDetail(value: unknown): MeropeStateEventDetail | null
-
-export interface MeropeStateEventDetail {
-  mood: MoodTransition
-  activity: string
-}
-
 /** A slow GET must not undo a newer live event */
 export declare function resolveLoadedMeropeAffect(channel: FigureChannel, snapshot: {
   mood?: number
@@ -126,8 +110,6 @@ export declare function resolveLoadedMeropeAffect(channel: FigureChannel, snapsh
   moodRevision?: number
   activity?: string
 }): { mood: number; arousal: number }
-
-export declare function sanitizePerformanceDirective(value: unknown): PerformanceDirective | null
 
 export declare function bindCharacterTouch(canvas: HTMLCanvasElement, hit: (x: number, y: number) => { region: TouchRegion | null } | null, emit: (touch: TouchObservation, now: number) => void, cancelReaction: () => void): CharacterTouchBinding
 
@@ -283,170 +265,6 @@ export declare class TouchMotionSource {
   release(owner?: string, preserveEncounter?: boolean): void
 }
 
-export type BodyControl = 'lovestruck' | 'sparkles' | 'blush' | 'dizzy' | 'cry' | 'angry' | 'speechless' | 'maniac' | 'silly' | 'headNod' | 'headTurn' | 'gazeHorizontal' | 'gazeVertical' | 'eyeOpenLeft' | 'eyeOpenRight' | 'leftArmRaise' | 'rightArmRaise' | 'torsoRise' | 'browLift' | 'eyeWide' | 'headTilt' | 'torsoTurn' | 'torsoLean' | 'torsoPitch' | 'leftArmSwing' | 'rightArmSwing' | 'eyeSmile' | 'browTiltLeft' | 'browTiltRight' | 'mouthSmile' | 'mouthOpen' | 'mouthWide' | 'mouthRound' | 'mouthNarrow' | 'mouthSeal' | 'hairSway' | 'chestSway' | 'musicNotes' | 'questionMark' | 'sleepZ' | 'leftHandWave' | 'leftHandPoint' | 'leftHandChest' | 'leftHandChin' | 'rightHandWave' | 'rightHandPoint' | 'rightHandChest' | 'rightHandChin'
-
-export interface BodyPose {
-  targets: Partial<Record<BodyControl, number>>
-  transitionMs: number
-  /** Zero keeps the pose until revised or explicitly released. */
-  holdMs: number
-}
-
-export type MeropeActivity = 'idle' | 'thinking' | 'talking'
-
-export declare function moodBand(mood: number | undefined, arousal?: number | undefined): MoodBand
-
-export type MoodBand = 'floor' | 'sad' | 'tense' | 'calm' | 'excited'
-
-export type MoodBandName = 'floor' | 'sad' | 'tense' | 'calm' | 'excited'
-
-export interface MoodTransition {
-  before: number
-  after: number
-  arousalBefore?: number
-  arousalAfter?: number
-  bandBefore: MoodBandName
-  bandAfter: MoodBandName
-  delta: number
-  cause: string
-  revision: number
-}
-
-export interface PerformanceBaseline {
-  expression: 'withdrawn' | 'subdued' | 'steady' | 'warm' | 'tense'
-  posture: 'closed' | 'neutral' | 'open'
-  motionEnergy: number
-  attention: number
-  pose?: BodyPose
-  /** The contract's look her face holds (facePresets), whose life the body plays. */
-  face?: string
-  /** How she gets from the look before to this one (faceShifts); naturally without. */
-  shift?: string
-  /** Looks passed through on the way, in order and without stopping (facePresets names, or 'plain'). */
-  via?: string[]
-}
-
-export interface PerformanceCue {
-  intent: 'lovestruck' | 'greet' | 'respond' | 'question' | 'delight' | 'emphasize' | 'listen' | 'notify' | 'think' | 'dizzy' | 'cry' | 'angry' | 'speechless' | 'maniac' | 'silly'
-  atMs: number
-  intensity: number
-  tempo: number
-  fadeInMs: number
-  fadeOutMs: number
-  holdMs?: number
-  interrupt: 'replace' | 'queue' | 'if-lower'
-}
-
-export interface PerformanceDirective {
-  phrases?: SpeechPhrase[]
-  /** Beats on the reply's words or on time: acting that unfolds beat by beat. */
-  score?: ScoreBeat[]
-  /** Standing acting only: the score plays again each this many milliseconds. */
-  loopMs?: number
-  phase: PerformancePhase
-  moodRevision: number
-  motionStyle: RigMotionStyle
-  plan: {
-    baseline?: PerformanceBaseline
-    cues: PerformanceCue[]
-  }
-}
-
-export type PerformancePhase = 'reaction' | 'delivery' | 'outcome' | 'proactive' | 'mood' | 'presence'
-
-export type RigBeatPhase = 'rest' | 'downbeat' | 'pulse' | 'hold'
-
-export type RigBehaviorFunction = | 'orient'
-  | 'attend'
-  | 'acknowledge'
-  | 'uncertain'
-  | 'prepareSpeech'
-  | 'emphasize'
-  | 'surprise'
-  | 'celebrate'
-  | 'relief'
-  | 'entrain'
-  | 'express'
-
-export type RigBehaviorPhase = | 'planned'
-  | 'preparing'
-  | 'committed'
-  | 'holding'
-  | 'recovering'
-  | 'complete'
-  | 'rejected'
-
-export type RigMotionStyle = 'restrained' | 'even' | 'open'
-
-export type RigMusicEnergy = 'quiet' | 'soft' | 'present' | 'strong'
-
-export interface RigStateSummary {
-  expression: 'withdrawn' | 'subdued' | 'steady' | 'warm' | 'tense'
-  posture: 'closed' | 'neutral' | 'open'
-  acting: { intent: PerformanceCue['intent'] | null; phase: PerformancePhase | 'idle'; function: RigBehaviorFunction | null; lifecycle: RigBehaviorPhase | null; remainingMs: number; }
-  activeBehaviors: {
-    function: RigBehaviorFunction
-    lifecycle: RigBehaviorPhase
-    source: string
-    resources: string[]
-    remainingMs: number
-  }[]
-  owners: {
-    mouth: string
-    expression: string
-    gaze: string
-    headBody: string
-  }
-  speaking: boolean
-  singing: boolean
-  musicPlaying: boolean
-  music?: {
-    energy: RigMusicEnergy
-    beat: RigBeatPhase
-  }
-  capabilities: string[]
-  recentIntents: ('lovestruck' | 'greet' | 'respond' | 'question' | 'delight' | 'emphasize' | 'listen' | 'notify' | 'think' | 'dizzy' | 'cry' | 'angry' | 'speechless' | 'maniac' | 'silly')[]
-  motionStyle: RigMotionStyle
-  pageVisible: boolean
-  faceVisible: boolean
-  /** The look her face holds now (facePresets), for the director to change from. */
-  face?: string
-}
-
-/**
- * One beat of the director's score: on words of the reply as they are
- * spoken (`text`, shifted by `offsetMs`), or `atMs` after the score arrives.
- */
-export interface ScoreBeat {
-  text?: string
-  atMs: number
-  offsetMs: number
-  /** Targets reached from this moment and held until revised or `holdMs` passes. */
-  pose?: BodyPose
-  move?: ScoreMove
-}
-
-export type ScoreDirection = 'left' | 'right' | 'up-left' | 'up' | 'down' | 'up-right' | 'down-left' | 'down-right'
-
-/** A movement that goes and comes back by itself, such as a nod. */
-export interface ScoreMove {
-  kind: ScoreMoveKind
-  side?: ScoreSide
-  direction?: ScoreDirection
-  amount: number
-  count: number
-  tempo: number
-}
-
-export type ScoreMoveKind = 'startle' | 'nod' | 'blink' | 'glance' | 'bounce' | 'sigh' | 'shake' | 'wink' | 'beat' | 'shrug'
-
-export type ScoreSide = 'left' | 'right' | 'both'
-
-export interface SpeechPhrase {
-  text: string
-  intent: 'ask' | 'hesitate' | 'tease' | 'explain' | 'check-in' | 'laugh' | 'none'
-}
-
 /**
  * A gesture arm the image model drew on the portrait: `side` is the arm it
  * changed on the picture, `hand` points on that hand and `keypoints` the pose
@@ -465,17 +283,6 @@ export interface ArmVariantSource {
 export declare function attachTurnKeyforms(file: Blob, keys: DocumentTurnKeyforms): void
 
 /**
- * Expression variants of the portrait redrawn by an image model: the same
- * picture with only the face changed. Each one is cut against the face layer
- * into the replacement parts the rig already fades between. A redraw replaces
- * procedural glyphs and the generic closed eyes the rigger ships; only parts
- * the artist drew in the PSD win over it.
- */
-export declare const AUTHORED_EXPRESSION_KINDS: readonly ['cry', 'squeeze', 'close']
-
-export type AuthoredExpressionKind = 'cry' | 'squeeze' | 'close'
-
-/**
  * The joints the backend found on a master portrait (DWPose, COCO-WholeBody):
  * `[x, y, score]` per keypoint, in that portrait's own pixels.
  */
@@ -488,35 +295,6 @@ export interface DetectedSkeleton {
 }
 
 export declare function diagnoseRig(manifest: MeropeRigManifest, motionExposure?: readonly MotionExposureFinding[]): RigDiagnosticReport
-
-export declare function isDocumentTurnKeyforms(value: unknown): value is DocumentTurnKeyforms
-
-export declare function isLiveMeropeManifest(value: unknown): value is MeropeRigManifest
-
-export declare function isRigManifest(value: unknown): value is MeropeRigManifest
-
-export interface MeropeRigImportSource {
-  rigIrVersion?: number
-  characterAssetContractVersion: number
-  /** Absent on a bust. */
-  profile?: CharacterAssetProfile
-  sourceMasterAssetId: string
-  sourceGenerationFingerprint?: string
-  canvas: RigSize
-  atlas: {
-    id: string
-    width: number
-    height: number
-  }
-  bones: RigBone[]
-  layers: RigLayerSource[]
-  motionProfile?: RigMotionProfile
-  outfitProfile?: RigOutfitProfile
-  semanticAnchors?: Record<string, RigSemanticAnchor>
-  semantics?: RigSemantics
-  spatialProfile?: RigSpatialProfile
-  anime25dPlayback?: Anime25DPlaybackV7
-}
 
 export type PreparedRigPsdImport = PreparedAnime25DRigImport
 
@@ -557,9 +335,6 @@ export interface RigPsdImportOptions {
   /** The picture the decomposition was cut from when it is not the master itself (an enlarged figure's). */
   referenceUrl?: string
 }
-
-/** Same atlas + contract → keep the mounted player instead of tearing WebGL down. */
-export declare function sameLiveFaceRuntime(current: MeropeRigManifest | null | undefined, next: MeropeRigManifest | null | undefined): boolean
 
 export interface SpeechArticulation {
   energy: number | null
@@ -749,22 +524,11 @@ export interface Anime25DPsdReconciliation {
   heatmap: { width: number; height: number; data: Uint8ClampedArray } | null
 }
 
-export declare function appendPoseCorrectionPatch(current: readonly PoseCorrection[], candidate: PoseCorrection): { corrections: PoseCorrection[]; index: number; patch: number } | null
-
 export declare const BODY_CONTROL_DRIVERS: { readonly headTurn: 'headYaw'; readonly headNod: 'headPitch'; readonly headTilt: 'headRoll'; readonly torsoTurn: 'torsoTurn'; readonly torsoLean: 'bodyLean'; readonly torsoRise: 'bodyLift'; readonly torsoPitch: 'bodyPitch'; readonly gazeHorizontal: 'gazeX'; readonly gazeVertical: 'gazeY'; readonly leftArmRaise: 'armRaiseL'; readonly rightArmRaise: 'armRaiseR'; readonly leftArmSwing: 'armSwingL'; readonly rightArmSwing: 'armSwingR'; readonly eyeOpenLeft: 'lidL'; readonly eyeOpenRight: 'lidR'; readonly eyeSmile: 'eyeSmile'; readonly eyeWide: 'eyeWide'; readonly browLift: 'browLift'; readonly browTiltLeft: 'browTiltL'; readonly browTiltRight: 'browTiltR'; readonly mouthSmile: 'lipCurve'; readonly mouthOpen: 'jaw'; readonly mouthWide: 'mouthWide'; readonly mouthRound: 'mouthRound'; readonly mouthNarrow: 'mouthNarrow'; readonly mouthSeal: 'mouthSeal'; readonly angry: 'anger'; readonly speechless: 'speechless'; readonly maniac: 'maniac'; readonly silly: 'silly'; readonly lovestruck: 'lovestruck'; readonly cry: 'eyeCry'; readonly dizzy: 'eyeDizzy'; readonly hairSway: 'fhAmp'; readonly chestSway: 'bust'; readonly musicNotes: 'accentNotes'; readonly questionMark: 'accentQuestion'; readonly sleepZ: 'accentSleep'; readonly sparkles: 'accentSparkle'; readonly blush: 'accentBlush'; readonly leftHandWave: 'handWaveL'; readonly leftHandPoint: 'handPointL'; readonly leftHandChest: 'handChestL'; readonly leftHandChin: 'handChinL'; readonly rightHandWave: 'handWaveR'; readonly rightHandPoint: 'handPointR'; readonly rightHandChest: 'handChestR'; readonly rightHandChin: 'handChinR'; }
-
-/** Patch bounds the package accepts. */
-export declare function clampPoseCorrectionPatch(patch: { x: number; y: number; radiusX: number; radiusY: number; dx: number; dy: number; }): { x: number; y: number; radiusX: number; radiusY: number; dx: number; dy: number; }
-
-/** Patches added, removed or changed since the saved package. */
-export declare function countPoseCorrectionChanges(baseline: readonly PoseCorrection[], draft: readonly PoseCorrection[]): number
 
 export declare const CRY_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriver>>
 
 export declare const DIZZY_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriver>>
-
-/** Whole looks of her face: each control at one of its named tiers. */
-export declare const FACE_PRESETS: Record<string, { description: string; targets: Record<string, string>; life?: RawFaceLife; }>
 
 export declare const LOVESTRUCK_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriver>>
 
@@ -779,38 +543,6 @@ export declare const MANIAC_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriver>>
  */
 export declare function mappedControlValue(key: BodyControl, value: number): number
 
-/** The named region a patch sits on, when one is close enough to name it by. */
-export declare function nearestPoseCorrectionRegion(playback: Anime25DPlayback, surface: Surface, point: Point): PoseCorrectionRegion | null
-
-/** A still patch at a point, its reach sized to the feature it sits on. */
-export declare function newPoseCorrectionPatch(playback: Anime25DPlayback, surface: Surface, point: Point): { x: number; y: number; radiusX: number; radiusY: number; dx: number; dy: number; }
-
-export declare const POSE_CORRECTION_REGIONS: readonly ['leftEye', 'rightEye', 'mouth', 'chin', 'frontCrown', 'rearCrown']
-
-/**
- * The pose a correction made here keys on: the head turn and nod held now,
- * plus the eye or mouth the patch sits on when that is closed or open. A
- * hair patch never waits for a blink.
- */
-export declare function poseCorrectionCorner(playback: Anime25DPlayback, driver: Anime25DDriver, surface: Surface, point: Point): { at: PoseCorrection['at']; } | { problem: PoseCorrectionProblem; }
-
-export declare function poseCorrectionPreviewDriver(correction: PoseCorrection, current?: Anime25DDriver): Anime25DDriver
-
-export type PoseCorrectionRegion = 'leftEye' | 'rightEye' | 'mouth' | 'chin' | 'frontCrown' | 'rearCrown'
-
-/** Where a named region sits on this asset, in head radii, if the asset has it. */
-export declare function poseCorrectionRegionPoint(playback: Anime25DPlayback, region: PoseCorrectionRegion): (Point & { surface: Surface }) | null
-
-/** A correctable point under the pointer: its surface and rest place in head radii. */
-export interface PoseCorrectionStagePick {
-  surface: PoseCorrectionSurface
-  x: number
-  y: number
-}
-
-/** The pose part way from facing front to a correction's own pose. */
-export declare function poseCorrectionTransitionDriver(correction: PoseCorrection, current: Anime25DDriver, t: number): Anime25DDriver
-
 /** Preview outranks every live source on this coordinator only */
 export declare class PreviewMotionScope {
   take(channels?: readonly MotionChannel[]): void
@@ -824,9 +556,6 @@ export declare const SPEECHLESS_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriv
 export declare const SQUEEZE_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriver>>
 
 export declare const THINKING_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriver>>
-
-/** A named tier ("clear", "-slight") as a control value, the way the director's are read. */
-export declare function tierExtent(control: BodyControl, tier: string): number | null
 
 /**
  * The page's line to a live figure. The page dispatches performances, speech,
@@ -1155,19 +884,6 @@ export interface RigDiagnosticReport {
   }
 }
 
-export interface RigLayerSource {
-  id: string
-  textureId: string
-  textureBounds: RigRect
-  zIndex: number
-  opacity: number
-  slot?: string
-  variant?: string
-  contours: RigPoint[][]
-  mesh?: RigLayerMeshSource
-  boneHandles: RigBoneHandle[]
-}
-
 export interface PreparedAnime25DRigImport {
   atlas: Blob
   analysisReference: Blob
@@ -1243,23 +959,9 @@ export interface Anime25DPsdDefectRegion {
   role: string | null
 }
 
-export interface RawFaceLife {
-  periodMs: number
-  beats: Array<{ atMs: number; pose?: { targets: Record<string, string> }; move?: Record<string, unknown> }>
-}
-
-export type Surface = 'head' | 'front-hair' | 'back-hair'
-
-export interface Point {
-  x: number
-  y: number
-}
-
-export type PoseCorrectionProblem = 'needsTurn' | 'needsSecond'
-
 export type MotionChannel = 'expression' | 'mouth' | 'gaze' | 'headBody'
 
-export type FigureErrorCode = 'anime25dPlaybackFailed' | 'anime25dWebglFailed' | 'psdNeedAsset' | 'psdTooLarge' | 'anime25dMissingFace' | 'anime25dMissingLayer' | 'anime25dContractMissing' | 'anime25dPartCount' | 'anime25dBoneLimit' | 'anime25dLayerTooWide' | 'anime25dAtlasOverflow' | 'rigAtlasFailed' | 'canvasUnsupported' | 'psdPreviewFailed' | 'psdLayerCountInvalid' | 'psdSpecInvalid'
+export type FigureErrorCode = 'anime25dPlaybackFailed' | 'anime25dPlaybackInvalid' | 'anime25dPlaybackUnconvertible' | 'anime25dPlaybackVersion' | 'anime25dPoseVersion' | 'anime25dWebglFailed' | 'psdNeedAsset' | 'psdTooLarge' | 'anime25dMissingFace' | 'anime25dMissingLayer' | 'anime25dContractMissing' | 'anime25dPartCount' | 'anime25dBoneLimit' | 'anime25dLayerTooWide' | 'anime25dAtlasOverflow' | 'rigAtlasFailed' | 'canvasUnsupported' | 'psdPreviewFailed' | 'psdLayerCountInvalid' | 'psdSpecInvalid'
 
 export type FigureErrorParams = Record<string, string | number>
 
@@ -1402,8 +1104,6 @@ export interface SingingCue {
   emphasis: boolean
 }
 
-export declare function compileSingingTimeline(input: SingingTimelineInput): Promise<SingingCue[]>
-
 /**
  * What a fading part uncovers. A decomposed portrait composites back to the
  * original at rest, yet a blink or a spoken vowel fades a part off the skin
@@ -1425,19 +1125,6 @@ export interface RigDiagnostic {
 }
 
 export type RigRect = RigPoint & RigSize
-
-/** Legacy contour-only sources remain unchanged. */
-export interface RigLayerMeshSource {
-  vertices: RigPoint[]
-  indices: number[]
-}
-
-export interface RigBoneHandle {
-  boneId: string
-  start: RigPoint
-  end: RigPoint
-  falloff: number
-}
 
 export type SpeechGesture = 'hesitate' | 'tease' | 'check-in' | 'laugh' | 'question' | 'contrast'
 
@@ -1467,9 +1154,3 @@ export interface SingingApply {
 export type BehaviorPhase = RigBehaviorPhase
 
 export type RigDiagnosticSeverity = 'error' | 'warning' | 'info'
-
-/** The look with no preset: her own face. */
-export declare const PLAIN_FACE: 'plain'
-
-/** The moves a score is written in, and the controls each one moves. */
-export declare const SCORE_MOVES: Record<ScoreMoveKind, { controls: BodyControl[]; description: string; }>

@@ -1,7 +1,10 @@
 // @myriad/figure/workbench: what the site uses from this entry.
-export type { Anime25DDebugSnapshot, Anime25DPsdDefectKind, Anime25DPsdReconciliation, PoseCorrectionRegion, PoseCorrectionStagePick } from './declarations'
-export { ANGRY_EXPRESSION_PRESET, ANIME25D_PSD_DEFECT_COLORS, ANIME25D_PSD_REPAIRED_COLOR, appendPoseCorrectionPatch, BODY_CONTROL_DRIVERS, clampPoseCorrectionPatch, countPoseCorrectionChanges, CRY_EXPRESSION_PRESET, DIZZY_EXPRESSION_PRESET, FACE_PRESETS, LOVESTRUCK_EXPRESSION_PRESET, MANIAC_EXPRESSION_PRESET, mappedControlValue, nearestPoseCorrectionRegion, newPoseCorrectionPatch, PLAIN_FACE, POSE_CORRECTION_REGIONS, poseCorrectionCorner, poseCorrectionPreviewDriver, poseCorrectionRegionPoint, poseCorrectionTransitionDriver, PreviewMotionScope, SCORE_MOVES, SILLY_EXPRESSION_PRESET, SPEECHLESS_EXPRESSION_PRESET, SQUEEZE_EXPRESSION_PRESET, THINKING_EXPRESSION_PRESET, tierExtent } from './declarations'
+export type { Anime25DDebugSnapshot, Anime25DPsdDefectKind, Anime25DPsdReconciliation } from './declarations'
+export { ANGRY_EXPRESSION_PRESET, ANIME25D_PSD_DEFECT_COLORS, ANIME25D_PSD_REPAIRED_COLOR, BODY_CONTROL_DRIVERS, CRY_EXPRESSION_PRESET, DIZZY_EXPRESSION_PRESET, LOVESTRUCK_EXPRESSION_PRESET, MANIAC_EXPRESSION_PRESET, mappedControlValue, PreviewMotionScope, SILLY_EXPRESSION_PRESET, SPEECHLESS_EXPRESSION_PRESET, SQUEEZE_EXPRESSION_PRESET, THINKING_EXPRESSION_PRESET } from './declarations'
 export type { Anime25DDriver } from '@myriad-you/figure-player'
+export { FACE_PRESETS, PLAIN_FACE, SCORE_MOVES, tierExtent } from '@myriad-you/figure-player/contract'
 export type { Anime25DPart, Anime25DPartProfile } from '@myriad-you/figure-player/internals'
 export type { Anime25DMotionEnvelopeProbeId, PoseCorrectionV7 } from '@myriad-you/figure-player/workbench'
 export { ANIME25D_MOTION_ENVELOPE_PROBES, ANIME25D_PROJECT_NAME, ANIME25D_PROJECT_URL, clientDeltaToPoseCorrection, CREDITED_AUTHORS, isPoseCorrections, pickPoseCorrectionAtClient, poseCorrectionStageRect, poseCorrectionsToV7, projectPoseCorrectionToClient, WORKBENCH_DRIVER } from '@myriad-you/figure-player/workbench'
+export type { PoseCorrectionRegion, PoseCorrectionStagePick } from '@myriad-you/figure-player/workbench'
+export { appendPoseCorrectionPatch, clampPoseCorrectionPatch, countPoseCorrectionChanges, nearestPoseCorrectionRegion, newPoseCorrectionPatch, POSE_CORRECTION_REGIONS, poseCorrectionCorner, poseCorrectionPreviewDriver, poseCorrectionRegionPoint, poseCorrectionTransitionDriver } from '@myriad-you/figure-player/workbench'
