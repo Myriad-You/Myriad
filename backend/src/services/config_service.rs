@@ -182,6 +182,7 @@ standard_fields! {
         psn_npsso,
         see_through_hf_token,
         see_through_space,
+        merope_persona_token,
         qq_bot_app_secret,
         telegram_bot_token,
         discord_bot_token,
@@ -521,6 +522,16 @@ impl ConfigService {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .and_then(crate::services::merope_rig::normalize_asset_id);
+        }
+        if let Some(v) = map.get("merope_persona_url") {
+            // Kept as stored, even when it no longer passes the URL policy:
+            // `persona_style::configured` then reports a configuration error
+            // instead of drawing in this build's own style.
+            config.merope_persona_url = v
+                .as_str()
+                .map(str::trim)
+                .filter(|url| !url.is_empty())
+                .map(str::to_string);
         }
 
         // Tripo 3D 独立配置
@@ -1610,6 +1621,57 @@ mod tests {
             json!("  "),
         )]));
         assert_eq!(empty.see_through_hf_token, None);
+    }
+
+    #[test]
+    fn parses_merope_persona_service_from_database_config() {
+        assert!(crate::services::data_key::is_sensitive_config_key(
+            "merope_persona_token"
+        ));
+        assert!(!crate::services::data_key::is_sensitive_config_key(
+            "merope_persona_url"
+        ));
+        let configured = ConfigService::parse_config(HashMap::from([
+            (
+                "merope_persona_url".into(),
+                json!(" http://merope-persona:8080 "),
+            ),
+            ("merope_persona_token".into(), json!("persona-test-token")),
+        ]));
+        assert_eq!(
+            configured.merope_persona_url.as_deref(),
+            Some("http://merope-persona:8080")
+        );
+        assert_eq!(
+            configured.merope_persona_token.as_deref(),
+            Some("persona-test-token")
+        );
+        // A stored URL the policy refuses is read back as it is, so the
+        // style source reports it instead of falling back to builtin.
+        let refused = ConfigService::parse_config(HashMap::from([
+            ("merope_persona_url".into(), json!("http://169.254.169.254")),
+            ("merope_persona_token".into(), json!("persona-test-token")),
+        ]));
+        assert_eq!(
+            refused.merope_persona_url.as_deref(),
+            Some("http://169.254.169.254")
+        );
+        assert_eq!(
+            crate::services::persona_style::configured(&refused).unwrap_err(),
+            crate::services::persona_style::PersonaStyleError::InvalidUrl
+        );
+        for empty in [json!(""), json!("  "), json!(42)] {
+            let parsed = ConfigService::parse_config(HashMap::from([(
+                "merope_persona_url".into(),
+                empty.clone(),
+            )]));
+            assert_eq!(parsed.merope_persona_url, None, "{empty}");
+        }
+        let empty = ConfigService::parse_config(HashMap::from([(
+            "merope_persona_token".into(),
+            json!(" "),
+        )]));
+        assert_eq!(empty.merope_persona_token, None);
     }
 
     #[test]

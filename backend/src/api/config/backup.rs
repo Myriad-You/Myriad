@@ -368,6 +368,18 @@ pub(crate) fn build_settings_restore_plan(backup: &SettingsBackup) -> SettingsRe
             Err(_) => invalid_keys.push(entry_key),
         }
     }
+    // The portrait style token belongs to the URL it came with: when that
+    // URL fails the policy and is skipped, its token is skipped too, so the
+    // stored URL keeps the stored token and no backup's token is bound to an
+    // origin it was not given for.
+    if invalid_keys.iter().any(|key| key == "merope_persona_url")
+        && let Some(index) = entries
+            .iter()
+            .position(|entry| entry.key == "merope_persona_token")
+    {
+        entries.remove(index);
+        invalid_keys.push("merope_persona_token".to_string());
+    }
 
     entries.sort_by(|left, right| left.key.cmp(&right.key));
     ignored_keys.sort();
@@ -669,6 +681,47 @@ async fn bind_restored_media(
     Ok(unresolved)
 }
 
+/// Settings restore: a restored service URL whose origin differs from the
+/// stored one, with no token in the same backup, clears the stored token.
+pub(crate) async fn bind_restored_persona_style_token(
+    txn: &impl sea_orm::ConnectionTrait,
+    entries: &mut Vec<SettingsBackupEntry>,
+) -> Result<(), sea_orm::DbErr> {
+    let Some(url) = entries
+        .iter()
+        .find(|entry| entry.key == "merope_persona_url")
+        .map(|entry| entry.value.as_str().unwrap_or_default().to_string())
+    else {
+        return Ok(());
+    };
+    if entries
+        .iter()
+        .any(|entry| entry.key == "merope_persona_token")
+    {
+        return Ok(());
+    }
+    let current: Option<String> = txn
+        .query_one_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT value #>> '{}' AS url FROM configurations WHERE key = 'merope_persona_url'"
+                .to_string(),
+        ))
+        .await?
+        .and_then(|row| row.try_get::<Option<String>>("", "url").ok().flatten());
+    if let Some(cleared) = crate::services::persona_style::token_after_url_change(current.as_deref(), Some(&url), None) {
+        entries.push(SettingsBackupEntry {
+            key: "merope_persona_token".into(),
+            value: serde_json::json!(cleared),
+            schema_version: 1,
+            description: None,
+            category: None,
+            is_encrypted: Some(true),
+            is_public: Some(false),
+        });
+    }
+    Ok(())
+}
+
 /// Write restored settings in the caller's transaction, media bindings included.
 /// Returns the local media citations left unresolved.
 pub(crate) async fn write_restored_configurations(
@@ -678,6 +731,10 @@ pub(crate) async fn write_restored_configurations(
 ) -> Result<Vec<UnresolvedRestoredMedia>, RestoreWriteError> {
     // Entries come from `build_settings_restore_plan`, which already dropped
     // settings failing their save policy; nothing here publishes those.
+    // A restored portrait style service URL of another origin, without its
+    // token in the same backup, clears the stored token: the token is bound
+    // to the origin it was given for.
+    bind_restored_persona_style_token(txn, &mut entries).await?;
     let unresolved = bind_restored_media(txn, &mut entries, origins)
         .await
         .map_err(RestoreWriteError::Media)?;
@@ -1943,6 +2000,56 @@ mod settings_backup_tests {
         assert_eq!(
             sanitize_wallpaper_url("https://user:pass@cdn.example.com/a.jpg"),
             None
+        );
+    }
+
+    /// A restored portrait style URL that fails the policy is skipped, and
+    /// the token that came with it is skipped too: the stored pair stays as
+    /// it was, and the preview names both.
+    #[test]
+    fn restore_plan_skips_the_style_token_with_a_style_url_failing_the_policy() {
+        let plan_for = |url: &str| {
+            build_settings_restore_plan(&backup_with_entries(vec![
+                SettingsBackupEntry {
+                    value: json!(url),
+                    ..entry("merope_persona_url")
+                },
+                SettingsBackupEntry {
+                    value: json!("restored-token-0123456789"),
+                    ..entry("merope_persona_token")
+                },
+            ]))
+        };
+        for refused in [
+            "http://169.254.169.254",
+            "http://[fd00:ec2::254]",
+            "http://persona.example.com",
+        ] {
+            let plan = plan_for(refused);
+            assert!(
+                !plan
+                    .entries
+                    .iter()
+                    .any(|e| e.key.starts_with("merope_persona_")),
+                "{refused}"
+            );
+            assert_eq!(
+                plan.preview.invalid_keys,
+                vec!["merope_persona_token", "merope_persona_url"],
+                "{refused}"
+            );
+        }
+        let plan = plan_for("https://persona.example.com/");
+        assert_eq!(
+            plan.entries
+                .iter()
+                .filter(|e| e.key.starts_with("merope_persona_"))
+                .map(|e| (e.key.as_str(), e.value.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("merope_persona_token", json!("restored-token-0123456789")),
+                ("merope_persona_url", json!("https://persona.example.com")),
+            ]
         );
     }
 

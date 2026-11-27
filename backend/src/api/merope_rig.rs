@@ -37,6 +37,9 @@ mod portrait_upload;
 mod pose;
 mod skeleton;
 mod staged_parts;
+mod style_source;
+#[cfg(test)]
+mod style_source_tests;
 mod turn_keyforms;
 mod turns;
 mod upright;
@@ -121,6 +124,14 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
             post(portrait_upload::upload_portrait).layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
         )
         .route("/portrait/upright", post(upright::draw_upright_portrait))
+        .route(
+            "/persona-style",
+            get(style_source::get_persona_style).patch(style_source::update_persona_style),
+        )
+        .route(
+            "/persona-style/probe",
+            post(style_source::probe_persona_style),
+        )
         .route(
             "/see-through/status",
             get(decompose::get_see_through_status),
@@ -269,6 +280,26 @@ fn portrait_generation_provider_error(error: image_generation::ImageGenerationEr
             StatusCode::BAD_GATEWAY
         },
         Json(json!({ "error": error.to_string(), "code": code })),
+    )
+}
+
+/// A recipe that did not come. Never says where the service is, what token
+/// it was sent, or what it answered.
+fn persona_style_error(error: crate::services::persona_style::PersonaStyleError) -> ApiError {
+    use crate::services::persona_style::PersonaStyleError;
+    let status = match error {
+        PersonaStyleError::NotConfigured | PersonaStyleError::InvalidUrl => {
+            StatusCode::PRECONDITION_REQUIRED
+        }
+        PersonaStyleError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+        PersonaStyleError::Unauthorized | PersonaStyleError::InvalidResponse(_) => {
+            StatusCode::BAD_GATEWAY
+        }
+    };
+    tracing::error!(code = error.code(), %error, "portrait style recipe failed");
+    (
+        status,
+        Json(json!({ "error": error.to_string(), "code": error.code() })),
     )
 }
 

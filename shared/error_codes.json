@@ -1808,6 +1808,12 @@
     "report_style_builtin_readonly",
     "report_style_limit",
     "report_style_not_found",
-    "tapp_contract_too_new"
+    "tapp_contract_too_new",
+    "persona_style_invalid_response",
+    "persona_style_not_configured",
+    "persona_style_token_invalid",
+    "persona_style_unauthorized",
+    "persona_style_unavailable",
+    "persona_style_url_invalid"
   ]
 }

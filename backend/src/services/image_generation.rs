@@ -717,6 +717,23 @@ pub(crate) async fn load_generated_bytes(
     Ok((bytes, media_type))
 }
 
+/// The endpoint and JSON body a non-OpenAI provider receives for these
+/// inputs, built the way `generate_image_provider` builds them; for tests
+/// that check what reaches a provider without sending it.
+#[cfg(test)]
+pub(crate) fn provider_request_for_test(
+    config: &ImageGenerationConfig,
+    prompt: &str,
+    width: u32,
+    height: u32,
+    references: &[ImageReference],
+    background: Option<ImageBackground>,
+) -> Result<(String, Value), ImageGenerationError> {
+    let urls: Vec<String> = references.iter().map(ImageReference::data_url).collect();
+    let urls: Vec<&str> = urls.iter().map(String::as_str).collect();
+    request_parts_with_background(config, prompt, width, height, &urls, background)
+}
+
 fn request_parts_with_background(
     config: &ImageGenerationConfig,
     prompt: &str,

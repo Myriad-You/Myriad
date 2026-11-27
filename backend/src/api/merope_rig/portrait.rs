@@ -2,10 +2,8 @@
 
 use axum::{Extension, Json, extract::State, http::StatusCode};
 use myriad_merope::{
-    CharacterAssetProfile, MEROPE_STYLE_REFERENCE_SHA256, MEROPE_VISUAL_SCHOOL,
-    MEROPE_VISUAL_SCHOOL_VERSION, build_character_asset_contract,
-    build_character_visual_edit_prompt, build_character_visual_prompt,
-    character_asset_contract_fingerprint,
+    CharacterAssetProfile, MEROPE_VISUAL_SCHOOL, RenderingProvenance,
+    build_character_asset_contract_with, character_asset_contract_fingerprint,
 };
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use serde::Deserialize;
@@ -13,23 +11,86 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::{
-    ApiResult, bad_request, internal_error, portrait_generation_config_error,
+    ApiResult, bad_request, internal_error, persona_style_error, portrait_generation_config_error,
     portrait_generation_provider_error, require_merope_enabled, require_owner,
 };
 use crate::{
     middleware::auth::Claims,
-    services::{agent::merope, image_generation, merope_rig},
+    services::{
+        agent::merope,
+        image_generation::{self, ImageReference},
+        merope_rig,
+        persona_style::{self, Drawing, SourceKind, StyleSource},
+    },
 };
 
-const MEROPE_STYLE_REFERENCE_BYTES: &[u8] =
-    include_bytes!("../../../assets/merope/style-reference.png");
+/// What one portrait is drawn with and recorded against, before anything is
+/// paid for: the recipe's prompt and references (or the portrait an edit
+/// starts from), and the contract built from the recipe's provenance.
+#[derive(Debug, Clone)]
+pub(super) struct DrawingPlan {
+    pub(super) prompt: String,
+    pub(super) references: Vec<ImageReference>,
+    pub(super) contract: Value,
+    pub(super) fingerprint: String,
+    pub(super) reference_role: &'static str,
+    pub(super) rendering: RenderingProvenance,
+    pub(super) source: SourceKind,
+}
 
-pub(super) fn merope_style_reference()
--> Result<image_generation::ImageReference, image_generation::ImageGenerationError> {
-    image_generation::ImageReference::new(
-        axum::body::Bytes::from_static(MEROPE_STYLE_REFERENCE_BYTES),
-        "image/png",
-    )
+/// The reference role a picture drawn in a recipe's style records.
+pub(super) fn style_reference_role(references: &[ImageReference]) -> &'static str {
+    if references.is_empty() {
+        "none"
+    } else {
+        "rendering-technique-only"
+    }
+}
+
+/// The bust master portrait's plan: drawn from the design, or (with
+/// `edit_anchor`) an edit of the current portrait.
+pub(super) async fn portrait_plan(
+    source: &StyleSource,
+    name: &str,
+    visual_profile: &Value,
+    notes: Option<&str>,
+    edit_anchor: Option<ImageReference>,
+) -> ApiResult<DrawingPlan> {
+    let drawing = if edit_anchor.is_some() {
+        Drawing::BustEdit {
+            notes: notes.unwrap_or(""),
+        }
+    } else {
+        Drawing::Bust {
+            name,
+            visual_profile,
+            notes,
+        }
+    };
+    let recipe = persona_style::recipe_for(source, drawing)
+        .await
+        .map_err(persona_style_error)?;
+    let prompt = recipe.prompt(drawing);
+    let (references, reference_role) = match edit_anchor {
+        Some(anchor) => (vec![anchor], "existing-portrait-identity-anchor"),
+        None => {
+            let references = recipe.style_references(drawing);
+            let role = style_reference_role(&references);
+            (references, role)
+        }
+    };
+    let contract =
+        build_character_asset_contract_with(name, visual_profile, notes, &recipe.rendering);
+    let fingerprint = character_asset_contract_fingerprint(&contract);
+    Ok(DrawingPlan {
+        prompt,
+        references,
+        contract,
+        fingerprint,
+        reference_role,
+        rendering: recipe.rendering,
+        source: recipe.source,
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -256,7 +317,7 @@ pub async fn generate_portrait(
         .as_ref()
         .and_then(|row| row.portrait_asset_id.as_deref())
         .filter(|url| !url.is_empty());
-    let (reference, reference_role) = if request.edit {
+    let edit_anchor = if request.edit {
         let Some(url) = existing_portrait else {
             return Err((
                 StatusCode::BAD_REQUEST,
@@ -276,38 +337,48 @@ pub async fn generate_portrait(
             ));
         }
         match image_generation::load_local_reference(url).await {
-            Ok(reference) => (Some(reference), "existing-portrait-identity-anchor"),
+            Ok(reference) => Some(reference),
             Err(error) => return Err(portrait_generation_provider_error(error)),
         }
     } else {
-        (
-            Some(merope_style_reference().map_err(portrait_generation_config_error)?),
-            "rendering-technique-only",
-        )
+        None
     };
-    let generation_contract =
-        build_character_asset_contract(name, &visual_profile, additional_requirements.as_deref());
-    let contract_fingerprint = character_asset_contract_fingerprint(&generation_contract);
-    let prompt = if request.edit {
-        build_character_visual_edit_prompt(additional_requirements.as_deref().unwrap_or(""))
-    } else {
-        build_character_visual_prompt(name, &visual_profile, additional_requirements.as_deref())
-    };
-    let bust = CharacterAssetProfile::Bust.contract();
-    let (width, height) = (bust.generation_width, bust.generation_height);
     let dynamic = crate::GLOBAL_DYNAMIC_CONFIG.read().await.clone();
+    // The image provider first: no recipe is asked for a picture that
+    // cannot be drawn.
     let config = image_generation::config_from_dynamic(&dynamic)
         .map_err(portrait_generation_config_error)?;
+    let style_source = persona_style::configured(&dynamic).map_err(persona_style_error)?;
+    let DrawingPlan {
+        prompt,
+        references,
+        contract: generation_contract,
+        fingerprint: contract_fingerprint,
+        reference_role,
+        rendering,
+        source,
+    } = portrait_plan(
+        &style_source,
+        name,
+        &visual_profile,
+        additional_requirements.as_deref(),
+        edit_anchor,
+    )
+    .await?;
+    let bust = CharacterAssetProfile::Bust.contract();
+    let (width, height) = (bust.generation_width, bust.generation_height);
     tracing::info!(
         provider = %config.provider,
         model = %config.model,
         width,
         height,
         prompt_chars = prompt.chars().count(),
+        style_source = source.as_str(),
+        style_recipe = rendering.recipe.as_deref().unwrap_or("builtin"),
         style_school_included = prompt.contains(MEROPE_VISUAL_SCHOOL),
-        visual_school_version = MEROPE_VISUAL_SCHOOL_VERSION,
+        visual_school_version = %rendering.visual_school_version,
         reference_role,
-        style_reference_sha256 = MEROPE_STYLE_REFERENCE_SHA256,
+        style_reference_sha256 = rendering.style_reference_sha256.as_deref().unwrap_or("none"),
         "site portrait generation started"
     );
     let generation_token = Uuid::new_v4().to_string();
@@ -350,12 +421,12 @@ pub async fn generate_portrait(
             user_id,
             "merope",
             "portrait",
-            image_generation::generate_image_with_background(
+            image_generation::generate_image_with_references(
                 &config,
                 &prompt,
                 width,
                 height,
-                reference.as_ref(),
+                &references,
                 Some(image_generation::ImageBackground::Opaque),
             ),
         )
