@@ -78,7 +78,7 @@ test('the renderer\'s rig-state words and phases are the director\'s', () => {
   const union = (name: string): string[] => {
     const body = new RegExp(`export type ${RegExp.escape(name)} =([^\\n]*(?:\\n[ \\t]+[^\\n]*)*)`).exec(types)?.[1]
     assert.ok(body, `${name} missing from the renderer's performance types`)
-    return Iterator.from(body.matchAll(/'([a-zA-Z-]+)'/g)).map(match => match[1]!).toArray()
+    return Iterator.from(body.matchAll(/'([a-z-]+)'/gi)).map(match => match[1]!).toArray()
   }
   for (const [rust, ts] of [
     ['RIG_STATE_MUSIC_ENERGIES', 'RigMusicEnergy'],
