@@ -383,13 +383,8 @@ async fn generate_and_save_annotations(
         }
     };
 
-    // 截到 30000 字节（`.len()`，可能落在 UTF-8 边界）
-    let max_len = 30000;
-    let truncated = if content.len() > max_len {
-        &content[..max_len]
-    } else {
-        content
-    };
+    // 至多 30000 字节，退到字符边界。
+    let truncated = crate::services::agent::executor_utils_pure::truncate_str(content, 30000);
 
     let prompt = build_annotation_prompt(truncated);
 
@@ -1029,13 +1024,8 @@ async fn podcast_script(
         }
     };
 
-    // 截到 20000 字节（`.len()`，可能落在 UTF-8 边界）
-    let max_len = 20000;
-    let content = if content.len() > max_len {
-        &content[..max_len]
-    } else {
-        &content
-    };
+    // 至多 20000 字节，退到字符边界。
+    let content = crate::services::agent::executor_utils_pure::truncate_str(&content, 20000);
 
     // 构建播客提示词
     let prompt = build_podcast_prompt(&title, content);

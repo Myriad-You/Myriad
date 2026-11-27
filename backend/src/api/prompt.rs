@@ -204,12 +204,14 @@ fn extract_activity_context(title: &str, summary: &str) -> String {
         // 对于中文内容，只使用类型描述，不包含具体文本
         "engaged in their favorite activity".to_string()
     } else {
-        // 对于英文内容，可以包含一些具体信息
-        let max_len = 40;
-        if content.len() <= max_len {
+        // 其余文字截前 40 个字符放进提示。按字符而不是字节数：
+        // 假名、带重音的拉丁字母和 emoji 都是多字节，按字节切会落在字符中间。
+        const MAX_CHARS: usize = 40;
+        if content.chars().count() <= MAX_CHARS {
             content
         } else {
-            format!("{}...", &content[..max_len])
+            let clipped: String = content.chars().take(MAX_CHARS).collect();
+            format!("{clipped}...")
         }
     }
 }
@@ -313,6 +315,66 @@ mod tests {
         assert!(ACTIVITY_ILLUSTRATION_SYSTEM_PROMPT.contains(
             "If the description says what the character looks like, follow that description"
         ));
+    }
+
+    /// 经 HTTP 处理函数走规则降级路径。测试进程里没有配置文本模型，
+    /// 先确认这一点，免得误打到付费模型。
+    async fn rule_prompt_through_handler(title: &str, summary: &str) -> String {
+        assert!(
+            create_ai_analyzer().await.is_none(),
+            "this test must run without a configured text model"
+        );
+        let claims = Claims {
+            sub: "1".into(),
+            username: "prompt-test".into(),
+            is_admin: true,
+            is_owner: false,
+            exp: crate::clock::now().timestamp() + 60,
+            iat: crate::clock::now().timestamp(),
+            tv: 0,
+            subject: crate::middleware::auth::AuthSubject::from_test_sub("1"),
+        };
+        let Json(response) = generate_prompt(Extension(claims), Json(request(title, summary)))
+            .await
+            .unwrap_or_else(|_| panic!("prompt generation failed"));
+        response.prompt
+    }
+
+    /// 截出来的活动片段：提示里 character 之后、画风之前的那一段。
+    fn activity_hint_of(prompt: &str) -> &str {
+        let after_character = prompt.split_once(", ").expect("character").1;
+        after_character
+            .split_once(&format!(", {ACTIVITY_ILLUSTRATION_STYLE}"))
+            .expect("style")
+            .0
+    }
+
+    #[tokio::test]
+    async fn rule_prompt_clips_multibyte_text_on_char_boundaries() {
+        let kana = "ひらがなとカタカナだけでかいたとてもながいしゅうまつのかつどうのせつめいですよろしくね";
+        let emoji_at_boundary = format!("{}👍🏽👨‍👩‍👧 tail", "a".repeat(38));
+        let mixed = "Weekend café ｍｅｅｔｕｐ with カフェ friends and naïve résumé talk";
+        for (title, summary) in [
+            (kana, ""),
+            ("", kana),
+            (emoji_at_boundary.as_str(), "more"),
+            (mixed, "ünïcödé"),
+        ] {
+            let prompt = rule_prompt_through_handler(title, summary).await;
+            let hint = activity_hint_of(&prompt);
+            let clipped = hint.strip_suffix("...").expect("long text is clipped");
+            assert_eq!(clipped.chars().count(), 40, "{hint}");
+            assert!(format!("{title} {summary}").starts_with(clipped), "{hint}");
+        }
+    }
+
+    #[tokio::test]
+    async fn rule_prompt_keeps_short_and_empty_text_whole() {
+        for (title, summary) in [("Café", "ｎｉｇｈｔ"), ("かつどう", "👍🏽"), ("", "")]
+        {
+            let prompt = rule_prompt_through_handler(title, summary).await;
+            assert_eq!(activity_hint_of(&prompt), format!("{title} {summary}"));
+        }
     }
 
     #[test]

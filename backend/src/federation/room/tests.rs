@@ -223,6 +223,22 @@ fn fallback_room_name_uses_first_8_chars() {
     assert_eq!(fallback_room_name("short"), "Room short");
 }
 
+/// 对端在邀请里给的房间号不一定是 ASCII；回退名取前 8 个字符，
+/// 与收邀请 SQL 里的 `left($1, 8)`（按字符）一致。
+#[test]
+fn invite_room_name_fallback_takes_chars_of_a_non_ascii_room_id() {
+    assert_eq!(
+        resolve_invite_room_name(None, "房间号码一二三四五"),
+        "Room 房间号码一二三四"
+    );
+    assert_eq!(
+        resolve_invite_room_name(Some("  "), "aé👍🏽xyzwv"),
+        "Room aé👍🏽xyzw"
+    );
+    assert_eq!(resolve_invite_room_name(None, "ルーム"), "Room ルーム");
+    assert_eq!(resolve_invite_room_name(None, ""), "Room ");
+}
+
 #[test]
 fn validate_public_transition_one_way() {
     assert!(validate_public_transition(true, Some(false)).is_err());
