@@ -70,3 +70,26 @@ test('the figure\'s mood bands cut where the core\'s mood_band does', () => {
   assert.equal(frontendThresholds.length, 5, 'expected all figure band comparisons')
   assert.deepEqual(frontendThresholds, backendThresholds)
 })
+
+test('the renderer\'s rig-state words and phases are the director\'s', () => {
+  const rigState = core('crates/myriad-merope/src/rig_state.rs')
+  const motion = core('crates/myriad-merope/src/motion.rs')
+  const types = figure('node_modules/@myriad-you/figure-player/src/performance/types.ts')
+  const union = (name: string): string[] => {
+    const body = new RegExp(`export type ${RegExp.escape(name)} =([\\s\\S]*?)\\n\\n`).exec(types)?.[1]
+    assert.ok(body, `${name} missing from the renderer's performance types`)
+    return Iterator.from(body.matchAll(/'([a-zA-Z-]+)'/g)).map(match => match[1]!).toArray()
+  }
+  for (const [rust, ts] of [
+    ['RIG_STATE_MUSIC_ENERGIES', 'RigMusicEnergy'],
+    ['RIG_STATE_BEAT_PHASES', 'RigBeatPhase'],
+    ['RIG_STATE_MOTION_STYLES', 'RigMotionStyle'],
+    ['RIG_STATE_BEHAVIOR_FUNCTIONS', 'RigBehaviorFunction'],
+    ['RIG_STATE_BEHAVIOR_PHASES', 'RigBehaviorPhase'],
+  ] as const) {
+    assert.deepEqual(union(ts).toSorted(), rustList(rigState, rust).toSorted(), `${ts} against ${rust}`)
+  }
+  const phases = Iterator.from(/pub fn as_str\(self\)[\s\S]*?\n {4}\}/.exec(motion)?.[0].matchAll(/=> "([a-z]+)"/g) ?? [])
+    .map(match => match[1]!).toArray()
+  assert.deepEqual(union('PerformancePhase').toSorted(), phases.toSorted())
+})
