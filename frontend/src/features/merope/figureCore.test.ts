@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-// figure/ does not depend on core/: it carries copies of the contracts, and
+// figure/ does not depend on core/: it reads copies of the contracts its renderer carries, and
 // its own constants are held to the core's Rust here, where both are checked
 // out. The copies themselves are checked by scripts/extra/figure-contracts.sh.
 
@@ -51,7 +51,7 @@ test('every resource the director names is one the figure can drive, and none is
 
 test('the figure\'s mood bands cut where the core\'s mood_band does', () => {
   const backend = core('crates/myriad-merope/src/affect.rs')
-  const frontend = figure('src/performance/mood.ts')
+  const frontend = figure('node_modules/@myriad-you/figure-player/src/performance/mood.ts')
   const backendBody = backend.match(/pub fn mood_band\([\s\S]*?\n\}/)?.[0]
   const frontendBody = frontend.match(/export function moodBand\([\s\S]*?\n\}/)?.[0]
   const floor = backend.match(/pub const MOOD_FLOOR:\s*f64\s*=\s*(\d+(?:\.\d+)?);/)
