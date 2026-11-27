@@ -45,6 +45,7 @@ fn agent_run_event_stream(run: Arc<AgentRun>) -> impl Stream<Item = Result<Event
 
 mod alive;
 mod cards;
+mod device_speech;
 mod devices;
 mod discord_pairing;
 mod discord_status;
