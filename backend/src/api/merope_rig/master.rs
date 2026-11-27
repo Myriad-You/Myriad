@@ -3,7 +3,7 @@
 use axum::{Json, http::StatusCode};
 use myriad_merope::{
     CharacterAssetProfile, RigManifest, build_character_asset_contract,
-    character_asset_contract_fingerprint, is_recognised_portrait_rendering,
+    character_asset_contract_fingerprint, portrait_rendering_keeps_lineage,
 };
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
@@ -62,11 +62,14 @@ pub(super) fn portrait_generation_fingerprint(
     let mut expected =
         build_character_asset_contract(name, visual_profile, additional_requirements);
     // A portrait drawn under a rendering core still recognises (the current
-    // one, or one it replaced without changing how identity is written)
-    // depicts the same identity; any other rendering is compared as is.
+    // one, or one it replaced without changing how identity is written), or
+    // under a recipe service's well-formed rendering of any version, depicts
+    // the same identity; any other rendering is compared as is. The stored
+    // block is trusted because only the generation path writes it, from the
+    // recipe it drew with (`portrait_generation_is_written_only_by_the_server`).
     if let Some(stored) = contract
         .get("rendering")
-        .filter(|rendering| is_recognised_portrait_rendering(rendering))
+        .filter(|rendering| portrait_rendering_keeps_lineage(rendering))
     {
         expected["rendering"] = stored.clone();
     }
@@ -496,6 +499,119 @@ mod tests {
 
     fn rig_imported_against(fingerprint: Option<String>) -> RigManifest {
         layered_stub_manifest("/master.png", fingerprint)
+    }
+
+    fn rendering_from_recipe(version: &str) -> Value {
+        json!({
+            "recipe": "merope-persona",
+            "visualSchoolVersion": version,
+            "styleReferenceSha256": "b".repeat(64),
+            "styleReferenceRole": "rendering-technique-only",
+        })
+    }
+
+    /// A portrait a recipe service drew keeps its lineage whatever version
+    /// the service is on now: the site never compares the service's current
+    /// version with the stored one, so a version bump cannot drop every
+    /// rig at once.
+    #[test]
+    fn a_portrait_drawn_by_a_recipe_service_keeps_its_fingerprint_and_rig() {
+        for version in ["house-v6", "house-v7", "anime-cel-gradient-reference-v5"] {
+            let (persona, stored) =
+                persona_with_portrait_drawn_under(Some(rendering_from_recipe(version)));
+            let master = master_from_persona(&persona).unwrap();
+            assert_eq!(master.generation_fingerprint, stored, "{version}");
+            assert!(manifest_matches_master(
+                &rig_imported_against(stored),
+                &master
+            ));
+        }
+    }
+
+    #[test]
+    fn a_malformed_recipe_rendering_has_no_fingerprint() {
+        let mut extra = rendering_from_recipe("house-v6");
+        extra["note"] = json!("x");
+        let mut bad_hash = rendering_from_recipe("house-v6");
+        bad_hash["styleReferenceSha256"] = json!("B".repeat(64));
+        let mut bad_recipe = rendering_from_recipe("house-v6");
+        bad_recipe["recipe"] = json!("Not A Recipe");
+        for rendering in [extra, bad_hash, bad_recipe] {
+            let (persona, _) = persona_with_portrait_drawn_under(Some(rendering.clone()));
+            let master = master_from_persona(&persona).unwrap();
+            assert_eq!(master.generation_fingerprint, None, "{rendering}");
+        }
+    }
+
+    /// The identity is still compared: a recipe portrait whose identity has
+    /// changed since it was drawn loses its fingerprint like any other.
+    #[test]
+    fn a_recipe_portrait_of_another_identity_has_no_fingerprint() {
+        let profile = json!({ "gender": "female" });
+        let rendering: myriad_merope::RenderingProvenance = serde_json::from_value(json!({
+            "recipe": "merope-persona",
+            "visualSchoolVersion": "house-v6",
+            "styleReferenceSha256": "b".repeat(64),
+            "fullBodyInstructionVersion": "full-body-standing-v1",
+        }))
+        .unwrap();
+        let contract =
+            myriad_merope::build_character_asset_contract_with("Nova", &profile, None, &rendering);
+        let document = json!({
+            "fingerprint": character_asset_contract_fingerprint(&contract),
+            "contract": contract,
+        });
+        assert!(
+            portrait_generation_fingerprint("Nova", &profile, Some(&document))
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            portrait_generation_fingerprint("Nova", &json!({ "gender": "male" }), Some(&document))
+                .unwrap(),
+            None
+        );
+    }
+
+    /// The stored `portrait_generation` (and with it the `rendering` the
+    /// lineage check trusts) is written only by the generation path in
+    /// `store/generation.rs`. Every other writer clears it; none copies it
+    /// from a request.
+    #[test]
+    fn portrait_generation_is_written_only_by_the_server() {
+        fn walk(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else if path.extension().is_some_and(|ext| ext == "rs") {
+                    out.push((
+                        path.display().to_string(),
+                        std::fs::read_to_string(&path).unwrap(),
+                    ));
+                }
+            }
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        walk(&root, &mut files);
+        for (path, source) in &files {
+            if path.ends_with("_tests.rs") || path.ends_with("tests.rs") {
+                continue;
+            }
+            let compact: String = source.split_whitespace().collect();
+            assert!(
+                !compact.contains("portrait_generation:merope::JsonDocumentUpdate::Set")
+                    && !compact.contains("portrait_generation:JsonDocumentUpdate::Set"),
+                "{path} sets portrait_generation from a value"
+            );
+            if source.contains("SET portrait_generation") {
+                assert!(
+                    path.ends_with("services/agent/merope/store/generation.rs"),
+                    "{path} writes portrait_generation"
+                );
+            }
+        }
     }
 
     #[test]
