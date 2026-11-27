@@ -832,6 +832,11 @@ async fn start_server(config: AppConfig, app: Router) -> anyhow::Result<()> {
             );
         }
     }
+    // No request is answered any more: the rig jobs still running here are
+    // let go, so that a page polling one starts it again on the next process.
+    if let Ok(db) = services::process_db::database() {
+        services::rig_jobs::release_at_exit(&db).await;
+    }
 
     Ok(())
 }

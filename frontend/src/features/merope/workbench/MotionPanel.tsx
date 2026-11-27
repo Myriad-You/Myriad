@@ -1,8 +1,9 @@
-import type { Anime25DPlayback, PoseCorrection } from '@myriad/figure/anime25drig'
+import type { Anime25DPlaybackDocument } from '@myriad/figure/anime25drig'
 import type { RefObject } from 'react'
 import type { RigCharacterHandle } from '../character/RigCharacter'
 import type { DriverSliderKey } from './motionControls'
 import type { MovingPartsSearch } from './MovingPartsPanel'
+import type { StoredPoseCorrections } from './poseCorrectionPackage'
 import type { WorkbenchDriver } from './useWorkbenchDriver'
 import { ANIME25D_MOTION_ENVELOPE_PROBES } from '@myriad/figure/workbench'
 import { useState } from 'react'
@@ -33,11 +34,11 @@ interface Props {
   characterRef: RefObject<RigCharacterHandle | null>
   motion: WorkbenchDriver
   motionEnabled: boolean
-  correctionPlayback?: Anime25DPlayback | null
+  correctionPlayback?: Anime25DPlaybackDocument | null
   correctionAssetId?: string | null
   /** Where corrections save, in words. */
   correctionTarget?: string
-  onSavePoseCorrections?: (corrections: PoseCorrection[]) => Promise<void>
+  onSavePoseCorrections?: (corrections: StoredPoseCorrections) => Promise<void>
   /** Looks for the staged figure's moving parts again. */
   movingParts?: MovingPartsSearch
 }
@@ -195,37 +196,37 @@ export function MotionPanel({
         <SwitchItem
           itemKey="anime25d-idle"
           label={labels.anime25dIdle}
-          value={driver.idle}
+          value={driver.torsoBreath && driver.hairWind}
           disabled={!motionEnabled}
-          onChange={(idle) => patchDriver({ idle })}
+          onChange={(on) => patchDriver({ torsoBreath: on, hairWind: on })}
         />
         <SwitchItem
           itemKey="anime25d-blink"
           label={labels.anime25dAutoBlink}
-          value={driver.blink}
+          value={driver.autoBlink}
           disabled={!motionEnabled}
-          onChange={(blink) => patchDriver({ blink })}
+          onChange={(autoBlink) => patchDriver({ autoBlink })}
         />
         <SwitchItem
           itemKey="anime25d-rand"
           label={labels.anime25dRand}
-          value={driver.rand}
+          value={driver.idleSway}
           disabled={!motionEnabled}
-          onChange={(rand) => patchDriver({ rand })}
+          onChange={(idleSway) => patchDriver({ idleSway })}
         />
         <SwitchItem
           itemKey="anime25d-talking"
           label={labels.anime25dTalking}
-          value={driver.talk}
+          value={driver.talking}
           disabled={!motionEnabled}
-          onChange={(talk) => patchDriver({ talk })}
+          onChange={(talking) => patchDriver({ talking })}
         />
         <SwitchItem
           itemKey="anime25d-mouse"
           label={labels.anime25dMouse}
-          value={driver.mouse}
+          value={driver.followPointer}
           disabled={!motionEnabled}
-          onChange={(mouse) => patchDriver({ mouse })}
+          onChange={(followPointer) => patchDriver({ followPointer })}
         />
       </SettingGroup>
       <SettingGroup
@@ -309,9 +310,9 @@ export function MotionPanel({
         <SwitchItem
           itemKey="anime25d-phys"
           label={labels.anime25dPhys}
-          value={driver.phys}
+          value={driver.physics}
           disabled={!motionEnabled}
-          onChange={(phys) => patchDriver({ phys })}
+          onChange={(physics) => patchDriver({ physics })}
         />
         {sliderCluster(labels.clusterHair, [
           'fhAmp',

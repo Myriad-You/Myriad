@@ -149,6 +149,14 @@ pub(crate) async fn ensure_forgotten_table(db: &DatabaseConnection) -> Result<()
     Ok(())
 }
 
+/// Rig generation jobs and their steps (`migrations/rig_jobs.sql`), for
+/// databases that ran 004 before it was in it. Same file as 004.
+pub(crate) async fn ensure_rig_jobs_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(include_str!("../../../migrations/rig_jobs.sql"))
+        .await?;
+    Ok(())
+}
+
 /// User lifecycle owned by the schema (`migrations/user_lifecycle.sql`): FK
 /// cascades for account-owned rows; for subject-keyed tables an insert-side
 /// guard plus an AFTER DELETE trigger on `users`. Unlike the federation candidates below this heal always applies:

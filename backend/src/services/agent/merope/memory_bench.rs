@@ -354,6 +354,8 @@ struct Outcome {
     /// asking again on a kept copy reuses it, so recall differs only by
     /// what changed.
     asked: Option<String>,
+    /// Outcome of the first remembering cues attempt when `asked` was not reused.
+    cues_try: Option<CuesTry>,
 }
 
 impl Outcome {
@@ -422,6 +424,8 @@ async fn run_for(
     answer_for(db, models, question, name, who, written, None).await
 }
 
+pub(super) use scored::{CuesTry, ask_cues, ask_cues_once_with, ask_cues_with};
+
 /// The asking half of [`run_for`]: what was `written` asked of, in each
 /// way the bench asks. `asked`, an earlier answer to what to look for, is
 /// used instead of asking the judge again.
@@ -441,22 +445,21 @@ async fn answer_for(
     );
     let Written { answering, kept } = written;
     // As a chat turn does: think what to look for, then recall with it.
-    let asked = match asked {
-        Some(asked) => Some(asked),
-        None => judge
-            .analyze_json_as(
+    let (asked, cues_try) = match asked {
+        Some(asked) => (Some(asked), None),
+        None => {
+            let (raw, outcome) = ask_cues_once_with(
+                judge,
                 &myriad_merope::remembering::system(),
                 &myriad_merope::remembering::input(
                     &question.question,
                     None,
                     &question.question_date,
                 ),
-                myriad_merope::remembering::SCHEMA_NAME,
-                Some(&myriad_merope::remembering::schema()),
-                crate::services::analyzer::JsonShape::InPrompt,
             )
-            .await
-            .ok(),
+            .await;
+            (raw, Some(outcome))
+        }
     };
     let cues = asked.as_deref().and_then(myriad_merope::remembering::parse);
     // The same memories, recalled once from their words alone and once
@@ -712,5 +715,6 @@ async fn answer_for(
         failed: Vec::new(),
         need_ranks,
         asked,
+        cues_try,
     }
 }

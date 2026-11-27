@@ -132,6 +132,14 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
             get(turn_keyforms::get_turn_keyforms),
         )
         .route(
+            "/see-through/turn-keyforms/{job_id}/record",
+            get(turn_keyforms::get_turn_keyforms_record),
+        )
+        .route(
+            "/see-through/turn-keyforms/{job_id}/cancel",
+            post(turn_keyforms::cancel_turn_keyforms),
+        )
+        .route(
             "/see-through/turn-keyforms/{job_id}/psd",
             get(turn_keyforms::get_turn_keyforms_psd),
         )

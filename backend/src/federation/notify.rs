@@ -106,8 +106,8 @@ pub fn payload_preview(message_type: &str, payload: &Value) -> String {
         if s.contains("ciphertext") && s.contains("algorithm") {
             return "Encrypted message".to_string();
         }
-        if s.len() > 120 {
-            format!("{}…", &s[..117])
+        if s.chars().count() > 120 {
+            format!("{}…", s.chars().take(117).collect::<String>())
         } else {
             s
         }
@@ -608,7 +608,7 @@ pub async fn room_name(db: &impl ConnectionTrait, room_id: &str) -> String {
             }
         }
     }
-    format!("Room {}", &room_id[..8.min(room_id.len())])
+    super::room::fallback_room_name(room_id)
 }
 
 #[cfg(test)]
@@ -645,6 +645,26 @@ mod tests {
             payload_preview("link", &json!({"url": "https://example.com/a"})),
             "https://example.com/a"
         );
+    }
+
+    /// 对端发来的、没有 text/content/name/url 的对象按 JSON 原文预览；
+    /// 里面的多字节文字不能让截断落在字符中间。
+    #[test]
+    fn payload_preview_clips_unknown_shapes_on_char_boundaries() {
+        for caption in [
+            format!("a{}", "ひらがなだけのとてもながいせつめい".repeat(8)),
+            format!("{}👍🏽👨‍👩‍👧{}", "a".repeat(100), "b".repeat(40)),
+            "Café ｍｅｅｔｕｐ naïve résumé ".repeat(6),
+        ] {
+            let payload = json!({ "caption": caption });
+            let whole = payload.to_string();
+            let preview = payload_preview("sticker", &payload);
+            let clipped = preview.strip_suffix('…').expect("long payload is clipped");
+            assert_eq!(clipped.chars().count(), 117, "{preview}");
+            assert!(whole.starts_with(clipped), "{preview}");
+        }
+        let short = json!({ "caption": "かつどう 👍🏽" });
+        assert_eq!(payload_preview("sticker", &short), short.to_string());
     }
 
     #[test]

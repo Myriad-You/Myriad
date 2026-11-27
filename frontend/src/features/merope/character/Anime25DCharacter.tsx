@@ -1,4 +1,4 @@
-import type { Anime25DPlayback, Anime25DWorkbenchPort, PoseCorrection } from '@myriad/figure/anime25drig'
+import type { Anime25DPlaybackDocument, Anime25DWorkbenchPort, PoseCorrection } from '@myriad/figure/anime25drig'
 import type { BehaviorPlan, MotionChannelPolicy, ResolvedScore, RigBearing } from '@myriad/figure/motion'
 import type { MeropeActivity } from '@myriad/figure/performance'
 import type { MeropeRigManifest, RigMotionPort } from '@myriad/figure/rig'
@@ -22,7 +22,7 @@ import { createTouchAppraisal } from '../presence/touchAppraisalHost'
 interface Props {
   activity: MeropeActivity
   manifest: MeropeRigManifest
-  playback: Anime25DPlayback
+  playback: Anime25DPlaybackDocument
   atlasUrl: string
   mood: number
   manualControl?: boolean
@@ -63,7 +63,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
   ) => {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const playerRef = useRef<Anime25DPlayer | null>(null)
-    const posePreviewRef = useRef<{ playback: Anime25DPlayback; corrections: readonly PoseCorrection[] } | null>(null)
+    const posePreviewRef = useRef<{ playback: Anime25DPlaybackDocument; corrections: readonly PoseCorrection[] } | null>(null)
     const readyRef = useRef(false)
     const recoveriesRef = useRef(0)
     const [ready, setReady] = useState(false)
@@ -139,7 +139,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       if (mouthFree) player.setTarget(idleSpeechDriverPatch(moodRef.current, speechActiveRef.current))
       player.setTarget({
         thinking,
-        blink: true,
+        autoBlink: true,
         ...(expressionFree ? activityExpressionDriverPatch(thinking) : {}),
       })
       if (bearingRef.current) player.setBearing(bearingRef.current)
@@ -179,7 +179,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       setAutoSpeech(active) {
         if (!active) playerRef.current?.clearSpeechText()
         playerRef.current?.setTarget({
-          talk: active,
+          talking: active,
           jaw: 0,
           mouthWide: 0,
           mouthRound: 0,

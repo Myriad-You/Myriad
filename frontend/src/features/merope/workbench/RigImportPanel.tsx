@@ -1,6 +1,6 @@
 import type { AuthoredExpressionKind } from '@myriad/figure/rig'
 import type { RigImport, RigMode } from './useRigImport'
-import { ANIME25D_PROJECT_NAME, ANIME25D_PROJECT_URL, PERSONA_UPSTREAM_THANKS } from '@myriad/figure/workbench'
+import { ANIME25D_PROJECT_NAME, ANIME25D_PROJECT_URL, CREDITED_AUTHORS } from '@myriad/figure/workbench'
 import { useRef } from 'react'
 import {
   CheckboxItem,
@@ -18,6 +18,7 @@ import { aiExpressionLabel, turnKeysProgress } from './rigImportCopy'
 import { RigImportProgress } from './RigImportProgress'
 import { useOpeningRigMode } from './rigMode'
 import {
+  MODEL_USE_RESTRICTIONS_URL,
   SEE_THROUGH_PROJECT_NAME,
   SEE_THROUGH_PROJECT_URL,
 } from './seeThroughProject'
@@ -203,6 +204,12 @@ export function RigImportPanel({
           {labels.anime25dSeeThroughCredit}
         </p>
         <p className="merope-character-home__credit-line">
+          {labels.anime25dSeeThroughModelNotice}{' '}
+          <a href={MODEL_USE_RESTRICTIONS_URL} target="_blank" rel="noopener noreferrer">
+            {labels.anime25dSeeThroughModelTerms}
+          </a>
+        </p>
+        <p className="merope-character-home__credit-line">
           <GitHubProjectBadge
             url={ANIME25D_PROJECT_URL}
             name={ANIME25D_PROJECT_NAME}
@@ -211,7 +218,7 @@ export function RigImportPanel({
         </p>
         <p className="merope-character-home__thanks">
           {labels.anime25dProjectThanks}
-          {PERSONA_UPSTREAM_THANKS.map((person) => (
+          {CREDITED_AUTHORS.map((person) => (
             <a
               key={person.handle}
               href={person.url}

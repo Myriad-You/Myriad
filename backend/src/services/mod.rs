@@ -67,6 +67,7 @@ pub mod public_reports; // Whose reports the public sees
 pub mod public_site; // What the site shows guests: branding, open modules, public links
 pub mod report_styles; // Owner's report writing styles: presets, checks, stored shape
 pub mod retired_configuration; // Backup denylist for retired configuration keys
+pub mod rig_jobs; // Rig generation jobs: one row per job and per step, leases, cancel, spend
 pub mod runtime_registry; // Platform runtime registry/mailbox shared by replicas (workspace crate)
 pub mod see_through; // Remote See-through layered-PSD decomposition
 pub mod seo_copy; // AI-drafted SEO / GEO settings copy

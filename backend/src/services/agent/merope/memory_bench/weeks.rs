@@ -352,19 +352,8 @@ async fn run_weeks(
         let answered: Vec<Asked> = futures::stream::iter(probes)
             .map(|(probe, version)| async move {
                 let question = probe.question(&version, &checkpoint.date);
-                let cues = judge
-                    .analyze_json(
-                        &myriad_merope::remembering::system(),
-                        &myriad_merope::remembering::input(
-                            &question.question,
-                            None,
-                            &question.question_date,
-                        ),
-                        myriad_merope::remembering::SCHEMA_NAME,
-                        Some(&myriad_merope::remembering::schema()),
-                    )
+                let cues = super::ask_cues(judge, &question)
                     .await
-                    .ok()
                     .and_then(|raw| myriad_merope::remembering::parse(&raw));
                 let cued = answer_one(
                     db,

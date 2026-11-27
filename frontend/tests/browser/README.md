@@ -38,7 +38,10 @@ the speech producer check is not proof that a particular rig rendered the pose.
 panel and settings components without a backend or character asset. It checks
 that the initially collapsed editor does not write a preview, closing restores
 saved geometry without losing drafts, and changing outfit identity clears the
-old draft. Only the character handle and save boundary are spies; this test does
+old draft. On a stored version 7 package it checks that the stored corrections
+are listed and previewed in the player's axes (`headYaw`, `headPitch`, …) and
+saved back in version 7's (`angleX`, `angleY`, …), which is what the save
+endpoints check them against. Only the character handle and save boundary are spies; this test does
 not claim to verify rendered correction pixels.
 
 `poseCorrectionStage.spec.ts` puts the same editor beside a real stage. With
