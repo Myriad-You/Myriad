@@ -644,7 +644,7 @@ async fn a_long_message_is_gone_on_with_where_a_pass_ended() {
     };
     let db = &schema.db;
     session(db, "mine", 7, Some(r#"{"mode":"chat"}"#), false).await;
-    let long: String = (0..200).map(|n| format!("第{n}件小事说给你听。")).collect();
+    let long: String = (0..400).map(|n| format!("第{n}件小事说给你听。")).collect();
     let parts = myriad_merope::settle_raw::line_parts(&long).len();
     assert!(parts > 2);
     let id = message(db, "mine", "user", &long, 90, None).await;
