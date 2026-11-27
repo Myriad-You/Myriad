@@ -194,6 +194,7 @@ export interface MotionChannelPolicy {
   headBody: MotionSourceId
 }
 
+/** @behaviour Only the members the site uses. */
 export declare class MotionRuntime {
   readonly speech: SpeechMotionSource
   readonly performance: PerformanceMotionSource
@@ -260,7 +261,10 @@ export declare class RigMotionCoordinator {
   leaseCount(): number
 }
 
-/** A separate candidate plan, not a replacement of the reply director plan. */
+/**
+ * A separate candidate plan, not a replacement of the reply director plan.
+ * @behaviour Only the members the site uses.
+ */
 export declare class TouchMotionSource {
   /** Freeze the evidence actually sent for this completion, not a later contact. */
   expectSpeech(owner: string, reaction: TouchReaction | null, nowMs: number): void
@@ -1463,3 +1467,9 @@ export interface SingingApply {
 export type BehaviorPhase = RigBehaviorPhase
 
 export type RigDiagnosticSeverity = 'error' | 'warning' | 'info'
+
+/** The look with no preset: her own face. */
+export declare const PLAIN_FACE: 'plain'
+
+/** The moves a score is written in, and the controls each one moves. */
+export declare const SCORE_MOVES: Record<ScoreMoveKind, { controls: BodyControl[]; description: string; }>

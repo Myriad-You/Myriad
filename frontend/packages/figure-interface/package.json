@@ -1,10 +1,14 @@
 {
-  "name": "@myriad/figure-interface",
+  "name": "@myriad-you/figure-interface",
   "type": "module",
   "version": "0.1.0",
-  "private": true,
-  "description": "What Myriad's site needs from @myriad/figure: the entries, names and types it uses, as declarations only. Every figure implementation the site can be built with provides them.",
+  "description": "What Myriad's site needs from its 2.5D figure (@myriad/figure): the entries, names and types it uses, as declarations only, and the runtime contract every implementation passes.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Myriad-You/Myriad.git",
+    "directory": "frontend/packages/figure-interface"
+  },
   "sideEffects": false,
   "exports": {
     ".": {
@@ -39,8 +43,14 @@
     },
     "./contract": "./contract/index.ts"
   },
-  "dependencies": {
-    "@myriad-you/figure-player": "github:Myriad-You/myriad-figure-player#dcb6183fbdbb3bbdbe4c779c7dc9589f9868041c"
+  "files": [
+    "LICENSE",
+    "README.md",
+    "contract",
+    "src"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "devDependencies": {
     "@types/node": "26.5.1"
