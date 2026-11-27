@@ -157,4 +157,97 @@ mod tests {
         assert_eq!(sound_type(b"{\"x\":1}"), "application/octet-stream");
         assert_eq!(sound_type(&[]), "application/octet-stream");
     }
+
+    async fn post(
+        app: &axum::Router,
+        token: Option<&str>,
+        text: &str,
+    ) -> (StatusCode, serde_json::Value) {
+        use tower::ServiceExt;
+        let mut request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/api/agent/device/tts")
+            .header("content-type", "application/json");
+        if let Some(token) = token {
+            request = request.header("authorization", format!("Bearer {token}"));
+        }
+        let body = axum::body::Body::from(json!({ "text": text }).to_string());
+        let response = app
+            .clone()
+            .oneshot(request.body(body).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 22)
+            .await
+            .unwrap();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+        )
+    }
+
+    /// The route over HTTP on a real database (an isolated schema; skipped
+    /// without a test database, as `sync`'s device routes are): no token and
+    /// a forged one are turned away at the gate, a session is not a device,
+    /// and a live device token gets to the line, where a site with no voice
+    /// set up says so for the device to read in its own.
+    #[tokio::test]
+    async fn only_a_live_device_token_reaches_the_voice() {
+        use sea_orm::ConnectionTrait;
+        let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+            return;
+        };
+        let db = fixture.db.clone();
+        db.execute_unprepared(
+            "INSERT INTO users (id, username, is_admin, is_owner) VALUES (41, 'owner41', true, true)",
+        )
+        .await
+        .unwrap();
+        crate::services::principal::invalidate_site_owner_cache();
+        let state = crate::state::AppState::new(
+            db.clone(),
+            crate::config::AppConfig::default(),
+            crate::config::DynamicConfig::default(),
+        );
+        let app = axum::Router::new()
+            .nest(
+                "/api/agent",
+                super::super::create_agent_routes(state.clone()),
+            )
+            .with_state(state);
+        let (_, token) = crate::services::persona_sync::devices::add(&db, 41, "Glasses")
+            .await
+            .unwrap();
+
+        let (status, body) = post(&app, None, "你好").await;
+        assert_eq!(
+            (status, body["code"].as_str()),
+            (StatusCode::UNAUTHORIZED, Some("device_token_required"))
+        );
+        let forged = format!("mys_{}", "A".repeat(43));
+        let (status, body) = post(&app, Some(&forged), "你好").await;
+        assert_eq!(
+            (status, body["code"].as_str()),
+            (StatusCode::UNAUTHORIZED, Some("device_token_invalid"))
+        );
+        // Through the gate, the line is looked at before any voice is asked for.
+        let (status, body) = post(&app, Some(&token), "   ").await;
+        assert_eq!(
+            (status, body["code"].as_str()),
+            (StatusCode::BAD_REQUEST, Some("empty"))
+        );
+        let (status, body) = post(&app, Some(&token), &"好".repeat(LINE_MAX_CHARS + 1)).await;
+        assert_eq!(
+            (status, body["code"].as_str()),
+            (StatusCode::PAYLOAD_TOO_LARGE, Some("too_long"))
+        );
+        // A test site has no speech set up: said, and nothing of the token in it.
+        let (status, body) = post(&app, Some(&token), "你好").await;
+        assert_eq!(
+            (status, body["code"].as_str()),
+            (StatusCode::SERVICE_UNAVAILABLE, Some("no_voice"))
+        );
+        assert!(!body.to_string().contains(&token));
+    }
 }
