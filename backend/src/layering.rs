@@ -374,6 +374,13 @@ fn merope_background_work_uses_the_managed_runner() {
 /// review; the list only shrinks.
 const MEROPE_RULES_STILL_HERE: &[(&str, &str)] = &[
     (
+        "services/agent/merope/memory_bench/aligned.rs",
+        "the site's, and test only (memory_bench is cfg(test)): the memory bench's answering \
+         prompt, its sections made by production's own section functions and chosen as the \
+         site's speaking_context::sections chooses them, laid out by the core's \
+         private_prompt::system; nothing of hers is decided here",
+    ),
+    (
         "services/agent/merope/memory_nodes/since.rs",
         "hers, to move: how what stands and what ended read on their lines (since when, \
          told when). Its shape is still being settled against the memory bench; once it \

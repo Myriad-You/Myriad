@@ -145,16 +145,17 @@ pub(super) fn answer_system(
     laid_out(super::answer_system(question, present, &[]), sections)
 }
 
-/// `header`, then `sections` by their part (those of one part as they
-/// came), as `myriad_merope::private_prompt::system` lays them out; empty
-/// ones left out.
-fn laid_out(header: String, mut sections: Vec<(Part, String)>) -> String {
-    sections.retain(|(_, text)| !text.trim().is_empty());
-    sections.sort_by_key(|(part, _)| *part);
-    std::iter::once(header)
-        .chain(sections.into_iter().map(|(_, text)| text))
-        .collect::<Vec<_>>()
-        .join("\n\n")
+/// `header`, then `sections` laid out by the core's own layout of a private
+/// chat's prompt (`myriad_merope::private_prompt::system`: by their part,
+/// those of one part as they came, empty ones left out), without the chat
+/// reply instruction it ends with: the bench asks a question, not a reply.
+fn laid_out(header: String, sections: Vec<(Part, String)>) -> String {
+    let laid = myriad_merope::private_prompt::system(&header, &sections);
+    let reply = format!("\n\n{}", myriad_merope::chat_history::CHAT_REPLY_INSTRUCTION);
+    match laid.strip_suffix(reply.as_str()) {
+        Some(laid) => laid.to_string(),
+        None => laid,
+    }
 }
 
 /// What she found looking back, its lines inside the untrusted fence, its
@@ -271,7 +272,8 @@ mod tests {
     }
 
     /// Sections given out of order are laid out by their part, those of
-    /// one part as they came, as `private_prompt::system` does.
+    /// one part as they came, as `private_prompt::system` does; with none,
+    /// the header alone.
     #[test]
     fn sections_go_by_their_part_whatever_order_they_came_in() {
         let laid = laid_out(
@@ -285,6 +287,7 @@ mod tests {
             ],
         );
         assert_eq!(laid, "head\n\nresident\n\nthrough\n\nnot all\n\nlooked");
+        assert_eq!(laid_out("head".to_string(), Vec::new()), "head");
     }
 
     /// Going through all of it is shown only beside facts, as production
