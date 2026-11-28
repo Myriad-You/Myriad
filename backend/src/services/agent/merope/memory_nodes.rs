@@ -259,3 +259,6 @@ mod unbuilt_tests;
 
 #[cfg(test)]
 mod sore_closed_tests;
+
+#[cfg(test)]
+pub(crate) mod privacy_forget_tests;

@@ -662,6 +662,9 @@ pub fn speaking_prompt_plain(sections: &[String]) -> String {
 mod node_tests;
 
 #[cfg(test)]
+mod privacy_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::services::agent::memory::unified::Audience;

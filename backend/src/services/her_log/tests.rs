@@ -51,6 +51,10 @@ mod bodies_tests;
 #[path = "holdings_tests.rs"]
 mod holdings_tests;
 
+/// An end offline while the site forgot brings none of it back (P11).
+#[path = "offline_forget_tests.rs"]
+mod offline_forget_tests;
+
 const OWNER: i32 = 41;
 /// The partner's private talk: `personal:<partner id>` ([`PARTNER`]).
 const PERSONAL: &str = "personal:partner_019b76daa80000112233445566778899";
