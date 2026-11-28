@@ -517,6 +517,8 @@ async fn a_row_refused_for_good_keeps_its_place_and_its_end_keeps_up() {
         return;
     };
     let db = &schema.db;
+    // Her lease stands, the server's: only then is a deputy given at all.
+    let standing = lease::current(db).await.unwrap();
     let mut win = Side::new("dev_win");
     let mut mac = Side::new("dev_mac");
     mac.link = relay::Session::of(&["log2".to_string(), deputy::CAPABILITY.to_string()]);
@@ -541,11 +543,12 @@ async fn a_row_refused_for_good_keeps_its_place_and_its_end_keeps_up() {
     let server_own = String::from_utf8(server_fold(db, OWN, &[]).await).unwrap();
     assert!(!server_own.contains("node:z"), "{server_own}");
 
-    // Keeping up with both, it is given its deputy: on the link that
-    // showed it, as its vectors met the server's.
+    // Keeping up with both, it is given its deputy, under the epoch that
+    // stands (on the link that showed it, as its vectors met the server's).
     vector_of(db, &mut mac, PERSONAL, T0 + 3 * MINUTE).await;
     vector_of(db, &mut mac, OWN, T0 + 3 * MINUTE).await;
     let given = deputy::for_holders(db, &["dev_mac"]).await.unwrap();
     assert_eq!(given.len(), 1, "{given:?}");
+    assert_eq!((given[0].holder.as_str(), given[0].under), ("dev_mac", standing.epoch));
     schema.drop().await;
 }
