@@ -140,29 +140,47 @@ fn shown<'a>(lines: &'a [Spoken], at: &'a [Option<String>]) -> Vec<raw::Line<'a>
     lines
         .iter()
         .zip(at)
-        .map(|(line, at)| as_shown(line, at.as_deref(), &line.text))
+        .map(|(line, at)| as_shown(line, at.as_deref(), None, &line.text))
         .collect()
 }
 
-fn as_shown<'a>(line: &'a Spoken, at: Option<&'a str>, text: &'a str) -> raw::Line<'a> {
+fn as_shown<'a>(
+    line: &'a Spoken,
+    at: Option<&'a str>,
+    message: Option<&'a str>,
+    text: &'a str,
+) -> raw::Line<'a> {
     raw::Line {
         who: if line.theirs { Who::Them } else { Who::You },
         text,
         in_game: line.in_game,
         before: line.gone,
         at,
+        message,
     }
+}
+
+/// Of each of `lines`, its message (`agent_messages.id`) as the core is
+/// told it: a quote runs on from one part into the next only within one
+/// message, never across two said in the same minute.
+fn messages_of(lines: &[Spoken]) -> Vec<String> {
+    lines.iter().map(|line| line.id.to_string()).collect()
 }
 
 /// `lines` as a pass is shown them, a long one part by part
 /// ([`raw::line_parts`]): the parts, and of each its line's index. Each part
-/// is accounted for.
-fn in_parts<'a>(lines: &'a [Spoken], at: &'a [Option<String>]) -> (Vec<raw::Line<'a>>, Vec<usize>) {
+/// is accounted for, and is of its line's message (`messages`,
+/// [`messages_of`]).
+fn in_parts<'a>(
+    lines: &'a [Spoken],
+    at: &'a [Option<String>],
+    messages: &'a [String],
+) -> (Vec<raw::Line<'a>>, Vec<usize>) {
     let mut parts = Vec::new();
     let mut of = Vec::new();
-    for (index, (line, at)) in lines.iter().zip(at).enumerate() {
+    for (index, ((line, at), message)) in lines.iter().zip(at).zip(messages).enumerate() {
         for part in raw::line_parts(&line.text) {
-            parts.push(as_shown(line, at.as_deref(), part));
+            parts.push(as_shown(line, at.as_deref(), Some(message), part));
             of.push(index);
         }
     }
@@ -480,7 +498,8 @@ pub(in crate::services::agent::merope) async fn go_over(
     } = what_she_knows(db, user_id, present, lines).await?;
     let new = || lines.iter().filter(|line| !line.gone);
     let at: Vec<Option<String>> = lines.iter().map(|line| Some(said_at(line.at))).collect();
-    let (shown_lines, of) = in_parts(lines, &at);
+    let ids = messages_of(lines);
+    let (shown_lines, of) = in_parts(lines, &at, &ids);
     let theirs = new()
         .filter(|line| line.theirs)
         .map(|line| line.text.as_str())
