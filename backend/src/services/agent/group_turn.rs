@@ -20,6 +20,7 @@ use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 
 use super::agent_footer::{AgentTurnBudget, AgentTurnKind};
+use super::chat_timing::TurnTimer;
 use super::queue::LaneGuard;
 use super::run::ProcessContext;
 use super::types::{ConversationMessage, UserRequest};
@@ -58,6 +59,8 @@ struct Open {
     lane: Option<LaneGuard>,
     budget: Option<AgentTurnBudget>,
     memory_input_at: Option<chrono::DateTime<chrono::FixedOffset>>,
+    /// How long the turn takes, logged when it ends (`chat_timing`).
+    timer: Option<TurnTimer>,
 }
 
 static OPEN: LazyLock<Mutex<HashMap<String, Open>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -142,6 +145,7 @@ pub async fn begin(db: &DatabaseConnection, start: Start) -> Option<Begun> {
             return None;
         }
     };
+    let mut timer = TurnTimer::start(user_id, true);
     let (sections, memory_input_at) = budget
         .scope(async {
             super::consciousness::remember_turn_presence(&request);
@@ -149,13 +153,14 @@ pub async fn begin(db: &DatabaseConnection, start: Start) -> Option<Begun> {
             let memory_input_at = super::merope::note_user_turn(db, &request)
                 .await
                 .map(|(_, at)| at);
-            let sections = super::merope::speaking_prompt_in_group(
-                user_id,
-                &request.raw_input,
-                &start.venue,
-                Some(&start.speaker),
-            )
-            .await;
+            let sections = timer
+                .prompt(super::merope::speaking_prompt_in_group(
+                    user_id,
+                    &request.raw_input,
+                    &start.venue,
+                    Some(&start.speaker),
+                ))
+                .await;
             (sections, memory_input_at)
         })
         .await;
@@ -172,6 +177,7 @@ pub async fn begin(db: &DatabaseConnection, start: Start) -> Option<Begun> {
             lane: Some(lane),
             budget: Some(budget),
             memory_input_at,
+            timer: Some(timer),
         },
     );
     Some(Begun {
@@ -190,14 +196,23 @@ pub async fn say(turn: &str, prompt: &str) -> Result<String, &'static str> {
     let agent = Agent::new(open.db.clone()).await;
     let budget = open.budget.take();
     let mut cancelled = open.cancelled.take();
+    // Out of the turn while she is asked: should this be dropped midway,
+    // the timer goes with it and logs the turn as dropped.
+    let mut timer = open.timer.take();
     let asked = async {
-        match &budget {
-            Some(budget) => {
-                budget
-                    .scope(agent.stream_group_reply(&open.request, prompt))
-                    .await
+        let asking = async {
+            match &budget {
+                Some(budget) => {
+                    budget
+                        .scope(agent.stream_group_reply(&open.request, prompt))
+                        .await
+                }
+                None => agent.stream_group_reply(&open.request, prompt).await,
             }
-            None => agent.stream_group_reply(&open.request, prompt).await,
+        };
+        match timer.as_mut() {
+            Some(timer) => timer.model(asking).await,
+            None => asking.await,
         }
     };
     // A newer turn of theirs, or a stop, cuts this one off.
@@ -211,6 +226,7 @@ pub async fn say(turn: &str, prompt: &str) -> Result<String, &'static str> {
     };
     open.budget = budget;
     open.cancelled = cancelled;
+    open.timer = timer;
     put(turn, open);
     said
 }
@@ -240,6 +256,9 @@ pub async fn within<F: std::future::Future>(turn: Option<&str>, work: F) -> F::O
 /// given back; without, it is left, nothing of hers kept.
 pub async fn end(turn: &str, said: Option<String>, sticker: Option<Value>) -> Option<String> {
     let mut open = take(turn)?;
+    if let Some(timer) = open.timer.take() {
+        timer.finish(said.is_some());
+    }
     let db = open.db.clone();
     let request = open.request.clone();
     let user_id = request.user_id;

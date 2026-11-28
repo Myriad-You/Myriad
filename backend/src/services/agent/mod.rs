@@ -4,6 +4,7 @@ pub mod capability;
 pub mod chat_attachments;
 pub mod chat_music;
 pub mod chat_prompt;
+pub(crate) mod chat_timing;
 pub mod consciousness;
 pub mod data_read_pure;
 pub mod data_write_pure;

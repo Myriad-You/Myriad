@@ -1,6 +1,7 @@
 // Chat stream + WearStreamFilter.
 
 use super::super::agent_header::*;
+use super::super::chat_timing::TurnTimer;
 use super::super::response_agent;
 use super::super::types::*;
 use crate::services::agent::chat_prompt::ChatTurnPrompt;
@@ -386,15 +387,17 @@ impl Agent {
         progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
         speech_delivery: Option<ChatDelivery>,
     ) -> Result<String, String> {
+        // Logged when the turn is over, or left early (`chat_timing`).
+        let mut timer = TurnTimer::start(request.user_id, false);
         let analyzer = streamed_analyzer().await?;
         // Put together once: asking again is the same turn, and putting it
         // together judges soups and reads everything a second time.
-        let prompt = self.chat_response_prompt(request).await;
+        let prompt = timer.prompt(self.chat_response_prompt(request)).await;
         // Said aloud in her own voice, where the panel will play it; asked
         // again, the words alone, read aloud as before.
         let voice = her_voice(request).await;
-        let first = self
-            .stream_chat_response_with_analyzer(
+        let first = timer
+            .model(self.stream_chat_response_with_analyzer(
                 request,
                 &prompt,
                 progress_tx,
@@ -402,12 +405,13 @@ impl Agent {
                 speech_delivery.clone(),
                 voice,
                 true,
-            )
+            ))
             .await;
         // The model now and then answers with nothing at all, or the provider
         // drops a reply sent whole before it is finished. Nothing reached them,
         // so asking once more is safe.
         if !matches!(&first, Err(error) if error == EMPTY_REPLY || error == CUT_REPLY) {
+            timer.finish(first.is_ok());
             return first;
         }
         tracing::warn!(
@@ -416,16 +420,19 @@ impl Agent {
             "[Chat] no whole reply; asking once more"
         );
         let analyzer = streamed_analyzer().await?;
-        self.stream_chat_response_with_analyzer(
-            request,
-            &prompt,
-            progress_tx,
-            analyzer,
-            speech_delivery,
-            None,
-            true,
-        )
-        .await
+        let again = timer
+            .model(self.stream_chat_response_with_analyzer(
+                request,
+                &prompt,
+                progress_tx,
+                analyzer,
+                speech_delivery,
+                None,
+                true,
+            ))
+            .await;
+        timer.finish(again.is_ok());
+        again
     }
 
     /// Her words to a whole prompt her group mind put together, streamed as
@@ -464,32 +471,41 @@ impl Agent {
         &self,
         request: &UserRequest,
     ) -> Result<String, String> {
+        let mut timer = TurnTimer::start(request.user_id, false);
         let analyzer = chat_analyzer().await?;
-        let prompt = self.chat_response_prompt(request).await;
+        let prompt = timer.prompt(self.chat_response_prompt(request)).await;
         // The same request as the streamed path, only not relayed. Nothing
         // was shown, so a reply the provider dropped halfway is asked again.
-        let mut response = analyzer
-            .analyze_stream_messages_with_images(
+        let mut response = timer
+            .model(analyzer.analyze_stream_messages_with_images(
                 &prompt.system,
                 &prompt.messages,
                 images_of(request),
-                |_| async { true },
-            )
+                |_| {
+                    crate::services::agent::chat_timing::first_token();
+                    async { true }
+                },
+            ))
             .await;
         if response.as_ref().is_err_and(is_cut) {
             tracing::warn!(
                 user_id = request.user_id,
                 "[Chat] reply cut off; asking once more"
             );
-            response = analyzer
-                .analyze_stream_messages_with_images(
+            response = timer
+                .model(analyzer.analyze_stream_messages_with_images(
                     &prompt.system,
                     &prompt.messages,
                     images_of(request),
-                    |_| async { true },
-                )
+                    |_| {
+                        crate::services::agent::chat_timing::first_token();
+                        async { true }
+                    },
+                ))
                 .await;
         }
+        // A whole reply: an empty one is no reply here, as below.
+        timer.finish(response.as_ref().is_ok_and(|text| !text.trim().is_empty()));
         let response = response.map_err(|error| error.to_string())?;
         let (mut response, started_game) =
             crate::services::agent::merope::soup::split_start(response.trim());
@@ -822,6 +838,7 @@ impl Agent {
         let heard = said_anything.clone();
         let on_delta = |delta| {
             heard.store(true, std::sync::atomic::Ordering::Relaxed);
+            crate::services::agent::chat_timing::first_token();
             let tx = tx.clone();
             let speech_delivery = speech_delivery.clone();
             let wear = wear.clone();
@@ -881,6 +898,7 @@ impl Agent {
                         crate::services::omni_voice::OmniDelta::Audio(sound) => {
                             // Heard is said: no going back to the words alone.
                             said_anything.store(true, std::sync::atomic::Ordering::Relaxed);
+                            crate::services::agent::chat_timing::first_token();
                             if unsaid.lets_through() {
                                 out.send(&sound);
                             }
