@@ -77,7 +77,9 @@ pub(super) async fn recollection(
     // things she brings, so all of it is at hand.
     let (cues, her_life, opening) = match turn {
         Turn::Chat(words) => {
+            let waiting = std::time::Instant::now();
             let attention = remembering::cues(user_id, &present.venue(), words).await;
+            crate::services::agent::chat_timing::cues_waited(waiting.elapsed());
             let her_life = attention.her_life();
             (attention.cues, her_life, attention.opening)
         }

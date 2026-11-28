@@ -621,8 +621,10 @@ async fn speaking_prompt_from_db(
         return sections;
     };
     let myself = self_state::current(db).await;
+    let recalling = std::time::Instant::now();
     let (her_life, opening) =
         sections::recollection(db, user_id, turn, present, &myself, nodes, &mut sections).await;
+    crate::services::agent::chat_timing::recollected(recalling.elapsed());
     sections::their_recent(db, user_id, group, &state, &mut sections).await;
     let inner_block =
         sections::her_state(db, user_id, turn, present, &state, &myself, &mut sections).await;
