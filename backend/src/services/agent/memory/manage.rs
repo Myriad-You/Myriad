@@ -139,13 +139,40 @@ pub async fn forget_any(db: &sea_orm::DatabaseConnection, id: &str) -> Result<bo
 
 /// [`forget_any`], of each of `ids` at once: gone for one of them, what they
 /// quote in the same words is not looked for in another line for the next.
-/// Returns whether there was such a memory.
+/// What lines of hers that went with them taught her goes too
+/// ([`forget_taught`]). Returns whether there was such a memory.
 pub async fn forget_all(db: &sea_orm::DatabaseConnection, ids: &[String]) -> Result<bool, DbErr> {
-    let Some(lines) = forget_memories(db, ids).await? else {
+    let Some(mut lines) = forget_memories(db, ids).await? else {
         return Ok(false);
     };
+    let more = forget_taught(db, &lines).await?;
+    lines.extend(more);
     crate::services::her_log::talk::forget_lines(db, &lines).await;
     Ok(true)
+}
+
+/// What lines of hers in `gone`, taken along with what was forgotten (her
+/// answer to a line that went, …), taught her ([`super::origins::Gone::taught`]):
+/// each forgotten as [`forget_any`] forgets one, here and in her log, and
+/// so on for lines of hers those take along. The lines that went with them,
+/// for her log to forget too (the caller's).
+pub(crate) async fn forget_taught(
+    db: &sea_orm::DatabaseConnection,
+    gone: &[super::origins::Gone],
+) -> Result<Vec<super::origins::Gone>, DbErr> {
+    let mut more = Vec::new();
+    let mut taught = super::origins::Gone::taught_by(gone);
+    for _ in 0..TAKEN_ALONG_STEPS {
+        if taught.is_empty() {
+            break;
+        }
+        let Some(lines) = forget_memories(db, &taught).await? else {
+            break;
+        };
+        taught = super::origins::Gone::taught_by(&lines);
+        more.extend(lines);
+    }
+    Ok(more)
 }
 
 /// [`forget_any`] here only, of each of `ids` at once: the lines they took,
@@ -232,7 +259,10 @@ async fn forget_memories(
 /// the memories it taught her ([`super::origins::quoting`], each as
 /// [`forget_any`] forgets one: with its earlier versions and the words they
 /// came from), the same words in her chat diary and queued work, what rests
-/// on it on her nodes, and the line; then, in her log, every line that went
+/// on it on her nodes, and the line with her answer to it, as a memory
+/// forgotten takes the lines it came from, whether it taught her anything or
+/// not; what her answer taught her goes too ([`forget_taught`]). Then, in her
+/// log, every line that went
 /// ([`crate::services::her_log::talk::forget_lines`]). The lines that went,
 /// the line first, or none when the conversation has no such line of
 /// theirs.
@@ -288,11 +318,23 @@ pub async fn forget_line(
         txn.rollback().await?;
     };
     super::origins::forget_line_traces(&txn, user_id, &line.content, line.created_at).await?;
-    forget_locks::lock_for(&txn, site_owner, &[], &gone[..1])
+    // The line, with her answer to it when it is theirs, unless a memory it
+    // taught took them already; hers with what they taught her.
+    let mut now = vec![gone[0].clone()];
+    for took in super::origins::delete_lines(&txn, user_id, &[line.id]).await? {
+        if took.id == line.id {
+            now[0] = took;
+        } else {
+            now.push(took);
+        }
+    }
+    gone[0] = now[0].clone();
+    let ids: Vec<i32> = now.iter().map(|line| line.id).collect();
+    forget_locks::lock_for(&txn, site_owner, &[], &now)
         .await
         .map_err(|error| DbErr::Custom(error.to_string()))?;
-    crate::services::her_log::talk::forget_lines_on(&txn, site_owner, &gone[..1]).await;
-    nodes::forget(&txn, &[], &[line.id])
+    crate::services::her_log::talk::forget_lines_on(&txn, site_owner, &now).await;
+    nodes::forget(&txn, &[], &ids)
         .await
         .map_err(|error| DbErr::Custom(error.to_string()))?;
     super::forgotten::keep(
@@ -308,9 +350,6 @@ pub async fn forget_line(
     .await?;
     let id = line.id.to_string();
     super::forgotten::keep(&txn, user_id, super::forgotten::MESSAGE, &[id]).await?;
-    agent_messages::Entity::delete_by_id(line.id)
-        .exec(&txn)
-        .await?;
     txn.execute_raw(sea_orm::Statement::from_sql_and_values(
         sea_orm::DatabaseBackend::Postgres,
         "UPDATE agent_sessions SET message_count = \
@@ -319,6 +358,9 @@ pub async fn forget_line(
     ))
     .await?;
     txn.commit().await?;
+    gone.extend(now.into_iter().skip(1));
+    let more = forget_taught(db, &gone).await?;
+    gone.extend(more);
     let mut seen = std::collections::BTreeSet::new();
     gone.retain(|line| seen.insert(line.id));
     crate::services::her_log::talk::forget_lines(db, &gone).await;
@@ -334,6 +376,11 @@ pub async fn confirm_tried<C: ConnectionTrait>(db: &C, id: &str) -> Result<bool,
 /// How many times what a line taught is looked for before it goes
 /// ([`forget_line`]), should more be written of it each time.
 const LOOKS: usize = 4;
+
+/// How many times what lines of hers taken along taught her is forgotten in
+/// turn ([`forget_taught`]): what those take along of hers may have taught
+/// her more, but not on and on.
+const TAKEN_ALONG_STEPS: usize = 8;
 
 /// Steps followed either way along what replaced what: a loop in old rows
 /// cannot keep it going.

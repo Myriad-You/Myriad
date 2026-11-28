@@ -598,6 +598,9 @@ pub async fn take_in(
     let took = state::took(db, owner.user).await?;
     let known = state::known(db, owner.user).await?;
     let mut taken = 0;
+    // Lines of hers that went with what was forgotten: what they taught her
+    // goes once all is taken in (`memory::manage::forget_taught`).
+    let mut hers_gone = Vec::new();
     for audience in [owner.personal(), Owner::OWN.to_string()] {
         let mut objects: BTreeMap<String, Vec<Row>> = BTreeMap::new();
         for row in store::rows(db, owner.user, &audience).await? {
@@ -665,6 +668,7 @@ pub async fn take_in(
                 txn.commit().await?;
                 // In her log too: every line that went.
                 crate::services::her_log::talk::forget_lines(db, &gone).await;
+                hers_gone.extend(gone.into_iter().filter(|line| !line.taught.is_empty()));
                 taken += 1;
                 continue;
             }
@@ -771,6 +775,8 @@ pub async fn take_in(
             taken += 1;
         }
     }
+    let more = crate::services::agent::memory::manage::forget_taught(db, &hers_gone).await?;
+    crate::services::her_log::talk::forget_lines(db, &more).await;
     Ok(taken)
 }
 

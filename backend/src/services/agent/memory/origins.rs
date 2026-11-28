@@ -13,7 +13,10 @@
 //!   that place, within [`QUOTED_WITHIN`] before the memory was written, go
 //!   with her answer to each, as do the same words in her chat diary and any
 //!   job still queued to go over them. The short notes a stretch was kept
-//!   from are earlier versions of what it kept, so they go too.
+//!   from are earlier versions of what it kept, so they go too. What a line
+//!   of hers taken along taught her (what she said in her answer, kept as
+//!   `said`) is looked for before it goes ([`Gone::taught`]) and forgotten
+//!   after, as any memory is.
 //! - a day with them (`day_with`): written from that whole day of private
 //!   talk, and written again for any day without one, so the day's lines and
 //!   chat diary go.
@@ -71,6 +74,13 @@ pub struct Gone {
     pub role: String,
     /// The row of her log it is, when it is one (`agent_messages.log_row`).
     pub log_row: Option<String>,
+    /// A line of hers taken along (her answer to a line that went, a line a
+    /// memory of what she said came from, a day's): the memories it taught
+    /// her ([`quoting`]), looked for before it went, for them to go after
+    /// it as any memory forgotten goes (`manage::forget_taught`). One known
+    /// to come from several lines goes when any of them does; one that only
+    /// says the same as a line still here does not.
+    pub taught: Vec<String>,
 }
 
 impl Gone {
@@ -80,7 +90,16 @@ impl Gone {
             session_id: line.session_id.clone(),
             role: line.role.clone(),
             log_row: line.log_row.clone(),
+            taught: Vec::new(),
         }
+    }
+
+    /// What the lines `gone` taught her, each once.
+    pub fn taught_by(gone: &[Self]) -> Vec<String> {
+        let mut taught: Vec<String> = gone.iter().flat_map(|line| line.taught.clone()).collect();
+        taught.sort();
+        taught.dedup();
+        taught
     }
 }
 
@@ -591,7 +610,7 @@ async fn lines_holding<C: ConnectionTrait>(
 
 /// The person's lines `ids` (`agent_messages.id`), and her answer to each
 /// line of theirs: what was said right after it, when that is hers.
-async fn delete_lines<C: ConnectionTrait>(
+pub(super) async fn delete_lines<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
     ids: &[i32],
@@ -616,9 +635,7 @@ async fn delete_lines<C: ConnectionTrait>(
              ORDER BY a.created_at, a.id LIMIT 1) r ON r.role = 'assistant' \
            WHERE q.role = 'user' \
          ) \
-         DELETE FROM agent_messages WHERE id IN ( \
-           SELECT id FROM quoted UNION SELECT id FROM answers WHERE id IS NOT NULL \
-         ) RETURNING session_id, id, role, log_row, content, created_at",
+         SELECT id FROM quoted UNION SELECT id FROM answers WHERE id IS NOT NULL",
         vec![user_id.into(), ids.to_vec().into()],
     )
     .await
@@ -634,31 +651,71 @@ async fn delete_day<C: ConnectionTrait>(
     delete_messages(
         db,
         user_id,
-        "DELETE FROM agent_messages m USING agent_sessions s \
-         WHERE s.id = m.session_id AND s.user_id = $1 AND s.context->>'mode' = 'chat' \
+        "SELECT m.id FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+         WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
            AND (s.context->>'venue') IS NULL \
-           AND m.created_at >= $2 AND m.created_at < $3 \
-         RETURNING m.session_id, m.id, m.role, m.log_row, m.content, m.created_at",
+           AND m.created_at >= $2 AND m.created_at < $3",
         vec![user_id.into(), start.into(), end.into()],
     )
     .await
 }
 
-/// Runs a delete of `user_id`'s lines returning their conversations, ids,
-/// roles, rows, words and times, keeps each as forgotten
-/// ([`super::forgotten`]), and has each conversation count what is left in
-/// it. The lines deleted.
+/// Deletes `user_id`'s lines that `select` finds (their ids), keeps each as
+/// forgotten ([`super::forgotten`]), and has each conversation count what is
+/// left in it. The lines deleted, each of hers with what it taught her,
+/// looked for before it went ([`Gone::taught`]).
 async fn delete_messages<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
-    delete: &str,
+    select: &str,
     values: Vec<sea_orm::Value>,
 ) -> Result<Vec<Gone>, DbErr> {
+    let ids: Vec<i32> = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            select,
+            values,
+        ))
+        .await?
+        .iter()
+        .map(|row| row.try_get("", "id"))
+        .collect::<Result<_, DbErr>>()?;
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    // Hers, while they are here: what a memory is known to come from is
+    // noted on the line (`tell`).
+    let hers = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT m.id, m.content, m.created_at, s.context->>'venue' AS venue \
+             FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+             WHERE m.id = ANY($1) AND m.role = 'assistant' AND s.user_id = $2",
+            [ids.clone().into(), user_id.into()],
+        ))
+        .await?;
+    let mut taught: std::collections::BTreeMap<i32, Vec<String>> = Default::default();
+    for line in &hers {
+        let id: i32 = line.try_get("", "id")?;
+        let content: String = line.try_get("", "content")?;
+        let place: Option<String> = line.try_get("", "venue")?;
+        let quotable = Quotable {
+            id,
+            role: "assistant",
+            content: &content,
+            at: line.try_get("", "created_at")?,
+        };
+        let of = quoting(db, user_id, place.as_deref(), &quotable).await?;
+        if !of.is_empty() {
+            taught.insert(id, of);
+        }
+    }
     let deleted = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            delete,
-            values,
+            "DELETE FROM agent_messages WHERE id = ANY($1) \
+             RETURNING session_id, id, role, log_row, content, created_at",
+            [ids.into()],
         ))
         .await?;
     let marks = deleted
@@ -676,11 +733,13 @@ async fn delete_messages<C: ConnectionTrait>(
     let lines = deleted
         .iter()
         .map(|row| {
+            let id = row.try_get("", "id")?;
             Ok(Gone {
-                id: row.try_get("", "id")?,
+                id,
                 session_id: row.try_get("", "session_id")?,
                 role: row.try_get("", "role")?,
                 log_row: row.try_get("", "log_row")?,
+                taught: taught.remove(&id).unwrap_or_default(),
             })
         })
         .collect::<Result<Vec<_>, DbErr>>()?;
