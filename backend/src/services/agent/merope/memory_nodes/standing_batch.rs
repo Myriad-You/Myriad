@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use myriad_nodes::stands::{
-    self, BatchStepInput, BatchStepReadInput, KnownIn, NodeIn, StillSo,
+    self, BatchStepInput, BatchStepReadInput, KnownIn, NodeIn, PersonIn, StillSo,
 };
 use sea_orm::DatabaseConnection;
 
@@ -61,6 +61,27 @@ pub(super) async fn recall_candidates(
         ));
     }
     Ok(out)
+}
+
+/// The people of theirs the audience keeps a node for (`heads`), each with
+/// the name the node goes by and its other names, by node id: a fact naming
+/// one of them another way (老妈 for 妈妈) still changes what stands of
+/// them. A node gone (absorbed, forgotten, taken back) names no one.
+pub(super) fn people_of(heads: &HashMap<String, read::Head>) -> Vec<PersonIn> {
+    let mut people: Vec<(&str, PersonIn)> = heads
+        .values()
+        .filter(|head| head.kind.as_deref() == Some("person"))
+        .filter(|head| !matches!(head.status.as_str(), "absorbed" | "forgotten" | "retracted"))
+        .filter_map(|head| {
+            let person = PersonIn {
+                name: head.name.clone()?,
+                aliases: head.aliases.clone(),
+            };
+            Some((head.node_id.as_str(), person))
+        })
+        .collect();
+    people.sort_by(|one, other| one.0.cmp(other.0));
+    people.into_iter().map(|(_, person)| person).collect()
 }
 
 pub(super) async fn collect_nodes<'a>(
@@ -122,6 +143,7 @@ pub(super) async fn step_batch(
         facts: batch.facts,
         known: batch.known,
         nodes: batch.nodes,
+        people: batch.people,
     })?;
     if read.unreadable {
         let total = counted(&UNREADABLE);
@@ -225,5 +247,83 @@ async fn batch_of(
         facts: fact_inputs,
         known,
         nodes,
+        people: people_of(heads),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn head(id: &str, kind: &str, name: &str, aliases: &[&str], status: &str) -> read::Head {
+        read::Head {
+            node_id: id.into(),
+            node_key: None,
+            kind: Some(kind.into()),
+            name: Some(name.into()),
+            aliases: aliases.iter().map(|alias| alias.to_string()).collect(),
+            status: status.into(),
+        }
+    }
+
+    /// The people the core is told of are the audience's live person
+    /// nodes, each with its names; with them a fact calling 妈妈 老妈
+    /// ends what stands of her instead of leaving it as another person's.
+    #[test]
+    fn a_fact_calling_a_person_by_another_of_her_names_ends_what_stands_of_her() {
+        let heads: HashMap<String, read::Head> = [
+            head("n-mom", "person", "妈妈", &["Mom", "老妈"], "active"),
+            head("n-run", "topic", "跑步", &["慢跑"], "active"),
+            head("n-old", "person", "婆婆", &["老妈"], "absorbed"),
+        ]
+        .into_iter()
+        .map(|head| (head.node_id.clone(), head))
+        .collect();
+        let people = people_of(&heads);
+        assert_eq!(
+            people,
+            [PersonIn {
+                name: "妈妈".into(),
+                aliases: vec!["Mom".into(), "老妈".into()],
+            }]
+        );
+        // 妈妈's item: `p` and the hex of her name.
+        let item = "pe5a688e5a688-abcdef0123";
+        let folded = serde_json::json!({"entries": [], "standing": {
+            "pe5a688e5a688-abcdef0123": {
+                "base": ["u-pe5a688e5a688-abcdef0123"],
+                "value": {"text": "妈妈在社区合唱团唱歌"}
+            }
+        }});
+        let read = |people: Vec<PersonIn>| {
+            stands::step_read(stands::StepReadInput {
+                output: r#"{"whose": "老妈", "set": [], "end": [1], "add": []}"#.into(),
+                sync: myriad_nodes::tags::Sync::Local("site".into()),
+                fact: stands::FactIn {
+                    memory: "m2".into(),
+                    text: "老妈不去合唱团了".into(),
+                    happened: None,
+                    learned: Some("2026-11-20".into()),
+                    replaced: false,
+                    on: vec!["n-mom".into()],
+                },
+                known: Vec::new(),
+                nodes: vec![NodeIn {
+                    id: "n-mom".into(),
+                    name: Some("妈妈".into()),
+                    kind: Some("person".into()),
+                    folded: folded.clone(),
+                }],
+                people,
+            })
+            .unwrap()
+        };
+        let got = read(people);
+        assert!(got.left.is_empty(), "{:?}", got.left);
+        assert_eq!(got.rows.len(), 1);
+        assert_eq!(got.rows[0].body["item"], serde_json::json!(item));
+        assert_eq!(got.rows[0].body["ended"], serde_json::json!(true));
+        // Told of no one, 老妈 is another person's.
+        assert_eq!(read(Vec::new()).left.len(), 1);
+    }
 }
