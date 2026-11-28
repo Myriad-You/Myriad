@@ -50,7 +50,9 @@ Base URL:
 | 密钥 | `POST /api/admin/rig-api/tenants/{id}/keys`，`DELETE …/keys/{key_id}` | 签发时响应里的 `secret` 只出现这一次（`Cache-Control: no-store`）；删除即吊销 |
 | 配额 | `PUT /api/admin/rig-api/tenants/{id}/limits`，`GET`/`PUT /api/admin/rig-api/defaults` | 租户自己的一项为 null 时用站点默认 |
 
-拒绝都带 `code`：401 `rig_api_key_required` / `rig_api_key_malformed` / `rig_api_key_invalid` / `rig_api_key_revoked` / `rig_api_key_expired`（带 `WWW-Authenticate`），403 `rig_api_tenant_disabled`，429 `rig_api_rate_limited`（带 `Retry-After`）。任务配额的拒绝（`api::rig_api::job_refused`；形象 API 不接任务）是 429 `rig_api_concurrency_limited` 与 `rig_api_job_quota_exhausted`（后者带 `Retry-After`）。
+配额按数据库的时钟算。每分钟请求数是固定窗口：每个整分钟从零数起，所以一个租户可以在一分钟的最后几秒用满限额、下一分钟开头再用满一次，两分钟交界处最多连着打出两倍限额。每期任务数按 UTC 日记，一期（一天或一个月）是这期里各天之和。同一地址在 `/rig-api` 上一分钟内被拒（401/403）满 60 次后，这一分钟里它的所有请求都答 429 `rig_api_ip_rate_limited`；带对的密钥的请求不受站点按地址的限流，只受租户自己的每分钟限额。
+
+拒绝都带 `code`：401 `rig_api_key_required` / `rig_api_key_malformed` / `rig_api_key_invalid` / `rig_api_key_revoked` / `rig_api_key_expired`（带 `WWW-Authenticate`），403 `rig_api_tenant_disabled`，429 `rig_api_rate_limited`（带 `Retry-After`；限额为 0 时不带）。任务配额的拒绝（`api::rig_api::job_refused`；形象 API 不接任务）是 429 `rig_api_concurrency_limited` 与 `rig_api_job_quota_exhausted`（后者带 `Retry-After`）。
 
 ## Tapp / Agent / Phantasi
 

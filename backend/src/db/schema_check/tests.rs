@@ -120,7 +120,6 @@ fn test_folded_extension_tables_in_expected_schema() {
         "rig_api_tenants",
         "rig_api_keys",
         "rig_api_job_usage",
-        "rig_api_job_slots",
         "rig_api_request_windows",
         // 005 扩展
         "federation_content_filters",
@@ -713,7 +712,6 @@ DROP TABLE rig_job_keys;
 DROP TABLE rig_job_steps;
 DROP TABLE rig_jobs;
 DROP TABLE rig_api_request_windows;
-DROP TABLE rig_api_job_slots;
 DROP TABLE rig_api_job_usage;
 DROP TABLE rig_api_keys;
 DROP TABLE rig_api_tenants;
@@ -763,7 +761,7 @@ ALTER TABLE agent_proactive_messages DROP COLUMN say_id, DROP COLUMN metadata;
             "SELECT to_regclass('rig_api_tenants') IS NOT NULL \
              AND to_regclass('rig_api_keys') IS NOT NULL \
              AND to_regclass('rig_api_job_usage') IS NOT NULL \
-             AND to_regclass('rig_api_job_slots') IS NOT NULL \
+             AND to_regclass('idx_rig_api_keys_created_by') IS NOT NULL \
              AND to_regclass('rig_api_request_windows') IS NOT NULL \
              AND to_regclass('idx_rig_api_keys_prefix') IS NOT NULL AS there",
         ))

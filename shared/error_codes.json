@@ -656,7 +656,8 @@
     "Owner account does not exist": "rig_api_owner_missing",
     "Invalid tenant name": "rig_api_invalid_tenant_name",
     "Invalid tenant limit": "rig_api_invalid_limit",
-    "Invalid key expiry": "rig_api_invalid_key_expiry"
+    "Invalid key expiry": "rig_api_invalid_key_expiry",
+    "Too many refused requests from this address": "rig_api_ip_rate_limited"
   },
   "leftovers": {
     "Federation is disabled on this instance": "federation_disabled_region",

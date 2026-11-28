@@ -131,7 +131,7 @@ pub async fn get_tenant(Db(db): Db, Path(id): Path<String>, _admin: AdminClaims)
     let keys = keys::list(&db, &tenant.id)
         .await
         .map_err(database_error("could not list a tenant's keys"))?;
-    let usage = quota::usage(&db, &tenant, &limits, crate::clock::now())
+    let usage = quota::usage(&db, &tenant, &limits, quota::Clock::Database)
         .await
         .map_err(database_error("could not read a tenant's usage"))?;
     Ok(Json(json!({

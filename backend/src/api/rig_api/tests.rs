@@ -509,15 +509,130 @@ async fn a_job_over_a_quota_is_answered_429_with_its_code() {
     let (status, headers, body) = read(super::job_refused(&Refusal::Period {
         limit: 10,
         used: 10,
-        resets_at,
+        resets_at: Some(resets_at),
+        retry_after_secs: Some(7200),
     }))
     .await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(body["code"], "rig_api_job_quota_exhausted");
-    let retry_after: i64 = headers[header::RETRY_AFTER]
-        .to_str()
-        .unwrap()
-        .parse()
+    assert_eq!(headers[header::RETRY_AFTER], "7200");
+
+    // A limit of none: nothing to wait for, so no Retry-After.
+    let (status, headers, body) = read(super::job_refused(&Refusal::Period {
+        limit: 0,
+        used: 0,
+        resets_at: None,
+        retry_after_secs: None,
+    }))
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(body["code"], "rig_api_job_quota_exhausted");
+    assert!(headers.get(header::RETRY_AFTER).is_none());
+}
+
+#[tokio::test]
+async fn a_tenant_with_no_requests_allowed_gets_429_without_retry_after() {
+    let Some(schema) = schema("rig_api_http_zero").await else {
+        return;
+    };
+    let admin = admin_as(&schema.db, 1);
+    let site = site(&schema.db);
+    let (_, _, secret) = tenant_with_key(&admin, json!({ "requestsPerMinute": 0 })).await;
+    let refused = get_me(&site, Some(&secret)).await;
+    assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(refused.body["code"], "rig_api_rate_limited");
+    assert!(refused.headers.get(header::RETRY_AFTER).is_none());
+    schema.drop().await;
+}
+
+/// The site's router with the site's per-address limiter in front, as
+/// `start_unified_server` layers it, and requests from `ip`.
+fn limited_site(db: &sea_orm::DatabaseConnection) -> Router {
+    site(db).layer(axum::middleware::from_fn(
+        crate::middleware::rate_limit::rate_limit_middleware,
+    ))
+}
+
+async fn get_me_from(app: &Router, ip: [u8; 4], key: Option<&str>) -> StatusCode {
+    let mut request = Request::builder().uri("/rig-api/v1/me");
+    if let Some(key) = key {
+        request = request.header(header::AUTHORIZATION, format!("Bearer {key}"));
+    }
+    let mut request = request.body(Body::empty()).unwrap();
+    request
+        .extensions_mut()
+        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+            ip, 40000,
+        ))));
+    app.clone().oneshot(request).await.unwrap().status()
+}
+
+#[tokio::test]
+async fn a_good_key_is_held_to_its_tenant_not_to_the_per_address_buckets() {
+    let Some(schema) = schema("rig_api_http_ip_ok").await else {
+        return;
+    };
+    let admin = admin_as(&schema.db, 1);
+    let app = limited_site(&schema.db);
+    let (_, _, secret) = tenant_with_key(&admin, json!({ "requestsPerMinute": 100000 })).await;
+    // More than the site's 200 a minute per address and path.
+    for n in 0..260 {
+        let status = get_me_from(&app, [198, 51, 100, 7], Some(&secret)).await;
+        assert_eq!(status, StatusCode::OK, "request {n}");
+    }
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn an_address_refused_too_often_is_held_off_the_rig_api() {
+    let Some(schema) = schema("rig_api_http_ip_refused").await else {
+        return;
+    };
+    let admin = admin_as(&schema.db, 1);
+    let app = limited_site(&schema.db);
+    let (_, _, secret) = tenant_with_key(&admin, json!({ "requestsPerMinute": 100000 })).await;
+    let guesser = [203, 0, 113, 9];
+    let forged = format!("mrk_{}_{}", "G".repeat(12), "h".repeat(43));
+    for n in 0..60 {
+        let key = if n % 2 == 0 {
+            Some(forged.as_str())
+        } else {
+            None
+        };
+        assert_eq!(
+            get_me_from(&app, guesser, key).await,
+            StatusCode::UNAUTHORIZED,
+            "request {n}"
+        );
+    }
+    // The 61st is held off before its key is looked at, with a code.
+    let mut request = Request::builder()
+        .uri("/rig-api/v1/me")
+        .header(header::AUTHORIZATION, format!("Bearer {forged}"))
+        .body(Body::empty())
         .unwrap();
-    assert!((7100..=7200).contains(&retry_after), "{retry_after}");
+    request
+        .extensions_mut()
+        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+            guesser, 40000,
+        ))));
+    let held = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(held.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(held.headers().get(header::RETRY_AFTER).is_some());
+    let bytes = axum::body::to_bytes(held.into_body(), 1 << 16)
+        .await
+        .unwrap();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["code"], "rig_api_ip_rate_limited");
+    // Every request from that address is held off for the window, a good key's too…
+    assert_eq!(
+        get_me_from(&app, guesser, Some(&secret)).await,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    // …and another address's good key is not.
+    assert_eq!(
+        get_me_from(&app, [203, 0, 113, 10], Some(&secret)).await,
+        StatusCode::OK
+    );
+    schema.drop().await;
 }

@@ -2,8 +2,8 @@
 //!
 //! A tenant is an account of the API, owned by a site user ([`tenants`]).
 //! It calls with keys that are shown once and kept only as a keyed hash
-//! ([`keys`]), and it is held to its quotas ([`quota`]): jobs running at
-//! once, jobs started per period, and requests per minute. A limit a tenant
+//! ([`keys`]), and it is held to its quotas ([`quota`], [`admission`]):
+//! jobs running at once, jobs started per period, and requests per minute. A limit a tenant
 //! has none of its own for is the site's default (the `rig_api_*` settings),
 //! read from the database when it is needed, so every backend process holds
 //! a tenant to the same limits.
@@ -19,7 +19,6 @@ pub mod tenants;
 #[cfg(test)]
 mod tests;
 
-use chrono::{DateTime, Datelike, TimeZone, Utc};
 use sea_orm::{DatabaseBackend, Statement};
 use serde::{Deserialize, Serialize};
 
@@ -45,26 +44,6 @@ impl Period {
             "day" => Some(Self::Day),
             "month" => Some(Self::Month),
             _ => None,
-        }
-    }
-
-    /// The start of the period `at` falls in.
-    pub fn start(self, at: DateTime<Utc>) -> DateTime<Utc> {
-        let day = at.date_naive();
-        let first = match self {
-            Self::Day => day,
-            Self::Month => day.with_day(1).expect("every month has a first day"),
-        };
-        Utc.from_utc_datetime(&first.and_hms_opt(0, 0, 0).expect("midnight exists"))
-    }
-
-    /// The start of the period after the one starting at `start`.
-    pub fn next(self, start: DateTime<Utc>) -> DateTime<Utc> {
-        match self {
-            Self::Day => start + chrono::Duration::days(1),
-            Self::Month => start
-                .checked_add_months(chrono::Months::new(1))
-                .expect("a month after a period start is representable"),
         }
     }
 }

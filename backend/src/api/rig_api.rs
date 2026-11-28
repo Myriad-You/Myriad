@@ -70,7 +70,7 @@ pub async fn me(
     crate::extract::Db(db): crate::extract::Db,
     caller: ApiTenant,
 ) -> Result<Json<Value>, HttpError> {
-    let usage = quota::usage(&db, &caller.tenant, &caller.limits, crate::clock::now())
+    let usage = quota::usage(&db, &caller.tenant, &caller.limits, quota::Clock::Database)
         .await
         .map_err(database_error("could not read a tenant's usage"))?;
     Ok(Json(json!({
@@ -106,23 +106,27 @@ pub fn job_refused(refusal: &Refusal) -> Response {
             limit,
             used,
             resets_at,
+            retry_after_secs,
         } => {
-            let now = crate::clock::now();
-            let retry_after = quota::seconds_until(now, *resets_at);
             let mut response = crate::error::app_error_response(
                 AppError::too_many_requests("Job quota exhausted")
-                    .with_message(format!(
-                        "This tenant may start {limit} jobs a period; the next period begins \
-                         at {resets_at}."
-                    ))
+                    .with_message(match resets_at {
+                        Some(at) => format!(
+                            "This tenant may start {limit} jobs a period; the next period \
+                             begins at {at}."
+                        ),
+                        None => "This tenant may start no jobs.".to_owned(),
+                    })
                     .with_details(json!({
                         "limit": limit,
                         "used": used,
                         "resetsAt": resets_at,
-                        "retryAfterSeconds": retry_after,
+                        "retryAfterSeconds": retry_after_secs,
                     })),
             );
-            if let Ok(value) = axum::http::HeaderValue::from_str(&retry_after.to_string()) {
+            if let Some(value) = retry_after_secs
+                .and_then(|secs| axum::http::HeaderValue::from_str(&secs.to_string()).ok())
+            {
                 response
                     .headers_mut()
                     .insert(axum::http::header::RETRY_AFTER, value);

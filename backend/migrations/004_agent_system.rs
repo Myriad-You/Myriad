@@ -695,7 +695,6 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .execute_unprepared(
                 r#"
 DROP TABLE IF EXISTS rig_api_request_windows;
-DROP TABLE IF EXISTS rig_api_job_slots;
 DROP TABLE IF EXISTS rig_api_job_usage;
 DROP TABLE IF EXISTS rig_api_keys;
 DROP TABLE IF EXISTS rig_api_tenants;

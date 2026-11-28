@@ -2,15 +2,16 @@
 //! keys that are not (malformed, unknown, revoked, expired, a disabled
 //! tenant's), limits and the site's defaults, and the quotas held under
 //! requests and admissions made at once, from one pool and from two (two
-//! processes).
+//! processes), admissions that do not commit, lapsed leases, and a key
+//! hashed under another data key.
 
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
-use sea_orm::{ConnectionTrait, DatabaseConnection};
+use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionTrait};
 
 use super::Period;
-use super::admission::{AdmitError, Refusal, admit_job, release_job};
-use super::keys::{self, Refused};
-use super::quota::{self, CLAIM_GRACE, Limits, RateCount};
+use super::admission::{Admission, AdmitError, Refusal, admit_job_in, refund_job_in};
+use super::keys::{self, HashKey, Refused};
+use super::quota::{self, Clock, Limits, RateCount};
 use super::tenants::{self, Overrides, TenantError};
 
 async fn schema(prefix: &str) -> Option<(crate::db::IsolatedSchema, String)> {
@@ -45,10 +46,11 @@ fn own(concurrent: i32, per_period: i32, per_minute: i32) -> Overrides {
     }
 }
 
-async fn insert_job(db: &DatabaseConnection, id: &str, state: &str) {
+/// A job of `caller`'s in `rig_jobs`, its lease just renewed.
+async fn insert_job<C: ConnectionTrait>(db: &C, id: &str, caller: &str, state: &str) {
     db.execute_unprepared(&format!(
-        "INSERT INTO rig_jobs (id, kind, caller, input, state, ledger_task_id) \
-         VALUES ('{id}', 'bust', 'tenant:t', '{{}}', '{state}', 'rig-job:{id}')"
+        "INSERT INTO rig_jobs (id, kind, caller, input, state, ledger_task_id, heartbeat_at) \
+         VALUES ('{id}', 'bust', '{caller}', '{{}}', '{state}', 'rig-job:{id}', NOW())"
     ))
     .await
     .unwrap();
@@ -60,6 +62,20 @@ async fn end_job(db: &DatabaseConnection, id: &str) {
     ))
     .await
     .unwrap();
+}
+
+/// What the job route does: admit and insert the job in one transaction.
+async fn start_job(
+    db: &DatabaseConnection,
+    tenant_id: &str,
+    job_id: &str,
+    clock: Clock,
+) -> Result<Admission, AdmitError> {
+    let txn = db.begin().await?;
+    let admission = admit_job_in(&txn, tenant_id, clock).await?;
+    insert_job(&txn, job_id, &admission.caller, "running").await;
+    txn.commit().await?;
+    Ok(admission)
 }
 
 #[tokio::test]
@@ -315,6 +331,44 @@ async fn a_tenant_without_limits_of_its_own_has_the_sites_as_stored_now() {
 }
 
 #[tokio::test]
+async fn a_key_hashed_under_another_data_key_is_refused_as_unknown() {
+    let Some((schema, _)) = schema("rig_api_rehash").await else {
+        return;
+    };
+    let db = &schema.db;
+    let now = at(10, 0, 0);
+    let tenant = tenants::create(db, 7, "Studio", Overrides::default(), now)
+        .await
+        .unwrap();
+    let before = HashKey::derive(&myriad_data_key::DataKey::from_key_bytes([1; 32]));
+    let after = HashKey::derive(&myriad_data_key::DataKey::from_key_bytes([2; 32]));
+    let (_, secret) = keys::issue_under(db, &before, &tenant.id, "", None, None, now)
+        .await
+        .unwrap();
+    assert!(
+        keys::authenticate_under(db, &before, &secret, now)
+            .await
+            .is_ok()
+    );
+    assert!(matches!(
+        keys::authenticate_under(db, &after, &secret, now).await,
+        Err(Refused::HashKeyChanged)
+    ));
+    let stored: String = db
+        .query_one_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT hash_key_id FROM rig_api_keys",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "hash_key_id")
+        .unwrap();
+    assert_eq!(stored, before.id());
+    schema.drop().await;
+}
+
+#[tokio::test]
 async fn requests_over_the_minutes_limit_are_refused_until_the_next_minute() {
     let Some((schema, _)) = schema("rig_api_rate").await else {
         return;
@@ -324,26 +378,26 @@ async fn requests_over_the_minutes_limit_are_refused_until_the_next_minute() {
     let tenant = tenants::create(db, 7, "Studio", own(1, 1, 2), now)
         .await
         .unwrap();
+    let clock = Clock::At(now);
     for used in 1..=2 {
         assert!(matches!(
-            quota::count_request(db, &tenant.id, 2, now).await.unwrap(),
-            RateCount::Counted { used: u, .. } if u == used
+            quota::count_request(db, &tenant.id, 2, clock).await.unwrap(),
+            RateCount::Counted { used: u, retry_after_secs: 10, .. } if u == used
         ));
     }
-    match quota::count_request(db, &tenant.id, 2, now).await.unwrap() {
+    assert_eq!(
+        quota::count_request(db, &tenant.id, 2, clock)
+            .await
+            .unwrap(),
         RateCount::Limited {
-            retry_after_secs,
-            resets_at,
-            ..
-        } => {
-            assert_eq!(retry_after_secs, 10);
-            assert_eq!(resets_at, at(10, 1, 0));
+            limit: 2,
+            resets_at: Some(at(10, 1, 0)),
+            retry_after_secs: Some(10),
         }
-        counted => panic!("over the limit, counted: {counted:?}"),
-    }
+    );
     // The next minute starts again from one, and the minute before goes.
     assert!(matches!(
-        quota::count_request(db, &tenant.id, 2, at(10, 1, 0))
+        quota::count_request(db, &tenant.id, 2, Clock::At(at(10, 1, 0)))
             .await
             .unwrap(),
         RateCount::Counted { used: 1, .. }
@@ -359,12 +413,26 @@ async fn requests_over_the_minutes_limit_are_refused_until_the_next_minute() {
         .try_get::<i64>("", "n")
         .unwrap();
     assert_eq!(windows, 1);
-    // A limit of none refuses everything.
-    assert!(matches!(
-        quota::count_request(db, &tenant.id, 0, at(10, 1, 0))
+    // A limit of none refuses everything, with no time to come back at.
+    assert_eq!(
+        quota::count_request(db, &tenant.id, 0, clock)
             .await
             .unwrap(),
-        RateCount::Limited { .. }
+        RateCount::Limited {
+            limit: 0,
+            resets_at: None,
+            retry_after_secs: None,
+        }
+    );
+    // Without a clock of its own the minute is the database's.
+    assert!(matches!(
+        quota::count_request(db, &tenant.id, 1000, Clock::Database)
+            .await
+            .unwrap(),
+        RateCount::Counted {
+            retry_after_secs: 1..=60,
+            ..
+        }
     ));
     schema.drop().await;
 }
@@ -386,7 +454,11 @@ async fn requests_made_at_once_from_two_processes_never_pass_the_limit() {
             other.clone()
         };
         let id = tenant.id.clone();
-        tokio::spawn(async move { quota::count_request(&db, &id, 10, now).await.unwrap() })
+        tokio::spawn(async move {
+            quota::count_request(&db, &id, 10, Clock::At(now))
+                .await
+                .unwrap()
+        })
     });
     let counted = futures::future::join_all(requests)
         .await
@@ -400,108 +472,208 @@ async fn requests_made_at_once_from_two_processes_never_pass_the_limit() {
 }
 
 #[tokio::test]
-async fn a_job_takes_a_place_and_a_count_and_ending_frees_the_place() {
+async fn a_job_is_admitted_with_its_insert_and_ending_frees_its_place() {
     let Some((schema, _)) = schema("rig_api_admit").await else {
         return;
     };
     let db = &schema.db;
     let now = at(10, 0, 0);
+    let clock = Clock::At(now);
     let tenant = tenants::create(db, 7, "Studio", own(1, 2, 100), now)
         .await
         .unwrap();
+    let limits = quota::limits_for(db, tenant.overrides).await.unwrap();
 
-    let first = admit_job(db, &tenant.id, "job-a", now).await.unwrap();
+    let first = start_job(db, &tenant.id, "job-a", clock).await.unwrap();
+    assert_eq!(first.caller, quota::tenant_caller(&tenant.id));
     assert_eq!(first.period_start, at(0, 0, 0));
-    // The same job admitted again takes nothing more.
-    assert_eq!(
-        admit_job(db, &tenant.id, "job-a", now).await.unwrap(),
-        first
-    );
+    // Another tenant's running job is not this tenant's.
+    insert_job(db, "job-x", "tenant:ten_other", "running").await;
     // One place: a second job waits for it.
     assert!(matches!(
-        admit_job(db, &tenant.id, "job-b", now).await,
+        start_job(db, &tenant.id, "job-b", clock).await,
         Err(AdmitError::Refused(Refusal::Concurrency {
             limit: 1,
             running: 1
         }))
     ));
-    // The job runs, then ends: its place is free, its count stays.
-    insert_job(db, "job-a", "running").await;
-    let limits = quota::limits_for(db, tenant.overrides).await.unwrap();
-    let usage = quota::usage(db, &tenant, &limits, now).await.unwrap();
+    let usage = quota::usage(db, &tenant, &limits, clock).await.unwrap();
     assert_eq!((usage.concurrent_jobs, usage.jobs_this_period), (1, 1));
     end_job(db, "job-a").await;
-    let usage = quota::usage(db, &tenant, &limits, now).await.unwrap();
+    let usage = quota::usage(db, &tenant, &limits, clock).await.unwrap();
     assert_eq!((usage.concurrent_jobs, usage.jobs_this_period), (0, 1));
 
-    admit_job(db, &tenant.id, "job-b", now).await.unwrap();
-    insert_job(db, "job-b", "queued").await;
+    start_job(db, &tenant.id, "job-b", clock).await.unwrap();
     end_job(db, "job-b").await;
     // Two jobs started today: the third waits for tomorrow.
-    match admit_job(db, &tenant.id, "job-c", now).await {
+    match start_job(db, &tenant.id, "job-c", clock).await {
         Err(AdmitError::Refused(Refusal::Period {
             limit,
             used,
             resets_at,
-        })) => assert_eq!(
-            (limit, used, resets_at),
-            (2, 2, at(0, 0, 0) + TimeDelta::days(1))
-        ),
+            retry_after_secs,
+        })) => {
+            assert_eq!((limit, used), (2, 2));
+            assert_eq!(resets_at, Some(at(0, 0, 0) + TimeDelta::days(1)));
+            assert_eq!(retry_after_secs, Some(14 * 3600));
+        }
         other => panic!("third job of the day: {other:?}"),
     }
-    let tomorrow = now + TimeDelta::days(1);
-    assert!(admit_job(db, &tenant.id, "job-c", tomorrow).await.is_ok());
+    let tomorrow = Clock::At(now + TimeDelta::days(1));
+    assert!(start_job(db, &tenant.id, "job-c", tomorrow).await.is_ok());
 
     // A disabled tenant starts nothing; a missing one neither.
     tenants::update(db, &tenant.id, None, Some(true), now)
         .await
         .unwrap();
     assert!(matches!(
-        admit_job(db, &tenant.id, "job-d", tomorrow).await,
+        start_job(db, &tenant.id, "job-d", tomorrow).await,
         Err(AdmitError::Refused(Refusal::TenantDisabled))
     ));
     assert!(matches!(
-        admit_job(db, "ten_missing", "job-e", now).await,
+        start_job(db, "ten_missing", "job-e", clock).await,
         Err(AdmitError::Refused(Refusal::TenantMissing))
     ));
     schema.drop().await;
 }
 
 #[tokio::test]
-async fn a_job_never_claimed_gives_back_its_place_on_release_or_after_the_grace() {
-    let Some((schema, _)) = schema("rig_api_release").await else {
+async fn an_admission_whose_transaction_does_not_commit_leaves_nothing_behind() {
+    let Some((schema, _)) = schema("rig_api_rollback").await else {
         return;
     };
     let db = &schema.db;
     let now = at(10, 0, 0);
-    let tenant = tenants::create(db, 7, "Studio", own(1, 5, 100), now)
+    let clock = Clock::At(now);
+    let tenant = tenants::create(db, 7, "Studio", own(1, 1, 100), now)
         .await
         .unwrap();
+    // The claim after the admission fails: the transaction rolls back.
+    let txn = db.begin().await.unwrap();
+    admit_job_in(&txn, &tenant.id, clock).await.unwrap();
+    txn.rollback().await.unwrap();
+    // A process dying between the two is the same: its transaction never commits.
+    let txn = db.begin().await.unwrap();
+    admit_job_in(&txn, &tenant.id, clock).await.unwrap();
+    drop(txn);
     let limits = quota::limits_for(db, tenant.overrides).await.unwrap();
-
-    let refused_claim = admit_job(db, &tenant.id, "job-a", now).await.unwrap();
-    assert!(release_job(db, &refused_claim).await.unwrap());
-    let usage = quota::usage(db, &tenant, &limits, now).await.unwrap();
+    let usage = quota::usage(db, &tenant, &limits, clock).await.unwrap();
     assert_eq!((usage.concurrent_jobs, usage.jobs_this_period), (0, 0));
+    assert!(start_job(db, &tenant.id, "job-a", clock).await.is_ok());
+    schema.drop().await;
+}
 
-    // A job that is in `rig_jobs` is not given back: it ends by itself.
-    let claimed = admit_job(db, &tenant.id, "job-b", now).await.unwrap();
-    insert_job(db, "job-b", "running").await;
-    assert!(!release_job(db, &claimed).await.unwrap());
-    end_job(db, "job-b").await;
-
-    // A place whose job never came holds through the grace, then frees.
-    admit_job(db, &tenant.id, "job-c", now).await.unwrap();
-    let grace = TimeDelta::from_std(CLAIM_GRACE).unwrap();
+#[tokio::test]
+async fn a_refunded_job_no_longer_counts_against_its_period() {
+    let Some((schema, _)) = schema("rig_api_refund").await else {
+        return;
+    };
+    let db = &schema.db;
+    let now = at(10, 0, 0);
+    let clock = Clock::At(now);
+    let tenant = tenants::create(db, 7, "Studio", own(10, 1, 100), now)
+        .await
+        .unwrap();
+    let admission = start_job(db, &tenant.id, "job-a", clock).await.unwrap();
+    assert_eq!(admission.counted_on, now.date_naive());
+    end_job(db, "job-a").await;
     assert!(matches!(
-        admit_job(db, &tenant.id, "job-d", now + grace - TimeDelta::seconds(1)).await,
-        Err(AdmitError::Refused(Refusal::Concurrency { .. }))
+        start_job(db, &tenant.id, "job-b", clock).await,
+        Err(AdmitError::Refused(Refusal::Period { used: 1, .. }))
     ));
     assert!(
-        admit_job(db, &tenant.id, "job-d", now + grace + TimeDelta::seconds(1))
+        refund_job_in(db, &tenant.id, admission.counted_on)
             .await
-            .is_ok()
+            .unwrap()
     );
+    assert!(
+        !refund_job_in(db, &tenant.id, admission.counted_on)
+            .await
+            .unwrap()
+    );
+    assert!(start_job(db, &tenant.id, "job-b", clock).await.is_ok());
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn a_job_whose_lease_lapsed_gives_its_place_to_the_next_admission() {
+    let Some((schema, _)) = schema("rig_api_lapse").await else {
+        return;
+    };
+    let db = &schema.db;
+    let now = at(10, 0, 0);
+    let clock = Clock::At(now);
+    let tenant = tenants::create(db, 7, "Studio", own(1, 10, 100), now)
+        .await
+        .unwrap();
+    start_job(db, &tenant.id, "job-a", clock).await.unwrap();
+    assert!(matches!(
+        start_job(db, &tenant.id, "job-b", clock).await,
+        Err(AdmitError::Refused(Refusal::Concurrency { .. }))
+    ));
+    // Its process went away: the lease is not renewed past its length.
+    db.execute_unprepared(&format!(
+        "UPDATE rig_jobs SET heartbeat_at = NOW() - INTERVAL '{} seconds' WHERE id = 'job-a'",
+        crate::services::rig_jobs::LEASE.as_secs() + 1
+    ))
+    .await
+    .unwrap();
+    start_job(db, &tenant.id, "job-b", clock).await.unwrap();
+    let state: String = db
+        .query_one_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT state FROM rig_jobs WHERE id = 'job-a'",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "state")
+        .unwrap();
+    assert_eq!(state, "failed");
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn a_tenant_moved_from_days_to_months_counts_the_months_earlier_days() {
+    let Some((schema, _)) = schema("rig_api_period").await else {
+        return;
+    };
+    let db = &schema.db;
+    let first_day = Utc.with_ymd_and_hms(2026, 11, 3, 9, 0, 0).unwrap();
+    let tenant = tenants::create(db, 7, "Studio", own(100, 3, 100), first_day)
+        .await
+        .unwrap();
+    for n in 0..2 {
+        start_job(db, &tenant.id, &format!("d1-{n}"), Clock::At(first_day))
+            .await
+            .unwrap();
+    }
+    // Last month's jobs are not this month's.
+    start_job(
+        db,
+        &tenant.id,
+        "oct",
+        Clock::At(first_day - TimeDelta::days(10)),
+    )
+    .await
+    .unwrap();
+    tenants::set_overrides(
+        db,
+        &tenant.id,
+        Overrides {
+            job_period: Some(Period::Month),
+            ..own(100, 3, 100)
+        },
+        first_day,
+    )
+    .await
+    .unwrap();
+    let later = Clock::At(first_day + TimeDelta::days(5));
+    start_job(db, &tenant.id, "d6", later).await.unwrap();
+    assert!(matches!(
+        start_job(db, &tenant.id, "d6-b", later).await,
+        Err(AdmitError::Refused(Refusal::Period { used: 3, .. }))
+    ));
     schema.drop().await;
 }
 
@@ -525,7 +697,7 @@ async fn admissions_at_once_from_two_processes_hold_both_job_limits() {
             let db = pools[n % 2].clone();
             let tenant = tenant.clone();
             tokio::spawn(async move {
-                match admit_job(&db, &tenant, &format!("{tag}-{n}"), now).await {
+                match start_job(&db, &tenant, &format!("{tag}-{n}"), Clock::At(now)).await {
                     Ok(_) => true,
                     Err(AdmitError::Refused(_)) => false,
                     Err(AdmitError::Db(error)) => panic!("{error}"),
@@ -551,10 +723,17 @@ async fn admissions_at_once_from_two_processes_hold_both_job_limits() {
     let limits = quota::limits_for(&schema.db, per_day.overrides)
         .await
         .unwrap();
-    let usage = quota::usage(&schema.db, &per_day, &limits, now)
+    let usage = quota::usage(&schema.db, &per_day, &limits, Clock::At(now))
         .await
         .unwrap();
     assert_eq!(usage.jobs_this_period, 5);
+    let limits = quota::limits_for(&schema.db, concurrent.overrides)
+        .await
+        .unwrap();
+    let usage = quota::usage(&schema.db, &concurrent, &limits, Clock::At(now))
+        .await
+        .unwrap();
+    assert_eq!(usage.concurrent_jobs, 3);
     other.close().await.unwrap();
     schema.drop().await;
 }

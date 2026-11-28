@@ -33,6 +33,7 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     .default_value("''"),
                 ColumnDef::new("prefix", "character varying").not_null(),
                 ColumnDef::new("secret_hash", "character varying").not_null(),
+                ColumnDef::new("hash_key_id", "character varying").not_null(),
                 ColumnDef::new("created_by_user_id", "integer"),
                 ColumnDef::new("created_at", "timestamp with time zone")
                     .not_null()
@@ -46,19 +47,10 @@ pub(crate) fn tables() -> Vec<TableDef> {
             name: "rig_api_job_usage".to_string(),
             columns: vec![
                 ColumnDef::new("tenant_id", "character varying").not_null(),
-                ColumnDef::new("period_start", "timestamp with time zone").not_null(),
+                ColumnDef::new("day", "date").not_null(),
                 ColumnDef::new("jobs", "integer")
                     .not_null()
                     .default_value("0"),
-            ],
-        },
-        TableDef {
-            name: "rig_api_job_slots".to_string(),
-            columns: vec![
-                ColumnDef::new("tenant_id", "character varying").not_null(),
-                ColumnDef::new("job_id", "character varying").not_null(),
-                ColumnDef::new("period_start", "timestamp with time zone").not_null(),
-                ColumnDef::new("reserved_at", "timestamp with time zone").not_null(),
             ],
         },
         TableDef {

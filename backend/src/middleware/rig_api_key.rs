@@ -84,24 +84,35 @@ fn unavailable() -> Response {
 }
 
 /// The answer to a request over its tenant's requests per minute.
-pub fn rate_limited(limit: i32, resets_at: DateTime<Utc>, retry_after_secs: u64) -> Response {
+/// A limit of none has no `Retry-After`: waiting does not help.
+pub fn rate_limited(
+    limit: i32,
+    resets_at: Option<DateTime<Utc>>,
+    retry_after_secs: Option<u64>,
+) -> Response {
+    let message = match retry_after_secs {
+        Some(secs) => {
+            format!("This tenant may make {limit} requests a minute; try again in {secs} seconds.")
+        }
+        None => "This tenant may make no requests.".to_owned(),
+    };
+    let mut headers = vec![
+        (RATE_LIMIT_LIMIT, limit.to_string()),
+        (RATE_LIMIT_REMAINING, "0".to_owned()),
+    ];
+    if let Some(secs) = retry_after_secs {
+        headers.push((header::RETRY_AFTER, secs.to_string()));
+        headers.push((RATE_LIMIT_RESET, secs.to_string()));
+    }
     with_headers(
         AppError::too_many_requests("API rate limit exceeded")
-            .with_message(format!(
-                "This tenant may make {limit} requests a minute; try again in \
-                 {retry_after_secs} seconds."
-            ))
+            .with_message(message)
             .with_details(serde_json::json!({
                 "limit": limit,
                 "resetsAt": resets_at,
                 "retryAfterSeconds": retry_after_secs,
             })),
-        vec![
-            (header::RETRY_AFTER, retry_after_secs.to_string()),
-            (RATE_LIMIT_LIMIT, limit.to_string()),
-            (RATE_LIMIT_REMAINING, "0".to_owned()),
-            (RATE_LIMIT_RESET, retry_after_secs.to_string()),
-        ],
+        headers,
     )
 }
 
@@ -129,7 +140,9 @@ fn refused(refused: Refused) -> Response {
             AppError::unauthorized("Malformed API key")
                 .with_message("An API key is `mrk_`, 12 characters, `_` and 43 characters."),
         ),
-        Refused::Unknown => unauthorized(AppError::unauthorized("Invalid API key")),
+        Refused::Unknown | Refused::HashKeyChanged => {
+            unauthorized(AppError::unauthorized("Invalid API key"))
+        }
         Refused::Revoked => unauthorized(AppError::unauthorized("API key revoked")),
         Refused::Expired => unauthorized(AppError::unauthorized("API key expired")),
         Refused::TenantDisabled => crate::error::app_error_response(
@@ -170,8 +183,13 @@ pub async fn rig_api_key_auth(
             return unavailable();
         }
     };
-    let counted = match quota::count_request(&db, &found.tenant.id, limits.requests_per_minute, now)
-        .await
+    let counted = match quota::count_request(
+        &db,
+        &found.tenant.id,
+        limits.requests_per_minute,
+        quota::Clock::Database,
+    )
+    .await
     {
         Ok(counted) => counted,
         Err(error) => {
@@ -179,10 +197,12 @@ pub async fn rig_api_key_auth(
             return unavailable();
         }
     };
-    let (used, resets_at) = match counted {
+    let (used, reset_secs) = match counted {
         RateCount::Counted {
-            used, resets_at, ..
-        } => (used, resets_at),
+            used,
+            retry_after_secs,
+            ..
+        } => (used, retry_after_secs),
         RateCount::Limited {
             limit,
             resets_at,
@@ -209,10 +229,7 @@ pub async fn rig_api_key_auth(
             RATE_LIMIT_REMAINING,
             (limits.requests_per_minute - used).max(0).to_string(),
         ),
-        (
-            RATE_LIMIT_RESET,
-            quota::seconds_until(now, resets_at).to_string(),
-        ),
+        (RATE_LIMIT_RESET, reset_secs.to_string()),
     ] {
         if let Ok(value) = HeaderValue::from_str(&value) {
             response.headers_mut().insert(name, value);

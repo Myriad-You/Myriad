@@ -1,40 +1,34 @@
 //! A tenant's quotas: jobs running at once, jobs started per period, and
 //! requests per minute.
 //!
-//! Every count is a row in the database, and every check that moves one is
-//! made where the database serializes it, so the limits hold however many
-//! backend processes serve the API:
+//! Every count is a row in the database, every check that moves one is made
+//! where the database serializes it, and every time it is counted against is
+//! the database's clock, so the limits hold however many backend processes
+//! serve the API and whatever their clocks say:
 //!
 //! - A request is counted by one statement that adds it to the tenant's row
 //!   for the minute only while the row is under the limit
-//!   ([`count_request`]).
-//! - A job is let start by [`admit_job`](super::admission::admit_job), in one
-//!   transaction holding the tenant's row lock: it frees the places of jobs
-//!   that ended, counts the places held and the jobs started in the period,
-//!   and takes a place and a count when both are under their limits. Admissions of one tenant wait
-//!   on one another; other tenants' do not.
+//!   ([`count_request`]). The minutes are fixed windows: a tenant may make
+//!   its limit's worth at the end of one minute and again at the start of
+//!   the next.
+//! - A job is let start by [`admit_job_in`](super::admission::admit_job_in),
+//!   in the transaction that inserts the job, holding the tenant's row lock.
 //!
-//! A place is held while `rig_jobs` has the job queued or running, and,
-//! before the job is there, for [`CLAIM_GRACE`] after it was taken; the job
-//! ending frees it with no call from the job's runner. A job that was not
-//! started after all (its claim refused, or another job joined in its
-//! place) gives its place and count back
-//! ([`release_job`](super::admission::release_job)).
+//! A tenant's running jobs are its `rig_jobs` rows queued or running, found
+//! by their caller ([`tenant_caller`]). Jobs started are counted per UTC day
+//! and a period is the sum of its days.
 //!
 //! Limits a tenant has none of its own for are the site's defaults
 //! ([`site_defaults`]), read from the database.
 
-use chrono::{DateTime, DurationRound, TimeDelta, Utc};
-use sea_orm::{ConnectionTrait, DbErr};
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+use sea_orm::{ConnectionTrait, DbErr, QueryResult};
 use serde::Serialize;
 
 use super::tenants::{Overrides, Tenant};
 use super::{Period, statement};
 use crate::config::DynamicConfig;
 use crate::services::config_service::ConfigService;
-
-/// How long a place taken for a job holds before the job is in `rig_jobs`.
-pub const CLAIM_GRACE: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
 /// The settings the site's defaults are kept in.
 const DEFAULT_KEYS: [&str; 4] = [
@@ -44,12 +38,34 @@ const DEFAULT_KEYS: [&str; 4] = [
     "rig_api_requests_per_minute",
 ];
 
-/// A place is held: its job is queued or running, or not there yet and
-/// taken since `$2`.
-pub(super) const HELD: &str = "(EXISTS (SELECT 1 FROM rig_jobs j WHERE j.id = s.job_id \
-                       AND j.state IN ('queued', 'running')) \
-                    OR (NOT EXISTS (SELECT 1 FROM rig_jobs j WHERE j.id = s.job_id) \
-                        AND s.reserved_at >= $2))";
+/// Days of job counts kept: a year and a month.
+const USAGE_DAYS_KEPT: i32 = 400;
+
+/// What "now" is for the quotas: the database's clock, the one every
+/// process shares. A test gives a time of its own instead, which the same
+/// statements take in place of `now()`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Clock {
+    Database,
+    #[cfg(test)]
+    At(DateTime<Utc>),
+}
+
+impl Clock {
+    /// The statement parameter that `COALESCE($n::timestamptz, now())` reads.
+    pub(super) fn param(self) -> sea_orm::Value {
+        match self {
+            Self::Database => Option::<DateTime<Utc>>::None.into(),
+            #[cfg(test)]
+            Self::At(at) => Some(at).into(),
+        }
+    }
+}
+
+/// The caller a tenant's jobs are recorded under in `rig_jobs`.
+pub fn tenant_caller(tenant_id: &str) -> String {
+    format!("tenant:{tenant_id}")
+}
 
 /// The limits a tenant is held to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -121,12 +137,6 @@ pub async fn limits_for<C: ConnectionTrait>(db: &C, overrides: Overrides) -> Res
     Ok(Limits::with(overrides, site_defaults(db).await?))
 }
 
-/// The minute `now` falls in.
-fn minute_of(now: DateTime<Utc>) -> DateTime<Utc> {
-    now.duration_trunc(TimeDelta::minutes(1))
-        .expect("a time truncates to its minute")
-}
-
 /// Whole seconds from `now` until `at`, at least one.
 pub fn seconds_until(now: DateTime<Utc>, at: DateTime<Utc>) -> u64 {
     let millis = (at - now).num_milliseconds().max(0);
@@ -141,54 +151,67 @@ pub enum RateCount {
         used: i32,
         limit: i32,
         resets_at: DateTime<Utc>,
+        retry_after_secs: u64,
     },
-    /// Over the limit, and not counted.
+    /// Over the limit, and not counted. A limit of none never frees, so it
+    /// has no time to come back at.
     Limited {
         limit: i32,
-        resets_at: DateTime<Utc>,
-        retry_after_secs: u64,
+        resets_at: Option<DateTime<Utc>>,
+        retry_after_secs: Option<u64>,
     },
 }
 
-/// Counts a request of `tenant_id`'s made at `now`, if the minute's requests
-/// are under `limit`. One statement adds it or leaves the row as it is, so
-/// requests made at once in any number of processes never go past the limit.
+/// Counts a request of `tenant_id`'s, if this minute's requests are under
+/// `limit`. One statement adds it or leaves the row as it is, so requests
+/// made at once in any number of processes never go past the limit; the
+/// minute is the database's.
 pub async fn count_request<C: ConnectionTrait>(
     db: &C,
     tenant_id: &str,
     limit: i32,
-    now: DateTime<Utc>,
+    clock: Clock,
 ) -> Result<RateCount, DbErr> {
-    let window = minute_of(now);
-    let resets_at = window + TimeDelta::minutes(1);
-    let limited = RateCount::Limited {
-        limit,
-        resets_at,
-        retry_after_secs: seconds_until(now, resets_at),
-    };
     if limit <= 0 {
-        return Ok(limited);
+        return Ok(RateCount::Limited {
+            limit,
+            resets_at: None,
+            retry_after_secs: None,
+        });
     }
     let row = db
         .query_one_raw(statement(
-            "INSERT INTO rig_api_request_windows (tenant_id, window_start, requests) \
-             VALUES ($1, $2, 1) \
-             ON CONFLICT (tenant_id, window_start) DO UPDATE \
-             SET requests = rig_api_request_windows.requests + 1 \
-             WHERE rig_api_request_windows.requests < $3 \
-             RETURNING requests",
-            vec![tenant_id.into(), window.into(), limit.into()],
+            "WITH t AS (SELECT COALESCE($3::timestamptz, now()) AS at), \
+             up AS ( \
+                 INSERT INTO rig_api_request_windows (tenant_id, window_start, requests) \
+                 SELECT $1, date_trunc('minute', t.at), 1 FROM t \
+                 ON CONFLICT (tenant_id, window_start) DO UPDATE \
+                 SET requests = rig_api_request_windows.requests + 1 \
+                 WHERE rig_api_request_windows.requests < $2 \
+                 RETURNING requests) \
+             SELECT t.at, date_trunc('minute', t.at) + INTERVAL '1 minute' AS resets_at, \
+                    (SELECT requests FROM up) AS requests \
+             FROM t",
+            vec![tenant_id.into(), limit.into(), clock.param()],
         ))
-        .await?;
-    let Some(row) = row else {
-        return Ok(limited);
+        .await?
+        .ok_or(DbErr::RecordNotFound("the database's time".into()))?;
+    let at: DateTime<Utc> = row.try_get("", "at")?;
+    let resets_at: DateTime<Utc> = row.try_get("", "resets_at")?;
+    let retry_after_secs = seconds_until(at, resets_at);
+    let Some(used) = row.try_get::<Option<i32>>("", "requests")? else {
+        return Ok(RateCount::Limited {
+            limit,
+            resets_at: Some(resets_at),
+            retry_after_secs: Some(retry_after_secs),
+        });
     };
-    let used: i32 = row.try_get("", "requests")?;
     if used == 1 {
         // The first request of a new minute: the minutes before it are done with.
         db.execute_raw(statement(
-            "DELETE FROM rig_api_request_windows WHERE tenant_id = $1 AND window_start < $2",
-            vec![tenant_id.into(), window.into()],
+            "DELETE FROM rig_api_request_windows \
+             WHERE tenant_id = $1 AND window_start < $2::timestamptz - INTERVAL '1 minute'",
+            vec![tenant_id.into(), resets_at.into()],
         ))
         .await?;
     }
@@ -196,25 +219,20 @@ pub async fn count_request<C: ConnectionTrait>(
         used,
         limit,
         resets_at,
+        retry_after_secs,
     })
 }
 
-pub(super) fn grace_start(now: DateTime<Utc>) -> DateTime<Utc> {
-    now - TimeDelta::from_std(CLAIM_GRACE).expect("the grace is a few minutes")
-}
-
-pub(super) async fn count_held<C: ConnectionTrait>(
+/// A tenant's jobs queued or running now.
+pub(super) async fn running_jobs<C: ConnectionTrait>(
     db: &C,
     tenant_id: &str,
-    now: DateTime<Utc>,
 ) -> Result<i64, DbErr> {
     Ok(db
         .query_one_raw(statement(
-            &format!(
-                "SELECT COUNT(*)::BIGINT AS n FROM rig_api_job_slots s \
-                 WHERE s.tenant_id = $1 AND {HELD}"
-            ),
-            vec![tenant_id.into(), grace_start(now).into()],
+            "SELECT COUNT(*)::BIGINT AS n FROM rig_jobs \
+             WHERE caller = $1 AND state IN ('queued', 'running')",
+            vec![tenant_caller(tenant_id).into()],
         ))
         .await?
         .map(|row| row.try_get::<i64>("", "n"))
@@ -222,28 +240,85 @@ pub(super) async fn count_held<C: ConnectionTrait>(
         .unwrap_or(0))
 }
 
-pub(super) async fn jobs_in<C: ConnectionTrait>(
-    db: &C,
-    tenant_id: &str,
-    period_start: DateTime<Utc>,
-) -> Result<i32, DbErr> {
-    Ok(db
-        .query_one_raw(statement(
-            "SELECT jobs FROM rig_api_job_usage WHERE tenant_id = $1 AND period_start = $2",
-            vec![tenant_id.into(), period_start.into()],
-        ))
-        .await?
-        .map(|row| row.try_get::<i32>("", "jobs"))
-        .transpose()?
-        .unwrap_or(0))
+/// The period `clock`'s now falls in, and what a tenant started in it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct PeriodUse {
+    /// The database's now the period was read at.
+    pub at: DateTime<Utc>,
+    pub start: DateTime<Utc>,
+    pub resets_at: DateTime<Utc>,
+    /// Today's UTC date, the row a new job is counted in.
+    pub today: NaiveDate,
+    pub used: i64,
 }
 
-/// What a tenant has used of its limits at `now`.
+fn midnight(day: NaiveDate) -> DateTime<Utc> {
+    Utc.from_utc_datetime(&day.and_hms_opt(0, 0, 0).expect("midnight exists"))
+}
+
+pub(super) async fn period_use<C: ConnectionTrait>(
+    db: &C,
+    tenant_id: &str,
+    period: Period,
+    clock: Clock,
+) -> Result<PeriodUse, DbErr> {
+    let row: QueryResult = db
+        .query_one_raw(statement(
+            "WITH t AS (SELECT COALESCE($3::timestamptz, now()) AT TIME ZONE 'UTC' AS at), \
+             p AS (SELECT date_trunc($2, t.at)::date AS start, \
+                          (date_trunc($2, t.at) + ('1 ' || $2)::interval)::date AS next, \
+                          t.at::date AS today FROM t) \
+             SELECT COALESCE($3::timestamptz, now()) AS now, p.start, p.next, p.today, \
+                    COALESCE((SELECT SUM(u.jobs) FROM rig_api_job_usage u \
+                              WHERE u.tenant_id = $1 AND u.day >= p.start AND u.day < p.next), \
+                             0)::BIGINT AS used \
+             FROM p",
+            vec![tenant_id.into(), period.as_str().into(), clock.param()],
+        ))
+        .await?
+        .ok_or(DbErr::RecordNotFound("the database's time".into()))?;
+    Ok(PeriodUse {
+        at: row.try_get("", "now")?,
+        start: midnight(row.try_get("", "start")?),
+        resets_at: midnight(row.try_get("", "next")?),
+        today: row.try_get("", "today")?,
+        used: row.try_get("", "used")?,
+    })
+}
+
+/// Counts a job started today for `tenant_id`; the first count of a day
+/// removes the days no period reaches back to.
+pub(super) async fn count_job<C: ConnectionTrait>(
+    db: &C,
+    tenant_id: &str,
+    today: NaiveDate,
+) -> Result<(), DbErr> {
+    let jobs: i32 = db
+        .query_one_raw(statement(
+            "INSERT INTO rig_api_job_usage (tenant_id, day, jobs) VALUES ($1, $2, 1) \
+             ON CONFLICT (tenant_id, day) DO UPDATE SET jobs = rig_api_job_usage.jobs + 1 \
+             RETURNING jobs",
+            vec![tenant_id.into(), today.into()],
+        ))
+        .await?
+        .ok_or(DbErr::RecordNotInserted)?
+        .try_get("", "jobs")?;
+    if jobs == 1 {
+        db.execute_raw(statement(
+            "DELETE FROM rig_api_job_usage WHERE tenant_id = $1 AND day < $2::date - $3::INTEGER",
+            vec![tenant_id.into(), today.into(), USAGE_DAYS_KEPT.into()],
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+/// What a tenant has used of its limits now.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Usage {
     pub concurrent_jobs: i64,
-    pub jobs_this_period: i32,
+    pub jobs_this_period: i64,
     pub period_start: DateTime<Utc>,
     pub period_resets_at: DateTime<Utc>,
     pub requests_this_minute: i32,
@@ -254,34 +329,34 @@ pub async fn usage<C: ConnectionTrait>(
     db: &C,
     tenant: &Tenant,
     limits: &Limits,
-    now: DateTime<Utc>,
+    clock: Clock,
 ) -> Result<Usage, DbErr> {
-    let period_start = limits.job_period.start(now);
-    let minute = minute_of(now);
-    let requests = db
+    let period = period_use(db, &tenant.id, limits.job_period, clock).await?;
+    let minute = db
         .query_one_raw(statement(
-            "SELECT requests FROM rig_api_request_windows \
-             WHERE tenant_id = $1 AND window_start = $2",
-            vec![tenant.id.clone().into(), minute.into()],
+            "WITH t AS (SELECT date_trunc('minute', COALESCE($2::timestamptz, now())) AS w) \
+             SELECT t.w + INTERVAL '1 minute' AS resets_at, \
+                    COALESCE((SELECT requests FROM rig_api_request_windows \
+                              WHERE tenant_id = $1 AND window_start = t.w), 0) AS requests \
+             FROM t",
+            vec![tenant.id.clone().into(), clock.param()],
         ))
         .await?
-        .map(|row| row.try_get::<i32>("", "requests"))
-        .transpose()?
-        .unwrap_or(0);
+        .ok_or(DbErr::RecordNotFound("the database's time".into()))?;
     Ok(Usage {
-        concurrent_jobs: count_held(db, &tenant.id, now).await?,
-        jobs_this_period: jobs_in(db, &tenant.id, period_start).await?,
-        period_start,
-        period_resets_at: limits.job_period.next(period_start),
-        requests_this_minute: requests,
-        minute_resets_at: minute + TimeDelta::minutes(1),
+        concurrent_jobs: running_jobs(db, &tenant.id).await?,
+        jobs_this_period: period.used,
+        period_start: period.start,
+        period_resets_at: period.resets_at,
+        requests_this_minute: minute.try_get("", "requests")?,
+        minute_resets_at: minute.try_get("", "resets_at")?,
     })
 }
 
 #[cfg(test)]
 mod unit_tests {
     use super::*;
-    use chrono::TimeZone;
+    use chrono::TimeDelta;
 
     #[test]
     fn a_tenants_own_limits_win_and_the_rest_are_the_sites() {
@@ -313,34 +388,13 @@ mod unit_tests {
     }
 
     #[test]
-    fn periods_start_and_end_on_utc_days_and_months() {
-        let at = Utc.with_ymd_and_hms(2026, 12, 31, 23, 59, 59).unwrap();
-        let day = Period::Day.start(at);
-        assert_eq!(day, Utc.with_ymd_and_hms(2026, 12, 31, 0, 0, 0).unwrap());
-        assert_eq!(
-            Period::Day.next(day),
-            Utc.with_ymd_and_hms(2027, 1, 1, 0, 0, 0).unwrap()
-        );
-        let month = Period::Month.start(at);
-        assert_eq!(month, Utc.with_ymd_and_hms(2026, 12, 1, 0, 0, 0).unwrap());
-        assert_eq!(
-            Period::Month.next(month),
-            Utc.with_ymd_and_hms(2027, 1, 1, 0, 0, 0).unwrap()
-        );
-        let january = Utc.with_ymd_and_hms(2027, 1, 31, 12, 0, 0).unwrap();
-        assert_eq!(
-            Period::Month.next(Period::Month.start(january)),
-            Utc.with_ymd_and_hms(2027, 2, 1, 0, 0, 0).unwrap()
-        );
-    }
-
-    #[test]
-    fn retry_after_is_whole_seconds_to_the_next_minute() {
+    fn retry_after_is_whole_seconds_and_at_least_one() {
         let at =
             Utc.with_ymd_and_hms(2026, 11, 28, 10, 0, 59).unwrap() + TimeDelta::milliseconds(400);
-        let next = minute_of(at) + TimeDelta::minutes(1);
+        let next = Utc.with_ymd_and_hms(2026, 11, 28, 10, 1, 0).unwrap();
         assert_eq!(seconds_until(at, next), 1);
         let start = Utc.with_ymd_and_hms(2026, 11, 28, 10, 0, 0).unwrap();
         assert_eq!(seconds_until(start, next), 60);
+        assert_eq!(seconds_until(next, start), 1);
     }
 }

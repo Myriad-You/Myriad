@@ -34,8 +34,9 @@ pub const MAX_NAME_CHARS: usize = 80;
 /// Last use is recorded at most this often.
 const TOUCH_EVERY_SECS: i64 = 60;
 /// What the hashing key is derived for, from the installation's data key.
-#[cfg(not(test))]
-const HASH_KEY_CONTEXT: &[u8] = b"myriad-rig-api-key-hash-v1";
+const HASH_PURPOSE: &str = "rig-api-key-hash-v1";
+/// What the hashing key's fingerprint is derived for.
+const HASH_ID_PURPOSE: &str = "rig-api-key-hash-id-v1";
 
 const BASE62: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
@@ -111,31 +112,49 @@ pub fn prefix_of(key: &str) -> Option<&str> {
     (base62(&prefix[KEY_PREFIX.len()..]) && base62(secret)).then_some(prefix)
 }
 
-/// The key keys are hashed under.
-fn hash_key() -> &'static [u8; 32] {
-    static KEY: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
+/// The key keys are hashed under, and its fingerprint (`hash_key_id`):
+/// the first 8 bytes, in hex, of another subkey of the same data key, so it
+/// tells hashing keys apart without saying anything about them.
+pub struct HashKey {
+    key: [u8; 32],
+    id: String,
+}
+
+impl HashKey {
+    pub fn derive(root: &myriad_data_key::DataKey) -> Self {
+        Self {
+            key: root.derive_subkey(HASH_PURPOSE),
+            id: hex::encode(&root.derive_subkey(HASH_ID_PURPOSE)[..8]),
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// HMAC-SHA256 (hex) of `key`.
+    fn hash(&self, key: &str) -> String {
+        let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(&self.key)
+            .expect("HMAC takes a key of any length");
+        mac.update(key.as_bytes());
+        hex::encode(mac.finalize().into_bytes())
+    }
+}
+
+/// The installation's hashing key, from its data key. Tests run on a data
+/// key of their own, through the same derivation.
+fn installation_hash_key() -> &'static HashKey {
+    static KEY: std::sync::OnceLock<HashKey> = std::sync::OnceLock::new();
     KEY.get_or_init(|| {
         #[cfg(test)]
         {
-            [0x5a; 32]
+            HashKey::derive(&myriad_data_key::DataKey::from_key_bytes([0x5a; 32]))
         }
         #[cfg(not(test))]
         {
-            myriad_data_key::data_key().derive_subkey(HASH_KEY_CONTEXT)
+            HashKey::derive(myriad_data_key::data_key())
         }
     })
-}
-
-/// HMAC-SHA256 (hex) of `key` under `hash_key`.
-fn hash_with(hash_key: &[u8; 32], key: &str) -> String {
-    let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(hash_key)
-        .expect("HMAC takes a key of any length");
-    mac.update(key.as_bytes());
-    hex::encode(mac.finalize().into_bytes())
-}
-
-fn hash(key: &str) -> String {
-    hash_with(hash_key(), key)
 }
 
 /// `name` as kept: trimmed and cut to the column's width.
@@ -167,6 +186,27 @@ pub async fn issue<C: ConnectionTrait>(
     created_by_user_id: Option<i32>,
     now: DateTime<Utc>,
 ) -> Result<(ApiKey, String), IssueError> {
+    issue_under(
+        db,
+        installation_hash_key(),
+        tenant_id,
+        name,
+        expires_at,
+        created_by_user_id,
+        now,
+    )
+    .await
+}
+
+pub(super) async fn issue_under<C: ConnectionTrait>(
+    db: &C,
+    hash_key: &HashKey,
+    tenant_id: &str,
+    name: &str,
+    expires_at: Option<DateTime<Utc>>,
+    created_by_user_id: Option<i32>,
+    now: DateTime<Utc>,
+) -> Result<(ApiKey, String), IssueError> {
     if expires_at.is_some_and(|at| at <= now) {
         return Err(IssueError::ExpiryPast);
     }
@@ -178,15 +218,16 @@ pub async fn issue<C: ConnectionTrait>(
         .query_one_raw(statement(
             &format!(
                 "INSERT INTO rig_api_keys (id, tenant_id, name, prefix, secret_hash, \
-                 created_by_user_id, created_at, expires_at) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING {COLUMNS}"
+                 hash_key_id, created_by_user_id, created_at, expires_at) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING {COLUMNS}"
             ),
             vec![
                 format!("rak_{}", uuid::Uuid::new_v4().simple()).into(),
                 tenant_id.into(),
                 clean_name(name).into(),
                 prefix.into(),
-                hash(&key).into(),
+                hash_key.hash(&key).into(),
+                hash_key.id().into(),
                 created_by_user_id.into(),
                 now.into(),
                 expires_at.into(),
@@ -239,6 +280,9 @@ pub enum Refused {
     Malformed,
     /// No key has that prefix, or the key is not the one with it.
     Unknown,
+    /// The key with that prefix was hashed under another data key's hashing
+    /// key, so it cannot be checked: answered as `Unknown`.
+    HashKeyChanged,
     Revoked,
     Expired,
     /// The key is good, its tenant disabled.
@@ -268,13 +312,22 @@ pub async fn authenticate<C: ConnectionTrait>(
     presented: &str,
     now: DateTime<Utc>,
 ) -> Result<Authenticated, Refused> {
+    authenticate_under(db, installation_hash_key(), presented, now).await
+}
+
+pub(super) async fn authenticate_under<C: ConnectionTrait>(
+    db: &C,
+    hash_key: &HashKey,
+    presented: &str,
+    now: DateTime<Utc>,
+) -> Result<Authenticated, Refused> {
     let prefix = prefix_of(presented).ok_or(Refused::Malformed)?;
     let key_columns = super::aliased(COLUMNS, "k");
     let tenant_columns = super::aliased(tenants::COLUMNS, "t");
     let row = db
         .query_one_raw(statement(
             &format!(
-                "SELECT {key_columns}, k.secret_hash, {tenant_columns} \
+                "SELECT {key_columns}, k.secret_hash, k.hash_key_id, {tenant_columns} \
                  FROM rig_api_keys k JOIN rig_api_tenants t ON t.id = k.tenant_id \
                  WHERE k.prefix = $1"
             ),
@@ -282,8 +335,20 @@ pub async fn authenticate<C: ConnectionTrait>(
         ))
         .await?
         .ok_or(Refused::Unknown)?;
+    let stored_key_id: String = row.try_get("", "hash_key_id")?;
+    if stored_key_id != hash_key.id() {
+        let key_id: String = row.try_get("", "k_id")?;
+        tracing::error!(
+            key = %key_id,
+            stored = %stored_key_id,
+            current = %hash_key.id(),
+            "[rig-api] an API key was hashed under another data key and cannot be checked; \
+             the installation's data key changed since it was issued, so it must be issued again"
+        );
+        return Err(Refused::HashKeyChanged);
+    }
     let stored: String = row.try_get("", "secret_hash")?;
-    if !bool::from(stored.as_bytes().ct_eq(hash(presented).as_bytes())) {
+    if !bool::from(stored.as_bytes().ct_eq(hash_key.hash(presented).as_bytes())) {
         return Err(Refused::Unknown);
     }
     let key = ApiKey::from_row(&row, "k_")?;
@@ -353,10 +418,15 @@ mod unit_tests {
     #[test]
     fn the_hash_is_keyed_and_never_the_key() {
         let (_, key) = generate();
-        let one = hash_with(&[1; 32], &key);
+        let first = HashKey::derive(&myriad_data_key::DataKey::from_key_bytes([1; 32]));
+        let second = HashKey::derive(&myriad_data_key::DataKey::from_key_bytes([2; 32]));
+        let one = first.hash(&key);
         assert_eq!(one.len(), 64);
-        assert_eq!(one, hash_with(&[1; 32], &key));
-        assert_ne!(one, hash_with(&[2; 32], &key));
+        assert_eq!(one, first.hash(&key));
+        assert_ne!(one, second.hash(&key));
+        assert_eq!(first.id().len(), 16);
+        assert_ne!(first.id(), second.id());
+        assert!(!one.starts_with(first.id()));
         assert!(!one.contains(&key[KEY_PREFIX.len()..]));
     }
 }

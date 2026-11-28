@@ -33,6 +33,10 @@ CREATE TABLE IF NOT EXISTS rig_api_keys (
     -- HMAC-SHA256 (hex) of the whole key under a key derived from the
     -- installation's data key.
     secret_hash VARCHAR(64) NOT NULL,
+    -- Which hashing key that was: a fingerprint of it, not the key. A row
+    -- whose fingerprint is not the current one was hashed under another
+    -- data key and can no longer be checked.
+    hash_key_id VARCHAR(16) NOT NULL,
     created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     expires_at TIMESTAMPTZ,
@@ -41,25 +45,16 @@ CREATE TABLE IF NOT EXISTS rig_api_keys (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_rig_api_keys_prefix ON rig_api_keys (prefix);
 CREATE INDEX IF NOT EXISTS idx_rig_api_keys_tenant ON rig_api_keys (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_rig_api_keys_created_by ON rig_api_keys (created_by_user_id);
 
--- Jobs a tenant was let start in a period (a UTC day or month).
+-- Jobs a tenant was let start, per UTC day. A period (a day or a month) is
+-- the sum of its days, so changing a tenant's period counts what it started
+-- earlier in the new one. Days older than a year and a month are removed.
 CREATE TABLE IF NOT EXISTS rig_api_job_usage (
     tenant_id VARCHAR(40) NOT NULL REFERENCES rig_api_tenants(id) ON DELETE CASCADE,
-    period_start TIMESTAMPTZ NOT NULL,
+    day DATE NOT NULL,
     jobs INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (tenant_id, period_start)
-);
-
--- A place a tenant's job holds among its concurrent jobs. It is held while
--- `rig_jobs` has the job queued or running, or, before the job is there,
--- for a short while after it was taken; then it is free again.
-CREATE TABLE IF NOT EXISTS rig_api_job_slots (
-    tenant_id VARCHAR(40) NOT NULL REFERENCES rig_api_tenants(id) ON DELETE CASCADE,
-    job_id VARCHAR(32) NOT NULL,
-    -- The period the job was counted in, to give it back there.
-    period_start TIMESTAMPTZ NOT NULL,
-    reserved_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (tenant_id, job_id)
+    PRIMARY KEY (tenant_id, day)
 );
 
 -- Requests a tenant made in each minute. A tenant's older rows are removed

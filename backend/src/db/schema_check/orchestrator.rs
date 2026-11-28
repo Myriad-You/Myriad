@@ -140,7 +140,7 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// 每一步的耗时与算力；`rig_jobs.sql`，随 004 与 `ensure_rig_jobs_tables` 一起建；占位任务的部分
 /// 索引带 WHERE，不进 `get_expected_indexes`）。旧二进制不认识它们也照常启动。
 /// 2026.11.28.1：形象 API 的租户 `rig_api_tenants`、它们的密钥 `rig_api_keys`（只存带钥匙的
-/// 哈希和公开前缀）、配额计数 `rig_api_job_usage`、`rig_api_job_slots`、
+/// 哈希、哈希钥匙的指纹和公开前缀）、配额计数 `rig_api_job_usage`（按 UTC 日）、
 /// `rig_api_request_windows`（`rig_api.sql`，随 004 与 `ensure_rig_api_tables` 一起建）。
 /// 旧二进制不认识它们也照常启动。
 pub const SCHEMA_VERSION: &str = "2026.11.28.1";
