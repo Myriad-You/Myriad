@@ -122,7 +122,8 @@ fn long(id: i32) -> Spoken {
 fn a_long_line_is_gone_over_part_by_part() {
     let lines = vec![long(1), line(2, false, 0)];
     let none = vec![None; 2];
-    let (parts, of) = in_parts(&lines, &none);
+    let ids = messages_of(&lines);
+    let (parts, of) = in_parts(&lines, &none, &ids);
     let count = raw::line_parts(&lines[0].text).len();
     assert!(count > 2);
     assert_eq!(parts.len(), count + 1);
@@ -143,7 +144,8 @@ fn a_long_line_is_gone_over_part_by_part() {
     // One only a part of which they took back is not let go; all of it, it is.
     let spoken = by_part(lines, None);
     let none = vec![None; spoken.len()];
-    let (parts, of) = in_parts(&spoken, &none);
+    let ids = messages_of(&spoken);
+    let (parts, of) = in_parts(&spoken, &none, &ids);
     assert!(whole(&spoken, &parts, &of, &[1]).is_empty());
     let all: Vec<usize> = (0..count).collect();
     assert_eq!(whole(&spoken, &parts, &of, &all), [1]);
@@ -184,4 +186,64 @@ fn a_few_words_quoted_are_of_a_line_that_says_only_them() {
     ];
     let lines: Vec<&Spoken> = lines.iter().collect();
     assert_eq!(saying("我家养了只小狗 / 两岁了", &lines), [1, 2]);
+}
+
+/// What she is told quotes `evidence` from the lines `from`.
+fn quoting(evidence: &str, from: &[usize]) -> String {
+    serde_json::json!({
+        "lasting": [{
+            "fact": "他们说的一件事",
+            "evidence": evidence,
+            "from": from,
+            "concepts": [],
+            "whenFor": [],
+            "topic": {"on": "", "name": ""},
+            "happened": {"from": "", "to": "", "about": false},
+            "state": "",
+            "open": null,
+            "replaces": [],
+        }],
+        "tookBack": [], "letGo": [], "moment": [], "known": [],
+        "said": [], "own": [], "putOnto": [],
+    })
+    .to_string()
+}
+
+/// How many facts quoting `evidence` across the parts `from` are kept, as
+/// a pass shows `lines` to the core.
+fn kept_quoting(lines: &[Spoken], evidence: &str, from: &[usize]) -> usize {
+    let at: Vec<Option<String>> = lines.iter().map(|line| Some(said_at(line.at))).collect();
+    let ids = messages_of(lines);
+    let (parts, _) = in_parts(lines, &at, &ids);
+    raw::parse_raw_settle(&quoting(evidence, from), &parts, &[], &[], 0, None)
+        .unwrap()
+        .settled
+        .lasting
+        .len()
+}
+
+/// A quote runs on from one part of a long message into the next; two
+/// messages said in the same minute (the time she is shown) are two, and
+/// a quote stitched from the end of one and the start of the other is not
+/// taken.
+#[test]
+fn a_quote_runs_on_within_one_message_never_across_two_said_in_one_minute() {
+    let spoken = by_part(vec![long(1)], None);
+    assert!(spoken.len() > 1 && spoken.iter().all(|part| part.id == 1));
+    let end: String = {
+        let first: Vec<char> = spoken[0].text.chars().collect();
+        first[first.len() - 6..].iter().collect()
+    };
+    let start: String = spoken[1].text.chars().take(6).collect();
+    assert_eq!(kept_quoting(&spoken, &format!("{end}{start}"), &[0, 1]), 1);
+
+    let said = |id: i32, text: &str| Spoken {
+        text: text.into(),
+        ..line(id, true, 3)
+    };
+    let two = [said(1, "我周六要去医院"), said(2, "复查膝盖的事就算了")];
+    assert_eq!(said_at(two[0].at), said_at(two[1].at));
+    assert_eq!(kept_quoting(&two, "去医院复查膝盖", &[0, 1]), 0);
+    // Each said in its own words is kept.
+    assert_eq!(kept_quoting(&two, "我周六要去医院", &[0]), 1);
 }

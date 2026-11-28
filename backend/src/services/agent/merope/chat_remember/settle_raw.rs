@@ -13,7 +13,7 @@
 
 use std::collections::BTreeSet;
 
-use myriad_merope::settle_raw::{self as raw, Who};
+use myriad_merope::settle_raw as raw;
 
 use super::super::ingest::compact_summary;
 use super::super::memory_jobs::{Effect, Failure};
@@ -22,10 +22,13 @@ use crate::services::agent::memory::origins;
 
 mod again;
 mod lines;
+mod parts;
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(in crate::services::agent::merope) use again::DropCounts;
 pub(in crate::services::agent::merope) use lines::{ELSEWHERE, Read, SAID, Spoken, words_of};
 use lines::{Lines, lines, read_of};
+pub(in crate::services::agent::merope) use parts::by_part;
+use parts::{in_parts, messages_of, said_at, shown, whole};
 pub(super) use lines::{of_a_game, their_message};
 
 /// What she knows of them for good shown beside it: the newest, then what
@@ -129,67 +132,6 @@ pub(in crate::services::agent::merope) fn this_pass(stretch: &[Spoken]) -> std::
     start..start + pass_end(&stretch[start..])
 }
 
-/// When a line was said, as she is shown it.
-fn said_at(at: chrono::DateTime<chrono::FixedOffset>) -> String {
-    at.with_timezone(&super::super::clock::zone())
-        .format("%Y-%m-%d %H:%M")
-        .to_string()
-}
-
-fn shown<'a>(lines: &'a [Spoken], at: &'a [Option<String>]) -> Vec<raw::Line<'a>> {
-    lines
-        .iter()
-        .zip(at)
-        .map(|(line, at)| as_shown(line, at.as_deref(), &line.text))
-        .collect()
-}
-
-fn as_shown<'a>(line: &'a Spoken, at: Option<&'a str>, text: &'a str) -> raw::Line<'a> {
-    raw::Line {
-        who: if line.theirs { Who::Them } else { Who::You },
-        text,
-        in_game: line.in_game,
-        before: line.gone,
-        at,
-    }
-}
-
-/// `lines` as a pass is shown them, a long one part by part
-/// ([`raw::line_parts`]): the parts, and of each its line's index. Each part
-/// is accounted for.
-fn in_parts<'a>(lines: &'a [Spoken], at: &'a [Option<String>]) -> (Vec<raw::Line<'a>>, Vec<usize>) {
-    let mut parts = Vec::new();
-    let mut of = Vec::new();
-    for (index, (line, at)) in lines.iter().zip(at).enumerate() {
-        for part in raw::line_parts(&line.text) {
-            parts.push(as_shown(line, at.as_deref(), part));
-            of.push(index);
-        }
-    }
-    (parts, of)
-}
-
-/// `lines`, each part of a long one a line of its own of the same message,
-/// so a pass may end within it; of the one gone over in part, the parts that
-/// were are gone.
-pub(in crate::services::agent::merope) fn by_part(
-    lines: Vec<Spoken>,
-    partway: Option<(i32, usize)>,
-) -> Vec<Spoken> {
-    let mut parts = Vec::new();
-    for line in lines {
-        for (nth, text) in raw::line_parts(&line.text).into_iter().enumerate() {
-            let gone = partway.is_some_and(|(id, done)| line.id == id && nth < done);
-            parts.push(Spoken {
-                text: text.to_string(),
-                gone: line.gone || gone,
-                ..line.clone()
-            });
-        }
-    }
-    parts
-}
-
 /// Of `lines`, those that say what `evidence` quotes, each part of it on its
 /// own: few words are all a line says, not a part of another, unless none
 /// says only them.
@@ -209,22 +151,6 @@ fn saying(evidence: &str, lines: &[&Spoken]) -> Vec<i32> {
         saying.extend(of);
     }
     saying.into_iter().map(|at| lines[at].id).collect()
-}
-
-/// Of the messages `lines` are of, those said whole in `let_go` (indexes):
-/// one only a part of which they took back is not let go.
-fn whole(lines: &[Spoken], parts: &[raw::Line], of: &[usize], let_go: &[usize]) -> Vec<i32> {
-    let mut ids: Vec<i32> = Vec::new();
-    for index in let_go.iter().filter_map(|part| of.get(*part)) {
-        let id = lines[*index].id;
-        let all = (0..parts.len())
-            .filter(|part| lines[of[*part]].id == id)
-            .all(|part| let_go.contains(&part) || (!parts[part].before && !parts[part].to_place()));
-        if all && !ids.contains(&id) {
-            ids.push(id);
-        }
-    }
-    ids
 }
 
 /// A private talk's stretch, gone over (`memory_jobs::Payload::Settle`):
@@ -480,7 +406,8 @@ pub(in crate::services::agent::merope) async fn go_over(
     } = what_she_knows(db, user_id, present, lines).await?;
     let new = || lines.iter().filter(|line| !line.gone);
     let at: Vec<Option<String>> = lines.iter().map(|line| Some(said_at(line.at))).collect();
-    let (shown_lines, of) = in_parts(lines, &at);
+    let ids = messages_of(lines);
+    let (shown_lines, of) = in_parts(lines, &at, &ids);
     let theirs = new()
         .filter(|line| line.theirs)
         .map(|line| line.text.as_str())

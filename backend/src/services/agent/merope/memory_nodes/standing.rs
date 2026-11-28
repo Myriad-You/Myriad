@@ -599,6 +599,7 @@ async fn step_single(
         fact: step.fact,
         known: step.known,
         nodes: step.nodes,
+        people: step.people,
     })?;
     if read.unreadable {
         let total = counted(&UNREADABLE);
@@ -659,6 +660,7 @@ async fn step_of(
         },
         known,
         nodes,
+        people: standing_batch::people_of(heads),
     })
 }
 

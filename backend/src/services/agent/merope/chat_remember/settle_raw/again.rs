@@ -552,6 +552,7 @@ mod tests {
                 in_game: false,
                 before: false,
                 at: None,
+                message: None,
             },
             Line {
                 who: Who::Them,
@@ -559,6 +560,7 @@ mod tests {
                 in_game: false,
                 before: false,
                 at: None,
+                message: None,
             },
         ];
         let mut got = RawSettled::default();
