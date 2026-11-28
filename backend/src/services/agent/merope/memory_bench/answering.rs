@@ -167,13 +167,28 @@ fn recall_only() -> bool {
     std::env::var("MEROPE_MEMORY_BENCH_RECALL_ONLY").as_deref() == Ok("1")
 }
 
-/// What another run recalled and answered the wide way.
+/// What another run recalled and answered the wide way, and what she was
+/// asked then ([`asked_as`]).
 #[derive(Clone, Default)]
 struct Earlier {
     recalled: Vec<String>,
     correct: Option<bool>,
     why: Option<String>,
     answer: String,
+    prompt: String,
+}
+
+/// What she is asked, as a run's rows keep it: the SHA-256 of her answering
+/// prompt and the message, in hex.
+fn asked_as(system: &str, input: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(format!("{system}\n\n{input}").as_bytes()))
+}
+
+/// Whether another run's answer is this one's: the same lines recalled,
+/// and asked of her the same way, word for word (`prompt`, [`asked_as`]).
+fn asked_the_same(earlier: &Earlier, recalled: &[String], prompt: &str) -> bool {
+    earlier.recalled == recalled && earlier.prompt == prompt
 }
 
 /// Of the run in `MEROPE_MEMORY_BENCH_ANSWERS_OF` (its `.partial.jsonl`),
@@ -218,6 +233,9 @@ fn answers_in(text: &str) -> HashMap<(String, usize), Earlier> {
                     correct: wide["correct"].as_bool(),
                     why: wide["why"].as_str().map(str::to_string),
                     answer: wide["response"].as_str()?.to_string(),
+                    // A run that does not say what she was asked (one from
+                    // before her prompt said it) is not answered again.
+                    prompt: wide["prompt"].as_str()?.to_string(),
                 },
             ))
         })
@@ -368,6 +386,9 @@ pub(super) struct Answered {
     /// How their life stands, as it was put in front of her before what she
     /// recalled (in a private talk): not recalled either.
     pub(super) standing: Vec<String>,
+    /// What she was asked ([`asked_as`]), when she was: another run takes
+    /// her answer only where it was asked the same.
+    pub(super) prompt: Option<String>,
 }
 
 impl Answered {
@@ -423,6 +444,7 @@ pub(super) async fn answer_one(
     // Only recalling (`MEROPE_MEMORY_BENCH_RECALL_ONLY=1`): nothing asked.
     let unasked = |recalled: Vec<String>, earlier: Option<Earlier>| {
         let earlier = earlier.unwrap_or_default();
+        let prompt = Some(earlier.prompt).filter(|prompt| !prompt.is_empty());
         Answered {
             retrieved,
             correct: earlier.correct,
@@ -434,19 +456,11 @@ pub(super) async fn answer_one(
             through: None,
             scrolled: None,
             standing: standing.clone(),
+            prompt,
         }
     };
     if recall_only() {
         return unasked(recalled, None);
-    }
-    // The wide way recalling just what another run did, on the same kept
-    // copy, is answered as it answered (`MEROPE_MEMORY_BENCH_ANSWERS_OF`).
-    if back_when_thorough
-        && wider() == 1
-        && let Some(earlier) = answered_before(&question.question_id, round())
-        && earlier.recalled == recalled
-    {
-        return unasked(recalled, Some(earlier));
     }
     // Asked about what was said in detail, she scrolls back, as in a chat;
     // the wide way also when their words plainly reach back, as production
@@ -505,6 +519,17 @@ pub(super) async fn answer_one(
         "question": question.question,
     })
     .to_string();
+    let prompt = asked_as(&system, &input);
+    // The wide way recalling just what another run did, on the same kept
+    // copy, and asked of her just as it was, is answered as it answered
+    // (`MEROPE_MEMORY_BENCH_ANSWERS_OF`).
+    if back_when_thorough
+        && wider() == 1
+        && let Some(earlier) = answered_before(&question.question_id, round())
+        && asked_the_same(&earlier, &recalled, &prompt)
+    {
+        return unasked(recalled, Some(earlier));
+    }
     // A reply the provider dropped is asked again, as production does; one
     // that never comes is unanswered, not wrong.
     let mut answer = String::new();
@@ -530,6 +555,7 @@ pub(super) async fn answer_one(
             through: going_through,
             scrolled,
             standing,
+            prompt: Some(prompt),
         };
     }
     let mut graded = json!({"question": question.question, "correctAnswer": question.answer,
@@ -565,6 +591,7 @@ pub(super) async fn answer_one(
         through: going_through,
         scrolled,
         standing,
+        prompt: Some(prompt),
     }
 }
 
@@ -574,11 +601,12 @@ pub(super) async fn answer_one(
 fn only_what_was_answered_is_answered_again() {
     let rows = [
         json!({"id": "a", "round": 0, "void": false,
-            "wide": {"recalled": ["x"], "correct": true, "why": "ok", "response": "是的"}}),
+            "wide": {"recalled": ["x"], "correct": true, "why": "ok", "response": "是的",
+                "prompt": "p"}}),
         json!({"id": "b", "round": 0, "void": true,
-            "wide": {"recalled": ["y"], "correct": false, "response": "不"}}),
+            "wide": {"recalled": ["y"], "correct": false, "response": "不", "prompt": "p"}}),
         json!({"id": "c", "round": 0, "void": false,
-            "wide": {"recalled": ["z"], "correct": null, "response": "  "}}),
+            "wide": {"recalled": ["z"], "correct": null, "response": "  ", "prompt": "p"}}),
     ];
     let text: String = rows.iter().map(|row| format!("{row}\n")).collect();
     let earlier = answers_in(&text);
@@ -586,4 +614,31 @@ fn only_what_was_answered_is_answered_again() {
     let a = &earlier[&("a".to_string(), 0)];
     assert_eq!(a.recalled, ["x"]);
     assert_eq!((a.correct, a.answer.as_str()), (Some(true), "是的"));
+}
+
+/// A run that does not say what she was asked (every run from before what
+/// she answers on was laid out in sections) is not answered again: the same
+/// lines recalled were not the same prompt.
+#[test]
+fn a_run_that_does_not_say_what_she_was_asked_is_not_answered_again() {
+    let row = json!({"id": "a", "round": 0, "void": false,
+        "wide": {"recalled": ["x"], "correct": true, "why": "ok", "response": "是的"}});
+    assert!(answers_in(&format!("{row}\n")).is_empty());
+}
+
+/// Another run's answer is taken only for the same lines recalled and the
+/// same prompt, word for word.
+#[test]
+fn an_answer_is_taken_only_where_she_was_asked_the_same() {
+    let prompt = asked_as("system", "input");
+    assert_eq!(prompt, asked_as("system", "input"));
+    assert_ne!(prompt, asked_as("system\n\n## Going on now", "input"));
+    let earlier = Earlier {
+        recalled: vec!["x".to_string()],
+        prompt: prompt.clone(),
+        ..Default::default()
+    };
+    assert!(asked_the_same(&earlier, &["x".to_string()], &prompt));
+    assert!(!asked_the_same(&earlier, &["x".to_string()], &asked_as("other", "input")));
+    assert!(!asked_the_same(&earlier, &["y".to_string()], &prompt));
 }

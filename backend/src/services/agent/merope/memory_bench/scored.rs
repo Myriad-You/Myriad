@@ -394,7 +394,8 @@ pub(super) fn partial_row(
             "response": outcome.wide.answer, "why": outcome.wide.why,
             "recalled": outcome.wide.recalled,
             "recalledChars": recalled_chars(&outcome.wide),
-            "scrolled": outcome.wide.scrolled, "standing": outcome.wide.standing},
+            "scrolled": outcome.wide.scrolled, "standing": outcome.wide.standing,
+            "prompt": outcome.wide.prompt},
         "gated": {"correct": outcome.gated.correct, "retrieved": outcome.gated.retrieved,
             "recalledChars": recalled_chars(&outcome.gated)},
         "wider": outcome.wider.as_ref().map(|wider| json!({"correct": wider.correct,
@@ -452,6 +453,7 @@ mod tests {
             through: None,
             scrolled: None,
             standing: Vec::new(),
+            prompt: None,
         }
     }
 
