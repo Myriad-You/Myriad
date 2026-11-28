@@ -6,7 +6,9 @@ mod authenticated;
 mod base;
 mod federation_http;
 mod persona_http;
+mod rig_api_http;
 pub(crate) use persona_http::build_persona_router;
+pub(crate) use rig_api_http::build_rig_api_router;
 
 pub(crate) use federation_http::build_federation_router;
 
@@ -16,6 +18,7 @@ pub(crate) fn test_api_router(state: crate::state::AppState) -> Router {
         .merge(authenticated::build_authenticated_router(state.clone()))
         .merge(build_federation_router(state.clone()))
         .merge(build_persona_router(state.clone()))
+        .merge(build_rig_api_router(state.clone()))
         .with_state(state)
 }
 
@@ -59,12 +62,13 @@ pub(crate) fn http_cors_layer() -> tower_http::cors::CorsLayer {
 }
 
 /// Backend-owned path spaces. Unmatched requests here get an API answer and
-/// never fall through to the SPA (`/tapi/...` is not registered in config mode).
+/// never fall through to the SPA (`/tapi/...` and the rig API are not
+/// registered in config mode).
 fn is_api_path(path: &str) -> bool {
     let under = |prefix: &str| {
         path.strip_prefix(prefix).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
     };
-    under("/api") || under("/tapi") || path == "/health"
+    under("/api") || under("/tapi") || under(api::rig_api::PATH_SPACE) || path == "/health"
 }
 
 /// 嵌入页（伴读、评论、友链申请、创作台）用自己的 `embed.html`，不带主站外壳。
@@ -174,7 +178,8 @@ pub(crate) async fn start_unified_server(
         );
         let routes = base::build_base_api_router(app_state.clone())
             .merge(authenticated::build_authenticated_router(app_state.clone()))
-            .merge(crate::api::blog::router(app_state.clone()));
+            .merge(crate::api::blog::router(app_state.clone()))
+            .merge(build_rig_api_router(app_state.clone()));
         let routes = if role == crate::runtime_role::RuntimeRole::All {
             routes
                 .merge(build_federation_router(app_state.clone()))
@@ -631,11 +636,21 @@ mod config_mode_fallback_tests {
             "/api/x",
             "/tapi",
             "/tapi/com.example/route",
+            "/rig-api",
+            "/rig-api/v1/me",
+            "/rig-api/v2/anything",
             "/health",
         ] {
             assert!(is_api_path(path), "{path} must be answered by the API fallback");
         }
-        for path in ["/", "/apix", "/tapix/y", "/settings", "/assets/app.js"] {
+        for path in [
+            "/",
+            "/apix",
+            "/tapix/y",
+            "/rig-apix",
+            "/settings",
+            "/assets/app.js",
+        ] {
             assert!(!is_api_path(path), "{path} belongs to the SPA");
         }
     }

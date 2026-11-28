@@ -643,7 +643,20 @@
     "Report model is not configured": "report_model_unavailable",
     "The report model did not write a usable chapter": "report_style_preview_failed",
     "A report style preview is already running": "report_style_preview_busy",
-    "Report styles changed since they were read": "report_styles_conflict"
+    "Report styles changed since they were read": "report_styles_conflict",
+    "API key required": "rig_api_key_required",
+    "Malformed API key": "rig_api_key_malformed",
+    "Invalid API key": "rig_api_key_invalid",
+    "API key revoked": "rig_api_key_revoked",
+    "API key expired": "rig_api_key_expired",
+    "Tenant disabled": "rig_api_tenant_disabled",
+    "API rate limit exceeded": "rig_api_rate_limited",
+    "Too many concurrent jobs": "rig_api_concurrency_limited",
+    "Job quota exhausted": "rig_api_job_quota_exhausted",
+    "Owner account does not exist": "rig_api_owner_missing",
+    "Invalid tenant name": "rig_api_invalid_tenant_name",
+    "Invalid tenant limit": "rig_api_invalid_limit",
+    "Invalid key expiry": "rig_api_invalid_key_expiry"
   },
   "leftovers": {
     "Federation is disabled on this instance": "federation_disabled_region",

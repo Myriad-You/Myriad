@@ -39,6 +39,19 @@ Base URL:
 | Updater | `/api/admin/updater/*`（经 gateway，浏览器不持有 `UPDATE_TOKEN`） |
 | 分析导出等 | `/api/analytics/…`（权限门控） |
 
+## 形象 API
+
+站外开发者调用的那一面，路径在站点的 `/api` 之外：`/rig-api/v1/*`，经 proxy 转到 **web**。只认租户的 API 密钥（`Authorization: Bearer mrk_…`），不认站点的登录态；API 密钥也进不了 `/api/*`。
+
+| 能力 | 路径 | 说明 |
+| --- | --- | --- |
+| 自己是谁、配额用了多少 | `GET /rig-api/v1/me` | 租户 id、生效的配额、当前用量；响应带 `X-RateLimit-*` |
+| 租户 | `GET`/`POST /api/admin/rig-api/tenants`，`GET`/`PATCH /api/admin/rig-api/tenants/{id}` | 站点管理员；详情里有密钥列表（只有前缀）和用量 |
+| 密钥 | `POST /api/admin/rig-api/tenants/{id}/keys`，`DELETE …/keys/{key_id}` | 签发时响应里的 `secret` 只出现这一次（`Cache-Control: no-store`）；删除即吊销 |
+| 配额 | `PUT /api/admin/rig-api/tenants/{id}/limits`，`GET`/`PUT /api/admin/rig-api/defaults` | 租户自己的一项为 null 时用站点默认 |
+
+拒绝都带 `code`：401 `rig_api_key_required` / `rig_api_key_malformed` / `rig_api_key_invalid` / `rig_api_key_revoked` / `rig_api_key_expired`（带 `WWW-Authenticate`），403 `rig_api_tenant_disabled`，429 `rig_api_rate_limited`（带 `Retry-After`）。任务配额的拒绝（`api::rig_api::job_refused`；形象 API 不接任务）是 429 `rig_api_concurrency_limited` 与 `rig_api_job_quota_exhausted`（后者带 `Retry-After`）。
+
 ## Tapp / Agent / Phantasi
 
 | 区域 | 文档 |

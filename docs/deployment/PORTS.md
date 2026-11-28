@@ -84,6 +84,7 @@ Tapps, updater admin proxy, SEO JSON, …).
 | Path | Role |
 | --- | --- |
 | `/api/*` (not persona / federation prefixes above) | App API. Public notes RSS is `/api/phantasi/notes.xml` (off by default; 404 when the owner switch is off or Phantasi is not guest-visible) |
+| `/rig-api` `/rig-api/*` | The rig API for outside developers (`/rig-api/v1/*`), authenticated by a tenant's API key, never a site session |
 | `/health` | Backend liveness (process up). Not business readiness. |
 | `/ready` | Backend readiness (live DB probe, migrations, full routes, storage). 503 when not ready. |
 | `/sitemap.xml` | Public SEO sitemap (also `/api/seo/sitemap.xml`); empty urlset when durable origin (`FRONTEND_URL`/`BASE_URL`) is unset — no client Host fallback |
