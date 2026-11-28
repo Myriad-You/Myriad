@@ -16,9 +16,8 @@ pub(super) async fn recalled_for(
     cues: Option<&myriad_merope::remembering::Cues>,
     thorough: usize,
 ) -> (Vec<String>, Option<String>) {
-    let (recalled, listed, _, _) =
-        recalled_and_resident(db, question, user_id, present, cues, thorough).await;
-    (recalled, listed)
+    let recall = recalled_and_resident(db, question, user_id, present, cues, thorough).await;
+    (recall.recalled(), recall.listed)
 }
 
 /// Of what recall ranked, how many lines something they said found (by
@@ -44,9 +43,10 @@ impl Found {
     }
 }
 
-/// [`recalled_for`], with how their life stands as production shows it
-/// every time in a private talk (`Recollection::resident`): not recalled;
-/// and how much of what recall ranked something they said found.
+/// [`recalled_for`], each kind of thing apart as production lays it out,
+/// with how their life stands as production shows it every time in a
+/// private talk (`Recollection::resident`): not recalled; and how much of
+/// what recall ranked something they said found.
 async fn recalled_and_resident(
     db: &sea_orm::DatabaseConnection,
     question: &Question,
@@ -54,7 +54,7 @@ async fn recalled_and_resident(
     present: &Audience,
     cues: Option<&myriad_merope::remembering::Cues>,
     thorough: usize,
-) -> (Vec<String>, Option<String>, Vec<String>, Found) {
+) -> super::aligned::Recall {
     // The control that only recalls more, when asked for.
     let wider = wider();
     let (more, thorough_more) = ((wider - 1) * RECALLED, (wider - 1) * thorough);
@@ -89,21 +89,29 @@ async fn recalled_and_resident(
                     now,
                     wider,
                 );
-                let mut lines: Vec<String> = recollection
-                    .named
-                    .into_iter()
-                    .chain(recollection.heard)
-                    .chain(recalled.brought_to_mind.iter().cloned())
-                    .collect();
+                let mut recall = super::aligned::Recall {
+                    ongoing: nodes.ongoing_section(&recollection.picked),
+                    named: recollection.named,
+                    heard: recollection.heard,
+                    brought_to_mind: recalled.brought_to_mind.clone(),
+                    widened: Vec::new(),
+                    listed: recollection.listed,
+                    not_all_here: recollection.not_all_here,
+                    resident: recollection.resident,
+                    found,
+                };
+                let mut lines = recall.recalled();
+                let shown = lines.len();
                 widened(&mut lines, &recalled, cues, more, thorough_more);
-                return (lines, recollection.listed, recollection.resident, found);
+                recall.widened = lines.split_off(shown);
+                return recall;
             }
             (_, Err(error)) => eprintln!("bench call failed: reading her nodes: {error:#}"),
             _ => {}
         }
         return Default::default();
     }
-    let named = remembering::recall_with(
+    remembering::recall_with(
         db,
         user_id,
         present,
@@ -123,16 +131,14 @@ async fn recalled_and_resident(
         } else {
             recalled.named
         };
-        (
-            named
-                .into_iter()
-                .chain(recalled.brought_to_mind)
-                .collect::<Vec<_>>(),
+        super::aligned::Recall {
+            named,
+            brought_to_mind: recalled.brought_to_mind,
             found,
-        )
+            ..Default::default()
+        }
     })
-    .unwrap_or_default();
-    (named.0, None, Vec::new(), named.1)
+    .unwrap_or_default()
 }
 
 /// `MEROPE_MEMORY_BENCH_STANDING=<file>` (question id to lines): how things
@@ -153,29 +159,6 @@ fn standing_of(id: &str) -> Option<Vec<String>> {
         })
         .get(id)
         .cloned()
-}
-
-/// What she has in mind when she answers: the list of how things stand
-/// now, then what she recalled.
-fn with_standing(standing: &[String], recalled: &[String]) -> Vec<String> {
-    standing
-        .iter()
-        .map(|line| format!("现在: {line}"))
-        .chain(recalled.iter().cloned())
-        .collect()
-}
-
-#[test]
-fn how_things_stand_comes_first_and_is_not_recalled() {
-    let recalled = vec!["跑步: [07-03] 每周三和周五跑五公里".to_string()];
-    assert_eq!(
-        with_standing(&["膝盖坏了，夜跑停了".to_string()], &recalled),
-        [
-            "现在: 膝盖坏了，夜跑停了",
-            "跑步: [07-03] 每周三和周五跑五公里"
-        ]
-    );
-    assert_eq!(with_standing(&[], &recalled), recalled);
 }
 
 /// `MEROPE_MEMORY_BENCH_RECALL_ONLY=1`: recall each way and ask nothing,
@@ -362,21 +345,6 @@ fn chars_of(id: &str, round: usize) -> Option<usize> {
     .copied()
 }
 
-/// `lines` kept whole, in order, while they fit in `most` characters.
-fn cut_to(lines: &mut Vec<String>, most: usize) {
-    let mut used = 0;
-    let mut kept = 0;
-    for line in lines.iter() {
-        let chars = line.chars().count();
-        if used + chars > most {
-            break;
-        }
-        used += chars;
-        kept += 1;
-    }
-    lines.truncate(kept);
-}
-
 #[derive(Clone)]
 pub(super) struct Answered {
     pub(super) retrieved: bool,
@@ -434,17 +402,18 @@ pub(super) async fn answer_one(
     back_when_thorough: bool,
     answering: &[String],
 ) -> Answered {
-    let (mut recalled, listed, resident, recall_found) =
-        recalled_and_resident(db, question, user_id, present, cues, thorough).await;
-    let standing = standing_of(&question.question_id).unwrap_or(resident);
+    let mut recall = recalled_and_resident(db, question, user_id, present, cues, thorough).await;
+    let standing = standing_of(&question.question_id)
+        .unwrap_or_else(|| std::mem::take(&mut recall.resident));
     // The way production answers is held to the length another run
     // answered on, when asked (`MEROPE_MEMORY_BENCH_RECALL_CHARS_OF`).
     if back_when_thorough
         && wider() == 1
         && let Some(most) = chars_of(&question.question_id, round())
     {
-        cut_to(&mut recalled, most);
+        recall.cut_to(most);
     }
+    let (recalled, listed, recall_found) = (recall.recalled(), recall.listed.clone(), recall.found);
     let retrieved = answering.iter().any(|fact| {
         recalled.iter().any(|line| line.contains(fact.as_str()))
             || listed
@@ -520,16 +489,19 @@ pub(super) async fn answer_one(
     let scrolled = myriad_merope::remembering::looked_back_section(&found);
     // Needing all of it, she goes through it as production has her do.
     // From her nodes, the list code made stands for it, as production shows.
-    let going_through = cues
-        .filter(|cues| cues.thorough && !recalled.is_empty())
-        .map(|_| match &listed {
-            Some(list) => list.clone(),
-            None => myriad_merope::speaking::format_going_through_all_section(),
-        });
+    let going_through = recall.going_through(cues);
+    // All of it in her prompt, each in its own section and in production's
+    // order: what she scrolled back to and what she goes through too.
+    let system = super::aligned::answer_system(
+        question,
+        present,
+        &recall,
+        &standing,
+        going_through.as_deref(),
+        scrolled.as_deref(),
+    );
     let input = json!({
         "today": question.question_date,
-        "scrollingBack": scrolled,
-        "goingThroughAll": going_through,
         "question": question.question,
     })
     .to_string();
@@ -538,10 +510,7 @@ pub(super) async fn answer_one(
     let mut answer = String::new();
     for _ in 0..3 {
         answer = lite
-            .analyze_with_system(
-                &answer_system(question, present, &with_standing(&standing, &recalled)),
-                &input,
-            )
+            .analyze_with_system(&system, &input)
             .await
             .inspect_err(|error| eprintln!("bench call failed: answering: {error:#}"))
             .unwrap_or_default();
