@@ -505,12 +505,10 @@ async fn a_grant_not_taken_goes_again_until_it_is() {
     schema.drop().await;
 }
 
-/// A row refused for good, on the server or on the computer, keeps its
-/// place there: the count of its side goes on past it, it is not sent again
-/// on every link, and the computer is seen to keep up, so it is given its
-/// deputy. Here the same node is in the partner's private talk on one
-/// computer and in her own audience on the other; each side that knows it
-/// in one refuses its row in the other (`audience_changed`).
+/// A row the server refuses for good (a kind only a newer core reads)
+/// keeps its place there: the count of the side that wrote it goes on past
+/// it, it is not sent again on every link, and another computer that gets
+/// its place from the server keeps up, so it is given its deputy.
 #[tokio::test]
 async fn a_row_refused_for_good_keeps_its_place_and_its_end_keeps_up() {
     let Some(schema) = schema("her_log_deputy_refused").await else {
@@ -519,36 +517,44 @@ async fn a_row_refused_for_good_keeps_its_place_and_its_end_keeps_up() {
     let db = &schema.db;
     // Her lease stands, the server's: only then is a deputy given at all.
     let standing = lease::current(db).await.unwrap();
-    let mut win = Side::new("dev_win");
     let mut mac = Side::new("dev_mac");
-    mac.link = relay::Session::of(&["log2".to_string(), deputy::CAPABILITY.to_string()]);
-    win.write(PERSONAL, "node:z", "node.noted", Author::Owner, Some("in the talk"), T0);
-    sync(db, &mut win, PERSONAL, T0).await;
-    mac.write(OWN, "node:z", "node.noted", Author::Owner, Some("in her own"), T0);
-
-    // The server knows node:z in the talk: the Mac's row in her own is
-    // refused, and kept as its place.
-    sync(db, &mut mac, OWN, T0 + MINUTE).await;
+    // A newer Mac's row of a kind this core does not read, in its own log.
+    let mut newer = mac.write(OWN, "node:newer", "node.noted", Author::Owner, None, T0);
+    newer.kind = "node.from_a_newer_core".into();
+    mac.logs.insert(OWN.to_string(), vec![newer.clone()]);
+    let frame = mac.rows_frame(OWN, vec![newer.clone()]);
+    exchange(db, &mut mac, vec![frame], T0 + MINUTE).await;
     let own = store::holdings(db, OWNER, OWN).await.unwrap();
     assert_eq!(own.vector.get("dev_mac"), Some(&1), "{own:?}");
     assert!(own.beyond.is_empty(), "{own:?}");
-    // The Mac knows it in her own: the talk's row is refused there.
-    sync(db, &mut mac, PERSONAL, T0 + 2 * MINUTE).await;
-    let talk = store::holdings(db, OWNER, PERSONAL).await.unwrap();
-    assert_eq!(vector::holdings(&mac.log(PERSONAL)).unwrap().vector, talk.vector);
-    assert_eq!(vector::holdings(&mac.log(OWN)).unwrap().vector, own.vector);
-    // Neither folds anything of the row it refused.
-    let mac_talk = String::from_utf8(mac.fold(PERSONAL, &[])).unwrap();
-    assert!(!mac_talk.contains("node:z"), "{mac_talk}");
+    // The next link asks for nothing of it again.
+    sync(db, &mut mac, OWN, T0 + 2 * MINUTE).await;
+    assert_eq!(store::holdings(db, OWNER, OWN).await.unwrap(), own);
+
+    // Another computer gets its place, and nothing it said.
+    let mut win = Side::new("dev_win");
+    win.link = relay::Session::of(&["log2".to_string(), deputy::CAPABILITY.to_string()]);
+    sync(db, &mut win, PERSONAL, T0 + 3 * MINUTE).await;
+    sync(db, &mut win, OWN, T0 + 3 * MINUTE).await;
+    assert_eq!(vector::holdings(&win.log(OWN)).unwrap().vector, own.vector);
+    assert!(
+        win.log(OWN)
+            .iter()
+            .any(|row| row.id == newer.id && row.kind == "log.refused" && row.payload.is_none()),
+        "{:?}",
+        win.log(OWN)
+    );
     let server_own = String::from_utf8(server_fold(db, OWN, &[]).await).unwrap();
-    assert!(!server_own.contains("node:z"), "{server_own}");
+    assert!(!server_own.contains("node:newer"), "{server_own}");
+    let win_own = String::from_utf8(win.fold(OWN, &[])).unwrap();
+    assert!(!win_own.contains("node:newer"), "{win_own}");
 
     // Keeping up with both, it is given its deputy, under the epoch that
     // stands (on the link that showed it, as its vectors met the server's).
-    vector_of(db, &mut mac, PERSONAL, T0 + 3 * MINUTE).await;
-    vector_of(db, &mut mac, OWN, T0 + 3 * MINUTE).await;
-    let given = deputy::for_holders(db, &["dev_mac"]).await.unwrap();
+    vector_of(db, &mut win, PERSONAL, T0 + 4 * MINUTE).await;
+    vector_of(db, &mut win, OWN, T0 + 4 * MINUTE).await;
+    let given = deputy::for_holders(db, &["dev_win"]).await.unwrap();
     assert_eq!(given.len(), 1, "{given:?}");
-    assert_eq!((given[0].holder.as_str(), given[0].under), ("dev_mac", standing.epoch));
+    assert_eq!((given[0].holder.as_str(), given[0].under), ("dev_win", standing.epoch));
     schema.drop().await;
 }
