@@ -1,10 +1,26 @@
-//! 领一个任务：调用方提交了什么（`Submission`），它的 `Idempotency-Key`，以及在任务记录
-//! 上领下它——调用方的键给过的那个、同一张主立绘还在跑的那个，或者在同时能跑的上限内新开一个。
+//! 领一个任务（`Claim`）：归谁、谁用哪个 `Idempotency-Key` 提交的、按调用方的说法要的是什么、
+//! 步骤从什么跑（`JobInput`），以及在任务记录上领下它——调用方的键给过的那个、同一张图还在跑的
+//! 那个，或者在同时能跑的上限内新开一个。站点设定的页面是调用方之一（`Submission`）。
 
 use super::*;
 
-/// What a caller asks a job for: who, under which key, of which master, and
-/// how (`Asked`). The job's record keeps it as its input.
+/// A job as it is claimed: whose, by which caller under which key, what was
+/// asked in the caller's terms (its key's digest is of it, its page reads it
+/// back), what joins a job already running, what its steps run from, and
+/// what its result must still hold at its end.
+pub(super) struct Claim {
+    pub(super) owner: rig_jobs::Owner,
+    pub(super) caller: String,
+    pub(super) idempotency_key: Option<String>,
+    pub(super) request: Value,
+    pub(super) subject: String,
+    pub(super) input: JobInput,
+    pub(super) holds: Holds,
+}
+
+/// What the site's persona page asks a job for: who, under which key, of
+/// which master, and how (`Asked`). The job's record keeps it as what was
+/// asked; its steps run from the master's picture it names.
 pub(super) struct Submission {
     pub(super) user_id: i32,
     pub(super) idempotency_key: Option<String>,
@@ -27,6 +43,54 @@ impl Submission {
             "sourceGenerationFingerprint": self.source_generation_fingerprint,
             "asked": self.asked,
         })
+    }
+
+    /// What the job's steps run from: the master's picture in the site's
+    /// media, made as `phase` asks; or the kept job it uses again.
+    pub(super) fn job_input(&self, phase: Phase) -> JobInput {
+        if let Some((archive_id, refit)) = self.asked.kept_job() {
+            return JobInput::Kept {
+                archive_id: archive_id.to_owned(),
+                refit,
+            };
+        }
+        let make = match phase {
+            Phase::Plain => Make::Plain,
+            Phase::Figure | Phase::Head | Phase::Body => {
+                let keys = self.asked.figure_keys();
+                Make::Figure {
+                    head: keys.head,
+                    body: keys.body,
+                }
+            }
+            Phase::Bust | Phase::Refit | Phase::Load => Make::Bust,
+        };
+        JobInput::Picture {
+            picture: PictureRef::SiteMedia {
+                url: self.source_master_asset_id.clone(),
+            },
+            make,
+        }
+    }
+
+    /// The submission as the site's owner claims it: the site's job, its
+    /// result held to the persona's master at its end.
+    pub(super) fn claim(&self, phase: Phase) -> Claim {
+        Claim {
+            owner: rig_jobs::Owner::Site {
+                user_id: self.user_id,
+            },
+            caller: self.caller(),
+            idempotency_key: self.idempotency_key.clone(),
+            request: self.input(phase),
+            subject: format!(
+                "{}|{}",
+                self.outfit_id.as_deref().unwrap_or(""),
+                self.source_master_asset_id
+            ),
+            input: self.job_input(phase),
+            holds: Holds::PersonaMaster,
+        }
     }
 
     /// The job the caller's key gave before, when it was given for the same
@@ -95,25 +159,43 @@ pub(super) async fn claim(
     total: u8,
     targets: live::Targets,
 ) -> ApiResult<(String, bool)> {
+    claim_for(db, submission.claim(phase), phase, stage, total, targets).await
+}
+
+/// A job claimed as `claim` has it: a new one this process runs (true), the
+/// one its key gave before, or the one already running for the same subject;
+/// a conflict while as many jobs run as may. The record keeps whose it is
+/// and what its steps run from.
+pub(super) async fn claim_for(
+    db: &DatabaseConnection,
+    claim: Claim,
+    phase: Phase,
+    stage: Stage,
+    total: u8,
+    targets: live::Targets,
+) -> ApiResult<(String, bool)> {
     let id = uuid::Uuid::new_v4().simple().to_string();
-    let input = submission.input(phase);
-    let subject = format!(
-        "{}|{}",
-        submission.outfit_id.as_deref().unwrap_or(""),
-        submission.source_master_asset_id
+    let job = Job::new(
+        id.clone(),
+        phase,
+        stage,
+        total,
+        targets,
+        claim.owner.clone(),
+        claim.holds,
     );
-    let job = Job::new(id.clone(), phase, stage, total, targets);
     let claimed = rig_jobs::claim(
         db,
         rig_jobs::NewJob {
             id: id.clone(),
             kind: phase.as_str().to_owned(),
-            caller: submission.caller(),
-            owner_user_id: Some(submission.user_id),
-            idempotency_key: submission.idempotency_key.clone(),
-            request_digest: rig_jobs::digest(&input),
-            subject: Some(subject),
-            input,
+            caller: claim.caller,
+            owner: claim.owner,
+            idempotency_key: claim.idempotency_key,
+            request_digest: rig_jobs::digest(&claim.request),
+            subject: Some(claim.subject),
+            input: claim.request,
+            pipeline_input: claim.input.to_value(),
             progress: job.progress(),
             ledger_task_id: rig_jobs::ledger_task_id(&id),
             runner: live::runner(),
@@ -171,6 +253,8 @@ pub(super) fn claim_job(
         stage,
         total,
         live::Targets::default(),
+        rig_jobs::Owner::Site { user_id: 7 },
+        Holds::PersonaMaster,
     ));
     Ok((id, true))
 }

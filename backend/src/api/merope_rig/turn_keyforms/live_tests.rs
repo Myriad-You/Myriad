@@ -639,11 +639,12 @@ async fn a_job_whose_lease_was_lost_and_place_taken_stops() {
         id: "again".into(),
         kind: "bust".into(),
         caller: caller(),
-        owner_user_id: Some(7),
+        owner: rig_jobs::Owner::Site { user_id: 7 },
         idempotency_key: None,
         request_digest: "d".into(),
         subject: Some(format!("|{MASTER}")),
         input: json!({}),
+        pipeline_input: json!({}),
         progress: json!({}),
         ledger_task_id: rig_jobs::ledger_task_id("again"),
         runner: "proc-next".into(),
@@ -798,11 +799,12 @@ async fn a_page_reads_a_stopping_processs_job_running_until_the_process_lets_it_
             id: "late".into(),
             kind: "plain".into(),
             caller: caller(),
-            owner_user_id: Some(7),
+            owner: rig_jobs::Owner::Site { user_id: 7 },
             idempotency_key: None,
             request_digest: "d".into(),
             subject: None,
             input: json!({}),
+            pipeline_input: json!({}),
             progress: json!({}),
             ledger_task_id: rig_jobs::ledger_task_id("late"),
             runner: rig_jobs::this_process().into(),
@@ -959,8 +961,8 @@ async fn a_paid_call_once_sent_is_seen_to_its_end_when_the_job_stops_waiting() {
         let task = crate::services::ai_cost_ledger::current_ai_attribution().map(|a| a.task_id);
         let _ = sent.send(task);
     };
-    let waiting = for_ledger("job-1", async {
-        detached(drawing_attribution(7), call).await
+    let waiting = for_ledger("job-1", &rig_jobs::Owner::Site { user_id: 7 }, async {
+        detached(drawing_attribution(), call).await
     });
     // The job is cancelled while it waits: it stops waiting.
     assert!(
@@ -976,10 +978,15 @@ async fn a_paid_call_once_sent_is_seen_to_its_end_when_the_job_stops_waiting() {
 }
 
 #[tokio::test]
-async fn a_jobs_drawings_are_written_to_the_ledger_under_its_id() {
-    // Outside a job, a turned drawing is the site's, as before.
-    assert_eq!(drawing_attribution(7).task_id, "turn-reference");
-    let inside = for_ledger("job-1", async { drawing_attribution(7) }).await;
+async fn a_jobs_drawings_are_written_to_the_ledger_under_its_id_and_its_owner() {
+    // Outside a job, a turned drawing is unattributed.
+    let outside = drawing_attribution();
+    assert_eq!(
+        (outside.task_id.as_str(), outside.subject_id),
+        ("turn-reference", 0)
+    );
+    let site = rig_jobs::Owner::Site { user_id: 7 };
+    let inside = for_ledger("job-1", &site, async { drawing_attribution() }).await;
     assert_eq!(inside.task_id, rig_jobs::ledger_task_id("job-1"));
     assert_eq!(
         (
@@ -989,11 +996,18 @@ async fn a_jobs_drawings_are_written_to_the_ledger_under_its_id() {
         ),
         (7, "merope", "turn-reference")
     );
+    // An owner without a site account has its job's drawings under the job, unattributed to anyone.
+    let isolated = rig_jobs::Owner::Isolated("ledger".into());
+    let apart = for_ledger("job-2", &isolated, async { drawing_attribution() }).await;
+    assert_eq!(
+        (apart.task_id.as_str(), apart.subject_id),
+        ("rig-job:job-2", 0)
+    );
     // Steps run side by side within the job see the same id.
-    let (a, b) = for_ledger("job-1", async {
-        tokio::join!(async { drawing_attribution(7).task_id }, async {
+    let (a, b) = for_ledger("job-1", &site, async {
+        tokio::join!(async { drawing_attribution().task_id }, async {
             tokio::task::yield_now().await;
-            drawing_attribution(7).task_id
+            drawing_attribution().task_id
         })
     })
     .await;

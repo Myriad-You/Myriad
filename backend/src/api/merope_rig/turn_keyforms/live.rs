@@ -81,8 +81,9 @@ pub(super) struct Step {
 tokio::task_local! {
     /// The step running in this future: its job and its place among the job's steps.
     static STEP: (String, usize);
-    /// The ledger task id of the job this future works for.
-    static LEDGER: String;
+    /// The ledger task id of the job this future works for, and the ledger
+    /// subject of its owner.
+    static LEDGER: (String, i32);
 }
 
 /// Where a step's work runs, by the step: the drawings on the image provider;
@@ -207,19 +208,29 @@ pub(super) async fn as_step<T>(id: &str, seq: usize, work: impl Future<Output = 
     STEP.scope((id.to_owned(), seq), work).await
 }
 
-/// The ledger attribution of a turned drawing: the job's ledger id when it is
-/// drawn for a job, so that the job's spend adds up.
-pub(super) fn drawing_attribution(user_id: i32) -> AiLedgerAttribution {
-    let site = AiLedgerAttribution::site(user_id, "merope", "turn-reference");
+/// The ledger attribution of a turned drawing: under the job's ledger id and
+/// its owner's subject when it is drawn for a job, so that the job's spend
+/// adds up; unattributed otherwise.
+pub(super) fn drawing_attribution() -> AiLedgerAttribution {
     match LEDGER.try_with(Clone::clone) {
-        Ok(task_id) => AiLedgerAttribution { task_id, ..site },
-        Err(_) => site,
+        Ok((task_id, subject)) => AiLedgerAttribution {
+            task_id,
+            ..AiLedgerAttribution::site(subject, "merope", "turn-reference")
+        },
+        Err(_) => AiLedgerAttribution::site(0, "merope", "turn-reference"),
     }
 }
 
-/// `work` run with the job's ledger id for the paid calls inside it.
-pub(super) async fn for_ledger<T>(id: &str, work: impl Future<Output = T>) -> T {
-    LEDGER.scope(rig_jobs::ledger_task_id(id), work).await
+/// `work` run with the job's ledger id and its owner's ledger subject for
+/// the paid calls inside it.
+pub(super) async fn for_ledger<T>(
+    id: &str,
+    owner: &rig_jobs::Owner,
+    work: impl Future<Output = T>,
+) -> T {
+    LEDGER
+        .scope((rig_jobs::ledger_task_id(id), owner.ledger_subject()), work)
+        .await
 }
 
 /// A paid call run on its own task, under `attribution`: once sent, it is
@@ -413,14 +424,14 @@ pub(super) async fn run_job_within(
     meta: ArchiveMeta,
     deadline: Duration,
 ) {
-    let Some(cancel) = with_job(&id, |job| job.cancel.clone()) else {
+    let Some((cancel, owner)) = with_job(&id, |job| (job.cancel.clone(), job.owner.clone())) else {
         return;
     };
     let holding = Holding::new(db.clone(), id.clone());
     let (done, watching) = tokio::sync::watch::channel(false);
     let keeper = tokio::spawn(keep(db.clone(), id.clone(), watching));
     // A panic in the work ends the job as failed, as any failure does.
-    let work = std::panic::AssertUnwindSafe(for_ledger(&id, work)).catch_unwind();
+    let work = std::panic::AssertUnwindSafe(for_ledger(&id, &owner, work)).catch_unwind();
     let ran = tokio::select! {
         result = work => Ran::Made(Box::new(result.unwrap_or_else(|_| {
             tracing::error!(job = %id, "turn keyforms job's work panicked");

@@ -26,10 +26,11 @@ fn job(id: &str, subject: &str, key: Option<&str>) -> NewJob {
         id: id.to_owned(),
         kind: "bust".into(),
         caller: user_caller(7),
-        owner_user_id: Some(7),
+        owner: Owner::Site { user_id: 7 },
         idempotency_key: key.map(str::to_owned),
         request_digest: digest(&input),
         subject: Some(subject.to_owned()),
+        pipeline_input: json!({ "from": "picture" }),
         input,
         progress: json!({ "stage": "generating" }),
         ledger_task_id: ledger_task_id(id),
@@ -162,7 +163,7 @@ async fn the_same_key_gives_the_same_job_until_it_fails_or_expires() {
     // Another caller's key is its own.
     let other = NewJob {
         caller: user_caller(8),
-        owner_user_id: Some(8),
+        owner: Owner::Site { user_id: 8 },
         ..job("d", "m3", Some("k1"))
     };
     assert_eq!(claim(db, other, 2).await.unwrap(), Claimed::New("d".into()));
@@ -642,5 +643,76 @@ async fn an_end_is_written_within_its_columns() {
     assert_eq!(ended(db, "a", ending).await, Ended::Written);
     let row = get(db, "a").await.unwrap().unwrap();
     assert_eq!(row.error_code.map(|code| code.len()), Some(64));
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn a_table_from_before_owners_and_inputs_gets_them_and_its_rows_stay_the_sites() {
+    let Some(schema) = schema("rig_jobs_heal").await else {
+        return;
+    };
+    let db = &schema.db;
+    // The table as it was, with a job running on a process that knew neither column.
+    db.execute_unprepared(
+        "ALTER TABLE rig_jobs DROP COLUMN owner_scope, DROP COLUMN pipeline_input; \
+         INSERT INTO rig_jobs (id, kind, caller, owner_user_id, subject, input, state, \
+         ledger_task_id, runner, heartbeat_at) VALUES ('old', 'bust', 'user:7', 7, 'm1', \
+         '{\"sourceMasterAssetId\": \"m1\"}', 'running', 'rig-job:old', 'proc-a', NOW())",
+    )
+    .await
+    .unwrap();
+    // What the schema heal runs for these tables (`ensure_rig_jobs_tables`).
+    db.execute_unprepared(include_str!("../../migrations/rig_jobs.sql"))
+        .await
+        .unwrap();
+    let columns = db
+        .query_all_raw(sea_orm::Statement::from_string(
+            sea_orm::DbBackend::Postgres,
+            "SELECT column_name, data_type, is_nullable, column_default \
+             FROM information_schema.columns WHERE table_schema = current_schema() \
+             AND table_name = 'rig_jobs' AND column_name IN ('owner_scope', 'pipeline_input') \
+             ORDER BY column_name",
+        ))
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| {
+            (
+                row.try_get::<String>("", "column_name").unwrap(),
+                row.try_get::<String>("", "data_type").unwrap(),
+                row.try_get::<String>("", "is_nullable").unwrap(),
+                row.try_get::<Option<String>>("", "column_default").unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        columns,
+        [
+            (
+                "owner_scope".into(),
+                "character varying".into(),
+                "NO".into(),
+                Some("'site'::character varying".into())
+            ),
+            ("pipeline_input".into(), "jsonb".into(), "YES".into(), None),
+        ]
+    );
+    let old = get(db, "old").await.unwrap().unwrap();
+    assert_eq!(old.state(), State::Running);
+    assert_eq!(old.owner(), Some(Owner::Site { user_id: 7 }));
+    assert_eq!(old.pipeline_input, None);
+    // A row written as such a process writes one still gets the site's scope.
+    db.execute_unprepared(
+        "INSERT INTO rig_jobs (id, kind, caller, owner_user_id, input, ledger_task_id) \
+         VALUES ('older', 'plain', 'user:7', 7, '{}', 'rig-job:older')",
+    )
+    .await
+    .unwrap();
+    let older = get(db, "older").await.unwrap().unwrap();
+    assert_eq!(older.owner_scope, "site");
+    // The file runs again as it is on the healed table.
+    db.execute_unprepared(include_str!("../../migrations/rig_jobs.sql"))
+        .await
+        .unwrap();
     schema.drop().await;
 }

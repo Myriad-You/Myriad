@@ -233,7 +233,9 @@ pub async fn download_turn_archive(
 ) -> ApiResult<Response> {
     require_merope_enabled().await?;
     require_owner(&claims, &db).await?;
-    archive::read_meta(&id).await.ok_or_else(missing_archive)?;
+    archive::read_meta(&rig_jobs::Storage::site(), &id)
+        .await
+        .ok_or_else(missing_archive)?;
     let name = id.clone();
     let zip = tokio::task::spawn_blocking(move || archive::zip_blocking(&name))
         .await
@@ -287,7 +289,9 @@ pub async fn load_turn_archive(
     if let Some(job_id) = submission.given_before(&db, Phase::Load).await? {
         return Ok(Json(json!({ "jobId": job_id })));
     }
-    let kept = archive::read_meta(&id).await.ok_or_else(missing_archive)?;
+    let kept = archive::read_meta(&rig_jobs::Storage::site(), &id)
+        .await
+        .ok_or_else(missing_archive)?;
     require_master_match(
         &db,
         slot_of(kept.outfit_id.as_deref()),
@@ -295,7 +299,9 @@ pub async fn load_turn_archive(
         kept.source_generation_fingerprint.as_deref(),
     )
     .await?;
-    let (baked, keyforms) = archive::read_result(&kept).await.map_err(internal_error)?;
+    let (baked, keyforms) = archive::read_result(&rig_jobs::Storage::site(), &kept)
+        .await
+        .map_err(internal_error)?;
     let (job_id, new) = claim(
         &db,
         &submission,
@@ -338,7 +344,7 @@ async fn kept_submission(
     beside: Beside,
     headers: &HeaderMap,
 ) -> ApiResult<Submission> {
-    let kept = archive::read_meta(archive_id)
+    let kept = archive::read_meta(&rig_jobs::Storage::site(), archive_id)
         .await
         .ok_or_else(missing_archive)?;
     Ok(Submission {
@@ -367,7 +373,9 @@ pub async fn refit_turn_archive(
     if let Some(job_id) = submission.given_before(&db, Phase::Refit).await? {
         return Ok(Json(json!({ "jobId": job_id })));
     }
-    let kept = archive::read_meta(&id).await.ok_or_else(missing_archive)?;
+    let kept = archive::read_meta(&rig_jobs::Storage::site(), &id)
+        .await
+        .ok_or_else(missing_archive)?;
     require_master_match(
         &db,
         slot_of(kept.outfit_id.as_deref()),
@@ -375,7 +383,9 @@ pub async fn refit_turn_archive(
         kept.source_generation_fingerprint.as_deref(),
     )
     .await?;
-    let files = archive::read_files(&kept).await.map_err(internal_error)?;
+    let files = archive::read_files(&rig_jobs::Storage::site(), &kept)
+        .await
+        .map_err(internal_error)?;
     let (client, space_name) = space_client().await?;
     let targets = live::Targets {
         space: Some(space_name.clone()),

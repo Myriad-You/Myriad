@@ -24,6 +24,10 @@
 //! 身体各部件的转身关键形（`body_turn`），和头部关键形放在同一份 JSON 里。
 //! 全身的腰、腿两块和身体的拆层排在头部的五份拆层之后发出（`head_first`）。
 //!
+//! 任务从哪张图做、做成什么、归谁，都存在任务记录上（`input`）；步骤只从这些跑，做出来的
+//! 东西放进任务主人的存储（站点的放在站点一直放的地方）。站点设定的页面是调用方之一：它把
+//! 当前主立绘当成任务的图，任务结束时核对主立绘还是不是那一张。
+//!
 //! 任务的每一步结束时记一行耗时（`took`）：任务、步骤名、毫秒，不记内容。
 //!
 //! 每个完成的任务整套存档（`archive`）：立绘、四张图、五份拆层、关键形与烘焙后的
@@ -72,6 +76,7 @@ mod figure_picture;
 mod fit_turns;
 mod hair_misfit;
 mod head_first;
+mod input;
 mod judge;
 mod live;
 mod pickup;
@@ -94,12 +99,11 @@ pub use figure_picture::get_full_body_figure_picture;
 use head_first::{HeadSplit, TileSteps, Way, head_first, in_tiles};
 #[cfg(test)]
 use claim::{claim_job, the_job};
-use claim::{Submission, claim, idempotency_key};
-use ending::{cancelled, end, finish};
+use claim::{Claim, Submission, claim, claim_for, idempotency_key};
+use ending::{Holds, cancelled, end, finish};
+use input::{JobInput, Make, PictureRef, Providers, load_picture};
 use pickup::{Asked, Beside};
-#[cfg(test)]
-use served::missing_job;
-use served::space_client;
+use served::{missing_job, space_client};
 pub use served::{
     cancel_turn_keyforms, delete_turn_archive, download_turn_archive, get_turn_keyforms,
     get_turn_keyforms_keys, get_turn_keyforms_psd, get_turn_keyforms_record, list_turn_archives,
@@ -209,10 +213,22 @@ struct Job {
     cancel: Arc<tokio::sync::Notify>,
     /// Its work is over and its end is being written.
     ending: bool,
+    /// Whose it is: its paid calls' ledger subject, where what it makes is kept.
+    owner: rig_jobs::Owner,
+    /// What its result must still be true of at its end.
+    holds: Holds,
 }
 
 impl Job {
-    fn new(id: String, phase: Phase, stage: Stage, total: u8, targets: live::Targets) -> Self {
+    fn new(
+        id: String,
+        phase: Phase,
+        stage: Stage,
+        total: u8,
+        targets: live::Targets,
+        owner: rig_jobs::Owner,
+        holds: Holds,
+    ) -> Self {
         Self {
             id,
             stage,
@@ -235,6 +251,8 @@ impl Job {
             version: 0,
             cancel: live::cancel_notifier(),
             ending: false,
+            owner,
+            holds,
         }
     }
 
@@ -403,7 +421,7 @@ async fn start(
 }
 
 /// A start asked by the owner `user_id`: its key, its master, and the job
-/// claimed and set running.
+/// claimed and set running from the master's picture.
 async fn start_as(
     db: DatabaseConnection,
     user_id: i32,
@@ -412,10 +430,6 @@ async fn start_as(
     beside: Beside,
     headers: &HeaderMap,
 ) -> ApiResult<Json<Value>> {
-    let keys = FigureKeys {
-        head: payload.head,
-        body: payload.body,
-    };
     let idempotency_key = idempotency_key(headers)?;
     let fingerprint = payload
         .source_generation_fingerprint
@@ -458,87 +472,197 @@ async fn start_as(
     let dynamic = crate::GLOBAL_DYNAMIC_CONFIG.read().await.clone();
     let generation = image_generation::config_from_dynamic(&dynamic)
         .map_err(portrait_generation_config_error)?;
-    let reference = image_generation::load_local_reference(&master.asset_id)
-        .await
-        .map_err(|_| bad_request("The current master portrait is not available"))?;
+    let picture = PictureRef::SiteMedia {
+        url: master.asset_id,
+    };
+    load_picture(&rig_jobs::Storage::site(), &picture).await?;
     let (client, space_name) = space_client().await?;
-    let cache = TurnCache::for_master(
-        &reference.bytes,
-        &generation,
-        &space_name,
-        see_through::DecomposeOptions::default(),
-    );
+    let providers = Providers {
+        generation,
+        client,
+        space_name,
+    };
+    let lineage = Lineage {
+        outfit_id,
+        fingerprint,
+    };
+    let (id, _) = start_claimed(db, submission.claim(phase), providers, lineage).await?;
+    Ok(Json(json!({ "jobId": id })))
+}
 
-    let (stage, total) = if outfit_id.is_some() {
-        (Stage::Upscaling, 1)
-    } else if plain {
-        (Stage::Decomposing, 1)
-    } else {
-        (Stage::Generating, 4)
+/// A job of a picture that needs no persona: `make` of `picture`, claimed
+/// for `owner` by `caller` and set running. The picture is the owner's
+/// (`input::supply_picture`); nothing outside the job is checked at its end.
+/// The job's id, and whether this call claimed it (false: the one its key
+/// gave before, or the one running already for the same picture).
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "no handler of this build takes a caller's own picture"
+    )
+)]
+async fn start_input(
+    db: DatabaseConnection,
+    owner: rig_jobs::Owner,
+    caller: String,
+    idempotency_key: Option<String>,
+    picture: PictureRef,
+    make: Make,
+    providers: Providers,
+) -> ApiResult<(String, bool)> {
+    load_picture(&owner.storage(), &picture).await?;
+    let input = JobInput::Picture {
+        picture: picture.clone(),
+        make,
     };
+    let claim = Claim {
+        owner,
+        caller,
+        idempotency_key,
+        request: input.to_value(),
+        subject: picture.name(),
+        input,
+        holds: Holds::AsMade,
+    };
+    start_claimed(db, claim, providers, Lineage::default()).await
+}
+
+/// The site lineage an archive of the job keeps: the full-body set it was
+/// made for, and its master's generation contract.
+#[derive(Default)]
+struct Lineage {
+    outfit_id: Option<String>,
+    fingerprint: Option<String>,
+}
+
+/// A job of a picture claimed as `claim` has it and, when it is new, set
+/// running on its own task from what its record keeps (`run_recorded`).
+/// Its caller has read the picture the input names before, so that a
+/// picture that cannot be had refuses the start.
+async fn start_claimed(
+    db: DatabaseConnection,
+    claim: Claim,
+    providers: Providers,
+    lineage: Lineage,
+) -> ApiResult<(String, bool)> {
+    let JobInput::Picture { picture, make } = claim.input.clone() else {
+        return Err(internal_error("a kept job is not started from a picture"));
+    };
+    let (stage, total) = make.first_stage();
     let targets = live::Targets {
-        space: Some(space_name.clone()),
-        image: Some(format!("{}/{}", generation.provider, generation.model)),
+        space: Some(providers.space_name.clone()),
+        image: Some(format!(
+            "{}/{}",
+            providers.generation.provider, providers.generation.model
+        )),
     };
-    let (id, new) = claim(&db, &submission, phase, stage, total, targets).await?;
+    let (id, new) = claim_for(&db, claim, make.phase(), stage, total, targets).await?;
     if !new {
-        return Ok(Json(json!({ "jobId": id })));
+        return Ok((id, false));
     }
-    tracing::info!(job = %id, outfit = ?outfit_id, "turn keyforms started");
+    tracing::info!(job = %id, outfit = ?lineage.outfit_id, "turn keyforms started");
     let meta = ArchiveMeta {
         id: archive::new_id(),
         created_at: crate::clock::now(),
-        outfit_id: outfit_id.clone(),
-        source_master_asset_id: payload.source_master_asset_id.clone(),
-        source_generation_fingerprint: fingerprint.clone(),
+        outfit_id: lineage.outfit_id,
+        source_master_asset_id: picture.name(),
+        source_generation_fingerprint: lineage.fingerprint,
         parent: None,
         master: String::new(),
         master_media_type: String::new(),
-        generation_provider: generation.provider.clone(),
-        generation_model: generation.model.clone(),
+        generation_provider: providers.generation.provider.clone(),
+        generation_model: providers.generation.model.clone(),
         prompts: turn_prompts().to_vec(),
-        space: space_name.clone(),
+        space: providers.space_name.clone(),
         redrawn: Vec::new(),
         bytes: 0,
         figure: None,
         body_motions: None,
     };
     let task_id = id.clone();
-    let standing = outfit_id.is_some();
     tokio::spawn(async move {
-        let work = async {
-            let result = if standing {
-                run_figure(
-                    &task_id,
-                    user_id,
-                    &generation,
-                    reference,
-                    &client,
-                    &space_name,
-                    keys,
-                )
-                .await
-            } else if plain {
-                run_plain(&task_id, reference, &client, &cache).await
-            } else {
-                let alone = HeadSplit::unwatched();
-                run(
-                    &task_id,
-                    user_id,
-                    &generation,
-                    reference,
-                    &client,
-                    &cache,
-                    alone,
-                )
-                .await
-            };
-            prune_cache(cache_root(), CACHE_KEEP).await;
-            result
-        };
+        let work = run_recorded(db.clone(), task_id.clone(), providers);
         live::run_job(db.clone(), task_id.clone(), work, meta).await;
     });
-    Ok(Json(json!({ "jobId": id })))
+    Ok((id, true))
+}
+
+/// A claimed job of a picture run from its record alone: whose it is (the
+/// storage its cache and files go to) and its input (the picture, read from
+/// where the input names it, and what is made of it); `providers` are the
+/// site's, never kept on the record.
+async fn run_recorded(db: DatabaseConnection, id: String, providers: Providers) -> ApiResult<Made> {
+    let (owner, input) = recorded(&db, &id).await?;
+    let JobInput::Picture { picture, make } = input else {
+        return Err(internal_error("a kept job is not run from a picture"));
+    };
+    let storage = owner.storage();
+    let reference = load_picture(&storage, &picture).await?;
+    let Providers {
+        generation,
+        client,
+        space_name,
+    } = providers;
+    let cache = TurnCache::for_master(
+        &storage,
+        &reference.bytes,
+        &generation,
+        &space_name,
+        see_through::DecomposeOptions::default(),
+    );
+    // Each way of making it is a large future in a debug build: kept on the
+    // heap, not on the stack of the thread that polls it.
+    let result = match make {
+        Make::Figure { head, body } => {
+            let keys = FigureKeys { head, body };
+            Box::pin(run_figure(
+                &id,
+                &storage,
+                &generation,
+                reference,
+                &client,
+                &space_name,
+                keys,
+            ))
+            .await
+        }
+        Make::Plain => Box::pin(run_plain(&id, reference, &client, &cache)).await,
+        Make::Bust => {
+            let alone = HeadSplit::unwatched();
+            Box::pin(run(&id, &generation, reference, &client, &cache, alone)).await
+        }
+    };
+    prune_cache(cache_root(&storage), CACHE_KEEP).await;
+    result
+}
+
+/// How often reading a job's record back is tried before its run gives up.
+const RECORD_READS: usize = 3;
+
+/// Whose a job is and what its steps run from, as its record keeps them.
+async fn recorded(db: &DatabaseConnection, id: &str) -> ApiResult<(rig_jobs::Owner, JobInput)> {
+    let mut tries = 0;
+    let row = loop {
+        tries += 1;
+        match rig_jobs::get(db, id).await {
+            Ok(row) => break row,
+            Err(error) if tries < RECORD_READS => {
+                tracing::warn!(%error, job = %id, "turn keyforms record could not be read; trying again");
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            Err(error) => return Err(internal_error(error)),
+        }
+    };
+    let row = row.ok_or_else(missing_job)?;
+    let owner = row
+        .owner()
+        .ok_or_else(|| internal_error("the job's record names no owner this build knows"))?;
+    let input = row
+        .pipeline_input
+        .ok_or_else(|| internal_error("the job's record keeps no input"))
+        .and_then(|input| serde_json::from_value(input).map_err(internal_error))?;
+    Ok((owner, input))
 }
 
 /// The bust split once, no keys, nothing kept: the front decomposition a
@@ -571,7 +695,6 @@ async fn run_plain(
 /// tells that too.
 async fn run(
     id: &str,
-    user_id: i32,
     generation: &image_generation::ImageGenerationConfig,
     reference: image_generation::ImageReference,
     client: &see_through::SeeThroughClient,
@@ -599,13 +722,12 @@ async fn run(
         .enumerate()
         .map(|(index, prompt)| async move {
             let name = format!("turned-{index}.png");
-            let draw = draw_turn(user_id, generation, prompt, reference, width, height);
+            let draw = draw_turn(generation, prompt, reference, width, height);
             kept_or_made(cache, &name, draw).await
         })
         .collect();
     let turns = fit_turns::Turns {
         id,
-        user_id,
         generation,
         reference,
         size: (width, height),
@@ -650,7 +772,6 @@ async fn run(
     // A turn that redrew what a turn keeps is drawn once more before the fit.
     let judging = judge::judge_turns(
         id,
-        user_id,
         generation,
         reference,
         (width, height),

@@ -310,7 +310,6 @@ async fn drawn_again(
 /// A job's own steps.
 pub(super) struct Turns<'a> {
     pub(super) id: &'a str,
-    pub(super) user_id: i32,
     pub(super) generation: &'a image_generation::ImageGenerationConfig,
     pub(super) reference: &'a image_generation::ImageReference,
     pub(super) size: (u32, u32),
@@ -345,7 +344,6 @@ impl Steps for Turns<'_> {
     async fn draw(&self, index: usize) -> ApiResult<Vec<u8>> {
         let (width, height) = self.size;
         draw_turn(
-            self.user_id,
             self.generation,
             &turn_prompts()[index],
             self.reference,
@@ -399,7 +397,6 @@ impl Steps for Turns<'_> {
     ) -> ApiResult<(Sets, TurnKeyformsOutput)> {
         let (decompositions, pictures, output) = redraw_misfit(
             self.id,
-            self.user_id,
             self.generation,
             self.reference,
             self.size,

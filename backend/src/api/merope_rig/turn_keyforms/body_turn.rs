@@ -103,7 +103,6 @@ pub(super) struct BodyKeys {
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn body_turn_keys(
     id: &str,
-    user_id: i32,
     generation: &image_generation::ImageGenerationConfig,
     master: &image_generation::ImageReference,
     picture: &image_generation::ImageReference,
@@ -117,7 +116,6 @@ pub(super) async fn body_turn_keys(
             let (padded, size, place) = padded(&master.bytes)?;
             let steps = Body {
                 motion,
-                user_id,
                 generation,
                 padded: image_generation::ImageReference {
                     bytes: axum::body::Bytes::from(padded),
@@ -241,7 +239,6 @@ pub(super) async fn keyed_behind(
 /// figure's cache, the fit made anew.
 struct Body<'a> {
     motion: Motion,
-    user_id: i32,
     generation: &'a image_generation::ImageGenerationConfig,
     /// The master on the generator's canvas (`padded`), that canvas' size and
     /// the master's place on it.
@@ -261,15 +258,7 @@ impl BodySteps for Body<'_> {
         kept_or_made(self.cache, &file, async {
             let prompt = self.motion.prompt(side);
             let (width, height) = self.size;
-            let png = draw_turn(
-                self.user_id,
-                self.generation,
-                &prompt,
-                &self.padded,
-                width,
-                height,
-            )
-            .await?;
+            let png = draw_turn(self.generation, &prompt, &self.padded, width, height).await?;
             cropped(&png, self.place)
         })
         .await

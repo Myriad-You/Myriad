@@ -21,7 +21,7 @@ use super::*;
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn run_figure(
     id: &str,
-    user_id: i32,
+    storage: &rig_jobs::Storage,
     generation: &image_generation::ImageGenerationConfig,
     reference: image_generation::ImageReference,
     client: &see_through::SeeThroughClient,
@@ -34,8 +34,8 @@ pub(super) async fn run_figure(
         job.done = 0;
         job.total = 1;
     });
-    let picture = timed(id, "upscale", enlarged(client, &reference)).await;
-    let cache = TurnCache::for_master(&picture.bytes, generation, space_name, options);
+    let picture = timed(id, "upscale", enlarged(client, &reference, storage)).await;
+    let cache = TurnCache::for_master(storage, &picture.bytes, generation, space_name, options);
     update(id, |job| {
         job.stage = Stage::Decomposing;
         job.done = 0;
@@ -67,7 +67,7 @@ pub(super) async fn run_figure(
         if keys.body {
             Some(
                 body_turn::body_turn_keys(
-                    id, user_id, generation, &reference, &picture, &whole, client, &cache, &way,
+                    id, generation, &reference, &picture, &whole, client, &cache, &way,
                 )
                 .await,
             )
@@ -81,16 +81,7 @@ pub(super) async fn run_figure(
             match split {
                 Some(split) => {
                     update(id, |job| job.phase = Phase::Head);
-                    run(
-                        id,
-                        user_id,
-                        generation,
-                        picture.clone(),
-                        client,
-                        &cache,
-                        split,
-                    )
-                    .await
+                    run(id, generation, picture.clone(), client, &cache, split).await
                 }
                 None => Ok(plain(whole.clone(), drawn.1.clone())),
             }
@@ -103,10 +94,10 @@ pub(super) async fn run_figure(
         bytes: axum::body::Bytes::from(upper),
         media_type: "image/png".to_string(),
     };
-    let head_cache = TurnCache::for_master(&upper.bytes, generation, space_name, options);
+    let head_cache = TurnCache::for_master(storage, &upper.bytes, generation, space_name, options);
     let steps = Tiles {
         id,
-        user_id,
+        storage,
         generation,
         client,
         cache: &cache,
@@ -123,7 +114,7 @@ pub(super) async fn run_figure(
 /// A figure's tiles as a job makes them (`in_tiles`).
 struct Tiles<'a> {
     id: &'a str,
-    user_id: i32,
+    storage: &'a rig_jobs::Storage,
     generation: &'a image_generation::ImageGenerationConfig,
     client: &'a see_through::SeeThroughClient,
     /// The figure's own cache: its whole decomposition, the tiles without a head.
@@ -147,7 +138,6 @@ impl TileSteps for Tiles<'_> {
     async fn head(&self, split: HeadSplit) -> ApiResult<Made> {
         run(
             self.id,
-            self.user_id,
             self.generation,
             self.upper.clone(),
             self.client,
@@ -175,7 +165,7 @@ impl TileSteps for Tiles<'_> {
     }
 
     async fn stitch(&self, tiles: [Vec<u8>; 3]) -> ApiResult<Vec<u8>> {
-        prune_cache(cache_root(), CACHE_KEEP).await;
+        prune_cache(cache_root(self.storage), CACHE_KEEP).await;
         retried("stitch", || {
             self.client.figure_stitch(
                 self.drawn.clone(),
@@ -271,17 +261,18 @@ pub(super) fn plain(psd: Vec<u8>, media_type: String) -> Made {
     }
 }
 
-/// The figure's picture enlarged (kept by the master, `figure_picture`); the
-/// master as it is when the Space cannot enlarge it.
+/// The figure's picture enlarged (kept by the master in the owner's storage,
+/// `figure_picture`); the master as it is when the Space cannot enlarge it.
 pub(super) async fn enlarged(
     client: &see_through::SeeThroughClient,
     reference: &image_generation::ImageReference,
+    storage: &rig_jobs::Storage,
 ) -> image_generation::ImageReference {
     let png = |bytes: Vec<u8>| image_generation::ImageReference {
         bytes: axum::body::Bytes::from(bytes),
         media_type: "image/png".to_string(),
     };
-    if let Some(kept) = figure_picture::read(&reference.bytes).await {
+    if let Some(kept) = figure_picture::read(storage, &reference.bytes).await {
         return png(kept);
     }
     // One at a time: a set's gestures are asked for together with its decomposition, and the first to come
@@ -291,7 +282,7 @@ pub(super) async fn enlarged(
     static ENLARGING: tokio::sync::Mutex<Option<(u64, std::time::Instant)>> =
         tokio::sync::Mutex::const_new(None);
     let mut enlarging = ENLARGING.lock().await;
-    if let Some(kept) = figure_picture::read(&reference.bytes).await {
+    if let Some(kept) = figure_picture::read(storage, &reference.bytes).await {
         return png(kept);
     }
     let master = {
@@ -307,7 +298,7 @@ pub(super) async fn enlarged(
     let upscale = || client.upscale((reference.bytes.to_vec(), reference.media_type.clone()));
     match upscaled(upscale).await {
         Some(bytes) => {
-            figure_picture::write(&reference.bytes, &bytes).await;
+            figure_picture::write(storage, &reference.bytes, &bytes).await;
             png(bytes)
         }
         None => {
@@ -443,18 +434,19 @@ pub(super) async fn fit(
 }
 
 /// A full body's master enlarged as its decomposition is (made and kept now
-/// if it was not yet), for a gesture arm drawn on it.
+/// in the site's storage if it was not yet), for a gesture arm drawn on it.
 pub(in crate::api::merope_rig) async fn enlarged_figure(
     master: &image_generation::ImageReference,
 ) -> ApiResult<image_generation::ImageReference> {
-    if let Some(kept) = figure_picture::read(&master.bytes).await {
+    let site = rig_jobs::Storage::site();
+    if let Some(kept) = figure_picture::read(&site, &master.bytes).await {
         return Ok(image_generation::ImageReference {
             bytes: axum::body::Bytes::from(kept),
             media_type: "image/png".to_string(),
         });
     }
     let (client, _) = space_client().await?;
-    Ok(enlarged(&client, master).await)
+    Ok(enlarged(&client, master, &site).await)
 }
 
 /// A picture enlarged by the same super-resolution as a full body's; None when

@@ -1,23 +1,40 @@
-//! 任务的结束：做完的存档、交给导入，主立绘已经换了的记成失败；取消的就此停下；结束的样子
-//! 和它的步骤写进任务记录。
+//! 任务的结束：做完的存档进主人的存储、交给导入；站点设定的任务在主立绘已经换了时记成失败；
+//! 取消的就此停下；结束的样子和它的步骤写进任务记录。
 
 use super::*;
 
-/// Ends a job: kept in the archive and handed out when the master is still
-/// the one it was made for, else failed.
+/// What a finished job's result must still be true of to be kept and handed out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Holds {
+    /// The site persona's master in the job's slot is still the one the job
+    /// was made from (`ArchiveMeta`'s), as the import requires: the site's
+    /// persona flow.
+    PersonaMaster,
+    /// Nothing outside the job: its result is its owner's as made.
+    AsMade,
+}
+
+/// Ends a job: kept in its owner's archive and handed out when what it
+/// `Holds` still does, else failed.
 pub(super) async fn finish(
     db: &DatabaseConnection,
     task_id: &str,
     result: ApiResult<Made>,
     meta: ArchiveMeta,
 ) {
-    let still_current = require_master_match(
-        db,
-        slot_of(meta.outfit_id.as_deref()),
-        &meta.source_master_asset_id,
-        meta.source_generation_fingerprint.as_deref(),
-    )
-    .await;
+    let (holds, storage) = live::with_job(task_id, |job| (job.holds, job.owner.storage()))
+        .unwrap_or((Holds::PersonaMaster, rig_jobs::Storage::site()));
+    let still_current = match holds {
+        Holds::PersonaMaster => require_master_match(
+            db,
+            slot_of(meta.outfit_id.as_deref()),
+            &meta.source_master_asset_id,
+            meta.source_generation_fingerprint.as_deref(),
+        )
+        .await
+        .map(|_| ()),
+        Holds::AsMade => Ok(()),
+    };
     match (result, still_current) {
         (Ok(made), Ok(_)) => {
             let meta = ArchiveMeta {
@@ -31,7 +48,7 @@ pub(super) async fn finish(
                 ..meta
             };
             let archive_id = match made.keep.then_some(()) {
-                Some(()) => match archive::save(meta, &made.files).await {
+                Some(()) => match archive::save(&storage, meta, &made.files).await {
                     Ok(id) => Some(id),
                     Err(error) => {
                         tracing::warn!(%error, job = %task_id, "turn keys could not be archived");
