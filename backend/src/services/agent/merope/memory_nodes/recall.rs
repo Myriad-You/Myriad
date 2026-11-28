@@ -336,6 +336,7 @@ fn pick_node(shown: &Shown, node: &super::shown::Node) -> PickNode {
     PickNode {
         id: node.id.clone(),
         name: node.name.clone(),
+        aliases: Vec::new(),
         status: node.status,
         gone: node.gone,
         entries: node
@@ -460,6 +461,7 @@ fn recollect_within(
         thorough,
         budget,
         today: super::standing::day_of(now.timestamp_micros()),
+        query: None,
     }) else {
         // Ids the core will not take: what was ranked, as before.
         return Recollection {
