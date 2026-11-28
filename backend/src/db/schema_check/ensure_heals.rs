@@ -157,6 +157,14 @@ pub(crate) async fn ensure_rig_jobs_tables(db: &DatabaseConnection) -> Result<()
     Ok(())
 }
 
+/// The rig API's tenants, keys and quota counters (`migrations/rig_api.sql`),
+/// for databases that ran 004 before it was in it. Same file as 004.
+pub(crate) async fn ensure_rig_api_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(include_str!("../../../migrations/rig_api.sql"))
+        .await?;
+    Ok(())
+}
+
 /// User lifecycle owned by the schema (`migrations/user_lifecycle.sql`): FK
 /// cascades for account-owned rows; for subject-keyed tables an insert-side
 /// guard plus an AFTER DELETE trigger on `users`. Unlike the federation candidates below this heal always applies:

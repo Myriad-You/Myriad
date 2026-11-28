@@ -127,6 +127,7 @@ standard_fields! {
         merope_voice_mode,
         merope_voice_voice,
         site_visibility_policy,
+        rig_api_job_period,
     ],
     opt_text: [
         ui_wallpaper_url,
@@ -254,6 +255,9 @@ standard_fields! {
         stash_hidden_idle_seconds,
         resident_quota_per_app,
         resident_quota_site_total,
+        rig_api_concurrent_jobs,
+        rig_api_jobs_per_period,
+        rig_api_requests_per_minute,
     ],
 }
 
@@ -1426,6 +1430,28 @@ mod tests {
         assert_eq!(config.stash_hidden_idle_seconds, 808);
         assert_eq!(config.resident_quota_per_app, 9);
         assert_eq!(config.resident_quota_site_total, 10);
+    }
+
+    #[test]
+    fn parses_rig_api_quota_defaults_from_database_config() {
+        let config = ConfigService::parse_config(HashMap::from([
+            ("rig_api_concurrent_jobs".into(), json!(3)),
+            ("rig_api_jobs_per_period".into(), json!(250)),
+            ("rig_api_job_period".into(), json!("day")),
+            ("rig_api_requests_per_minute".into(), json!(600)),
+        ]));
+        assert_eq!(config.rig_api_concurrent_jobs, 3);
+        assert_eq!(config.rig_api_jobs_per_period, 250);
+        assert_eq!(config.rig_api_job_period, "day");
+        assert_eq!(config.rig_api_requests_per_minute, 600);
+
+        let unset = ConfigService::parse_config(HashMap::new());
+        let defaults = DynamicConfig::default();
+        assert_eq!(
+            unset.rig_api_concurrent_jobs,
+            defaults.rig_api_concurrent_jobs
+        );
+        assert_eq!(unset.rig_api_job_period, "month");
     }
 
     #[test]

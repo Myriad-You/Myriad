@@ -68,6 +68,7 @@ pub mod public_site; // What the site shows guests: branding, open modules, publ
 pub mod report_styles; // Owner's report writing styles: presets, checks, stored shape
 pub mod retired_configuration; // Backup denylist for retired configuration keys
 pub mod rig_jobs; // Rig generation jobs: one row per job and per step, leases, cancel, spend
+pub mod rig_api; // The rig API's tenants, their keys and quotas
 pub mod runtime_registry; // Platform runtime registry/mailbox shared by replicas (workspace crate)
 pub mod persona_style; // Where portrait style recipes come from: builtin or a recipe service
 pub mod see_through; // Remote See-through layered-PSD decomposition

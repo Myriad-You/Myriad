@@ -139,7 +139,11 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// `Idempotency-Key` `rig_job_keys`（进度、租约、取消、出错、结果放在哪、花费记在账上的哪个 id、
 /// 每一步的耗时与算力；`rig_jobs.sql`，随 004 与 `ensure_rig_jobs_tables` 一起建；占位任务的部分
 /// 索引带 WHERE，不进 `get_expected_indexes`）。旧二进制不认识它们也照常启动。
-pub const SCHEMA_VERSION: &str = "2026.11.26.1";
+/// 2026.11.28.1：形象 API 的租户 `rig_api_tenants`、它们的密钥 `rig_api_keys`（只存带钥匙的
+/// 哈希和公开前缀）、配额计数 `rig_api_job_usage`、`rig_api_job_slots`、
+/// `rig_api_request_windows`（`rig_api.sql`，随 004 与 `ensure_rig_api_tables` 一起建）。
+/// 旧二进制不认识它们也照常启动。
+pub const SCHEMA_VERSION: &str = "2026.11.28.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -405,6 +409,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     ensure_topic_nodes_tables(db).await?;
     ensure_memory_nodes_tables(db).await?;
     ensure_rig_jobs_tables(db).await?;
+    ensure_rig_api_tables(db).await?;
     // Once: what she said of herself, kept as hers before it was kept by
     // where she said it, goes where she said it. Not worth keeping the site
     // down for: a failure is logged and tried again at the next start.
