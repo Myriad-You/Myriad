@@ -29,7 +29,7 @@ const READ_ALL: &[(&str, &[&str], &str)] = &[
     ),
     (
         "services/agent/memory/origins.rs",
-        &["quoting", "told_by", "told_anywhere", "lines_holding", "delete_lines", "delete_messages"],
+        &["quoting", "told_by", "told_anywhere", "lines_holding", "delete_lines", "delete_day", "delete_messages"],
         "forgetting",
     ),
     ("services/agent/merope/memory_nodes/page_edit.rs", &["forget_memories"], "forgetting"),

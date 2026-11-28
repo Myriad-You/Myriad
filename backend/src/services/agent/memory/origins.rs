@@ -13,7 +13,10 @@
 //!   that place, within [`QUOTED_WITHIN`] before the memory was written, go
 //!   with her answer to each, as do the same words in her chat diary and any
 //!   job still queued to go over them. The short notes a stretch was kept
-//!   from are earlier versions of what it kept, so they go too.
+//!   from are earlier versions of what it kept, so they go too. What a line
+//!   of hers taken along taught her (what she said in her answer, kept as
+//!   `said`) is looked for before it goes ([`Gone::taught`]) and forgotten
+//!   after, as any memory is.
 //! - a day with them (`day_with`): written from that whole day of private
 //!   talk, and written again for any day without one, so the day's lines and
 //!   chat diary go.
@@ -49,17 +52,13 @@ use crate::services::agent::merope::{
 
 use super::unified::{ASKED_SOURCE, SHORT_NOTE_SOURCE};
 
+mod quoted;
+pub(crate) use quoted::{Quote, folded, quote, quotes};
+use quoted::{SHORTEST_QUOTE, few};
+
 /// How long before a memory was written the words it quotes were said:
 /// a line is gone over within a day (queued work is kept that long).
 pub const QUOTED_WITHIN: Duration = Duration::days(1);
-
-/// Fewer characters than this say too little to be found by: a quote this
-/// short is not looked for.
-const SHORTEST_QUOTE: usize = 2;
-/// Fewer letters or characters than this ('不是', '好的') are said in many
-/// lines: one of several a memory quotes is then a whole line's words, never
-/// found inside another's.
-const TELLS_ALONE: usize = 6;
 
 /// A line deleted with what it taught her: for what else cites it to go
 /// too, here (her nodes) and on the owner's other ends (her log).
@@ -71,6 +70,13 @@ pub struct Gone {
     pub role: String,
     /// The row of her log it is, when it is one (`agent_messages.log_row`).
     pub log_row: Option<String>,
+    /// A line of hers taken along (her answer to a line that went, a line a
+    /// memory of what she said came from, a day's): the memories it taught
+    /// her ([`quoting`]), looked for before it went, for them to go after
+    /// it as any memory forgotten goes (`manage::forget_taught`). One known
+    /// to come from several lines goes when any of them does; one that only
+    /// says the same as a line still here does not.
+    pub taught: Vec<String>,
 }
 
 impl Gone {
@@ -80,7 +86,16 @@ impl Gone {
             session_id: line.session_id.clone(),
             role: line.role.clone(),
             log_row: line.log_row.clone(),
+            taught: Vec::new(),
         }
+    }
+
+    /// What the lines `gone` taught her, each once.
+    pub fn taught_by(gone: &[Self]) -> Vec<String> {
+        let mut taught: Vec<String> = gone.iter().flat_map(|line| line.taught.clone()).collect();
+        taught.sort();
+        taught.dedup();
+        taught
     }
 }
 
@@ -442,104 +457,6 @@ fn place(venue: &str) -> Option<Option<&str>> {
     }
 }
 
-/// The words as said, with runs of space as one: a quote is plain text (a
-/// record's evidence is JSON and quotes nothing).
-pub(crate) fn quote(evidence: Option<&str>) -> Option<String> {
-    let evidence = evidence?.trim();
-    if evidence.starts_with('{') || evidence.starts_with('[') {
-        return None;
-    }
-    let quote = evidence.split_whitespace().collect::<Vec<_>>().join(" ");
-    (quote.chars().count() >= SHORTEST_QUOTE).then_some(quote)
-}
-
-/// Runs of space as one.
-pub(crate) fn folded(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// Whether `text` says too little to tell a line by ([`TELLS_ALONE`]).
-fn few(text: &str) -> bool {
-    text.chars().filter(|ch| ch.is_alphanumeric()).count() < TELLS_ALONE
-}
-
-/// Words a memory quotes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Quote {
-    pub(crate) text: String,
-    /// All a line says, not a part of one: too few to be found inside one.
-    pub(crate) whole: bool,
-}
-
-impl Quote {
-    /// Whether a line saying `said` ([`folded`]) is one it quotes.
-    pub(crate) fn is_in(&self, said: &str) -> bool {
-        let letters =
-            |text: &str| -> Vec<char> { text.chars().filter(|ch| ch.is_alphanumeric()).collect() };
-        said.contains(self.text.as_str()) && (!self.whole || letters(said) == letters(&self.text))
-    }
-
-    /// Of lines saying `said` ([`folded`], each within its reach), which it
-    /// quotes: for a few words alone, those that say only them, else the one
-    /// they are in when they are in no other.
-    pub(crate) fn among(&self, said: &[String]) -> Vec<usize> {
-        let those = |quote: &Self| -> Vec<usize> {
-            (0..said.len())
-                .filter(|at| quote.is_in(&said[*at]))
-                .collect()
-        };
-        let mut of = those(&self.strictly());
-        if of.is_empty() {
-            of = those(self);
-            of.truncate(if of.len() == 1 { 1 } else { 0 });
-        }
-        of
-    }
-
-    /// Whether it is a few words alone: in many lines, it may be.
-    pub(crate) fn few(&self) -> bool {
-        !self.whole && few(&self.text)
-    }
-
-    /// Held to more: few words are a whole line's, alone or not.
-    pub(crate) fn strictly(&self) -> Self {
-        Self {
-            text: self.text.clone(),
-            whole: self.whole || few(&self.text),
-        }
-    }
-}
-
-/// What a memory quotes, each as [`quote`] reads one: one put together from
-/// several lines quotes each of them, with ` / ` between
-/// (`myriad_merope::chat_remember::settle_evidence_holds`), and may be one
-/// line that has that in it.
-pub(crate) fn quotes(evidence: Option<&str>) -> Vec<Quote> {
-    let Some(all) = quote(evidence) else {
-        return Vec::new();
-    };
-    let parts: Vec<String> = all
-        .split(" / ")
-        .filter_map(|part| quote(Some(part)))
-        .collect();
-    let mut quotes = vec![Quote {
-        text: all.clone(),
-        whole: false,
-    }];
-    if all.contains(" / ") {
-        for text in parts {
-            let part = Quote {
-                whole: few(&text),
-                text,
-            };
-            if !quotes.contains(&part) {
-                quotes.push(part);
-            }
-        }
-    }
-    quotes
-}
-
 /// The day a day's line is about, from its first midnight to the next.
 fn day(evidence: Option<&str>) -> Option<(DateTime<FixedOffset>, DateTime<FixedOffset>)> {
     let value: serde_json::Value = serde_json::from_str(evidence?).ok()?;
@@ -591,7 +508,7 @@ async fn lines_holding<C: ConnectionTrait>(
 
 /// The person's lines `ids` (`agent_messages.id`), and her answer to each
 /// line of theirs: what was said right after it, when that is hers.
-async fn delete_lines<C: ConnectionTrait>(
+pub(super) async fn delete_lines<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
     ids: &[i32],
@@ -616,9 +533,7 @@ async fn delete_lines<C: ConnectionTrait>(
              ORDER BY a.created_at, a.id LIMIT 1) r ON r.role = 'assistant' \
            WHERE q.role = 'user' \
          ) \
-         DELETE FROM agent_messages WHERE id IN ( \
-           SELECT id FROM quoted UNION SELECT id FROM answers WHERE id IS NOT NULL \
-         ) RETURNING session_id, id, role, log_row, content, created_at",
+         SELECT id FROM quoted UNION SELECT id FROM answers WHERE id IS NOT NULL",
         vec![user_id.into(), ids.to_vec().into()],
     )
     .await
@@ -634,31 +549,71 @@ async fn delete_day<C: ConnectionTrait>(
     delete_messages(
         db,
         user_id,
-        "DELETE FROM agent_messages m USING agent_sessions s \
-         WHERE s.id = m.session_id AND s.user_id = $1 AND s.context->>'mode' = 'chat' \
+        "SELECT m.id FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+         WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
            AND (s.context->>'venue') IS NULL \
-           AND m.created_at >= $2 AND m.created_at < $3 \
-         RETURNING m.session_id, m.id, m.role, m.log_row, m.content, m.created_at",
+           AND m.created_at >= $2 AND m.created_at < $3",
         vec![user_id.into(), start.into(), end.into()],
     )
     .await
 }
 
-/// Runs a delete of `user_id`'s lines returning their conversations, ids,
-/// roles, rows, words and times, keeps each as forgotten
-/// ([`super::forgotten`]), and has each conversation count what is left in
-/// it. The lines deleted.
+/// Deletes `user_id`'s lines that `select` finds (their ids), keeps each as
+/// forgotten ([`super::forgotten`]), and has each conversation count what is
+/// left in it. The lines deleted, each of hers with what it taught her,
+/// looked for before it went ([`Gone::taught`]).
 async fn delete_messages<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
-    delete: &str,
+    select: &str,
     values: Vec<sea_orm::Value>,
 ) -> Result<Vec<Gone>, DbErr> {
+    let ids: Vec<i32> = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            select,
+            values,
+        ))
+        .await?
+        .iter()
+        .map(|row| row.try_get("", "id"))
+        .collect::<Result<_, DbErr>>()?;
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    // Hers, while they are here: what a memory is known to come from is
+    // noted on the line (`tell`).
+    let hers = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT m.id, m.content, m.created_at, s.context->>'venue' AS venue \
+             FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+             WHERE m.id = ANY($1) AND m.role = 'assistant' AND s.user_id = $2",
+            [ids.clone().into(), user_id.into()],
+        ))
+        .await?;
+    let mut taught: std::collections::BTreeMap<i32, Vec<String>> = Default::default();
+    for line in &hers {
+        let id: i32 = line.try_get("", "id")?;
+        let content: String = line.try_get("", "content")?;
+        let place: Option<String> = line.try_get("", "venue")?;
+        let quotable = Quotable {
+            id,
+            role: "assistant",
+            content: &content,
+            at: line.try_get("", "created_at")?,
+        };
+        let of = quoting(db, user_id, place.as_deref(), &quotable).await?;
+        if !of.is_empty() {
+            taught.insert(id, of);
+        }
+    }
     let deleted = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            delete,
-            values,
+            "DELETE FROM agent_messages WHERE id = ANY($1) \
+             RETURNING session_id, id, role, log_row, content, created_at",
+            [ids.into()],
         ))
         .await?;
     let marks = deleted
@@ -676,11 +631,13 @@ async fn delete_messages<C: ConnectionTrait>(
     let lines = deleted
         .iter()
         .map(|row| {
+            let id = row.try_get("", "id")?;
             Ok(Gone {
-                id: row.try_get("", "id")?,
+                id,
                 session_id: row.try_get("", "session_id")?,
                 role: row.try_get("", "role")?,
                 log_row: row.try_get("", "log_row")?,
+                taught: taught.remove(&id).unwrap_or_default(),
             })
         })
         .collect::<Result<Vec<_>, DbErr>>()?;

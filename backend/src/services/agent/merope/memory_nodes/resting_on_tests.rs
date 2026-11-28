@@ -1320,6 +1320,7 @@ async fn one_written_as_its_line_is_forgotten_waits_and_is_left_out() {
         session_id: "s_one".into(),
         role: "user".into(),
         log_row: None,
+        taught: Vec::new(),
     };
     let txn = db.begin().await.unwrap();
     forget_locks::lock_for(&txn, Some(OWNER), &[], &[line])

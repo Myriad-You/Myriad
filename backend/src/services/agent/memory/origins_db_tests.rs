@@ -554,3 +554,147 @@ async fn a_line_forgotten_takes_no_answer_to_another() {
     assert!(left.contains(&"火锅吧".to_string()), "{left:?}");
     schema.drop().await;
 }
+
+/// A memory of `user_id`'s in `venue` (`of`) from `source`, quoting
+/// `evidence`, written `minutes_ago`, known to come from `lines`.
+async fn kept_of(
+    db: &DatabaseConnection,
+    id: &str,
+    (user_id, venue): (i32, &str),
+    source: &str,
+    evidence: &str,
+    minutes_ago: i32,
+    lines: &[i32],
+) {
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO agent_memories (id, user_id, kind, content, evidence, speaker, source, \
+           venue, audience, concepts, importance, access_count, valid_from, created_at, \
+           updated_at) \
+         VALUES ($1, $2, 'fact', $1, $3, 'agent', $4, $5, jsonb_build_array($2), '[]', 0.4, 0, \
+           NOW() - $6 * INTERVAL '1 minute', NOW() - $6 * INTERVAL '1 minute', NOW())",
+        [
+            id.into(),
+            user_id.into(),
+            evidence.into(),
+            source.into(),
+            venue.into(),
+            minutes_ago.into(),
+        ],
+    ))
+    .await
+    .unwrap();
+    tell(db, lines, id).await.unwrap();
+}
+
+async fn memories(db: &DatabaseConnection) -> Vec<String> {
+    db.query_all_raw(Statement::from_string(
+        DatabaseBackend::Postgres,
+        "SELECT id FROM agent_memories ORDER BY id",
+    ))
+    .await
+    .unwrap()
+    .iter()
+    .map(|row| row.try_get("", "id").unwrap())
+    .collect()
+}
+
+async fn lines_of(db: &DatabaseConnection, session: &str) -> Vec<String> {
+    db.query_all_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT content FROM agent_messages WHERE session_id = $1 ORDER BY created_at",
+        [session.into()],
+    ))
+    .await
+    .unwrap()
+    .iter()
+    .map(|row| row.try_get("", "content").unwrap())
+    .collect()
+}
+
+/// What she told them in her answer to a line that goes, kept as what she
+/// said (`said`), goes with it, as she forgets any memory: by forgetting a
+/// memory of that line, the line itself, or the line that taught her
+/// nothing. What she said the same way in another answer still here stays,
+/// as does what she said in a group or to someone else.
+#[tokio::test]
+async fn what_she_said_in_her_answer_goes_with_their_line() {
+    let Some(schema) = schema("origins_said_answer").await else {
+        return;
+    };
+    let db = &schema.db;
+    for by in ["memory", "line", "line alone"] {
+        db.execute_unprepared(
+            "DELETE FROM agent_messages; DELETE FROM agent_sessions; \
+             DELETE FROM agent_memories; DELETE FROM agent_forgotten",
+        )
+        .await
+        .unwrap();
+        session(db, "mine", OTHER, CHAT, false).await;
+        let said = line(db, "mine", "user", "我上个月确诊了糖尿病", 60, None).await;
+        let answer = line(db, "mine", "assistant", "那你记得每天按时吃药", 59, None).await;
+        line(db, "mine", "user", "今天天气不错", 50, None).await;
+        line(db, "mine", "assistant", "适合出去走走", 49, None).await;
+        line(db, "mine", "user", "我又忘了吃药", 30, None).await;
+        let again = line(db, "mine", "assistant", "那你记得每天按时吃药", 29, None).await;
+        let group = r#"{"mode":"chat","venue":"qq:42"}"#;
+        session(db, "there", OTHER, Some(group), false).await;
+        let there = line(db, "there", "assistant", "那你记得每天按时吃药", 59, None).await;
+        session(db, "theirs", 1, CHAT, false).await;
+        let theirs = line(db, "theirs", "assistant", "那你记得每天按时吃药", 59, None).await;
+        if by == "memory" || by == "line" {
+            let evidence = "我上个月确诊了糖尿病";
+            kept_of(db, "diagnosis", (OTHER, "private"), "chat", evidence, 58, &[said]).await;
+        }
+        let meds = "记得每天按时吃药";
+        kept_of(db, "meds", (OTHER, "private"), "said", meds, 55, &[answer]).await;
+        kept_of(db, "again", (OTHER, "private"), "said", meds, 25, &[again]).await;
+        kept_of(db, "group", (OTHER, "group:qq:42"), "said", meds, 55, &[there]).await;
+        kept_of(db, "theirs", (1, "private"), "said", meds, 55, &[theirs]).await;
+        if by == "memory" {
+            assert!(forget_any(db, "diagnosis").await.unwrap());
+        } else {
+            let gone = forget_line(db, OTHER, "mine", said).await.unwrap().unwrap();
+            let gone: Vec<i32> = gone.iter().map(|line| line.id).collect();
+            assert!(gone.contains(&said) && gone.contains(&answer), "{by}: {gone:?}");
+        }
+        assert_eq!(memories(db).await, ["again", "group", "theirs"], "{by}");
+        assert_eq!(
+            lines_of(db, "mine").await,
+            ["今天天气不错", "适合出去走走", "我又忘了吃药", "那你记得每天按时吃药"],
+            "{by}"
+        );
+        assert_eq!(lines_of(db, "there").await.len(), 1, "{by}");
+        // Kept as forgotten, as every memory forgotten is.
+        let marked = db
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT 1 AS one FROM agent_forgotten WHERE what = 'memory' AND mark = 'meds'",
+            ))
+            .await
+            .unwrap();
+        assert!(marked.is_some(), "{by}");
+    }
+    schema.drop().await;
+}
+
+/// What she said in several lines goes when any of them does, and with it
+/// each of them, as a memory forgotten takes the lines it came from.
+#[tokio::test]
+async fn what_she_said_in_several_lines_goes_when_any_of_them_does() {
+    let Some(schema) = schema("origins_said_several").await else {
+        return;
+    };
+    let db = &schema.db;
+    session(db, "mine", OTHER, CHAT, false).await;
+    let said = line(db, "mine", "user", "我上个月确诊了糖尿病", 60, None).await;
+    let answer = line(db, "mine", "assistant", "那你记得每天按时吃药", 59, None).await;
+    line(db, "mine", "user", "好的我会的", 58, None).await;
+    let later = line(db, "mine", "assistant", "吃完药告诉我一声", 57, None).await;
+    let evidence = "记得每天按时吃药 / 吃完药告诉我一声";
+    kept_of(db, "meds", (OTHER, "private"), "said", evidence, 55, &[answer, later]).await;
+    assert!(forget_line(db, OTHER, "mine", said).await.unwrap().is_some());
+    assert!(memories(db).await.is_empty());
+    assert_eq!(lines_of(db, "mine").await, ["好的我会的"]);
+    schema.drop().await;
+}
