@@ -517,18 +517,13 @@ pub(crate) async fn kept_as_they_were(
             return Ok(0);
         }
         put(db, user_id, &audience, &answer.facts, &pen).await?;
-        let placed: Vec<Fact> = answer
-            .facts
-            .into_iter()
-            .filter(|fact| fact.placement != Placement::Nowhere)
-            .collect();
         super::standing::after_settled(
             db,
             user_id,
             home.user_id,
             present,
             &audience,
-            &placed,
+            &answer.facts,
             &[],
             &pen,
         )

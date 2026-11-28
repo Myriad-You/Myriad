@@ -136,6 +136,7 @@ pub(crate) mod shown;
 mod since;
 pub(crate) mod sorting;
 pub(crate) mod standing;
+mod standing_batch;
 pub(crate) mod take_back_check;
 pub(crate) mod unbuilt;
 pub(crate) mod upkeep;

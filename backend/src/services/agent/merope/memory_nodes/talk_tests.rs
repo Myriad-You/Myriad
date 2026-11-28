@@ -893,14 +893,13 @@ async fn what_she_knew_on_a_node_stands_first_whatever_stands_elsewhere() {
         })
     };
     let step_nothing = r#"{"whose":"them","set":[],"end":[],"add":[]}"#;
+    let batch_nothing =
+        r#"{"whose":[{"fact":1,"whose":"them"},{"fact":2,"whose":"them"}],"set":[],"end":[],"add":[]}"#;
     // One of hers stands on 跑步; 咖啡 holds a memory, none of hers.
-    answering(&[
-        (
-            "memory_standing_step",
-            r#"{"whose":"them","set":[],"end":[],"add":[{"topic":"跑步","text":"每周三晚上夜跑"}]}"#,
-        ),
-        ("memory_standing_step", step_nothing),
-    ]);
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":[{"fact":1,"whose":"them"},{"fact":2,"whose":"them"}],"set":[],"end":[],"add":[{"fact":1,"whose":"them","topic":"跑步","text":"每周三晚上夜跑"}]}"#,
+    )]);
     settle(
         db,
         vec![
@@ -931,10 +930,7 @@ async fn what_she_knew_on_a_node_stands_first_whatever_stands_elsewhere() {
     assert_eq!(asked("memory_standing_build"), 1, "built to nothing: again");
     assert_eq!(standing_rows(db).await.len(), 2);
     // Both now hold one of hers: neither is built again.
-    answering(&[
-        ("memory_standing_step", step_nothing),
-        ("memory_standing_step", step_nothing),
-    ]);
+    answering(&[("memory_standing_step", batch_nothing)]);
     settle(
         db,
         vec![
@@ -944,6 +940,105 @@ async fn what_she_knew_on_a_node_stands_first_whatever_stands_elsewhere() {
     )
     .await;
     assert_eq!(asked("memory_standing_build"), 0, "stood on: not again");
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn multi_fact_stretch_batches_step_includes_nowhere_and_notes_still_so() {
+    let Some(schema) = schema("memory_nodes_standing_batch").await else {
+        return;
+    };
+    let db = &schema.db;
+    let under = |name: &str| {
+        Some(GoesUnder::New {
+            name: name.into(),
+            aliases: Vec::new(),
+        })
+    };
+    // Setup: two items on 跑步 ("每周三夜跑" and "穿飞马跑鞋") and a node 咖啡.
+    answering(&[(
+        "memory_standing_step",
+        r#"{"whose":[{"fact":1,"whose":"them"},{"fact":2,"whose":"them"}],"set":[],"end":[],"add":[{"fact":1,"whose":"them","topic":"跑步","text":"每周三夜跑"},{"fact":2,"whose":"them","topic":"跑步","text":"穿飞马跑鞋"}]}"#,
+    )]);
+    settle(
+        db,
+        vec![
+            update("每周三夜跑", &[], under("跑步")),
+            update("穿飞马40跑鞋", &[], under("跑步")),
+        ],
+    )
+    .await;
+    assert_eq!(asked("memory_standing_step"), 1);
+    let node = read::heads(db, OTHER, &talk(), None)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|head| head.name.as_deref() == Some("跑步"))
+        .unwrap()
+        .node_id;
+    let shown = myriad_nodes::stands::shown_on(
+        &node,
+        &read::node(db, OTHER, &talk(), &node).await.unwrap().unwrap(),
+    );
+    assert_eq!(shown.len(), 2);
+    // Batch 1: Fact 1 is Placement::Nowhere; Fact 2 is on an unrelated node 咖啡.
+    // Neither fact is placed on 跑步, so Fact 1 can ONLY end "每周三夜跑" via `known`.
+    let end_idx = shown.iter().position(|s| s.text == "每周三夜跑").unwrap() + 1;
+    let batch1_reply = json!({
+        "whose": [{"fact": 1, "whose": "them"}, {"fact": 2, "whose": "them"}],
+        "set": [],
+        "end": [{"fact": 1, "whose": "them", "item": end_idx}],
+        "add": []
+    })
+    .to_string();
+    answering(&[("memory_standing_step", batch1_reply.as_str())]);
+    settle(
+        db,
+        vec![
+            update("因为伤病不再去夜跑了", &[], Some(GoesUnder::Nowhere)),
+            update("常去春山咖啡看书", &[], under("咖啡")),
+        ],
+    )
+    .await;
+    assert_eq!(
+        asked("memory_standing_step"),
+        1,
+        "multi-fact stretch issues one batched step call"
+    );
+    let rows = standing_rows(db).await;
+    assert!(
+        rows.iter()
+            .any(|(_, text, ended, _, _)| text == "因为伤病不再去夜跑了" && *ended),
+        "Placement::Nowhere fact ended item on un-placed node via known: {rows:?}"
+    );
+    // Batch 2: placed fact on 跑步 adds a new item while leaving 穿飞马跑鞋 untouched -> still_so recorded.
+    let batch2_reply = json!({
+        "whose": [{"fact": 1, "whose": "them"}, {"fact": 2, "whose": "them"}],
+        "set": [],
+        "end": [],
+        "add": [{"fact": 1, "whose": "them", "topic": "跑步", "text": "周末沿着锦江散步"}]
+    })
+    .to_string();
+    answering(&[("memory_standing_step", batch2_reply.as_str())]);
+    settle(
+        db,
+        vec![
+            update("周末沿着锦江散步", &[], under("跑步")),
+            update("春山咖啡换了咖啡豆", &[], under("咖啡")),
+        ],
+    )
+    .await;
+    assert_eq!(asked("memory_standing_step"), 1);
+    let kept = super::kept::of_node(db, OTHER, &talk(), &node).await.unwrap();
+    let shoe_item = &shown
+        .iter()
+        .find(|s| s.text == "穿飞马跑鞋")
+        .unwrap()
+        .item;
+    assert!(
+        kept.iter().any(|(item, _, _)| item == shoe_item),
+        "batch still_so recorded in agent_node_kept: {kept:?}"
+    );
     schema.drop().await;
 }
 
