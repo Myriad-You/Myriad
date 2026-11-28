@@ -348,7 +348,8 @@ async fn lock<C: ConnectionTrait>(db: &C, user: i32, audience: &str) -> Result<(
 /// One row not taken, and why: an admit reason (`envelope`, `local`,
 /// `audience_changed`, `not_a_member`, `not_held`), `another_audience`
 /// when it is not in the batch's audience, or a clash (`same_id_differs`,
-/// `same_place`).
+/// `same_place`). A row refused for good is listed too, though its place
+/// is kept ([`Taken::placed`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NotTaken {
@@ -373,6 +374,11 @@ pub struct Taken {
     pub relabelled: Vec<String>,
     pub duplicates: u64,
     pub not_taken: Vec<NotTaken>,
+    /// Of those, the rows refused for good (`log.admit`'s `placed`: a kind
+    /// this core does not read, an object in another audience), kept as
+    /// their place (`log.refused`), so their side's count goes on past them
+    /// and they are not asked for again.
+    pub placed: Vec<String>,
     /// Rows taken (or asked for again) without their body, and why
     /// (`myriad_nodes::wire::Why`).
     pub withheld: Vec<Withheld>,
@@ -594,6 +600,12 @@ async fn take_in<C: ConnectionTrait>(
             id: refusal.id.clone(),
             reason: reason_name(refusal.reason),
         }));
+    taken.placed = admitted
+        .refused
+        .iter()
+        .filter(|refusal| refusal.placed)
+        .map(|refusal| refusal.id.clone())
+        .collect();
     let accepted: BTreeSet<String> = admitted.accepted.iter().map(|row| row.id.clone()).collect();
     let related_rows = related(txn, user, audience, &admitted.accepted).await?;
     let merged = merge(MergeInput {

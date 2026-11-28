@@ -504,3 +504,46 @@ async fn a_grant_not_taken_goes_again_until_it_is() {
     assert!(out.is_empty(), "{out:?}");
     schema.drop().await;
 }
+
+/// A row refused for good, on the server or on the computer, keeps its
+/// place there: the count of its side goes on past it, it is not sent again
+/// on every link, and the computer is seen to keep up, so it is given its
+/// deputy. Here the same node is in the partner's private talk on one
+/// computer and in her own audience on the other; each side that knows it
+/// in one refuses its row in the other (`audience_changed`).
+#[tokio::test]
+async fn a_row_refused_for_good_keeps_its_place_and_its_end_keeps_up() {
+    let Some(schema) = schema("her_log_deputy_refused").await else {
+        return;
+    };
+    let db = &schema.db;
+    let mut win = Side::new("dev_win");
+    let mut mac = Side::new("dev_mac");
+    mac.link = relay::Session::of(&["log2".to_string(), deputy::CAPABILITY.to_string()]);
+    win.write(PERSONAL, "node:z", "node.noted", Author::Owner, Some("in the talk"), T0);
+    sync(db, &mut win, PERSONAL, T0).await;
+    mac.write(OWN, "node:z", "node.noted", Author::Owner, Some("in her own"), T0);
+
+    // The server knows node:z in the talk: the Mac's row in her own is
+    // refused, and kept as its place.
+    sync(db, &mut mac, OWN, T0 + MINUTE).await;
+    let own = store::holdings(db, OWNER, OWN).await.unwrap();
+    assert_eq!(own.vector.get("dev_mac"), Some(&1), "{own:?}");
+    assert!(own.beyond.is_empty(), "{own:?}");
+    // The Mac knows it in her own: the talk's row is refused there.
+    sync(db, &mut mac, PERSONAL, T0 + 2 * MINUTE).await;
+    let talk = store::holdings(db, OWNER, PERSONAL).await.unwrap();
+    assert_eq!(vector::holdings(&mac.log(PERSONAL)).unwrap().vector, talk.vector);
+    assert_eq!(vector::holdings(&mac.log(OWN)).unwrap().vector, own.vector);
+    // Neither folds anything of the row it refused.
+    let mac_talk = String::from_utf8(mac.fold(PERSONAL, &[])).unwrap();
+    assert!(!mac_talk.contains("node:z"), "{mac_talk}");
+    let server_own = String::from_utf8(server_fold(db, OWN, &[]).await).unwrap();
+    assert!(!server_own.contains("node:z"), "{server_own}");
+
+    // Keeping up with both, it is given its deputy.
+    vector_of(db, &mut mac, PERSONAL, T0 + 3 * MINUTE).await;
+    let out = vector_of(db, &mut mac, OWN, T0 + 3 * MINUTE).await;
+    assert_eq!(deputies_in(&out).len(), 1, "{out:?}");
+    schema.drop().await;
+}

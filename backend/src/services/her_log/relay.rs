@@ -1558,6 +1558,18 @@ async fn rows(
             "[her-log] some rows of a batch were not taken, or came without their body"
         );
     }
+    // Refused for good: what they said is not here and will not come, on
+    // any link. Their places keep the count whole; the rows are a writer's
+    // fault (a kind only a newer core reads, an object moved between
+    // audiences), so they are told louder.
+    if !taken.placed.is_empty() {
+        tracing::warn!(
+            device,
+            audience = kind_of(&audience),
+            placed = taken.placed.len(),
+            "[her-log] rows of a batch were refused for good and kept as their place"
+        );
+    }
     // Each body that may yet come is asked for once in this link session.
     let ask: Vec<String> = taken
         .ask
