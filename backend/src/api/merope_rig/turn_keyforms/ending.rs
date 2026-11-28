@@ -10,9 +10,7 @@ pub(super) enum Holds {
     /// was made from (`ArchiveMeta`'s), as the import requires: the site's
     /// persona flow.
     PersonaMaster,
-    /// Nothing outside the job: its result is its owner's as made. For
-    /// tests of an owner other than the site.
-    #[cfg(test)]
+    /// Nothing outside the job: its result is its owner's as made.
     AsMade,
 }
 
@@ -50,7 +48,6 @@ pub(super) async fn finish(
         )
         .await
         .map(|_| ()),
-        #[cfg(test)]
         Holds::AsMade => Ok(()),
     };
     match (result, still_current) {

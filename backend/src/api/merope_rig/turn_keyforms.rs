@@ -102,9 +102,9 @@ use head_first::{HeadSplit, TileSteps, Way, head_first, in_tiles};
 use claim::{claim_job, the_job};
 use claim::{Claim, Submission, claim, claim_for, idempotency_key};
 use ending::{Holds, cancelled, end, finish};
-use input::{JobInput, Make, PictureRef, Providers, load_picture};
+use input::{JobInput, Make, PictureRef, Providers, SuppliedPicture, load_picture};
 #[cfg(test)]
-use launch::{recorded, run_recorded};
+use launch::{recorded, run_recorded, start_supplied};
 use launch::{Lineage, start_claimed};
 use pickup::{Asked, Beside};
 use served::{missing_job, space_client};
@@ -479,7 +479,8 @@ async fn start_as(
     let picture = PictureRef::SiteMedia {
         url: master.asset_id,
     };
-    load_picture(&picture).await?;
+    let site = rig_jobs::Owner::Site { user_id };
+    load_picture(&site, &picture).await?;
     let (client, space_name) = space_client().await?;
     let providers = Providers {
         generation,

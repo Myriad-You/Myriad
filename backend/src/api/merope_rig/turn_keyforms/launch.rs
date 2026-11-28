@@ -1,7 +1,48 @@
 //! 开一个任务：领下它（`claim_for`），再在它自己的任务里从任务记录跑——归谁、从哪张图做、
-//! 做成什么都从记录读回（`run_recorded`），生图和拆层服务用站点配置的。
+//! 做成什么都从记录读回（`run_recorded`），生图和拆层服务用站点配置的。站点设定的页面从当前
+//! 主立绘开（`start_as`），调用方自己带来的图从 `start_supplied` 开。
 
 use super::*;
+
+/// A job of `make` of a picture the owner supplied (`input::supply_picture`),
+/// claimed for `owner` and set running: nothing outside the job is checked
+/// at its end. Its owner's supplied pictures that no job names any more go
+/// once it is claimed (`input::prune_supplied`). The job's id, and whether
+/// this call claimed it (false: the one its key gave before, or the one
+/// running already for the same picture).
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the route that takes a caller's own picture is not in this build"
+    )
+)]
+pub(super) async fn start_supplied(
+    db: DatabaseConnection,
+    owner: rig_jobs::Owner,
+    idempotency_key: Option<String>,
+    picture: SuppliedPicture,
+    make: Make,
+    providers: Providers,
+) -> ApiResult<(String, bool)> {
+    let picture = PictureRef::from(picture);
+    load_picture(&owner, &picture).await?;
+    let input = JobInput::Picture {
+        picture: picture.clone(),
+        make,
+    };
+    let claim = Claim {
+        owner: owner.clone(),
+        idempotency_key,
+        request: input.to_value(),
+        subject: picture.name(),
+        input,
+        holds: Holds::AsMade,
+    };
+    let started = start_claimed(db.clone(), claim, providers, Lineage::default()).await?;
+    input::prune_supplied(&db, &owner).await;
+    Ok(started)
+}
 
 /// The site lineage an archive of the job keeps: the full-body set it was
 /// made for, and its master's generation contract.
@@ -77,7 +118,7 @@ pub(super) async fn run_recorded(
         return Err(internal_error("a kept job is not run from a picture"));
     };
     let storage = owner.storage();
-    let reference = load_picture(&picture).await?;
+    let reference = load_picture(&owner, &picture).await?;
     let Providers {
         generation,
         client,

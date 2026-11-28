@@ -1,18 +1,23 @@
 //! Jobs run from their records. The site's persona flow from its handler
 //! through the run from the record to the end that checks the persona's
-//! master; an owner other than the site, with no persona at all, kept to its
-//! own storage and its own keys; records that cannot be run refused; a job
-//! run from its record cancelled; and what an older process wrote read.
+//! master; a caller's own picture checked as an untrusted upload and kept by
+//! its content; an owner other than the site, with no persona at all, kept
+//! to its own pictures, storage and keys; records that cannot be run
+//! refused; a job run from its record cancelled; and what an older process
+//! wrote read.
 
 use std::{io::Cursor, path::PathBuf, time::Duration};
 
-use axum::extract::{Extension, Query, State};
+use axum::{
+    body::Bytes,
+    extract::{Extension, Query, State},
+};
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde_json::json;
 
 use super::super::{
     Asked, Beside, Claim, Holds, Made, Phase, Stage, Submission, TurnCache, TurnKeyformsRequest,
-    archive, claim, claim_for, live, pickup, recorded, run_recorded, start_claimed,
+    archive, claim, claim_for, live, pickup, recorded, run_recorded, start_claimed, start_supplied,
     start_turn_keyforms, together::JOB_TESTS, update,
 };
 use super::*;
@@ -29,7 +34,7 @@ use crate::{
 /// A picture with something drawn on it, its content its own.
 fn portrait() -> Vec<u8> {
     let seed = uuid::Uuid::new_v4().as_bytes()[0];
-    let mut picture = image::RgbaImage::new(48, 64);
+    let mut picture = image::RgbaImage::new(512, 640);
     for (x, y, pixel) in picture.enumerate_pixels_mut() {
         *pixel = image::Rgba([(x * 5) as u8, (y * 3) as u8, seed, 255]);
     }
@@ -158,7 +163,10 @@ async fn a_job_for_an_owner_with_no_persona_runs_from_its_record_into_its_own_st
     let owner = isolated("plain");
     let storage = owner.storage();
     let whole = portrait();
-    let (picture, file) = in_site_media(&whole);
+    let supplied = supply_picture(&storage, Bytes::from(whole.clone()))
+        .await
+        .unwrap();
+    let picture = PictureRef::from(supplied.clone());
     plain_cached(
         &storage,
         &whole,
@@ -168,16 +176,17 @@ async fn a_job_for_an_owner_with_no_persona_runs_from_its_record_into_its_own_st
     )
     .await;
 
-    let claim = claim_of(
-        &owner,
-        Some("plain-1"),
-        &picture,
-        Make::Plain,
-        Holds::AsMade,
-    );
-    let (id, new) = start_claimed(db.clone(), claim, providers(), Default::default())
-        .await
-        .unwrap();
+    let start = || {
+        start_supplied(
+            db.clone(),
+            owner.clone(),
+            Some("plain-1".into()),
+            supplied.clone(),
+            Make::Plain,
+            providers(),
+        )
+    };
+    let (id, new) = start().await.unwrap();
     assert!(new);
     let row = ended(&db, &id).await;
     assert_eq!(
@@ -192,30 +201,31 @@ async fn a_job_for_an_owner_with_no_persona_runs_from_its_record_into_its_own_st
         (row.caller.as_str(), row.owner_user_id),
         (owner.caller().as_str(), None)
     );
-    let PictureRef::SiteMedia { url } = &picture;
     assert_eq!(
         row.pipeline_input,
         Some(json!({
             "from": "picture",
-            "picture": { "kind": "siteMedia", "url": url },
+            "picture": {
+                "kind": "supplied",
+                "sha256": sha256_hex(&whole),
+                "mediaType": "image/png"
+            },
             "make": { "shape": "plain" }
         }))
+    );
+    assert_eq!(
+        serde_json::from_value::<JobInput>(row.pipeline_input.clone().unwrap()).unwrap(),
+        JobInput::Picture {
+            picture,
+            make: Make::Plain
+        }
     );
     // Its owner fetches what it made; the same key gives the same job.
     let psd = pickup::fetched(&db, &owner.caller(), &id, pickup::Part::Psd)
         .await
         .unwrap();
     assert_eq!(psd.as_slice(), b"8BPS front");
-    let claim = claim_of(
-        &owner,
-        Some("plain-1"),
-        &picture,
-        Make::Plain,
-        Holds::AsMade,
-    );
-    let (again, new) = start_claimed(db.clone(), claim, providers(), Default::default())
-        .await
-        .unwrap();
+    let (again, new) = start().await.unwrap();
     assert_eq!((again.as_str(), new), (id.as_str(), false));
     // Nothing of it is in the site's storage, and the site's owner has no such job.
     let site_cache = TurnCache::for_master(
@@ -232,7 +242,6 @@ async fn a_job_for_an_owner_with_no_persona_runs_from_its_record_into_its_own_st
             .is_err()
     );
     assert!(merope::get_persona(&db).await.unwrap().is_none());
-    let _ = std::fs::remove_file(file);
     let _ = std::fs::remove_dir_all(storage.root());
     schema.drop().await;
 }
@@ -454,7 +463,9 @@ async fn the_sites_start_runs_from_its_record_and_ends_on_the_personas_master() 
     let db = schema.db.clone();
     let whole = portrait();
     let (picture, file) = in_site_media(&whole);
-    let PictureRef::SiteMedia { url } = &picture;
+    let PictureRef::SiteMedia { url } = &picture else {
+        unreachable!("a picture in the site's media")
+    };
     db.execute_unprepared(&format!(
         "INSERT INTO agent_persona (id, name, updated_at, portrait_asset_id) \
          VALUES ('site', 'Merope', NOW(), '{url}')"
@@ -551,7 +562,7 @@ async fn a_job_run_from_its_record_is_cancelled_where_it_stands() {
         return;
     };
     let db = schema.db.clone();
-    let owner = isolated("cancel");
+    let owner = Owner::Site { user_id: 7 };
     // The picture is a pipe nothing writes to yet: the run waits in reading it.
     let stem = format!("{:064x}", uuid::Uuid::new_v4().as_u128());
     let url = format!("/api/phantasi/image-cache/{}/{stem}.png", &stem[..2]);
@@ -724,5 +735,206 @@ async fn a_job_an_older_process_claimed_is_read_joined_and_given_by_its_key() {
     .await
     .unwrap();
     assert_eq!((joined.as_str(), new), ("older", false));
+    schema.drop().await;
+}
+
+fn png_of(picture: image::DynamicImage) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    picture
+        .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
+    bytes
+}
+
+fn grey(width: u32, height: u32) -> Vec<u8> {
+    png_of(image::DynamicImage::ImageLuma8(image::GrayImage::new(
+        width, height,
+    )))
+}
+
+#[tokio::test]
+async fn a_supplied_picture_is_taken_only_as_an_upload_may_be() {
+    let owner = isolated("supplied");
+    let storage = owner.storage();
+    let refused = |bytes: Vec<u8>| {
+        let storage = storage.clone();
+        async move {
+            let (status, body) = supply_picture(&storage, Bytes::from(bytes))
+                .await
+                .expect_err("refused");
+            (
+                status,
+                body.0["error"].as_str().unwrap_or_default().to_owned(),
+            )
+        }
+    };
+    // Too large, not a picture, a type the pipeline does not take.
+    assert_eq!(
+        refused(vec![0; MAX_PORTRAIT_BYTES + 1]).await.0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        refused(b"not a picture".to_vec()).await.0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        refused(b"GIF89a\x01\x00\x01\x00".to_vec()).await.0,
+        StatusCode::BAD_REQUEST
+    );
+    // Past the media library's edge, or its pixels within the edge.
+    assert_eq!(refused(grey(8193, 600)).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(refused(grey(4100, 4100)).await.0, StatusCode::BAD_REQUEST);
+    // Shorter than the pipeline's canvas needs on either side.
+    let (status, error) = refused(grey(511, 900)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(error.contains("512"), "{error}");
+    // A 16-bit RGBA picture within the pixel limit whose pixels decode past
+    // the decode allowance: refused as too large, as one past the edge is.
+    let deep = png_of(image::DynamicImage::ImageRgba16(image::ImageBuffer::new(
+        3000, 3000,
+    )));
+    assert!(media::validate_bytes(&deep, "image/png", MAX_PORTRAIT_BYTES).is_ok());
+    let (status, error) = refused(deep).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(error.contains("exceed the supported limit"), "{error}");
+    // Its header reads, its body is cut short.
+    let whole = portrait();
+    assert_eq!(
+        refused(whole[..whole.len() - 40].to_vec()).await.0,
+        StatusCode::BAD_REQUEST
+    );
+    assert!(!supplied_root(&storage).exists(), "nothing refused is kept");
+
+    // Two supplying the same picture at once both have it, kept once.
+    let (a, b) = tokio::join!(
+        supply_picture(&storage, Bytes::from(whole.clone())),
+        supply_picture(&storage, Bytes::from(whole.clone()))
+    );
+    let supplied = a.unwrap();
+    assert_eq!(supplied, b.unwrap());
+    let kept: Vec<_> = std::fs::read_dir(supplied_root(&storage))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(kept, [format!("{}.png", sha256_hex(&whole))]);
+    // A file there with the same content counts as the picture kept.
+    let path = supplied_path(&storage, &sha256_hex(&whole), "image/png").unwrap();
+    let before = std::fs::metadata(&path).unwrap().modified().unwrap();
+    std::thread::sleep(Duration::from_millis(20));
+    supply_picture(&storage, Bytes::from(whole.clone()))
+        .await
+        .unwrap();
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().modified().unwrap(),
+        before
+    );
+    let picture = PictureRef::from(supplied);
+    let loaded = load_picture(&owner, &picture).await.unwrap();
+    assert_eq!(loaded.bytes.as_ref(), whole.as_slice());
+    // Another owner does not have it, and a name that walks paths names nothing.
+    assert!(
+        load_picture(&isolated("supplied-other"), &picture)
+            .await
+            .is_err()
+    );
+    let walking = PictureRef::Supplied {
+        sha256: "../../etc/passwd".into(),
+        media_type: "image/png".into(),
+    };
+    assert!(load_picture(&owner, &walking).await.is_err());
+    // A kept file that is no longer what its name says is not used.
+    std::fs::write(&path, grey(600, 600)).unwrap();
+    assert!(load_picture(&owner, &picture).await.is_err());
+    let _ = std::fs::remove_dir_all(storage.root());
+}
+
+#[tokio::test]
+async fn only_the_sites_own_jobs_read_the_sites_media() {
+    let _slot = JOB_TESTS.lock().await;
+    let Some(schema) = without_persona("rig_input_site_media").await else {
+        return;
+    };
+    let db = schema.db.clone();
+    let (picture, file) = in_site_media(&portrait());
+    let site = Owner::Site { user_id: 7 };
+    assert!(load_picture(&site, &picture).await.is_ok());
+    let owner = isolated("site-media");
+    let (status, _) = load_picture(&owner, &picture).await.unwrap_err();
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    // A record of another owner's that names the site's media is run to a
+    // failure, not to the site's picture.
+    let claim = claim_of(&owner, None, &picture, Make::Plain, Holds::AsMade);
+    let (id, _) = start_claimed(db.clone(), claim, providers(), Default::default())
+        .await
+        .unwrap();
+    let row = ended(&db, &id).await;
+    assert_eq!(row.state(), rig_jobs::State::Failed);
+    let _ = std::fs::remove_file(file);
+    schema.drop().await;
+}
+
+#[tokio::test]
+async fn supplied_pictures_no_job_names_go_once_they_are_old() {
+    let _slot = JOB_TESTS.lock().await;
+    let Some(schema) = without_persona("rig_input_prune").await else {
+        return;
+    };
+    let db = schema.db.clone();
+    let owner = isolated("prune");
+    let storage = owner.storage();
+    let named = supply_picture(&storage, Bytes::from(portrait()))
+        .await
+        .unwrap();
+    let unnamed = supply_picture(&storage, Bytes::from(portrait()))
+        .await
+        .unwrap();
+    let fresh = supply_picture(&storage, Bytes::from(portrait()))
+        .await
+        .unwrap();
+    let file = |picture: &SuppliedPicture| {
+        let PictureRef::Supplied { sha256, media_type } = PictureRef::from(picture.clone()) else {
+            unreachable!()
+        };
+        supplied_path(&storage, &sha256, &media_type).unwrap()
+    };
+    // The first two were supplied long ago; a job names the first.
+    let long_ago = std::time::UNIX_EPOCH + Duration::from_secs(1_000_000_000);
+    for picture in [&named, &unnamed] {
+        std::fs::File::options()
+            .write(true)
+            .open(file(picture))
+            .unwrap()
+            .set_modified(long_ago)
+            .unwrap();
+    }
+    let claim = claim_of(
+        &owner,
+        None,
+        &PictureRef::from(named.clone()),
+        Make::Plain,
+        Holds::AsMade,
+    );
+    let (id, _) = claim_for(
+        &db,
+        claim,
+        Phase::Plain,
+        Stage::Decomposing,
+        1,
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    super::super::end(&db, &id, rig_jobs::Ending::Cancelled).await;
+    prune_supplied(&db, &owner).await;
+    assert!(file(&named).exists(), "a job names it");
+    assert!(
+        !file(&unnamed).exists(),
+        "no job names it, supplied long ago"
+    );
+    assert!(
+        file(&fresh).exists(),
+        "supplied just now, for a start yet to claim"
+    );
+    let _ = std::fs::remove_dir_all(storage.root());
     schema.drop().await;
 }

@@ -661,6 +661,24 @@ pub async fn get(db: &DatabaseConnection, id: &str) -> Result<Option<JobRow>, Db
     .await
 }
 
+/// The inputs the owner's job records keep, of every job of `owner_scope`.
+pub async fn pipeline_inputs(
+    db: &impl ConnectionTrait,
+    owner_scope: &str,
+) -> Result<Vec<Value>, DbErr> {
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT pipeline_input FROM rig_jobs \
+             WHERE owner_scope = $1 AND pipeline_input IS NOT NULL",
+            [owner_scope.into()],
+        ))
+        .await?;
+    rows.iter()
+        .map(|row| row.try_get::<Value>("", "pipeline_input"))
+        .collect()
+}
+
 /// The caller's job claimed last, the jobs whose lease lapsed failed first (`sweep`).
 pub async fn latest(db: &DatabaseConnection, caller: &str) -> Result<Option<JobRow>, DbErr> {
     sweep(db).await?;
