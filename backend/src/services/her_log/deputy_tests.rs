@@ -541,9 +541,11 @@ async fn a_row_refused_for_good_keeps_its_place_and_its_end_keeps_up() {
     let server_own = String::from_utf8(server_fold(db, OWN, &[]).await).unwrap();
     assert!(!server_own.contains("node:z"), "{server_own}");
 
-    // Keeping up with both, it is given its deputy.
+    // Keeping up with both, it is given its deputy: on the link that
+    // showed it, as its vectors met the server's.
     vector_of(db, &mut mac, PERSONAL, T0 + 3 * MINUTE).await;
-    let out = vector_of(db, &mut mac, OWN, T0 + 3 * MINUTE).await;
-    assert_eq!(deputies_in(&out).len(), 1, "{out:?}");
+    vector_of(db, &mut mac, OWN, T0 + 3 * MINUTE).await;
+    let given = deputy::for_holders(db, &["dev_mac"]).await.unwrap();
+    assert_eq!(given.len(), 1, "{given:?}");
     schema.drop().await;
 }
