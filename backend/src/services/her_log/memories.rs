@@ -777,3 +777,7 @@ pub async fn take_in(
 #[cfg(test)]
 #[path = "memories_asked_tests.rs"]
 mod asked_tests;
+
+#[cfg(test)]
+#[path = "memories_forget_tests.rs"]
+mod forget_tests;
