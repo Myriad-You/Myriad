@@ -434,7 +434,7 @@ async fn in_a_group_what_stands_is_read_and_unsaid_the_same() {
         let recalled = ranked(db, &[&theirs]).await;
         let here = turn.group.as_ref().map(|group| &group.here);
         let now = crate::clock::now();
-        recall::recollect_here(&turn.shown, &turn.own, here, &recalled, None, now)
+        recall::recollect_here(&turn.shown, &turn.own, here, &recalled, None, now, None)
     };
     let found = in_group().await;
     let now = saying(&found.named, "GROUP-NOW");

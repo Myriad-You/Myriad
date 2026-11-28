@@ -88,6 +88,7 @@ async fn recalled_and_resident(
                     cues,
                     now,
                     wider,
+                    Some(question.question.as_str()),
                 );
                 let mut lines: Vec<String> = recollection
                     .named

@@ -132,7 +132,15 @@ async fn a_group_reads_only_its_own_audience() {
     let now = crate::clock::now();
     let recalled = ranked(db, &[&theirs]).await;
     let here = turn.group.as_ref().map(|group| &group.here);
-    let recollection = recall::recollect_here(&turn.shown, &turn.own, here, &recalled, None, now);
+    let recollection = recall::recollect_here(
+        &turn.shown,
+        &turn.own,
+        here,
+        &recalled,
+        None,
+        now,
+        None,
+    );
     let shown = [
         turn.bits_shown(db, 3, Some("阿绿")).await,
         myriad_merope::speaking::format_group_days_section(
@@ -210,6 +218,7 @@ async fn going_through_all_of_a_kind_in_a_group_says_whose_each_is() {
         &recalled,
         Some(&cues),
         crate::clock::now(),
+        None,
     );
     let listed = recollection.listed.expect("a list");
     assert!(listed.contains("all 2 facts"), "{listed}");

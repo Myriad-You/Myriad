@@ -316,6 +316,7 @@ mod tests {
             id: "n".into(),
             kind: Some("topic".into()),
             name: Some("夜跑".into()),
+            aliases: Vec::new(),
             status: None,
             gone: false,
             head: json!({ "standing": standing }),

@@ -259,3 +259,6 @@ mod unbuilt_tests;
 
 #[cfg(test)]
 mod sore_closed_tests;
+
+#[cfg(test)]
+mod query_recall_tests;

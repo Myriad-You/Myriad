@@ -5,7 +5,7 @@
 use serde_json::json;
 
 use super::super::memory_nodes::group_read_tests::seed_group;
-use super::super::memory_nodes::read_tests::{GROUP, OWNER, SEVEN, owned, seed};
+use super::super::memory_nodes::read_tests::{GROUP, OWNER, SEVEN, owned, put, seed};
 use super::super::memory_nodes::{Author, RowIn, audience, read, write};
 use super::*;
 use crate::services::agent::memory::unified::Audience;
@@ -200,6 +200,46 @@ async fn a_group_reads_its_own_nodes() {
     ] {
         assert!(!on.contains(never), "{never}:\n{on}");
     }
+    schema.drop().await;
+}
+
+/// What they ask by another name a node goes by brings that node to mind
+/// as she answers, though the ranking finds nothing of it in their words.
+#[tokio::test]
+async fn a_node_they_name_comes_to_mind_as_she_answers() {
+    let Some(schema) = owned("speaking_node_by_name").await else {
+        return;
+    };
+    let db = &schema.db;
+    crate::services::channel_group::g0::enter(crate::services::channel_group::g0::World::new(0.5));
+    seed(db).await;
+    put(
+        db,
+        SEVEN,
+        &audience::private_talk(SEVEN, Some(OWNER)),
+        SEVEN,
+        Audience::private(SEVEN),
+        myriad_nodes::SaidBy::Partner,
+        myriad_nodes::entries::Placement::Start {
+            name: "乐器".into(),
+            aliases: vec!["木吉他".into()],
+        },
+        &["NAMED-FACT 周末总练一小时指弹"],
+    )
+    .await;
+    let present = Audience::private(SEVEN);
+    let parts = speaking_prompt_from_db(
+        db,
+        SEVEN,
+        Turn::Chat("我的木吉他是不是该换弦了"),
+        &present,
+        None,
+    )
+    .await;
+    crate::services::channel_group::g0::leave();
+    let on = texts(parts).join("\n");
+    let named = |line: &str| line.contains("乐器: ") && line.contains("NAMED-FACT");
+    assert!(on.lines().any(named), "{on}");
     schema.drop().await;
 }
 
