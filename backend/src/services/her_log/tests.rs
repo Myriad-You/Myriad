@@ -272,10 +272,20 @@ impl Side {
                 owner: self.partner.clone(),
             }
         };
+        // The audience of every object it holds rows of, as a host gives
+        // it: an object never changes audience.
+        let known: BTreeMap<String, String> = self
+            .logs
+            .iter()
+            .flat_map(|(audience, rows)| {
+                rows.iter()
+                    .map(move |row| (row.object.clone(), audience.clone()))
+            })
+            .collect();
         let admitted = admit(AdmitInput {
             rows: incoming,
             now: self.now,
-            known: BTreeMap::new(),
+            known,
             members: BTreeMap::new(),
             ledger: Some(self.ledger.clone()),
             epochs: BTreeMap::new(),
@@ -284,7 +294,16 @@ impl Side {
         })
         .unwrap();
         assert!(admitted.clock_ahead.is_none());
-        assert!(admitted.refused.is_empty(), "{:?}", admitted.refused);
+        // A row refused for good is taken as its place; none other is
+        // refused here.
+        assert!(
+            admitted.refused.iter().all(|refused| admitted
+                .accepted
+                .iter()
+                .any(|row| row.id == refused.id)),
+            "{:?}",
+            admitted.refused
+        );
         self.ledger = admitted.ledger;
         for row in &admitted.accepted {
             self.clock = Some(
